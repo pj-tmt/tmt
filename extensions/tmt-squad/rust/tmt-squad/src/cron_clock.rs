@@ -10,7 +10,6 @@ use crate::{
 use clap::{Arg, ArgMatches, Command};
 use serde_json::{Value, json};
 use std::{
-    io::Read,
     sync::{
         Arc,
         atomic::{AtomicUsize, Ordering},
@@ -54,13 +53,8 @@ fn status_document(status: ClockStatus) -> Value {
 }
 
 pub(crate) fn manual_operation() -> Result<String, SquadError> {
-    // A new explicit action gets one ID. Revalidation and recovery keep it unchanged.
-    let mut bytes = [0u8; 16];
-    std::fs::File::open("/dev/urandom")
-        .and_then(|mut file| file.read_exact(&mut bytes))
-        .map_err(|error| SquadError::new("SQUAD_CRON_CLOCK_IO", error.to_string()))?;
-    let nonce: String = bytes.iter().map(|byte| format!("{byte:02x}")).collect();
-    Ok(cron::operation_id("tmt-squad-cron-manual", &nonce, 0))
+    crate::send::new_operation()
+        .map_err(|error| SquadError::new("SQUAD_CRON_CLOCK_IO", error.message))
 }
 
 /// Retains the operator and viewed revision; never silently sends a newer job.

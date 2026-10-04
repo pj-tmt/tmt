@@ -59,9 +59,23 @@ fn the_cron_line_sits_between_attention_and_squads_in_one_cursor_order() {
             .map(|entry| entry.target.section.clone())
             .collect::<Vec<_>>()
     };
-    assert_eq!(sections(&app), ["needs-you", "blocked", "cron", "squads"]);
+    assert_eq!(
+        sections(&app),
+        [
+            "needs-you",
+            "blocked",
+            "leads",
+            "all-leads",
+            "cron",
+            "squads"
+        ]
+    );
     press(&mut app, Down);
     assert_eq!(app.home_target.as_ref().unwrap().section, "blocked");
+    press(&mut app, Down);
+    assert_eq!(app.home_target.as_ref().unwrap().section, "leads");
+    press(&mut app, Down);
+    assert_eq!(app.home_target.as_ref().unwrap().section, "all-leads");
     press(&mut app, Down);
     assert_eq!(app.home_target.as_ref().unwrap().section, "cron");
     press(&mut app, Down);
@@ -79,8 +93,12 @@ fn enter_and_c_open_the_list_and_esc_restores_the_cursor() {
     assert_eq!(press(&mut app, Char('c')), Effect::None);
     assert!(app.cron_list.is_none(), "nothing read yet");
     with_jobs(&mut app);
-    press(&mut app, Down);
-    press(&mut app, Down);
+    let cursor = app
+        .home_entries()
+        .iter()
+        .position(|entry| entry.target.section == "cron")
+        .unwrap();
+    app.select(cursor);
     assert_eq!(press(&mut app, Enter), Effect::None);
     assert!(app.cron_list.is_some());
     // The modal swallows keys that would act on the board underneath.
@@ -120,6 +138,8 @@ fn a_failed_read_is_a_selectable_line_and_the_list_says_why() {
             .any(|line| line.contains("cron · ✗ jobs unavailable: storage unreachable")),
         "{lines:#?}"
     );
+    press(&mut app, Down);
+    press(&mut app, Down);
     press(&mut app, Down);
     press(&mut app, Down);
     press(&mut app, Enter);

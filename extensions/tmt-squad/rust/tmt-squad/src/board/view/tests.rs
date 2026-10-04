@@ -415,6 +415,7 @@ pub(super) fn board(sections: Value) -> App {
         squad: Some("product".into()),
         view: Ok(View {
             ask_lead: crate::config::DEFAULT_ASK_LEAD.into(),
+            home_replies: true,
             token_rate: None,
             home_rate: Default::default(),
             home: None,
@@ -440,6 +441,7 @@ pub(super) fn board(sections: Value) -> App {
             look: Default::default(),
             theme_notice: None,
             me: None,
+            me_id: None,
             replies: Vec::new(),
         }),
     });
@@ -1131,6 +1133,7 @@ fn paned(board: crate::config::Board, notes: Notes) -> App {
             squad: Some("product".into()),
             view: Ok(View {
                 ask_lead: crate::config::DEFAULT_ASK_LEAD.into(),
+                home_replies: true,
                 token_rate: None,
                 home_rate: Default::default(),
                 home: None,
@@ -1156,6 +1159,7 @@ fn paned(board: crate::config::Board, notes: Notes) -> App {
                 look: Default::default(),
                 theme_notice: None,
                 me: None,
+                me_id: None,
                 replies: Vec::new(),
             }),
         });

@@ -280,7 +280,13 @@ pub(super) fn render(frame: &mut Frame, app: &App, footer: Rect, look: crate::lo
         !matches!(input.compose, crate::board::app::Compose::AskLead { .. })
             && app.input_band.get().is_none()
     }) {
-        let mut spans = vec![Span::raw(format!("{} › {}▏", input.prompt, input.text))];
+        let mut spans = vec![Span::raw(
+            if matches!(input.compose, crate::board::app::Compose::ReadLead { .. }) {
+                "e collapse · a reply".into()
+            } else {
+                format!("{} › {}▏", input.prompt, input.text)
+            },
+        )];
         if let Some(hint) = input
             .hint
             .as_ref()

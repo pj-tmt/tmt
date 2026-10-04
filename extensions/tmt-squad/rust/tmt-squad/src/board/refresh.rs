@@ -62,6 +62,12 @@ impl Generation {
     }
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(super) enum SelectedRead {
+    Notebook(String),
+    Message(super::home_leads::MessageKey),
+}
+
 pub struct Worker {
     requests: Sender<Work>,
     generation: Arc<Generation>,
@@ -116,6 +122,10 @@ impl Worker {
                     let cancellation = read_generation.cancellation(generation);
                     let reader = core.cancellable(cancellation.clone());
                     let event = match job {
+                        Deferred::HomeLeads(job) => super::BoardEvent::HomeLeads {
+                            read: job.complete(&reader),
+                            cancellation: cancellation.clone(),
+                        },
                         Deferred::Attention(job) => super::BoardEvent::Attention {
                             attention: job.complete(&reader),
                             cancellation: cancellation.clone(),
@@ -129,7 +139,19 @@ impl Worker {
                             ),
                             cancellation: cancellation.clone(),
                         },
-                        Deferred::Notebook { identity, revision } => super::BoardEvent::Notebook {
+                        Deferred::Selected {
+                            read: SelectedRead::Message(key),
+                            revision,
+                        } => super::BoardEvent::Message {
+                            body: key.read(&reader).map_err(|error| error.to_string()),
+                            key,
+                            revision,
+                            cancellation: cancellation.clone(),
+                        },
+                        Deferred::Selected {
+                            read: SelectedRead::Notebook(identity),
+                            revision,
+                        } => super::BoardEvent::Notebook {
                             cancellation: cancellation.clone(),
                             identity: identity.clone(),
                             revision,
@@ -188,10 +210,10 @@ impl Worker {
             preview_panes,
         }));
     }
-    pub fn notebook(&self, revision: u64, identity: Option<String>) {
+    pub fn selected(&self, revision: u64, read: Option<SelectedRead>) {
         let generation = self.generation.number.load(Ordering::Acquire);
-        let _ = self.requests.send(Work::Notebook {
-            identity,
+        let _ = self.requests.send(Work::Selected {
+            read,
             revision,
             generation,
         });
@@ -213,8 +235,8 @@ impl Drop for Worker {
 
 enum Work {
     Reload(Reload),
-    Notebook {
-        identity: Option<String>,
+    Selected {
+        read: Option<SelectedRead>,
         revision: u64,
         generation: u64,
     },
@@ -230,6 +252,7 @@ struct Reload {
 struct Loaded {
     snapshot: Snapshot,
     attention: Option<AttentionJob>,
+    home_leads: Option<super::home_leads::Fetch>,
     /// Every tab shows the cron projection, so any readable config schedules it.
     cron: Option<super::cronboard::Fetch>,
 }
@@ -239,6 +262,7 @@ impl Loaded {
         Self {
             snapshot,
             attention: None,
+            home_leads: None,
             cron: None,
         }
     }
@@ -246,10 +270,11 @@ impl Loaded {
 
 /// The existing worker's lower-priority work, behind full reloads.
 enum Deferred {
+    HomeLeads(super::home_leads::Fetch),
     Attention(Box<AttentionJob>),
     Cron(Box<super::cronboard::Fetch>),
     Usage(MeterRead),
-    Notebook { identity: String, revision: u64 },
+    Selected { read: SelectedRead, revision: u64 },
 }
 
 #[derive(Clone)]
@@ -381,21 +406,21 @@ fn serve(
             Err(RecvTimeoutError::Disconnected) => break,
         };
         let mut wanted = None;
-        let mut notebook = None;
+        let mut selected = None;
         for work in std::iter::once(received).chain(pending.try_iter()) {
             match work {
                 Work::Reload(reload) => wanted = Some(reload),
-                Work::Notebook {
-                    identity,
+                Work::Selected {
+                    read,
                     revision,
                     generation,
-                } => notebook = Some((identity, revision, generation)),
+                } => selected = Some((read, revision, generation)),
             }
         }
         let Some(wanted) = wanted else {
-            if let Some((Some(identity), revision, expected)) = notebook
+            if let Some((Some(read), revision, expected)) = selected
                 && generation.load(Ordering::Acquire) == expected
-                && !deferred(Deferred::Notebook { identity, revision }, expected)
+                && !deferred(Deferred::Selected { read, revision }, expected)
             {
                 break;
             }
@@ -411,6 +436,7 @@ fn serve(
             snapshot,
             attention: job,
             cron,
+            home_leads,
         } = load(
             wanted.squad.clone(),
             wanted.generation,
@@ -464,6 +490,12 @@ fn serve(
                     .map(|every| (MeterRead::Home, every, Instant::now() + every))
             });
         if !publish(snapshot, wanted.generation) {
+            break;
+        }
+        if let Some(job) = home_leads
+            && generation.load(Ordering::Acquire) == wanted.generation
+            && !deferred(Deferred::HomeLeads(job), wanted.generation)
+        {
             break;
         }
         if let Some(job) = cron
@@ -561,24 +593,30 @@ fn load(
     };
     let mut attention = BTreeMap::new();
     let mut deferred = None;
+    let mut home_leads = None;
     let view = (|| {
         let config = config.as_ref().map_err(Clone::clone)?;
         let me = crate::me::you(crate::me::current(core, config)?, caller);
         let (mut view, found) = if key == LEADS {
-            leads_view(core, tmux, config, &squads, &tabs, me)?
+            leads_view(core, tmux, config, &squads, &tabs, me.clone())?
         } else if key == ALL {
-            all_view(core, config, &squads, &tabs, me)?
+            all_view(core, config, &squads, &tabs, me.clone())?
         } else if tabs::user_name(&key).is_some() {
-            member_view(core, tmux, config, &squads, &tabs, me, &key)?
+            member_view(core, tmux, config, &squads, &tabs, me.clone(), &key)?
         } else {
             let squad = squads
                 .iter()
                 .find(|squad| squad.name == key)
                 .expect("chosen from the listed squads");
             let result = squad_view(core, tmux, config, squad, me.clone(), preview_panes, kept)?;
-            deferred = Some((me, result.0.document.clone()));
+            deferred = Some((me.clone(), result.0.document.clone()));
             result
         };
+        if key == ALL
+            && let Some(home) = &view.home
+        {
+            home_leads = Some(super::home_leads::Fetch::new(home, me));
+        }
         attention = found;
         if opening {
             let enabled: Vec<_> = view
@@ -643,6 +681,7 @@ fn load(
             view,
         },
         attention: job,
+        home_leads,
         cron,
     }
 }
@@ -731,6 +770,7 @@ fn squad_view(
         derived: Default::default(),
         rows,
         render: config.notes_render(&squad.name)?,
+        home_replies: config.home_replies()?,
         ask_lead: config.ask_lead(&squad.name)?,
         bindings: config.bindings_for_tab(&squad.name, tmux, &board.panes)?,
         section_bindings: sections.into_iter().map(|section| section.bind).collect(),
@@ -741,6 +781,7 @@ fn squad_view(
         tab_colors: config.tabs()?.colors,
         look: crate::look::Look::new(theme),
         theme_notice,
+        me_id: me.as_ref().map(|me| me.id.clone()),
         me: me.map(|me| me.name),
         replies,
         refresh: config.refresh(&squad.name)?,
@@ -789,6 +830,7 @@ fn member_view(
             .collect()
     });
     let view = View {
+        home_replies: config.home_replies()?,
         ask_lead: config.ask_lead("")?,
         token_rate: None,
         home_rate: Default::default(),
@@ -805,6 +847,7 @@ fn member_view(
         tab_colors: settings.colors,
         look: crate::look::Look::new(theme),
         theme_notice,
+        me_id: me.as_ref().map(|me| me.id.clone()),
         me: me.map(|me| me.name),
         replies: Vec::new(),
         refresh: config.refresh(key)?,
@@ -836,6 +879,7 @@ fn all_view(
     let (loaded, home, home_rate) = super::home::load(core, config, squads, tabs, me.as_ref())?;
     let bindings = config.bindings_for_tab(ALL, false, &[])?;
     let view = View {
+        home_replies: config.home_replies()?,
         ask_lead: config.ask_lead("")?,
         token_rate: None,
         home_rate,
@@ -852,6 +896,7 @@ fn all_view(
         tab_colors: settings.colors,
         look: crate::look::Look::new(theme),
         theme_notice,
+        me_id: me.as_ref().map(|me| me.id.clone()),
         me: me.map(|me| me.name),
         replies: Vec::new(),
         refresh: config.refresh(ALL)?,
@@ -961,6 +1006,61 @@ mod tests {
     const WAIT: Duration = Duration::from_millis(300);
 
     #[test]
+    fn selected_home_message_uses_the_existing_worker_and_read_only_public_api() {
+        let dir =
+            std::env::temp_dir().join(format!("squad-selected-message-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let fake = dir.join("tmt");
+        let calls = dir.join("calls");
+        crate::test_support::write_ready_executable(
+            &fake,
+            &format!(
+                r###"#!/bin/sh
+if [ "$1" = api ]; then
+  request=$(cat)
+  printf '%s' "$request" > '{}'
+  printf '%s\n' '{{"requestId":"request","kind":"request","sender":{{"identityId":"user"}},"recipientId":"lead","final":{{"status":"retained","response":"full reply\nsecond line"}}}}'
+  exit 0
+fi
+printf '%s\n' '{{}}'
+"###,
+                calls.display()
+            ),
+        );
+        let key = super::super::home_leads::MessageKey {
+            sender: "user".into(),
+            lead: "lead".into(),
+            squad: "product".into(),
+            request: "request".into(),
+            kind: super::super::home_leads::Kind::Reply,
+        };
+        let (events, input) = mpsc::channel();
+        let worker = Worker::spawn(Core::at(fake), false, events);
+        worker.selected(9, Some(SelectedRead::Message(key.clone())));
+        let super::super::BoardEvent::Message {
+            key: delivered,
+            revision,
+            body,
+            cancellation,
+        } = input.recv_timeout(Duration::from_secs(30)).unwrap()
+        else {
+            panic!("message event")
+        };
+        assert_eq!(delivered, key);
+        assert_eq!(revision, 9);
+        assert_eq!(body.unwrap(), "full reply\nsecond line");
+        assert!(!cancellation.cancelled());
+        let request: Value = serde_json::from_slice(&std::fs::read(calls).unwrap()).unwrap();
+        assert_eq!(
+            request,
+            json!({"version":1,"operation":"requests.show","input":{"requestId":"request"}})
+        );
+        drop(worker);
+        assert!(cancellation.cancelled());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
     fn selected_notebook_reader_uses_public_api_and_shutdown_cancels_the_child() {
         let dir = std::env::temp_dir().join(format!("squad-selected-notes-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
@@ -983,7 +1083,7 @@ printf '%s\n' '{{}}'
         );
         let (events, input) = mpsc::channel();
         let worker = Worker::spawn(Core::at(fake.clone()), false, events);
-        worker.notebook(7, Some("selected-id".into()));
+        worker.selected(7, Some(SelectedRead::Notebook("selected-id".into())));
         let super::super::BoardEvent::Notebook {
             identity,
             revision,
@@ -1020,7 +1120,7 @@ printf '%s\n' '{{}}'
         );
         let (events, _) = mpsc::channel();
         let worker = Worker::spawn(Core::at(slow), false, events);
-        worker.notebook(8, Some("selected-id".into()));
+        worker.selected(8, Some(SelectedRead::Notebook("selected-id".into())));
         let deadline = Instant::now() + Duration::from_secs(30);
         while !ready.exists() {
             assert!(Instant::now() < deadline, "reader did not start");
@@ -1047,8 +1147,8 @@ printf '%s\n' '{{}}'
         let generation = AtomicU64::new(1);
         let queue = |identity: Option<&str>, revision, expected| {
             sender
-                .send(Work::Notebook {
-                    identity: identity.map(str::to_owned),
+                .send(Work::Selected {
+                    read: identity.map(|id| SelectedRead::Notebook(id.to_owned())),
                     revision,
                     generation: expected,
                 })
@@ -1077,7 +1177,11 @@ printf '%s\n' '{{}}'
             |_| Stamp::cursor(0),
             |_, _, _, _| Loaded::only(crate::board::app::tests::snapshot("product", json!([]))),
             |job, expected| {
-                let Deferred::Notebook { identity, revision } = job else {
+                let Deferred::Selected {
+                    read: SelectedRead::Notebook(identity),
+                    revision,
+                } = job
+                else {
                     panic!("other work")
                 };
                 assert_eq!((identity.as_str(), revision, expected), ("selected", 4, 1));
@@ -1089,8 +1193,8 @@ printf '%s\n' '{{}}'
         // No selection and obsolete generation perform no deferred read.
         let (sender, pending) = mpsc::channel();
         sender
-            .send(Work::Notebook {
-                identity: Some("stale".into()),
+            .send(Work::Selected {
+                read: Some(SelectedRead::Notebook("stale".into())),
                 revision: 5,
                 generation: 0,
             })
@@ -1746,6 +1850,63 @@ esac
     }
 
     #[test]
+    fn home_exchange_reads_follow_snapshot_and_cancel_before_a_new_tab() {
+        for cancel in [false, true] {
+            let (sender, pending) = mpsc::channel();
+            sender
+                .send(Work::Reload(Reload {
+                    preview_panes: false,
+                    squad: Some(ALL.into()),
+                    generation: 0,
+                }))
+                .unwrap();
+            drop(sender);
+            let generation = AtomicU64::new(0);
+            let steps = std::cell::RefCell::new(Vec::new());
+            serve(
+                &pending,
+                |_, _| {
+                    steps.borrow_mut().push("shown");
+                    if cancel {
+                        generation.store(1, Ordering::Release);
+                    }
+                    true
+                },
+                CHECK_EVERY,
+                &generation,
+                |_| Stamp::cursor(0),
+                |_, _, _, _| {
+                    let home = super::super::home::Home {
+                        windows: crate::config::TokenWindow::DEFAULTS,
+                        summary: Default::default(),
+                        sections: vec![],
+                        squads: vec![],
+                        failures: vec![],
+                        incomplete: false,
+                    };
+                    let mut loaded =
+                        Loaded::only(crate::board::app::tests::snapshot(ALL, json!([])));
+                    loaded.home_leads = Some(super::super::home_leads::Fetch::new(&home, None));
+                    loaded
+                },
+                |job, _| {
+                    assert!(matches!(job, Deferred::HomeLeads(_)));
+                    steps.borrow_mut().push("exchanges");
+                    true
+                },
+            );
+            assert_eq!(
+                *steps.borrow(),
+                if cancel {
+                    vec!["shown"]
+                } else {
+                    vec!["shown", "exchanges"]
+                }
+            );
+        }
+    }
+
+    #[test]
     fn the_shown_snapshot_is_published_before_cron_and_other_tab_attention() {
         let (sender, pending) = mpsc::channel();
         sender
@@ -1785,6 +1946,7 @@ esac
                     document: json!({}),
                 }),
                 cron: cron.take(),
+                home_leads: None,
             },
             |job, _| {
                 steps.borrow_mut().push(match job {

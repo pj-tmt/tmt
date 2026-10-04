@@ -93,6 +93,7 @@ struct HeaderMember<'a> {
 
 pub struct View {
     pub ask_lead: String,
+    pub home_replies: bool,
     pub token_rate: Option<RateView>,
     /// HOME sampling templates, separate from the painter/controller model.
     pub home_rate: BTreeMap<String, RateView>,
@@ -119,6 +120,7 @@ pub struct View {
     pub tab_colors: crate::config::TabColors,
     /// The user's saved identity, the sender of talk, reply and annotate.
     pub me: Option<String>,
+    pub me_id: Option<String>,
     /// Finals to the user's squad requests, newest first (replies pane).
     pub replies: Vec<Value>,
     /// The squad's theme at the terminal's depth: every color the board draws.
@@ -193,6 +195,12 @@ pub enum Request {
         from: String,
         text: String,
     },
+    Leads {
+        sender: String,
+        recipients: Vec<crate::send::LeadRecipient>,
+        all: bool,
+        text: String,
+    },
     /// Save this tab order to `[tabs] order` (tab keys, in order).
     Reorder(Vec<String>),
     /// A cron job control, with its actor, job and viewed revision resolved.
@@ -210,6 +218,7 @@ impl Request {
                 | Self::Reply { .. }
                 | Self::Reorder(_)
                 | Self::Cron(_)
+                | Self::Leads { .. }
         )
     }
 }
@@ -223,6 +232,7 @@ pub enum Effect {
     Refresh,
     Settings,
     SaveSetting,
+    HomeReplies(bool),
     CancelSettings,
     PickTheme,
     SaveTheme,
@@ -240,6 +250,10 @@ pub enum Choice {
     Cron(super::cronboard::CronRequest),
     /// Leaves the menu without doing anything.
     Dismiss,
+    Leads {
+        recipients: Vec<crate::send::LeadRecipient>,
+        all: bool,
+    },
     Reply {
         request: String,
         from: String,
@@ -275,6 +289,16 @@ pub struct Menu {
 /// Where composed text goes.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Compose {
+    Leads {
+        sender: String,
+        recipients: Vec<crate::send::LeadRecipient>,
+        all: bool,
+    },
+    /// Read-only mode of the existing anchored band; it never submits text.
+    ReadLead {
+        key: super::home_leads::MessageKey,
+        offset: usize,
+    },
     AskLead {
         to: String,
         sender: String,
@@ -336,6 +360,9 @@ pub(super) struct HomeFeedback {
 
 impl RowSend {
     fn valid(&self, app: &App, input: &Input) -> bool {
+        if matches!(input.compose, Compose::Leads { .. }) {
+            return app.leads_valid(input);
+        }
         if app.loading()
             || app.view.as_ref().and_then(|view| view.me.as_ref()) != Some(&self.sender)
         {
@@ -365,7 +392,10 @@ impl RowSend {
                 self.note.as_ref() == Some(&input.compose)
                     && (self.note_member || app.note_recipient(&self.target).as_ref() == Some(to))
             }
-            Compose::AskLead { .. } | Compose::Cron => false,
+            Compose::AskLead { .. }
+            | Compose::ReadLead { .. }
+            | Compose::Leads { .. }
+            | Compose::Cron => false,
         }
     }
 }
@@ -394,6 +424,7 @@ pub struct Hint {
 impl Input {
     pub(super) fn header(&self) -> String {
         match &self.compose {
+            Compose::ReadLead { .. } | Compose::Leads { .. } => self.prompt.clone(),
             Compose::Talk { to } => format!("→ {to} ({})", self.squad),
             Compose::Reply { from, .. } => format!("→ {from} ({})", self.squad),
             Compose::Annotate { to, row } if to != row => {
@@ -497,6 +528,7 @@ pub struct App {
     pub(super) note_hits: RefCell<Vec<(ratatui::layout::Rect, usize)>>,
     pub(super) notebooks: RefCell<super::notes::Notebooks>,
     pub(super) cron: super::cronboard::State,
+    pub(super) home_leads: super::home_leads::State,
     /// The cron form being filled in on the input line, if any.
     pub(super) cron_draft: Option<super::cronboard::Draft>,
     /// The squad tab's jobs half has focus (Tab moves in after the last pane).
@@ -939,6 +971,9 @@ impl App {
     }
 
     fn clamp(&mut self) {
+        if !self.message_valid() {
+            self.input = None;
+        }
         let anchor = self
             .input
             .as_ref()
@@ -1007,6 +1042,11 @@ impl App {
         self.view.is_some() && self.shown != self.current
     }
 
+    pub(super) fn apply_home_leads(&mut self, read: super::home_leads::Read) {
+        self.home_leads.replace(read);
+        self.clamp();
+    }
+
     /// Swaps in a loaded squad in one step. A result for a squad the user
     /// already left is kept for switching back, never shown.
     pub fn apply(&mut self, snapshot: Snapshot) {
@@ -1073,7 +1113,8 @@ impl App {
         match snapshot.view {
             Ok(mut view) => {
                 let now = Instant::now();
-                if view.home.is_some() {
+                if let Some(home) = &view.home {
+                    self.home_leads.reconcile(home, view.me_id.as_deref());
                     for (name, meter) in &mut self.meters {
                         if view
                             .home_rate
@@ -1491,6 +1532,7 @@ impl App {
         };
         if let Some(view) = &mut self.view {
             view.refresh = config.refresh(key).expect("validated settings draft");
+            view.home_replies = config.home_replies().expect("validated settings draft");
             if !crate::tabs::aggregate(key) {
                 view.board = config.board(key).expect("validated settings draft");
                 view.bindings = config
@@ -1819,6 +1861,16 @@ impl App {
                 }
                 return Effect::None;
             }
+            Verb::HomeReplies => {
+                return self
+                    .view
+                    .as_ref()
+                    .filter(|view| view.home.is_some())
+                    .map_or(Effect::None, |view| Effect::HomeReplies(!view.home_replies));
+            }
+            Verb::HomeMessage => return self.home_expand(),
+            Verb::HomeWrite => return self.home_write(),
+            Verb::HomePick => return self.home_pick(),
             Verb::AskLead => return self.ask_lead(),
             Verb::Settings => return Effect::Settings,
             Verb::Theme => return Effect::PickTheme,
@@ -2213,6 +2265,7 @@ impl App {
             Choice::Action(action) => self.perform(&action),
             Choice::Cron(request) => Effect::Act(Request::Cron(request)),
             Choice::Dismiss => Effect::None,
+            Choice::Leads { recipients, all } => self.compose_leads(recipients, all),
             Choice::Reply { request, from } => self.ask(
                 format!("→ {from}"),
                 Compose::Reply { request, from },
@@ -2468,6 +2521,13 @@ impl App {
     }
 
     fn input_key(&mut self, key: KeyEvent) -> Effect {
+        if self
+            .input
+            .as_ref()
+            .is_some_and(|input| matches!(input.compose, Compose::ReadLead { .. }))
+        {
+            return self.message_key(key);
+        }
         let Some(input) = &mut self.input else {
             return Effect::None;
         };
@@ -2533,7 +2593,7 @@ impl App {
                     Compose::AskLead { .. } => false,
                     Compose::Talk { to } => to == member,
                     Compose::Annotate { to, .. } => self.lead().as_ref() == Ok(to),
-                    Compose::Cron => false,
+                    Compose::Cron | Compose::ReadLead { .. } | Compose::Leads { .. } => false,
                     Compose::Reply { request, from } => {
                         from == member
                             && row["waitingOnYou"].as_array().is_some_and(|items| {
@@ -2587,6 +2647,17 @@ impl App {
                 row,
                 text,
             },
+            Compose::Leads {
+                sender,
+                recipients,
+                all,
+            } => Request::Leads {
+                sender,
+                recipients,
+                all,
+                text,
+            },
+            Compose::ReadLead { .. } => unreachable!("read-only mode cannot send"),
             Compose::Cron => unreachable!("a cron step is submitted before this match"),
             Compose::Reply { request, from } => Request::Reply {
                 me,
@@ -3235,6 +3306,21 @@ impl App {
             .map_or(saved, |picker| picker.preview(saved.depth))
     }
 
+    pub(super) fn selected_read(&self) -> Option<super::refresh::SelectedRead> {
+        if self.loading() {
+            return None;
+        }
+        if let Some(Input {
+            compose: Compose::ReadLead { key, .. },
+            ..
+        }) = &self.input
+        {
+            return Some(super::refresh::SelectedRead::Message(key.clone()));
+        }
+        self.notebook_identity()
+            .map(super::refresh::SelectedRead::Notebook)
+    }
+
     /// Lazy acquisition follows the effective detail, including folds and tabs.
     pub(super) fn notebook_identity(&self) -> Option<String> {
         let board = self.effective_board()?;
@@ -3459,6 +3545,7 @@ pub(crate) mod tests {
     fn view(sections: Value) -> View {
         View {
             ask_lead: crate::config::DEFAULT_ASK_LEAD.into(),
+            home_replies: true,
             token_rate: None,
             home_rate: Default::default(),
             home: None,
@@ -3484,6 +3571,7 @@ pub(crate) mod tests {
             look: Default::default(),
             theme_notice: None,
             me: None,
+            me_id: None,
             replies: Vec::new(),
         }
     }

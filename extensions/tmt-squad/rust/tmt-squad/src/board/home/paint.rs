@@ -197,12 +197,19 @@ pub(crate) fn hints(width: usize, cron: bool) -> String {
         "↑↓ move",
         "⏎ open",
         "a answer · note",
+        if width < usize::from(MD.cells) {
+            "A ask"
+        } else {
+            "A ask lead"
+        },
+        "e expand",
+        "t replies",
+        "/ search",
         "←→ tabs",
         "s switch",
-        "/ search",
     ];
     if cron {
-        optional.insert(4, "c cron");
+        optional.push("c cron");
     }
     loop {
         let text = optional
@@ -250,10 +257,21 @@ pub(super) fn render_at(frame: &mut Frame, app: &App, area: Rect, now: u64) {
     let look = app.look();
     let width = usize::from(area.width);
     let mut lines = vec![Line::default()];
+    let lead_failures = app
+        .home_leads
+        .leads
+        .iter()
+        .filter(|lead| lead.failure.is_some())
+        .map(|lead| lead.id())
+        .collect::<std::collections::BTreeSet<_>>()
+        .len()
+        + usize::from(app.home_leads.failure.is_some());
     if !home.failures.is_empty()
         || home.incomplete
         || view.me.is_none()
         || view.theme_notice.is_some()
+        || lead_failures > 0
+        || app.home_leads.incomplete
     {
         let mut notices = view.theme_notice.iter().cloned().collect::<Vec<_>>();
         if !home.failures.is_empty() {
@@ -261,6 +279,14 @@ pub(super) fn render_at(frame: &mut Frame, app: &App, area: Rect, now: u64) {
         }
         if home.incomplete {
             notices.push("older requests not shown".into());
+        }
+        if lead_failures > 0 {
+            notices.push(format!(
+                "lead exchanges partial: {lead_failures} failed reads"
+            ));
+        }
+        if app.home_leads.incomplete {
+            notices.push("older lead exchanges not shown".into());
         }
         if view.me.is_none() {
             notices.push(crate::status::UNKNOWN_YOU.into());
@@ -273,9 +299,12 @@ pub(super) fn render_at(frame: &mut Frame, app: &App, area: Rect, now: u64) {
     let mut starts = Vec::new();
     let mut regions = Vec::new();
     let mut input_range = None;
+    let mut input_area = area;
     let mut selected_range = 0..0;
     let receipt_now = std::time::Instant::now();
     let mut section = "";
+    let mut previous_lead_has_exchange = false;
+    let chrome = super::leads::Chrome::new(area.width, look);
     if !entries
         .iter()
         .any(|entry| entry.target.section == "needs-you")
@@ -293,6 +322,116 @@ pub(super) fn render_at(frame: &mut Frame, app: &App, area: Rect, now: u64) {
         ));
     }
     for (index, entry) in entries.iter().enumerate() {
+        if entry.target.section == super::LEADS {
+            let lead = app
+                .home_leads
+                .leads
+                .iter()
+                .find(|lead| {
+                    lead.squad == entry.target.squad
+                        && entry.target.member.as_deref() == Some(lead.id())
+                })
+                .expect("a lead target retains its deferred projection");
+            if section != super::LEADS {
+                section = super::LEADS;
+                lines.push(Line::default());
+                lines.push(Line::styled(
+                    rule(
+                        &format!(
+                            "leads · latest from each · t {} replies",
+                            if view.home_replies { "hides" } else { "shows" }
+                        ),
+                        width,
+                    ),
+                    look.role(Role::Muted),
+                ));
+                lines.push(chrome.top.clone());
+            } else if view.home_replies && previous_lead_has_exchange && lead.exchange.is_some() {
+                lines.push(chrome.wrap(Line::default(), look, false));
+            }
+            let selected = index == app.selected;
+            let start = lines.len();
+            starts.push(start);
+            lines.push(chrome.wrap(
+                super::leads::heading(lead, area.width, look, selected, now),
+                look,
+                selected,
+            ));
+            let reading = app.input.as_ref().is_some_and(|input| {
+                matches!(input.compose, crate::board::app::Compose::ReadLead { .. })
+                    && input.row_send.as_ref().is_some_and(|send| {
+                        send.target == crate::board::app::RowTarget::Home(entry.target.clone())
+                    })
+            });
+            previous_lead_has_exchange = lead.exchange.is_some();
+            if view.home_replies && lead.exchange.is_some() && !reading {
+                lines.push(chrome.wrap(super::leads::preview(lead, area.width, look), look, false));
+            }
+            regions.push((
+                index,
+                start..lines.len(),
+                1.min(area.width),
+                area.width.saturating_sub(2),
+            ));
+            if app.sent.as_ref().is_some_and(|feedback| {
+                feedback.target == crate::board::app::RowTarget::Home(entry.target.clone())
+            }) {
+                lines.push(chrome.wrap(
+                    Line::styled("  ✓ sent", look.role(Role::Working)),
+                    look,
+                    false,
+                ));
+            }
+            let inner = Rect {
+                x: area.x.saturating_add(1),
+                width: area.width.saturating_sub(2),
+                ..area
+            };
+            if let Some(range) =
+                crate::board::view::waiting::reserve_input(app, index, inner, &mut lines)
+            {
+                for line in &mut lines[range.clone()] {
+                    *line = chrome.wrap(Line::default(), look, false);
+                }
+                input_range = Some(range);
+                input_area = inner;
+            }
+            if selected {
+                selected_range = start..lines.len();
+            }
+            if entries
+                .get(index + 1)
+                .is_none_or(|next| next.target.section != super::LEADS)
+            {
+                lines.push(chrome.bottom.clone());
+            }
+            continue;
+        }
+        if entry.target.section == super::ALL_LEADS {
+            section = super::ALL_LEADS;
+            let start = lines.len();
+            starts.push(start);
+            regions.push((index, start..start + 1, 0, area.width));
+            let selected = index == app.selected;
+            lines.push(Line::styled(
+                fit("→ all leads  A to write · @ to pick", width),
+                if selected {
+                    look.selection().add_modifier(Modifier::BOLD)
+                } else {
+                    look.role(Role::Muted)
+                },
+            ));
+            if let Some(range) =
+                crate::board::view::waiting::reserve_input(app, index, area, &mut lines)
+            {
+                input_range = Some(range);
+                input_area = area;
+            }
+            if selected {
+                selected_range = start..lines.len();
+            }
+            continue;
+        }
         if entry.target.section == super::CRON {
             section = super::CRON;
             lines.push(Line::default());
@@ -466,7 +605,7 @@ pub(super) fn render_at(frame: &mut Frame, app: &App, area: Rect, now: u64) {
             .reveal_range(Pane::Rows, selected_range, area, lines.len());
     }
     let (offset, shown) = app.scrolls.show(frame, Pane::Rows, area, &lines, look);
-    crate::board::view::waiting::place_input(app, input_range, area, offset, shown);
+    crate::board::view::waiting::place_input(app, input_range, input_area, offset, shown);
     for (row, range, x, width) in regions {
         for line in range.start.max(offset)..range.end.min(offset + shown) {
             if width > 0 {
