@@ -4,14 +4,26 @@ use std::collections::BTreeMap;
 pub const APP_BYTES: usize = 16 * 1024 * 1024;
 pub const APP_FILES: usize = 128;
 
+/// The top-level app files, declared once for this inventory and the packaging proof.
+const ENTRIES: &str = include_str!("../app-entries.txt");
+
+/// Top-level file names of one kind (`html` or `text`) from `app-entries.txt`.
+fn entries(kind: &'static str) -> impl Iterator<Item = &'static str> {
+    ENTRIES.lines().filter_map(move |line| {
+        let (declared, name) = line.split_once(' ')?;
+        (declared == kind).then_some(name)
+    })
+}
+
 pub fn content_type(route: &str) -> Option<&'static str> {
-    let name = match route {
-        "/index.html" | "/renderer.html" | "/reader.html" => {
-            return Some("text/html; charset=utf-8");
-        }
-        "/THIRD-PARTY-NOTICES.txt" => return Some("text/plain; charset=utf-8"),
-        _ => route.strip_prefix("/assets/")?,
-    };
+    let top = route.strip_prefix('/')?;
+    if entries("html").any(|entry| entry == top) {
+        return Some("text/html; charset=utf-8");
+    }
+    if entries("text").any(|entry| entry == top) {
+        return Some("text/plain; charset=utf-8");
+    }
+    let name = route.strip_prefix("/assets/")?;
     if name.starts_with('.')
         || name.is_empty()
         || name.len() > 128
@@ -57,17 +69,13 @@ pub fn validate(files: &[(&str, &[u8])]) -> Result<(), &'static str> {
             return Err("Duplicate app asset route.");
         }
     }
-    if !inventory.contains_key("/index.html") {
-        return Err("App index is missing.");
+    for name in entries("html") {
+        if !inventory.contains_key(format!("/{name}").as_str()) {
+            return Err("A declared app entry is missing.");
+        }
     }
-    if !inventory.contains_key("/renderer.html") {
-        return Err("App renderer is missing.");
-    }
-    if !inventory.contains_key("/reader.html") {
-        return Err("App reader entry is missing.");
-    }
-    for route in ["/index.html", "/renderer.html", "/reader.html"] {
-        if let Some(bytes) = inventory.get(route) {
+    for name in entries("html") {
+        if let Some(bytes) = inventory.get(format!("/{name}").as_str()) {
             let html = std::str::from_utf8(bytes).map_err(|_| "App HTML must be UTF-8.")?;
             for reference in html.split("\"./assets/").skip(1) {
                 let name = reference
@@ -89,4 +97,53 @@ pub fn validate(files: &[(&str, &[u8])]) -> Result<(), &'static str> {
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn declared_entries_are_the_only_top_level_files() {
+        let html: Vec<_> = entries("html").collect();
+        assert_eq!(html, ["index.html", "renderer.html", "reader.html"]);
+        assert_eq!(
+            entries("text").collect::<Vec<_>>(),
+            ["THIRD-PARTY-NOTICES.txt"]
+        );
+        for name in &html {
+            assert_eq!(
+                content_type(&format!("/{name}")),
+                Some("text/html; charset=utf-8")
+            );
+        }
+        assert_eq!(
+            content_type("/THIRD-PARTY-NOTICES.txt"),
+            Some("text/plain; charset=utf-8")
+        );
+        for undeclared in ["/other.html", "/index.js", "/", "/app-entries.txt"] {
+            assert_eq!(content_type(undeclared), None, "{undeclared}");
+        }
+    }
+
+    #[test]
+    fn every_declared_html_entry_is_required() {
+        let page: &[u8] = b"<html></html>";
+        let complete = [
+            ("/index.html", page),
+            ("/renderer.html", page),
+            ("/reader.html", page),
+            ("/assets/a.js", b"js"),
+            ("/assets/a.css", b"css"),
+        ];
+        assert_eq!(validate(&complete), Ok(()));
+        for missing in ["/index.html", "/renderer.html", "/reader.html"] {
+            let files: Vec<_> = complete
+                .iter()
+                .copied()
+                .filter(|f| f.0 != missing)
+                .collect();
+            assert!(validate(&files).is_err(), "{missing}");
+        }
+    }
 }

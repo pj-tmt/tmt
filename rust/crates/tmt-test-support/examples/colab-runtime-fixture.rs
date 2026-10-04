@@ -14,6 +14,8 @@ use std::{
 };
 
 const INDEX: &str = "<!doctype html><script src=\"./assets/app.js\"></script><link href=\"./assets/app.css\" rel=\"stylesheet\">tiny embedded app\n";
+const RENDERER: &str = "<!doctype html>tiny renderer\n";
+const READER: &str = "<!doctype html>tiny reader\n";
 const JS: &str = "console.log('embedded fixture');\n";
 const CSS: &str = "body { color: blue; }\n";
 const NOTICES: &str = "Tiny app attribution\n";
@@ -126,6 +128,8 @@ fn main() -> io::Result<()> {
                     },
                     "text/javascript",
                 ),
+                "/renderer.html" => (200, RENDERER, "text/html"),
+                "/reader.html" => (200, READER, "text/html"),
                 "/assets/app.css" => (200, CSS, "text/css"),
                 "/THIRD-PARTY-NOTICES.txt" => (200, NOTICES, "text/plain"),
                 _ => (404, "NOT FOUND", "text/plain"),
