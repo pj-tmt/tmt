@@ -1077,6 +1077,11 @@ Keep a significant decision's alternatives, failure behavior and verification
 plan in its issue and reflect the delivered boundary here. A green formatter or
 checkmark is not architecture evidence.
 
+This file keeps owner maps, dependency direction and cross-cutting invariants, within
+the line budget `typescript/test/tooling/guide-budget.test.ts` enforces. Module-level
+rules belong in the owning area skill (`.agents/skills/tmt-core-runtime` for core); a
+line that only explains one module's code goes there, not here.
+
 Every change reports its architecture impact and names the affected Rust owner,
 adapter, CLI composition and tests. New policy belongs in the existing owner;
 do not add a parallel TypeScript implementation, provider inventory, config path

@@ -255,7 +255,7 @@ upgrade, publication readback and public-install smoke proofs.
 For commit-gate tooling changes, run from `typescript/`:
 
 ```sh
-CARGO_TARGET_DIR=<worktree-target> corepack pnpm exec vp test run --config vitest.config.ts test/tooling/publication-gates.test.ts test/tooling/publication-gates-script.test.ts test/tooling/ci-scope.test.ts test/tooling/release-workflow.test.ts test/tooling/dev-guide-budget.test.ts
+CARGO_TARGET_DIR=<worktree-target> corepack pnpm exec vp test run --config vitest.config.ts test/tooling/publication-gates.test.ts test/tooling/publication-gates-script.test.ts test/tooling/ci-scope.test.ts test/tooling/release-workflow.test.ts test/tooling/guide-budget.test.ts
 corepack pnpm check:tooling
 ```
 
