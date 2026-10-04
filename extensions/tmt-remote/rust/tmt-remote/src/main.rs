@@ -648,7 +648,7 @@ fn pair(json_output: bool, flag: open::Flag) -> Result<(), RemoteError> {
                     ("code", event["code"].as_str().unwrap_or("").into()),
                     ("expires", "in 10 minutes".into()),
                 ];
-                rows.extend(open::row(&opened));
+                rows.extend(open_row(&opened));
                 tmt_cli_style::detail::write(&mut output, terminal, "PAIR A DEVICE", &rows)?;
                 output.flush()?;
                 warn_settings(&loaded)?;
@@ -728,6 +728,10 @@ fn pair(json_output: bool, flag: open::Flag) -> Result<(), RemoteError> {
         tmt_cli_style::message::success(&mut output, terminal, "Paired the device")?;
     }
     paired
+}
+/// The `open` row of the pairing detail block, present only when a browser was handed the link.
+fn open_row(outcome: &open::Outcome) -> Option<(&'static str, String)> {
+    matches!(outcome, open::Outcome::Opened).then(|| ("open", "opened in your browser".to_owned()))
 }
 fn warn_settings(loaded: &settings::RemoteSettings) -> Result<(), RemoteError> {
     if loaded.malformed {
@@ -936,6 +940,26 @@ fn main() -> ExitCode {
                 );
             }
             ExitCode::FAILURE
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{open::Outcome, open_row};
+
+    #[test]
+    fn only_a_handed_over_link_gets_an_open_row() {
+        assert_eq!(
+            open_row(&Outcome::Opened),
+            Some(("open", "opened in your browser".to_owned()))
+        );
+        for outcome in [
+            Outcome::Skipped,
+            Outcome::NoOpener,
+            Outcome::Failed("exit 9".into()),
+        ] {
+            assert_eq!(open_row(&outcome), None);
         }
     }
 }

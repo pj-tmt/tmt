@@ -162,11 +162,6 @@ fn launch(opener: &PathBuf, link: &str) -> Outcome {
     }
 }
 
-/// The `open` row of a detail block, present only when a browser was handed the link.
-pub fn row(outcome: &Outcome) -> Option<(&'static str, String)> {
-    matches!(outcome, Outcome::Opened).then(|| ("open", "opened in your browser".to_owned()))
-}
-
 #[cfg(test)]
 mod tests {
     use super::{Decision::*, Env, Flag, decide};
@@ -236,21 +231,6 @@ mod tests {
             ..no_display
         };
         assert_eq!(decide(Flag::Unset, true, false, &wsl), Open);
-    }
-    #[test]
-    fn only_a_handed_over_link_gets_an_open_row() {
-        use super::{Outcome, row};
-        assert_eq!(
-            row(&Outcome::Opened),
-            Some(("open", "opened in your browser".to_owned()))
-        );
-        for outcome in [
-            Outcome::Skipped,
-            Outcome::NoOpener,
-            Outcome::Failed("exit 9".into()),
-        ] {
-            assert_eq!(row(&outcome), None);
-        }
     }
     #[test]
     fn platform_opener_discovery_and_launch_use_only_the_supplied_path() {
