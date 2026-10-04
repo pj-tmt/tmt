@@ -141,11 +141,10 @@ on scoped PRs and all engines weekly or manual; `COLAB_HARNESS_ROOTS` and
 
 ## Packaging and archives
 
-Colab is a `native-release.yml` preparation product (`tag tmt-colab-v<version>`,
-prerelease, `latest=false`) but stays `release: false` in `.github/components.json`
-and `dist = false` in its Cargo package, so publication is refused until the infra
-lead activates it after a supporting CLI alpha is published and real archive
-acceptance passes. Core registers Colab with the shared installer
+Colab is a released `native-release.yml` product (`tag tmt-colab-v<version>`,
+prerelease, `latest=false`): `release: true` with `initialVersion` `0.1.0-alpha.1`
+and `requiresCliSha` in `.github/components.json`, and `dist = true` in its Cargo
+package. Core registers Colab with the shared installer
 (`EXTENSION_RELEASE_UNAVAILABLE` until an archive exists; see the registration
 commands in the [release reference](../../tmt-release/references/native-release.md#remote-and-colab-installer-registration)).
 
