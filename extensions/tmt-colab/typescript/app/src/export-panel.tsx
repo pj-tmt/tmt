@@ -1,11 +1,26 @@
 import { useEffect, useRef, useState } from 'react';
 import { DISCLOSURE, Downloads, type ExportFile } from './export.js';
 import type { PageBinding } from './transport.js';
+import { PageDrawer } from './page-drawer.js';
 import { text } from './strings.js';
 
 /** Downloads stay in trusted chrome; no renderer message opens this panel. */
-export function ExportPanel({ binding, blocked }: { binding?: PageBinding; blocked: boolean }) {
-  const [open, setOpen] = useState(false);
+export function ExportPanel({
+  binding,
+  blocked,
+  drawer = false,
+  opened,
+  changeOpen,
+}: {
+  binding?: PageBinding;
+  blocked: boolean;
+  drawer?: boolean;
+  opened?: boolean;
+  changeOpen?(open: boolean): void;
+}) {
+  const [localOpen, setLocalOpen] = useState(false);
+  const open = opened ?? localOpen;
+  const setOpen = changeOpen ?? setLocalOpen;
   const [state, setState] = useState<'preparing' | 'ready' | 'failed'>('preparing');
   const [requested, setRequested] = useState<ExportFile[]>([]);
   const current = useRef<Downloads | null>(null);
@@ -31,8 +46,8 @@ export function ExportPanel({ binding, blocked }: { binding?: PageBinding; block
     };
   }, [binding, open, blocked]);
   useEffect(() => {
-    if (blocked) setOpen(false);
-  }, [blocked]);
+    if (blocked && open) setOpen(false);
+  }, [blocked, open, setOpen]);
   function download(name: ExportFile) {
     try {
       if (!current.current || blocked) return;
@@ -42,6 +57,39 @@ export function ExportPanel({ binding, blocked }: { binding?: PageBinding; block
       setState('failed');
     }
   }
+  const content = (
+    <section className="export-panel" aria-label={text.export}>
+      {!drawer && <h2>{text.export}</h2>}
+      <p>{DISCLOSURE}</p>
+      <p>{text.exportDiscussions}</p>
+      <p role="status">
+        {state === 'preparing'
+          ? text.exportPreparing
+          : state === 'failed'
+            ? text.exportFailed
+            : requested.length === 1
+              ? text.exportPartial
+              : requested.length === 2
+                ? text.exportRequested
+                : text.exportReady}
+      </p>
+      <div className="export-actions">
+        {(['page.html', 'manifest.json'] as const).map((name) => (
+          <button
+            key={name}
+            disabled={blocked || state !== 'ready'}
+            onClick={(event) => {
+              if (event.isTrusted) download(name);
+            }}
+          >
+            {text.download} {name}
+            {requested.includes(name) ? ' ✓' : ''}
+          </button>
+        ))}
+        <button onClick={() => setOpen(false)}>{text.exportClose}</button>
+      </div>
+    </section>
+  );
   return (
     <div className="export-control">
       <button
@@ -54,38 +102,12 @@ export function ExportPanel({ binding, blocked }: { binding?: PageBinding; block
       >
         {text.export}
       </button>
-      {open && (
-        <section className="export-panel" aria-label={text.export}>
-          <h2>{text.export}</h2>
-          <p>{DISCLOSURE}</p>
-          <p>{text.exportDiscussions}</p>
-          <p role="status">
-            {state === 'preparing'
-              ? text.exportPreparing
-              : state === 'failed'
-                ? text.exportFailed
-                : requested.length === 1
-                  ? text.exportPartial
-                  : requested.length === 2
-                    ? text.exportRequested
-                    : text.exportReady}
-          </p>
-          <div className="export-actions">
-            {(['page.html', 'manifest.json'] as const).map((name) => (
-              <button
-                key={name}
-                disabled={blocked || state !== 'ready'}
-                onClick={(event) => {
-                  if (event.isTrusted) download(name);
-                }}
-              >
-                {text.download} {name}
-                {requested.includes(name) ? ' ✓' : ''}
-              </button>
-            ))}
-            <button onClick={() => setOpen(false)}>{text.exportClose}</button>
-          </div>
-        </section>
+      {drawer ? (
+        <PageDrawer open={open} title={text.export} kind="export" close={() => setOpen(false)}>
+          {open && content}
+        </PageDrawer>
+      ) : (
+        open && content
       )}
     </div>
   );

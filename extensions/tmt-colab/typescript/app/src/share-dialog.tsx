@@ -64,7 +64,9 @@ export function ShareDialog({
     element?.showModal();
     return () => {
       element?.close();
-      if (trigger instanceof HTMLElement) trigger.focus();
+      if (trigger instanceof HTMLElement && trigger.isConnected && trigger.getClientRects().length)
+        trigger.focus();
+      else document.querySelector<HTMLButtonElement>('.page-overflow-toggle')?.focus();
     };
   }, []);
   useEffect(() => {

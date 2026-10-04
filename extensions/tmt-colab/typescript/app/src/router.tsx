@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import {
   createHashHistory,
   createBrowserHistory,
@@ -8,6 +9,7 @@ import {
   Link,
   Outlet,
   useRouter,
+  useRouterState,
 } from '@tanstack/react-router';
 import type { PageView, PageTransport } from './transport.js';
 import { ThreadPanel } from './thread-panel.js';
@@ -17,6 +19,7 @@ import { mountRenderer } from './renderer.js';
 import type { RenderState } from './renderer.js';
 import { text } from './strings.js';
 import { ExportPanel } from './export-panel.js';
+import { PageDrawer } from './page-drawer.js';
 import { AskControl, AskPanel } from './ask-panel.js';
 
 const managementChanged = 'Management changed. Reopen the page to load its latest state.';
@@ -60,14 +63,6 @@ const blocked = createRoute({
 });
 
 export function AppHeader({ linked = true }: { linked?: boolean }) {
-  const [dark, setDark] = useState(() =>
-    document.documentElement.dataset.theme
-      ? document.documentElement.dataset.theme === 'dark'
-      : matchMedia('(prefers-color-scheme: dark)').matches,
-  );
-  useEffect(() => {
-    document.documentElement.dataset.theme = dark ? 'dark' : 'light';
-  }, [dark]);
   const brand = (
     <>
       {text.product}
@@ -86,20 +81,38 @@ export function AppHeader({ linked = true }: { linked?: boolean }) {
       <span className="local">
         {location.pathname.startsWith('/r/') ? text.mounted : text.local}
       </span>
-      <button className="theme" aria-label={text.theme} onClick={() => setDark(!dark)}>
-        {dark ? '◐' : '◑'}
-      </button>
+      <ThemeButton />
     </header>
   );
 }
+function ThemeButton() {
+  const [dark, setDark] = useState(() =>
+    document.documentElement.dataset.theme
+      ? document.documentElement.dataset.theme === 'dark'
+      : matchMedia('(prefers-color-scheme: dark)').matches,
+  );
+  useEffect(() => {
+    document.documentElement.dataset.theme = dark ? 'dark' : 'light';
+  }, [dark]);
+  return (
+    <button className="theme" aria-label={text.theme} onClick={() => setDark(!dark)}>
+      {dark ? '◐' : '◑'}
+    </button>
+  );
+}
 function Shell() {
+  const isPage = useRouterState({
+    select: (state) => state.location.pathname.startsWith('/pages/'),
+  });
   return (
     <>
-      <AppHeader />
-      <main>
+      {!isPage && <AppHeader />}
+      <main className={isPage ? 'page-main' : undefined}>
         <Outlet />
       </main>
-      <footer>{location.pathname.startsWith('/r/') ? text.mountedNote : text.adapter}</footer>
+      {!isPage && (
+        <footer>{location.pathname.startsWith('/r/') ? text.mountedNote : text.adapter}</footer>
+      )}
     </>
   );
 }
@@ -118,23 +131,25 @@ function ManageButton({ pageId, changed }: { pageId: string; changed?(): void })
       >
         Manage page
       </button>
-      {open && (
-        <ShareDialog
-          port={port}
-          pageId={pageId}
-          committed={() => {
-            touched.current = true;
-            changed?.();
-          }}
-          close={() => {
-            setOpen(false);
-            if (touched.current) {
-              touched.current = false;
-              void router.invalidate();
-            }
-          }}
-        />
-      )}
+      {open &&
+        createPortal(
+          <ShareDialog
+            port={port}
+            pageId={pageId}
+            committed={() => {
+              touched.current = true;
+              changed?.();
+            }}
+            close={() => {
+              setOpen(false);
+              if (touched.current) {
+                touched.current = false;
+                void router.invalidate();
+              }
+            }}
+          />,
+          document.body,
+        )}
     </>
   );
 }
@@ -198,8 +213,33 @@ function Home() {
   );
 }
 function Page() {
+  const { transport } = root.useRouteContext();
   const snapshot = page.useLoaderData();
-  const [showSource, setShowSource] = useState(false);
+  const [panel, setPanel] = useState<'source' | 'comments' | 'ask' | 'export' | null>(null);
+  const [menu, setMenu] = useState(false);
+  const toolbar = useRef<HTMLElement>(null);
+  useEffect(() => {
+    if (!menu) return;
+    const outside = (event: PointerEvent) => {
+      if (event.target instanceof Node && !toolbar.current?.contains(event.target)) setMenu(false);
+    };
+    const escape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setMenu(false);
+        toolbar.current?.querySelector<HTMLButtonElement>('.page-overflow-toggle')?.focus();
+      }
+    };
+    document.addEventListener('pointerdown', outside);
+    document.addEventListener('keydown', escape);
+    return () => {
+      document.removeEventListener('pointerdown', outside);
+      document.removeEventListener('keydown', escape);
+    };
+  }, [menu]);
+  const toggle = (value: typeof panel) => {
+    setMenu(false);
+    setPanel((previous) => (previous === value ? null : value));
+  };
   const [view, setView] = useState<PageView>({
     source: snapshot.source,
     title: snapshot.title,
@@ -320,66 +360,109 @@ function Page() {
   }, [state, view.threads]);
   return (
     <section className="page">
-      <div className="page-bar">
-        <Link className="back" to="/" aria-label={text.home}>
-          ←
+      <header className="page-bar" ref={toolbar} data-menu-open={menu}>
+        <Link className="back" to="/" aria-label={text.home} title={text.product}>
+          <span aria-hidden>←</span>
+          <span className="page-brand">{text.product}</span>
         </Link>
-        <h1>{view.title || snapshot.title}</h1>
-        <span className="chip">{text[snapshot.sharing]}</span>
-        <ManageButton
-          pageId={snapshot.id}
-          changed={() => {
-            snapshot.binding?.close();
-            setLiveError(managementChanged);
-          }}
-        />
-        <span className={`status ${state === 'ready' ? 'live' : ''}`}>
-          <span aria-hidden>{state === 'ready' ? '●' : state === 'loading' ? '○' : '✗'}</span>{' '}
-          {state === 'ready' ? text.loaded : state === 'loading' ? text.loading : text.blocked}
+        <h1 title={view.title || snapshot.title}>{view.title || snapshot.title}</h1>
+        <span
+          className="page-backend"
+          title={
+            transport.backendName?.trim() ? `local · ${transport.backendName.trim()}` : 'local'
+          }
+        >
+          {transport.backendName?.trim() ? `local · ${transport.backendName.trim()}` : 'local'}
         </span>
-        <button aria-pressed={showSource} onClick={() => setShowSource(!showSource)}>
-          {text.source}
+        <span className="chip">{text[snapshot.sharing]}</span>
+        <span
+          className={`status ${state === 'ready' ? 'live' : ''}`}
+          title={
+            state === 'ready' ? text.loaded : state === 'loading' ? text.loading : text.blocked
+          }
+        >
+          <span aria-hidden>{state === 'ready' ? '●' : state === 'loading' ? '○' : '✗'}</span>
+          <span className="status-label">
+            {state === 'ready' ? text.loaded : state === 'loading' ? text.loading : text.blocked}
+          </span>
+        </span>
+        <button
+          className="page-overflow-toggle"
+          aria-label="More page actions"
+          aria-expanded={menu}
+          onClick={(event) => {
+            if (event.isTrusted) setMenu(!menu);
+          }}
+        >
+          •••
         </button>
-      </div>
-      <AskControl
-        key={`ask-control:${snapshot.id}`}
-        binding={liveError === managementChanged ? undefined : snapshot.binding?.ask}
-        selection={selection}
-        title={view.title || snapshot.title}
-        blocked={!!liveError || state !== 'ready'}
-      />
-      <ExportPanel key={`export:${snapshot.id}`} binding={snapshot.binding} blocked={!!liveError} />
-      <div className={`workspace with-comments ${showSource ? 'split' : ''}`}>
-        {showSource && (
-          <div className="source">
-            <span>
-              <label htmlFor="source-edit">{text.source}</label>
-              {snapshot.binding && (
-                <button
-                  disabled={saving || !!liveError || draft === base.current}
-                  onClick={() => void save()}
-                >
-                  {saving ? text.saving : text.save}
-                </button>
-              )}
-            </span>
-            <textarea
-              id="source-edit"
-              readOnly={!snapshot.binding || saving || !!liveError}
-              spellCheck={false}
-              value={draft}
-              onChange={(event) => {
-                dirty.current = true;
-                setDraft(event.target.value);
-              }}
-            />
-            {editError && <p role="alert">{editError}</p>}
-          </div>
-        )}
+        <div
+          className="page-secondary"
+          role="group"
+          aria-label="Page actions"
+          onClick={(event) => {
+            if (
+              event.isTrusted &&
+              event.target instanceof Element &&
+              event.target.closest('button')
+            )
+              setMenu(false);
+          }}
+        >
+          <button
+            data-testid="ask-toggle"
+            aria-label="Agent conversations"
+            aria-expanded={panel === 'ask'}
+            onClick={(event) => {
+              if (event.isTrusted) toggle('ask');
+            }}
+          >
+            {text.askShort}
+          </button>
+          <button
+            data-testid="comments-toggle"
+            aria-expanded={panel === 'comments'}
+            onClick={(event) => {
+              if (event.isTrusted) toggle('comments');
+            }}
+          >
+            {text.comments}
+          </button>
+          <button
+            aria-pressed={panel === 'source'}
+            onClick={(event) => {
+              if (event.isTrusted) toggle('source');
+            }}
+          >
+            {text.source}
+          </button>
+          <ExportPanel
+            key={`export:${snapshot.id}`}
+            binding={snapshot.binding}
+            blocked={!!liveError}
+            drawer
+            opened={panel === 'export'}
+            changeOpen={(open) => {
+              setMenu(false);
+              setPanel(open ? 'export' : null);
+            }}
+          />
+          <ManageButton
+            pageId={snapshot.id}
+            changed={() => {
+              snapshot.binding?.close();
+              setLiveError(managementChanged);
+            }}
+          />
+          <ThemeButton />
+          <details className="page-information">
+            <summary aria-label="Page information">ⓘ</summary>
+            <p>{text.warning}</p>
+          </details>
+        </div>
+      </header>
+      <div className="workspace">
         <div className="canvas">
-          <div className="boundary">
-            <span>{text.boundary}</span>
-          </div>
           <div className="frame-host" ref={host} />
           {(state === 'navigation' || state === 'failed') && (
             <div className="notice" role="alert">
@@ -401,7 +484,46 @@ function Page() {
             </div>
           )}
         </div>
+      </div>
+      <PageDrawer
+        open={panel === 'source'}
+        title={text.source}
+        kind="source"
+        close={() => setPanel(null)}
+      >
+        <div className="source">
+          <span>
+            <label htmlFor="source-edit">{text.source}</label>
+            {snapshot.binding && (
+              <button
+                disabled={saving || !!liveError || draft === base.current}
+                onClick={() => void save()}
+              >
+                {saving ? text.saving : text.save}
+              </button>
+            )}
+          </span>
+          <textarea
+            id="source-edit"
+            readOnly={!snapshot.binding || saving || !!liveError}
+            spellCheck={false}
+            value={draft}
+            onChange={(event) => {
+              dirty.current = true;
+              setDraft(event.target.value);
+            }}
+          />
+          {editError && <p role="alert">{editError}</p>}
+        </div>
+      </PageDrawer>
+      <PageDrawer
+        open={panel === 'comments'}
+        title={text.comments}
+        kind="comments"
+        close={() => setPanel(null)}
+      >
         <ThreadPanel
+          hideHeader
           key={`discussion:${snapshot.id}`}
           threads={view.threads ?? []}
           resolved={resolved}
@@ -411,17 +533,23 @@ function Page() {
           title={view.title || snapshot.title}
           blocked={!!liveError || state !== 'ready'}
         />
-      </div>
-      {view.askUnavailable && <p role="status">{text.askObservationUnavailable}</p>}
-      {view.asks && (
+      </PageDrawer>
+      <PageDrawer open={panel === 'ask'} title={text.ask} kind="ask" close={() => setPanel(null)}>
+        <AskControl
+          key={`ask-control:${snapshot.id}`}
+          binding={liveError === managementChanged ? undefined : snapshot.binding?.ask}
+          selection={selection}
+          title={view.title || snapshot.title}
+          blocked={!!liveError || state !== 'ready'}
+        />
+        {view.askUnavailable && <p role="status">{text.askObservationUnavailable}</p>}
         <AskPanel
           key={`ask-panel:${snapshot.id}`}
-          records={view.asks}
+          records={view.asks ?? []}
           binding={liveError === managementChanged ? undefined : snapshot.binding?.ask}
           blocked={!!liveError}
         />
-      )}
-      <p className="isolation-note">{text.warning}</p>
+      </PageDrawer>
     </section>
   );
 }

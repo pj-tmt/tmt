@@ -140,6 +140,9 @@ export async function mountedTransport(
     space: bootstrap.space,
     close: () => lifetime.abort(),
     transport: {
+      get backendName() {
+        return current.registration.deviceName;
+      },
       management,
       async spaceHome() {
         const client = managementClient;

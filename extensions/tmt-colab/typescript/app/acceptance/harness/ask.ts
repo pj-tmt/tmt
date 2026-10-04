@@ -92,6 +92,8 @@ export async function previewAsk(
   agentId: string,
   question: string,
 ): Promise<PreviewedAsk> {
+  if ((await page.getByTestId('ask-toggle').getAttribute('aria-expanded')) === 'false')
+    await page.getByTestId('ask-toggle').click();
   await page.getByTestId('ask-action').click();
   await page.locator(`[data-testid=ask-agent-option][data-agent-id="${agentId}"] input`).check();
   await page.getByLabel('Question or instruction').fill(question);

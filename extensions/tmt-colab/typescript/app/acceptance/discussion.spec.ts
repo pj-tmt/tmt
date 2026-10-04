@@ -5,6 +5,8 @@ import { until } from './harness/process.js';
 import { disposeActiveWorlds, withWorld } from './harness/with-world.js';
 
 async function post(page: Page, body: string, selected = false) {
+  if ((await page.getByTestId('comments-toggle').getAttribute('aria-expanded')) === 'false')
+    await page.getByTestId('comments-toggle').click();
   if (selected) await page.getByTestId('comment-action').click();
   else await page.getByRole('button', { name: 'Comment on page', exact: true }).click();
   const panel = page.getByTestId('comments-panel');
@@ -39,6 +41,7 @@ test('two paired writers retain discussion, anchors and frozen comment Ask throu
     const created = createPage(world, 'Shared review', html);
     const first = await openPage(door, a, created);
     const second = await openPage(door, b, created);
+    await second.getByTestId('comments-toggle').click();
     await selectInRenderer(first, '#quote');
     await post(first, '<script>plain discussion</script>\nPlease explain this.', true);
     const t1 = first.getByTestId('comment-thread').first();
@@ -96,6 +99,7 @@ test('two paired writers retain discussion, anchors and frozen comment Ask throu
     await until(() => agent.received().length === 1, 'comment Ask delivered');
     expect(agent.received()[0].message).toBe(exactMessage);
     expect(world.coreCalls().filter((c) => c.operation === 'dispatch.create')).toHaveLength(1);
+    await second.getByTestId('ask-toggle').click();
     await expect(askEntry(second, operationId).getByTestId('ask-reply')).toBeVisible();
     expect(messageId).toMatch(/^[a-f0-9-]{36}$/);
     await comment.getByRole('button', { name: 'Close preview', exact: true }).click();
@@ -112,11 +116,11 @@ test('two paired writers retain discussion, anchors and frozen comment Ask throu
     await expect(t1).toHaveAttribute('data-anchor', 'detached');
     await expect(t1.locator('blockquote').first()).toHaveText('An & 🌍 exact quote for review.');
     await selectInRenderer(first, '#next');
+    await first.getByTestId('comments-toggle').click();
     await t1.getByRole('button', { name: 'Reattach to selection', exact: true }).click();
     await t1.getByRole('button', { name: 'Confirm reattach', exact: true }).click();
     await expect(t2).toHaveAttribute('data-anchor', 'attached');
     await expect(t2.locator('blockquote').first()).toHaveText('Another selection.');
-    await first.getByRole('button', { name: 'Source', exact: true }).click();
     await first.screenshot({ path: '/tmp/1427-threads-light.png', fullPage: true });
     await first.getByRole('button', { name: 'Change color theme' }).click();
     await first.screenshot({ path: '/tmp/1427-threads-dark.png', fullPage: true });
@@ -124,6 +128,7 @@ test('two paired writers retain discussion, anchors and frozen comment Ask throu
     expect(await first.evaluate(() => document.documentElement.scrollWidth)).toBe(390);
     await first.screenshot({ path: '/tmp/1427-threads-mobile.png', fullPage: true });
 
+    await second.getByTestId('comments-toggle').click();
     await t2
       .getByTestId('comment-entry')
       .filter({ hasText: 'An edited reply.' })
@@ -147,6 +152,7 @@ test('two paired writers retain discussion, anchors and frozen comment Ask throu
     await expect(second.getByTestId('comments-panel')).toContainText('Page-wide discussion.');
     await expect(second.getByTestId('comments-panel')).toContainText('Comment deleted');
     await expect(second.getByTestId('comments-panel')).toContainText('Deleted thread');
+    await second.getByTestId('ask-toggle').click();
     await expect(askEntry(second, operationId).getByTestId('ask-reply')).toBeVisible();
     expect(agent.received()).toHaveLength(1);
     expect(world.coreCalls().filter((c) => c.operation === 'dispatch.create')).toHaveLength(1);

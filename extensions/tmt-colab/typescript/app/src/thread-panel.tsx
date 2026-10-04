@@ -356,6 +356,7 @@ function Thread({
 }
 
 export function ThreadPanel({
+  hideHeader = false,
   threads,
   resolved,
   selection,
@@ -364,6 +365,7 @@ export function ThreadPanel({
   title,
   blocked,
 }: {
+  hideHeader?: boolean;
   threads: readonly ThreadView[];
   resolved: readonly string[];
   selection: QuoteSelector | null;
@@ -375,10 +377,12 @@ export function ThreadPanel({
   const [compose, setCompose] = useState<{ anchor: QuoteSelector | null } | null>(null);
   return (
     <aside className="comments-panel" aria-label={text.comments} data-testid="comments-panel">
-      <header>
-        <h2>{text.comments}</h2>
-        <span>{threads.filter((v) => !v.deleted).length}</span>
-      </header>
+      {!hideHeader && (
+        <header>
+          <h2>{text.comments}</h2>
+          <span>{threads.filter((v) => !v.deleted).length}</span>
+        </header>
+      )}
       <div className="comment-actions">
         <button
           data-testid="comment-action"
