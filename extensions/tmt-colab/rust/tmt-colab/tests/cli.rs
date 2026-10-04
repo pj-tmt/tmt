@@ -2658,7 +2658,7 @@ fn an_error_envelope_from_remote_is_shown_as_it_is_and_never_starts_a_second_doo
     for (envelope, shown) in [
         (
             OUTDATED_ENVELOPE,
-            "The running Remote serve is older than this Colab. Stop it with Ctrl-C in its terminal, then run tmt colab serve",
+            "The running Remote serve is older than this Colab. Stop it with Ctrl-C in its terminal, then run tmt colab serve.",
         ),
         (OTHER_ENVELOPE, "Core did not answer."),
     ] {
@@ -2721,4 +2721,26 @@ fn page_commands_say_why_there_is_no_link_when_remote_answers_with_an_error() {
     }
     let created = human(OUTDATED_ENVELOPE, &["page", "create", "--title", "Again"]);
     assert!(created.contains("older than this Colab"), "{created}");
+}
+#[test]
+fn serve_says_the_outdated_instruction_once_in_the_warning_and_points_at_it_in_the_row() {
+    let pilot = Pilot::new(None);
+    pilot.call(&["page", "create", "--title", "Kept", "--json"]);
+    let mut serving = Serving::start(
+        &pilot,
+        pilot.remote_core(Some(OUTDATED_ENVELOPE), Serve::Fail),
+        &[],
+    );
+    let warning = Serving::wait_for(&serving.err, "older than this Colab");
+    let text = Serving::wait_for(&serving.out, "open");
+    assert!(
+        text.contains("(Remote serve is outdated; see warning)"),
+        "{text}"
+    );
+    assert!(!text.contains("older than this Colab"), "{text}");
+    assert!(
+        warning.contains("Stop it with Ctrl-C in its terminal"),
+        "{warning}"
+    );
+    serving.stop(Signal::SIGTERM);
 }

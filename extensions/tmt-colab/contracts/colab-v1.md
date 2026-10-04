@@ -1733,7 +1733,7 @@ runs; the same bounded calls as `serve`). `page create`, `ls`, `show` and the `s
 print the **full link** while a door runs. Without one they print the relative path and the
 reason: the install line when Remote gave no answer; Remote's own message for an error envelope,
 with one shared wording for `REMOTE_SERVE_OUTDATED` (`The running Remote serve is older than
-this Colab. Stop it with Ctrl-C in its terminal, then run tmt colab serve`); else `run tmt colab
+this Colab. Stop it with Ctrl-C in its terminal, then run tmt colab serve.`; the `serve` row then only says `(Remote serve is outdated; see warning)`; else `run tmt colab
 serve to get a full link`; never a manual `tmt remote serve`. When no paired device is known, the same pairing step
 as `serve` follows (`pair this browser once: tmt remote pair`, or `if this browser is new: ...`).
 

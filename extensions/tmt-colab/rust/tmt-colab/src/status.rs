@@ -63,7 +63,14 @@ impl Status<'_> {
             } => format!("{link} ({})", Door::INSTALL_HINT),
             Access::Unavailable {
                 reason: Reason::Remote(failure),
-            } => format!("{link} ({})", failure.text()),
+            } => {
+                // The warning below carries the whole instruction; the row only points at it.
+                if failure.code == "REMOTE_SERVE_OUTDATED" {
+                    format!("{link} (Remote serve is outdated; see warning)")
+                } else {
+                    format!("{link} (browser access unavailable: see warning)")
+                }
+            }
             Access::Unavailable {
                 reason: Reason::WouldNotStart,
             } => format!("{link} (browser access unavailable: see warning)"),

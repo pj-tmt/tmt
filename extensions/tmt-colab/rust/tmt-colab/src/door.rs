@@ -171,7 +171,7 @@ impl Door {
     }
     /// The one wording for a running Remote serve that predates `status` and `stop`
     /// (`REMOTE_SERVE_OUTDATED`): it cannot be stopped from here, and a second door must not start.
-    pub const OUTDATED: &str = "The running Remote serve is older than this Colab. Stop it with Ctrl-C in its terminal, then run tmt colab serve";
+    pub const OUTDATED: &str = "The running Remote serve is older than this Colab. Stop it with Ctrl-C in its terminal, then run tmt colab serve.";
     /// The use-time line when no Remote door can be reached (#1575's wording).
     pub const INSTALL_HINT: &str =
         "Browser access needs the Remote extension: tmt extension install remote --yes";
