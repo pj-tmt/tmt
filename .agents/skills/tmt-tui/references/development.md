@@ -58,10 +58,19 @@ The parity harness captures the three explicit presets and the team default at
 120×30, 80×30 and 120×30 again, including every cell's style and state, hits, row
 starts and list text/JSON. A board PR that intentionally changes captured output
 sends the decoded cell/style/hit diff to the Squad lead and gets approval **before**
-regenerating the baseline; the regeneration is its own commit in that PR:
+regenerating the baseline. The regeneration is its own commit in that PR.
+
+The read-only inspector decodes cell runs and styles, reports hit/tab/row-start changes,
+and requires list text/JSON to stay byte-identical:
 
 ```bash
-cargo test --locked -p tmt-squad regenerate_markup_parity_fixture -- --ignored
+CARGO_BUILD_JOBS=2 cargo test --locked -p tmt-squad inspect_markup_parity_diff -- --ignored --nocapture
+```
+
+After approval, regenerate with:
+
+```bash
+CARGO_BUILD_JOBS=2 cargo test --locked -p tmt-squad regenerate_markup_parity_fixture -- --ignored
 ```
 
 Attribute every change to the PR's approved behavior and review hit identities and list

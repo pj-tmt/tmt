@@ -263,7 +263,14 @@ over an all-boards preview; the picker names that masking setting. A failed
 save stays open with a notice; cancel and reopen to read a changed file.
 Agents change the user's appearance only when the user requests it.
 
-The detail pane shows full projected board-column values not already shown by its header, task, activity or links, in column order; values wrap without grid truncation, with `?` for failed providers and `–` for missing values.
+When the squad tab's lead row is selected, detail shows its name with a dim `lead`
+tag, state/model/cap, task, nonempty pending as `◆ waits on you`, and links.
+Missing values are omitted. With no row fields set, it shows
+`no row fields set · tmt sq set <lead> task=…`.
+The dim `notes below · replies at right` line points to the separate panes;
+lead detail reads and displays neither the notebook nor reply bodies.
+
+For members, the detail pane shows full projected board-column values not already shown by its header, task, activity or links, in column order; values wrap without grid truncation, with `?` for failed providers and `–` for missing values.
 
 The replies pane shows full available replies to your squad requests as safe
 Markdown, using the notes pane's styles. Reply bodies are indented; prompts wrap,
@@ -665,7 +672,7 @@ lead is open, clearing after the lead answers and the board refreshes. Notes rem
 read-only. The marker uses the nearest matching quoted excerpt after an edit;
 requests outside the bounded room-history window may not be shown.
 
-The detail pane shows the selected member's own notebook after its fields,
+The detail pane shows the selected non-lead member's own notebook after its fields,
 using the same read-only Markdown/plain rendering as lead notes. A saved member
 without a notebook shows `(no notes yet)`; temporary members show
 `(temporary identity: no notebook)`. Only the visible selected detail is read,

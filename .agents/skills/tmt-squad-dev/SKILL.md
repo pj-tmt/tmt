@@ -18,7 +18,7 @@ Its surface modules under `board/view/` retain the existing painters:
 | `rows`      | Cached row scene preparation, scroll reveal and clipped row hits   |
 | `row_paint` | Row scene: admitted cells, ages, waiting line, `paint_with` hits   |
 | `notes`     | Shared notebook lines, lead notes selection, links and hits        |
-| `detail`    | Selected member fields and notebook                                |
+| `detail`    | Selected row fields; member notebook                               |
 | `replies`   | Safe final bodies, their derived cache and scrolling               |
 | `footer`    | Effective hints, notices, link previews and unanchored input strip |
 | `waiting`   | Acquired decision text, inline composer bands and docked ask-lead  |

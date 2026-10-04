@@ -663,8 +663,12 @@ mod tests {
         );
         let view = snapshot.view.as_mut().unwrap();
         view.bindings = crate::action::preset(true, &view.board.panes);
+        view.document["squad"]["lead"] =
+            serde_json::json!({"id":"LEAD", "name":"lead", "lifetime":"saved"});
         app.apply(snapshot);
         let (events, input) = mpsc::channel();
+        // The first frame selects the lead; only moving to a member may read a notebook.
+        events.send(key(KeyCode::Down)).unwrap();
         let reads = std::cell::RefCell::new(Vec::new());
         let mut terminal =
             ratatui::Terminal::new(ratatui::backend::TestBackend::new(100, 30)).unwrap();

@@ -1054,7 +1054,7 @@ fn help_groups_view_and_theme_bindings_and_lists_no_default_jump_lead() {
     assert!(
         help_lines(&app)
             .iter()
-            .any(|line| line == "L  go to the lead's pane")
+            .any(|line| line == "L  go to the squad lead's pane")
     );
 }
 
@@ -1962,6 +1962,113 @@ fn nested_splits_draw_rows_beside_detail_over_notes() {
         app.key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
         assert_eq!(app.focused(), expected);
     }
+}
+
+#[test]
+fn lead_detail_keeps_fields_separate_from_notebooks_and_replies() {
+    for width in [160, 100, 80] {
+        for (base, depth) in [
+            ("tmt", tmt_cli_style::Depth::TrueColor),
+            ("tmt-light", tmt_cli_style::Depth::TrueColor),
+            ("tmt", tmt_cli_style::Depth::None),
+        ] {
+            for lifetime in ["saved", "temporary"] {
+                let mut app =
+                    board(json!([{"rows": [row("worker", "working", "ship", json!({}))]}]));
+                let view = app.view.as_mut().unwrap();
+                view.look = crate::look::Look {
+                    theme: tmt_cli_style::Theme::new(
+                        tmt_cli_style::theme::Base::parse(base).unwrap(),
+                    ),
+                    depth,
+                };
+                view.document["squad"]["lead"] = json!({
+                    "id": "LEAD", "name": "sol", "lifetime": lifetime, "state": "review",
+                    "pending": "Approve the rollout?",
+                    "fields": {"task": "review the patch", "model": "sol", "cap": "high",
+                        "pr_link": "https://example.com/1741", "link": ""},
+                    "waitingOnYou": [{"preview": "request preview must stay out"}]
+                });
+                view.replies = vec![json!({"response": "Reply sentinel"})];
+                app.notebooks
+                    .borrow_mut()
+                    .keep("LEAD".into(), Notes::Text("Notebook sentinel".into()));
+                let buffer = detail_buffer(&app, width, 20);
+                assert_eq!(
+                    detail_text(&buffer),
+                    [
+                        "sol  lead",
+                        "review · sol · high",
+                        "task: review the patch",
+                        "◆ waits on you: Approve the rollout?",
+                        "links: pr_link https://example.com/1741",
+                        "notes below · replies at right",
+                    ]
+                );
+                assert!(buffer[(0, 0)].modifier.contains(Modifier::BOLD));
+                assert_eq!(
+                    crate::board::glyph_guard::glyph_error(&detail_text(&buffer)[3]),
+                    None
+                );
+                assert_eq!(
+                    buffer[(5, 0)].fg,
+                    app.look().role(Role::Dim).fg.unwrap_or_default()
+                );
+                assert_eq!(
+                    buffer[(0, 3)].fg,
+                    app.look().role(Role::Waiting).fg.unwrap_or_default()
+                );
+                assert_eq!(app.notebook_identity(), None);
+                app.view.as_mut().unwrap().document["squad"]["lead"]["pending"] = Value::Null;
+                let text = detail_text(&detail_buffer(&app, width, 20)).join("\n");
+                assert!(
+                    !text.contains("waits on you"),
+                    "an inbox preview is not lead pending text"
+                );
+                app.select(1);
+                assert!(!app.selected_is_lead());
+                assert!(
+                    detail_text(&detail_buffer(&app, width, 20))
+                        .join("\n")
+                        .contains("─ notebook")
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn lead_detail_omits_missing_fields_and_wraps_safe_text_through_the_shared_scroll() {
+    let mut app = board(json!([]));
+    app.view.as_mut().unwrap().document["squad"]["lead"] = json!({"name": "sol", "id": "LEAD", "lifetime": "saved", "fields": {"task": "", "model": "", "cap": ""}});
+    let buffer = detail_buffer(&app, 100, 20);
+    assert_eq!(
+        detail_text(&buffer),
+        [
+            "sol  lead",
+            "no row fields set · tmt sq set sol task=…",
+            "notes below · replies at right",
+        ]
+    );
+    assert_eq!(
+        buffer[(0, 1)].fg,
+        app.look().role(Role::Dim).fg.unwrap_or_default()
+    );
+    app.view.as_mut().unwrap().document["squad"]["lead"]["fields"]["task"] =
+        json!("one\ntwo\t\u{1b}[31m long task to wrap");
+    let text = detail_text(&detail_buffer(&app, 12, 20)).join("");
+    assert!(text.contains("task:"));
+    assert!(!text.contains('\u{1b}') && !text.contains("no row fields set"));
+    detail_buffer(&app, 12, 3);
+    app.scrolls
+        .scroll(Pane::Detail, super::super::scroll::Step::Bottom);
+    assert!(
+        detail_text(&detail_buffer(&app, 12, 3))
+            .join("")
+            .contains("right")
+    );
+    detail_buffer(&app, 0, 0);
+    detail_buffer(&app, 1, 1);
 }
 
 #[test]

@@ -321,11 +321,5 @@ pub(super) fn render(frame: &mut Frame, app: &App, footer: Rect, look: crate::lo
             span.style = look.role(Role::Dim);
         }
     }
-    strip::paint_left(
-        frame.buffer_mut(),
-        footer,
-        footer_line,
-        &look.theme,
-        look.depth,
-    );
+    strip::paint_left(frame.buffer_mut(), footer, footer_line);
 }
