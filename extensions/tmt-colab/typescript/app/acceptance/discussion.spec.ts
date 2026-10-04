@@ -36,8 +36,15 @@ test('two paired writers retain discussion, anchors and frozen comment Ask throu
     const agent = await world.startAgent('discussion-agent');
     const a = await pairBrowser(world, 'discussion-author');
     const b = await pairBrowser(world, 'discussion-replier');
+    const scrollProof = Array.from(
+      { length: 40 },
+      (_, index) =>
+        `<section><h2>Paragraph ${index + 1}</h2><p>This numbered paragraph is visible page content. Scrolling the browser window moves these lines beneath the fixed Colab header.</p></section>`,
+    ).join('');
     const html =
-      '<h1>Shared review</h1><p id="quote">An &amp; <em>🌍 exact quote</em> for review.</p><p id="next">Another selection.</p><div style="height:2400px">Long-page scroll proof</div>';
+      '<h1>Shared review</h1><p id="quote">An &amp; <em>🌍 exact quote</em> for review.</p><p id="next">Another selection.</p>' +
+      scrollProof +
+      '<h2 id="scroll-end">END OF PAGE</h2>';
     const created = createPage(world, 'Shared review', html);
     const first = await openPage(door, a, created);
     const second = await openPage(door, b, created);
@@ -48,16 +55,30 @@ test('two paired writers retain discussion, anchors and frozen comment Ask throu
     await expect(first.locator('iframe')).toHaveAttribute('scrolling', 'no');
     for (const width of [1440, 390]) {
       await first.setViewportSize({ width, height: 900 });
+      await expect
+        .poll(() =>
+          first
+            .frameLocator('iframe')
+            .locator('html')
+            .evaluate(
+              (node) => node.scrollHeight <= node.ownerDocument.defaultView!.innerHeight + 1,
+            ),
+        )
+        .toBe(true);
       await first.evaluate(() => window.scrollTo(0, 0));
       await first.screenshot({ path: `/tmp/1586-native-${width}-light-long-top.png` });
-      await first.evaluate(() => window.scrollTo(0, 1200));
-      expect(await first.evaluate(() => window.scrollY)).toBeGreaterThan(1000);
-      expect(
-        await first
-          .frameLocator('iframe')
-          .locator('html')
-          .evaluate((node) => node.ownerDocument.defaultView!.scrollY),
-      ).toBe(0);
+      await first.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
+      const windowScrollTop = await first.evaluate(() => document.scrollingElement!.scrollTop);
+      const frameScrollTop = await first
+        .frameLocator('iframe')
+        .locator('html')
+        .evaluate((node) => node.ownerDocument.scrollingElement!.scrollTop);
+      expect(windowScrollTop).toBeGreaterThan(1000);
+      expect(frameScrollTop).toBe(0);
+      await expect(first.frameLocator('iframe').locator('#scroll-end')).toBeInViewport();
+      console.log(
+        JSON.stringify({ width, windowScrollTop, frameScrollTop, marker: 'END OF PAGE' }),
+      );
       expect((await first.locator('.page-bar').boundingBox())?.y).toBe(0);
       await first.screenshot({ path: `/tmp/1586-native-${width}-light-long-scrolled.png` });
     }
