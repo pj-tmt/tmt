@@ -27,11 +27,28 @@ restate them.
 
 ## App build entries
 
-The app build emits its main entry plus a standalone `assets/recovery.js` entry that reuses
-tab coordination (`vp build` then `vp build --mode recovery`; the `build` script runs both).
-Only this recovery script is public; the rest of the app stays owner-gated. Verify its
-private-guidance CSP and pairing failure/reload guard alongside the app lifecycle tests
-(`served.spec.ts`, `session-recovery.test.ts`).
+The app build emits its main entry plus two public standalone entries (`vp build`, then
+`vp build --mode recovery` and `vp build --mode reader`; the `build` script runs all three):
+
+- `assets/recovery.js` reuses tab coordination for private guidance.
+- The read-only reader (`public/reader.html` served at `/read`, `src/reader-main.tsx`) builds as fixed-name
+  `assets/reader.js`, `reader.css` and `reader-fold.js` (the decoder worker), so the native allowlist
+  `assets::anonymous_file` is exact. Add a file to the reader entry only together with that list,
+  the contract's anonymous-asset sentence and `served.spec.ts`.
+
+Only these files and `renderer.html` are public; the rest of the app stays owner-gated. Verify the
+guidance CSP and pairing failure/reload guard alongside the app lifecycle tests (`served.spec.ts`,
+`session-recovery.test.ts`).
+
+## Read-only reader
+
+`src/reader-link.ts` parses the fragment (strict grammar in the contract), `src/reader.ts`
+(`ReaderSession`) derives the link keys with `link.deriveLink`, certifies a fresh in-memory device
+(`link.certifyDevice`), runs challenge, session and sync, and reconnects until access ends.
+It reuses `Admission` through its `ReaderSeat` option (link-addressed wraps, owner-log
+verification, nothing persisted) and `Connection` with the ticket subprotocol. `src/reader-main.tsx`
+removes the fragment first; `src/reader-app.tsx` renders read-only with the sandboxed renderer. The
+owner router, writer, Ask and export modules are not part of this bundle.
 
 ## Restart recovery
 

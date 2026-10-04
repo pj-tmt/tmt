@@ -46,9 +46,11 @@ export class Connection {
   constructor(
     readonly admission: Admission,
     mount: URL,
-    sharing: string,
+    sharing: string | readonly string[],
     readonly publish: (value: PageView) => void,
     readonly failed: (error: Error) => void,
+    /** Offered subprotocols; the server selects only `colab-sync-v1`. A reader appends its ticket. */
+    protocols: readonly string[] = ['colab-sync-v1'],
   ) {
     this.objects = new Objects(admission);
     this.#catchup = new Catchup(admission, sharing, this.objects);
@@ -60,12 +62,12 @@ export class Connection {
     this.#timer = setTimeout(() => this.close(new Error('Page catchup timed out')), 10_000);
     const url = new URL('sync', mount);
     url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
-    const socket = (this.#socket = new WebSocket(url, 'colab-sync-v1'));
+    const socket = (this.#socket = new WebSocket(url, [...protocols]));
     socket.onopen = () => {
       try {
         if (socket.protocol !== 'colab-sync-v1') throw new Error('Invalid sync protocol');
         this.send('hello', {
-          device: admission.registration.deviceId,
+          device: admission.reader?.principal ?? admission.registration.deviceId,
           membershipRevision: admission.head?.revision.toString() ?? '0',
           cursors: [],
         });

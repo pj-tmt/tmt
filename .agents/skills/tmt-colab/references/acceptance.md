@@ -69,6 +69,13 @@ a stand-in. Assert the recipient's text equals the previewed text, including the
 `withWorld` always disposes, and `test.afterEach(disposeActiveWorlds)` does too after a test
 timeout, so a timed-out case leaves no tmux server, process or root behind.
 
+`reader.spec.ts` (#1545) drives the read-only share link: the page, `share link add`/`reset` and `page write`
+are real owner commands, and each reader is an unpaired Chromium profile (`openReaderLink`) that
+never paired with the door. It asserts that an unpaired browser gets no owner file, the fragment
+leaves the address bar, the page shows read-only and live, an owner edit reaches it, no request
+carries the seed, Reset ends the open reader ("Access ended") and the old link, and the
+replacement link opens in a third profile.
+
 `tabs.spec.ts` pins a Remote contract the Ask design depends on: Remote keeps one session per
 device, so a newer `session.open` ends the older session and its tunnels. Two tabs of one paired
 browser are one device, so v1 allows one active tab with explicit takeover.

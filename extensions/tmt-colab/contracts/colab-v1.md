@@ -489,7 +489,7 @@ Colab state is created. A missing, unsafe or incomplete checkout default MUST
 still start the service with the owner build-hint placeholder.
 
 When supplied, build-time `TMT_COLAB_APP_DIR` MUST name an absolute complete Vite
-output directory. The build script requires `index.html`, `renderer.html` and
+output directory. The build script requires `index.html`, `renderer.html`, `reader.html` and
 `THIRD-PARTY-NOTICES.txt`, and validates them with flat `assets/` files using
 the same names, media types, entry references and 128-file/16-MiB bounds as runtime
 admission. Directories and files MUST be real, and files nonempty and regular.
@@ -504,7 +504,7 @@ activation and its archive/install proofs remain owned by infra's #1418.
 Disk loading MUST admit only nonempty regular files through no-follow directory-
 anchored opens. Both disk and embedded inventories MUST have at most 128 files
 and 16 MiB total. The inventory requires
-`index.html` and `renderer.html`, and admits optional `THIRD-PARTY-NOTICES.txt`, and flat generated `assets/` files;
+`index.html`, `renderer.html` and `reader.html`, and admits optional `THIRD-PARTY-NOTICES.txt`, and flat generated `assets/` files;
 unknown output, symlinks and missing HTML entry references reject the inventory.
 JavaScript and CSS are required. Supported asset suffixes are `html`, `js`, `css`,
 `woff2`, `woff`, `ttf`, `otf`, `png`, `jpg`, `jpeg`, `svg`, `webp`, `ico` and `txt`.
@@ -515,8 +515,14 @@ are removed; adopting a rebuilt disk app requires restarting serve; adopting a r
 After existing API/event/upgrade dispatch, owner-context GET `/` and `/index.html`
 MUST return the built HTML; GET of an inventory key MUST return its bytes and
 content type. Asset access MUST NOT require Colab registration, since the app
-performs that registration. Anonymous root GET retains private-space guidance;
-other asset requests without owner context return 403. Unknown paths and owner
+performs that registration. Anonymous root GET retains private-space guidance.
+Without owner context, exactly these static files are served (GET only, the same
+policy headers as owner responses): `/read` (the bytes of `reader.html`),
+`/renderer.html`, `/assets/reader.js`, `/assets/reader.css`, `/assets/reader-fold.js` and
+`/assets/recovery.js`. They are build-owned public bytes with no secret and no API. Every
+other asset request without owner context, including `/index.html`, `/reader.html`,
+`/THIRD-PARTY-NOTICES.txt` and the hashed owner assets, returns 403. `/read` has no trailing
+slash so the entry's relative `./assets/` and `./renderer.html` references resolve under the mount. Unknown paths and owner
 non-GET static requests return 404. Invalid context is rejected by the existing
 HTTP admission. Dot path segments, backslashes, doubled leading slashes, percent
 encodings, queries and fragments MUST reject with 400. No request path is
@@ -552,8 +558,8 @@ The local socket admits explicitly read-only link and anonymous public sessions.
 They use the [Remote route-mounting contract](../../../contracts/remote-channel-v1.md#extension-channel-api)
 without Remote enrollment. Remote's Route mounting section owns subprotocol
 forwarding, reserved-header stripping and logging policy; Colab owns these
-capabilities and their before-delivery admission. Browser reader UI remains a
-separate integration. These routes never confer owner identity or agent access.
+capabilities and their before-delivery admission. These routes never confer owner
+identity or agent access. The [reader link](#read-only-reader-link-1545) opens them in a browser.
 
 `POST /api/readers/challenge` accepts strict JSON, exactly
 `{kind:"public",space,page}` or `{kind:"link",space,page,chain}`. The chain is
@@ -609,7 +615,44 @@ can still certify a fresh device after individual device revocation. Exclusion
 requires link removal/narrowing plus rotation, never merely deleting a ticket.
 Previously written bytes, keys and plaintext cannot be recalled. Mounted native
 lifecycle tests and deterministic duplex blocked-transfer tests exercise these
-fences; browser reader UI remains a separate integration.
+fences.
+
+### Read-only reader link (#1545)
+
+`share link add` and `share link reset` print one openable link for the link they create:
+
+```text
+<door address>/x/colab/read#v=1&space=<spaceId>&page=<pageId>&link=<linkId>&rev=<n>&st=<hash>&seed=<seed32>
+```
+
+The CLI prints the relative form `x/colab/read#...` (field `readerPath`), like `page create`'s
+`path`; the owner prepends the Remote door address `tmt remote pair` printed. Everything is in
+the fragment, which a browser never sends to a server. Path and query carry nothing, and the
+seed appears nowhere else in any output. `rev` and `st` are the revision and canonical
+base64url hash of the `link.add` statement that introduced the link: the link-device chain
+must name that statement, and a wrong value only fails the server's chain check. The grammar is
+strict: `v` is `1`; each of `v`, `space`, `page`, `link`, `rev`, `st`, `seed` appears exactly
+once in any order; values are canonical (`space` and IDs as everywhere, `rev` a positive
+decimal, `st` and `seed` unpadded base64url of 32 bytes); anything else, including percent
+escapes, an unknown key or more than 512 bytes, is not a reader link.
+
+The public `/read` entry removes the fragment from the address bar before any other work
+(a reload therefore needs the full link again). In memory only, it derives the link keys from
+the seed with the model's `link::Keys` derivation, wipes the seed, generates a fresh Ed25519
+device key and certifies it as a `link` issuer chain (certificate window: ten minutes of skew
+before now, 24 hours after), then runs the challenge and session exchange above and opens
+`/sync` with the ticket subprotocol; hello names the session's `principal`. It checks that the
+returned owner key derives the linked `space`, verifies the owner log and link-addressed wraps
+with the owner-browser rules, and pins and stores nothing in the owner app's records
+(IndexedDB, local or session storage, cookies). It shows the page read-only and live, with no
+editor, Ask, share, export or history control. The ten-minute session ends in a reconnect with
+a fresh challenge; a `DENIED`/`STALE_EPOCH` result or a 403 from the exchange ends access
+("Access ended"), which is what Reset, remove, narrowing or rotation produce. Every
+challenge adds a link-device projection on the server, so a holder that opens the link often
+adds one row per open until the link is removed or reset.
+
+Reader access is limited to whoever can reach the loopback or Remote door and holds the link.
+The CLI help and the entry say so plainly.
 
 ## Page state, roles and epochs
 
@@ -1714,16 +1757,22 @@ ls [--archived]
 show <page>
 share mode <page> <private|link|public>
 share link list <page>
-share link add <page> --seed-file <file|-> [--link-id <uuid>]
-share link reset <page> <link> --seed-file <file|-> [--link-id <uuid>]
+share link add <page> [--seed-file <file|->] [--link-id <uuid>]
+share link reset <page> <link> [--seed-file <file|->] [--link-id <uuid>]
 share link remove <page> <link>
 ```
 
 All commands support human output and one `--json` document. Top-level `ls`
 and `share link ls` have hidden `list` aliases, following the shared CLI style.
 Audience widening and link addition/Reset MUST require explicit `--yes`; absent
-confirmation sends and writes nothing. Seeds are canonical base64url seed32
-from an owned regular 0600 file or bounded stdin, never argv or output.
+confirmation sends and writes nothing. A seed is canonical base64url seed32 from an
+owned regular 0600 file or bounded stdin (`--seed-file`, for scripts and exact retries),
+never argv. Without `--seed-file`, `link add` and `link reset` generate a fresh seed from
+the OS RNG. The seed is persisted nowhere and appears in output only inside the
+[reader link](#read-only-reader-link-1545) fragment (`readerPath`) that a successful add or
+reset prints once; `ls`, `remove` and every other output never carry it. After an uncertain
+outcome, retry with the same `--link-id` and `--seed-file`; a generated seed is not
+recoverable, so the fallback is Reset.
 Links created or reset by this v1 CLI always have the viewer role. Removal/Reset
 capture complete verified assignments. Member, history, retention, archive and
 delete commands are deferred beyond v1.

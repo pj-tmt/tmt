@@ -163,8 +163,12 @@ for (let run = 1; run <= 2; run++) {
       expect(await renderer.body()).toEqual(await readFile(app + '/renderer.html'));
       expect(renderer.headers()['content-security-policy']).toContain('sandbox allow-scripts');
       expect(renderer.headers()['content-security-policy']).toContain("connect-src 'none'");
+      // The renderer is public static bytes: the read-only entry frames pages with it too.
       const anonymousRenderer = await fetch(server.origin + mount + 'renderer.html');
-      expect(anonymousRenderer.status).toBe(403);
+      expect(anonymousRenderer.status).toBe(200);
+      expect(anonymousRenderer.headers.get('content-security-policy')).toContain(
+        'sandbox allow-scripts',
+      );
       // The test door does not serve Remote's SDK. Its visible blocking state
       // proves the actual compiled mounted entry ran, rather than a preview.
       await expect(page.getByRole('alert')).toContainText('Could not open this paired space');
@@ -214,10 +218,14 @@ for (let run = 1; run <= 2; run++) {
         );
       }
       expect(requests.every((url) => new URL(url).origin === server.origin)).toBe(true);
+      // Owner files stay owner-only; only the exact public allowlist is anonymous.
+      const publicFiles = ['reader.js', 'reader.css', 'reader-fold.js', 'recovery.js'];
       const anonymous = await fetch(
-        server.origin + mount + 'assets/' + files.find((name) => name !== 'recovery.js'),
+        server.origin + mount + 'assets/' + files.find((name) => !publicFiles.includes(name)),
       );
       expect(anonymous.status).toBe(403);
+      expect((await fetch(server.origin + mount + 'index.html')).status).toBe(403);
+      expect((await fetch(server.origin + mount + 'reader.html')).status).toBe(403);
       const publicRecovery = await fetch(server.origin + mount + 'assets/recovery.js');
       expect(publicRecovery.status).toBe(200);
       expect(Buffer.from(await publicRecovery.arrayBuffer())).toEqual(
@@ -328,3 +336,71 @@ for (let run = 1; run <= 2; run++) {
     }
   });
 }
+
+// #1545: the public read-only entry is served to an unpaired browser as static bytes only. The
+// real executable answers; the test door forwards without owner context.
+test('public reader entry: exact static bytes, link fragment removed, and no access without a grant', async ({
+  page,
+  context,
+}) => {
+  const server = await serve(false);
+  try {
+    const entry = await fetch(server.origin + mount + 'read');
+    expect(entry.status).toBe(200);
+    expect(Buffer.from(await entry.arrayBuffer())).toEqual(await readFile(app + '/reader.html'));
+    expect(entry.headers.get('content-security-policy')).toContain("script-src 'self'");
+    expect(entry.headers.get('cache-control')).toBe('no-store');
+    for (const name of ['reader.js', 'reader.css', 'reader-fold.js']) {
+      const asset = await fetch(server.origin + mount + 'assets/' + name);
+      expect(asset.status).toBe(200);
+      expect(Buffer.from(await asset.arrayBuffer())).toEqual(
+        await readFile(app + '/assets/' + name),
+      );
+    }
+    expect((await fetch(server.origin + mount + 'renderer.html')).status).toBe(200);
+    // Nothing else of the owner surface opens without owner context.
+    for (const path of ['index.html', 'api/pages', 'api/session', 'THIRD-PARTY-NOTICES.txt'])
+      expect((await fetch(server.origin + mount + path)).status).toBe(403);
+
+    const requests: { url: string; body: string | null }[] = [];
+    page.on('request', (request) =>
+      requests.push({ url: request.url(), body: request.postData() }),
+    );
+    // A malformed link explains itself, and its fragment leaves the address bar first.
+    await page.goto(server.origin + mount + 'read#v=1&seed=not-a-seed');
+    await expect(page.getByRole('alert')).toContainText('incomplete or malformed');
+    expect(await page.evaluate(() => location.hash)).toBe('');
+    // A well-formed link for a space this server does not hold has no grant: access ended.
+    const seed = Buffer.alloc(32, 7).toString('base64url');
+    const statement = Buffer.alloc(32, 9).toString('base64url');
+    const link = [
+      'v=1',
+      'space=' + 'a'.repeat(32),
+      'page=10000000-0000-4000-8000-000000000001',
+      'link=20000000-0000-4000-8000-000000000001',
+      'rev=4',
+      'st=' + statement,
+      'seed=' + seed,
+    ].join('&');
+    await page.goto('about:blank'); // A hash-only change would not reload the entry.
+    await page.goto(server.origin + mount + 'read#' + link);
+    await expect(page.getByRole('heading', { name: 'Access ended' })).toBeVisible();
+    expect(await page.evaluate(() => location.hash)).toBe('');
+    // The seed is in no request, and the reader stored nothing in the browser.
+    expect(requests.filter((r) => r.url.includes(seed) || (r.body ?? '').includes(seed))).toEqual(
+      [],
+    );
+    expect(
+      await page.evaluate(async () => ({
+        local: localStorage.length,
+        session: sessionStorage.length,
+        databases: (await indexedDB.databases()).length,
+        cookie: document.cookie,
+      })),
+    ).toEqual({ local: 0, session: 0, databases: 0, cookie: '' });
+    await context.clearCookies();
+  } finally {
+    await page.goto('about:blank');
+    await server.close();
+  }
+});

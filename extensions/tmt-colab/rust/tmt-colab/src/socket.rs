@@ -544,9 +544,16 @@ fn serve(
         live.fetch_sub(1, Ordering::AcqRel);
         return;
     }
-    if request.method == "GET" && request.path == "/assets/recovery.js" {
-        if let Some((kind, bytes)) = browser.app.as_ref().and_then(|app| app.find(&request.path)) {
-            let _ = response_with_policy(&mut socket, 200, bytes, kind, assets::POLICY);
+    if request.method == "GET"
+        && let Some(file) = assets::anonymous_file(&request.path)
+    {
+        if let Some((kind, bytes)) = browser.app.as_ref().and_then(|app| app.find(file)) {
+            let policy = if file == "/renderer.html" {
+                assets::RENDERER_POLICY
+            } else {
+                assets::POLICY
+            };
+            let _ = response_with_policy(&mut socket, 200, bytes, kind, policy);
         } else {
             let _ = response(&mut socket, 404, b"NOT FOUND", false);
         }
@@ -567,6 +574,7 @@ fn serve(
     if request.path.starts_with("/assets/")
         || request.path == "/index.html"
         || request.path == "/renderer.html"
+        || request.path == "/reader.html"
         || request.path == "/THIRD-PARTY-NOTICES.txt"
     {
         let (status, bytes): (_, &[u8]) = if request.owner.is_none() {

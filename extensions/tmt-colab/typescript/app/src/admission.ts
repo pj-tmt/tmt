@@ -2,6 +2,7 @@ import {
   binary,
   certificate,
   decimal,
+  deriveSpaceId,
   equal,
   encodeBinary,
   exactKeys,
@@ -25,7 +26,15 @@ export class StatementTransfer {
   ) {}
 }
 
-/** Owner-browser content subset. A transport head/hash is never log authority. */
+/** A read-only link device: wraps addressed to the link open its page key, and nothing about
+ * the verified log is persisted, because a reader pins nothing in the owner app's storage. */
+export interface ReaderSeat {
+  linkId: string;
+  /** The server-issued reader principal that hello names; it is not the link device's ID. */
+  principal: string;
+}
+
+/** Content subset for the owner browser or a link reader. A transport head/hash is never log authority. */
 export class Admission {
   head: statement.Head | null = null;
   #log: statement.Verified[] = [];
@@ -39,8 +48,13 @@ export class Admission {
     readonly epoch: string,
     readonly owner: Uint8Array,
     readonly registration: Registration,
+    readonly reader?: ReaderSeat,
   ) {}
   async restore() {
+    if (this.reader) {
+      requireValue((await deriveSpaceId(this.owner)) === this.space);
+      return;
+    }
     await verifyRegistration(this.registration, this.space, this.owner);
     const stored = (await record<string[]>(`log:${this.space}`)) ?? [];
     requireValue(Array.isArray(stored) && stored.every((raw) => typeof raw === 'string'));
@@ -116,16 +130,17 @@ export class Admission {
         : head.revision === target.revision && equal(head.hash, target.hash),
     );
     this.#budget(raw);
-    await navigator.locks.request(`colab-log:${this.space}`, async () => {
-      const previous = await record<string[]>(`log:${this.space}`);
-      // Another tab may have advanced. Never replace its higher/forked durable head.
-      if (previous && previous.length > raw.length) {
-        requireValue(raw.every((v, i) => previous[i] === v));
-      } else {
-        requireValue(!previous || previous.every((v, i) => raw[i] === v));
-        await record(`log:${this.space}`, raw);
-      }
-    });
+    if (!this.reader)
+      await navigator.locks.request(`colab-log:${this.space}`, async () => {
+        const previous = await record<string[]>(`log:${this.space}`);
+        // Another tab may have advanced. Never replace its higher/forked durable head.
+        if (previous && previous.length > raw.length) {
+          requireValue(raw.every((v, i) => previous[i] === v));
+        } else {
+          requireValue(!previous || previous.every((v, i) => raw[i] === v));
+          await record(`log:${this.space}`, raw);
+        }
+      });
     // Publish only after every check and durable transaction completes.
     this.head = head;
     this.#log = log;
@@ -172,18 +187,18 @@ export class Admission {
           equal(h.signerKey, this.owner),
       );
       previous = epoch;
+      const own = this.reader
+        ? h.recipientKind === 'link' && h.recipientId === this.reader.linkId
+        : h.recipientKind === 'device' && h.recipientId === this.registration.deviceId;
       requireValue(
-        (h.recipientKind === 'device' && h.recipientId === this.registration.deviceId) ||
-          (h.recipientKind === 'member' && h.recipientId === this.head.ownerMember.id),
+        own ||
+          (!this.reader &&
+            h.recipientKind === 'member' &&
+            h.recipientId === this.head.ownerMember.id),
       );
       await envelope.verifyOwner(this.owner);
       // A member wrap cannot be opened by a device key. Do not substitute its key or authority.
-      if (
-        h.recipientKind !== 'device' ||
-        h.recipientId !== this.registration.deviceId ||
-        h.epoch !== this.epoch
-      )
-        continue;
+      if (!own || h.epoch !== this.epoch) continue;
       const secret = await envelope.open(h, this.registration.keys.enc, this.owner);
       try {
         requireValue(this.root === null);
@@ -272,7 +287,7 @@ export class Admission {
     );
     return c.signingKey.slice();
   }
-  validatePage(sharing: string) {
+  validatePage(sharing: string | readonly string[]) {
     let epoch: string | undefined,
       mode = 'private';
     for (const { payload: p } of this.#log) {
@@ -287,6 +302,6 @@ export class Admission {
       )
         throw new Error('Page unavailable');
     }
-    requireValue(epoch === this.epoch && mode === sharing);
+    requireValue(epoch === this.epoch && [sharing].flat().includes(mode));
   }
 }
