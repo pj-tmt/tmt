@@ -1844,7 +1844,10 @@ archive <page>
 delete <page> --yes
 ```
 
-All commands support human output and one `--json` document. Top-level `ls`
+All commands support human output and one `--json` document. Human retention
+reads show a day count or forever and omit policy fields absent from that view.
+Mutation summaries use readable operation, expected revision and membership labels;
+JSON field names and values stay unchanged. Top-level `ls`
 and `share link ls` have hidden `list` aliases, following the shared CLI style.
 Audience widening and link addition/Reset MUST require explicit `--yes`; absent
 confirmation sends and writes nothing. The full management commands (#1572)

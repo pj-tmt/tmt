@@ -771,17 +771,26 @@ fn human_fields(value: &Value) -> Result<Vec<(String, String)>> {
                 if let Some(title) = v["title"].as_str() {
                     fields.push(("title".to_owned(), title.to_owned()));
                 }
-                fields.push((
-                    "audience".to_owned(),
-                    format!(
-                        "{} · {} history",
-                        v["sharing"].as_str().unwrap_or("private"),
-                        v["history"].as_str().unwrap_or("shared")
-                    ),
-                ));
-                fields.push(("epoch".to_owned(), text(&v["epoch"])));
-                if let Some(days) = v["retentionDays"].as_u64() {
-                    fields.push(("retention".to_owned(), format!("{days} days")));
+                if let (Some(sharing), Some(history)) =
+                    (v["sharing"].as_str(), v["history"].as_str())
+                {
+                    fields.push((
+                        "audience".to_owned(),
+                        format!("{sharing} · {history} history"),
+                    ));
+                }
+                if let Some(epoch) = v["epoch"].as_str() {
+                    fields.push(("epoch".to_owned(), epoch.to_owned()));
+                }
+                if let Some(days) = v.get("retentionDays") {
+                    fields.push((
+                        "retention".to_owned(),
+                        if days.is_null() {
+                            "forever".to_owned()
+                        } else {
+                            format!("{} days", text(days))
+                        },
+                    ));
                 }
                 if v["archived"] == true {
                     fields.push(("archived".to_owned(), "yes".to_owned()));
@@ -805,6 +814,9 @@ fn human_fields(value: &Value) -> Result<Vec<(String, String)>> {
                 "reader link".to_owned(),
                 crate::door::Door::hint(&crate::door::Lookup::Unknown, &text(v)),
             )),
+            "operationId" => fields.push(("operation".to_owned(), text(v))),
+            "expectedRevision" => fields.push(("expected revision".to_owned(), text(v))),
+            "linkId" => fields.push(("link".to_owned(), text(v))),
             "members" => fields.push(("members".to_owned(), principals(v))),
             "links" => fields.push(("links".to_owned(), principals(v))),
             _ => fields.push((key.clone(), text(v))),

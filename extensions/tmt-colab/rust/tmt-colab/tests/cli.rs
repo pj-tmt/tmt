@@ -1530,7 +1530,12 @@ fn full_management_confirmation_input_and_retention_reads_preserve_state() {
         assert_eq!(pilot.call(&["retention", PAGE, "--json"]), before);
         let human = pilot.command().args(["retention", PAGE]).output().unwrap();
         assert!(human.status.success());
-        assert!(String::from_utf8_lossy(&human.stdout).contains("retentionDays"));
+        let shown = String::from_utf8(human.stdout).unwrap();
+        assert!(shown.contains(PAGE));
+        assert!(shown.contains("retention") && shown.contains("30 days"));
+        assert!(shown.contains("membership") && shown.contains("revision"));
+        assert!(!shown.contains("retentionDays") && !shown.contains('{'));
+        assert!(!shown.contains("audience") && !shown.contains("epoch"));
         assert!(
             String::from_utf8_lossy(&human.stderr).contains("Expiry times are not available yet")
         );
@@ -1540,6 +1545,21 @@ fn full_management_confirmation_input_and_retention_reads_preserve_state() {
         pilot.call(&["share", "history", PAGE, "shared", "--yes", "--json"]);
         for mut args in [
             add,
+            vec![
+                "share".into(),
+                "member".into(),
+                "role".into(),
+                PAGE.into(),
+                MEMBER.into(),
+                "viewer".into(),
+            ],
+            vec![
+                "share".into(),
+                "member".into(),
+                "remove".into(),
+                PAGE.into(),
+                MEMBER.into(),
+            ],
             vec!["retention".into(), PAGE.into(), "forever".into()],
             vec!["archive".into(), PAGE.into()],
             vec!["delete".into(), PAGE.into()],
@@ -1548,7 +1568,22 @@ fn full_management_confirmation_input_and_retention_reads_preserve_state() {
             let human = pilot.command().args(&args).output().unwrap();
             assert!(human.status.success(), "{human:?}");
             assert!(human.stderr.is_empty());
-            assert!(String::from_utf8_lossy(&human.stdout).contains("operationId"));
+            let shown = String::from_utf8(human.stdout).unwrap();
+            assert!(shown.contains("operation"));
+            assert!(shown.contains("expected revision"));
+            assert!(shown.contains("membership") && shown.contains("revision"));
+            assert!(!shown.contains("operationId") && !shown.contains("expectedRevision"));
+            assert!(!shown.contains('{'));
+            if args[0] == "retention" {
+                let read = pilot.command().args(["retention", PAGE]).output().unwrap();
+                assert!(read.status.success());
+                let shown = String::from_utf8(read.stdout).unwrap();
+                assert!(shown.contains("retention") && shown.contains("forever"));
+                assert_eq!(
+                    pilot.call(&["retention", PAGE, "--json"])["page"]["retentionDays"],
+                    Value::Null
+                );
+            }
         }
         if serving {
             pilot.stop();
