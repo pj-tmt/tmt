@@ -87,8 +87,13 @@ cost or text volume. `board::rate` owns evidence, `board::meter` presentation an
   `ColumnSource` resolves `usage.w1`–`usage.w3` by window index. One-shot
   `ls` has no history: JSON keeps descriptors without usage values and text skips
   board-only columns. Policy changes start fresh observations. The default grid
-  hides PR before longest-to-shortest windows, then model; model width follows
-  content up to 14 cells.
+  reserves a 20-cell TASK minimum. Sampling off hides usage tracks through
+  `Rows.hidden_columns` while retaining MODEL. With sampling on, authored
+  window-column priority ranks keep the active window longest: inactive windows
+  step aside before PR, then model, then the active window. `Rows.select_window`
+  reorders those ranks; App applies it and invalidates the grid immediately on
+  selection, even when usage values are unchanged. Model width follows content
+  up to 14 cells; paint has no meter-specific fitting branch.
 - HOME: separate typed `View.home_rate` templates supply each squad roster. While
   HOME is open and any squad enables observation, one global public `ls --json`
   per sampling cycle is indexed once and joined into the same retained meters.

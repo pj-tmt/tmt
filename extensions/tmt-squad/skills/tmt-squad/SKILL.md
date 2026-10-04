@@ -635,9 +635,11 @@ Custom grids opt in with `from = "usage.w1"`, `"usage.w2"`, or `"usage.w3"` on a
 column. Default headers follow `tok`; an explicit `title` stays as configured.
 One-shot `tmt sq ls` has no window history. JSON keeps column descriptors without
 usage values; text omits columns whose source is board-only.
-On narrow default member grids, PR steps aside first, then the longest, middle
-and shortest configured windows, and finally MODEL. MODEL follows its content
-up to 14 cells and truncates longer names.
+When token sampling is off, usage columns hide and MODEL remains. Default
+member grids keep at least 20 cells for TASK when space permits. On narrow
+boards, inactive window columns step aside first, then PR, then MODEL, and
+finally the active window. Pressing `w` also changes which window stays visible
+longest. MODEL follows its content up to 14 cells and truncates longer names.
 
 Input and output count once; cached input is already included in input, and
 normalized reasoning in output. Mixed providers sum reported token units, not
@@ -805,9 +807,10 @@ Widening restores automatically folded panes without moving focus; manual folds
 keep the session policy described above. Custom split
 boards can set `fold_below` with width 1–1000 and panes present in their layout.
 
-Member, state, PR and model use percentage widths (22%, 14%, 24%, 16%);
-task grows into the remaining space. Model yields first when space is short,
-then PR; member/state/task remain. Values truncate with the existing ellipsis.
+Member, state and PR use percentage widths (22%, 14%, 24%); TASK grows from
+a 20-cell minimum and MODEL follows its content up to 14 cells. Usage columns
+follow the sampling and active-window policy under Observed token usage above.
+Values truncate with the existing ellipsis.
 
 Team uses crew states and pending-first ordering. Rows show member, state,
 task, PR and model (`session.model` from the existing presence read); pending

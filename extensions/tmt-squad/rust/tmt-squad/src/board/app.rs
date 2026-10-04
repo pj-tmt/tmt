@@ -556,17 +556,27 @@ impl App {
 
     /// Replace only the board display projection. Sampling never changes public ls JSON.
     pub(super) fn project_usage(&mut self, now: Instant) {
-        let Some(view) = &self.view else {
-            self.usage_document = None;
-            return;
-        };
         if self.loading() {
             return;
         } // Keep the retained view's values while switching.
+        let Some(view) = self.view.as_mut() else {
+            self.usage_document = None;
+            return;
+        };
         let Some(meter) = self.meter.as_ref().filter(|m| m.settings.enabled) else {
             self.usage_document = None;
             return;
         };
+        if view.rows.select_window(
+            meter
+                .settings
+                .windows
+                .iter()
+                .position(|window| *window == self.token_window)
+                .unwrap_or(0),
+        ) {
+            view.derived.borrow_mut().grid = None;
+        }
         let mut document = view.document.clone();
         for section in document["sections"].as_array_mut().into_iter().flatten() {
             for row in section["rows"].as_array_mut().into_iter().flatten() {
@@ -1508,7 +1518,9 @@ impl App {
                 if let Some(meter) = self.meter.as_mut() {
                     self.token_window = self.token_window.next(meter.settings.windows);
                     self.window_changed = true;
-                    meter.select(self.token_window, Instant::now());
+                    let now = Instant::now();
+                    meter.select(self.token_window, now);
+                    self.project_usage(now);
                     self.notice = Some(format!("Token window: {}", self.token_window.label()));
                 }
                 return Effect::None;
@@ -4413,6 +4425,24 @@ mod token_window_tests {
         app.key(key);
         assert_eq!(app.token_window, TokenWindow::MINUTE);
     }
+    #[test]
+    fn window_switch_updates_column_priority_even_with_unchanged_zero_values() {
+        let mut app = app();
+        let settings = crate::config::Config::read(
+            std::env::temp_dir().join(format!("active-window-{}.toml", std::process::id())),
+        )
+        .unwrap();
+        app.view.as_mut().unwrap().rows = settings.rows("product").unwrap();
+        app.project_usage(Instant::now());
+        for selected in [0, 1, 2, 0] {
+            let view = app.view.as_ref().unwrap();
+            for (index, column) in view.rows.columns[5..].iter().enumerate() {
+                assert_eq!(column.priority == Some(1), index == selected);
+            }
+            app.key(KeyEvent::new(KeyCode::Char('w'), KeyModifiers::NONE));
+        }
+    }
+
     #[test]
     fn tab_rings_are_reused_and_pruned_against_configured_tabs() {
         let mut app = app();

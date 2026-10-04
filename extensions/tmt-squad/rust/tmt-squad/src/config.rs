@@ -298,12 +298,12 @@ token_rate = { enabled = true }
 columns = [
     { name = "member", width = "22%", min = 12, max = 24 },
     { name = "state", width = "14%", min = 9, max = 10 },
-    { name = "task", grow = 1, min = 18 },
+    { name = "task", grow = 1, min = 20 },
     { name = "pr", width = "24%", min = 12, max = 28, priority = 6 },
     { name = "model", from = "session.model", max = 14, priority = 2 },
-    { name = "tok_1", from = "usage.w1", format = "tokens", width = 7, min = 5, align = "right", priority = 3 },
-    { name = "tok_2", from = "usage.w2", format = "tokens", width = 7, min = 5, align = "right", priority = 4 },
-    { name = "tok_3", from = "usage.w3", format = "tokens", width = 7, min = 5, align = "right", priority = 5 },
+    { name = "tok_1", from = "usage.w1", format = "tokens", width = 7, min = 5, align = "right", priority = 1 },
+    { name = "tok_2", from = "usage.w2", format = "tokens", width = 7, min = 5, align = "right", priority = 8 },
+    { name = "tok_3", from = "usage.w3", format = "tokens", width = 7, min = 5, align = "right", priority = 9 },
 ]
 lines = [["member", "state", "task", "pr", "model", "tok_1", "tok_2", "tok_3"], ["", "", { field = "pending", span = 6, token = "waiting" }]]
 [team.fields.pr]
@@ -319,12 +319,12 @@ const CREW: &str = r#"
 columns = [
     { name = "member", width = 14 },
     { name = "state", width = 10 },
-    { name = "task", grow = 1 },
+    { name = "task", grow = 1, min = 20 },
     { name = "pr_link", title = "PR", width = 12, priority = 6 },
     { name = "model", from = "session.model", max = 14, priority = 2 },
-    { name = "tok_1", from = "usage.w1", format = "tokens", width = 7, min = 5, align = "right", priority = 3 },
-    { name = "tok_2", from = "usage.w2", format = "tokens", width = 7, min = 5, align = "right", priority = 4 },
-    { name = "tok_3", from = "usage.w3", format = "tokens", width = 7, min = 5, align = "right", priority = 5 },
+    { name = "tok_1", from = "usage.w1", format = "tokens", width = 7, min = 5, align = "right", priority = 1 },
+    { name = "tok_2", from = "usage.w2", format = "tokens", width = 7, min = 5, align = "right", priority = 8 },
+    { name = "tok_3", from = "usage.w3", format = "tokens", width = 7, min = 5, align = "right", priority = 9 },
 ]
 lines = [["member", "state", "task", "pr_link", "model", "tok_1", "tok_2", "tok_3"]]
 "#;
@@ -1422,13 +1422,35 @@ impl Config {
         self.rows_setting(squad).map(|resolved| resolved.0)
     }
     fn read_rows(&self, squad: &str) -> Result<crate::rows::Rows, SquadError> {
-        crate::rows::read_with_windows(
+        let rate = self.token_rate(squad)?;
+        let mut rows = crate::rows::read_with_windows(
             self.preset_settings(squad)?
                 .as_ref()
                 .map(|table| table as &dyn TableLike),
             squad,
-            self.token_windows(squad)?.0,
-        )
+            rate.windows,
+        )?;
+        if rate.enabled {
+            rows.select_window(
+                rate.windows
+                    .iter()
+                    .position(|window| *window == rate.window)
+                    .unwrap_or(0),
+            );
+        } else {
+            for column in &rows.columns {
+                if column
+                    .from
+                    .as_ref()
+                    .and_then(crate::source::ColumnSource::window)
+                    .is_some()
+                    && !rows.hidden_columns.contains(&column.field)
+                {
+                    rows.hidden_columns.push(column.field.clone());
+                }
+            }
+        }
+        Ok(rows)
     }
 
     fn view_setting(
@@ -3944,6 +3966,54 @@ filter = "not pending"
             assert!(read(&format!("[squad.p.board.token_rate]\n{setting}"), "p").is_err());
         }
     }
+    #[test]
+    fn crew_sampling_policy_hides_windows_and_preserves_task_and_active_column() {
+        let path = temp("crew-window-policy");
+        for enabled in [false, true] {
+            fs::write(
+                &path,
+                format!(
+                    "[squad.p]\nlayout='crew'\n[squad.p.board.token_rate]\nenabled={enabled}\n"
+                ),
+            )
+            .unwrap();
+            let config = Config::read(path.clone()).unwrap();
+            let mut rows = config.rows("p").unwrap();
+            assert!(!rows.hidden_columns.contains(&"model".into()));
+            if !enabled {
+                assert_eq!(rows.hidden_columns, ["tok_1", "tok_2", "tok_3"]);
+            }
+            for selected in 0..3 {
+                rows.select_window(selected);
+                for available in [68, 56] {
+                    let grid = crate::markup::Grid::compile(
+                        &rows,
+                        |i| rows.columns[i].title.len(),
+                        available,
+                    )
+                    .unwrap();
+                    assert!(
+                        grid.columns[2].unwrap() >= 20,
+                        "{enabled} {available}: {:?}",
+                        grid.columns
+                    );
+                    if enabled {
+                        assert!(
+                            grid.columns[5 + selected].is_some(),
+                            "{available}: {:?}",
+                            grid.columns
+                        );
+                        assert_eq!(grid.columns[5..].iter().flatten().count(), 1);
+                    } else {
+                        assert!(grid.columns[4].is_some());
+                        assert!(grid.columns[5..].iter().all(Option::is_none));
+                    }
+                }
+            }
+        }
+        fs::remove_file(path).unwrap();
+    }
+
     #[test]
     fn tok_windows_validate_masked_layers_and_report_the_source() {
         let path = temp("tok-windows");

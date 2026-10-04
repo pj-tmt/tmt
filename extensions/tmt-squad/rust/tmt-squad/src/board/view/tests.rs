@@ -501,7 +501,7 @@ fn default_team_is_readable_at_80_120_and_200_columns() {
         );
         assert_eq!(widths.len(), 8);
         assert!(widths[4].is_none_or(|width| width <= 14), "model cap");
-        for (earlier, later) in [(3, 7), (7, 6), (6, 5), (5, 4)] {
+        for (earlier, later) in [(7, 6), (6, 3), (3, 4), (4, 5)] {
             assert!(widths[earlier].is_none() || widths[later].is_some());
         }
         assert!(

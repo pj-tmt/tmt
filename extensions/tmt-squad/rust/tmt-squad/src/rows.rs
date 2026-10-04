@@ -284,6 +284,31 @@ impl Rows {
             .unwrap_or(0)
     }
 
+    /// Keep the active observation column longest using the authored priority ranks.
+    /// Unprioritized columns remain under the user's fixed visibility policy.
+    pub(super) fn select_window(&mut self, selected: usize) -> bool {
+        let mut columns: Vec<_> = self
+            .columns
+            .iter()
+            .enumerate()
+            .filter_map(|(index, column)| {
+                Some((index, column.from.as_ref()?.window()?, column.priority?))
+            })
+            .collect();
+        if !columns.iter().any(|(_, window, _)| *window == selected) {
+            return false;
+        }
+        let mut priorities: Vec<_> = columns.iter().map(|(_, _, priority)| *priority).collect();
+        priorities.sort_unstable();
+        columns.sort_by_key(|(index, window, _)| (*window != selected, *index));
+        let mut changed = false;
+        for ((index, _, _), priority) in columns.into_iter().zip(priorities) {
+            changed |= self.columns[index].priority != Some(priority);
+            self.columns[index].priority = Some(priority);
+        }
+        changed
+    }
+
     /// Legacy CLI-policy oracle for coverage tests; production boards use Taffy.
     #[cfg(test)]
     pub fn solve(
