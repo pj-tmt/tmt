@@ -391,7 +391,7 @@ fn label(
         (attention.blocked, Mark::Failed),
     ] {
         if count > 0 {
-            marks.push_str(&format!("{} {count}", mark.symbol()));
+            marks.push_str(&format!(" {} {count}", mark.symbol()));
         }
     }
     Label {
@@ -464,7 +464,7 @@ fn overflow(
         ] {
             if count > 0 {
                 line.spans.push(Span::styled(
-                    format!("{} {count}", mark.symbol()),
+                    format!(" {} {count}", mark.symbol()),
                     look.named(color).add_modifier(Modifier::BOLD),
                 ));
             }
@@ -939,7 +939,7 @@ mod tests {
             line.contains(" sq4 "),
             "the current tab stays in view: {line:?}"
         );
-        assert!(line.contains(" ›") && line.contains("sq8◆ 2"), "{line:?}");
+        assert!(line.contains(" ›") && line.contains("sq8 ◆ 2"), "{line:?}");
         // The left count hides a blocked tab, the right one a waiting tab.
         assert_eq!(
             buffer[(0, 0)].fg,
@@ -1408,7 +1408,7 @@ mod tests {
         let original = app.tabs.clone();
         let line = draw(&app, 80, 6)[0].clone();
         assert!(
-            line.contains("+5 › waiting◆ 2✗ 1 other-waiting◆ 1 blocked✗ 3"),
+            line.contains("+5 › waiting ◆ 2 ✗ 1 other-waiting ◆ 1 blocked ✗ 3"),
             "{line}"
         );
         assert!(line.ends_with('…'), "{line}");

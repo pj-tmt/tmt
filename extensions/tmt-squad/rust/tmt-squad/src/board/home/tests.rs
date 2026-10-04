@@ -45,6 +45,7 @@ fn glyph_error(text: &str) -> Option<String> {
         .chain(['◐', '✎'])
         .collect::<std::collections::BTreeSet<_>>();
     let mut chars = text.chars().peekable();
+    let mut previous: Option<char> = None;
     while let Some(character) = chars.next() {
         let structural = STRUCTURAL_GLYPHS.iter().any(|(glyphs, reason)| {
             assert!(!reason.is_empty());
@@ -60,9 +61,16 @@ fn glyph_error(text: &str) -> Option<String> {
         if (emoji || ambiguous) && !structural && !marks.contains(&character) {
             return Some(format!("unregistered decorative glyph {character:?}"));
         }
+        if states.contains(&character)
+            && !character.is_ascii()
+            && previous.is_some_and(|previous| !previous.is_whitespace())
+        {
+            return Some(format!("state mark {character:?} needs a leading space"));
+        }
         if states.contains(&character) && chars.peek() != Some(&' ') {
             return Some(format!("state mark {character:?} needs a trailing space"));
         }
+        previous = Some(character);
     }
     None
 }
@@ -80,6 +88,7 @@ fn glyph_guard_rejects_unregistered_ambiguous_and_emoji_decorations_and_unspaced
         "◐0",
         "◆✗",
         "↻lead",
+        "tab✗ 1",
     ] {
         assert!(glyph_error(bad).is_some(), "negative control {bad:?}");
     }
@@ -123,7 +132,7 @@ fn authored_home_and_cron_labels_use_only_registered_spaced_marks_and_structural
         for line in tiles::paint(&[item], width, crate::look::Look::default(), None).lines {
             assert_eq!(glyph_error(&line.to_string()), None);
         }
-        let app = interaction::board(&[(
+        let mut app = interaction::board(&[(
             "squad",
             document(
                 "squad",
@@ -137,6 +146,22 @@ fn authored_home_and_cron_labels_use_only_registered_spaced_marks_and_structural
             app.look(),
         );
         assert_eq!(glyph_error(&summary.to_string()), None);
+        app.tabs = std::iter::once(ALL.to_owned())
+            .chain((0..30).map(|index| format!("squad-{index}")))
+            .collect();
+        app.attention = app
+            .tabs
+            .iter()
+            .map(|name| {
+                (
+                    name.clone(),
+                    crate::attention::Attention {
+                        blocked: 1,
+                        ..Default::default()
+                    },
+                )
+            })
+            .collect();
         let mut terminal =
             ratatui::Terminal::new(ratatui::backend::TestBackend::new(width, 30)).unwrap();
         terminal

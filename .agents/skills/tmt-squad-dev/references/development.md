@@ -77,7 +77,7 @@ cron_service` and the native `squad.test.ts` cron cases cover actor permission, 
   reveal, clipped hits and resize without target drift. Capture quiet/waiting/blocked/many
   squads with isolated state. The board glyph guard reads registered marks from
   `design/tokens/tokens.json`, rejects Ambiguous and emoji-presentation decorations,
-  and requires trailing spaces on state marks. Structural exceptions have explicit
+  and requires spaces before and after state marks, including overflow tab labels. Structural exceptions have explicit
   reasons in the guard; dynamic names, tasks and notebooks are outside its scope.
   Decode cell/style/hit differences from current main parity before requesting approval
   for any fixture regeneration; an approved regeneration has its own attributed commit.

@@ -307,20 +307,19 @@ send shows its error and does not show `✓ sent` or retry automatically.
 ## Home dashboard
 
 The built-in `all` board shows counts, needs-you members and a blocked subgroup,
-then cron and squads. Squads occupy one full-width column at every width. Below
-100 columns each squad uses one compact row; wider tiles have three rows even
-with many squads. A tile shows squad attention, lead/model/token windows and the
-lead's share of the longest window, followed by non-lead member marks in urgency
+then cron and squads. Squads occupy one full-width column at every width, with one compact table row
+per squad. Member counts align within their table column rather than at the terminal edge. A row shows squad attention, lead/model and non-lead member marks in urgency
 order (◆ ✗ ◐ ● ○) and a member count. Each mark has a trailing space. Members
-with unknown/custom states appear as `N other`. Compact rows keep the last two
-lead windows. Selection covers the whole tile, including padding and continuation rows.
+with unknown/custom states appear as `N other`. Sampled token windows and the lead's share follow the member count.
+Selection covers the whole row, including padding.
 
 Tiles use the board's observed usage (see below). Missing values show `–`, measured
 zero shows `0`, and partial totals/share carry `~`; a zero squad total has no share.
-A lead with no observed totals shows one dim `–`. When a squad's token sampling
-is off, its tile hides token cells. If every squad has sampling off, the squads
-heading hides the token legend too. Only sampling squads contribute windows to
-that legend. Observed lead models remain visible with sampling off; without a model
+A sampling lead with no observed totals shows one dim `–` in the first token column. When a squad's token sampling
+is off, its tile hides token cells. Token/share columns appear only when observations admit them, and the squads
+heading hides the token legend when no rendered column has data. Below 100 columns
+only the last two windows are eligible; wider tables also show the first window
+and share when observed. Observed lead models remain visible with sampling off; without a model
 observation, the model cell is omitted. Home and crew use the same short family names, such as `opus`,
 `sonnet` and `sol`; unfamiliar names truncate to the available column width.
 The squads heading names shared windows once. Mixed `tok` settings label each

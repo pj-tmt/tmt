@@ -456,14 +456,14 @@ fn tile_frame(app: &App, area: Rect) -> ratatui::buffer::Buffer {
 }
 
 #[test]
-fn tile_continuations_click_the_same_stable_squad_and_gaps_have_no_hits() {
+fn table_rows_click_the_same_stable_squad_at_every_width() {
     use ratatui::crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
     for width in [160, 100, 80] {
         let mut app = tile_board();
         let area = Rect::new(2, 1, width, 24);
         tile_frame(&app, area);
         let hits = app.hits.borrow().clone();
-        let height = if width < 100 { 1 } else { 3 };
+        let height = 1;
         for row in 0..5 {
             let tiles = hits.iter().filter(|hit| hit.row == row).collect::<Vec<_>>();
             assert_eq!(tiles.len(), height);
@@ -500,7 +500,7 @@ fn tile_continuations_click_the_same_stable_squad_and_gaps_have_no_hits() {
 }
 
 #[test]
-fn full_tile_reveal_and_clipped_continuation_hits_share_the_scroll_viewport() {
+fn table_row_reveal_and_hits_share_the_scroll_viewport() {
     use crate::{board::scroll::Step, config::Pane};
     let mut app = tile_board();
     app.select(4);
@@ -515,7 +515,7 @@ fn full_tile_reveal_and_clipped_continuation_hits_share_the_scroll_viewport() {
             .filter(|hit| hit.row == 4)
             .copied()
             .collect::<Vec<_>>();
-        assert_eq!(selected.len(), if width < 100 { 1 } else { 3 });
+        assert_eq!(selected.len(), 1);
         assert!(
             selected
                 .iter()
@@ -523,26 +523,26 @@ fn full_tile_reveal_and_clipped_continuation_hits_share_the_scroll_viewport() {
         );
         assert_eq!(app.home_target, target);
     }
-    // A viewport shorter than a tile clips hits to visible continuations.
+    // A short viewport keeps one clipped row hit with a stable target.
     app.follow = false;
     let area = Rect::new(3, 2, 100, 3);
     tile_frame(&app, area);
     app.scrolls.scroll(Pane::Rows, Step::Bottom);
     tile_frame(&app, area);
     let hits = app.hits.borrow().clone();
-    assert_eq!(hits.iter().filter(|hit| hit.row == 4).count(), 2);
+    assert_eq!(hits.iter().filter(|hit| hit.row == 4).count(), 1);
     assert!(hits.iter().all(|hit| hit.y < area.bottom() - 1));
     assert_eq!(app.selected, 4);
     app.follow = true;
     tile_frame(&app, Rect::new(3, 2, 100, 5));
     assert_eq!(
         app.hits.borrow().iter().filter(|hit| hit.row == 4).count(),
-        3
+        1
     );
 }
 
 #[test]
-fn tile_note_band_shifts_later_grid_rows_without_changing_hits_or_selection() {
+fn table_note_band_shifts_later_rows_without_changing_hits_or_selection() {
     for width in [160, 100, 80] {
         for (base, depth) in [
             ("tmt", tmt_cli_style::Depth::TrueColor),
@@ -567,7 +567,7 @@ fn tile_note_band_shifts_later_grid_rows_without_changing_hits_or_selection() {
                 .expect("note beneath the selected tile");
             let hits = app.hits.borrow().clone();
             let selected = hits.iter().filter(|hit| hit.row == 4).collect::<Vec<_>>();
-            assert_eq!(selected.len(), if width < 100 { 1 } else { 3 });
+            assert_eq!(selected.len(), 1);
             assert_eq!(selected.last().unwrap().y + 1, band.y);
             assert!(
                 !hits

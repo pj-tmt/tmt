@@ -246,19 +246,23 @@ by record when no positions were drawn.
   `ls --tab all` stay unchanged.
 - The home painter uses the summary band and a flat body, bypassing ordinary pane composition
   for the shown immutable home view. `home::tiles` returns pure lines and local item/line/x/width
-  regions in one full-width column. Below 100 cells each tile has one compact row;
-  otherwise it has three rows and a one-row gap, independent of squad count. Filtered
-  reading order is top-to-bottom. Section rules and tile headings share the body's right
-  edge. Each tile shows squad attention, lead/model/window totals/share and exclusive
-  non-lead urgency marks/member count; compact rows retain the last two lead windows.
+  regions in one full-width column, with one compact table row per squad at every
+  width. Filtered reading order is top-to-bottom. Section rules reach the body's right
+  edge; names, models, marks and member counts use bounded content columns, with the
+  count right-aligned inside the table rather than at the terminal edge. Each row shows
+  squad attention, lead/model and exclusive non-lead urgency marks/member count,
+  followed by admitted token totals/share.
   Whole-roster summary and attention semantics stay unchanged. Unknown/custom member
   states appear as `N other`, without inventing a state mark; `attention::waits_on_you`
   owns waiting precedence. Registered state marks retain a trailing space.
 - Runtime `App::home_usage` owns observations, model attribution and the configured longest-window
   share; tiles only format them. Missing and measured zero remain distinct; partial readings
-  and shares carry `~`. A lead with no observed totals has one dim `–`. Disabled sampling returns no HOME usage projection, so that squad's
-  tile has no token cells. Only sampling squads contribute to the squads token legend; with none
-  enabled the legend is absent. Uniform window labels appear once in the squads heading; mixed configurations use a
+  and shares carry `~`. A sampling lead with no observed totals has one dim `–` in the first token
+  column. Disabled sampling returns no HOME usage projection, so that squad's
+  tile has no token cells. Observed data admits each token/share column across the table; without
+  rendered observations the squads token legend is absent. Below 100 cells only the
+  last two windows are eligible; wider tables also admit the first window and share.
+  Uniform window labels appear once in the squads heading; mixed configurations use a
   “windows vary” legend and label each tile's totals and displayed share with its actual window.
 - HOME retains public session models independently of token sampling: one bounded `tmt ls --json`
   read seeds the existing per-squad observed input on refresh, and the shared meter receipt
@@ -270,9 +274,9 @@ by record when no positions were drawn.
   to the shared width fitter. Model acquisition keeps the original session name.
 - Home keeps one `App.selected` cursor reconciled by section/squad/member identity across
   refresh and search; attention precedes cron, then squads. Home translates tile regions into
-  global ordinals, complete selected-range reveal and viewport-clipped continuation hits through
-  one `Scrolls` pass. Selection covers every padded tile row; gaps and headings have no hit.
-  Inline composers and sent feedback insert beneath the complete selected tile's grid row,
+  global ordinals, complete selected-row reveal and viewport-clipped hits through
+  one `Scrolls` pass. Selection covers every padded table row; gaps and headings have no hit.
+  Inline composers and sent feedback insert beneath the selected table row,
   shifting subsequent tile regions together. Ordinary panes retain their existing owners.
   Enter jumps to a member or opens a squad; Up/Down traverses all rows and Tab uses
   the shared board pane-focus action, with no HOME section-jump special case. `a` opens
