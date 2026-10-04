@@ -13,10 +13,25 @@ use std::{
 use tmt_invoke::{Cleanup, EnvironmentPolicy, LaunchOptions, Request};
 
 pub const DEADLINE: Duration = Duration::from_secs(2);
+/// One update the write path may prepare or submit.
 pub const UPDATE_BYTES: usize = 256 * 1024;
+/// A page's tail since its last baseline that a write accepts: what the browser's fold opens
+/// today (`fold.worker.ts`). Writes refuse past it until the browser limits are aligned.
+pub const WRITE_TAIL_UPDATES: usize = 200;
+/// A new page's or baseline's source (write path).
 pub const BASELINE_BYTES: usize = 2 * 1024 * 1024;
-pub const STREAM_BYTES: usize = 4 * 1024 * 1024;
-pub const UPDATES: usize = 200;
+/// Owner decision (#1627): a page's whole state as the browser loads it, gzipped, is at most
+/// this many bytes. Size errors name it; the raw caps below are the containment it implies.
+pub const PAGE_BUDGET_GZIP_BYTES: usize = 5_000_000;
+/// Raw bytes a read may decode for one page: its baseline plus every update since. Measured
+/// (#1627): decoding peaks near 9 B of child resident memory per state byte, so 24 MiB stays
+/// inside the 512 MiB limit while leaving room for a page near the gzipped budget.
+pub const STATE_BYTES: usize = 24 * 1024 * 1024;
+/// Updates since the last baseline that one read may fold.
+pub const UPDATES: usize = 5_000;
+/// One JSON frame to or from the isolated decoder: the worst case is a state of control
+/// characters, which JSON escapes to six bytes each, plus base64 of the input and output.
+pub const STREAM_BYTES: usize = STATE_BYTES * 6 + STATE_BYTES.div_ceil(3) * 4 * 2 + 1024;
 pub const MEMORY_BYTES: u64 = 512 * 1024 * 1024;
 pub use crate::store::Namespace;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -180,14 +195,14 @@ impl Decoder {
         if role == Role::Viewer || (batch.namespace == Namespace::Content && role != Role::Editor) {
             return Err(DecodeFault::Denied);
         }
-        if batch.baseline.len() > BASELINE_BYTES
+        if batch.baseline.len() > STATE_BYTES
             || batch.updates.len() > UPDATES
             || batch
                 .updates
                 .iter()
                 .map(|v| v.len())
-                .try_fold(0usize, usize::checked_add)
-                .is_none_or(|n| n > UPDATE_BYTES)
+                .try_fold(batch.baseline.len(), usize::checked_add)
+                .is_none_or(|n| n > STATE_BYTES)
         {
             return Err(DecodeFault::InvalidInput);
         }
@@ -231,7 +246,13 @@ impl Decoder {
         }) {
             return Err(DecodeFault::InvalidOutput);
         }
-        let merged = binary(&reply.merged, UPDATE_BYTES).map_err(|_| DecodeFault::InvalidOutput)?;
+        // A prepared edit returns one update; a read returns the merged tail.
+        let merged_limit = if edit.is_some() {
+            UPDATE_BYTES
+        } else {
+            STATE_BYTES
+        };
+        let merged = binary(&reply.merged, merged_limit).map_err(|_| DecodeFault::InvalidOutput)?;
         Ok(Decoded {
             merged,
             projection: reply.projection,
@@ -423,7 +444,7 @@ struct WireResult {
 // A full baseline is not a 256 KiB stream update. Allow source, title and
 // bounded update-v1 framing, while the existing 4 MiB serialized cap still applies.
 pub const BASELINE_TITLE_BYTES: usize = 256 * 1024;
-pub const BASELINE_UPDATE_BYTES: usize = BASELINE_BYTES + BASELINE_TITLE_BYTES + 1024;
+pub const BASELINE_UPDATE_BYTES: usize = STATE_BYTES + BASELINE_TITLE_BYTES + 1024;
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct WireBaseline {
@@ -487,7 +508,7 @@ fn validate_projection(namespace: Namespace, value: &Value) -> Result<(), Decode
                 || roots
                     .get("html")
                     .and_then(Value::as_str)
-                    .is_none_or(|v| v.len() > BASELINE_BYTES)
+                    .is_none_or(|v| v.len() > STATE_BYTES)
             {
                 return Err(DecodeFault::InvalidOutput);
             }

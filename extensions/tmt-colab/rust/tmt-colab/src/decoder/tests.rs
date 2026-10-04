@@ -2,7 +2,7 @@ use super::*;
 #[test]
 fn input_role_denial_and_missing_program_leave_no_child() {
     let mut decoder = Decoder::new("/definitely-missing-tmt-colab".into()).unwrap();
-    let bytes = vec![0; UPDATE_BYTES + 1];
+    let bytes = vec![0; STATE_BYTES + 1];
     let updates = [bytes.as_slice()];
     assert!(matches!(
         decoder.decode(
