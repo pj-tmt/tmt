@@ -39,11 +39,6 @@ pub const EXCEPTIONS: &[Exception] = &[
         "Preserve the existing right-aligned meter band."
     ),
     exception!(
-        "board/view/footer.rs",
-        "Paragraph",
-        "Preserve footer hints, notices and composer text."
-    ),
-    exception!(
         "board/view/panes.rs",
         "Block",
         "Preserve existing pane borders and title geometry."
@@ -57,16 +52,6 @@ pub const EXCEPTIONS: &[Exception] = &[
         "board/view/panes.rs",
         "Paragraph",
         "Preserve folded titles, pane tabs and layout errors."
-    ),
-    exception!(
-        "board/view/rows.rs",
-        "Paragraph",
-        "Preserve loading and row-admission error text."
-    ),
-    exception!(
-        "board/view/detail.rs",
-        "Paragraph",
-        "Preserve the empty selected-member placeholder."
     ),
     exception!(
         "board/view/overlays.rs",
