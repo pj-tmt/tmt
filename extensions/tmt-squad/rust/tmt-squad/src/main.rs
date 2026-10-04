@@ -10,6 +10,7 @@ mod cache;
 mod config;
 mod consent;
 mod core;
+pub(crate) mod cron_clock;
 mod cron_command;
 pub mod cron_service;
 mod effects;
@@ -795,7 +796,10 @@ fn run(
     }
     let mut config = Config::load(&core)?;
     if command == "cron" {
-        return cron_command::run(&core, &config, matches).map(Outcome::from);
+        return cron_command::run(&core, &config, matches).map(|document| Outcome {
+            complete: document["complete"] != false,
+            document,
+        });
     }
     if command == "config" {
         return settings::run(&mut config, matches).map(Outcome::from);
