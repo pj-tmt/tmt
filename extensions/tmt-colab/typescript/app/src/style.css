@@ -1012,3 +1012,42 @@ footer {
   text-decoration: underline;
   text-underline-offset: 4px;
 }
+
+/* A light text toggle like the header actions: the square before the word carries on/off. */
+.archive-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 16px;
+  border: 0;
+  padding: 7px 8px 7px 0;
+  background: transparent;
+  color: var(--c-text);
+  box-shadow: none;
+}
+.archive-toggle:hover,
+.archive-toggle[aria-pressed='true'] {
+  color: var(--c-text);
+  border: 0;
+  background: transparent;
+}
+.archive-toggle:hover {
+  text-decoration: underline;
+  text-underline-offset: 4px;
+}
+.archive-toggle:focus-visible {
+  outline: 2px solid var(--c-accent);
+  outline-offset: 2px;
+}
+.toggle-box {
+  flex: none;
+  box-sizing: border-box;
+  width: 14px;
+  height: 14px;
+  border: 2px solid var(--c-text);
+  background: transparent;
+}
+.archive-toggle[aria-pressed='true'] .toggle-box {
+  background: var(--c-accent);
+  border-color: var(--c-accent);
+}

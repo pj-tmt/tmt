@@ -293,14 +293,17 @@ function Home() {
       <h1>{space.title}</h1>
       <p className="intro">{text.intro}</p>
       {transport.management && (
-        <label>
-          Show archived pages
-          <input
-            type="checkbox"
-            checked={archived}
-            onChange={(e) => setArchived(e.target.checked)}
-          />
-        </label>
+        <button
+          type="button"
+          className="archive-toggle"
+          aria-pressed={archived}
+          onClick={(event) => {
+            if (event.isTrusted) setArchived(!archived);
+          }}
+        >
+          <span className="toggle-box" aria-hidden="true" />
+          Show archived
+        </button>
       )}
       {pages.length ? (
         <ul className="pages">
