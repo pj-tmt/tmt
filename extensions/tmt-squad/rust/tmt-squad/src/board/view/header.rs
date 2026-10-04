@@ -9,7 +9,6 @@ use ratatui::{
     style::Modifier,
     text::{Line, Span},
 };
-use ratatui::{layout::Alignment, widgets::Paragraph};
 use tmt_cli_style::Role;
 use tmt_tui::components::strip;
 
@@ -256,6 +255,6 @@ pub(super) fn render_meter(frame: &mut Frame, app: &App, summary: Rect) {
             look.depth,
         );
     } else {
-        frame.render_widget(Paragraph::new(line).alignment(Alignment::Right), area);
+        strip::paint_right(frame.buffer_mut(), area, line, &look.theme, look.depth);
     }
 }

@@ -16,9 +16,9 @@ use super::app::App;
 use ratatui::{
     Frame,
     layout::{Constraint, Layout},
-    widgets::Paragraph,
 };
 use tmt_cli_style::grid::Align;
+use tmt_tui::components::strip;
 
 pub(super) use footer::toggle_label;
 #[cfg(test)]
@@ -56,7 +56,13 @@ pub fn render(frame: &mut Frame, app: &App) {
         Constraint::Length(1),
     ])
     .areas(frame.area());
-    frame.render_widget(Paragraph::new(tabs::paint(app, tabs)), tabs);
+    strip::paint_left(
+        frame.buffer_mut(),
+        tabs,
+        tabs::paint(app, tabs),
+        &look.theme,
+        look.depth,
+    );
     let summary_text = app
         .view
         .as_ref()
@@ -71,7 +77,13 @@ pub fn render(frame: &mut Frame, app: &App) {
             width: meter.x.saturating_sub(summary.x).saturating_sub(2),
             ..summary
         });
-    frame.render_widget(Paragraph::new(summary_text), summary_area);
+    strip::paint_left(
+        frame.buffer_mut(),
+        summary_area,
+        summary_text,
+        &look.theme,
+        look.depth,
+    );
     header::render_meter(frame, app, summary);
     header::render_meter_status(frame, app, meter_status);
     panes::render_body(frame, app, body);

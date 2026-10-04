@@ -14,6 +14,7 @@ use crate::{
     requests::{BODIES, age},
     rows::Rows,
 };
+use ratatui::widgets::Paragraph;
 use ratatui::{
     layout::Rect,
     style::{Modifier, Style},
