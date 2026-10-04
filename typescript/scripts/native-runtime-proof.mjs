@@ -207,6 +207,7 @@ export async function verifyNativeRuntime({
   inboxSkill,
   officeSkill,
   squadSkill,
+  colabSkill,
   profileContent,
   subject,
   product = 'cli',
@@ -270,6 +271,15 @@ export async function verifyNativeRuntime({
       return;
     }
     if (product === 'colab') {
+      assert.equal(typeof colabSkill, 'string', 'Colab runtime proof requires its skill');
+      assert.equal(run(['skill']), colabSkill, `${subject} embedded skill mismatch`);
+      assert(!fs.existsSync(xdg), 'Colab skill probe must not initialize config state');
+      assert.deepEqual(fs.readdirSync(home), [], 'Colab skill probe must not create home state');
+      assert.deepEqual(
+        fs.readdirSync(cwd),
+        [],
+        'Colab skill probe must not create workspace state'
+      );
       assert(colabApp, 'Colab archive proof requires independent expected app bytes');
       // Other products retain the minimal verifier image's existing dependency closure.
       const { verifyColabApp } = await import('./colab-runtime-proof.mjs');

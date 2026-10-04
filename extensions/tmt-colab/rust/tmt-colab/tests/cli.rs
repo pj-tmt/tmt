@@ -2801,3 +2801,51 @@ fn serve_says_the_outdated_instruction_once_in_the_warning_and_points_at_it_in_t
     );
     serving.stop(Signal::SIGTERM);
 }
+
+#[test]
+fn skill_is_exact_embedded_bytes_after_relocation_without_core_or_state() {
+    let pilot = Pilot::new(None);
+    let relocated = pilot.root.join("relocated-colab");
+    fs::copy(BINARY, &relocated).unwrap();
+    fs::remove_file(pilot.root.join("core")).unwrap();
+    let invoke = |args: &[&str]| {
+        Command::new(&relocated)
+            .env_clear()
+            .env("HOME", &pilot.root)
+            .env("XDG_CONFIG_HOME", pilot.root.join("config"))
+            .env("XDG_DATA_HOME", pilot.root.join("data"))
+            .env("XDG_STATE_HOME", pilot.root.join("state"))
+            .env("XDG_CACHE_HOME", pilot.root.join("cache"))
+            .env("TMT_EXECUTABLE", pilot.root.join("missing-core"))
+            .env("PATH", "")
+            .current_dir(&pilot.root)
+            .args(args)
+            .output()
+            .unwrap()
+    };
+    let output = invoke(&["skill"]);
+    assert!(output.status.success(), "{output:?}");
+    assert!(output.stderr.is_empty());
+    assert_eq!(
+        output.stdout,
+        include_bytes!("../../../skills/tmt-colab/SKILL.md")
+    );
+    for args in [["skill", "--help"], ["help", "skill"]] {
+        let help = invoke(&args);
+        assert!(help.status.success(), "{help:?}");
+        assert!(
+            String::from_utf8(help.stdout)
+                .unwrap()
+                .contains("tmt colab skill")
+        );
+        assert!(help.stderr.is_empty());
+    }
+    let unsupported = invoke(&["skill", "--json"]);
+    assert!(!unsupported.status.success());
+    assert_eq!(
+        serde_json::from_slice::<Value>(&unsupported.stdout).unwrap()["error"]["code"],
+        "COLAB_INPUT_INVALID"
+    );
+    // Only the copied executable exists: pure guidance neither discovers core nor initializes state.
+    assert_eq!(fs::read_dir(&pilot.root).unwrap().count(), 1);
+}

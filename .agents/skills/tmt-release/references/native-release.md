@@ -42,7 +42,7 @@ keeps that Node unchanged.
 
 Every native product archive carries its executable, `LICENSE`, `NATIVE-INSTALL.md`
 and `THIRD-PARTY-NOTICES.txt`. The CLI may also carry optional companion executables;
-A component declaring `skills: true` in `.github/components.json` (today Squad) additionally carries its
+A component declaring `skills: true` in `.github/components.json` additionally carries its
 skills tree. The installer enforces inventory in
 `tmt-core`'s `native_install/product.rs`: adding, renaming or dropping an entry
 changes the installer contract and needs upgrade proof.

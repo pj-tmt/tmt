@@ -135,6 +135,10 @@ await withNativeArtifact(values.archive, metadata, async (artifactRoot) => {
       values.product === 'squad'
         ? fs.readFileSync(path.join(values.skills, 'tmt-squad', 'SKILL.md'), 'utf8')
         : undefined,
+    colabSkill:
+      values.product === 'colab'
+        ? fs.readFileSync(path.join(values.skills, 'tmt-colab', 'SKILL.md'), 'utf8')
+        : undefined,
     profileContent: 'Persisted by native archive',
     subject: 'Native archive',
     matchingHostMessage: 'Artifact requires a matching native host',
@@ -147,7 +151,7 @@ await withNativeArtifact(values.archive, metadata, async (artifactRoot) => {
         squad: 'linkage, version, exact skills tree, no application state',
         'driver-herdr': 'linkage, exact capabilities/version, no application state',
         colab:
-          'linkage, version, relocated embedded app/assets and combined notices, socket cleanup',
+          'linkage, version, exact skills tree and embedded skill, relocated embedded app/assets and combined notices, socket cleanup',
       }[values.product]
     }`
   );
