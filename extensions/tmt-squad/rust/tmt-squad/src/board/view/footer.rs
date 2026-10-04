@@ -132,7 +132,7 @@ pub(super) fn hints(app: &App, width: usize) -> String {
     if !bindings.contains_key("s") {
         hints.push("s switch".into());
     }
-    hints.extend(["? more", "q quit"].map(str::to_owned));
+    hints.push("q quit".into());
     if app.view.as_ref().is_some_and(|view| view.me.is_none()) {
         hints.push(crate::status::UNKNOWN_YOU.to_owned());
     }
@@ -148,11 +148,16 @@ pub(super) fn hints(app: &App, width: usize) -> String {
             .chain(hints.iter().take(reserved).map(String::as_str))
             .collect::<Vec<_>>()
             .join("  ")
-            .width();
+            .width()
+            + "  ? more".width();
         let summary = oldest
             .filter(|oldest| minimum + oldest.width().saturating_sub(base.width()) <= width)
             .unwrap_or(base);
         hints.insert(0, summary);
+    }
+    let more = "? more";
+    if width < more.width() {
+        return String::new();
     }
     let mut shown = String::new();
     for hint in hints {
@@ -161,12 +166,16 @@ pub(super) fn hints(app: &App, width: usize) -> String {
         } else {
             format!("{shown}  {hint}")
         };
-        if next.width() > width {
+        if next.width() + "  ? more".width() > width {
             break;
         }
         shown = next;
     }
-    shown
+    if shown.is_empty() {
+        more.into()
+    } else {
+        format!("{shown}  {more}")
+    }
 }
 
 pub(super) fn render(frame: &mut Frame, app: &App, footer: Rect, look: crate::look::Look) {
@@ -205,5 +214,5 @@ pub(super) fn render(frame: &mut Frame, app: &App, footer: Rect, look: crate::lo
             span.style = look.role(Role::Dim);
         }
     }
-    crate::markup::paint_line(frame, footer, footer_line, look);
+    super::strip::paint_line(frame, footer, footer_line, look);
 }

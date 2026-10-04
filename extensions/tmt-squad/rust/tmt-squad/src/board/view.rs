@@ -8,6 +8,7 @@ mod overlays;
 mod panes;
 mod replies;
 mod rows;
+mod strip;
 mod tabs;
 mod waiting;
 

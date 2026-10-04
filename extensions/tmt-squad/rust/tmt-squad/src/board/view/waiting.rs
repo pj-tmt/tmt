@@ -40,7 +40,18 @@ pub(super) fn prompt(
         placement: Placement::Docked,
     };
     let demand = [body.width, 7];
-    let areas = modal.areas(body, demand, true, false);
+    let docked = modal.areas(body, demand, true, false);
+    // Cover the entire underlying pane band, including the docked margins.
+    let band = Rect {
+        y: docked.outer.y,
+        height: docked.outer.height,
+        ..body
+    };
+    let modal = Modal {
+        placement: Placement::Body,
+        ..modal
+    };
+    let areas = modal.areas(band, demand, true, false);
     modal.paint(areas, frame.buffer_mut(), &look.theme, look.depth);
     let lines = tmt_tui::text::lines(
         &format!("{}▏", input.text),
@@ -51,7 +62,7 @@ pub(super) fn prompt(
         .len()
         .saturating_sub(usize::from(areas.content.height));
     for (index, line) in lines.iter().skip(skip).enumerate() {
-        crate::markup::paint_line(
+        super::strip::paint_line(
             frame,
             Rect {
                 y: areas.content.y + index as u16,
@@ -62,7 +73,7 @@ pub(super) fn prompt(
             look,
         );
     }
-    crate::markup::paint_line(
+    super::strip::paint_line(
         frame,
         areas.footer,
         Line::styled(

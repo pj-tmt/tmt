@@ -154,7 +154,7 @@ pub(super) fn render_rows(frame: &mut Frame, app: &App, area: Rect) {
         } else {
             "Loading…"
         };
-        crate::markup::paint_line(frame, area, Line::from(message), look);
+        super::strip::paint_line(frame, area, Line::from(message), look);
         return;
     };
     let Some(tab) = app.shown_tab() else { return };
@@ -188,7 +188,7 @@ pub(super) fn render_rows(frame: &mut Frame, app: &App, area: Rect) {
         let layout = match crate::markup::Grid::compile(rows, natural, available) {
             Ok(layout) => layout,
             Err(error) => {
-                crate::markup::paint_line(
+                super::strip::paint_line(
                     frame,
                     area,
                     Line::from(format!("Row layout: {error}")),
@@ -223,7 +223,7 @@ pub(super) fn render_rows(frame: &mut Frame, app: &App, area: Rect) {
         let cells = match crate::markup::row_values(rows, tab, app.rows()) {
             Ok(cells) => cells,
             Err(error) => {
-                crate::markup::paint_line(
+                super::strip::paint_line(
                     frame,
                     area,
                     Line::from(format!("Row values: {error}")),

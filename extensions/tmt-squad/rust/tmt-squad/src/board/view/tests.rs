@@ -50,7 +50,8 @@ fn waiting_rows_detail_and_ask_prompt_fit_each_width_and_theme() {
                 "Ship #412 tonight or wait for CI? Token rotation is risky if CI is red.";
             let mut app = board(json!([{"title": null, "rows": [
                 row("auth-fix", "blocked", "rotate tokens", json!({"waitingOnYou": [{"requestId": "q", "preview": question, "preparedAtMs": now - 720000}]})),
-                row("docs", "working", "handbook", json!({"pending": "Keep the glossary?"})),
+                row("docs-request", "working", "handbook", json!({"pending": "Keep the glossary?", "waitingOnYou": [{"requestId": "docs-q", "preview": "fallback", "preparedAtMs": now - 720000}]})),
+                row("docs", "working", "copy", json!({"pending": "Choose the tone?"})),
             ]}]));
             let view = app.view.as_mut().unwrap();
             view.look = crate::look::Look {
@@ -68,8 +69,13 @@ fn waiting_rows_detail_and_ask_prompt_fit_each_width_and_theme() {
                 .iter()
                 .find(|line| line.contains("Keep the glossary?"))
                 .unwrap();
-            assert!(!pending.contains("12m"), "pending-only has no age");
-            assert!(screen.last().unwrap().contains("◆ 2 waiting"));
+            assert_eq!(pending.find("12m"), asks.find("12m"), "request ages align");
+            let pending_only = screen
+                .iter()
+                .find(|line| line.contains("Choose the tone?"))
+                .unwrap();
+            assert!(!pending_only.contains("12m"), "pending-only has no age");
+            assert!(screen.last().unwrap().contains("◆ 3 waiting"));
             assert!(screen.last().unwrap().contains("A ask lead"));
             assert!(
                 app.hits
@@ -79,7 +85,13 @@ fn waiting_rows_detail_and_ask_prompt_fit_each_width_and_theme() {
             );
             app.perform(&crate::action::Action::parse("ask-lead").unwrap());
             let prompt = draw(&app, width, 24);
-            assert!(prompt.iter().any(|line| line.contains("ask lead sol")));
+            let title = prompt
+                .iter()
+                .find(|line| line.contains("ask lead sol"))
+                .unwrap();
+            assert!(title.starts_with("┌ ask lead sol"));
+            assert!(title.ends_with('┐'), "opaque prompt spans the whole band");
+            assert_eq!(title.width(), usize::from(width));
             assert!(
                 prompt
                     .iter()
@@ -139,12 +151,20 @@ fn footer_omits_whole_hints_instead_of_clipping_words() {
     app.apply(crate::board::app::tests::snapshot("product", json!([])));
     let full = hints(&app, usize::MAX);
     assert!(full.contains("T theme"));
-    for width in [0, 1, 20, 40, 108, 112] {
+    for width in [0, 1, 6, 20, 40, 80, 100, 108, 112, 120, 160] {
         let shown = hints(&app, width);
         assert!(shown.width() <= width);
-        assert!(full.starts_with(&shown));
+        if width >= "? more".width() {
+            assert!(
+                shown.ends_with("? more"),
+                "help stays discoverable: {width}"
+            );
+        }
         assert!(
-            shown.is_empty() || full == shown || full[shown.len()..].starts_with("  "),
+            shown
+                .split("  ")
+                .filter(|hint| !hint.is_empty())
+                .all(|hint| full.split("  ").any(|whole| whole == hint)),
             "partial hint at {width}: {shown}"
         );
     }

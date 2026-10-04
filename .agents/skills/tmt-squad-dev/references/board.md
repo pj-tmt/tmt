@@ -67,11 +67,12 @@ cells keep their grid position; rows without one gain a continuation line with
 its own row hit. `time_marks` includes request ages so they advance without reads.
 The waiting hint uses `Attention::of`, matching the tab's count, and effective
 bindings; narrow fitting removes the oldest-member label before the actions.
+The footer reserves `? more` as its final hint before fitting whole tail hints.
 
 `ask-lead` opens the existing input composer with the configured question.
 Enter validates the opening sender, squad and current lead, then produces the
 existing `Request::Talk`; no extra client or read path exists. Its docked prompt
-uses `tmt-tui::Modal` and admitted text strips. The shared strip adapter also
+uses an opaque full-width `tmt-tui::Modal` band and admitted text strips. `board::view::strip` also
 owns the converted footer/loading/empty-detail text, leaving their callers'
 resolved styles intact. User-facing action and question settings are owned by
 the shipped Squad skill.

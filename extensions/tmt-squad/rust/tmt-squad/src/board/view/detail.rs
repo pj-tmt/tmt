@@ -33,7 +33,7 @@ pub(super) fn detail_represents(field: &str) -> bool {
 pub(super) fn render_detail(frame: &mut Frame, app: &App, area: Rect) {
     let look = app.look();
     let Some(row) = app.selected_row() else {
-        crate::markup::paint_line(
+        super::strip::paint_line(
             frame,
             area,
             Line::from(Span::styled("(no row selected)", look.role(Role::Dim))),
