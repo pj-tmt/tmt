@@ -287,14 +287,21 @@ fn page(value: Value) -> Result<(Vec<Value>, bool), SquadError> {
 }
 
 fn sort(leads: &mut [Lead]) {
-    leads.sort_by(|a, b| {
-        b.exchange
-            .as_ref()
-            .and_then(|e| e.since_ms)
-            .cmp(&a.exchange.as_ref().and_then(|e| e.since_ms))
-            .then_with(|| a.name().cmp(b.name()))
-            .then_with(|| a.squad.cmp(&b.squad))
+    leads.sort_by(|a, b| match (&a.exchange, &b.exchange) {
+        // An unknown event time does not mean there is no exchange. Keep those
+        // exchanges after dated ones, with identity ties independent of names.
+        (Some(a_exchange), Some(b_exchange)) => b_exchange
+            .since_ms
+            .cmp(&a_exchange.since_ms)
             .then_with(|| a.id().cmp(b.id()))
+            .then_with(|| a.squad.cmp(&b.squad)),
+        (Some(_), None) => std::cmp::Ordering::Less,
+        (None, Some(_)) => std::cmp::Ordering::Greater,
+        (None, None) => a
+            .name()
+            .cmp(b.name())
+            .then_with(|| a.squad.cmp(&b.squad))
+            .then_with(|| a.id().cmp(b.id())),
     });
 }
 
