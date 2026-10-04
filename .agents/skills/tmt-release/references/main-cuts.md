@@ -71,6 +71,11 @@ metadata rejects a changed-version stale lock, updates only implied entries
 offline, then verifies the source, dist plan/build and extracted binary. Tagless
 preparation uses the shared synthetic version and retains the same gates.
 Already-versioned reruns require zero source/lock changes.
+Right after building the helper, the action runs `warm-release-version.mjs`: a fresh macOS
+executable's first launch can stall for over a minute (#1646), so it waits for that first exec
+up to 180s (logging every 15s, capturing `ps`/`sample` once at 60s, never killing early), then
+proves a quick second exec. The 60s `tomlCommand` bound stays for real work. Read the
+`first exec took` and `second exec took` lines in a job log before changing either bound.
 `--no-deps` inheritance discovery cannot replace full offline locked verification.
 Review `release-injection-<product>-<target>` artifacts and job summaries. No release
 secrets or publication privileges enter PR jobs. The runtime producer transfers

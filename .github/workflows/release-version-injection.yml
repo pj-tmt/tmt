@@ -9,6 +9,8 @@ on:
       - '.github/workflows/native-release-bundle.yml'
       - '.github/workflows/native-release-upgrade.yml'
       - 'typescript/scripts/release-version-injection.*'
+      - 'typescript/scripts/warm-release-version.*'
+      - 'typescript/test/tooling/warm-release-version.test.ts'
       - 'typescript/test/tooling/release-version-injection.test.ts'
       - 'rust/crates/tmt-release-tool/**'
   push:
@@ -19,6 +21,8 @@ on:
       - '.github/workflows/native-release-bundle.yml'
       - '.github/workflows/native-release-upgrade.yml'
       - 'typescript/scripts/release-version-injection.*'
+      - 'typescript/scripts/warm-release-version.*'
+      - 'typescript/test/tooling/warm-release-version.test.ts'
       - 'typescript/test/tooling/release-version-injection.test.ts'
       - 'rust/crates/tmt-release-tool/**'
 

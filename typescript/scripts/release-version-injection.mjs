@@ -20,7 +20,7 @@ const hash = (root, file) =>
     )
     .digest('hex');
 const read = (root, file) => readFileSync(resolve(root, file), 'utf8');
-const TOOL = resolve(
+export const TOOL = resolve(
   process.env.CARGO_TARGET_DIR ?? fileURLToPath(new URL('../../rust/target', import.meta.url)),
   'debug/release-version'
 );
