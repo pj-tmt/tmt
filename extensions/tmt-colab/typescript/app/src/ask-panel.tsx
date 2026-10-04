@@ -1,14 +1,12 @@
 import type { CommentContext } from './thread-store.js';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import type { PreviewAttempt } from './ask-preview.js';
-import type { LedgerState } from './ask-records.js';
+import { ASK_OBSERVATION_MS, type LedgerState } from './ask-records.js';
 import { ReadRefusedError } from './ask-remote.js';
 import type { RemoteAgent } from './ask-remote.js';
 import type { AskDestination } from './ask-intent.js';
-import { AskPreview } from './ask-preview.js';
 import { text } from './strings.js';
-import { relativeTime } from './display-time.js';
-import { Listbox } from './components/listbox.js';
+import { relativeTime, compactRelativeTime } from './display-time.js';
 
 /** Capabilities stay in trusted parent chrome. The mounted adapter owns current
  * page/member/grant admission and returns the existing frozen/signing attempt. */
@@ -44,13 +42,6 @@ export interface PageAsk {
   resultUnavailable?: boolean;
 }
 
-function presenceLabel(presence: RemoteAgent['presence']) {
-  return presence === 'active'
-    ? text.presenceOnline
-    : presence === 'offline'
-      ? text.presenceOffline
-      : text.presenceUnknown;
-}
 const refusals: Record<string, string> = {
   REMOTE_SCOPE_DENIED: text.askScopeDenied,
   REMOTE_INPUT_INVALID: text.askInputInvalid,
@@ -63,206 +54,6 @@ const refusals: Record<string, string> = {
   REMOTE_CORE_UNAVAILABLE: text.askCoreUnavailable,
 };
 
-export function AskControl({
-  binding,
-  selection,
-  title,
-  blocked,
-  origin,
-  originUnavailable = false,
-}: {
-  binding?: AskBinding;
-  selection: string;
-  title: string;
-  blocked: boolean;
-  origin?: { context: CommentContext; body: string };
-  originUnavailable?: boolean;
-}) {
-  const [open, setOpen] = useState(false);
-  const [quote, setQuote] = useState('');
-  const [context, setContext] = useState<CommentContext>();
-  const [comment, setComment] = useState('');
-  const [agents, setAgents] = useState<(AskDestination & { presence?: RemoteAgent['presence'] })[]>(
-    [],
-  );
-  const [agent, setAgent] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [attempt, setAttempt] = useState<PreviewAttempt | null>(null);
-  const generation = useRef(0);
-  useEffect(() => {
-    setOpen(false);
-    setAttempt(null);
-    const ref = generation;
-    return () => {
-      ref.current++;
-    };
-  }, [binding]);
-  async function refresh() {
-    const current = ++generation.current;
-    setLoading(true);
-    setError(null);
-    setAgents([]);
-    setAgent('');
-    try {
-      const destinations = await binding!.destinations();
-      if (generation.current !== current) return;
-      setAgents(destinations);
-    } catch {
-      if (generation.current === current) setError(text.askUnavailable);
-    } finally {
-      if (generation.current === current) setLoading(false);
-    }
-  }
-  function close() {
-    generation.current++;
-    setOpen(false);
-    setAttempt(null);
-    setComment('');
-    setLoading(false);
-  }
-  async function preview() {
-    const destination = agents.find((value) => value.agent === agent);
-    if (!binding || !destination || blocked) return;
-    const current = ++generation.current;
-    // Capture parent form values before any async authority check.
-    const input = {
-      quote,
-      comment,
-      title,
-      url: location.href,
-      destination: { ...destination },
-      context,
-    };
-    setLoading(true);
-    setError(null);
-    try {
-      const frozen = await binding.prepare(input);
-      if (generation.current === current) setAttempt(frozen);
-    } catch {
-      if (generation.current === current) setError(text.askPreviewFailed);
-    } finally {
-      if (generation.current === current) setLoading(false);
-    }
-  }
-  return (
-    <div className="ask-control">
-      <button
-        data-testid={origin ? 'comment-ask-action' : 'ask-action'}
-        disabled={open || !binding || (!selection && !origin) || blocked || originUnavailable}
-        onClick={(event) => {
-          if (!event.isTrusted) return;
-          setContext(origin ? structuredClone(origin.context) : undefined);
-          setComment(origin?.body ?? '');
-          setQuote(selection);
-          setOpen(true);
-          setAttempt(null);
-          void refresh();
-        }}
-      >
-        {text.ask}
-      </button>
-      {!binding ? (
-        <span className="isolation-note">{text.askUnavailable}</span>
-      ) : !selection && !origin && !open ? (
-        <span className="isolation-note">{text.askSelection}</span>
-      ) : null}
-      {open && !attempt && (
-        <section className="ask-compose" aria-label={text.ask}>
-          <h2>{text.ask}</h2>
-          <p>{text.askVisible}</p>
-          <blockquote>{quote}</blockquote>
-          <label>
-            {text.askComment}
-            <textarea
-              value={comment}
-              disabled={loading || !!origin}
-              onChange={(event) => setComment(event.target.value)}
-            />
-          </label>
-          <Listbox
-            label={text.askPick}
-            value={agent}
-            onChange={setAgent}
-            disabled={loading || blocked}
-            options={agents.map((destination) => ({
-              value: destination.agent,
-              label: `${destination.agentName} · ${destination.machineName} · ${presenceLabel(destination.presence)}`,
-            }))}
-            renderOption={(option) => (
-              <span data-testid="ask-agent-option" data-agent-id={option.value}>
-                {option.label}
-              </span>
-            )}
-          />
-          {loading && <p role="status">{text.askLoading}</p>}
-          {!loading && !error && agents.length === 0 && <p role="status">{text.askNone}</p>}
-          {blocked && <p role="status">{text.askOffline}</p>}
-          {error && (
-            <p role="alert" data-testid="ask-agents-unavailable">
-              {error}
-            </p>
-          )}
-          <div className="ask-actions">
-            <button
-              disabled={loading || blocked}
-              onClick={(event) => {
-                if (event.isTrusted) void refresh();
-              }}
-            >
-              {text.askRefresh}
-            </button>
-            <button
-              disabled={!agent || loading || blocked}
-              onClick={(event) => {
-                if (event.isTrusted) void preview();
-              }}
-            >
-              {text.askPreview}
-            </button>
-            <button onClick={close}>{text.askClose}</button>
-          </div>
-        </section>
-      )}
-      {open && attempt && (
-        <AskPreview
-          attempt={attempt}
-          close={close}
-          blocked={blocked}
-          sent={(operationId) => {
-            close();
-            revealAsk(operationId);
-          }}
-        />
-      )}
-    </div>
-  );
-}
-
-/** After a Send the preview closes and the matching Page asks entry is scrolled to and focused.
- * The entry appears when its record is admitted, so wait for it briefly. */
-export function revealAsk(operationId: string, timeoutMs = 5000) {
-  const find = () =>
-    [...document.querySelectorAll<HTMLElement>('[data-testid=ask-entry]')].find(
-      (entry) => entry.dataset.operationId === operationId,
-    );
-  const reveal = (entry: HTMLElement) => {
-    entry.scrollIntoView({ block: 'center' });
-    entry.focus({ preventScroll: true });
-  };
-  const now = find();
-  if (now) return reveal(now);
-  const observer = new MutationObserver(() => {
-    const entry = find();
-    if (!entry) return;
-    observer.disconnect();
-    clearTimeout(timer);
-    reveal(entry);
-  });
-  const timer = setTimeout(() => observer.disconnect(), timeoutMs);
-  observer.observe(document.body, { childList: true, subtree: true });
-}
-
 /** Only admitted sync records enter this view. Responses to Send/retry/abandon
  * never create a page row or reply; the signed own stream remains its owner. */
 export function AskPanel({
@@ -270,14 +61,32 @@ export function AskPanel({
   binding,
   blocked,
   inline = false,
+  chat = false,
+  renderUser,
 }: {
   records: readonly PageAsk[];
   binding?: AskBinding;
   blocked: boolean;
   inline?: boolean;
+  chat?: boolean;
+  renderUser?(record: PageAsk, status: ReactNode, delivery: ReactNode): ReactNode;
 }) {
   const [now, setNow] = useState(0);
-  useEffect(() => setNow(Date.now()), [records]);
+  useEffect(() => {
+    const timestamp = Date.now();
+    setNow(timestamp);
+    if (!chat) return;
+    const deadlines = records
+      .filter(
+        (record) =>
+          record.state === 'accepted' && record.reply === undefined && !record.resultUnavailable,
+      )
+      .map((record) => record.issuedAt + ASK_OBSERVATION_MS)
+      .filter((deadline) => deadline > timestamp);
+    if (!deadlines.length) return;
+    const timer = setTimeout(() => setNow(Date.now()), Math.min(...deadlines) - timestamp);
+    return () => clearTimeout(timer);
+  }, [records, chat]);
   const [pending, setPending] = useState<Set<string>>(new Set());
   const [errors, setErrors] = useState<Map<string, string>>(new Map());
   const busy = useRef(new Set<string>());
@@ -331,35 +140,45 @@ export function AskPanel({
 
   return (
     <section className="ask-panel" aria-label={text.asks} data-testid="ask-panel">
-      {!inline && (
+      {!inline && !chat && (
         <>
           <h2>{text.asks}</h2>
           <p>{text.askVisible}</p>
         </>
       )}
-      {!inline && records.length === 0 && <p>{text.askEmpty}</p>}
-      {records.map((record) => (
-        <article
-          data-testid="ask-entry"
-          data-operation-id={record.operationId}
-          data-writer={record.writer}
-          tabIndex={-1}
-          key={`${record.writer}:${record.operationId}`}
-          aria-label={`${text.ask} ${record.operationId}`}
-        >
-          {!inline && <h3>{record.agentName || text.askAgentLabel}</h3>}
-          <p className="isolation-note">
-            {inline ? record.agentName || text.askAgentLabel : record.deviceName} ·{' '}
-            <time
-              dateTime={new Date(record.issuedAt).toISOString()}
-              title={`${text.askCreated} ${new Date(record.issuedAt).toISOString()}`}
-            >
-              {relativeTime(record.issuedAt, now)}
-            </time>
-          </p>
+      {!inline && !chat && records.length === 0 && <p>{text.askEmpty}</p>}
+      {records.map((record) => {
+        const timedOut =
+          record.state === 'accepted' &&
+          !record.resultUnavailable &&
+          record.reply === undefined &&
+          now >= record.issuedAt + ASK_OBSERVATION_MS;
+        const stateCopy =
+          record.state === 'refused'
+            ? (refusals[record.reason ?? ''] ?? states.refused)
+            : record.state === 'accepted' &&
+                (record.reply !== undefined || record.resultUnavailable)
+              ? text.askDeliveryAccepted
+              : states[record.state];
+        const status = (
+          <span role="status" data-testid="ask-state" data-state={record.state}>
+            {chat
+              ? record.reply !== undefined
+                ? '✓ replied'
+                : timedOut
+                  ? '… no reply yet'
+                  : ['dispatching', 'accepted'].includes(record.state) && !record.resultUnavailable
+                    ? '… waiting'
+                    : record.state === 'held'
+                      ? `• held · ${stateCopy}`
+                      : `! ${stateCopy}`
+              : stateCopy}
+          </span>
+        );
+        const details = (
           <details>
-            <summary>{inline ? 'Show exactly what was sent' : text.askDetails}</summary>
-            {inline && <pre>{record.deliveredMessage ?? record.message}</pre>}
+            <summary>{inline || chat ? 'Show exactly what was sent' : text.askDetails}</summary>
+            {(inline || chat) && <pre>{record.deliveredMessage ?? record.message}</pre>}
             <dl className="ask-identities">
               <dt>{text.askAgent}</dt>
               <dd>{record.agent}</dd>
@@ -371,23 +190,16 @@ export function AskPanel({
               <dd>{record.operationId}</dd>
             </dl>
           </details>
-          {!inline && <pre>{record.message}</pre>}
-          <p role="status" data-testid="ask-state" data-state={record.state}>
-            {record.state === 'refused'
-              ? (refusals[record.reason ?? ''] ?? states.refused)
-              : record.state === 'accepted' &&
-                  (record.reply !== undefined || record.resultUnavailable)
-                ? text.askDeliveryAccepted
-                : states[record.state]}
-          </p>
-          {record.state === 'uncertain' &&
-            ['REMOTE_SESSION_ENDED', 'REMOTE_SEQUENCE_UNAVAILABLE'].includes(
-              record.reason ?? '',
-            ) && <p>{text.askSessionEnded}</p>}
-          {['uncertain', 'held', 'dispatching', 'accepted'].includes(record.state) &&
-            record.reply === undefined &&
-            !record.resultUnavailable && (
-              <>
+        );
+        const controls = (
+          <>
+            {record.state === 'uncertain' &&
+              ['REMOTE_SESSION_ENDED', 'REMOTE_SEQUENCE_UNAVAILABLE'].includes(
+                record.reason ?? '',
+              ) && <p>{text.askSessionEnded}</p>}
+            {['uncertain', 'held', 'dispatching', 'accepted'].includes(record.state) &&
+              record.reply === undefined &&
+              !record.resultUnavailable && (
                 <div className="ask-actions">
                   <button
                     disabled={
@@ -412,26 +224,92 @@ export function AskPanel({
                     </button>
                   )}
                 </div>
-              </>
-            )}
-          {errors.has(record.operationId) && <p role="alert">{errors.get(record.operationId)}</p>}
-          {record.reply !== undefined && (
-            <section aria-label={text.askReply}>
+              )}
+            {errors.has(record.operationId) && <p role="alert">{errors.get(record.operationId)}</p>}
+            {record.resultUnavailable && <p>{text.askFinalUnavailable}</p>}
+          </>
+        );
+        const reply = record.reply !== undefined && (
+          <section className={chat ? 'chat-agent-turn' : undefined} aria-label={text.askReply}>
+            {chat ? (
+              <p className="chat-byline" data-testid="ask-reply-attribution">
+                {record.agentName || text.askAgentLabel} ·{' '}
+                <time dateTime={new Date(record.issuedAt).toISOString()}>
+                  {compactRelativeTime(record.issuedAt, now)}
+                </time>
+              </p>
+            ) : (
               <h4 data-testid="ask-reply-attribution">
                 {text.askReplyFrom} {record.agentName || text.askAgentLabel}
                 <small className="isolation-note">
                   {record.deviceName} · {relativeTime(record.issuedAt, now)}
                 </small>
               </h4>
-              <pre data-testid="ask-reply" data-empty={record.reply === ''}>
-                {record.reply}
-              </pre>
-              {record.reply === '' && <p>{text.askEmptyReply}</p>}
-            </section>
-          )}
-          {record.resultUnavailable && <p>{text.askFinalUnavailable}</p>}
-        </article>
-      ))}
+            )}
+            <pre data-testid="ask-reply" data-empty={record.reply === ''}>
+              {record.reply}
+            </pre>
+            {record.reply === '' && <p>{text.askEmptyReply}</p>}
+          </section>
+        );
+        return (
+          <article
+            className={chat ? 'chat-exchange' : undefined}
+            data-testid="ask-entry"
+            data-operation-id={record.operationId}
+            data-writer={record.writer}
+            tabIndex={-1}
+            key={`${record.writer}:${record.operationId}`}
+            aria-label={`${text.ask} ${record.operationId}`}
+          >
+            {chat ? (
+              <>
+                {renderUser ? (
+                  renderUser(
+                    record,
+                    status,
+                    <>
+                      {details}
+                      {controls}
+                    </>,
+                  )
+                ) : (
+                  <article className="chat-user-turn">
+                    <header>
+                      <p className="chat-byline">
+                        {record.deviceName} · {compactRelativeTime(record.issuedAt, now)}
+                      </p>
+                      {status}
+                    </header>
+                    <pre>{record.message}</pre>
+                    {details}
+                    {controls}
+                  </article>
+                )}
+                {reply}
+              </>
+            ) : (
+              <>
+                {!inline && <h3>{record.agentName || text.askAgentLabel}</h3>}
+                <p className="isolation-note">
+                  {inline ? record.agentName || text.askAgentLabel : record.deviceName} ·{' '}
+                  <time
+                    dateTime={new Date(record.issuedAt).toISOString()}
+                    title={`${text.askCreated} ${new Date(record.issuedAt).toISOString()}`}
+                  >
+                    {relativeTime(record.issuedAt, now)}
+                  </time>
+                </p>
+                {details}
+                {!inline && <pre>{record.message}</pre>}
+                {status}
+                {controls}
+                {reply}
+              </>
+            )}
+          </article>
+        );
+      })}
     </section>
   );
 }

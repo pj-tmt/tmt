@@ -44,6 +44,7 @@ export function AnnotationInput({
   blocked,
   cancel,
   committed,
+  chat = false,
 }: {
   binding?: AskBinding;
   discussion?: ThreadBinding;
@@ -55,6 +56,7 @@ export function AnnotationInput({
   blocked: boolean;
   cancel(): void;
   committed(ref: DiscussionRef): void;
+  chat?: boolean;
 }) {
   const inputElement = useRef<HTMLTextAreaElement | null>(null);
   const [agents, setAgents] = useState<AgentDestination[]>([]);
@@ -64,6 +66,7 @@ export function AnnotationInput({
   const [busy, setBusy] = useState(false);
   const sending = useRef(false);
   const dirty = useRef(false);
+  const wasBusy = useRef(false);
   const [error, setError] = useState<string>();
   const [delivered, setDelivered] = useState<string>();
   const [recorded, setRecorded] = useState<DiscussionRef>();
@@ -93,6 +96,21 @@ export function AnnotationInput({
       inputElement.current.setSelectionRange(value.length, value.length);
     }
   }, [value]);
+  useEffect(() => {
+    const completed = wasBusy.current && !busy;
+    wasBusy.current = busy;
+    const input = inputElement.current;
+    if (
+      chat &&
+      completed &&
+      !blocked &&
+      !recorded &&
+      input &&
+      input.closest('dialog[open]') &&
+      document.activeElement === document.body
+    )
+      input.focus({ preventScroll: true });
+  }, [busy, chat, blocked, recorded]);
   const destination = mentionedDestination(value, agents, selected);
   const quote = thread?.anchor?.exact ?? anchor?.exact ?? '';
   const comment = thread ? conversationText(thread.comments, thread.threadId, value, asks) : value;
@@ -132,7 +150,9 @@ export function AnnotationInput({
     try {
       origin = captured.thread
         ? await discussion.reply(captured.thread, captured.value, captured.threadRevision)
-        : await discussion.create(captured.value, captured.anchor);
+        : chat
+          ? await discussion.createChat(captured.value)
+          : await discussion.create(captured.value, captured.anchor);
       const attempt = await binding.prepare({
         quote,
         comment: captured.value,
@@ -145,7 +165,7 @@ export function AnnotationInput({
       const outcome = await attempt.send();
       if (!['accepted', 'held', 'uncertain'].includes(outcome.state))
         setError(`Send ${outcome.state}. The recorded turn was kept.`);
-      setValue('');
+      setValue(chat ? `@${captured.destination.agentName} ` : '');
       committed(origin.thread);
     } catch {
       setError(
@@ -224,14 +244,20 @@ export function AnnotationInput({
         <pre data-testid="annotation-exact-bytes">{disclosure}</pre>
       </details>
       {error && <p role="alert">{error}</p>}
-      {recorded && !thread && (
+      {recorded && (chat || !thread) && (
         <button
           type="button"
           onClick={(event) => {
-            if (event.isTrusted) committed(recorded);
+            if (event.isTrusted) {
+              if (chat) {
+                setRecorded(undefined);
+                setError(undefined);
+                setValue(destination ? `@${destination.agentName} ` : '');
+              } else committed(recorded);
+            }
           }}
         >
-          Open recorded thread
+          {chat ? 'Write another message' : 'Open recorded thread'}
         </button>
       )}
     </section>

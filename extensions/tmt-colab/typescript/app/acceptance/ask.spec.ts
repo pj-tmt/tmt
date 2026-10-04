@@ -9,10 +9,10 @@ import {
   createPage,
   freePort,
   openPage,
-  previewAsk,
+  composeChat,
+  openChat,
   run,
-  selectInRenderer,
-  send,
+  sendChat,
 } from './harness/ask.js';
 import { until } from './harness/process.js';
 import { disposeActiveWorlds, withWorld } from './harness/with-world.js';
@@ -35,9 +35,7 @@ async function reconnect(page: Page) {
     page.waitForEvent('load', { timeout: 60_000 }),
     page.getByRole('button', { name: 'Reconnect', exact: true }).click(),
   ]);
-  await expect(page.getByTestId('ask-toggle')).toBeVisible({ timeout: 60_000 });
-  if ((await page.getByTestId('ask-toggle').getAttribute('aria-expanded')) === 'false')
-    await page.getByTestId('ask-toggle').click();
+  await openChat(page);
 }
 
 async function scenario(world: AcceptanceWorld, options: { gated?: boolean } = {}) {
@@ -60,38 +58,40 @@ const askerName = 'asker-browser';
 test.describe('Ask agent real-binary acceptance (#1110)', () => {
   test.afterEach(disposeActiveWorlds);
 
-  test(`direct send: previewed bytes reach the recipient exactly once and the reply shows in a second viewer`, async () => {
+  test(`direct Chat send: disclosed bytes reach the recipient exactly once and the reply shows in a second viewer`, async () => {
     await withWorld(async (world) => {
       const s = await scenario(world);
-      await selectInRenderer(s.askerPage, '#quote');
-      const ask = await previewAsk(s.askerPage, s.recipient.id, 'Explain this sentence');
-      // The delivered preview starts with Remote's stable device-name line.
-      expect(ask.previewText.startsWith(`[remote: ${askerName}]\n`)).toBe(true);
+      const draft = await composeChat(s.askerPage, s.recipient.name, 'Explain this sentence');
+      // The disclosure starts with Remote's stable device-name line.
+      expect(draft.deliveredMessage.startsWith(`[remote: ${askerName}]\n`)).toBe(true);
       // The link names the page itself, with only its public space and page IDs.
-      expect(ask.previewText).toContain(`\nLink: ${s.askerPage.url()}\n`);
+      expect(draft.deliveredMessage).toContain(`\nLink: ${s.askerPage.url()}\n`);
       expect(new URL(s.askerPage.url()).hash).toMatch(
         new RegExp(`^#space=[a-z2-7]{32}&path=%2Fpages%2F${s.page.pageId}$`),
       );
-      await send(s.askerPage);
-      // The preview closes and the ask entry on the page takes the focus.
+      const ask = await sendChat(s.askerPage, draft);
+      // The input stays ready for another explicit turn; no preview screen exists.
       await expect(s.askerPage.getByTestId('ask-preview')).toHaveCount(0);
-      await expect(askEntry(s.askerPage, ask.operationId)).toBeFocused();
+      await expect(
+        s.askerPage.getByTestId('chat-panel').getByRole('combobox', { name: 'Message to agent' }),
+      ).toBeFocused();
       await expect(askState(s.askerPage, ask.operationId)).toHaveAttribute(
         'data-state',
         'accepted',
       );
-      // Exact bytes: the recipient's text is the previewed text, once.
+      // Exact bytes: the recipient's text is the disclosed text, once.
       await until(() => s.recipient.received().length === 1, 'recipient received the ask');
       expect(s.recipient.received()).toHaveLength(1);
-      expect(s.recipient.received()[0].message).toBe(ask.previewText);
+      expect(s.recipient.received()[0].message).toBe(draft.deliveredMessage);
       expect(dispatches(world)).toHaveLength(1);
       // The real `tmt reply` shows up on the asker's page, attributed to the agent,
       // and in a second paired viewer.
-      const reply = replyBody(ask.previewText);
+      const reply = replyBody(draft.deliveredMessage);
       const entry = askEntry(s.askerPage, ask.operationId);
       await expect(entry.getByTestId('ask-reply')).toHaveText(reply);
       await expect(entry.getByTestId('ask-reply-attribution')).toContainText(s.recipient.name);
       const second: Page = await openPage(s.door, s.viewer, s.page);
+      await openChat(second);
       const mirrored = askEntry(second, ask.operationId);
       await expect(mirrored.getByTestId('ask-reply')).toHaveText(reply);
       await expect(mirrored.getByTestId('ask-reply-attribution')).toContainText(s.recipient.name);
@@ -105,12 +105,12 @@ test.describe('Ask agent real-binary acceptance (#1110)', () => {
   test(`browser reload restores the ask from its own stream with the same operation ID and no second wake`, async () => {
     await withWorld(async (world) => {
       const s = await scenario(world, { gated: true });
-      await selectInRenderer(s.askerPage, '#quote');
-      const ask = await previewAsk(s.askerPage, s.recipient.id, 'Hold the reply');
-      await send(s.askerPage);
+      const draft = await composeChat(s.askerPage, s.recipient.name, 'Hold the reply');
+      const ask = await sendChat(s.askerPage, draft);
       await until(() => s.recipient.received().length === 1, 'recipient received the ask');
       const requestId = s.recipient.received()[0].requestId as string;
       await s.askerPage.reload();
+      await openChat(s.askerPage);
       await expect(askState(s.askerPage, ask.operationId)).toHaveAttribute(
         'data-state',
         'accepted',
@@ -118,7 +118,7 @@ test.describe('Ask agent real-binary acceptance (#1110)', () => {
       // Releasing the gate lets the real reply flow; still one wake, one dispatch.
       fs.writeFileSync(`${s.recipient.gate}/${requestId}.release`, '');
       await expect(askEntry(s.askerPage, ask.operationId).getByTestId('ask-reply')).toHaveText(
-        replyBody(ask.previewText),
+        replyBody(draft.deliveredMessage),
       );
       expect(s.recipient.received()).toHaveLength(1);
       expect(dispatches(world)).toHaveLength(1);
@@ -128,11 +128,11 @@ test.describe('Ask agent real-binary acceptance (#1110)', () => {
   test(`remote restart after the core accepted recovers via operation.show with no second wake`, async () => {
     await withWorld(async (world) => {
       const s = await scenario(world);
-      await selectInRenderer(s.askerPage, '#quote');
-      const ask = await previewAsk(s.askerPage, s.recipient.id, 'Survive a restart');
-      world.armBarrier(ask.operationId, 'after');
-      await send(s.askerPage);
-      await world.barrierEntered();
+      const draft = await composeChat(s.askerPage, s.recipient.name, 'Survive a restart');
+      world.armNextBarrier('after');
+      const ask = await sendChat(s.askerPage, draft);
+      const parked = await world.barrierEntered();
+      expect(parked.operationId).toBe(ask.operationId);
       // The real core has accepted; Remote dies before it can answer the browser.
       await s.door.remote.kill();
       world.releaseBarrier();
@@ -155,11 +155,11 @@ test.describe('Ask agent real-binary acceptance (#1110)', () => {
   test(`remote restart before dispatch stays uncertain with no new dispatch; abandon records MAY_HAVE_BEEN_DELIVERED`, async () => {
     await withWorld(async (world) => {
       const s = await scenario(world);
-      await selectInRenderer(s.askerPage, '#quote');
-      const ask = await previewAsk(s.askerPage, s.recipient.id, 'Never reaches the core');
-      world.armBarrier(ask.operationId, 'before');
-      await send(s.askerPage);
+      const draft = await composeChat(s.askerPage, s.recipient.name, 'Never reaches the core');
+      world.armNextBarrier('before');
+      const ask = await sendChat(s.askerPage, draft);
       const parked = await world.barrierEntered();
+      expect(parked.operationId).toBe(ask.operationId);
       // Remote dies and its parked core launch is killed before the core acts, so
       // nothing is dispatched (releasing it would let the dispatch run).
       await s.door.remote.kill();
@@ -192,9 +192,8 @@ test.describe('Ask agent real-binary acceptance (#1110)', () => {
   test(`colab restart keeps the ask and delivers the reply from the own stream once`, async () => {
     await withWorld(async (world) => {
       const s = await scenario(world, { gated: true });
-      await selectInRenderer(s.askerPage, '#quote');
-      const ask = await previewAsk(s.askerPage, s.recipient.id, 'Reply after a restart');
-      await send(s.askerPage);
+      const draft = await composeChat(s.askerPage, s.recipient.name, 'Reply after a restart');
+      const ask = await sendChat(s.askerPage, draft);
       await until(() => s.recipient.received().length === 1, 'recipient received the ask');
       const requestId = s.recipient.received()[0].requestId as string;
       await restartColab(world, s.door);
@@ -202,8 +201,9 @@ test.describe('Ask agent real-binary acceptance (#1110)', () => {
       // The open page loses its sync tunnel with Colab; reopening it resumes the
       // observer for the unresolved ask, which publishes the reply from Remote.
       await s.askerPage.reload();
+      await openChat(s.askerPage);
       const reply = askEntry(s.askerPage, ask.operationId).getByTestId('ask-reply');
-      await expect(reply).toHaveText(replyBody(ask.previewText), { timeout: 30_000 });
+      await expect(reply).toHaveText(replyBody(draft.deliveredMessage), { timeout: 30_000 });
       await expect(askEntry(s.askerPage, ask.operationId).getByTestId('ask-reply')).toHaveCount(1);
       expect(s.recipient.received()).toHaveLength(1);
     });
@@ -212,10 +212,9 @@ test.describe('Ask agent real-binary acceptance (#1110)', () => {
   test(`revoking the asker device refuses a later send and creates no recipient work`, async () => {
     await withWorld(async (world) => {
       const s = await scenario(world);
-      await selectInRenderer(s.askerPage, '#quote');
       // Positive control: the same device can send before it is revoked.
-      const first = await previewAsk(s.askerPage, s.recipient.id, 'Before revoke');
-      await send(s.askerPage);
+      const draft = await composeChat(s.askerPage, s.recipient.name, 'Before revoke');
+      const first = await sendChat(s.askerPage, draft);
       await expect(askState(s.askerPage, first.operationId)).toHaveAttribute(
         'data-state',
         'accepted',
@@ -241,19 +240,18 @@ test.describe('Ask agent real-binary acceptance (#1110)', () => {
       await expect(tabA.getByText('Colab is open in another tab')).toBeVisible();
       await expect(tabB.getByText('Colab is open in another tab')).toHaveCount(0);
       // An ask sent in the active tab B is accepted by Remote.
-      await selectInRenderer(tabB, '#quote');
-      const ask = await previewAsk(tabB, s.recipient.id, 'Sent from the active tab');
-      await send(tabB);
+      const draft = await composeChat(tabB, s.recipient.name, 'Sent from the active tab');
+      const ask = await sendChat(tabB, draft);
       await expect(askState(tabB, ask.operationId)).toHaveAttribute('data-state', 'accepted');
       await until(() => s.recipient.received().length === 1, 'recipient received the ask');
       // "Use here" in A takes the session back; the ask made in B is visible in A,
       // and B now shows the notice instead.
       await tabA.getByRole('button', { name: 'Use here' }).click();
-      await tabA.getByTestId('ask-toggle').click();
+      await openChat(tabA);
       await expect(askEntry(tabA, ask.operationId)).toBeVisible();
       await expect(tabB.getByText('Colab is open in another tab')).toBeVisible();
       await expect(askEntry(tabA, ask.operationId).getByTestId('ask-reply')).toHaveText(
-        replyBody(ask.previewText),
+        replyBody(draft.deliveredMessage),
       );
       // Takeover never resends: one wake, one dispatch.
       expect(s.recipient.received()).toHaveLength(1);

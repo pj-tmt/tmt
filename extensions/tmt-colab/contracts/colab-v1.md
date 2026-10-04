@@ -1160,23 +1160,24 @@ Remote's operations helper. The wrapper opens nothing and never reopens on
 uncertainty: the helper resyncs its sequence and reads the original operation ID.
 Only session end or unrecoverable sequence state signals Registration to reconnect.
 Registration rebuilds both the RemoteClient and page AskControllers with the new
-shared Session; pending previews close, and recovery reads the original IDs.
+shared Session; old-session attempts cannot dispatch, and recovery reads the original IDs.
 
 Only explicit Send in trusted parent chrome dispatches agent work. Comments,
 sync, replay, compaction, reload and renderer messages MUST NOT dispatch. Ask
-agent uses the same send path for annotation turns and standalone asks. The parent freezes the admitted quote/comment,
-page title, fragment-free HTTP(S) URL and chosen agent/machine before signing.
+agent uses the same send path for annotation turns and page Chat. On explicit Enter,
+the parent freezes the admitted quote/comment, page title, canonical mounted HTTP(S)
+page URL and chosen agent/machine before signing.
 Credentialed URLs and malformed Unicode refuse. Paused rendering or later edits
-cannot replace frozen text. The preview displays destination UUIDs, verified
-presence, exact delivered UTF-8 and a separate escaped control-character view;
-it warns that the ask and reply are visible to everyone with page access.
+cannot replace frozen text. The one plain @ input sends without a confirmation screen. A disclosure shows exact
+delivered UTF-8; recorded turns retain their frozen bytes and destination UUIDs
+under Details. The pane states that asks and replies are visible to everyone with page access.
 
 Remote prepends its contract-defined `[remote: <device name>]` line and LF. The
-parent includes that line in the delivered preview, while signing and sending
+parent includes that line in the delivered disclosure, while signing and sending
 only the frozen message below it. The verified device name and grant revision
-and session expiry are pinned to the preview; rename, revision change or session
-end refuses Send from the pending preview.
-No second prefix or post-preview formatter is permitted. Delivery readiness is always unavailable in local v1; presence never becomes
+and session expiry are pinned to the frozen intent; rename, revision change or session
+end refuses dispatch.
+No second prefix or post-freeze formatter is permitted. Delivery readiness is always unavailable in local v1; presence never becomes
 channel readiness. The adapter drops the SDK's unknown delivery projection, and
 Colab carries no delivery-readiness field.
 Grant mode and expiry are shown only when supplied by verified Remote evidence;
@@ -1236,7 +1237,7 @@ Ask records are inert JSON values in the existing per-writer own Yjs roots:
 
 `agentName` and `deviceName` are display-only, publisher-asserted labels, each
 bounded to 128 UTF-8 bytes. The asking publisher takes them from the verified
-preview (agents.list and owner session echo). They are outside the signed input
+frozen intent (agents.list and owner session echo). They are outside the signed input
 and never establish authority, route work, or replace the agent/device UUID.
 Readers may show a UUID fallback when a label is empty.
 
@@ -1249,7 +1250,7 @@ errors. Verified pre-effect Remote refusals preserve `REMOTE_SCOPE_DENIED`,
 `REMOTE_STATE_UNAVAILABLE` or `REMOTE_CORE_UNAVAILABLE`; unknown refusal codes become
 `REMOTE_REFUSED`. A verified pre-admission Send refusal, including session end,
 is definitive: it records refused with the reviewed code. A session-end Send
-refusal then signals Registration to reconnect and requires a fresh preview.
+refusal then signals Registration to reconnect and requires new explicit input capture.
 Adopted Sends never return refused; unknown outcomes remain uncertain. A typed
 SDK `sequence_unavailable` Send outcome becomes uncertain
 (`REMOTE_SEQUENCE_UNAVAILABLE`) and signals Registration to reconnect. The adapter never reopens. A session-ending result
@@ -1297,7 +1298,7 @@ The frozen `Link:` is the page's own mounted URL, `<mount>/#space=<spaceId>&path
 built from the admitted selection; the fragment carries only those two public IDs. A source URL whose
 fragment is anything else (a reader seed, any other key), or that has a query or a `/read` path, is refused
 rather than stripped, so a reader link can never reach agent text. After an accepted, held or uncertain
-Send the trusted preview closes, and the matching Page asks entry is scrolled into view and focused.
+Send the admitted turn and inline outcome remain in their conversation; the input can compose another explicit turn.
 
 ### Member machines
 
@@ -1451,6 +1452,34 @@ snippet, participants, display time and open/resolved status. Selecting a row sc
 the window to its anchor and expands that thread inside the overlay; a margin marker
 opens the same thread. Agent replies join verified Ask records to comment IDs and
 remain attributed to their agent. Overlay geometry does not reflow page content.
+
+### Page Chat (#1645)
+
+The header Chat action replaces the standalone Ask action. Chat opens a fixed right
+parent overlay (a full-screen mobile sheet) without resizing or reflowing the page.
+Messages scroll inside it; one shared @ input remains at the bottom. Closing retains
+the draft and admitted history. Enter explicitly captures, freezes, signs and sends;
+there is no confirmation screen or automatic send. Exact bytes remain in the input
+and recorded-turn disclosures. The pane states that the conversation is visible to
+everyone with page access.
+
+Each asking device uses one designated null-anchor discussion thread in the existing
+page/epoch own stream: `threadId` equals its writer device UUID. Creation batches the
+thread and opening comment atomically under the existing writer lock; a duplicate
+creation refuses. Subsequent turns reply to that thread through the existing writer.
+There is no new store, record kind or field. Ordinary Comments excludes designated
+Chat threads; Chat shows every device's page-visible Chat history, while each input
+continues only its asking device's thread. Chat offers deletion of individual messages,
+not its designated thread, so deleting a message does not prevent further turns.
+Existing unthreaded Ask records remain
+readable in Chat. The same captured-context validation and byte limits apply.
+
+Verified agent replies join only to their originating comment IDs. Pending, replied,
+held and other ledger outcomes appear inline with mark plus word. After the existing
+two-hour observation window, an accepted turn awaiting a reply shows a display-only
+reply timeout; it keeps its accepted ledger state and read-only recheck action. No
+elapsed time authorizes a resend or changes durable ordering. Chat text never enters
+the author-code renderer; highlights still carry only anchor IDs and quote selectors.
 
 ## Sync and backend admission
 

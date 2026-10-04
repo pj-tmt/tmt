@@ -38,7 +38,9 @@ try {
   // No barrier armed.
 }
 const gated =
-  operation === 'dispatch.create' && barrier !== null && barrier.operationId === operationId;
+  operation === 'dispatch.create' &&
+  barrier !== null &&
+  (barrier.operationId === null || barrier.operationId === operationId);
 
 async function park(phase) {
   if (!gated || barrier.phase !== phase) return;

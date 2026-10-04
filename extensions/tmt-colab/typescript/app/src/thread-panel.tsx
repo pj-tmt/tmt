@@ -1,9 +1,9 @@
-import { useEffect, useId, useState } from 'react';
+import { useEffect, useId, useState, type ReactNode } from 'react';
 import { AskPanel, type AskBinding, type PageAsk } from './ask-panel.js';
 import type { ThreadBinding } from './thread-store.js';
 import type { CommentView, QuoteSelector, ThreadView, DiscussionRef } from './thread-records.js';
 import { text } from './strings.js';
-import { relativeTime } from './display-time.js';
+import { relativeTime, compactRelativeTime } from './display-time.js';
 import { AnnotationInput } from './annotation-input.js';
 
 function Composer({
@@ -71,16 +71,22 @@ function Composer({
   );
 }
 
-function Comment({
+export function DiscussionComment({
   comment,
   thread,
   binding,
   ask,
   asks,
   blocked,
+  chat = false,
+  status,
+  delivery,
 }: {
   comment: CommentView;
   thread: ThreadView;
+  chat?: boolean;
+  status?: ReactNode;
+  delivery?: ReactNode;
   binding?: ThreadBinding;
   ask?: AskBinding;
   asks: readonly PageAsk[];
@@ -108,7 +114,7 @@ function Comment({
   };
   return (
     <article
-      className="comment"
+      className={chat ? 'comment chat-user-turn' : 'comment'}
       data-testid="comment-entry"
       data-message-id={comment.messageId}
       data-writer={comment.ref.writer}
@@ -120,10 +126,11 @@ function Comment({
             dateTime={new Date(Number(comment.at)).toISOString()}
             title={new Date(Number(comment.at)).toISOString()}
           >
-            {relativeTime(Number(comment.at), now)}
+            {(chat ? compactRelativeTime : relativeTime)(Number(comment.at), now)}
           </time>
           {!comment.deleted && comment.revision !== '1' && <> · {text.commentEdited}</>}
         </p>
+        {status}
       </header>
       {comment.deleted ? (
         <p className="comment-status">{text.commentDeleted}</p>
@@ -181,21 +188,24 @@ function Comment({
                     action(() => binding!.deleteComment(comment.ref, comment.revision));
                 }}
               >
-                {text.commentDelete}
+                {chat ? 'Delete message' : text.commentDelete}
               </button>
             </div>
           )}
         </>
       )}
-      <AskPanel
-        inline
-        records={asks.filter(
-          (record) =>
-            record.thread === thread.threadId && record.messageIds?.includes(comment.messageId),
-        )}
-        binding={ask}
-        blocked={blocked || busy}
-      />
+      {!busy && delivery}
+      {!chat && (
+        <AskPanel
+          inline
+          records={asks.filter(
+            (record) =>
+              record.thread === thread.threadId && record.messageIds?.includes(comment.messageId),
+          )}
+          binding={ask}
+          blocked={blocked || busy}
+        />
+      )}
       {error && <p role="alert">{text.commentFailed}</p>}
     </article>
   );
@@ -264,7 +274,7 @@ function Thread({
       </header>
       {thread.anchor && <blockquote>{thread.anchor.exact}</blockquote>}
       {thread.comments.map((comment) => (
-        <Comment
+        <DiscussionComment
           key={`${comment.ref.writer}:${comment.messageId}`}
           comment={comment}
           thread={thread}

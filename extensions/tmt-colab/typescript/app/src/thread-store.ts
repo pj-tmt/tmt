@@ -29,6 +29,7 @@ export interface CommentContext {
 export interface ThreadBinding {
   readonly deviceId: string;
   create(body: string, anchor: QuoteSelector | null): Promise<CommentContext>;
+  createChat(body: string): Promise<CommentContext>;
   reply(thread: DiscussionRef, body: string, expectedRevision?: string): Promise<CommentContext>;
   edit(message: DiscussionRef, revision: string, body: string): Promise<void>;
   deleteComment(message: DiscussionRef, revision: string): Promise<void>;
@@ -119,10 +120,22 @@ export class ThreadStore implements ThreadBinding {
     );
   }
   async create(body: string, anchor: QuoteSelector | null) {
+    const threadId = crypto.randomUUID();
+    requireValue(threadId !== this.deviceId);
+    return this.#create(body, anchor, threadId);
+  }
+  async createChat(body: string) {
+    return this.#create(body, null, this.deviceId);
+  }
+  async #create(body: string, anchor: QuoteSelector | null, threadId: string) {
     const captured = structuredClone(anchor),
-      threadId = crypto.randomUUID(),
       messageId = crypto.randomUUID();
-    await this.#exclusive(async () => {
+    await this.#exclusive(async (c) => {
+      requireValue(
+        !this.#views(c).some(
+          (thread) => thread.ref.writer === this.deviceId && thread.threadId === threadId,
+        ),
+      );
       await this.#write([
         {
           ...this.#scope(),

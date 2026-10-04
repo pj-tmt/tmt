@@ -104,10 +104,10 @@ for (const width of [1440, 390])
         await expect(page.getByRole('button', { name: 'More page actions' })).toBeFocused();
         await page.getByRole('button', { name: 'More page actions' }).click();
       } else await expect(page.getByTestId('comments-toggle')).toBeFocused();
-      await page.getByTestId('ask-toggle').click();
-      const asks = page.locator('.page-drawer[data-panel=ask]');
-      await expect(asks.getByTestId('ask-panel')).toBeVisible();
-      await asks.getByRole('button', { name: 'Close Ask agent', exact: true }).focus();
+      await page.getByTestId('chat-toggle').click();
+      const asks = page.locator('.page-drawer[data-panel=chat]');
+      await expect(asks.getByTestId('chat-panel')).toBeVisible();
+      await asks.getByRole('button', { name: 'Close Chat', exact: true }).focus();
       await page.keyboard.press('Escape');
       await expect(asks).not.toBeVisible();
       if (width === 390) {
