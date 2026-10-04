@@ -845,6 +845,7 @@ fn main() -> ExitCode {
             let code = error_code(error.as_ref());
             let schema = schema_fault(error.as_ref());
             let next = schema.and_then(tmt_colab::store::Fault::next);
+            let hint = schema.and_then(tmt_colab::store::Fault::hint);
             if json_output {
                 let mut value = cli_failure
                     .map(|e| e.correlation.clone())
@@ -870,7 +871,7 @@ fn main() -> ExitCode {
                 let mut output = tmt_cli_style::stream::stderr();
                 let terminal = output.terminal();
                 let _ =
-                    tmt_cli_style::message::error(&mut output, terminal, &error.to_string(), next);
+                    tmt_cli_style::message::error(&mut output, terminal, &error.to_string(), hint);
             }
             ExitCode::FAILURE
         }
@@ -882,13 +883,15 @@ mod tests {
     use super::*;
     #[test]
     fn schema_restart_hint_parses_without_execution() {
-        let hint = tmt_colab::store::Fault::OutdatedSchema(4).next().unwrap();
+        let fault = tmt_colab::store::Fault::OutdatedSchema(4);
+        let hint = fault.hint().unwrap();
         // Explicit command boundaries in the actual presentation-owned hint.
         let command = hint
             .strip_prefix("Start or restart ")
             .unwrap()
             .strip_suffix(" to update it.")
             .unwrap();
+        assert_eq!(fault.next(), Some(command));
         let words = Example {
             command,
             note: "Restart the migration-owning serve",
@@ -903,8 +906,12 @@ mod tests {
             .unwrap();
         // Upgrade is a core-owned command, covered by its existing printed-command guard.
         assert_eq!(
-            tmt_colab::store::Fault::UnsupportedSchema(99).next(),
+            tmt_colab::store::Fault::UnsupportedSchema(99).hint(),
             Some("Run tmt upgrade, then try again.")
+        );
+        assert_eq!(
+            tmt_colab::store::Fault::UnsupportedSchema(99).next(),
+            Some("tmt upgrade")
         );
     }
     #[test]

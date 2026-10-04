@@ -75,6 +75,13 @@ impl Fault {
     }
     pub fn next(&self) -> Option<&'static str> {
         match self {
+            Self::OutdatedSchema(_) => Some("tmt colab serve"),
+            Self::UnsupportedSchema(_) => Some("tmt upgrade"),
+            _ => None,
+        }
+    }
+    pub fn hint(&self) -> Option<&'static str> {
+        match self {
             Self::OutdatedSchema(_) => Some("Start or restart tmt colab serve to update it."),
             Self::UnsupportedSchema(_) => Some("Run tmt upgrade, then try again."),
             _ => None,

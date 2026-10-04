@@ -2144,8 +2144,9 @@ known migration path returns `COLAB_STORE_OUTDATED`: "This space was saved by an
 older Colab." Its next action is "Start or restart tmt colab serve to update it."
 A schema newer than this binary returns `COLAB_STORE_NEWER`: "This space was
 saved by a newer Colab." Its next action is "Run tmt upgrade, then try again."
-Human output uses a separate styled `hint:` line; JSON adds the action as a
-top-level `next` array and numeric `storeSchema` and `supportedSchema` fields in
+Human output uses a separate styled `hint:` line for those sentences. JSON uses
+runnable commands in its top-level `next` array: `["tmt colab serve"]` for an
+older store and `["tmt upgrade"]` for a newer one. It adds numeric `storeSchema` and `supportedSchema` fields in
 `error`. The supported version is derived from the migration history. Refused
 reads leave the database unchanged; only the existing initializing/serving paths
 apply migrations, never an inspection command. Operation correlation preserves

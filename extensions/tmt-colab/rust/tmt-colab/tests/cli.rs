@@ -925,18 +925,20 @@ fn management_read_refuses_unsafe_state_without_changes() {
 
 #[test]
 fn schema_mismatches_name_recovery_in_human_and_json_without_changing_state() {
-    for (version, code, message, next) in [
+    for (version, code, message, hint, command) in [
         (
             4,
             "COLAB_STORE_OUTDATED",
             "This space was saved by an older Colab.",
             "Start or restart tmt colab serve to update it.",
+            "tmt colab serve",
         ),
         (
             99,
             "COLAB_STORE_NEWER",
             "This space was saved by a newer Colab.",
             "Run tmt upgrade, then try again.",
+            "tmt upgrade",
         ),
     ] {
         let pilot = Pilot::new(None);
@@ -966,7 +968,7 @@ fn schema_mismatches_name_recovery_in_human_and_json_without_changing_state() {
             assert_eq!(result["error"]["message"], message);
             assert_eq!(result["error"]["storeSchema"], version);
             assert_eq!(result["error"]["supportedSchema"], supported);
-            assert_eq!(result["next"], json!([next]));
+            assert_eq!(result["next"], json!([command]));
             let output = pilot.command().args(&args).output().unwrap();
             assert_eq!(output.status.code(), Some(1));
             assert!(output.stdout.is_empty());
@@ -975,7 +977,7 @@ fn schema_mismatches_name_recovery_in_human_and_json_without_changing_state() {
                 format!(
                     "error: {}\nhint: {}\n",
                     message.trim_end_matches('.'),
-                    next.trim_end_matches('.')
+                    hint.trim_end_matches('.')
                 )
             );
             assert_eq!(fs::read(&db).unwrap(), before);
@@ -1046,7 +1048,7 @@ fn future_schema_keeps_recovery_and_correlation_and_serve_refuses_to_migrate() {
         let result = failure(&pilot, &args, "COLAB_STORE_NEWER");
         assert_eq!(result["error"]["storeSchema"], 99);
         assert_eq!(result["error"]["supportedSchema"], supported);
-        assert_eq!(result["next"], json!(["Run tmt upgrade, then try again."]));
+        assert_eq!(result["next"], json!(["tmt upgrade"]));
         if args[0] == "page" {
             tmt_colab_model::values::generated_id(result["operationId"].as_str().unwrap()).unwrap();
             tmt_colab_model::values::generated_id(result["pageId"].as_str().unwrap()).unwrap();

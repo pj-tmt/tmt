@@ -89,8 +89,9 @@ in `acceptance/ask.spec.ts`.
   Current-schema CLI inspection rejects an older migratable schema with
   `COLAB_STORE_OUTDATED` and "Start or restart tmt colab serve to update it."
   Refusal never migrates; serve applies the existing migration history. Human
-  errors omit schema numbers; JSON preserves both versions and a `next` action
-  array, including through operation-correlated errors.
+  errors omit schema numbers; JSON preserves both versions and a runnable `next`
+  command array (`tmt colab serve` or `tmt upgrade`), including through
+  operation-correlated errors. Human hint sentences stay separate.
 - Receipts are create-only: an exact retry returns the stored receipt, a conflicting
   envelope freezes its stream. Checkpoint publication prunes a shared prefix only when
   every namespace with updates there has a checkpoint at the same sequence/hash; pinned
