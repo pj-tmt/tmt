@@ -88,7 +88,8 @@ directory with `page.html` and `manifest.json` (never replacing output), and rep
 
 Serve and the door: the CLI suites in `tests/cli.rs` run a scripted `tmt remote ...` stand-in
 (`Pilot::remote_core`: attach, start, not installed, door that dies, a wrapper that leaves a
-grandchild, Ctrl-C while starting) with a private HOME and no real Remote. The real-binary case
+grandchild, Ctrl-C while starting; `tmt colab stop` with started, attached and no serve, and a
+forwarded-context refusal) with a private HOME and no real Remote. The real-binary case
 is `acceptance/one-command.spec.ts` (needs `tmt`, `tmt-remote` and `tmt-colab` built; see
 [acceptance.md](acceptance.md)); it links the extensions onto the world's PATH so the real core
 resolves `tmt remote`.

@@ -29,7 +29,7 @@ fn grammar() -> Command {
         examples: &[
             Example {
                 command: "tmt colab serve",
-                note: "Run the local foreground space",
+                note: "Run the space; stop it with tmt colab stop",
             },
             Example {
                 command: "tmt colab page create --title Notes --file page.html",
@@ -52,6 +52,16 @@ fn grammar() -> Command {
         }],
         outputs: OutputModes::HumanAndJson,
         details: "Listens only on <data root>/colab/door.sock. Attaches to a running Remote door, or starts tmt remote serve itself, and prints the state and the next step (pairing stays explicit: tmt remote pair).\nCtrl-C or SIGTERM closes the socket, its workers and tunnels, then stops a door it started; an attached door keeps running.",
+    };
+    const STOP: CommandSpec = CommandSpec {
+        name: "stop",
+        summary: "Stop the running tmt colab serve",
+        examples: &[Example {
+            command: "tmt colab stop",
+            note: "Ask the serving Colab to shut down, then wait until it has",
+        }],
+        outputs: OutputModes::HumanAndJson,
+        details: "Asks the serving process over its owner-only socket, never by signalling a pid. A Remote door that serve started stops with it; a door it only attached to keeps running. Pairings and data are untouched. Not running is not an error.",
     };
     const SPACES: CommandSpec = CommandSpec {
         name: "spaces",
@@ -143,6 +153,7 @@ fn grammar() -> Command {
                         ),
                 ),
             )
+            .subcommand(tmt_cli_style::command(&STOP))
             .subcommand(tmt_cli_style::command(&SPACES))
             .subcommand(
                 tmt_cli_style::command(&PAGE)
@@ -215,6 +226,9 @@ fn run(matches: &clap::ArgMatches) -> Result<()> {
         if command == "spaces" {
             return spaces(&root, json_output);
         }
+        if command == "stop" {
+            return stop_serving(&root, json_output);
+        }
         if command == "export" {
             return export(&root, args);
         }
@@ -242,6 +256,11 @@ fn run(matches: &clap::ArgMatches) -> Result<()> {
             .with_app(app);
         // The socket is bound first, so a door started now mounts it as soon as it is ready.
         let access = supervisor::Access::open(&stop);
+        let socket = socket.with_door(match &access {
+            supervisor::Access::Attached(_) => "attached",
+            supervisor::Access::Started { .. } => "started",
+            supervisor::Access::Unavailable { .. } => "unavailable",
+        });
         let pairing = match &access {
             supervisor::Access::Unavailable { .. } => None,
             _ => Some(door::Pairing::lookup()),
@@ -300,6 +319,54 @@ fn open_pages(store: &Store, keyring: &Keyring) -> Option<Vec<String>> {
         .filter(|page| page["archived"] != true)
         .map(|page| page["pageId"].as_str().map(str::to_owned))
         .collect()
+}
+/// How long a stop request waits for the serving process to release its lock: the door's grace
+/// period plus socket and worker shutdown.
+const STOP_WAIT: std::time::Duration = std::time::Duration::from_secs(10);
+fn stop_serving(root: &std::path::Path, json_output: bool) -> Result<()> {
+    use std::time::Instant;
+    use tmt_colab::control::{self, StopFault};
+    let layout = Layout::existing(root)?.filter(|layout| layout.running().unwrap_or(false));
+    let door = match &layout {
+        None => None,
+        Some(layout) => {
+            let reply = control::request_stop(layout)?;
+            let deadline = Instant::now() + STOP_WAIT;
+            while layout.running()? {
+                if Instant::now() >= deadline {
+                    return Err(StopFault::Slow.into());
+                }
+                std::thread::sleep(std::time::Duration::from_millis(50));
+            }
+            reply.door()
+        }
+    };
+    let mut output = tmt_cli_style::stream::stdout(json_output);
+    if json_output {
+        let state = if door.is_some() {
+            "stopped"
+        } else {
+            "not-running"
+        };
+        writeln!(output, "{}", json!({"state":state,"door":door}))?;
+        return Ok(());
+    }
+    let terminal = output.terminal();
+    let done = match door {
+        None => "Colab is not running",
+        Some("started") => "Colab stopped, and the Remote door it started",
+        Some(_) => "Colab stopped",
+    };
+    tmt_cli_style::message::success(&mut output, terminal, done)?;
+    if door == Some("attached") {
+        let note = tmt_cli_style::table::escape(door::Door::ATTACHED_STOP_NOTE);
+        writeln!(
+            output,
+            "{}",
+            terminal.paint(tmt_cli_style::palette::Token::Dim, &note)
+        )?;
+    }
+    Ok(())
 }
 fn export(root: &std::path::Path, args: &clap::ArgMatches) -> Result<()> {
     use tmt_colab::export::{Bundle, DISCLOSURE, Fault};
@@ -586,6 +653,11 @@ fn error_code(error: &(dyn std::error::Error + Send + Sync + 'static)) -> &'stat
         .or_else(|| {
             error
                 .downcast_ref::<tmt_colab::socket::SocketFault>()
+                .map(|e| e.code())
+        })
+        .or_else(|| {
+            error
+                .downcast_ref::<tmt_colab::control::StopFault>()
                 .map(|e| e.code())
         })
         .or_else(|| {
