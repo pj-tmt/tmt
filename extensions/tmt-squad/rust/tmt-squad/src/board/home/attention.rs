@@ -2,7 +2,7 @@
 use super::{
     controller::HomeEntry,
     paint::{age_label, rule},
-    scene::{self, Painted, Part},
+    scene::{self, Kept, Key, Painted, Part},
 };
 use crate::{
     board::{app::App, view::fit},
@@ -77,14 +77,17 @@ fn template() -> &'static Template<()> {
 }
 
 /// What the section reports back, relative to its own first line.
+#[derive(Clone)]
 pub(super) struct Block {
     pub lines: Vec<Line<'static>>,
     pub rows: Vec<RowSpan>,
 }
 
+#[derive(Clone)]
 pub(super) struct RowSpan {
-    /// The entry's ordinal in `App::home_entries`.
-    pub index: usize,
+    /// The entry's ordinal within the section; the section's `first` is the
+    /// caller's, so a shifted section keeps its cached block.
+    pub local: usize,
     /// The member line, and everything the entry owns through its reserved lines.
     pub start: usize,
     pub end: usize,
@@ -119,7 +122,15 @@ fn id(index: usize) -> String {
     format!("entry-{index}")
 }
 
-pub(super) fn paint(app: &App, look: Look, area: Rect, now: u64, section: &Section<'_>) -> Block {
+/// The section's block, painted again only when its key changed.
+pub(super) fn paint(
+    app: &App,
+    look: Look,
+    area: Rect,
+    now: u64,
+    section: &Section<'_>,
+    slot: &mut Kept<Block>,
+) -> Block {
     let width = usize::from(area.width);
     let rows = section
         .entries
@@ -160,8 +171,22 @@ pub(super) fn paint(app: &App, look: Look, area: Rect, now: u64, section: &Secti
         .checked_sub(section.first)
         .filter(|local| *local < section.entries.len())
         .map(id);
-    let reserving = rows
-        .iter()
+    let key = Key {
+        width: area.width,
+        look,
+        selected,
+        data: json!({"head": head(section, width), "rows": rows}),
+    };
+    slot.get(key, build).clone()
+}
+
+fn build(key: &Key) -> Block {
+    let look = key.look;
+    let selected = key.selected.as_deref();
+    let reserving = key.data["rows"]
+        .as_array()
+        .into_iter()
+        .flatten()
         .map(|row| {
             row["after"].as_array().map_or(0, |after| {
                 after.iter().filter(|line| line["text"].is_null()).count()
@@ -171,8 +196,8 @@ pub(super) fn paint(app: &App, look: Look, area: Rect, now: u64, section: &Secti
     let painted: Painted = scene::paint(
         FILE,
         template(),
-        &json!({"head": head(section, width), "rows": rows}),
-        area.width,
+        &key.data,
+        key.width,
         &mut |Part {
                   id: node,
                   scope,
@@ -180,7 +205,7 @@ pub(super) fn paint(app: &App, look: Look, area: Rect, now: u64, section: &Secti
               }| {
             let part = node.and_then(<[String]>::last).map(String::as_str);
             let row = scope.and_then(<[String]>::first).map(String::as_str);
-            let selected = selected.as_deref().is_some_and(|id| Some(id) == row);
+            let selected = selected.is_some_and(|id| Some(id) == row);
             let base = if selected {
                 look.selection().add_modifier(Modifier::BOLD)
             } else {
@@ -202,14 +227,14 @@ pub(super) fn paint(app: &App, look: Look, area: Rect, now: u64, section: &Secti
             (style, Align::Left)
         },
     );
-    let rows = (0..section.entries.len())
+    let rows = (0..reserving.len())
         .map(|local| {
             let block = painted
                 .lines(&[&id(local)])
                 .expect("every entry is a scene block");
             let reserve = (reserving[local] > 0).then(|| block.end - reserving[local]..block.end);
             RowSpan {
-                index: section.first + local,
+                local,
                 start: block.start,
                 end: block.end,
                 reserve,

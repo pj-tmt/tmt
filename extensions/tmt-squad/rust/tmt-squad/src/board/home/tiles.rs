@@ -2,7 +2,7 @@
 use super::{
     Counts, SquadLine,
     paint::rule,
-    scene::{self, Part},
+    scene::{self, Kept, Key, Part},
 };
 use crate::{board::app::HomeUsage, config::TokenWindow, look::Look};
 use ratatui::{style::Style, text::Line};
@@ -32,7 +32,7 @@ impl TileItem<'_> {
     }
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) struct TileRegion {
     pub item: usize,
     pub lines: Range<usize>,
@@ -40,6 +40,7 @@ pub(super) struct TileRegion {
     pub width: u16,
 }
 
+#[derive(Clone)]
 pub(super) struct TilePaint {
     /// The section rule, a line above the rows.
     pub head: Vec<Line<'static>>,
@@ -474,7 +475,19 @@ fn template() -> &'static Template<()> {
 
 /// The squads section: its rule and one full-width row per squad. A single
 /// column at every width; `md` decides which columns the table has.
+#[cfg(test)]
 pub(super) fn paint(
+    items: &[TileItem<'_>],
+    width: u16,
+    look: Look,
+    selected: Option<usize>,
+) -> TilePaint {
+    paint_in(&mut Kept::default(), items, width, look, selected)
+}
+
+/// The section, painted again only when its key changed.
+pub(super) fn paint_in(
+    slot: &mut Kept<TilePaint>,
     items: &[TileItem<'_>],
     width: u16,
     look: Look,
@@ -487,18 +500,29 @@ pub(super) fn paint(
             regions: Vec::new(),
         };
     }
-    let selected = selected.map(row_id);
+    let key = Key {
+        width,
+        look,
+        selected: selected.map(row_id),
+        data: json!({"wide": branch(items, width, true), "narrow": branch(items, width, false)}),
+    };
+    slot.get(key, build).clone()
+}
+
+fn build(key: &Key) -> TilePaint {
+    let look = key.look;
+    let selected = key.selected.as_deref();
     let painted = scene::paint(
         FILE,
         template(),
-        &json!({"wide": branch(items, width, true), "narrow": branch(items, width, false)}),
-        width,
+        &key.data,
+        key.width,
         &mut |Part { id, scope, role }| {
             let row = scope.and_then(<[String]>::first).map(String::as_str);
             let style = match id {
                 Some([rule]) if rule == "rule" => look.role(role),
                 Some([_, _]) => {
-                    let selected = selected.as_deref().is_some_and(|id| Some(id) == row);
+                    let selected = selected.is_some_and(|id| Some(id) == row);
                     let emphasize = matches!(
                         role,
                         Role::Accent | Role::Waiting | Role::Blocked | Role::Review | Role::Working
@@ -519,7 +543,10 @@ pub(super) fn paint(
     let rows = lines.split_off(1);
     TilePaint {
         head: lines,
-        regions: placement(width, items.len()),
+        regions: placement(
+            key.width,
+            key.data["wide"]["rows"].as_array().map_or(0, Vec::len),
+        ),
         lines: rows,
     }
 }

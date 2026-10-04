@@ -484,6 +484,7 @@ fn failed_roster_and_inbox_are_reported_and_recovery_replaces_the_partial_model(
     assert_eq!(home.squads.len(), 2);
 }
 
+mod cache;
 mod cron;
 mod interaction;
 mod leads;

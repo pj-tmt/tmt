@@ -82,6 +82,8 @@ pub(super) fn render_at(frame: &mut Frame, app: &App, area: Rect, now: u64) {
             look.role(Role::Waiting),
         ));
     }
+    let mut derived = view.derived.borrow_mut();
+    let scenes = &mut derived.home;
     let mut starts = Vec::new();
     let mut regions = Vec::new();
     let mut input_range = None;
@@ -113,6 +115,7 @@ pub(super) fn render_at(frame: &mut Frame, app: &App, area: Rect, now: u64) {
                     role: Role::Dim,
                     blank: false,
                 },
+                scenes.attention.entry("quiet").or_default(),
             )
             .lines,
         );
@@ -146,18 +149,22 @@ pub(super) fn render_at(frame: &mut Frame, app: &App, area: Rect, now: u64) {
                     role,
                     blank: true,
                 },
+                scenes
+                    .attention
+                    .entry(if section == "needs-you" {
+                        "needs-you"
+                    } else {
+                        "blocked"
+                    })
+                    .or_default(),
             );
             let base = lines.len();
             lines.extend(block.lines);
             for row in block.rows {
+                let at = index + row.local;
                 starts.push(base + row.start);
-                regions.push((
-                    row.index,
-                    base + row.start..base + row.start + 1,
-                    0,
-                    area.width,
-                ));
-                if row.index == app.selected {
+                regions.push((at, base + row.start..base + row.start + 1, 0, area.width));
+                if at == app.selected {
                     selected_range = base + row.start..base + row.end;
                 }
                 if let Some(range) = row.reserve {
@@ -198,18 +205,20 @@ pub(super) fn render_at(frame: &mut Frame, app: &App, area: Rect, now: u64) {
                     leads: &leads,
                     replies: view.home_replies,
                 },
+                &mut scenes.leads,
             );
             let base = lines.len();
             lines.extend(block.lines);
             for lead in block.leads {
+                let at = index + lead.local;
                 starts.push(base + lead.start);
                 regions.push((
-                    lead.index,
+                    at,
                     base + lead.hit.start..base + lead.hit.end,
                     1.min(area.width),
                     area.width.saturating_sub(2),
                 ));
-                if lead.index == app.selected {
+                if at == app.selected {
                     selected_range = base + lead.start..base + lead.end;
                 }
                 if let Some(range) = lead.reserve {
@@ -230,7 +239,11 @@ pub(super) fn render_at(frame: &mut Frame, app: &App, area: Rect, now: u64) {
                 super::rows::Kind::AllLeads
             };
             section = &entry.target.section;
-            let block = super::rows::paint(app, look, area, kind, index);
+            let slot = match kind {
+                super::rows::Kind::Cron => &mut scenes.cron,
+                super::rows::Kind::AllLeads => &mut scenes.audience,
+            };
+            let block = super::rows::paint(app, look, area, kind, index, slot);
             let base = lines.len();
             lines.extend(block.lines);
             starts.push(base + block.row);
@@ -269,7 +282,7 @@ pub(super) fn render_at(frame: &mut Frame, app: &App, area: Rect, now: u64) {
                 .selected
                 .checked_sub(index)
                 .filter(|local| *local < items.len());
-            let painted = tiles::paint(&items, area.width, look, selected);
+            let painted = tiles::paint_in(&mut scenes.squads, &items, area.width, look, selected);
             lines.extend(painted.head);
             let start = lines.len();
             let selected_region =

@@ -303,6 +303,34 @@ mod paint;
 pub(super) use controller::{ALL_LEADS, CRON, LEADS, Target};
 pub(super) use paint::{age_label, hints, render, summary, usage};
 
+/// The painted sections of one immutable view, each held with the key it was
+/// painted for (see `scene::Key`). A new snapshot starts empty, like the rows'
+/// derivations.
+#[derive(Default)]
+pub(super) struct Scenes {
+    /// By section: `needs-you`, `blocked`, and `quiet` for the empty needs-you rule.
+    attention: std::collections::BTreeMap<&'static str, scene::Kept<attention::Block>>,
+    leads: scene::Kept<leads::Block>,
+    audience: scene::Kept<rows::Block>,
+    cron: scene::Kept<rows::Block>,
+    squads: scene::Kept<tiles::TilePaint>,
+}
+
+impl Scenes {
+    /// How many scenes were solved and painted since the view began.
+    #[cfg(test)]
+    pub(super) fn builds(&self) -> usize {
+        self.attention
+            .values()
+            .map(|slot| slot.builds)
+            .sum::<usize>()
+            + self.leads.builds
+            + self.audience.builds
+            + self.cron.builds
+            + self.squads.builds
+    }
+}
+
 mod attention;
 mod bar;
 mod leads;
