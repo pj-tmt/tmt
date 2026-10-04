@@ -5,6 +5,7 @@ import {
   READ_TAIL_UPDATES,
   STATE_BYTES,
   UPDATE_BYTES,
+  WRITE_TAIL_BYTES,
   WRITE_TAIL_UPDATES,
   validateProjection,
   validateOwn,
@@ -137,7 +138,7 @@ self.onmessage = async (event: MessageEvent<{ id: number; command: FoldCommand }
           (command.type === 'apply' ? READ_TAIL_UPDATES : WRITE_TAIL_UPDATES) ||
         command.updates.reduce((n, item) => n + item.length, 0) +
           (command.own ?? []).reduce((n, item) => n + item.update.length, 0) >
-          (command.type === 'apply' ? STATE_BYTES : UPDATE_BYTES)
+          (command.type === 'apply' ? STATE_BYTES : WRITE_TAIL_BYTES)
       )
         throw new Error('Decoder input capacity');
       for (const item of command.updates) Y.applyUpdate(candidate, item);

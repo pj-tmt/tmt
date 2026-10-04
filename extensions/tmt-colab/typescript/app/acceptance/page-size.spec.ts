@@ -54,7 +54,7 @@ test('a page at the browser tail limit refuses another write, stays readable eve
     }
     expect(refusal).toContain('COLAB_CAPACITY');
     expect(refusal).toContain(created.pageId);
-    expect(refusal).toContain('would pass the limit of 200');
+    expect(refusal).toContain('is full: it has 200 changes');
     expect(refusal).toContain('tmt colab export');
 
     // page read, show, export and ls all return it (and the neighbour) byte-exact.

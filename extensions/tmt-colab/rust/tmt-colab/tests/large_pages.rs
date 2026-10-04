@@ -310,12 +310,37 @@ fn a_write_past_the_browsers_tail_limit_refuses_while_the_page_stays_readable() 
 }
 
 #[test]
-fn a_write_onto_a_tail_past_256_kib_refuses_with_the_byte_limit() {
+fn a_write_onto_a_tail_past_256_kib_goes_through_up_to_the_write_tail_bytes() {
     let mut f = Fixture::new(&[PAGE, OTHER]);
     let (source, _, tail) = grow(&mut f, PAGE, 5, true);
     assert!(tail > 256 * 1024);
-    let message = edit_fault(&f, &format!("{source}<i>no</i>"));
-    assert!(message.contains("its changes add up to"), "{message}");
+    let mut decoder = Decoder::with_config(support::decoder_config(BINARY.into())).unwrap();
+    let edited = format!("{source}<i>ok</i>");
+    tmt_colab::page::prepare(
+        &f.store,
+        &f.key,
+        PAGE,
+        edit(&edited),
+        None,
+        &mut decoder,
+        1000,
+    )
+    .unwrap();
+}
+
+#[test]
+fn a_write_onto_a_tail_at_the_write_tail_bytes_refuses_with_the_size() {
+    let mut f = Fixture::new(&[PAGE, OTHER]);
+    // Plaintext past the write tail; the size check runs before any decoding.
+    let chunk = vec![b'x'; 255 * 1024];
+    for _ in 0..(tmt_colab::decoder::WRITE_TAIL_BYTES / chunk.len() + 1) {
+        f.append(PAGE, &chunk);
+    }
+    let message = edit_fault(&f, "<p>no</p>");
+    assert!(
+        message.contains("its changes add up to 4.2 MiB; one page holds at most 4 MiB"),
+        "{message}"
+    );
 }
 
 /// Plaintext objects past the page-state cap, without caring what they decode to: the size check
@@ -399,4 +424,17 @@ fn a_page_that_cannot_open_names_itself_and_does_not_hide_the_others() {
         "{listed}"
     );
     assert!(String::from_utf8_lossy(&human.stderr).contains("too large to open"));
+}
+
+#[test]
+fn replacing_a_small_page_with_a_source_bigger_than_one_change_refuses_by_name() {
+    let mut f = Fixture::new(&[PAGE, OTHER]);
+    let (_, _, _) = grow(&mut f, PAGE, 1, false);
+    let big = "x".repeat(1_500_000);
+    let message = edit_fault(&f, &big);
+    assert!(
+        message.contains("this edit changes more than the 256 KiB one change can carry"),
+        "{message}"
+    );
+    assert!(message.contains("make it in smaller steps"), "{message}");
 }

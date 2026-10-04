@@ -1,11 +1,12 @@
 import { validateDiscussionRecord } from './thread-records.js';
 import { exactKeys, generatedId, requireValue, text } from '@tmt/colab-client';
 /** Plaintext-only decoder protocol. No CryptoKeys or transport capabilities. */
-// Mirror decoder.rs: UPDATE_BYTES, WRITE_TAIL_UPDATES, UPDATES, STATE_BYTES and
+// Mirror decoder.rs: UPDATE_BYTES, WRITE_TAIL_UPDATES, WRITE_TAIL_BYTES, UPDATES, STATE_BYTES and
 // BASELINE_UPDATE_BYTES. Read admission is wider; prepare/check still use write limits.
 export const SOURCE_BYTES = 2 * 1024 * 1024;
 export const UPDATE_BYTES = 256 * 1024;
 export const WRITE_TAIL_UPDATES = 200;
+export const WRITE_TAIL_BYTES = 4 * 1024 * 1024;
 export const READ_TAIL_UPDATES = 5_000;
 export const STATE_BYTES = 24 * 1024 * 1024;
 export const BASELINE_UPDATE_BYTES = STATE_BYTES + UPDATE_BYTES + 1024;

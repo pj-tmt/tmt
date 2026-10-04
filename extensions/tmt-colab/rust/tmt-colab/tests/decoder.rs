@@ -1028,3 +1028,40 @@ fn publisher_metadata_updates_and_unknown_cli_edits_clear_it() {
         );
     }
 }
+
+#[test]
+fn a_page_source_larger_than_one_update_is_produced_as_ordered_updates_that_rebuild_it() {
+    let mut decoder = Decoder::with_config(support::decoder_config(program())).unwrap();
+    // Multi-byte text across a chunk boundary: chunks must never split a character.
+    let source = "héllo wörld 🌍 <p>text</p>\n".repeat(60_000);
+    assert!(source.len() > 1_500_000);
+    let made = decoder
+        .produce_page(view(source.as_bytes(), "T"), None)
+        .unwrap();
+    assert!(made.chunks.len() > 1);
+    let doc = Doc::new();
+    doc.get_or_insert_text("html");
+    doc.get_or_insert_map("meta");
+    for chunk in &made.chunks {
+        assert!(
+            chunk.len() <= tmt_colab::decoder::UPDATE_BYTES,
+            "{} bytes",
+            chunk.len()
+        );
+        doc.transact_mut()
+            .apply_update(Update::decode_v1(chunk).unwrap())
+            .unwrap();
+    }
+    let rebuilt = doc.get_or_insert_text("html").get_string(&doc.transact());
+    assert!(rebuilt == source, "the chunks rebuild a different source");
+    // The merged update is the same page in one piece, for the baseline commitment.
+    let merged = Doc::new();
+    apply_baseline(&merged, &made.update);
+    assert!(
+        merged
+            .get_or_insert_text("html")
+            .get_string(&merged.transact())
+            == source
+    );
+    gone(made.child_pid);
+}

@@ -20,13 +20,14 @@ pub(super) struct Selection<'a> {
     pub publisher_agent: Option<&'a str>,
 }
 struct Prepared {
-    update: Vec<u8>,
+    /// The page's first state as ordered updates, each small enough for every reader.
+    updates: Vec<Vec<u8>>,
     secret: [u8; 32],
 }
 impl Drop for Prepared {
     fn drop(&mut self) {
         self.secret.fill(0);
-        self.update.fill(0);
+        self.updates.iter_mut().for_each(|u| u.fill(0));
     }
 }
 impl Engine {
@@ -81,7 +82,7 @@ impl Engine {
                     }
                     Ok(())
                 })?;
-                let baseline = engine.decoder(page)?.produce_baseline(
+                let baseline = engine.decoder(page)?.produce_page(
                     BaselineInput {
                         source: source.as_bytes(),
                         title,
@@ -90,14 +91,10 @@ impl Engine {
                     },
                     None,
                 )?;
-                // Creation publishes a normal content update, with the existing stream cap.
-                if baseline.update.len() > crate::limits::CONTENT_UPDATE_BYTES {
-                    return Err(OwnerFault::Capacity.into());
-                }
                 let mut secret = [0; 32];
                 getrandom::fill(&mut secret)?;
                 Ok(Some(Prepared {
-                    update: baseline.update,
+                    updates: baseline.chunks,
                     secret,
                 }))
             },
@@ -154,33 +151,39 @@ impl Engine {
                     chain,
                     revoked: false,
                 })?;
-                let envelope = key.seal_content(
-                    &object::Context {
-                        space: key.space_id.clone(),
-                        page: page.into(),
-                        epoch: "1".into(),
-                        kind: "update".into(),
-                        namespace: "content".into(),
-                        author_device: writer.clone(),
-                        membership_revision: authority.head.revision.to_string(),
-                        stream_seq: "1".into(),
-                        prev_hash: [0; 32],
-                    },
-                    &prepared.secret,
-                    &prepared.update,
-                )?;
-                tx.append_content(&Envelope {
-                    scope: StreamScope {
-                        page,
-                        epoch: 1,
-                        stream: &writer,
-                    },
-                    namespace: Namespace::Content,
-                    seq: 1,
-                    hash: envelope.hash()?,
-                    previous: [0; 32],
-                    bytes: &envelope.to_json()?,
-                })?;
+                let mut previous = [0; 32];
+                for (index, update) in prepared.updates.iter().enumerate() {
+                    let seq = index as u64 + 1;
+                    let envelope = key.seal_content(
+                        &object::Context {
+                            space: key.space_id.clone(),
+                            page: page.into(),
+                            epoch: "1".into(),
+                            kind: "update".into(),
+                            namespace: "content".into(),
+                            author_device: writer.clone(),
+                            membership_revision: authority.head.revision.to_string(),
+                            stream_seq: seq.to_string(),
+                            prev_hash: previous,
+                        },
+                        &prepared.secret,
+                        update,
+                    )?;
+                    let hash = envelope.hash()?;
+                    tx.append_content(&Envelope {
+                        scope: StreamScope {
+                            page,
+                            epoch: 1,
+                            stream: &writer,
+                        },
+                        namespace: Namespace::Content,
+                        seq,
+                        hash,
+                        previous,
+                        bytes: &envelope.to_json()?,
+                    })?;
+                    previous = hash;
+                }
                 membership::outcome(&statements, wraps)
             },
         )

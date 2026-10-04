@@ -274,23 +274,36 @@ fn baseline(input: &[u8]) -> Result<(), DecodeFault> {
     if digest.len() != 32 || wire.title.len() > BASELINE_TITLE_BYTES {
         return Err(DecodeFault::InvalidInput);
     }
-    let producing = matches!(wire.action, BaselineAction::Produce {});
+    let producing = matches!(wire.action, BaselineAction::Produce { .. });
+    let mut chunks = Vec::new();
     let (update, expected_source, expected_commitment) = match wire.action {
-        BaselineAction::Produce {} => {
+        BaselineAction::Produce { chunk_bytes } => {
             let source = binary(&wire.source, BASELINE_BYTES)?;
             validate_view(&source, &wire.title, &digest)?;
             let source_text =
                 std::str::from_utf8(&source).map_err(|_| DecodeFault::InvalidInput)?;
-            (
-                fresh_baseline(
+            let update = match chunk_bytes {
+                Some(size) if (1024..=UPDATE_BYTES - 1024).contains(&size) => {
+                    let doc = Doc::new();
+                    chunks = chunked_baseline(
+                        &doc,
+                        source_text,
+                        &wire.title,
+                        wire.publisher_agent.as_deref(),
+                        size,
+                    );
+                    doc.transact()
+                        .encode_state_as_update_v1(&StateVector::default())
+                }
+                Some(_) => return Err(DecodeFault::InvalidInput),
+                None => fresh_baseline(
                     Doc::new(),
                     source_text,
                     &wire.title,
                     wire.publisher_agent.as_deref(),
                 ),
-                Some(source),
-                None,
-            )
+            };
+            (update, Some(source), None)
         }
         BaselineAction::Verify { update, commitment } => {
             // Verification transmits the update once. Materialized source must
@@ -326,6 +339,24 @@ fn baseline(input: &[u8]) -> Result<(), DecodeFault> {
     {
         return Err(DecodeFault::Rejected);
     }
+    if !chunks.is_empty() {
+        // The ordered updates alone must rebuild the same page.
+        let replay = Doc::new();
+        replay.get_or_insert_text("html");
+        replay.get_or_insert_map("meta");
+        for chunk in &chunks {
+            if chunk.len() > UPDATE_BYTES {
+                return Err(DecodeFault::Rejected);
+            }
+            replay
+                .transact_mut()
+                .apply_update(Update::decode_v1(chunk).map_err(|_| DecodeFault::Rejected)?)
+                .map_err(|_| DecodeFault::Rejected)?;
+        }
+        if project(&replay, Namespace::Content)? != projection {
+            return Err(DecodeFault::Rejected);
+        }
+    }
     let commitment = baseline_commitment(source_text.as_bytes(), &update)?;
     if expected_commitment.is_some_and(|expected| expected.as_slice() != commitment) {
         return Err(DecodeFault::Rejected);
@@ -336,9 +367,48 @@ fn baseline(input: &[u8]) -> Result<(), DecodeFault> {
         source_digest: URL_SAFE_NO_PAD.encode(digest),
         commitment: URL_SAFE_NO_PAD.encode(commitment),
         update: URL_SAFE_NO_PAD.encode(update),
+        chunks: chunks
+            .iter()
+            .map(|chunk| URL_SAFE_NO_PAD.encode(chunk))
+            .collect(),
         memory_limit: memory_limit(),
         pid: std::process::id(),
     })
+}
+/// The page as ordered updates, each inserting at most `size` bytes of text, so that none exceeds
+/// the update limit. The first also sets the title and the publisher label.
+fn chunked_baseline(
+    doc: &Doc,
+    source: &str,
+    title: &str,
+    publisher_agent: Option<&str>,
+    size: usize,
+) -> Vec<Vec<u8>> {
+    let html = doc.get_or_insert_text("html");
+    let meta = doc.get_or_insert_map("meta");
+    let mut updates = Vec::new();
+    let mut rest = source;
+    let mut first = true;
+    while first || !rest.is_empty() {
+        let mut cut = rest.len().min(size);
+        while !rest.is_char_boundary(cut) {
+            cut -= 1;
+        }
+        let (piece, tail) = rest.split_at(cut);
+        let mut txn = doc.transact_mut();
+        let end = html.len(&txn);
+        html.insert(&mut txn, end, piece);
+        if first {
+            meta.insert(&mut txn, "title", title);
+            if let Some(agent) = publisher_agent {
+                meta.insert(&mut txn, "publisherAgent", agent);
+            }
+        }
+        updates.push(txn.encode_update_v1());
+        rest = tail;
+        first = false;
+    }
+    updates
 }
 fn fresh_baseline(doc: Doc, source: &str, title: &str, publisher_agent: Option<&str>) -> Vec<u8> {
     let html = doc.get_or_insert_text("html");

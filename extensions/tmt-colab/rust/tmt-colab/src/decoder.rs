@@ -18,6 +18,13 @@ pub const UPDATE_BYTES: usize = 256 * 1024;
 /// A page's tail since its last baseline that a write accepts. Browser reads have
 /// wider limits; browser writes retain this bound (`fold.worker.ts`).
 pub const WRITE_TAIL_UPDATES: usize = 200;
+/// Bytes of updates since the last baseline that a write leaves behind: a 2 MiB source plus
+/// as much again in edits. At 200 updates a 4 MiB block decodes in well under the 2 s deadline
+/// (cost is about 0.6 ms per MiB of block per update), so the bound never rests on the deadline.
+pub const WRITE_TAIL_BYTES: usize = 4 * 1024 * 1024;
+/// A new page's source is published as updates of at most this many bytes of text each, which
+/// every reader admits as ordinary updates.
+pub const CREATE_CHUNK_BYTES: usize = 192 * 1024;
 /// A new page's or baseline's source (write path).
 pub const BASELINE_BYTES: usize = 2 * 1024 * 1024;
 /// Owner decision (#1627): a page's whole state as the browser loads it, gzipped, is at most
@@ -70,6 +77,9 @@ pub struct BaselineInput<'a> {
 /// The caller owns descriptor signing, encryption and atomic epoch admission.
 pub struct Baseline {
     pub update: Vec<u8>,
+    /// The same state as ordered updates of at most `chunk_bytes` of text each; empty unless
+    /// asked for.
+    pub chunks: Vec<Vec<u8>>,
     pub source_digest: [u8; 32],
     pub commitment: [u8; 32],
     pub memory_limit: MemoryLimit,
@@ -288,7 +298,22 @@ impl Decoder {
         view: BaselineInput<'_>,
         stop: Option<&AtomicBool>,
     ) -> Result<Baseline, DecodeFault> {
-        self.baseline(view, BaselineAction::Produce {}, stop)
+        self.baseline(view, BaselineAction::Produce { chunk_bytes: None }, stop)
+    }
+    /// Like `produce_baseline`, plus the state as ordered updates of at most `CREATE_CHUNK_BYTES`
+    /// of text each, for a new page whose source is larger than one update.
+    pub fn produce_page(
+        &mut self,
+        view: BaselineInput<'_>,
+        stop: Option<&AtomicBool>,
+    ) -> Result<Baseline, DecodeFault> {
+        self.baseline(
+            view,
+            BaselineAction::Produce {
+                chunk_bytes: Some(CREATE_CHUNK_BYTES),
+            },
+            stop,
+        )
     }
     /// Checks a received baseline against the authenticated source/title and hashes.
     /// The child reconstructs source from the update and checks its digest,
@@ -330,14 +355,14 @@ impl Decoder {
             return Err(DecodeFault::InvalidInput);
         }
         let expected = match &action {
-            BaselineAction::Produce {} => None,
+            BaselineAction::Produce { .. } => None,
             BaselineAction::Verify { update, commitment } => {
                 Some((update.clone(), commitment.clone()))
             }
         };
         let input = serde_json::to_vec(&WireBaseline {
             version: 1,
-            source: if matches!(action, BaselineAction::Produce {}) {
+            source: if matches!(action, BaselineAction::Produce { .. }) {
                 URL_SAFE_NO_PAD.encode(view.source)
             } else {
                 String::new()
@@ -373,8 +398,17 @@ impl Decoder {
         if reply.commitment != URL_SAFE_NO_PAD.encode(commitment) {
             return Err(DecodeFault::InvalidOutput);
         }
+        let chunks = reply
+            .chunks
+            .iter()
+            .map(|chunk| binary(chunk, UPDATE_BYTES).map_err(|_| DecodeFault::InvalidOutput))
+            .collect::<Result<Vec<_>, _>>()?;
+        if chunks.len() > WRITE_TAIL_UPDATES {
+            return Err(DecodeFault::InvalidOutput);
+        }
         Ok(Baseline {
             update,
+            chunks,
             source_digest: view.source_digest,
             commitment,
             memory_limit: reply.memory_limit,
@@ -459,8 +493,14 @@ struct WireBaseline {
 #[derive(Serialize, Deserialize)]
 #[serde(tag = "mode", rename_all = "lowercase", deny_unknown_fields)]
 enum BaselineAction {
-    Produce {},
-    Verify { update: String, commitment: String },
+    Produce {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        chunk_bytes: Option<usize>,
+    },
+    Verify {
+        update: String,
+        commitment: String,
+    },
 }
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -468,6 +508,8 @@ struct WireBaselineResult {
     version: u8,
     input_hash: String,
     update: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    chunks: Vec<String>,
     source_digest: String,
     commitment: String,
     memory_limit: MemoryLimit,
