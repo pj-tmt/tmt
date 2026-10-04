@@ -2,8 +2,10 @@ import * as Y from 'yjs';
 import { digest, equal, frame, text } from '@tmt/colab-client';
 import {
   BASELINE_UPDATE_BYTES,
+  READ_TAIL_UPDATES,
   STATE_BYTES,
   UPDATE_BYTES,
+  WRITE_TAIL_UPDATES,
   validateProjection,
   validateOwn,
   type FoldCommand,
@@ -131,10 +133,11 @@ self.onmessage = async (event: MessageEvent<{ id: number; command: FoldCommand }
       );
     } else if (command.type === 'apply' || command.type === 'check') {
       if (
-        command.updates.length + (command.own?.length ?? 0) > 200 ||
+        command.updates.length + (command.own?.length ?? 0) >
+          (command.type === 'apply' ? READ_TAIL_UPDATES : WRITE_TAIL_UPDATES) ||
         command.updates.reduce((n, item) => n + item.length, 0) +
           (command.own ?? []).reduce((n, item) => n + item.update.length, 0) >
-          UPDATE_BYTES
+          (command.type === 'apply' ? STATE_BYTES : UPDATE_BYTES)
       )
         throw new Error('Decoder input capacity');
       for (const item of command.updates) Y.applyUpdate(candidate, item);

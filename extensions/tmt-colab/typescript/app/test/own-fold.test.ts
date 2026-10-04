@@ -105,18 +105,18 @@ it('page thread cap counts colliding writer maps separately at 1000 and rejects 
   expect((await run({ type: 'apply', updates: [] })).own).toEqual(at.own);
 });
 
-it('bounds aggregate content and all own state rather than allocating 4 MiB per writer', async () => {
+it('bounds aggregate content and all own state rather than allocating 24 MiB per writer', async () => {
   const run = await worker(),
     doc = new Y.Doc();
   doc.clientID = 1264;
-  doc.getMap('replies').set('large', 'x'.repeat(2 * 1024 * 1024));
+  doc.getMap('replies').set('large', 'x'.repeat(12 * 1024 * 1024 + 64));
   const update = Y.encodeStateAsUpdate(doc);
   doc.destroy();
   await run({ type: 'checkpoint', writer: a, update });
   await expect(run({ type: 'checkpoint', writer: b, update })).rejects.toThrow();
   const after = await run({ type: 'apply', updates: [] });
   expect(Object.keys(after.own)).toEqual([a]);
-  expect(after.own[a].replies.large).toHaveLength(2 * 1024 * 1024);
+  expect(after.own[a].replies.large).toHaveLength(12 * 1024 * 1024 + 64);
 });
 
 it('prepares immutable own records without publishing until the durable append is admitted', async () => {

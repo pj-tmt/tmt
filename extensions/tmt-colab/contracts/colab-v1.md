@@ -1027,15 +1027,15 @@ checkpoints before the retained tail; that tail MUST be contiguous from n+1
 across both namespaces. Receipt
 ledgers support retries, not browser authority; no additional ledger proof or
 signature scheme is required. Checkpoint plaintext is raw merged update-v1 bytes.
-The browser MUST bound each checkpoint and their aggregate catchup plaintext by
-the existing 4 MiB Worker state budget, independently of the retained tail's
-200-update/256 KiB budget. Apply checkpoints as single-item Worker steps before
+The browser MUST bound each checkpoint and the combined baseline, checkpoints
+and retained tail plaintext by the 24 MiB read state budget, with at most 5,000
+tail updates. Browser writes retain the 200-update/256 KiB tail budget. Apply checkpoints as single-item Worker steps before
 the tail. Those unpublished steps may retain cross-writer pending dependencies;
 the final tail step MUST resolve them and validate complete content before
 publishing any view. The existing 2 MiB source projection cap remains in force.
-Both namespaces count toward the aggregate checkpoint and tail plaintext budgets.
+Both namespaces count toward the combined plaintext budget.
 The Worker MUST also bound total encoded content plus all own documents, including
-pending structs/delete sets, and the serialized combined projection to 4 MiB each.
+pending structs/delete sets, and the serialized combined projection to 24 MiB each.
 Pending fragments MUST survive candidate cloning; final catchup validates every
 document before publication. Live content/own candidates commit only after all
 validation succeeds. Failure terminates the Worker and flags the binding; reconnect

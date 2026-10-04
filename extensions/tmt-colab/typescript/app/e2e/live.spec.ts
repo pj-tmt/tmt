@@ -18,6 +18,7 @@ async function wire(
   reset?: { source: string; invalid?: 'commitment' | 'source' | 'descriptor' | 'oldEpoch' },
   compacted?: { invalid?: 'prefix' | 'n' | 'namespace' | 'body' | 'gap' | 'ownBody' | 'ownTail' },
   statementTransfer?: 'valid' | 'hash',
+  largeTail = false,
 ) {
   const epoch = reset ? '2' : '1';
   const signer = await crypto.subtle.importKey(
@@ -284,7 +285,6 @@ async function wire(
     reset ? new Uint8Array([0, 0]) : new Uint8Array(Y.encodeStateAsUpdate(doc)),
   );
   const contentSnapshot = new Uint8Array(Y.encodeStateAsUpdate(doc));
-  doc.destroy();
   const entry = async (env: c.Envelope) => ({
     seq: c.decodeHeader(env.header()).context.streamSeq,
     envelopeHash: c.encodeBinary(await env.hash()),
@@ -292,6 +292,35 @@ async function wire(
   });
   const entries = [await entry(initial)],
     peers = new Set<WebSocketRoute>();
+  let tailBytes = 0;
+  if (largeTail) {
+    let previous = await initial.hash();
+    for (let index = 0; index < 205; index++) {
+      const vector = Y.encodeStateVector(doc);
+      doc.getText('html').insert(doc.getText('html').length, 'é' + 'x'.repeat(1598));
+      const update = new Uint8Array(Y.encodeStateAsUpdate(doc, vector));
+      tailBytes += update.length;
+      const env = await c.Envelope.seal(
+        {
+          space: v.space,
+          page: v.page,
+          epoch,
+          kind: 'update',
+          namespace: 'content',
+          authorDevice: v.device,
+          membershipRevision: String(head.head.revision),
+          streamSeq: String(index + 2),
+          prevHash: previous,
+        },
+        hex(v.epochKey),
+        signer,
+        update,
+      );
+      entries.push(await entry(env));
+      previous = await env.hash();
+    }
+  }
+  doc.destroy();
   const checkpoints: { namespace: string; row: (typeof entries)[number] }[] = [];
   if (compacted) {
     const cp = JSON.parse(
@@ -728,6 +757,7 @@ async function wire(
   return {
     head: head.head,
     entries,
+    tailBytes,
     statement: largeStatement ? c.encodeBinary(largeStatement.toJson()) : null,
     get statementChunks() {
       return statementChunks;
@@ -861,6 +891,27 @@ test('paired guidance reopens once, reloads into the owner app and clears its re
   expect(
     await page.evaluate((path) => sessionStorage.getItem(`colab-recovery:${path}`), mount),
   ).toBeNull();
+});
+
+test('authenticated tail past write limits opens and renders exact source', async ({
+  page,
+  context,
+}) => {
+  test.setTimeout(90_000);
+  const source = '<h1>Live fixture</h1>' + ('é' + 'x'.repeat(1598)).repeat(205);
+  const f = await wire(context, undefined, undefined, undefined, true);
+  expect(f.entries).toHaveLength(206);
+  expect(f.tailBytes).toBeGreaterThan(256 * 1024);
+  await page.goto(mount);
+  await page.getByRole('link', { name: new RegExp(v.page) }).click();
+  await expect(
+    page.frameLocator('iframe').getByRole('heading', { name: 'Live fixture' }),
+  ).toBeVisible();
+  await expect(page.frameLocator('iframe').locator('body')).toHaveText(
+    'Live fixture' + source.slice(21),
+  );
+  await page.getByRole('button', { name: 'Source', exact: true }).click();
+  await expect(page.getByRole('textbox')).toHaveValue(source);
 });
 
 for (const mode of ['unpaired', 'failed', 'cookie-lost'] as const) {

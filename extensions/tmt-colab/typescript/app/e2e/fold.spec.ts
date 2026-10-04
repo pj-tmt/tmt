@@ -63,6 +63,37 @@ test('decoder rejects malformed data and cannot be reused after rejection', asyn
   expect(rejected).toBe(2);
 });
 
+test('read batches admit more than the unchanged write limits', async ({ page }) => {
+  await page.goto('/');
+  const result = await page.evaluate(async () => {
+    const path = '/src/fold.ts';
+    const { Fold } = await import(path);
+    const fold = new Fold();
+    const empty = new Uint8Array([0, 0]);
+    try {
+      await fold.run({ type: 'apply', updates: Array(201).fill(empty) });
+      const writeCount = await fold.run({ type: 'check', updates: Array(201).fill(empty) }).then(
+        () => false,
+        () => true,
+      );
+      const writeBytes = await fold
+        .run({ type: 'check', updates: [new Uint8Array(256 * 1024 + 1)] })
+        .then(
+          () => false,
+          () => true,
+        );
+      const readCount = await fold.run({ type: 'apply', updates: Array(5_001).fill(empty) }).then(
+        () => false,
+        () => true,
+      );
+      return { writeCount, writeBytes, readCount };
+    } finally {
+      fold.close();
+    }
+  });
+  expect(result).toEqual({ writeCount: true, writeBytes: true, readCount: true });
+});
+
 test('same-device tabs persist one non-extractable signing/encryption binding', async ({
   page,
   context,
