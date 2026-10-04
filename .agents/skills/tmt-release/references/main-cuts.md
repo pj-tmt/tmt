@@ -121,8 +121,10 @@ with `latest=false`. Remote archives carry its executable and the three shared
 files, with embedded pairing HTML, SDK and wordlist. Colab carries its executable
 and the same files, embedding the frozen Vite app and its used client code.
 The builder requires an absolute `TMT_COLAB_APP_DIR`, keeps it through compilation
-and appends frontend notices. The final Colab verifier compares an independently
-built app moved outside the checkout; public smoke uses its installed CLI and
+and appends frontend notices. The final Colab verifier installs `@tmt/colab-app`
+dependencies with the pinned pnpm, frozen lockfile and disabled lifecycle scripts
+in the tooling checkout, then builds and moves the complete `dist` outside that
+checkout for independent byte comparison. Public smoke uses its installed CLI and
 proves representative assets, notices and foreground cleanup. Tiny fixture assets
 prove verifier sensitivity rather than actual product delivery. Cleanup requires direct
 child close, drained stdio and confirmed process-group absence before deleting state;

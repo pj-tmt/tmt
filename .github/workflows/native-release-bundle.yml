@@ -363,6 +363,7 @@ jobs:
         if: inputs.product == 'colab'
         working-directory: typescript
         run: |
+          corepack pnpm@10.33.0 --filter @tmt/colab-app --fail-if-no-match install --frozen-lockfile --ignore-scripts
           corepack pnpm@10.33.0 --filter @tmt/colab-app --fail-if-no-match build
           mv ../extensions/tmt-colab/typescript/app/dist "$RUNNER_TEMP/colab-app"
       - name: Execute final archive and bootstrap with the matching target process

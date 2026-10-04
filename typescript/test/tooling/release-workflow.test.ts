@@ -289,6 +289,20 @@ describe('per-tag release run (native-release.yml)', () => {
 });
 
 describe('release bundle pipeline (native-release-bundle.yml)', () => {
+  it('installs frozen Colab dependencies before building and moving the complete expected app', () => {
+    const step = job(bundle, 'verify')
+      .split(/\n      - /)
+      .find((block) => block.startsWith('name: Build independent expected Colab app bytes\n'));
+    expect(step).toBeDefined();
+    expect(step).toContain("if: inputs.product == 'colab'");
+    expect(step).toContain('working-directory: typescript');
+    expect(step).toContain(
+      'corepack pnpm@10.33.0 --filter @tmt/colab-app --fail-if-no-match install --frozen-lockfile --ignore-scripts\n' +
+        '          corepack pnpm@10.33.0 --filter @tmt/colab-app --fail-if-no-match build\n' +
+        '          mv ../extensions/tmt-colab/typescript/app/dist "$RUNNER_TEMP/colab-app"'
+    );
+  });
+
   it('builds Colab with frozen embedded assets and verifies outside the checkout fallback', () => {
     expect(run).toMatch(
       /options:\n {10}- cli\n {10}- squad\n {10}- driver-herdr\n {10}- remote\n {10}- colab/
