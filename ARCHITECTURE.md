@@ -1164,7 +1164,8 @@ Colab (`extensions/tmt-colab/`: `tmt-colab`, `tmt-colab-model`, `@tmt/colab-clie
   in its own process group, reading pairing from `tmt remote devices --json`. This optional
   edge (Colab → Remote) uses the public CLI only: no Remote state files and no crate
   dependency. Colab stops only a door it started, with its whole group, after closing its own
-  socket.
+  socket. `tmt colab stop` reaches the serving process
+  through a root-local route on that same owner-only socket (no signals, no new surface).
 - **Renderer invariant.** Parent chrome allows only self-hosted scripts and styles (no
   `unsafe-inline`). Author HTML runs only in `renderer.html` inside an opaque
   `sandbox allow-scripts` frame whose own policy permits inline scripts and styles but no
