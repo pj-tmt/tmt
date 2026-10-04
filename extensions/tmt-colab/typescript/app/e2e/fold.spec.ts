@@ -63,11 +63,13 @@ test('decoder rejects malformed data and cannot be reused after rejection', asyn
   expect(rejected).toBe(2);
 });
 
-test('read batches admit more than the unchanged write limits', async ({ page }) => {
+test('read batches admit more than the write limits', async ({ page }) => {
   await page.goto('/');
   const result = await page.evaluate(async () => {
     const path = '/src/fold.ts';
     const { Fold } = await import(path);
+    const protocol = '/src/fold-protocol.ts';
+    const { WRITE_TAIL_BYTES } = await import(protocol);
     const fold = new Fold();
     const empty = new Uint8Array([0, 0]);
     try {
@@ -77,7 +79,7 @@ test('read batches admit more than the unchanged write limits', async ({ page })
         () => true,
       );
       const writeBytes = await fold
-        .run({ type: 'check', updates: [new Uint8Array(256 * 1024 + 1)] })
+        .run({ type: 'check', updates: [new Uint8Array(WRITE_TAIL_BYTES + 1)] })
         .then(
           () => false,
           () => true,
