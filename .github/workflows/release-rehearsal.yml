@@ -1,0 +1,37 @@
+name: Release rehearsal
+
+# Runs the read-only prepare pipeline (build, assemble, final verification on the four matching
+# hosts) before merge, so a release never runs a packaging check for the first time. No secrets,
+# no Environment, no cache writes, no tags, drafts, publication or dispatch. For now it covers one
+# product whenever the prepare, bundle or rehearsal workflow itself changes; selection by affected
+# product and a nightly run on main extend this job (#1581).
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/release-rehearsal.yml'
+      - '.github/workflows/native-release-prepare.yml'
+      - '.github/workflows/native-release-bundle.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-rehearsal-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  prepare:
+    name: Rehearse ${{ matrix.product }} bundle
+    strategy:
+      fail-fast: false
+      matrix:
+        # Colab exercises the most prepare steps: independently built frontend bytes, app entries,
+        # combined notices and Rosetta verification.
+        product: [colab]
+    permissions:
+      contents: read
+    uses: ./.github/workflows/native-release-prepare.yml
+    with:
+      product: ${{ matrix.product }}
+      sha: ${{ github.event.pull_request.head.sha || github.sha }}

@@ -80,7 +80,7 @@ the private TOML binary separately for ordinary tooling fixtures.
 (cd rust && cargo build --locked -p tmt-release-tool --bin release-version && cargo test --locked -p tmt-release-tool --bin release-version)
 (cd typescript && corepack pnpm exec vp test run --config vitest.config.ts test/tooling/release-mode.test.ts test/tooling/release-cut.test.ts test/tooling/release-cut-live.test.ts test/tooling/release-version-injection.test.ts test/tooling/ci-scope.test.ts test/tooling/release-workflow.test.ts test/tooling/repository-layout.test.ts)
 (cd typescript && corepack pnpm check:tooling)
-actionlint .github/workflows/release.yml .github/workflows/release-version-injection.yml .github/workflows/native-release.yml .github/workflows/native-release-bundle.yml .github/workflows/native-release-upgrade.yml
+actionlint .github/workflows/release.yml .github/workflows/release-version-injection.yml .github/workflows/native-release.yml .github/workflows/native-release-bundle.yml .github/workflows/native-release-prepare.yml .github/workflows/release-rehearsal.yml .github/workflows/native-release-upgrade.yml
 ```
 
 Historical notes comparisons in `test/fixtures/release-cut-history.json` are

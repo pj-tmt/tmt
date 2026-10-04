@@ -12,12 +12,13 @@ const manifest = () => JSON.parse(read('.github/release-parity.json'));
 const changed = (file: string, transform: (source: string) => string) => (relative: string) =>
   relative === file ? transform(read(relative)) : read(relative);
 const bundle = '.github/workflows/native-release-bundle.yml';
+const prepare = '.github/workflows/native-release-prepare.yml';
 
 describe('release gate parity inventory', () => {
   it('covers both release entry points and every local reusable workflow with current evidence', () => {
     expect(checkReleaseParity(manifest(), { read })).toEqual({
-      workflows: 5,
-      jobs: 21,
+      workflows: 6,
+      jobs: 22,
       publicationGates: 6,
     });
     expect(Object.keys(releaseInventory(read))).toContain('native-release-upgrade.yml');
@@ -47,11 +48,10 @@ describe('release gate parity inventory', () => {
   });
 
   it('rejects a new gate in an existing job without relying on its exit status', () => {
-    const readChanged = changed(bundle, (source) =>
-      source.replace(
-        '  attach:\n',
-        '      - name: Verify new contract\n        run: node scripts/new-gate.mjs\n\n  attach:\n'
-      )
+    const readChanged = changed(
+      prepare,
+      (source) =>
+        `${source.trimEnd()}\n      - name: Verify new contract\n        run: node scripts/new-gate.mjs\n`
     );
     expect(() => checkReleaseParity(manifest(), { read: readChanged })).toThrow(
       'verify: executable step inventory changed'
@@ -59,7 +59,7 @@ describe('release gate parity inventory', () => {
   });
 
   it('rejects a gate command inserted into an existing named step', () => {
-    const readChanged = changed(bundle, (source) =>
+    const readChanged = changed(prepare, (source) =>
       source.replace(
         '          node typescript/scripts/release-policy.mjs --product "$PRODUCT" | cmp',
         '          node scripts/new-gate.mjs\n          node typescript/scripts/release-policy.mjs --product "$PRODUCT" | cmp'
@@ -97,7 +97,7 @@ describe('release gate parity inventory', () => {
         value.workflows['unused.yml'] = {};
       },
       (value: ReturnType<typeof manifest>) => {
-        delete value.workflows['native-release-bundle.yml'].verify;
+        delete value.workflows['native-release-prepare.yml'].verify;
       },
       (value: ReturnType<typeof manifest>) => {
         value.workflows['release.yml'].obsolete = {};
