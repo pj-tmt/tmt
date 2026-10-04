@@ -7,7 +7,7 @@ import { resolveCliExecutables } from '../support/cli-executable.mjs';
 import { expectJsonResult } from './cli-assertions.js';
 import { durableIdentity, durableState } from './identity-state-oracle.js';
 import { requestAttempts } from './request-state-oracle.js';
-import { withE2EFixture, type E2EFixture } from './harness.js';
+import { withE2EFixture, type E2EFixture, type MockEvent } from './harness.js';
 
 /** Puts the built squad extension and a `tmt` launcher on the fixture PATH. */
 function installSquad(fixture: E2EFixture): void {
@@ -130,12 +130,16 @@ describe('squad on a private tmux server', { concurrent: false }, () => {
           route_kind: 'inbox',
           message_text: message,
         });
-        await fixture.waitForEvent(
-          (event) =>
-            event.event === 'input' &&
-            event.pid === peer.pid &&
-            event.line?.startsWith(`[tmt] request ${request.request_id} is queued:`) === true,
-          5_000
+        // Correlate the peer's consumed wake with durable request identity, not notice paint.
+        const isScheduledWake = (event: MockEvent) =>
+          event.event === 'input' &&
+          event.pid === peer.pid &&
+          event.line?.split(/\s+/).includes(request.request_id) === true;
+        await fixture.waitForEvent(isScheduledWake, 5_000);
+        await fixture.waitFor(
+          () => scheduled()[0]?.wake_state === 'sent',
+          5_000,
+          'scheduled wake committed'
         );
         const busy = await squadCli(fixture, ['cron', 'tick']);
         expect(busy.code).toBe(1);
@@ -149,16 +153,11 @@ describe('squad on a private tmux server', { concurrent: false }, () => {
           expectJsonResult(await squadCli(fixture, ['cron', 'tick']));
         }
         expect(scheduled()).toHaveLength(1);
-        expect(
-          fixture
-            .events()
-            .filter(
-              (event) =>
-                event.event === 'input' &&
-                event.pid === peer.pid &&
-                event.line?.startsWith(`[tmt] request ${request.request_id} is queued:`)
-            )
-        ).toHaveLength(1);
+        expect(fixture.events().filter(isScheduledWake)).toHaveLength(1);
+        expect(scheduled()[0]).toMatchObject({
+          request_id: request.request_id,
+          wake_state: 'sent',
+        });
         const status = expectJsonResult<{ clock: { state: string } }>(
           await squadCli(fixture, ['cron', 'clock'])
         );
