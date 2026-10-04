@@ -160,7 +160,7 @@
           "name:Execute final archive and bootstrap with the matching target process",
           "name:Recheck version-only source after this stage"
         ],
-        "sha256": "271ef86c2d7b8518891aee3de0b43383d62557d9aa371ba2a8911427cfbbed7d",
+        "sha256": "104a4c7e3d65e40e53751af3a869cd6a24bfaae9c63c2143a4c1363599813f20",
         "releaseOnly": "Raw runtime/injection PR proofs do not execute the assembled final bundle on four hosts. Independent Colab frontend comparison, combined notices and Rosetta final verification are deferred to #1581 rehearsal.",
         "followUp": 1581
       }

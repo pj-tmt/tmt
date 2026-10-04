@@ -308,7 +308,7 @@ jobs:
         uses: ./.github/actions/warm-xcrun
       - name: Build independent expected Colab app bytes
         if: inputs.product == 'colab'
-        working-directory: typescript
+        working-directory: release-source/typescript
         run: |
           corepack pnpm@10.33.0 --filter @tmt/colab-app --fail-if-no-match install --frozen-lockfile --ignore-scripts
           corepack pnpm@10.33.0 --filter @tmt/colab-app --fail-if-no-match build
