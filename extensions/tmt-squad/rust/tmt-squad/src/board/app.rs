@@ -27,6 +27,7 @@ pub struct RateView {
 }
 
 pub struct View {
+    pub ask_lead: String,
     pub token_rate: Option<RateView>,
     /// The `status --json` document, so the board and `status` never differ.
     pub document: Value,
@@ -127,6 +128,8 @@ pub enum Request {
     },
     /// Save this tab order to `[tabs] order` (tab keys, in order).
     Reorder(Vec<String>),
+    /// A cron job control, with its actor, job and viewed revision resolved.
+    Cron(super::cronboard::CronRequest),
 }
 
 impl Request {
@@ -135,7 +138,11 @@ impl Request {
     pub fn sends(&self) -> bool {
         matches!(
             self,
-            Self::Talk { .. } | Self::Annotate { .. } | Self::Reply { .. } | Self::Reorder(_)
+            Self::Talk { .. }
+                | Self::Annotate { .. }
+                | Self::Reply { .. }
+                | Self::Reorder(_)
+                | Self::Cron(_)
         )
     }
 }
@@ -167,7 +174,14 @@ pub enum Item<'a> {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Choice {
     Action(Action),
-    Reply { request: String, from: String },
+    /// Confirms a cron control picked from a menu.
+    Cron(super::cronboard::CronRequest),
+    /// Leaves the menu without doing anything.
+    Dismiss,
+    Reply {
+        request: String,
+        from: String,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -198,9 +212,23 @@ pub struct Menu {
 /// Where composed text goes.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Compose {
-    Talk { to: String },
-    Annotate { to: String, row: String },
-    Reply { request: String, from: String },
+    AskLead {
+        to: String,
+        sender: String,
+    },
+    Talk {
+        to: String,
+    },
+    Annotate {
+        to: String,
+        row: String,
+    },
+    Reply {
+        request: String,
+        from: String,
+    },
+    /// One step of a cron form; its draft lives in `App::cron_draft`.
+    Cron,
 }
 
 /// The one-line composer: Enter sends, Esc cancels, empty sends nothing.
@@ -212,6 +240,14 @@ pub struct Input {
     pub compose: Compose,
     /// The squad the text is sent in: the row's own on the leads tab.
     pub squad: String,
+    /// A line after the text: the accepted forms, or why the last entry failed.
+    pub hint: Option<Hint>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Hint {
+    pub text: String,
+    pub error: bool,
 }
 
 /// Longest text the composer accepts, in characters.
@@ -227,6 +263,7 @@ pub(super) enum Overlay {
     View,
     Theme,
     Switcher,
+    CronList,
 }
 impl Overlay {
     fn id(self) -> tmt_tui::app::ComponentId {
@@ -237,6 +274,7 @@ impl Overlay {
                 Self::View => "view-picker",
                 Self::Theme => "theme-picker",
                 Self::Switcher => "switcher",
+                Self::CronList => "cron-list",
             }
             .into(),
         ]
@@ -245,6 +283,7 @@ impl Overlay {
 
 /// The quick switcher: a filter over every tab, hidden ones included.
 pub struct Switcher {
+    pub(super) unpicked_only: bool,
     pub(super) surface: RefCell<super::picker_surface::State>,
 }
 impl Default for Switcher {
@@ -255,6 +294,7 @@ impl Default for Switcher {
 impl Switcher {
     pub fn new(query: String) -> Self {
         Self {
+            unpicked_only: false,
             surface: RefCell::new(super::picker_surface::State::new(Some(query), vec![], None)),
         }
     }
@@ -300,17 +340,29 @@ pub struct App {
     pub(super) note_cursors: RefCell<BTreeMap<String, super::notes::NotesCursor>>,
     pub(super) note_hits: RefCell<Vec<(ratatui::layout::Rect, usize)>>,
     pub(super) notebooks: RefCell<super::notes::Notebooks>,
+    pub(super) cron: super::cronboard::State,
+    /// The cron form being filled in on the input line, if any.
+    pub(super) cron_draft: Option<super::cronboard::Draft>,
+    /// The squad tab's jobs half has focus (Tab moves in after the last pane).
+    pub(super) jobs_focus: bool,
+    /// One list state per squad room; selection survives tab switches.
+    pub(super) jobs: RefCell<BTreeMap<String, super::cronboard::JobsPane>>,
+    /// Where the jobs half was last drawn, for the pointer; empty when absent.
+    pub(super) jobs_area: std::cell::Cell<ratatui::layout::Rect>,
     pub(super) meter: Option<super::meter::Meter>,
     meters: BTreeMap<String, super::meter::Meter>,
     pub(super) token_window: crate::config::TokenWindow,
     pub(super) excluded_counters: Vec<String>,
     window_changed: bool,
     squad_keys: Vec<String>,
+    pub(super) picks: super::pick::Picks,
     pub tabs: Vec<String>,
     pub hidden: Vec<String>,
     pub pinned: usize,
     /// The quick switcher (`s`), while open.
     pub switcher: Option<Switcher>,
+    /// The `c` list of every squad's jobs, while open.
+    pub(super) cron_list: Option<super::cronboard::List>,
     pub attention: BTreeMap<String, Attention>,
     pub current: Option<String>,
     pub view: Option<View>,
@@ -351,6 +403,7 @@ pub struct App {
     pub row_starts: RefCell<Vec<usize>>,
     /// Where tabs were last drawn.
     pub tab_hits: RefCell<Vec<TabHit>>,
+    pub(super) unpicked_hit: std::cell::Cell<Option<ratatui::layout::Rect>>,
     /// Only titles actually painted in the last frame can toggle.
     pub title_hits: RefCell<Vec<TitleHit>>,
     folds: BTreeMap<String, FoldState>,
@@ -526,6 +579,11 @@ impl App {
         self.invalidate_overlay_frames();
         self.tabs = snapshot.tabs;
         self.hidden = snapshot.hidden;
+        // A failed inventory read has no keys, including no built-ins. Keep
+        // this board's policy until an authoritative inventory returns.
+        if !self.tabs.is_empty() || !self.hidden.is_empty() {
+            self.picks.reconcile(&self.switchable());
+        }
         self.pinned = snapshot.pinned;
         self.reconcile_switcher(false);
         self.note_cursors
@@ -643,17 +701,112 @@ impl App {
             .retain(|key, _| self.tabs.contains(key) || self.hidden.contains(key));
     }
 
+    /// Canonical indices survive selection, so hit maps and saved order share one identity.
+    pub(super) fn picked_indices(&self) -> Vec<usize> {
+        self.tabs
+            .iter()
+            .enumerate()
+            .filter_map(|(index, key)| self.picks.contains(key).then_some(index))
+            .collect()
+    }
+
+    pub(super) fn unpicked_squads(&self) -> Vec<&String> {
+        self.tabs
+            .iter()
+            .filter(|key| !super::tabs::aggregate(key) && !self.picks.contains(key))
+            .collect()
+    }
+
     fn switch(&mut self, step: isize) -> Effect {
-        let Some(position) = self
-            .current
-            .as_ref()
-            .and_then(|current| self.tabs.iter().position(|tab| tab == current))
+        let picked = self.picked_indices();
+        let Some(position) = picked
+            .iter()
+            .position(|&index| self.current.as_ref() == self.tabs.get(index))
         else {
             return Effect::None;
         };
-        let count = self.tabs.len() as isize;
-        let next = self.tabs[(position as isize + step).rem_euclid(count) as usize].clone();
-        self.go(next)
+        let next = picked[(position as isize + step).rem_euclid(picked.len() as isize) as usize];
+        self.go(self.tabs[next].clone())
+    }
+
+    /// An inventory removal cannot leave navigation on an excluded or vanished tab.
+    pub(super) fn reconcile_pick_current(&mut self) -> Effect {
+        let inventory = self.switchable();
+        if self
+            .current
+            .as_ref()
+            .is_some_and(|key| inventory.contains(key) && self.picks.contains(key))
+            || inventory.is_empty()
+        {
+            return Effect::None;
+        }
+        let next = self
+            .tabs
+            .iter()
+            .find(|key| self.picks.contains(key))
+            .cloned()
+            .or_else(|| {
+                inventory
+                    .iter()
+                    .find(|key| key.as_str() == super::ALL)
+                    .cloned()
+            });
+        next.map_or(Effect::None, |key| self.go(key))
+    }
+
+    fn toggle_tab_pick(&mut self, key: String) -> Effect {
+        let inventory = self.switchable();
+        if !inventory.contains(&key) {
+            return Effect::None;
+        }
+        self.picks.toggle(&key, &inventory);
+        self.tab_hits.borrow_mut().clear();
+        self.unpicked_hit.set(None);
+        self.dragging = None;
+        self.invalidate_overlay_frames();
+        let effect = if self.current.as_ref() == Some(&key) && !self.picks.contains(&key) {
+            let position = self.tabs.iter().position(|tab| tab == &key).unwrap_or(0);
+            let next = self
+                .tabs
+                .iter()
+                .skip(position + 1)
+                .chain(self.tabs.iter().take(position + 1))
+                .find(|tab| self.picks.contains(tab))
+                .cloned()
+                .unwrap_or_else(|| super::ALL.to_owned());
+            self.go(next)
+        } else {
+            Effect::None
+        };
+        self.reconcile_switcher(false);
+        effect
+    }
+
+    /// Default Space is local to the switcher; an explicit pick binding replaces it.
+    pub(super) fn pick_keys(&self) -> Vec<String> {
+        let bindings = self.bindings();
+        let keys = bindings
+            .iter()
+            .filter(|(_, action)| action.verb == Verb::PickTab)
+            .map(|(key, _)| key.clone())
+            .collect::<Vec<_>>();
+        if keys.is_empty() && !bindings.contains_key("space") {
+            vec!["space".into()]
+        } else {
+            keys
+        }
+    }
+
+    pub(super) fn switcher_keys(&self) -> Vec<String> {
+        if self
+            .switcher
+            .as_ref()
+            .is_some_and(|switcher| switcher.unpicked_only)
+        {
+            self.unpicked_squads().into_iter().cloned().collect()
+        } else {
+            self.switchable()
+        }
     }
 
     /// Shift+←/→: the current tab trades places with its neighbor, and the
@@ -666,11 +819,15 @@ impl App {
         else {
             return Effect::None;
         };
-        match from
+        let picked = self.picked_indices();
+        let Some(position) = picked.iter().position(|&index| index == from) else {
+            return Effect::None;
+        };
+        match position
             .checked_add_signed(step)
-            .filter(|to| *to < self.tabs.len())
+            .and_then(|index| picked.get(index))
         {
-            Some(to) => self.move_tab(from, to),
+            Some(&to) => self.move_tab(from, to),
             None => Effect::None,
         }
     }
@@ -692,6 +849,7 @@ impl App {
 
     /// Shows the tab `next`, from the cache at once when it was visited.
     pub(super) fn go(&mut self, next: String) -> Effect {
+        self.picks.include(&next);
         if Some(&next) == self.current.as_ref() {
             return Effect::None;
         }
@@ -707,6 +865,7 @@ impl App {
             meter.resume(self.token_window, Instant::now());
         }
         self.current = Some(next.clone());
+        self.jobs_focus = false;
         self.menu = None;
         self.loading_since = Some(Instant::now());
         // Never blank the screen: a visited squad shows from the cache at
@@ -919,7 +1078,7 @@ impl App {
     pub fn focused_pane(&self) -> Option<Pane> {
         self.effective_board()
             .and_then(|board| board.panes.get(self.focus).copied())
-            .filter(|pane| !self.collapsed_panes().contains(pane))
+            .filter(|pane| !self.collapsed_panes().contains(pane) && !self.jobs_focus)
     }
 
     pub fn focused(&self) -> Pane {
@@ -947,7 +1106,7 @@ impl App {
 
     /// A hidden focus returns to rows; boards without visible rows use the next pane.
     fn restore_focus(&mut self) {
-        if self.focused_pane().is_some() {
+        if self.jobs_focus || self.focused_pane().is_some() {
             return;
         }
         if let Some(position) = self
@@ -962,9 +1121,20 @@ impl App {
     }
 
     fn next_pane(&mut self) {
+        if self.jobs_focus {
+            self.jobs_leave(false);
+            return;
+        }
         if let Some(board) = self.effective_board() {
             let collapsed = self.collapsed_panes();
             let count = board.panes.len();
+            // After the last visible pane, Tab enters the jobs half when it is drawn.
+            if self.jobs_painted()
+                && !(self.focus + 1..count).any(|index| !collapsed.contains(&board.panes[index]))
+            {
+                self.jobs_focus = true;
+                return;
+            }
             if let Some(next) = (1..=count)
                 .map(|step| (self.focus + step) % count)
                 .find(|index| !collapsed.contains(&board.panes[*index]))
@@ -974,7 +1144,25 @@ impl App {
         }
     }
 
+    /// Leaves the jobs half for the first (or, backwards, last) visible pane.
+    pub(super) fn jobs_leave(&mut self, backwards: bool) {
+        self.jobs_focus = false;
+        let collapsed = self.collapsed_panes();
+        let visible = |pane: &Pane| !collapsed.contains(pane);
+        let target = self.effective_board().and_then(|board| {
+            if backwards {
+                board.panes.iter().rposition(visible)
+            } else {
+                board.panes.iter().position(visible)
+            }
+        });
+        if let Some(target) = target {
+            self.focus = target;
+        }
+    }
+
     fn toggle_panes(&mut self, panes: &[Pane]) -> Effect {
+        self.jobs_focus = false;
         if self.loading() {
             return self.say(format!(
                 "Loading {}…",
@@ -1055,6 +1243,11 @@ impl App {
     /// the action with a notice; nothing runs half-filled. While a switch
     /// loads, the rows on screen are another squad's, so nothing acts on them.
     pub fn perform(&mut self, action: &Action) -> Effect {
+        if action.verb == Verb::PickTab {
+            self.switcher = Some(Switcher::default());
+            self.reconcile_switcher(false);
+            return Effect::None;
+        }
         if self.loading() && !matches!(action.verb, Verb::NextPane | Verb::Refresh | Verb::Notes) {
             let loading = self.current.clone().unwrap_or_default();
             return self.say(format!("Loading {loading}…"));
@@ -1098,6 +1291,7 @@ impl App {
                 }
                 return Effect::None;
             }
+            Verb::AskLead => return self.ask_lead(),
             Verb::Settings => return Effect::Settings,
             Verb::Theme => return Effect::PickTheme,
             Verb::View => return Effect::PickView,
@@ -1124,6 +1318,7 @@ impl App {
                         if self.collapsed_panes().contains(&Pane::Notes) {
                             self.toggle_panes(&[Pane::Notes]);
                         }
+                        self.jobs_focus = false;
                         self.focus = position;
                         Effect::None
                     }
@@ -1138,6 +1333,9 @@ impl App {
                 };
             }
             _ => {}
+        }
+        if self.jobs_focus && action.verb.acts_on_member() {
+            return self.say("Tab returns to the members; this key acts on a member row.");
         }
         let Some(row) = self.selected_row().cloned() else {
             return self.say("No row is selected.");
@@ -1234,6 +1432,31 @@ impl App {
         })
     }
 
+    fn ask_lead(&mut self) -> Effect {
+        if self.current.as_deref().is_none_or(crate::tabs::aggregate) {
+            return self.say("Ask the lead from the squad's own tab.");
+        }
+        let Some(view) = &self.view else {
+            return Effect::None;
+        };
+        let Some(sender) = view.me.clone() else {
+            return self.say("Who is sending? Record yourself with tmt squad me <name>.");
+        };
+        let to = match self.lead() {
+            Ok(to) => to,
+            Err(reason) => return self.say(format!("ask lead: {reason}.")),
+        };
+        let text = view.ask_lead.clone();
+        let squad = self.current.clone().unwrap();
+        self.ask(
+            format!("ask lead {to}"),
+            Compose::AskLead { to, sender },
+            squad,
+        );
+        self.input.as_mut().unwrap().text = text;
+        Effect::None
+    }
+
     pub(super) fn ask(&mut self, prompt: String, compose: Compose, squad: String) -> Effect {
         self.input = Some(Input {
             home: None,
@@ -1242,6 +1465,7 @@ impl App {
             text: String::new(),
             compose,
             squad,
+            hint: None,
         });
         Effect::None
     }
@@ -1323,6 +1547,8 @@ impl App {
     fn choose(&mut self, choice: Choice) -> Effect {
         match choice {
             Choice::Action(action) => self.perform(&action),
+            Choice::Cron(request) => Effect::Act(Request::Cron(request)),
+            Choice::Dismiss => Effect::None,
             Choice::Reply { request, from } => {
                 let squad = self.current.clone().unwrap_or_default();
                 self.ask(
@@ -1561,7 +1787,12 @@ impl App {
         };
         match key.code {
             KeyCode::Esc => {
+                let cron = matches!(input.compose, Compose::Cron);
                 self.input = None;
+                if cron {
+                    self.cron_draft = None;
+                    return self.say("Cancelled; nothing changed.");
+                }
                 return self.say("Nothing sent.");
             }
             KeyCode::Enter => {}
@@ -1580,6 +1811,10 @@ impl App {
             _ => return Effect::None,
         }
         let input = self.input.take().expect("composing");
+        if matches!(input.compose, Compose::Cron) {
+            // A job message is stored exactly as typed: no trim, unlike talk.
+            return self.cron_submit(input.text);
+        }
         let text = input.text.trim().to_owned();
         if input
             .home
@@ -1588,14 +1823,24 @@ impl App {
         {
             return self.say("The home target, lead or request changed; nothing sent.");
         }
+        if let Compose::AskLead { to, sender } = &input.compose
+            && (self.loading()
+                || self.current.as_deref() != Some(&input.squad)
+                || self.lead().as_ref() != Ok(to)
+                || self.view.as_ref().and_then(|view| view.me.as_ref()) != Some(sender))
+        {
+            return self.say("The squad, sender or lead changed; nothing sent.");
+        }
         if let Some(LinkSend { member, sender }) = &input.link {
             let row = self.link_member(member);
             let valid = self.view.as_ref().and_then(|view| view.me.as_ref()) == Some(sender)
                 && !self.loading()
                 && self.current.as_deref() == Some(&input.squad)
                 && row.is_some_and(|row| match &input.compose {
+                    Compose::AskLead { .. } => false,
                     Compose::Talk { to } => to == member,
                     Compose::Annotate { to, .. } => self.lead().as_ref() == Ok(to),
+                    Compose::Cron => false,
                     Compose::Reply { request, from } => {
                         from == member
                             && row["waitingOnYou"].as_array().is_some_and(|items| {
@@ -1617,7 +1862,7 @@ impl App {
             return self.say("Nothing sent.");
         }
         Effect::Act(match input.compose {
-            Compose::Talk { to } => Request::Talk {
+            Compose::Talk { to } | Compose::AskLead { to, .. } => Request::Talk {
                 me,
                 squad,
                 to,
@@ -1630,6 +1875,7 @@ impl App {
                 row,
                 text,
             },
+            Compose::Cron => unreachable!("a cron step is submitted before this match"),
             Compose::Reply { request, from } => Request::Reply {
                 me,
                 request,
@@ -1696,7 +1942,7 @@ impl App {
         use tmt_tui::app::{Routed, route};
         let Some(overlay) = self.overlay() else {
             self.overlay_focus.close();
-            return None;
+            return self.jobs_event(event);
         };
         let id = overlay.id();
         let mut focus = std::mem::take(&mut self.overlay_focus);
@@ -1710,6 +1956,7 @@ impl App {
                 Overlay::Theme => vec![vec!["theme-picker".into(), "choices".into()]],
                 Overlay::View => vec![vec!["view-picker".into(), "choices".into()]],
                 Overlay::Settings => vec![vec!["settings".into(), "content".into()]],
+                Overlay::CronList => vec![vec!["cron-list".into(), "choices".into()]],
                 _ => vec![],
             };
             focus.open(id, fields);
@@ -1740,6 +1987,8 @@ impl App {
             Some(Overlay::Theme)
         } else if self.switcher.is_some() {
             Some(Overlay::Switcher)
+        } else if self.cron_list.is_some() {
+            Some(Overlay::CronList)
         } else {
             None
         }
@@ -1808,6 +2057,7 @@ impl App {
                 }
             }),
             Overlay::Switcher => self.switcher_event(event, field),
+            Overlay::CronList => self.cron_list_event(event),
         }
     }
 
@@ -1951,6 +2201,10 @@ impl App {
             KeyCode::Char('/') => self.searching = true,
             // The switcher's key, unless the user bound `s` to something.
             KeyCode::Char('s') if !self.bound(key) => self.switcher = Some(Switcher::default()),
+            // Every squad's jobs, unless the user bound `c` to something.
+            KeyCode::Char('c') if !self.bound(key) && self.cron_shown() => {
+                return self.open_cron_list(None);
+            }
             KeyCode::Char('?') => {
                 self.help_state.borrow_mut().open();
                 self.help = true;
@@ -1972,7 +2226,7 @@ impl App {
     }
 
     fn reconcile_switcher(&self, reset: bool) {
-        let keys = self.switchable();
+        let keys = self.switcher_keys();
         let Some(switcher) = &self.switcher else {
             return;
         };
@@ -2004,6 +2258,20 @@ impl App {
             _ => return None,
         };
         self.reconcile_switcher(false);
+        if let Event::Key(key) = event
+            && event_name(*key).is_some_and(|name| self.pick_keys().contains(&name))
+        {
+            let selected = self
+                .switcher
+                .as_ref()?
+                .surface
+                .borrow()
+                .picker
+                .list
+                .selected()
+                .map(str::to_owned);
+            return Some(selected.map_or(Effect::None, |key| self.toggle_tab_pick(key)));
+        }
         let input = self
             .switcher
             .as_ref()?
@@ -2048,6 +2316,12 @@ impl App {
         }
         if let Some(switcher) = &self.switcher {
             switcher.surface.borrow_mut().invalidate();
+        }
+        if let Some(list) = &self.cron_list {
+            list.invalidate();
+        }
+        for pane in self.jobs.borrow_mut().values_mut() {
+            pane.invalidate();
         }
     }
 
@@ -2101,6 +2375,9 @@ impl App {
         if self.menu.is_some() || self.input.is_some() {
             return Effect::None;
         }
+        if let Some(effect) = self.jobs_mouse(event) {
+            return effect;
+        }
         let lines = match event.kind {
             MouseEventKind::ScrollUp => Some(-(WHEEL_LINES as isize)),
             MouseEventKind::ScrollDown => Some(WHEEL_LINES as isize),
@@ -2126,6 +2403,19 @@ impl App {
                     self.follow = false;
                 }
             }
+            return Effect::None;
+        }
+        if event.kind == MouseEventKind::Down(MouseButton::Left)
+            && self.unpicked_hit.get().is_some_and(|rect| {
+                rect.contains(ratatui::layout::Position::new(event.column, event.row))
+            })
+        {
+            self.dragging = None;
+            self.switcher = Some(Switcher {
+                unpicked_only: true,
+                ..Switcher::default()
+            });
+            self.reconcile_switcher(false);
             return Effect::None;
         }
         // A press on a tab shows it; releasing it over another tab moves it
@@ -2255,6 +2545,188 @@ impl App {
 }
 
 #[cfg(test)]
+mod pick_tests {
+    use super::*;
+    use serde_json::json;
+
+    fn loaded(name: &str) -> Snapshot {
+        let mut snapshot = super::tests::snapshot(name, json!([]));
+        snapshot.tabs = [
+            super::super::ALL,
+            "product",
+            "omitted",
+            "infra",
+            "@tab:needs-me",
+        ]
+        .map(String::from)
+        .to_vec();
+        snapshot.hidden = vec!["hidden".into()];
+        snapshot.pinned = 1;
+        snapshot
+    }
+
+    fn board() -> App {
+        let mut app = App::new(Some("product".into()));
+        app.apply(loaded("product"));
+        app.picks =
+            super::super::pick::Picks::parse(Some("product,infra"), &app.switchable()).unwrap();
+        app
+    }
+
+    fn key(app: &mut App, code: KeyCode) -> Effect {
+        app.key(KeyEvent::new(code, KeyModifiers::NONE))
+    }
+
+    fn highlight(app: &mut App, name: &str) {
+        app.reconcile_switcher(false);
+        app.switcher
+            .as_ref()
+            .unwrap()
+            .surface
+            .borrow_mut()
+            .select(name);
+    }
+
+    #[test]
+    fn space_toggles_only_the_highlighted_tab_and_current_unpick_uses_normal_load() {
+        let mut app = board();
+        let other = board();
+        let canonical = app.tabs.clone();
+        key(&mut app, KeyCode::Char('s'));
+        highlight(&mut app, "product");
+        assert_eq!(
+            key(&mut app, KeyCode::Char(' ')),
+            Effect::Load("infra".into())
+        );
+        assert!(!app.picks.contains("product"));
+        assert_eq!(app.current.as_deref(), Some("infra"));
+        assert!(
+            app.loading(),
+            "an uncached tab retains the old view with the normal stale fence"
+        );
+        assert!(app.switcher.is_some());
+        assert_eq!(app.switcher.as_ref().unwrap().query(), "");
+        assert_eq!(app.tabs, canonical);
+        assert!(
+            other.picks.contains("product"),
+            "another board is independent"
+        );
+        app.apply(loaded("infra"));
+        highlight(&mut app, "infra");
+        assert_eq!(
+            key(&mut app, KeyCode::Char(' ')),
+            Effect::Load(super::super::ALL.into())
+        );
+        assert!(
+            app.picks.contains(super::super::ALL),
+            "last unpick opens home"
+        );
+        assert!(!app.picks.contains("infra"));
+    }
+
+    #[test]
+    fn opening_unpicked_or_hidden_entries_picks_without_changing_global_hide() {
+        let mut app = board();
+        key(&mut app, KeyCode::Char('s'));
+        highlight(&mut app, "omitted");
+        assert_eq!(
+            key(&mut app, KeyCode::Enter),
+            Effect::Load("omitted".into())
+        );
+        assert!(app.picks.contains("omitted"));
+        assert!(app.switcher.is_none());
+        app.apply(loaded("omitted"));
+        app.go("hidden".into());
+        assert!(app.picks.contains("hidden"));
+        assert!(!app.tabs.contains(&"hidden".into()));
+        assert_eq!(app.hidden, ["hidden"]);
+    }
+
+    #[test]
+    fn rebindable_pick_action_opens_the_switcher_and_overrides_space_in_both_fields() {
+        let mut app = board();
+        app.view
+            .as_mut()
+            .unwrap()
+            .bindings
+            .insert("p".into(), Action::parse("pick-tab").unwrap());
+        assert_eq!(app.pick_keys(), ["p"]);
+        assert_eq!(key(&mut app, KeyCode::Char('p')), Effect::None);
+        highlight(&mut app, "infra");
+        key(&mut app, KeyCode::Char('p'));
+        assert!(!app.picks.contains("infra"));
+        key(&mut app, KeyCode::Tab);
+        key(&mut app, KeyCode::Char('p'));
+        assert!(app.picks.contains("infra"));
+        assert_eq!(app.switcher.as_ref().unwrap().query(), "");
+        key(&mut app, KeyCode::Esc);
+        key(&mut app, KeyCode::Char('/'));
+        key(&mut app, KeyCode::Char('p'));
+        assert_eq!(app.search, "p", "text inputs keep printable bindings");
+        assert!(app.switcher.is_none());
+    }
+
+    #[test]
+    fn picks_survive_refresh_cache_switches_and_reorder_retains_omitted_keys() {
+        let mut app = board();
+        let canonical = app.tabs.clone();
+        app.go("infra".into());
+        app.apply(loaded("infra"));
+        app.go("product".into());
+        assert!(!app.loading(), "visited view comes from its original cache");
+        assert!(!app.picks.contains("omitted"));
+        let mut refreshed = loaded("product");
+        refreshed.tabs.push("new-squad".into());
+        app.apply(refreshed);
+        assert!(!app.picks.contains("new-squad"));
+        assert!(app.cache.contains_key("infra"));
+        assert_eq!(app.picked_indices(), [1, 3]);
+        let moved = app.key(KeyEvent::new(KeyCode::Right, KeyModifiers::SHIFT));
+        let Effect::Act(Request::Reorder(order)) = moved else {
+            panic!("expected reorder");
+        };
+        assert_eq!(order.len(), canonical.len() + 1);
+        assert!(canonical.iter().all(|key| order.contains(key)));
+        assert_eq!(order[0], super::super::ALL);
+        assert!(order.contains(&"omitted".into()));
+    }
+
+    #[test]
+    fn default_follows_additions_but_explicit_removal_reconciles_to_home() {
+        let mut app = board();
+        app.picks = Default::default();
+        let mut refreshed = loaded("product");
+        refreshed.tabs.push("new-squad".into());
+        app.apply(refreshed);
+        assert!(app.picked_indices().contains(&5));
+        app.picks = super::super::pick::Picks::parse(Some("product"), &app.switchable()).unwrap();
+        let mut removed = loaded("product");
+        removed.tabs.retain(|key| key != "product");
+        app.apply(removed);
+        assert_eq!(
+            app.reconcile_pick_current(),
+            Effect::Load(super::super::ALL.into())
+        );
+        assert!(!app.picks.contains("product"));
+        assert!(app.picks.contains(super::super::ALL));
+    }
+
+    #[test]
+    fn an_unavailable_inventory_does_not_erase_this_boards_picks() {
+        let mut app = board();
+        let mut failed = loaded("product");
+        failed.tabs.clear();
+        failed.hidden.clear();
+        failed.view = Err("inventory unavailable".into());
+        app.apply(failed);
+        assert_eq!(app.reconcile_pick_current(), Effect::None);
+        app.apply(loaded("product"));
+        assert!(app.picks.contains("product") && app.picks.contains("infra"));
+        assert!(!app.picks.contains("omitted"));
+    }
+}
+
+#[cfg(test)]
 pub(crate) mod tests {
     use super::*;
     use serde_json::json;
@@ -2265,6 +2737,7 @@ pub(crate) mod tests {
 
     fn view(sections: Value) -> View {
         View {
+            ask_lead: crate::config::DEFAULT_ASK_LEAD.into(),
             token_rate: None,
             home: None,
             derived: Default::default(),
@@ -2598,6 +3071,62 @@ pub(crate) mod tests {
 
     pub(super) fn bind(entries: &[(&str, &str)]) -> crate::action::Bindings {
         crate::action::parse_bindings(entries.iter().map(|(e, a)| (*e, Some(*a))), "bind").unwrap()
+    }
+
+    #[test]
+    fn ask_lead_requires_confirmation_and_revalidates_sender_and_lead() {
+        let mut app = crew(crate::action::preset(true, &[]), Vec::new());
+        app.view.as_mut().unwrap().me = Some("Ben".into());
+        app.view.as_mut().unwrap().document["squad"]["lead"] = json!({"name": "sol"});
+        assert_eq!(press(&mut app, KeyCode::Char('A')), Effect::None);
+        assert_eq!(app.input.as_ref().unwrap().prompt, "ask lead sol");
+        assert_eq!(
+            app.input.as_ref().unwrap().text,
+            crate::config::DEFAULT_ASK_LEAD
+        );
+        assert_eq!(press(&mut app, KeyCode::Esc), Effect::None);
+        assert!(app.input.is_none());
+        press(&mut app, KeyCode::Char('A'));
+        assert_eq!(
+            press(&mut app, KeyCode::Enter),
+            Effect::Act(Request::Talk {
+                me: "Ben".into(),
+                squad: "product".into(),
+                to: "sol".into(),
+                text: crate::config::DEFAULT_ASK_LEAD.into(),
+            })
+        );
+        for change in ["lead", "sender", "squad"] {
+            let mut app = crew(crate::action::preset(true, &[]), Vec::new());
+            app.view.as_mut().unwrap().me = Some("Ben".into());
+            app.view.as_mut().unwrap().document["squad"]["lead"] = json!({"name": "sol"});
+            press(&mut app, KeyCode::Char('A'));
+            match change {
+                "lead" => {
+                    app.view.as_mut().unwrap().document["squad"]["lead"] = json!({"name": "other"})
+                }
+                "sender" => app.view.as_mut().unwrap().me = Some("other".into()),
+                _ => app.current = Some("other".into()),
+            }
+            assert_eq!(press(&mut app, KeyCode::Enter), Effect::None);
+            assert!(app.notice.as_deref().unwrap().contains("nothing sent"));
+        }
+    }
+
+    #[test]
+    fn ask_lead_missing_lead_and_rebinding_never_send_on_open() {
+        let mut app = crew(bind(&[("z", "ask-lead")]), Vec::new());
+        app.view.as_mut().unwrap().me = Some("Ben".into());
+        press(&mut app, KeyCode::Char('z'));
+        assert!(app.input.is_none());
+        assert!(app.notice.as_deref().unwrap().contains("no lead"));
+        app.view.as_mut().unwrap().document["squad"]["lead"] = json!({"name": "sol"});
+        app.view.as_mut().unwrap().ask_lead = "What needs a decision?".into();
+        assert_eq!(press(&mut app, KeyCode::Char('z')), Effect::None);
+        assert_eq!(app.input.as_ref().unwrap().text, "What needs a decision?");
+        app.input.as_mut().unwrap().text.clear();
+        assert_eq!(press(&mut app, KeyCode::Enter), Effect::None);
+        assert_eq!(app.notice.as_deref(), Some("Nothing sent."));
     }
 
     /// `L` (`jump lead`) goes to the squad's lead on its own tab, and to the
@@ -2958,6 +3487,7 @@ pub(crate) mod tests {
                     text: "draft".into(),
                     compose: compose.clone(),
                     squad: "product".into(),
+                    hint: None,
                 });
                 assert_eq!(app.key(refresh), Effect::Refresh);
                 let input = app.input.as_ref().unwrap();
@@ -3483,6 +4013,7 @@ mod token_window_tests {
                 text: String::new(),
                 compose,
                 squad: "x".into(),
+                hint: None,
             });
             app.key(key);
             assert_eq!(app.input.as_ref().unwrap().text, "w");

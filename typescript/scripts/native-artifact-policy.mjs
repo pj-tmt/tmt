@@ -4,7 +4,6 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { gunzipSync } from 'node:zlib';
-import * as tar from 'tar';
 
 const executables = {
   cli: 'tmt',
@@ -49,6 +48,15 @@ export function runtimeFiles(product = 'cli') {
 }
 const compressedLimit = 64 * 1024 * 1024;
 const expandedLimit = 128 * 1024 * 1024;
+
+/** Shared by generated-notice checks and final archive verification. */
+export function assertDependencyNotices(notices) {
+  assert(notices.trim().length > 0, 'Dependency notices are empty');
+  assert(
+    !/<year>|<copyright holders>/.test(notices),
+    'Dependency notices contain placeholder attribution'
+  );
+}
 
 function archiveRootName(name) {
   assert(/^[a-zA-Z0-9][a-zA-Z0-9._-]*\.tar\.gz$/.test(name), 'Invalid native archive name');
@@ -133,6 +141,8 @@ export function selectNativeArtifact(
 
 /** Extract only verified regular files into an owned directory and always remove it. */
 export async function withNativeArtifact(archiveFile, metadata, inspect) {
+  // Notice-only callers need no archive dependencies or Node package installation.
+  const tar = await import('tar');
   const requiredFiles = runtimeFiles(metadata.product);
   const rootName = archiveRootName(metadata.name);
   const compressed = readBoundedFile(archiveFile, compressedLimit);

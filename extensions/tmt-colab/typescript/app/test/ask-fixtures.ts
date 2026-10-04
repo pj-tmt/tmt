@@ -1,6 +1,9 @@
 import type { AdmittedSelection, AskDestination } from '../src/ask-intent.js';
 import type { RemoteClient, SendInput, SendState } from '../src/ask-remote.js';
 export const id = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
+/** The page's own mounted URL, the only link an Ask may carry. */
+export const pageLink = (space = 'a'.repeat(32), page = id(1)) =>
+  `https://example.test/x/colab/#space=${space}&path=%2Fpages%2F${page}`;
 export function selection(): AdmittedSelection {
   return {
     space: 'a'.repeat(32),
@@ -11,7 +14,7 @@ export function selection(): AdmittedSelection {
     quote: '<script>untrusted()</script>\r\n😀\0\u202e',
     comment: 'Keep ! and café exact',
     title: 'Shared page',
-    url: 'https://example.test/page#secret',
+    url: pageLink(),
   };
 }
 export function destination(): AskDestination {

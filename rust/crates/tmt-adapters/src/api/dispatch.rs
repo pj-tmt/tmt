@@ -1,6 +1,6 @@
 //! Dispatch receipt recovery and the existing one-shot wake composition.
 
-use super::{DispatchIdentity, Fault, identity, invalid};
+use super::{DispatchIdentity, Fault, identity_entry, invalid};
 use crate::{dispatch, request_runtime::wall_time_ms, storage::Storage};
 use tmt_core::{dispatch::DispatchInput, request::Originator, settings::Settings};
 
@@ -26,9 +26,10 @@ pub(super) fn create_dispatch(
     mut input: DispatchInput,
     settings: Option<Settings>,
 ) -> Result<Vec<u8>, Fault> {
-    input.originator = match selector {
+    let (originator, sender) = match selector {
         Some(DispatchIdentity::Explicit(selector)) => {
-            Originator::Explicit(identity(storage, &selector)?)
+            let selected = identity_entry(storage, &selector)?;
+            (Originator::Explicit(selected.id), selected.name)
         }
         Some(DispatchIdentity::SavedId(id)) => {
             let selected = storage
@@ -43,10 +44,11 @@ pub(super) fn create_dispatch(
                     "MCP requires an existing saved identity.",
                 ));
             }
-            Originator::Explicit(selected.id)
+            (Originator::Explicit(selected.id), selected.name)
         }
-        None => Originator::Unknown,
+        None => (Originator::Unknown, "anonymous".into()),
     };
+    input.originator = originator;
     let settings = settings.expect("dispatch settings");
     let direct = input.kind == tmt_core::request::RequestKind::Request
         && input.recipient_ids.len() == 1
@@ -54,6 +56,7 @@ pub(super) fn create_dispatch(
             input.room.as_ref(),
             Some(tmt_core::dispatch::DispatchRoom::Roster { .. })
         );
+    let preview = direct.then(|| input.message.clone());
     let (receipt, created) = storage
         .dispatch_request_with_creation(input, settings.retention_days, wall_time_ms)
         .map_err(|error| {
@@ -70,9 +73,11 @@ pub(super) fn create_dispatch(
             .is_some_and(|item| item.acceptance == tmt_core::dispatch::Acceptance::Queued)
     {
         let item = &receipt.items[0];
-        let message = format!(
-            "[tmt] request {} is queued: tmt x show {} --incoming --identity {} --json",
-            item.request_id, item.request_id, item.recipient_id
+        let message = crate::delivery::queued_wake(
+            &sender,
+            preview.as_deref(),
+            &item.request_id,
+            &item.recipient_id,
         );
         Some(crate::delivery::wake_request(
             storage,
@@ -90,6 +95,7 @@ pub(super) fn create_dispatch(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::api::identity;
     use crate::test_support::TestDirectory;
     use tmt_core::{
         binding::BindingRepository,

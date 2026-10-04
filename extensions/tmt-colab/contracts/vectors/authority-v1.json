@@ -31,6 +31,17 @@
   "linkSigningPublic": "c938e3a6dddeaea3fa6d6490478aa057404f8ea3cbcc46bfef3a357107fee973",
   "linkEncryptionPublic": "d9eec57115ea2743397c18fccef6c042247cf3eb72fba8a95bcb7232bd31887e",
   "joinProof": "5699eb5ee1e3afdfe2592ed2de2b55c3d4581e159d9ddbecdaeb7dec4672c0aa",
+  "linkDevice": {
+    "id": "f63dd120-13dd-4c99-b9dc-c929eafa619f",
+    "signingPublic": "9b5bc8d4fdaaf6604458ea8536364b69a771f219372e508adba44aa019361a34",
+    "chain": {
+      "version": 1,
+      "issuerStatement": "iNu--0RTQXmO4HYuKYegXrsea1T-_ubissgQMjOzzlE",
+      "deviceCertificate": "AAAAGHRtdC1jb2xhYi1kZXZpY2UtY2VydC12MQAAAAExAAAAIHVxdnBnYTIydmdsd3BuZ3BnN2pkN3pwazV2emp0b3VkAAAABGxpbmsAAAAkMDAwMDAwMDAtMDAwMC00MDAwLTgwMDAtMDAwMDAwMDAwMDYwAAAAJGY2M2RkMTIwLTEzZGQtNGM5OS1iOWRjLWM5MjllYWZhNjE5ZgAAACCbW8jU_ar2YERY6oU2Nktpp3HyGTcuUIrbpEqgGTYaNAAAACDZ7sVxFeonQzl8GPzO9sBCJHzz63L7qKlby3IyvTGIfgAAAAExAAAAATAAAAAQOTAwNzE5OTI1NDc0MDk5MQ",
+      "issuerSignature": "erTAle-sJPH7LMTQa7VmxJDMRlkOQntB6BG9D_GurWKGyd3mvSFPS0GZpj7JE16bHeZfuJY-jDbcFQg7f0CpBg"
+    },
+    "chainDigest": "b0cdb9485e97aa931327fb8c661251b563c8d35c66554fd2a2a75108ba4c2436"
+  },
   "historyCases": [
     {
       "name": "shared",

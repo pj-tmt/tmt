@@ -118,8 +118,16 @@ fn source(path: &str) -> Result<Vec<u8>> {
     }
     Ok(bytes)
 }
+/// A caller-held seed from `--seed-file`, or a fresh one from the OS RNG when the flag is absent.
 fn seed(args: &ArgMatches) -> Result<String> {
-    let mut raw = source(text(args, "seed-file"))?;
+    let Some(path) = args.get_one::<String>("seed-file") else {
+        let mut fresh = [0u8; 32];
+        getrandom::fill(&mut fresh).map_err(|_| input("Could not generate a sharing seed."))?;
+        let encoded = values::encode_binary(&fresh);
+        fresh.fill(0);
+        return Ok(encoded);
+    };
+    let mut raw = source(path)?;
     let result = (|| {
         let value = std::str::from_utf8(&raw)
             .map_err(|_| input("Seed must be canonical base64url seed32."))?
@@ -143,7 +151,7 @@ fn principal<'a>(detail: &'a Value, kind: &str, id: &str) -> Result<&'a Value> {
         .ok_or_else(|| {
             fail(
                 "COLAB_PAGE_NOT_FOUND",
-                "Link has no assignment on this page.",
+                "Principal has no assignment on this page.",
             )
         })
 }
@@ -170,6 +178,52 @@ fn selection(
                         json!({"pageId":id,"mode":mode}),
                         rank(mode) > rank(page["sharing"].as_str().unwrap_or("private")),
                     )
+                }
+                "history" => {
+                    let mode = text(selected, "mode");
+                    (
+                        "page.history",
+                        json!({"pageId":id,"mode":mode}),
+                        mode == "shared" && page["history"] == "current",
+                    )
+                }
+                "member" => {
+                    let (action, selected) = selected.subcommand().expect("required member action");
+                    let member = uuid(text(selected, "member"))?;
+                    match action {
+                        "add" => {
+                            let payload = json!({"memberId":member,"role":text(selected,"role"),
+                                "signKey":text(selected,"sign-key"),"encKey":text(selected,"enc-key"),"pages":[id]});
+                            tmt_colab_model::payload::decode("member.add", &serde_json::to_vec(&payload)?)
+                                .map_err(|_| input("Expected canonical member ID, role and valid Ed25519/X25519 public keys."))?;
+                            if values::binary(text(selected, "enc-key"), 32)?
+                                .iter()
+                                .all(|v| *v == 0)
+                            {
+                                return Err(input("Encryption public key cannot be all zero."));
+                            }
+                            ("member.add", payload, true)
+                        }
+                        "remove" | "role" => {
+                            let old = principal(detail, "members", &member)?;
+                            let mut payload = json!({"memberId":member,"pages":old["pages"]});
+                            if action == "remove" {
+                                ("member.remove", payload, false)
+                            } else {
+                                let role = text(selected, "role");
+                                let rank = |v: &str| match v {
+                                    "editor" => 2,
+                                    "commenter" => 1,
+                                    _ => 0,
+                                };
+                                let widening =
+                                    rank(role) > rank(old["role"].as_str().unwrap_or("viewer"));
+                                payload["role"] = json!(role);
+                                ("member.role", payload, widening)
+                            }
+                        }
+                        _ => return Err(input("Unsupported member action.")),
+                    }
                 }
                 "link" => {
                     let (action, selected) = selected.subcommand().expect("required link action");
@@ -211,6 +265,24 @@ fn selection(
                 _ => return Err(input("Unsupported sharing action.")),
             }
         }
+        "retention" => {
+            let Some(days) = args.get_one::<String>("days") else {
+                return Ok(None);
+            };
+            let days = if days == "forever" {
+                Value::Null
+            } else {
+                let count = values::decimal(days, false).map_err(|_| {
+                    input("Expected a positive canonical safe-integer day count or forever.")
+                })?;
+                values::time(count)
+                    .map_err(|_| input("Day count exceeds the safe-integer bound."))?;
+                json!(count)
+            };
+            ("retention.set", json!({"pageId":id,"days":days}), false)
+        }
+        "archive" => ("page.archive", json!({"pageId":id}), false),
+        "delete" => ("page.delete", json!({"pageId":id}), true),
         _ => return Err(input("Unsupported management command.")),
     }))
 }
@@ -225,6 +297,17 @@ struct Acknowledgment {
 struct AcknowledgedHead {
     revision: String,
     statement_hash: String,
+}
+/// The reader link grammar is owned by the colab-v1 contract. The path is relative to the
+/// Remote door address, like `page create`'s `path`; everything secret is in the fragment.
+fn reader_path(space: &str, page: &str, link: &Value, head: &AcknowledgedHead) -> String {
+    format!(
+        "x/colab/read#v=1&space={space}&page={page}&link={}&rev={}&st={}&seed={}",
+        link["linkId"].as_str().unwrap_or_default(),
+        head.revision,
+        head.statement_hash,
+        link["seed"].as_str().unwrap_or_default(),
+    )
 }
 fn remaining(deadline: Instant) -> Result<Duration> {
     deadline.checked_duration_since(Instant::now()).filter(|d|!d.is_zero()).ok_or_else(||fail("COLAB_OUTCOME_UNKNOWN","Management IPC deadline expired; effects may have committed. Inspect state before an exact retry."))
@@ -315,11 +398,29 @@ fn ipc(layout: &Layout, body: &[u8]) -> Result<Vec<u8>> {
         ));
     }
     if parsed.code != Some(200) {
-        let value: Value = serde_json::from_slice(&exchange[offset..])
-            .map_err(|_| fail("COLAB_OUTCOME_UNKNOWN", "Unrecognized management reply."))?;
-        return Err(management_error(
-            value["code"].as_str().unwrap_or("UNAVAILABLE"),
-        ));
+        // The management socket's error body is the exact textual Code, not JSON.
+        let code = match &exchange[offset..] {
+            b"INVALID" => management::Code::Invalid,
+            b"DENIED" => management::Code::Denied,
+            b"EXPIRED" => management::Code::Expired,
+            b"CONFLICT" => management::Code::Conflict,
+            b"STALE_HEAD" => management::Code::StaleHead,
+            b"CAPACITY" => management::Code::Capacity,
+            b"UNAVAILABLE" => management::Code::Unavailable,
+            _ => {
+                return Err(fail(
+                    "COLAB_OUTCOME_UNKNOWN",
+                    "Unrecognized management reply.",
+                ));
+            }
+        };
+        if parsed.code != Some(management::status(code)) {
+            return Err(fail(
+                "COLAB_OUTCOME_UNKNOWN",
+                "Mismatched management reply status.",
+            ));
+        }
+        return Err(management_error(code.text()));
     }
     Ok(exchange[offset..].to_vec())
 }
@@ -436,6 +537,15 @@ pub fn create_page(root: &Path, args: &ArgMatches, source: String) -> Result<()>
             code:crate::error_code(error.as_ref()),message:error.to_string(),correlation:correlation.clone(),
         }) as Box<dyn std::error::Error + Send + Sync>
     })?;
+    let mut result = result;
+    let relative = result["path"]
+        .as_str()
+        .ok_or_else(|| input("Missing created page path."))?
+        .to_owned();
+    let lookup = crate::door::Door::lookup();
+    if let crate::door::Lookup::Running(door) = &lookup {
+        result["url"] = json!(door.url(&relative));
+    }
     if args.get_flag("json") {
         return output(&result, true);
     }
@@ -448,15 +558,7 @@ pub fn create_page(root: &Path, args: &ArgMatches, source: String) -> Result<()>
         &[
             ("page", page_id),
             ("title", title.to_owned()),
-            (
-                "open",
-                format!(
-                    "Open {} under your Remote door address (the one tmt remote pair printed).",
-                    result["path"]
-                        .as_str()
-                        .ok_or_else(|| input("Missing created page path."))?
-                ),
-            ),
+            ("open", crate::door::Door::hint(&lookup, &relative)),
         ],
     )?;
     Ok(())
@@ -510,12 +612,26 @@ pub fn run(command: &str, args: &ArgMatches, root: &Path, json_output: bool) -> 
         page_args = next;
     }
     let id = uuid(text(page_args, "page"))?;
-    let mut page = catalog["pages"]
+    let selected_page = catalog["pages"]
         .as_array()
         .and_then(|rows| rows.iter().find(|p| p["pageId"] == id))
-        .cloned()
-        .ok_or_else(|| fail("COLAB_PAGE_NOT_FOUND", "Local page is not available."))?;
-    let detail = inspection::detail(&store, &key, &page)?;
+        .cloned();
+    // Deletion removes the visible catalog row, not its operation receipt. Only
+    // an explicit frozen retry may reach the engine without a current page view.
+    let delete_retry = command == "delete"
+        && args.get_one::<String>("operation-id").is_some()
+        && args.get_one::<String>("expected-revision").is_some();
+    let (mut page, detail) = match selected_page {
+        Some(page) => {
+            let detail = inspection::detail(&store, &key, &page)?;
+            (page, detail)
+        }
+        None if delete_retry => (
+            json!({"pageId":id}),
+            json!({"membershipHead":catalog["membershipHead"]}),
+        ),
+        None => return Err(fail("COLAB_PAGE_NOT_FOUND", "Local page is not available.")),
+    };
     if catalog["membershipHead"] != detail["membershipHead"] {
         return Err(management_error("STALE_HEAD"));
     }
@@ -529,6 +645,14 @@ pub fn run(command: &str, args: &ArgMatches, root: &Path, json_output: bool) -> 
         return output(&detail, json_output);
     }
     let Some((operation, payload, widening)) = selection(command, args, &page, &detail)? else {
+        if command == "retention" {
+            return output(
+                &json!({"membershipHead":detail["membershipHead"],"page":{
+                "pageId":id,"retentionDays":page["retentionDays"],"lastUpdateAtMs":page["lastUpdateAtMs"],
+                "expiresAtMs":page["expiresAtMs"],"warnings":page["warnings"]}}),
+                json_output,
+            );
+        }
         return output(
             &json!({"membershipHead":detail["membershipHead"],"links":detail["links"]}),
             json_output,
@@ -537,7 +661,7 @@ pub fn run(command: &str, args: &ArgMatches, root: &Path, json_output: bool) -> 
     if widening && !args.get_flag("yes") {
         return Err(fail(
             "COLAB_CONFIRMATION_REQUIRED",
-            "Requires --yes after reviewing sharing disclosure in help. Copied plaintext and previously public history cannot be recalled.",
+            "Requires --yes after reviewing this command's disclosure in help. Deletion is permanent; copied plaintext and previously public history cannot be recalled.",
         ));
     }
     let operation_id = args
@@ -579,6 +703,20 @@ pub fn run(command: &str, args: &ArgMatches, root: &Path, json_output: bool) -> 
             "membershipHead":{"revision":ack.membership_head.revision,"statementHash":ack.membership_head.statement_hash}});
         value["expectedRevision"] = json!(revision);
         if let Some(id) = link_id { value["linkId"] = id.clone(); }
+        // The one place a seed leaves the CLI: inside the reader link's fragment.
+        let created = match operation {
+            "link.add" => Some(&payload),
+            "link.remove" => payload.get("replacement").filter(|r| !r.is_null()),
+            _ => None,
+        };
+        if let Some(created) = created {
+            let path = reader_path(&key.space_id, &id, created, &ack.membership_head);
+            // The door is looked up after the commit, so a slow answer never delays the effect.
+            if let crate::door::Lookup::Running(door) = crate::door::Door::lookup() {
+                value["readerUrl"] = json!(door.url(&path));
+            }
+            value["readerPath"] = json!(path);
+        }
         Ok(value)
     })()
     .map_err(|e| {
@@ -597,6 +735,94 @@ pub fn run(command: &str, args: &ArgMatches, root: &Path, json_output: bool) -> 
         }
     })?;
     output(&outcome, json_output)
+}
+/// Readable lines for a management result: no raw JSON blobs, full IDs where a command needs them.
+fn human_fields(value: &Value) -> Result<Vec<(String, String)>> {
+    let object = value
+        .as_object()
+        .ok_or_else(|| input("Invalid CLI result."))?;
+    let text = |v: &Value| {
+        v.as_str()
+            .map(str::to_owned)
+            .unwrap_or_else(|| v.to_string())
+    };
+    let principals = |rows: &Value| match rows.as_array() {
+        Some(rows) if !rows.is_empty() => rows
+            .iter()
+            .map(|row| {
+                let mut line = text(&row["id"]);
+                if let Some(role) = row["role"].as_str() {
+                    line = format!("{line} {role}");
+                }
+                if row["revoked"] == true {
+                    line.push_str(" (revoked)");
+                }
+                line
+            })
+            .collect::<Vec<_>>()
+            .join(", "),
+        _ => "none".to_owned(),
+    };
+    let mut fields = Vec::new();
+    for (key, v) in object {
+        match key.as_str() {
+            "page" if v.is_object() => {
+                fields.push(("page".to_owned(), text(&v["pageId"])));
+                if let Some(title) = v["title"].as_str() {
+                    fields.push(("title".to_owned(), title.to_owned()));
+                }
+                if let (Some(sharing), Some(history)) =
+                    (v["sharing"].as_str(), v["history"].as_str())
+                {
+                    fields.push((
+                        "audience".to_owned(),
+                        format!("{sharing} · {history} history"),
+                    ));
+                }
+                if let Some(epoch) = v["epoch"].as_str() {
+                    fields.push(("epoch".to_owned(), epoch.to_owned()));
+                }
+                if let Some(days) = v.get("retentionDays") {
+                    fields.push((
+                        "retention".to_owned(),
+                        if days.is_null() {
+                            "forever".to_owned()
+                        } else {
+                            format!("{} days", text(days))
+                        },
+                    ));
+                }
+                if v["archived"] == true {
+                    fields.push(("archived".to_owned(), "yes".to_owned()));
+                }
+            }
+            "membershipHead" if v.is_object() => {
+                let hash = v["statementHash"].as_str().unwrap_or_default();
+                fields.push((
+                    "membership".to_owned(),
+                    format!(
+                        "revision {} · {}",
+                        text(&v["revision"]),
+                        hash.get(..12).unwrap_or(hash)
+                    ),
+                ));
+            }
+            // The full link replaces the relative one; without a door the path says how to get one.
+            "readerUrl" => fields.push(("reader link".to_owned(), text(v))),
+            "readerPath" if object.contains_key("readerUrl") => {}
+            "readerPath" => fields.push((
+                "reader link".to_owned(),
+                crate::door::Door::hint(&crate::door::Lookup::Unknown, &text(v)),
+            )),
+            "operationId" => fields.push(("operation".to_owned(), text(v))),
+            "expectedRevision" => fields.push(("expected revision".to_owned(), text(v))),
+            "linkId" => fields.push(("link".to_owned(), text(v))),
+            "members" => fields.push(("members".to_owned(), principals(v))),
+            "links" => fields.push(("links".to_owned(), principals(v))),
+            _ => fields.push((key.clone(), text(v))),
+        }
+    }
+    Ok(fields)
 }
 fn output(value: &Value, json_output: bool) -> Result<()> {
     let mut out = tmt_cli_style::stream::stdout(json_output);
@@ -635,18 +861,10 @@ fn output(value: &Value, json_output: bool) -> Result<()> {
         }
         .write(&mut out, terminal)?;
     } else {
-        let fields = value
-            .as_object()
-            .ok_or_else(|| input("Invalid CLI result."))?
+        let fields = human_fields(value)?;
+        let fields = fields
             .iter()
-            .map(|(k, v)| {
-                (
-                    k.as_str(),
-                    v.as_str()
-                        .map(str::to_owned)
-                        .unwrap_or_else(|| v.to_string()),
-                )
-            })
+            .map(|(k, v)| (k.as_str(), v.clone()))
             .collect::<Vec<_>>();
         tmt_cli_style::detail::write(&mut out, terminal, "COLAB", &fields)?;
         if value.get("page").is_some() {

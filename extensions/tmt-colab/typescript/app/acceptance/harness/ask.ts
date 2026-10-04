@@ -56,7 +56,7 @@ export function createPage(world: AcceptanceWorld, title: string, html: string):
 
 /** Open a created page under the Remote door as this paired device. */
 export async function openPage(
-  door: Door,
+  door: Pick<Door, 'address'>,
   browser: PairedBrowser,
   created: CreatedPage,
 ): Promise<Page> {

@@ -7,7 +7,7 @@ import {
   requireValue,
 } from '@tmt/colab-client';
 import { Connection } from './connection.js';
-import { type JsonValue, type OwnRoot, UPDATE_BYTES } from './fold-protocol.js';
+import { type JsonValue, type OwnRoot, type OwnRecord, UPDATE_BYTES } from './fold-protocol.js';
 import type { ObjectEntry } from './objects.js';
 import { record } from './storage.js';
 interface SavedWriter {
@@ -219,16 +219,23 @@ export class Writer {
     });
   }
   async submitOwn(root: OwnRoot, key: string, value: JsonValue) {
-    requireValue(['threads', 'intents', 'messages', 'replies'].includes(root));
+    return this.submitOwnRecords([{ root, key, value }]);
+  }
+  /** A thread and its opening comment share one admitted envelope. */
+  async submitOwnRecords(records: OwnRecord[]) {
+    requireValue(records.length > 0 && records.length <= 32);
+    requireValue(
+      records.every((record) =>
+        ['threads', 'intents', 'messages', 'replies'].includes(record.root),
+      ),
+    );
     const c = await this.connection();
     await c.ready;
     const prepared = await c.run(() =>
       c.fold.run({
         type: 'prepare-own',
         writer: c.admission.registration.deviceId,
-        root,
-        key,
-        value: structuredClone(value) as unknown as JsonValue,
+        records: structuredClone(records),
       }),
     );
     try {

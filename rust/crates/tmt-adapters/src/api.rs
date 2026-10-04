@@ -3,6 +3,7 @@
 mod changes;
 mod consumption;
 mod dispatch;
+mod extensions;
 mod identities;
 mod identity_hooks;
 mod notes;
@@ -19,8 +20,8 @@ use crate::{
 use serde::Deserialize;
 use serde_json::{json, value::RawValue};
 use tmt_core::{
-    dispatch::DispatchInput, identity_hooks::IdentityHook, request::history::HistoryQuery,
-    room::RoomWrite,
+    dispatch::DispatchInput, identity::Identity, identity_hooks::IdentityHook,
+    request::history::HistoryQuery, room::RoomWrite,
 };
 
 // Preserve the canonical message limit even when every byte is JSON-escaped.
@@ -47,6 +48,7 @@ const OPS: &[&str] = &[
     "references.resolve",
     "identities.status",
     "consumption.history",
+    "extensions.uses",
 ];
 
 #[derive(Debug)]
@@ -191,6 +193,11 @@ pub enum Request {
     IdentityStatuses {
         identities: Vec<String>,
     },
+    /// Read-only availability of an optional use of another extension.
+    ExtensionUse {
+        extension: String,
+        feature: String,
+    },
 }
 
 /// Bound on UUIDs per `references.resolve` call, identities and rooms together.
@@ -264,6 +271,7 @@ pub fn decode(body: &str) -> Result<Request, Fault> {
         "references.resolve" => references::decode(input)?,
         "identities.status" => identities::decode(input)?,
         "consumption.history" => consumption::decode(input)?,
+        "extensions.uses" => extensions::decode(input)?,
         "identityHooks.pending" => identity_hooks::decode_pending(input)?,
         "skills.install" => skills::decode_install(input)?,
         "skills.remove" => skills::decode_remove(input)?,
@@ -277,10 +285,14 @@ pub fn capabilities() -> Vec<u8> {
 }
 
 fn identity(storage: &mut Storage, selector: &str) -> Result<String, Fault> {
+    Ok(identity_entry(storage, selector)?.id)
+}
+
+fn identity_entry(storage: &mut Storage, selector: &str) -> Result<Identity, Fault> {
     let found = storage
         .resolve_identity(selector)
         .map_err(|_| Fault::unavailable())?;
-    found.map(|id| id.id).ok_or_else(|| {
+    found.ok_or_else(|| {
         Fault::new(
             "NAME_NOT_FOUND",
             "Explicit originator identity was not found.",
@@ -313,6 +325,11 @@ pub fn execute(paths: &ConfigPaths, request: Request) -> Result<Vec<u8>, Fault> 
     if let Request::Notes(id) = request {
         return notes::read(paths, id);
     }
+    if let Request::ExtensionUse { extension, feature } = request {
+        let prefix =
+            crate::native_install::default_install_prefix().map_err(|_| Fault::unavailable())?;
+        return extensions::uses(&prefix, &extension, &feature);
+    }
     // Only dispatch uses settings; read operations do not depend on unrelated config.
     let settings = if matches!(request, Request::Dispatch { .. }) {
         Some(
@@ -332,6 +349,7 @@ pub fn execute(paths: &ConfigPaths, request: Request) -> Result<Vec<u8>, Fault> 
         Request::Capabilities
         | Request::StorageRoot
         | Request::Notes(_)
+        | Request::ExtensionUse { .. }
         | Request::SkillsInstall { .. }
         | Request::SkillsRemove { .. } => unreachable!("handled before storage"),
         Request::ConsumptionHistory {

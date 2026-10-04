@@ -2,7 +2,6 @@
 
 use crate::board::app::App;
 use crate::config::{BoardMode, Pane};
-use ratatui::widgets::Paragraph;
 use ratatui::{
     Frame,
     layout::Rect,
@@ -44,8 +43,11 @@ pub(in crate::board) fn toggle_label(app: &App, action: &crate::action::Action) 
 
 /// The footer names what the most used keys do for the selected row.
 pub(super) fn hints(app: &App, width: usize) -> String {
+    if app.jobs_focus {
+        return crate::board::cronboard::jobs_hints(width);
+    }
     if app.view.as_ref().is_some_and(|view| view.home.is_some()) {
-        return crate::board::home::hints(width);
+        return crate::board::home::hints(width, app.cron_shown());
     }
     let bindings = app.bindings();
     let mut hints: Vec<String> = [
@@ -83,13 +85,85 @@ pub(super) fn hints(app: &App, width: usize) -> String {
         Some(format!("{label} {}", action.verb.name()))
     })
     .collect();
+    if let Some((key, _)) = bindings.iter().find(|(key, action)| {
+        !matches!(key.as_str(), "click" | "double-click")
+            && action.verb == crate::action::Verb::AskLead
+    }) {
+        // Keep the existing row-action order while reserving the new action
+        // ahead of secondary layout, meter and navigation hints.
+        hints.insert(0, format!("{key} ask lead"));
+    }
+    let waiting = app
+        .view
+        .as_ref()
+        .filter(|_| {
+            app.current
+                .as_deref()
+                .is_some_and(|key| !crate::tabs::aggregate(key))
+        })
+        .filter(|view| crate::attention::Attention::of(&view.document).waiting > 0)
+        .map(|view| {
+            let count = crate::attention::Attention::of(&view.document).waiting;
+            let base = format!("◆ {count} waiting");
+            let now = crate::status::now_ms();
+            let oldest = view.document["squad"]["lead"]
+                .as_object()
+                .map(|_| &view.document["squad"]["lead"])
+                .into_iter()
+                .chain(
+                    view.document["sections"]
+                        .as_array()
+                        .into_iter()
+                        .flatten()
+                        .flat_map(|section| section["rows"].as_array().into_iter().flatten()),
+                )
+                .filter_map(|row| {
+                    Some((row, super::waiting::oldest(row)?["preparedAtMs"].as_u64()?))
+                })
+                .filter(|(_, since)| *since > 0 && *since <= now)
+                .min_by_key(|(_, since)| *since)
+                .map(|(row, since)| {
+                    format!(
+                        "{base} · oldest {} {}",
+                        row["name"].as_str().unwrap_or_default(),
+                        crate::requests::age(now, since)
+                    )
+                });
+            (base, oldest)
+        });
     hints.extend(["/ search", "←→ tab"].map(str::to_owned));
     if !bindings.contains_key("s") {
         hints.push("s switch".into());
     }
-    hints.extend(["? more", "q quit"].map(str::to_owned));
+    if app.cron_shown() && !bindings.contains_key("c") {
+        hints.push("c cron".into());
+    }
+    hints.push("q quit".into());
     if app.view.as_ref().is_some_and(|view| view.me.is_none()) {
         hints.push(crate::status::UNKNOWN_YOU.to_owned());
+    }
+    if let Some((base, oldest)) = waiting {
+        // Reserve the existing row actions through refresh before spending
+        // space on the optional oldest label; secondary tail hints keep their
+        // established whole-hint fitting priority.
+        let reserved = hints
+            .iter()
+            .position(|hint| hint == "ctrl-r refresh")
+            .map_or(hints.len().min(7), |index| index + 1);
+        let minimum = std::iter::once(base.as_str())
+            .chain(hints.iter().take(reserved).map(String::as_str))
+            .collect::<Vec<_>>()
+            .join("  ")
+            .width()
+            + "  ? more".width();
+        let summary = oldest
+            .filter(|oldest| minimum + oldest.width().saturating_sub(base.width()) <= width)
+            .unwrap_or(base);
+        hints.insert(0, summary);
+    }
+    let more = "? more";
+    if width < more.width() {
+        return String::new();
     }
     let mut shown = String::new();
     for hint in hints {
@@ -98,17 +172,36 @@ pub(super) fn hints(app: &App, width: usize) -> String {
         } else {
             format!("{shown}  {hint}")
         };
-        if next.width() > width {
+        if next.width() + "  ? more".width() > width {
             break;
         }
         shown = next;
     }
-    shown
+    if shown.is_empty() {
+        more.into()
+    } else {
+        format!("{shown}  {more}")
+    }
 }
 
 pub(super) fn render(frame: &mut Frame, app: &App, footer: Rect, look: crate::look::Look) {
-    let mut footer_line = if let Some(input) = &app.input {
-        Line::from(format!("{} › {}▏", input.prompt, input.text))
+    let mut footer_line = if let Some(input) = app
+        .input
+        .as_ref()
+        .filter(|input| !matches!(input.compose, crate::board::app::Compose::AskLead { .. }))
+    {
+        let mut spans = vec![Span::raw(format!("{} › {}▏", input.prompt, input.text))];
+        if let Some(hint) = input
+            .hint
+            .as_ref()
+            .filter(|hint| hint.error || input.text.is_empty())
+        {
+            spans.push(Span::styled(
+                format!("  {}", hint.text),
+                look.role(if hint.error { Role::Waiting } else { Role::Dim }),
+            ));
+        }
+        Line::from(spans)
     } else if app.searching {
         Line::from(format!("/{}▏", app.search))
     } else if let Some(notice) = &app.notice {
@@ -138,5 +231,5 @@ pub(super) fn render(frame: &mut Frame, app: &App, footer: Rect, look: crate::lo
             span.style = look.role(Role::Dim);
         }
     }
-    frame.render_widget(Paragraph::new(footer_line), footer);
+    super::strip::paint_line(frame, footer, footer_line, look);
 }

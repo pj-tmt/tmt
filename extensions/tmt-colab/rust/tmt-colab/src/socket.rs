@@ -7,6 +7,7 @@
 use crate::{
     Result,
     assets::{self, App},
+    control::{self, Control, StopReply},
     keyring::{Layout, StateFault},
     limits, management,
     registration::{self, OwnerAdmission, Registration},
@@ -107,6 +108,8 @@ pub struct MountSocket {
 struct Browser {
     space_id: String,
     app: Option<Arc<App>>,
+    /// How a root-local stop request is answered and acted on.
+    control: Control,
 }
 struct Worker {
     socket: UnixStream,
@@ -149,11 +152,17 @@ impl MountSocket {
             browser: Browser {
                 space_id: space_id.to_owned(),
                 app: None,
+                control: Control::new(),
             },
             tunnels,
             registration: None,
             sync: None,
         })
+    }
+    /// Record how the Remote door is held (one of `control::DOORS`) for a stop request to report.
+    pub fn with_door(mut self, door: &'static str) -> Self {
+        self.browser.control.door = door;
+        self
     }
     pub fn with_app(mut self, app: Option<App>) -> Self {
         self.browser.app = app.map(Arc::new);
@@ -176,8 +185,11 @@ impl MountSocket {
         let live = Arc::new(AtomicUsize::new(0));
         let active = Arc::new(Mutex::new(Vec::new()));
         let browser = Arc::new(self.browser.clone());
+        let stopping = Arc::clone(&self.browser.control.stopping);
         let result = (|| -> Result<()> {
-            while !stop.load(Ordering::Acquire) {
+            // SIGTERM/SIGINT or a root-local stop request ends serving the same way.
+            let halted = || stop.load(Ordering::Acquire) || stopping.load(Ordering::Acquire);
+            while !halted() {
                 for i in (0..workers.len()).rev() {
                     if workers[i].handle.is_finished() {
                         workers
@@ -200,7 +212,7 @@ impl MountSocket {
                         Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
                         Err(e) => return Err(e.into()),
                     };
-                    if stop.load(Ordering::Acquire) {
+                    if halted() {
                         break;
                     }
                     socket.set_nonblocking(false)?;
@@ -331,6 +343,18 @@ fn serve(
                     let _ = response_as(&mut socket, failure.status(), &bytes, "application/json");
                 }
             }
+        }
+        return;
+    }
+    if request.path == control::STOP_PATH {
+        if local_denied(&request) {
+            let _ = response(&mut socket, 403, b"DENIED", false);
+        } else if request.method != "POST" || request.upgrade {
+            let _ = response(&mut socket, 400, b"INVALID", false);
+        } else if let Ok(bytes) = serde_json::to_vec(&StopReply::new(&browser.control)) {
+            // Answer first: the accept loop closes retained sockets once it sees the flag.
+            let _ = response_as(&mut socket, 200, &bytes, "application/json");
+            browser.control.stopping.store(true, Ordering::Release);
         }
         return;
     }
@@ -544,9 +568,16 @@ fn serve(
         live.fetch_sub(1, Ordering::AcqRel);
         return;
     }
-    if request.method == "GET" && request.path == "/assets/recovery.js" {
-        if let Some((kind, bytes)) = browser.app.as_ref().and_then(|app| app.find(&request.path)) {
-            let _ = response_with_policy(&mut socket, 200, bytes, kind, assets::POLICY);
+    if request.method == "GET"
+        && let Some(file) = assets::anonymous_file(&request.path)
+    {
+        if let Some((kind, bytes)) = browser.app.as_ref().and_then(|app| app.find(file)) {
+            let policy = if file == "/renderer.html" {
+                assets::RENDERER_POLICY
+            } else {
+                assets::POLICY
+            };
+            let _ = response_with_policy(&mut socket, 200, bytes, kind, policy);
         } else {
             let _ = response(&mut socket, 404, b"NOT FOUND", false);
         }
@@ -567,6 +598,7 @@ fn serve(
     if request.path.starts_with("/assets/")
         || request.path == "/index.html"
         || request.path == "/renderer.html"
+        || request.path == "/reader.html"
         || request.path == "/THIRD-PARTY-NOTICES.txt"
     {
         let (status, bytes): (_, &[u8]) = if request.owner.is_none() {
@@ -581,29 +613,51 @@ fn serve(
         let _ = response(&mut socket, 404, b"NOT FOUND", false);
         return;
     }
-    let text = match &request.owner {
-        Some(name) => format!(
-            "Colab space {} is running. You are signed in as {}. {}.",
-            escape(&browser.space_id),
-            escape(name),
-            assets::BUILD_HINT
+    let (eyebrow, heading, detail) = match &request.owner {
+        Some(name) => (
+            "Signed-in space",
+            "Colab is running",
+            format!(
+                "<p>Colab space {} is running. You are signed in as {}. {}.</p>",
+                escape(&browser.space_id),
+                escape(name),
+                assets::BUILD_HINT
+            ),
         ),
-        None => "This colab space is private. Open it from a browser paired with tmt remote pair, or use a share link.".into(),
+        None => (
+            "Private space",
+            "Pair this browser first",
+            "<p>This colab space is private. Pair this browser with</p><p class=\"guidance-command\"><code>tmt remote pair</code></p><p>or open a share link.</p>".into(),
+        ),
     };
     let recovery = request.owner.is_none()
         && browser
             .app
             .as_ref()
             .is_some_and(|app| app.find("/assets/recovery.js").is_some());
-    let page = if recovery {
-        format!(
-            "<!doctype html><html lang=\"en\"><meta charset=\"utf-8\"><title>TMT Colab</title><h1>TMT Colab</h1><p id=\"colab-recovery-status\">Opening your paired browser…</p><p id=\"colab-guidance\" hidden>{text}</p><script type=\"module\" src=\"./assets/recovery.js\"></script></html>"
-        )
+    let stylesheet = if browser
+        .app
+        .as_ref()
+        .is_some_and(|app| app.find("/assets/reader.css").is_some())
+    {
+        "<link rel=\"stylesheet\" href=\"./assets/reader.css\">"
     } else {
-        format!(
-            "<!doctype html><html lang=\"en\"><meta charset=\"utf-8\"><title>TMT Colab</title><h1>TMT Colab</h1><p>{text}</p></html>"
-        )
+        ""
     };
+    let recovery_status = if recovery {
+        "<p id=\"colab-recovery-status\" class=\"guidance-status\" role=\"status\">Opening your paired browser…</p>"
+    } else {
+        ""
+    };
+    let hidden = if recovery { " hidden" } else { "" };
+    let script = if recovery {
+        "<script type=\"module\" src=\"./assets/recovery.js\"></script>"
+    } else {
+        ""
+    };
+    let page = format!(
+        "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"><title>TMT Colab</title>{stylesheet}</head><body class=\"guidance\"><header class=\"guidance-masthead\"><span class=\"guidance-brand\">Colab <span>tmt</span></span></header><main class=\"guidance-main\"><section class=\"guidance-card\"><span class=\"guidance-mark\" aria-hidden=\"true\">○</span><p class=\"guidance-eyebrow\">{eyebrow}</p><h1>{heading}</h1>{recovery_status}<div id=\"colab-guidance\" class=\"guidance-detail\"{hidden}>{detail}</div></section></main>{script}</body></html>"
+    );
     if recovery {
         let _ = response_with_policy(
             &mut socket,
@@ -1028,6 +1082,7 @@ fn acquire(socket: &mut UnixStream) -> std::result::Result<Request, u16> {
             | management::PATH
             | management::LOCAL_PATH
             | crate::page::ipc::PATH
+            | control::STOP_PATH
             | crate::readers::CHALLENGE_PATH
             | crate::readers::SESSION_PATH
     ) {

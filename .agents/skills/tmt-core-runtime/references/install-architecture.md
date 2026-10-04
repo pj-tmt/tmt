@@ -64,6 +64,11 @@ publication and verification procedures are in the [tmt-release skill](../../tmt
   The manifest declares a companion at most once and the archive must hold it as an executable
   regular file. Publication writes it 0755; the receipt records its digest exactly when present;
   inspection fails closed on a missing digest, missing file, changed bytes or lost execute bit.
+- `Product::optional_files()` lists plain non-executable files an extension release may carry
+  (`TMT-USES.json`): declared in the manifest at most once, mode without execute bits, published 0644,
+  recorded in the receipt exactly when present and re-verified by inspection like a companion. Its content
+  is parsed at acquisition (`native_install::uses`), so a malformed file rejects the release. An older
+  installer rejects the unknown path, so the supporting CLI must publish first.
 - An extension release (never the CLI) may carry `skills/<name>/<path>`
   (`native_install::skills_tree`): the manifest declares the single asset `skills`, the inventory
   comes only from the archive (SHA-256 verified before parsing), only regular files under
@@ -94,6 +99,11 @@ publication and verification procedures are in the [tmt-release skill](../../tmt
 - Removal validates ownership of every command link, refuses a foreign same-named command and
   deactivates links without deleting releases or data. It is recoverable, not atomic: a missing
   link with a retained activation lists as `partiallyRemoved` with an exact removal command.
+- `ls` degrades per entry: a command link with no TMT activation behind it lists as `unmanaged`,
+  damage `install --repair` can restore as `repairRequired` (carrying that exact command) and any
+  other unreadable activation as `invalid`, each with its path and a repair that never points back
+  at `ls`. One bad entry never fails the listing or changes its exit status; install and upgrade
+  still refuse on it.
 - Remote and Colab use the same manifest and receipt under independent `lib/tmt-remote` and
   `lib/tmt-colab` namespaces; install, removal and upgrade never run their `serve` command or
   open their private data roots.

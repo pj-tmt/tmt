@@ -50,6 +50,35 @@ fn independent_wrap_chain_and_link_known_answers() {
     assert_eq!(*keys.join_proof(), hex(&v, "joinProof"));
 }
 #[test]
+fn derived_link_device_chain_is_accepted_with_its_fixed_validity_window() {
+    let v = fixture();
+    let device = &v["linkDevice"];
+    let json = serde_json::to_vec(&device["chain"]).unwrap();
+    let chain = certificate::Chain::from_json(&json).unwrap();
+    let cert = chain.certificate().unwrap();
+    assert_eq!(cert.issuer_kind, "link");
+    assert_eq!(cert.issuer_id, v["linkId"].as_str().unwrap());
+    assert_eq!(cert.device_id, device["id"].as_str().unwrap());
+    assert_eq!(
+        cert.signing_key,
+        &hex(device, "signingPublic"),
+        "the oracle device key"
+    );
+    // A window from 0 to the largest time value passes every native range check.
+    assert_eq!(
+        (cert.issued_at, cert.expires_at),
+        (0, 9_007_199_254_740_991)
+    );
+    chain
+        .verify(
+            &hex(&v, "statementHash"),
+            &cert,
+            &hex(&v, "linkSigningPublic"),
+        )
+        .unwrap();
+    assert_eq!(chain.digest().unwrap(), hex(device, "chainDigest"));
+}
+#[test]
 fn fresh_wraps_open_and_low_order_dh_is_rejected_after_valid_owner_authentication() {
     let v = fixture();
     let owner = owner(&v);

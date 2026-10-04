@@ -27,11 +27,28 @@ restate them.
 
 ## App build entries
 
-The app build emits its main entry plus a standalone `assets/recovery.js` entry that reuses
-tab coordination (`vp build` then `vp build --mode recovery`; the `build` script runs both).
-Only this recovery script is public; the rest of the app stays owner-gated. Verify its
-private-guidance CSP and pairing failure/reload guard alongside the app lifecycle tests
-(`served.spec.ts`, `session-recovery.test.ts`).
+The app build emits its main entry plus two public standalone entries (`vp build`, then
+`vp build --mode recovery` and `vp build --mode reader`; the `build` script runs all three):
+
+- `assets/recovery.js` reuses tab coordination for private guidance.
+- The read-only reader (`public/reader.html` served at `/read`, `src/reader-main.tsx`) builds as fixed-name
+  `assets/reader.js`, `reader.css` and `reader-fold.js` (the decoder worker), so the native allowlist
+  `assets::anonymous_file` is exact. Add a file to the reader entry only together with that list,
+  the contract's anonymous-asset sentence and `served.spec.ts`.
+
+Only these files and `renderer.html` are public; the rest of the app stays owner-gated. Verify the
+guidance CSP and pairing failure/reload guard alongside the app lifecycle tests (`served.spec.ts`,
+`session-recovery.test.ts`).
+
+## Read-only reader
+
+`src/reader-link.ts` parses the fragment (strict grammar in the contract), `src/reader.ts`
+(`ReaderSession`) derives the link keys and the link's one reader device from the seed
+(`link.deriveLink`, `link.deriveDevice`, `link.certifyDevice`; byte-identical chain on every open), runs challenge, session and sync, and reconnects until access ends.
+It reuses `Admission` through its `ReaderSeat` option (link-addressed wraps, owner-log
+verification, nothing persisted) and `Connection` with the ticket subprotocol. `src/reader-main.tsx`
+removes the fragment first; `src/reader-app.tsx` renders read-only with the sandboxed renderer. The
+owner router, writer, Ask and export modules are not part of this bundle.
 
 ## Restart recovery
 
@@ -112,9 +129,15 @@ in `acceptance/ask.spec.ts`.
 - `management.rs` holds strict DTOs and device-signature admission and adapts to the
   engine; it never writes authority tables or chooses baselines, cuts, wraps or epoch
   keys. The CLI (`cli_grammar.rs`, `cli_management.rs`, `inspection.rs`) is root-local:
-  `ls`, `show`, `share mode` and `share link`. It uses the private socket IPC when `serve`
+  `ls`, `show`, `share mode/link/member/history`, `retention`, `archive` and `delete`.
+  `cli_management::selection` adapts public CLI inputs to strict existing DTOs;
+  member removal/role changes capture complete verified assignments, and deletion requires `--yes`.
+  Explicit frozen delete retries bypass only the missing catalog view so the engine
+  can replay the retained receipt. Retention reads use verified policy without a decoder.
+  It uses the private socket IPC when `serve`
   holds the lifecycle lock and the offline path otherwise; an uncertain IPC reply never
-  falls back to a second writer (`cli_management.rs`, `page/ipc.rs`).
+  falls back to a second writer (`cli_management.rs`, `page/ipc.rs`). Management errors
+  are exact plain codes/statuses; malformed or mismatched replies remain uncertain.
 - `readers::Sessions` keeps at most 64 ephemeral challenges, tickets and active readers
   (`CAP`), with a one-minute challenge and ten-minute session. Readers are page- and
   epoch-scoped and never owner devices or writers (`readers.rs`).

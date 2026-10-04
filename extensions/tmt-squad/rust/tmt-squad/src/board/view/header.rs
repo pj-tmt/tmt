@@ -40,7 +40,7 @@ pub(in crate::board) fn spinner_wait(
     })
 }
 
-/// Reply age is the board's only clock-derived text. Hidden replies do not
+/// Request and reply ages are clock-derived text. Hidden replies do not
 /// invalidate a frame, and minute/hour marks redraw only when their text changes.
 pub(in crate::board) fn time_marks(app: &App, now: u64) -> Vec<String> {
     let Some(view) = &app.view else {
@@ -62,13 +62,19 @@ pub(in crate::board) fn time_marks(app: &App, now: u64) -> Vec<String> {
         }
         BoardMode::Tabs => app.focused() == Pane::Replies,
     };
-    if !visible {
-        return Vec::new();
+    let mut marks: Vec<String> = app
+        .rows()
+        .into_iter()
+        .filter_map(|(_, row)| super::waiting::age(row, now))
+        .collect();
+    if visible {
+        marks.extend(
+            view.replies
+                .iter()
+                .filter_map(|reply| reply["submittedAtMs"].as_u64().map(|at| age(now, at))),
+        );
     }
-    view.replies
-        .iter()
-        .filter_map(|reply| reply["submittedAtMs"].as_u64().map(|at| age(now, at)))
-        .collect()
+    marks
 }
 
 /// One pane tab (tabs mode), the same width selected or not: the selected

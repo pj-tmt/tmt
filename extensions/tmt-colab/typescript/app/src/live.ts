@@ -1,3 +1,5 @@
+import { ThreadStore, commentForAsk } from './thread-store.js';
+import { readThreads } from './thread-records.js';
 import { LiveAsk, pageAsks } from './live-ask.js';
 import { requireValue } from '@tmt/colab-client';
 import type { Bootstrap, PageInfo } from './bootstrap.js';
@@ -24,6 +26,7 @@ export interface LiveSessionOwner {
  * unsupported history is a blocking failure rather than a partial projection. */
 export class Live implements PageBinding {
   ask?: LiveAsk;
+  readonly discussion: ThreadStore;
   #remote: RemoteClient | null = null;
   #observation: AbortController | null = null;
   #views = Promise.resolve();
@@ -53,6 +56,18 @@ export class Live implements PageBinding {
       `writer:${bootstrap.space}:${page.pageId}:${page.epoch}:${registration.deviceId}`,
       () => this.#current,
     );
+    this.discussion = new ThreadStore({
+      spaceId: bootstrap.space,
+      pageId: page.pageId,
+      epoch: page.epoch,
+      sharing: page.sharing,
+      deviceId: () => this.registration.deviceId,
+      deviceName: () => this.registration.deviceName ?? '',
+      own: () => this.#admitted.own ?? {},
+      connection: () => this.#current,
+      publish: (records) => this.#writer.submitOwnRecords(records),
+      available: () => !this.#closed && !this.#error && !this.#connecting,
+    });
     this.#replaceAsk(remote);
     if (typeof document !== 'undefined')
       document.addEventListener('visibilitychange', this.#visibility);
@@ -73,6 +88,19 @@ export class Live implements PageBinding {
           key: registration.keys.sign,
           publicKey: registration.keys.signPublic,
           own: () => this.#admitted.own ?? {},
+          commentContext: (context) =>
+            commentForAsk(
+              readThreads(
+                this.#admitted.own ?? {},
+                {
+                  spaceId: bootstrap.space,
+                  pageId: page.pageId,
+                  epoch: page.epoch,
+                },
+                (writer) => this.#connection?.objects.ownSigningKey(writer),
+              ),
+              context,
+            ),
           publish: (root, key, value) => this.#writer.submitOwn(root, key, value),
           connection: () => this.#current,
           observe: () => this.#observe(),
@@ -185,7 +213,17 @@ export class Live implements PageBinding {
         );
         if (this.#closed || this.#connection?.admission !== admission || this.#pendingView)
           continue;
-        this.#projection = { ...value, asks };
+        const threads = readThreads(
+          value.own ?? {},
+          {
+            spaceId: admission.space,
+            pageId: admission.page,
+            epoch: admission.epoch,
+          },
+          (writer) => connection.objects.ownSigningKey(writer),
+        );
+        this.#projection = { ...value, asks, threads };
+
         this.#listeners.forEach((v) => v.publish(structuredClone(this.#projection)));
         this.#observe();
       }
@@ -265,8 +303,16 @@ export class Live implements PageBinding {
       const a = c.admission;
       a.validatePage(this.page.sharing);
       requireValue(a.head !== null && a.root !== null);
+      const own = this.#admitted.own ?? {};
+      const signingKeys: Record<string, Uint8Array> = {};
+      for (const writer of Object.keys(own)) {
+        const key = c.objects.ownSigningKey(writer);
+        if (key) signingKeys[writer] = key;
+      }
       return {
         ...this.#admitted,
+        own,
+        signingKeys,
         spaceId: a.space,
         pageId: a.page,
         epoch: a.epoch,

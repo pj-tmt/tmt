@@ -11,7 +11,7 @@ import {
 } from '@tmt/colab-client';
 import { FrozenAsk, REQUEST_BYTES, escapedPreview } from '../src/ask-intent.js';
 import { storeAskDraft } from '../src/ask-record-store.js';
-import { destination, id, selection } from './ask-fixtures.js';
+import { destination, id, pageLink, selection } from './ask-fixtures.js';
 
 const records = new Map<string, unknown>();
 vi.mock('../src/storage.js', () => ({
@@ -83,7 +83,7 @@ it('copies scopes and bytes before asynchronous signing, including paused-source
   const signed = await signing;
   expect(decodeText(binary(signed.finalBytes, REQUEST_BYTES))).toBe(frozen.view.message);
   expect(frozen.view.message).toContain(selection().quote);
-  expect(frozen.view.message).not.toContain('#secret');
+  expect(frozen.view.message).toContain(`Link: ${pageLink()}\n`);
   expect(frozen.view.agent).toBe(id(6));
   expect(
     await strictVerify(
@@ -97,6 +97,11 @@ it('copies scopes and bytes before asynchronous signing, including paused-source
 it('rejects credentials, invalid Unicode, noncanonical scope/list and over-limit composed messages', () => {
   for (const change of [
     { url: 'https://user:secret@example.test/page' },
+    { url: 'https://example.test/x/colab/#secret' },
+    { url: pageLink() + '&seed=AAAA' },
+    { url: pageLink().replace(id(1), id(7)) },
+    { url: pageLink().replace('#', '?x=1#') },
+    { url: 'https://example.test/x/colab/read#v=1&seed=AAAA' },
     { url: 'javascript:alert(1)' },
     { quote: '\ud800' },
     { url: 'https://example.test/\ud800' },

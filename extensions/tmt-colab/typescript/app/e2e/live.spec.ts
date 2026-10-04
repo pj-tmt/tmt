@@ -1055,7 +1055,8 @@ test('same-device tabs explicitly take over one durable stream without reopen pi
   expect(await reopens(other)).toBe(2);
   expect(await reopens(page)).toBe(1);
   await f.ownUpdate();
-  await expect(other.getByRole('status')).toContainText('Comments and activity are not displayed');
+  await expect(other.getByTestId('comments-panel')).toContainText('No comments yet.');
+  await expect(other.getByTestId('comment-entry')).toHaveCount(0);
   await page.getByRole('button', { name: 'Use here' }).click();
   await expect(other.getByTestId('colab-inactive')).toBeVisible();
   await expect(other.locator('iframe')).toHaveCount(0);
@@ -1156,7 +1157,8 @@ test('paired checkpoints precede an authenticated interleaved tail, preserve edi
   await page.goto(mount);
   await page.locator(`[data-page-id="${v.page}"] a`).click();
   await expect(page.getByRole('heading', { name: 'Checkpoint', exact: true })).toBeVisible();
-  await expect(page.getByRole('status')).toContainText('Comments and activity are not displayed');
+  await expect(page.getByTestId('comments-panel')).toContainText('No comments yet.');
+  await expect(page.getByTestId('comment-entry')).toHaveCount(0);
   await page.getByRole('button', { name: 'Source', exact: true }).click();
   await expect(page.getByRole('textbox')).toHaveValue('<p>after tail</p>' + 'x'.repeat(300_000));
   await page.getByRole('textbox').fill('<h1>After compacted reload</h1>');
@@ -1375,13 +1377,27 @@ test('parent export downloads exact frozen baseline files, ignores drafts and re
   }
   const html = await download('page.html');
   expect(html).toEqual(Buffer.from(source, 'utf8'));
-  await expect(panel.getByRole('status')).toContainText('One file requested');
+  await expect(panel.getByRole('status')).toContainText('Some files requested');
   // A committed edit after preparation must not replace the frozen download.
   await page.getByRole('textbox').fill('<h1>New live page</h1>');
   await page.getByRole('button', { name: 'Save source' }).click();
   await expect(
     page.frameLocator('iframe').getByRole('heading', { name: 'New live page' }),
   ).toBeVisible();
+  const conversationsBytes = await download('conversations.json');
+  const conversations = JSON.parse(conversationsBytes.toString('utf8'));
+  expect(conversations).toMatchObject({
+    format: 'tmt-colab-conversations',
+    version: 1,
+    spaceId: v.space,
+    pageId: v.page,
+    title: 'Live fixture',
+    epoch: '2',
+    threads: [],
+    asks: [],
+  });
+  const readingBytes = await download('conversations.md');
+  expect(readingBytes.toString('utf8')).toContain('No threads.');
   const manifestBytes = await download('manifest.json');
   const manifest = JSON.parse(manifestBytes.toString('utf8'));
   expect(manifest.exportedAtMs).toBeGreaterThanOrEqual(before);
@@ -1397,17 +1413,20 @@ test('parent export downloads exact frozen baseline files, ignores drafts and re
       membershipHead: { revision: '3', statementHash: Buffer.from(f.head.hash).toString('hex') },
       epoch: '2',
       plaintext: true,
-      discussions: 'not-included',
-      files: [
-        {
-          name: 'page.html',
-          sizeBytes: html.length,
-          sha256: createHash('sha256').update(html).digest('hex'),
-        },
-      ],
+      discussions: {
+        included: true,
+        scope: 'current-epoch',
+        format: 'tmt-colab-conversations',
+        version: 1,
+      },
+      files: [html, conversationsBytes, readingBytes].map((bytes, index) => ({
+        name: ['page.html', 'conversations.json', 'conversations.md'][index],
+        sizeBytes: bytes.length,
+        sha256: createHash('sha256').update(bytes).digest('hex'),
+      })),
     }),
   );
-  await expect(panel.getByRole('status')).toContainText('Both downloads requested');
+  await expect(panel.getByRole('status')).toContainText('All downloads requested');
   expect(await download('page.html')).toEqual(html);
   expect(await download('manifest.json')).toEqual(manifestBytes);
   const urlCount = () =>

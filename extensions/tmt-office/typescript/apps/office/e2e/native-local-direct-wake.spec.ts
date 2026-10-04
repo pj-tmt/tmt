@@ -45,7 +45,8 @@ test('a direct Office request wakes only the verified recipient once while inbox
             operationId: randomUUID(),
             recipientIds: [alice.id],
             room: { kind: 'direct', roomId: room.id },
-            message: 'private body must remain in the inbox only',
+            // Exceed the 48-character preview so the full body stays in the inbox.
+            message: 'private body must remain in the inbox beyond this short preview',
           };
           const accepted = await post(body);
           const requestId = accepted.items[0]!.requestId;
@@ -61,7 +62,7 @@ test('a direct Office request wakes only the verified recipient once while inbox
             (event) => event.event === 'input' && event.line?.includes(requestId) === true
           );
           expect(input.line).toBe(
-            `[tmt] request ${requestId} is queued: tmt x show ${requestId} --incoming --identity ${alice.id} --json`
+            `▚ ◆ anonymous · ${body.message.slice(0, 48)}… · tmt x show ${requestId} --incoming --identity ${alice.id} --json`
           );
           await fixture.waitForEvent(
             (event) => event.event === 'input' && event.pid === input.pid && event.line === ''

@@ -42,6 +42,9 @@ Code-side rules for what core exposes to extensions. Wire shapes and limits are 
   excludes presence (host observation, `ls --room --json`). `identity_projection` gives CLI
   and API identical identity bytes. `identityHooks.*` are scoped to the named consumer;
   another consumer's hook is `HOOK_NOT_FOUND`.
+- `extensions.uses` (`api/extensions.rs`) resolves the default install prefix and reads only receipts through
+  `native_install::uses`; it never installs, runs an extension or opens storage. The declaration is the optional
+  release file `TMT-USES.json`, validated at acquisition and inspected like the other release files.
 - History reads never acknowledge or renew retention; dispatch operation IDs recover
   immutable acceptance and replay never wakes again.
 - `tmt-cli::mcp_command` pins one saved identity UUID and data root and composes the existing

@@ -52,6 +52,16 @@ browsers register: each paired device registers when it first opens the app.
 
 ## Cases
 
+`one-command.spec.ts` (#1584) starts only `tmt-colab serve` (`startServe`): Colab starts the
+real `tmt-remote` door through the real core's public CLI, a paired device opens the printed
+link and a created page, and stopping Colab closes the door it started (`doorAnswers`).
+`world.linkExtensions()` puts `tmt-remote` and `tmt-colab` on the world's PATH, which is how
+the core resolves `tmt remote`. The attach case needs `tmt remote status --json` (#1571). A second case drives `tmt colab stop`
+(#1594): the started door closes, a second stop is `not-running`, and the pairing stays listed.
+
+`discussion.spec.ts` covers two paired writers and comment-origin Ask. Its module
+contracts and focused cases are described in [discussion.md](discussion.md).
+
 `ask.spec.ts` holds the Ask cases: direct send with exact bytes and a second viewer, browser
 reload, Remote restart after the core accepted, Remote restart before dispatch, Colab restart,
 device revocation and two tabs of one browser (one active tab, "Use here" takes it back). They
@@ -68,6 +78,19 @@ a stand-in. Assert the recipient's text equals the previewed text, including the
 
 `withWorld` always disposes, and `test.afterEach(disposeActiveWorlds)` does too after a test
 timeout, so a timed-out case leaves no tmux server, process or root behind.
+
+`reader.spec.ts` (#1545) drives the read-only share link: the page, `share link add`/`reset` and `page write`
+are real owner commands, and each reader is an unpaired Chromium profile (`openReaderLink`) that
+never paired with the door. It asserts that an unpaired browser gets no owner file, the fragment
+leaves the address bar, the page shows read-only and live, an owner edit reaches it, no request
+carries the seed, Reset ends the open reader ("Access ended") and the old link, and the
+replacement link opens in a third profile.
+
+`export.spec.ts` (#1574) has two paired writers discuss a selection, one asks the recipient
+agent about the comment, then exports through the browser's Export panel (real downloads) and
+the CLI `tmt colab export`. It asserts the page, both conversation files and the manifest
+(except `exportedAtMs`) are byte-identical between the two paths, and that the export holds both
+writers' comments, the accepted Ask and the stored reply.
 
 `tabs.spec.ts` pins a Remote contract the Ask design depends on: Remote keeps one session per
 device, so a newer `session.open` ends the older session and its tunnels. Two tabs of one paired

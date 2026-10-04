@@ -63,6 +63,7 @@ independent of storage access.
 | `references.resolve`     | optional `identityIds`, `roomIds` (canonical UUIDs, at most 256 in total) | `identities` (`id`, `found`, `name`, `lifetime`, `retired`) and `rooms` (`id`, `found`, `retired`)                                                                |
 | `consumption.history`    | `identityIds` (1–32 UUIDs), `windowsMs` (1–3), optional `maxBuckets`      | Closed timestamped deltas, coverage and included cumulative seed watermark (see below)                                                                            |
 | `identities.status`      | `identityIds` (canonical UUIDs, at most 256)                              | `identities`: `{id, found}` and, when found, `status`: the `tmt identity status` value or `null`                                                                  |
+| `extensions.uses`        | `extension`, `feature`                                                    | `available`, `installed`, `reason`, `hint` for a declared optional use (see [Optional cross-extension uses](#optional-cross-extension-uses))                      |
 
 `storage.root` reports the data directory selected by the invoking core, including
 its normal explicit-home/XDG/legacy selection. Extensions MUST use this operation
@@ -204,7 +205,9 @@ re-wake. Recover with `dispatch.show` after uncertain process completion.
 
 `dispatch.create` commits immutable acceptance before attempting an advisory wake
 for a newly created, queued, single-recipient request outside roster dispatch.
-The wake carries a hint to retrieve the retained request, not its message body.
+The wake carries an optional bounded preview and a command to retrieve the
+retained request. The notice grammar is owned by
+[request-response-v1.md](request-response-v1.md); the full body is in the inbox.
 Failure to wake does not undo acceptance. A queued request is durable inbox work;
 it does not promise a live transport, a claimed wake or agent processing.
 
@@ -389,6 +392,75 @@ Example conditional room write (replace the UUIDs with actual identities):
   }
 }
 ```
+
+## Optional cross-extension uses
+
+An extension can depend on another one for a single feature and still work without it. Core does not
+install such a dependency; the feature checks for it when it is used, and core only answers whether the
+other extension is installed and recent enough.
+
+**Declaration.** An extension release may carry `TMT-USES.json` at the archive root (added through the
+package's cargo-dist `include`). It is optional: no file means no uses, and every release without it stays
+valid. It is covered by the archive checksum like the other release files; a release that carries a
+malformed one is rejected before publication, and an installed one is inspected with the rest of the
+release. At most 4 KiB of UTF-8 JSON:
+
+```json
+{
+  "version": 1,
+  "uses": [
+    {
+      "feature": "browser-access",
+      "label": "Browser access",
+      "extension": "remote",
+      "requires": ">=0.1.0-alpha.1"
+    }
+  ]
+}
+```
+
+- `version` is `1`. `uses` has at most 8 entries. Unknown keys and duplicate `feature` values are rejected.
+- `feature` matches `[a-z][a-z0-9-]{0,31}`. `label` is 1 to 48 printable characters: no control,
+  bidirectional-override or line-separator characters, so it is safe on one terminal line (the same rule
+  as notice display fields).
+- `extension` names an installable official extension other than the declaring one.
+- `requires` is an exact minimum, `>=X.Y.Z` or `>=X.Y.Z-pre`, at most 64 bytes, compared with semantic
+  versioning precedence (a prerelease sorts below its release). No other operator or range exists.
+
+Core never interprets a feature; `label` and `feature` are display and lookup data from the declarer.
+
+**`extensions.uses`** answers from the installed receipts of the calling and the named extension. It reads
+no network, application storage or extension process, and never installs or changes anything. `extension`
+is the caller's own name and `feature` one it declared. The result:
+
+| Field                                       | Meaning                                                                                                                                                                                                                                                                                                                                |
+| ------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `feature`, `label`, `extension`, `requires` | The declaration, as written.                                                                                                                                                                                                                                                                                                           |
+| `available`                                 | `true` when the named extension is installed, verified and at least `requires`.                                                                                                                                                                                                                                                        |
+| `installed`                                 | The installed version of the named extension, or `null`.                                                                                                                                                                                                                                                                               |
+| `reason`                                    | `null` when available, else `missing`, `tooOld` or `damaged` (installed but failing verification).                                                                                                                                                                                                                                     |
+| `hint`                                      | One actionable line, empty when available: `<label> needs the <Extension> extension: tmt extension install <extension> --yes`; for `tooOld`, `... tmt extension upgrade <extension> --yes`; for `damaged`, a pointer to `tmt extension ls`, which lists the damaged entry with its path and the exact repair (it does not fail on it). |
+
+A caller shows `hint` as its failure and keeps the rest of its features working. Errors are
+`API_INPUT_INVALID` (a non-canonical name) and `EXTENSION_USE_UNDECLARED` (the caller has no managed
+installation, or declares no such feature); a caller treats an error as "cannot check" and fails closed
+with its message. The operation resolves the default installation prefix, the one `tmt extension` uses
+without `--prefix`; an installation under another prefix is not visible to it. Same-user bookkeeping like
+`skills.install`: the API cannot prove which extension is calling.
+
+**Older core.** A core without `extensions.uses` does not list it in `capabilities`, and an unknown
+operation is an error. A caller reads `capabilities` first (or treats the error the same way): the use
+counts as "cannot check", and its message is to update tmt (`tmt upgrade --channel alpha --yes`). A release
+that carries `TMT-USES.json` also needs a CLI that accepts the file: an older installer rejects an unknown
+archive path, so the CLI release that supports it must publish before any extension release that carries it
+(the same rule as skills trees). A caller checks a use when the feature starts (for example once at server
+start) rather than on every request.
+
+**Visibility and removal.** `tmt extension ls` lists each installed extension's `uses` (`feature`, `label`,
+`extension`, `requires`, `available`, `installed`, `reason`) and prints one dim line per use. `tmt extension rm`
+and an exact `tmt extension upgrade --to` name the installed extensions whose declared features stop working
+because of the change, in the consent question and as `affects` (`extension`, `feature`, `label`) in JSON.
+This is a warning only: the consent gate is unchanged and nothing is blocked.
 
 ## Command-line style
 

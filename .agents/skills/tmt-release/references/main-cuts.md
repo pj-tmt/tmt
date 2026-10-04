@@ -90,7 +90,11 @@ never maps tags through those parents.
 
 For authorized local proof, follow the shared-host build/disk rules and use one
 Cargo target. Build `tmt-release-tool` first; Node finds its `release-version`
-binary at that target's `debug/` (or default `rust/target/debug/`). Run
+binary at that target's `debug/` (or default `rust/target/debug/`).
+The TOML helper uses the module's 60-second process bound to allow cold Rosetta
+startup; timeout, signal and nonzero-exit failures still fail the source gate.
+Include cold helper startup when rehearsing the Intel-host upgrade proof.
+Run
 `release-version-injection.mjs prepare <checkout> <snapshot-outside-checkout>
 <product> <tag>`; an empty tag selects the shared non-publishing preparation version. When
 versions differ, demonstrate stale-lock rejection with full `cargo metadata
@@ -251,7 +255,7 @@ upgrade, publication readback and public-install smoke proofs.
 For commit-gate tooling changes, run from `typescript/`:
 
 ```sh
-CARGO_TARGET_DIR=<worktree-target> corepack pnpm exec vp test run --config vitest.config.ts test/tooling/publication-gates.test.ts test/tooling/publication-gates-script.test.ts test/tooling/ci-scope.test.ts test/tooling/release-workflow.test.ts test/tooling/dev-guide-budget.test.ts
+CARGO_TARGET_DIR=<worktree-target> corepack pnpm exec vp test run --config vitest.config.ts test/tooling/publication-gates.test.ts test/tooling/publication-gates-script.test.ts test/tooling/ci-scope.test.ts test/tooling/release-workflow.test.ts test/tooling/guide-budget.test.ts
 corepack pnpm check:tooling
 ```
 

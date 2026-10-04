@@ -5,10 +5,11 @@ import * as Y from 'yjs';
 import { Admission } from '../src/admission.js';
 import { Objects } from '../src/objects.js';
 import { FrozenAsk } from '../src/ask-intent.js';
+import { readThreads } from '../src/thread-records.js';
 import { pageAsks } from '../src/live-ask.js';
 import type { Registration } from '../src/registration.js';
 import type { FoldCommand, FoldResult } from '../src/fold-protocol.js';
-import { destination, id, selection } from './ask-fixtures.js';
+import { destination, id, pageLink, selection } from './ask-fixtures.js';
 const records = new Map<string, unknown>();
 vi.mock('../src/storage.js', () => ({
   record: async (key: string, ...values: unknown[]) => {
@@ -46,7 +47,7 @@ async function worker() {
   };
 }
 
-it('retains cut-admitted Ask history after revocation but never decodes or renders a post-cut record', async () => {
+it('retains cut-admitted Ask and discussion history after revocation but never decodes or renders a post-cut record', async () => {
   vi.stubGlobal('navigator', {
     locks: { request: async (_name: string, task: () => unknown) => task() },
   });
@@ -76,7 +77,13 @@ it('retains cut-admitted Ask history after revocation but never decodes or rende
   );
   const capture = (operationId: string) =>
     FrozenAsk.capture(
-      { ...selection(), space: v.space, page: v.page, senderDevice: v.page },
+      {
+        ...selection(),
+        space: v.space,
+        page: v.page,
+        senderDevice: v.page,
+        url: pageLink(v.space, v.page),
+      },
       destination(),
       { issuedAt: 50, operationId },
     );
@@ -107,6 +114,20 @@ it('retains cut-admitted Ask history after revocation but never decodes or rende
     agentId: destination().agent,
     body: 'Historical final',
   });
+  const discussion = JSON.parse(
+    readFileSync(new URL('../../../contracts/vectors/discussion-v1.json', import.meta.url), 'utf8'),
+  );
+  const thread = { ...discussion.thread, spaceId: v.space, pageId: v.page, senderDevice: v.page };
+  const comment = {
+    ...discussion.comment,
+    spaceId: v.space,
+    pageId: v.page,
+    senderDevice: v.page,
+    thread: { writer: v.page, id: thread.threadId },
+  };
+  doc.getMap('threads').set(`${thread.threadId}:1`, thread);
+  doc.getMap('messages').set(`${comment.messageId}:1`, comment);
+  const scope = { spaceId: v.space, pageId: v.page, epoch: '1' };
   const context: c.Context = {
     space: v.space,
     page: v.page,
@@ -184,6 +205,9 @@ it('retains cut-admitted Ask history after revocation but never decodes or rende
   expect(await pageAsks(projection.own, a, (writer) => after.ownSigningKey(writer))).toMatchObject([
     { operationId: id(81), reply: 'Historical final', canTrack: false },
   ]);
+  expect(
+    readThreads(projection.own, scope, (writer) => after.ownSigningKey(writer))[0].comments[0].body,
+  ).toBe(comment.body);
   const retained = after.ownSigningKey(v.page)!;
   retained.fill(0);
   expect(after.ownSigningKey(v.page)).toEqual(owner);
@@ -195,6 +219,9 @@ it('retains cut-admitted Ask history after revocation but never decodes or rende
     agentName: 'Late agent',
     deviceName: 'Revoked browser',
   });
+  doc
+    .getMap('messages')
+    .set(`${comment.messageId}:2`, { ...comment, revision: '2', body: 'Post-cut discussion' });
   const tail = await c.Envelope.seal(
     { ...context, streamSeq: '2', prevHash: await first.hash() },
     a.root,
@@ -209,5 +236,8 @@ it('retains cut-admitted Ask history after revocation but never decodes or rende
       (view) => view.operationId,
     ),
   ).toEqual([id(81)]);
+  expect(
+    readThreads(unchanged.own, scope, (writer) => after.ownSigningKey(writer))[0].comments[0].body,
+  ).toBe(comment.body);
   doc.destroy();
 });

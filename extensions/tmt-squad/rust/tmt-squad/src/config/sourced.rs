@@ -5,11 +5,11 @@ use std::collections::BTreeMap;
 pub(super) type Sources = BTreeMap<String, String>;
 
 impl Config {
-    fn source_item(&self, path: &[&str]) -> Option<&Item> {
+    pub(super) fn source_item(&self, path: &[&str]) -> Option<&Item> {
         path.iter()
             .try_fold(self.document.as_item(), |item, key| item.get(key))
     }
-    fn source(&self, path: &[&str], fallback: &str) -> String {
+    pub(super) fn source(&self, path: &[&str], fallback: &str) -> String {
         if self.source_item(path).is_some() {
             path.join(".")
         } else {
@@ -123,10 +123,12 @@ impl Config {
                 let table = item
                     .as_table_like()
                     .ok_or_else(|| invalid("`board` must be a table."))?;
-                if let Some((key, _)) = table
-                    .iter()
-                    .find(|(key, _)| !matches!(*key, "refresh" | "theme" | "token_rate" | "view"))
-                {
+                if let Some((key, _)) = table.iter().find(|(key, _)| {
+                    !matches!(
+                        *key,
+                        "refresh" | "theme" | "token_rate" | "view" | "ask_lead"
+                    )
+                }) {
                     return Err(invalid(format!("`board.{key}` is not a board setting.")));
                 }
                 table

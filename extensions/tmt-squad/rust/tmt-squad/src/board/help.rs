@@ -116,6 +116,10 @@ pub(super) fn model(app: &App) -> KeyHelp {
                 ("Tab / Shift-Tab", "move to the next or previous section"),
                 ("Enter", "go to a member or open the selected squad"),
                 ("a", "answer a request or send the squad lead a note"),
+                (
+                    "c",
+                    "list every squad's cron jobs (also Enter on the cron line)",
+                ),
                 ("← →", "switch tabs"),
                 ("s", "switch to any tab"),
                 ("/", "search names and squads"),
@@ -162,6 +166,40 @@ pub(super) fn model(app: &App) -> KeyHelp {
             "s",
             "switch to any tab, hidden ones too (type to filter)",
         ));
+    }
+    let pick_keys = app
+        .pick_keys()
+        .iter()
+        .map(|key| {
+            if key == "space" {
+                "Space".to_owned()
+            } else {
+                key.clone()
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(" / ");
+    if !pick_keys.is_empty() {
+        sections.push(section(
+            "board-picks",
+            "tab switcher",
+            &[(
+                &pick_keys,
+                "include or exclude the highlighted tab on this board; writes no configuration",
+            )],
+        ));
+    }
+    if app.jobs_focus {
+        sections.push(section(
+            "cron-jobs",
+            "cron jobs (while the jobs half has focus)",
+            &crate::board::cronboard::help_keys(),
+        ));
+    }
+    if !home && app.cron_shown() && !app.bindings().contains_key("c") {
+        sections[0]
+            .entries
+            .push(entry("cron", "c", "list every squad's cron jobs"));
     }
     if let Some(view) = &app.view {
         sections[0].entries.push(entry(
