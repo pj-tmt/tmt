@@ -62,7 +62,15 @@ test.describe('Ask agent real-binary acceptance (#1110)', () => {
       const ask = await previewAsk(s.askerPage, s.recipient.id, 'Explain this sentence');
       // The delivered preview starts with Remote's stable device-name line.
       expect(ask.previewText.startsWith(`[remote: ${askerName}]\n`)).toBe(true);
+      // The link names the page itself, with only its public space and page IDs.
+      expect(ask.previewText).toContain(`\nLink: ${s.askerPage.url()}\n`);
+      expect(new URL(s.askerPage.url()).hash).toMatch(
+        new RegExp(`^#space=[a-z2-7]{32}&path=%2Fpages%2F${s.page.pageId}$`),
+      );
       await send(s.askerPage);
+      // The preview closes and the ask entry on the page takes the focus.
+      await expect(s.askerPage.getByTestId('ask-preview')).toHaveCount(0);
+      await expect(askEntry(s.askerPage, ask.operationId)).toBeFocused();
       await expect(askState(s.askerPage, ask.operationId)).toHaveAttribute(
         'data-state',
         'accepted',

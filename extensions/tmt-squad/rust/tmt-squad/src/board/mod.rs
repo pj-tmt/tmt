@@ -533,6 +533,7 @@ pub fn run(
     let mut app = App::new(squad);
     app.popup = popup;
     let mut screen = Terminal::new(CrosstermBackend::new(io::stdout())).map_err(failed)?;
+    let mut clock = crate::cron_clock::ClockWorker::spawn(core.clone(), config, false);
     spawn_input(events, filter);
     let result = session(
         &mut app,
@@ -554,8 +555,10 @@ pub fn run(
     );
     // Restore first, whatever happened; then report the session's outcome.
     let restored = guard.restore();
+    let stopped = clock.stop();
     let signal = result.map_err(failed)?;
     restored.map_err(failed)?;
+    stopped?;
     Ok(signal)
 }
 

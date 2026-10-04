@@ -4,7 +4,11 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
-import { selectNativeArtifact, withNativeArtifact } from './native-artifact-policy.mjs';
+import {
+  assertDependencyNotices,
+  selectNativeArtifact,
+  withNativeArtifact,
+} from './native-artifact-policy.mjs';
 import { assertNativeTarget, verifyNativeRuntime } from './native-runtime-proof.mjs';
 
 const { values } = parseArgs({
@@ -93,10 +97,7 @@ function tree(root) {
   walk(root, '');
   return files;
 }
-assert(
-  !/<year>|<copyright holders>/.test(notices),
-  'Dependency notices contain placeholder attribution'
-);
+assertDependencyNotices(notices);
 
 await withNativeArtifact(values.archive, metadata, async (artifactRoot) => {
   assert.equal(

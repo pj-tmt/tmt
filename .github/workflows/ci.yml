@@ -42,6 +42,7 @@ jobs:
       office: ${{ steps.scope.outputs.office || steps.queue.outputs.office || steps.seed.outputs.office }}
       native_office: ${{ steps.scope.outputs.native_office || steps.queue.outputs.native_office || steps.seed.outputs.native_office }}
       native_scope: ${{ steps.scope.outputs.native_scope || steps.queue.outputs.native_scope || steps.seed.outputs.native_scope }}
+      native_notices: ${{ steps.scope.outputs.native_notices || steps.queue.outputs.native_notices || steps.seed.outputs.native_notices }}
       scoped_native_tests: ${{ steps.scope.outputs.scoped_native_tests || steps.queue.outputs.scoped_native_tests }}
       e2e_shard_1: ${{ steps.scope.outputs.e2e_shard_1 || steps.queue.outputs.e2e_shard_1 }}
       e2e_shard_2: ${{ steps.scope.outputs.e2e_shard_2 || steps.queue.outputs.e2e_shard_2 }}
@@ -167,6 +168,51 @@ jobs:
           pnpm --filter @tmt/colab-app --fail-if-no-match check
           pnpm --filter @tmt/colab-app --fail-if-no-match test
           pnpm --filter @tmt/colab-app --fail-if-no-match build
+
+  native-notices:
+    name: Native dependency notices
+    needs: changes
+    if: needs.changes.outputs.verify == 'true' && needs.changes.outputs.native_notices == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.23.2
+      - name: Install pinned Rust toolchain
+        run: rustup toolchain install 1.97.0 --profile minimal
+      - name: Restore Rust dependencies
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: rust
+          shared-key: native-rust
+          save-if: false
+      - name: Restore pinned packaging tools
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/.tmt-packaging
+          key: native-tools-${{ runner.os }}-${{ runner.arch }}-rust1.97-dist0.32.0-about0.9.2
+      - name: Install cargo-about when the release tool cache is absent
+        run: |
+          if [ ! -x "$HOME/.tmt-packaging/bin/cargo-about" ]; then
+            cargo +1.97.0 install cargo-about --version 0.9.2 --features cli --locked --root "$HOME/.tmt-packaging"
+          fi
+          echo "$HOME/.tmt-packaging/bin" >> "$GITHUB_PATH"
+      - name: Fetch locked dependencies before offline notice generation
+        working-directory: rust
+        run: cargo fetch --locked
+      - name: Reject placeholder notices for every active product and release target
+        run: node typescript/scripts/verify-native-notices.mjs
+      - name: Preserve notices and generator diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-dependency-notices
+          path: rust/target/native-notices/verified/
+          retention-days: 7
 
   native-clippy:
     name: Native Rust clippy
@@ -819,6 +865,7 @@ jobs:
     needs:
       [
         changes,
+        native-notices,
         native-rust,
         unit-tests,
         docker-e2e-shard-1,
@@ -850,3 +897,8 @@ jobs:
           MACOS_SELECTED: ${{ needs.changes.outputs.macos }}
         run: |
           node typescript/scripts/ci-scope.mjs gate-native "$MACOS_SELECTED" "$NATIVE_SCOPE" "$CONTRACT_RESULT" "$UNIT_RESULT" "$SHARD_1_RESULT" "$SHARD_2_RESULT" "$BUILD_RESULT" "$MATRIX_RESULT" "$MACOS_BUILD_RESULT" "$MACOS_MATRIX_RESULT"
+      - name: Require selected dependency notices verification
+        env:
+          NOTICES_SELECTED: ${{ needs.changes.outputs.native_notices }}
+          NOTICES_RESULT: ${{ needs.native-notices.result }}
+        run: node typescript/scripts/ci-scope.mjs gate "$NOTICES_SELECTED" "$NOTICES_RESULT"

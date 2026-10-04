@@ -241,6 +241,35 @@ export function selectCiAreas(paths, map = componentMap()) {
   };
 }
 
+/** Changes to dependency inventories and notice-generation inputs require release notices. */
+export function selectNativeNotices(paths) {
+  const inputs = new Set([
+    'rust/Cargo.lock',
+    'rust/rust-toolchain.toml',
+    'rust/about.toml',
+    'rust/about.hbs',
+    'dist-workspace.toml',
+    '.github/components.json',
+    '.github/workflows/ci.yml',
+    'scripts/build-native-artifact.sh',
+    'scripts/native-cargo.sh',
+    'typescript/scripts/verify-native-notices.mjs',
+    'typescript/scripts/native-artifact-policy.mjs',
+    'typescript/scripts/native-release-policy.mjs',
+    'typescript/scripts/packed-command.mjs',
+    'typescript/scripts/ci-scope.mjs',
+  ]);
+  return (
+    paths.length === 0 ||
+    paths.some(
+      (path) =>
+        inputs.has(path) ||
+        path.startsWith('rust/licenses/') ||
+        /^(rust|extensions)\/(?:.*\/)?Cargo\.toml$/.test(path)
+    )
+  );
+}
+
 // Office-local browser harnesses/build files are already component-owned. These
 // are the browser-specific machinery inputs outside that component; shared
 // dependency and generic fixture changes rely on the weekly/manual safety net.
@@ -547,12 +576,14 @@ export function runCiScope(args, { cwd, stdout, stderr, summaryFile }) {
   }
   const officeBrowser = full || (!queue && !seed && selectOfficeBrowser(selection.paths));
   const colabHarness = !queue && !seed && !full && selectColabHarness(selection.paths);
+  const nativeNotices = !seed && (full || selectNativeNotices(selection.paths));
   const evidence =
     (full || seed || fallback
       ? `### CI selection\n\n${fallback ?? (full ? 'Weekly/manual full verification; no path filtering.' : 'Main cache seed; Office verification is frozen.')}\n`
       : renderSelectionEvidence({ base, head, range, ...selection })) +
     `\nOffice browser PR selection (Office ownership or verification machinery): ${officeBrowser}.\n` +
-    `\nColab browser PR selection (client, model, vectors or harness workflow): ${colabHarness}.\n`;
+    `\nColab browser PR selection (client, model, vectors or harness workflow): ${colabHarness}.\n` +
+    `\nNative dependency notices selection: ${nativeNotices}.\n`;
   stderr.write(evidence);
   if (summaryFile) appendFileSync(summaryFile, evidence);
   const { areas, nativeScope } = selection;
@@ -562,6 +593,7 @@ export function runCiScope(args, { cwd, stdout, stderr, summaryFile }) {
     `native=${areas.native}\noffice=${areas.office}\nnative_office=${areas.nativeOffice}\n` +
       `office_browser=${officeBrowser}\n` +
       `colab_harness=${colabHarness}\n` +
+      `native_notices=${nativeNotices}\n` +
       `native_scope=${nativeScope}\n` +
       `scoped_native_tests=${checks.nativeTests.join(' ')}\n` +
       `e2e_shard_1=${firstShard.join(' ')}\n` +

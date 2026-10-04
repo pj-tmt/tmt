@@ -174,6 +174,24 @@ describe('native artifact stdout', () => {
       expect(noticeOnly.stderr).not.toContain('companion build diagnostics');
     }
   );
+  it.each(['cli', 'office', 'squad', 'driver-herdr', 'remote', 'colab'])(
+    'generates Rust-only %s notices without Node, frontend builds or cargo-dist',
+    (product) => {
+      const { root, bin, script } = artifactFixture(product);
+      tool(bin, 'corepack', 'exit 98');
+      tool(bin, 'dist', 'exit 97');
+      tool(bin, 'cargo', 'exit 96');
+      const result = spawnSync(script, ['--rust-notices-only', 'aarch64-apple-darwin', product], {
+        encoding: 'utf8',
+        env: { ...process.env, PATH: `${bin}:${process.env.PATH}` },
+      });
+      expect(result.status, result.stderr).toBe(0);
+      expect(result.stdout).toBe('');
+      expect(
+        readFileSync(path.join(root, 'rust/target/native-notices/THIRD-PARTY-NOTICES.txt'), 'utf8')
+      ).toBe(`Rust license notice\n${product === 'cli' ? 'Rust license notice\n' : ''}`);
+    }
+  );
   it.each(
     vendored.flatMap(([crate, version, name]) =>
       ['cli', 'office', 'squad', 'driver-herdr', 'remote', 'colab'].map(

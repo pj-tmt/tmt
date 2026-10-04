@@ -105,7 +105,15 @@ export class FrozenAsk {
     );
     const url = new URL(selection.url);
     requireValue(['http:', 'https:'].includes(url.protocol) && !url.username && !url.password);
-    url.hash = '';
+    // The link is the page's own mounted URL, derived from the admitted selection. A fragment
+    // or query that is not exactly that (a reader seed, a stray secret) is refused, never kept.
+    const pageFragment = `#space=${selection.space}&path=${encodeURIComponent(`/pages/${selection.page}`)}`;
+    requireValue(
+      (url.hash === '' || url.hash === pageFragment) &&
+        url.search === '' &&
+        !url.pathname.endsWith('/read'),
+    );
+    url.hash = pageFragment;
     const message = `Page: ${selection.title}\nLink: ${url.href}\n\nQuote:\n${selection.quote}\n\nComment:\n${selection.comment}`;
     requireValue(Number.isSafeInteger(inputLimit) && inputLimit > 0 && inputLimit <= REQUEST_BYTES);
     this.#final = text(message);
