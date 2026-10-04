@@ -781,6 +781,10 @@ falls back to a working directory, active pane or sole identity.
   and driver-state persistence; core stores driver state without parsing it.
   Provider end leaves stored readiness Unknown pending a fresh start; only conclusive
   process loss ends the runtime incarnation.
+- Presence reads acquire host evidence outside the database writer lock and
+  recheck their captured records before reconciliation. Changed records never
+  authorize retirement or detachment; unchanged records retain conclusive stale
+  binding cleanup.
 - Provider hooks supply observation only: they never create bindings or move
   identities, they run under a bounded supervised worker that always exits zero,
   and provider configuration changes only through consented `tmt setup`.

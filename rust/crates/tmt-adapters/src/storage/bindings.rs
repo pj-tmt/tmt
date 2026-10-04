@@ -176,6 +176,25 @@ impl BindingRecords for BindingRows<'_> {
             .map_err(|error| classify(error, "Find binding by pane"))
     }
 
+    fn entries_for_pane(
+        &self,
+        host: HostKind,
+        pane: &str,
+    ) -> Result<Vec<BindingEntry>, Self::Error> {
+        let mut statement = self
+            .0
+            .prepare(&format!(
+                "SELECT {IDENTITY_COLUMNS}, {BINDING_COLUMNS} \
+                 FROM bindings AS b JOIN identities AS i ON i.id = b.identity_id \
+                 WHERE b.transport = ? AND b.pane_id = ? AND i.retired_at_ms IS NULL"
+            ))
+            .map_err(|error| classify(error, "Prepare pane binding candidates"))?;
+        statement
+            .query_map([host.as_str(), pane], entry_row)
+            .and_then(|rows| rows.collect())
+            .map_err(|error| classify(error, "Read pane binding candidates"))
+    }
+
     fn binding_entries(&self) -> Result<Vec<BindingEntry>, Self::Error> {
         let mut statement = self
             .0
