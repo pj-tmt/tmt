@@ -69,13 +69,37 @@ The waiting hint uses `Attention::of`, matching the tab's count, and effective
 bindings; narrow fitting removes the oldest-member label before the actions.
 The footer reserves `? more` as its final hint before fitting whole tail hints.
 
-`ask-lead` opens the existing input composer with the configured question.
-Enter validates the opening sender, squad and current lead, then produces the
-existing `Request::Talk`; no extra client or read path exists. Its docked prompt
-uses an opaque full-width `tmt-tui::Modal` band and admitted text strips. `board::view::strip` also
-owns the converted footer/loading/empty-detail text, leaving their callers'
-resolved styles intact. User-facing action and question settings are owned by
-the shipped Squad skill.
+`App::input` is the one composer for talk, answer, annotation and ask-lead.
+Row composers retain a `RowSend` with tab/section/squad/member occurrence and
+opening sender. Home uses its existing section/squad/member target. A single
+request opens directly; multiple requests retain the explicit picker. The
+composer keeps the chosen request, quoted preview and available note recipient;
+Tab exchanges answer/note modes without changing draft text. Submission
+revalidates the occurrence, sender, actual lead or chosen open request against
+acquired data before producing the existing public send effect. Paint and input
+acquire no additional data.
+
+The home and member painters reserve the inline band's visual lines beneath the
+complete target row. The same line stream supplies row starts, scroll reveal and
+clipped hits. `board::view::waiting` projects that reservation into a current-frame
+band spanning the body width, paints opaque `tmt-tui::Modal` chrome and admitted
+strips, and removes covered pane hits. Recipient headers use Accent; the quoted
+question's ◆ uses Waiting. The quote truncates before the input or recipient.
+Unanchored composers, including notebook-level annotations and links to a lead
+outside member rows, retain their footer path.
+`board::view::strip` owns single-line admitted paint without raw widgets.
+
+`RowFeedback` is session-only send evidence: it appears as `✓ sent` only after
+success, follows the anchored occurrence through refresh and clears on the next
+key. A Home row removed by the answer refresh remains in that transient display
+projection until confirmation clears; it does not alter the acquired Home model,
+public row documents or request state. The next key removes the projection before
+any underlying action can use it.
+
+`ask-lead` keeps its opaque full-width docked prompt with recipient-first header
+and configured question. Enter validates the opening sender, squad and current
+lead, then produces the existing `Request::Talk`. User-facing action and question
+settings are owned by the shipped Squad skill.
 
 ## Composition and folds
 
@@ -200,8 +224,8 @@ by record when no positions were drawn.
   section/squad/member identity across refresh and search; attention precedes squads. Hits,
   paging and overflow reuse `Scrolls`. Enter jumps to a member or opens a squad; Tab traverses
   attention/squads, and `a` opens the real request picker or an annotation to the selected
-  squad's lead. The composer keeps and revalidates sender, target, lead and open request before
-  the public `tmt answer` or annotation dispatch, and questions stay inside the picker. Home
+  squad's lead. The shared composer revalidates sender, target, lead and open request before
+  public `tmt answer` or annotation dispatch; its inline band quotes the chosen question. Home
   synthesizes no tiles, replies feed or model/token totals; its ⑤ cron line is the
   [cron board](#cron-on-the-board).
 - New home sections add pure line builders that return lines and local
