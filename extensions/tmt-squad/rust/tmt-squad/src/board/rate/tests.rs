@@ -38,7 +38,7 @@ fn no_data_warmup_and_measured_zero_are_distinct() {
     rate.sample(&input(100), 5_000);
     assert_eq!(rate.reading(5_000, TokenWindow::MINUTE), None);
     rate.sample(&input(100), 10_000);
-    assert_eq!(rate.reading(10_000, TokenWindow::MINUTE), None);
+    assert_eq!(rate.reading(10_000, TokenWindow::MINUTE).unwrap().tokens, 0);
     rate.sample(&input(100), 15_000);
     let zero = rate.reading(15_000, TokenWindow::MINUTE).unwrap();
     assert_eq!(zero.tokens, 0);
@@ -271,7 +271,7 @@ fn recorded_public_projection_fixture_preserves_observed_counter_deltas() {
         );
         assert_eq!(
             actual.map(|r| r.partial),
-            (now >= 10_000).then_some(now < 60_000)
+            (now >= 5_000).then_some(now < 60_000)
         );
     }
 }
@@ -344,4 +344,262 @@ fn member_windows_models_and_removal_share_one_bounded_history() {
         rate.reading(125_000, TokenWindow::HOUR).unwrap().tokens,
         150
     );
+}
+
+pub(crate) fn history_fixture() -> Value {
+    serde_json::from_str(include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../../../contracts/consumption-history-v1.json"
+    )))
+    .unwrap()
+}
+
+pub(crate) fn fixture_seeds(fixture: &Value) -> history::Seeds {
+    let response = &fixture["response"];
+    BTreeMap::from([(
+        "a".into(),
+        history::Seed::read(response, &response["identities"][0], 15_000),
+    )])
+}
+
+pub(crate) fn historical_input(fixture: &Value, live: bool) -> Input {
+    let mut value = input(100);
+    value.resumes.insert(
+        "a".into(),
+        if live {
+            fixture["nextLive"].clone()
+        } else {
+            fixture["response"]["identities"][0]["latest"].clone()
+        },
+    );
+    value
+}
+
+#[test]
+fn closed_shared_seed_and_open_live_delta_never_recount_cumulative_tokens() {
+    let fixture = history_fixture();
+    let seed = fixture_seeds(&fixture);
+    let input = historical_input(&fixture, true);
+    let mut rate = Rate::default();
+    rate.seed(&input, &seed, 22_500);
+    assert_eq!(
+        rate.member("a", 22_500, TokenWindow::MINUTE)
+            .unwrap()
+            .tokens,
+        21
+    );
+    rate.sample(&input, 22_500);
+    assert_eq!(
+        rate.member("a", 22_500, TokenWindow::MINUTE)
+            .unwrap()
+            .tokens,
+        30
+    );
+    rate.sample(&input, 25_000);
+    assert_eq!(
+        rate.reading(25_000, TokenWindow::MINUTE).unwrap().tokens,
+        30
+    );
+    // Reentry rebuilds recent core history, then extends only beyond latest again.
+    rate.failed(26_000, 5_000);
+    rate.seed(&input, &seed, 27_500);
+    rate.sample(&input, 27_500);
+    assert_eq!(
+        rate.reading(27_500, TokenWindow::MINUTE).unwrap().tokens,
+        30
+    );
+    assert!(rate.reading(27_500, TokenWindow::HOUR).unwrap().partial);
+}
+
+#[test]
+fn history_coverage_zero_and_missing_watermarks_have_distinct_meanings() {
+    let fixture = history_fixture();
+    let input = historical_input(&fixture, true);
+    let mut seed = fixture_seeds(&fixture);
+    let row = seed.get_mut("a").unwrap().as_mut().unwrap();
+    for bucket in &mut row.buckets {
+        bucket.input_tokens = 0;
+        bucket.output_tokens = 0;
+        bucket.cached_input_tokens = 0;
+    }
+    let mut rate = Rate::default();
+    rate.seed(&input, &seed, 22_500);
+    assert_eq!(rate.reading(22_500, TokenWindow::MINUTE).unwrap().tokens, 0);
+    let row = seed.get_mut("a").unwrap().as_mut().unwrap();
+    for bucket in &mut row.buckets {
+        bucket.covered_ms = 0;
+        bucket.complete = false;
+        bucket.gap = true;
+    }
+    rate.seed(&input, &seed, 22_500);
+    assert_eq!(rate.reading(22_500, TokenWindow::MINUTE), None);
+    seed = fixture_seeds(&fixture);
+    let row = seed.get_mut("a").unwrap().as_mut().unwrap();
+    row.latest = Value::Null;
+    row.sampled = None;
+    rate.seed(&input, &seed, 22_500);
+    rate.sample(&input, 22_500);
+    assert_eq!(
+        rate.reading(22_500, TokenWindow::MINUTE).unwrap().tokens,
+        21,
+        "null seed cannot bridge to current cumulative counters"
+    );
+}
+
+#[test]
+fn seed_failure_and_counter_boundaries_preserve_known_history_without_inventing_tokens() {
+    let fixture = history_fixture();
+    let seed = fixture_seeds(&fixture);
+    for kind in ["epoch", "session", "gap", "decrease"] {
+        let mut input = historical_input(&fixture, true);
+        let value = input.resumes.get_mut("a").unwrap();
+        match kind {
+            "epoch" => {
+                value["consumption"]["epoch"] = json!("00000000-0000-4000-8000-000000000002")
+            }
+            "session" => value["session"] = json!("replacement"),
+            "gap" => {
+                value["consumption"]["gap"] = json!(true);
+                value["consumption"]["complete"] = json!(false);
+            }
+            "decrease" => value["consumption"]["inputTokens"] = json!(100),
+            _ => unreachable!(),
+        }
+        let mut rate = Rate::default();
+        rate.seed(&input, &seed, 22_500);
+        rate.sample(&input, 22_500);
+        assert_eq!(
+            rate.reading(22_500, TokenWindow::MINUTE).unwrap().tokens,
+            21,
+            "{kind}"
+        );
+    }
+    let input = historical_input(&fixture, true);
+    let mut rate = Rate::default();
+    rate.seed(&input, &seed, 22_500);
+    rate.sample(&input, 22_500);
+    rate.seed(&input, &BTreeMap::from([("a".into(), None)]), 27_500);
+    let mut later = input.clone();
+    later.resumes.get_mut("a").unwrap()["consumption"]["inputTokens"] = json!(1_000);
+    rate.sample(&later, 27_500);
+    assert_eq!(
+        rate.reading(27_500, TokenWindow::MINUTE).unwrap().tokens,
+        30
+    );
+    rate.retain(&Input {
+        room: input.room,
+        names: BTreeMap::new(),
+        resumes: BTreeMap::new(),
+    });
+    assert!(rate.members.is_empty());
+}
+
+#[test]
+fn rolled_history_is_not_prorated_at_a_short_window_boundary() {
+    let mut seeds = fixture_seeds(&history_fixture());
+    let row = seeds.get_mut("a").unwrap().as_mut().unwrap();
+    row.from = 0;
+    row.through = 60_000;
+    row.available = Some(0);
+    row.buckets = [0, 30_000]
+        .into_iter()
+        .map(|from| history::Slice {
+            from_ms: from,
+            to_ms: from + 30_000,
+            input_tokens: 20,
+            output_tokens: 10,
+            cached_input_tokens: 5,
+            covered_ms: 30_000,
+            complete: true,
+            gap: false,
+            discontinuous: false,
+        })
+        .collect();
+    let mut rate = Rate::default();
+    rate.seed(&input(100), &seeds, 75_000);
+    let reading = rate.member("a", 75_000, TokenWindow::MINUTE).unwrap();
+    assert_eq!(
+        reading.tokens, 30,
+        "only the whole second rollup is covered by this window"
+    );
+    assert!(reading.partial);
+    assert_eq!(
+        rate.trend(75_000, TokenWindow::MINUTE)
+            .into_iter()
+            .flatten()
+            .sum::<f64>(),
+        30.0
+    );
+    assert_eq!(
+        rate.member("a", 75_000, TokenWindow::HOUR).unwrap().tokens,
+        60
+    );
+}
+
+#[test]
+fn reseeding_preserves_older_observations_in_the_same_long_window_ring() {
+    let mut rate = Rate::new(TokenWindow::parse("2h").unwrap());
+    rate.sample(&input(100), 0);
+    rate.sample(&input(110), 10_000);
+    let mut seeds = fixture_seeds(&history_fixture());
+    let row = seeds.get_mut("a").unwrap().as_mut().unwrap();
+    row.from += 3_600_000;
+    row.through += 3_600_000;
+    row.available = row.available.map(|at| at + 3_600_000);
+    row.sampled = row.sampled.map(|at| at + 3_600_000);
+    for bucket in &mut row.buckets {
+        bucket.from_ms += 3_600_000;
+        bucket.to_ms += 3_600_000;
+    }
+    rate.seed(&input(100), &seeds, 3_622_500);
+    let reading = rate
+        .reading(3_622_500, TokenWindow::parse("2h").unwrap())
+        .unwrap();
+    assert_eq!(reading.tokens, 36);
+    assert!(reading.partial);
+    rate.seed(&input(100), &seeds, 3_625_000);
+    assert_eq!(
+        rate.reading(3_625_000, TokenWindow::parse("2h").unwrap())
+            .unwrap()
+            .tokens,
+        36
+    );
+}
+
+#[test]
+fn malformed_history_is_not_consumption_evidence() {
+    let fixture = history_fixture();
+    let original = fixture["response"].clone();
+    assert!(history::Seed::read(&original, &original["identities"][0], 15_000).is_some());
+    for kind in [
+        "clock",
+        "cache",
+        "coverage",
+        "bounds",
+        "latest_time",
+        "complete_gap",
+        "missing",
+    ] {
+        let mut value = original.clone();
+        match kind {
+            "clock" => value["throughMs"] = json!(25_000),
+            "cache" => {
+                value["identities"][0]["windows"][0]["buckets"][1]["cachedInputTokens"] = json!(99)
+            }
+            "coverage" => {
+                value["identities"][0]["windows"][0]["buckets"][1]["coveredMs"] = json!(6_000)
+            }
+            "bounds" => value["identities"][0]["windows"][0]["buckets"][1]["fromMs"] = json!(5_000),
+            "latest_time" => value["identities"][0]["lastSampleAtMs"] = json!(21_000),
+            "complete_gap" => {
+                value["identities"][0]["windows"][0]["buckets"][1]["gap"] = json!(true)
+            }
+            "missing" => value["identities"][0]["found"] = json!(false),
+            _ => unreachable!(),
+        }
+        assert!(
+            history::Seed::read(&value, &value["identities"][0], 15_000).is_none(),
+            "{kind}"
+        );
+    }
 }

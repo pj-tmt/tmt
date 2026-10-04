@@ -69,7 +69,7 @@ fn with_meter(now: Instant, reduced: bool) -> App {
 }
 
 #[test]
-fn empty_and_zero_windows_are_visible_and_w_reports_narrow_selection() {
+fn unavailable_meter_hides_zero_is_numeric_and_w_reports_selection() {
     use crate::config::{TokenRate, TokenWindow};
     for windows in [
         TokenWindow::DEFAULTS,
@@ -101,11 +101,19 @@ fn empty_and_zero_windows_are_visible_and_w_reports_narrow_selection() {
             for window in windows {
                 terminal.draw(|frame| render(frame, &app)).unwrap();
                 let text = summary(&terminal);
+                assert!(meter_region(&app, Rect::new(0, 1, width, 1)).is_none());
                 assert!(
-                    text.ends_with(&format!("(no consumption data) {}", window.label())),
+                    !text.contains("consumption") && !text.contains(" tok"),
                     "{text}"
                 );
+                assert_eq!(app.token_window, window);
                 app.key(KeyEvent::new(KeyCode::Char('w'), KeyModifiers::NONE));
+                assert!(
+                    draw(&app, width, 24)
+                        .last()
+                        .unwrap()
+                        .contains(&format!("Token window: {}", app.token_window.label()))
+                );
             }
             assert_eq!(app.token_window, windows[0]);
             let start = now - Duration::from_millis(windows[0].milliseconds());
@@ -142,6 +150,7 @@ fn excluded_help_uses_roster_names_for_members_absent_from_displayed_rows() {
     roster.names.insert(lead.into(), "design-lead".into());
     roster.resumes.insert(lead.into(), Value::Null);
     app.view.as_mut().unwrap().token_rate = Some(crate::board::app::RateView {
+        history: None,
         settings: crate::config::TokenRate {
             enabled: true,
             ..Default::default()
@@ -172,7 +181,6 @@ fn sample_and_animation_emit_only_meter_cells_in_normal_render() {
             })
             .unwrap();
             redraw(&mut terminal, &app);
-            let initial_area = meter_region(&app, Rect::new(0, 1, width, 1)).unwrap().0;
             let sample = now + Duration::from_secs(10);
             app.meter.as_mut().unwrap().sample(Ok(&input(200)), sample);
             redraw(&mut terminal, &app);
@@ -186,7 +194,7 @@ fn sample_and_animation_emit_only_meter_cells_in_normal_render() {
                     .backend()
                     .emitted
                     .iter()
-                    .all(|(x, y)| initial_area.union(area).contains(Position::new(*x, *y)))
+                    .all(|(x, y)| area.contains(Position::new(*x, *y)))
             );
             let mut total = terminal.backend().emitted.len();
             for elapsed in [250, 500, 600] {
@@ -321,6 +329,7 @@ fn window_hint_is_conditional_whole_and_help_discloses_semantics() {
         );
     }
     app.view.as_mut().unwrap().token_rate = Some(crate::board::app::RateView {
+        history: None,
         settings: app.meter.as_ref().unwrap().settings,
         input: input(100),
     });
@@ -343,6 +352,7 @@ fn help_roster_and_disabled_custom_w_do_not_change_on_meter_only_ticks() {
     let mut app = with_meter(now, true);
     app.help = true;
     app.view.as_mut().unwrap().token_rate = Some(crate::board::app::RateView {
+        history: None,
         settings: app.meter.as_ref().unwrap().settings,
         input: input(100),
     });

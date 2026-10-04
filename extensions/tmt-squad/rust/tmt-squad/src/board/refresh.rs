@@ -100,13 +100,14 @@ impl Worker {
                 |generation| {
                     changes.stamp(&core.cancellable(read_generation.cancellation(generation)))
                 },
-                |wanted, generation, preview_panes| {
+                |wanted, generation, preview_panes, opening| {
                     load(
                         &core.cancellable(read_generation.cancellation(generation)),
                         tmux,
                         caller.as_ref(),
                         wanted,
                         preview_panes,
+                        opening,
                         &mut kept,
                     )
                 },
@@ -331,7 +332,7 @@ fn serve(
     check_every: Duration,
     generation: &AtomicU64,
     mut stamp: impl FnMut(u64) -> Stamp,
-    mut load: impl FnMut(Option<String>, u64, bool) -> Loaded,
+    mut load: impl FnMut(Option<String>, u64, bool, bool) -> Loaded,
     mut deferred: impl FnMut(Deferred, u64) -> bool,
 ) {
     // The squad last loaded, whether it reloads automatically, and the
@@ -395,7 +396,13 @@ fn serve(
         let Loaded {
             snapshot,
             attention: job,
-        } = load(wanted.squad, wanted.generation, wanted.preview_panes);
+        } = load(
+            wanted.squad.clone(),
+            wanted.generation,
+            wanted.preview_panes,
+            last.as_ref()
+                .is_none_or(|(previous, _, _)| previous.squad != wanted.squad),
+        );
         if generation.load(Ordering::Acquire) != wanted.generation {
             continue;
         }
@@ -459,6 +466,7 @@ fn load(
     caller: Option<&crate::me::Caller>,
     wanted: Option<String>,
     preview_panes: bool,
+    opening: bool,
     kept: &mut Kept,
 ) -> Loaded {
     let squads = match Squad::list(core) {
@@ -535,7 +543,7 @@ fn load(
     let view = (|| {
         let config = config.as_ref().map_err(Clone::clone)?;
         let me = crate::me::you(crate::me::current(core, config)?, caller);
-        let (view, found) = if key == LEADS {
+        let (mut view, found) = if key == LEADS {
             leads_view(core, tmux, config, &squads, &tabs, me)?
         } else if key == ALL {
             all_view(core, config, &squads, &tabs, me)?
@@ -551,6 +559,42 @@ fn load(
             result
         };
         attention = found;
+        if opening {
+            let enabled: Vec<_> = view
+                .token_rate
+                .iter()
+                .chain(view.home_rate.values())
+                .filter(|rate| rate.settings.enabled)
+                .collect();
+            let longest = enabled
+                .iter()
+                .map(|rate| rate.settings.windows[2])
+                .max_by_key(|window| window.milliseconds());
+            if let Some(longest) = longest {
+                let ids = enabled
+                    .iter()
+                    .flat_map(|rate| rate.input.resumes.keys().cloned())
+                    .collect();
+                let seeds = super::rate::history::load(core, ids, longest);
+                for rate in view
+                    .token_rate
+                    .iter_mut()
+                    .chain(view.home_rate.values_mut())
+                {
+                    if rate.settings.enabled {
+                        rate.history = Some(
+                            rate.input
+                                .resumes
+                                .keys()
+                                .map(|id| {
+                                    (id.clone(), seeds.get(id).and_then(Option::as_ref).cloned())
+                                })
+                                .collect(),
+                        );
+                    }
+                }
+            }
+        }
         Ok(view)
     })()
     .map_err(|error: crate::core::SquadError| error.to_string());
@@ -618,6 +662,7 @@ fn squad_view(
     }
     let settings = config.token_rate(&squad.name)?;
     let token_rate = settings.enabled.then(|| super::app::RateView {
+        history: None,
         settings,
         input: super::rate::Input::observed(&squad.room_id, &observation.members),
     });
@@ -867,7 +912,7 @@ mod tests {
                 Duration::from_millis(10),
                 &AtomicU64::new(0),
                 |_| Stamp::cursor(read.load(Ordering::SeqCst)),
-                |wanted, _, _| {
+                |wanted, _, _, _| {
                     let _ = loaded.send(wanted.clone());
                     let mut snapshot = crate::board::app::tests::snapshot(
                         wanted.as_deref().unwrap_or("first"),
@@ -1002,7 +1047,7 @@ printf '%s\n' '{{}}'
             CHECK_EVERY,
             &generation,
             |_| Stamp::cursor(0),
-            |_, _, _| Loaded::only(crate::board::app::tests::snapshot("product", json!([]))),
+            |_, _, _, _| Loaded::only(crate::board::app::tests::snapshot("product", json!([]))),
             |job, expected| {
                 let Deferred::Notebook { identity, revision } = job else {
                     panic!("other work")
@@ -1029,7 +1074,7 @@ printf '%s\n' '{{}}'
             CHECK_EVERY,
             &generation,
             |_| Stamp::cursor(0),
-            |_, _, _| panic!("no load"),
+            |_, _, _, _| panic!("no load"),
             |_, _| panic!("no read"),
         );
         for (code, expected) in [
@@ -1643,7 +1688,7 @@ esac
             Duration::from_secs(1),
             &generation,
             |_| Stamp::cursor(1),
-            |squad, _, _| {
+            |squad, _, _, _| {
                 loaded.push(squad.clone());
                 if squad.as_deref() == Some("old") {
                     generation.store(1, Ordering::Release);
@@ -1698,7 +1743,7 @@ esac
             Duration::from_secs(1),
             &AtomicU64::new(0),
             |_| Stamp::cursor(1),
-            |_, _, _| Loaded {
+            |_, _, _, _| Loaded {
                 snapshot: crate::board::app::tests::snapshot("product", json!([])),
                 attention: Some(AttentionJob {
                     config: config.take().unwrap(),
@@ -1786,7 +1831,7 @@ esac
             Duration::from_millis(1),
             &AtomicU64::new(0),
             |_| Stamp::cursor(1),
-            |wanted, _, _| {
+            |wanted, _, _, _| {
                 let mut snapshot =
                     crate::board::app::tests::snapshot(wanted.as_deref().unwrap(), json!([]));
                 let view = snapshot.view.as_mut().unwrap();
@@ -1795,6 +1840,7 @@ esac
                 view.home_rate.insert(
                     "product".into(),
                     super::super::app::RateView {
+                        history: None,
                         settings: crate::config::TokenRate {
                             enabled: published.get() > 0,
                             every: Duration::from_millis(2),
@@ -1835,13 +1881,14 @@ esac
             Duration::from_millis(1),
             &AtomicU64::new(0),
             |_| Stamp::cursor(1),
-            |wanted, _, _| {
+            |wanted, _, _, _| {
                 loads.push(wanted.clone());
                 let mut snapshot =
                     crate::board::app::tests::snapshot(wanted.as_deref().unwrap(), json!([]));
                 let view = snapshot.view.as_mut().unwrap();
                 view.refresh = None;
                 view.token_rate = Some(super::super::app::RateView {
+                    history: None,
                     settings: crate::config::TokenRate {
                         enabled: true,
                         every: Duration::from_millis(2),
@@ -1865,5 +1912,42 @@ esac
         );
         assert_eq!(loads, [Some("new".into())]);
         assert_eq!(samples, 1);
+    }
+    #[test]
+    fn opening_history_is_requested_once_per_entry_and_not_on_ordinary_reload() {
+        let (sender, pending) = mpsc::channel();
+        let reload = |name: &str| {
+            Work::Reload(Reload {
+                squad: Some(name.into()),
+                generation: 0,
+                preview_panes: false,
+            })
+        };
+        let mut names = ["product", "product", "infra", "product"].into_iter();
+        sender.send(reload(names.next().unwrap())).unwrap();
+        let mut openings = Vec::new();
+        serve(
+            &pending,
+            |_, _| {
+                if let Some(next) = names.next() {
+                    sender.send(reload(next)).unwrap();
+                    true
+                } else {
+                    false
+                }
+            },
+            CHECK_EVERY,
+            &AtomicU64::new(0),
+            |_| Stamp::cursor(0),
+            |wanted, _, _, opening| {
+                openings.push(opening);
+                let mut snapshot =
+                    crate::board::app::tests::snapshot(wanted.as_deref().unwrap(), json!([]));
+                snapshot.view.as_mut().unwrap().refresh = None;
+                Loaded::only(snapshot)
+            },
+            |_, _| panic!("no deferred work"),
+        );
+        assert_eq!(openings, [true, false, true, true]);
     }
 }

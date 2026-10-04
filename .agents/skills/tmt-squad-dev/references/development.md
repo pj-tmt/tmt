@@ -51,7 +51,9 @@ cron_service` and the native `squad.test.ts` cron cases cover actor permission, 
   reverse selection (same isolated 160/100/80, dark/light/`NO_COLOR` captures as below).
 - Observed token usage checks cover per-identity window boundaries, configured
   1m–24h retention, tab/member cleanup, no-data/zero/gap aging and current model
-  attribution. App projection preserves public `ls` JSON and invalidates only
+  attribution. Use the shared consumption-history contract vector for seed/live
+  watermark subtraction, re-entry replacement and no-proration boundaries; verify
+  public API batching and seed-on-entry without polling on ordinary reload. App projection preserves public `ls` JSON and invalidates only
   changed row derivations. Verify summary animation coordinates, sampled member
   cells and disabled buffer/ANSI equality through the normal renderer.
 - UI changes: verify real private-tmux captures in `tmt`, `tmt-light` and `NO_COLOR`,

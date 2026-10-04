@@ -95,6 +95,7 @@ pub fn load(
             Ok((
                 squad.name.clone(),
                 super::app::RateView {
+                    history: None,
                     settings: config.token_rate(&squad.name)?,
                     input: super::rate::Input {
                         room: squad.room_id.clone(),

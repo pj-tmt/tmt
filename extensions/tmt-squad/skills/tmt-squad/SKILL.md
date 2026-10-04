@@ -521,8 +521,8 @@ apply them.
 
 ## Observed token usage
 
-The selected named squad shows tokens from completed requests observed by this
-board, in **1m / 5m / 60m windows**. The default member grid adds the current
+The selected named squad shows completed-request tokens from public core history
+and this board's observations, in **1m / 5m / 1h windows**. The default member grid adds the current
 session model and those three totals, declared in the TEAM/crew preset rows.
 Custom grids opt in with `from = "usage.w1"`, `"usage.w2"`, or `"usage.w3"` on a
 column. Default headers follow `tok`; an explicit `title` stays as configured.
@@ -537,7 +537,9 @@ normalized reasoning in output. Mixed providers sum reported token units, not
 cost or interchangeable text volume. Model attribution is best effort: a
 mid-session model change attributes retained observations to the current model.
 Counters update at request completion and are observed every 5–10 seconds,
-not while a model writes. No money, earlier history or usage persistence is added.
+not while a model writes. On entry, the board reads closed core history for up to
+one hour and continues from its included counter watermark. It stores no separate
+usage history and computes no money estimate.
 
 Team enables observation; crew, pr-queue and minimal keep it off by default.
 The all/leads tabs omit this named-squad meter. `w` cycles the summary's windows
@@ -567,23 +569,26 @@ w = "token-window"
 ```
 
 `—` means no usable observed interval for that member; a baseline alone is not
-measured zero. The summary hides until a member has usable observations spanning
-at least 10 seconds. A measured zero shows `0`. `~` marks a window longer than
-observed coverage or with missing evidence. Unreported members are excluded from
+measured zero. Any covered reading, including measured zero, is numeric. `~` marks
+a window longer than available coverage or with missing evidence. Windows beyond
+one hour include retained board observations when available; partial history
+shows the covered total. Core rollups crossing a shorter window boundary are
+excluded whole rather than prorated. Unreported members are excluded from
 totals and make the total approximate; `?` lists never-reporting members.
 Resets, new sessions, invalid counters, gaps and failed reads rebaseline without
-inventing tokens. Returning to a tab retains bounded history but never bridges
-its unobserved interval. Changing the observation policy starts fresh history.
+inventing tokens. Returning to a tab refreshes its recent range from core while
+preserving older board observations, without bridging uncovered intervals.
+Changing the observation policy starts fresh observations; core history seeds again
+on the next tab entry.
 
 Digits count with cubic ease-out for at most 600 ms; reduced motion and summary
 window switches show the exact value immediately. Eight bucket-aligned bars show
 observed totals by slice: blank is no evidence, ▁ is measured zero and ▂–█ scale
 nonzero values. Narrow boards drop the trend, shorten the unit, then hide the
 summary meter before cutting lead/attention text. The window label remains.
-An enabled meter with no reporting members says `(no consumption data)`; reported
-counters without a covered reading say `(no covered consumption)`. Both show the
-selected window. Measured zero stays numeric. Selecting a window also posts its
-label in the board notice, including when the summary meter cannot fit.
+Without a covered reading the summary meter hides. Selecting a window posts its
+label in the board notice, including with no data or when the summary cannot fit.
+Whole-hour labels use `h`, so 60m displays as `1h`.
 
 ## Columns and row lines
 
