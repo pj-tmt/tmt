@@ -202,6 +202,17 @@ fn results_preview_sanitizes_the_first_line_and_bounds_utf8_without_changing_exa
             "head tail  [31m x".into(),
             true,
         ),
+        // Direction controls are spaces; script letters, joiners and emoji remain data.
+        (
+            "a\u{061c}\u{200e}\u{200f}\u{202a}\u{202b}\u{202c}\u{202d}\u{202e}\u{2066}\u{2067}\u{2068}\u{2069}z".into(),
+            "a            z".into(),
+            false,
+        ),
+        (
+            "עברית العربية می\u{200c}روم 👩\u{200d}💻 ✈\u{fe0f}".into(),
+            "עברית العربية می\u{200c}روم 👩\u{200d}💻 ✈\u{fe0f}".into(),
+            false,
+        ),
         ("first\rsecond".into(), "first".into(), true),
         (
             "first\u{2028}second\u{2029}third".into(),

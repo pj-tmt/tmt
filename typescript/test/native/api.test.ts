@@ -293,6 +293,10 @@ describe('public local extension API', () => {
       const sender = await identity(sandbox, 'Results Sender');
       const outsider = await identity(sandbox, 'Other Sender');
       const recipients = [await identity(sandbox, 'One'), await identity(sandbox, 'Two')];
+      // Direction controls must be neutralized without altering RTL/script/emoji data.
+      const controls = '\u061c\u200e\u200f\u202a\u202b\u202c\u202d\u202e\u2066\u2067\u2068\u2069';
+      const language = 'עברית العربية می\u200cروم 👩\u200d💻 ✈\ufe0f';
+      const hostileBody = `Reply 0${controls}${language}\r\nSecond line`;
       const ids: string[] = [];
       for (let i = 0; i < 10; i++) {
         const recipient = recipients[i % 2]!;
@@ -325,7 +329,7 @@ describe('public local extension API', () => {
           '--receipt',
           JSON.parse(shown.stdout).exchange.reply.receipt,
           '--message',
-          `Reply ${i}\tdata\r\nSecond line`,
+          i === 0 ? hostileBody : `Reply ${i}\tdata\r\nSecond line`,
           '--json',
         ]);
         expect(submitted.status).toBe(0);
@@ -407,7 +411,7 @@ describe('public local extension API', () => {
         recipientId: recipients[0],
         kind: 'request',
         preview: 'Prompt 0',
-        responsePreview: 'Reply 0 data',
+        responsePreview: `Reply 0            ${language}`,
         previewTruncated: true,
         final: { status: 'retained', submittedAtMs: now - 989 },
       });
@@ -432,6 +436,9 @@ describe('public local extension API', () => {
         expect(rejected.status).toBe(1);
         expect(rejected.body.error.code).toBe('API_INPUT_INVALID');
       }
+      const detail = await api(sandbox, 'requests.show', { requestId: ids[0] });
+      expect(detail.status).toBe(0);
+      expect(detail.body.final).toMatchObject({ status: 'retained', response: hostileBody });
       expect(everyTable(sandbox)).toEqual(before);
       // Expired/missing bodies still have truthful headers and are not cleaned by this read.
       const oracle = new Database(sandbox.database);

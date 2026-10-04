@@ -369,7 +369,9 @@ Results retain the ordinary history item fields: `requestId`, `roomId`,
 `responsePreview` (string or null) and `previewTruncated` (boolean). A retained
 response preview is its first line, at most 160 Unicode scalar values / 640 UTF-8
 bytes, with no appended ellipsis. CRLF, CR, LF and Unicode line/paragraph separators
-end the line; other control characters become spaces. Leading spaces remain.
+end the line; other controls use the shared
+[display normalization policy](request-response-v1.md#display-normalization).
+Leading spaces remain.
 `previewTruncated` is true when a line ending or the cap omits any original
 content. Storage reads at most 644 response bytes per row, without loading full
 bodies. An expired or unavailable final retains its honest submission/expiry
