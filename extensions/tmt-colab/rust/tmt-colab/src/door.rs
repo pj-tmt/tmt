@@ -57,6 +57,14 @@ pub enum Pairing {
     Unknown,
 }
 impl Pairing {
+    /// The explicit next step while a door runs and no browser is known to be paired.
+    pub fn step(&self) -> Option<&'static str> {
+        match self {
+            Self::Paired(_) => None,
+            Self::Unpaired => Some("pair this browser once: tmt remote pair"),
+            Self::Unknown => Some("if this browser is new: tmt remote pair"),
+        }
+    }
     /// `{"devices":[{"revoked":false,...},...]}`: revoked devices no longer count.
     pub fn lookup() -> Self {
         remote_json(&["devices", "--json"]).map_or(Self::Unknown, |text| Self::interpret(&text))
@@ -127,14 +135,14 @@ impl Door {
     /// What `tmt colab stop` says about a door it did not start. Names no Remote command until
     /// `tmt remote stop` ships (#1571); then it becomes "... (stop it with tmt remote stop)".
     pub const ATTACHED_STOP_NOTE: &str = "Remote is still running (started outside Colab)";
-    /// What a human is told beside a mount-relative path when no door runs: how to get a full link.
+    /// What a human is told for a mount-relative path: the full link while a door runs, else the
+    /// path and why there is no full link. Never a manual `tmt remote serve`: `tmt colab serve`
+    /// starts the door itself.
     pub fn hint(lookup: &Lookup, relative: &str) -> String {
         match lookup {
             Lookup::Running(door) => door.url(relative),
-            Lookup::Stopped(Some(port)) => format!(
-                "{relative} (start tmt remote serve (last door port {port}) to get a full link)"
-            ),
-            _ => format!("{relative} (start tmt remote serve to get a full link)"),
+            Lookup::Stopped(_) => format!("{relative} (run tmt colab serve to get a full link)"),
+            Lookup::Unknown => format!("{relative} ({})", Self::INSTALL_HINT),
         }
     }
     /// `http://127.0.0.1:<port>`, the loopback authority a browser opens.
@@ -150,23 +158,23 @@ impl Door {
 #[cfg(test)]
 mod tests {
     #[test]
-    fn the_hint_names_the_link_or_how_to_get_one() {
+    fn the_hint_names_the_link_or_the_reason_there_is_none() {
         let door = Door::parse(r#"{"running":true,"origin":"http://127.0.0.1:1","path":"/r/ab"}"#)
             .unwrap();
         assert_eq!(
             Door::hint(&Lookup::Running(door), "x/colab/"),
             "http://127.0.0.1:1/r/ab/x/colab/"
         );
-        assert_eq!(
-            Door::hint(&Lookup::Stopped(Some(7)), "p"),
-            "p (start tmt remote serve (last door port 7) to get a full link)"
-        );
-        for lookup in [Lookup::Stopped(None), Lookup::Unknown] {
+        for stopped in [Lookup::Stopped(Some(7)), Lookup::Stopped(None)] {
             assert_eq!(
-                Door::hint(&lookup, "p"),
-                "p (start tmt remote serve to get a full link)"
+                Door::hint(&stopped, "p"),
+                "p (run tmt colab serve to get a full link)"
             );
         }
+        assert_eq!(
+            Door::hint(&Lookup::Unknown, "p"),
+            format!("p ({})", Door::INSTALL_HINT)
+        );
     }
     use super::{Door, Lookup};
     #[test]

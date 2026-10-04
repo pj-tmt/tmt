@@ -5,7 +5,14 @@ use nix::fcntl::Flock;
 use std::{fs::File, ops::Deref, path::Path};
 use tmt_extension_state::Error as StateError;
 
-const FILES: &[&str] = &["owner.key", "serve.lock", "keyring.lock", "space.db"];
+const FILES: &[&str] = &[
+    "owner.key",
+    "serve.lock",
+    "keyring.lock",
+    "space.db",
+    "settings.json",
+    "settings.lock",
+];
 
 pub struct Layout {
     shared: tmt_extension_state::Layout,
@@ -55,7 +62,7 @@ impl std::fmt::Display for StateFault {
     }
 }
 impl std::error::Error for StateFault {}
-fn state_error(error: StateError) -> Box<dyn std::error::Error + Send + Sync> {
+pub(crate) fn state_error(error: StateError) -> Box<dyn std::error::Error + Send + Sync> {
     match error {
         StateError::RootNotAbsolute => StateFault::RootNotAbsolute.into(),
         StateError::UnsafeDirectory => StateFault::UnsafeDirectory.into(),
