@@ -180,7 +180,9 @@ by record when no positions were drawn.
   muted. Selection covers the whole tab with the background or a reverse fallback; the switcher
   keeps its own selected-row style. Rendered `Line::width` drives tab scrolling, hidden
   reservation, hit geometry and switcher fitting; overflow counters keep their aggregate
-  attention styling.
+  attention styling. During an uncached switch, selection stays with the retained shown view;
+  the requested tab is muted and underlined until it loads. A failed load returns to the shown
+  view, clears the pending cue and shows the error in the footer.
 - Moving a tab (Shift+←/→ or a drag on the tab line) saves `[tabs] order` through
   `Config::write`. `board::view::tabs` owns tab-line display after `tabs::arrange`: a pure
   window computation admits pins and a contiguous scrolling range from measured label, group and
@@ -196,9 +198,10 @@ by record when no positions were drawn.
   moves or passes a pin.
 - `Config::tabs` defaults to pinned home (`@all`) then leads only when neither order nor pin is
   configured (explicit empty arrays count as configured; hide stays authoritative), so a board
-  opened without a squad name starts on home and `--squad NAME` opens that squad. Home renders as
-  an accent `▚ tmt` block with both attention counts inside, using existing roles and a reverse
-  fallback; its public and config keys stay `all`.
+  opened without a squad name starts on home and `--squad NAME` opens that squad. Focused home
+  renders as an inverse accent `▚ tmt` block with the ordinary tab selection background; away
+  from home, its label is muted with no filled block. Both attention counts retain their roles,
+  and `NO_COLOR` uses reverse focus. Its public and config keys stay `all`.
 - The switcher (`s`, unless rebound) filters tab-line and hidden tabs with `tabs::matching`: a
   prefix match first, then a substring, then letters in order. A shown squad that is not on the
   tab line is drawn first, selected, with no `TabHit`, so it cannot be moved.
