@@ -287,7 +287,22 @@ by record when no positions were drawn.
   shared-inbox timestamps; pending-only rows have no age. The source aggregate document and
   `ls --tab all` stay unchanged.
 - The home painter uses the summary band and a flat body, bypassing ordinary pane composition
-  for the shown immutable home view. `home::tiles` returns pure lines and local item/line/x/width
+  for the shown immutable home view. Every HOME section is a literal markup template bound to
+  display-ready data: `home::scene` compiles it, solves it with `tmt-tui` geometry at the body
+  width, paints a scratch buffer and lifts its rows into the line stream, and the section reports
+  where each entry landed (`attention`: needs-you and blocked, `leads`, `rows`: the audience and
+  cron lines, `tiles`: squads, `bar`: summary, usage and key line). The stream, the single cursor,
+  hits, reveal and input reservation stay with `paint`; a scene identity is a frame ordinal,
+  never a name. Fit-driven decisions (name budgets, the member name in the usage line, hints
+  dropped from the key line, cron segments) stay Rust measurement feeding the branch they belong
+  to. Width steps are `tmt-switch`/`hide-below`, with no Rust width comparison left: the squads
+  table (`md`: wider name and lead columns, the first window, the share), a lead's squad column
+  (`hide-below="md"`), the summary's long form (`lg`), the usage line (`lg` all windows, models
+  and members without data; `md` the last two windows and the top share; nothing below, so no row
+  is reserved) and the key line's `A ask lead` (`md`). The decoded oracle
+  (`home/tests/oracle.rs`) records every cell, style and hit of whole frames at 79/80, 99/100 and
+  139/140; regenerate it only through the approval flow of the parity baseline.
+  `home::tiles` returns pure lines and local item/line/x/width
   regions in one full-width column, with one compact table row per squad at every
   width. Filtered reading order is top-to-bottom. Section rules reach the body's right
   edge; names, models, marks and member counts use bounded content columns, with the
@@ -330,7 +345,7 @@ by record when no positions were drawn.
   line stream. Headers retain a bold name and right-aligned event age; the squad column
   starts at the shared MD breakpoint. The global replies preference removes preview
   lines and boxed separators together. Leads without an exchange have one header line
-  and no adjacent separator; an expanded message replaces its row preview with the
+  and no adjacent separator, except one blank boxed line after the last lead with an exchange; an expanded message replaces its row preview with the
   shared band directly below the header. All visible lead lines map to one stable cursor target;
   the audience footer sits outside the box. The shared band reservation uses the full
   inner width for lead messages and answers, with a height cap that preserves the
@@ -338,8 +353,9 @@ by record when no positions were drawn.
   ages without another read. Acquisition and selected-message fences belong to
   [refresh-and-meter.md](refresh-and-meter.md); audience effects to
   [config-and-effects.md](config-and-effects.md#home-lead-sends).
-- New home sections add pure line builders returning lines and local entry/x/width/start/end
-  placements; home translates them into the shared cursor, paging, reveal and clipped hits.
+- New home sections add a template and a builder returning scene lines and local
+  entry/x/width/start/end placements; home translates them into the shared cursor, paging,
+  reveal and clipped hits.
   Their acquisition and lifecycle owners stay outside paint.
 
 ## Cron on the board

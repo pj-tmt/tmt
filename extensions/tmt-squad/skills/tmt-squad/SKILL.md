@@ -1014,6 +1014,29 @@ provider configuration/data availability is not checked. Direct binds retain dis
 </tmt-view>
 ```
 
+Width steps are markup, not class prefixes. `<tmt-switch>` holds ordered
+`<tmt-case min="lg">` / `<tmt-case min="md">` branches and a final `<tmt-default>`;
+exactly one branch is laid out, the first whose `min` fits the container's width
+(`of="terminal"` measures the whole terminal). `min` and `hide-below` take a step
+name (`sm` 80, `md` 100, `lg` 140 cells), never a number, and a width exactly at a
+step takes it. `hide-below="md"` on a row, column, cell or text is the one-element
+form. Every branch is checked offline, so an error shows at every width.
+
+```xml
+<tmt-view version="1" class="flex-col">
+  <tmt-repeat each="$.rows" as="row">
+    <tmt-row id-bind="row.id" row-bind="row.id" class="flex-row gap-1">
+      <tmt-cell bind="row.name"/>
+      <tmt-switch>
+        <tmt-case min="lg"><tmt-cell bind="row.fields.task" wrap="true"/></tmt-case>
+        <tmt-default><tmt-cell bind="row.fields.task" class="truncate"/></tmt-default>
+      </tmt-switch>
+      <tmt-cell bind="row.presence" hide-below="md"/>
+    </tmt-row>
+  </tmt-repeat>
+</tmt-view>
+```
+
 Integers are terminal cells: `w-4` means 4 cells, unlike Tailwind's rem scale.
 Use `flex`/`flex-col`, `grid`, `grid-cols-[12_30%_1fr]`,
 `grid-cols-[minmax(4,1fr)_8]`, `col-span-N`, `gap-N`, cell padding and bounds.
