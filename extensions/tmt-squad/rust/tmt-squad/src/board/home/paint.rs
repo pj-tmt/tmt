@@ -204,6 +204,7 @@ pub(crate) fn hints(width: usize, cron: bool) -> String {
         },
         "e expand",
         "t replies",
+        "/ search",
         "←→ tabs",
         "s switch",
     ];
