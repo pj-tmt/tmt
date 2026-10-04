@@ -1159,6 +1159,12 @@ Colab (`extensions/tmt-colab/`: `tmt-colab`, `tmt-colab-model`, `@tmt/colab-clie
   tab claim; all other app assets stay owner-gated. With core: `Product::Colab` registers
   the executable with the installer, and the app is served from `serve --app-dir`, else
   bytes embedded from `TMT_COLAB_APP_DIR`, else the checkout's Vite output.
+  One `tmt colab serve` is enough for a browser: it attaches to a running door through
+  `tmt remote status --json`, else starts `tmt remote serve --json` as a supervised child
+  in its own process group, reading pairing from `tmt remote devices --json`. This optional
+  edge (Colab → Remote) uses the public CLI only: no Remote state files and no crate
+  dependency. Colab stops only a door it started, with its whole group, after closing its own
+  socket.
 - **Renderer invariant.** Parent chrome allows only self-hosted scripts and styles (no
   `unsafe-inline`). Author HTML runs only in `renderer.html` inside an opaque
   `sandbox allow-scripts` frame whose own policy permits inline scripts and styles but no
