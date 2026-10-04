@@ -423,7 +423,8 @@ Schema 27 adds indexed keyset history over those same attempts, not chat storage
 `request::history` owns the owner-visible projection, and its service composes
 retention and the existing attention final-state interpretation. Storage reuses
 the canonical attempt/response row decoders; bounded UTF-8 previews preserve
-embedded NUL without loading full message bodies into lists. The `request_history`
+embedded NUL without loading full message bodies into lists. Schema 47 indexes an originator results view (submission-time keyset, observation snapshot without housekeeping);
+`request_text` owns normalization shared with reply notices. The [extension API contract](contracts/extension-api.md) owns fields and caps. The `request_history`
 adapter admits/encodes the owner API without reply proofs or pane paths. HTTP
 inspection requires the same bearer/Origin admission as dispatch. Operation lookup
 and dispatch replay share the existing immutable ledger decoder; lookup cannot

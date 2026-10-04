@@ -618,3 +618,18 @@ See [Development](../DEVELOPMENT.md) for commands and scenario ownership.
 The [historical research record](https://github.com/pj-tmt/tmt/blob/5b1e9beb6d7deeae955eba3b49ab78bd07c9df1d/REQUEST-RESPONSE.md)
 retains superseded marker/JSON-state behavior and provider research. It does not
 define current commands or authorize new integrations.
+
+## Owner results inspection
+
+The local extension API's `requests.list` results view reads submitted finals
+for one originator across rooms and recipients, including acknowledged work.
+It reuses canonical attempts and response metadata; it is independent of X's
+unread attention and revision cursor. Submitted does not mean successful, and
+core does not infer question/blocked categories. Results order and page by final
+submission time with request ID as the tie-breaker, not preparation time.
+
+The [extension API contract](extension-api.md#other-operation-details) owns the
+input, cursor, JSON fields and preview caps. Expired/unavailable bodies retain
+honest headers while metadata is retained. Reads use an observation snapshot,
+never acknowledge, renew retention, run request housekeeping, or claim successful
+notification. Exact retained body text remains available through detail/result.
