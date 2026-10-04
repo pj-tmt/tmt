@@ -9,12 +9,12 @@ use std::collections::BTreeSet;
 /// Where a displayed row came from. Section slots are authored layout scopes,
 /// not member positions; the lead has one occurrence of its own.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Slot {
+pub enum RowOrigin {
     Lead,
     Section(usize),
 }
 
-impl Slot {
+impl RowOrigin {
     /// The authored section, which alone can override bindings.
     pub fn section(self) -> Option<usize> {
         match self {
@@ -69,7 +69,7 @@ pub enum Item<'a> {
     /// An authored section starts, with its title when it has one.
     Section(Option<&'a str>),
     Rule(Rule),
-    Row(Slot, &'a Value),
+    Row(RowOrigin, &'a Value),
 }
 
 /// Rows `keep` admits in display order. A squad with a lead shows it first and
@@ -80,7 +80,7 @@ pub fn project<'a>(document: &'a Value, keep: impl Fn(&Value) -> bool) -> Vec<It
     let lead = &document["squad"]["lead"];
     let has_lead = lead.is_object();
     if has_lead && keep(lead) {
-        items.push(Item::Row(Slot::Lead, lead));
+        items.push(Item::Row(RowOrigin::Lead, lead));
     }
     let rule = items.len();
     let mut shown = BTreeSet::new();
@@ -105,7 +105,7 @@ pub fn project<'a>(document: &'a Value, keep: impl Fn(&Value) -> bool) -> Vec<It
                 }
                 None => unnamed += 1,
             }
-            items.push(Item::Row(Slot::Section(index), row));
+            items.push(Item::Row(RowOrigin::Section(index), row));
         }
     }
     if has_lead {

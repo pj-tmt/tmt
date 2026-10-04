@@ -65,14 +65,14 @@ painter directly.
   selection always did. Clipped hits come from the root's scoped identity; UUID-free rows
   keep their clip. `Scrolls::show_paint` supplies the viewport, offset and indicator.
 - `display_rows::project` is the one display order of a squad document: the acquired `squad.lead`
-  first (`Slot::Lead`), a members rule (`Rule`: distinct members shown, lead excluded; `none yet`
-  only when the squad has no member), then each authored section (`Item::Section`, `Slot::Section`)
+  first (`RowOrigin::Lead`), a members rule (`Rule`: distinct members shown, lead excluded; `none yet`
+  only when the squad has no member), then each authored section (`Item::Section`, `RowOrigin::Section`)
   as before. `App::items` (paint, sizing, ages) and `App::rows` (cursor, hits, actions, bindings,
   occurrences) both read it, and so does text `ls` (`status::squad_text`: a `LEAD` list section ahead
   of the members); no other code walks `sections` for display. A search filters the lead too and
   keeps the rule; a squad without a lead has no lead row and no rule. `display_rows::each_row` is the
   one visitor that also reaches the lead for projections (waiting, staleness, usage, state colors).
-  The rule is never selectable, `Slot::Lead` has no section bindings, and a tab switch's cursor
+  The rule is never selectable, `RowOrigin::Lead` has no section bindings, and a tab switch's cursor
   start (index 0) is the lead. The lead row's cells and detail are the ordinary row's; its position and the rule
   say who leads, so it carries no tag and reserves no column width.
   Public documents keep the lead outside `sections`.

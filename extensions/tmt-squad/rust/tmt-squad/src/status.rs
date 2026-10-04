@@ -3,7 +3,7 @@
 
 use crate::{
     config::{Layout, Rank, Section, SortKey, States},
-    display_rows::{Item, Slot},
+    display_rows::{Item, RowOrigin},
     filter::Row,
     rows::{Column as RowColumn, ListSizing, Rows},
     squad::{Member, Squad},
@@ -384,10 +384,10 @@ fn squad_text(document: &Value, terminal: Terminal, output: &mut Vec<u8>) {
     let mut groups: Vec<(&str, Option<usize>, Vec<&Value>)> = Vec::new();
     for item in crate::display_rows::project(document, |_| true) {
         match item {
-            Item::Row(Slot::Lead, row) => groups.push(("lead", None, vec![row])),
+            Item::Row(RowOrigin::Lead, row) => groups.push(("lead", None, vec![row])),
             Item::Rule(_) => {}
             Item::Section(title) => groups.push((title.unwrap_or("members"), Some(0), Vec::new())),
-            Item::Row(Slot::Section(_), row) => {
+            Item::Row(RowOrigin::Section(_), row) => {
                 if let Some(group) = groups.last_mut() {
                     group.2.push(row);
                     group.1 = Some(group.2.len());

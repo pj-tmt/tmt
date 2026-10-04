@@ -170,7 +170,7 @@ pub fn value<'a>(row: &'a serde_json::Value, field: &str) -> Option<&'a str> {
 pub fn row_values(
     rows: &crate::rows::Rows,
     tab: &str,
-    occurrences: Vec<(crate::display_rows::Slot, &serde_json::Value)>,
+    occurrences: Vec<(crate::display_rows::RowOrigin, &serde_json::Value)>,
 ) -> Result<Vec<tmt_tui::binding::Node>, String> {
     use serde_json::{Value, json};
     use tmt_tui::{binding, parse};

@@ -3,7 +3,7 @@
 //! and actions leave as fully resolved requests.
 
 use super::scroll::{Scrolls, Step, WHEEL_LINES};
-use crate::display_rows::{Item, Slot};
+use crate::display_rows::{Item, RowOrigin};
 use crate::links::Kind;
 use crate::{
     action::{Action, Bindings, Verb},
@@ -590,8 +590,8 @@ impl App {
         }
     }
 
-    /// Slot and row for every displayed row matching the search, in board order.
-    pub(super) fn rows(&self) -> Vec<(Slot, &Value)> {
+    /// RowOrigin and row for every displayed row matching the search, in board order.
+    pub(super) fn rows(&self) -> Vec<(RowOrigin, &Value)> {
         let Some(view) = &self.view else {
             return Vec::new();
         };
@@ -599,7 +599,7 @@ impl App {
             return self
                 .home_entries()
                 .into_iter()
-                .map(|entry| (Slot::Section(0), entry.row))
+                .map(|entry| (RowOrigin::Section(0), entry.row))
                 .collect();
         }
         self.items()
@@ -1850,8 +1850,8 @@ impl App {
         let squad = row["squad"].as_str().unwrap_or(&tab).to_owned();
         let id = row["id"].as_str()?.to_owned();
         Some(match slot {
-            Slot::Lead => RowTarget::Lead { tab, squad, id },
-            Slot::Section(section) => RowTarget::Member {
+            RowOrigin::Lead => RowTarget::Lead { tab, squad, id },
+            RowOrigin::Section(section) => RowTarget::Member {
                 squad,
                 tab,
                 section,
@@ -1876,7 +1876,7 @@ impl App {
                 .rows()
                 .into_iter()
                 .find(|(slot, row)| {
-                    *slot == Slot::Section(*section)
+                    *slot == RowOrigin::Section(*section)
                         && row["id"].as_str() == Some(id)
                         && row["squad"].as_str().unwrap_or(tab) == squad
                 })
