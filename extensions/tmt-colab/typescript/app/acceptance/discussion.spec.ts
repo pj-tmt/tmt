@@ -250,15 +250,23 @@ test('paired writers retain anchored annotation conversations, direct exact send
     }
     await first.setViewportSize({ width: 1440, height: 900 });
     await first.getByRole('button', { name: 'Source', exact: true }).click();
-    await first
-      .getByRole('textbox', { name: 'Source', exact: true })
-      .fill('<p style="height:300px">Inserted above.</p>' + html);
+    const inserted = '<p style="height:300px">Inserted above.</p>' + html;
+    const source = first.getByRole('textbox', { name: 'Source', exact: true });
+    await source.fill(inserted);
     await first.getByRole('button', { name: 'Save source', exact: true }).click();
+    // Attached was already true before this edit. Wait for the actual publication and
+    // the settled composer before issuing the next replacement.
+    await expect(first.frameLocator('iframe').locator('body > p').first()).toHaveText(
+      'Inserted above.',
+    );
+    await expect(source).toBeEditable();
+    await expect(source).toHaveValue(inserted);
     await expect(t1).toHaveAttribute('data-anchor', 'attached');
-    await first
-      .getByRole('textbox', { name: 'Source', exact: true })
-      .fill(html.replace('exact quote', 'changed quote'));
+    await source.fill(html.replace('exact quote', 'changed quote'));
     await first.getByRole('button', { name: 'Save source', exact: true }).click();
+    await expect(first.frameLocator('iframe').locator('#quote')).toHaveText(
+      'An & 🌍 changed quote for review.',
+    );
     await expect(t1).toHaveAttribute('data-anchor', 'detached');
     await expect(marker).toHaveCount(0);
     await first.getByRole('button', { name: 'Close Source', exact: true }).click();
