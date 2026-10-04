@@ -367,6 +367,9 @@ Each sweep executes trusted main tooling, exports current main once and reads it
 Cargo graph once. Full-history closing merges supply changed paths and containing-tag
 ancestry, not historical attribution rules. Native release policy/version helpers own
 product identities; notes, commit types and recency windows are not release evidence.
+A sibling product can publish between the checkout's tag fetch and the REST release listing,
+so `validateTags` fetches exactly the missing published tags once and revalidates; tags still
+unresolved fail the sweep closed and are named in the error.
 For each affected product choose the earliest publication whose tag contains every closing
 merge. Only complete product coverage permits `Released`; otherwise retain available
 publication evidence and `Merged`. Private components await their consumers' releases.
