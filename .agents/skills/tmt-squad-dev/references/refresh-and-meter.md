@@ -69,6 +69,17 @@ cost or text volume. `board::rate` owns evidence, `board::meter` presentation an
   `board.tok` select three distinct ascending whole m/h durations from 1m through
   24h, default 1m/5m/60m. Both layers validate even when masked. The config reader
   reports the winning setting path and preserves explicit column titles.
+- HOME projection: global `board.tok` windows live in the retained HOME model;
+  tiles and member grids keep squad overrides. `App::home_header_usage` joins only
+  shown sampling squads from existing roster names and meter UUIDs, with no reads.
+  It queries actual durations, so a shorter retained ring remains partial in a
+  longer global window. Duplicate UUIDs count once per window: prefer more verified
+  bucket evidence, then complete readings and longer spans; equal evidence keeps
+  displayed squad order. The global longest-window total is the shared denominator
+  for the top member and current-model shares. Missing readings contribute no
+  tokens, increment unreported once, and make totals/shares partial; a measured
+  zero stays numeric but has no share denominator. Current model attribution is
+  best effort. The header painter consumes this typed projection only.
 - Coverage: covered readings stay numeric, including measured zero. Known nonzero
   history deltas also remain numeric lower bounds without continuous coverage;
   zero without coverage stays unavailable. Partial coverage, windows longer than available evidence and unreported members prefix
