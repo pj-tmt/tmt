@@ -91,20 +91,54 @@ fn arguments(words: &[String]) -> Vec<OsString> {
 }
 
 fn help(words: &[String]) -> Result<String, String> {
+    help_for_terminal(words, tmt_cli_style::Terminal::PLAIN)
+}
+
+fn help_for_terminal(
+    words: &[String],
+    terminal: tmt_cli_style::Terminal,
+) -> Result<String, String> {
     let parsed = parser::parse(&arguments(words)).map_err(|error| error.message)?;
     let Invocation::Help(path) = parsed.invocation else {
         return Err("not a help request".into());
     };
     let mut text = Vec::new();
     // No `PATH` discovery: the walk must not depend on what the machine has installed.
-    help_output::write(
-        &path,
-        &Discovered::default(),
-        tmt_cli_style::Terminal::PLAIN,
-        &mut text,
-    )
-    .map_err(|error| error.to_string())?;
+    help_output::write(&path, &Discovered::default(), terminal, &mut text)
+        .map_err(|error| error.to_string())?;
     String::from_utf8(text).map_err(|error| error.to_string())
+}
+
+#[test]
+fn core_help_forms_share_terminal_wrapping_and_intact_examples() {
+    let terminal = tmt_cli_style::Terminal {
+        width: Some(80),
+        ..tmt_cli_style::Terminal::PLAIN
+    };
+    for path in [vec![], vec!["completion".to_owned()]] {
+        let mut dash_h = path.clone();
+        dash_h.push("-h".to_owned());
+        let mut long = path.clone();
+        long.push("--help".to_owned());
+        let mut routed = vec!["help".to_owned()];
+        routed.extend(path);
+        let plain = help(&dash_h).unwrap();
+        let wrapped = help_for_terminal(&dash_h, terminal).unwrap();
+        assert_eq!(help_for_terminal(&long, terminal).unwrap(), wrapped);
+        assert_eq!(help_for_terminal(&routed, terminal).unwrap(), wrapped);
+        assert_eq!(
+            tmt_cli_style::examples(&wrapped),
+            tmt_cli_style::examples(&plain)
+        );
+        assert!(
+            wrapped
+                .split("Examples:")
+                .next()
+                .unwrap()
+                .lines()
+                .all(|line| line.is_ascii() && line.len() <= 80)
+        );
+    }
 }
 
 fn parse(words: &[String]) -> Result<(), String> {

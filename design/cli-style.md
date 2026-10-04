@@ -143,20 +143,20 @@ a test checks every shared mark's symbol and description against the design
 tokens. Additional marks stay labelled board only. A row's leading state mark is
 `●`, `○` or `◌`:
 
-| Mark       | Meaning                                                                                 |
-| ---------- | --------------------------------------------------------------------------------------- |
-| `●`        | running or active                                                                       |
-| `○`        | offline or ended                                                                        |
-| `◌`        | bound to a pane, no agent running                                                       |
-| `↻`        | leads a resume action (`↻ tmt resume <name>`), never a row's state                      |
-| `✓`        | done                                                                                    |
-| `◐`        | in review, waiting on someone else (board only)                                         |
-| `✗`        | failed or blocked                                                                       |
-| `!`        | warning                                                                                 |
-| `◆`        | waits on your decision                                                                  |
-| `▾`        | an open foldable pane in a toggle hint (board only)                                     |
-| `▸`        | folded Squad board pane (board only)                                                    |
-| `~`        | approximate observed token total from incomplete coverage (board only)                  |
+| Mark       | Meaning                                                                                   |
+| ---------- | ----------------------------------------------------------------------------------------- |
+| `●`        | running or active                                                                         |
+| `○`        | offline or ended                                                                          |
+| `◌`        | bound to a pane, no agent running                                                         |
+| `↻`        | leads a resume action (`↻ tmt resume <name>`), never a row's state                        |
+| `✓`        | done                                                                                      |
+| `◐`        | in review, waiting on someone else (board only)                                           |
+| `✗`        | failed or blocked                                                                         |
+| `!`        | warning                                                                                   |
+| `◆`        | waits on your decision                                                                    |
+| `▾`        | an open foldable pane in a toggle hint (board only)                                       |
+| `▸`        | folded Squad board pane (board only)                                                      |
+| `~`        | approximate observed token total from incomplete coverage (board only)                    |
 | `▁▂▃▄▅▆▇█` | completed-request trend: ▁ measured zero, ▂–█ relative totals, blank no data (board only) |
 
 ## Lists
@@ -256,6 +256,12 @@ examples.
   `help <command>` to the command whose help to print (an unknown word is
   reported, and nothing runs). `<command> -h` stays with clap, so an operand
   that is data, such as a message after `--`, is never taken for help.
+- Help prose wraps at whitespace boundaries to the known stdout terminal width,
+  measured in display cells, with each continuation keeping its paragraph's
+  indentation. Usage, runnable command lines and the entire Examples section
+  remain intact. Unknown widths and widths below 40 cells leave help unwrapped;
+  output that is not a terminal (pipes, files) and `--json` keep their existing
+  bytes; `NO_COLOR` changes color only, not wrapping.
 - Each example is a comment line naming what it does, followed by the full
   command. Show the common use first. Examples must parse through the real
   grammar (`Example::argv`), so a renamed flag or missing operand fails a test.
