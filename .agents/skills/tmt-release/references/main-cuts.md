@@ -72,6 +72,9 @@ offline, then verifies the source, dist plan/build and extracted binary. Tagless
 preparation uses the shared synthetic version and retains the same gates.
 Already-versioned reruns require zero source/lock changes.
 `--no-deps` inheritance discovery cannot replace full offline locked verification.
+The helper reads stdin from a temporary file descriptor, never a pipe write: a macOS runner
+intermittently stalled a pipe transfer above 64 KiB (the full `Cargo.lock`) for the whole 60s bound
+(#1646); every call logs its input bytes and duration.
 Review `release-injection-<product>-<target>` artifacts and job summaries. No release
 secrets or publication privileges enter PR jobs. The runtime producer transfers
 the private TOML binary separately for ordinary tooling fixtures.

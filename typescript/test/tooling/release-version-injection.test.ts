@@ -113,7 +113,7 @@ function fixture(product = 'cli') {
             `name = "tmt-${product}"\nversion = "${snapshot.version}"`
           )
     );
-  return { root, snapshot, metadata, resolveMetadata, updateLock, map };
+  return { root, files: Object.keys(files), snapshot, metadata, resolveMetadata, updateLock, map };
 }
 
 describe('mechanical version injection', () => {
@@ -125,11 +125,51 @@ describe('mechanical version injection', () => {
     expect(spawn).toHaveBeenCalledWith(
       expect.stringMatching(/\/debug\/release-version$/),
       ['edit', f.snapshot.section, f.snapshot.oldVersion, f.snapshot.version],
-      expect.objectContaining({ input: f.snapshot.source, timeout: 60_000 })
+      expect.objectContaining({ stdio: [expect.any(Number), 'pipe', 'pipe'], timeout: 60_000 })
     );
     expect(readFileSync(join(f.root, f.snapshot.manifest), 'utf8')).toBe(
       f.snapshot.source.replace(f.snapshot.oldVersion, f.snapshot.version)
     );
+  });
+  it('feeds stdin from a file, so an input above the 64 KiB pipe buffer never uses a pipe write', () => {
+    const f = fixture();
+    // A real Cargo.lock-sized input: more than 64 KiB of packages, parsed by the real helper.
+    const filler = Array.from(
+      { length: 2500 },
+      (_, i) => `\n[[package]]\nname = "filler-${i}"\nversion = "1.0.0"\n`
+    ).join('');
+    expect(Buffer.byteLength(filler)).toBeGreaterThan(64 * 1024);
+    const lockPath = join(f.root, 'rust/Cargo.lock');
+    writeFileSync(lockPath, readFileSync(lockPath, 'utf8') + filler);
+    const spawn = vi.spyOn(childProcess, 'spawnSync');
+    const write = vi.spyOn(process.stderr, 'write').mockReturnValue(true);
+    syncBuiltinESMExports();
+    const snapshot = captureVersionState({
+      root: f.root,
+      files: f.files,
+      metadata: f.metadata,
+      product: 'cli',
+      tag: 'v5.0.0-alpha.999',
+      cut: 'a'.repeat(40),
+      map: f.map,
+    });
+    expect(snapshot.lock).toContain('filler-2499');
+    injectVersion(f.root, snapshot);
+    writeFileSync(
+      lockPath,
+      readFileSync(lockPath, 'utf8').replaceAll(snapshot.oldVersion, snapshot.version)
+    );
+    // The final verification parses the full-size lock through the helper again.
+    verifyVersionState(f.root, snapshot, f.resolveMetadata());
+    const sizes = write.mock.calls.map(([line]) =>
+      Number(/(\d+) input bytes/.exec(String(line))?.[1])
+    );
+    expect(Math.max(...sizes)).toBeGreaterThan(64 * 1024);
+    expect(spawn.mock.calls.length).toBeGreaterThan(0);
+    for (const [, , options] of spawn.mock.calls) {
+      expect(options).not.toHaveProperty('input');
+      expect((options as { stdio: unknown[] }).stdio[0]).toEqual(expect.any(Number));
+    }
   });
   it('logs the duration and input size of every helper call, including a timed-out one', () => {
     const f = fixture();
