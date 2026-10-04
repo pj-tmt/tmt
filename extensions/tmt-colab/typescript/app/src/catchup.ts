@@ -2,13 +2,14 @@ import { exactKeys, requireValue, strictJson, text } from '@tmt/colab-client';
 import { Admission } from './admission.js';
 import { Objects } from './objects.js';
 import { openBaseline, type BaselineInput, type BaselineObject } from './baseline.js';
-import { STATE_BYTES, UPDATE_BYTES, type AdmittedUpdate } from './fold-protocol.js';
+import { READ_TAIL_UPDATES, STATE_BYTES, type AdmittedUpdate } from './fold-protocol.js';
 
 /** Strict membership-first catchup. Optional content adoption stays behind object admission. */
 export class Catchup {
   #started = false;
   #membershipMore = false;
   #complete = false;
+  #readBytes = 0;
   updates: AdmittedUpdate[] = [];
   checkpoints: AdmittedUpdate[] = [];
   baseline: BaselineInput | null = null;
@@ -26,6 +27,7 @@ export class Catchup {
     this.baseline?.update.fill(0);
     this.baseline = null;
     this.#reset = null;
+    this.#readBytes = 0;
   }
   async admit(raw: string): Promise<boolean> {
     return this.admitValue(strictJson(text(raw), 64 * 1024, true));
@@ -118,13 +120,14 @@ export class Catchup {
       const admitted = await this.objects.streams(value.streams);
       this.checkpoints.push(...admitted.checkpoints);
       this.updates.push(...admitted.updates);
-      requireValue(
-        this.checkpoints.length <= 256 &&
-          this.checkpoints.reduce((n, v) => n + v.update.length, 0) <= STATE_BYTES,
+      this.#readBytes += [...admitted.checkpoints, ...admitted.updates].reduce(
+        (n, v) => n + v.update.length,
+        0,
       );
       requireValue(
-        this.updates.length <= 200 &&
-          this.updates.reduce((n, v) => n + v.update.length, 0) <= UPDATE_BYTES,
+        this.checkpoints.length <= 256 &&
+          this.updates.length <= READ_TAIL_UPDATES &&
+          this.#readBytes <= STATE_BYTES,
       );
     }
     if (!value.more) {
@@ -135,6 +138,7 @@ export class Catchup {
         this.baseline = await openBaseline(a, this.#reset.descriptor, this.#reset.object);
         this.#reset = null;
       }
+      requireValue((this.baseline?.update.length ?? 0) + this.#readBytes <= STATE_BYTES);
       this.#complete = true;
     }
     return this.#complete;

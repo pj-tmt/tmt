@@ -1,8 +1,10 @@
 import { exactKeys, generatedId, requireValue } from '@tmt/colab-client';
 import {
   BASELINE_UPDATE_BYTES,
+  READ_TAIL_UPDATES,
   UPDATE_BYTES,
   STATE_BYTES,
+  WRITE_TAIL_UPDATES,
   validateProjection,
   validateOwn,
   type FoldCommand,
@@ -81,10 +83,11 @@ export class Fold {
     if (this.#closed || this.#pending) return Promise.reject(new Error('Decoder unavailable'));
     if (
       (command.type === 'apply' || command.type === 'check') &&
-      (command.updates.length + (command.own?.length ?? 0) > 200 ||
+      (command.updates.length + (command.own?.length ?? 0) >
+        (command.type === 'apply' ? READ_TAIL_UPDATES : WRITE_TAIL_UPDATES) ||
         command.updates.reduce((n, v) => n + v.length, 0) +
           (command.own ?? []).reduce((n, v) => n + v.update.length, 0) >
-          UPDATE_BYTES)
+          (command.type === 'apply' ? STATE_BYTES : UPDATE_BYTES))
     )
       return Promise.reject(new Error('Decoder input capacity'));
     if (command.type === 'checkpoint' && command.update.length > STATE_BYTES)

@@ -1027,15 +1027,16 @@ checkpoints before the retained tail; that tail MUST be contiguous from n+1
 across both namespaces. Receipt
 ledgers support retries, not browser authority; no additional ledger proof or
 signature scheme is required. Checkpoint plaintext is raw merged update-v1 bytes.
-The browser MUST bound each checkpoint and their aggregate catchup plaintext by
-the existing 4 MiB Worker state budget, independently of the retained tail's
-200-update/256 KiB budget. Apply checkpoints as single-item Worker steps before
+The browser MUST bound each checkpoint and the combined baseline, checkpoints
+and retained tail plaintext by the 24 MiB read state budget, with at most 5,000
+tail updates. Browser writes retain the 200-update/256 KiB tail budget. Apply
+checkpoints as single-item Worker steps before
 the tail. Those unpublished steps may retain cross-writer pending dependencies;
 the final tail step MUST resolve them and validate complete content before
 publishing any view. The existing 2 MiB source projection cap remains in force.
-Both namespaces count toward the aggregate checkpoint and tail plaintext budgets.
+Both namespaces count toward the combined plaintext budget.
 The Worker MUST also bound total encoded content plus all own documents, including
-pending structs/delete sets, and the serialized combined projection to 4 MiB each.
+pending structs/delete sets, and the serialized combined projection to 24 MiB each.
 Pending fragments MUST survive candidate cloning; final catchup validates every
 document before publication. Live content/own candidates commit only after all
 validation succeeds. Failure terminates the Worker and flags the binding; reconnect
@@ -1089,10 +1090,11 @@ appends decoded in 1.15 s, an 8 MiB block with 1,000 appends exceeded the 2 seco
 deadline. Only compaction or a new baseline removes that cost. A page that exceeds a read cap
 or the deadline fails alone with `COLAB_CAPACITY`, naming the page, the limit and the next
 step; `ls` and `show` list the other pages. Reads accept these caps, but a write refuses
-once one more update would take the tail since the last baseline past what the browser's
-fold opens today (200 updates, 256 KiB): `page write` fails with `COLAB_CAPACITY` naming the page, the limit and
+once one more update would take the tail since the last baseline past the
+200-update/256 KiB write budget: `page write` fails with `COLAB_CAPACITY` naming the page, the limit and
 the way out (`tmt colab export`, then `tmt colab page create --file`), and the page stays
-readable. The write limit rises when the browser limits are aligned with the native ones.
+readable. Browser read admission now matches the native read caps; write budgets
+remain separate.
 
 Linux sets and verifies its address-space limit before reading child input;
 failure rejects the job. On macOS and platforms without enforced memory limits,
