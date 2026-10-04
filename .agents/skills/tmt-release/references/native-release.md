@@ -60,6 +60,16 @@ ancestor; validation, receipts and JSON retain canonical paths.
 
 ## Building and verifying archives
 
+PR and merge-group CI checks dependency notices when the locked dependencies, clarification,
+license inputs or notice machinery change. `Code quality` requires the selected notice job.
+`node typescript/scripts/verify-native-notices.mjs` runs the builder's `--rust-notices-only` mode
+for every active native product in `components.json` and every target in `dist-workspace.toml`,
+then applies the archive verifier's empty/placeholder rejection. It needs Python 3.11+, pinned
+cargo-about and fetched locked crates. This mode skips frontend installation/builds and checks
+only cargo-about inventories; the ordinary notice/archive modes retain combined frontend notices.
+Inventories, diagnostics and timings remain under `rust/target/native-notices/verified/` and
+are uploaded as CI evidence. This performs no native compilation and proves notices only.
+
 Install the pinned tools into a chosen directory: cargo-dist 0.32.0 (`cargo install --locked`)
 and cargo-about 0.9.2 (`cargo install --locked --features cli`). Fetch locked dependencies
 before the offline notice step. Crates whose archive omits a license file (taffy 0.7.7, yrs

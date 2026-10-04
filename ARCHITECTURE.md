@@ -1064,6 +1064,9 @@ installation. The candidate-owned installer handoff contract is
 [`contracts/native-install-handoff-v1.md`](contracts/native-install-handoff-v1.md).
 Archive, installer, verifier and publication procedures belong to
 [tmt-release](.agents/skills/tmt-release/SKILL.md).
+Selected PR/merge-group dependency-notice verification and final archive verification
+share one attribution policy; active products and release targets retain their existing
+component-map and distribution-configuration owners.
 
 ### Main release cuts
 

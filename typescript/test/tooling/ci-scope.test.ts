@@ -33,11 +33,83 @@ import {
   selectNativeScope,
   selectOfficeBrowser,
   selectColabHarness,
+  selectNativeNotices,
 } from '../../scripts/ci-scope.mjs';
 
 const { runPackedCommand } = await import(
   new URL('../../scripts/packed-command.mjs', import.meta.url).href
 );
+
+describe('native dependency notices selection', () => {
+  it.each([
+    'rust/Cargo.lock',
+    'rust/rust-toolchain.toml',
+    'rust/about.toml',
+    'rust/about.hbs',
+    'rust/licenses/yrs-0.28.0/LICENSE',
+    'rust/Cargo.toml',
+    'extensions/tmt-colab/rust/tmt-colab/Cargo.toml',
+    'dist-workspace.toml',
+    '.github/components.json',
+    '.github/workflows/ci.yml',
+    'scripts/build-native-artifact.sh',
+    'typescript/scripts/verify-native-notices.mjs',
+    'typescript/scripts/native-artifact-policy.mjs',
+    'typescript/scripts/packed-command.mjs',
+    'typescript/pnpm-lock.yaml',
+  ])('selects notice generation for %s', (file) => {
+    expect(selectNativeNotices([file])).toBe(true);
+  });
+
+  it.each([
+    'rust/Cargo.lock.backup',
+    'rust/MyCargo.toml',
+    'rust/about.toml.backup',
+    'rust/licenses-other/LICENSE',
+    'extensions/tmt-colab/rust/tmt-colab/Cargo.toml.backup',
+    'rust/crates/tmt-core/src/request.rs',
+    'typescript/scripts/verify-native-notices.mjs.backup',
+    'site/src/chapters/start.mdx',
+    'DEVELOPMENT.md',
+  ])('does not select unrelated or prefix-similar %s', (file) => {
+    expect(selectNativeNotices([file])).toBe(false);
+  });
+
+  it('retains notice verification on an empty conservative diff', () => {
+    expect(selectNativeNotices([])).toBe(true);
+  });
+
+  it('routes the selected job result into required Code quality without publication permissions', () => {
+    const ci = readFileSync(new URL('../../../.github/workflows/ci.yml', import.meta.url), 'utf8');
+    const job = (name: string) => {
+      const block = ci.split(`\n  ${name}:\n`)[1];
+      expect(block).toBeDefined();
+      return block.split(/\n {2}[a-z0-9-]+:\n/)[0];
+    };
+    const quality = job('code-quality');
+    const notices = job('native-notices');
+    expect(quality).toContain('needs: [changes, office, native-notices]');
+    expect(quality).toContain('NOTICES_SELECTED: ${{ needs.changes.outputs.native_notices }}');
+    expect(quality).toContain('NOTICES_RESULT: ${{ needs.native-notices.result }}');
+    expect(quality).toContain('gate "$NOTICES_SELECTED" "$NOTICES_RESULT"');
+    expect(notices).toContain(
+      "needs.changes.outputs.verify == 'true' && needs.changes.outputs.native_notices == 'true'"
+    );
+    expect(notices).toContain('uses: actions/cache/restore@v4');
+    expect(notices).toContain('save-if: false');
+    expect(notices).toContain('cargo fetch --locked');
+    expect(notices).toContain('cargo-about --version 0.9.2 --features cli --locked');
+    expect(notices).toContain('node typescript/scripts/verify-native-notices.mjs');
+    expect(notices).not.toMatch(
+      /cargo-dist|cargo build|dist build|pnpm|corepack|setup-tooling|continue-on-error|: write|environment:/
+    );
+    expect(ciGatePasses('true', ['success'])).toBe(true);
+    for (const result of ['skipped', 'failure', 'cancelled', ''])
+      expect(ciGatePasses('true', [result])).toBe(false);
+    expect(ciGatePasses('false', ['skipped'])).toBe(true);
+    expect(ciGatePasses('', ['skipped'])).toBe(false);
+  });
+});
 
 describe('CI area selection', () => {
   it('keeps the extension state leaf privately owned by Remote with full native verification', () => {
@@ -963,6 +1035,7 @@ describe('CI diff and command integration', () => {
         office_browser: 'false',
         colab_harness: 'false',
         native_scope: 'squad',
+        native_notices: 'false',
         scoped_native_tests:
           'squad.test.ts extension-install.test.ts extension-upgrade-proof.test.ts',
         e2e_shard_1: 'squad.e2e.test.ts squad-reminder.e2e.test.ts',
@@ -1186,7 +1259,7 @@ describe('CI diff and command integration', () => {
       git(['update-ref', 'refs/remotes/origin/main', docs]);
       const empty = select(['merge-group', docs]);
       git(['update-ref', 'refs/remotes/origin/main', base]);
-      expect(empty.outputs).toEqual(full);
+      expect(empty.outputs).toEqual({ ...full, native_notices: 'true' });
       expect(empty.evidence).toContain('diff is empty; using full verification');
       for (const args of [
         ['merge-group', '0'.repeat(40)],
@@ -1195,7 +1268,7 @@ describe('CI diff and command integration', () => {
         ['merge-group'],
       ]) {
         const fallback = select(args);
-        expect(fallback.outputs).toEqual(full);
+        expect(fallback.outputs).toEqual({ ...full, native_notices: 'true' });
         expect(fallback.evidence).toContain('diff unreadable; using full verification');
       }
       // The earlier queued workspace change selects native, even when HEADGREEN's last tip is site-only.
@@ -1216,15 +1289,16 @@ describe('CI diff and command integration', () => {
       const siteTip = commit('site/src/chapters/start.mdx', 'site-only tip');
       // The old event-base range contains no native files: this is the causal negative control.
       expect(select([workspace, siteTip]).outputs.native_scope).toBe('none');
+      expect(select([workspace, siteTip]).outputs.native_notices).toBe('false');
       const pending = select(['merge-group', siteTip]);
-      expect(pending.outputs).toEqual(full);
+      expect(pending.outputs).toEqual({ ...full, native_notices: 'true' });
       expect(pending.evidence).toContain(`${base.slice(0, 12)}..${siteTip.slice(0, 12)}`);
       for (const file of ['rust/Cargo.toml', 'rust/Cargo.lock']) {
         expect(pending.evidence).toContain(file);
       }
       git(['update-ref', '-d', 'refs/remotes/origin/main']);
       const absentTarget = select(['merge-group', siteTip]);
-      expect(absentTarget.outputs).toEqual(full);
+      expect(absentTarget.outputs).toEqual({ ...full, native_notices: 'true' });
       expect(absentTarget.evidence).toContain('diff unreadable; using full verification');
       git(['update-ref', 'refs/remotes/origin/main', base]);
       // Divergent target/head histories use their common ancestor, excluding target-only work.
@@ -1245,7 +1319,7 @@ describe('CI diff and command integration', () => {
         shallow,
       ]);
       const fallback = select(['merge-group', core], shallow);
-      expect(fallback.outputs).toEqual(full);
+      expect(fallback.outputs).toEqual({ ...full, native_notices: 'true' });
       expect(fallback.evidence).toContain('diff unreadable; using full verification');
     } finally {
       rmSync(root, { recursive: true, force: true });
@@ -1831,7 +1905,7 @@ describe('required CI gate', () => {
     expect(office).toContain('docker build --target browser-tests-base');
     expect(office).not.toContain('office-browser');
     expect(office).not.toContain('native-office-browser');
-    expect(codeQuality).toContain('needs: [changes, office]');
+    expect(codeQuality).toContain('needs: [changes, office, native-notices]');
     expect(codeQuality).toContain('OFFICE_RESULT: ${{ needs.office.result }}');
     expect(codeQuality).toContain('gate "$OFFICE_SELECTED" "$OFFICE_RESULT"');
     expect(native).toContain('native-rust');
@@ -1897,7 +1971,7 @@ describe('required CI gate', () => {
     );
     const cachePolicies = workflow.match(/^\s+save-if:.*$/gm) ?? [];
     const writers = cachePolicies.filter((line) => line.trim() !== 'save-if: false');
-    expect(cachePolicies).toHaveLength(7);
+    expect(cachePolicies).toHaveLength(8);
     expect(writers).toHaveLength(3);
     for (const writer of writers) {
       expect(writer.trim()).toBe(
