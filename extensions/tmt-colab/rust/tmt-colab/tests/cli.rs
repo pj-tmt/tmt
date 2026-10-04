@@ -2023,13 +2023,18 @@ fn cli_member_changes_capture_complete_verified_assignments() {
 const READY: &str = r#"{"profile":"local-v1","binding":"loopback-http","state":"ready","address":"http://127.0.0.1:53253/r/3e2c69f7","machineId":"m","windowId":"w","startupCoreCalls":2}"#;
 const STOPPED: &str = r#"{"running":false,"lastPort":53253}"#;
 const PAGE_LINK: &str = "http://127.0.0.1:53253/r/3e2c69f7/x/colab/";
+const PORT_BUSY: &str = "Remembered Remote port 53253 is busy. Stop the process using that port to keep browser pairing, or choose a new origin with tmt remote serve --port <n> or tmt remote serve --port 0.";
 /// What the stand-in for `tmt remote serve --json` does.
 #[derive(Clone, Copy)]
 enum Serve {
     /// Exits at once, like a missing extension or a held lock.
     Fail,
+    /// Prints an error envelope on either stream, then exits without a descriptor.
+    Error { stderr: bool },
     /// Prints its descriptor, then runs until SIGTERM.
     Hold,
+    /// Prints its descriptor and more stderr than a pipe holds, then runs until SIGTERM.
+    Diagnostics,
     /// Prints its descriptor, then dies on its own.
     Crash,
     /// Runs until SIGTERM without ever printing a descriptor.
@@ -2051,7 +2056,19 @@ impl Pilot {
         let hold = "trap 'touch serve.term; exit 0' TERM\nwhile :; do sleep 0.1; done";
         let serve = match serve {
             Serve::Fail => "exit 2".to_owned(),
+            Serve::Error { stderr } => {
+                let envelope = json!({"error":{"code":"REMOTE_PORT_BUSY","message":PORT_BUSY}});
+                format!(
+                    "printf '%s\\n' {}{}\nexit 2",
+                    quote(&envelope.to_string()),
+                    if stderr { " >&2" } else { "" }
+                )
+            }
             Serve::Hold => format!("printf '%s\\n' {}\n{hold}", quote(READY)),
+            Serve::Diagnostics => format!(
+                "printf '%s\\n' {}\nprintf 'first diagnostic\\n' >&2\ni=0\nwhile [ \"$i\" -lt 2048 ]; do printf 'a continuing Remote diagnostic line\\n' >&2; i=$((i+1)); done\nprintf 'last diagnostic\\n' >&2\n{hold}",
+                quote(READY)
+            ),
             Serve::Crash => format!("printf '%s\\n' {}\nsleep 0.5\nexit 3", quote(READY)),
             Serve::Silent => hold.to_owned(),
             Serve::Wrapped => format!(
@@ -2064,8 +2081,7 @@ impl Pilot {
             root = quote(self.root.to_str().unwrap()),
             core = quote(self.root.join("core").to_str().unwrap()),
         );
-        fs::write(&path, script).unwrap();
-        fs::set_permissions(&path, fs::Permissions::from_mode(0o700)).unwrap();
+        tmt_test_support::write_executable(&path, script.as_bytes(), 0o700).unwrap();
         path
     }
     /// What the scripted Remote answers to `devices --json`; absent means it gives no answer.
@@ -2247,6 +2263,79 @@ fn serve_with_a_door_that_will_not_start_keeps_the_local_space_without_the_insta
         "{text}"
     );
     serving.stop(Signal::SIGTERM);
+}
+#[test]
+fn serve_preserves_remote_start_errors_on_either_stream_in_human_and_json_output() {
+    for stderr in [false, true] {
+        for json_output in [false, true] {
+            let pilot = Pilot::new(None);
+            let mut serving = Serving::start(
+                &pilot,
+                pilot.remote_core(Some(STOPPED), Serve::Error { stderr }),
+                if json_output { &["--json"] } else { &[] },
+            );
+            if json_output {
+                let ready = serving.ready();
+                assert_eq!(ready["door"], "unavailable");
+                assert_eq!(ready["warning"], PORT_BUSY);
+                assert!(ready["url"].is_null() && ready["origin"].is_null());
+                assert_eq!(
+                    ready["next"],
+                    json!(["tmt colab page create --title <title>"])
+                );
+                assert_eq!(fs::read_to_string(&serving.err).unwrap(), "");
+            } else {
+                // Human messages omit one final period; JSON keeps Remote's exact text.
+                let warning = Serving::wait_for(&serving.err, "--port 0");
+                assert_eq!(
+                    warning,
+                    format!("warning: {}\n", PORT_BUSY.trim_end_matches('.'))
+                );
+                let text = Serving::wait_for(&serving.out, "local only");
+                assert!(
+                    text.contains("unavailable") && !text.contains("pair"),
+                    "{text}"
+                );
+            }
+            assert!(serving.running());
+            assert_gone(pilot.serve_pid().unwrap());
+            assert_eq!(
+                fs::read_to_string(pilot.root.join("serve.calls")).unwrap(),
+                "remote serve --json\n"
+            );
+            serving.stop(Signal::SIGTERM);
+        }
+    }
+}
+#[test]
+fn a_started_door_keeps_streaming_stderr_without_blocking_or_losing_diagnostics() {
+    for json_output in [false, true] {
+        let pilot = Pilot::new(None);
+        pilot.opener(1);
+        let mut serving = Serving::start(
+            &pilot,
+            pilot.remote_core(Some(STOPPED), Serve::Diagnostics),
+            if json_output {
+                &["--json", "--open"]
+            } else {
+                &["--open"]
+            },
+        );
+        if json_output {
+            assert_eq!(serving.ready()["door"], "started");
+        } else {
+            // The failed stub opener makes Colab warn while the door still runs. Forwarding
+            // diagnostics must not hold stderr's lock while waiting for more child output.
+            Serving::wait_for(&serving.out, "started");
+            Serving::wait_for(&serving.err, "warning:");
+        }
+        let diagnostics = Serving::wait_for(&serving.err, "last diagnostic");
+        assert!(diagnostics.contains("first diagnostic\n"), "{diagnostics}");
+        assert!(diagnostics.len() > 64 * 1024);
+        assert!(serving.running());
+        serving.stop(Signal::SIGTERM);
+        assert_gone(pilot.serve_pid().unwrap());
+    }
 }
 #[test]
 fn a_door_that_dies_is_reported_and_the_local_space_keeps_running() {

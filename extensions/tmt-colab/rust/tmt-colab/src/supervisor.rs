@@ -6,7 +6,7 @@ use nix::{
     unistd::Pid,
 };
 use std::{
-    io::{BufRead, BufReader, Read},
+    io::{BufRead, BufReader, Read, Write},
     os::unix::process::CommandExt,
     process::{Child, Command, ExitStatus, Stdio},
     sync::{
@@ -39,7 +39,7 @@ pub enum Reason {
     /// Remote gave no answer at all, which is what a missing extension looks like until core offers
     /// the use-time check (#1575).
     Missing,
-    /// Remote answered with an error envelope; shown as it is, nothing started.
+    /// Remote status or startup answered with an error envelope; shown as it is.
     Remote(RemoteFailure),
     /// Remote said no door runs, and starting one failed.
     WouldNotStart,
@@ -71,13 +71,11 @@ impl Access {
             // that predates `status`, any other code) is shown as it is: a second door must not
             // race the one that may be running.
             Lookup::Stopped(_) => match Supervisor::start(stop) {
-                Some((door, supervisor)) => Self::Started {
+                Ok((door, supervisor)) => Self::Started {
                     door,
                     _supervisor: supervisor,
                 },
-                None => Self::Unavailable {
-                    reason: Reason::WouldNotStart,
-                },
+                Err(reason) => Self::Unavailable { reason },
             },
             Lookup::Failed(failure) => Self::Unavailable {
                 reason: Reason::Remote(failure),
@@ -89,8 +87,7 @@ impl Access {
     }
 }
 
-/// Owns one started door until dropped. Remote chooses the port: it reuses the last one and
-/// falls back to a free one itself.
+/// Owns one started door until dropped. Remote owns the port policy.
 pub struct Supervisor {
     done: Arc<AtomicBool>,
     watcher: Option<JoinHandle<()>>,
@@ -98,28 +95,56 @@ pub struct Supervisor {
 
 impl Supervisor {
     /// Starts `tmt remote serve --json` in its own process group and waits for its descriptor.
-    /// `None` when it cannot start, exits first, takes too long or `stop` is raised; a child
-    /// started by then is terminated and reaped before returning.
-    fn start(stop: &AtomicBool) -> Option<(Door, Self)> {
-        let mut child = Command::new(tmt_invoke::invoking_tmt().ok()?)
+    /// A failed start preserves Remote's error envelope when present, otherwise the generic
+    /// reason. Cancellation, deadlines and every failed start terminate and reap the child.
+    fn start(stop: &AtomicBool) -> Result<(Door, Self), Reason> {
+        let executable = tmt_invoke::invoking_tmt().map_err(|_| Reason::WouldNotStart)?;
+        let mut child = Command::new(executable)
             .args(["remote", "serve", "--json"])
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
-            // Remote's own diagnostics (a busy port, a stale lock) are the reason a start fails.
-            .stderr(Stdio::inherit())
+            .stderr(Stdio::piped())
             // Ctrl-C reaches Colab only; Colab stops this door itself, after its own socket.
             .process_group(0)
             .spawn()
-            .ok()?;
+            .map_err(|_| Reason::WouldNotStart)?;
         let (sender, receiver) = mpsc::channel();
-        let pipe = child.stdout.take()?;
+        let pipe = child.stdout.take().expect("piped stdout");
         let reader = thread::spawn(move || {
             let mut pipe = BufReader::new(pipe);
             let mut line = String::new();
             let _ = pipe.by_ref().take(DESCRIPTOR_BYTES).read_line(&mut line);
+            let failure = RemoteFailure::parse(&line);
             let _ = sender.send(line);
             // Keep draining so a later write never blocks or breaks the door.
             let _ = std::io::copy(&mut pipe, &mut std::io::sink());
+            failure
+        });
+        let pipe = child.stderr.take().expect("piped stderr");
+        let diagnostics = thread::spawn(move || {
+            let mut pipe = BufReader::new(pipe);
+            let mut line = String::new();
+            let _ = pipe.by_ref().take(DESCRIPTOR_BYTES).read_line(&mut line);
+            let failure = RemoteFailure::parse(&line);
+            // The shared warning owns an error envelope; keep other diagnostics visible and
+            // drain the pipe throughout the child's lifetime so later writes never block.
+            if failure.is_none() {
+                let _ = tmt_cli_style::stream::stderr().write_all(line.as_bytes());
+            }
+            // A style stream owns the stderr lock: never hold it while waiting on the child,
+            // or Colab's own warnings could block until the door exits.
+            let mut buffer = [0; 8 * 1024];
+            loop {
+                match pipe.read(&mut buffer) {
+                    Ok(0) => break,
+                    Ok(n) => {
+                        let _ = tmt_cli_style::stream::stderr().write_all(&buffer[..n]);
+                    }
+                    Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
+                    Err(_) => break,
+                }
+            }
+            failure
         });
         let deadline = Instant::now() + READY;
         let door = loop {
@@ -134,8 +159,9 @@ impl Supervisor {
         };
         let Some(door) = door else {
             terminate(&mut child);
-            let _ = reader.join();
-            return None;
+            let failure = reader.join().ok().flatten();
+            let failure = failure.or(diagnostics.join().ok().flatten());
+            return Err(failure.map_or(Reason::WouldNotStart, Reason::Remote));
         };
         let done = Arc::new(AtomicBool::new(false));
         let watcher = {
@@ -143,9 +169,10 @@ impl Supervisor {
             thread::spawn(move || {
                 watch(child, &done);
                 let _ = reader.join();
+                let _ = diagnostics.join();
             })
         };
-        Some((
+        Ok((
             door,
             Self {
                 done,

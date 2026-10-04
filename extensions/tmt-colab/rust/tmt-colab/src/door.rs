@@ -44,7 +44,7 @@ pub struct RemoteFailure {
     pub message: String,
 }
 impl RemoteFailure {
-    fn parse(json: &str) -> Option<Self> {
+    pub fn parse(json: &str) -> Option<Self> {
         let value: serde_json::Value = serde_json::from_str(json).ok()?;
         Some(Self {
             code: value["error"]["code"].as_str()?.to_owned(),

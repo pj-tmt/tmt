@@ -1803,14 +1803,18 @@ with a bounded call each (three seconds, 16 KiB), never Remote's files:
   line below.
 - `tmt remote serve --json` is started as a supervised child in its own process group and its
   first stdout line `{state:"ready",address,...}` gives the door (15-second bound; Ctrl-C
-  aborts the wait). Colab passes no port: Remote owns port reuse. On Ctrl-C or SIGTERM Colab
+  aborts the wait). If startup fails, Colab reads a bounded first line from stdout and stderr
+  and shows a Remote error envelope through the same warning path as a status error;
+  the message retains Remote's port and explicit `--port` choices. Other stderr diagnostics
+  keep streaming. Colab passes no port: Remote owns port reuse. On Ctrl-C or SIGTERM Colab
   closes its socket, then sends SIGTERM to the child's whole group, SIGKILL after three
   seconds, and always reaps it. A door that exits on its own is reported once and the local
   space keeps running. A SIGKILL of Colab itself cannot clean up; run `tmt remote serve`
   separately to recover.
 - No door can be started: Colab runs local-only. When Remote gave no answer at all, the
   warning is `Browser access needs the Remote extension: tmt extension install remote --yes`;
-  when Remote answered but would not start, `The Remote door did not start; ...`.
+  when Remote answered but would not start, Remote's own error message if available,
+  otherwise `The Remote door did not start; ...`.
 
 Pairing is never done by `serve`: it reads `tmt remote devices --json` (devices not
 `revoked`) and only reports. Running `tmt remote serve` separately keeps working and is the
