@@ -620,14 +620,11 @@ tmt squad rm <name>                           # leaves the squad; the agent keep
   `squad.lead` and the section partition.
 - Removing a member clears its fields for this squad only. Its requests and
   notes keep the history.
-- `tmt squad annotate` acts as you: the identity of the pane you run in (or
-  `--identity <name>`), never as the user. To talk to a member use
-  `tmt talk <member> "…" --detach`; to answer what someone is waiting on you
-  for use `tmt inbox` and `tmt answer` (or `tmt reply --receipt` when you were
-  given a receipt). `tmt squad talk`, `reply` and `replies` were removed and
-  only refuse.
-  Without a lead, select one with `tmt squad lead <name> --squad <squad>`, or
-  annotate a particular member with `tmt squad annotate <member> "…" --to member`.
+- Squad has no `talk`, `reply`, `replies` or `annotate` command. To talk to a
+  member use `tmt talk <member> "…" --detach`; to answer what someone is waiting
+  on you for use `tmt inbox` and `tmt answer` (or `tmt reply --receipt` when you
+  were given a receipt). Annotating is the user's board key, not a command.
+  Without a lead, select one with `tmt squad lead <name> --squad <squad>`.
 
 ## Keep your notebook current
 
