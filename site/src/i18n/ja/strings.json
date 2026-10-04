@@ -1,7 +1,7 @@
 {
   "$source": {
     "source": "site/src/lang/strings.ts",
-    "sourceRevision": "69dbf4e8cb3b0ee9e608d84b7eac3a1e121167d8"
+    "sourceRevision": "cb76bd54455113f8f6ab8ba7423aabdad01d2db4"
   },
   "ui": {
     "notTranslated": "まだ翻訳されていないため、このページは英語で表示しています。",
@@ -13,6 +13,34 @@
     "pageNavigation": "ページの移動",
     "previous": "← 前のページ",
     "next": "次のページ →"
+  },
+  "chrome": {
+    "crumbs": {
+      "start": "ホーム",
+      "concepts": "概念",
+      "working": "使い方",
+      "settings": "使い方 / 設定",
+      "drivers": "driver",
+      "drv-tmux": "driver / tmux",
+      "drv-claude": "driver / Claude Code",
+      "drv-codex": "driver / Codex",
+      "extensions": "拡張機能",
+      "squad": "拡張機能 / Squad",
+      "colab": "拡張機能 / Colab",
+      "meet": "拡張機能 / Meet",
+      "remote": "拡張機能 / Remote",
+      "dev-extension": "開発 / 拡張機能",
+      "dev-driver": "開発 / driver",
+      "design": "デザイン"
+    },
+    "status": {
+      "shipped": "公開済み",
+      "alpha": "Alpha",
+      "planned": "計画中",
+      "designing": "設計中",
+      "in progress": "開発中",
+      "built in": "組み込み"
+    }
   },
   "home": {
     "eyebrow": "ホーム",

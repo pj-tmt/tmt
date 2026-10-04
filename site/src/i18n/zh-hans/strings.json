@@ -1,7 +1,7 @@
 {
   "$source": {
     "source": "site/src/lang/strings.ts",
-    "sourceRevision": "69dbf4e8cb3b0ee9e608d84b7eac3a1e121167d8"
+    "sourceRevision": "cb76bd54455113f8f6ab8ba7423aabdad01d2db4"
   },
   "ui": {
     "notTranslated": "此页尚未翻译，暂时显示英文。",
@@ -13,6 +13,34 @@
     "pageNavigation": "页面导航",
     "previous": "← 上一页",
     "next": "下一页 →"
+  },
+  "chrome": {
+    "crumbs": {
+      "start": "首页",
+      "concepts": "概念",
+      "working": "使用方法",
+      "settings": "使用方法 / 设置",
+      "drivers": "driver",
+      "drv-tmux": "driver / tmux",
+      "drv-claude": "driver / Claude Code",
+      "drv-codex": "driver / Codex",
+      "extensions": "扩展",
+      "squad": "扩展 / Squad",
+      "colab": "扩展 / Colab",
+      "meet": "扩展 / Meet",
+      "remote": "扩展 / Remote",
+      "dev-extension": "开发 / 扩展",
+      "dev-driver": "开发 / driver",
+      "design": "设计"
+    },
+    "status": {
+      "shipped": "已发布",
+      "alpha": "Alpha",
+      "planned": "计划中",
+      "designing": "设计中",
+      "in progress": "进行中",
+      "built in": "内置"
+    }
   },
   "home": {
     "eyebrow": "首页",

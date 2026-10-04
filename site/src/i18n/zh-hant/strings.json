@@ -1,7 +1,7 @@
 {
   "$source": {
     "source": "site/src/lang/strings.ts",
-    "sourceRevision": "69dbf4e8cb3b0ee9e608d84b7eac3a1e121167d8"
+    "sourceRevision": "cb76bd54455113f8f6ab8ba7423aabdad01d2db4"
   },
   "ui": {
     "notTranslated": "尚未翻譯，此頁以英文顯示。",
@@ -13,6 +13,34 @@
     "pageNavigation": "頁面導覽",
     "previous": "← 上一頁",
     "next": "下一頁 →"
+  },
+  "chrome": {
+    "crumbs": {
+      "start": "首頁",
+      "concepts": "概念",
+      "working": "操作",
+      "settings": "操作 / 設定",
+      "drivers": "driver",
+      "drv-tmux": "driver / tmux",
+      "drv-claude": "driver / Claude Code",
+      "drv-codex": "driver / Codex",
+      "extensions": "擴充套件",
+      "squad": "擴充套件 / Squad",
+      "colab": "擴充套件 / Colab",
+      "meet": "擴充套件 / Meet",
+      "remote": "擴充套件 / Remote",
+      "dev-extension": "開發 / 擴充套件",
+      "dev-driver": "開發 / driver",
+      "design": "設計"
+    },
+    "status": {
+      "shipped": "已發布",
+      "alpha": "Alpha",
+      "planned": "規劃中",
+      "designing": "設計中",
+      "in progress": "進行中",
+      "built in": "內建"
+    }
   },
   "home": {
     "eyebrow": "首頁",

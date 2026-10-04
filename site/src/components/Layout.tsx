@@ -187,6 +187,9 @@ export function Layout() {
 // The page body: the chapter's border rule and title, then its content.
 export function Chapter() {
   const { lang, current, title, Content, translated } = useCurrent();
+  const { chrome } = useStrings();
+  const crumbs: Record<string, string> = chrome.crumbs;
+  const statusLabels: Record<string, string> = chrome.status;
   const fallback = lang !== "en" && !translated;
   const note = fallback && <NotTranslated />;
   if (current.path === "/")
@@ -202,8 +205,12 @@ export function Chapter() {
     <section className="pt-10">
       <div className="flex items-center gap-2.5 font-mono text-xs leading-none text-muted before:w-7 before:border-t before:border-rule after:flex-1 after:border-t after:border-rule">
         <span className="text-text">{current.index}</span>
-        <span>{current.crumb}</span>
-        {current.status && <Tag kind={current.status.kind}>{current.status.label}</Tag>}
+        <span>{crumbs[current.file] ?? current.crumb}</span>
+        {current.status && (
+          <Tag kind={current.status.kind}>
+            {statusLabels[current.status.kind] ?? current.status.label}
+          </Tag>
+        )}
       </div>
       <h2 className="mt-4.5 mb-3.5 font-mono text-[clamp(26px,3.6vw,40px)] leading-[1.08] font-bold tracking-[-0.02em] text-balance">
         {title}
