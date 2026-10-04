@@ -15,6 +15,9 @@ use tmt_invoke::{Cleanup, EnvironmentPolicy, LaunchOptions, Request};
 pub const DEADLINE: Duration = Duration::from_secs(2);
 /// One update the write path may prepare or submit.
 pub const UPDATE_BYTES: usize = 256 * 1024;
+/// A page's tail since its last baseline that a write accepts: what the browser's fold opens
+/// today (`fold.worker.ts`). Writes refuse past it until the browser limits are aligned.
+pub const WRITE_TAIL_UPDATES: usize = 200;
 /// A new page's or baseline's source (write path).
 pub const BASELINE_BYTES: usize = 2 * 1024 * 1024;
 /// Owner decision (#1627): a page's whole state as the browser loads it, gzipped, is at most

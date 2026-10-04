@@ -18,7 +18,7 @@ use tmt_colab::{
     keyring::{Keyring, Layout},
     store::{
         Envelope, Namespace, Store, StreamScope,
-        owner::{Device, Mutation, Recipient},
+        owner::{Device, Mutation, OwnerFault, Recipient},
     },
 };
 use tmt_colab_model::{certificate, object, values, wrap};
@@ -155,7 +155,12 @@ impl Drop for Fixture {
 
 /// Browser-style saves then many small appends, as one author's incremental updates.
 /// Returns the final source and the stream's object count and plaintext bytes.
-fn grow(f: &mut Fixture, page: &'static str, appends: usize) -> (String, usize, usize) {
+fn grow(
+    f: &mut Fixture,
+    page: &'static str,
+    appends: usize,
+    saves: bool,
+) -> (String, usize, usize) {
     let doc = Doc::with_client_id(57);
     let html = doc.get_or_insert_text("html");
     let meta = doc.get_or_insert_map("meta");
@@ -175,20 +180,22 @@ fn grow(f: &mut Fixture, page: &'static str, appends: usize) -> (String, usize, 
     let first = txn.encode_update_v1();
     drop(txn);
     step(f, first);
-    // Whole-source browser saves: 200 KiB, then 60 KiB more, past the old 256 KiB tail cap.
-    let mut txn = doc.transact_mut();
-    let before = html.len(&txn);
-    html.remove_range(&mut txn, 0, before);
-    html.insert(&mut txn, 0, &filler(200 * 1024, 'y'));
-    let second = txn.encode_update_v1();
-    drop(txn);
-    step(f, second);
-    let mut txn = doc.transact_mut();
-    let end = html.len(&txn);
-    html.insert(&mut txn, end, &filler(60 * 1024, 'w'));
-    let third = txn.encode_update_v1();
-    drop(txn);
-    step(f, third);
+    if saves {
+        // Whole-source browser saves: 200 KiB, then 60 KiB more, past the old 256 KiB tail cap.
+        let mut txn = doc.transact_mut();
+        let before = html.len(&txn);
+        html.remove_range(&mut txn, 0, before);
+        html.insert(&mut txn, 0, &filler(200 * 1024, 'y'));
+        let second = txn.encode_update_v1();
+        drop(txn);
+        step(f, second);
+        let mut txn = doc.transact_mut();
+        let end = html.len(&txn);
+        html.insert(&mut txn, end, &filler(60 * 1024, 'w'));
+        let third = txn.encode_update_v1();
+        drop(txn);
+        step(f, third);
+    }
     // Many small CLI-style appends, past the old 200-object cap.
     for i in 0..appends {
         let mut txn = doc.transact_mut();
@@ -207,7 +214,7 @@ use yrs::Map;
 #[test]
 fn a_tail_past_the_old_caps_reads_back_byte_exact_through_the_library_readers() {
     let mut f = Fixture::new(&[PAGE, OTHER]);
-    let (source, objects, tail) = grow(&mut f, PAGE, 210);
+    let (source, objects, tail) = grow(&mut f, PAGE, 210, true);
     // Ben's state: past 256 KiB of tail and 200 objects.
     assert!(
         tail > 256 * 1024 && objects > 200,
@@ -229,6 +236,62 @@ fn a_tail_past_the_old_caps_reads_back_byte_exact_through_the_library_readers() 
     assert!(
         fs::read(published.directory.join("page.html")).unwrap() == source.as_bytes(),
         "export differs"
+    );
+}
+
+fn edit_fault(f: &Fixture, source: &str) -> String {
+    let mut decoder = Decoder::with_config(support::decoder_config(BINARY.into())).unwrap();
+    let error = tmt_colab::page::prepare(&f.store, &f.key, PAGE, source, None, &mut decoder, 1000)
+        .err()
+        .expect("the write must be refused");
+    match error.downcast_ref::<OwnerFault>() {
+        Some(OwnerFault::PageCapacity(c)) if c.edit => error.to_string(),
+        other => panic!("not a page edit capacity fault: {other:?} / {error}"),
+    }
+}
+
+#[test]
+fn a_write_past_the_browsers_tail_limit_refuses_while_the_page_stays_readable() {
+    let mut f = Fixture::new(&[PAGE, OTHER]);
+    // 200 updates since the baseline is the browser's limit: a write still goes through.
+    let (source, objects, _) = grow(&mut f, PAGE, 199, false);
+    assert_eq!(objects, 200);
+    let mut decoder = Decoder::with_config(support::decoder_config(BINARY.into())).unwrap();
+    let edited = format!("{source}<i>ok</i>");
+    tmt_colab::page::prepare(&f.store, &f.key, PAGE, &edited, None, &mut decoder, 1000).unwrap();
+    // The 201st update is one the browser cannot open, so the write refuses and names the way out.
+    let mut f = Fixture::new(&[PAGE, OTHER]);
+    let (source, objects, _) = grow(&mut f, PAGE, 200, false);
+    assert_eq!(objects, 201);
+    let message = edit_fault(&f, &format!("{source}<i>no</i>"));
+    assert!(message.contains(PAGE), "{message}");
+    assert!(
+        message.contains("it has 201 updates since its last baseline (limit 200)"),
+        "{message}"
+    );
+    assert!(message.contains("tmt colab export"), "{message}");
+    assert!(message.contains("tmt colab page create"), "{message}");
+    assert!(
+        !message.contains("browser") && !message.contains('#'),
+        "{message}"
+    );
+    // Reads keep working, so the page can be exported and moved.
+    let read = tmt_colab::page::read(&f.store, &f.key, PAGE, &mut decoder).unwrap();
+    assert!(
+        read.source == source,
+        "read differs after the refused write"
+    );
+}
+
+#[test]
+fn a_write_onto_a_tail_past_256_kib_refuses_with_the_byte_limit() {
+    let mut f = Fixture::new(&[PAGE, OTHER]);
+    let (source, _, tail) = grow(&mut f, PAGE, 5, true);
+    assert!(tail > 256 * 1024);
+    let message = edit_fault(&f, &format!("{source}<i>no</i>"));
+    assert!(
+        message.contains("bytes of updates since its last baseline (limit 262144)"),
+        "{message}"
     );
 }
 
@@ -273,8 +336,7 @@ fn a_page_that_cannot_open_names_itself_and_does_not_hide_the_others() {
         HUGE,
         "too large to open",
         "bytes (limit 25165824)",
-        "copy its source",
-        "#1627",
+        "cannot open a page this large yet",
     ] {
         assert!(message.contains(part), "{part} missing from {message}");
     }

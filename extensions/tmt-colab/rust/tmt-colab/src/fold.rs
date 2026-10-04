@@ -382,6 +382,39 @@ impl Snapshot {
             }
         }
         let state = baseline.len() + updates.iter().map(Vec::len).sum::<usize>();
+        if source.is_some() {
+            // A write must not leave a page the browser cannot open; reads accept more.
+            let tail = updates.iter().map(Vec::len).sum::<usize>();
+            let (what, measured, limit) = if self.objects.len() > crate::decoder::WRITE_TAIL_UPDATES
+            {
+                (
+                    "updates since its last baseline",
+                    self.objects.len(),
+                    crate::decoder::WRITE_TAIL_UPDATES,
+                )
+            } else if tail > crate::decoder::UPDATE_BYTES {
+                (
+                    "bytes of updates since its last baseline",
+                    tail,
+                    crate::decoder::UPDATE_BYTES,
+                )
+            } else if baseline.len() > crate::decoder::BASELINE_BYTES {
+                (
+                    "baseline bytes",
+                    baseline.len(),
+                    crate::decoder::BASELINE_BYTES,
+                )
+            } else {
+                ("", 0, 0)
+            };
+            if limit != 0 {
+                return Err(OwnerFault::too_large_to_edit(
+                    page,
+                    format!("it has {measured} {what} (limit {limit})"),
+                )
+                .into());
+            }
+        }
         if state > crate::decoder::STATE_BYTES {
             return Err(OwnerFault::too_large(
                 page,

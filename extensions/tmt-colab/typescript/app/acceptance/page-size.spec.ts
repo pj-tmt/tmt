@@ -6,12 +6,12 @@ import { pairBrowser, startDoor } from './harness/browser.js';
 import { createPage, freePort, openPage, run } from './harness/ask.js';
 import { disposeActiveWorlds, withWorld } from './harness/with-world.js';
 
-// Ben's #1627 state: browser saves, then many CLI appends, push the page's update tail past the
-// old 256 KiB / 200-object read caps. Every root-local reader must still return it byte-exact.
+// #1627: browser saves, then CLI appends up to the browser's 200-update limit. The next write
+// refuses by name, and every reader (page read, show, export, ls, the browser) returns the page.
 const text = (n: number, tag: string) => `<p>${tag.repeat(Math.max(0, n - 7))}</p>`;
 
 test.afterEach(disposeActiveWorlds);
-test('a page past the old tail caps still reads back byte-exact and does not hide the others', async () => {
+test('a page at the browser's tail limit refuses another write, stays readable everywhere and opens in the browser', async () => {
   test.setTimeout(300_000);
   await withWorld(async (world) => {
     const door = await startDoor(world, await freePort());
@@ -20,11 +20,11 @@ test('a page past the old tail caps still reads back byte-exact and does not hid
     const created = createPage(world, 'Big page', '<p>start</p>');
     const page = await openPage(door, a, created);
 
-    // Two browser whole-source saves, 100 KiB then 200 KiB.
+    // Two browser whole-source saves, 60 KiB then 100 KiB.
     await page.getByRole('button', { name: 'Source', exact: true }).click();
     for (const [kb, tag] of [
-      [100, 'a'],
-      [200, 'b'],
+      [60, 'a'],
+      [100, 'b'],
     ] as const) {
       await page.getByLabel('Source', { exact: true }).fill(text(kb * 1024, tag));
       await page.getByRole('button', { name: 'Save source', exact: true }).click();
@@ -37,14 +37,25 @@ test('a page past the old tail caps still reads back byte-exact and does not hid
         source: string;
         revision: string;
       };
-    expect(read().source).toBe(text(200 * 1024, 'b'));
+    expect(read().source).toBe(text(100 * 1024, 'b'));
 
-    // Past 200 objects with small CLI appends (create, two saves, then 205 more).
-    let source = text(200 * 1024, 'b');
-    for (let i = 0; i < 205; i++) {
-      source += `<i>${String(i).padStart(4, '0')}</i>`;
-      run(world, colab, ['page', 'write', created.pageId, '--file', '-', '--json'], source);
+    // Small CLI appends until the page reaches the browser's 200-update limit: the next write
+    // refuses, naming the page and the way out, and the page stays readable.
+    let source = text(100 * 1024, 'b');
+    let refusal = '';
+    for (let i = 0; i < 260 && !refusal; i++) {
+      const next = source + `<i>${String(i).padStart(4, '0')}</i>`;
+      try {
+        run(world, colab, ['page', 'write', created.pageId, '--file', '-', '--json'], next);
+        source = next;
+      } catch (error) {
+        refusal = (error as Error).message;
+      }
     }
+    expect(refusal).toContain('COLAB_CAPACITY');
+    expect(refusal).toContain(created.pageId);
+    expect(refusal).toContain('limit 200');
+    expect(refusal).toContain('tmt colab export');
 
     // page read, show, export and ls all return it (and the neighbour) byte-exact.
     expect(read().source === source).toBe(true);
@@ -70,7 +81,9 @@ test('a page past the old tail caps still reads back byte-exact and does not hid
     expect(listed.pages.map((p) => p.title).sort()).toEqual(['Big page', 'Neighbour']);
     expect(listed.pages.some((p) => p.error !== undefined)).toBe(false);
     expect(other.pageId).not.toBe(created.pageId);
-    // The browser's fold worker still stops at 200 updates / 256 KiB; opening such a page there
-    // belongs to the browser-side limit agreement (#1627 part 2).
+    // The browser opens the page at the limit and shows the exact source.
+    await page.reload();
+    await page.getByRole('button', { name: 'Source', exact: true }).click();
+    expect(await page.getByLabel('Source', { exact: true }).inputValue()).toBe(source);
   });
 });
