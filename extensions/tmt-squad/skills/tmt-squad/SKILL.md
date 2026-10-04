@@ -623,7 +623,7 @@ tmt squad rm <name>                           # leaves the squad; the agent keep
 - Squad has no `talk`, `reply`, `replies` or `annotate` command. To talk to a
   member use `tmt talk <member> "…" --detach`; to answer what someone is waiting
   on you for use `tmt inbox` and `tmt answer` (or `tmt reply --receipt` when you
-  were given a receipt). Annotating is the user's board key, not a command, and
+  were given a receipt). Adding a note to a row is the user's board key, not a command, and
   agents never call hidden or `__` commands (TMT's CLI style, "Hidden commands").
   Without a lead, select one with `tmt squad lead <name> --squad <squad>`.
 

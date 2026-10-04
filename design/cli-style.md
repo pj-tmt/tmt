@@ -243,7 +243,7 @@ command is for TMT itself, a provider, a shell, an installer or a host, and
 carries no compatibility promise.
 
 - **Board-only actions are not commands.** An action that only makes sense inside
-  a full-screen surface, such as annotating a row from the Squad board, has no
+  a full-screen surface, such as adding a note to a row on the Squad board, has no
   CLI form and no hidden twin; the surface performs it in-process through the
   public commands. A script that needs the effect uses those commands.
 - **Hidden is for protocol entry points.** A subcommand is hidden only when

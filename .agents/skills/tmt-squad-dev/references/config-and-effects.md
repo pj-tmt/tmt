@@ -162,7 +162,7 @@ shared fetcher path.
   with operands after `--`; annotations as a talk tagged `[<squad> · <row>]`; answers as one
   `tmt answer <member> --request <id>` (core selects and proves the request, no receipt
   passes through Squad); nothing acknowledges. Squad has no talk, reply, replies or annotate
-  command: conversation is core's, and an annotation is the board's `a` key only (an in-process
+  command: conversation is core's, and a note on a row is the board's `a` key only (an in-process
   `Request::Annotate`), never a command or a hidden `__` entry.
 - `hotkeys` generates `squad.tmux.conf` (bindings noted `tmt squad popup|pane|back|lead`;
   the optional lead key's `run-shell` job has `TMUX` but no `TMUX_PANE`, so it passes

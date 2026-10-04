@@ -55,7 +55,7 @@ without the required user authority. TMT is local, not remote authentication.
 Call only the commands that `tmt help` shows. Never call a hidden command or one
 whose name starts with `__` (hooks, completion and installers use them; they carry
 no compatibility promise). An action that exists only in a full-screen surface,
-such as annotating a row on the Squad board, has no command.
+such as adding a note to a row on the Squad board, has no command.
 
 ## Delivery and failure safety
 
