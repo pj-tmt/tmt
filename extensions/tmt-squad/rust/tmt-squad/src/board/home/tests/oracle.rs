@@ -45,7 +45,7 @@ fn blocked_member(id: &str, name: &str, days: f64) -> Value {
 
 /// Five squads: attention in the first, every lead exchange kind, two leads
 /// without an exchange, an unknown member state, and a cron job.
-fn rich() -> App {
+pub(in crate::board) fn rich() -> App {
     let mut question = row("LA", "lead-a", "working");
     question["waitingOnYou"] = json!([{
         "requestId": "lead-question",

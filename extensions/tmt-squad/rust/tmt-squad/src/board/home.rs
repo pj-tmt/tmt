@@ -296,7 +296,7 @@ fn model(order: &[String], acquired: &Acquired, now: u64) -> Home {
 }
 
 #[cfg(test)]
-mod tests;
+pub(super) mod tests;
 
 mod controller;
 mod paint;
