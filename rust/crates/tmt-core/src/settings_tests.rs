@@ -21,7 +21,7 @@ fn defaults_are_canonical_and_isolated() {
     assert_eq!(second.paste_enter_delay_ms, 500.0);
     assert_eq!(second.retention_days, DEFAULT_RETENTION_DAYS);
     assert_eq!(second.preamble_mode, PreambleMode::Always);
-    assert_eq!(second.pane_badge, PaneBadge::Off);
+    assert_eq!(second.pane_badge, PaneBadge::On);
     assert_ne!(first, second);
 }
 
@@ -36,6 +36,21 @@ fn resolved_layers_share_precedence_and_source_accounting() {
     assert_eq!(resolved.source(SettingKey::PreambleEvery), "local");
     assert_eq!(resolved.source(SettingKey::RetentionDays), "global");
     assert_eq!(resolved.source(SettingKey::PaneBadge), "default");
+}
+
+/// #1599: the pane badge is on unless the user said otherwise; an explicit
+/// `off` still wins and an explicit `on` is the same as the default.
+#[test]
+fn the_pane_badge_defaults_on_and_an_explicit_off_wins() {
+    let unset = ResolvedSettings::from_layers(Vec::new(), Vec::new());
+    assert_eq!(unset.settings.pane_badge, PaneBadge::On);
+    assert_eq!(unset.source(SettingKey::PaneBadge), "default");
+    let off = ResolvedSettings::from_layers(vec![Setting::PaneBadge(PaneBadge::Off)], Vec::new());
+    assert_eq!(off.settings.pane_badge, PaneBadge::Off);
+    assert_eq!(off.source(SettingKey::PaneBadge), "global");
+    let on = ResolvedSettings::from_layers(vec![Setting::PaneBadge(PaneBadge::On)], Vec::new());
+    assert_eq!(on.settings.pane_badge, PaneBadge::On);
+    assert_eq!(on.source(SettingKey::PaneBadge), "global");
 }
 
 #[test]

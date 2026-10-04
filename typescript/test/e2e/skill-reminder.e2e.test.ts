@@ -47,7 +47,7 @@ describe('native passive skill guidance', () => {
         }
         if (scenario.json) {
           expect(JSON.parse(output.trim())).toMatchObject({
-            resolved: { ui: { paneBadge: 'off' } },
+            resolved: { ui: { paneBadge: 'on' } },
           });
         } else if (scenario.name !== 'help') {
           expect(output).toContain('SETTINGS\n');

@@ -348,7 +348,7 @@ impl Default for Settings {
             preamble_every: 3,
             paste_enter_delay_ms: 500.0,
             retention_days: DEFAULT_RETENTION_DAYS,
-            pane_badge: PaneBadge::Off,
+            pane_badge: PaneBadge::On,
             reply_batch_window_ms: 5_000,
             typing_quiet_ms: 2_000,
         }

@@ -10,6 +10,24 @@ import {
 } from '../support/cli-process.js';
 
 describe('native configuration process boundary', () => {
+  it('shows the pane badge on by default and keeps an explicit off', async () => {
+    await withSandbox(async (sandbox) => {
+      const badge = async () => {
+        const shown = parseWholeStdout(await runCli(sandbox, ['config', '--json']));
+        return [
+          (shown.resolved as { ui: { paneBadge: string } }).ui.paneBadge,
+          (shown.sources as { ui: { paneBadge: string } }).ui.paneBadge,
+        ];
+      };
+      expect(await badge()).toEqual(['on', 'default']);
+      expect(
+        (await runCli(sandbox, ['config', 'set', 'ui.paneBadge', 'off', '--global', '--json']))
+          .status
+      ).toBe(0);
+      expect(await badge()).toEqual(['off', 'global']);
+    });
+  });
+
   it('renders resolved configuration values with their sources in human mode', async () => {
     await withSandbox(async (sandbox) => {
       fs.mkdirSync(sandbox.globalDir, { recursive: true });
@@ -197,7 +215,7 @@ describe('native configuration process boundary', () => {
           pasteEnterDelayMs: 500,
         },
         exchange: { retentionDays: 90 },
-        ui: { paneBadge: 'off' },
+        ui: { paneBadge: 'on' },
         notifications: { replyBatchWindowMs: 5000, typingQuietMs: 2000 },
         theme: {},
       });
@@ -334,7 +352,7 @@ describe('native configuration process boundary', () => {
           pasteEnterDelayMs: 1.5,
         },
         exchange: { retentionDays: 90 },
-        ui: { paneBadge: 'off' },
+        ui: { paneBadge: 'on' },
         notifications: { replyBatchWindowMs: 5000, typingQuietMs: 2000 },
         theme: {},
       });
@@ -473,7 +491,7 @@ describe('native configuration process boundary', () => {
       const shown = await runCli(sandbox, ['config', '--json']);
       expect(shown.status).toBe(0);
       expect(parseWholeStdout(shown)).toMatchObject({
-        resolved: { exchange: { retentionDays: 90 }, ui: { paneBadge: 'off' } },
+        resolved: { exchange: { retentionDays: 90 }, ui: { paneBadge: 'on' } },
       });
       expect(fileSnapshot(sandbox.root)).toEqual(before);
     });
