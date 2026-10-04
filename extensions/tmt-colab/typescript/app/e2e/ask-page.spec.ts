@@ -25,8 +25,9 @@ async function mount(page: Page) {
 }
 async function compose(page: Page) {
   await page.getByRole('button', { name: 'Ask agent', exact: true }).click();
-  await expect(page.getByRole('radio')).toHaveCount(5);
-  await page.getByRole('radio').first().check();
+  await page.getByRole('combobox', { name: /Choose an agent/ }).click();
+  await expect(page.getByRole('option')).toHaveCount(5);
+  await page.getByRole('option').first().click();
   await page.getByLabel('Question or instruction').fill('Explain exactly');
 }
 
@@ -40,8 +41,8 @@ test('live Page selection opens a parent picker, freezes preview through sync an
     page.locator('.ask-compose').getByText('Delivery status unavailable', { exact: false }),
   ).toHaveCount(0);
   await expect(
-    page.locator('.ask-compose').getByText('My machine · Online', { exact: true }),
-  ).toBeVisible();
+    page.locator('.ask-compose').getByRole('combobox', { name: /Choose an agent/ }),
+  ).toContainText('My machine · Online');
   await page.getByRole('button', { name: 'Ask agent — preview', exact: true }).click();
   const message = await page.getByLabel('Exact message').textContent();
   expect(message).toContain('Exact selected text');

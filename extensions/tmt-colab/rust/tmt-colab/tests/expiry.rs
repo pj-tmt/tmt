@@ -86,6 +86,7 @@ impl Fixture {
             page: PAGE,
             title: "Expiry",
             source: "<p>Initial</p>",
+            publisher_agent: None,
         });
     }
     fn sql(&self) -> rusqlite::Connection {
@@ -190,7 +191,10 @@ fn content_samples_append_clock_and_failed_late_receipt_rolls_back_time() {
         &f.store,
         &f.key,
         PAGE,
-        "<p>New</p>",
+        tmt_colab::decoder::ContentEdit {
+            source: "<p>New</p>",
+            publisher_agent: None,
+        },
         None,
         &mut f.decoder(),
         NOW,

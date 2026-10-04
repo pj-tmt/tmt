@@ -19,6 +19,7 @@ export interface PageSummary extends Partial<ExpiryInfo> {
   readonly archived?: boolean;
 }
 export interface PageSnapshot extends PageSummary {
+  readonly publisherAgent?: string;
   readonly source: string;
   readonly binding?: PageBinding;
   readonly ownData?: boolean;

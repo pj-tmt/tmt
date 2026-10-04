@@ -870,3 +870,97 @@ footer {
   width: auto;
   margin: 0;
 }
+
+.selection-control,
+.annotation-popover {
+  position: fixed;
+  z-index: 40;
+}
+.annotation-popover {
+  width: min(380px, calc(100vw - 24px));
+  max-height: calc(100vh - 80px);
+  overflow-y: auto;
+  padding: 12px;
+  border: 1px solid var(--c-text);
+  background: var(--c-sheet);
+  box-shadow: 5px 5px 0 var(--c-accent);
+}
+.annotation-popover blockquote {
+  margin: 0 0 10px;
+  color: var(--c-muted);
+  border-left: 2px solid var(--c-rule);
+  padding-left: 8px;
+}
+.selection-ask {
+  margin: 0;
+  border: 1px solid var(--c-text);
+  padding: 7px 12px;
+  background: var(--c-sheet);
+  color: var(--c-text);
+  box-shadow: 3px 3px 0 var(--c-accent);
+}
+.annotation-row {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  width: 100%;
+  margin: 0;
+  padding: 14px 0;
+  border: 0;
+  border-bottom: 1px solid var(--c-rule);
+  background: transparent;
+  color: var(--c-text);
+  text-align: left;
+  box-shadow: none;
+}
+.annotation-row strong {
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+.annotation-row span,
+.annotation-hint {
+  color: var(--c-muted);
+  font-size: 12px;
+}
+.annotation-row:hover strong {
+  text-decoration: underline;
+}
+.annotation-row[aria-expanded='true'] {
+  border-bottom: 2px solid var(--c-text);
+}
+.annotation-compose textarea {
+  width: 100%;
+  min-height: 88px;
+  resize: vertical;
+  background: var(--c-sheet);
+  color: var(--c-text);
+  border: 1px solid var(--c-text);
+  padding: 10px;
+  font: inherit;
+}
+.annotation-compose summary,
+.comment-page-action {
+  font-size: 12px;
+}
+.annotation-compose pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 200px;
+  overflow: auto;
+}
+.comments-panel .comment-page-action {
+  border: 0;
+  background: transparent;
+  padding: 8px 0;
+  color: var(--c-text);
+  box-shadow: none;
+}
+.comments-panel .comment-page-action:hover {
+  text-decoration: underline;
+}
+.comment .ask-panel {
+  padding: 0;
+  border: 0;
+}

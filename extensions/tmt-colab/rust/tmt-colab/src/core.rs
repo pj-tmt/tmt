@@ -43,3 +43,58 @@ pub fn root_from_reply(bytes: &[u8]) -> Result<PathBuf> {
     }
     Ok(root)
 }
+
+/// Best-effort caller display name through the public command seam. Failure and
+/// unbound callers leave no label; this result never selects an identity.
+pub fn publisher_agent() -> Option<String> {
+    let executable = tmt_invoke::invoking_tmt().ok()?;
+    let args = ["identity".into(), "show".into(), "--json".into()];
+    let output = tmt_invoke::invoke(
+        Request {
+            program: &executable,
+            args: &args,
+            input: &[],
+            deadline: Instant::now() + Duration::from_secs(1),
+            max_stream_bytes: 64 * 1024,
+            launch: Default::default(),
+        },
+        None,
+    )
+    .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    publisher_from_reply(&output.stdout)
+}
+fn publisher_from_reply(bytes: &[u8]) -> Option<String> {
+    let value: Value = serde_json::from_slice(bytes).ok()?;
+    let name = value.get("identity")?.get("name")?.as_str()?;
+    crate::decoder::valid_publisher_agent(name).then(|| name.to_owned())
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn publisher_reply_is_optional_and_bounded() {
+        assert_eq!(
+            publisher_from_reply(br#"{"identity":{"name":"publisher"}}"#),
+            Some("publisher".into())
+        );
+        for reply in [
+            b"{}".as_slice(),
+            br#"{"error":{"code":"IDENTITY_REQUIRED"}}"#,
+            br#"{"identity":{"name":null}}"#,
+            br#"{"identity":{"name":""}}"#,
+            br#"{"identity":{"name":"bad\nname"}}"#,
+            b"not json",
+        ] {
+            assert_eq!(publisher_from_reply(reply), None);
+        }
+        assert_eq!(
+            publisher_from_reply(
+                &serde_json::to_vec(&json!({"identity":{"name":"x".repeat(129)}})).unwrap()
+            ),
+            None
+        );
+    }
+}

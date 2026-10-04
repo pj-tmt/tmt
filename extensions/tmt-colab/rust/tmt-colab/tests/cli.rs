@@ -45,7 +45,8 @@ impl Pilot {
             .map(str::to_owned)
             .unwrap_or_else(|| json!({"dataRoot":pilot.root.join("selected")}).to_string());
         let payload = format!(
-            "#!/bin/sh\n[ \"$#\" = 1 ] && [ \"$1\" = api ] || exit 9\ncd {} || exit 9\nprintf '%s\\n' \"$*\" >> calls\ncat > input\nprintf '%s\\n' {}\n",
+            "#!/bin/sh\nif [ \"$1 $2 $3\" = 'identity show --json' ]; then\ncd {} || exit 9\nprintf '%s\\n' \"$*\" >> publisher-calls\n[ -f publisher ] || exit 9\ncat publisher\nexit 0\nfi\n[ \"$#\" = 1 ] && [ \"$1\" = api ] || exit 9\ncd {} || exit 9\nprintf '%s\\n' \"$*\" >> calls\ncat > input\nprintf '%s\\n' {}\n",
+            quote(pilot.root.to_str().unwrap()),
             quote(pilot.root.to_str().unwrap()),
             quote(&response)
         );
@@ -2327,6 +2328,62 @@ fn without_a_door_the_page_text_gives_the_reason_and_never_a_manual_remote_comma
         serving.stop(Signal::SIGTERM);
     }
 }
+
+#[test]
+fn cli_publisher_label_uses_fixed_public_command_and_unknown_writes_clear_it() {
+    let pilot = Pilot::new(None);
+    let publisher = pilot.root.join("publisher");
+    fs::write(
+        &publisher,
+        json!({"identity":{"name":"publishing-agent"}}).to_string(),
+    )
+    .unwrap();
+    let created = pilot.call(&["page", "create", "--title", "Published", "--json"]);
+    let page = created["pageId"].as_str().unwrap();
+    assert_eq!(
+        pilot.call(&["page", "read", page, "--json"])["publisherAgent"],
+        "publishing-agent"
+    );
+    let file = pilot.root.join("page.html");
+    fs::write(&file, "<p>New content</p>").unwrap();
+    for reply in [
+        Some(json!({"identity":{"name":"next-agent"}})),
+        None,
+        Some(json!({"error":{"code":"IDENTITY_REQUIRED"}})),
+        Some(json!({"identity":{"name":"é".repeat(65)}})),
+    ] {
+        let expected = reply
+            .as_ref()
+            .and_then(|value| value["identity"]["name"].as_str())
+            .filter(|value| tmt_colab::decoder::valid_publisher_agent(value))
+            .map(str::to_owned);
+        if let Some(value) = reply {
+            fs::write(&publisher, value.to_string()).unwrap();
+        } else {
+            fs::remove_file(&publisher).unwrap();
+        }
+        pilot.call(&[
+            "page",
+            "write",
+            page,
+            "--file",
+            file.to_str().unwrap(),
+            "--json",
+        ]);
+        let read = pilot.call(&["page", "read", page, "--json"]);
+        assert_eq!(read["source"], "<p>New content</p>");
+        assert_eq!(
+            read.get("publisherAgent").and_then(Value::as_str),
+            expected.as_deref()
+        );
+    }
+    let calls = fs::read_to_string(pilot.root.join("publisher-calls")).unwrap();
+    assert_eq!(
+        calls.lines().collect::<Vec<_>>(),
+        vec!["identity show --json"; 5]
+    );
+}
+
 #[test]
 fn serve_opens_the_space_home_only_when_told_or_allowed_and_says_so() {
     let pilot = Pilot::new(None);

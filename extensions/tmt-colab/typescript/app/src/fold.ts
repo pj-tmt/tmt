@@ -31,7 +31,14 @@ export class Fold {
     worker.onerror = () => this.close();
     worker.onmessage = (event: MessageEvent<unknown>) => {
       try {
-        exactKeys(event.data, ['id', 'source', 'title', 'update', 'own']);
+        exactKeys(event.data, [
+          'id',
+          'source',
+          'title',
+          'update',
+          'own',
+          ...(Object.hasOwn(event.data as object, 'publisherAgent') ? ['publisherAgent'] : []),
+        ]);
         const value = event.data as unknown as FoldResult & { id: number; error?: string };
         if (!this.#pending || value.id !== this.#pending.id || value.error)
           throw new Error('Rejected decoder output');
@@ -43,7 +50,12 @@ export class Fold {
         );
         if (
           new TextEncoder().encode(
-            JSON.stringify({ source: value.source, title: value.title, own: value.own }),
+            JSON.stringify({
+              source: value.source,
+              title: value.title,
+              publisherAgent: value.publisherAgent,
+              own: value.own,
+            }),
           ).length > STATE_BYTES
         )
           throw new Error('Decoder projection capacity');
@@ -56,6 +68,7 @@ export class Fold {
         pending.resolve({
           source: value.source,
           title: value.title,
+          ...(value.publisherAgent === undefined ? {} : { publisherAgent: value.publisherAgent }),
           own: value.own,
           update: value.update,
         });

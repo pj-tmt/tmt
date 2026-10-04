@@ -35,6 +35,7 @@ impl Prepared {
             BaselineInput {
                 source: view.source.as_bytes(),
                 title: &view.title,
+                publisher_agent: view.publisher_agent.as_deref(),
                 source_digest: crypto::digest(view.source.as_bytes()),
             },
             None,

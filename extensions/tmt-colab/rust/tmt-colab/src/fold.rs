@@ -112,6 +112,7 @@ pub(crate) struct Snapshot {
 pub(crate) struct View {
     pub source: String,
     pub title: String,
+    pub publisher_agent: Option<String>,
     pub update: Vec<u8>,
     pub memory_limit: crate::decoder::MemoryLimit,
     /// Each authenticated writer's decoded `own` projection (threads, messages, intents,
@@ -181,7 +182,7 @@ impl Snapshot {
         key: &Keyring,
         page: &str,
         decoder: &mut Decoder,
-        source: Option<&str>,
+        edit: Option<crate::decoder::ContentEdit<'_>>,
     ) -> Result<View> {
         let mut baseline = Vec::new();
         if let Some(saved) = &self.baseline {
@@ -220,6 +221,7 @@ impl Snapshot {
                 BaselineInput {
                     source: body.source.as_bytes(),
                     title: &d.title,
+                    publisher_agent: None,
                     source_digest: binary32(&d.source_digest)?,
                 },
                 &baseline,
@@ -407,12 +409,15 @@ impl Snapshot {
             baseline: &baseline,
             updates: &refs,
         };
-        let folded = if let Some(source) = source {
-            decoder.prepare(batch, source, None)?
+        let folded = if let Some(edit) = edit {
+            decoder.prepare(batch, edit, None)?
         } else {
             decoder.decode(batch, Role::Editor, None)?
         };
         Ok(View {
+            publisher_agent: folded.projection["meta"]["publisherAgent"]
+                .as_str()
+                .map(str::to_owned),
             update: folded.merged,
             memory_limit: folded.memory_limit,
             own: own_views,

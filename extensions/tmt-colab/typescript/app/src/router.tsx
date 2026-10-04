@@ -13,16 +13,95 @@ import {
   useRouterState,
 } from '@tanstack/react-router';
 import type { PageView, PageTransport } from './transport.js';
+import { AnnotationInput } from './annotation-input.js';
 import { ThreadPanel } from './thread-panel.js';
-import type { QuoteSelector } from './thread-records.js';
+import type { QuoteSelector, DiscussionRef } from './thread-records.js';
 import { ShareDialog } from './share-dialog.js';
 import { mountRenderer } from './renderer.js';
-import type { RenderState } from './renderer.js';
+import type { RenderState, SelectionRect } from './renderer.js';
 import { text } from './strings.js';
 import { ExportPanel } from './export-panel.js';
 import { PageDrawer } from './page-drawer.js';
 import { AskControl, AskPanel } from './ask-panel.js';
 
+function SelectionAnnotation({
+  host,
+  rectangle,
+  inset,
+  open,
+  children,
+}: {
+  host: HTMLDivElement | null;
+  rectangle: SelectionRect | null;
+  inset: number;
+  open(): void;
+  children?: React.ReactNode;
+}) {
+  const expanded = children !== undefined;
+  const element = useRef<HTMLDivElement>(null);
+  const [position, setPosition] = useState<{ left: number; top: number } | null>(null);
+  useEffect(() => {
+    const place = () => {
+      const frame = host?.querySelector('iframe')?.getBoundingClientRect();
+      if (!frame || !rectangle) {
+        setPosition(null);
+        return;
+      }
+      const top = frame.top + Math.max(0, Math.min(frame.height, rectangle.y)),
+        bottom = frame.top + Math.max(0, Math.min(frame.height, rectangle.y + rectangle.height)),
+        left = frame.left + Math.max(0, Math.min(frame.width, rectangle.x)),
+        right = frame.left + Math.max(0, Math.min(frame.width, rectangle.x + rectangle.width));
+      if (bottom < inset || top > innerHeight) {
+        setPosition(null);
+        return;
+      }
+      const width = expanded ? Math.min(380, innerWidth - 24) : 100;
+      const height = element.current?.offsetHeight ?? (expanded ? 200 : 38);
+      const beside = !expanded && right + width + 8 <= Math.min(frame.right, innerWidth - 8);
+      const below = bottom + height + 8 <= innerHeight - 8;
+      setPosition({
+        left: Math.max(
+          8,
+          Math.min(innerWidth - width - 8, frame.right - width - 8, beside ? right + 8 : left),
+        ),
+        top: Math.max(
+          inset + 4,
+          Math.min(innerHeight - height - 8, beside ? top : below ? bottom + 6 : top - height - 6),
+        ),
+      });
+    };
+    place();
+    const observer = new ResizeObserver(place);
+    if (element.current) observer.observe(element.current);
+    window.addEventListener('scroll', place, { passive: true });
+    window.addEventListener('resize', place);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener('scroll', place);
+      window.removeEventListener('resize', place);
+    };
+  }, [host, rectangle, inset, expanded]);
+  return (
+    <div
+      ref={element}
+      className={children ? 'annotation-popover' : 'selection-control'}
+      style={{ ...position, visibility: position ? 'visible' : 'hidden' }}
+    >
+      {children ?? (
+        <button
+          className="selection-ask"
+          data-testid="selection-ask"
+          onPointerDown={(event) => event.preventDefault()}
+          onClick={(event) => {
+            if (event.isTrusted) open();
+          }}
+        >
+          Annotate
+        </button>
+      )}
+    </div>
+  );
+}
 const managementChanged = 'Management changed. Reopen the page to load its latest state.';
 
 const root = createRootRouteWithContext<{ transport: PageTransport }>()({
@@ -245,6 +324,7 @@ function Page() {
   const [view, setView] = useState<PageView>({
     source: snapshot.source,
     title: snapshot.title,
+    publisherAgent: snapshot.publisherAgent,
     ownData: snapshot.ownData ?? false,
     own: snapshot.own,
     asks: snapshot.asks,
@@ -264,6 +344,7 @@ function Page() {
     setView({
       source: snapshot.source,
       title: snapshot.title,
+      publisherAgent: snapshot.publisherAgent,
       ownData: snapshot.ownData ?? false,
       own: snapshot.own,
       asks: snapshot.asks,
@@ -315,6 +396,46 @@ function Page() {
   }
   const [selection, setSelection] = useState('');
   const [selector, setSelector] = useState<QuoteSelector | null>(null);
+  const currentSelector = useRef<QuoteSelector | null>(null);
+  const [rectangle, setRectangle] = useState<SelectionRect | null>(null);
+  const currentRectangle = useRef<SelectionRect | null>(null);
+  const [annotation, setAnnotation] = useState<{
+    selector: QuoteSelector;
+    rectangle: SelectionRect;
+  }>();
+  const [activeThread, setActiveThread] = useState<string | null>(null);
+  useEffect(() => {
+    setAnnotation(undefined);
+    setActiveThread(null);
+    setPanel(null);
+  }, [snapshot.id]);
+  function annotate() {
+    if (!currentSelector.current || !currentRectangle.current) return;
+    setAnnotation({
+      selector: structuredClone(currentSelector.current),
+      rectangle: { ...currentRectangle.current },
+    });
+    setActiveThread(null);
+    setRectangle(null);
+    setPanel(null);
+    setMenu(false);
+  }
+  function cancelAnnotation() {
+    setAnnotation(undefined);
+    setRectangle(currentRectangle.current);
+  }
+  function openThread(ref: DiscussionRef | null) {
+    if (!ref) {
+      setActiveThread(null);
+      return;
+    }
+    const id = `${ref.writer}:${ref.id}`;
+    setAnnotation(undefined);
+    setActiveThread(id);
+    setPanel('comments');
+    setMenu(false);
+    renderer.current?.scrollAnchor(id);
+  }
   const [resolved, setResolved] = useState<string[]>([]);
   const renderer = useRef<Awaited<ReturnType<typeof mountRenderer>> | null>(null);
   const [state, setState] = useState<RenderState | 'loading'>('loading');
@@ -328,17 +449,31 @@ function Page() {
     setState('loading');
     setSelection('');
     setSelector(null);
+    currentSelector.current = null;
+    currentRectangle.current = null;
+    setAnnotation(undefined);
+    setRectangle(null);
     setResolved([]);
     void mountRenderer(host.current!, view.source, {
       signal: controller.signal,
       onState: setState,
       viewportInset: () =>
         (toolbar.current?.offsetHeight ?? 56) + (toolbar.current?.getBoundingClientRect().top ?? 0),
-      onSelection: (value, quote) => {
+      onSelection: (value, quote, rect) => {
         setSelection(value);
         setSelector(quote ?? null);
+        currentSelector.current = quote ?? null;
+        currentRectangle.current = rect ?? null;
+        setRectangle(rect ?? null);
       },
       onAnchors: setResolved,
+      onAnnotate: annotate,
+      onOpenThread: (id) => {
+        const thread = latest.current.threads?.find(
+          (value) => `${value.ref.writer}:${value.threadId}` === id && !value.deleted,
+        );
+        if (thread) openThread(thread.ref);
+      },
     })
       .then((handle) => {
         if (controller.signal.aborted) handle.destroy();
@@ -357,7 +492,12 @@ function Page() {
     renderer.current?.highlight(
       (view.threads ?? []).flatMap((thread) =>
         !thread.deleted && thread.anchor
-          ? [{ id: `${thread.ref.writer}:${thread.threadId}`, selector: thread.anchor }]
+          ? [
+              {
+                id: `${thread.ref.writer}:${thread.threadId}`,
+                selector: thread.anchor,
+              },
+            ]
           : [],
       ),
     );
@@ -503,6 +643,32 @@ function Page() {
           )}
         </div>
       </div>
+      {snapshot.binding?.discussion && snapshot.binding?.ask && !liveError && state === 'ready' && (
+        <SelectionAnnotation
+          host={host.current}
+          rectangle={annotation?.rectangle ?? rectangle}
+          inset={toolbar.current?.offsetHeight ?? 56}
+          open={annotate}
+        >
+          {annotation && (
+            <section className="annotation-new" role="dialog" aria-label="Annotate selection">
+              <blockquote>{annotation.selector.exact}</blockquote>
+              <AnnotationInput
+                key={JSON.stringify(annotation.selector)}
+                binding={snapshot.binding.ask}
+                discussion={snapshot.binding.discussion}
+                anchor={annotation.selector}
+                asks={view.asks ?? []}
+                title={view.title || snapshot.title}
+                publisher={view.publisherAgent}
+                blocked={!!liveError || state !== 'ready'}
+                cancel={cancelAnnotation}
+                committed={openThread}
+              />
+            </section>
+          )}
+        </SelectionAnnotation>
+      )}
       <PageDrawer
         open={panel === 'source'}
         title={text.source}
@@ -549,6 +715,10 @@ function Page() {
           binding={liveError === managementChanged ? undefined : snapshot.binding?.discussion}
           ask={liveError === managementChanged ? undefined : snapshot.binding?.ask}
           title={view.title || snapshot.title}
+          publisher={view.publisherAgent}
+          asks={view.asks ?? []}
+          active={activeThread}
+          select={openThread}
           blocked={!!liveError || state !== 'ready'}
         />
       </PageDrawer>

@@ -17,6 +17,7 @@ pub(super) struct Selection<'a> {
     pub page: &'a str,
     pub title: &'a str,
     pub source: &'a str,
+    pub publisher_agent: Option<&'a str>,
 }
 struct Prepared {
     update: Vec<u8>,
@@ -41,11 +42,15 @@ impl Engine {
             page,
             title,
             source,
+            publisher_agent,
         } = selection;
         values::generated_id(context.id)?;
         values::generated_id(page)?;
         values::time(now)?;
-        if context.scope.is_some() || title.is_empty() {
+        if context.scope.is_some()
+            || title.is_empty()
+            || publisher_agent.is_some_and(|v| !crate::decoder::valid_publisher_agent(v))
+        {
             return Err(OwnerFault::Invalid.into());
         }
         if title.len() > crate::decoder::BASELINE_TITLE_BYTES
@@ -53,13 +58,11 @@ impl Engine {
         {
             return Err(OwnerFault::Capacity.into());
         }
-        let digest = context.digest(
-            key,
-            "page.create",
-            &serde_json::json!({
-                "pageId":page,"title":title,"source":source
-            }),
-        )?;
+        let mut selection = serde_json::json!({"pageId":page,"title":title,"source":source});
+        if let Some(agent) = publisher_agent {
+            selection["publisherAgent"] = serde_json::json!(agent);
+        }
+        let digest = context.digest(key, "page.create", &selection)?;
         self.run_transition(
             store,
             key,
@@ -82,6 +85,7 @@ impl Engine {
                     BaselineInput {
                         source: source.as_bytes(),
                         title,
+                        publisher_agent,
                         source_digest: crypto::digest(source.as_bytes()),
                     },
                     None,

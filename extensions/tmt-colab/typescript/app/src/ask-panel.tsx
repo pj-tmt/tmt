@@ -8,6 +8,7 @@ import type { AskDestination } from './ask-intent.js';
 import { AskPreview } from './ask-preview.js';
 import { text } from './strings.js';
 import { relativeTime } from './display-time.js';
+import { Listbox } from './components/listbox.js';
 
 /** Capabilities stay in trusted parent chrome. The mounted adapter owns current
  * page/member/grant admission and returns the existing frozen/signing attempt. */
@@ -25,9 +26,12 @@ export interface AskBinding {
   abandon(operationId: string): Promise<void>;
 }
 export interface PageAsk {
+  thread?: string;
+  messageIds?: readonly string[];
   operationId: string;
   writer: string;
   message: string;
+  deliveredMessage?: string;
   agent: string;
   agentName: string;
   deviceName: string;
@@ -176,33 +180,21 @@ export function AskControl({
               onChange={(event) => setComment(event.target.value)}
             />
           </label>
-          <fieldset data-testid="ask-agent-picker" disabled={loading || blocked}>
-            <legend>{text.askPick}</legend>
-            {agents.map((destination) => (
-              <label
-                key={destination.agent}
-                className="ask-agent-option"
-                data-testid="ask-agent-option"
-                title={destination.agent}
-                data-agent-id={destination.agent}
-                data-delivery="unavailable"
-              >
-                <input
-                  type="radio"
-                  name="ask-agent"
-                  value={destination.agent}
-                  checked={agent === destination.agent}
-                  onChange={() => setAgent(destination.agent)}
-                />
-                <span>
-                  {destination.agentName}
-                  <small>
-                    {destination.machineName} · {presenceLabel(destination.presence)}
-                  </small>
-                </span>
-              </label>
-            ))}
-          </fieldset>
+          <Listbox
+            label={text.askPick}
+            value={agent}
+            onChange={setAgent}
+            disabled={loading || blocked}
+            options={agents.map((destination) => ({
+              value: destination.agent,
+              label: `${destination.agentName} · ${destination.machineName} · ${presenceLabel(destination.presence)}`,
+            }))}
+            renderOption={(option) => (
+              <span data-testid="ask-agent-option" data-agent-id={option.value}>
+                {option.label}
+              </span>
+            )}
+          />
           {loading && <p role="status">{text.askLoading}</p>}
           {!loading && !error && agents.length === 0 && <p role="status">{text.askNone}</p>}
           {blocked && <p role="status">{text.askOffline}</p>}
@@ -277,10 +269,12 @@ export function AskPanel({
   records,
   binding,
   blocked,
+  inline = false,
 }: {
   records: readonly PageAsk[];
   binding?: AskBinding;
   blocked: boolean;
+  inline?: boolean;
 }) {
   const [now, setNow] = useState(0);
   useEffect(() => setNow(Date.now()), [records]);
@@ -337,9 +331,13 @@ export function AskPanel({
 
   return (
     <section className="ask-panel" aria-label={text.asks} data-testid="ask-panel">
-      <h2>{text.asks}</h2>
-      <p>{text.askVisible}</p>
-      {records.length === 0 && <p>{text.askEmpty}</p>}
+      {!inline && (
+        <>
+          <h2>{text.asks}</h2>
+          <p>{text.askVisible}</p>
+        </>
+      )}
+      {!inline && records.length === 0 && <p>{text.askEmpty}</p>}
       {records.map((record) => (
         <article
           data-testid="ask-entry"
@@ -349,9 +347,9 @@ export function AskPanel({
           key={`${record.writer}:${record.operationId}`}
           aria-label={`${text.ask} ${record.operationId}`}
         >
-          <h3>{record.agentName || text.askAgentLabel}</h3>
+          {!inline && <h3>{record.agentName || text.askAgentLabel}</h3>}
           <p className="isolation-note">
-            {record.deviceName} ·{' '}
+            {inline ? record.agentName || text.askAgentLabel : record.deviceName} ·{' '}
             <time
               dateTime={new Date(record.issuedAt).toISOString()}
               title={`${text.askCreated} ${new Date(record.issuedAt).toISOString()}`}
@@ -360,7 +358,8 @@ export function AskPanel({
             </time>
           </p>
           <details>
-            <summary>{text.askDetails}</summary>
+            <summary>{inline ? 'Show exactly what was sent' : text.askDetails}</summary>
+            {inline && <pre>{record.deliveredMessage ?? record.message}</pre>}
             <dl className="ask-identities">
               <dt>{text.askAgent}</dt>
               <dd>{record.agent}</dd>
@@ -372,7 +371,7 @@ export function AskPanel({
               <dd>{record.operationId}</dd>
             </dl>
           </details>
-          <pre>{record.message}</pre>
+          {!inline && <pre>{record.message}</pre>}
           <p role="status" data-testid="ask-state" data-state={record.state}>
             {record.state === 'refused'
               ? (refusals[record.reason ?? ''] ?? states.refused)

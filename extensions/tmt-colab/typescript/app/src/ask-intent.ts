@@ -53,6 +53,13 @@ export interface SignedAsk {
   readonly finalBytes: string;
 }
 
+/** Display and capture use the same framing; callers own mounted URL admission. */
+export function formatAskMessage(
+  input: Pick<AdmittedSelection, 'title' | 'url' | 'quote' | 'comment'>,
+) {
+  return `Page: ${input.title}\nLink: ${input.url}\n\nQuote:\n${input.quote}\n\nComment:\n${input.comment}`;
+}
+
 /** No capability crosses into the renderer. Strings are immutable; byte getters
  * return copies. Signing never rereads live source or a mutable selection. */
 export class FrozenAsk {
@@ -114,7 +121,7 @@ export class FrozenAsk {
         !url.pathname.endsWith('/read'),
     );
     url.hash = pageFragment;
-    const message = `Page: ${selection.title}\nLink: ${url.href}\n\nQuote:\n${selection.quote}\n\nComment:\n${selection.comment}`;
+    const message = formatAskMessage({ ...selection, url: url.href });
     requireValue(Number.isSafeInteger(inputLimit) && inputLimit > 0 && inputLimit <= REQUEST_BYTES);
     this.#final = text(message);
     requireValue(this.#final.length <= inputLimit);
