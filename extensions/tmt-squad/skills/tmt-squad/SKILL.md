@@ -158,6 +158,27 @@ user's board shows it as ✎ until you do. Never edit the user's notes for it.
 
 ## Board appearance
 
+The home tab is the `▚ tmt` accent block, with ◆ waiting and ✗ blocked
+counts inside. Its command/config name remains `all`. With neither `tabs.order`
+nor `tabs.pin` configured, home is pinned first, followed by leads and squads.
+An explicit order or pin, including an empty array, keeps the existing ordering
+policy; hide always applies. Opening the board writes no configuration.
+
+Only adjacent squad tabs sharing a prefix before the first `-` are grouped,
+with at least two visible tabs (`tmt · core squad`). Built-ins and user tabs
+interrupt groups. Grouping changes display only: each squad keeps its own mark
+slot, count, selection, click and drag target. The prefix is not clickable.
+The `s` switcher retains full names, including hidden tabs.
+
+The line keeps the current tab visible. Left overflow shows `‹ N`; right
+overflow names hidden tabs as `+N › remote◆2 docs …`, waiting first, then
+blocked, then quiet, retaining arrangement order within each tier. Names remain
+full unless a visible group prefix makes them unambiguous. If configured pins
+leave no room for the current tab, pins step aside from the end, except the
+current pin; their stored order stays unchanged. A label wider than the available
+cells is shortened with `…`. Hidden tabs opened through the switcher remain
+selected and marked `(hidden)`, without a drag target. There are no number keys.
+
 `ctrl-r` refreshes the board in squad, leads and all views, including while
 searching or composing a message, without changing the entered text. The footer
 and `?` help list the effective bindings. Rebind it in `[bind]` (or a section),

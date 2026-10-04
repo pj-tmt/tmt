@@ -5,7 +5,7 @@ use super::{
     overlays::render_switcher,
     replies::reply_lines,
     rows::{GAP, grid_line},
-    tabs::{pane_tab, tab, tab_window},
+    tabs::{pane_tab, tab},
 };
 use crate::board::app::Switcher;
 use crate::{
@@ -68,7 +68,7 @@ fn columns() -> Rows {
     )
 }
 
-fn draw(app: &App, width: u16, height: u16) -> Vec<String> {
+pub(super) fn draw(app: &App, width: u16, height: u16) -> Vec<String> {
     let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
     terminal.draw(|frame| render(frame, app)).unwrap();
     let buffer = terminal.backend().buffer().clone();
@@ -90,7 +90,7 @@ fn draw(app: &App, width: u16, height: u16) -> Vec<String> {
         .collect()
 }
 
-fn board(sections: Value) -> App {
+pub(super) fn board(sections: Value) -> App {
     let mut app = App::new(Some("product".into()));
     app.apply(Snapshot {
             squad_keys: Vec::new(),
@@ -2088,80 +2088,6 @@ fn attention_counts_keep_shared_marks_and_tab_width_without_color() {
 }
 
 #[test]
-fn tab_hits_cover_the_slot_name_and_trailing_cell_of_the_rendered_label() {
-    use crate::board::app::Effect;
-    use ratatui::crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
-    for attention in [
-        Attention::default(),
-        Attention {
-            waiting: 1,
-            blocked: 2,
-        },
-    ] {
-        for offset in [0, 2, 14] {
-            let mut app = board(json!([{"title": null, "rows": []}]));
-            app.attention.insert("reviews".into(), attention);
-            draw(&app, 80, 8);
-            let hit = app.tab_hits.borrow()[1];
-            let label = tab(
-                app.look(),
-                "reviews",
-                false,
-                attention,
-                &TabColors::default(),
-            );
-            assert_eq!(usize::from(hit.width), label.width());
-            let x = hit.x + offset.min(hit.width - 1);
-            assert_eq!(
-                app.mouse(
-                    MouseEvent {
-                        kind: MouseEventKind::Down(MouseButton::Left),
-                        column: x,
-                        row: hit.y,
-                        modifiers: KeyModifiers::NONE,
-                    },
-                    std::time::Instant::now()
-                ),
-                Effect::Load("reviews".into())
-            );
-            assert_eq!(app.current.as_deref(), Some("reviews"));
-        }
-    }
-}
-
-#[test]
-fn default_attention_color_does_not_inherit_the_selected_name_foreground() {
-    let look = crate::look::Look::default();
-    let label = tab(
-        look,
-        "product",
-        true,
-        Attention {
-            waiting: 1,
-            blocked: 1,
-        },
-        &TabColors {
-            waiting: "default".into(),
-            blocked: "default".into(),
-        },
-    );
-    for rendered in [label.clone(), Line::from(label.spans)] {
-        let width = rendered.width() as u16;
-        let mut terminal = Terminal::new(TestBackend::new(width, 1)).unwrap();
-        terminal
-            .draw(|frame| frame.render_widget(Paragraph::new(rendered), frame.area()))
-            .unwrap();
-        let buffer = terminal.backend().buffer();
-        assert_eq!(buffer[(0, 0)].fg, Style::new().fg.unwrap_or_default());
-        assert_eq!(buffer[(12, 0)].fg, Style::new().fg.unwrap_or_default());
-        assert_eq!(buffer[(2, 0)].fg, look.role(Role::Accent).fg.unwrap());
-        for x in 0..width {
-            assert_eq!(buffer[(x, 0)].bg, look.selection().bg.unwrap());
-        }
-    }
-}
-
-#[test]
 fn switcher_fitting_keeps_mark_styles_alignment_and_its_selected_row() {
     for name in ["product", "wide-界界界界界界", "literal…name"] {
         for width in [1, 2, 8, 12, 40, 80, 160] {
@@ -2328,111 +2254,6 @@ fn tabs_move_with_shift_arrows_or_a_drag_and_the_order_is_saved() {
 }
 
 #[test]
-fn many_tabs_scroll_to_keep_the_current_one_and_count_the_rest() {
-    // Every tab is 8 columns with its gap; 40 columns hold four, or three
-    // beside one count.
-    let widths = [8u16; 10];
-    assert_eq!(tab_window(&[8, 8], Some(1), 0, 40), (0, 2), "all fit");
-    assert_eq!(tab_window(&widths, Some(0), 0, 40), (0, 4));
-    assert_eq!(tab_window(&widths, Some(3), 0, 40), (0, 4));
-    // Moving right scrolls only as far as needed, then left keeps it.
-    let (start, end) = tab_window(&widths, Some(4), 0, 40);
-    assert!(start > 0 && (start..end).contains(&4), "{start}..{end}");
-    assert_eq!(tab_window(&widths, Some(4), start, 40), (start, end));
-    assert_eq!(tab_window(&widths, Some(9), start, 40).1, 10);
-    assert_eq!(tab_window(&widths, Some(2), 5, 40).0, 2);
-    // A tab wider than the line still shows.
-    assert_eq!(tab_window(&[80, 8], Some(0), 0, 40), (0, 1));
-
-    let names: Vec<String> = (0..9).map(|n| format!("sq{n}")).collect();
-    let mut app = board(json!([{"title": null, "rows": []}]));
-    app.tabs = names.clone();
-    app.current = Some("sq7".into());
-    app.attention.insert(
-        "sq1".into(),
-        Attention {
-            waiting: 0,
-            blocked: 1,
-        },
-    );
-    app.attention.insert(
-        "sq8".into(),
-        Attention {
-            waiting: 2,
-            blocked: 0,
-        },
-    );
-    let mut terminal = Terminal::new(TestBackend::new(32, 6)).unwrap();
-    terminal.draw(|frame| render(frame, &app)).unwrap();
-    let buffer = terminal.backend().buffer().clone();
-    let line: String = (0..32)
-        .map(|x| buffer[(x, 0)].symbol().to_owned())
-        .collect();
-    assert!(line.starts_with("‹ "), "{line:?}");
-    assert!(
-        line.contains(" sq7 "),
-        "the current tab stays in view: {line:?}"
-    );
-    assert!(line.trim_end().ends_with("1 ›"), "{line:?}");
-    // The left count hides a blocked tab, the right one a waiting tab.
-    assert_eq!(
-        buffer[(0, 0)].fg,
-        app.look().role(Role::Blocked).fg.unwrap()
-    );
-    let right = line.trim_end().chars().count() as u16 - 1;
-    assert_eq!(
-        buffer[(right, 0)].fg,
-        app.look().role(Role::Waiting).fg.unwrap()
-    );
-    // Only shown tabs can be clicked, at their drawn places.
-    let hits = app.tab_hits.borrow().clone();
-    assert!(hits.iter().all(|hit| hit.tab >= app.tab_start.get()));
-    let seven = hits.iter().find(|hit| hit.tab == 7).unwrap();
-    let at = line[..line.find("  sq7").unwrap()].chars().count() as u16;
-    assert_eq!(seven.x, at);
-}
-
-#[test]
-fn a_hidden_squad_being_shown_leads_the_tab_line_selected() {
-    let mut app = board(json!([{"title": null, "rows": []}]));
-    app.tabs = (0..9).map(|n| format!("sq{n}")).collect();
-    app.hidden = vec!["quiet".into()];
-    app.current = Some("quiet".into());
-    app.attention.insert(
-        "quiet".into(),
-        Attention {
-            waiting: 1,
-            blocked: 2,
-        },
-    );
-    let mut terminal = Terminal::new(TestBackend::new(40, 6)).unwrap();
-    terminal.draw(|frame| render(frame, &app)).unwrap();
-    let buffer = terminal.backend().buffer().clone();
-    let line: String = (0..40)
-        .map(|x| buffer[(x, 0)].symbol().to_owned())
-        .collect();
-    assert!(line.starts_with("◆ quiet (hidden) 1 ✗2 "), "{line:?}");
-    assert!(buffer[(2, 0)].modifier.contains(Modifier::BOLD));
-    assert_eq!(buffer[(2, 0)].fg, app.look().role(Role::Accent).fg.unwrap());
-    assert_eq!(
-        buffer[(0, 0)].fg,
-        app.look().role(Role::Waiting).fg.unwrap()
-    );
-    assert_eq!(
-        buffer[(19, 0)].fg,
-        app.look().role(Role::Blocked).fg.unwrap()
-    );
-    assert!(line.trim_end().ends_with(" ›"), "{line:?}");
-    // It is not one of the tabs, so it cannot be clicked or dragged, and
-    // the tabs after it are hit where they are drawn.
-    let hits = app.tab_hits.borrow().clone();
-    let first = hits.iter().find(|hit| hit.tab == 0).unwrap();
-    let at = line[..line.find("  sq0").unwrap()].chars().count() as u16;
-    assert_eq!(first.x, at, "{line:?}");
-    assert!(hits.iter().all(|hit| hit.x >= at));
-}
-
-#[test]
 fn the_switcher_filters_every_tab_and_opens_the_chosen_one() {
     use crate::board::app::Effect;
     let mut app = board(json!([{"title": null, "rows": []}]));
@@ -2501,46 +2322,6 @@ fn the_switcher_filters_every_tab_and_opens_the_chosen_one() {
 }
 
 #[test]
-fn pinned_tabs_stay_in_view_and_keep_their_pin_order() {
-    use crate::board::app::Effect;
-    let mut app = board(json!([{"title": null, "rows": []}]));
-    app.tabs = std::iter::once(crate::board::ALL.to_owned())
-        .chain((0..9).map(|n| format!("sq{n}")))
-        .collect();
-    app.pinned = 1;
-    app.current = Some("sq8".into());
-    let line = draw(&app, 36, 6)[0].clone();
-    assert!(
-        line.starts_with("  all  ‹ 6 "),
-        "the pin stays first: {line:?}"
-    );
-    assert!(
-        line.ends_with(" sq8"),
-        "the current tab is in view: {line:?}"
-    );
-    let hits = app.tab_hits.borrow().clone();
-    assert_eq!(hits[0].tab, 0);
-    assert_eq!(hits[0].x, 0);
-    // A pin neither moves nor is passed; the other tabs move among
-    // themselves. (A saved `order` could not reorder the pins.)
-    let shift = |code| KeyEvent::new(code, KeyModifiers::SHIFT);
-    let refused = Some("Pinned tabs keep the order in [tabs] pin.");
-    app.current = Some("sq0".into());
-    assert_eq!(app.key(shift(KeyCode::Left)), Effect::None);
-    assert_eq!(app.notice.as_deref(), refused);
-    app.pinned = 2;
-    app.current = Some(crate::board::ALL.into());
-    app.notice = None;
-    assert_eq!(app.key(shift(KeyCode::Right)), Effect::None);
-    assert_eq!(app.notice.as_deref(), refused);
-    assert_eq!(app.tabs[..2], [crate::board::ALL, "sq0"]);
-    app.pinned = 1;
-    app.current = Some("sq0".into());
-    assert!(matches!(app.key(shift(KeyCode::Right)), Effect::Act(_)));
-    assert_eq!(app.tabs[..3], [crate::board::ALL, "sq1", "sq0"]);
-}
-
-#[test]
 fn switching_squads_never_moves_a_tab_or_blanks_the_frame() {
     let mut app = board(json!([
         {"title": null, "rows": [row("auth-fix", "blocked", "rotate", json!({}))]}
@@ -2559,7 +2340,7 @@ fn switching_squads_never_moves_a_tab_or_blanks_the_frame() {
     }
     assert_eq!(app.current.as_deref(), Some("reviews"));
     // Selection is a style, so the tab text is the same either way.
-    assert!(during[0].starts_with("  product    reviews "), "{during:?}");
+    assert_eq!(before[0], during[0], "selection never changes label width");
     assert_eq!(before[0].trim_end(), "  product    reviews");
     assert!(
         during[1].contains("loading"),
