@@ -6,7 +6,7 @@ import childProcess from 'node:child_process';
 import http from 'node:http';
 import { syncBuiltinESMExports } from 'node:module';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vite-plus/test';
-import { verifyColabApp } from '../../scripts/colab-runtime-proof.mjs';
+import { appEntries, expectedFiles, verifyColabApp } from '../../scripts/colab-runtime-proof.mjs';
 import { colabFixtureBinary } from '../support/colab-runtime-fixture.js';
 
 const { nativeHostTarget, verifyNativeRuntime } = await import(
@@ -24,6 +24,8 @@ beforeAll(() => {
     path.join(app, 'index.html'),
     '<!doctype html><script src="./assets/app.js"></script><link href="./assets/app.css" rel="stylesheet">tiny embedded app\n'
   );
+  writeFileSync(path.join(app, 'renderer.html'), '<!doctype html>tiny renderer\n');
+  writeFileSync(path.join(app, 'reader.html'), '<!doctype html>tiny reader\n');
   writeFileSync(path.join(app, 'assets/app.js'), "console.log('embedded fixture');\n");
   writeFileSync(path.join(app, 'assets/app.css'), 'body { color: blue; }\n');
   writeFileSync(path.join(app, 'THIRD-PARTY-NOTICES.txt'), 'Tiny app attribution\n');
@@ -211,4 +213,46 @@ describe('relocated native Colab app proof', () => {
       );
     }
   );
+});
+
+describe('declared app entries', () => {
+  it('reads the one declaration the native inventory compiles in', () => {
+    expect(appEntries()).toEqual({
+      html: ['index.html', 'renderer.html', 'reader.html'],
+      text: ['THIRD-PARTY-NOTICES.txt'],
+    });
+    expect(() => appEntries('html index.html extra\n')).toThrow('Invalid app entry declaration');
+    expect(() => appEntries('binary index.html\n')).toThrow('Invalid app entry declaration');
+    expect(() => appEntries('# only a comment\n')).toThrow('declares no entries');
+  });
+
+  it('accepts every declared entry (the alpha.4 reader.html regression) and nothing else', () => {
+    const inventory = (directory: string) => [...expectedFiles(directory).keys()].sort();
+    expect(inventory(app)).toEqual([
+      '/THIRD-PARTY-NOTICES.txt',
+      '/assets/app.css',
+      '/assets/app.js',
+      '/index.html',
+      '/reader.html',
+      '/renderer.html',
+    ]);
+    const copy = (name: string) => {
+      const directory = path.join(root, name);
+      fs.cpSync(app, directory, { recursive: true });
+      return directory;
+    };
+    const stray = copy('stray-app');
+    writeFileSync(path.join(stray, 'other.html'), 'x');
+    expect(() => expectedFiles(stray)).toThrow('Unexpected app entry: other.html');
+    for (const missing of [
+      'index.html',
+      'renderer.html',
+      'reader.html',
+      'THIRD-PARTY-NOTICES.txt',
+    ]) {
+      const incomplete = copy(`missing-${missing}`);
+      rmSync(path.join(incomplete, missing));
+      expect(() => expectedFiles(incomplete), missing).toThrow('Expected app is incomplete');
+    }
+  });
 });

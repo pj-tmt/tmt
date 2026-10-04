@@ -365,7 +365,13 @@ release evidence; TUI requires only Squad evidence.
 
 Leave open issues, PR items, other repositories and project membership unchanged.
 Recompute both owned fields, correcting stale terminal states and historical text. Complete
-discovery and the dry-run plan precede bounded batched mutations and one Project readback.
+discovery and the dry-run plan precede bounded batched mutations and a Project readback.
+Each mismatching issue reports expected and observed `Status` and `Released in` fields in
+the log and step summary. A mismatch triggers one correction planned from that fresh
+readback against the sweep's frozen delivery/publication evidence, with request budget
+reserved before correction writes. A second mismatching readback fails the gate; there
+is no polling or transport retry. Reopened, missing or newly epic issues fail before
+correction writes. Dry runs do not write, read back or retry.
 Correct false terminal status before replacing evidence; write valid release evidence before
 promoting to `Released`. Partial writes converge on the next authoritative full sweep,
 including recovery from built-in close/merge workflow writes. Runs serialize project-wide

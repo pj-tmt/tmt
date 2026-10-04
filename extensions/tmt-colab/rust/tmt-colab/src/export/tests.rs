@@ -24,17 +24,24 @@ impl Drop for Directory {
     }
 }
 fn bundle() -> Bundle {
-    let html = b"<p>exact\r\n\0</p>".to_vec();
-    let manifest = b"{\"plaintext\":true}".to_vec();
-    let files = vec![
-        FileInfo::new("page.html", &html),
-        FileInfo::new("manifest.json", &manifest),
+    let contents = vec![
+        b"<p>exact\r\n\0</p>".to_vec(),
+        b"{\"threads\":[]}".to_vec(),
+        b"# Conversations\n".to_vec(),
+        b"{\"plaintext\":true}".to_vec(),
     ];
-    Bundle {
-        html,
-        manifest,
-        files,
-    }
+    let names = [
+        "page.html",
+        "conversations.json",
+        "conversations.md",
+        "manifest.json",
+    ];
+    let files = names
+        .iter()
+        .zip(&contents)
+        .map(|(name, bytes)| FileInfo::new(name, bytes))
+        .collect();
+    Bundle { contents, files }
 }
 #[test]
 fn publication_is_create_only_private_and_cleans_only_its_staging() {
@@ -59,7 +66,7 @@ fn publication_is_create_only_private_and_cleans_only_its_staging() {
     assert!(bundle.publish_as(&dir.0, ID, |_, _| Ok(())).is_err());
     assert_eq!(
         fs::read(published.directory.join("page.html")).unwrap(),
-        bundle.html
+        bundle.contents[0]
     );
     assert_eq!(fs::read(foreign.join("keep")).unwrap(), b"foreign");
     assert_eq!(fs::read_dir(&dir.0).unwrap().count(), 2);
@@ -77,7 +84,7 @@ fn parent_aliases_resolve_once_but_generated_entries_never_follow_or_replace() {
     );
     assert_eq!(
         fs::read(aliased.directory.join("page.html")).unwrap(),
-        bundle().html
+        bundle().contents[0]
     );
     assert!(bundle().publish(&dir.0.join("missing")).is_err());
     assert!(bundle().publish(&dir.0.join("..")).is_err());
@@ -97,8 +104,11 @@ fn manifest_collision_reports_partial_output_and_preserves_foreign_bytes() {
     let dir = Directory::new();
     let error = bundle()
         .publish_as(&dir.0, ID, |_, phase| {
-            if phase == 1 {
-                assert!(dir.0.join(ID).join("page.html").exists());
+            // The manifest is linked last, after every other file.
+            if phase == 3 {
+                for name in ["page.html", "conversations.json", "conversations.md"] {
+                    assert!(dir.0.join(ID).join(name).exists(), "{name}");
+                }
                 assert!(!dir.0.join(ID).join("manifest.json").exists());
                 fs::write(dir.0.join(ID).join("manifest.json"), b"foreign")?;
             }
@@ -115,7 +125,7 @@ fn manifest_collision_reports_partial_output_and_preserves_foreign_bytes() {
     );
     assert_eq!(
         fs::read(dir.0.join(ID).join("page.html")).unwrap(),
-        bundle().html
+        bundle().contents[0]
     );
     assert!(!dir.0.join(format!(".tmt-colab-export-{ID}")).exists());
 }
@@ -137,7 +147,7 @@ fn changed_staging_identity_is_never_published_or_recursively_cleaned() {
     assert_eq!(fs::read(stage.join("keep")).unwrap(), b"foreign");
     assert_eq!(
         fs::read(displaced.join("page.html")).unwrap(),
-        bundle().html
+        bundle().contents[0]
     );
     assert!(!dir.0.join(ID).exists());
 }
@@ -190,21 +200,73 @@ fn renamed_destination_reports_failure_without_publishing_into_its_replacement()
     assert!(!destination.join(ID).exists());
     assert_eq!(
         fs::read(moved.join(ID).join("page.html")).unwrap(),
-        bundle().html
+        bundle().contents[0]
     );
     assert!(!moved.join(ID).join("manifest.json").exists());
     assert!(!moved.join(format!(".tmt-colab-export-{ID}")).exists());
 }
 
 #[test]
-fn shared_browser_fixture_matches_native_manifest_bytes_and_field_order() {
+fn shared_fixture_matches_the_native_bundle_bytes_and_field_order() {
+    use std::collections::BTreeMap;
     let fixture: serde_json::Value =
         serde_json::from_str(include_str!("../../../../contracts/vectors/export-v1.json")).unwrap();
     let input = &fixture["input"];
-    let files = [FileInfo::new(
-        "page.html",
-        input["source"].as_str().unwrap().as_bytes(),
-    )];
+    let own: BTreeMap<String, serde_json::Value> = input["own"]
+        .as_object()
+        .unwrap()
+        .iter()
+        .map(|(writer, roots)| (writer.clone(), roots.clone()))
+        .collect();
+    let keys: BTreeMap<String, [u8; 32]> = input["signingKeys"]
+        .as_object()
+        .unwrap()
+        .iter()
+        .map(|(writer, key)| {
+            let hex = key.as_str().unwrap();
+            let mut bytes = [0u8; 32];
+            for (i, byte) in bytes.iter_mut().enumerate() {
+                *byte = u8::from_str_radix(&hex[i * 2..i * 2 + 2], 16).unwrap();
+            }
+            (writer.clone(), bytes)
+        })
+        .collect();
+    let head = |input: &serde_json::Value| conversations::Head {
+        revision: input["membershipHead"]["revision"].as_str().unwrap().into(),
+        statement_hash: input["membershipHead"]["statementHash"]
+            .as_str()
+            .unwrap()
+            .into(),
+    };
+    let conversations = conversations::Conversations::project(
+        conversations::Capture {
+            space_id: input["spaceId"].as_str().unwrap(),
+            page_id: input["pageId"].as_str().unwrap(),
+            title: input["title"].as_str().unwrap(),
+            epoch: input["epoch"].as_str().unwrap(),
+            head: head(input),
+        },
+        &own,
+        &keys,
+    );
+    let json = conversations.json();
+    let markdown = conversations.markdown().into_bytes();
+    assert_eq!(
+        json,
+        fixture["conversationsJson"].as_str().unwrap().as_bytes()
+    );
+    assert_eq!(
+        markdown,
+        fixture["conversationsMarkdown"]
+            .as_str()
+            .unwrap()
+            .as_bytes()
+    );
+    let files = [
+        FileInfo::new("page.html", input["source"].as_str().unwrap().as_bytes()),
+        FileInfo::new("conversations.json", &json),
+        FileInfo::new("conversations.md", &markdown),
+    ];
     // Exercise the production native serializer, not a Value's map ordering.
     let manifest = serde_json::to_vec(&Manifest {
         format: "tmt-colab-page-export",
@@ -222,7 +284,12 @@ fn shared_browser_fixture_matches_native_manifest_bytes_and_field_order() {
         },
         epoch: input["epoch"].as_str().unwrap().into(),
         plaintext: true,
-        discussions: "not-included",
+        discussions: Discussions {
+            included: true,
+            scope: "current-epoch",
+            format: conversations::FORMAT,
+            version: 1,
+        },
         files: &files,
     })
     .unwrap();

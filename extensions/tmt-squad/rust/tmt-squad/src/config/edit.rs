@@ -4,22 +4,24 @@ use crate::split::{Size, Split};
 
 impl Config {
     fn setting_key_in_scope(key: &str, squad: Option<&str>) -> bool {
-        matches!(key, "board.refresh" | "tabs.order" | "tabs.hide")
-            || squad.is_some_and(|name| !crate::tabs::aggregate(name))
-                && (matches!(
-                    key,
-                    "layout"
-                        | "board.direction"
-                        | "board.sizes"
-                        | "board.panes"
-                        | "board.hidden_columns"
-                        | "notes.render"
-                        | "reminders.enabled"
-                        | "reminders.stale_after"
-                ) || key
-                    .strip_prefix("states.")
-                    .and_then(|name| name.strip_suffix(".color"))
-                    .is_some_and(field_name))
+        matches!(
+            key,
+            "board.refresh" | "board.ask_lead" | "tabs.order" | "tabs.hide"
+        ) || squad.is_some_and(|name| !crate::tabs::aggregate(name))
+            && (matches!(
+                key,
+                "layout"
+                    | "board.direction"
+                    | "board.sizes"
+                    | "board.panes"
+                    | "board.hidden_columns"
+                    | "notes.render"
+                    | "reminders.enabled"
+                    | "reminders.stale_after"
+            ) || key
+                .strip_prefix("states.")
+                .and_then(|name| name.strip_suffix(".color"))
+                .is_some_and(field_name))
     }
 
     pub fn can_edit_setting(&self, key: &str, squad: Option<&str>) -> bool {
@@ -144,6 +146,7 @@ impl Config {
     fn validate_setting_draft(&self, squad: Option<&str>, global: bool) -> Result<(), SquadError> {
         // Validate the global layer even if the chosen squad masks it.
         self.refresh("")?;
+        self.ask_lead("")?;
         self.tabs()?;
         self.settings(squad, false, None)?;
         if global && let Some(squads) = self.document.get("squad").and_then(Item::as_table_like) {

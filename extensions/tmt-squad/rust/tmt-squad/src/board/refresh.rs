@@ -627,6 +627,7 @@ fn squad_view(
         derived: Default::default(),
         rows,
         render: config.notes_render(&squad.name)?,
+        ask_lead: config.ask_lead(&squad.name)?,
         bindings: config.bindings_for_tab(&squad.name, tmux, &board.panes)?,
         section_bindings: sections.into_iter().map(|section| section.bind).collect(),
         configured_bindings: config.configured_bindings()?,
@@ -684,6 +685,7 @@ fn member_view(
             .collect()
     });
     let view = View {
+        ask_lead: config.ask_lead("")?,
         token_rate: None,
         home: None,
         derived: Default::default(),
@@ -729,6 +731,7 @@ fn all_view(
     let (loaded, home) = super::home::load(core, config, squads, tabs, me.as_ref())?;
     let bindings = config.bindings_for_tab(ALL, false, &[])?;
     let view = View {
+        ask_lead: config.ask_lead("")?,
         token_rate: None,
         home: Some(home),
         derived: Default::default(),

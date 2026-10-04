@@ -431,6 +431,7 @@ export function reconcile({
   repository,
   dryRun,
   projectId = PROJECT_ID,
+  reportReadbackMismatch = () => {},
   workspace,
   git = gitEvidence(),
   map = parseComponentMap(
@@ -454,12 +455,35 @@ export function reconcile({
   const plan = planUpdates(evidence, project);
   applyUpdates(api, project, plan, dryRun);
   if (!dryRun && plan.changes.length) {
-    const readback = readProject(api, projectId);
-    for (const item of items)
-      if (readback.items.get(item.content.id)?.content.state !== 'CLOSED')
-        throw new Error('Issue reopened during reconciliation; inspect the readback.');
-    if (planUpdates(evidence, readback).changes.length)
-      throw new Error(`Project readback did not match the plan. ${recovery}`);
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      const readback = readProject(api, projectId);
+      for (const item of items) {
+        const current = readback.items.get(item.content.id);
+        if (!current)
+          throw new Error(`Project item disappeared during reconciliation: ${item.content.url}.`);
+        if (current.content.state !== 'CLOSED')
+          throw new Error(`Issue reopened during reconciliation: ${item.content.url}.`);
+        if (current.content.labels.nodes.some(({ name }) => name.toLowerCase() === 'epic'))
+          throw new Error(`Issue became an epic during reconciliation: ${item.content.url}.`);
+      }
+      const correction = planUpdates(evidence, readback);
+      if (!correction.changes.length) break;
+      const details = [
+        `Project readback mismatch (attempt ${attempt}/2):`,
+        ...correction.changes.map(
+          (row) =>
+            `${row.issue} (${row.itemId}): expected ${quote({ Status: row.status, 'Released in': row.text })}; observed ${quote({ Status: row.current.status, 'Released in': row.current.text })}`
+        ),
+      ].join('\n');
+      reportReadbackMismatch(details);
+      if (attempt === 2)
+        throw new Error(
+          `Project readback did not match the plan after one correction.\n${details}\n${recovery}`
+        );
+      // Reuse frozen delivery evidence, but target only fields still wrong in the fresh readback.
+      // applyUpdates reserves the correction and its final readback before any retry write.
+      applyUpdates(api, readback, correction, false);
+    }
   }
   return {
     dryRun,
@@ -493,6 +517,17 @@ function renderPoints(points) {
 
 export function renderFailure(error, api) {
   return `Project release tracking failed: ${error.message}\nRequests: ${JSON.stringify(api.counts)}\n${renderPoints(api.points)}\n`;
+}
+
+function appendDiagnosticSummary(path, message) {
+  if (path)
+    appendFileSync(
+      path,
+      `\n${message
+        .split('\n')
+        .map((line) => `    ${line}`)
+        .join('\n')}\n\n`
+    );
 }
 
 export function renderSummary(result) {
@@ -540,13 +575,17 @@ export function main(env = process.env) {
       workspace,
       repository: env.GITHUB_REPOSITORY,
       dryRun: env.GITHUB_EVENT_NAME === 'workflow_dispatch' ? env.DRY_RUN !== 'false' : false,
+      reportReadbackMismatch: (details) => {
+        process.stderr.write(`${details}\n`);
+        appendDiagnosticSummary(env.GITHUB_STEP_SUMMARY, details);
+      },
     });
     const summary = renderSummary(result);
     process.stdout.write(summary);
     if (env.GITHUB_STEP_SUMMARY) appendFileSync(env.GITHUB_STEP_SUMMARY, summary);
   } catch (error) {
     const message = renderFailure(error, api);
-    if (env.GITHUB_STEP_SUMMARY) appendFileSync(env.GITHUB_STEP_SUMMARY, message);
+    appendDiagnosticSummary(env.GITHUB_STEP_SUMMARY, message);
     throw new Error(message);
   }
 }

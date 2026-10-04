@@ -3,7 +3,7 @@ import { ReaderApp, type ReaderState } from './reader-app.js';
 import { parseReaderFragment } from './reader-link.js';
 import { accessEnded, ReaderSession } from './reader.js';
 import 'virtual:tokens.css';
-import './style.css';
+import './reader-style.css';
 
 /** Public entry for a read-only link. The fragment holds the seed: it leaves the address bar
  * before anything else runs and is never stored, logged or sent to the server. */

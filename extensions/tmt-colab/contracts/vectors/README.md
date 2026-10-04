@@ -78,3 +78,8 @@ prefix. Browser Worker and isolated Rust decoder tests consume the identical
 positive and malformed-body bytes. Signed browser fixtures separately bind
 interleaved namespace headers, prefix sequence/hash and revoked-device cuts;
 these fixtures do not establish native store pruning or mounted sync delivery.
+
+`export-reference.py` independently implements the conversation projection, the JSON and Markdown
+renderings and the manifest from the written colab-v1 rules (stdlib plus `cryptography` Ed25519 over
+public RFC 8032 seeds). It regenerates `export-v1.json`, which native and browser tests consume without
+Python: `python3 export-reference.py` checks it, `--write` regenerates after review.

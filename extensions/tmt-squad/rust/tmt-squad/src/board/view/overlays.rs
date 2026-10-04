@@ -71,17 +71,17 @@ pub(super) fn render_switcher(frame: &mut Frame, app: &App, switcher: &Switcher,
     use std::sync::OnceLock;
     use tmt_tui::components::surface;
     const FILE: &str = "squad.switcher.xml";
-    const MARKUP: &str = r#"<tmt-view version="1"><tmt-picker id="switcher" title="switch" placement="center" class="w-48"><tmt-text id="query" slot="query" bind="$.query" token="text"/><tmt-list id="choices" bind="$.rows" empty="(no matching tab)"><tmt-row class="flex-row gap-1"><tmt-cell id="mark" bind="row.mark" class="w-1 shrink-0"/><tmt-cell bind="row.label" class="truncate-middle"/><tmt-cell bind="row.count" class="shrink-0"/><tmt-cell id="blocked" bind="row.blocked" class="shrink-0"/></tmt-row></tmt-list><tmt-text slot="footer" bind="$.footer" token="muted"/></tmt-picker></tmt-view>"#;
+    const MARKUP: &str = r#"<tmt-view version="1"><tmt-picker id="switcher" title="switch" placement="center" class="w-48"><tmt-text id="query" slot="query" bind="$.query" token="text"/><tmt-list id="choices" bind="$.rows" empty="(no matching tab)"><tmt-row class="flex-row gap-1"><tmt-cell bind="row.pick" class="w-3 shrink-0" token="muted"/><tmt-cell id="mark" bind="row.mark" class="w-1 shrink-0"/><tmt-cell bind="row.label" class="truncate-middle"/><tmt-cell bind="row.count" class="shrink-0"/><tmt-cell id="blocked" bind="row.blocked" class="shrink-0"/></tmt-row></tmt-list><tmt-text slot="footer" bind="$.footer" token="muted"/></tmt-picker></tmt-view>"#;
     static TEMPLATE: OnceLock<surface::Template<()>> = OnceLock::new();
     let template = TEMPLATE.get_or_init(|| {
         crate::board::picker_surface::compile(
             FILE,
             MARKUP,
-            crate::board::picker_surface::schema(&["mark", "label", "count", "blocked"]),
+            crate::board::picker_surface::schema(&["pick", "mark", "label", "count", "blocked"]),
         )
     });
     let look = app.look();
-    let keys = app.switchable();
+    let keys = app.switcher_keys();
     let query = switcher.query();
     let found = crate::board::tabs::matching(&keys, &query);
     let rows: Vec<_> = found.into_iter().map(|key| {
@@ -89,7 +89,7 @@ pub(super) fn render_switcher(frame: &mut Frame, app: &App, switcher: &Switcher,
         let (mark, count) = if attention.waiting > 0 { (Mark::Decision.symbol(), attention.waiting) }
             else if attention.blocked > 0 { (Mark::Failed.symbol(), attention.blocked) } else { (" ",0) };
         let label = if app.hidden.contains(key) { format!("{} (hidden)", crate::board::tabs::label(key)) } else { crate::board::tabs::label(key).into() };
-        serde_json::json!({"id":key,"disabled":false,"mark":mark,"label":label,"count":if count > 0 { count.to_string() } else { String::new() },
+        serde_json::json!({"id":key,"disabled":false,"pick":if app.picks.contains(key) { "[x]" } else { "[ ]" },"mark":mark,"label":label,"count":if count > 0 { count.to_string() } else { String::new() },
             "blocked":if attention.waiting > 0 && attention.blocked > 0 { format!("{}{}", Mark::Failed.symbol(), attention.blocked) } else { String::new() }})
     }).collect();
     let mut surface = switcher.surface.borrow_mut();
@@ -107,7 +107,25 @@ pub(super) fn render_switcher(frame: &mut Frame, app: &App, switcher: &Switcher,
             .query_visible(query_width.saturating_sub(2))
             .unwrap_or_default()
     );
-    let value = serde_json::json!({"rows":rows,"query":query,"footer":"↑↓ choose · Enter opens · Esc closes","status":"","notes":[]});
+    let pick_keys = app
+        .pick_keys()
+        .iter()
+        .map(|key| {
+            if key == "space" {
+                "Space".to_owned()
+            } else {
+                key.clone()
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("/");
+    let footer = if pick_keys.is_empty() {
+        "↑↓ choose · Enter opens · Esc closes".into()
+    } else {
+        format!("{pick_keys} pick/unpick · Enter opens · Esc closes")
+    };
+    let value =
+        serde_json::json!({"rows":rows,"query":query,"footer":footer,"status":"","notes":[]});
     surface.render(FILE, template, value, frame, look, body);
     let default = TabColors::default();
     let colors = app.view.as_ref().map_or(&default, |view| &view.tab_colors);

@@ -114,6 +114,12 @@ pub(crate) struct View {
     pub title: String,
     pub update: Vec<u8>,
     pub memory_limit: crate::decoder::MemoryLimit,
+    /// Each authenticated writer's decoded `own` projection (threads, messages, intents,
+    /// replies), as the isolated decoder returned and validated it.
+    pub own: BTreeMap<String, serde_json::Value>,
+    /// Each writer's historical signing key, from its cut-admitted envelopes. It gives no
+    /// fresh write authority; it only lets a reader verify what the writer signed.
+    pub signing_keys: BTreeMap<String, [u8; 32]>,
 }
 impl Snapshot {
     pub fn capture(store: &Store, key: &Keyring, page: &str) -> Result<Self> {
@@ -225,6 +231,7 @@ impl Snapshot {
         }
         let mut updates = Vec::new();
         let mut own_updates: BTreeMap<String, Vec<Vec<u8>>> = BTreeMap::new();
+        let mut signing_keys: BTreeMap<String, [u8; 32]> = BTreeMap::new();
         for (index, stored) in &self.objects {
             let cut = &self.cuts[*index];
             let envelope = object::Envelope::from_json(&stored.bytes)?;
@@ -357,6 +364,7 @@ impl Snapshot {
             if c.namespace == "content" {
                 updates.push(plaintext);
             } else {
+                signing_keys.insert(c.author_device.clone(), key_bytes);
                 own_updates
                     .entry(c.author_device.clone())
                     .or_default()
@@ -369,7 +377,8 @@ impl Snapshot {
             return Err(OwnerFault::Capacity.into());
         }
         let mut threads = 0;
-        for own in own_updates.values() {
+        let mut own_views = BTreeMap::new();
+        for (writer, own) in &own_updates {
             if own.iter().map(Vec::len).sum::<usize>() > crate::decoder::UPDATE_BYTES {
                 return Err(OwnerFault::Capacity.into());
             }
@@ -390,6 +399,7 @@ impl Snapshot {
             if threads > 1000 {
                 return Err(OwnerFault::Capacity.into());
             }
+            own_views.insert(writer.clone(), decoded.projection);
         }
         let refs = updates.iter().map(Vec::as_slice).collect::<Vec<_>>();
         let batch = UpdateBatch {
@@ -405,6 +415,8 @@ impl Snapshot {
         Ok(View {
             update: folded.merged,
             memory_limit: folded.memory_limit,
+            own: own_views,
+            signing_keys,
             source: folded.projection["html"]
                 .as_str()
                 .ok_or(OwnerFault::Invalid)?
