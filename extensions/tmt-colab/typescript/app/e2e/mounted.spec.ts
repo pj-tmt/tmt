@@ -418,7 +418,9 @@ test('trusted sharing confirms narrowing, retries frozen bytes and exposes a new
   await expect(dialog.getByLabel('Link seed')).toHaveCount(0);
   await dialog.getByRole('button', { name: 'Confirm create link' }).click();
   await expect(dialog.getByLabel('Link seed')).toHaveValue(/^[A-Za-z0-9_-]{43}$/);
-  await expect(dialog).toContainText('Reader access is not available yet');
+  await expect(dialog).toContainText(
+    'Opening shared links in this browser app is not available yet',
+  );
   await dialog.getByRole('button', { name: 'Manage another change' }).click();
   await dialog.getByLabel('Audience').selectOption('private');
   await expect(dialog).toContainText('links are revoked and affected pages rotate');
@@ -604,5 +606,7 @@ test('trusted home manages retention, archive and verified or awaiting deletion'
   await expect(page.locator('iframe')).toHaveCount(0);
   await dialog.getByRole('button', { name: 'Close', exact: true }).click();
   await expect(page.locator('.pages li')).toHaveCount(0);
-  await expect(page.getByText('No active pages.', { exact: true })).toBeVisible();
+  await expect(page.getByText('No pages in this space yet.', { exact: false })).toContainText(
+    'tmt colab page create',
+  );
 });

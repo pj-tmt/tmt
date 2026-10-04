@@ -17,6 +17,8 @@ import { text } from './strings.js';
 import { ExportPanel } from './export-panel.js';
 import { AskControl, AskPanel } from './ask-panel.js';
 
+const managementChanged = 'Management changed. Reopen the page to load its latest state.';
+
 const root = createRootRouteWithContext<{ transport: PageTransport }>()({
   component: Shell,
   errorComponent: ({ error }) => (
@@ -107,7 +109,13 @@ function ManageButton({ pageId, changed }: { pageId: string; changed?(): void })
   if (!port) return null;
   return (
     <>
-      <button onClick={() => setOpen(true)}>Manage page</button>
+      <button
+        onClick={(event) => {
+          if (event.isTrusted) setOpen(true);
+        }}
+      >
+        Manage page
+      </button>
       {open && (
         <ShareDialog
           port={port}
@@ -181,7 +189,7 @@ function Home() {
         </ul>
       ) : (
         <p>
-          {archived ? 'No archived pages.' : transport.management ? 'No active pages.' : text.empty}
+          {archived ? 'No archived pages.' : space.pages.length ? 'No active pages.' : text.empty}
         </p>
       )}
     </section>
@@ -291,7 +299,7 @@ function Page() {
           pageId={snapshot.id}
           changed={() => {
             snapshot.binding?.close();
-            setLiveError('Management changed. Reopen the page to load its latest state.');
+            setLiveError(managementChanged);
           }}
         />
         <span className={`status ${state === 'ready' ? 'live' : ''}`}>
@@ -305,7 +313,7 @@ function Page() {
       {view.ownData && <p role="status">{text.ownNotDisplayed}</p>}
       <AskControl
         key={`ask-control:${snapshot.id}`}
-        binding={snapshot.binding?.ask}
+        binding={liveError === managementChanged ? undefined : snapshot.binding?.ask}
         selection={selection}
         title={view.title || snapshot.title}
         blocked={!!liveError || state !== 'ready'}
@@ -369,7 +377,7 @@ function Page() {
         <AskPanel
           key={`ask-panel:${snapshot.id}`}
           records={view.asks}
-          binding={snapshot.binding?.ask}
+          binding={liveError === managementChanged ? undefined : snapshot.binding?.ask}
           blocked={!!liveError}
         />
       )}

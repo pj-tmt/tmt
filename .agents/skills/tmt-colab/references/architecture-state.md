@@ -118,3 +118,26 @@ in `acceptance/ask.spec.ts`.
 - `readers::Sessions` keeps at most 64 ephemeral challenges, tickets and active readers
   (`CAP`), with a one-minute challenge and ten-minute session. Readers are page- and
   epoch-scoped and never owner devices or writers (`readers.rs`).
+
+## Trusted browser management
+
+- `management.ts` owns frozen device-signed selections, transient link seeds and
+  projections from `Admission.statements()`. Its metadata reader reuses `Frames`
+  for current baseline/statement chunk transport without opening content or a Worker.
+  POST acknowledgments never change policy: verification requires the exact signed
+  revision/hash and matching change, even when later owner commits exist.
+- `mounted.ts` supplies one management facade through the existing tab lease and
+  current registration. Views and prepared requests retain their originating client;
+  session replacement refuses old mutations, while acknowledgment verification is
+  read-only under the new registration. It never opens another Remote session.
+- `share-dialog.tsx` supplies the trusted modal for share/member/link/history and
+  retention/archive/delete controls. `router.tsx` supplies active/archived home
+  filtering and refresh after changes; acknowledged or uncertain policy changes close the old
+  Live binding, including its writer and Ask preview/observer. Local samples have
+  no management capability.
+- Archive verification uses its same readable page. Delete uses another readable
+  page's owner log plus discovery absence and the frozen initiating context.
+  Without that evidence, last-page deletion remains acknowledged/awaiting
+  verification. A dropped/DENIED target socket never erases the acknowledgment.
+- Expiry stays unavailable until native durable update timestamps exist. The link
+  artifact is a transient ID/seed, not a new reader URL/import grammar.

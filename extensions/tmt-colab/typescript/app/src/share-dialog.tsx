@@ -135,6 +135,7 @@ export function ShareDialog({
     submitting.current = true;
     setPhase('busy');
     setError('');
+    setUnknown(false);
     let p = pending;
     try {
       p ??= await port.prepare(view, action.selection);
@@ -152,6 +153,8 @@ export function ShareDialog({
       const code = e instanceof ManagementError ? e.code : p ? 'UNKNOWN' : 'INVALID';
       setError(errors[code] ?? errors.UNKNOWN);
       setUnknown(code === 'UNKNOWN');
+      // A lost acknowledgment can still have changed page policy.
+      if (p && code === 'UNKNOWN') committed();
       setPhase('error');
     } finally {
       submitting.current = false;
@@ -163,6 +166,9 @@ export function ShareDialog({
       ref={dialog}
       className="management-dialog"
       aria-labelledby="management-title"
+      onClickCapture={(e) => {
+        if (!e.isTrusted) e.stopPropagation();
+      }}
       onCancel={(e) => {
         e.preventDefault();
         if (canClose && !pending) close();
@@ -227,8 +233,8 @@ export function ShareDialog({
             <div className="bearer">
               <p>
                 Copy this link ID and seed now. They are shown once and are never stored. Anyone
-                with the seed has bearer access. Reader access is not available yet; there is no
-                reader URL.
+                with the seed has bearer access. Opening shared links in this browser app is not
+                available yet; there is no reader URL.
               </p>
               <label>
                 Link ID
@@ -353,7 +359,7 @@ export function ShareDialog({
                     mode === 'public'
                       ? `Public is loopback-only. Publishing this page publishes ${view.page.history === 'shared' ? 'its shared history, including deleted text, snapshots, comments and agent replies' : 'the new current epoch and everything protected by its key thereafter'}. Previously public content cannot be made private again.`
                       : narrowing
-                        ? 'Existing links are revoked and affected pages rotate to fresh epochs. Previously public content cannot be made private again. Link sharing needs a new link identity.'
+                        ? `Existing links are revoked and affected pages rotate to fresh epochs: ${[...new Set([pageId, ...view.links.flatMap((link) => link.pages)])].sort().join(', ')}. Previously public content cannot be made private again. Link sharing needs a new link identity.`
                         : 'Link mode does not reactivate old links. Create a new link explicitly.',
                   );
                 }}
@@ -493,7 +499,7 @@ export function ShareDialog({
                 review(
                   { operation: 'link.add', value: newLink(role, [pageId]) },
                   'Create link',
-                  `Grant ${role} bearer access under ${view.page.history} history. Copy the seed once after verification; reader access is not available yet.`,
+                  `Grant ${role} bearer access under ${view.page.history} history. Copy the seed once after verification; opening shared links in this browser app is not available yet.`,
                 )
               }
             >

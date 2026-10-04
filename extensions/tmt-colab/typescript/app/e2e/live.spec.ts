@@ -1253,13 +1253,13 @@ test('baseline finishes before a signed large statement; exact owner log survive
   await page.getByRole('link', { name: 'Space home' }).click();
   await expect.poll(() => f.connections).toBe(0);
 });
-test('tampered statement reference preserves the verified prefix and publishes no renderer', async ({
+test('tampered statement reference blocks home metadata and preserves the verified prefix', async ({
   page,
   context,
 }) => {
   const f = await wire(context, undefined, undefined, 'hash');
   await page.goto(mount);
-  await page.getByRole('link', { name: new RegExp(v.page) }).click();
+  await expect(page.getByRole('link', { name: new RegExp(v.page) })).toHaveCount(0);
   await expect(page.getByRole('alert')).toBeVisible();
   await expect(page.locator('iframe')).toHaveCount(0);
   const log = await persistedLog(page);

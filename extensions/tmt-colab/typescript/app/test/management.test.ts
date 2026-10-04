@@ -500,3 +500,74 @@ it('keeps last-page deletion acknowledged and awaiting verification without tryi
   expect(transport.contexts).toEqual([]);
   expect(send).not.toHaveBeenCalled();
 });
+
+it('reads metadata after a baseline frame and verifies referenced statement chunks before publication', async () => {
+  const f = await fixture();
+  for (const forged of [false, true]) {
+    records.clear();
+    const hash = c.encodeBinary(f.log[1].head.hash);
+    let closed = 0,
+      stage = 0;
+    class Socket {
+      protocol = 'colab-sync-v1';
+      onopen: (() => void) | null = null;
+      onclose: (() => void) | null = null;
+      onerror: (() => void) | null = null;
+      onmessage: ((e: { data: string }) => void) | null = null;
+      constructor() {
+        queueMicrotask(() => this.onopen?.());
+      }
+      close() {
+        closed++;
+      }
+      send() {
+        const scope = { version: 1, space: v.space, page: v.page, epoch: '1' };
+        const frames = [
+          {
+            ...scope,
+            type: 'catchup',
+            streams: [],
+            more: true,
+            baseline: 'AA',
+            // Ciphertext is irrelevant to metadata: no opening/decoder capability.
+            baselineObject: { envelopeHash: hash, envelope: 'unopened-ciphertext' },
+            membershipHead: {
+              revision: '2',
+              statementHash: hash,
+              ownerKey: c.encodeBinary(f.boot.owner),
+              statements: [f.raw[0]],
+              more: true,
+            },
+          },
+          {
+            ...scope,
+            type: 'catchup',
+            streams: [],
+            more: true,
+            membership: { statements: [{ statementHash: hash }], more: false },
+          },
+          {
+            ...scope,
+            type: 'chunk',
+            statementHash: forged ? c.encodeBinary(new Uint8Array(32)) : hash,
+            index: 0,
+            count: 1,
+            bytes: f.raw[1],
+          },
+        ];
+        const frame = frames[stage++];
+        if (stage === 3) expect(records.get(`log:${v.space}`)).toEqual([f.raw[0]]);
+        queueMicrotask(() => this.onmessage?.({ data: JSON.stringify(frame) }));
+      }
+    }
+    vi.stubGlobal('WebSocket', Socket);
+    if (forged) {
+      await expect(managementLog(mount, f.boot, page, f.registration)).rejects.toThrow();
+      expect(records.get(`log:${v.space}`)).toEqual([f.raw[0]]);
+    } else {
+      expect((await managementLog(mount, f.boot, page, f.registration)).length).toBe(2);
+      expect(records.get(`log:${v.space}`)).toEqual(f.raw);
+    }
+    expect(closed).toBe(1);
+  }
+});

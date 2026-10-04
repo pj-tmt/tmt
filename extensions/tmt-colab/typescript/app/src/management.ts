@@ -15,6 +15,7 @@ import {
 } from '@tmt/colab-client';
 import type { statement } from '@tmt/colab-client';
 import { Admission } from './admission.js';
+import { Frames } from './frames.js';
 import { discover, type Bootstrap, type PageInfo } from './bootstrap.js';
 import { jsonResponse, verifyRegistration, type Registration } from './registration.js';
 
@@ -178,12 +179,14 @@ export async function managementLog(
       if (stopped) return;
       stopped = true;
       clearTimeout(timer);
+      frames.close();
       signal?.removeEventListener('abort', abort);
       socket.onopen = socket.onmessage = socket.onclose = socket.onerror = null;
       socket.close();
       if (error) reject(error);
       else resolve(a.statements());
     };
+    const frames = new Frames(a, finish);
     const abort = () => finish(new ManagementError('UNAVAILABLE'));
     const timer = setTimeout(() => finish(new ManagementError('UNAVAILABLE')), 10_000);
     const send = (type: string, fields: Record<string, unknown>) =>
@@ -213,9 +216,12 @@ export async function managementLog(
       tasks = tasks
         .then(async () => {
           if (stopped) return;
-          const v = strictJson(text(raw), 64 * 1024, true);
-          requireValue(v !== null && typeof v === 'object' && !Array.isArray(v));
-          const frame = v as Record<string, unknown>;
+          const frame = frames.receive(raw);
+          if (!frame) {
+            send('ack', { cursors: [] });
+            return;
+          }
+          const v = frame;
           requireValue(
             frame.version === 1 &&
               frame.space === boot.space &&
@@ -236,7 +242,10 @@ export async function managementLog(
             'more',
             started ? 'membership' : 'membershipHead',
           ];
-          if (!started) keys.push('baseline');
+          if (!started) {
+            keys.push('baseline');
+            if (Object.hasOwn(frame, 'baselineObject')) keys.push('baselineObject');
+          }
           exactKeys(v, keys);
           requireValue(
             v.type === 'catchup' &&

@@ -116,6 +116,14 @@ embedded assets; restart serve to adopt disk builds.
 - The `@tmt/colab-app` lint and format config lives in its Vite configuration
   (single quotes, trailing commas, 100 columns, import/package-key sorting off).
 
+Browser management checks are `test/management.test.ts` (real signatures,
+policy/acknowledgment verification and metadata framing), `test/mounted.test.ts`
+(tab/session fencing), `e2e/mounted.spec.ts` (parent chrome and screenshots), and
+`acceptance/management.spec.ts` (real native management with paired Chromium).
+Run app gates and the real-binary lifecycle acceptance after changing mounted
+management/Ask lifetimes. Use a seat-owned `COLAB_APP_TEST_PORT`, not the default
+4179 on a shared machine; the acceptance harness picks private free ports.
+
 Browser client (three engines):
 
 ```sh
