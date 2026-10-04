@@ -184,6 +184,7 @@ fn pages_follow_the_forwarded_owner_context_within_the_door_bounds() {
     let server = Running::start(Tunnels::PRODUCT);
     let private = server.request(&Running::get("/", ""));
     assert!(private.starts_with("HTTP/1.1 200"));
+    assert!(private.contains("<title>Colab</title>"));
     assert!(private.contains("<h1>Pair this browser first</h1>"));
     assert!(private.contains("This colab space is private. Pair this browser with"));
     assert!(private.contains("<code>tmt remote pair</code>"));
