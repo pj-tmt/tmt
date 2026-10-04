@@ -2299,9 +2299,9 @@ fn the_switcher_filters_every_tab_and_opens_the_chosen_one() {
         listed,
         [
             "› qt▏",
-            "quiet (hidden)",
+            "[x]   quiet (hidden)",
             "1–1 of 1",
-            "↑↓ choose · Enter opens · Esc closes"
+            "Space pick/unpick · Enter opens · Esc closes"
         ],
         "{screen:#?}"
     );
