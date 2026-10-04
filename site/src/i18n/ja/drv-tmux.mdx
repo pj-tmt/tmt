@@ -1,6 +1,6 @@
 ---
 source: site/src/chapters/drv-tmux.mdx
-sourceRevision: bce18dac6f51c59c018cbae56d5003216618c559
+sourceRevision: db04c606ab4d2a6b32414ee0211452088a2f7511
 title: tmux：agent の実行場所
 ---
 
@@ -38,8 +38,8 @@ import { Badge, BadgeBorders, DriverCard } from "../../components/samples";
     [
       "設定",
       <>
-        不要です。バッジを使う場合は <code>tmt config set ui.paneBadge on --global</code>{" "}
-        を実行します。
+        不要です。バッジは既定で有効です。オフにするには{" "}
+        <code>tmt config set ui.paneBadge off --global</code> を実行します。
       </>,
     ],
   ]}
@@ -51,11 +51,11 @@ import { Badge, BadgeBorders, DriverCard } from "../../components/samples";
 
 <Mdx.h3 id="the-pane-badge">ペインのバッジ</Mdx.h3>
 
-一度有効にすると、名前の付いた各ペインに小さなラベルが付きます。自分のペインの枠に配置できます。
+名前の付いた各ペインに小さなラベルが付き、自分のペインの枠に配置できます。既定で有効です。
 
 <BadgeBorders />
 
-<Cmd>{`$ tmt config set ui.paneBadge on --global`}</Cmd>
+<Cmd>{`$ tmt config set ui.paneBadge off --global   # オフにする`}</Cmd>
 
 次の断片を、自分の `pane-border-format` の表示したい位置に追加します。
 
