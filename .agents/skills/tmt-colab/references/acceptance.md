@@ -52,6 +52,12 @@ browsers register: each paired device registers when it first opens the app.
 
 ## Cases
 
+`one-command.spec.ts` (#1584) starts only `tmt-colab serve` (`startServe`): Colab starts the
+real `tmt-remote` door through the real core's public CLI, a paired device opens the printed
+link and a created page, and stopping Colab closes the door it started (`doorAnswers`).
+`world.linkExtensions()` puts `tmt-remote` and `tmt-colab` on the world's PATH, which is how
+the core resolves `tmt remote`. The attach case needs `tmt remote status --json` (#1571).
+
 `discussion.spec.ts` covers two paired writers and comment-origin Ask. Its module
 contracts and focused cases are described in [discussion.md](discussion.md).
 

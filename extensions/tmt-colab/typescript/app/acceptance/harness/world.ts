@@ -172,6 +172,20 @@ export class AcceptanceWorld {
       throw new Error('Could not identify the private tmux server');
   }
 
+  /**
+   * Put the built `tmt-remote` and `tmt-colab` on the world's PATH, which is how the real core
+   * resolves `tmt remote ...` (the public CLI Colab uses to attach to or start the door).
+   */
+  linkExtensions(): void {
+    for (const [name, target] of [
+      ['tmt-remote', this.binaries.remote],
+      ['tmt-colab', this.binaries.colab],
+    ] as const) {
+      const link = path.join(this.wrapperDirectory, name);
+      if (!fs.existsSync(link)) fs.symlinkSync(target, link);
+    }
+  }
+
   tmux(args: string[]): string {
     return execFileSync(path.join(this.wrapperDirectory, 'tmux'), args, {
       env: this.env(),

@@ -1258,15 +1258,302 @@ fn serve_names_the_link_only_when_a_door_runs_and_reports_the_decoder_once() {
         kill(Pid::from_raw(child.id() as i32), Signal::SIGTERM).unwrap();
         child.wait().unwrap();
         if door {
-            assert!(
-                text.contains("http://127.0.0.1:53253/r/3e2c69f7/x/colab/"),
-                "{text}"
-            );
+            assert!(text.contains("http://127.0.0.1:53253"), "{text}");
         } else {
-            assert!(
-                text.contains("start tmt remote serve, then open colab"),
-                "{text}"
-            );
+            assert!(text.contains("local only"), "{text}");
         }
     }
+}
+
+const READY: &str = r#"{"profile":"local-v1","binding":"loopback-http","state":"ready","address":"http://127.0.0.1:53253/r/3e2c69f7","machineId":"m","windowId":"w","startupCoreCalls":2}"#;
+const STOPPED: &str = r#"{"running":false,"lastPort":53253}"#;
+const PAGE_LINK: &str = "http://127.0.0.1:53253/r/3e2c69f7/x/colab/";
+/// What the stand-in for `tmt remote serve --json` does.
+#[derive(Clone, Copy)]
+enum Serve {
+    /// Exits at once, like a missing extension or a held lock.
+    Fail,
+    /// Prints its descriptor, then runs until SIGTERM.
+    Hold,
+    /// Prints its descriptor, then dies on its own.
+    Crash,
+    /// Runs until SIGTERM without ever printing a descriptor.
+    Silent,
+    /// Like `Hold`, but its real work is a grandchild that outlives a leader exiting on SIGTERM,
+    /// as a wrapper process in front of the door does.
+    Wrapped,
+}
+impl Pilot {
+    /// A core stand-in with a scripted Remote: `status` is its `remote status --json` answer
+    /// (`None` fails, as an absent extension does); every other command is the fixture core.
+    fn remote_core(&self, status: Option<&str>, serve: Serve) -> PathBuf {
+        let path = self.root.join("core-remote");
+        let status = status.map_or("exit 1".to_owned(), |s| {
+            format!("printf '%s\\n' {}\nexit 0", quote(s))
+        });
+        let hold = "trap 'touch serve.term; exit 0' TERM\nwhile :; do sleep 0.1; done";
+        let serve = match serve {
+            Serve::Fail => "exit 2".to_owned(),
+            Serve::Hold => format!("printf '%s\\n' {}\n{hold}", quote(READY)),
+            Serve::Crash => format!("printf '%s\\n' {}\nsleep 0.5\nexit 3", quote(READY)),
+            Serve::Silent => hold.to_owned(),
+            Serve::Wrapped => format!(
+                "sleep 300 &\necho $! > serve.grandchild\nprintf '%s\\n' {}\ntrap 'exit 0' TERM\nwait",
+                quote(READY)
+            ),
+        };
+        let script = format!(
+            "#!/bin/sh\ncd {root} || exit 9\ncase \"$1 $2 $3\" in\n'remote status --json')\n{status}\n;;\n'remote devices --json')\n[ -f devices.json ] && cat devices.json && exit 0\nexit 1\n;;\n'remote serve --json')\nprintf '%s\\n' \"$*\" >> serve.calls\necho $$ > serve.pid\n{serve}\n;;\nesac\nexec {core} \"$@\"\n",
+            root = quote(self.root.to_str().unwrap()),
+            core = quote(self.root.join("core").to_str().unwrap()),
+        );
+        fs::write(&path, script).unwrap();
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o700)).unwrap();
+        path
+    }
+    /// What the scripted Remote answers to `devices --json`; absent means it gives no answer.
+    fn devices(&self, json: &str) {
+        fs::write(self.root.join("devices.json"), json).unwrap();
+    }
+    fn serve_pid(&self) -> Option<Pid> {
+        let text = fs::read_to_string(self.root.join("serve.pid")).ok()?;
+        Some(Pid::from_raw(text.trim().parse().ok()?))
+    }
+}
+/// A running `tmt-colab serve` whose output goes to files, so no pipe end leaks to other tests.
+struct Serving {
+    child: Child,
+    out: PathBuf,
+    err: PathBuf,
+}
+impl Serving {
+    fn start(pilot: &Pilot, core: PathBuf, args: &[&str]) -> Self {
+        let out = pilot.root.join("serve.out");
+        let err = pilot.root.join("serve.err");
+        let child = pilot
+            .command()
+            .env("TMT_EXECUTABLE", core)
+            .arg("serve")
+            .args(args)
+            .stdout(fs::File::create(&out).unwrap())
+            .stderr(fs::File::create(&err).unwrap())
+            .spawn()
+            .unwrap();
+        Self { child, out, err }
+    }
+    fn wait_for(path: &PathBuf, needle: &str) -> String {
+        let deadline = Instant::now() + Duration::from_secs(10);
+        loop {
+            let text = fs::read_to_string(path).unwrap_or_default();
+            if text.contains(needle) {
+                return text;
+            }
+            assert!(Instant::now() < deadline, "no {needle:?} in {text:?}");
+            thread::sleep(Duration::from_millis(20));
+        }
+    }
+    /// The first JSON line, once printed.
+    fn ready(&self) -> Value {
+        let text = Self::wait_for(&self.out, "\n");
+        serde_json::from_str(text.lines().next().unwrap()).unwrap()
+    }
+    fn running(&mut self) -> bool {
+        self.child.try_wait().unwrap().is_none()
+    }
+    /// Signals the foreground process and requires a clean, bounded exit.
+    fn stop(&mut self, signal: Signal) {
+        kill(Pid::from_raw(self.child.id() as i32), signal).unwrap();
+        let deadline = Instant::now() + Duration::from_secs(10);
+        loop {
+            if let Some(status) = self.child.try_wait().unwrap() {
+                assert!(status.success(), "{status:?}");
+                return;
+            }
+            assert!(Instant::now() < deadline, "serve did not stop");
+            thread::sleep(Duration::from_millis(20));
+        }
+    }
+}
+impl Drop for Serving {
+    fn drop(&mut self) {
+        let _ = self.child.kill();
+        let _ = self.child.wait();
+    }
+}
+fn pid_file(pilot: &Pilot, name: &str) -> Pid {
+    Pid::from_raw(
+        fs::read_to_string(pilot.root.join(name))
+            .unwrap()
+            .trim()
+            .parse()
+            .unwrap(),
+    )
+}
+fn assert_gone(pid: Pid) {
+    assert_eq!(kill(pid, None), Err(Errno::ESRCH), "process {pid} leaked");
+}
+#[test]
+fn serve_attaches_to_a_running_door_and_says_what_to_do_next() {
+    let pilot = Pilot::new(None);
+    pilot.devices(r#"{"devices":[]}"#);
+    let mut serving = Serving::start(&pilot, pilot.remote_core(Some(DOOR), Serve::Fail), &[]);
+    let text = Serving::wait_for(&serving.out, "Pair this browser");
+    // Whole values in the existing LOCAL SPACE layout: state first, then the next steps.
+    for wanted in [
+        "LOCAL SPACE",
+        "(ready)",
+        "attached · http://127.0.0.1:53253",
+        "no",
+        "create one: tmt colab page create --title <title>",
+        "Pair this browser once: tmt remote pair",
+    ] {
+        assert!(text.contains(wanted), "{wanted:?} missing in {text}");
+    }
+    serving.stop(Signal::SIGTERM);
+    assert!(!pilot.root.join("serve.calls").exists());
+}
+#[test]
+fn serve_starts_a_door_without_a_port_and_stops_it_with_ctrl_c() {
+    let pilot = Pilot::new(None);
+    let mut serving = Serving::start(
+        &pilot,
+        pilot.remote_core(Some(STOPPED), Serve::Hold),
+        &["--json"],
+    );
+    let ready = serving.ready();
+    assert_eq!(ready["door"], "started");
+    assert_eq!(ready["url"], PAGE_LINK);
+    // Pairing could not be read: not claimed either way, and the step stays on offer.
+    assert!(ready["paired"].is_null());
+    assert_eq!(
+        ready["next"],
+        json!(["tmt remote pair", "tmt colab page create --title <title>"])
+    );
+    // Remote owns the port policy: Colab passes none and never retries.
+    assert_eq!(
+        fs::read_to_string(pilot.root.join("serve.calls")).unwrap(),
+        "remote serve --json\n"
+    );
+    let door = pilot.serve_pid().unwrap();
+    assert_eq!(kill(door, None), Ok(()));
+    serving.stop(Signal::SIGINT);
+    assert!(pilot.root.join("serve.term").exists());
+    assert_gone(door);
+}
+#[test]
+fn serve_without_remote_runs_local_only_and_names_the_install_step() {
+    let pilot = Pilot::new(None);
+    let mut serving = Serving::start(&pilot, pilot.remote_core(None, Serve::Fail), &["--json"]);
+    let ready = serving.ready();
+    assert_eq!(ready["door"], "unavailable");
+    assert!(ready["url"].is_null() && ready["origin"].is_null() && ready["paired"].is_null());
+    assert_eq!(
+        ready["next"],
+        json!(["tmt colab page create --title <title>"])
+    );
+    assert_eq!(
+        ready["warning"],
+        "Browser access needs the Remote extension: tmt extension install remote --yes"
+    );
+    assert!(serving.running());
+    serving.stop(Signal::SIGTERM);
+}
+#[test]
+fn serve_with_a_door_that_will_not_start_keeps_the_local_space_without_the_install_line() {
+    let pilot = Pilot::new(None);
+    let mut serving = Serving::start(&pilot, pilot.remote_core(Some(STOPPED), Serve::Fail), &[]);
+    let warning = Serving::wait_for(&serving.err, "did not start");
+    assert!(
+        warning.starts_with("warning:") || warning.contains("warning:"),
+        "{warning}"
+    );
+    assert!(!warning.contains("extension install"), "{warning}");
+    assert!(warning.contains("tmt remote serve shows why"), "{warning}");
+    let text = Serving::wait_for(&serving.out, "local only");
+    assert!(
+        text.contains("unavailable") && !text.contains("pair"),
+        "{text}"
+    );
+    serving.stop(Signal::SIGTERM);
+}
+#[test]
+fn a_door_that_dies_is_reported_and_the_local_space_keeps_running() {
+    let pilot = Pilot::new(None);
+    let mut serving = Serving::start(
+        &pilot,
+        pilot.remote_core(Some(STOPPED), Serve::Crash),
+        &["--json"],
+    );
+    assert_eq!(serving.ready()["door"], "started");
+    let warning = Serving::wait_for(&serving.err, "exited with status 3");
+    assert!(warning.contains("keeps running"), "{warning}");
+    assert!(serving.running());
+    serving.stop(Signal::SIGTERM);
+    assert_gone(pilot.serve_pid().unwrap());
+}
+#[test]
+fn ctrl_c_while_a_door_is_still_starting_stops_it_and_leaves_nothing_behind() {
+    let pilot = Pilot::new(None);
+    let mut serving = Serving::start(
+        &pilot,
+        pilot.remote_core(Some(STOPPED), Serve::Silent),
+        &["--json"],
+    );
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while pilot.serve_pid().is_none() {
+        assert!(Instant::now() < deadline, "door never started");
+        thread::sleep(Duration::from_millis(20));
+    }
+    let door = pilot.serve_pid().unwrap();
+    serving.stop(Signal::SIGINT);
+    assert_gone(door);
+}
+#[test]
+fn stopping_serve_stops_everything_a_wrapped_door_left_behind() {
+    let pilot = Pilot::new(None);
+    let mut serving = Serving::start(
+        &pilot,
+        pilot.remote_core(Some(STOPPED), Serve::Wrapped),
+        &["--json"],
+    );
+    assert_eq!(serving.ready()["door"], "started");
+    let grandchild = pid_file(&pilot, "serve.grandchild");
+    assert_eq!(kill(grandchild, None), Ok(()));
+    serving.stop(Signal::SIGTERM);
+    assert_gone(pid_file(&pilot, "serve.pid"));
+    assert_gone(grandchild);
+}
+#[test]
+fn a_paired_space_with_a_page_prints_its_link_and_no_pairing_step() {
+    let pilot = Pilot::new(None);
+    pilot.devices(r#"{"devices":[{"revoked":true},{"revoked":false,"name":"laptop"}]}"#);
+    let created = pilot.call(&["page", "create", "--title", "First", "--json"]);
+    let page = created["pageId"].as_str().unwrap();
+    let mut serving = Serving::start(
+        &pilot,
+        pilot.remote_core(Some(DOOR), Serve::Fail),
+        &["--json"],
+    );
+    let ready = serving.ready();
+    assert_eq!(ready["door"], "attached");
+    assert_eq!(ready["origin"], "http://127.0.0.1:53253");
+    assert_eq!(ready["paired"], true);
+    assert_eq!(ready["devices"], 1);
+    assert_eq!(ready["pages"], 1);
+    assert_eq!(
+        ready["page"],
+        format!(
+            "http://127.0.0.1:53253/r/3e2c69f7/x/colab/#space={}&path=%2Fpages%2F{page}",
+            ready["spaceId"].as_str().unwrap()
+        )
+    );
+    assert_eq!(ready["next"], json!([]));
+    assert!(ready["warning"].is_null());
+    serving.stop(Signal::SIGTERM);
+    // The human form drops the pairing row too.
+    let mut serving = Serving::start(&pilot, pilot.remote_core(Some(DOOR), Serve::Fail), &[]);
+    let text = Serving::wait_for(&serving.out, "yes (1 device)");
+    assert!(!text.contains("Pair this browser"), "{text}");
+    assert!(text.contains(&format!("%2Fpages%2F{page}")), "{text}");
+    serving.stop(Signal::SIGTERM);
 }
