@@ -40,7 +40,10 @@ pub fn render(frame: &mut Frame, app: &App) {
     let home_usage = (!app.loading())
         .then(|| app.home_header_usage(std::time::Instant::now()))
         .flatten()
-        .and_then(|usage| super::home::usage(&usage, frame.area().width, app.look()));
+        .zip(app.view.as_ref())
+        .and_then(|(usage, view)| {
+            super::home::usage_of(view, &usage, frame.area().width, app.look())
+        });
     render_frame(frame, app, home_usage);
 }
 
@@ -75,11 +78,10 @@ pub(in crate::board) fn render_frame(
     let summary_text = app
         .view
         .as_ref()
-        .filter(|_| !app.loading())
-        .and_then(|view| view.home.as_ref())
+        .filter(|view| !app.loading() && view.home.is_some())
         .map_or_else(
             || header::summary_line(app),
-            |home| super::home::summary(home, summary.width, look),
+            |view| super::home::summary_of(view, summary.width, look),
         );
     let summary_area =
         header::meter_region(app, summary).map_or(summary, |(meter, _)| ratatui::layout::Rect {

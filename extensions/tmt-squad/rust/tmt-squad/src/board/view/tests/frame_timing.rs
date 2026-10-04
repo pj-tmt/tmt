@@ -95,11 +95,10 @@ fn render_replica(frame: &mut Frame, app: &App, lap: &mut Lap) {
     let summary_text = app
         .view
         .as_ref()
-        .filter(|_| !app.loading())
-        .and_then(|view| view.home.as_ref())
+        .filter(|view| !app.loading() && view.home.is_some())
         .map_or_else(
             || header::summary_line(app),
-            |home| crate::board::home::summary(home, summary.width, look),
+            |view| crate::board::home::summary_of(view, summary.width, look),
         );
     let summary_area = header::meter_region(app, summary).map_or(summary, |(meter, _)| Rect {
         width: meter.x.saturating_sub(summary.x).saturating_sub(2),

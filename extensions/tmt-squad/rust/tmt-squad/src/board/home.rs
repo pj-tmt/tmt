@@ -301,7 +301,7 @@ pub(super) mod tests;
 mod controller;
 mod paint;
 pub(super) use controller::{ALL_LEADS, CRON, LEADS, Target};
-pub(super) use paint::{age_label, hints, render, summary, usage};
+pub(super) use paint::{age_label, hints_of, render, summary_of, usage_of};
 
 /// The painted sections of one immutable view, each held with the key it was
 /// painted for (see `scene::Key`). A new snapshot starts empty, like the rows'
@@ -314,6 +314,10 @@ pub(super) struct Scenes {
     audience: scene::Kept<rows::Block>,
     cron: scene::Kept<rows::Block>,
     squads: scene::Kept<tiles::TilePaint>,
+    /// The strips outside the body.
+    summary: scene::Kept<ratatui::text::Line<'static>>,
+    usage: scene::Kept<Option<ratatui::text::Line<'static>>>,
+    hints: scene::Kept<String>,
 }
 
 impl Scenes {
@@ -328,6 +332,9 @@ impl Scenes {
             + self.audience.builds
             + self.cron.builds
             + self.squads.builds
+            + self.summary.builds
+            + self.usage.builds
+            + self.hints.builds
     }
 }
 

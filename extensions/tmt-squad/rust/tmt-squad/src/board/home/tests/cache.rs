@@ -165,7 +165,7 @@ fn a_selection_move_repaints_only_the_sections_it_touches() {
 }
 
 #[test]
-fn width_and_look_repaint_every_section() {
+fn width_and_look_repaint_the_sections() {
     let mut app = rich();
     capture(&app, 160);
     let first = builds(&app);
@@ -173,7 +173,12 @@ fn width_and_look_repaint_every_section() {
     assert_eq!(builds(&app), first * 2, "a new width repaints all");
     app.view.as_mut().unwrap().look = look("tmt-light", Depth::TrueColor);
     capture(&app, 100);
-    assert_eq!(builds(&app), first * 3, "a new look repaints all");
+    // The key line takes no style, so only it keeps its paint.
+    assert_eq!(
+        builds(&app),
+        first * 2 + first - 1,
+        "a new look repaints all but the key line"
+    );
 }
 
 /// Ages are formatted before the data is bound, so a changed label is a changed key,
@@ -204,4 +209,33 @@ fn an_age_label_change_repaints_the_sections_that_show_it() {
         draw(now + 3 * 86_400_000)
     };
     assert_eq!(later, cold, "and read what a cold paint reads");
+}
+
+/// The strips outside the body are held the same way: the usage line follows its
+/// data and width, and the key line follows the cron hint.
+#[test]
+fn the_header_usage_and_key_line_follow_their_inputs() {
+    let app = rich();
+    let view = app.view.as_ref().unwrap();
+    let mut usage = super::interaction::header_usage();
+    for width in [160, 140, 100, 99, 80] {
+        let held = paint::usage_of(view, &usage, width, app.look());
+        let again = paint::usage_of(view, &usage, width, app.look());
+        assert_eq!(held, paint::usage(&usage, width, app.look()), "{width}");
+        assert_eq!(again, held, "{width}");
+        for cron in [false, true] {
+            assert_eq!(
+                paint::hints_of(view, width.into(), cron),
+                paint::hints(width.into(), cron),
+                "{width} cron {cron}"
+            );
+        }
+    }
+    let before = builds(&app);
+    paint::usage_of(view, &usage, 80, app.look());
+    paint::hints_of(view, 80, true);
+    assert_eq!(builds(&app), before, "the held strips paint nothing");
+    usage.unreported += 1;
+    paint::usage_of(view, &usage, 160, app.look());
+    assert_eq!(builds(&app), before + 1, "new usage data repaints the line");
 }

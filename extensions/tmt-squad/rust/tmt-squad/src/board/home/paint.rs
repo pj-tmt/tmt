@@ -6,10 +6,11 @@ use super::{
 };
 use crate::{
     board::{
-        app::{App, Hit},
+        app::{App, Hit, HomeHeaderUsage, View},
         view::fit,
     },
     config::Pane,
+    look::Look,
 };
 use ratatui::{Frame, layout::Rect, text::Line};
 use std::ops::Range;
@@ -22,6 +23,37 @@ pub(super) fn rule(title: &str, width: usize) -> String {
     fit(&format!("{title}{}", "─".repeat(tail)), width)
 }
 
+/// The strips outside the body, held in the view like the body's sections.
+pub(crate) fn summary_of(view: &View, width: u16, look: Look) -> Line<'static> {
+    let home = view.home.as_ref().expect("a home view has a model");
+    super::bar::summary_in(
+        &mut view.derived.borrow_mut().home.summary,
+        home,
+        width,
+        look,
+    )
+}
+
+pub(crate) fn usage_of(
+    view: &View,
+    usage: &HomeHeaderUsage<'_>,
+    width: u16,
+    look: Look,
+) -> Option<Line<'static>> {
+    super::bar::usage_in(
+        &mut view.derived.borrow_mut().home.usage,
+        usage,
+        width,
+        look,
+    )
+}
+
+pub(crate) fn hints_of(view: &View, width: usize, cron: bool) -> String {
+    super::bar::hints_in(&mut view.derived.borrow_mut().home.hints, width, cron)
+}
+
+/// The strips painted from nothing, for tests of the strips themselves.
+#[cfg(test)]
 pub(crate) use super::bar::{hints, summary, usage};
 
 pub(crate) fn age_label(age: &Age, now: u64) -> String {

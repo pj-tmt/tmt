@@ -5,7 +5,7 @@
 //! stays measurement that feeds the branch it belongs to.
 use super::{
     Counts, Home,
-    scene::{self, Painted, Part},
+    scene::{self, Kept, Key, Painted, Part},
 };
 use crate::{
     board::{
@@ -80,12 +80,13 @@ fn data(branches: &[(&str, Vec<Piece>)]) -> Value {
 }
 
 /// A plain piece (`raw…`) takes no style; a tagged one (`p…`) takes its role's.
-fn paint(file: &str, template: &Template<()>, data: &Value, width: u16, look: Look) -> Painted {
+fn paint(key: &Key, file: &str, template: &Template<()>) -> Painted {
+    let look = key.look;
     scene::paint(
         file,
         template,
-        data,
-        width,
+        &key.data,
+        key.width,
         &mut |Part { id, role, .. }| {
             let style = match id.and_then(<[String]>::last) {
                 Some(piece) if piece.starts_with('p') => look.role(role),
@@ -140,7 +141,18 @@ fn lines(painted: Painted) -> Option<Line<'static>> {
 
 /// The summary: squads and members in words from `lg`, squads and the five
 /// counts alone below it.
+#[cfg(test)]
 pub(crate) fn summary(home: &Home, width: u16, look: Look) -> Line<'static> {
+    summary_in(&mut Kept::default(), home, width, look)
+}
+
+/// The summary, painted again only when its key changed.
+pub(super) fn summary_in(
+    slot: &mut Kept<Line<'static>>,
+    home: &Home,
+    width: u16,
+    look: Look,
+) -> Line<'static> {
     static TEMPLATE: OnceLock<Template<()>> = OnceLock::new();
     const FILE: &str = "squad.home.summary.xml";
     let template = TEMPLATE.get_or_init(|| {
@@ -162,14 +174,16 @@ pub(crate) fn summary(home: &Home, width: u16, look: Look) -> Line<'static> {
     wide.extend(count_pieces(&home.summary, true));
     let mut narrow = vec![(format!("{} squads  ", home.squads.len()), None)];
     narrow.extend(count_pieces(&home.summary, false));
-    lines(paint(
-        FILE,
-        template,
-        &data(&[("wide", wide), ("narrow", narrow)]),
+    let key = Key {
         width,
         look,
-    ))
-    .unwrap_or_default()
+        selected: None,
+        data: data(&[("wide", wide), ("narrow", narrow)]),
+    };
+    slot.get(key, |key| {
+        lines(paint(key, FILE, template)).unwrap_or_default()
+    })
+    .clone()
 }
 
 fn percent(share: &UsageShare) -> String {
@@ -283,7 +297,18 @@ fn usage_pieces(usage: &HomeHeaderUsage<'_>, width: u16, wide: bool) -> Vec<Piec
 /// The usage line: nothing below `md`, the last two windows and the top member's
 /// share from `md`, and from `lg` all three windows, the models and the members
 /// without data. `None` when the switch selects nothing or nothing was observed.
+#[cfg(test)]
 pub(crate) fn usage(usage: &HomeHeaderUsage<'_>, width: u16, look: Look) -> Option<Line<'static>> {
+    usage_in(&mut Kept::default(), usage, width, look)
+}
+
+/// The usage line, painted again only when its key changed.
+pub(super) fn usage_in(
+    slot: &mut Kept<Option<Line<'static>>>,
+    usage: &HomeHeaderUsage<'_>,
+    width: u16,
+    look: Look,
+) -> Option<Line<'static>> {
     static TEMPLATE: OnceLock<Template<()>> = OnceLock::new();
     const FILE: &str = "squad.home.usage.xml";
     if usage.totals.iter().all(Option::is_none) {
@@ -297,16 +322,17 @@ pub(crate) fn usage(usage: &HomeHeaderUsage<'_>, width: u16, look: Look) -> Opti
         );
         scene::compile(FILE, &markup, &schema(&["wide", "medium"]))
     });
-    lines(paint(
-        FILE,
-        template,
-        &data(&[
+    let key = Key {
+        width,
+        look,
+        selected: None,
+        data: data(&[
             ("wide", usage_pieces(usage, width, true)),
             ("medium", usage_pieces(usage, width, false)),
         ]),
-        width,
-        look,
-    ))
+    };
+    slot.get(key, |key| lines(paint(key, FILE, template)))
+        .clone()
 }
 
 /// The key line: whole hints drop from the end until the line and the two exit
@@ -340,7 +366,13 @@ fn key_line(width: usize, cron: bool, long_ask: bool) -> String {
     }
 }
 
+#[cfg(test)]
 pub(crate) fn hints(width: usize, cron: bool) -> String {
+    hints_in(&mut Kept::default(), width, cron)
+}
+
+/// The key line, painted again only when its key changed.
+pub(super) fn hints_in(slot: &mut Kept<String>, width: usize, cron: bool) -> String {
     static TEMPLATE: OnceLock<Template<()>> = OnceLock::new();
     const FILE: &str = "squad.home.keys.xml";
     let template = TEMPLATE.get_or_init(|| {
@@ -361,26 +393,31 @@ pub(crate) fn hints(width: usize, cron: bool) -> String {
         scene::compile(FILE, &markup, &schema)
     });
     let width = width.min(usize::from(u16::MAX)) as u16;
-    let painted = scene::paint(
-        FILE,
-        template,
-        &json!({
+    let key = Key {
+        width,
+        look: Look::default(),
+        selected: None,
+        data: json!({
             "long": key_line(usize::from(width), cron, true),
             "short": key_line(usize::from(width), cron, false),
         }),
-        width,
-        &mut |_| (Style::new(), Align::Left),
-    );
-    painted
-        .lines
-        .first()
-        .map(|line| {
-            line.spans
-                .iter()
-                .map(|span: &Span<'_>| span.content.as_ref())
-                .collect::<String>()
-                .trim_end()
-                .to_owned()
-        })
-        .unwrap_or_default()
+    };
+    slot.get(key, |key| {
+        let painted = scene::paint(FILE, template, &key.data, key.width, &mut |_| {
+            (Style::new(), Align::Left)
+        });
+        painted
+            .lines
+            .first()
+            .map(|line| {
+                line.spans
+                    .iter()
+                    .map(|span: &Span<'_>| span.content.as_ref())
+                    .collect::<String>()
+                    .trim_end()
+                    .to_owned()
+            })
+            .unwrap_or_default()
+    })
+    .clone()
 }
