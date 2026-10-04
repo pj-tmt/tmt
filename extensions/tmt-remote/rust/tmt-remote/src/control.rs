@@ -54,6 +54,7 @@ impl Control {
         devices: Arc<Devices>,
         door: Door,
         approval: Option<Arc<crate::approval::Approval>>,
+        serve_stop: Arc<AtomicBool>,
     ) -> Result<Self, RemoteError> {
         let path = serving.layout().directory.join(SOCKET);
         match fs::symlink_metadata(&path) {
@@ -93,6 +94,7 @@ impl Control {
                     &devices,
                     &door,
                     approval.as_deref(),
+                    &serve_stop,
                 )
             })
             .map_err(io_error)?;
@@ -129,13 +131,16 @@ fn accept_loop(
     devices: &Arc<Devices>,
     door: &Arc<Door>,
     approval: Option<&crate::approval::Approval>,
+    serve_stop: &AtomicBool,
 ) {
     thread::scope(|scope| {
         while !stop.load(Ordering::Acquire) {
             pairing.expire();
             match listener.accept() {
                 Ok((stream, _)) => {
-                    scope.spawn(|| session(stream, stop, pairing, devices, door, approval));
+                    scope.spawn(|| {
+                        session(stream, stop, pairing, devices, door, approval, serve_stop)
+                    });
                 }
                 Err(e) if e.kind() == io::ErrorKind::WouldBlock => {
                     thread::sleep(Duration::from_millis(50))
@@ -156,6 +161,7 @@ fn session(
     devices: &Devices,
     door: &Door,
     approval: Option<&crate::approval::Approval>,
+    serve_stop: &AtomicBool,
 ) {
     let _ = stream.set_nonblocking(true);
     let mut buffer = Vec::new();
@@ -167,6 +173,12 @@ fn session(
     ) else {
         return;
     };
+    if request == json!({"op":"stop"}) {
+        // Same flag as SIGTERM: foreground owns all cleanup and lease release.
+        serve_stop.store(true, Ordering::Release);
+        let _ = write_line(&mut stream, &json!({"stopping":true}));
+        return;
+    }
     if matches!(request["op"].as_str(), Some("approve" | "cancel")) {
         let result = (|| {
             let approval = approval.ok_or_else(crate::operations::invalid)?;
@@ -423,6 +435,47 @@ fn socket_path(remote_directory: &Path) -> Result<PathBuf, RemoteError> {
 /// Bounded read-only discovery. The live address comes from this run, never
 /// from remembered state. Malformed or silent peers cannot become stopped status.
 pub fn status(remote_directory: &Path) -> Result<Option<Value>, RemoteError> {
+    let Some(answer) = request(remote_directory, &json!({"op":"status"}))? else {
+        return Ok(None);
+    };
+    let origin = answer["origin"].as_str().unwrap_or("");
+    let port = origin
+        .strip_prefix("http://127.0.0.1:")
+        .and_then(|port| port.parse::<u16>().ok())
+        .filter(|port| *port != 0);
+    let origin_valid = port.is_some_and(|port| origin == format!("http://127.0.0.1:{port}"));
+    let path_valid = answer["path"]
+        .as_str()
+        .and_then(|path| path.strip_prefix("/r/"))
+        .is_some_and(|prefix| {
+            prefix.len() == 32
+                && prefix
+                    .bytes()
+                    .all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
+        });
+    if answer.as_object().is_none_or(|fields| fields.len() != 3)
+        || answer["running"] != true
+        || !origin_valid
+        || !path_valid
+    {
+        return Err(io_error("invalid live status descriptor"));
+    }
+    Ok(Some(answer))
+}
+/// Request shutdown only through the admitted control socket. A response means
+/// requested, not stopped; the caller confirms lifecycle lease release.
+pub fn request_stop(remote_directory: &Path) -> Result<bool, RemoteError> {
+    let Some(answer) = request(remote_directory, &json!({"op":"stop"}))? else {
+        return Ok(false);
+    };
+    if answer != json!({"stopping":true}) {
+        return Err(io_error(
+            "invalid stop acknowledgment; shutdown may have been requested",
+        ));
+    }
+    Ok(true)
+}
+fn request(remote_directory: &Path, value: &Value) -> Result<Option<Value>, RemoteError> {
     use nix::sys::socket::{AddressFamily, SockFlag, SockType, UnixAddr, connect, socket};
     let path = match socket_path(remote_directory) {
         Ok(path) => path,
@@ -449,22 +502,22 @@ pub fn status(remote_directory: &Path) -> Result<Option<Value>, RemoteError> {
         Err(nix::errno::Errno::EINPROGRESS) => {
             let mut events = [PollFd::new(stream.as_fd(), PollFlags::POLLOUT)];
             if poll(&mut events, REQUEST_WAIT.as_millis() as u16).map_err(io_error)? == 0 {
-                return Err(io_error("status connection timed out"));
+                return Err(io_error("control connection timed out"));
             }
             if let Some(error) = stream.take_error().map_err(io_error)? {
-                return status_connect_error(error);
+                return request_connect_error(error);
             }
         }
-        Err(error) => return status_connect_error(error.into()),
+        Err(error) => return request_connect_error(error.into()),
     }
-    write_line(&mut stream, &json!({"op":"status"})).map_err(io_error)?;
+    write_line(&mut stream, value).map_err(io_error)?;
     let answer = read_line(
         &mut stream,
         &mut Vec::new(),
         &AtomicBool::new(false),
         Instant::now() + REQUEST_WAIT,
     )
-    .ok_or_else(|| io_error("missing or invalid status reply"))?;
+    .ok_or_else(|| io_error("missing or invalid control reply; request may have been submitted"))?;
     if let Some(error) = answer.get("error") {
         if let (Some(code), Some(message)) = (error["code"].as_str(), error["message"].as_str())
             && code.starts_with("REMOTE_")
@@ -473,35 +526,14 @@ pub fn status(remote_directory: &Path) -> Result<Option<Value>, RemoteError> {
         {
             return Err(RemoteError::new(code, message));
         }
-        return Err(io_error("invalid status error document"));
-    }
-    let origin = answer["origin"].as_str().unwrap_or("");
-    let port = origin
-        .strip_prefix("http://127.0.0.1:")
-        .and_then(|port| port.parse::<u16>().ok())
-        .filter(|port| *port != 0);
-    let origin_valid = port.is_some_and(|port| origin == format!("http://127.0.0.1:{port}"));
-    let path_valid = answer["path"]
-        .as_str()
-        .and_then(|path| path.strip_prefix("/r/"))
-        .is_some_and(|prefix| {
-            prefix.len() == 32
-                && prefix
-                    .bytes()
-                    .all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
-        });
-    if answer.as_object().is_none_or(|fields| fields.len() != 3)
-        || answer["running"] != true
-        || !origin_valid
-        || !path_valid
-    {
-        return Err(io_error("invalid live status descriptor"));
+        return Err(io_error("invalid control error document"));
     }
     Ok(Some(answer))
 }
+
 /// Absence is a transport observation, distinct from a connected peer's
 /// error document (including a peer reporting REMOTE_NOT_RUNNING).
-fn status_connect_error(error: io::Error) -> Result<Option<Value>, RemoteError> {
+fn request_connect_error(error: io::Error) -> Result<Option<Value>, RemoteError> {
     if matches!(
         error.kind(),
         io::ErrorKind::NotFound | io::ErrorKind::ConnectionRefused

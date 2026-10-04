@@ -101,6 +101,7 @@ impl Harness {
             .unwrap()
             .with_pairing(Arc::clone(&pairing))
             .with_sessions(Arc::clone(&sessions));
+        let stop = Arc::new(AtomicBool::new(false));
         let control = Control::start(
             &serving,
             Arc::clone(&pairing),
@@ -110,6 +111,7 @@ impl Harness {
                 prefix: machine.route_prefix.clone(),
             },
             None,
+            Arc::clone(&stop),
         )
         .unwrap();
         let site = Arc::new(Site {
@@ -127,7 +129,6 @@ impl Harness {
                 &machine.route_prefix,
             )),
         });
-        let stop = Arc::new(AtomicBool::new(false));
         let flag = Arc::clone(&stop);
         let door = thread::spawn(move || door.run(&flag, site as Arc<dyn Handler>).unwrap());
         Self {

@@ -357,8 +357,8 @@ Default scopes are `agents.read`, `status.read`, `check.read`, `talk` and `resul
 may remove scopes at pairing. Future core capabilities do not silently become remotely callable;
 a new scope needs a revision of this contract.
 
-The shipped `tmt remote serve` runs in the foreground until Ctrl-C or SIGTERM, with no default
-idle or hard deadline. Without `--port`, it reuses its last successfully bound IPv4-loopback port;
+The shipped `tmt remote serve` runs in the foreground until Ctrl-C, SIGTERM or `tmt remote stop`,
+with no default idle or hard deadline. Without `--port`, it reuses its last successfully bound IPv4-loopback port;
 on first use it selects an unused port. If the remembered port is busy, it selects another unused
 port and prints one notice naming the old and new origins and telling browsers to re-pair or free
 the old port and use `tmt remote serve --port <old>`. `--port 0` explicitly selects a random unused
@@ -395,6 +395,16 @@ owner-only control socket. Stopped inspection creates nothing and does not initi
 state. Unsafe or unreadable state, an unavailable lifecycle lease, and failure to reach or read a
 live serve return the standard `{"error":{"code":"REMOTE_…","message":"…"}}` document with a
 nonzero exit. Status contains no other fields, secrets, cookies or device inventory.
+
+`tmt remote stop --json` asks the running serve to shut down through its owner-only control
+socket, then waits up to 40 seconds after acknowledgment for the lifecycle lease to be released
+and the control socket removed. It uses the same shutdown flag as SIGTERM: listeners, active
+sessions, tunnels and pending work close; stored pairings and grants remain. It emits exactly
+`{"stopped":true}` after confirmation, or `{"running":false}` if no serve was running, and exits 0.
+An unsafe/unresponsive control socket, a held lease without a reachable serve, or unconfirmed
+shutdown returns the standard Remote error document and exits nonzero. Stop never identifies or
+signals a process by PID and never starts or migrates stopped state. A concurrent successor may
+make shutdown unconfirmed; stop does not send another request to shut down that successor.
 
 A supervising extension can start `tmt remote serve --json` as its child. Serve emits one readiness
 line on stdout after binding the door and control socket and recording the bound port:

@@ -104,6 +104,29 @@ impl Layout {
             )),
         }
     }
+    /// Confirm the original foreground has released its lease without opening
+    /// state for writing or identifying/signalling any process. A concurrent
+    /// successor can keep this busy; never stop it to satisfy this wait.
+    pub fn wait_for_release(
+        &self,
+        deadline: std::time::Instant,
+    ) -> Result<Option<Serving>, RemoteError> {
+        loop {
+            match self.existing_serve_lock() {
+                Ok(lease) => return Ok(lease),
+                Err(error) if error.code == "REMOTE_ALREADY_SERVING" => {}
+                Err(error) => return Err(error),
+            }
+            let remaining = deadline.saturating_duration_since(std::time::Instant::now());
+            if remaining.is_zero() {
+                return Err(RemoteError::new(
+                    "REMOTE_STOP_TIMEOUT",
+                    "Shutdown was requested, but Remote did not release its lifecycle lease within the stop deadline.",
+                ));
+            }
+            std::thread::sleep(remaining.min(std::time::Duration::from_millis(50)));
+        }
+    }
     pub fn file(&self, name: &str) -> Result<File, RemoteError> {
         self.shared.file(name).map_err(state_error)
     }

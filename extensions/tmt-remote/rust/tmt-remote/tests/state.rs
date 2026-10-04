@@ -401,3 +401,31 @@ fn stopped_port_reads_are_noncreating_and_legacy_state_is_not_migrated() {
     );
     assert_eq!(fs::read(&db).unwrap(), b"damaged database");
 }
+
+#[test]
+fn stop_wait_is_bounded_and_holds_the_released_lease_for_confirmation() {
+    use std::time::{Duration, Instant};
+    let root = Root::new();
+    let layout = Layout::open(&root.0).unwrap();
+    let running = layout.serve_lock().unwrap();
+    let before = fs::read(root.remote().join("serve.lock")).unwrap();
+    let start = Instant::now();
+    assert_eq!(
+        layout
+            .wait_for_release(start + Duration::from_millis(20))
+            .err()
+            .unwrap()
+            .code,
+        "REMOTE_STOP_TIMEOUT"
+    );
+    assert!(start.elapsed() < Duration::from_secs(1));
+    assert_eq!(fs::read(root.remote().join("serve.lock")).unwrap(), before);
+    drop(running);
+    let confirmed = layout.wait_for_release(Instant::now()).unwrap().unwrap();
+    assert_eq!(
+        layout.serve_lock().err().unwrap().code,
+        "REMOTE_ALREADY_SERVING"
+    );
+    drop(confirmed);
+    assert!(layout.serve_lock().is_ok());
+}

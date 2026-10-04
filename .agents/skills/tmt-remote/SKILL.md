@@ -6,8 +6,8 @@ description: Build, run and verify the Remote door (`tmt-remote`, `tmt remote ..
 # Remote development
 
 Behavior lives in [`contracts/remote-channel-v1.md`](../../../contracts/remote-channel-v1.md)
-and [ARCHITECTURE.md](../../../ARCHITECTURE.md); this skill holds only how to build,
-run and verify. Shared Rust, native and Docker gates are in
+and [ARCHITECTURE.md](../../../ARCHITECTURE.md); this skill holds module ownership
+and how to build, run and verify. Shared Rust, native and Docker gates are in
 [DEVELOPMENT.md](../../../DEVELOPMENT.md).
 
 ## Rust crate
@@ -38,8 +38,9 @@ run and verify. Shared Rust, native and Docker gates are in
 
 Build core, put `rust/target/debug` on `PATH`, then `tmt remote serve` (or `--json`
 for the bound descriptor). Direct invocation requires an absolute `TMT_EXECUTABLE`;
-it never searches for another core. Ctrl-C/SIGTERM closes listeners, sockets and
-workers. Limits are named in `src/limits.rs`.
+it never searches for another core. Ctrl-C/SIGTERM or `tmt remote stop` closes
+listeners, sockets and workers while keeping stored pairings and grants. Limits
+are named in `src/limits.rs`.
 
 ## Door discovery and restart checks
 
@@ -58,6 +59,13 @@ an existing serve lease before opening SQLite read-only. It never calls
 Pre-schema-5 state reports no remembered port. Unsafe files, malformed/silent
 control replies and a held lease without reachable serve return errors.
 
+Stop resolves the same public root, sends one control request to set serve's SIGTERM
+shutdown flag, then waits at most 40 seconds after acknowledgment for the lifecycle
+lease and verifies socket cleanup while holding that lease. It never looks up or
+signals a PID. No serve returns `{"running":false}`; confirmed stop returns
+`{"stopped":true}`. Unsafe, silent or malformed peers, an unreachable held lease,
+and timeout return the standard error envelope rather than successful stop.
+
 Verify from `rust/` using disposable HOME/XDG and task-owned children:
 
 ```bash
@@ -69,8 +77,10 @@ CARGO_BUILD_JOBS=2 cargo test --offline --locked -p tmt-extension-state
 
 CLI cases assert exact status shapes, unchanged stopped-state bytes/mtimes/files,
 same-origin restarts, occupied-port fallback and notice, explicit port choices,
-standalone human URLs, and listener/socket/child cleanup. State cases cover
-non-creating reads, legacy schema without migration, and damaged remembered ports.
+standalone human URLs, control stop and repeated idle stop, real paired-grant
+survival across stop/serve, and listener/socket/child cleanup. State cases cover
+non-creating reads, legacy schema without migration, damaged remembered ports,
+and bounded lease-release confirmation.
 Readiness is the serve output event; no real account, model or core database is used.
 
 ## Shared extension state
@@ -172,7 +182,7 @@ and `transport` have no I/O, clock, storage or `CoreClient` access):
 | `journal`, `budgets`, `audit`       | Metadata streams and recovery ownership, persisted budgets, audit written in the owning transaction                                                                            |
 | `operations`, `approval`            | Dispatch/read operations over the public core API; local held-operation confirmation on the control socket                                                                     |
 | `authority`, `store`, `state`       | Typed grants, `remote.db` and schema history, layout/machine key/serve lock                                                                                                    |
-| `pairing`, `control`, `devices`     | One pairing offer per run, owner-only control socket, device list/revoke/rename                                                                                                |
+| `pairing`, `control`, `devices`     | One pairing offer per run, owner-only control socket for discovery/stop and device list/revoke/rename                                                                          |
 | `mount`, `pages`                    | Extension mounts (allowlisted extensions only) and the pairing page/SDK assets                                                                                                 |
 
 Rules that are easy to get wrong:
