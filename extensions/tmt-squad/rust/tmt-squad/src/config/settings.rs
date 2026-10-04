@@ -37,6 +37,14 @@ impl Config {
             notices: Vec::new(),
         };
         self.arrangement_settings(key, &mut out)?;
+        out.push(
+            "board.ask_lead",
+            json!(self.ask_lead(key)?),
+            self.source(
+                &["squad", key, "board", "ask_lead"],
+                &self.source(&["board", "ask_lead"], "default:ask lead"),
+            ),
+        );
         self.row_settings(key, &mut out)?;
         self.notebook_settings(key, &mut out)?;
         self.meter_settings(key, &mut out)?;

@@ -26,6 +26,7 @@ pub enum Verb {
     /// Opens the tab of the row's squad (the `all` tab's Enter).
     Tab,
     Talk,
+    AskLead,
     Reply,
     Annotate,
 }
@@ -49,6 +50,7 @@ impl Verb {
             "menu" => Self::Menu,
             "tab" => Self::Tab,
             "talk" => Self::Talk,
+            "ask-lead" => Self::AskLead,
             "reply" => Self::Reply,
             "annotate" => Self::Annotate,
             _ => return None,
@@ -73,6 +75,7 @@ impl Verb {
             Self::Menu => "menu",
             Self::Tab => "tab",
             Self::Talk => "talk",
+            Self::AskLead => "ask-lead",
             Self::Reply => "reply",
             Self::Annotate => "annotate",
         }
@@ -163,6 +166,7 @@ impl Action {
             Verb::Menu => "show actions for this row".into(),
             Verb::Tab => "open the selected squad".into(),
             Verb::Talk => "send the member a message".into(),
+            Verb::AskLead => "ask the lead what waits on you".into(),
             Verb::Reply => "answer the member's request".into(),
             Verb::Annotate if target == Some("member") => "send the member a note".into(),
             Verb::Annotate => "send the lead a note".into(),
@@ -326,6 +330,7 @@ pub fn preset(tmux: bool, panes: &[crate::config::Pane]) -> Bindings {
         ("t", "talk"),
         ("r", "reply"),
         ("a", "annotate lead"),
+        ("A", "ask-lead"),
         ("o", "open"),
         ("y", "copy"),
         ("n", "notes"),
