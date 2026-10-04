@@ -34,6 +34,7 @@ pub fn fetch(core: &Core, job: Fetch, now_ms: i64) -> Result<Cron, String> {
         jobs,
         clock,
         actor: service::actor(core, &job.config, None).map_err(|error| error.to_string()),
+        read_ms: now_ms,
     })
 }
 
@@ -67,6 +68,9 @@ mod tests {
         assert_eq!(read.clock, tmt_squad::cron::ClockStatus::NoClock);
         assert_eq!(read.actor.as_ref().unwrap().id, USER);
         assert!(read.next().is_some());
-        assert_eq!(read.next_of(WORKER), read.next().map(|(at, _)| at));
+        assert_eq!(
+            read.next_of(WORKER).map(|(at, _)| at),
+            read.next().map(|(at, _)| at)
+        );
     }
 }

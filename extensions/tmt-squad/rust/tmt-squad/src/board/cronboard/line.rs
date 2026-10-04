@@ -36,7 +36,7 @@ pub(super) fn clock(status: &ClockStatus, now_ms: i64, short: bool) -> (String, 
 }
 
 /// A future instant in the schedule's stored zone: the time today, else with its date.
-pub(super) fn time(slot_ms: i64, now_ms: i64, zone: &str) -> Option<String> {
+pub(in crate::board) fn time(slot_ms: i64, now_ms: i64, zone: &str) -> Option<String> {
     let zone = jiff::tz::TimeZone::get(zone).ok()?;
     let slot = jiff::Timestamp::from_millisecond(slot_ms)
         .ok()?
@@ -54,7 +54,33 @@ pub(super) fn time(slot_ms: i64, now_ms: i64, zone: &str) -> Option<String> {
     )
 }
 
-pub(super) fn zone(view: &JobView) -> String {
+/// The member-row form: the time today, else weekday and time within the next
+/// week, else month-day and time. It is short because the row-end label drops
+/// before any column does.
+pub(in crate::board) fn short_time(slot_ms: i64, now_ms: i64, zone: &str) -> Option<String> {
+    let zone = jiff::tz::TimeZone::get(zone).ok()?;
+    let slot = jiff::Timestamp::from_millisecond(slot_ms)
+        .ok()?
+        .to_zoned(zone.clone());
+    let now = jiff::Timestamp::from_millisecond(now_ms)
+        .ok()?
+        .to_zoned(zone);
+    let days = slot
+        .date()
+        .since(jiff::civil::DateDifference::new(now.date()).largest(jiff::Unit::Day))
+        .ok()?
+        .get_days();
+    Some(
+        slot.strftime(match days {
+            ..1 => "%H:%M",
+            1..7 => "%a %H:%M",
+            _ => "%m-%d %H:%M",
+        })
+        .to_string(),
+    )
+}
+
+pub(in crate::board) fn zone(view: &JobView) -> String {
     view.job.schedule.document()["zone"]
         .as_str()
         .unwrap_or("UTC")

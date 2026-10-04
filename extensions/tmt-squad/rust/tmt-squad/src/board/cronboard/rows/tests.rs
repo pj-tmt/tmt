@@ -10,6 +10,7 @@ fn paint(rows: Vec<Value>, columns: Columns, width: u16, height: u16) -> Vec<Str
             pane.render(
                 rows.clone(),
                 columns,
+                "(no jobs)",
                 frame,
                 crate::look::Look::default(),
                 frame.area(),
@@ -59,14 +60,16 @@ fn rows_show_state_owner_schedule_and_next_and_expand_in_place() {
 }
 
 #[test]
-fn the_message_preview_steps_aside_below_100_cells_and_nothing_overflows() {
+fn the_message_preview_takes_what_the_fixed_tracks_leave_and_steps_aside() {
     let a = view("tmt-lead", "merge queue sweep", Some(NOW + 3_600_000));
     let rows = project(&[&a], None, NOW);
     for (width, squad, preview) in [
         (160, true, true),
-        (100, true, true),
-        (99, true, false),
-        (80, false, false),
+        (93, true, true),
+        (92, true, false),
+        (80, false, true),
+        (79, false, false),
+        (74, false, false),
     ] {
         let screen = paint(rows.clone(), Columns::for_width(squad, width), width, 3);
         assert_eq!(

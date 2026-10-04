@@ -8,34 +8,59 @@ use tmt_cli_style::Role;
 
 /// Which columns a surface has room for; the rest step aside by priority.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) struct Columns {
+pub(in crate::board) struct Columns {
     pub squad: bool,
-    pub what: bool,
+    /// Cells left for the message preview, or none when too few remain.
+    pub what: u16,
 }
 
+/// Fixed track widths: mark, id, owner, schedule, next; the squad name is optional.
+const MARK: u16 = 1;
+const ID: u16 = 4;
+const SQUAD: u16 = 12;
+const OWNER: u16 = 16;
+const SCHEDULE: u16 = 22;
+const NEXT: u16 = 15;
+/// The preview shows only with at least this many cells, else it steps aside.
+const WHAT_MIN: u16 = 12;
+
 impl Columns {
-    /// The message preview is the first column to go, below 100 cells.
+    /// `width` is the row's content width. The preview takes what the fixed
+    /// tracks leave, since flex growth cannot share space inside a nested row.
     pub fn for_width(squad: bool, width: u16) -> Self {
+        let tracks = [MARK, ID, OWNER, SCHEDULE, NEXT]
+            .into_iter()
+            .chain(squad.then_some(SQUAD));
+        let (cells, count) = tracks.fold((0u16, 0u16), |(cells, count), width| {
+            (cells + width, count + 1)
+        });
+        // The preview adds its own track and one more gap.
+        let left = width.saturating_sub(cells + count);
         Self {
             squad,
-            what: width >= 100,
+            what: if left >= WHAT_MIN { left } else { 0 },
         }
     }
 
     /// The `<tmt-row>` markup for these columns, bound to `row`.
     pub fn markup(self) -> String {
         let squad = if self.squad {
-            r#"<tmt-text id="squad" bind="row.squad" token="muted" class="w-12 shrink-0 truncate"/>"#
+            format!(
+                r#"<tmt-text id="squad" bind="row.squad" token="muted" class="w-{SQUAD} shrink-0 truncate"/>"#
+            )
         } else {
-            ""
+            String::new()
         };
-        let what = if self.what {
-            r#"<tmt-text id="what" bind="row.what" token="text" class="grow min-w-0 truncate"/>"#
+        let what = if self.what > 0 {
+            format!(
+                r#"<tmt-text id="what" bind="row.what" token="text" class="w-{} shrink-0 truncate"/>"#,
+                self.what
+            )
         } else {
-            ""
+            String::new()
         };
         format!(
-            r#"<tmt-row class="flex-col"><tmt-row class="flex-row gap-1 shrink-0"><tmt-text id="mark" bind="row.mark" token-bind="row.mark_role" class="w-1 shrink-0"/><tmt-text id="id" bind="row.cid" token="link" class="w-4 shrink-0"/>{squad}<tmt-text id="owner" bind="row.owner" token-bind="row.owner_role" class="w-16 shrink-0 truncate"/>{what}<tmt-text id="schedule" bind="row.schedule" token="dim" class="w-22 shrink-0 truncate"/><tmt-text id="next" bind="row.next" token-bind="row.next_role" class="w-15 shrink-0 truncate"/></tmt-row><tmt-repeat each="row.detail" as="line"><tmt-row id-bind="line.id" class="flex-row gap-1 shrink-0"><tmt-text bind="line.label" token="dim" class="w-8 shrink-0"/><tmt-text bind="line.text" token="text" wrap="true" class="grow min-w-0"/></tmt-row></tmt-repeat></tmt-row>"#
+            r#"<tmt-row class="flex-col"><tmt-row class="flex-row gap-1 shrink-0"><tmt-text id="mark" bind="row.mark" token-bind="row.mark_role" class="w-{MARK} shrink-0"/><tmt-text id="id" bind="row.cid" token="link" class="w-{ID} shrink-0"/>{squad}<tmt-text id="owner" bind="row.owner" token-bind="row.owner_role" class="w-{OWNER} shrink-0 truncate"/>{what}<tmt-text id="schedule" bind="row.schedule" token="dim" class="w-{SCHEDULE} shrink-0 truncate"/><tmt-text id="next" bind="row.next" token-bind="row.next_role" class="w-{NEXT} shrink-0 truncate"/></tmt-row><tmt-repeat each="row.detail" as="line"><tmt-row id-bind="line.id" class="grid grid-cols-[8_1fr] gap-x-1 shrink-0"><tmt-text bind="line.label" token="dim"/><tmt-text bind="line.text" token="text" wrap="true"/></tmt-row></tmt-repeat></tmt-row>"#
         )
     }
 }

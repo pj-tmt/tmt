@@ -59,6 +59,22 @@ impl Verb {
         })
     }
 
+    /// Verbs that resolve against the selected member row.
+    pub fn acts_on_member(self) -> bool {
+        matches!(
+            self,
+            Self::Jump
+                | Self::Open
+                | Self::Copy
+                | Self::Run
+                | Self::Menu
+                | Self::Tab
+                | Self::Talk
+                | Self::Reply
+                | Self::Annotate
+        )
+    }
+
     pub fn name(self) -> &'static str {
         match self {
             Self::Jump => "jump",

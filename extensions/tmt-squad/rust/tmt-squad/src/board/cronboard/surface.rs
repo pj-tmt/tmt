@@ -30,7 +30,7 @@ fn schema() -> Schema {
 pub(in crate::board) struct Pane {
     pub list: ListState,
     frame: Option<ListFrame>,
-    table: Option<(Columns, Table<()>)>,
+    table: Option<(Columns, &'static str, Table<()>)>,
 }
 
 impl Pane {
@@ -38,21 +38,43 @@ impl Pane {
         &mut self,
         rows: Vec<Value>,
         columns: Columns,
+        empty: &'static str,
         frame: &mut Frame,
         look: Look,
         area: Rect,
     ) {
-        if self.table.as_ref().is_none_or(|(old, _)| *old != columns) {
+        if self
+            .table
+            .as_ref()
+            .is_none_or(|(old, note, _)| *old != columns || *note != empty)
+        {
             let markup = format!(
-                r#"<tmt-view version="1"><tmt-list id="jobs" bind="$.rows" empty="(no jobs · n new)">{}</tmt-list></tmt-view>"#,
+                r#"<tmt-view version="1"><tmt-list id="jobs" bind="$.rows" empty="{empty}">{}</tmt-list></tmt-view>"#,
                 columns.markup()
             );
-            self.table = Some((columns, picker_surface::collection(FILE, &markup, schema())));
+            self.table = Some((
+                columns,
+                empty,
+                picker_surface::collection(FILE, &markup, schema()),
+            ));
         }
-        let (_, table) = self.table.as_ref().expect("compiled");
-        let scene = table
-            .materialize(FILE, &json!({"rows": rows}), &picker_surface::Data)
-            .expect("typed job projection");
+        let (_, _, table) = self.table.as_ref().expect("compiled");
+        let scene = match table.materialize(FILE, &json!({"rows": rows}), &picker_surface::Data) {
+            Ok(scene) => scene,
+            Err(error) => {
+                // A projection the markup refuses must not take the board down.
+                self.frame = None;
+                let role = look.role(tmt_cli_style::Role::Blocked);
+                frame.buffer_mut().set_stringn(
+                    area.x,
+                    area.y,
+                    format!("✗ cron rows unavailable: {}", error.message),
+                    usize::from(area.width),
+                    role,
+                );
+                return;
+            }
+        };
         self.frame = collection::render(
             &scene,
             &mut self.list,

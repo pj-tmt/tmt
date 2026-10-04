@@ -307,6 +307,12 @@ pub struct App {
     pub(super) note_hits: RefCell<Vec<(ratatui::layout::Rect, usize)>>,
     pub(super) notebooks: RefCell<super::notes::Notebooks>,
     pub(super) cron: super::cronboard::State,
+    /// The squad tab's jobs half has focus (Tab moves in after the last pane).
+    pub(super) jobs_focus: bool,
+    /// One list state per squad room; selection survives tab switches.
+    pub(super) jobs: RefCell<BTreeMap<String, super::cronboard::JobsPane>>,
+    /// Where the jobs half was last drawn, for the pointer; empty when absent.
+    pub(super) jobs_area: std::cell::Cell<ratatui::layout::Rect>,
     pub(super) meter: Option<super::meter::Meter>,
     meters: BTreeMap<String, super::meter::Meter>,
     pub(super) token_window: crate::config::TokenWindow,
@@ -823,6 +829,7 @@ impl App {
             meter.resume(self.token_window, Instant::now());
         }
         self.current = Some(next.clone());
+        self.jobs_focus = false;
         self.menu = None;
         self.loading_since = Some(Instant::now());
         // Never blank the screen: a visited squad shows from the cache at
@@ -1035,7 +1042,7 @@ impl App {
     pub fn focused_pane(&self) -> Option<Pane> {
         self.effective_board()
             .and_then(|board| board.panes.get(self.focus).copied())
-            .filter(|pane| !self.collapsed_panes().contains(pane))
+            .filter(|pane| !self.collapsed_panes().contains(pane) && !self.jobs_focus)
     }
 
     pub fn focused(&self) -> Pane {
@@ -1063,7 +1070,7 @@ impl App {
 
     /// A hidden focus returns to rows; boards without visible rows use the next pane.
     fn restore_focus(&mut self) {
-        if self.focused_pane().is_some() {
+        if self.jobs_focus || self.focused_pane().is_some() {
             return;
         }
         if let Some(position) = self
@@ -1078,9 +1085,20 @@ impl App {
     }
 
     fn next_pane(&mut self) {
+        if self.jobs_focus {
+            self.jobs_leave(false);
+            return;
+        }
         if let Some(board) = self.effective_board() {
             let collapsed = self.collapsed_panes();
             let count = board.panes.len();
+            // After the last visible pane, Tab enters the jobs half when it is drawn.
+            if self.jobs_painted()
+                && !(self.focus + 1..count).any(|index| !collapsed.contains(&board.panes[index]))
+            {
+                self.jobs_focus = true;
+                return;
+            }
             if let Some(next) = (1..=count)
                 .map(|step| (self.focus + step) % count)
                 .find(|index| !collapsed.contains(&board.panes[*index]))
@@ -1090,7 +1108,25 @@ impl App {
         }
     }
 
+    /// Leaves the jobs half for the first (or, backwards, last) visible pane.
+    pub(super) fn jobs_leave(&mut self, backwards: bool) {
+        self.jobs_focus = false;
+        let collapsed = self.collapsed_panes();
+        let visible = |pane: &Pane| !collapsed.contains(pane);
+        let target = self.effective_board().and_then(|board| {
+            if backwards {
+                board.panes.iter().rposition(visible)
+            } else {
+                board.panes.iter().position(visible)
+            }
+        });
+        if let Some(target) = target {
+            self.focus = target;
+        }
+    }
+
     fn toggle_panes(&mut self, panes: &[Pane]) -> Effect {
+        self.jobs_focus = false;
         if self.loading() {
             return self.say(format!(
                 "Loading {}…",
@@ -1246,6 +1282,7 @@ impl App {
                         if self.collapsed_panes().contains(&Pane::Notes) {
                             self.toggle_panes(&[Pane::Notes]);
                         }
+                        self.jobs_focus = false;
                         self.focus = position;
                         Effect::None
                     }
@@ -1260,6 +1297,9 @@ impl App {
                 };
             }
             _ => {}
+        }
+        if self.jobs_focus && action.verb.acts_on_member() {
+            return self.say("Tab returns to the members; this key acts on a member row.");
         }
         let Some(row) = self.selected_row().cloned() else {
             return self.say("No row is selected.");
@@ -1852,7 +1892,7 @@ impl App {
         use tmt_tui::app::{Routed, route};
         let Some(overlay) = self.overlay() else {
             self.overlay_focus.close();
-            return None;
+            return self.jobs_event(event);
         };
         let id = overlay.id();
         let mut focus = std::mem::take(&mut self.overlay_focus);
@@ -2281,6 +2321,9 @@ impl App {
         }
         if self.menu.is_some() || self.input.is_some() {
             return Effect::None;
+        }
+        if let Some(effect) = self.jobs_mouse(event) {
+            return effect;
         }
         let lines = match event.kind {
             MouseEventKind::ScrollUp => Some(-(WHEEL_LINES as isize)),

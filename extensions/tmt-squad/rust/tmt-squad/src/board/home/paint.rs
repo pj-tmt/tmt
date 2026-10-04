@@ -99,9 +99,9 @@ pub(crate) fn render(frame: &mut Frame, app: &App, area: Rect) {
 }
 
 /// ⑤: the cron line is one selectable row; its text comes from the cron projection.
-fn cron_line(app: &App, selected: bool, width: usize, now: u64) -> Line<'static> {
+fn cron_line(app: &App, selected: bool, width: usize) -> Line<'static> {
     let look = app.look();
-    let line = crate::board::cronboard::home_line(&app.cron, now as i64, width as u16, look)
+    let line = crate::board::cronboard::home_line(&app.cron, app.cron.now_ms(), width as u16, look)
         .expect("a cron target exists only with a read or its failure");
     let mut spans: Vec<Span<'static>> = line
         .spans
@@ -169,7 +169,7 @@ pub(super) fn render_at(frame: &mut Frame, app: &App, area: Rect, now: u64) {
             section = super::CRON;
             lines.push(Line::default());
             starts.push(lines.len());
-            lines.push(cron_line(app, index == app.selected, width, now));
+            lines.push(cron_line(app, index == app.selected, width));
             continue;
         }
         if section != entry.target.section {

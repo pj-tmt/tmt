@@ -2,8 +2,9 @@
 //! and projections stay in their modules; this is where input becomes an effect.
 
 use super::{List, ListInput, rows::key_of, rows::row_id};
-use crate::board::app::{App, Effect};
-use ratatui::crossterm::event::Event;
+use crate::board::app::{App, Effect, Request, event_name};
+use ratatui::crossterm::event::{Event, KeyCode, KeyEventKind, MouseButton, MouseEventKind};
+use tmt_tui::components::ListEvent;
 
 impl App {
     /// The ⑤ line and `c` need a read, or at least its failure to show.
@@ -40,5 +41,130 @@ impl App {
                 Some(self.go(squad))
             }
         }
+    }
+
+    /// Whether the jobs half was drawn on the last frame, so Tab can enter it.
+    pub(in crate::board) fn jobs_painted(&self) -> bool {
+        !self.jobs_area.get().is_empty()
+    }
+
+    fn jobs_room(&self) -> Option<String> {
+        super::half::room(self).map(str::to_owned)
+    }
+
+    /// The jobs half is a base-layer field of the shared focus stack: its keys
+    /// route through `app::route` like an overlay's, and only what it does not
+    /// handle falls through to the board. A user `[bind]` on a key wins.
+    pub(in crate::board) fn jobs_event(&mut self, event: &Event) -> Option<Effect> {
+        use tmt_tui::app::{Routed, route};
+        if !self.jobs_focus {
+            return None;
+        }
+        if !self.jobs_painted() {
+            self.jobs_focus = false;
+            return None;
+        }
+        if !matches!(event, Event::Key(_))
+            || self.input.is_some()
+            || self.menu.is_some()
+            || self.searching
+        {
+            return None;
+        }
+        let mut focus = tmt_tui::app::FocusStack::new(vec![vec!["cron-jobs".into()]]);
+        match route(&mut focus, event, |_, event| self.jobs_input(event)) {
+            Routed::Handled(effect) => Some(effect),
+            Routed::Quit => Some(Effect::Quit),
+            Routed::Captured | Routed::Unhandled => None,
+        }
+    }
+
+    fn jobs_input(&mut self, event: &Event) -> Option<Effect> {
+        let Event::Key(key) = event else { return None };
+        if key.kind == KeyEventKind::Release {
+            return None;
+        }
+        if event_name(*key).is_some_and(|name| {
+            self.view
+                .as_ref()
+                .is_some_and(|view| view.configured_bindings.contains_key(&name))
+        }) {
+            return None;
+        }
+        match key.code {
+            KeyCode::Tab | KeyCode::BackTab => {
+                self.jobs_leave(key.code == KeyCode::BackTab);
+                Some(Effect::None)
+            }
+            KeyCode::Char('c') => {
+                let selected = self.jobs_selected();
+                Some(self.open_cron_list(selected.as_deref()))
+            }
+            _ => {
+                let room = self.jobs_room()?;
+                let event = self.jobs.borrow_mut().get_mut(&room)?.input(event)?;
+                match event {
+                    ListEvent::Confirm(id) => Some(self.jobs_open_owner(&id)),
+                    ListEvent::Changed(_) => Some(Effect::None),
+                }
+            }
+        }
+    }
+
+    pub(in crate::board) fn jobs_selected(&self) -> Option<String> {
+        let room = self.jobs_room()?;
+        self.jobs
+            .borrow()
+            .get(&room)?
+            .list
+            .selected()
+            .map(str::to_owned)
+    }
+
+    /// Enter on a job goes to its current owner's pane.
+    fn jobs_open_owner(&mut self, id: &str) -> Effect {
+        let owner = self
+            .cron
+            .cron
+            .iter()
+            .flat_map(|cron| &cron.jobs)
+            .find(|view| super::rows::row_id(&super::rows::key_of(view)) == id)
+            .map(|view| view.owner_name.clone());
+        match owner {
+            Some(Some(name)) => Effect::Act(Request::Jump(name)),
+            Some(None) => self.say("This job has no owner; o reassigns it."),
+            None => self.say("The job no longer exists."),
+        }
+    }
+
+    /// Pointer input over the jobs half focuses it and drives its list; a press
+    /// anywhere else gives the focus back.
+    pub(in crate::board) fn jobs_mouse(
+        &mut self,
+        event: ratatui::crossterm::event::MouseEvent,
+    ) -> Option<Effect> {
+        let inside = self
+            .jobs_area
+            .get()
+            .contains((event.column, event.row).into());
+        if !inside {
+            if matches!(event.kind, MouseEventKind::Down(MouseButton::Left)) {
+                self.jobs_focus = false;
+            }
+            return None;
+        }
+        if matches!(event.kind, MouseEventKind::Down(MouseButton::Left)) {
+            self.jobs_focus = true;
+        }
+        let room = self.jobs_room()?;
+        let listed = self
+            .jobs
+            .borrow_mut()
+            .get_mut(&room)?
+            .input(&Event::Mouse(event));
+        Some(match listed {
+            Some(ListEvent::Confirm(id)) => self.jobs_open_owner(&id),
+            _ => Effect::None,
+        })
     }
 }
