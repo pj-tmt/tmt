@@ -2330,7 +2330,10 @@ Colab (`extensions/tmt-colab/`: `tmt-colab`, `tmt-colab-model`, `@tmt/colab-clie
 - **Renderer invariant.** Parent chrome allows only self-hosted scripts and styles (no
   `unsafe-inline`). Author HTML runs only in `renderer.html` inside an opaque
   `sandbox allow-scripts` frame whose own policy permits inline scripts and styles but no
-  network. This contains author code; page self-navigation can still leak a request.
+  network. Bound selections and quote-selector highlights are cosmetic untrusted
+  text; only parent controls admit discussion or sends. The bootstrap installs
+  bounded DOM resolution before author HTML and passes no application capability.
+  This contains author code; page self-navigation can still leak a request.
 - **Plaintext invariant.** Page source and export are root-local: only the isolated decoder
   child decodes Yjs, no route serves plaintext, and the browser Worker is resource
   containment, not a security sandbox.

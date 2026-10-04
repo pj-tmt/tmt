@@ -1,5 +1,31 @@
 /** English chrome catalog; page content and fixture text are not UI strings. */
 export const text = {
+  comments: 'Comments',
+  commentSelection: 'Comment on selection',
+  commentPage: 'Comment on page',
+  commentPost: 'Post comment',
+  commentReply: 'Reply',
+  commentPostReply: 'Post reply',
+  commentEmpty: 'No comments yet. Select text to start a thread, or comment on the page.',
+  commentDevice: 'Commenting device',
+  commentDeleted: 'Comment deleted',
+  commentEdit: 'Edit',
+  commentEditBody: 'Edit comment',
+  commentSave: 'Save comment',
+  commentDelete: 'Delete comment',
+  commentCancel: 'Cancel',
+  commentFailed:
+    'Could not save this change. Your draft is kept. Reconnect and review the latest discussion.',
+  commentAnchored: 'Attached',
+  commentDetached: 'Detached',
+  commentReattach: 'Reattach to selection',
+  commentConfirmReattach: 'Confirm reattach',
+  threadOpen: 'Open thread',
+  threadResolved: 'Resolved thread',
+  threadDeleted: 'Deleted thread',
+  threadResolve: 'Resolve',
+  threadReopen: 'Reopen',
+  threadDelete: 'Delete thread',
   reconnect: 'Reconnect',
   reconnectFailed:
     'Could not reconnect. Open this page from a paired browser, or pair with tmt remote pair.',
@@ -101,8 +127,6 @@ export const text = {
   saving: 'Saving…',
   editFailed:
     'The edit was not saved. Reopen the page to review the latest source before trying again.',
-  ownNotDisplayed:
-    'This page contains authenticated own data. Comments and activity are not displayed yet.',
   reload: 'Reload',
   pages: 'Pages',
   home: 'Space home',

@@ -1,3 +1,4 @@
+import type { CommentContext, commentForAsk } from './thread-store.js';
 import { requireValue } from '@tmt/colab-client';
 import { AskController } from './ask-attempt.js';
 import type { AskDestination, AdmittedSelection } from './ask-intent.js';
@@ -20,6 +21,7 @@ export interface LiveAskOptions {
   key: CryptoKey;
   publicKey: Uint8Array;
   own(): OwnState;
+  commentContext?(context: CommentContext): ReturnType<typeof commentForAsk>;
   publish(root: AskRoot, key: string, value: JsonValue): Promise<void>;
   connection(): Promise<Connection>;
   remote: RemoteClient;
@@ -95,14 +97,16 @@ export class LiveAsk implements AskBinding {
     const c = await this.#admit();
     const preview = await c.run(async () => {
       requireValue(!this.#closed && c.active);
+      const origin = captured.context ? this.options.commentContext?.(captured.context) : undefined;
+      requireValue(!captured.context || origin !== undefined);
       this.#selection = {
         space: this.options.space,
         page: this.options.page,
-        thread: crypto.randomUUID(),
-        messageIds: [],
+        thread: origin?.thread ?? crypto.randomUUID(),
+        messageIds: origin?.messageIds ?? [],
         senderDevice: this.options.deviceId,
-        quote: captured.quote,
-        comment: captured.comment,
+        quote: origin?.quote ?? captured.quote,
+        comment: origin?.comment ?? captured.comment,
         title: captured.title,
         url: captured.url,
       };

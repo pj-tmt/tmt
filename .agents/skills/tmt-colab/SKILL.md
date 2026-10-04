@@ -27,3 +27,5 @@ Product limits are named in `src/limits.rs`, not in guides.
   acceptance suite and its harness.
 - [references/ask-agent.md](references/ask-agent.md): the browser-direct Ask agent
   modules, invariants and tests.
+- [references/discussion.md](references/discussion.md): typed threads/comments,
+  cosmetic quote anchors, parent actions and verification.

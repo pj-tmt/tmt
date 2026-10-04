@@ -6,9 +6,265 @@
   </head>
   <body>
     <script>
-      // This build-owned bootstrap runs under the renderer response CSP, never
-      // the parent app policy. Direct opening is opaque too (CSP sandbox).
+      // Cosmetic quote capture/resolution only. Author code may tamper with this
+      // renderer; nothing here authenticates text or grants an app capability.
       (() => {
+        function install(renderId, port) {
+          const utf8 = new TextEncoder();
+          const excluded = 'head,script,style,template,noscript,[hidden],[data-colab-highlight]';
+          const validQuote = (v) =>
+            v &&
+            typeof v === 'object' &&
+            !Array.isArray(v) &&
+            Object.keys(v).length === 3 &&
+            typeof v.exact === 'string' &&
+            v.exact.length > 0 &&
+            utf8.encode(v.exact).length <= 16 * 1024 &&
+            [v.prefix, v.suffix].every(
+              (s) => typeof s === 'string' && [...s].length <= 32 && utf8.encode(s).length <= 128,
+            );
+          let batch = [],
+            requestId = '',
+            stopped = false,
+            timer;
+          let layer;
+          const sheet = document.createElement('style');
+          sheet.textContent = '::highlight(colab-comments){background:#ffe18a;color:inherit}';
+          document.head.append(sheet);
+          function collect() {
+            const deadline = performance.now() + 20;
+            const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+            const points = [],
+              spans = [],
+              units = [];
+            let node,
+              count = 0,
+              unit = 0,
+              white = false;
+            while ((node = walker.nextNode())) {
+              if (++count > 20000 || performance.now() > deadline) throw new Error('text budget');
+              if (node.parentElement?.closest(excluded)) continue;
+              let offset = 0;
+              for (const point of node.data) {
+                const end = offset + point.length;
+                if ((offset & 127) === 0 && performance.now() > deadline)
+                  throw new Error('text budget');
+                if (/\s/u.test(point)) {
+                  if (!white && points.length) {
+                    points.push(' ');
+                    spans.push({ node, start: offset, end });
+                    units.push(unit++);
+                  }
+                  white = true;
+                } else {
+                  points.push(point);
+                  spans.push({ node, start: offset, end });
+                  units.push(unit);
+                  unit += point.length;
+                  white = false;
+                }
+                if (points.length > 256 * 1024) throw new Error('text budget');
+                offset = end;
+              }
+            }
+            if (points.at(-1) === ' ') {
+              points.pop();
+              spans.pop();
+              units.pop();
+            }
+            return { points, spans, units, text: points.join('') };
+          }
+          function capture() {
+            if (stopped) return;
+            let selector = null;
+            try {
+              const selection = getSelection();
+              if (selection?.rangeCount === 1 && !selection.isCollapsed) {
+                const range = selection.getRangeAt(0),
+                  map = collect();
+                let start = -1,
+                  end = -1;
+                const deadline = performance.now() + 20;
+                for (let i = 0; i < map.spans.length; i++) {
+                  if ((i & 127) === 0 && performance.now() > deadline)
+                    throw new Error('selection budget');
+                  const span = map.spans[i];
+                  const a = range.comparePoint(span.node, span.start),
+                    b = range.comparePoint(span.node, span.end);
+                  if (a === 1) break;
+                  if (a === 0 && b === 0) {
+                    if (start < 0) start = i;
+                    end = i + 1;
+                  }
+                }
+                if (start >= 0 && end > start)
+                  selector = {
+                    exact: map.points.slice(start, end).join(''),
+                    prefix: map.points.slice(Math.max(0, start - 32), start).join(''),
+                    suffix: map.points.slice(end, end + 32).join(''),
+                  };
+                if (!validQuote(selector)) selector = null;
+              }
+            } catch {
+              selector = null;
+            }
+            parent.postMessage(
+              { type: 'colab.render.selection', renderId, text: selector?.exact ?? '', selector },
+              '*',
+            );
+          }
+          function clear() {
+            try {
+              CSS.highlights?.delete('colab-comments');
+            } catch {}
+            layer?.remove();
+            layer = undefined;
+          }
+          function resolve() {
+            if (stopped || !requestId) return;
+            clear();
+            const resolved = [],
+              ranges = [];
+            try {
+              const map = collect(),
+                deadline = performance.now() + 20;
+              for (const item of batch) {
+                if (performance.now() > deadline) throw new Error('match budget');
+                let offset = 0,
+                  matches = 0,
+                  selected = -1,
+                  candidates = 0;
+                while ((offset = map.text.indexOf(item.selector.exact, offset)) >= 0) {
+                  if (++candidates > 64 || performance.now() > deadline)
+                    throw new Error('match budget');
+                  if (
+                    map.text.slice(0, offset).endsWith(item.selector.prefix) &&
+                    map.text
+                      .slice(offset + item.selector.exact.length)
+                      .startsWith(item.selector.suffix)
+                  ) {
+                    matches++;
+                    selected = offset;
+                  }
+                  offset++;
+                }
+                if (performance.now() > deadline) throw new Error('match budget');
+                if (matches !== 1) continue;
+                const start = map.units.indexOf(selected),
+                  end = start + [...item.selector.exact].length - 1;
+                if (start < 0 || !map.spans[end]) continue;
+                const a = map.spans[start],
+                  b = map.spans[end],
+                  range = document.createRange();
+                range.setStart(a.node, a.start);
+                range.setEnd(b.node, b.end);
+                ranges.push(range);
+                resolved.push(item.id);
+              }
+              if (ranges.length && typeof Highlight === 'function' && CSS.highlights) {
+                CSS.highlights.set('colab-comments', new Highlight(...ranges));
+              } else if (ranges.length) {
+                layer = document.createElement('div');
+                layer.dataset.colabHighlight = '';
+                layer.style.cssText =
+                  'position:absolute;top:0;left:0;pointer-events:none;z-index:2147483647';
+                let rectangles = 0;
+                for (const range of ranges)
+                  for (const rect of range.getClientRects()) {
+                    if (++rectangles > 2048) throw new Error('highlight budget');
+                    const mark = document.createElement('div');
+                    mark.style.cssText = `position:absolute;pointer-events:none;background:#ffd76466;left:${rect.left + scrollX}px;top:${rect.top + scrollY}px;width:${rect.width}px;height:${rect.height}px`;
+                    layer.append(mark);
+                  }
+                document.body.append(layer);
+              }
+            } catch {
+              resolved.length = 0;
+              clear();
+            }
+            port.postMessage({ type: 'colab.render.anchors', renderId, requestId, resolved });
+          }
+          const schedule = () => {
+            clearTimeout(timer);
+            timer = setTimeout(resolve, 100);
+          };
+          port.onmessage = (event) => {
+            const v = event.data;
+            if (
+              !v ||
+              typeof v !== 'object' ||
+              Array.isArray(v) ||
+              Object.keys(v).length !== 4 ||
+              v.type !== 'colab.render.highlight' ||
+              v.renderId !== renderId ||
+              typeof v.requestId !== 'string' ||
+              !/^[0-9a-f-]{36}$/.test(v.requestId) ||
+              !Array.isArray(v.anchors) ||
+              v.anchors.length > 1000
+            )
+              return;
+            if (utf8.encode(JSON.stringify(v)).length > 256 * 1024) return;
+            if (
+              !v.anchors.every(
+                (item) =>
+                  item &&
+                  typeof item === 'object' &&
+                  !Array.isArray(item) &&
+                  Object.keys(item).length === 2 &&
+                  typeof item.id === 'string' &&
+                  item.id.length <= 73 &&
+                  validQuote(item.selector),
+              )
+            )
+              return;
+            batch = v.anchors;
+            requestId = v.requestId;
+            resolve();
+          };
+          const observer = new MutationObserver((mutations) => {
+            if (
+              mutations.some(
+                (m) =>
+                  !layer?.contains(m.target) &&
+                  !(
+                    m.type === 'childList' &&
+                    [...m.addedNodes, ...m.removedNodes].every(
+                      (n) => n.nodeType === 1 && n.hasAttribute('data-colab-highlight'),
+                    )
+                  ),
+              )
+            )
+              schedule();
+          });
+          addEventListener(
+            'load',
+            () => {
+              observer.observe(document.body, {
+                subtree: true,
+                childList: true,
+                characterData: true,
+                attributes: true,
+                attributeFilter: ['hidden'],
+              });
+              parent.postMessage({ type: 'colab.render.bound', renderId }, '*');
+              document.addEventListener('selectionchange', capture);
+            },
+            { once: true },
+          );
+          addEventListener('resize', schedule);
+          addEventListener(
+            'pagehide',
+            () => {
+              stopped = true;
+              clearTimeout(timer);
+              observer.disconnect();
+              port.close();
+              clear();
+              document.removeEventListener('selectionchange', capture);
+            },
+            { once: true },
+          );
+        }
         const bind = (event) => {
           if (window.parent === window || event.source !== window.parent) return;
           const value = event.data;
@@ -29,23 +285,11 @@
           )
             return;
           window.removeEventListener('message', bind);
-          // No effectful commands exist on this port. Page scripts may forge the
-          // acknowledgement; it grants no app authority or selection truth.
-          event.ports[0].onmessage = () => {};
-          const acknowledgement = `<script>(()=>{
-            const renderId=${JSON.stringify(value.renderId)};
-            addEventListener('load',()=>{
-              parent.postMessage({type:'colab.render.bound',renderId},'*');
-              document.addEventListener('selectionchange',()=>{
-                const text=String(getSelection()??'');
-                if(text.length<=16*1024&&new TextEncoder().encode(text).length<=16*1024)
-                  parent.postMessage({type:'colab.render.selection',renderId,text},'*');
-                else parent.postMessage({type:'colab.render.selection',renderId,text:''},'*');
-              });
-            },{once:true});
-          })()<\/script>`;
-          // document.open/write retains this document's response policy. The
-          // trusted acknowledgement precedes author HTML; scripts run normally.
+          const port = event.ports[0];
+          // The temporary callback transfers no authority; it runs before author HTML.
+          window.__colabRenderStart = () => install(value.renderId, port);
+          const acknowledgement =
+            '<script>window.__colabRenderStart();delete window.__colabRenderStart;<\/script>';
           document.open();
           document.write(
             `<!doctype html><html><head>${acknowledgement}</head><body>${value.source}</body></html>`,

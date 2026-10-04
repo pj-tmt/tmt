@@ -1,3 +1,4 @@
+import type { CommentContext } from './thread-store.js';
 import { useEffect, useRef, useState } from 'react';
 import type { PreviewAttempt } from './ask-preview.js';
 import type { LedgerState } from './ask-records.js';
@@ -17,6 +18,7 @@ export interface AskBinding {
     title: string;
     url: string;
     destination: AskDestination;
+    context?: CommentContext;
   }): Promise<PreviewAttempt>;
   recheck(operationId: string): Promise<void>;
   abandon(operationId: string): Promise<void>;
@@ -72,14 +74,19 @@ export function AskControl({
   selection,
   title,
   blocked,
+  origin,
+  originUnavailable = false,
 }: {
   binding?: AskBinding;
   selection: string;
   title: string;
   blocked: boolean;
+  origin?: { context: CommentContext; body: string };
+  originUnavailable?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [quote, setQuote] = useState('');
+  const [context, setContext] = useState<CommentContext>();
   const [comment, setComment] = useState('');
   const [agents, setAgents] = useState<(AskDestination & { presence?: RemoteAgent['presence'] })[]>(
     [],
@@ -125,7 +132,14 @@ export function AskControl({
     if (!binding || !destination || blocked) return;
     const current = ++generation.current;
     // Capture parent form values before any async authority check.
-    const input = { quote, comment, title, url: location.href, destination: { ...destination } };
+    const input = {
+      quote,
+      comment,
+      title,
+      url: location.href,
+      destination: { ...destination },
+      context,
+    };
     setLoading(true);
     setError(null);
     try {
@@ -140,11 +154,12 @@ export function AskControl({
   return (
     <div className="ask-control">
       <button
-        data-testid="ask-action"
-        disabled={open || !binding || !selection || blocked}
+        data-testid={origin ? 'comment-ask-action' : 'ask-action'}
+        disabled={open || !binding || (!selection && !origin) || blocked || originUnavailable}
         onClick={(event) => {
           if (!event.isTrusted) return;
-          setComment('');
+          setContext(origin ? structuredClone(origin.context) : undefined);
+          setComment(origin?.body ?? '');
           setQuote(selection);
           setOpen(true);
           setAttempt(null);
@@ -155,7 +170,7 @@ export function AskControl({
       </button>
       {!binding ? (
         <span className="isolation-note">{text.askUnavailable}</span>
-      ) : !selection && !open ? (
+      ) : !selection && !origin && !open ? (
         <span className="isolation-note">{text.askSelection}</span>
       ) : null}
       {open && !attempt && (
@@ -167,7 +182,7 @@ export function AskControl({
             {text.askComment}
             <textarea
               value={comment}
-              disabled={loading}
+              disabled={loading || !!origin}
               onChange={(event) => setComment(event.target.value)}
             />
           </label>

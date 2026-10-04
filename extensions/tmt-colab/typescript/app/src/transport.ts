@@ -1,3 +1,5 @@
+import type { ThreadBinding } from './thread-store.js';
+import type { ThreadView } from './thread-records.js';
 import type { AskBinding, PageAsk } from './ask-panel.js';
 import type { ExportBundle } from './export.js';
 import type { OwnState, Projection } from './fold-protocol.js';
@@ -5,6 +7,7 @@ export interface PageView extends Projection {
   readonly ownData?: boolean;
   readonly own?: OwnState;
   readonly asks?: readonly PageAsk[];
+  readonly threads?: readonly ThreadView[];
   readonly askUnavailable?: boolean;
 }
 export interface PageSummary {
@@ -18,10 +21,12 @@ export interface PageSnapshot extends PageSummary {
   readonly ownData?: boolean;
   readonly own?: OwnState;
   readonly asks?: readonly PageAsk[];
+  readonly threads?: readonly ThreadView[];
   readonly askUnavailable?: boolean;
 }
 export interface PageBinding {
   readonly ask?: AskBinding;
+  readonly discussion?: ThreadBinding;
   reconnect?(): Promise<boolean>;
   subscribe(publish: (value: PageView) => void, failed: (error: Error) => void): () => void;
   edit(source: string, base: string): Promise<void>;

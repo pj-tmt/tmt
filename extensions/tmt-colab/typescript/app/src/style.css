@@ -429,3 +429,118 @@ footer {
   margin: 8px 0;
   font-weight: normal;
 }
+
+.workspace.with-comments {
+  grid-template-columns: minmax(0, 1fr) 340px;
+  gap: 20px;
+  align-items: start;
+}
+.workspace.split.with-comments {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 340px;
+}
+.comments-panel {
+  min-width: 0;
+  max-height: 635px;
+  overflow: auto;
+  padding: 20px;
+  background: var(--c-sheet);
+  border: 2px solid var(--c-text);
+  box-shadow: 4px 4px 0 var(--c-text);
+}
+.comments-panel > header,
+.comment-thread > header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 12px;
+}
+.comments-panel > header {
+  justify-content: space-between;
+  margin-bottom: 16px;
+}
+.comments-panel h2 {
+  font-size: 18px;
+  margin: 0;
+}
+.comment-thread {
+  margin-top: 24px;
+  padding-top: 20px;
+  border-top: 1px solid var(--c-rule);
+}
+.comments-panel blockquote {
+  margin: 16px 0;
+  border-left: 3px solid var(--c-accent);
+  padding-left: 12px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  unicode-bidi: plaintext;
+}
+.comment {
+  padding: 16px 0;
+  border-bottom: 1px solid var(--c-rule);
+}
+.comment header small {
+  display: block;
+  color: var(--c-muted);
+  font: 10px/1.65 var(--f-mono);
+  overflow-wrap: anywhere;
+}
+.comment-body {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  unicode-bidi: plaintext;
+}
+.comment-status {
+  color: var(--c-muted);
+  font-size: 12px;
+}
+.comment-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 12px 0;
+}
+.comments-panel button {
+  font-size: 12px;
+  padding: 5px 8px;
+  box-shadow: 2px 2px 0 var(--c-text);
+}
+.comments-panel button:disabled {
+  cursor: default;
+  opacity: 0.6;
+  box-shadow: none;
+}
+.comments-panel textarea {
+  display: block;
+  width: 100%;
+  min-height: 88px;
+  margin: 8px 0;
+  padding: 10px;
+  color: var(--c-text);
+  background: var(--c-paper);
+  border: 1px solid var(--c-text);
+}
+.comments-panel .ask-control {
+  margin: 12px 0 0;
+}
+.comments-panel .ask-compose,
+.comments-panel .ask-preview {
+  padding: 12px;
+}
+@media (max-width: 1100px) {
+  .workspace.split.with-comments {
+    grid-template-columns: minmax(0, 1fr) 340px;
+  }
+  .workspace.split.with-comments > .source {
+    grid-column: 1 / -1;
+  }
+}
+@media (max-width: 800px) {
+  .workspace.with-comments,
+  .workspace.split.with-comments {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .comments-panel {
+    max-height: none;
+  }
+}

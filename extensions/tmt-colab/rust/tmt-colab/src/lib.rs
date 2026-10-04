@@ -16,6 +16,7 @@ pub mod registration;
 pub mod socket;
 pub mod store;
 pub mod sync;
+mod threads;
 pub mod transitions;
 
 pub type Result<T> = std::result::Result<T, Box<dyn std::error::Error + Send + Sync>>;

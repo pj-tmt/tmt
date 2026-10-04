@@ -9,6 +9,8 @@ import {
   Outlet,
 } from '@tanstack/react-router';
 import type { PageView, PageTransport } from './transport.js';
+import { ThreadPanel } from './thread-panel.js';
+import type { QuoteSelector } from './thread-records.js';
 import { mountRenderer } from './renderer.js';
 import type { RenderState } from './renderer.js';
 import { text } from './strings.js';
@@ -136,6 +138,7 @@ function Page() {
     ownData: snapshot.ownData ?? false,
     own: snapshot.own,
     asks: snapshot.asks,
+    threads: snapshot.threads,
   });
   const latest = useRef(view),
     dirty = useRef(false),
@@ -154,6 +157,7 @@ function Page() {
       ownData: snapshot.ownData ?? false,
       own: snapshot.own,
       asks: snapshot.asks,
+      threads: snapshot.threads,
     });
     setLiveError(null);
     setEditError(null);
@@ -200,6 +204,9 @@ function Page() {
     }
   }
   const [selection, setSelection] = useState('');
+  const [selector, setSelector] = useState<QuoteSelector | null>(null);
+  const [resolved, setResolved] = useState<string[]>([]);
+  const renderer = useRef<Awaited<ReturnType<typeof mountRenderer>> | null>(null);
   const [state, setState] = useState<RenderState | 'loading'>('loading');
   const host = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -210,15 +217,39 @@ function Page() {
     }
     setState('loading');
     setSelection('');
+    setSelector(null);
+    setResolved([]);
     void mountRenderer(host.current!, view.source, {
       signal: controller.signal,
       onState: setState,
-      onSelection: setSelection,
-    }).catch(() => {
-      if (!controller.signal.aborted) setState('failed');
-    });
-    return () => controller.abort();
+      onSelection: (value, quote) => {
+        setSelection(value);
+        setSelector(quote ?? null);
+      },
+      onAnchors: setResolved,
+    })
+      .then((handle) => {
+        if (controller.signal.aborted) handle.destroy();
+        else renderer.current = handle;
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) setState('failed');
+      });
+    return () => {
+      controller.abort();
+      renderer.current = null;
+    };
   }, [view.source, liveError]);
+  useEffect(() => {
+    if (state !== 'ready') return;
+    renderer.current?.highlight(
+      (view.threads ?? []).flatMap((thread) =>
+        !thread.deleted && thread.anchor
+          ? [{ id: `${thread.ref.writer}:${thread.threadId}`, selector: thread.anchor }]
+          : [],
+      ),
+    );
+  }, [state, view.threads]);
   return (
     <section className="page">
       <div className="page-bar">
@@ -235,7 +266,6 @@ function Page() {
           {text.source}
         </button>
       </div>
-      {view.ownData && <p role="status">{text.ownNotDisplayed}</p>}
       <AskControl
         key={`ask-control:${snapshot.id}`}
         binding={snapshot.binding?.ask}
@@ -244,7 +274,7 @@ function Page() {
         blocked={!!liveError || state !== 'ready'}
       />
       <ExportPanel key={`export:${snapshot.id}`} binding={snapshot.binding} blocked={!!liveError} />
-      <div className={`workspace ${showSource ? 'split' : ''}`}>
+      <div className={`workspace with-comments ${showSource ? 'split' : ''}`}>
         {showSource && (
           <div className="source">
             <span>
@@ -296,6 +326,16 @@ function Page() {
             </div>
           )}
         </div>
+        <ThreadPanel
+          key={`discussion:${snapshot.id}`}
+          threads={view.threads ?? []}
+          resolved={resolved}
+          selection={selector}
+          binding={snapshot.binding?.discussion}
+          ask={snapshot.binding?.ask}
+          title={view.title || snapshot.title}
+          blocked={!!liveError || state !== 'ready'}
+        />
       </div>
       {view.askUnavailable && <p role="status">{text.askObservationUnavailable}</p>}
       {view.asks && (
