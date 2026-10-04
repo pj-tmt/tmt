@@ -164,8 +164,10 @@ in `acceptance/ask.spec.ts`.
   page's owner log plus discovery absence and the frozen initiating context.
   Without that evidence, last-page deletion remains acknowledged/awaiting
   verification. A dropped/DENIED target socket never erases the acknowledgment.
-- `expiry.ts` presents native last-edit/expiry evidence in home and dialog; the CLI
-  formats the same projection. Warnings begin seven days ahead, and expired local
-  pages remain available. Legacy unknown times say "Expiry starts after the next edit".
+- `expiry.ts` formats browser relative retention time and local absolute dates;
+  `retention-hint.tsx` presents the same hint inside home cards and the dialog.
+  Warnings begin seven days ahead with a waiting mark and body text color; normal
+  hints are dim. The CLI formats the same projection, and expired local pages remain
+  available. Legacy unknown times say "Expiry starts after the next edit".
   Exact warning codes, checked arithmetic and forever semantics live in the contract.
   The link artifact is a transient ID/seed, not a new reader URL/import grammar.

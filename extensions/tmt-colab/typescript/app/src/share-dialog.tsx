@@ -1,4 +1,5 @@
-import { expiryText, utcTime } from './expiry.js';
+import { localTime } from './expiry.js';
+import { RetentionHint } from './retention-hint.js';
 import { useEffect, useRef, useState } from 'react';
 import type { payload } from '@tmt/colab-client';
 import { Listbox, type ListboxOption } from './components/listbox.js';
@@ -286,15 +287,11 @@ export function ShareDialog({
           <details>
             <summary>Details</summary>
             <p>Verified revision {view.revision}</p>
-            <p>Last edit: {utcTime(view.page.lastUpdateAtMs)}</p>
+            <p>Last edit: {localTime(view.page.lastUpdateAtMs)}</p>
           </details>
           <section aria-label="Page lifecycle">
             <h3>Retention and lifecycle</h3>
-            <p>
-              Retention:{' '}
-              {view.page.retentionDays === null ? 'forever' : `${view.page.retentionDays} days`}.{' '}
-              {expiryText(view.page)}
-            </p>
+            <RetentionHint page={view.page} />
             <form
               key={view.revision}
               onSubmit={(e) => {

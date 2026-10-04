@@ -2249,10 +2249,13 @@ Metadata catchup reuses bounded frame/chunk assembly and owner-log admission,
 then closes before content decoding. Baseline ciphertext can be consumed as part
 of wire framing but is never decrypted or materialized for management. A failed
 preview does not remove home management access. Retention defaults to 30 days.
-Chrome presents the native durable last-update/expiry display hints with actual
-UTC dates, the seven-day warning and advisory expired state; legacy unknown times
-say "Expiry starts after the next edit". The collapsed Details line includes the
-last edit. Local expiry never automatically deletes data or ends access.
+Chrome presents the native durable last-update/expiry display hints as relative
+retention time, with the absolute local date on hover. The hint stays inside the
+page card under its status badge. The seven-day warning and advisory expired state
+add a waiting mark and body text color; ordinary hints use dim text. The copy names
+retention and says the local copy stays; legacy unknown times say "Expiry starts
+after the next edit". The collapsed Details line includes the local last-edit date.
+Local expiry never automatically deletes data or ends access.
 
 Confirmation discloses shared/current history scope, the 64-epoch limit, editors'
 script power, renderer self-navigation limits and separate Remote device/agent

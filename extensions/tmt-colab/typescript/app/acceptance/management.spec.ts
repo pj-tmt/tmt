@@ -43,11 +43,23 @@ test('native sharing and lifecycle verification preserve Ask, page recovery and 
     expect(Number.isSafeInteger(initialPage.lastUpdateAtMs)).toBe(true);
     expect(initialPage.expiresAtMs).toBe(initialPage.lastUpdateAtMs + 30 * 86400000);
     expect(initialPage.warnings).toEqual([]);
-    const expiry = new Date(initialPage.expiresAtMs)
-      .toISOString()
-      .replace('T', ' ')
-      .replace('Z', ' UTC');
-    await expect(dialog).toContainText(`Expires ${expiry}`);
+    const expiry = await page.evaluate((value: number) => {
+      const parts = new Intl.DateTimeFormat('en-US', {
+        weekday: 'short',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        hourCycle: 'h23',
+      }).formatToParts(new Date(value));
+      const part = (type: Intl.DateTimeFormatPartTypes) =>
+        parts.find((p) => p.type === type)?.value;
+      return `${part('weekday')} ${part('month')}-${part('day')} ${part('hour')}:${part('minute')}`;
+    }, initialPage.expiresAtMs);
+    await expect(dialog.locator('.retention-hint')).toHaveAttribute('title', expiry);
+    await expect(dialog.locator('.retention-hint')).toHaveText(
+      /Retention ends in (29|30) days · advisory; local copy stays\./,
+    );
     for (const theme of ['light', 'dark']) {
       await page.evaluate((theme) => {
         document.documentElement.dataset.theme = theme;
