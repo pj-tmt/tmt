@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { expect, it } from 'vite-plus/test';
@@ -7,11 +7,64 @@ import { imports } from '../support/source-imports.js';
 
 const root = fileURLToPath(new URL('../../../', import.meta.url));
 const { packages: crates } = readCargoWorkspace(root);
-it.each([
+const nativeStages = [
   ['typescript/test/e2e/Dockerfile', 'native-tests', '/native'],
   ['typescript/test/native/artifact.Dockerfile', 'build', '/workspace'],
   ['extensions/tmt-office/typescript/services/office/Dockerfile', 'native-office', '/workspace'],
-])('preserves every Cargo member in %s', (file, stage, destination) => {
+];
+
+// Repository-context COPYs only: --from inputs come from another stage/image.
+// Keep source-to-destination resolution shared with other embedded-input guards.
+function copiedAt(text: string, input: string, workdir: string): string[] {
+  return [...text.matchAll(/^COPY (.+)$/gm)].flatMap(([, line]) => {
+    if (/--from(?:=|\s)/.test(line)) return [];
+    const args = line.split(/\s+/).filter((arg) => !arg.startsWith('--'));
+    const target = args.pop()!;
+    return args.flatMap((arg) => {
+      const source = arg.replace(/\/$/, '');
+      if (input === source) {
+        return [
+          path.posix.resolve(
+            workdir,
+            target,
+            target.endsWith('/') ? path.posix.basename(input) : ''
+          ),
+        ];
+      }
+      return input.startsWith(`${source}/`)
+        ? [path.posix.resolve(workdir, target, input.slice(source.length + 1))]
+        : [];
+    });
+  });
+}
+
+function rustFiles(directory: string): string[] {
+  return readdirSync(path.join(root, directory), { withFileTypes: true }).flatMap((entry) => {
+    const file = path.posix.join(directory, entry.name);
+    if (entry.isDirectory()) return entry.name === 'target' ? [] : rustFiles(file);
+    return entry.name.endsWith('.rs') ? [file] : [];
+  });
+}
+
+function embeddedInputs(crate: (typeof crates)[number], withTests: boolean): string[] {
+  return rustFiles(crate.dir).flatMap((source) => {
+    if (!withTests && source.startsWith(`${crate.dir}/tests/`)) return [];
+    const text = readFileSync(path.join(root, source), 'utf8');
+    // Generated include_bytes! output in build scripts is not a source input.
+    // Literal paths and manifest-relative concat! inputs are resolved as Rust does.
+    const literal = [...text.matchAll(/include_(?:str|bytes)!\s*\(\s*"([^"\n]+)"/g)].map(
+      ([, value]) => path.posix.normalize(path.posix.join(path.posix.dirname(source), value))
+    );
+    const manifest = [
+      ...text.matchAll(
+        /include_(?:str|bytes)!\s*\(\s*concat!\(\s*env!\("CARGO_MANIFEST_DIR"\),\s*"([^"\n]+)"/g
+      ),
+    ].map(([, value]) => path.posix.normalize(`${crate.dir}${value}`));
+    return [...literal, ...manifest];
+  });
+}
+
+it.each(nativeStages)('preserves every Cargo member in %s', (file, stage, destination) => {
   const dockerfile = readFileSync(path.join(root, file), 'utf8');
   const block = dockerfile
     .split(/^FROM /m)
@@ -22,14 +75,7 @@ it.each([
     crates
       .filter(
         ({ manifest }) =>
-          ![...text.matchAll(/^COPY ([^ -]\S*) (\S+)$/gm)].some(([, source, target]) => {
-            source = source.replace(/\/$/, '');
-            return (
-              manifest.startsWith(`${source}/`) &&
-              path.posix.resolve(workdir, target, manifest.slice(source.length + 1)) ===
-                path.posix.join(destination, manifest)
-            );
-          })
+          !copiedAt(text, manifest, workdir).includes(path.posix.join(destination, manifest))
       )
       .map(({ name }) => name);
   expect(missing(block!)).toEqual([]);
@@ -37,6 +83,37 @@ it.each([
   expect(missing(absent)).toEqual(['tmt-remote']);
   const misplaced = block!.replace(/^(COPY extensions\/tmt-remote\/rust\/? )\S+$/m, '$1/wrong');
   expect(missing(misplaced)).toEqual(['tmt-remote']);
+});
+
+it.each(nativeStages)('preserves Rust embedded source inputs in %s', (file, stage, destination) => {
+  const dockerfile = readFileSync(path.join(root, file), 'utf8');
+  const block = dockerfile
+    .split(/^FROM /m)
+    .find((part) => part.split('\n')[0].endsWith(` AS ${stage}`))!;
+  const workdir = block.match(/^WORKDIR (\S+)$/m)![1];
+  // These stages preserve the full workspace. Check source/build inputs for every
+  // member, plus integration-test inputs for packages whose test targets compile.
+  const inputs = [
+    ...new Set(
+      crates.flatMap((crate) =>
+        embeddedInputs(crate, new RegExp(`cargo test[^\\n]* -p ${crate.name}(?:\\s|$)`).test(block))
+      )
+    ),
+  ];
+  const missing = (text: string) =>
+    inputs.filter(
+      (input) => !copiedAt(text, input, workdir).includes(path.posix.join(destination, input))
+    );
+  expect(missing(block)).toEqual([]);
+  const token = 'design/tokens/tokens.json';
+  expect(inputs).toContain(token);
+  const absent = block.replace(/^COPY design\/tokens\/tokens\.json.*\n/gm, '');
+  expect(missing(absent)).toEqual([token]);
+  const misplaced = block.replace(
+    /^(COPY design\/tokens\/tokens\.json )\S+$/m,
+    '$1/wrong/tokens.json'
+  );
+  expect(missing(misplaced)).toEqual([token]);
 });
 
 it.each([

@@ -666,8 +666,13 @@ fn serve(
     } else {
         "<svg class=\"guidance-mark lucide\" aria-hidden=\"true\" xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\"><path d=\"M2.7 10.3a2.41 2.41 0 0 0 0 3.41l7.59 7.59a2.41 2.41 0 0 0 3.41 0l7.59-7.59a2.41 2.41 0 0 0 0-3.41l-7.59-7.59a2.41 2.41 0 0 0-3.41 0Z\"/></svg>"
     };
+    let state = if request.owner.is_some() {
+        "live"
+    } else {
+        "waiting"
+    };
     let page = format!(
-        "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"><title>Colab</title>{stylesheet}</head><body class=\"guidance\"><header class=\"colab-header\"><span class=\"colab-brand\"><span class=\"colab-mark\">tmt</span><span class=\"colab-wordmark\">Colab</span></span><h1 class=\"colab-title\">{screen_title}</h1><div class=\"colab-actions\"></div></header><main class=\"guidance-main\"><section class=\"guidance-card\">{mark}<p class=\"guidance-eyebrow\">{eyebrow}</p><h2>{heading}</h2>{recovery_status}<div id=\"colab-guidance\" class=\"guidance-detail\"{hidden}>{detail}</div></section></main>{script}</body></html>"
+        "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"><title>Colab</title>{stylesheet}</head><body class=\"guidance\"><header class=\"colab-header\"><span class=\"colab-brand\"><span class=\"colab-mark\">tmt</span><span class=\"colab-wordmark\">Colab</span></span><h1 class=\"colab-title\">{screen_title}</h1><div class=\"colab-actions\"></div></header><main class=\"guidance-main\"><section class=\"guidance-card notice {state}\">{mark}<p class=\"guidance-eyebrow\">{eyebrow}</p><h2>{heading}</h2>{recovery_status}<div id=\"colab-guidance\" class=\"guidance-detail\"{hidden}>{detail}</div></section></main>{script}</body></html>"
     );
     let _ = response_with_policy(
         &mut socket,

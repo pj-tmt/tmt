@@ -104,6 +104,27 @@ it('attributes embedded app changes to Colab, rejecting invalid marker combinati
   }
 });
 
+it('attributes shared token changes to CLI and the embedded Colab consumer', () => {
+  const path = 'design/tokens/tokens.json';
+  expect(affectedProducts([path], map, workspace)).toEqual({
+    products: ['cli', 'colab'],
+    unpublished: [],
+  });
+  for (const product of ['cli', 'colab']) {
+    expect(
+      attributeCutCommits(
+        [{ sha, message: 'fix: shared tokens', files: [path] }],
+        map,
+        product,
+        workspace
+      )
+    ).toHaveLength(1);
+  }
+  expect(affectedProducts(['design/tokens-other/tokens.json'], map, workspace).products).toEqual([
+    'cli',
+  ]);
+});
+
 describe('explicit private delivery status', () => {
   const item = { content: { id: 'issue' } } as ProjectItem;
   const closing: Closing = {

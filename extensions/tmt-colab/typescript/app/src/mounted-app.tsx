@@ -5,6 +5,7 @@ import { mountUrl } from './bootstrap.js';
 import { AppHeader, createAppRouter } from './router.js';
 import { mountedTransport } from './mounted.js';
 import { text } from './strings.js';
+import { NoticeCard } from './notice-card.js';
 
 /** One mounted app owns the lease and all page bindings until takeover/unload. */
 export function MountedApp() {
@@ -99,30 +100,36 @@ export function MountedNotice({
           state === 'inactive' ? 'Another tab' : state === 'failed' ? text.error : 'Opening space'
         }
       />
-      <main
-        className="notice"
-        role={state === 'failed' ? 'alert' : 'status'}
-        data-testid={state === 'inactive' ? 'colab-inactive' : undefined}
-      >
-        <h1>
-          {state === 'inactive'
-            ? text.otherTab
-            : state === 'failed'
-              ? text.registrationFailed
-              : text.registering}
-        </h1>
-        {state === 'inactive' && <p className="isolation-note">{text.oneTab}</p>}
-        {state === 'inactive' && (
-          <button
-            data-testid="colab-use-here"
-            onClick={(event) => {
-              if (event.isTrusted) useHere?.();
-            }}
-          >
-            {text.useHere}
-          </button>
-        )}
-        {state === 'failed' && <button onClick={() => location.reload()}>{text.reload}</button>}
+      <main>
+        <NoticeCard
+          state={state === 'inactive' ? 'inactive' : state === 'failed' ? 'blocked' : 'opening'}
+          eyebrow="Paired space"
+          title={
+            state === 'inactive'
+              ? text.otherTab
+              : state === 'failed'
+                ? text.error
+                : text.registering
+          }
+          testId={state === 'inactive' ? 'colab-inactive' : undefined}
+          actions={
+            state === 'inactive' ? (
+              <button
+                data-testid="colab-use-here"
+                onClick={(event) => {
+                  if (event.isTrusted) useHere?.();
+                }}
+              >
+                {text.useHere}
+              </button>
+            ) : state === 'failed' ? (
+              <button onClick={() => location.reload()}>{text.reload}</button>
+            ) : undefined
+          }
+        >
+          {state === 'inactive' && <p>{text.oneTab}</p>}
+          {state === 'failed' && <p>{text.registrationFailed}</p>}
+        </NoticeCard>
       </main>
     </>
   );

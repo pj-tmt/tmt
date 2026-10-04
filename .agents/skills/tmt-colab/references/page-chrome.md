@@ -7,8 +7,13 @@ hierarchy and flat actions. Header dimensions and typography come from
 `design/tokens/tokens.json`, including the shared compact viewport rule. Lucide
 icons use currentColor, square caps and miter joins.
 
+`notice-card.tsx` owns state-card markup for router errors, mounted lifecycle and
+reader notices. Its stylesheet also styles native guidance: centered square cards,
+mark plus word, shared type, and hard shadows in the state's color. Recovery actions
+stay inside the card; inactive/ended use muted, opening uses waiting, failures use blocked.
+
 Native pairing/build guidance stays static. `chrome.rs` projects the same tokens
-and includes the same header CSS; `/assets/chrome.css` serves those immutable
+and includes the header, reader and state-card CSS; `/assets/chrome.css` serves those immutable
 bytes even without an app build. `socket.rs` uses matching header slots and keeps
 the parent CSP free of inline style/script exemptions.
 
@@ -45,7 +50,7 @@ revokes download Blob URLs. Manage also portals outside the menu. Safety details
 remain available from Page information and blocked views; visibility never
 substitutes for writer admission.
 
-`e2e/chrome.spec.ts` compares header dimensions, font metrics and window-scroll
+`e2e/chrome.spec.ts` compares header and state-card dimensions, font metrics, state colors and window-scroll
 containment across every screen at 1440/390 in light/dark, including responses
 from the native no-app socket fixture. Short-screen midpoint checks add an inert
 scroll probe; their top captures show the natural notice layout.

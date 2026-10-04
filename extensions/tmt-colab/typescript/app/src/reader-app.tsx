@@ -1,5 +1,6 @@
 import { Circle, Info, LoaderCircle, X } from 'lucide-react';
 import { ColabHeader } from './colab-header.js';
+import { NoticeCard } from './notice-card.js';
 import { useEffect, useRef, useState } from 'react';
 import { mountRenderer, type RenderState } from './renderer.js';
 import { text } from './strings.js';
@@ -89,44 +90,32 @@ export function ReaderApp({ state }: { state: ReaderState }) {
               <div className="canvas">
                 <div className="frame-host" ref={host} />
                 {(render === 'navigation' || render === 'failed') && (
-                  <div className="notice blocked" role="alert">
-                    <span className="notice-mark" aria-hidden>
-                      <X aria-hidden />
-                    </span>
-                    <h2>{text.blocked}</h2>
+                  <NoticeCard state="blocked" eyebrow={text.readerOnly} title={text.blocked}>
                     <p>{render === 'navigation' ? text.navigation : text.failed}</p>
                     <p>{text.limit}</p>
-                  </div>
+                  </NoticeCard>
                 )}
               </div>
             </div>
           </section>
         ) : (
-          <section
-            className={`notice ${state.kind === 'opening' ? 'waiting' : state.kind === 'ended' ? 'ended' : 'blocked'}`}
-            role={state.kind === 'opening' ? 'status' : 'alert'}
-          >
-            <span className="notice-mark" aria-hidden>
-              {state.kind === 'opening' ? (
-                <LoaderCircle aria-hidden />
-              ) : state.kind === 'ended' ? (
-                <Circle aria-hidden />
-              ) : (
-                <X aria-hidden />
-              )}
-            </span>
-            <p className="notice-eyebrow">{text.readerOnly}</p>
-            <h2>
-              {state.kind === 'opening'
+          <NoticeCard
+            state={
+              state.kind === 'opening' ? 'opening' : state.kind === 'ended' ? 'ended' : 'blocked'
+            }
+            eyebrow={text.readerOnly}
+            title={
+              state.kind === 'opening'
                 ? text.readerOpening
                 : state.kind === 'ended'
                   ? text.readerEnded
-                  : text.error}
-            </h2>
+                  : text.error
+            }
+          >
             {state.kind === 'ended' && <p>{text.readerEndedNote}</p>}
             {state.kind === 'invalid' && <p>{text.readerInvalid}</p>}
             {state.kind === 'failed' && <p>{text.readerFailed}</p>}
-          </section>
+          </NoticeCard>
         )}
       </main>
     </>

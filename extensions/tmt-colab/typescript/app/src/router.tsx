@@ -10,6 +10,7 @@ import {
   X,
 } from 'lucide-react';
 import { ColabHeader } from './colab-header.js';
+import { NoticeCard } from './notice-card.js';
 import { RetentionHint } from './retention-hint.js';
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
@@ -122,19 +123,34 @@ const root = createRootRouteWithContext<{ transport: PageTransport }>()({
   errorComponent: ({ error }) => (
     <>
       <AppHeader title={text.error} />
-      <main className="notice">
-        <h2>{text.error}</h2>
-        <p role="alert">{error instanceof Error ? error.message : text.blocked}</p>
-        <Link to="/">{text.retry}</Link>
+      <main>
+        <NoticeCard
+          state="blocked"
+          eyebrow={text.product}
+          title={text.error}
+          actions={
+            <Link className="notice-action" to="/">
+              {text.retry}
+            </Link>
+          }
+        >
+          <p>{error instanceof Error ? error.message : text.blocked}</p>
+        </NoticeCard>
       </main>
     </>
   ),
   notFoundComponent: () => (
     <>
-      <section className="notice">
-        <h2>{text.error}</h2>
-        <Link to="/">{text.retry}</Link>
-      </section>
+      <NoticeCard
+        state="blocked"
+        eyebrow={text.product}
+        title={text.error}
+        actions={
+          <Link className="notice-action" to="/">
+            {text.retry}
+          </Link>
+        }
+      />
     </>
   ),
 });
@@ -686,8 +702,7 @@ function Page() {
         <div className="canvas">
           <div className="frame-host" ref={host} />
           {(state === 'navigation' || state === 'failed') && (
-            <div className="notice" role="alert">
-              <h2>{text.blocked}</h2>
+            <NoticeCard state="blocked" eyebrow={text.product} title={text.blocked}>
               <p>{liveError ?? (state === 'navigation' ? text.navigation : text.failed)}</p>
               <p>{text.limit}</p>
               {liveError === 'Sync disconnected' && snapshot.binding?.reconnect && (
@@ -702,7 +717,7 @@ function Page() {
                 </button>
               )}
               {reconnectFailed && <p>{text.reconnectFailed}</p>}
-            </div>
+            </NoticeCard>
           )}
         </div>
       </div>

@@ -110,13 +110,13 @@ test('reader link: opens unpaired, shows live edits read-only, and ends on Reset
     });
     const frameWidth = (await element.boundingBox())?.width;
     const pageHeight = await reader.page.evaluate(() => document.documentElement.scrollHeight);
-    await reader.page.getByText('Info', { exact: true }).click();
+    await reader.page.getByLabel('Info', { exact: true }).click();
     await expect(reader.page.getByText('You are reading a shared page.')).toBeVisible();
     expect((await element.boundingBox())?.width).toBe(frameWidth);
     expect(await reader.page.evaluate(() => document.documentElement.scrollHeight)).toBe(
       pageHeight,
     );
-    await reader.page.getByText('Info', { exact: true }).click();
+    await reader.page.getByLabel('Info', { exact: true }).click();
     await frame.getByRole('link', { name: 'Jump to reader anchor' }).click();
     await expect.poll(() => reader.page.evaluate(() => window.scrollY)).toBeGreaterThan(2000);
     expect(
@@ -172,12 +172,12 @@ test('reader link: opens unpaired, shows live edits read-only, and ends on Reset
       added.linkId as string,
       '--yes',
     ]);
-    await expect(reader.page.getByRole('heading', { name: 'Access ended' })).toBeVisible({
+    await expect(reader.page.getByRole('heading', { name: 'Access ended', level: 2 })).toBeVisible({
       timeout: 60_000,
     });
     await expect(reader.page.locator('iframe')).toHaveCount(0);
     const stale = await openReaderLink(world, door, readerPath, 'reader-stale');
-    await expect(stale.page.getByRole('heading', { name: 'Access ended' })).toBeVisible({
+    await expect(stale.page.getByRole('heading', { name: 'Access ended', level: 2 })).toBeVisible({
       timeout: 30_000,
     });
     const fresh = await openReaderLink(world, door, reset.readerPath as string, 'reader-fresh');

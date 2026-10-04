@@ -71,6 +71,10 @@ COPY extensions/tmt-remote/rust extensions/tmt-remote/rust
 COPY extensions/tmt-colab/rust extensions/tmt-colab/rust
 COPY extensions/tmt-colab/contracts extensions/tmt-colab/contracts
 COPY extensions/tmt-colab/skills extensions/tmt-colab/skills
+COPY design/tokens/tokens.json design/tokens/tokens.json
+COPY extensions/tmt-colab/typescript/app/src/colab-header.css extensions/tmt-colab/typescript/app/src/colab-header.css
+COPY extensions/tmt-colab/typescript/app/src/reader-style.css extensions/tmt-colab/typescript/app/src/reader-style.css
+COPY extensions/tmt-colab/typescript/app/src/notice-card.css extensions/tmt-colab/typescript/app/src/notice-card.css
 COPY --from=browser-tests-base /workspace/target/office-spa /workspace/target/office-spa
 ENV TMT_OFFICE_SPA_DIR=/workspace/target/office-spa
 RUN cd rust && cargo +1.97.0 build --locked --workspace --release --features tmt-office/local-service \

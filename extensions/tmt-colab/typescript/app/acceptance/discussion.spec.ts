@@ -254,11 +254,15 @@ test('paired writers retain anchored annotation conversations, direct exact send
       .getByRole('textbox', { name: 'Source', exact: true })
       .fill('<p style="height:300px">Inserted above.</p>' + html);
     await first.getByRole('button', { name: 'Save source', exact: true }).click();
+    await expect(
+      second.frameLocator('iframe').getByText('Inserted above.', { exact: true }),
+    ).toBeVisible();
     await expect(t1).toHaveAttribute('data-anchor', 'attached');
     await first
       .getByRole('textbox', { name: 'Source', exact: true })
       .fill(html.replace('exact quote', 'changed quote'));
     await first.getByRole('button', { name: 'Save source', exact: true }).click();
+    await expect(second.frameLocator('iframe').locator('#quote')).toContainText('changed quote');
     await expect(t1).toHaveAttribute('data-anchor', 'detached');
     await expect(marker).toHaveCount(0);
     await first.getByRole('button', { name: 'Close Source', exact: true }).click();

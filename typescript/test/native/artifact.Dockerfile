@@ -18,6 +18,10 @@ COPY extensions/tmt-remote/rust/ extensions/tmt-remote/rust/
 COPY extensions/tmt-colab/rust/ extensions/tmt-colab/rust/
 COPY extensions/tmt-colab/contracts/ extensions/tmt-colab/contracts/
 COPY extensions/tmt-colab/skills/ extensions/tmt-colab/skills/
+COPY design/tokens/tokens.json design/tokens/tokens.json
+COPY extensions/tmt-colab/typescript/app/src/colab-header.css extensions/tmt-colab/typescript/app/src/colab-header.css
+COPY extensions/tmt-colab/typescript/app/src/reader-style.css extensions/tmt-colab/typescript/app/src/reader-style.css
+COPY extensions/tmt-colab/typescript/app/src/notice-card.css extensions/tmt-colab/typescript/app/src/notice-card.css
 COPY scripts/native-cargo.sh scripts/build-native-artifact.sh scripts/
 COPY dist-workspace.toml LICENSE ./
 COPY typescript/package.json typescript/pnpm-lock.yaml typescript/pnpm-workspace.yaml typescript/

@@ -469,16 +469,10 @@ footer {
   max-width: 880px;
   margin: 16px 0 0;
 }
-.notice {
-  padding: 36px;
-}
 .canvas .notice {
   position: absolute;
   top: 100px;
   left: 20px;
-}
-.notice h2 {
-  font-size: 18px;
 }
 @media (max-width: 800px) {
   .home {

@@ -126,6 +126,7 @@ for (const width of [1440, 390])
         document.documentElement.dataset.theme = theme;
       }, theme);
       let reference: Awaited<ReturnType<typeof metrics>> | undefined;
+      let cardReference: unknown;
       for (const screen of [...screens, 'rust-private', 'rust-owner'] as const) {
         await test.step(screen, async () => {
           if (screen === 'rust-private' || screen === 'rust-owner') {
@@ -160,6 +161,45 @@ for (const width of [1440, 390])
           await expect(page.locator('.colab-header:visible')).toHaveCSS('position', 'fixed');
           await expect(page.locator('.colab-header:visible')).toHaveCSS('flex-wrap', 'nowrap');
           await containment(page);
+          const card = page.locator('.notice:visible');
+          if (await card.count()) {
+            const geometry = await card.evaluate((node) => {
+              const style = getComputedStyle(node);
+              const title = getComputedStyle(node.querySelector('h2')!);
+              return {
+                width: node.getBoundingClientRect().width,
+                border: style.borderWidth,
+                padding: style.padding,
+                font: style.font,
+                title: title.font,
+                background: style.backgroundColor,
+              };
+            });
+            cardReference ??= geometry;
+            expect(geometry, `${screen} state card`).toEqual(cardReference);
+            const role =
+              screen === 'rust-owner'
+                ? 'working'
+                : screen.includes('opening') || screen === 'rust-private'
+                  ? 'waiting'
+                  : screen === 'reader-ended' || screen === 'mounted-inactive'
+                    ? 'muted'
+                    : 'blocked';
+            const color = await page.evaluate((role) => {
+              const probe = document.createElement('span');
+              probe.style.color = `var(--c-${role})`;
+              document.body.append(probe);
+              const value = getComputedStyle(probe).color;
+              probe.remove();
+              return value;
+            }, role);
+            await expect(card.locator('svg.lucide')).toHaveCSS('color', color);
+            expect(await card.evaluate((node) => getComputedStyle(node).boxShadow)).toContain(
+              color,
+            );
+            await expect(card.locator('h2')).not.toBeEmpty();
+            await expect(card.locator('.notice-eyebrow, .guidance-eyebrow')).not.toBeEmpty();
+          }
           if (screen === 'pages') {
             const card = page.locator('.page-card:visible').first();
             await expect(card.locator('h2')).toHaveText('Release notes');
