@@ -751,7 +751,7 @@ fn home_tiles_paint_uncovered_known_history_as_partial_at_each_width_and_theme()
     }
 }
 
-fn header_usage() -> crate::board::app::HomeHeaderUsage<'static> {
+pub(super) fn header_usage() -> crate::board::app::HomeHeaderUsage<'static> {
     use crate::board::{
         app::{HomeHeaderUsage, UsageModel, UsageShare, UsageTop},
         rate::Reading,
