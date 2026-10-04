@@ -48,6 +48,10 @@ test('two paired writers retain discussion, anchors and frozen comment Ask throu
     const threadId = await t1.getAttribute('data-thread-id');
     const messageId = await t1.getByTestId('comment-entry').getAttribute('data-message-id');
     await expect(t2.getByTestId('comment-entry')).toContainText('discussion-author');
+    const byline = t2.getByTestId('comment-entry').locator('.comment-byline');
+    await expect(byline).toHaveText('discussion-author · Just now');
+    await expect(byline).toHaveAttribute('title', /^[a-f0-9-]{36}$/);
+    await expect(byline.locator('time')).toHaveAttribute('datetime', /Z$/);
     await expect(t2.getByRole('button', { name: 'Resolve', exact: true })).toHaveCount(0);
     await t2.getByRole('button', { name: 'Reply', exact: true }).click();
     await t2.getByLabel('Post reply', { exact: true }).fill('A reply from another device.');
@@ -64,6 +68,9 @@ test('two paired writers retain discussion, anchors and frozen comment Ask throu
     const replyId = await reply2.getAttribute('data-message-id');
     await edit(t2.locator(`[data-message-id="${replyId}"]`), 'An edited reply.');
     await expect(t1).toContainText('An edited reply.');
+    await expect(t1.locator(`[data-message-id="${replyId}"] .comment-byline`)).toHaveText(
+      'discussion-replier · Just now · edited',
+    );
     await t1.getByRole('button', { name: 'Resolve', exact: true }).click();
     await expect(t2).toContainText('Resolved thread');
     await t1.getByRole('button', { name: 'Reopen', exact: true }).click();

@@ -36,6 +36,7 @@ struct ThreadRecord {
     revision: String,
     deleted: bool,
     device_name: String,
+    at: String,
     thread_id: String,
     anchor: Option<QuoteSelector>,
     #[serde(rename = "resolved")]
@@ -59,6 +60,7 @@ struct CommentRecord {
     revision: String,
     deleted: bool,
     device_name: String,
+    at: String,
     message_id: String,
     thread: ThreadRef,
     body: String,
@@ -80,6 +82,9 @@ fn scope(
     values::decimal(revision, false)?;
     Ok(())
 }
+fn timestamp(at: &str) -> Result<()> {
+    require(values::decimal(at, true)? <= 8_640_000_000_000_000)
+}
 fn require(valid: bool) -> Result<()> {
     if valid { Ok(()) } else { Err(Invalid) }
 }
@@ -89,7 +94,7 @@ pub(crate) fn validate_record(root: &str, key: &str, value: &Value) -> Result<()
             require(
                 value
                     .as_object()
-                    .is_some_and(|v| v.len() == 12 && v.contains_key("anchor")),
+                    .is_some_and(|v| v.len() == 13 && v.contains_key("anchor")),
             )?;
             let v: ThreadRecord = serde_json::from_value(value.clone()).map_err(|_| Invalid)?;
             require(
@@ -107,6 +112,7 @@ pub(crate) fn validate_record(root: &str, key: &str, value: &Value) -> Result<()
                 &v.revision,
                 &v.device_name,
             )?;
+            timestamp(&v.at)?;
             require(!v.deleted || v.anchor.is_none())?;
             if let Some(anchor) = v.anchor {
                 anchor.validate()?;
@@ -131,6 +137,7 @@ pub(crate) fn validate_record(root: &str, key: &str, value: &Value) -> Result<()
                 &v.revision,
                 &v.device_name,
             )?;
+            timestamp(&v.at)?;
             require(v.body.len() <= COMMENT_BODY_BYTES)?;
             require(if v.deleted {
                 v.body.is_empty()

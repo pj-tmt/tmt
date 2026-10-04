@@ -1,8 +1,9 @@
-import { useId, useState } from 'react';
+import { useEffect, useId, useState } from 'react';
 import { AskControl, type AskBinding } from './ask-panel.js';
 import type { ThreadBinding } from './thread-store.js';
 import type { CommentView, QuoteSelector, ThreadView } from './thread-records.js';
 import { text } from './strings.js';
+import { relativeTime } from './display-time.js';
 
 function Composer({
   label,
@@ -85,6 +86,8 @@ function Comment({
   blocked: boolean;
 }) {
   const editId = useId();
+  const [now, setNow] = useState(0);
+  useEffect(() => setNow(Date.now()), [comment.at]);
   const [editing, setEditing] = useState(false),
     [draft, setDraft] = useState(comment.body),
     [editRevision, setEditRevision] = useState(comment.revision);
@@ -110,8 +113,16 @@ function Comment({
       data-writer={comment.ref.writer}
     >
       <header>
-        <strong>{owned ? text.askYou : comment.deviceName || text.commentDevice}</strong>
-        <small>{comment.ref.writer}</small>
+        <p className="comment-byline" title={comment.ref.writer}>
+          {owned ? text.askYou : comment.deviceName || text.commentDevice} ·{' '}
+          <time
+            dateTime={new Date(Number(comment.at)).toISOString()}
+            title={new Date(Number(comment.at)).toISOString()}
+          >
+            {relativeTime(Number(comment.at), now)}
+          </time>
+          {!comment.deleted && comment.revision !== '1' && <> · {text.commentEdited}</>}
+        </p>
       </header>
       {comment.deleted ? (
         <p className="comment-status">{text.commentDeleted}</p>

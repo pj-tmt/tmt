@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { afterEach, expect, it, vi } from 'vite-plus/test';
 import type { Connection } from '../src/connection.js';
 import type { JsonValue, OwnRecord, OwnState } from '../src/fold-protocol.js';
+import { relativeTime } from '../src/display-time.js';
 import { ThreadStore, commentForAsk } from '../src/thread-store.js';
 import {
   discussionKey,
@@ -34,6 +35,9 @@ it('browser admits the same literal grammar and rejects fields, keys, tombstone 
       ['senderDevice', 'wrong'],
       ['deleted', 'false'],
       ['deviceName', 'é'.repeat(65)],
+      ...['01', '-1', '1.5', 1791072000000, '8640000000000001', null, undefined].map(
+        (v) => ['at', v] as const,
+      ),
       ['unexpected', true],
     ] as const) {
       expect(
@@ -41,6 +45,8 @@ it('browser admits the same literal grammar and rejects fields, keys, tombstone 
         `${record.kind}/${field}`,
       ).toThrow();
     }
+    for (const at of ['0', '8640000000000000'])
+      expect(() => validateDiscussionRecord(root, key, { ...record, at })).not.toThrow();
     expect(() => validateDiscussionRecord('replies', key, record)).toThrow();
     expect(() => validateDiscussionRecord(root, 'wrong-key', record)).toThrow();
     expect(() => validateDiscussionRecord(root, key, { ...record, deleted: true })).toThrow();
@@ -210,4 +216,43 @@ it('Ask gets exact verified comment context and rejects stale revisions or dupli
   expect(() => commentForAsk(read(), { ...context, messageRevision: '2' })).toThrow();
   put(own, { ...fixture.thread, senderDevice: b });
   expect(() => commentForAsk(read(), context)).toThrow();
+});
+
+it('publisher timestamps refresh on every mutation without controlling revision selection', async () => {
+  const clock = vi.spyOn(Date, 'now');
+  try {
+    const f = storeFixture();
+    const read = () => readThreads(f.own, fixture.scope, () => new Uint8Array(32));
+    clock.mockReturnValue(1791072000000);
+    await f.store.create('Opening', null);
+    const thread = read()[0],
+      comment = thread.comments[0];
+    expect(thread.at).toBe('1791072000000');
+    expect(comment.at).toBe(thread.at);
+    // A publisher clock can move backward; revision authority is unchanged.
+    clock.mockReturnValue(1000);
+    await f.store.edit(comment.ref, '1', 'Edited');
+    expect(read()[0].comments[0]).toMatchObject({ revision: '2', at: '1000', body: 'Edited' });
+    clock.mockReturnValue(2000);
+    await f.store.updateThread(thread.ref, '1', { resolved: true });
+    expect(read()[0]).toMatchObject({ revision: '2', at: '2000', resolved: true });
+    clock.mockReturnValue(3000);
+    await f.store.reply(thread.ref, 'Reply');
+    expect(read()[0].comments.find((v) => v.body === 'Reply')?.at).toBe('3000');
+    clock.mockReturnValue(4000);
+    await f.store.deleteComment(comment.ref, '2');
+    expect(read()[0].comments.find((v) => v.messageId === comment.messageId)).toMatchObject({
+      at: '4000',
+      deleted: true,
+    });
+    clock.mockReturnValue(5000);
+    await f.store.updateThread(thread.ref, '2', { deleted: true });
+    expect(read()[0]).toMatchObject({ at: '5000', deleted: true });
+  } finally {
+    clock.mockRestore();
+  }
+});
+it('formats comment and Ask timestamps with the same relative labels', () => {
+  expect(relativeTime(1791072000000, 1791072000000)).toBe('Just now');
+  expect(relativeTime(1791072000000, 1791072300000)).toBe('5 minutes ago');
 });

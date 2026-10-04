@@ -7,7 +7,8 @@ owns record fields, limits, revision semantics and trust boundaries.
   consecutive writer-owned revisions with verified page/epoch scope. It uses
   historical envelope keys for display, never current publication authority.
 - `thread-store.ts` owns current connection admission and serialized parent
-  actions. Thread creation batches the opening comment with its thread through
+  actions, setting a display-only publisher timestamp at each publication. Thread
+  creation batches the opening comment with its thread through
   `Writer.submitOwnRecords`; foreign replies remain in the replying stream.
   `commentForAsk` rechecks origin IDs/revisions before freezing an Ask.
 - `fold.worker.ts` prepares immutable bounded own batches without committing;
@@ -15,9 +16,10 @@ owns record fields, limits, revision semantics and trust boundaries.
   ciphertext retry. `Live` publishes discussion from its committed own view.
 - Native `threads.rs` validates typed record grammar after isolated Yjs decoding.
   It has no DOM, signatures, publication or dispatch responsibility.
-- `thread-panel.tsx` owns plain-text parent controls, draft retention and explicit
-  reattach confirmation. `AskControl` captures comment context on opening and
-  retains a prepared excerpt through subsequent edits or tombstones.
+- `thread-panel.tsx` owns muted author/time labels with device-ID tooltips, plain-text
+  parent controls, draft retention and explicit reattach confirmation. `AskControl`
+  captures comment context on opening and retains a prepared excerpt through
+  subsequent edits or tombstones.
 - `public/renderer.html` installs bounded selection capture and cosmetic quote
   resolution before author HTML; `renderer.ts` binds narrow requests/results to
   the current render and request. CSS Highlights and pointer-inert overlays grant

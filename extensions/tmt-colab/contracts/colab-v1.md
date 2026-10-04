@@ -676,9 +676,15 @@ Historical keys grant no fresh write authority.
 ### Own-stream discussion records (#1427)
 
 Both record kinds contain `version:1`, `kind`, `spaceId`, `pageId`, `epoch`,
-`senderDevice`, `revision`, `deleted:boolean` and `deviceName`. IDs are canonical
+`senderDevice`, `revision`, `deleted:boolean`, `deviceName` and `at`. IDs are canonical
 UUIDv4, space IDs are canonical, and epoch/revision are positive decimal strings.
 Labels are publisher-asserted plain text, at most 128 UTF-8 bytes, with no authority.
+`at` is a canonical nonnegative decimal string of UTC milliseconds since the Unix
+epoch, at most `8640000000000000` (the JavaScript Date limit). The publisher sets it
+when publishing each revision, including tombstones. It is display-only: it never
+determines ordering, revision selection, ownership or admission. The UI shows the
+latest revision's relative time beside the author and marks revised live comments
+as edited; device IDs remain available in a tooltip.
 
 | Root/key                           | Additional fields                                                                         |
 | ---------------------------------- | ----------------------------------------------------------------------------------------- |

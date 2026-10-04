@@ -69,6 +69,12 @@ fn real_child_admits_literal_records_and_tombstones_and_rejects_typed_mutations(
             ("senderDevice", json!("not-a-device")),
             ("deleted", json!("false")),
             ("deviceName", json!("é".repeat(65))),
+            ("at", json!("01")),
+            ("at", json!("-1")),
+            ("at", json!("1.5")),
+            ("at", json!(1791072000000u64)),
+            ("at", json!("8640000000000001")),
+            ("at", json!(null)),
             ("unexpected", json!(true)),
         ] {
             let mut malformed = value.clone();
@@ -78,6 +84,14 @@ fn real_child_admits_literal_records_and_tombstones_and_rejects_typed_mutations(
                 "{name}/{field}"
             );
         }
+        for at in ["0", "8640000000000000"] {
+            let mut boundary = value.clone();
+            boundary["at"] = json!(at);
+            assert!(decode(&mut decoder, &update(root, &key, &boundary)).is_ok());
+        }
+        let mut missing_time = value.clone();
+        missing_time.as_object_mut().unwrap().remove("at");
+        assert!(decode(&mut decoder, &update(root, &key, &missing_time)).is_err());
         assert!(decode(&mut decoder, &update("replies", &key, value)).is_err());
         assert!(decode(&mut decoder, &update(root, "wrong-key", value)).is_err());
         let mut malformed = value.clone();

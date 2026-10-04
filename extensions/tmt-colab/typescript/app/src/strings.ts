@@ -8,6 +8,7 @@ export const text = {
   commentPostReply: 'Post reply',
   commentEmpty: 'No comments yet. Select text to start a thread, or comment on the page.',
   commentDevice: 'Commenting device',
+  commentEdited: 'edited',
   commentDeleted: 'Comment deleted',
   commentEdit: 'Edit',
   commentEditBody: 'Edit comment',

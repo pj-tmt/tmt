@@ -2,12 +2,12 @@
   "scope": {"spaceId":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","pageId":"00000000-0000-4000-8000-000000000001","epoch":"1"},
   "thread": {
     "version":1,"kind":"thread","spaceId":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","pageId":"00000000-0000-4000-8000-000000000001","epoch":"1",
-    "senderDevice":"00000000-0000-4000-8000-000000000002","revision":"1","deleted":false,"deviceName":"First browser",
+    "senderDevice":"00000000-0000-4000-8000-000000000002","revision":"1","deleted":false,"deviceName":"First browser","at":"1791072000000",
     "threadId":"00000000-0000-4000-8000-000000000003","anchor":{"exact":"A quote & 🐈 across tags","prefix":"Before ","suffix":" after"},"resolved":false
   },
   "comment": {
     "version":1,"kind":"comment","spaceId":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","pageId":"00000000-0000-4000-8000-000000000001","epoch":"1",
-    "senderDevice":"00000000-0000-4000-8000-000000000004","revision":"1","deleted":false,"deviceName":"Second browser",
+    "senderDevice":"00000000-0000-4000-8000-000000000004","revision":"1","deleted":false,"deviceName":"Second browser","at":"1791072300000",
     "messageId":"00000000-0000-4000-8000-000000000005","thread":{"writer":"00000000-0000-4000-8000-000000000002","id":"00000000-0000-4000-8000-000000000003"},"body":"<script>Inert text</script>\nA precise reply."
   }
 }

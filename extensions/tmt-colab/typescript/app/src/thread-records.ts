@@ -22,6 +22,7 @@ interface RecordScope extends DiscussionScope {
   revision: string;
   deleted: boolean;
   deviceName: string;
+  at: string;
 }
 export interface ThreadRecord extends RecordScope {
   kind: 'thread';
@@ -79,6 +80,7 @@ export function validateDiscussionRecord(
     'revision',
     'deleted',
     'deviceName',
+    'at',
   ];
   if (r.kind === 'thread') {
     exactKeys(r, [...scope, 'threadId', 'anchor', 'resolved']);
@@ -101,6 +103,7 @@ export function validateDiscussionRecord(
   decimal(r.epoch as string);
   decimal(r.revision as string);
   requireValue(typeof r.deviceName === 'string' && text(r.deviceName).length <= 128);
+  requireValue(decimal(r.at as string, true) <= 8_640_000_000_000_000n);
   requireValue(key === discussionKey(r as unknown as DiscussionRecord));
 }
 function latest<T extends DiscussionRecord>(records: T[]): T | undefined {

@@ -7,7 +7,8 @@ import {
   validateDiscussionRecord,
   validateRef,
   type CommentView,
-  type DiscussionRecord,
+  type ThreadRecord,
+  type CommentRecord,
   type DiscussionRef,
   type DiscussionScope,
   type QuoteSelector,
@@ -91,9 +92,11 @@ export class ThreadStore implements ThreadBinding {
       deviceName: this.options.deviceName(),
     };
   }
-  async #write(records: DiscussionRecord[]) {
+  async #write(records: (Omit<ThreadRecord, 'at'> | Omit<CommentRecord, 'at'>)[]) {
     requireValue(this.options.available());
-    const entries = records.map((value) => {
+    const at = String(Date.now());
+    const entries = records.map((record) => {
+      const value = { ...record, at };
       const root = value.kind === 'thread' ? ('threads' as const) : ('messages' as const);
       const key = discussionKey(value);
       validateDiscussionRecord(root, key, value);
