@@ -2,7 +2,10 @@
 //! loaded on the refresh worker. Paint and input only read it; reads and writes
 //! go through `cron_service`, never the store.
 
+mod line;
 mod load;
+mod rows;
+mod surface;
 
 use crate::cron_service::{CronActor, JobView};
 use tmt_squad::cron::ClockStatus;
