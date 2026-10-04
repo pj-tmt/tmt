@@ -514,6 +514,8 @@ describe('tmt extension install surface', () => {
       });
       const text = await runCli(sandbox, ['extension', 'ls']);
       expect(text.stdout).toContain('tmt extension install remote --yes');
+      // The default prefix needs no --prefix in a printed command.
+      expect(text.stdout).not.toContain('--prefix');
 
       await install('remote', '0.1.0-alpha.0');
       expect(await listed()).toMatchObject({ available: false, reason: 'tooOld' });

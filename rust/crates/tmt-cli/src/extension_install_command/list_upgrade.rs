@@ -224,13 +224,18 @@ pub(super) fn listing(
             row["hint"] = hint.clone().into();
         }
         let mut notes = Vec::new();
+        let explicit = non_default(prefix);
         if state.is_some() {
             // A declaration that cannot be read is simply not shown: the entry
             // itself is already verified above.
             let statuses = native_install::use_statuses(product, prefix).unwrap_or_default();
             if !statuses.is_empty() {
-                row["uses"] = statuses.iter().map(use_row).collect::<Vec<_>>().into();
-                notes.extend(statuses.iter().map(|used| use_line(used, prefix)));
+                row["uses"] = statuses
+                    .iter()
+                    .map(native_install::UseStatus::to_json)
+                    .collect::<Vec<_>>()
+                    .into();
+                notes.extend(statuses.iter().map(|used| use_line(used, explicit)));
             }
         }
         if let Some(issue) = &issue {
@@ -283,20 +288,16 @@ pub(super) fn listing(
     ))
 }
 
-fn use_row(used: &native_install::UseStatus) -> Value {
-    json!({
-        "feature": used.declared.feature,
-        "label": used.declared.label,
-        "extension": used.declared.extension.as_str(),
-        "requires": format!(">={}", used.declared.minimum),
-        "available": used.available(),
-        "installed": used.installed.as_ref().map(ToString::to_string),
-        "reason": used.unavailable.map(native_install::Unavailable::as_str),
-    })
+/// The prefix only when it is not the one `tmt extension` uses by default, so a
+/// printed command carries `--prefix` exactly when it needs it.
+fn non_default(prefix: &Path) -> Option<&Path> {
+    let canonical = |path: &Path| fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    let default = native_install::default_install_prefix().ok()?;
+    (canonical(&default) != canonical(prefix)).then_some(prefix)
 }
 
 /// One dim line per declared use: available, or the exact next step.
-fn use_line(used: &native_install::UseStatus, prefix: &Path) -> String {
+fn use_line(used: &native_install::UseStatus, prefix: Option<&Path>) -> String {
     if used.available() {
         format!(
             "{}: uses {} >={}, available",
@@ -305,7 +306,7 @@ fn use_line(used: &native_install::UseStatus, prefix: &Path) -> String {
             used.declared.minimum
         )
     } else {
-        used.hint(Some(prefix))
+        used.hint(prefix)
     }
 }
 

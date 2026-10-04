@@ -2,9 +2,8 @@
 //! receipts. It reads no network, application storage or extension process.
 
 use super::{Fault, Request, invalid};
-use crate::native_install::{self, CheckError, Product};
+use crate::native_install::{self, CheckError};
 use serde::Deserialize;
-use serde_json::json;
 use std::path::Path;
 
 #[derive(Deserialize)]
@@ -14,25 +13,11 @@ struct UsesInput {
     feature: String,
 }
 
-/// An extension name is a fixed official product; a feature id is bounded
-/// lower-case data the declarer chose.
-fn product(name: &str) -> Option<Product> {
-    Product::ALL
-        .into_iter()
-        .filter(|product| !matches!(product, Product::Cli | Product::Office))
-        .find(|product| product.as_str() == name)
-}
-
-fn feature_id(text: &str) -> bool {
-    let mut bytes = text.bytes();
-    text.len() <= 32
-        && bytes.next().is_some_and(|byte| byte.is_ascii_lowercase())
-        && bytes.all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-')
-}
-
 pub(super) fn decode(input: &[u8]) -> Result<Request, Fault> {
     let value: UsesInput = serde_json::from_slice(input).map_err(|_| invalid())?;
-    if product(&value.extension).is_none() || !feature_id(&value.feature) {
+    if native_install::extension_named(&value.extension, None).is_none()
+        || !native_install::valid_feature(&value.feature)
+    {
         return Err(invalid());
     }
     Ok(Request::ExtensionUse {
@@ -45,24 +30,15 @@ pub(super) fn decode(input: &[u8]) -> Result<Request, Fault> {
 /// version decide availability. `prefix` is the installation prefix the CLI
 /// uses without `--prefix`.
 pub(super) fn uses(prefix: &Path, extension: &str, feature: &str) -> Result<Vec<u8>, Fault> {
-    let caller = product(extension).ok_or_else(invalid)?;
+    let caller = native_install::extension_named(extension, None).ok_or_else(invalid)?;
     let status =
         native_install::check_use(prefix, caller, feature).map_err(|error| match error {
             CheckError::Undeclared(message) => Fault::detailed("EXTENSION_USE_UNDECLARED", message),
             CheckError::Io(_) => Fault::unavailable(),
         })?;
-    let declared = &status.declared;
-    serde_json::to_vec(&json!({
-        "feature": declared.feature,
-        "label": declared.label,
-        "extension": declared.extension.as_str(),
-        "requires": format!(">={}", declared.minimum),
-        "available": status.available(),
-        "installed": status.installed.as_ref().map(ToString::to_string),
-        "reason": status.unavailable.map(native_install::Unavailable::as_str),
-        "hint": status.hint(None),
-    }))
-    .map_err(|_| Fault::unavailable())
+    let mut body = status.to_json();
+    body["hint"] = status.hint(None).into();
+    serde_json::to_vec(&body).map_err(|_| Fault::unavailable())
 }
 
 #[cfg(test)]

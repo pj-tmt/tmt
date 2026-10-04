@@ -60,6 +60,19 @@ impl UseStatus {
         self.unavailable.is_none()
     }
 
+    /// The contract's shape for one use, shared by the API and `extension ls`.
+    pub fn to_json(&self) -> serde_json::Value {
+        serde_json::json!({
+            "feature": self.declared.feature,
+            "label": self.declared.label,
+            "extension": self.declared.extension.as_str(),
+            "requires": format!(">={}", self.declared.minimum),
+            "available": self.available(),
+            "installed": self.installed.as_ref().map(ToString::to_string),
+            "reason": self.unavailable.map(Unavailable::as_str),
+        })
+    }
+
     /// One actionable line, empty when available. `prefix` is added to the
     /// printed commands when the installation is not at the default one.
     pub fn hint(&self, prefix: Option<&Path>) -> String {
@@ -135,19 +148,21 @@ fn printable(character: char) -> bool {
         )
 }
 
-fn feature_id(text: &str) -> bool {
+/// A feature id: `[a-z][a-z0-9-]{0,31}`.
+pub fn valid_feature(text: &str) -> bool {
     let mut bytes = text.bytes();
     text.len() <= 32
         && bytes.next().is_some_and(|byte| byte.is_ascii_lowercase())
         && bytes.all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-')
 }
 
-/// An installable official extension other than `owner` (Office is frozen).
-fn target(name: &str, owner: Product) -> Option<Product> {
+/// An installable official extension named `name`, other than `owner` when one
+/// is given (Office is frozen, the CLI is not an extension).
+pub fn extension_named(name: &str, owner: Option<Product>) -> Option<Product> {
     Product::ALL
         .into_iter()
         .filter(|product| !matches!(product, Product::Cli | Product::Office))
-        .find(|product| product.as_str() == name && *product != owner)
+        .find(|product| product.as_str() == name && Some(*product) != owner)
 }
 
 fn minimum(text: &str) -> Option<Version> {
@@ -192,7 +207,7 @@ pub(super) fn parse(owner: Product, bytes: &[u8]) -> io::Result<Vec<Use>> {
             .ok_or_else(|| invalid("each use needs exactly feature, label, extension, requires"))?;
         let text = |key: &str| entry[key].as_str();
         let feature = text("feature")
-            .filter(|feature| feature_id(feature))
+            .filter(|feature| valid_feature(feature))
             .ok_or_else(|| invalid("feature must match [a-z][a-z0-9-]{0,31}"))?;
         let label = text("label")
             .filter(|label| {
@@ -200,7 +215,7 @@ pub(super) fn parse(owner: Product, bytes: &[u8]) -> io::Result<Vec<Use>> {
             })
             .ok_or_else(|| invalid("label must be 1 to 48 printable characters"))?;
         let extension = text("extension")
-            .and_then(|name| target(name, owner))
+            .and_then(|name| extension_named(name, Some(owner)))
             .ok_or_else(|| invalid("extension must be another installable official extension"))?;
         let minimum = text("requires")
             .and_then(minimum)
