@@ -67,10 +67,15 @@ Maintained module reference. Commands and admitted spellings are in [development
   modal lists and picker slots use `surface::compile/render_list`. Clipped row
   maps retain the painted model and scroll offset, so stale mouse geometry cannot
   activate. Ordinary panes reserve a dim `N more ↓` line while content overflows.
-- `strip` paints one line of styled spans through admitted text (left or right
-  aligned): the caller supplies the resolved span styles, so it owns no role or
-  selection policy. Control characters are shown escaped, and the continuation
-  cell of a wide grapheme carries its span's style. `Outline` is the square
+- `strip` paints one line of styled spans (left or right aligned) through the
+  text owner's fitting, with no template, binding or geometry pass: a strip is
+  one text cell per span, so each span is clipped to the room left, filled with
+  its style and fitted by `text::fit_line`. The caller supplies the resolved span
+  styles, so it owns no role or selection policy and takes no Theme or Depth
+  decision (the parameters remain for callers). Control characters are shown
+  escaped, and the continuation cell of a wide grapheme carries its span's style.
+  A strip test keeps the former layout pipeline as an oracle and compares buffers
+  cell for cell over generated lines, areas and buffer origins. `Outline` is the square
   single-line border with a styled title for panes of a base layer; unlike
   `Modal` it neither clears nor fills what is inside.
 - `Picker` owns bounded grapheme query editing and returns query changes,
