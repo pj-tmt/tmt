@@ -13,7 +13,7 @@ use std::{
     sync::atomic::{AtomicUsize, Ordering},
 };
 use tmt_colab::{
-    decoder::Decoder,
+    decoder::{ContentEdit, Decoder},
     export::Bundle,
     keyring::{Keyring, Layout},
     store::{
@@ -239,11 +239,26 @@ fn a_tail_past_the_old_caps_reads_back_byte_exact_through_the_library_readers() 
     );
 }
 
+fn edit(source: &str) -> ContentEdit<'_> {
+    ContentEdit {
+        source,
+        publisher_agent: None,
+    }
+}
+
 fn edit_fault(f: &Fixture, source: &str) -> String {
     let mut decoder = Decoder::with_config(support::decoder_config(BINARY.into())).unwrap();
-    let error = tmt_colab::page::prepare(&f.store, &f.key, PAGE, source, None, &mut decoder, 1000)
-        .err()
-        .expect("the write must be refused");
+    let error = tmt_colab::page::prepare(
+        &f.store,
+        &f.key,
+        PAGE,
+        edit(source),
+        None,
+        &mut decoder,
+        1000,
+    )
+    .err()
+    .expect("the write must be refused");
     match error.downcast_ref::<OwnerFault>() {
         Some(OwnerFault::PageCapacity(c)) if c.edit => error.to_string(),
         other => panic!("not a page edit capacity fault: {other:?} / {error}"),
@@ -253,20 +268,31 @@ fn edit_fault(f: &Fixture, source: &str) -> String {
 #[test]
 fn a_write_past_the_browsers_tail_limit_refuses_while_the_page_stays_readable() {
     let mut f = Fixture::new(&[PAGE, OTHER]);
-    // 200 updates since the baseline is the browser's limit: a write still goes through.
-    let (source, objects, _) = grow(&mut f, PAGE, 199, false);
-    assert_eq!(objects, 200);
+    // 199 updates since the baseline: one more reaches the browser's limit of 200 and goes through.
+    let (source, objects, _) = grow(&mut f, PAGE, 198, false);
+    assert_eq!(objects, 199);
     let mut decoder = Decoder::with_config(support::decoder_config(BINARY.into())).unwrap();
     let edited = format!("{source}<i>ok</i>");
-    tmt_colab::page::prepare(&f.store, &f.key, PAGE, &edited, None, &mut decoder, 1000).unwrap();
-    // The 201st update is one the browser cannot open, so the write refuses and names the way out.
+    tmt_colab::page::prepare(
+        &f.store,
+        &f.key,
+        PAGE,
+        edit(&edited),
+        None,
+        &mut decoder,
+        1000,
+    )
+    .unwrap();
+    // A 201st update is one the browser cannot open, so the write refuses and names the way out.
     let mut f = Fixture::new(&[PAGE, OTHER]);
-    let (source, objects, _) = grow(&mut f, PAGE, 200, false);
-    assert_eq!(objects, 201);
+    let (source, objects, _) = grow(&mut f, PAGE, 199, false);
+    assert_eq!(objects, 200);
     let message = edit_fault(&f, &format!("{source}<i>no</i>"));
     assert!(message.contains(PAGE), "{message}");
     assert!(
-        message.contains("it has 201 updates since its last baseline (limit 200)"),
+        message.contains(
+            "it has 200 updates since its last baseline, and one more would pass the limit of 200"
+        ),
         "{message}"
     );
     assert!(message.contains("tmt colab export"), "{message}");
@@ -290,7 +316,9 @@ fn a_write_onto_a_tail_past_256_kib_refuses_with_the_byte_limit() {
     assert!(tail > 256 * 1024);
     let message = edit_fault(&f, &format!("{source}<i>no</i>"));
     assert!(
-        message.contains("bytes of updates since its last baseline (limit 262144)"),
+        message.contains(
+            "bytes of updates since its last baseline, and one more would pass the limit of 262144"
+        ),
         "{message}"
     );
 }

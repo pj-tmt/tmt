@@ -11,7 +11,7 @@ import { disposeActiveWorlds, withWorld } from './harness/with-world.js';
 const text = (n: number, tag: string) => `<p>${tag.repeat(Math.max(0, n - 7))}</p>`;
 
 test.afterEach(disposeActiveWorlds);
-test('a page at the browser's tail limit refuses another write, stays readable everywhere and opens in the browser', async () => {
+test('a page at the browser tail limit refuses another write, stays readable everywhere and opens in the browser', async () => {
   test.setTimeout(300_000);
   await withWorld(async (world) => {
     const door = await startDoor(world, await freePort());
@@ -26,7 +26,7 @@ test('a page at the browser's tail limit refuses another write, stays readable e
       [60, 'a'],
       [100, 'b'],
     ] as const) {
-      await page.getByLabel('Source', { exact: true }).fill(text(kb * 1024, tag));
+      await page.getByRole('textbox', { name: 'Source', exact: true }).fill(text(kb * 1024, tag));
       await page.getByRole('button', { name: 'Save source', exact: true }).click();
       await expect(page.getByRole('alert')).toHaveCount(0);
       await page.waitForTimeout(500);
@@ -54,7 +54,7 @@ test('a page at the browser's tail limit refuses another write, stays readable e
     }
     expect(refusal).toContain('COLAB_CAPACITY');
     expect(refusal).toContain(created.pageId);
-    expect(refusal).toContain('limit 200');
+    expect(refusal).toContain('would pass the limit of 200');
     expect(refusal).toContain('tmt colab export');
 
     // page read, show, export and ls all return it (and the neighbour) byte-exact.
@@ -84,6 +84,8 @@ test('a page at the browser's tail limit refuses another write, stays readable e
     // The browser opens the page at the limit and shows the exact source.
     await page.reload();
     await page.getByRole('button', { name: 'Source', exact: true }).click();
-    expect(await page.getByLabel('Source', { exact: true }).inputValue()).toBe(source);
+    expect(await page.getByRole('textbox', { name: 'Source', exact: true }).inputValue()).toBe(
+      source,
+    );
   });
 });

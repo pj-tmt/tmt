@@ -1089,8 +1089,8 @@ appends decoded in 1.15 s, an 8 MiB block with 1,000 appends exceeded the 2 seco
 deadline. Only compaction or a new baseline removes that cost. A page that exceeds a read cap
 or the deadline fails alone with `COLAB_CAPACITY`, naming the page, the limit and the next
 step; `ls` and `show` list the other pages. Reads accept these caps, but a write refuses
-once the tail since the last baseline passes what the browser's fold opens today (200
-updates, 256 KiB): `page write` fails with `COLAB_CAPACITY` naming the page, the limit and
+once one more update would take the tail since the last baseline past what the browser's
+fold opens today (200 updates, 256 KiB): `page write` fails with `COLAB_CAPACITY` naming the page, the limit and
 the way out (`tmt colab export`, then `tmt colab page create --file`), and the page stays
 readable. The write limit rises when the browser limits are aligned with the native ones.
 

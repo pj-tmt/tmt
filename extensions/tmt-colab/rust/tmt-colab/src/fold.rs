@@ -382,19 +382,21 @@ impl Snapshot {
             }
         }
         let state = baseline.len() + updates.iter().map(Vec::len).sum::<usize>();
-        if source.is_some() {
-            // A write must not leave a page the browser cannot open; reads accept more.
-            let tail = updates.iter().map(Vec::len).sum::<usize>();
-            let (what, measured, limit) = if self.objects.len() > crate::decoder::WRITE_TAIL_UPDATES
+        let tail = updates.iter().map(Vec::len).sum::<usize>();
+        if edit.is_some() {
+            // A write adds one update and must not leave a page the browser cannot open; reads
+            // accept more. The new update's own size is checked once it is prepared.
+            let (what, measured, limit) = if self.objects.len()
+                >= crate::decoder::WRITE_TAIL_UPDATES
             {
                 (
-                    "updates since its last baseline",
+                    "updates since its last baseline, and one more would pass the limit",
                     self.objects.len(),
                     crate::decoder::WRITE_TAIL_UPDATES,
                 )
-            } else if tail > crate::decoder::UPDATE_BYTES {
+            } else if tail >= crate::decoder::UPDATE_BYTES {
                 (
-                    "bytes of updates since its last baseline",
+                    "bytes of updates since its last baseline, and one more would pass the limit",
                     tail,
                     crate::decoder::UPDATE_BYTES,
                 )
@@ -410,7 +412,7 @@ impl Snapshot {
             if limit != 0 {
                 return Err(OwnerFault::too_large_to_edit(
                     page,
-                    format!("it has {measured} {what} (limit {limit})"),
+                    format!("it has {measured} {what} of {limit}"),
                 )
                 .into());
             }
@@ -487,6 +489,17 @@ impl Snapshot {
                     other => Box::<dyn std::error::Error + Send + Sync>::from(other),
                 })?
         };
+        if edit.is_some() && tail + folded.merged.len() > crate::decoder::UPDATE_BYTES {
+            return Err(OwnerFault::too_large_to_edit(
+                page,
+                format!(
+                    "this edit would take its updates since the last baseline to {} bytes, past the limit of {}",
+                    tail + folded.merged.len(),
+                    crate::decoder::UPDATE_BYTES
+                ),
+            )
+            .into());
+        }
         Ok(View {
             publisher_agent: folded.projection["meta"]["publisherAgent"]
                 .as_str()

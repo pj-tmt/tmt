@@ -247,7 +247,7 @@ impl Decoder {
             return Err(DecodeFault::InvalidOutput);
         }
         // A prepared edit returns one update; a read returns the merged tail.
-        let merged_limit = if source.is_some() {
+        let merged_limit = if edit.is_some() {
             UPDATE_BYTES
         } else {
             STATE_BYTES
