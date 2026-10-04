@@ -9,6 +9,7 @@ export interface ComponentMap {
   readonly components: readonly {
     readonly name: string;
     readonly package?: string;
+    readonly skills?: boolean;
     readonly release?: boolean;
     readonly releaseStatus?: 'never' | 'parked';
     readonly bootstrapSha?: string;
