@@ -7,8 +7,9 @@ const TIMEOUT: Duration = Duration::from_secs(3);
 const MAX_BYTES: usize = 16 * 1024;
 
 /// One bounded call of Remote's public CLI through the invoking core: its deadline, output cap and
-/// process cleanup belong to `tmt_invoke`. A missing command, failure, deadline or cap is no answer.
-fn remote_json(words: &[&str]) -> Option<String> {
+/// process cleanup belong to `tmt_invoke`. A missing executable, deadline or output cap is no
+/// answer; a command that ran returns whether it succeeded and what it printed.
+fn remote_call(words: &[&str]) -> Option<(bool, String)> {
     let executable = tmt_invoke::invoking_tmt().ok()?;
     let args: Vec<_> = std::iter::once("remote")
         .chain(words.iter().copied())
@@ -26,10 +27,39 @@ fn remote_json(words: &[&str]) -> Option<String> {
         None,
     )
     .ok()?;
-    output
-        .status
-        .success()
-        .then(|| String::from_utf8(output.stdout).ok())?
+    Some((
+        output.status.success(),
+        String::from_utf8(output.stdout).ok()?,
+    ))
+}
+/// The answer of a call that succeeded; anything else is no answer.
+fn remote_json(words: &[&str]) -> Option<String> {
+    remote_call(words).and_then(|(ok, text)| ok.then_some(text))
+}
+
+/// A Remote error envelope, `{"error":{"code","message"}}`, shown as Remote wrote it.
+#[derive(Debug, PartialEq, Eq)]
+pub struct RemoteFailure {
+    pub code: String,
+    pub message: String,
+}
+impl RemoteFailure {
+    fn parse(json: &str) -> Option<Self> {
+        let value: serde_json::Value = serde_json::from_str(json).ok()?;
+        Some(Self {
+            code: value["error"]["code"].as_str()?.to_owned(),
+            message: value["error"]["message"].as_str()?.to_owned(),
+        })
+    }
+    /// What a person reads: one shared wording for a serve that predates `status` and `stop`,
+    /// else Remote's own message.
+    pub fn text(&self) -> &str {
+        if self.code == "REMOTE_SERVE_OUTDATED" {
+            Door::OUTDATED
+        } else {
+            &self.message
+        }
+    }
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -44,6 +74,9 @@ pub enum Lookup {
     Running(Door),
     /// Remote answered that no door runs; it may remember the last port.
     Stopped(Option<u64>),
+    /// Remote ran and answered with an error envelope (for example `REMOTE_SERVE_OUTDATED`). It is
+    /// shown as it is, and nothing is started in its place.
+    Failed(RemoteFailure),
     /// No answer: missing command, failure, timeout or an unrecognized document.
     Unknown,
 }
@@ -82,7 +115,14 @@ impl Pairing {
 }
 impl Door {
     pub fn lookup() -> Lookup {
-        remote_json(&["status", "--json"]).map_or(Lookup::Unknown, |text| Self::interpret(&text))
+        match remote_call(&["status", "--json"]) {
+            Some((true, text)) => Self::interpret(&text),
+            // A non-zero exit still prints Remote's error envelope on stdout.
+            Some((false, text)) => {
+                RemoteFailure::parse(&text).map_or(Lookup::Unknown, Lookup::Failed)
+            }
+            None => Lookup::Unknown,
+        }
     }
     /// `{"running":false,"lastPort":53253|null}` is a stopped door; anything else unusable is unknown.
     pub fn interpret(json: &str) -> Lookup {
@@ -129,6 +169,9 @@ impl Door {
             path: path.into(),
         })
     }
+    /// The one wording for a running Remote serve that predates `status` and `stop`
+    /// (`REMOTE_SERVE_OUTDATED`): it cannot be stopped from here, and a second door must not start.
+    pub const OUTDATED: &str = "The running Remote serve is older than this Colab. Stop it with Ctrl-C in its terminal, then run tmt colab serve";
     /// The use-time line when no Remote door can be reached (#1575's wording).
     pub const INSTALL_HINT: &str =
         "Browser access needs the Remote extension: tmt extension install remote --yes";
@@ -141,6 +184,7 @@ impl Door {
         match lookup {
             Lookup::Running(door) => door.url(relative),
             Lookup::Stopped(_) => format!("{relative} (run tmt colab serve to get a full link)"),
+            Lookup::Failed(failure) => format!("{relative} ({})", failure.text()),
             Lookup::Unknown => format!("{relative} ({})", Self::INSTALL_HINT),
         }
     }
@@ -259,5 +303,34 @@ mod tests {
         for unusable in ["", "{}", r#"{"devices":null}"#, r#"{"error":{}}"#] {
             assert_eq!(Pairing::interpret(unusable), Pairing::Unknown, "{unusable}");
         }
+    }
+    #[test]
+    fn a_remote_error_envelope_is_a_failure_with_one_wording_for_an_outdated_serve() {
+        use super::RemoteFailure;
+        let outdated =
+            RemoteFailure::parse(r#"{"error":{"code":"REMOTE_SERVE_OUTDATED","message":"older"}}"#)
+                .unwrap();
+        assert_eq!(outdated.text(), Door::OUTDATED);
+        let other =
+            RemoteFailure::parse(r#"{"error":{"code":"REMOTE_X","message":"Remote's words"}}"#)
+                .unwrap();
+        assert_eq!(other.text(), "Remote's words");
+        for not_an_envelope in [
+            "",
+            "{}",
+            r#"{"error":{"code":"X"}}"#,
+            "not json",
+            r#"{"running":false}"#,
+        ] {
+            assert_eq!(
+                RemoteFailure::parse(not_an_envelope),
+                None,
+                "{not_an_envelope}"
+            );
+        }
+        assert_eq!(
+            Door::hint(&Lookup::Failed(outdated), "p"),
+            format!("p ({})", Door::OUTDATED)
+        );
     }
 }

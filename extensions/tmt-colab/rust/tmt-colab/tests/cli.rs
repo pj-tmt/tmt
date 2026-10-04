@@ -1909,8 +1909,10 @@ impl Pilot {
     /// (`None` fails, as an absent extension does); every other command is the fixture core.
     fn remote_core(&self, status: Option<&str>, serve: Serve) -> PathBuf {
         let path = self.root.join("core-remote");
-        let status = status.map_or("exit 1".to_owned(), |s| {
-            format!("printf '%s\\n' {}\nexit 0", quote(s))
+        // A leading `!` is an error envelope: printed on stdout, exit 1, like Remote does.
+        let status = status.map_or("exit 1".to_owned(), |s| match s.strip_prefix('!') {
+            Some(envelope) => format!("printf '%s\\n' {}\nexit 1", quote(envelope)),
+            None => format!("printf '%s\\n' {}\nexit 0", quote(s)),
         });
         let hold = "trap 'touch serve.term; exit 0' TERM\nwhile :; do sleep 0.1; done";
         let serve = match serve {
@@ -2647,4 +2649,76 @@ fn setting_waits_for_a_reader_that_holds_the_lock() {
         serde_json::from_slice::<Value>(&out.stdout).unwrap(),
         json!({"open":true,"source":"settings.json"})
     );
+}
+const OUTDATED_ENVELOPE: &str = r#"!{"error":{"code":"REMOTE_SERVE_OUTDATED","message":"The running serve is older; stop it by hand."}}"#;
+const OTHER_ENVELOPE: &str =
+    r#"!{"error":{"code":"REMOTE_CORE_UNAVAILABLE","message":"Core did not answer."}}"#;
+#[test]
+fn an_error_envelope_from_remote_is_shown_as_it_is_and_never_starts_a_second_door() {
+    for (envelope, shown) in [
+        (
+            OUTDATED_ENVELOPE,
+            "The running Remote serve is older than this Colab. Stop it with Ctrl-C in its terminal, then run tmt colab serve",
+        ),
+        (OTHER_ENVELOPE, "Core did not answer."),
+    ] {
+        let pilot = Pilot::new(None);
+        // `Serve::Hold` would answer with a door: reaching it would turn the refusal into a start.
+        let mut serving = Serving::start(
+            &pilot,
+            pilot.remote_core(Some(envelope), Serve::Hold),
+            &["--json"],
+        );
+        let ready = serving.ready();
+        assert_eq!(ready["door"], "unavailable", "{ready}");
+        assert_eq!(ready["warning"], shown);
+        assert!(
+            !ready["warning"]
+                .as_str()
+                .unwrap()
+                .contains("extension install")
+        );
+        assert!(serving.running());
+        serving.stop(Signal::SIGTERM);
+        assert!(
+            !pilot.root.join("serve.calls").exists(),
+            "serve was started"
+        );
+        assert!(!pilot.root.join("serve.pid").exists());
+    }
+}
+#[test]
+fn page_commands_say_why_there_is_no_link_when_remote_answers_with_an_error() {
+    let pilot = Pilot::new(None);
+    let created = pilot.call(&["page", "create", "--title", "Notes", "--json"]);
+    let page = created["pageId"].as_str().unwrap();
+    let human = |envelope: &str, args: &[&str]| {
+        let out = pilot
+            .command()
+            .env(
+                "TMT_EXECUTABLE",
+                pilot.remote_core(Some(envelope), Serve::Fail),
+            )
+            .args(args)
+            .output()
+            .unwrap();
+        assert!(out.status.success(), "{out:?}");
+        String::from_utf8(out.stdout).unwrap()
+    };
+    for args in [vec!["show", page], vec!["ls"]] {
+        let text = human(OUTDATED_ENVELOPE, &args);
+        assert!(text.contains("older than this Colab"), "{args:?}: {text}");
+        assert!(
+            text.contains("Stop it with Ctrl-C in its terminal"),
+            "{text}"
+        );
+        assert!(
+            !text.contains("extension install") && !text.contains("tmt remote serve"),
+            "{text}"
+        );
+        let text = human(OTHER_ENVELOPE, &args);
+        assert!(text.contains("Core did not answer."), "{args:?}: {text}");
+    }
+    let created = human(OUTDATED_ENVELOPE, &["page", "create", "--title", "Again"]);
+    assert!(created.contains("older than this Colab"), "{created}");
 }
