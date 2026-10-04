@@ -6,6 +6,7 @@ import {
   readlinkSync,
   realpathSync,
   symlinkSync,
+  unlinkSync,
   writeFileSync,
 } from 'node:fs';
 import { writeExecutable } from '../support/executable-fixture.mjs';
@@ -705,6 +706,101 @@ describe('tmt extension install surface', () => {
       expect(published('squad-playbook')).toEqual([]);
       expect(readFileSync(path.join(foreign, 'SKILL.md'), 'utf8')).toBe('mine');
       expect(existsSync(path.join(prefix, 'lib/tmt-squad/releases'))).toBe(true);
+    });
+  }, 90_000);
+
+  it('installs canonical Colab skill bytes, refreshes managed links and preserves unmanaged conflicts', async () => {
+    await withSandbox(async (sandbox) => {
+      const canonical = readFileSync(
+        new URL('../../../extensions/tmt-colab/skills/tmt-colab/SKILL.md', import.meta.url),
+        'utf8'
+      );
+      const prefix = path.join(sandbox.root, 'Colab skill prefix');
+      const artifact = (version: string, content: string) =>
+        createArtifact(sandbox, version, new Uint8Array(), 'colab', undefined, {
+          'tmt-colab/SKILL.md': content,
+        });
+      const install = (input: ArtifactFixture, skills = false) =>
+        runCli(
+          sandbox,
+          [
+            'extension',
+            'install',
+            'colab',
+            '--yes',
+            '--archive',
+            input.archive,
+            '--manifest',
+            input.manifest,
+            '--prefix',
+            prefix,
+            ...(skills ? ['--skills'] : []),
+            '--json',
+          ],
+          { deadlineMs: INSTALL_PROCESS_BUDGET_MS }
+        );
+      const first = await artifact('0.1.0-alpha.1', canonical);
+      const offered = await install(first);
+      expect(offered.status, offered.stdout + offered.stderr).toBe(0);
+      expect(parseWholeStdout(offered).skills).toEqual({
+        available: ['tmt-colab'],
+        published: [],
+        removed: [],
+      });
+      const accepted = await install(first, true);
+      expect(accepted.status, accepted.stdout + accepted.stderr).toBe(0);
+      const {
+        skills: { published },
+      } = parseWholeStdout(accepted) as {
+        skills: { published: Array<{ name: string; target: string }> };
+      };
+      expect(published.length).toBeGreaterThan(0);
+      for (const item of published) {
+        expect(item.name).toBe('tmt-colab');
+        expect(item.target.startsWith(sandbox.home)).toBe(true);
+        expect(lstatSync(item.target).isSymbolicLink()).toBe(true);
+        expect(readFileSync(path.join(item.target, 'SKILL.md'), 'utf8')).toBe(canonical);
+      }
+      const readout = await runCli(
+        {
+          ...sandbox,
+          cli: {
+            executable: path.join(prefix, 'bin/tmt-colab'),
+            args: [],
+          },
+        },
+        ['skill']
+      );
+      expect(readout.status, readout.stdout + readout.stderr).toBe(0);
+      expect(readout.stdout).toBe(canonical);
+      expect(readout.stderr).toBe('');
+      const updatedBytes = canonical + '\nUpdated installation fixture.\n';
+      const updated = await install(await artifact('0.1.0-alpha.2', updatedBytes));
+      expect(updated.status, updated.stdout + updated.stderr).toBe(0);
+      for (const item of published)
+        expect(readFileSync(path.join(item.target, 'SKILL.md'), 'utf8')).toBe(updatedBytes);
+      // Modified content is user-owned: a newer extension stays installed without overwriting it.
+      const conflict = published[0]!.target;
+      unlinkSync(conflict);
+      mkdirSync(conflict);
+      writeFileSync(path.join(conflict, 'SKILL.md'), 'User-owned Colab instructions.\n');
+      const refused = await install(await artifact('0.1.0-alpha.3', canonical), true);
+      expectError(refused, 'EXTENSION_SKILLS_FAILED');
+      expect(readFileSync(path.join(conflict, 'SKILL.md'), 'utf8')).toBe(
+        'User-owned Colab instructions.\n'
+      );
+      expect(readlinkSync(path.join(prefix, 'bin/tmt-colab'))).toBe(
+        '../lib/tmt-colab/current/tmt-colab'
+      );
+      const listed = await runCli(sandbox, ['extension', 'ls', '--prefix', prefix, '--json']);
+      expect(listed.status, listed.stdout + listed.stderr).toBe(0);
+      expect(parseWholeStdout(listed)).toMatchObject({
+        extensions: expect.arrayContaining([
+          expect.objectContaining({ name: 'colab', installed: true, version: '0.1.0-alpha.3' }),
+        ]),
+      });
+      expect(existsSync(path.join(sandbox.globalDir, 'colab', 'door.sock'))).toBe(false);
+      expect(existsSync(sandbox.database)).toBe(false);
     });
   }, 90_000);
 

@@ -633,7 +633,7 @@ test('trusted home manages retention, archive and verified or awaiting deletion'
   const row = (id: string) => page.locator('.pages li').filter({ hasText: id });
   await row(pageId).getByRole('button', { name: 'Manage page' }).click();
   const dialog = page.getByRole('dialog');
-  await expect(dialog).toContainText('Expiry starts after the next edit');
+  await expect(dialog).toContainText('expiry starts after the next edit');
   await dialog.getByLabel('Retention days').fill('14');
   await dialog.getByRole('button', { name: 'Set retention', exact: true }).click();
   await expect(dialog).toContainText('14 days after the last page update');
@@ -661,7 +661,7 @@ test('trusted home manages retention, archive and verified or awaiting deletion'
   await expect(row(other)).toBeVisible();
   await page.getByLabel('Show archived pages').check();
   await expect(row(pageId)).toContainText('Archived');
-  await expect(row(pageId).locator('.archived-page .retention-hint')).toHaveText('Kept forever.');
+  await expect(row(pageId).locator('.archived-page .retention-hint')).toHaveText('kept forever');
   await expect(row(pageId).getByRole('link')).toHaveCount(0);
   await row(pageId).getByRole('button', { name: 'Manage page' }).click();
   await expect(dialog.getByRole('button', { name: 'Archive page', exact: true })).toBeDisabled();
@@ -718,7 +718,7 @@ test('trusted home manages retention, archive and verified or awaiting deletion'
 
 test.describe('relative retention evidence', () => {
   test.use({ timezoneId: 'Asia/Tokyo' });
-  test('home and management keep advisory retention inside the card with local-date hover', async ({
+  test('home and management keep retention inside the card with local-date hover', async ({
     page,
   }, testInfo) => {
     let now = Date.UTC(2026, 9, 4, 12, 34, 56, 789);
@@ -753,9 +753,7 @@ test.describe('relative retention evidence', () => {
     await page.goto(mount);
     const row = page.locator('.pages li').filter({ hasText: pageId });
     const hint = row.locator('.retention-hint');
-    await expect(row.getByRole('link').locator('.retention-hint')).toHaveText(
-      '◷Retention ends in 6 days · advisory; local copy stays.',
-    );
+    await expect(row.getByRole('link').locator('.retention-hint')).toHaveText('◷expires in 6 days');
     await expect(hint).toHaveAttribute('title', 'Sat 10-10 21:34');
     await expect(hint.locator('.retention-mark')).toHaveText('◷');
     await expect(hint).toHaveCSS(
@@ -775,9 +773,7 @@ test.describe('relative retention evidence', () => {
           fullPage: true,
         });
         await row.getByRole('button', { name: 'Manage page' }).click();
-        await expect(dialog.locator('.retention-hint')).toHaveText(
-          '◷Retention ends in 6 days · advisory; local copy stays.',
-        );
+        await expect(dialog.locator('.retention-hint')).toHaveText('◷expires in 6 days');
         await expect(dialog.locator('.retention-hint')).toHaveAttribute('title', 'Sat 10-10 21:34');
         await dialog.getByText('Details', { exact: true }).click();
         await expect(dialog).toContainText('Last edit: Thu 09-10 21:34');
@@ -798,17 +794,17 @@ test.describe('relative retention evidence', () => {
     now = expires + 2 * 86400000;
     await page.clock.setFixedTime(now);
     await page.reload();
-    await expect(hint).toHaveText('◷Retention ended 2 days ago · advisory; local copy stays.');
+    await expect(hint).toHaveText('◷expired 2 days ago');
     await expect(row.getByRole('link')).toBeVisible();
     await row.getByRole('button', { name: 'Manage page' }).click();
-    await expect(dialog.locator('.retention-hint')).toContainText('Retention ended 2 days ago');
+    await expect(dialog.locator('.retention-hint')).toContainText('expired 2 days ago');
     await expect(dialog.getByRole('button', { name: 'Set retention', exact: true })).toBeEnabled();
     await dialog.getByRole('button', { name: 'Close', exact: true }).click();
     warning = '';
     now = expires - 10 * 86400000;
     await page.clock.setFixedTime(now);
     await page.reload();
-    await expect(hint).toHaveText('Retention ends in 10 days · advisory; local copy stays.');
+    await expect(hint).toHaveText('expires in 10 days');
     await expect(hint.locator('.retention-mark')).toHaveCount(0);
     await expect(hint).toHaveCSS(
       'color',

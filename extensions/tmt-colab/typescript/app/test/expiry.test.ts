@@ -7,17 +7,17 @@ const base = {
   expiresAtMs: now + 6 * 86400000,
   warnings: ['expires-soon'],
 };
-it('names advisory retention with relative days and hours and preserves local copies', () => {
-  expect(expiryText(base, now)).toBe('Retention ends in 6 days · advisory; local copy stays.');
+it('names expiry with relative days and hours, as the CLI does', () => {
+  expect(expiryText(base, now)).toBe('expires in 6 days');
   expect(expiryText({ ...base, expiresAtMs: now + 86400000 }, now)).toContain('in 1 day');
   expect(expiryText({ ...base, expiresAtMs: now + 5 * 3600000 }, now)).toContain('in 5 h');
   expect(expiryText({ ...base, expiresAtMs: now + 3600000 - 1 }, now)).toContain(
     'in less than an hour',
   );
   expect(expiryText({ ...base, expiresAtMs: now - 2 * 86400000, warnings: ['expired'] }, now)).toBe(
-    'Retention ended 2 days ago · advisory; local copy stays.',
+    'expired 2 days ago',
   );
-  expect(expiryText({ ...base, expiresAtMs: now - 5 * 3600000 }, now)).toContain('ended 5 h ago');
+  expect(expiryText({ ...base, expiresAtMs: now - 5 * 3600000 }, now)).toContain('expired 5 h ago');
   expect(expiryText(base, now)).not.toMatch(/\d{4}-|UTC|\.789/);
 });
 it('keeps unknown and forever evidence friendly without fabricating a relative date', () => {
@@ -26,10 +26,8 @@ it('keeps unknown and forever evidence friendly without fabricating a relative d
       { ...base, lastUpdateAtMs: null, expiresAtMs: null, warnings: ['expiry-unavailable'] },
       now,
     ),
-  ).toBe('Expiry starts after the next edit.');
-  expect(expiryText({ ...base, retentionDays: null, expiresAtMs: null }, now)).toBe(
-    'Kept forever.',
-  );
+  ).toBe('expiry starts after the next edit');
+  expect(expiryText({ ...base, retentionDays: null, expiresAtMs: null }, now)).toBe('kept forever');
   expect(
     expiryText({ ...base, expiresAtMs: null, warnings: ['expiry-out-of-range'] }, now),
   ).toContain('beyond the supported range');

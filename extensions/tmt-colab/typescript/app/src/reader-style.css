@@ -180,11 +180,15 @@ main {
 }
 .frame-host {
   min-height: calc(100dvh - var(--reader-bar-size));
+  /* Same canvas as the full app: a page without its own background is white in light and dark. */
+  background: #fff;
 }
 .frame-host iframe {
   display: block;
+  color-scheme: light;
   width: 100%;
   border: 0;
+  background: #fff;
 }
 .canvas .notice {
   position: fixed;

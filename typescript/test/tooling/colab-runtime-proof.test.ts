@@ -176,12 +176,28 @@ describe('relocated native Colab app proof', () => {
     }
   });
 
+  it('rejects different embedded skill bytes before the Colab app proof runs', async () => {
+    await expect(
+      verifyNativeRuntime({
+        executable: path.join(root, 'colab-fixture'),
+        target: nativeHostTarget(),
+        version: '0.1.0-alpha.1',
+        product: 'colab',
+        colabSkill: 'Different skill bytes\n',
+        colabApp: app,
+        notices,
+        subject: 'Colab fixture archive',
+      })
+    ).rejects.toThrow('embedded skill mismatch');
+  });
+
   it('runs a native fixture with exact embedded HTML, assets and notices through the shared archive proof', async () => {
     await verifyNativeRuntime({
       executable: path.join(root, 'colab-fixture'),
       target: nativeHostTarget(),
       version: '0.1.0-alpha.1',
       product: 'colab',
+      colabSkill: 'Colab fixture skill\n',
       colabApp: app,
       notices,
       subject: 'Colab fixture archive',

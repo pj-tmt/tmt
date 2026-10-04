@@ -493,7 +493,7 @@ fn cli_help_defaults_disclosure_json_and_read_only_failures() {
     assert!(!output.status.success());
     assert_eq!(
         serde_json::from_slice::<Value>(&output.stdout).unwrap()["error"]["code"],
-        "COLAB_SCHEMA_UNSUPPORTED"
+        "COLAB_STORE_NEWER"
     );
     assert_eq!(fs::read(&database).unwrap(), future);
     fs::write(&database, &before).unwrap();

@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { writeExecutable } from '../support/executable-fixture.mjs';
 import { spawnSync } from 'node:child_process';
 import os from 'node:os';
@@ -300,12 +300,61 @@ describe('release bundle pipeline (native-release-bundle.yml)', () => {
       .find((block) => block.startsWith('name: Build independent expected Colab app bytes\n'));
     expect(step).toBeDefined();
     expect(step).toContain("if: inputs.product == 'colab'");
-    expect(step).toContain('working-directory: typescript');
+    expect(step).toContain('working-directory: release-source/typescript');
     expect(step).toContain(
       'corepack pnpm@10.33.0 --filter @tmt/colab-app --fail-if-no-match install --frozen-lockfile --ignore-scripts\n' +
         '          corepack pnpm@10.33.0 --filter @tmt/colab-app --fail-if-no-match build\n' +
         '          mv ../extensions/tmt-colab/typescript/app/dist "$RUNNER_TEMP/colab-app"'
     );
+  });
+
+  it('builds expected Colab bytes from the candidate when the tooling checkout differs', () => {
+    const step = job(prepare, 'verify')
+      .split(/\n      - /)
+      .find((block) => block.startsWith('name: Build independent expected Colab app bytes\n'))!;
+    const directory = /^ {8}working-directory: (.+)$/m.exec(step)![1];
+    const script = step.split('        run: |\n')[1].replace(/^ {10}/gm, '');
+    const root = mkdtempSync(path.join(os.tmpdir(), 'tmt-colab-candidate-app-'));
+    try {
+      const search = path.join(root, 'bin');
+      const temporary = path.join(root, 'temporary');
+      mkdirSync(search);
+      mkdirSync(temporary);
+      for (const [checkout, marker] of [
+        [root, 'tooling checkout'],
+        [path.join(root, 'release-source'), 'candidate checkout'],
+      ]) {
+        mkdirSync(path.join(checkout, 'typescript'), { recursive: true });
+        writeFileSync(path.join(checkout, 'typescript', 'app-source'), marker);
+      }
+      // Only the package manager is injected: the workflow selects its real cwd and moves bytes.
+      writeExecutable(
+        path.join(search, 'corepack'),
+        '#!/bin/sh\nset -eu\n' +
+          'case "$*" in\n' +
+          '  *install*) ;;\n' +
+          '  *build*) mkdir -p ../extensions/tmt-colab/typescript/app/dist; ' +
+          'cp app-source ../extensions/tmt-colab/typescript/app/dist/index.html ;;\n' +
+          '  *) exit 2 ;;\nesac\n'
+      );
+      const result = spawnSync('bash', ['-euo', 'pipefail', '-c', script], {
+        cwd: path.join(root, directory),
+        env: {
+          ...process.env,
+          PATH: `${search}${path.delimiter}${process.env.PATH}`,
+          RUNNER_TEMP: temporary,
+        },
+        encoding: 'utf8',
+        timeout: 10_000,
+      });
+      expect(result.error).toBeUndefined();
+      expect(result.status, result.stderr).toBe(0);
+      expect(readFileSync(path.join(temporary, 'colab-app/index.html'), 'utf8')).toBe(
+        'candidate checkout'
+      );
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 
   it('builds Colab with frozen embedded assets and verifies outside the checkout fallback', () => {
@@ -322,11 +371,15 @@ describe('release bundle pipeline (native-release-bundle.yml)', () => {
     expect(verify).toContain(
       'mv ../extensions/tmt-colab/typescript/app/dist "$RUNNER_TEMP/colab-app"'
     );
-    expect(verify).toContain('elif [ "$PRODUCT" = colab ]; then');
     expect(verify).toContain(
-      '--archive "target/distrib/tmt-colab-$TARGET.tar.gz" --target "$TARGET"'
+      '--archive "target/distrib/tmt-$PRODUCT-$TARGET.tar.gz" --target "$TARGET"'
     );
-    expect(verify).toContain('--app-dir "$RUNNER_TEMP/colab-app"');
+    expect(verify).toMatch(
+      /if \[ "\$PRODUCT" = colab \]; then\n\s+verification_args\+=\(--app-dir "\$RUNNER_TEMP\/colab-app"\)\n\s+fi/
+    );
+    expect(verify).toContain(
+      'node typescript/scripts/verify-native-artifact.mjs "${verification_args[@]}"'
+    );
   });
 
   it('is only callable, and runs the pipeline of the draft it is given', () => {

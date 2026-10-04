@@ -28,18 +28,24 @@ pub struct ManagementFault {
     pub code: &'static str,
     pub message: String,
     pub correlation: Value,
+    pub source: Option<Box<dyn std::error::Error + Send + Sync>>,
 }
 impl std::fmt::Display for ManagementFault {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(&self.message)
     }
 }
-impl std::error::Error for ManagementFault {}
+impl std::error::Error for ManagementFault {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        self.source.as_ref().map(|error| error.as_ref() as _)
+    }
+}
 fn fail(code: &'static str, message: &str) -> Box<dyn std::error::Error + Send + Sync> {
     Box::new(ManagementFault {
         code,
         message: message.into(),
         correlation: json!({}),
+        source: None,
     })
 }
 fn input(message: &str) -> Box<dyn std::error::Error + Send + Sync> {
@@ -537,7 +543,7 @@ pub fn create_page(root: &Path, args: &ArgMatches, source: String) -> Result<()>
             }}))
     })().map_err(|error| {
         Box::new(ManagementFault {
-            code:crate::error_code(error.as_ref()),message:error.to_string(),correlation:correlation.clone(),
+            code:crate::error_code(error.as_ref()),message:error.to_string(),correlation:correlation.clone(),source:Some(error),
         }) as Box<dyn std::error::Error + Send + Sync>
     })?;
     // The effect is already committed. A catalog-read failure must not turn it into a failed create;
@@ -795,12 +801,14 @@ pub fn run(command: &str, args: &ArgMatches, root: &Path, json_output: bool) -> 
                 code: f.code,
                 message: f.message.clone(),
                 correlation: correlation.clone(),
+                source: Some(e),
             }) as Box<dyn std::error::Error + Send + Sync>
         } else {
             Box::new(ManagementFault {
                 code: crate::error_code(e.as_ref()),
                 message: e.to_string(),
                 correlation: correlation.clone(),
+                source: Some(e),
             }) as Box<dyn std::error::Error + Send + Sync>
         }
     })?;
@@ -1068,13 +1076,13 @@ fn output_with(value: &Value, json_output: bool, extra: &[(&str, String)]) -> Re
             rows.row([
                 Cell::from(page["pageId"].as_str().unwrap_or("")),
                 Cell::from(format!("{:<width$}", audience(page))),
-                Cell::from(
-                    match (page["title"].as_str(), page["error"]["code"].as_str()) {
-                        (Some(title), _) => title.to_owned(),
-                        (None, Some(code)) => format!("unavailable ({code})"),
-                        (None, None) => "title unavailable".to_owned(),
-                    },
-                ),
+                match (page["title"].as_str(), page["error"]["code"].as_str()) {
+                    (Some(title), _) => Cell::from(title),
+                    // The page is intact but too big to open; the code stays in --json and on stderr.
+                    (None, Some("COLAB_CAPACITY")) => Cell::styled("too large to open", Token::Dim),
+                    (None, Some(code)) => Cell::from(format!("unavailable ({code})")),
+                    (None, None) => Cell::from("title unavailable"),
+                },
             ]);
             rows.write(&mut out, terminal)?;
             if let Some(text) = page["linkText"].as_str() {

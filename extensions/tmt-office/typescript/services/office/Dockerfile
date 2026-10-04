@@ -41,8 +41,9 @@ COPY --chown=node:node extensions/tmt-office/typescript/apps/office /workspace/e
 COPY --chown=node:node extensions/tmt-office/contracts /workspace/extensions/tmt-office/contracts
 COPY --chown=node:node typescript/test/e2e test/e2e
 COPY --chown=node:node typescript/test/support test/support
-# test/support/native-artifact.ts reads the archive inventory from its one owner (#1163).
-COPY --chown=node:node typescript/scripts/native-artifact-policy.mjs scripts/native-artifact-policy.mjs
+# test/support/native-artifact.ts reads the archive inventory and its component policy.
+COPY --chown=node:node .github/components.json /workspace/.github/components.json
+COPY --chown=node:node typescript/scripts/native-artifact-policy.mjs typescript/scripts/component-skills.mjs typescript/scripts/ci-scope.mjs typescript/scripts/native-release-policy.mjs typescript/scripts/e2e-shards.mjs typescript/scripts/packed-command.mjs /workspace/typescript/scripts/
 COPY --chown=node:node extensions/tmt-office/typescript/services/office/functions /workspace/extensions/tmt-office/typescript/services/office/functions
 COPY --chown=node:node extensions/tmt-office/typescript/services/office/firebase.json extensions/tmt-office/typescript/services/office/firestore.rules /workspace/extensions/tmt-office/typescript/services/office/
 COPY --chown=node:node extensions/tmt-office/typescript/services/office/with-test-keyring.sh /workspace/extensions/tmt-office/typescript/services/office/with-test-keyring.sh
@@ -69,6 +70,7 @@ COPY extensions/tmt-squad extensions/tmt-squad
 COPY extensions/tmt-remote/rust extensions/tmt-remote/rust
 COPY extensions/tmt-colab/rust extensions/tmt-colab/rust
 COPY extensions/tmt-colab/contracts extensions/tmt-colab/contracts
+COPY extensions/tmt-colab/skills extensions/tmt-colab/skills
 COPY --from=browser-tests-base /workspace/target/office-spa /workspace/target/office-spa
 ENV TMT_OFFICE_SPA_DIR=/workspace/target/office-spa
 RUN cd rust && cargo +1.97.0 build --locked --workspace --release --features tmt-office/local-service \

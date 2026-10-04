@@ -12,7 +12,12 @@ import {
   strictVerify,
 } from '@tmt/colab-client';
 import { Admission } from './admission.js';
-import { STATE_BYTES, UPDATE_BYTES, type AdmittedUpdate } from './fold-protocol.js';
+import {
+  READ_TAIL_UPDATES,
+  STATE_BYTES,
+  UPDATE_BYTES,
+  type AdmittedUpdate,
+} from './fold-protocol.js';
 export interface Position {
   seq: string;
   envelopeHash: string;
@@ -116,7 +121,10 @@ export class Objects {
           requireValue(equal(prior, hash));
           replay = true;
         }
-      } else requireValue(head.seq === 0n && this.#heads.size < 256 && this.#seen.size < 4096);
+      } else
+        requireValue(
+          head.seq === 0n && this.#heads.size < 256 && this.#seen.size < READ_TAIL_UPDATES + 256,
+        );
     } else {
       const prior = this.#seen.get(name);
       if (prior) {
@@ -126,7 +134,7 @@ export class Objects {
         requireValue(
           seq === head.seq + 1n &&
             equal(c.prevHash, head.hash) &&
-            this.#seen.size < 4096 &&
+            this.#seen.size < READ_TAIL_UPDATES + 256 &&
             (this.#heads.has(stream) || this.#heads.size < 256),
         );
     }

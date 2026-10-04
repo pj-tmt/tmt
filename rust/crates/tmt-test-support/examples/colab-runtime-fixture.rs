@@ -44,6 +44,10 @@ fn main() -> io::Result<()> {
     {
         return Err(io::Error::other("unknown fixture variant"));
     }
+    if args == ["skill"] {
+        io::stdout().write_all(b"Colab fixture skill\n")?;
+        return Ok(());
+    }
     if args == ["--version"] {
         println!("colab 0.1.0-alpha.1");
         return Ok(());

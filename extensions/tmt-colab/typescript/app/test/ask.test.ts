@@ -70,6 +70,28 @@ it('matches independently framed bytes, SHA-256 and Ed25519 over exact frozen UT
     ).toBe(false);
   }
 });
+it('keeps the shipped skill page-ID instructions consistent with the delivered Ask link', () => {
+  const selected = { ...selection(), url: 'https://example.test/x/colab/' };
+  const message = FrozenAsk.capture(selected, destination()).view.message;
+  const link = message.match(/^Link: (.+)$/m)?.[1];
+  expect(link).toBeDefined();
+  const url = new URL(link!);
+  const skill = readFileSync(
+    new URL('../../../skills/tmt-colab/SKILL.md', import.meta.url),
+    'utf8',
+  );
+  const documentedFragment = skill.match(/`(#space=SPACE&path=%2Fpages%2FPAGE)`/)?.[1];
+  expect(documentedFragment).toBeDefined();
+  expect(url.hash).toBe(
+    documentedFragment!.replace('SPACE', selected.space).replace('PAGE', selected.page),
+  );
+  const fragment = new URLSearchParams(url.hash.slice(1));
+  expect([...fragment.keys()]).toEqual(['space', 'path']);
+  expect(fragment.get('path')).toBe(`/pages/${selected.page}`);
+  expect(fragment.get('page')).toBeNull();
+  expect(skill).toContain('Decode the `path`');
+  expect(skill).toContain('the page ID follows `/pages/`');
+});
 it('copies scopes and bytes before asynchronous signing, including paused-source inputs', async () => {
   const s = selection(),
     d = destination(),

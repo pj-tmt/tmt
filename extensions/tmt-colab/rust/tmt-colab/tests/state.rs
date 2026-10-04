@@ -940,7 +940,19 @@ fn schema_four_migration_does_not_backfill_or_let_replay_establish_a_time() {
     db.execute_batch("ALTER TABLE pages DROP COLUMN last_update_at_ms; PRAGMA user_version=4")
         .unwrap();
     let raw = fs::read(layout.directory.join("space.db")).unwrap();
-    assert!(Store::write_existing(&layout).is_err());
+    assert!(matches!(
+        Store::write_existing(&layout)
+            .err()
+            .unwrap()
+            .downcast_ref::<Fault>(),
+        Some(Fault::OutdatedSchema(4))
+    ));
+    let read = Store::read(&layout).unwrap();
+    assert!(matches!(
+        read.require_current_schema(),
+        Err(Fault::OutdatedSchema(4))
+    ));
+    read.close().unwrap();
     assert_eq!(fs::read(layout.directory.join("space.db")).unwrap(), raw);
     let mut migrated = Store::open(&layout).unwrap().with_clock(|| Ok(3000));
     assert_eq!(

@@ -1027,15 +1027,16 @@ checkpoints before the retained tail; that tail MUST be contiguous from n+1
 across both namespaces. Receipt
 ledgers support retries, not browser authority; no additional ledger proof or
 signature scheme is required. Checkpoint plaintext is raw merged update-v1 bytes.
-The browser MUST bound each checkpoint and their aggregate catchup plaintext by
-the existing 4 MiB Worker state budget, independently of the retained tail's
-200-update/256 KiB budget. Apply checkpoints as single-item Worker steps before
+The browser MUST bound each checkpoint and the combined baseline, checkpoints
+and retained tail plaintext by the 24 MiB read state budget, with at most 5,000
+tail updates. Browser writes retain the 200-update/256 KiB tail budget. Apply
+checkpoints as single-item Worker steps before
 the tail. Those unpublished steps may retain cross-writer pending dependencies;
 the final tail step MUST resolve them and validate complete content before
 publishing any view. The existing 2 MiB source projection cap remains in force.
-Both namespaces count toward the aggregate checkpoint and tail plaintext budgets.
+Both namespaces count toward the combined plaintext budget.
 The Worker MUST also bound total encoded content plus all own documents, including
-pending structs/delete sets, and the serialized combined projection to 4 MiB each.
+pending structs/delete sets, and the serialized combined projection to 24 MiB each.
 Pending fragments MUST survive candidate cloning; final catchup validates every
 document before publication. Live content/own candidates commit only after all
 validation succeeds. Failure terminates the Worker and flags the binding; reconnect
@@ -1089,16 +1090,16 @@ appends decoded in 1.15 s, an 8 MiB block with 1,000 appends exceeded the 2 seco
 deadline. Only compaction or a new baseline removes that cost. A page that exceeds a read cap
 or the deadline fails alone with `COLAB_CAPACITY`, naming the page, the limit and the next
 step; `ls` and `show` list the other pages. Reads accept these caps, but a write refuses
-once one more update would take the tail since the last baseline past what the browser's
-fold opens today (200 updates, 256 KiB): `page write` fails with `COLAB_CAPACITY` naming the page, the limit and
+once one more update would take the tail since the last baseline past the
+200-update/256 KiB write budget: `page write` fails with `COLAB_CAPACITY` naming the page, the limit and
 the way out (`tmt colab export`, then `tmt colab page create --file`), and the page stays
-readable. The write limit rises when the browser limits are aligned with the native ones.
+readable. Browser read admission now matches the native read caps; write budgets
+remain separate.
 
 Linux sets and verifies its address-space limit before reading child input;
 failure rejects the job. On macOS and platforms without enforced memory limits,
 run with deadline/output containment and report `memory limit unavailable`: in JSON
-page receipts (`memoryLimit`) and once at `serve` startup. One-shot human page output does
-not repeat it.
+page receipts and in `serve --json` (`memoryLimit`). Human output never repeats it.
 
 These are pinned v1 defaults; tuning MUST preserve cryptographic ceilings and
 bounded admission. Enforce bounds before allocating/decoding, not only after
@@ -1947,7 +1948,7 @@ positive day count or forever override. Each write sets expiry; checkpoints and
 referenced blobs needed for the live page MUST last at least as long as the page.
 The owning device's compaction or owner's cleanup refreshes them within seven
 days of expiry. Cloud readers treat expired-but-present data as gone. Local
-expiry is advisory: warnings begin seven days ahead in the browser and `ls/show`,
+expiry never deletes local data: warnings begin seven days ahead in the browser and `ls/show`,
 and expired local pages remain readable and writable unless signed archive/delete
 policy forbids it. Local data is never automatically deleted.
 
@@ -2147,7 +2148,7 @@ evidence for a legacy page.
 Retention defaults to 30 days; forever is null. Finite `expiresAtMs` is
 `lastUpdateAtMs + retentionDays * 86400000`, using checked arithmetic bounded to
 safe integers. A legacy unknown finite expiry is null with `expiry-unavailable`
-("Expiry starts after the next edit"); an unrepresentable finite expiry is null
+("expiry starts after the next edit"); an unrepresentable finite expiry is null
 with `expiry-out-of-range`. Forever has no expiry or expiry warning, even with
 unknown last-update time. At most one expiry warning is emitted: `expires-soon`
 when expiry is in the future and at most seven days away; `expired` at or after
@@ -2175,8 +2176,19 @@ correlation when captured; human failures use styled stderr. Management codes
 map explicitly to `COLAB_INVALID`, `COLAB_DENIED`, `COLAB_EXPIRED`,
 `COLAB_CONFLICT`, `COLAB_STALE_HEAD`, `COLAB_CAPACITY`, `COLAB_UNAVAILABLE`.
 CLI failures add `COLAB_INPUT_INVALID`, `COLAB_CONFIRMATION_REQUIRED`,
-`COLAB_PAGE_NOT_FOUND`, `COLAB_OUTCOME_UNKNOWN`; existing state/schema failures
-keep their codes. Success exits 0. Neither acknowledgments nor unsigned output
+`COLAB_PAGE_NOT_FOUND`, `COLAB_OUTCOME_UNKNOWN`; existing state failures keep
+their codes. An older schema with a
+known migration path returns `COLAB_STORE_OUTDATED`: "This space was saved by an
+older Colab." Its next action is "Start or restart tmt colab serve to update it."
+A schema newer than this binary returns `COLAB_STORE_NEWER`: "This space was
+saved by a newer Colab." Its next action is "Run tmt upgrade, then try again."
+Human output uses a separate styled `hint:` line for those sentences. JSON uses
+runnable commands in its top-level `next` array: `["tmt colab serve"]` for an
+older store and `["tmt upgrade"]` for a newer one. It adds numeric `storeSchema` and `supportedSchema` fields in
+`error`. The supported version is derived from the migration history. Refused
+reads leave the database unchanged; only the existing initializing/serving paths
+apply migrations, never an inspection command. Operation correlation preserves
+these recovery fields. Success exits 0. Neither acknowledgments nor unsigned output
 create browser authority; browser refresh still uses verified catchup.
 The reserved management socket's unsuccessful response body is the exact textual
 management code with its corresponding HTTP status. The CLI maps that existing
@@ -2492,10 +2504,11 @@ of wire framing but is never decrypted or materialized for management. A failed
 preview does not remove home management access. Retention defaults to 30 days.
 Chrome presents the native durable last-update/expiry display hints as relative
 retention time, with the absolute local date on hover. The hint stays inside the
-page card under its status badge. The seven-day warning and advisory expired state
-add a waiting mark and body text color; ordinary hints use dim text. The copy names
-retention and says the local copy stays; legacy unknown times say "Expiry starts
-after the next edit". The collapsed Details line includes the local last-edit date.
+page card under its status badge. The seven-day warning and the expired state
+add a waiting mark and body text color; ordinary hints use dim text. The copy is the
+CLI's lowercase wording (`expires in 6 days`, `expired 2 days ago`, `kept forever`,
+`expiry starts after the next edit`, `expiry beyond the supported range`); the
+local-copy note is separate (the dialog's retention form and the CLI footer). The collapsed Details line includes the local last-edit date.
 Local expiry never automatically deletes data or ends access.
 
 Confirmation discloses shared/current history scope, the 64-epoch limit, editors'

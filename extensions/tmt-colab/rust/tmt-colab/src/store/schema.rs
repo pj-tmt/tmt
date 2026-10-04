@@ -49,10 +49,11 @@ const MIGRATIONS: &[&str] = &[
             (typeof(last_update_at_ms)='integer' AND last_update_at_ms>=0 AND last_update_at_ms<=9007199254740991));
     "#,
 ];
+pub(super) const CURRENT_VERSION: u32 = MIGRATIONS.len() as u32;
 
 pub(super) fn check_version(connection: &Connection) -> StoreResult<u32> {
     let version: u32 = connection.pragma_query_value(None, "user_version", |r| r.get(0))?;
-    if version as usize > MIGRATIONS.len() {
+    if version > CURRENT_VERSION {
         return Err(Fault::UnsupportedSchema(version));
     }
     Ok(version)
@@ -60,8 +61,8 @@ pub(super) fn check_version(connection: &Connection) -> StoreResult<u32> {
 
 pub(super) fn check_read_version(connection: &Connection) -> StoreResult<()> {
     let version = check_version(connection)?;
-    if version as usize != MIGRATIONS.len() {
-        return Err(Fault::UnsupportedSchema(version));
+    if version < CURRENT_VERSION {
+        return Err(Fault::OutdatedSchema(version));
     }
     Ok(())
 }

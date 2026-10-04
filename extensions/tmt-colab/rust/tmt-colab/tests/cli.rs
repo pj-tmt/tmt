@@ -909,23 +909,153 @@ fn management_seed_admission_and_interrupted_ipc_never_fall_back_to_offline_muta
     fs::remove_file(socket).unwrap();
 }
 #[test]
-fn management_read_refuses_unsafe_or_old_state_without_migration() {
+fn management_read_refuses_unsafe_state_without_changes() {
     let pilot = Pilot::new(None);
     seed_page(&pilot);
     let directory = pilot.root.join("selected/colab");
     let db = directory.join("space.db");
-    let conn = rusqlite::Connection::open(&db).unwrap();
-    conn.pragma_update(None, "user_version", 3).unwrap();
-    drop(conn);
     let before = fs::read(&db).unwrap();
-    failure(&pilot, &["ls", "--json"], "COLAB_SCHEMA_UNSUPPORTED");
-    assert_eq!(fs::read(&db).unwrap(), before);
     let key = directory.join("owner.key");
     fs::remove_file(&key).unwrap();
     std::os::unix::fs::symlink("missing", &key).unwrap();
     let output = pilot.command().args(["ls", "--json"]).output().unwrap();
     assert!(!output.status.success());
     assert_eq!(fs::read(db).unwrap(), before);
+}
+
+#[test]
+fn schema_mismatches_name_recovery_in_human_and_json_without_changing_state() {
+    for (version, code, message, hint, command) in [
+        (
+            4,
+            "COLAB_STORE_OUTDATED",
+            "This space was saved by an older Colab.",
+            "Start or restart tmt colab serve to update it.",
+            "tmt colab serve",
+        ),
+        (
+            99,
+            "COLAB_STORE_NEWER",
+            "This space was saved by a newer Colab.",
+            "Run tmt upgrade, then try again.",
+            "tmt upgrade",
+        ),
+    ] {
+        let pilot = Pilot::new(None);
+        seed_page(&pilot);
+        let db = pilot.root.join("selected/colab/space.db");
+        let conn = rusqlite::Connection::open(&db).unwrap();
+        let supported: u32 = conn
+            .pragma_query_value(None, "user_version", |row| row.get(0))
+            .unwrap();
+        if version == 4 {
+            // Restore the schema-4 fixture used by state.rs, not just its version stamp.
+            conn.execute_batch("ALTER TABLE pages DROP COLUMN last_update_at_ms")
+                .unwrap();
+        }
+        conn.pragma_update(None, "user_version", version).unwrap();
+        drop(conn);
+        let before = fs::read(&db).unwrap();
+        for args in [
+            vec!["ls"],
+            vec!["show", PAGE],
+            vec!["page", "read", PAGE],
+            vec!["export", PAGE],
+        ] {
+            let mut json_args = args.clone();
+            json_args.push("--json");
+            let result = failure(&pilot, &json_args, code);
+            assert_eq!(result["error"]["message"], message);
+            assert_eq!(result["error"]["storeSchema"], version);
+            assert_eq!(result["error"]["supportedSchema"], supported);
+            assert_eq!(result["next"], json!([command]));
+            let output = pilot.command().args(&args).output().unwrap();
+            assert_eq!(output.status.code(), Some(1));
+            assert!(output.stdout.is_empty());
+            assert_eq!(
+                String::from_utf8(output.stderr).unwrap(),
+                format!(
+                    "error: {}\nhint: {}\n",
+                    message.trim_end_matches('.'),
+                    hint.trim_end_matches('.')
+                )
+            );
+            assert_eq!(fs::read(&db).unwrap(), before);
+        }
+        let connection = rusqlite::Connection::open(&db).unwrap();
+        assert_eq!(
+            connection
+                .pragma_query_value(None, "user_version", |row| row.get::<_, u32>(0))
+                .unwrap(),
+            version
+        );
+        assert!(!pilot.root.join("selected/colab/door.sock").exists());
+        assert!(!pilot.root.join("selected/colab/exports").exists());
+    }
+}
+
+#[test]
+fn serve_migrates_an_older_store_and_preserves_the_page() {
+    let mut pilot = Pilot::new(None);
+    seed_page(&pilot);
+    let page = pilot.call(&["page", "read", PAGE, "--json"]);
+    let db = pilot.root.join("selected/colab/space.db");
+    let conn = rusqlite::Connection::open(&db).unwrap();
+    let supported: u32 = conn
+        .pragma_query_value(None, "user_version", |row| row.get(0))
+        .unwrap();
+    conn.execute_batch("ALTER TABLE pages DROP COLUMN last_update_at_ms; PRAGMA user_version=4")
+        .unwrap();
+    drop(conn);
+    let before = fs::read(&db).unwrap();
+    failure(&pilot, &["ls", "--json"], "COLAB_STORE_OUTDATED");
+    assert_eq!(fs::read(&db).unwrap(), before);
+    pilot.start();
+    assert_eq!(pilot.call(&["page", "read", PAGE, "--json"]), page);
+    assert_eq!(pilot.call(&["ls", "--json"])["pages"][0]["pageId"], PAGE);
+    pilot.stop();
+    let conn = rusqlite::Connection::open(&db).unwrap();
+    assert_eq!(
+        conn.pragma_query_value(None, "user_version", |row| row.get::<_, u32>(0))
+            .unwrap(),
+        supported
+    );
+    assert_eq!(
+        conn.query_row("SELECT last_update_at_ms FROM pages", [], |row| row
+            .get::<_, Option<i64>>(0))
+            .unwrap(),
+        None
+    );
+    assert_eq!(pilot.call(&["page", "read", PAGE, "--json"]), page);
+}
+
+#[test]
+fn future_schema_keeps_recovery_and_correlation_and_serve_refuses_to_migrate() {
+    let pilot = Pilot::new(None);
+    seed_page(&pilot);
+    let db = pilot.root.join("selected/colab/space.db");
+    let conn = rusqlite::Connection::open(&db).unwrap();
+    let supported: u32 = conn
+        .pragma_query_value(None, "user_version", |row| row.get(0))
+        .unwrap();
+    conn.pragma_update(None, "user_version", 99).unwrap();
+    drop(conn);
+    let before = fs::read(&db).unwrap();
+    for args in [
+        vec!["page", "create", "--title", "No creation", "--json"],
+        vec!["serve", "--json"],
+    ] {
+        let result = failure(&pilot, &args, "COLAB_STORE_NEWER");
+        assert_eq!(result["error"]["storeSchema"], 99);
+        assert_eq!(result["error"]["supportedSchema"], supported);
+        assert_eq!(result["next"], json!(["tmt upgrade"]));
+        if args[0] == "page" {
+            tmt_colab_model::values::generated_id(result["operationId"].as_str().unwrap()).unwrap();
+            tmt_colab_model::values::generated_id(result["pageId"].as_str().unwrap()).unwrap();
+        }
+        assert_eq!(fs::read(&db).unwrap(), before);
+    }
+    assert!(!pilot.root.join("selected/colab/door.sock").exists());
 }
 
 #[test]
@@ -1276,7 +1406,7 @@ fn human_output_is_readable_and_the_decoder_note_is_not_repeated_per_command() {
     assert!(group.contains("page create"), "{group}");
 }
 #[test]
-fn serve_names_the_link_only_when_a_door_runs_and_reports_the_decoder_once() {
+fn serve_names_the_link_only_when_a_door_runs_and_never_prints_the_decoder_note() {
     for door in [false, true] {
         let pilot = Pilot::new(None);
         let mut cmd = if door {
@@ -1293,7 +1423,6 @@ fn serve_names_the_link_only_when_a_door_runs_and_reports_the_decoder_once() {
         let mut reader = BufReader::new(child.stdout.take().unwrap());
         let mut text = String::new();
         let deadline = Instant::now() + Duration::from_secs(5);
-        // The last row every platform prints for an empty space; the `decoder` row is macOS-only.
         let wanted = "create";
         while !text.contains(wanted) && Instant::now() < deadline {
             let mut line = String::new();
@@ -1304,6 +1433,7 @@ fn serve_names_the_link_only_when_a_door_runs_and_reports_the_decoder_once() {
         }
         kill(Pid::from_raw(child.id() as i32), Signal::SIGTERM).unwrap();
         child.wait().unwrap();
+        assert!(!text.contains("decoder"), "{text}");
         if door {
             assert!(text.contains("http://127.0.0.1:53253"), "{text}");
         } else {
@@ -2068,6 +2198,8 @@ fn serve_starts_a_door_without_a_port_and_stops_it_with_ctrl_c() {
     let ready = serving.ready();
     assert_eq!(ready["door"], "started");
     assert_eq!(ready["url"], PAGE_LINK);
+    // The decoder note lives in JSON only.
+    assert!(ready["memoryLimit"].as_str().unwrap().contains("limit"));
     // Pairing could not be read: not claimed either way, and the step stays on offer.
     assert!(ready["paired"].is_null());
     assert_eq!(
@@ -2956,4 +3088,52 @@ fn serve_says_the_outdated_instruction_once_in_the_warning_and_points_at_it_in_t
         "{warning}"
     );
     serving.stop(Signal::SIGTERM);
+}
+
+#[test]
+fn skill_is_exact_embedded_bytes_after_relocation_without_core_or_state() {
+    let pilot = Pilot::new(None);
+    let relocated = pilot.root.join("relocated-colab");
+    fs::copy(BINARY, &relocated).unwrap();
+    fs::remove_file(pilot.root.join("core")).unwrap();
+    let invoke = |args: &[&str]| {
+        Command::new(&relocated)
+            .env_clear()
+            .env("HOME", &pilot.root)
+            .env("XDG_CONFIG_HOME", pilot.root.join("config"))
+            .env("XDG_DATA_HOME", pilot.root.join("data"))
+            .env("XDG_STATE_HOME", pilot.root.join("state"))
+            .env("XDG_CACHE_HOME", pilot.root.join("cache"))
+            .env("TMT_EXECUTABLE", pilot.root.join("missing-core"))
+            .env("PATH", "")
+            .current_dir(&pilot.root)
+            .args(args)
+            .output()
+            .unwrap()
+    };
+    let output = invoke(&["skill"]);
+    assert!(output.status.success(), "{output:?}");
+    assert!(output.stderr.is_empty());
+    assert_eq!(
+        output.stdout,
+        include_bytes!("../../../skills/tmt-colab/SKILL.md")
+    );
+    for args in [["skill", "--help"], ["help", "skill"]] {
+        let help = invoke(&args);
+        assert!(help.status.success(), "{help:?}");
+        assert!(
+            String::from_utf8(help.stdout)
+                .unwrap()
+                .contains("tmt colab skill")
+        );
+        assert!(help.stderr.is_empty());
+    }
+    let unsupported = invoke(&["skill", "--json"]);
+    assert!(!unsupported.status.success());
+    assert_eq!(
+        serde_json::from_slice::<Value>(&unsupported.stdout).unwrap()["error"]["code"],
+        "COLAB_INPUT_INVALID"
+    );
+    // Only the copied executable exists: pure guidance neither discovers core nor initializes state.
+    assert_eq!(fs::read_dir(&pilot.root).unwrap().count(), 1);
 }

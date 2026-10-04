@@ -15,8 +15,8 @@ use tmt_invoke::{Cleanup, EnvironmentPolicy, LaunchOptions, Request};
 pub const DEADLINE: Duration = Duration::from_secs(2);
 /// One update the write path may prepare or submit.
 pub const UPDATE_BYTES: usize = 256 * 1024;
-/// A page's tail since its last baseline that a write accepts: what the browser's fold opens
-/// today (`fold.worker.ts`). Writes refuse past it until the browser limits are aligned.
+/// A page's tail since its last baseline that a write accepts. Browser reads have
+/// wider limits; browser writes retain this bound (`fold.worker.ts`).
 pub const WRITE_TAIL_UPDATES: usize = 200;
 /// A new page's or baseline's source (write path).
 pub const BASELINE_BYTES: usize = 2 * 1024 * 1024;
@@ -442,7 +442,7 @@ struct WireResult {
     pid: u32,
 }
 // A full baseline is not a 256 KiB stream update. Allow source, title and
-// bounded update-v1 framing, while the existing 4 MiB serialized cap still applies.
+// bounded update-v1 framing, within the decoder's stream cap.
 pub const BASELINE_TITLE_BYTES: usize = 256 * 1024;
 pub const BASELINE_UPDATE_BYTES: usize = STATE_BYTES + BASELINE_TITLE_BYTES + 1024;
 #[derive(Serialize, Deserialize)]

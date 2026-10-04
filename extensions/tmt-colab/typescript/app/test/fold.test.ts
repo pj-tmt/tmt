@@ -22,14 +22,14 @@ it('permits only one in-flight decoder and clears it on route cleanup', async ()
   fold.close();
   await rejection;
 });
-it('gives a single checkpoint the state bound while keeping the tail budget unchanged', async () => {
+it('gives a checkpoint the read bound while keeping the write tail budget unchanged', async () => {
   const worker = { postMessage: vi.fn(), terminate: vi.fn(), onerror: null, onmessage: null };
   const fold = new Fold(worker as unknown as Worker);
   await expect(
-    fold.run({ type: 'apply', updates: [new Uint8Array(256 * 1024 + 1)] }),
+    fold.run({ type: 'check', updates: [new Uint8Array(256 * 1024 + 1)] }),
   ).rejects.toThrow('capacity');
   await expect(
-    fold.run({ type: 'checkpoint', update: new Uint8Array(4 * 1024 * 1024 + 1) }),
+    fold.run({ type: 'checkpoint', update: new Uint8Array(24 * 1024 * 1024 + 1) }),
   ).rejects.toThrow('checkpoint capacity');
   expect(worker.postMessage).not.toHaveBeenCalled();
   const accepted = fold.run({ type: 'checkpoint', update: new Uint8Array(300 * 1024) });
@@ -89,7 +89,7 @@ it('bounds aggregate content and own input before posting to the Worker', async 
   const fold = new Fold(worker as unknown as Worker);
   await expect(
     fold.run({
-      type: 'apply',
+      type: 'check',
       updates: [new Uint8Array(256 * 1024)],
       own: [{ writer: '00000000-0000-4000-8000-000000000001', update: new Uint8Array([0, 0]) }],
     }),

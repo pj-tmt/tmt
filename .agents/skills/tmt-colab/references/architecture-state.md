@@ -85,7 +85,13 @@ in `acceptance/ask.spec.ts`.
   existing 0600 state owned by the user, create nothing and never migrate;
   `write_existing` requires the serve lifecycle lock and exactly the current schema.
   Both existing-state paths check the version derived from `MIGRATIONS`; a future
-  schema fails closed.
+  schema fails closed with `COLAB_STORE_NEWER` and the `tmt upgrade` instruction.
+  Current-schema CLI inspection rejects an older migratable schema with
+  `COLAB_STORE_OUTDATED` and "Start or restart tmt colab serve to update it."
+  Refusal never migrates; serve applies the existing migration history. Human
+  errors omit schema numbers; JSON preserves both versions and a runnable `next`
+  command array (`tmt colab serve` or `tmt upgrade`), including through
+  operation-correlated errors. Human hint sentences stay separate.
 - Receipts are create-only: an exact retry returns the stored receipt, a conflicting
   envelope freezes its stream. Checkpoint publication prunes a shared prefix only when
   every namespace with updates there has a checkpoint at the same sequence/hash; pinned
@@ -177,8 +183,8 @@ in `acceptance/ask.spec.ts`.
   result: relative last edits, short expiry values, and dim list hints under each link.
   Finite expiry within seven days has a waiting mark; its footer says "Expiry never
   deletes your local copy." JSON keeps exact milliseconds, and expired local pages remain
-  available. Browser legacy hints say "Expiry starts after the next edit"; CLI values
-  use UX's lowercase values: `kept forever`, `starts after the next edit`,
+  available. Browser hints use the same lowercase wording (`expires in 6 days`, `expired 2 days ago`,
+  `expiry starts after the next edit`); CLI values use UX's lowercase values: `kept forever`, `starts after the next edit`,
   and `beyond the supported range`. A verified out-of-range warning masks the human retention count
   as `out of range`, without changing JSON or policy.
   Exact warning codes, checked arithmetic and forever semantics live in the contract.
