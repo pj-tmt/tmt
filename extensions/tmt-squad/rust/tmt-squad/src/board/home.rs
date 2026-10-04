@@ -149,11 +149,7 @@ fn member_counts(rows: &[Value], lead: &Value) -> Counts {
             continue;
         }
         counts.members += 1;
-        if row["pending"].is_string()
-            || row["waitingOnYou"]
-                .as_array()
-                .is_some_and(|requests| !requests.is_empty())
-        {
+        if crate::attention::waits_on_you(row) {
             counts.waiting += 1;
         } else {
             match row["state"].as_str() {

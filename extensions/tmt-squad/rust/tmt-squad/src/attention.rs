@@ -5,6 +5,14 @@
 use serde_json::{Value, json};
 use std::collections::BTreeSet;
 
+/// A member has a pending decision or at least one request waiting on the user.
+pub fn waits_on_you(row: &Value) -> bool {
+    row["pending"].is_string()
+        || row["waitingOnYou"]
+            .as_array()
+            .is_some_and(|requests| !requests.is_empty())
+}
+
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct Attention {
     /// Members that owe the user a decision (`pending`, ◆) or sent a request
@@ -33,10 +41,7 @@ impl Attention {
             let Some(id) = row["id"].as_str().or_else(|| row["name"].as_str()) else {
                 continue;
             };
-            let asks = row["waitingOnYou"]
-                .as_array()
-                .is_some_and(|requests| !requests.is_empty());
-            if row["pending"].is_string() || asks {
+            if waits_on_you(row) {
                 waiting.insert(id);
             }
             if row["state"] == "blocked" {
@@ -68,6 +73,25 @@ impl Attention {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn waiting_requires_a_pending_string_or_a_nonempty_request_array() {
+        for row in [
+            json!({"pending": "approve"}),
+            json!({"pending": "", "waitingOnYou": []}),
+            json!({"pending": null, "waitingOnYou": [{"requestId": "q"}]}),
+        ] {
+            assert!(waits_on_you(&row), "{row}");
+        }
+        for row in [
+            json!({}),
+            json!({"pending": null, "waitingOnYou": []}),
+            json!({"pending": false, "waitingOnYou": "q"}),
+            json!({"pending": [], "waitingOnYou": {"requestId": "q"}}),
+        ] {
+            assert!(!waits_on_you(&row), "{row}");
+        }
+    }
 
     #[test]
     fn waiting_wins_over_blocked_and_each_member_counts_once() {
