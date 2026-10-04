@@ -704,11 +704,11 @@ fn home_tiles_paint_uncovered_known_history_as_partial_at_each_width_and_theme()
                 .collect::<String>();
             if width >= MD.cells {
                 assert!(
-                    header.starts_with("tok ") && header.contains("top "),
+                    header.starts_with("tok ") && header.contains("share 1h: "),
                     "{base}/{width}: {header}"
                 );
                 assert_eq!(header.contains("1m ~21"), width >= LG.cells);
-                assert_eq!(header.contains("by model"), width >= LG.cells);
+                assert_eq!(header.contains("models "), width >= LG.cells);
             } else {
                 assert!(!header.starts_with("tok "), "{base}/{width}: {header}");
             }
@@ -745,7 +745,6 @@ fn header_usage() -> crate::board::app::HomeHeaderUsage<'static> {
         ],
         top: Some(UsageTop {
             member: "worker",
-            model: Some("gpt-6.1-sol"),
             share: UsageShare {
                 fraction: 0.6,
                 partial: true,
@@ -781,7 +780,7 @@ fn header_usage_formats_thresholds_real_labels_and_partial_missing_values() {
         assert_eq!(super::glyph_error(&line.to_string()), None);
         assert_eq!(
             line.to_string(),
-            "tok 5m ~1k · 1h ~2k · top worker sol ~60% (1h)"
+            "tok 5m ~1k · 1h ~2k · share 1h: worker ~60%"
         );
     }
     for width in [LG.cells, 149, 160] {
@@ -789,14 +788,19 @@ fn header_usage_formats_thresholds_real_labels_and_partial_missing_values() {
         assert_eq!(super::glyph_error(&line.to_string()), None);
         assert_eq!(
             line.to_string(),
-            "tok 1m – · 5m ~1k · 1h ~2k · top worker sol ~60% (1h) · by model sol ~60% · opus ~40% · 2 unreported"
+            "tok 1m – · 5m ~1k · 1h ~2k · share 1h: worker ~60% · models sol ~60%, opus ~40% · 2 members without data"
         );
         assert!(line.width() <= width as usize);
     }
     usage.windows =
         ["5m", "1h", "24h"].map(|text| crate::config::TokenWindow::parse(text).unwrap());
     let line = paint::usage(&usage, 100, app.look()).unwrap().to_string();
-    assert!(line.starts_with("tok 1h ~1k · 24h ~2k") && line.ends_with("(24h)"));
+    assert!(line.starts_with("tok 1h ~1k · 24h ~2k · share 24h:") && line.ends_with("~60%"));
+    usage.unreported = 1;
+    let line = paint::usage(&usage, LG.cells, app.look())
+        .unwrap()
+        .to_string();
+    assert!(line.ends_with("1 member without data"));
     usage.totals = [None; 3];
     assert!(
         paint::usage(&usage, 160, app.look()).is_none(),
@@ -810,7 +814,7 @@ fn header_usage_formats_thresholds_real_labels_and_partial_missing_values() {
     usage.top = None;
     usage.models.clear();
     let line = paint::usage(&usage, 160, app.look()).unwrap().to_string();
-    assert!(line.contains("24h 0 · top – (24h) · by model – · 2 unreported"));
+    assert!(line.contains("24h 0 · share 24h: – · models – · 1 member without data"));
 }
 
 #[test]
@@ -818,14 +822,14 @@ fn header_usage_fits_escaped_unicode_names_and_keeps_whole_optional_groups() {
     let app = board(&[]);
     let mut usage = header_usage();
     usage.top.as_mut().unwrap().member = "long-界界界界界界-e\u{301}-worker\nunsafe";
-    usage.top.as_mut().unwrap().model = Some("unknown-model-with-a-very-long-name\u{1b}");
+    usage.models[0].model = Some("unknown-model-with-a-very-long-name\u{1b}");
     for width in [MD.cells, LG.cells - 1, LG.cells, 149, 160] {
         let line = paint::usage(&usage, width, app.look()).unwrap();
         let text = line.to_string();
         assert!(line.width() <= width as usize, "{width}: {text}");
         assert!(!text.contains('\n') && !text.contains('\u{1b}'));
-        assert!(text.contains("~60% (1h)"));
-        assert_eq!(text.contains("2 unreported"), width >= LG.cells);
+        assert!(text.contains("share 1h:") && text.contains("~60%"));
+        assert_eq!(text.contains("2 members without data"), width >= LG.cells);
         assert!(!text.ends_with(" · "));
     }
 }

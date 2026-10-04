@@ -64,7 +64,6 @@ pub(super) struct HomeHeaderUsage<'a> {
 #[derive(Debug)]
 pub(super) struct UsageTop<'a> {
     pub member: &'a str,
-    pub model: Option<&'a str>,
     pub share: UsageShare,
 }
 
@@ -879,7 +878,6 @@ impl App {
                         highest = reading.tokens;
                         top = Some(UsageTop {
                             member: member.name,
-                            model,
                             share: share(reading.tokens),
                         });
                     }
@@ -5207,7 +5205,6 @@ mod token_window_tests {
         );
         let top = usage.top.unwrap();
         assert_eq!(top.member, "worker-b");
-        assert_eq!(top.model, Some("model-b"));
         assert_eq!(
             top.share,
             UsageShare {
@@ -5274,7 +5271,7 @@ mod token_window_tests {
             150,
             "more tokens cannot override better evidence"
         );
-        assert_eq!(usage.top.unwrap().model, Some("better-covered"));
+        assert_eq!(usage.models[0].model, Some("better-covered"));
         let mut tied =
             super::super::meter::Meter::new(settings, &super::super::rate::tests::input(100), now);
         tied.sample(Ok(&super::super::rate::tests::input(300)), time);

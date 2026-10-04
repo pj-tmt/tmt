@@ -98,24 +98,28 @@ pub(crate) fn usage(usage: &HomeHeaderUsage<'_>, width: u16, look: Look) -> Opti
         .collect::<Vec<_>>()
         .join(" · ");
     let windows = format!("tok {windows}");
-    let unreported = wide.then(|| format!("{} unreported", usage.unreported));
+    let unreported = wide.then(|| {
+        format!(
+            "{} {} without data",
+            usage.unreported,
+            if usage.unreported == 1 {
+                "member"
+            } else {
+                "members"
+            }
+        )
+    });
     let reserved = unreported.as_ref().map_or(0, |text| text.len() + 3);
     let mut member_width = 18;
-    let mut model_width = 12;
     let top = loop {
         let top = usage.top.as_ref().map_or_else(
-            || format!("top – ({})", usage.windows[2].label()),
+            || format!("share {}: –", usage.windows[2].label()),
             |top| {
                 format!(
-                    "top {} {} {} ({})",
+                    "share {}: {} {}",
+                    usage.windows[2].label(),
                     fit(&escape(top.member), member_width).trim_end(),
-                    fit(
-                        &escape(top.model.map(crate::source::model_name).unwrap_or("–")),
-                        model_width
-                    )
-                    .trim_end(),
-                    percent(&top.share),
-                    usage.windows[2].label()
+                    percent(&top.share)
                 )
             },
         );
@@ -123,15 +127,15 @@ pub(crate) fn usage(usage: &HomeHeaderUsage<'_>, width: u16, look: Look) -> Opti
             + unicode_width::UnicodeWidthStr::width(top.as_str())
             + 3
             + reserved
-            + if wide { 13 } else { 0 };
-        if used <= width || (member_width == 1 && model_width == 1) {
+            + if wide {
+                unicode_width::UnicodeWidthStr::width(" · models –")
+            } else {
+                0
+            };
+        if used <= width || member_width == 1 {
             break top;
         }
-        if member_width >= model_width && member_width > 1 {
-            member_width -= 1;
-        } else {
-            model_width -= 1;
-        }
+        member_width -= 1;
     };
     let mut spans = vec![
         Span::styled(windows, look.role(Role::Text)),
@@ -148,7 +152,7 @@ pub(crate) fn usage(usage: &HomeHeaderUsage<'_>, width: u16, look: Look) -> Opti
     if let Some(unreported) = unreported {
         let used: usize = spans.iter().map(Span::width).sum();
         let available = width.saturating_sub(used + reserved + 3);
-        let mut models = String::from("by model ");
+        let mut models = String::from("models ");
         for model in &usage.models {
             let one = format!(
                 "{} {}",
@@ -159,14 +163,14 @@ pub(crate) fn usage(usage: &HomeHeaderUsage<'_>, width: u16, look: Look) -> Opti
                 .trim_end(),
                 percent(&model.share)
             );
-            let separator = if models == "by model " { "" } else { " · " };
+            let separator = if models == "models " { "" } else { ", " };
             let next = format!("{models}{separator}{one}");
             if unicode_width::UnicodeWidthStr::width(next.as_str()) > available {
                 break;
             }
             models = next;
         }
-        if models == "by model " {
+        if models == "models " {
             models.push('–');
         }
         if unicode_width::UnicodeWidthStr::width(models.as_str()) <= available {

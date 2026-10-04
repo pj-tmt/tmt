@@ -83,9 +83,11 @@ cost or text volume. `board::rate` owns evidence, `board::meter` presentation an
   `home::paint::usage` formats the global windows and shares, using shared model
   family names and grapheme-safe fitting. `view::render_frame` reserves one row
   below counts at the shared MD breakpoint (100) only when observations admit it,
-  painted through Strip. The MD row keeps w2/w3 and top; LG (140) adds w1, whole
-  fitting model-share groups and the unreported count. No readings means no usage
-  row, including warmup; measured zero admits it without a share denominator. Narrow widths,
+  painted through Strip. The MD row keeps w2/w3 and the top member's share,
+  labeled `share <window>:`. LG (140) adds w1, a comma-separated `models` group
+  and `N member(s) without data`. The share window is stated once and the top
+  member's model is not repeated. No readings means no usage row, including
+  warmup; measured zero admits it without a share denominator. Narrow widths,
   disabled sampling and search with no shown sampling squads keep their height.
 - Coverage: covered readings stay numeric, including measured zero. Known nonzero
   history deltas also remain numeric lower bounds without continuous coverage;
