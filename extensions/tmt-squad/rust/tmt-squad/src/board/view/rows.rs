@@ -176,7 +176,7 @@ pub(super) fn render_rows(frame: &mut Frame, app: &App, area: Rect) {
         Pane::Rows,
         area,
         scene.height,
-        look.role(Role::Dim),
+        look,
         |frame, body, offset| {
             hits = scene.paint(frame.buffer_mut(), body, offset, app.selected, look);
         },

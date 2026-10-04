@@ -116,6 +116,5 @@ pub(super) fn render_replies(frame: &mut Frame, app: &App, area: Rect) {
             &mut view.derived.borrow_mut(),
         )
     };
-    app.scrolls
-        .show(frame, Pane::Replies, area, lines, look.role(Role::Dim));
+    app.scrolls.show(frame, Pane::Replies, area, lines, look);
 }

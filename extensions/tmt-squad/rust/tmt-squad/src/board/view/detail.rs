@@ -185,6 +185,5 @@ pub(super) fn render_detail(frame: &mut Frame, app: &App, area: Rect) {
                 .lines(identity, width, look, render),
         );
     }
-    app.scrolls
-        .show(frame, Pane::Detail, area, lines, look.role(Role::Dim));
+    app.scrolls.show(frame, Pane::Detail, area, lines, look);
 }

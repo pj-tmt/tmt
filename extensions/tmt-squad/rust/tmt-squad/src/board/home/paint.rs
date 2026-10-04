@@ -357,9 +357,7 @@ pub(super) fn render_at(frame: &mut Frame, app: &App, area: Rect, now: u64) {
         app.scrolls
             .reveal_range(Pane::Rows, selected_range, area, lines.len());
     }
-    let (offset, shown) = app
-        .scrolls
-        .show(frame, Pane::Rows, area, &lines, look.role(Role::Dim));
+    let (offset, shown) = app.scrolls.show(frame, Pane::Rows, area, &lines, look);
     crate::board::view::waiting::place_input(app, input_range, area, offset, shown);
     for (row, range, x, width) in regions {
         for line in range.start.max(offset)..range.end.min(offset + shown) {
