@@ -7,6 +7,7 @@ mod notes;
 mod overlays;
 mod panes;
 mod replies;
+pub(in crate::board) mod row_paint;
 mod rows;
 mod strip;
 mod tabs;

@@ -8,7 +8,7 @@ pub(super) fn oldest(row: &Value) -> Option<&Value> {
         .min_by_key(|request| request["preparedAtMs"].as_u64().unwrap_or(u64::MAX))
 }
 
-pub(super) fn text(row: &Value) -> Option<&str> {
+pub(in crate::board) fn text(row: &Value) -> Option<&str> {
     row["pending"]
         .as_str()
         .or_else(|| oldest(row)?["preview"].as_str())
@@ -100,14 +100,14 @@ pub(super) fn prompt(
     );
 }
 
-/// Reserve visual lines in the row stream; placement is derived from that same
+/// Lines the inline input reserves under `row`, or `None` when it is not anchored
+/// there. The reservation joins the row stream, so placement derives from that same
 /// stream after scroll reveal, never from a previous frame's hit map.
-pub(in crate::board) fn reserve_input(
+pub(in crate::board) fn reserved_lines(
     app: &crate::board::app::App,
     row: usize,
     area: ratatui::layout::Rect,
-    lines: &mut Vec<ratatui::text::Line<'static>>,
-) -> Option<std::ops::Range<usize>> {
+) -> Option<usize> {
     let input = app.input.as_ref()?;
     let target = app.row_target(row)?;
     if input.row_send.as_ref()?.target != target {
@@ -118,7 +118,17 @@ pub(in crate::board) fn reserve_input(
     } else {
         5
     };
-    let height = demand.min(area.height.saturating_sub(2));
+    Some(demand.min(area.height.saturating_sub(2)).into())
+}
+
+/// Reserve visual lines in a line stream (the home painter's).
+pub(in crate::board) fn reserve_input(
+    app: &crate::board::app::App,
+    row: usize,
+    area: ratatui::layout::Rect,
+    lines: &mut Vec<ratatui::text::Line<'static>>,
+) -> Option<std::ops::Range<usize>> {
+    let height = reserved_lines(app, row, area)?;
     let start = lines.len();
     lines.extend((0..height).map(|_| ratatui::text::Line::default()));
     Some(start..lines.len())

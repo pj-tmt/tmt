@@ -10,18 +10,23 @@ description: Build and verify the Squad extension (`tmt-squad`, `tmt-sq`, the bo
 `board/view.rs` owns frame orchestration and one frame-level hit/scroll-map reset.
 Its surface modules under `board/view/` retain the existing painters:
 
-| Module     | Responsibility                                                     |
-| ---------- | ------------------------------------------------------------------ |
-| `header`   | Summary, token meter, spinner and clock-derived invalidation text  |
-| `tabs`     | Tab labels, windows and painted tab hits                           |
-| `panes`    | Split/tab composition dispatch, borders and folded titles          |
-| `rows`     | Projected grid spans, selection, ages and continuation hits        |
-| `notes`    | Shared notebook lines, lead notes selection, links and hits        |
-| `detail`   | Selected member fields and notebook                                |
-| `replies`  | Safe final bodies, their derived cache and scrolling               |
-| `footer`   | Effective hints, notices, link previews and unanchored input strip |
-| `waiting`  | Acquired decision text, inline composer bands and docked ask-lead  |
-| `overlays` | Overlay dispatch and action-menu/switcher painting                 |
+| Module      | Responsibility                                                     |
+| ----------- | ------------------------------------------------------------------ |
+| `header`    | Summary, token meter, spinner and clock-derived invalidation text  |
+| `tabs`      | Tab labels, windows and painted tab hits                           |
+| `panes`     | Split/tab composition dispatch, borders and folded titles          |
+| `rows`      | Cached row scene preparation, scroll reveal and clipped row hits   |
+| `row_paint` | Row scene: admitted cells, ages, waiting line, `paint_with` hits   |
+| `notes`     | Shared notebook lines, lead notes selection, links and hits        |
+| `detail`    | Selected member fields and notebook                                |
+| `replies`   | Safe final bodies, their derived cache and scrolling               |
+| `footer`    | Effective hints, notices, link previews and unanchored input strip |
+| `waiting`   | Acquired decision text, inline composer bands and docked ask-lead  |
+| `overlays`  | Overlay dispatch and action-menu/switcher painting                 |
+
+`row_paint` builds the rows scene (admitted cells, solved boxes, ages, waiting line,
+annotation, `✓ sent` line, reserved input lines) and paints it through
+`tmt-tui::paint::paint_with`; `rows` only prepares and caches it.
 
 `App`, terminal/worker lifecycle, acquisition, `Scrolls`, home and shared TUI
 components keep their separate owners. Home dispatch precedes ordinary panes;

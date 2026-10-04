@@ -48,15 +48,34 @@ painter directly.
   original ranges and a cell with zero surviving tracks is omitted. `ls` text uses the same
   visibility; JSON keeps every field value and original column/line metadata and emits
   `hidden_columns` only when nonempty.
-- The immutable view owns disposable derivations keyed by effective pane width (and grid
-  search): the width/search cache keeps admitted projected row cells and geometry together,
+- The immutable view owns disposable derivations keyed by effective pane width, grid search
+  and the clock-derived row labels (`row_paint::Extra`: `⏱ next`, oldest request age): the
+  cache keeps the paint scene built from admitted projected row cells and geometry,
   markdown wrapping caches styled lines by the active look so theme previews repaint them,
   and replacing the view invalidates them. Selection-only frames change styles without
-  rebuilding templates or sizing.
+  rebuilding templates or sizing. The scene is prepared before the cache is replaced; a
+  layout or values failure shows a muted strip and leaves the previous cache.
+- `board::view::row_paint::RowPaint` is the one row renderer: scene parts carry admitted nodes, the
+  recorded `text_width`, cut intent and the owning row. It paints through `paint_with`, where
+  Squad's callback supplies selection, stale-dim, token and emphasis styles and column
+  alignment (`Look` stays the selection policy owner; annotations never take selection).
+  The leading `◆` takes the `waiting` token like the tab mark, and stays plain without color.
+  Each row line has a backdrop that reaches only as far as its text or row-end label, as the
+  selection always did. Clipped hits come from the root's scoped identity; UUID-free rows
+  keep their clip. `Scrolls::show_paint` supplies the viewport, offset and indicator.
 - Occurrence IDs contain tab, authored section slot, source squad and member UUID followed
   by static line/column keys; member order is never identity, and UUID-free display rows have
   no actionable IDs. `App::shown_tab` supplies the retained view owner while another tab
   loads, and resize/search never substitute the requested tab.
+
+## Offline layout validation
+
+`tmt sq layout validate <file>` (module `layout`) checks an authoring file before any core,
+config or storage discovery: at most `MAX_BYTES` + 1 bytes are read, then XML/style admission
+and eager binding against the explicit `squad-projected-v1` schema. Fields and sources come
+from `rows::field_name`, `rows::OWN_FIELDS`, `ColumnSource` and `Format` (provider names are
+checked syntactically; configuration and data are not). Nothing is materialized and the board
+never loads the file. The user-facing schema and examples are in the shipped Squad skill.
 
 ## Decisions and ask-lead
 
