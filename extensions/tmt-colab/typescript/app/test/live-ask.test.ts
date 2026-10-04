@@ -5,7 +5,7 @@ import type { OwnState } from '../src/fold-protocol.js';
 import { decodeAsk } from '../src/ask-records.js';
 import type { CommentContext } from '../src/thread-store.js';
 import { LiveAsk, pageAsks } from '../src/live-ask.js';
-import { destination, id, RemoteDouble } from './ask-fixtures.js';
+import { destination, id, pageLink, RemoteDouble } from './ask-fixtures.js';
 const records = new Map<string, unknown>();
 vi.mock('../src/storage.js', () => ({
   record: async (key: string, ...values: unknown[]) => {
@@ -84,7 +84,7 @@ async function fixture(
     quote: 'Original quote',
     comment: 'Original question',
     title: 'Original page',
-    url: 'https://example.test/page#private',
+    url: pageLink(),
     destination: destination(),
   };
   return {
@@ -127,7 +127,7 @@ it('captures parent inputs before asynchronous admission and only explicit Send 
   expect(attempt.preview.view.deliveredMessage).toContain('[remote: ');
   expect(attempt.preview.view.message).toContain('Original quote');
   expect(attempt.preview.view.message).toContain('Original page');
-  expect(attempt.preview.view.message).not.toContain('#private');
+  expect(attempt.preview.view.message).toContain(`Link: ${pageLink()}\n`);
   expect(f.remote.sends).toEqual([]);
   expect(f.own).toEqual({});
   const one = attempt.send(),
