@@ -94,6 +94,14 @@ struct Create {
     page_id: String,
     title: String,
     source: String,
+    #[serde(default, deserialize_with = "publisher_label")]
+    publisher_agent: Option<String>,
+}
+fn publisher_label<'de, D: serde::Deserializer<'de>>(
+    d: D,
+) -> std::result::Result<Option<String>, D::Error> {
+    // Missing is optional; a present null or wrong type is not a label.
+    String::deserialize(d).map(Some)
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
@@ -286,6 +294,10 @@ impl Command {
                     || create.title.is_empty()
                     || create.title.len() > crate::decoder::BASELINE_TITLE_BYTES
                     || create.source.len() > crate::decoder::BASELINE_BYTES
+                    || create
+                        .publisher_agent
+                        .as_deref()
+                        .is_some_and(|v| !crate::decoder::valid_publisher_agent(v))
                 {
                     return Err(tmt_colab_model::Invalid);
                 }
@@ -415,6 +427,7 @@ fn apply(
             page: &v.page_id,
             title: &v.title,
             source: &v.source,
+            publisher_agent: v.publisher_agent.as_deref(),
         },
         Action::Advance => OwnerAction::EpochAdvance {
             page: &command.page,

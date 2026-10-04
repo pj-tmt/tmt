@@ -665,6 +665,7 @@ fn view<'a>(source: &'a [u8], title: &'a str) -> BaselineInput<'a> {
     BaselineInput {
         source,
         title,
+        publisher_agent: None,
         source_digest: Sha256::digest(source).into(),
     }
 }
@@ -697,7 +698,13 @@ fn baseline_exact_vectors_materialize_and_concurrent_clients_converge() {
         assert_eq!(verified.update, update);
         gone(verified.child_pid);
         let produced = decoder
-            .produce_baseline(view(source.as_bytes(), title), None)
+            .produce_baseline(
+                BaselineInput {
+                    publisher_agent: vector["publisherAgent"].as_str(),
+                    ..view(source.as_bytes(), title)
+                },
+                None,
+            )
             .unwrap();
         gone(produced.child_pid);
         // Both clients start from the identical owner-produced struct identity.
@@ -711,6 +718,11 @@ fn baseline_exact_vectors_materialize_and_concurrent_clients_converge() {
             let txn = doc.transact();
             assert_eq!(html.get_string(&txn), source);
             assert_eq!(meta.get(&txn, "title").unwrap().to_string(&txn), title);
+            assert_eq!(
+                meta.get(&txn, "publisherAgent")
+                    .map(|value| value.to_string(&txn)),
+                vector["publisherAgent"].as_str().map(str::to_owned)
+            );
         }
         let change = |doc: &Doc, text: &str| {
             let html = doc.get_or_insert_text("html");
@@ -746,6 +758,7 @@ fn baseline_digest_commitment_and_materialization_mismatches_return_no_result() 
         source: b"exact",
         title: "title",
         source_digest: [0; 32],
+        publisher_agent: None,
     };
     assert!(matches!(
         decoder.produce_baseline(wrong_digest, None),
@@ -936,4 +949,76 @@ fn baseline_private_child_rejects_digest_and_strict_wire_mutations() {
     let rejected = run(raw.as_bytes());
     assert!(!rejected.status.success());
     assert!(rejected.stdout.is_empty());
+}
+
+#[test]
+fn publisher_metadata_updates_and_unknown_cli_edits_clear_it() {
+    use tmt_colab::decoder::ContentEdit;
+    let mut decoder = owner();
+    let baseline = decoder
+        .produce_baseline(
+            BaselineInput {
+                publisher_agent: Some("publisher"),
+                ..view(b"before", "Title")
+            },
+            None,
+        )
+        .unwrap();
+    let mut update = baseline.update;
+    for (source, publisher) in [("after", Some("next-agent")), ("after", None)] {
+        let edited = decoder
+            .prepare(
+                UpdateBatch {
+                    namespace: Namespace::Content,
+                    baseline: &update,
+                    updates: &[],
+                },
+                ContentEdit {
+                    source,
+                    publisher_agent: publisher,
+                },
+                None,
+            )
+            .unwrap();
+        let folded = decoder
+            .decode(
+                UpdateBatch {
+                    namespace: Namespace::Content,
+                    baseline: &update,
+                    updates: &[&edited.merged],
+                },
+                Role::Editor,
+                None,
+            )
+            .unwrap();
+        assert_eq!(folded.projection["html"], source);
+        assert_eq!(
+            folded.projection["meta"]["publisherAgent"].as_str(),
+            publisher
+        );
+        let doc = Doc::new();
+        apply_baseline(&doc, &update);
+        apply_baseline(&doc, &edited.merged);
+        update = doc
+            .transact()
+            .encode_state_as_update_v1(&yrs::StateVector::default());
+    }
+    for invalid in ["".to_owned(), "x".repeat(129), "line\nbreak".to_owned()] {
+        assert!(
+            decoder
+                .prepare(
+                    UpdateBatch {
+                        namespace: Namespace::Content,
+                        baseline: &update,
+                        updates: &[]
+                    },
+                    ContentEdit {
+                        source: "after",
+                        publisher_agent: Some(&invalid)
+                    },
+                    None
+                )
+                .is_err()
+        );
+    }
 }

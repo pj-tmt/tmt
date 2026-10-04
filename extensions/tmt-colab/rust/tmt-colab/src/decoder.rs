@@ -31,11 +31,24 @@ pub struct UpdateBatch<'a> {
     pub baseline: &'a [u8],
     pub updates: &'a [&'a [u8]],
 }
+/// One CLI source replacement, including its optional display-only caller label.
+#[derive(Clone, Copy)]
+pub struct ContentEdit<'a> {
+    pub source: &'a str,
+    pub publisher_agent: Option<&'a str>,
+}
+/// A publisher-asserted display label, never an identity or authorization claim.
+pub fn valid_publisher_agent(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= crate::limits::PUBLISHER_AGENT_BYTES
+        && !value.chars().any(char::is_control)
+}
 /// Exact current view supplied by the owner's authenticated fold. This seam
 /// does not establish log, page or epoch authority.
 pub struct BaselineInput<'a> {
     pub source: &'a [u8],
     pub title: &'a str,
+    pub publisher_agent: Option<&'a str>,
     pub source_digest: [u8; 32],
 }
 /// One fresh struct identity to persist and distribute unchanged to every client.
@@ -157,7 +170,7 @@ impl Decoder {
         &mut self,
         batch: UpdateBatch<'_>,
         role: Role,
-        source: Option<&str>,
+        edit: Option<ContentEdit<'_>>,
         stop: Option<&AtomicBool>,
         deadline: Instant,
     ) -> Result<Decoded, DecodeFault> {
@@ -181,7 +194,10 @@ impl Decoder {
         let wire = WireBatch {
             version: 1,
             namespace: batch.namespace,
-            source: source.map(str::to_owned),
+            source: edit.as_ref().map(|v| v.source.to_owned()),
+            publisher_agent: edit
+                .as_ref()
+                .and_then(|v| v.publisher_agent.map(str::to_owned)),
             baseline: URL_SAFE_NO_PAD.encode(batch.baseline),
             updates: batch
                 .updates
@@ -209,7 +225,10 @@ impl Decoder {
             return Err(DecodeFault::InvalidOutput);
         }
         validate_projection(batch.namespace, &reply.projection)?;
-        if source.is_some_and(|value| reply.projection["html"].as_str() != Some(value)) {
+        if edit.is_some_and(|value| {
+            reply.projection["html"].as_str() != Some(value.source)
+                || reply.projection["meta"]["publisherAgent"].as_str() != value.publisher_agent
+        }) {
             return Err(DecodeFault::InvalidOutput);
         }
         let merged = binary(&reply.merged, UPDATE_BYTES).map_err(|_| DecodeFault::InvalidOutput)?;
@@ -223,16 +242,21 @@ impl Decoder {
     pub fn prepare(
         &mut self,
         batch: UpdateBatch<'_>,
-        source: &str,
+        edit: ContentEdit<'_>,
         stop: Option<&AtomicBool>,
     ) -> Result<Decoded, DecodeFault> {
-        if source.len() > BASELINE_BYTES || batch.namespace != Namespace::Content {
+        if edit.source.len() > BASELINE_BYTES
+            || batch.namespace != Namespace::Content
+            || edit
+                .publisher_agent
+                .is_some_and(|v| !valid_publisher_agent(v))
+        {
             return Err(DecodeFault::InvalidInput);
         }
         self.decode_request(
             batch,
             Role::Editor,
-            Some(source),
+            Some(edit),
             stop,
             Instant::now() + self.config.deadline,
         )
@@ -278,6 +302,12 @@ impl Decoder {
             return Err(DecodeFault::CleanupBlocked);
         }
         validate_view(view.source, view.title, &view.source_digest)?;
+        if view
+            .publisher_agent
+            .is_some_and(|v| !valid_publisher_agent(v))
+        {
+            return Err(DecodeFault::InvalidInput);
+        }
         let expected = match &action {
             BaselineAction::Produce {} => None,
             BaselineAction::Verify { update, commitment } => {
@@ -292,6 +322,7 @@ impl Decoder {
                 String::new()
             },
             title: view.title.into(),
+            publisher_agent: view.publisher_agent.map(str::to_owned),
             source_digest: URL_SAFE_NO_PAD.encode(view.source_digest),
             action,
         })
@@ -372,6 +403,8 @@ struct WireBatch {
     version: u8,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     source: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    publisher_agent: Option<String>,
     namespace: Namespace,
     baseline: String,
     updates: Vec<String>,
@@ -397,6 +430,8 @@ struct WireBaseline {
     version: u8,
     source: String,
     title: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    publisher_agent: Option<String>,
     source_digest: String,
     action: BaselineAction,
 }
@@ -460,7 +495,11 @@ fn validate_projection(namespace: Namespace, value: &Value) -> Result<(), Decode
                 .get("meta")
                 .and_then(Value::as_object)
                 .ok_or(DecodeFault::InvalidOutput)?;
-            if meta.len() > 1 || meta.iter().any(|(k, v)| k != "title" || !v.is_string()) {
+            if meta.iter().any(|(k, v)| match k.as_str() {
+                "title" => !v.is_string(),
+                "publisherAgent" => v.as_str().is_none_or(|v| !valid_publisher_agent(v)),
+                _ => true,
+            }) {
                 return Err(DecodeFault::InvalidOutput);
             }
         }

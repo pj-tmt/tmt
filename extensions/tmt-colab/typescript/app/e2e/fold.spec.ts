@@ -166,12 +166,23 @@ test('baseline vectors reset exact struct identities and reject digest, title an
       try {
         const one = await a.run(command),
           two = await b.run(command);
-        if (one.source !== v.source || two.source !== v.source || one.title !== v.title)
+        if (
+          one.source !== v.source ||
+          two.source !== v.source ||
+          one.title !== v.title ||
+          one.publisherAgent !== v.publisherAgent ||
+          two.publisherAgent !== v.publisherAgent
+        )
           throw new Error('Baseline vector projection');
         const edit = await a.run({ type: 'prepare', source: v.source + 'later' });
         const left = await a.run({ type: 'apply', updates: [edit.update] }),
           right = await b.run({ type: 'apply', updates: [edit.update] });
-        if (left.source !== right.source) throw new Error('Baseline struct identity differs');
+        if (
+          left.source !== right.source ||
+          left.publisherAgent !== v.publisherAgent ||
+          right.publisherAgent !== v.publisherAgent
+        )
+          throw new Error('Baseline struct identity or publisher metadata differs');
       } finally {
         a.close();
         b.close();

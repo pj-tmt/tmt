@@ -483,10 +483,15 @@ pub fn create_page(root: &Path, args: &ArgMatches, source: String) -> Result<()>
     if title.len() > tmt_colab::decoder::BASELINE_TITLE_BYTES {
         return Err(management_error("CAPACITY"));
     }
+    let publisher_agent = crate::core::publisher_agent();
     let operation_id = fresh_id()?;
     let page_id = fresh_id()?;
     let layout = Layout::open(root)?;
     let correlation = json!({"operationId":operation_id,"pageId":page_id});
+    let mut payload = json!({"pageId":page_id,"title":title,"source":source});
+    if let Some(agent) = publisher_agent {
+        payload["publisherAgent"] = json!(agent);
+    }
     let request = |key: &Keyring, store: &Store| -> Result<Vec<u8>> {
         let revision = store
             .owner_head(&key.space_id, &key.owner_public())?
@@ -495,9 +500,7 @@ pub fn create_page(root: &Path, args: &ArgMatches, source: String) -> Result<()>
         Ok(serde_json::to_vec(
             &json!({"space":key.space_id,"page":page_id,
             "expectedRevision":revision,"operationId":operation_id,"operation":"page.create",
-            "payload":values::encode_binary(&serde_json::to_vec(&json!({
-                "pageId":page_id,"title":title,"source":source
-            }))?)}),
+            "payload":values::encode_binary(&serde_json::to_vec(&payload)?)}),
         )?)
     };
     let result = (|| -> Result<Value> {

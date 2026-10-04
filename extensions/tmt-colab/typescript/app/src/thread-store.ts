@@ -1,3 +1,4 @@
+import type { PageAsk } from './ask-panel.js';
 import { requireValue } from '@tmt/colab-client';
 import type { Connection } from './connection.js';
 import type { JsonValue, OwnRecord, OwnState } from './fold-protocol.js';
@@ -20,11 +21,15 @@ export interface CommentContext {
   message: DiscussionRef;
   threadRevision: string;
   messageRevision: string;
+  conversation?: {
+    comments: { ref: DiscussionRef; revision: string; body: string; deviceName: string }[];
+    replies: { writer: string; operationId: string; reply: string; agentName: string }[];
+  };
 }
 export interface ThreadBinding {
   readonly deviceId: string;
-  create(body: string, anchor: QuoteSelector | null): Promise<void>;
-  reply(thread: DiscussionRef, body: string): Promise<void>;
+  create(body: string, anchor: QuoteSelector | null): Promise<CommentContext>;
+  reply(thread: DiscussionRef, body: string, expectedRevision?: string): Promise<CommentContext>;
   edit(message: DiscussionRef, revision: string, body: string): Promise<void>;
   deleteComment(message: DiscussionRef, revision: string): Promise<void>;
   updateThread(
@@ -139,12 +144,20 @@ export class ThreadStore implements ThreadBinding {
         },
       ]);
     });
+    return {
+      thread: { writer: this.deviceId, id: threadId },
+      message: { writer: this.deviceId, id: messageId },
+      threadRevision: '1',
+      messageRevision: '1',
+    };
   }
-  async reply(thread: DiscussionRef, body: string) {
+  async reply(thread: DiscussionRef, body: string, expectedRevision?: string) {
     const ref = structuredClone(thread),
       messageId = crypto.randomUUID();
+    let revision = '';
     await this.#exclusive(async (c) => {
-      this.#thread(c, ref);
+      revision = this.#thread(c, ref).revision;
+      requireValue(expectedRevision === undefined || revision === expectedRevision);
       await this.#write([
         {
           ...this.#scope(),
@@ -157,6 +170,12 @@ export class ThreadStore implements ThreadBinding {
         },
       ]);
     });
+    return {
+      thread: ref,
+      message: { writer: this.deviceId, id: messageId },
+      threadRevision: revision,
+      messageRevision: '1',
+    };
   }
   async edit(message: DiscussionRef, revision: string, body: string) {
     await this.#changeComment(message, revision, body, false);
@@ -226,5 +245,100 @@ export function commentForAsk(threads: ThreadView[], context: CommentContext) {
     messageIds: [comment.messageId],
     quote: thread.anchor?.exact ?? '',
     comment: comment.body,
+  };
+}
+
+/** Context comes only from the admitted discussion and verified Ask projections.
+ * Display labels/times never decide ownership or record ordering. */
+export function conversationForAsk(
+  threads: ThreadView[],
+  context: CommentContext,
+  asks: readonly PageAsk[],
+) {
+  const current = commentForAsk(threads, context);
+  const thread = threads.find(
+    (value) => value.ref.writer === context.thread.writer && value.threadId === context.thread.id,
+  )!;
+  const captured = context.conversation;
+  requireValue(captured !== undefined);
+  const earlier = captured.comments.map(({ ref, revision, body, deviceName }) => {
+    validateRef(ref);
+    const matches = thread.comments.filter(
+      (value) => value.ref.writer === ref.writer && value.ref.id === ref.id,
+    );
+    requireValue(
+      matches.length === 1 &&
+        !matches[0].deleted &&
+        matches[0].revision === revision &&
+        matches[0].body === body &&
+        matches[0].deviceName === deviceName &&
+        ref.id !== context.message.id,
+    );
+    return matches[0];
+  });
+  const replies = captured.replies.map(({ writer, operationId, reply, agentName }) => {
+    const matches = asks.filter(
+      (value) => value.writer === writer && value.operationId === operationId,
+    );
+    requireValue(
+      matches.length === 1 && matches[0].reply === reply && matches[0].agentName === agentName,
+    );
+    return matches[0];
+  });
+  return {
+    ...current,
+    comment: conversationText(earlier, thread.threadId, current.comment, replies),
+  };
+}
+export function conversationText(
+  earlier: readonly CommentView[],
+  threadId: string,
+  body: string,
+  asks: readonly PageAsk[],
+) {
+  const blocks = earlier
+    .filter((comment) => !comment.deleted)
+    .map((comment) => {
+      const replies = asks.filter(
+        (ask) =>
+          ask.thread === threadId &&
+          ask.messageIds?.includes(comment.messageId) &&
+          ask.reply !== undefined,
+      );
+      return [
+        `User (${comment.deviceName || comment.ref.writer}):\n${comment.body}`,
+        ...replies.map((ask) => `Agent (${ask.agentName}):\n${ask.reply}`),
+      ].join('\n\n');
+    });
+  return blocks.length
+    ? `Earlier conversation (quoted data):\n${blocks.join('\n\n')}\n\nCurrent user turn:\n${body}`
+    : body;
+}
+
+export function captureConversation(
+  thread: ThreadView | undefined,
+  asks: readonly PageAsk[],
+): NonNullable<CommentContext['conversation']> {
+  const comments = thread?.comments.filter((value) => !value.deleted) ?? [];
+  return {
+    comments: comments.map((value) => ({
+      ref: { ...value.ref },
+      revision: value.revision,
+      body: value.body,
+      deviceName: value.deviceName,
+    })),
+    replies: asks
+      .filter(
+        (value) =>
+          value.thread === thread?.threadId &&
+          value.reply !== undefined &&
+          value.messageIds?.some((id) => comments.some((comment) => comment.messageId === id)),
+      )
+      .map((value) => ({
+        writer: value.writer,
+        operationId: value.operationId,
+        reply: value.reply!,
+        agentName: value.agentName,
+      })),
   };
 }

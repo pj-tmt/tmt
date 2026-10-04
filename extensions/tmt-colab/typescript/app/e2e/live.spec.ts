@@ -999,6 +999,31 @@ result:async()=>({state:'replied',requestId:'${requestId}',message:${JSON.string
   await page.locator(`[data-page-id="${v.page}"] a`).click();
   const heading = page.frameLocator('iframe').getByRole('heading', { name: 'Live fixture' });
   await expect(heading).toBeVisible();
+  const renderId = (await page.locator('iframe').getAttribute('data-render-id'))!;
+  await page
+    .frames()
+    .find((value) => value.url().endsWith('/renderer.html'))!
+    .evaluate((renderId) => {
+      parent.postMessage(
+        {
+          type: 'colab.render.selection',
+          renderId,
+          text: 'Cosmetic claim',
+          selector: { exact: 'Cosmetic claim', prefix: '', suffix: '' },
+          rect: { x: -1000000, y: -1000000, width: 1, height: 1 },
+        },
+        '*',
+      );
+    }, renderId);
+  const bubble = page.getByTestId('selection-ask');
+  await expect(bubble).toBeVisible();
+  const bounds = (await bubble.boundingBox())!,
+    frameBounds = (await page.locator('iframe').boundingBox())!;
+  expect(bounds.x).toBeGreaterThanOrEqual(frameBounds.x);
+  expect(bounds.y).toBeGreaterThanOrEqual(frameBounds.y);
+  expect(bounds.x + bounds.width).toBeLessThanOrEqual(frameBounds.x + frameBounds.width);
+  expect(bounds.y + bounds.height).toBeLessThanOrEqual(page.viewportSize()!.height);
+  await expect(page.getByTestId('annotation-compose')).toHaveCount(0);
   await heading.evaluate((node) => {
     const range = document.createRange();
     range.selectNodeContents(node);
@@ -1007,7 +1032,8 @@ result:async()=>({state:'replied',requestId:'${requestId}',message:${JSON.string
   });
   await page.getByTestId('ask-toggle').click();
   await page.getByTestId('ask-action').click();
-  await page.getByTestId('ask-agent-option').getByRole('radio').check();
+  await page.getByRole('combobox', { name: /Choose an agent/ }).click();
+  await page.getByTestId('ask-agent-option').click();
   await page.getByRole('button', { name: 'Ask agent — preview', exact: true }).click();
   deliveredMessage = await page.getByTestId('ask-preview-text').textContent();
   await page.getByTestId('ask-send').click();

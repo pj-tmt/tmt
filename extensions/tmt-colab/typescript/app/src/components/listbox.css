@@ -46,7 +46,7 @@
 .tmt-listbox-options[hidden] {
   display: none;
 }
-.tmt-listbox .tmt-listbox-option {
+.tmt-listbox-options .tmt-listbox-option {
   display: block;
   width: 100%;
   margin: 0;
@@ -74,4 +74,12 @@
   color: var(--c-muted);
   background: var(--c-paper);
   cursor: default;
+}
+
+.tmt-listbox-input .tmt-listbox-label {
+  display: none;
+}
+.tmt-listbox-input-list {
+  position: fixed;
+  z-index: 60;
 }

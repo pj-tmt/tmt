@@ -542,11 +542,15 @@ fn page(root: &std::path::Path, args: &clap::ArgMatches) -> Result<()> {
             .duration_since(std::time::UNIX_EPOCH)?
             .as_millis()
             .try_into()?;
+        let publisher_agent = core::publisher_agent();
         let prepared = page::prepare(
             &store,
             &key,
             id,
-            &source,
+            tmt_colab::decoder::ContentEdit {
+                source: &source,
+                publisher_agent: publisher_agent.as_deref(),
+            },
             args.get_one::<String>("expected-revision")
                 .map(String::as_str),
             &mut decoder,
