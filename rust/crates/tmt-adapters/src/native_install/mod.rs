@@ -26,6 +26,11 @@ pub use repair::{RepairReport, RepairRequired, repair_product, repair_product_fr
 mod release;
 pub use release::ReleaseUnavailable;
 mod skills_tree;
+mod uses;
+pub use uses::{
+    Affected, CheckError, Unavailable, Use, UseStatus, affected, check as check_use,
+    declared as declared_uses, statuses as use_statuses,
+};
 mod upgrade;
 pub use upgrade::{
     UpgradeFailure, UpgradeReport, UpgradeRequest, upgrade, upgrade_product,
