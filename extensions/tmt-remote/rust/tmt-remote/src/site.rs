@@ -1,5 +1,6 @@
 //! The door's handler: `<prefix>/x/<extension>/` mounts, `/pair/` and `/sdk/`
-//! browser assets, and everything else the remote binding, whose routes are
+//! browser assets (including the static root landing), and everything else the
+//! remote binding, whose routes are
 //! disjoint from the mount space.
 use crate::{
     http::{Handler, Head, Reply, Request},

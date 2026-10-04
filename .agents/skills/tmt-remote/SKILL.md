@@ -99,6 +99,11 @@ Synced publication tests prove filesystem behavior, not power-loss recovery. A n
 workspace path also needs the tracked-file layout, generated release configuration
 and CI-scope checks.
 
+## Browser pages
+
+The embedded same-origin stylesheet projects the shared design tokens with system
+font fallbacks and light/dark scheme preference under the contract-defined CSP.
+
 ## Embedded client and crypto fixtures
 
 The door embeds `extensions/tmt-remote/rust/tmt-remote/assets/remote-v1.js`, built
@@ -182,7 +187,7 @@ and `transport` have no I/O, clock, storage or `CoreClient` access):
 | `operations`, `approval`            | Dispatch/read operations over the public core API; local held-operation confirmation on the control socket                                                                     |
 | `authority`, `store`, `state`       | Typed grants, `remote.db` and schema history, layout/machine key/serve lock                                                                                                    |
 | `pairing`, `control`, `devices`     | One pairing offer per run, owner-only control socket for discovery/stop and device list/revoke/rename                                                                          |
-| `mount`, `pages`                    | Extension mounts (allowlisted extensions only) and the pairing page/SDK assets                                                                                                 |
+| `mount`, `pages`                    | Extension mounts (allowlisted extensions only), static landing/pairing/error pages and embedded stylesheet/SDK assets                                                          |
 
 Rules that are easy to get wrong:
 

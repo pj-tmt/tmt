@@ -1124,19 +1124,22 @@ absolute `TMT_EXECUTABLE`, run by `tmt-invoke`) and owns the private
 `<dataRoot>/remote/` subtree through the
 [shared extension state layout](#shared-extension-state-layout). Core never owns a
 listener or Remote state and only registers Remote as an installable product; its
-archive embeds the pairing page, SDK and wordlist with no companions or skills, and
-publication gates belong to the [release skill](.agents/skills/tmt-release/SKILL.md).
+archive embeds its static browser pages, stylesheet, SDK and wordlist with no
+companions or skills, and publication gates belong to the
+[release skill](.agents/skills/tmt-release/SKILL.md).
 Colab has no door of its own: Remote mounts its owner-only socket under
 `/r/<prefix>/x/colab/` and keeps Host/Origin, pairing, cookie and live-grant
 admission. [`contracts/remote-channel-v1.md`](contracts/remote-channel-v1.md) owns
-the wire, pairing, session, operations and extension channel API. The door serves
-the browser SDK `remote-v1.js` (built from `remote-client`), which gives mounted
-pages `reopenSession`, `operations(session)` and `certifyKey`; its README owns
+the wire, pairing, session, operations and extension channel API. Remote owns the
+static root landing and pairing-page errors as well as the pairing ceremony;
+protocol refusals and mounted extension responses retain their own representation.
+The door serves the browser SDK `remote-v1.js` (built from `remote-client`), which
+gives mounted pages `reopenSession`, `operations(session)` and `certifyKey`; its README owns
 the caller-facing recovery rules. The
 [Remote skill](.agents/skills/tmt-remote/SKILL.md) owns module internals.
 System-wide invariants:
 
-- Unauthenticated traffic gets one generic refusal and learns no inventory.
+- Unauthenticated protocol traffic gets one generic refusal and learns no inventory.
 - Every effect rechecks the persisted grant inside its write transaction; revocation orders after an in-flight effect.
 - Uncertainty or timeout never resends and never mints a new operation ID; recovery reads core by the same ID.
 - Enrolled panes are never pasted to; core's send-time guard decides, never terminal output.
