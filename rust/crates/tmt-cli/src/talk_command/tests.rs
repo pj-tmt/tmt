@@ -118,7 +118,7 @@ fn an_unconfirmed_handoff_is_never_worded_as_a_sent_request() {
 }
 
 #[test]
-fn only_an_explicit_pending_inbox_reports_pull_without_live_notification() {
+fn explicit_and_offline_pending_inbox_report_pull_without_live_notification() {
     let mut queued = correlation();
     queued.inbox = true;
     queued.explicit_inbox = true;
@@ -130,14 +130,28 @@ fn only_an_explicit_pending_inbox_reports_pull_without_live_notification() {
     assert!(document.get("pane").is_none());
     assert!(document.get("deliveryState").is_none());
 
-    // Ordinary offline and claimed routes must not inherit explicit-inbox claims.
+    // A claimed live route cannot assert that notification was not attempted.
     for offline in [false, true] {
         let mut ordinary = correlation();
         ordinary.inbox = true;
         ordinary.offline = offline;
         let document = presentation::json_document(ordinary, None);
-        assert!(document.get("notification").is_none());
-        assert!(document.get("waitingFor").is_none());
+        assert_eq!(
+            document["notification"],
+            if offline {
+                serde_json::json!("not_attempted")
+            } else {
+                serde_json::Value::Null
+            }
+        );
+        assert_eq!(
+            document["waitingFor"],
+            if offline {
+                serde_json::json!("recipient_inbox_pull")
+            } else {
+                serde_json::Value::Null
+            }
+        );
         assert_eq!(
             document["offline"],
             if offline {
@@ -162,4 +176,31 @@ fn only_an_explicit_pending_inbox_reports_pull_without_live_notification() {
     assert_eq!(completed["status"], "completed");
     assert!(completed.get("notification").is_none());
     assert!(completed.get("waitingFor").is_none());
+}
+
+#[test]
+fn unverified_delivery_reports_no_live_input_and_recipient_recovery_in_json() {
+    let failure = correlation().unverified_delivery();
+    let document = failure.document();
+    assert_eq!(document["deliveryState"], "not_delivered");
+    assert_eq!(document["requestId"], "request-talk");
+    assert!(failure.message.contains("not delivered live"));
+    assert!(
+        document["error"]["suggestion"]
+            .as_str()
+            .unwrap()
+            .contains("tmt inbox --identity worker --json")
+    );
+    assert!(
+        document["error"]["suggestion"]
+            .as_str()
+            .unwrap()
+            .contains("new turn or session")
+    );
+    assert!(
+        document["error"]["suggestion"]
+            .as_str()
+            .unwrap()
+            .contains("tmt resume worker")
+    );
 }

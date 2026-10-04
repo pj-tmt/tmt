@@ -106,6 +106,27 @@ impl Correlation {
             )
         }
     }
+    fn recipient_recovery(&self) -> String {
+        let recipient = self
+            .identity
+            .as_ref()
+            .map_or(self.target.as_str(), |identity| identity.id.as_str());
+        format!(
+            "The recipient must pull with tmt inbox --identity {} --json. Start a new turn or session in that agent, or use tmt resume {} to repair live delivery.",
+            crate::output::shell_word(recipient),
+            crate::output::shell_word(recipient)
+        )
+    }
+
+    fn unverified_delivery(&self) -> Failure {
+        self.error(
+            "DELIVERY_PREPARATION_FAILED",
+            "Recipient readiness could not be verified; the request was not delivered live and stays queued.",
+            1,
+        )
+        .with_delivery_state("not_delivered")
+        .suggestion(format!("{} {}", self.recipient_recovery(), self.inspection()))
+    }
     /// Ties a failure to this request and keeps the channel's uncertainty on it.
     fn correlated(&self, failure: Failure) -> Failure {
         let failure = failure.with_request(self.request_id.clone(), None);
@@ -359,6 +380,9 @@ fn deliver(
                         correlation.inspection()
                     )));
             } else if !matches!(outcome, crate::delivery::Delivery::Sent) {
+                if matches!(outcome, crate::delivery::Delivery::Unavailable) {
+                    return Err(correlation.unverified_delivery());
+                }
                 if let crate::delivery::Delivery::Transport(error) = outcome {
                     if error.socket_permission_denied() {
                         return Err(correlation.socket_error(error));
@@ -622,6 +646,11 @@ fn warn_unattributed_record(record: &std::path::Path) {
 // Source-checked command samples for the printed-command guard.
 #[cfg(test)]
 pub(crate) const PRINTED_HINTS: &[crate::cli_style_tests::HintSpec] = &[
+    crate::cli_style_tests::HintSpec::core(
+        "The recipient must pull with tmt inbox --identity {} --json. Start a new turn or session in that agent, or use tmt resume {} to repair live delivery.",
+        &[". Start", " to repair"],
+        &[],
+    ),
     crate::cli_style_tests::HintSpec::core(
         "Inspect with 'tmt result {}' and 'tmt check {}' before deciding whether to retry.",
         &["' and", "' before"],

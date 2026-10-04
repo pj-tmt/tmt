@@ -378,12 +378,19 @@ A `Hooks` declaration:
 | Effect | Meaning | `by` and `values` |
 |---|---|---|
 | `start` | A session began or changed. | Required. Each value is `started`, `resumed`, `cleared`, `compacted` or `forked`. |
-| `end` | A session ended or changed. | Required. Each value is `cleared`, `resumed` or `ended`. |
+| `end` | A provider session ended or changed; the runtime process may remain alive. | Required. Each value is `cleared`, `resumed` or `ended`. |
 | `working` | A turn began. | Not allowed. |
 | `idle` | A turn ended. | Not allowed. |
 
 `by` is a JSON Pointer like the fields, and `values` holds 1 to 16 entries
 whose keys are 1–64 bytes of text.
+
+A verified provider end retains the exact process/session key and launch owner,
+records its session transition, and leaves runtime readiness Unknown until a
+fresh SessionStart admits the same live incarnation's next session. Only
+conclusive process loss or owned-child exit makes the runtime Ended; provider
+end never proves it. Stale session keys and unverified replacement processes
+cannot change that observation.
 
 **Decoding a hook.** Core reads the payload: at most 64 KiB and one JSON
 object. It finds the event whose `name` equals the string at `fields.event`,

@@ -60,12 +60,13 @@ pub fn binding_runtime<R: CommandRunner>(
 ) -> Result<tmt_core::binding::session::RuntimeState, CommandError> {
     use tmt_core::binding::session::RuntimeState;
     let mut runtime = binding.session.state;
-    if runtime == RuntimeState::Ended {
-        return Ok(runtime);
-    }
     if let Some(key) = &binding.session.key {
         let observation = observe_runtime_process(runner, key.incarnation.pid(), deadline)?;
         runtime = match observation.matches(&key.incarnation) {
+            // Older hooks conflated provider-session end with process exit.
+            // Exact live evidence exposes that conflict without enabling input
+            // or rewriting the stored observation on a delivery read.
+            RuntimeLiveness::Alive if runtime == RuntimeState::Ended => RuntimeState::Unknown,
             RuntimeLiveness::Alive => runtime,
             RuntimeLiveness::Gone => RuntimeState::Ended,
             RuntimeLiveness::Unknown => RuntimeState::Unknown,

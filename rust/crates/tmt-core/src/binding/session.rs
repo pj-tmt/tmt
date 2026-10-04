@@ -1,7 +1,8 @@
 //! Runtime observations attached to a binding, never identity ownership.
 //!
-//! A live container can contain an ended runtime. Conversely, disconnecting a
-//! client need not end a shared runtime. Drivers supply those distinctions;
+//! A provider session can end inside a live runtime; only conclusive process loss
+//! ends the runtime incarnation. Disconnecting a client need not end a shared runtime.
+//! Drivers supply those distinctions;
 //! neither a provider session ID nor inherited hook text authorizes a binding.
 //! Foreground launch callers use `admit_launched`, not direct owner assignment.
 
@@ -321,16 +322,23 @@ impl BindingSessionState {
         transition: SessionTransition,
         liveness: RuntimeLiveness,
     ) -> Option<Self> {
+        let turnover = self.state == RuntimeState::Unknown
+            && self.last_transition == Some(SessionTransition::Ended)
+            && self
+                .key
+                .as_ref()
+                .is_some_and(|old| old.incarnation == key.incarnation);
         if liveness != RuntimeLiveness::Alive
-            || !matches!(
+            || !(matches!(
                 transition,
                 SessionTransition::Started | SessionTransition::Resumed | SessionTransition::Forked
-            )
+            ) || (turnover && transition == SessionTransition::Cleared))
             || self.key.as_ref().is_some_and(|old| {
                 old.incarnation == key.incarnation
                     && (self.state == RuntimeState::Ended
                         || (old.provider_session.is_some()
-                            && old.provider_session != key.provider_session))
+                            && old.provider_session != key.provider_session
+                            && !turnover))
             })
         {
             return None;
@@ -347,8 +355,9 @@ impl BindingSessionState {
         })
     }
 
-    /// Clear's preliminary end notification maps to Cleared, not terminal Ended.
-    /// A subsequent clear-start can replace the session ID in this incarnation.
+    /// Provider end records a session boundary, not process loss. Keep its exact
+    /// key and owner, but require a fresh start before the runtime is deliverable.
+    /// Clear/resume can replace the session ID in the same live incarnation.
     pub fn transition(
         &self,
         key: &ObservedSessionKey,
@@ -356,6 +365,12 @@ impl BindingSessionState {
         next_session: Option<ProviderSessionId>,
     ) -> Option<Self> {
         if self.key.as_ref() != Some(key) || self.state == RuntimeState::Ended {
+            return None;
+        }
+        if self.state == RuntimeState::Unknown
+            && self.last_transition == Some(SessionTransition::Ended)
+            && transition != SessionTransition::Ended
+        {
             return None;
         }
         if !matches!(
@@ -378,7 +393,7 @@ impl BindingSessionState {
         }
         next.last_transition = Some(transition);
         next.state = if transition == SessionTransition::Ended {
-            RuntimeState::Ended
+            RuntimeState::Unknown
         } else {
             RuntimeState::Running
         };
@@ -815,7 +830,7 @@ mod tests {
                 .transition(current, SessionTransition::Ended, None)
                 .unwrap()
                 .state,
-            RuntimeState::Ended
+            RuntimeState::Unknown
         );
     }
 
@@ -829,9 +844,10 @@ mod tests {
                 RuntimeLiveness::Alive,
             )
             .unwrap();
-        let ended = running
-            .transition(&original, SessionTransition::Ended, None)
-            .unwrap();
+        let ended = BindingSessionState {
+            state: RuntimeState::Ended,
+            ..running
+        };
         assert!(
             ended
                 .admit(original, SessionTransition::Resumed, RuntimeLiveness::Alive)
@@ -887,7 +903,61 @@ mod tests {
                 .transition(new, SessionTransition::Ended, None)
                 .unwrap()
                 .state,
-            RuntimeState::Ended
+            RuntimeState::Unknown
         );
+    }
+
+    #[test]
+    fn provider_end_keeps_owner_and_requires_live_start_before_session_turnover() {
+        let old = key("same-process", "old-session");
+        let owner = ProcessIncarnation::new(41, "owner").unwrap();
+        let running = BindingSessionState::default()
+            .admit_launched(
+                old.clone(),
+                owner.clone(),
+                SessionTransition::Started,
+                RuntimeLiveness::Alive,
+                RuntimeLiveness::Alive,
+            )
+            .unwrap();
+        let ended = running
+            .transition(&old, SessionTransition::Ended, None)
+            .unwrap();
+        assert_eq!(ended.state, RuntimeState::Unknown);
+        assert_eq!(ended.key, Some(old.clone()));
+        assert_eq!(ended.launch_owner, Some(owner.clone()));
+        assert!(
+            ended
+                .transition(&old, SessionTransition::Compacted, None)
+                .is_none()
+        );
+        for transition in [
+            SessionTransition::Started,
+            SessionTransition::Resumed,
+            SessionTransition::Cleared,
+        ] {
+            let new = key("same-process", "new-session");
+            for liveness in [RuntimeLiveness::Unknown, RuntimeLiveness::Gone] {
+                assert!(ended.admit(new.clone(), transition, liveness).is_none());
+            }
+            let next = ended
+                .admit(new.clone(), transition, RuntimeLiveness::Alive)
+                .unwrap();
+            assert_eq!(next.state, RuntimeState::Running);
+            assert_eq!(next.key, Some(new));
+            assert_eq!(next.launch_owner, Some(owner.clone()));
+            assert!(
+                next.transition(&old, SessionTransition::Ended, None)
+                    .is_none()
+            );
+            assert!(
+                next.admit(
+                    old.clone(),
+                    SessionTransition::Started,
+                    RuntimeLiveness::Alive
+                )
+                .is_none()
+            );
+        }
     }
 }

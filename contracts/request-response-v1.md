@@ -352,7 +352,8 @@ Human output states this and supplies `tmt inbox --identity '<recipient UUID>' -
 a correlated `tmt x show <request-id> --incoming --identity '<recipient UUID>' --json`,
 and `tmt result <request-id>`. The recipient commands are for that recipient's
 own identity. A completed response does not carry the pending notification or
-waiting fields. Ordinary offline queueing retains `offline:true`; ordinary live
+waiting fields. Ordinary offline queueing retains `offline:true` and the same
+unattempted-notification/pull fields, with a recipient pull and repair suggestion; ordinary live
 and uncertain handoffs do not claim that notification was unattempted.
 
 Detached JSON is `{status:"sent",requestId,target,pane,identity?}`. Completed
@@ -376,6 +377,13 @@ the pane, the request stays queued, and nothing types around the agent. Offline 
 immediate `queued` result with `offline:true`, without waiting or pasting into a
 shell. Rebinding or coming online never triggers automatic re-wake. Explicit
 `--inbox` and unbound direct-pane behavior remain distinct.
+
+Unknown/unverified recipient readiness refuses live input with exit 1,
+`DELIVERY_PREPARATION_FAILED` and `deliveryState:"not_delivered"`. Human and JSON
+error text say the request stays queued, name the recipient's `tmt inbox` pull,
+and suggest starting a turn/session or `tmt resume` to repair live delivery.
+Legacy stored Ended with an exact live incarnation takes this unverified path;
+it neither permits paste nor rewrites the stored observation.
 
 A newly accepted, queued direct dispatch may make one advisory wake at the
 recipient's verified binding. Its line is

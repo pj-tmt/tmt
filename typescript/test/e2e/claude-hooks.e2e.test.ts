@@ -100,12 +100,10 @@ describe(
           expect(results[7].badge).toBe(runningBadge);
           expect(results[10].stdout).toBe('');
           expect(results[10].stderr).toBe('');
-          expect(results[10].badge).toBe(
-            '#[push-default]#[dim]○ Hook Reader (tmt)#[default]#[pop-default]'
-          );
+          expect(results[10].badge).toBe('Hook Reader (tmt)');
           expect(JSON.parse(results[11].stdout)).toMatchObject({
             id: identity.id,
-            sessionState: 'ended',
+            sessionState: 'unknown',
           });
           const db = new Database(path.join(fixture.globalDir, 'tmux-team.db'), { readonly: true });
           try {

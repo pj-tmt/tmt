@@ -463,6 +463,40 @@ mod tests {
     }
 
     #[test]
+    fn legacy_ended_with_exact_live_process_is_unverified_without_input_or_repair() {
+        use tmt_core::{binding::session::ObservedSessionKey, endpoint::ProcessIncarnation};
+        let mut entry = entry();
+        let session = &mut entry.binding.as_mut().unwrap().session;
+        session.state = RuntimeState::Ended;
+        session.key = Some(ObservedSessionKey {
+            incarnation: ProcessIncarnation::new(42, "ps-v1:Sun Sep 27 10:00:00 2026").unwrap(),
+            provider_session: Some(
+                tmt_core::binding::session::ProviderSessionId::new("legacy").unwrap(),
+            ),
+        });
+        let original = entry.clone();
+        for process in [
+            "Sun Sep 27 10:00:00 2026 S\n",
+            "Sun Sep 27 10:00:00 2026 T\n",
+            "unavailable\n",
+        ] {
+            let runner = ScriptedRunner::default();
+            runner.push_output(observation(&entry, 654, true), Vec::new());
+            runner.push_output(process.as_bytes().to_vec(), Vec::new());
+            let tmux = Tmux::new(runner);
+            let result = BindingSession::new(&tmux)
+                .send(&entry, "must not reach the live agent")
+                .or_unsupported(|| panic!("unverified is not unsupported"));
+            assert!(matches!(
+                result,
+                ActionResult::Failed(SendFailure::NotSent(ActionError::Unverified))
+            ));
+            assert_eq!(tmux.runner.calls.borrow().len(), 2);
+            assert_eq!(entry, original);
+        }
+    }
+
+    #[test]
     fn launched_runtime_requires_its_owner_but_owner_loss_does_not_mean_child_exit() {
         use tmt_core::{binding::session::ObservedSessionKey, endpoint::ProcessIncarnation};
         for (child, owner, expected) in [

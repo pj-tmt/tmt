@@ -12,6 +12,74 @@ fn event(starting: bool, transition: SessionTransition, session: &str) -> Claude
 }
 
 #[test]
+fn provider_end_then_start_turns_over_the_same_claude_process() {
+    let process = ProcessIncarnation::new(42, "start-A").unwrap();
+    let running = event(true, SessionTransition::Started, "old-session")
+        .propose(
+            &BindingSessionState::default(),
+            &process,
+            RuntimeLiveness::Unknown,
+        )
+        .unwrap();
+    for reason in ["logout", "prompt_input_exit", "other"] {
+        let end = decode_hook(
+            json!({"hook_event_name":"SessionEnd", "session_id":"old-session", "reason":reason})
+                .to_string()
+                .as_bytes(),
+        )
+        .unwrap();
+        let ended = end
+            .propose(&running, &process, RuntimeLiveness::Alive)
+            .unwrap();
+        assert_eq!(ended.state, RuntimeState::Unknown);
+        assert_eq!(ended.key, running.key);
+        for transition in [
+            SessionTransition::Started,
+            SessionTransition::Resumed,
+            SessionTransition::Cleared,
+        ] {
+            let next = event(true, transition, "new-session")
+                .propose(&ended, &process, RuntimeLiveness::Alive)
+                .unwrap();
+            assert_eq!(next.state, RuntimeState::Running);
+            assert_eq!(next.key.as_ref().unwrap().incarnation, process);
+            assert_eq!(
+                next.key
+                    .as_ref()
+                    .unwrap()
+                    .provider_session
+                    .as_ref()
+                    .unwrap()
+                    .as_str(),
+                "new-session"
+            );
+            assert!(
+                end.propose(&next, &process, RuntimeLiveness::Alive)
+                    .is_none()
+            );
+            assert!(
+                event(true, SessionTransition::Started, "old-session")
+                    .propose(&next, &process, RuntimeLiveness::Alive)
+                    .is_none()
+            );
+        }
+        assert!(
+            event(true, SessionTransition::Compacted, "old-session")
+                .propose(&ended, &process, RuntimeLiveness::Alive)
+                .is_none()
+        );
+        let replacement = ProcessIncarnation::new(42, "start-B").unwrap();
+        for evidence in [RuntimeLiveness::Alive, RuntimeLiveness::Unknown] {
+            assert!(
+                event(true, SessionTransition::Started, "new-session")
+                    .propose(&ended, &replacement, evidence)
+                    .is_none()
+            );
+        }
+    }
+}
+
+#[test]
 fn clear_keeps_the_binding_runtime_and_stale_end_cannot_end_the_new_session() {
     let process = ProcessIncarnation::new(42, "start-A").unwrap();
     let first = event(true, SessionTransition::Started, "one")
@@ -87,9 +155,10 @@ fn only_proven_previous_process_loss_allows_new_incarnation_admission() {
         .propose(&first, &new, RuntimeLiveness::Gone)
         .unwrap();
     assert_eq!(resumed.key.as_ref().unwrap().incarnation, new);
-    let ended = event(false, SessionTransition::Ended, "one")
-        .propose(&resumed, &new, RuntimeLiveness::Alive)
-        .unwrap();
+    let ended = BindingSessionState {
+        state: RuntimeState::Ended,
+        ..resumed
+    };
     assert!(
         event(true, SessionTransition::Started, "one")
             .propose(&ended, &new, RuntimeLiveness::Alive)
