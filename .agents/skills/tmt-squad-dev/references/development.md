@@ -28,6 +28,11 @@ markup: see [tmt-tui](../../tmt-tui/SKILL.md).
   with `main` and the package-scoped release `tmt` to prove the CLI is unchanged.
 - Cron tests use disposable roots and must not touch the core database or
   `squad.toml`.
+- `main::print_help` sends both routed help and clap `DisplayHelp` through
+  `tmt_cli_style::rendered_help` before core discovery. Specs and argument help
+  remain in `specs.rs`/`main.rs`; the shared style crate owns terminal wrapping.
+  Main's help regression pins 80-cell wrapping and unchanged pipe bytes across
+  root and nested commands; verify the real `tmt sq cron --help` in a private tmux.
 - Cron management (service, announcements, retirement): `cargo test --locked -p tmt-squad
 cron_service` and the native `squad.test.ts` cron cases cover actor permission, locked
   room/revision refusal, exact messages, post-commit announcement recipients, hook
