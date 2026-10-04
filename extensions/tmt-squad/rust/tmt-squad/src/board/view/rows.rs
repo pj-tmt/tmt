@@ -3,7 +3,6 @@
 use super::fit;
 use crate::board::app::{App, Hit, Item};
 use crate::{config::Pane, rows::Rows};
-use ratatui::widgets::Paragraph;
 use ratatui::{
     Frame,
     layout::Rect,
@@ -44,7 +43,12 @@ pub(super) fn grid_line(
             continue;
         };
         let width = box_width.visible;
-        let value = admitted.text.as_deref();
+        let pending = cell.field.as_deref() == Some("pending");
+        let value = if pending {
+            super::waiting::text(row)
+        } else {
+            admitted.text.as_deref()
+        };
         shown_any |= value.is_some_and(|value| !value.is_empty());
         let text = match (value, &cell.field, first) {
             (Some(value), _, _) => value,
@@ -79,11 +83,19 @@ pub(super) fn grid_line(
             && (matches!(cell.field.as_deref(), Some("state" | "pending"))
                 || role.is_some_and(|role| matches!(role, Role::Waiting | Role::Blocked)));
         let style = look.row_span(selected, style, emphasize);
-        fitted.push((
-            crate::markup::fitted(text, box_width, admitted.style.text_flow, column.align),
-            style,
-            width,
-        ));
+        let values = if pending && !first {
+            let age = super::waiting::age(row, crate::status::now_ms());
+            let age_width = age.as_deref().map_or(0, |age| age.width() + GAP);
+            let text_width = width.saturating_sub(age_width);
+            let question = fit(text, text_width);
+            vec![match age {
+                Some(age) => format!("{question} {age}"),
+                None => question,
+            }]
+        } else {
+            crate::markup::fitted(text, box_width, admitted.style.text_flow, column.align)
+        };
+        fitted.push((values, style, width));
     }
     if !first && !shown_any {
         return None;
@@ -142,7 +154,7 @@ pub(super) fn render_rows(frame: &mut Frame, app: &App, area: Rect) {
         } else {
             "Loading…"
         };
-        frame.render_widget(Paragraph::new(message), area);
+        crate::markup::paint_line(frame, area, Line::from(message), look);
         return;
     };
     let Some(tab) = app.shown_tab() else { return };
@@ -176,7 +188,12 @@ pub(super) fn render_rows(frame: &mut Frame, app: &App, area: Rect) {
         let layout = match crate::markup::Grid::compile(rows, natural, available) {
             Ok(layout) => layout,
             Err(error) => {
-                frame.render_widget(Paragraph::new(format!("Row layout: {error}")), area);
+                crate::markup::paint_line(
+                    frame,
+                    area,
+                    Line::from(format!("Row layout: {error}")),
+                    look,
+                );
                 return;
             }
         };
@@ -206,7 +223,12 @@ pub(super) fn render_rows(frame: &mut Frame, app: &App, area: Rect) {
         let cells = match crate::markup::row_values(rows, tab, app.rows()) {
             Ok(cells) => cells,
             Err(error) => {
-                frame.render_widget(Paragraph::new(format!("Row values: {error}")), area);
+                crate::markup::paint_line(
+                    frame,
+                    area,
+                    Line::from(format!("Row values: {error}")),
+                    look,
+                );
                 return;
             }
         };
@@ -258,7 +280,7 @@ pub(super) fn render_rows(frame: &mut Frame, app: &App, area: Rect) {
                 let selected = row_index == app.selected;
                 let start = lines.len();
                 app.row_starts.borrow_mut().push(start);
-                let marker = if row["pending"].is_string() {
+                let marker = if crate::attention::waits_on_you(row) {
                     "◆ "
                 } else {
                     "  "
@@ -294,12 +316,36 @@ pub(super) fn render_rows(frame: &mut Frame, app: &App, area: Rect) {
                             look.row_span(
                                 selected,
                                 Style::new(),
-                                initial && row["pending"].is_string(),
+                                initial && crate::attention::waits_on_you(row),
                             ),
                         )];
                         spans.extend(cells);
                         if let Some(age) = age.as_deref().filter(|_| initial) {
                             age_mark(&mut spans, age, usize::from(area.width), look, selected);
+                        }
+                        row_lines.push((lines.len(), row_index));
+                        lines.push(Line::from(spans).style(style));
+                    }
+                    if first
+                        && !rows
+                            .lines
+                            .iter()
+                            .flatten()
+                            .any(|cell| cell.field.as_deref() == Some("pending"))
+                        && let Some(question) = super::waiting::text(row)
+                    {
+                        let request_age = super::waiting::age(row, crate::status::now_ms());
+                        let age_width = request_age.as_deref().map_or(0, |age| age.width() + GAP);
+                        let width = usize::from(area.width).saturating_sub(4 + age_width);
+                        let mut spans = vec![
+                            Span::raw("    "),
+                            Span::styled(
+                                fit(question, width),
+                                look.row_span(selected, look.role(Role::Waiting), true),
+                            ),
+                        ];
+                        if let Some(age) = request_age {
+                            age_mark(&mut spans, &age, usize::from(area.width), look, selected);
                         }
                         row_lines.push((lines.len(), row_index));
                         lines.push(Line::from(spans).style(style));

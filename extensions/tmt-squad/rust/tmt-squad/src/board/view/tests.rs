@@ -38,6 +38,100 @@ use std::collections::BTreeMap;
 use unicode_width::UnicodeWidthChar;
 
 #[test]
+fn waiting_rows_detail_and_ask_prompt_fit_each_width_and_theme() {
+    for width in [160, 100, 80] {
+        for (base, depth) in [
+            ("tmt", tmt_cli_style::Depth::TrueColor),
+            ("tmt-light", tmt_cli_style::Depth::TrueColor),
+            ("tmt", tmt_cli_style::Depth::None),
+        ] {
+            let now = crate::status::now_ms();
+            let question =
+                "Ship #412 tonight or wait for CI? Token rotation is risky if CI is red.";
+            let mut app = board(json!([{"title": null, "rows": [
+                row("auth-fix", "blocked", "rotate tokens", json!({"waitingOnYou": [{"requestId": "q", "preview": question, "preparedAtMs": now - 720000}]})),
+                row("docs", "working", "handbook", json!({"pending": "Keep the glossary?"})),
+            ]}]));
+            let view = app.view.as_mut().unwrap();
+            view.look = crate::look::Look {
+                theme: tmt_cli_style::Theme::new(tmt_cli_style::theme::Base::parse(base).unwrap()),
+                depth,
+            };
+            view.me = Some("Ben".into());
+            let screen = draw(&app, width, 24);
+            let asks = screen
+                .iter()
+                .find(|line| line.contains("Ship #412"))
+                .unwrap();
+            assert!(asks.contains("12m"), "{base}/{width}: {asks}");
+            let pending = screen
+                .iter()
+                .find(|line| line.contains("Keep the glossary?"))
+                .unwrap();
+            assert!(!pending.contains("12m"), "pending-only has no age");
+            assert!(screen.last().unwrap().contains("◆ 2 waiting"));
+            assert!(screen.last().unwrap().contains("A ask lead"));
+            assert!(
+                app.hits
+                    .borrow()
+                    .iter()
+                    .any(|hit| hit.row == 0 && screen[usize::from(hit.y)].contains("Ship #412"))
+            );
+            app.perform(&crate::action::Action::parse("ask-lead").unwrap());
+            let prompt = draw(&app, width, 24);
+            assert!(prompt.iter().any(|line| line.contains("ask lead sol")));
+            assert!(
+                prompt
+                    .iter()
+                    .any(|line| line.contains("Enter send · Esc cancel"))
+            );
+            assert!(
+                prompt
+                    .iter()
+                    .any(|line| line.contains("List what waits on me"))
+            );
+            app.input = None;
+            let mut terminal = Terminal::new(TestBackend::new(width, 24)).unwrap();
+            terminal
+                .draw(|frame| render_detail(frame, &app, frame.area()))
+                .unwrap();
+            let detail = terminal
+                .backend()
+                .buffer()
+                .content
+                .iter()
+                .map(|cell| cell.symbol())
+                .collect::<String>();
+            assert!(
+                detail.contains(question),
+                "full available preview in detail"
+            );
+        }
+    }
+}
+
+#[test]
+fn waiting_hint_uses_rebound_key_and_drops_oldest_before_actions() {
+    let now = crate::status::now_ms();
+    let mut app = board(
+        json!([{"title": null, "rows": [row("auth-fix", "working", "", json!({"pending": "approve", "waitingOnYou": [{"preparedAtMs": now - 720000, "preview": "fallback"}]}))]}]),
+    );
+    app.view.as_mut().unwrap().bindings.remove("A");
+    app.view.as_mut().unwrap().bindings.insert(
+        "z".into(),
+        crate::action::Action::parse("ask-lead").unwrap(),
+    );
+    assert!(hints(&app, 160).contains("oldest auth-fix 12m"));
+    assert!(hints(&app, 50).contains("z ask lead"));
+    assert!(!hints(&app, 50).contains("oldest"));
+    assert!(!hints(&app, 50).contains("A ask lead"));
+    assert_eq!(
+        super::waiting::text(app.selected_row().unwrap()),
+        Some("approve")
+    );
+}
+
+#[test]
 fn footer_omits_whole_hints_instead_of_clipping_words() {
     let mut app = App::new(Some("product".into()));
     app.apply(crate::board::app::tests::snapshot("product", json!([])));
@@ -100,6 +194,7 @@ pub(super) fn board(sections: Value) -> App {
             attention: Default::default(),
             squad: Some("product".into()),
             view: Ok(View {
+                ask_lead: crate::config::DEFAULT_ASK_LEAD.into(),
                 token_rate: None,
                 home: None,
             derived: Default::default(),
@@ -413,13 +508,14 @@ fn default_team_is_readable_at_80_120_and_200_columns() {
 #[test]
 fn preset_columns_draw_exactly_as_before_at_every_width() {
     let app = preset_board();
-    let golden: [(u16, [&str; 7]); 4] = [
+    let golden: [(u16, [&str; 8]); 4] = [
         (
             48,
             [
                 "  MEMBER         STATE      TASK    PR",
                 "NEEDS ME",
                 "◆ auth-fix       blocked    rotate… https://git…",
+                "    approve",
                 "EVERYONE",
                 "  文件-sweep-lo… working    整理安… –",
                 "  perf           –          –       –",
@@ -432,6 +528,7 @@ fn preset_columns_draw_exactly_as_before_at_every_width() {
                 "  MEMBER         STATE      TASK                PR",
                 "NEEDS ME",
                 "◆ auth-fix       blocked    rotate session tok… https://git…",
+                "    approve",
                 "EVERYONE",
                 "  文件-sweep-lo… working    整理安装指南和常见… –",
                 "  perf           –          –                   –",
@@ -444,6 +541,7 @@ fn preset_columns_draw_exactly_as_before_at_every_width() {
                 "  MEMBER         STATE      TASK                                    PR",
                 "NEEDS ME",
                 "◆ auth-fix       blocked    rotate session tokens without logging … https://git…",
+                "    approve",
                 "EVERYONE",
                 "  文件-sweep-lo… working    整理安装指南和常见问题                  –",
                 "  perf           –          –                                       –",
@@ -456,6 +554,7 @@ fn preset_columns_draw_exactly_as_before_at_every_width() {
                 "  MEMBER         STATE      TASK                                                                            PR",
                 "NEEDS ME",
                 "◆ auth-fix       blocked    rotate session tokens without logging everyone out                              https://git…",
+                "    approve",
                 "EVERYONE",
                 "  文件-sweep-lo… working    整理安装指南和常见问题                                                          –",
                 "  perf           –          –                                                                               –",
@@ -464,7 +563,7 @@ fn preset_columns_draw_exactly_as_before_at_every_width() {
         ),
     ];
     for (width, lines) in golden {
-        assert_eq!(draw(&app, width, 11)[2..9], lines, "at {width} columns");
+        assert_eq!(draw(&app, width, 12)[2..10], lines, "at {width} columns");
     }
 }
 
@@ -609,10 +708,11 @@ fn rows_ignore_retired_notes_and_show_pending_sections_and_aligned_wide_text() {
     assert_eq!(screen[2], "  MEMBER     STATE    TASK");
     assert_eq!(screen[3], "NEEDS ME");
     assert_eq!(screen[4], "◆ auth-fix   blocked  rotate session tokens");
-    assert_eq!(screen[5], "EVERYONE");
-    assert_eq!(screen[6], "  文件-sweep working  整理安装指南");
+    assert_eq!(screen[5], "    approve");
+    assert_eq!(screen[6], "EVERYONE");
+    assert_eq!(screen[7], "  文件-sweep working  整理安装指南");
     assert!(screen.iter().all(|line| !line.contains("needs a call")));
-    assert!(screen[9].starts_with("⏎ jump"));
+    assert!(screen[9].starts_with("◆ 1 waiting"));
 }
 
 #[test]
@@ -772,6 +872,7 @@ fn paned(board: crate::config::Board, notes: Notes) -> App {
             attention: Default::default(),
             squad: Some("product".into()),
             view: Ok(View {
+                ask_lead: crate::config::DEFAULT_ASK_LEAD.into(),
                 token_rate: None,
                 home: None,
             derived: Default::default(),
@@ -1531,6 +1632,7 @@ fn detail_ignores_retired_notes_and_represented_fields_do_not_repeat() {
         [
             "worker",
             "waiting on you: approve",
+            "r reply · ⏎ jump",
             "active · working · crew:2.0 · /work",
             "task: rotate tokens",
             "activity: testing",
@@ -3284,7 +3386,8 @@ fn toggle_footer_and_help_show_current_state_and_drop_the_whole_hint() {
                     assert!(shown.contains(&hint), "{width}: {shown}");
                 }
                 assert!(!shown.contains('…'));
-                assert!(shown.is_empty() || shown == full || full[shown.len()..].starts_with("  "));
+                assert!(shown.width() <= width);
+                assert!(shown.is_empty() || !shown.ends_with(" ·"));
             }
         }
         if targets.len() == 2 {
@@ -3312,7 +3415,11 @@ fn footer_hints_are_conditional_and_effective_bindings_remain_visible() {
     let view = app.view.as_mut().unwrap();
     view.bindings = crate::action::preset(true, &view.board.panes);
     assert!(hints(&app, usize::MAX).contains("d detail ▾"));
-    assert!(draw(&app, 48, 12)[11].contains("d detail ▾"));
+    assert!(draw(&app, 48, 12)[11].contains("A ask lead"));
+    assert!(
+        !draw(&app, 48, 12)[11].contains("d detail ▾"),
+        "decision actions take priority when narrow"
+    );
     app.view
         .as_mut()
         .unwrap()
