@@ -1,4 +1,5 @@
 import { writeExecutable } from '../support/executable-fixture.mjs';
+import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import Database from 'better-sqlite3';
@@ -267,7 +268,7 @@ it.each([
   { driver: 'claude', executable: '/opt/tmt-tests/claude', reason: 'prompt_input_exit' },
   { driver: 'claude', executable: '/opt/tmt-tests/claude', reason: 'other' },
 ])(
-  '$driver $reason session end permits same-process turnover and loud unverified refusal',
+  '$driver $reason session end permits same-process turnover',
   async ({ driver, executable, reason }) => {
     await withE2EFixture(
       async (fixture) => {
@@ -344,65 +345,6 @@ it.each([
             observed_provider_session_id: session,
           });
           expect(process.kill(ended.runtime_pid, 0)).toBe(true);
-          const pending = await fixture.runJsonCli(
-            ['talk', 'Turnover recipient', 'must stay queued', '--detach', '--force'],
-            { transportTrace: true }
-          );
-          expect(pending.code).toBe(1);
-          expect(pending.json).toMatchObject({
-            deliveryState: 'not_delivered',
-            error: { code: 'DELIVERY_PREPARATION_FAILED' },
-          });
-          expect(fixture.transportTrace()).toEqual([]);
-
-          // Historical hook data conflated session end with runtime exit. Seed only
-          // that fixture-owned field; routing must probe the exact still-live PID.
-          const writer = new Database(database);
-          try {
-            writer
-              .prepare("UPDATE bindings SET runtime_state = 'ended' WHERE pane_id = ?")
-              .run(pane);
-          } finally {
-            writer.close();
-          }
-          const legacy = binding();
-          const refused = await fixture.runJsonCli(
-            ['talk', 'Turnover recipient', 'legacy live conflict', '--detach', '--force'],
-            { transportTrace: true }
-          );
-          expect(refused.code).toBe(1);
-          expect(refused.json).toMatchObject({
-            deliveryState: 'not_delivered',
-            error: { code: 'DELIVERY_PREPARATION_FAILED' },
-          });
-          expect(refused.json?.error).toMatchObject({
-            message: expect.stringContaining('not delivered live'),
-            suggestion: expect.stringContaining(`tmt inbox --identity ${ended.identity_id} --json`),
-          });
-          const human = await fixture.runCli(
-            ['talk', 'Turnover recipient', 'legacy human refusal', '--detach', '--force'],
-            { transportTrace: true }
-          );
-          expect(human.code).toBe(1);
-          expect(human.stderr).toContain('not delivered live');
-          expect(human.stderr).toContain(`tmt inbox --identity ${ended.identity_id} --json`);
-          expect(human.stderr).toContain('new turn or session');
-          expect(human.stderr).toContain('tmt resume');
-          expect(fixture.transportTrace()).toEqual([]);
-          // Reconciliation may refresh endpoint evidence, but no delivery read
-          // repairs the stored terminal session or changes any other binding field.
-          const { last_verified_at: before, ...original } = legacy;
-          const { last_verified_at: after, ...preserved } = binding();
-          expect(Date.parse(after)).toBeGreaterThanOrEqual(Date.parse(before));
-          expect(preserved).toEqual(original);
-          const reset = new Database(database);
-          try {
-            reset
-              .prepare("UPDATE bindings SET runtime_state = 'unknown' WHERE pane_id = ?")
-              .run(pane);
-          } finally {
-            reset.close();
-          }
           fs.writeFileSync(checkpoint, 'continue');
           await fixture.waitFor(
             () => fs.existsSync(report),
@@ -463,6 +405,172 @@ it.each([
           });
           expect(fixture.transportTrace()).toEqual(trace);
         } finally {
+          db.close();
+        }
+      },
+      { mode: 'input-log' }
+    );
+  }
+);
+
+it.each([false, true])(
+  'plain talk reaches an idle Codex after SessionEnd without another start (legacy=%s)',
+  async (legacy) => {
+    await withE2EFixture(
+      async (fixture) => {
+        expect((await fixture.runJsonCli(['name', 'Idle sender', '-s'])).code).toBe(0);
+        const home = path.join(fixture.root, 'home');
+        fs.mkdirSync(home);
+        const scenario = path.join(fixture.root, 'idle.json');
+        const report = path.join(fixture.root, 'idle-report.json');
+        const checkpoint = path.join(fixture.root, 'idle-checkpoint');
+        const status = path.join(fixture.root, 'idle.status');
+        fs.writeFileSync(
+          scenario,
+          JSON.stringify([
+            hook('startup'),
+            {
+              args: ['__hook', 'codex'],
+              input: { hook_event_name: 'SessionEnd', session_id: session, reason: 'other' },
+            },
+            // This gate changes no provider state. No SessionStart or user input follows End.
+            { args: ['whoami', '--json'], checkpoint },
+          ])
+        );
+        const pane = fixture.createShellPane('idle-codex').pane;
+        const command = [
+          'env',
+          `HOME=${home}`,
+          `TMUX_TEAM_HOME=${fixture.globalDir}`,
+          fixture.executables.cli.executable,
+          ...fixture.executables.cli.args,
+          'run',
+          '--no-channel',
+          '-s',
+          'Idle recipient',
+          '/opt/tmt-tests/hook-runtime/codex',
+          fixture.executables.cli.executable,
+          scenario,
+          report,
+          '--listen',
+        ]
+          .map(quote)
+          .join(' ');
+        fixture.tmux([
+          'send-keys',
+          '-t',
+          pane,
+          '-l',
+          `${command}; printf '%s' "$?" > ${quote(status)}`,
+        ]);
+        fixture.tmux(['send-keys', '-t', pane, 'Enter']);
+        await fixture.waitFor(
+          () => fs.existsSync(checkpoint),
+          15000,
+          'idle provider-ended runtime'
+        );
+        const db = new Database(path.join(fixture.globalDir, 'tmux-team.db'));
+        let runtimePid = 0;
+        try {
+          const binding = () =>
+            db.prepare('SELECT * FROM bindings WHERE pane_id = ?').get(pane) as {
+              identity_id: string;
+              runtime_pid: number;
+              runtime_state: string;
+              last_verified_at: string;
+              launch_owner_pid: number;
+              launch_owner_start_identity: string;
+            };
+          const ended = binding();
+          runtimePid = ended.runtime_pid;
+          expect(ended).toMatchObject({
+            runtime_state: 'unknown',
+            last_transition: 'ended',
+            observed_provider_session_id: session,
+          });
+          expect(ended.launch_owner_pid).toBeGreaterThan(0);
+          expect(ended.launch_owner_start_identity).toBeTruthy();
+          expect(process.kill(runtimePid, 0)).toBe(true);
+          expect(process.kill(ended.launch_owner_pid, 0)).toBe(true);
+          if (legacy)
+            db.prepare("UPDATE bindings SET runtime_state = 'ended' WHERE pane_id = ?").run(pane);
+          const recorded = binding();
+
+          // Exact PID alone is insufficient: a stopped recipient cannot accept input.
+          process.kill(runtimePid, 'SIGSTOP');
+          await fixture.waitFor(
+            () => {
+              return execFileSync('ps', ['-p', String(runtimePid), '-o', 'stat='], {
+                encoding: 'utf8',
+              })
+                .trim()
+                .startsWith('T');
+            },
+            5000,
+            'fixture runtime stopped'
+          );
+          const refused = await fixture.runJsonCli(
+            ['talk', 'Idle recipient', 'stopped JSON refusal', '--detach', '--force'],
+            { transportTrace: true }
+          );
+          expect(refused.code).toBe(1);
+          expect(refused.json).toMatchObject({
+            deliveryState: 'not_delivered',
+            error: {
+              code: 'DELIVERY_PREPARATION_FAILED',
+              message: expect.stringContaining('not delivered live'),
+              suggestion: expect.stringContaining(
+                `tmt inbox --identity ${ended.identity_id} --json`
+              ),
+            },
+          });
+          const human = await fixture.runCli(
+            ['talk', 'Idle recipient', 'stopped human refusal', '--detach', '--force'],
+            { transportTrace: true }
+          );
+          expect(human.code).toBe(1);
+          expect(human.stderr).toContain('not delivered live');
+          expect(human.stderr).toContain('new turn or session');
+          expect(human.stderr).toContain('tmt resume');
+          expect(fixture.transportTrace()).toEqual([]);
+          process.kill(runtimePid, 'SIGCONT');
+
+          const sent = await fixture.runJsonCli(
+            ['talk', 'Idle recipient', 'idle delivery without typing', '--detach', '--force'],
+            { transportTrace: true }
+          );
+          expect(sent.code).toBe(0);
+          expect(sent.json).toMatchObject({ status: 'sent', pane });
+          expect(sent.json?.offline).toBeUndefined();
+          const { last_verified_at: before, ...original } = recorded;
+          const { last_verified_at: after, ...preserved } = binding();
+          expect(Date.parse(after)).toBeGreaterThanOrEqual(Date.parse(before));
+          expect(preserved).toEqual(original);
+          expect(
+            db
+              .prepare('SELECT wake_state FROM request_attempts WHERE request_id = ?')
+              .get(sent.json?.requestId)
+          ).toEqual({ wake_state: 'sent' });
+          fs.writeFileSync(checkpoint, 'continue');
+          const received = report.replace(/\.json$/, '.input.json');
+          await fixture.waitFor(() => fs.existsSync(received), 5000, 'idle runtime consumed talk');
+          const input = JSON.parse(fs.readFileSync(received, 'utf8')) as string[];
+          expect(input.filter((line) => line === 'idle delivery without typing')).toHaveLength(1);
+          expect(
+            input.filter((line) => line.startsWith(`tmt reply ${sent.json?.requestId} `))
+          ).toHaveLength(1);
+          const results = JSON.parse(fs.readFileSync(report, 'utf8'));
+          expect(results).toHaveLength(3);
+          expect(JSON.parse(results[2].stdout).sessionState).toBe(legacy ? 'ended' : 'unknown');
+          await waitForRuntimeExit(fixture, runtimePid, status);
+        } finally {
+          if (runtimePid) {
+            try {
+              process.kill(runtimePid, 'SIGCONT');
+            } catch (error) {
+              if ((error as NodeJS.ErrnoException).code !== 'ESRCH') throw error;
+            }
+          }
           db.close();
         }
       },

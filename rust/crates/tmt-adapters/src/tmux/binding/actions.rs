@@ -463,7 +463,7 @@ mod tests {
     }
 
     #[test]
-    fn legacy_ended_with_exact_live_process_is_unverified_without_input_or_repair() {
+    fn legacy_ended_outside_pane_or_without_live_process_is_unverified_without_input_or_repair() {
         use tmt_core::{binding::session::ObservedSessionKey, endpoint::ProcessIncarnation};
         let mut entry = entry();
         let session = &mut entry.binding.as_mut().unwrap().session;
@@ -483,6 +483,10 @@ mod tests {
             let runner = ScriptedRunner::default();
             runner.push_output(observation(&entry, 654, true), Vec::new());
             runner.push_output(process.as_bytes().to_vec(), Vec::new());
+            if process.ends_with(" S\n") {
+                runner.push_output(b"42 1\n".to_vec(), Vec::new());
+                runner.push_output(b"1 0\n".to_vec(), Vec::new());
+            }
             let tmux = Tmux::new(runner);
             let result = BindingSession::new(&tmux)
                 .send(&entry, "must not reach the live agent")
@@ -491,8 +495,102 @@ mod tests {
                 result,
                 ActionResult::Failed(SendFailure::NotSent(ActionError::Unverified))
             ));
-            assert_eq!(tmux.runner.calls.borrow().len(), 2);
+            assert_eq!(
+                tmux.runner.calls.borrow().len(),
+                if process.ends_with(" S\n") { 4 } else { 2 }
+            );
             assert_eq!(entry, original);
+        }
+    }
+
+    #[test]
+    fn provider_end_readiness_needs_exact_live_pane_runtime_and_recorded_owner() {
+        use tmt_core::{
+            binding::session::{ObservedSessionKey, SessionTransition},
+            endpoint::ProcessIncarnation,
+        };
+        for state in [RuntimeState::Unknown, RuntimeState::Ended] {
+            for owner in [false, true] {
+                let mut entry = entry();
+                let binding = entry.binding.as_mut().unwrap();
+                binding.session.state = state;
+                binding.session.last_transition = Some(SessionTransition::Ended);
+                binding.session.key = Some(ObservedSessionKey {
+                    incarnation: ProcessIncarnation::new(42, "ps-v1:Sun Sep 27 10:00:00 2026")
+                        .unwrap(),
+                    provider_session: None,
+                });
+                binding.session.launch_owner = owner.then(|| {
+                    ProcessIncarnation::new(43, "ps-v1:Sun Sep 27 10:00:00 2026").unwrap()
+                });
+                let original = binding.clone();
+                let mut cases = vec![
+                    (
+                        vec![
+                            "Sun Sep 27 10:00:00 2026 S\n",
+                            "42 654\n",
+                            "654 1\n",
+                            "1 0\n",
+                        ],
+                        RuntimeState::Running,
+                    ),
+                    (
+                        vec!["Sun Sep 27 10:00:00 2026 S\n", "42 1\n", "1 0\n"],
+                        RuntimeState::Unknown,
+                    ),
+                    (
+                        vec!["Sun Sep 27 10:00:00 2026 S\n", "malformed\n"],
+                        RuntimeState::Unknown,
+                    ),
+                    (vec!["Sun Sep 27 10:00:00 2026 T\n"], RuntimeState::Unknown),
+                    (vec!["Sun Sep 27 10:00:01 2026 S\n"], RuntimeState::Ended),
+                    (vec!["Sun Sep 27 10:00:00 2026 Z\n"], RuntimeState::Ended),
+                    (vec![""], RuntimeState::Unknown),
+                ];
+                if owner {
+                    cases[0].0.push("Sun Sep 27 10:00:00 2026 S\n");
+                    for unavailable in [
+                        "",
+                        "Sun Sep 27 10:00:01 2026 S\n",
+                        "Sun Sep 27 10:00:00 2026 T\n",
+                    ] {
+                        cases.push((
+                            vec![
+                                "Sun Sep 27 10:00:00 2026 S\n",
+                                "42 654\n",
+                                "654 1\n",
+                                "1 0\n",
+                                unavailable,
+                            ],
+                            RuntimeState::Unknown,
+                        ));
+                    }
+                }
+                for (outputs, expected) in cases {
+                    let runner = ScriptedRunner::new(outputs.into_iter().map(Ok));
+                    assert_eq!(
+                        crate::process::runtime::binding_runtime(
+                            &runner,
+                            binding,
+                            std::time::Instant::now() + std::time::Duration::from_secs(1)
+                        )
+                        .unwrap(),
+                        expected
+                    );
+                    assert_eq!(binding, &original);
+                    assert!(runner.results.borrow().is_empty());
+                }
+                let runner =
+                    ScriptedRunner::new([Ok("Sun Sep 27 10:00:00 2026 S\n"), Err(failure(true))]);
+                let error = crate::process::runtime::binding_runtime(
+                    &runner,
+                    binding,
+                    std::time::Instant::now() + std::time::Duration::from_secs(1),
+                )
+                .unwrap_err();
+                assert!(error.cleanup_failed());
+                assert_eq!(binding, &original);
+            }
         }
     }
 

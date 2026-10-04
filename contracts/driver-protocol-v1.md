@@ -386,11 +386,15 @@ A `Hooks` declaration:
 whose keys are 1–64 bytes of text.
 
 A verified provider end retains the exact process/session key and launch owner,
-records its session transition, and leaves runtime readiness Unknown until a
+records its session transition, and leaves stored runtime readiness Unknown until a
 fresh SessionStart admits the same live incarnation's next session. Only
 conclusive process loss or owned-child exit makes the runtime Ended; provider
 end never proves it. Stale session keys and unverified replacement processes
 cannot change that observation.
+Delivery probes can report Running after provider end (including legacy Ended)
+only for an exact live process under the verified pane and an exact live launch
+owner when recorded, without rewriting storage; shared servers outside that
+ancestry remain unverified.
 
 **Decoding a hook.** Core reads the payload: at most 64 KiB and one JSON
 object. It finds the event whose `name` equals the string at `fields.event`,

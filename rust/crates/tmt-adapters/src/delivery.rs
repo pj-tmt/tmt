@@ -222,15 +222,6 @@ pub fn status(storage: &mut Storage, identity: &str) -> Result<Availability, Sto
                 }) => Availability::Offline,
                 ActionResult::Completed(InterfaceStatus {
                     presence: InterfacePresence::Present,
-                    runtime: RuntimeState::Unknown,
-                }) if entry.binding.as_ref().is_some_and(|binding| {
-                    binding.session.key.is_some() || binding.session.state != RuntimeState::Unknown
-                }) =>
-                {
-                    Availability::Unavailable
-                }
-                ActionResult::Completed(InterfaceStatus {
-                    presence: InterfacePresence::Present,
                     ..
                 }) => Availability::Ready,
                 _ => Availability::Unavailable,

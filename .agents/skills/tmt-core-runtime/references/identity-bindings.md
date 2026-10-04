@@ -86,8 +86,10 @@ in `contracts/`.
   and in-process resume are nonterminal; end/compact must match the exact current key.
   Provider end retains that key and launch owner in Unknown until a fresh start;
   the same live incarnation can then turn over its session. Only conclusive
-  process loss/owned-child exit yields runtime Ended. Legacy Ended plus exact-live
-  evidence is unverified, never permission to paste or rewrite a delivery read.
+  process loss/owned-child exit yields runtime Ended. Delivery probes can report
+  Running after provider end (including legacy Ended) only for an exact live process
+  under the verified pane and an exact live launch owner when recorded, without
+  rewriting storage; shared servers outside that ancestry remain unverified.
 - The channel choice (nullable) is recorded after an admitted fresh launch or explicit resume
   flag; null keeps the driver default; flagless resume does not rewrite it.
 - Activity comes from TMT's own UserPromptSubmit/Stop hooks (Claude runs them synchronously;

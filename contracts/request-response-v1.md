@@ -382,8 +382,11 @@ Unknown/unverified recipient readiness refuses live input with exit 1,
 `DELIVERY_PREPARATION_FAILED` and `deliveryState:"not_delivered"`. Human and JSON
 error text say the request stays queued, name the recipient's `tmt inbox` pull,
 and suggest starting a turn/session or `tmt resume` to repair live delivery.
-Legacy stored Ended with an exact live incarnation takes this unverified path;
-it neither permits paste nor rewrites the stored observation.
+After provider end, an exact live process under the verified pane (and an exact
+live launch owner when recorded) can accept plain delivery without another
+SessionStart; this also handles legacy stored Ended without rewriting it.
+Unverified ancestry or process evidence still refuses plain input. Enrolled
+channels retain their independent acceptance and refusal rules.
 
 A newly accepted, queued direct dispatch may make one advisory wake at the
 recipient's verified binding. Its line is

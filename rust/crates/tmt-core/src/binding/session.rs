@@ -356,7 +356,7 @@ impl BindingSessionState {
     }
 
     /// Provider end records a session boundary, not process loss. Keep its exact
-    /// key and owner, but require a fresh start before the runtime is deliverable.
+    /// key and owner in Unknown until a fresh start admits the next session.
     /// Clear/resume can replace the session ID in the same live incarnation.
     pub fn transition(
         &self,

@@ -58,15 +58,29 @@ pub fn binding_runtime<R: CommandRunner>(
     binding: &tmt_core::binding::Binding,
     deadline: Instant,
 ) -> Result<tmt_core::binding::session::RuntimeState, CommandError> {
-    use tmt_core::binding::session::RuntimeState;
+    use tmt_core::binding::session::{RuntimeState, SessionTransition};
     let mut runtime = binding.session.state;
     if let Some(key) = &binding.session.key {
         let observation = observe_runtime_process(runner, key.incarnation.pid(), deadline)?;
         runtime = match observation.matches(&key.incarnation) {
-            // Older hooks conflated provider-session end with process exit.
-            // Exact live evidence exposes that conflict without enabling input
-            // or rewriting the stored observation on a delivery read.
-            RuntimeLiveness::Alive if runtime == RuntimeState::Ended => RuntimeState::Unknown,
+            RuntimeLiveness::Alive
+                if runtime == RuntimeState::Ended
+                    || (runtime == RuntimeState::Unknown
+                        && binding.session.last_transition == Some(SessionTransition::Ended)) =>
+            {
+                // A provider session may end while its pane runtime still accepts
+                // input. Shared servers outside that pane cannot prove readiness.
+                // This observation never repairs the stored session.
+                match super::ancestry::chain(runner, key.incarnation.pid(), deadline) {
+                    Ok(chain) if chain.contains(&binding.pane_pid) => RuntimeState::Running,
+                    Err(super::ancestry::AncestryError::Command(error))
+                        if error.cleanup_failed() =>
+                    {
+                        return Err(error);
+                    }
+                    _ => RuntimeState::Unknown,
+                }
+            }
             RuntimeLiveness::Alive => runtime,
             RuntimeLiveness::Gone => RuntimeState::Ended,
             RuntimeLiveness::Unknown => RuntimeState::Unknown,
