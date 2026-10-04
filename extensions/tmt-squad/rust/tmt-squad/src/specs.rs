@@ -103,7 +103,7 @@ pub const ME: &CommandSpec = spec!(
     "me",
     "Show, set or clear which saved identity is you (for ◆ waiting on you)",
     details = "Without a recorded identity, ◆ uses the saved identity bound to your pane, and
-talk, reply, annotate and replies act as the pane's identity. It follows tmt mv.",
+the board's talk, answer and annotate act as the pane's identity. It follows tmt mv.",
     [
         "See who you are" => "tmt squad me",
         "Record your saved identity" => "tmt squad me ada",
@@ -212,15 +212,6 @@ pub const JUMP: &CommandSpec = spec!(
     [
         "Show a member's pane in your tmux client" => "tmt squad jump auth-fix",
         "Show your squad's lead" => "tmt squad jump --lead",
-    ]
-);
-
-pub const ANNOTATE: &CommandSpec = spec!(
-    "annotate",
-    "Send a note about a member's row to the lead (or the member)",
-    [
-        "Send the lead a note about a member's row" => "tmt squad annotate auth-fix \"Split this job\"",
-        "Send the note to the member instead" => "tmt squad annotate auth-fix \"Rebase first\" --to member",
     ]
 );
 

@@ -148,6 +148,152 @@ pub fn list_spelling_report(root: &Command, program: &[&str]) -> Vec<String> {
     out
 }
 
+/// Hidden subcommands (and any `__` command) in a CLI's grammar. Hidden means
+/// "not in help or completion"; it is for protocol entry points that hooks,
+/// installers and hosts invoke, never for a user action or a way around the
+/// rule that agents call only commands shown in help
+/// (`design/cli-style.md#hidden-commands`). Every hidden subcommand, at any
+/// depth, needs an `allowlist` entry `(command as typed, reason)`, and every
+/// subcommand named `__*` must be hidden. Empty when the grammar and the list
+/// agree, so a hidden command cannot appear unreviewed and a removed one
+/// cannot leave its entry behind. Hidden aliases and options are not commands
+/// and are outside this check.
+pub fn hidden_report(root: &Command, program: &[&str], allowlist: &[(&str, &str)]) -> Vec<String> {
+    fn visit(
+        command: &Command,
+        path: Vec<String>,
+        inherited: bool,
+        program: &[&str],
+        found: &mut Vec<String>,
+        report: &mut Vec<String>,
+    ) {
+        for child in command.get_subcommands() {
+            let mut path = path.clone();
+            path.push(child.get_name().to_owned());
+            let hidden = inherited || child.is_hide_set();
+            let name = command_name(program, &path);
+            if child.get_name().starts_with("__") && !hidden {
+                report.push(format!("{name}: named __ but visible; hide it"));
+            }
+            if hidden {
+                found.push(name);
+            }
+            visit(child, path, hidden, program, found, report);
+        }
+    }
+    let mut found = Vec::new();
+    let mut report = Vec::new();
+    visit(root, Vec::new(), false, program, &mut found, &mut report);
+    let mut listed = BTreeSet::new();
+    for (command, reason) in allowlist {
+        if !listed.insert(*command) {
+            report.push(format!("{command:?}: listed twice"));
+        }
+        if reason.trim().is_empty() {
+            report.push(format!("{command:?}: the allowlist entry needs a reason"));
+        }
+    }
+    for command in &found {
+        if !listed.contains(command.as_str()) {
+            report.push(format!(
+                "{command}: hidden without an allowlist entry; list (\"{command}\", \"<why hosts need it>\") or make it visible"
+            ));
+        }
+    }
+    for command in listed {
+        if !found.iter().any(|found| found == command) {
+            report.push(format!("remove {command:?}: it is not a hidden command"));
+        }
+    }
+    report
+}
+
+#[cfg(test)]
+mod hidden_tests {
+    use super::*;
+
+    fn grammar() -> Command {
+        Command::new("tool")
+            .subcommand(Command::new("ls"))
+            .subcommand(Command::new("__complete").hide(true))
+            .subcommand(
+                Command::new("group")
+                    .subcommand(Command::new("__sweep").hide(true))
+                    .subcommand(Command::new("show")),
+            )
+    }
+
+    const LISTED: &[(&str, &str)] = &[
+        ("tool __complete", "shells call it for completion"),
+        ("tool group __sweep", "the scheduler calls it"),
+    ];
+
+    #[test]
+    fn a_grammar_whose_hidden_commands_are_all_listed_is_clean() {
+        assert_eq!(
+            hidden_report(&grammar(), &["tool"], LISTED),
+            Vec::<String>::new()
+        );
+    }
+
+    #[test]
+    fn an_unlisted_hidden_command_fails_at_any_depth() {
+        let report = hidden_report(&grammar(), &["tool"], &LISTED[..1]);
+        assert_eq!(report.len(), 1, "{report:?}");
+        assert!(report[0].starts_with("tool group __sweep: hidden without an allowlist entry"));
+        let retired = Command::new("tool").subcommand(Command::new("team").hide(true));
+        let report = hidden_report(&retired, &["tool"], &[]);
+        assert!(
+            report[0].starts_with("tool team: hidden without"),
+            "{report:?}"
+        );
+    }
+
+    #[test]
+    fn a_double_underscore_command_must_be_hidden() {
+        let visible = Command::new("tool").subcommand(Command::new("__annotate"));
+        let report = hidden_report(&visible, &["tool"], &[]);
+        assert_eq!(report, ["tool __annotate: named __ but visible; hide it"]);
+    }
+
+    #[test]
+    fn a_child_of_a_hidden_command_is_hidden_too() {
+        let tree = Command::new("tool").subcommand(
+            Command::new("__hook")
+                .hide(true)
+                .subcommand(Command::new("run")),
+        );
+        let report = hidden_report(&tree, &["tool"], &[("tool __hook", "hosts")]);
+        assert_eq!(report.len(), 1, "{report:?}");
+        assert!(report[0].starts_with("tool __hook run: hidden without"));
+    }
+
+    #[test]
+    fn stale_duplicate_and_reasonless_entries_fail() {
+        let mut list = LISTED.to_vec();
+        list.push(("tool __gone", "no longer exists"));
+        list.push(("tool __complete", "again"));
+        let report = hidden_report(&grammar(), &["tool"], &list);
+        assert!(report.contains(&"\"tool __complete\": listed twice".to_owned()));
+        assert!(report.contains(&"remove \"tool __gone\": it is not a hidden command".to_owned()));
+        let report = hidden_report(
+            &grammar(),
+            &["tool"],
+            &[LISTED[0], ("tool group __sweep", " ")],
+        );
+        assert_eq!(
+            report,
+            ["\"tool group __sweep\": the allowlist entry needs a reason"]
+        );
+    }
+
+    #[test]
+    fn hidden_aliases_are_not_commands() {
+        let tree = Command::new("tool").subcommand(Command::new("ls").alias("list"));
+        assert!(hidden_report(&tree, &["tool"], &[]).is_empty());
+    }
+}
+
 #[cfg(test)]
 mod listing_tests {
     use super::*;

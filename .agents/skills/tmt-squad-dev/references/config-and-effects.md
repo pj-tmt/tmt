@@ -161,8 +161,9 @@ shared fetcher path.
 - `send` uses public commands only: detached `talk --identity <sender> --room squad-<name>`
   with operands after `--`; annotations as a talk tagged `[<squad> · <row>]`; answers as one
   `tmt answer <member> --request <id>` (core selects and proves the request, no receipt
-  passes through Squad); nothing acknowledges. Squad has no talk, reply or replies commands:
-  those words refuse before parsing with the core command that replaces them.
+  passes through Squad); nothing acknowledges. Squad has no talk, reply, replies or annotate
+  command: conversation is core's, and a note on a row is the board's `a` key only (an in-process
+  `Request::Annotate`), never a command or a hidden `__` entry.
 - `hotkeys` generates `squad.tmux.conf` (bindings noted `tmt squad popup|pane|back|lead`;
   the optional lead key's `run-shell` job has `TMUX` but no `TMUX_PANE`, so it passes
   `TMUX_PANE=#{pane_id}` for core to name the caller) and owns one `source-file` line in

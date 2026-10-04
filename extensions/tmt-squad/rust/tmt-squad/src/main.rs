@@ -73,21 +73,6 @@ fn squad_option() -> Arg {
         .help("Select a squad; optional when exactly one exists")
 }
 
-/// Who sends, when it should not be the caller's own identity.
-fn identity_option() -> Arg {
-    Arg::new("identity")
-        .long("identity")
-        .value_name("NAME")
-        .help("Act as this identity [default: this pane's identity, then `tmt squad me`]")
-}
-
-fn message() -> Arg {
-    Arg::new("text")
-        .required(true)
-        .allow_hyphen_values(true)
-        .help("The message, exactly as sent")
-}
-
 /// The name is fixed, never argv[0]: `tmt-squad` and its `tmt-sq` link print
 /// byte-identical help, errors and completion.
 fn grammar() -> Command {
@@ -227,21 +212,6 @@ fn grammar() -> Command {
                         .action(ArgAction::SetTrue)
                         .help("Show the squad's lead: your own squad's, without --squad"),
                 )
-                .arg(squad_option()),
-        )
-        .subcommand(
-            build(specs::ANNOTATE)
-                .arg(operand("member", "The row the note is about"))
-                .arg(message())
-                .arg(
-                    Arg::new("to")
-                        .long("to")
-                        .value_name("WHOM")
-                        .value_parser(["lead", "member"])
-                        .default_value("lead")
-                        .help("Send to the squad's lead or to the member"),
-                )
-                .arg(identity_option())
                 .arg(squad_option()),
         )
         .subcommand(
@@ -526,15 +496,6 @@ fn human(command: &str, document: &Value, terminal: Terminal) -> String {
             }
             output
         }
-        "annotate" => done(
-            terminal,
-            &format!(
-                "Sent to {} as {} ({})",
-                text(&document["to"]),
-                text(&document["as"]),
-                text(&document["requestId"])
-            ),
-        ),
         "back" => match document["back"]["focused"]["pane"].as_str() {
             Some(pane) => done(terminal, &format!("Went back to {pane}")),
             None => "Nothing to go back to.\n".into(),
@@ -903,15 +864,6 @@ fn run(
             text("member").unwrap_or_default(),
             &many("fields"),
         ),
-        "annotate" => member_actions::annotate(
-            &core,
-            &squad,
-            &mut config,
-            text("identity"),
-            text("member").unwrap_or_default(),
-            text("to") == Some("lead"),
-            text("text").unwrap_or_default(),
-        ),
         _ => unreachable!("tmt squad {command} is dispatched above"),
     }
 }
@@ -1048,16 +1000,6 @@ fn main() -> ExitCode {
         return hook_protocol::run(&argv[1..]);
     }
     let json = argv.iter().skip(1).any(|arg| arg == "--json");
-    if let Some(failure) = argv
-        .get(1)
-        .and_then(|word| removed(&word.to_string_lossy()))
-    {
-        if json {
-            return print_document(&failure.to_json(), 2);
-        }
-        report(&failure);
-        return ExitCode::from(2);
-    }
     let matches = match request(&bare_is_board(argv)) {
         Ok(Request::Run(matches)) => matches,
         Ok(Request::Help(mut command)) => return print_help(&command.render_help(), json),
@@ -1147,24 +1089,6 @@ fn main() -> ExitCode {
             ExitCode::from(1)
         }
     }
-}
-
-/// Squad's conversation verbs moved to core (#512). For one release the old
-/// names refuse with the replacement; they never forward, and the grammar,
-/// help and completion no longer know them.
-fn removed(command: &str) -> Option<SquadError> {
-    let replacement = match command {
-        "talk" => "tmt talk <member> \"…\" --detach",
-        "reply" => "tmt answer <member> \"…\"",
-        "replies" => "tmt x (and tmt result <request-id>)",
-        _ => return None,
-    };
-    Some(SquadError::hinted(
-        "SQUAD_COMMAND_REMOVED",
-        &format!("tmt squad {command} was removed"),
-        "; use ",
-        replacement,
-    ))
 }
 
 /// Both help routes use the shared rendered-clap formatter before core discovery.
@@ -1278,27 +1202,6 @@ mod tests {
     }
 
     #[test]
-    fn removed_conversation_verbs_refuse_with_their_core_replacement() {
-        for (command, replacement) in [
-            ("talk", "tmt talk <member> \"…\" --detach"),
-            ("reply", "tmt answer <member> \"…\""),
-            ("replies", "tmt x (and tmt result <request-id>)"),
-        ] {
-            let failure = removed(command).expect(command);
-            assert_eq!(failure.code, "SQUAD_COMMAND_REMOVED");
-            assert_eq!(
-                failure.human(),
-                (
-                    format!("tmt squad {command} was removed").as_str(),
-                    Some(replacement)
-                )
-            );
-            assert!(request(&[OsString::from("tmt-squad"), command.into()]).is_err());
-        }
-        assert!(removed("annotate").is_none());
-    }
-
-    #[test]
     fn the_hotkeys_report_is_a_section_with_the_next_step_only_when_stale() {
         let report = |current: bool| {
             serde_json::json!({"installed": true, "current": current,
@@ -1331,9 +1234,9 @@ mod tests {
         assert_eq!(
             complete(&words("-- ")),
             [
-                "add", "annotate", "back", "board", "config", "copy", "cron", "help", "hotkeys",
-                "init", "jump", "layout", "lead", "ls", "me", "open", "playbook", "rm", "set",
-                "skill", "theme", "view"
+                "add", "back", "board", "config", "copy", "cron", "help", "hotkeys", "init",
+                "jump", "layout", "lead", "ls", "me", "open", "playbook", "rm", "set", "skill",
+                "theme", "view"
             ]
         );
         assert_eq!(complete(&words("-- view ")), ["ls", "rm", "set"]);
@@ -1473,21 +1376,6 @@ mod tests {
                     assert_ne!(text, original);
                 }
             }
-        }
-    }
-
-    #[test]
-    fn a_message_that_reads_help_is_data_not_a_help_request() {
-        for line in [
-            "annotate auth-fix -- -h",
-            "annotate auth-fix help",
-            "annotate auth-fix -- --help",
-        ] {
-            let Ok(Request::Run(matches)) = request(&argv(line)) else {
-                panic!("{line:?} was taken for help");
-            };
-            let (_, sub) = matches.subcommand().unwrap();
-            assert!(sub.get_one::<String>("text").is_some(), "{line}");
         }
     }
 
