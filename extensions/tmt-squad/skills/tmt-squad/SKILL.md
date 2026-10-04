@@ -170,6 +170,27 @@ interrupt groups. Grouping changes display only: each squad keeps its own mark
 slot, count, selection, click and drag target. The prefix is not clickable.
 The `s` switcher retains full names, including hidden tabs.
 
+`tmt sq board --tabs product,infra,needs-me` picks the tabs this board shows,
+using names from the tab line. Squad names take precedence over user-tab labels;
+use `@tab:NAME` for an unambiguous user tab. `leads` selects leads; omit `--tabs`
+or use `--tabs all` for the default set. Unknown names produce a usage error
+listing valid names. `--squad NAME` must be among the picks when both flags are
+given. This resolver is board-only; `ls --tab` keeps its own names.
+
+In the switcher, Space includes or excludes the highlighted tab. `[x]` marks
+included tabs and `[ ]` excluded tabs. Enter opens a tab and includes it on this
+board; opening a squad from home does the same. Excluding the current tab opens
+the next included tab, or home if none remain. The named action `pick-tab` is
+rebindable, for example `[bind] p = "pick-tab"`; that binding replaces Space
+and opens the switcher from the board. A different action bound to Space takes
+precedence.
+
+Unpicked squads share one `N not on this board` segment, dim when quiet and
+lit with ◆ waiting and ✗ blocked counts when they need attention. Click it to
+open a switcher limited to those squads. Picks belong to this board process,
+survive refresh and resizing, and never write `squad.toml`. `tabs.hide` remains
+global: hidden tabs stay out of the tab line even when opened or picked.
+
 The line keeps the current tab visible. Left overflow shows `‹ N`; right
 overflow names hidden tabs as `+N › remote◆2 docs …`, waiting first, then
 blocked, then quiet, retaining arrangement order within each tier. Names remain
