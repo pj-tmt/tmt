@@ -1,3 +1,5 @@
+#[path = "architecture/board_widgets.rs"]
+mod board_widgets;
 #[path = "architecture/cases.rs"]
 mod cases;
 #[path = "architecture/colors.rs"]
@@ -281,6 +283,7 @@ fn workspace_obeys_native_architecture() {
         "the color guard reads the Squad board"
     );
     violations.extend(colors::violations(&drawn));
+    violations.extend(board_widgets::violations(&drawn, board_widgets::EXCEPTIONS));
     assert!(
         violations.is_empty(),
         "Native architecture violations:\n{}",

@@ -5,6 +5,33 @@ description: Build and verify the Squad extension (`tmt-squad`, `tmt-sq`, the bo
 
 # Squad development
 
+## Board surface ownership
+
+`board/view.rs` owns frame orchestration and one frame-level hit/scroll-map reset.
+Its surface modules under `board/view/` retain the existing painters:
+
+| Module     | Responsibility                                                    |
+| ---------- | ----------------------------------------------------------------- |
+| `header`   | Summary, token meter, spinner and clock-derived invalidation text |
+| `tabs`     | Tab labels, windows and painted tab hits                          |
+| `panes`    | Split/tab composition dispatch, borders and folded titles         |
+| `rows`     | Projected grid spans, selection, ages and continuation hits       |
+| `notes`    | Shared notebook lines, lead notes selection, links and hits       |
+| `detail`   | Selected member fields and notebook                               |
+| `replies`  | Safe final bodies, their derived cache and scrolling              |
+| `footer`   | Effective hints, notices, link previews and input strip           |
+| `overlays` | Overlay dispatch and action-menu/switcher painting                |
+
+`App`, terminal/worker lifecycle, acquisition, `Scrolls`, home and shared TUI
+components keep their separate owners. Home dispatch precedes ordinary panes;
+its painter alone produces home row starts and continuation hits. Existing
+`view` helper entry points remain available to those callers. Integrated renderer
+tests live in `view/tests.rs`, with help, meter and frozen parity submodules.
+
+Raw ratatui widget enforcement and its verification belong to the
+[tmt-tui skill](../tmt-tui/SKILL.md). A surface split preserves captured cells,
+styles, hits and list bytes; it grants no parity-regeneration permission.
+
 ## References
 
 - [references/development.md](references/development.md): build, test and verification commands moved from DEVELOPMENT.md.
