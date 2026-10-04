@@ -1637,6 +1637,18 @@ Cron supplies a pure one-line summary and an explicit stable clock-key target,
 not a squad target. Both reuse `App.selected` and `Scrolls`; their acquisition
 and list/lifecycle owners stay outside paint, with shared hunks coordinated.
 
+HOME usage templates are separate typed `View.home_rate` data. While HOME is
+open and at least one squad enables token sampling, the existing meter worker
+reads one global public `tmt ls --json` per sampling cycle, indexes identities
+once, and joins each enabled squad's roster into its retained meter. Other tabs
+never schedule that HOME read; switching cancels the existing worker generation
+and closes observation continuity. No additional worker, core API or provider-file access is added.
+`App::home_usage` exposes the current lead model, configured windows, raw lead
+and squad readings, and lead share of the configured longest window (normally
+60m). Missing observations remain absent, measured zero remains zero, partial
+coverage propagates to share, and a zero denominator has no share. Tile and
+header consumers format this projection without sampling or recomputing totals.
+
 Moving a tab (Shift+←/→, or a drag on the tab
 line) saves `[tabs] order` through `Config::write`, the same compare-and-set,
 format-preserving replacement that records `me`. A tab line that doesn't

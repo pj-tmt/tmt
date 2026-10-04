@@ -76,12 +76,43 @@ pub fn load(
     squads: &[Squad],
     order: &[String],
     me: Option<&Me>,
-) -> Result<(Document, Home), SquadError> {
+) -> Result<
+    (
+        Document,
+        Home,
+        std::collections::BTreeMap<String, super::app::RateView>,
+    ),
+    SquadError,
+> {
     let settings = config.tabs()?;
     let squads = squads.iter().collect::<Vec<_>>();
     let acquired = tab_view::home_sources(core, config, &squads, me);
     let public = tab_view::document(config, &settings, order, ALL, &acquired)?;
-    Ok((public, model(order, &acquired, crate::status::now_ms())))
+    let inputs = squads
+        .iter()
+        .filter(|squad| acquired.documents.contains_key(&squad.name))
+        .map(|squad| {
+            Ok((
+                squad.name.clone(),
+                super::app::RateView {
+                    settings: config.token_rate(&squad.name)?,
+                    input: super::rate::Input {
+                        room: squad.room_id.clone(),
+                        names: Default::default(),
+                        resumes: acquired
+                            .member_ids(&squad.name)
+                            .map(|id| (id.to_owned(), Value::Null))
+                            .collect(),
+                    },
+                },
+            ))
+        })
+        .collect::<Result<_, SquadError>>()?;
+    Ok((
+        public,
+        model(order, &acquired, crate::status::now_ms()),
+        inputs,
+    ))
 }
 
 fn section(key: &str, filter: Option<&str>) -> Section {

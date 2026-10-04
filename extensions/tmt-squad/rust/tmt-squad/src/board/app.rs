@@ -26,8 +26,40 @@ pub struct RateView {
     pub input: super::rate::Input,
 }
 
+/// Raw observations for tiles and headers; formatting belongs to the caller.
+#[derive(Debug)]
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "Consumed by #1293 tiles and #1295 HOME header painting."
+    )
+)]
+pub(super) struct HomeUsage<'a> {
+    pub lead_model: Option<&'a str>,
+    pub windows: [crate::config::TokenWindow; 3],
+    pub lead: [Option<super::rate::Reading>; 3],
+    pub squad: [Option<super::rate::Reading>; 3],
+    pub share: Option<UsageShare>,
+}
+
+#[derive(Debug, PartialEq)]
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "Consumed by #1293 tiles and #1295 HOME header painting."
+    )
+)]
+pub(super) struct UsageShare {
+    pub fraction: f64,
+    pub partial: bool,
+}
+
 pub struct View {
     pub token_rate: Option<RateView>,
+    /// HOME sampling templates, separate from the painter/controller model.
+    pub home_rate: BTreeMap<String, RateView>,
     /// The `status --json` document, so the board and `status` never differ.
     pub document: Value,
     /// Retained home composition; only the aggregate board view owns it.
@@ -520,6 +552,84 @@ impl App {
         }
     }
 
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "Consumed by #1293 tiles and #1295 HOME header painting."
+        )
+    )]
+    pub(super) fn home_usage(&self, squad: &str, now: Instant) -> Option<HomeUsage<'_>> {
+        let view = self.view.as_ref()?;
+        let home = view.home.as_ref()?;
+        let rate = view.home_rate.get(squad)?;
+        let meter = self
+            .meters
+            .get(squad)
+            .or_else(|| {
+                self.meter
+                    .as_ref()
+                    .filter(|_| self.current.as_deref() == Some(squad))
+            })
+            .filter(|meter| {
+                rate.settings.enabled
+                    && meter.room == rate.input.room
+                    && meter.settings == rate.settings
+            });
+        let id = home
+            .squads
+            .iter()
+            .find(|line| line.squad == squad)?
+            .lead
+            .as_ref()
+            .and_then(|lead| lead["id"].as_str());
+        let lead = std::array::from_fn(|i| {
+            meter.and_then(|meter| id.and_then(|id| meter.member(id, i, now)))
+        });
+        let squad = std::array::from_fn(|i| meter.and_then(|meter| meter.total(i, now)));
+        let share = lead[2]
+            .zip(squad[2])
+            .filter(|(_, total)| total.tokens > 0)
+            .map(|(lead, total)| UsageShare {
+                fraction: lead.tokens as f64 / total.tokens as f64,
+                partial: lead.partial || total.partial,
+            });
+        Some(HomeUsage {
+            lead_model: meter.and_then(|meter| id.and_then(|id| meter.model(id))),
+            windows: rate.settings.windows,
+            lead,
+            squad,
+            share,
+        })
+    }
+
+    /// The existing worker's one HOME receipt updates the same retained meters.
+    pub(super) fn sample_home(
+        &mut self,
+        resumes: Result<&BTreeMap<String, Value>, ()>,
+        now: Instant,
+    ) -> bool {
+        if self.loading() || self.current.as_deref() != Some(super::ALL) {
+            return false;
+        }
+        let Some(view) = self.view.as_ref().filter(|view| view.home.is_some()) else {
+            return false;
+        };
+        let mut sampled = false;
+        for (name, rate) in &view.home_rate {
+            if let Some(meter) = self
+                .meters
+                .get_mut(name)
+                .filter(|meter| rate.settings.enabled && meter.due(now))
+            {
+                let input = resumes.map(|rows| rate.input.joined(rows));
+                meter.sample(input.as_ref().map_err(|_| ()), now);
+                sampled = true;
+            }
+        }
+        sampled
+    }
+
     fn clamp(&mut self) {
         if self.view.as_ref().is_some_and(|view| view.home.is_some()) {
             let entries = self.home_entries();
@@ -610,6 +720,33 @@ impl App {
         match snapshot.view {
             Ok(view) => {
                 let now = Instant::now();
+                if view.home.is_some() {
+                    for (name, meter) in &mut self.meters {
+                        if view
+                            .home_rate
+                            .get(name)
+                            .is_none_or(|rate| !rate.settings.enabled)
+                        {
+                            meter.suspend(now);
+                        }
+                    }
+                    for (name, rate) in view
+                        .home_rate
+                        .iter()
+                        .filter(|(_, rate)| rate.settings.enabled)
+                    {
+                        if self.meters.get(name).is_none_or(|meter| {
+                            meter.room != rate.input.room || meter.settings != rate.settings
+                        }) {
+                            self.meters.insert(
+                                name.clone(),
+                                super::meter::Meter::new(rate.settings, &rate.input, now),
+                            );
+                        } else if let Some(meter) = self.meters.get_mut(name) {
+                            meter.retain(&rate.input);
+                        }
+                    }
+                }
                 match &view.token_rate {
                     Some(rate) if rate.settings.enabled => {
                         if !self.window_changed {
@@ -673,6 +810,11 @@ impl App {
                 self.error = None;
             }
             Err(error) => {
+                if self.current.as_deref() == Some(super::ALL) {
+                    for meter in self.meters.values_mut() {
+                        meter.suspend(Instant::now());
+                    }
+                }
                 // The switch failed: the error is the state, not the previous frame
                 // that keeps saying it is loading. The old view stays cached.
                 if self.loading()
@@ -753,6 +895,11 @@ impl App {
     pub(super) fn go(&mut self, next: String) -> Effect {
         if Some(&next) == self.current.as_ref() {
             return Effect::None;
+        }
+        if self.current.as_deref() == Some(super::ALL) {
+            for meter in self.meters.values_mut() {
+                meter.suspend(Instant::now());
+            }
         }
         // A cached view is not a fresh counter receipt for another squad.
         if let (Some(key), Some(mut meter)) = (self.current.as_ref(), self.meter.take()) {
@@ -2327,6 +2474,7 @@ pub(crate) mod tests {
     fn view(sections: Value) -> View {
         View {
             token_rate: None,
+            home_rate: Default::default(),
             home: None,
             derived: Default::default(),
             document: json!({"squad": {"name": "product"}, "sections": sections}),
@@ -3515,6 +3663,161 @@ mod token_window_tests {
         ));
         app
     }
+    fn home(now: Instant) -> App {
+        let mut app = App::new(Some(super::super::ALL.into()));
+        let mut snapshot = super::tests::snapshot(super::super::ALL, serde_json::json!([]));
+        let view = snapshot.view.as_mut().unwrap();
+        view.home = Some(super::super::home::Home {
+            summary: Default::default(),
+            sections: Vec::new(),
+            failures: Vec::new(),
+            incomplete: false,
+            squads: vec![super::super::home::SquadLine {
+                squad: "product".into(),
+                lead: Some(serde_json::json!({"id":"a"})),
+                counts: Default::default(),
+                pressing: None,
+            }],
+        });
+        let mut input = super::super::rate::tests::input(100);
+        input.resumes.insert("missing".into(), Value::Null);
+        let settings = TokenRate {
+            enabled: true,
+            ..Default::default()
+        };
+        view.home_rate.insert(
+            "product".into(),
+            RateView {
+                settings,
+                input: input.clone(),
+            },
+        );
+        app.apply(snapshot);
+        app.meters.insert(
+            "product".into(),
+            super::super::meter::Meter::new(settings, &input, now),
+        );
+        app
+    }
+
+    #[test]
+    fn home_projection_preserves_unknown_zero_partial_share_and_public_document() {
+        let now = Instant::now();
+        let mut app = home(now);
+        let public = app.view.as_ref().unwrap().document.clone();
+        assert!(app.home_usage("unknown", now).is_none());
+        let initial = app.home_usage("product", now).unwrap();
+        assert_eq!(initial.windows, TokenWindow::DEFAULTS);
+        assert_eq!(initial.lead, [None; 3]);
+        assert_eq!(initial.squad, [None; 3]);
+        assert_eq!(initial.share, None);
+        let mut receipt = super::super::rate::tests::input(100).resumes;
+        receipt.get_mut("a").unwrap()["model"] = serde_json::json!("current-model");
+        let zero_time = now + Duration::from_secs(10);
+        assert!(app.sample_home(Ok(&receipt), zero_time));
+        let zero = app.home_usage("product", zero_time).unwrap();
+        assert_eq!(zero.lead_model, Some("current-model"));
+        assert_eq!(zero.lead[2].unwrap().tokens, 0);
+        assert_eq!(zero.share, None, "zero denominator has no share");
+        let receipt = super::super::rate::tests::input(200).resumes;
+        let time = now + Duration::from_secs(20);
+        assert!(app.sample_home(Ok(&receipt), time));
+        let usage = app.home_usage("product", time).unwrap();
+        assert_eq!(usage.lead[2].unwrap().tokens, 150);
+        assert_eq!(usage.squad[2].unwrap().tokens, 150);
+        assert_eq!(
+            usage.share,
+            Some(UsageShare {
+                fraction: 1.0,
+                partial: true
+            })
+        );
+        assert_eq!(app.view.as_ref().unwrap().document, public);
+        let mut failed = super::tests::snapshot(super::super::ALL, serde_json::json!([]));
+        failed.view = Err("HOME acquisition failed".into());
+        app.apply(failed);
+        let recovered = super::super::rate::tests::input(400).resumes;
+        let recovered_time = time + Duration::from_secs(10);
+        assert!(app.sample_home(Ok(&recovered), recovered_time));
+        assert_eq!(
+            app.home_usage("product", recovered_time).unwrap().squad[2]
+                .unwrap()
+                .tokens,
+            150,
+            "a failed HOME reload closes continuity before recovery"
+        );
+        app.view.as_mut().unwrap().home.as_mut().unwrap().squads[0].lead = None;
+        assert_eq!(app.home_usage("product", time).unwrap().lead, [None; 3]);
+        app.view
+            .as_mut()
+            .unwrap()
+            .home_rate
+            .get_mut("product")
+            .unwrap()
+            .settings
+            .enabled = false;
+        assert!(!app.sample_home(Ok(&receipt), time + Duration::from_secs(10)));
+        assert_eq!(app.home_usage("product", time).unwrap().squad, [None; 3]);
+    }
+
+    #[test]
+    fn home_refresh_prunes_rosters_and_replaces_changed_window_policy() {
+        let now = Instant::now();
+        let mut app = home(now);
+        let receipt = super::super::rate::tests::input(200).resumes;
+        let time = now + Duration::from_secs(10);
+        app.sample_home(Ok(&receipt), time);
+        let mut view = app.view.take().unwrap();
+        view.home_rate
+            .get_mut("product")
+            .unwrap()
+            .input
+            .resumes
+            .remove("a");
+        let mut snapshot = super::tests::snapshot(super::super::ALL, serde_json::json!([]));
+        snapshot.view = Ok(view);
+        app.apply(snapshot);
+        assert_eq!(app.home_usage("product", time).unwrap().lead, [None; 3]);
+        let mut view = app.view.take().unwrap();
+        let rate = view.home_rate.get_mut("product").unwrap();
+        rate.input = super::super::rate::tests::input(100);
+        rate.settings.windows = [
+            TokenWindow::MINUTE,
+            TokenWindow::FIVE_MINUTES,
+            TokenWindow::parse("2h").unwrap(),
+        ];
+        let mut snapshot = super::tests::snapshot(super::super::ALL, serde_json::json!([]));
+        snapshot.view = Ok(view);
+        app.apply(snapshot);
+        let usage = app.home_usage("product", Instant::now()).unwrap();
+        assert_eq!(usage.windows[2], TokenWindow::parse("2h").unwrap());
+        assert_eq!(
+            usage.squad, [None; 3],
+            "a changed policy starts a fresh meter"
+        );
+    }
+
+    #[test]
+    fn home_receipts_ignore_loading_other_tabs_and_unrelated_identities() {
+        let now = Instant::now();
+        let mut app = home(now);
+        let mut receipt = super::super::rate::tests::input(200).resumes;
+        receipt.insert("outsider".into(), receipt["a"].clone());
+        let time = now + Duration::from_secs(10);
+        assert!(app.sample_home(Ok(&receipt), time));
+        assert_eq!(
+            app.home_usage("product", time).unwrap().squad[2]
+                .unwrap()
+                .tokens,
+            150
+        );
+        app.go("other".into());
+        assert!(!app.sample_home(Ok(&receipt), time + Duration::from_secs(10)));
+        app.apply(super::tests::snapshot("other", serde_json::json!([])));
+        assert!(!app.sample_home(Ok(&receipt), time + Duration::from_secs(20)));
+        assert!(app.home_usage("product", time).is_none());
+    }
+
     #[test]
     fn window_binding_overrides_and_text_inputs_keep_their_owner() {
         let mut app = app();
