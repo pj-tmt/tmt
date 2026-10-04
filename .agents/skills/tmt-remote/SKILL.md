@@ -70,7 +70,6 @@ Verify from `rust/` using disposable HOME/XDG and task-owned children:
 
 ```bash
 CARGO_BUILD_JOBS=2 cargo test --offline --locked -p tmt-remote --test cli
-CARGO_BUILD_JOBS=2 cargo test --offline --locked -p tmt-remote --test cli
 CARGO_BUILD_JOBS=2 cargo test --offline --locked -p tmt-remote --test state
 CARGO_BUILD_JOBS=2 cargo test --offline --locked -p tmt-extension-state
 ```
