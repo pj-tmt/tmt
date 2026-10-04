@@ -25,7 +25,7 @@ fn yes() -> Arg {
         .long("yes")
         .action(ArgAction::SetTrue)
         .global(true)
-        .help("Confirm widening after reviewing disclosure")
+        .help("Confirm widening or deletion after reviewing disclosure")
 }
 fn mutation(command: Command) -> Command {
     command
@@ -59,6 +59,23 @@ fn seed(command: Command) -> Command {
         )
 }
 pub fn extend(root: Command) -> Command {
+    let member = || Arg::new("member").required(true).index(2);
+    let role = || {
+        Arg::new("role")
+            .required(true)
+            .index(3)
+            .value_parser(["viewer", "commenter", "editor"])
+    };
+    let members = cmd!("member", "Manage page members", "tmt colab share member remove 10000000-0000-4000-8000-000000000001 20000000-0000-4000-8000-000000000001", "Changes apply to the member's complete verified page assignments. Member access grants no agent access.")
+        .subcommand_required(true)
+        .subcommand(cmd!("add", "Add a member using public keys", "tmt colab share member add 10000000-0000-4000-8000-000000000001 20000000-0000-4000-8000-000000000001 viewer --sign-key PUBLIC_SIGNING_KEY --enc-key PUBLIC_ENCRYPTION_KEY --yes", "Advanced or scripted use: requires raw Ed25519 and X25519 public keys in canonical base64url. Member invitation flows come with the Firestore stage. Adds access to this page only and requires --yes. Shared history includes deleted text, snapshots, comments and agent replies, up to the 64 most recent epochs; current history shares the current epoch window. Editors can change page scripts for every viewer. Copied plaintext cannot be recalled.")
+            .arg(page()).arg(member()).arg(role())
+            .arg(Arg::new("sign-key").long("sign-key").required(true).help("Canonical base64url Ed25519 public key"))
+            .arg(Arg::new("enc-key").long("enc-key").required(true).help("Canonical base64url X25519 public key")))
+        .subcommand(cmd!("remove", "Revoke a member and rotate affected pages", "tmt colab share member remove 10000000-0000-4000-8000-000000000001 20000000-0000-4000-8000-000000000001", "Copied keys and plaintext cannot be recalled. The owner management member cannot be removed.")
+            .arg(page()).arg(member()))
+        .subcommand(cmd!("role", "Change a member's role", "tmt colab share member role 10000000-0000-4000-8000-000000000001 20000000-0000-4000-8000-000000000001 editor --yes", "Role widening requires --yes. Editors can change page scripts for every viewer. Role changes apply to every assigned page; copied keys and plaintext cannot be recalled.")
+            .arg(page()).arg(member()).arg(role()));
     let links = cmd!("link", "Manage caller-held sharing links", "tmt colab share link add 10000000-0000-4000-8000-000000000001 --seed-file seed --yes", DISCLOSURE)
         .subcommand_required(true)
         .subcommand(cmd!("ls", "List page links", "tmt colab share link ls 10000000-0000-4000-8000-000000000001", "Never returns bearer seeds or private keys.").alias("list").arg(page()))
@@ -89,9 +106,29 @@ pub fn extend(root: Command) -> Command {
                 .value_parser(["private", "link", "public"]),
         ),
     )
-    .subcommand(links);
+    .subcommand(links)
+    .subcommand(members)
+    .subcommand(
+        cmd!(
+            "history",
+            "Select the page history window",
+            "tmt colab share history 10000000-0000-4000-8000-000000000001 shared --yes",
+            DISCLOSURE
+        )
+        .arg(page())
+        .arg(
+            Arg::new("mode")
+                .required(true)
+                .index(2)
+                .value_parser(["shared", "current"]),
+        ),
+    );
     root.subcommand(cmd!("ls", "List local pages", "tmt colab ls --json", "Archived pages need --archived. Local expiry is advisory and never deletes data. Expiry times are not available yet.")
         .alias("list").arg(Arg::new("archived").long("archived").action(ArgAction::SetTrue)))
         .subcommand(cmd!("show", "Inspect one local page", "tmt colab show 10000000-0000-4000-8000-000000000001 --json", "Archived titles and discussions are unavailable. Expiry times are not available yet; local data is never automatically deleted.").arg(page()))
         .subcommand(share)
+        .subcommand(mutation(cmd!("retention", "Read or set local retention", "tmt colab retention 10000000-0000-4000-8000-000000000001 forever", "Omit the value to read verified policy. Days must be a positive safe integer; forever has no expiry. Local expiry is advisory and never deletes data. Expiry times are not available yet.")
+            .arg(page()).arg(Arg::new("days").index(2))))
+        .subcommand(mutation(cmd!("archive", "Freeze page writes while keeping it readable", "tmt colab archive 10000000-0000-4000-8000-000000000001", "Archived pages remain readable. Writes and sharing changes are frozen; retention and explicit deletion remain available.").arg(page())))
+        .subcommand(mutation(cmd!("delete", "Delete local page data permanently", "tmt colab delete 10000000-0000-4000-8000-000000000001 --yes", "Requires --yes. Deletes local content, receipts, checkpoints, baselines and epoch keys; keeps signed policy and operation tombstones. Previously copied content cannot be recalled. An exact retry retains operation ID and expected revision.").arg(page())))
 }

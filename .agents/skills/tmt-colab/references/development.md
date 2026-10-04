@@ -44,6 +44,14 @@ Each is `(cd rust && cargo test --offline --locked -p tmt-colab <selector>)`:
 
 - Management subcommands precede operands: `tmt colab share link list <page>`,
   `tmt colab share mode <page> link --yes`.
+- Full management includes `share member add/remove/role`, `share history`,
+  `retention <page> [<days>|forever]`, `archive <page>` and `delete <page> --yes`.
+  Member add is advanced/scripted raw-public-key use; invitation flows come with
+  the Firestore stage. Widening and deletion require `--yes`. Explicit retries keep
+  the operation ID, revision and selections, including after deletion.
+- `--bin tmt-colab --test cli -- --test-threads=1` covers serving/stopped mutations,
+  complete member assignments, confirmations/input refusal before IPC, original-head
+  replay across restart, stale/conflicting requests and denied/uncertain socket replies.
 - Tests that start the decoder use the shared `tests/support` test-only decoder
   configuration (60 s invocation, 30 s FIFO readiness); production keeps the
   two-second deadline and all caps. The decoder-timeout cases keep two seconds and
