@@ -23,7 +23,8 @@ owns record fields, limits, revision semantics and trust boundaries.
   parent controls, one all-annotations list, expanded conversation and explicit
   reattach confirmation. `annotation-input.tsx` owns one plain @ input with Enter
   Send, Shift+Enter newline, Escape cancellation and exact-byte disclosure. It
-  extends the same `components/listbox.tsx` used by Manage and the agent list;
+  opens at the selection in a cosmetic parent popover; saved threads open in Comments.
+  It extends the same `components/listbox.tsx` used by Manage and the agent list;
   UI capture/default labels grant no routing authority.
 - `public/renderer.html` installs bounded selection capture and cosmetic quote
   resolution, highlights and count-bearing margin markers before author HTML; `renderer.ts` binds narrow requests/results to

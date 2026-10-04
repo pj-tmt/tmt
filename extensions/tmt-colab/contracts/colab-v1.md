@@ -1389,7 +1389,7 @@ Bound window selection messages to the current frame and renderId. Selection add
 plus an optional `rect:{x,y,width,height}` in frame viewport coordinates. Its four
 numbers must be finite, at most 1,000,000 in absolute value, with nonnegative
 width/height. The parent clamps this cosmetic rectangle to the frame and visible
-window when positioning its Ask bubble; it never treats geometry as authority.
+window when positioning its Annotate control and input popover; it never treats geometry as authority.
 Legacy text-only messages supply no anchor. Alt+Enter can request the same view
 using exactly `type:"colab.render.annotate",renderId`; it cannot send. A trusted
 parent action captures the quote. Page-wide comments have null anchors.
@@ -1424,8 +1424,9 @@ absent own history is never recreated automatically.
 
 ### Inline annotation conversations (#1587)
 
-The selection bubble opens one plain trusted-parent input, anchored by the captured
-quote selector. Enter sends, Shift+Enter inserts a newline, and Esc cancels. There
+The Annotate control beside a selection opens one plain trusted-parent input in a
+small anchored popover at that span. Its placement is cosmetic; the captured quote
+selector owns the thread anchor. Enter sends, Shift+Enter inserts a newline, and Esc cancels. There
 is no confirmation screen or automatic send. `@` opens the shared styled keyboard
 listbox. The optional publishing name supplies a default only when it matches one
 unique reachable `agents.list` entry; unknown or ambiguous names supply no default.

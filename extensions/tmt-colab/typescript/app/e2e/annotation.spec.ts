@@ -85,3 +85,26 @@ test('a saved turn whose preparation fails keeps its inline error and cannot sil
   expect((await run(page, 'proof')).commits).toBe(1);
   expect((await run(page, 'proof')).sends).toHaveLength(0);
 });
+
+test('input arrows reopen the shared list, skip disabled recipients and retain explicit Enter sends', async ({
+  page,
+}) => {
+  const input = await mount(page, 'multi');
+  await input.fill('@');
+  await input.press('Escape');
+  await expect(input).toHaveAttribute('aria-expanded', 'false');
+  await input.press('ArrowDown');
+  await expect(input).toHaveAttribute('aria-expanded', 'true');
+  await input.press('ArrowDown');
+  await expect(input).toHaveAttribute('aria-activedescendant', /option-2$/);
+  await input.press('ArrowUp');
+  await expect(input).toHaveAttribute('aria-activedescendant', /option-0$/);
+  await input.press('End');
+  await input.press('Enter');
+  await expect(input).toHaveValue('@Other agent ');
+  expect((await run(page, 'proof')).sends).toHaveLength(0);
+  await input.fill('@Deterministic agent Explain this.');
+  await input.press('Enter');
+  await expect(page.getByTestId('ask-state')).toHaveAttribute('data-state', 'held');
+  expect((await run(page, 'proof')).sends).toHaveLength(1);
+});

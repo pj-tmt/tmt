@@ -1,3 +1,4 @@
+import { createPortal } from 'react-dom';
 import {
   useEffect,
   useId,
@@ -50,6 +51,12 @@ export function Listbox<Value extends string>({
   const root = useRef<HTMLDivElement>(null);
   const trigger = useRef<HTMLElement>(null);
   const list = useRef<HTMLDivElement>(null);
+  const [placement, setPlacement] = useState<{
+    left: number;
+    top: number;
+    width: number;
+    maxHeight: number;
+  }>();
   const [buttonOpen, setButtonOpen] = useState(false);
   const open = inputTrigger?.open ?? buttonOpen;
   const setOpen = inputTrigger?.onOpenChange ?? setButtonOpen;
@@ -69,7 +76,12 @@ export function Listbox<Value extends string>({
   useEffect(() => {
     if (!open) return;
     const closeOutside = (event: PointerEvent) => {
-      if (event.target instanceof Node && !root.current?.contains(event.target)) setOpen(false);
+      if (
+        event.target instanceof Node &&
+        !root.current?.contains(event.target) &&
+        !list.current?.contains(event.target)
+      )
+        setOpen(false);
     };
     document.addEventListener('pointerdown', closeOutside);
     return () => document.removeEventListener('pointerdown', closeOutside);
@@ -79,6 +91,54 @@ export function Listbox<Value extends string>({
     if (!open || focusIndex < 0) return;
     list.current?.children[focusIndex]?.scrollIntoView({ block: 'nearest' });
   }, [open, focusIndex]);
+
+  useEffect(() => {
+    if (!open || !inputTrigger) return;
+    const place = () => {
+      const box = trigger.current?.getBoundingClientRect();
+      if (!box) return;
+      let lower = innerHeight - 8,
+        upper = 8;
+      for (let parent = root.current?.parentElement; parent; parent = parent.parentElement) {
+        if (/(auto|scroll)/.test(getComputedStyle(parent).overflowY)) {
+          const bounds = parent.getBoundingClientRect();
+          upper = Math.max(upper, bounds.top);
+          lower = Math.min(lower, bounds.bottom);
+          break;
+        }
+      }
+      const above = Math.max(0, box.top - upper - 4),
+        below = Math.max(0, lower - box.bottom - 4);
+      const height = Math.min(248, list.current?.scrollHeight ?? 248);
+      const upward = below < height && above > below;
+      const maxHeight = Math.max(1, Math.min(248, upward ? above : below));
+      const next = {
+        left: Math.max(8, Math.min(box.left, innerWidth - box.width - 8)),
+        top: upward ? box.top - Math.min(height, maxHeight) - 2 : box.bottom + 2,
+        width: Math.min(box.width, innerWidth - 16),
+        maxHeight,
+      };
+      setPlacement((previous) =>
+        previous &&
+        Object.keys(next).every(
+          (key) => previous[key as keyof typeof next] === next[key as keyof typeof next],
+        )
+          ? previous
+          : next,
+      );
+    };
+    place();
+    const observer = new ResizeObserver(place);
+    if (trigger.current) observer.observe(trigger.current);
+    if (list.current) observer.observe(list.current);
+    window.addEventListener('resize', place);
+    window.addEventListener('scroll', place, true);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener('resize', place);
+      window.removeEventListener('scroll', place, true);
+    };
+  }, [open, !!inputTrigger, options.length]);
 
   function openList(index = selectedIndex >= 0 ? selectedIndex : firstIndex) {
     if (disabled || index < 0) return;
@@ -105,7 +165,10 @@ export function Listbox<Value extends string>({
   function onKeyDown(event: KeyboardEvent<HTMLElement>) {
     if (
       inputTrigger &&
-      (!open || event.key === ' ' || event.shiftKey || event.nativeEvent.isComposing)
+      ((!open && (!['ArrowDown', 'ArrowUp'].includes(event.key) || firstIndex < 0)) ||
+        event.key === ' ' ||
+        event.shiftKey ||
+        event.nativeEvent.isComposing)
     )
       return;
     if (
@@ -144,6 +207,43 @@ export function Listbox<Value extends string>({
         break;
     }
   }
+
+  const optionList = (
+    <div
+      ref={list}
+      className={`tmt-listbox-options${inputTrigger ? ' tmt-listbox-input-list' : ''}`}
+      style={
+        inputTrigger ? { ...placement, visibility: placement ? 'visible' : 'hidden' } : undefined
+      }
+      role="listbox"
+      id={listId}
+      aria-labelledby={labelId}
+      hidden={!open}
+    >
+      {options.map((option, index) => (
+        <button
+          type="button"
+          role="option"
+          className="tmt-listbox-option"
+          key={option.value}
+          id={`${id}-option-${index}`}
+          aria-selected={option.value === value}
+          data-active={focusIndex === index}
+          disabled={option.disabled}
+          tabIndex={-1}
+          onPointerMove={() => setActiveValue(option.value)}
+          onPointerDown={(event) => {
+            if (inputTrigger) event.preventDefault();
+          }}
+          onClick={(event) => {
+            if (!inputTrigger || event.isTrusted) choose(option);
+          }}
+        >
+          {renderOption ? renderOption(option) : option.label}
+        </button>
+      ))}
+    </div>
+  );
 
   return (
     <div className={`tmt-listbox${inputTrigger ? ' tmt-listbox-input' : ''}`} ref={root}>
@@ -189,37 +289,7 @@ export function Listbox<Value extends string>({
           </span>
         </button>
       )}
-      <div
-        ref={list}
-        className="tmt-listbox-options"
-        role="listbox"
-        id={listId}
-        aria-labelledby={labelId}
-        hidden={!open}
-      >
-        {options.map((option, index) => (
-          <button
-            type="button"
-            role="option"
-            className="tmt-listbox-option"
-            key={option.value}
-            id={`${id}-option-${index}`}
-            aria-selected={option.value === value}
-            data-active={focusIndex === index}
-            disabled={option.disabled}
-            tabIndex={-1}
-            onPointerMove={() => setActiveValue(option.value)}
-            onPointerDown={(event) => {
-              if (inputTrigger) event.preventDefault();
-            }}
-            onClick={(event) => {
-              if (event.isTrusted) choose(option);
-            }}
-          >
-            {renderOption ? renderOption(option) : option.label}
-          </button>
-        ))}
-      </div>
+      {inputTrigger ? createPortal(optionList, document.body) : optionList}
     </div>
   );
 }

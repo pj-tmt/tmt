@@ -37,7 +37,7 @@ test('paired writers retain anchored annotation conversations, direct exact send
       '<style>body{margin:0;padding:24px 48px 24px 24px;font:16px/1.6 sans-serif}p{max-width:70ch}h2{margin-top:32px}</style><h1>Shared review</h1><p id="quote">An &amp; <em>🌍 exact quote</em> for review.</p><p id="next">Another selection.</p>' +
       paragraphs +
       '<h2 id="scroll-end">END OF PAGE</h2>';
-    const created = createPage(world, 'Shared review', html);
+    const created = createPage(world, 'Shared review', html, agent.pane);
     const first = await openPage(door, a, created);
     const second = await openPage(door, b, created);
     await expect
@@ -78,9 +78,39 @@ test('paired writers retain anchored annotation conversations, direct exact send
     await selectInRenderer(first, '#quote');
     await expect(first.getByTestId('selection-ask')).toBeVisible();
     await first.screenshot({ path: '/tmp/1587-native-1440-light-selection.png' });
+    for (const width of [1440, 390]) {
+      await first.setViewportSize({ width, height: 900 });
+      for (const theme of ['light', 'dark']) {
+        await first.evaluate((theme) => (document.documentElement.dataset.theme = theme), theme);
+        await selectInRenderer(first, '#quote');
+        await first.getByTestId('selection-ask').click();
+        const popover = first.getByRole('dialog', { name: 'Annotate selection' });
+        const prefilled = popover.getByRole('combobox', { name: 'Message to agent' });
+        await expect(prefilled).toHaveValue(`@${agent.name} `);
+        expect(await prefilled.evaluate((node: HTMLTextAreaElement) => node.selectionStart)).toBe(
+          agent.name.length + 2,
+        );
+        await expect(first.getByTestId('comments-toggle')).toHaveAttribute(
+          'aria-expanded',
+          'false',
+        );
+        await first.screenshot({ path: `/tmp/1587-native-${width}-${theme}-popover.png` });
+        await prefilled.fill('@');
+        await expect(first.getByRole('listbox')).toBeVisible();
+        await first.screenshot({ path: `/tmp/1587-native-${width}-${theme}-autocomplete.png` });
+        await prefilled.press('Escape');
+        await prefilled.press('Escape');
+        await expect(popover).toHaveCount(0);
+        expect(agent.received()).toHaveLength(0);
+      }
+    }
+    await first.setViewportSize({ width: 1440, height: 900 });
+    await first.evaluate(() => (document.documentElement.dataset.theme = 'light'));
+    await selectInRenderer(first, '#quote');
     await first.getByTestId('selection-ask').click();
     const compose = first.locator('.annotation-new');
-    const input = await inputFor(compose, agent.name);
+    const input = compose.getByRole('combobox', { name: 'Message to agent' });
+    await expect(input).toHaveValue(`@${agent.name} `);
     const over = `@${agent.name} ${'é'.repeat(8193)}`;
     await input.fill(over);
     await input.press('Enter');

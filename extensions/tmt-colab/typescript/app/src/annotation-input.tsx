@@ -56,6 +56,7 @@ export function AnnotationInput({
   cancel(): void;
   committed(ref: DiscussionRef): void;
 }) {
+  const inputElement = useRef<HTMLTextAreaElement | null>(null);
   const [agents, setAgents] = useState<AgentDestination[]>([]);
   const [value, setValue] = useState('');
   const [selected, setSelected] = useState<string>();
@@ -87,6 +88,11 @@ export function AnnotationInput({
       active = false;
     };
   }, [binding, publisher]);
+  useEffect(() => {
+    if (!dirty.current && inputElement.current) {
+      inputElement.current.setSelectionRange(value.length, value.length);
+    }
+  }, [value]);
   const destination = mentionedDestination(value, agents, selected);
   const quote = thread?.anchor?.exact ?? anchor?.exact ?? '';
   const comment = thread ? conversationText(thread.comments, thread.threadId, value, asks) : value;
@@ -179,6 +185,7 @@ export function AnnotationInput({
             <textarea
               {...props}
               ref={(node) => {
+                inputElement.current = node;
                 if (typeof props.ref === 'function') props.ref(node);
               }}
               autoFocus

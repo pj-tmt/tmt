@@ -860,9 +860,27 @@ footer {
   margin: 0;
 }
 
-.selection-ask {
+.selection-control,
+.annotation-popover {
   position: fixed;
   z-index: 40;
+}
+.annotation-popover {
+  width: min(380px, calc(100vw - 24px));
+  max-height: calc(100vh - 80px);
+  overflow-y: auto;
+  padding: 12px;
+  border: 1px solid var(--c-text);
+  background: var(--c-sheet);
+  box-shadow: 5px 5px 0 var(--c-accent);
+}
+.annotation-popover blockquote {
+  margin: 0 0 10px;
+  color: var(--c-muted);
+  border-left: 2px solid var(--c-rule);
+  padding-left: 8px;
+}
+.selection-ask {
   margin: 0;
   border: 1px solid var(--c-text);
   padding: 7px 12px;

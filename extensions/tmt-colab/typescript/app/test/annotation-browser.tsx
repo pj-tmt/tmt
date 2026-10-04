@@ -12,7 +12,7 @@ let preparations = 0;
 let closes = 0;
 let commits = 0;
 let remote: RemoteDouble | undefined;
-export function mount(mode: 'held' | 'throw' | 'prepare-failure' = 'held') {
+export function mount(mode: 'held' | 'throw' | 'prepare-failure' | 'multi' = 'held') {
   root?.unmount();
   document.getElementById('annotation-fixture')?.remove();
   document.getElementById('root')?.setAttribute('hidden', '');
@@ -53,13 +53,19 @@ export function mount(mode: 'held' | 'throw' | 'prepare-failure' = 'held') {
     const [cancelled, setCancelled] = useState(false);
     const binding: AskBinding = {
       async destinations() {
-        return [target];
+        return mode === 'multi'
+          ? [
+              target,
+              { ...target, agent: id(8), agentName: 'Disabled agent', presence: 'offline' },
+              { ...target, agent: id(9), agentName: 'Other agent' },
+            ]
+          : [target];
       },
       async prepare(input) {
         preparations++;
         if (mode === 'prepare-failure') throw new Error('Preparation refused');
         const result = await fixtureAttempt({ ...selection(), ...input }, target, {
-          mode,
+          mode: mode === 'multi' ? 'held' : mode,
           operationId: crypto.randomUUID(),
         });
         remote = result.remote;

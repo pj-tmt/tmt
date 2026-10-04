@@ -12,6 +12,7 @@ import {
   useRouterState,
 } from '@tanstack/react-router';
 import type { PageView, PageTransport } from './transport.js';
+import { AnnotationInput } from './annotation-input.js';
 import { ThreadPanel } from './thread-panel.js';
 import type { QuoteSelector, DiscussionRef } from './thread-records.js';
 import { ShareDialog } from './share-dialog.js';
@@ -27,12 +28,15 @@ function SelectionBubble({
   rectangle,
   inset,
   open,
+  children,
 }: {
   host: HTMLDivElement | null;
   rectangle: SelectionRect | null;
   inset: number;
   open(): void;
+  children?: React.ReactNode;
 }) {
+  const element = useRef<HTMLDivElement>(null);
   const [position, setPosition] = useState<{ left: number; top: number } | null>(null);
   useEffect(() => {
     const place = () => {
@@ -42,45 +46,58 @@ function SelectionBubble({
         return;
       }
       const top = frame.top + Math.max(0, Math.min(frame.height, rectangle.y)),
-        bottom = frame.top + Math.max(0, Math.min(frame.height, rectangle.y + rectangle.height));
+        bottom = frame.top + Math.max(0, Math.min(frame.height, rectangle.y + rectangle.height)),
+        left = frame.left + Math.max(0, Math.min(frame.width, rectangle.x)),
+        right = frame.left + Math.max(0, Math.min(frame.width, rectangle.x + rectangle.width));
       if (bottom < inset || top > innerHeight) {
         setPosition(null);
         return;
       }
+      const width = children ? Math.min(380, innerWidth - 24) : 100;
+      const height = element.current?.offsetHeight ?? (children ? 200 : 38);
+      const beside = !children && right + width + 8 <= Math.min(frame.right, innerWidth - 8);
+      const below = bottom + height + 8 <= innerHeight - 8;
       setPosition({
         left: Math.max(
           8,
-          Math.min(
-            innerWidth - 72,
-            frame.right - 72,
-            frame.left + Math.max(0, Math.min(frame.width, rectangle.x)),
-          ),
+          Math.min(innerWidth - width - 8, frame.right - width - 8, beside ? right + 8 : left),
         ),
-        top: Math.max(inset + 4, Math.min(innerHeight - 44, bottom + 6)),
+        top: Math.max(
+          inset + 4,
+          Math.min(innerHeight - height - 8, beside ? top : below ? bottom + 6 : top - height - 6),
+        ),
       });
     };
     place();
+    const observer = new ResizeObserver(place);
+    if (element.current) observer.observe(element.current);
     window.addEventListener('scroll', place, { passive: true });
     window.addEventListener('resize', place);
     return () => {
+      observer.disconnect();
       window.removeEventListener('scroll', place);
       window.removeEventListener('resize', place);
     };
-  }, [host, rectangle, inset]);
+  }, [host, rectangle, inset, !!children]);
   return (
-    position && (
-      <button
-        className="selection-ask"
-        style={position}
-        data-testid="selection-ask"
-        onPointerDown={(event) => event.preventDefault()}
-        onClick={(event) => {
-          if (event.isTrusted) open();
-        }}
-      >
-        Ask
-      </button>
-    )
+    <div
+      ref={element}
+      className={children ? 'annotation-popover' : 'selection-control'}
+      style={{ ...position, visibility: position ? 'visible' : 'hidden' }}
+    >
+      {children ?? (
+        <button
+          className="selection-ask"
+          data-testid="selection-ask"
+          onPointerDown={(event) => event.preventDefault()}
+          onClick={(event) => {
+            if (event.isTrusted) open();
+          }}
+        >
+          Annotate
+        </button>
+      )}
+    </div>
   );
 }
 const managementChanged = 'Management changed. Reopen the page to load its latest state.';
@@ -383,7 +400,11 @@ function Page() {
   const [selector, setSelector] = useState<QuoteSelector | null>(null);
   const currentSelector = useRef<QuoteSelector | null>(null);
   const [rectangle, setRectangle] = useState<SelectionRect | null>(null);
-  const [annotation, setAnnotation] = useState<QuoteSelector>();
+  const currentRectangle = useRef<SelectionRect | null>(null);
+  const [annotation, setAnnotation] = useState<{
+    selector: QuoteSelector;
+    rectangle: SelectionRect;
+  }>();
   const [activeThread, setActiveThread] = useState<string | null>(null);
   useEffect(() => {
     setAnnotation(undefined);
@@ -391,11 +412,14 @@ function Page() {
     setPanel(null);
   }, [snapshot.id]);
   function annotate() {
-    if (!currentSelector.current) return;
-    setAnnotation(structuredClone(currentSelector.current));
+    if (!currentSelector.current || !currentRectangle.current) return;
+    setAnnotation({
+      selector: structuredClone(currentSelector.current),
+      rectangle: { ...currentRectangle.current },
+    });
     setActiveThread(null);
     setRectangle(null);
-    setPanel('comments');
+    setPanel(null);
     setMenu(false);
   }
   function openThread(ref: DiscussionRef | null) {
@@ -424,6 +448,8 @@ function Page() {
     setSelection('');
     setSelector(null);
     currentSelector.current = null;
+    currentRectangle.current = null;
+    setAnnotation(undefined);
     setRectangle(null);
     setResolved([]);
     void mountRenderer(host.current!, view.source, {
@@ -435,6 +461,7 @@ function Page() {
         setSelection(value);
         setSelector(quote ?? null);
         currentSelector.current = quote ?? null;
+        currentRectangle.current = rect ?? null;
         setRectangle(rect ?? null);
       },
       onAnchors: setResolved,
@@ -626,10 +653,28 @@ function Page() {
       {snapshot.binding?.discussion && snapshot.binding?.ask && !liveError && state === 'ready' && (
         <SelectionBubble
           host={host.current}
-          rectangle={rectangle}
+          rectangle={annotation?.rectangle ?? rectangle}
           inset={toolbar.current?.offsetHeight ?? 56}
           open={annotate}
-        />
+        >
+          {annotation && (
+            <section className="annotation-new" role="dialog" aria-label="Annotate selection">
+              <blockquote>{annotation.selector.exact}</blockquote>
+              <AnnotationInput
+                key={JSON.stringify(annotation.selector)}
+                binding={snapshot.binding.ask}
+                discussion={snapshot.binding.discussion}
+                anchor={annotation.selector}
+                asks={view.asks ?? []}
+                title={view.title || snapshot.title}
+                publisher={view.publisherAgent}
+                blocked={!!liveError || state !== 'ready'}
+                cancel={() => setAnnotation(undefined)}
+                committed={openThread}
+              />
+            </section>
+          )}
+        </SelectionBubble>
       )}
       <PageDrawer
         open={panel === 'source'}
@@ -681,8 +726,6 @@ function Page() {
           asks={view.asks ?? []}
           active={activeThread}
           select={openThread}
-          annotation={annotation}
-          cancelAnnotation={() => setAnnotation(undefined)}
           blocked={!!liveError || state !== 'ready'}
         />
       </PageDrawer>

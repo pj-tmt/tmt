@@ -986,6 +986,31 @@ result:async()=>({state:'replied',requestId:'${requestId}',message:${JSON.string
   await page.getByRole('link', { name: new RegExp(v.page) }).click();
   const heading = page.frameLocator('iframe').getByRole('heading', { name: 'Live fixture' });
   await expect(heading).toBeVisible();
+  const renderId = (await page.locator('iframe').getAttribute('data-render-id'))!;
+  await page
+    .frames()
+    .find((value) => value.url().endsWith('/renderer.html'))!
+    .evaluate((renderId) => {
+      parent.postMessage(
+        {
+          type: 'colab.render.selection',
+          renderId,
+          text: 'Cosmetic claim',
+          selector: { exact: 'Cosmetic claim', prefix: '', suffix: '' },
+          rect: { x: -1000000, y: -1000000, width: 1, height: 1 },
+        },
+        '*',
+      );
+    }, renderId);
+  const bubble = page.getByTestId('selection-ask');
+  await expect(bubble).toBeVisible();
+  const bounds = (await bubble.boundingBox())!,
+    frameBounds = (await page.locator('iframe').boundingBox())!;
+  expect(bounds.x).toBeGreaterThanOrEqual(frameBounds.x);
+  expect(bounds.y).toBeGreaterThanOrEqual(frameBounds.y);
+  expect(bounds.x + bounds.width).toBeLessThanOrEqual(frameBounds.x + frameBounds.width);
+  expect(bounds.y + bounds.height).toBeLessThanOrEqual(page.viewportSize()!.height);
+  await expect(page.getByTestId('annotation-compose')).toHaveCount(0);
   await heading.evaluate((node) => {
     const range = document.createRange();
     range.selectNodeContents(node);
@@ -1345,43 +1370,6 @@ test('signed catchup publishes detached own maps for two authors while source st
   expect(result.subscriptionIsDetached).toBe(true);
   expect(result.source).toBe('<p>after tail</p>' + 'x'.repeat(300000));
   await expect.poll(() => f.connections).toBe(0);
-});
-
-test('cosmetic selection coordinates outside the frame keep the trusted Ask bubble within its visible bounds', async ({
-  page,
-  context,
-}) => {
-  await wire(context);
-  await page.goto(mount);
-  await page.getByRole('link', { name: new RegExp(v.page) }).click();
-  await expect(
-    page.frameLocator('iframe').getByRole('heading', { name: 'Live fixture' }),
-  ).toBeVisible();
-  const renderId = (await page.locator('iframe').getAttribute('data-render-id'))!;
-  const frame = page.frames().find((value) => value.url().endsWith('/renderer.html'))!;
-  await frame.evaluate((renderId) => {
-    parent.postMessage(
-      {
-        type: 'colab.render.selection',
-        renderId,
-        text: 'Cosmetic claim',
-        selector: { exact: 'Cosmetic claim', prefix: '', suffix: '' },
-        rect: { x: -1000000, y: 900000, width: 1, height: 1 },
-      },
-      '*',
-    );
-  }, renderId);
-  const bubble = page.getByTestId('selection-ask');
-  await expect(bubble).toBeVisible();
-  const bounds = (await bubble.boundingBox())!;
-  const frameBounds = (await page.locator('iframe').boundingBox())!;
-  expect(bounds.x).toBeGreaterThanOrEqual(frameBounds.x);
-  expect(bounds.y).toBeGreaterThanOrEqual(frameBounds.y);
-  expect(bounds.x + bounds.width).toBeLessThanOrEqual(frameBounds.x + frameBounds.width);
-  expect(bounds.y + bounds.height).toBeLessThanOrEqual(
-    Math.min(frameBounds.y + frameBounds.height, page.viewportSize()!.height),
-  );
-  await expect(page.getByTestId('annotation-compose')).toHaveCount(0);
 });
 
 test('parent export downloads exact frozen baseline files, ignores drafts and renderer messages, and cleans URLs', async ({

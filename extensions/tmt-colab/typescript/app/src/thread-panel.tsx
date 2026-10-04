@@ -365,8 +365,6 @@ export function ThreadPanel({
   blocked,
   active,
   select,
-  annotation,
-  cancelAnnotation,
 }: {
   hideHeader?: boolean;
   threads: readonly ThreadView[];
@@ -380,8 +378,6 @@ export function ThreadPanel({
   blocked: boolean;
   active: string | null;
   select(ref: DiscussionRef | null): void;
-  annotation?: QuoteSelector;
-  cancelAnnotation(): void;
 }) {
   const [compose, setCompose] = useState(false);
   const [now, setNow] = useState(0);
@@ -401,7 +397,7 @@ export function ThreadPanel({
           if (event.isTrusted) setCompose(true);
         }}
       >
-        {text.commentPage}
+        + {text.commentPage}
       </button>
       {compose && binding && (
         <Composer
@@ -413,26 +409,6 @@ export function ThreadPanel({
           cancel={() => setCompose(false)}
           blocked={blocked}
         />
-      )}
-      {annotation && (
-        <section className="annotation-new">
-          <blockquote>{annotation.exact}</blockquote>
-          <AnnotationInput
-            key={JSON.stringify(annotation)}
-            binding={ask}
-            discussion={binding}
-            anchor={annotation}
-            asks={asks}
-            title={title}
-            publisher={publisher}
-            blocked={blocked}
-            cancel={cancelAnnotation}
-            committed={(ref) => {
-              cancelAnnotation();
-              select(ref);
-            }}
-          />
-        </section>
       )}
       {!threads.length && <p className="comment-status">{text.commentEmpty}</p>}
       <div className="annotation-list">
