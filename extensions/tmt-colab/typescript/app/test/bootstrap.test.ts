@@ -29,6 +29,9 @@ async function response(pages: unknown[]) {
   return body;
 }
 it('accepts 1000 worst-sized valid expiry rows within the existing bounded response', async () => {
+  vi.stubGlobal('navigator', {
+    locks: { request: async (_key: string, run: () => unknown) => run() },
+  });
   const pages = Array.from({ length: 1000 }, (_, index) => ({
     ...metadata,
     pageId: `10000000-0000-4000-8000-${String(index + 1).padStart(12, '0')}`,
