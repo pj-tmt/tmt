@@ -260,8 +260,7 @@ pub(super) fn paint(app: &App, look: Look, area: Rect, now: u64, section: &Secti
                 });
                 // One blank boxed line keeps a lead with an exchange apart from the
                 // next lead, whether that one has an exchange or not.
-                let separator =
-                    local > 0 && section.replies && previous_exchange && lead.exchange.is_some();
+                let separator = local > 0 && section.replies && previous_exchange;
                 previous_exchange = lead.exchange.is_some();
                 let mut after = Vec::new();
                 if section.replies && lead.exchange.is_some() && !reading {

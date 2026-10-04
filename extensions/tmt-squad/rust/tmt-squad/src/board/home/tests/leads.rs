@@ -131,7 +131,7 @@ fn lead_rows_and_footer_share_one_cursor_and_hidden_previews_remove_separators()
 }
 
 #[test]
-fn leads_without_exchanges_have_one_hit_line_and_no_adjacent_separator() {
+fn leads_without_exchanges_have_one_hit_line_and_one_blank_after_the_last_exchange() {
     for width in [160, 100, 80] {
         let mut app = fixture();
         app.home_leads.leads[1].exchange = None;
@@ -140,8 +140,14 @@ fn leads_without_exchanges_have_one_hit_line_and_no_adjacent_separator() {
             .iter()
             .position(|line| line.contains("asks: Approve"))
             .unwrap();
-        assert!(text[preview + 1].contains("lead-b"));
-        assert!(text[preview + 2].starts_with('└'));
+        // One blank boxed line keeps `no reply yet` / the question apart from the
+        // first lead without an exchange; nothing separates lead from lead below it.
+        assert!(
+            text[preview + 1].starts_with('│')
+                && text[preview + 1].trim_matches(['│', ' ']).is_empty()
+        );
+        assert!(text[preview + 2].contains("lead-b"));
+        assert!(text[preview + 3].starts_with('└'));
         let target = app
             .home_entries()
             .iter()
