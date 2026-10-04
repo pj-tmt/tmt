@@ -25,10 +25,35 @@ pub enum OwnerFault {
     WrongOwner,
     Invalid,
     Capacity,
+    /// One page's state is past a read limit; names the page, what was measured and the limit.
+    PageCapacity(PageCapacity),
+}
+/// A page that cannot be opened because of its size (#1627). `detail` finishes the sentence
+/// "Page <id> is too large to open: ..." with the measured value and the limit.
+#[derive(Debug, PartialEq, Eq)]
+pub struct PageCapacity {
+    pub page: String,
+    pub detail: String,
+}
+impl OwnerFault {
+    pub fn too_large(page: &str, detail: String) -> Self {
+        Self::PageCapacity(PageCapacity {
+            page: page.to_owned(),
+            detail,
+        })
+    }
 }
 impl std::fmt::Display for OwnerFault {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Owner store: {self:?}")
+        match self {
+            Self::PageCapacity(c) => write!(
+                f,
+                "Page {} is too large to open: {}. Colab cannot compact a page yet. Open it in the \
+                 browser and copy its source into a new page, or wait for compaction (#1627).",
+                c.page, c.detail
+            ),
+            _ => write!(f, "Owner store: {self:?}"),
+        }
     }
 }
 impl std::error::Error for OwnerFault {}

@@ -312,14 +312,16 @@ impl OwnerTransaction<'_> {
                 bytes: bytes.ok_or(OwnerFault::Invalid)?,
             });
         }
-        let mut query = self.tx.prepare("SELECT seq,hash,payload FROM receipts WHERE page=? AND epoch=? AND stream=? AND namespace=? AND seq>? ORDER BY seq LIMIT 201")?;
+        let mut query = self.tx.prepare("SELECT seq,hash,payload FROM receipts WHERE page=? AND epoch=? AND stream=? AND namespace=? AND seq>? ORDER BY seq LIMIT ?")?;
         let rows = query.query_map(
             params![
                 cut.page,
                 cut.epoch.to_string(),
                 cut.stream,
                 cut.namespace,
-                sequence(cut.checkpoint_seq)
+                sequence(cut.checkpoint_seq),
+                // One more than the cap, so an over-long tail is an error and never a truncation.
+                (crate::decoder::UPDATES + 1) as i64
             ],
             |r| {
                 Ok((
@@ -355,7 +357,26 @@ impl OwnerTransaction<'_> {
             });
         }
         if out.len() > crate::decoder::UPDATES {
-            return Err(OwnerFault::Capacity.into());
+            // The query stops one past the cap; count the real tail only to report it.
+            let total: i64 = self.tx.query_row(
+                "SELECT count(*) FROM receipts WHERE page=? AND epoch=? AND stream=? AND namespace=? AND seq>?",
+                params![
+                    cut.page,
+                    cut.epoch.to_string(),
+                    cut.stream,
+                    cut.namespace,
+                    sequence(cut.checkpoint_seq)
+                ],
+                |r| r.get(0),
+            )?;
+            return Err(OwnerFault::too_large(
+                &cut.page,
+                format!(
+                    "it has {total} updates since its last baseline (limit {})",
+                    crate::decoder::UPDATES
+                ),
+            )
+            .into());
         }
         Ok(out)
     }

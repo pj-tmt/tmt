@@ -804,8 +804,8 @@ old updates to the owner.
 
 The implemented decoder library producer/verifier for #1159 uses the existing
 isolated child. Source admission is 2 MiB, title admission is 256 KiB, and
-update-v1 admission is 2 MiB + 256 KiB + 1 KiB framing. The existing 4 MiB
-serialized stream cap applies to both modes. Verification sends update bytes,
+update-v1 admission is 2 MiB + 256 KiB + 1 KiB framing. The serialized
+stream cap (limits table) applies to both modes. Verification sends update bytes,
 authenticated source digest and title once; the child reconstructs source and
 checks its digest and the commitment. Production checks its generated update
 inside the child without transmitting both copies as input. Descriptor signing, encrypted publication, owner folds
@@ -1061,21 +1061,33 @@ compaction and revocation cuts need Rust/browser interop evidence. Load cost
 must be bounded and measured in L3/L4 before a performance promise. Compare decoded state-vector client clocks, not
 encoding byte order; declare all schema root types before projection.
 
-| Default limit                       | Value                        |
-| ----------------------------------- | ---------------------------- |
-| Exact HTML source / snapshot source | 2 MiB each                   |
-| Message body                        | 16 KiB UTF-8                 |
-| Threads per page                    | 1,000                        |
-| Update-envelope plaintext           | 256 KiB                      |
-| Compaction trigger per stream       | 200 updates or 256 KiB tail  |
-| Per-device append rate              | 10/s sustained, burst 50     |
-| Per-page decoder concurrency        | 1                            |
-| Rust decoder batch deadline         | 2 seconds                    |
-| Rust decoder baseline plaintext     | 2 MiB                        |
-| Rust decoder aggregate update batch | 256 KiB, at most 200 updates |
-| Rust decoder input/output streams   | 4 MiB each                   |
-| Linux decoder address-space limit   | 512 MiB                      |
-| Spark deletion budget               | 500/page/day                 |
+| Default limit                       | Value                         |
+| ----------------------------------- | ----------------------------- |
+| Exact HTML source / snapshot source | 2 MiB each                    |
+| Message body                        | 16 KiB UTF-8                  |
+| Threads per page                    | 1,000                         |
+| Update-envelope plaintext           | 256 KiB                       |
+| Compaction trigger per stream       | 200 updates or 256 KiB tail   |
+| Per-device append rate              | 10/s sustained, burst 50      |
+| Per-page decoder concurrency        | 1                             |
+| Rust decoder batch deadline         | 2 seconds                     |
+| Page budget (browser load, gzipped) | 5,000,000 bytes               |
+| Rust decoder new-baseline source    | 2 MiB                         |
+| Rust decoder read state (all bytes) | 24 MiB, at most 5,000 updates |
+| Rust decoder input/output streams   | 208 MiB each                  |
+| Linux decoder address-space limit   | 512 MiB                       |
+| Spark deletion budget               | 500/page/day                  |
+
+The read caps are derived once, from measurement (#1627), not from the write caps.
+Decoding peaked near 9 bytes of child memory per state byte, so 24 MiB of state stays
+inside the address-space limit. A stream frame is sized for the worst case, a state of
+control characters that JSON escapes to six bytes each, plus base64. Decode time grows
+with the size of the largest text block times the number of updates appended to it
+(about 0.6 ms per MiB per update), not with raw size alone: a 2 MiB block with 1,000
+appends decoded in 1.15 s, an 8 MiB block with 1,000 appends exceeded the 2 second
+deadline. Only compaction or a new baseline removes that cost. A page that exceeds a read cap
+or the deadline fails alone with `COLAB_CAPACITY`, naming the page, the limit and the next
+step; `ls` and `show` list the other pages. The write-side limits above are unchanged.
 
 Linux sets and verifies its address-space limit before reading child input;
 failure rejects the job. On macOS and platforms without enforced memory limits,
@@ -2090,7 +2102,7 @@ with captured correlation and no offline fallback.
 page at epoch 1. The title is nonempty and bounded to 256 KiB UTF-8. Omitted
 `--file` means empty source; a file or stdin uses the page-write reader (2 MiB
 UTF-8, five-second stdin EOF deadline). The initial content update is at most
-256 KiB and the isolated decoder keeps its existing 4 MiB composition limit.
+256 KiB and the isolated decoder keeps its composition limits (limits table).
 Capacity rejects rather than truncating source or title.
 
 Creation initializes a fresh local space under the serve lifecycle lock. It
@@ -2141,7 +2153,7 @@ Archive/delete reads retain the fold's current inactive-page restriction.
 retains the title and prepares a minimal text delta in the isolated child against
 admitted Yjs structs. It does not recreate the shared document, execute HTML,
 advance membership or restore discussion/authority state. Source is bounded to
-2 MiB, updates to 256 KiB, and composed decoder input/output to 4 MiB; existing
+2 MiB, updates to 256 KiB, and composed decoder input/output to the stream cap; existing
 fold/count/deadline/cleanup limits still apply. Stdin has a five-second EOF deadline.
 Invalid UTF-8, capacity and inactive-page writes reject without mutation.
 

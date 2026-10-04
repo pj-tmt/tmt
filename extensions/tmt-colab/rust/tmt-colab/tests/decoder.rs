@@ -580,7 +580,10 @@ fn interrupted_input_backpressure_confirms_cleanup_before_owner_reuse() {
 
 #[test]
 fn output_backpressure_confirms_exact_limit_and_cleanup_before_owner_reuse() {
-    let fixture = FixtureProgram::new("exec /usr/bin/head -c 4194305 /dev/zero");
+    let fixture = FixtureProgram::new(&format!(
+        "exec /usr/bin/head -c {} /dev/zero",
+        tmt_colab::decoder::STREAM_BYTES + 1
+    ));
     let mut decoder =
         Decoder::with_config(support::decoder_config(fixture.script.clone())).unwrap();
     let baseline = vec![0; tmt_colab::decoder::BASELINE_BYTES];
@@ -853,7 +856,10 @@ fn baseline_bounds_and_cleanup_use_the_existing_runner() {
     assert_eq!(checked.update, produced.update);
     gone(checked.child_pid);
     for body in [
-        "exec /usr/bin/head -c 4194305 /dev/zero",
+        &format!(
+            "exec /usr/bin/head -c {} /dev/zero",
+            tmt_colab::decoder::STREAM_BYTES + 1
+        ),
         "cat >/dev/null; printf '{}'",
     ] {
         let fixture = FixtureProgram::new(body);

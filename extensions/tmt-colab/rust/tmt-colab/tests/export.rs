@@ -319,7 +319,7 @@ fn signature_key_baseline_and_capacity_failures_publish_nothing() {
                 .unwrap()
                 .try_into()
                 .unwrap();
-            for seq in 2..=201 {
+            for seq in 2..=(tmt_colab::decoder::UPDATES as u64 + 1) {
                 previous = f.append_at("positive control", "title", seq, previous);
             }
         }
