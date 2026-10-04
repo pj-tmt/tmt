@@ -94,10 +94,11 @@ publication and verification procedures are in the [tmt-release skill](../../tmt
 - Removal validates ownership of every command link, refuses a foreign same-named command and
   deactivates links without deleting releases or data. It is recoverable, not atomic: a missing
   link with a retained activation lists as `partiallyRemoved` with an exact removal command.
-- `ls` degrades per entry: a command link with no TMT activation behind it lists as `unmanaged`
-  and an activation that cannot be read as `invalid`, each with its path and a repair that never
-  points back at `ls` (move or remove the file, or `tmt extension rm`). One bad entry never fails
-  the listing or changes its exit status.
+- `ls` degrades per entry: a command link with no TMT activation behind it lists as `unmanaged`,
+  damage `install --repair` can restore as `repairRequired` (carrying that exact command) and any
+  other unreadable activation as `invalid`, each with its path and a repair that never points back
+  at `ls`. One bad entry never fails the listing or changes its exit status; install and upgrade
+  still refuse on it.
 - Remote and Colab use the same manifest and receipt under independent `lib/tmt-remote` and
   `lib/tmt-colab` namespaces; install, removal and upgrade never run their `serve` command or
   open their private data roots.

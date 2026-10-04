@@ -3,7 +3,8 @@
 use super::skills::settle_skills;
 use super::{
     ExtensionListRow, Human, INSTALLABLE_EXTENSIONS, Outcome, ask, extension, extension_list,
-    failure, installed, interruptible, prefix, require_installable,
+    failure, installed, interruptible, prefix, repair_command, repair_required,
+    require_installable,
 };
 use crate::{invocation::OutputMode, output::Failure};
 use serde_json::{Value, json};
@@ -125,12 +126,12 @@ pub(super) fn listing(
             Ok(false) => match installed(product, prefix) {
                 Ok(true) => match native_install::inspect_product_prefix(product, prefix) {
                     Ok(installation) => state = Some(installation.state),
-                    Err(error) => issue = Some(Issue::new(product, prefix, &error)),
+                    Err(error) => issue = Some(Issue::io(product, prefix, &error)),
                 },
                 Ok(false) => {}
                 Err(failure) => issue = Some(Issue::new(product, prefix, &failure.message)),
             },
-            Err(error) => issue = Some(Issue::new(product, prefix, &error)),
+            Err(error) => issue = Some(Issue::io(product, prefix, &error)),
         }
         let frozen = !INSTALLABLE_EXTENSIONS.contains(&product);
         // A frozen product is only reported while its own installation exists.
@@ -240,6 +241,8 @@ struct Issue {
     /// A command link with no TMT activation behind it: not TMT's file.
     unmanaged: bool,
     detail: String,
+    /// The exact repair when verification found damage the installer can restore.
+    repair: Option<String>,
 }
 
 impl Issue {
@@ -256,11 +259,20 @@ impl Issue {
             } else {
                 error.to_string()
             },
+            repair: None,
         }
     }
 
+    fn io(product: Product, prefix: &Path, error: &io::Error) -> Self {
+        let mut issue = Self::new(product, prefix, error);
+        issue.repair = repair_required(error).map(repair_command);
+        issue
+    }
+
     fn status(&self) -> &'static str {
-        if self.unmanaged {
+        if self.repair.is_some() {
+            "repairRequired"
+        } else if self.unmanaged {
             "unmanaged"
         } else {
             "invalid"
@@ -271,7 +283,9 @@ impl Issue {
     fn hint(&self, product: Product, prefix: &Path) -> String {
         let name = product.as_str();
         let prefix = crate::output::shell_word(&prefix.to_string_lossy());
-        if self.unmanaged {
+        if let Some(command) = &self.repair {
+            format!("repair this release with: {command}")
+        } else if self.unmanaged {
             format!(
                 "move or remove {}, then install the managed one with: tmt extension install {name} --yes --prefix {prefix}",
                 crate::output::shell_word(&self.path.to_string_lossy())

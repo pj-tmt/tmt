@@ -143,19 +143,27 @@ fn prefix(prefix: Option<&str>) -> Result<PathBuf, Failure> {
     }
 }
 
-fn failure(code: &'static str, error: io::Error) -> Failure {
-    if let Some(required) = error
+fn repair_required(error: &io::Error) -> Option<&native_install::RepairRequired> {
+    error
         .get_ref()
         .and_then(|cause| cause.downcast_ref::<native_install::RepairRequired>())
-    {
-        let mut command = format!(
-            "tmt extension install {} --repair --yes --prefix {}",
-            required.product.as_str(),
-            crate::output::shell_word(&required.prefix.to_string_lossy())
-        );
-        if required.requires_archive {
-            command.push_str(" --archive '<original-archive>' --manifest '<matching-manifest>'");
-        }
+}
+
+fn repair_command(required: &native_install::RepairRequired) -> String {
+    let mut command = format!(
+        "tmt extension install {} --repair --yes --prefix {}",
+        required.product.as_str(),
+        crate::output::shell_word(&required.prefix.to_string_lossy())
+    );
+    if required.requires_archive {
+        command.push_str(" --archive '<original-archive>' --manifest '<matching-manifest>'");
+    }
+    command
+}
+
+fn failure(code: &'static str, error: io::Error) -> Failure {
+    if let Some(required) = repair_required(&error) {
+        let command = repair_command(required);
         return Failure::new("EXTENSION_REPAIR_REQUIRED", format!(
             "Managed {} release {} failed verification: {} No files were changed. Repair this release with: {command}",
             required.product.as_str(), required.version, required), 1).caused_by(error);
