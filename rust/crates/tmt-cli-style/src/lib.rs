@@ -7,6 +7,7 @@
 //! that was decided once per stream.
 
 pub mod audit;
+pub mod breakpoint;
 pub mod detail;
 pub mod grid;
 pub mod help;
