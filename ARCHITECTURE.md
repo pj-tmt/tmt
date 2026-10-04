@@ -1133,7 +1133,9 @@ companions or skills, and publication gates belong to the
 [release skill](.agents/skills/tmt-release/SKILL.md).
 Colab has no door of its own: Remote mounts its owner-only socket under
 `/r/<prefix>/x/colab/` and keeps Host/Origin, pairing, cookie and live-grant
-admission. [`contracts/remote-channel-v1.md`](contracts/remote-channel-v1.md) owns
+admission. Remote's root `/p/<id>` alias redirects to Colab's mounted `p/<id>` route;
+Colab owns short-ID resolution, while the door session cookie stays scoped to the mount space.
+[`contracts/remote-channel-v1.md`](contracts/remote-channel-v1.md) owns
 the wire, pairing, session, operations and extension channel API. Remote owns the
 static root landing and pairing-page errors as well as the pairing ceremony;
 protocol refusals and mounted extension responses retain their own representation.
