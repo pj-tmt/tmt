@@ -1,6 +1,7 @@
 //! Filesystem admission and publication on disposable roots, without crypto or stores.
 use std::{
-    fs, io,
+    fs,
+    io::{self, Read, Write},
     os::unix::fs::{MetadataExt, PermissionsExt, symlink},
     path::{Path, PathBuf},
     sync::atomic::{AtomicUsize, Ordering},
@@ -60,6 +61,7 @@ fn lookup_is_read_only_and_open_preserves_the_trusted_root_and_siblings() {
     assert_eq!(fs::read(sibling).unwrap(), b"untouched core bytes");
     assert!(!layout.running("serve.lock").unwrap());
     assert!(matches!(layout.read("seed", 33), Err(Error::ReadOpen(_))));
+    assert!(matches!(layout.read_file("seed"), Err(Error::ReadOpen(_))));
     assert_eq!(fs::read_dir(&layout.directory).unwrap().count(), 0);
     assert!(
         Layout::existing(&root.0, "extension", FILES)
@@ -118,6 +120,11 @@ fn file_admission_refuses_modes_symlinks_and_nonregular_files_without_following(
     let layout = root.layout();
     let seed = layout.directory.join("seed");
     private_file(&seed, &[9; 4096]);
+    let mut handle = layout.read_file("seed").unwrap();
+    assert!(handle.write_all(b"must not write").is_err());
+    let mut bytes = [0; 3];
+    handle.read_exact(&mut bytes).unwrap();
+    assert_eq!(bytes, [9; 3]);
     assert_eq!(layout.read("seed", 33).unwrap(), [9; 33]);
     fs::set_permissions(&seed, fs::Permissions::from_mode(0o640)).unwrap();
     assert!(matches!(layout.read("seed", 33), Err(Error::UnsafeFile)));

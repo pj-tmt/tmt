@@ -291,7 +291,8 @@ fn schema_history_uses_core_migrations() {
             (1, "machine".to_owned()),
             (2, "grants".to_owned()),
             (3, "sessions".to_owned()),
-            (4, "journal".to_owned())
+            (4, "journal".to_owned()),
+            (5, "door_port".to_owned())
         ]
     );
     let journal: String = inspect
@@ -305,11 +306,11 @@ fn schema_history_uses_core_migrations() {
         .unwrap()
         .query_row("SELECT COUNT(*) FROM _migrations", [], |r| r.get(0))
         .unwrap();
-    assert_eq!(count, 4);
+    assert_eq!(count, 5);
     // A newer build's history refuses instead of being reinterpreted.
     Connection::open(&db)
         .unwrap()
-        .execute("INSERT INTO _migrations VALUES (5, 'future', 'now')", [])
+        .execute("INSERT INTO _migrations VALUES (6, 'future', 'now')", [])
         .unwrap();
     assert_eq!(
         Store::open(&layout.serve_lock().unwrap())
@@ -321,7 +322,7 @@ fn schema_history_uses_core_migrations() {
     // A renamed step refuses as damaged history.
     let damage = Connection::open(&db).unwrap();
     damage
-        .execute("DELETE FROM _migrations WHERE version = 5", [])
+        .execute("DELETE FROM _migrations WHERE version = 6", [])
         .unwrap();
     damage
         .execute(
@@ -337,4 +338,94 @@ fn schema_history_uses_core_migrations() {
             .code,
         "REMOTE_STATE_UNAVAILABLE"
     );
+}
+
+#[test]
+fn stopped_port_reads_are_noncreating_and_legacy_state_is_not_migrated() {
+    let root = Root::new();
+    assert!(Layout::existing(&root.0).unwrap().is_none());
+    assert!(!root.remote().exists());
+    let layout = Layout::open(&root.0).unwrap();
+    assert!(layout.existing_serve_lock().unwrap().is_none());
+    assert_eq!(fs::read_dir(root.remote()).unwrap().count(), 0);
+    let serving = layout.serve_lock().unwrap();
+    assert_eq!(Store::stopped_port(&serving).unwrap(), None);
+    assert!(!root.remote().join("remote.db").exists());
+    let store = Store::open(&serving).unwrap();
+    assert!(store.remember_port(0).is_err());
+    store.remember_port(12345).unwrap();
+    assert_eq!(store.remembered_port().unwrap(), Some(12345));
+    drop(store);
+    drop(serving);
+    let db = root.remote().join("remote.db");
+    let before = fs::read(&db).unwrap();
+    let stopped = layout.existing_serve_lock().unwrap().unwrap();
+    assert_eq!(Store::stopped_port(&stopped).unwrap(), Some(12345));
+    assert_eq!(fs::read(&db).unwrap(), before);
+    drop(stopped);
+    // Model the previously shipped schema, preserving its exact migration names.
+    let old = Connection::open(&db).unwrap();
+    old.execute_batch("DROP TABLE door_port; DELETE FROM _migrations WHERE version = 5")
+        .unwrap();
+    drop(old);
+    let before = fs::read(&db).unwrap();
+    let stopped = layout.existing_serve_lock().unwrap().unwrap();
+    assert_eq!(Store::stopped_port(&stopped).unwrap(), None);
+    assert_eq!(
+        fs::read(&db).unwrap(),
+        before,
+        "stopped status migrated old state"
+    );
+    drop(stopped);
+    let serving = layout.serve_lock().unwrap();
+    let upgraded = Store::open(&serving).unwrap();
+    assert_eq!(upgraded.remembered_port().unwrap(), None);
+    drop(upgraded);
+    drop(serving);
+    let invalid = Connection::open(&db).unwrap();
+    invalid
+        .execute_batch("PRAGMA ignore_check_constraints=ON; INSERT INTO door_port VALUES (1, 0)")
+        .unwrap();
+    drop(invalid);
+    let stopped = layout.existing_serve_lock().unwrap().unwrap();
+    assert_eq!(
+        Store::stopped_port(&stopped).unwrap_err().code,
+        "REMOTE_STATE_UNAVAILABLE"
+    );
+    drop(stopped);
+    fs::write(&db, b"damaged database").unwrap();
+    let stopped = layout.existing_serve_lock().unwrap().unwrap();
+    assert_eq!(
+        Store::stopped_port(&stopped).unwrap_err().code,
+        "REMOTE_STATE_UNAVAILABLE"
+    );
+    assert_eq!(fs::read(&db).unwrap(), b"damaged database");
+}
+
+#[test]
+fn stop_wait_is_bounded_and_holds_the_released_lease_for_confirmation() {
+    use std::time::{Duration, Instant};
+    let root = Root::new();
+    let layout = Layout::open(&root.0).unwrap();
+    let running = layout.serve_lock().unwrap();
+    let before = fs::read(root.remote().join("serve.lock")).unwrap();
+    let start = Instant::now();
+    assert_eq!(
+        layout
+            .wait_for_release(start + Duration::from_millis(20))
+            .err()
+            .unwrap()
+            .code,
+        "REMOTE_STOP_TIMEOUT"
+    );
+    assert!(start.elapsed() < Duration::from_secs(1));
+    assert_eq!(fs::read(root.remote().join("serve.lock")).unwrap(), before);
+    drop(running);
+    let confirmed = layout.wait_for_release(Instant::now()).unwrap().unwrap();
+    assert_eq!(
+        layout.serve_lock().err().unwrap().code,
+        "REMOTE_ALREADY_SERVING"
+    );
+    drop(confirmed);
+    assert!(layout.serve_lock().is_ok());
 }
