@@ -88,7 +88,7 @@ describe('Remote same-ID crash recovery (#1055 bullet 5)', () => {
               (e) => e.event === 'input' && e.line?.includes(requestId) === true
             );
             expect(wake.line).toBe(
-              `[tmt] request ${requestId} is queued: tmt x show ${requestId} --incoming --identity ${identity.id} --json`
+              `▚ ◆ anonymous · [remote: E2E owner device] Original intent acros… · tmt x show ${requestId} --incoming --identity ${identity.id} --json`
             );
             const settled = requestAttempts(fixture);
             const events = fixture.events();

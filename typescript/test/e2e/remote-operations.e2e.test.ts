@@ -19,13 +19,14 @@ async function name(fixture: E2EFixture, value: string, pane = fixture.pane): Pr
 async function queuedWake(
   fixture: E2EFixture,
   requestId: string,
-  recipientId: string
+  recipientId: string,
+  preview: string
 ): Promise<void> {
   const wake = await fixture.waitForEvent(
     (event) => event.event === 'input' && event.line?.includes(requestId) === true
   );
   expect(wake.line).toBe(
-    `[tmt] request ${requestId} is queued: tmt x show ${requestId} --incoming --identity ${recipientId} --json`
+    `▚ ◆ anonymous · ${preview} · tmt x show ${requestId} --incoming --identity ${recipientId} --json`
   );
 }
 const accepted = (operationId: string, requestId: string) => ({
@@ -52,7 +53,12 @@ describe('Remote owner-device operations (#1055)', () => {
           const sent = await session.append('dispatch.create', intent, operationId);
           const requestId = text(sent.requestId);
           expect(sent).toEqual(accepted(operationId, requestId));
-          await queuedWake(fixture, requestId, id);
+          await queuedWake(
+            fixture,
+            requestId,
+            id,
+            '[remote: E2E owner device] Direct Remote accepta…'
+          );
           const rows = requestAttempts(fixture).filter((row) => row.request_id === requestId);
           expect(rows).toHaveLength(1);
           expect(rows[0]).toMatchObject({
@@ -124,7 +130,12 @@ describe('Remote owner-device operations (#1055)', () => {
           const ended = await approval.finish('confirm');
           const requestId = text(ended.requestId);
           expect(ended).toEqual({ event: 'ended', ...accepted(operationId, requestId) });
-          await queuedWake(fixture, requestId, id);
+          await queuedWake(
+            fixture,
+            requestId,
+            id,
+            '[remote: E2E owner device] Owner must see this e…'
+          );
           expect(requestAttempts(fixture).filter((row) => row.request_id === requestId)).toEqual([
             expect.objectContaining({
               message_text: approval.held.message,
@@ -194,7 +205,12 @@ describe('Remote owner-device operations (#1055)', () => {
           );
           const requestId = text(sent.requestId);
           expect(sent).toEqual(accepted(allowedId, requestId));
-          await queuedWake(fixture, requestId, allowed);
+          await queuedWake(
+            fixture,
+            requestId,
+            allowed,
+            '[remote: E2E owner device] Allowed control'
+          );
           const rows = requestAttempts(fixture);
           const events = fixture.events();
           const effects = owner.coreCalls().filter((call) => call.operation === 'dispatch.create');
@@ -256,7 +272,12 @@ describe('Remote owner-device operations (#1055)', () => {
           );
           const requestId = text(sent.requestId);
           expect(sent).toEqual(accepted(operationId, requestId));
-          await queuedWake(fixture, requestId, allowed);
+          await queuedWake(
+            fixture,
+            requestId,
+            allowed,
+            '[remote: E2E owner device] Read causal control'
+          );
           const count = owner
             .coreCalls()
             .filter((call) => call.operation === 'dispatch.create').length;

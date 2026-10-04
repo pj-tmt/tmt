@@ -204,7 +204,9 @@ re-wake. Recover with `dispatch.show` after uncertain process completion.
 
 `dispatch.create` commits immutable acceptance before attempting an advisory wake
 for a newly created, queued, single-recipient request outside roster dispatch.
-The wake carries a hint to retrieve the retained request, not its message body.
+The wake carries an optional bounded preview and a command to retrieve the
+retained request. The notice grammar is owned by
+[request-response-v1.md](request-response-v1.md); the full body is in the inbox.
 Failure to wake does not undo acceptance. A queued request is durable inbox work;
 it does not promise a live transport, a claimed wake or agent processing.
 
