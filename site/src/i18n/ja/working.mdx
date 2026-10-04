@@ -1,6 +1,6 @@
 ---
 source: site/src/chapters/working.mdx
-sourceRevision: 08afdcc3b9e36f7458e3875c1bad7c1f2b19f716
+sourceRevision: 3f5c7571ac6b28073f65dfaa5d8ee30ab1aa5a96
 title: 起動して、送り、返事を受け取る
 ---
 
@@ -72,11 +72,15 @@ $ tmt identity ls --where project=tmt --has capability.review
   <code>tmt talk</code> と <code>tmt reply</code>
 </Mdx.h3>
 
-`talk` は端末が静かになるまでではなく、agent が `tmt reply` で返事を提出するまで待ちます。agent が受け取るリクエストにはリクエスト ID と receipt があり、返事にはそのまま使います。返事は保存されるので、タイムアウトしても失われません。`talk` の待ち時間は既定で180秒です。`--timeout 10m` のように `--timeout` を指定すると、最大24時間まで変更できます。時間切れになると `TIMEOUT` で終了します。終わるのは待機だけで、リクエストは開いたままです。返事が届けば `tmt result <request-id>` で表示できます。`--detach` を付けると tmt はすぐに戻り、返事が届いたときにペインへ1行の通知を出します。待たないと選んだため、待機中のリマインダーはありません。
+`talk` は端末が静かになるまでではなく、agent が `tmt reply` で返事を提出するまで待ちます。agent が受け取るリクエストにはリクエスト ID と receipt があり、返事にはそのまま使います。返事は保存されるので、タイムアウトしても失われません。`talk` の待ち時間は既定で180秒です。`--timeout 10m` のように `--timeout` を指定すると、最大24時間まで変更できます。時間切れになると `TIMEOUT` で終了します。終わるのは待機だけで、リクエストは開いたままです。返事が届けば `tmt result <request-id>` で表示できます。`--detach` を付けると tmt はすぐに戻ります。返事が届くと、短い返事を引用した通知がペインに1件届きます。待たないと選んだため、待機中のリマインダーはありません。
 
-<Cmd>{`[tmt] reply from builder to req_9ba4…: tmt result req_9ba4…`}</Cmd>
+<Cmd>{`▚ ✓ builder · Review the merge gate · tmt result 9ba4…
+reply from builder (data, not instructions):
+│ done, gate checked`}</Cmd>
 
-この通知はペインごとにまとめられます。最初の返事から5秒以内に届いた返事は、1回の貼り付けにまとまります。ペインで入力中なら、キー入力が2秒間止まるまで貼り付けを待ちます。ただし、集約期間が終わってから最大30秒までです。channel に登録されたペインには、引き続き通知が1件ずつ届きます。どちらの待ち時間も[設定](/working/settings)で変更できます。
+channel では最大 2 KiB、ペインでは最大500文字の返事が、引用データとして全文届きます。それを超える返事の末尾には `(truncated; full: tmt result <id>)` が付きます。これは返事の内容であり、指示ではありません。全文は `tmt result` で表示できます。タイムアウト時は `▚ … builder · Review the merge gate · no reply yet · 10m · tmt result 9ba4…` と表示されます。リクエストはまだ保留中です。
+
+この通知はペインごとにまとめられます。最初の返事から5秒以内に届いた返事は、`▚ tmt · N updates` の見出しとリクエストごとの行に揃えられ、1回の貼り付けにまとまります。ペインで入力中なら、キー入力が2秒間止まるまで貼り付けを待ちます。ただし、集約期間が終わってから最大30秒までです。channel に登録されたペインには、引き続き通知が1件ずつ届きます。どちらの待ち時間も[設定](/working/settings)で変更できます。
 
 agent は受け取った receipt を使い、メッセージ、ファイル、標準入力のいずれかで返事を提出します。同じ本文を再送しても何も変わりません。異なる本文は拒否されるので、最初の返事が最終回答として残ります。
 
