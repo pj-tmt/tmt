@@ -60,7 +60,9 @@ export async function createArtifact(
   companionExecutable = path.resolve('../rust/target/debug/tmt-office'),
   /** An extension's agent-skills tree, by path under `skills/`. */
   skills: Record<string, string> = {},
-  archiveName?: string
+  archiveName?: string,
+  /** An extension's optional `TMT-USES.json` declaration of uses of other extensions. */
+  uses?: string
 ): Promise<ArtifactFixture> {
   const target = nativeTarget();
   const name = archiveName ?? `${product}-${version}-${target}.tar.gz`;
@@ -98,6 +100,7 @@ export async function createArtifact(
     mkdirSync(path.dirname(path.join(root, 'skills', file)), { recursive: true });
     writeFileSync(path.join(root, 'skills', file), content);
   }
+  if (uses !== undefined) writeFileSync(path.join(root, 'TMT-USES.json'), uses);
   await tar.c({ cwd: tree, file: archive, gzip: true }, [path.basename(root)]);
   const checksum = createHash('sha256').update(readFileSync(archive)).digest('hex');
   writeFileSync(
@@ -114,6 +117,7 @@ export async function createArtifact(
             ...runtimeFiles(product),
             ...companions,
             ...(Object.keys(skills).length > 0 ? ['skills'] : []),
+            ...(uses === undefined ? [] : ['TMT-USES.json']),
           ].map((file) => ({ path: file })),
         },
       },

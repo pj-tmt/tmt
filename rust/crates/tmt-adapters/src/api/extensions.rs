@@ -64,3 +64,59 @@ pub(super) fn uses(prefix: &Path, extension: &str, feature: &str) -> Result<Vec<
     }))
     .map_err(|_| Fault::unavailable())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::Value;
+
+    fn decoded(input: &str) -> Result<Request, Fault> {
+        decode(input.as_bytes())
+    }
+
+    #[test]
+    fn names_and_features_are_bounded_canonical_data() {
+        assert!(matches!(
+            decoded(r#"{"extension":"colab","feature":"browser-access"}"#),
+            Ok(Request::ExtensionUse { .. })
+        ));
+        for input in [
+            r#"{"extension":"cli","feature":"a"}"#,
+            r#"{"extension":"office","feature":"a"}"#,
+            r#"{"extension":"nothing","feature":"a"}"#,
+            r#"{"extension":"colab","feature":"Browser"}"#,
+            r#"{"extension":"colab","feature":""}"#,
+            r#"{"extension":"colab","feature":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}"#,
+            r#"{"extension":"colab"}"#,
+            r#"{"extension":"colab","feature":"a","extra":1}"#,
+        ] {
+            assert_eq!(
+                decoded(input).err().map(|fault| fault.code()),
+                Some("API_INPUT_INVALID"),
+                "{input}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_caller_without_a_managed_installation_is_undeclared_and_nothing_is_created() {
+        let directory = crate::test_support::TestDirectory::new();
+        let prefix = directory.path.join("prefix");
+        let fault = uses(&prefix, "colab", "browser-access").unwrap_err();
+        assert_eq!(fault.code(), "EXTENSION_USE_UNDECLARED");
+        assert!(!prefix.exists());
+        let body: Value = serde_json::from_slice(&fault.encode()).unwrap();
+        assert_eq!(body["error"]["code"], "EXTENSION_USE_UNDECLARED");
+    }
+
+    #[test]
+    fn the_operation_is_advertised_by_capabilities() {
+        let capabilities: Value = serde_json::from_slice(&super::super::capabilities()).unwrap();
+        assert!(
+            capabilities["operations"]
+                .as_array()
+                .unwrap()
+                .contains(&serde_json::json!("extensions.uses"))
+        );
+    }
+}

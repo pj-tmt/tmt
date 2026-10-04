@@ -718,7 +718,7 @@ ordinary CLI: one versioned JSON request on stdin, one JSON resource or error on
 stdout. It is neither an authentication boundary nor a daemon, batch or stream.
 `tmt-adapters::api` owns envelope admission and composition; the CLI owns bounded
 stdin, publication and exit status. Protocol major 1 accepts additive operations and
-fields; incompatible changes need a new major. Human-shaped operations remain their
+fields; incompatible changes need a new major. `extensions.uses` answers an extension's optional use of another from installed receipts only (no network, storage or extension process); the extension checks it when the feature starts. Human-shaped operations remain their
 ordinary JSON commands, not duplicate API implementations. The
 [extension API contract](contracts/extension-api.md) owns operations, bounds,
 dispatch readiness and input safety, history and consumption semantics.
