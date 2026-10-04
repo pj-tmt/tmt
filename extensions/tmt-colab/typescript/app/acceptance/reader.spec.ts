@@ -1,4 +1,5 @@
 import { execFileSync } from 'node:child_process';
+import { mkdir } from 'node:fs/promises';
 import path from 'node:path';
 import { expect, test } from '@playwright/test';
 import { openReaderLink, startDoor } from './harness/browser.js';
@@ -34,10 +35,15 @@ const seedOf = (readerPath: string) => new URLSearchParams(readerPath.split('#')
 test('reader link: opens unpaired, shows live edits read-only, and ends on Reset', async () => {
   await withWorld(async (world) => {
     const door = await startDoor(world, await freePort());
+    const longBody = Array.from(
+      { length: 48 },
+      (_, index) =>
+        `<p style="min-height:54px">Reader paragraph ${index + 1}. The browser window scrolls beneath the Colab bar.</p>`,
+    ).join('');
     const created = createPage(
       world,
       'Reader acceptance',
-      '<h1 id="text">First text</h1><a href="#target">Jump to reader anchor</a><div style="height:2200px"></div><h2 id="target">Reader anchor</h2><div style="height:900px"></div>',
+      `<h1 id="text">First text</h1><a href="#target">Jump to reader anchor</a>${longBody}<h2 id="target">Reader anchor</h2><div style="height:900px"></div>`,
     );
     colab(world, ['share', 'mode', created.pageId, 'link', '--yes']);
     const added = colab(world, ['share', 'link', 'add', created.pageId, '--yes']);
@@ -50,6 +56,7 @@ test('reader link: opens unpaired, shows live edits read-only, and ends on Reset
 
     const baseline = deviceRows(world);
     const reader = await openReaderLink(world, door, readerPath, 'reader-one');
+    await expect(reader.page).toHaveTitle('Colab');
     const frame = reader.page.frameLocator('iframe');
     await expect(frame.locator('#text')).toHaveText('First text', { timeout: 30_000 });
     const element = reader.page.locator('iframe');
@@ -60,6 +67,56 @@ test('reader link: opens unpaired, shows live edits read-only, and ends on Reset
         frame.locator('html').evaluate((node) => node.scrollHeight <= node.clientHeight + 1),
       )
       .toBe(true);
+    const captures = process.env.COLAB_READER_CAPTURE_DIR;
+    if (captures) await mkdir(captures, { recursive: true });
+    for (const width of [1440, 390]) {
+      await reader.page.setViewportSize({ width, height: 900 });
+      for (const theme of ['light', 'dark'] as const) {
+        await reader.page.evaluate(
+          (value) => (document.documentElement.dataset.theme = value),
+          theme,
+        );
+        await expect
+          .poll(async () => (await element.boundingBox())?.height ?? 0)
+          .toBeGreaterThan(3000);
+        const frameBox = await element.boundingBox();
+        const contentWidth = await reader.page.evaluate(() => document.documentElement.clientWidth);
+        expect(frameBox?.x).toBe(0);
+        expect(Math.abs((frameBox?.width ?? 0) - contentWidth)).toBeLessThan(1);
+        await reader.page.evaluate(() => window.scrollTo(0, 0));
+        await expect.poll(() => reader.page.evaluate(() => window.scrollY)).toBe(0);
+        await expect(reader.page.locator('.reader-bar')).toBeInViewport();
+        if (captures)
+          await reader.page.screenshot({ path: `${captures}/reader-${width}-${theme}-top.png` });
+        await reader.page.evaluate(() => window.scrollTo(0, 1800));
+        await expect.poll(() => reader.page.evaluate(() => window.scrollY)).toBeGreaterThan(1000);
+        await expect(reader.page.locator('.reader-bar')).toBeInViewport();
+        expect(
+          Math.abs((await reader.page.locator('.reader-bar').boundingBox())?.y ?? Infinity),
+        ).toBeLessThan(1);
+        expect(
+          await frame.locator('html').evaluate((node) => node.ownerDocument.defaultView!.scrollY),
+        ).toBe(0);
+        if (captures)
+          await reader.page.screenshot({
+            path: `${captures}/reader-${width}-${theme}-scrolled.png`,
+          });
+      }
+    }
+    await reader.page.setViewportSize({ width: 1280, height: 900 });
+    await reader.page.evaluate(() => {
+      document.documentElement.dataset.theme = 'light';
+      window.scrollTo(0, 0);
+    });
+    const frameWidth = (await element.boundingBox())?.width;
+    const pageHeight = await reader.page.evaluate(() => document.documentElement.scrollHeight);
+    await reader.page.getByText('Info', { exact: true }).click();
+    await expect(reader.page.getByText('You are reading a shared page.')).toBeVisible();
+    expect((await element.boundingBox())?.width).toBe(frameWidth);
+    expect(await reader.page.evaluate(() => document.documentElement.scrollHeight)).toBe(
+      pageHeight,
+    );
+    await reader.page.getByText('Info', { exact: true }).click();
     await frame.getByRole('link', { name: 'Jump to reader anchor' }).click();
     await expect.poll(() => reader.page.evaluate(() => window.scrollY)).toBeGreaterThan(2000);
     expect(
