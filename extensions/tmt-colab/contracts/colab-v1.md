@@ -519,7 +519,8 @@ performs that registration. Anonymous root GET retains private-space guidance.
 Without owner context, exactly these static files are served (GET only, the same
 policy headers as owner responses): `/read` (the bytes of `reader.html`),
 `/renderer.html`, `/assets/reader.js`, `/assets/reader.css`, `/assets/reader-fold.js` and
-`/assets/recovery.js`. They are build-owned public bytes with no secret and no API. Every
+`/assets/recovery.js`, plus the native `/assets/chrome.css` stylesheet, which is also available
+without an app build. They are public static bytes with no secret and no API. Every
 other asset request without owner context, including `/index.html`, `/reader.html`,
 `/THIRD-PARTY-NOTICES.txt` and the hashed owner assets, returns 403. `/read` has no trailing
 slash so the entry's relative `./assets/` and `./renderer.html` references resolve under the mount. Unknown paths and owner

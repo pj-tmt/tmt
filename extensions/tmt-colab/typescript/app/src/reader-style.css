@@ -9,76 +9,20 @@ body {
   font: 16px/1.55 var(--f-body);
 }
 #root {
-  min-height: 100vh;
+  min-height: calc(100dvh - var(--colab-header-height));
   display: flex;
   flex-direction: column;
 }
-:root {
-  --reader-bar-size: 56px;
-}
-.reader-bar {
-  position: sticky;
-  top: env(safe-area-inset-top, 0px);
-  z-index: 30;
-  display: flex;
-  height: var(--reader-bar-size);
-  align-items: center;
-  gap: 12px;
-  min-width: 0;
-  padding: 0 20px;
-  border-bottom: 1px solid var(--c-rule);
-  background: var(--c-paper);
-}
-.reader-brand {
-  display: inline-flex;
-  align-items: baseline;
-  flex: none;
-  gap: 6px;
-  font: 600 14px/1 var(--f-display);
-  letter-spacing: -0.03em;
-}
-.reader-brand span,
 .notice-eyebrow,
 .chip,
-.status,
-.reader-information {
+.status {
   font-family: var(--f-mono);
-}
-.reader-brand span {
-  color: var(--c-muted);
-  font-size: 10px;
-  font-weight: 400;
-  letter-spacing: 0;
-}
-.reader-title {
-  flex: 1;
-  min-width: 0;
-  margin: 0;
-  overflow: hidden;
-  color: var(--c-text);
-  font: 600 18px/1.2 var(--f-display);
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 .reader-information {
   position: relative;
   flex: none;
   margin-left: auto;
   font-size: 11px;
-}
-.reader-information summary {
-  padding: 8px 0;
-  color: var(--c-text);
-  cursor: pointer;
-  list-style: none;
-}
-.reader-information summary::-webkit-details-marker {
-  display: none;
-}
-.reader-information summary:hover,
-.reader-information[open] summary {
-  text-decoration: underline;
-  text-underline-offset: 4px;
 }
 .reader-information-panel {
   position: absolute;
@@ -199,24 +143,6 @@ main {
   margin: 0;
   padding: 24px;
 }
-.guidance-masthead {
-  min-height: 62px;
-  display: flex;
-  align-items: center;
-  border-bottom: 2px solid var(--c-text);
-  padding: 10px clamp(20px, 4vw, 48px);
-  background: var(--c-sheet);
-}
-.guidance-brand {
-  font: 700 21px/1 var(--f-display);
-  letter-spacing: -0.03em;
-}
-.guidance-brand span {
-  margin-left: 10px;
-  color: var(--c-muted);
-  font: 12px var(--f-mono);
-  letter-spacing: 0;
-}
 .guidance-main {
   padding: clamp(44px, 11vh, 104px) 24px 64px;
 }
@@ -241,7 +167,7 @@ main {
   letter-spacing: 0.09em;
   text-transform: uppercase;
 }
-.guidance-card h1 {
+.guidance-card h2 {
   margin: 0 0 16px;
   font: 700 clamp(26px, 4vw, 36px)/1.15 var(--f-display);
   letter-spacing: -0.03em;
@@ -266,12 +192,9 @@ main {
   font: 13px var(--f-mono);
 }
 @media (max-width: 600px) {
-  .reader-bar {
-    gap: 8px;
-    padding: 0 12px;
-  }
-  .reader-title {
-    font-size: 14px;
+  .colab-actions > .chip,
+  .colab-actions > .status {
+    display: none;
   }
   .status {
     font-size: 11px;
@@ -292,4 +215,14 @@ main {
   .guidance-card {
     box-shadow: 4px 4px 0 var(--c-waiting);
   }
+}
+
+.notice.ended {
+  box-shadow: 6px 6px 0 var(--c-muted);
+}
+.notice.ended .notice-mark {
+  color: var(--c-muted);
+}
+.guidance-mark.live {
+  color: var(--c-working);
 }

@@ -2,6 +2,7 @@
 mod app_inventory;
 pub mod ask;
 pub mod assets;
+mod chrome;
 pub mod control;
 pub mod core;
 pub mod decoder;

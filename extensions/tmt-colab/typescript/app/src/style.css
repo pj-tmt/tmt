@@ -40,26 +40,6 @@ button[aria-pressed='true'] {
   outline: 2px solid var(--c-accent);
   outline-offset: 3px;
 }
-.masthead {
-  height: 68px;
-  display: flex;
-  align-items: center;
-  gap: 20px;
-  border-bottom: 1px solid var(--c-rule);
-  padding: 0 32px;
-}
-.brand {
-  display: flex;
-  align-items: baseline;
-  gap: 10px;
-  font-size: 20px;
-  font-weight: 600;
-  letter-spacing: -0.03em;
-}
-.brand span {
-  color: var(--c-muted);
-  font: 12px var(--f-mono);
-}
 .local,
 .eyebrow,
 .boundary,
@@ -67,17 +47,8 @@ button[aria-pressed='true'] {
   color: var(--c-muted);
   font: 11px var(--f-mono);
 }
-.local {
-  border-left: 1px solid var(--c-rule);
-  padding-left: 20px;
-}
-.theme {
-  margin-left: auto;
-  font-size: 18px;
-  padding: 3px 10px;
-}
 main {
-  min-height: calc(100vh - 125px);
+  min-height: calc(100dvh - var(--colab-header-height) - 57px);
 }
 footer {
   padding: 16px 32px;
@@ -113,30 +84,64 @@ footer {
   padding: 0;
   list-style: none;
 }
-.pages a,
-.archived-page {
+.page-card {
   display: flex;
   flex-direction: column;
-  align-items: flex-start;
-  gap: 20px;
+  min-width: 0;
   background: var(--c-sheet);
   border: 2px solid var(--c-text);
   box-shadow: 5px 5px 0 var(--c-text);
-  border-radius: 0;
   padding: 24px;
 }
-.pages a:hover {
+.page-card:has(.page-card-link:hover) {
   border-color: var(--c-accent);
+}
+.page-card-link,
+.archived-page {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 12px;
+}
+.page-id {
+  color: var(--c-muted);
+  font: 11px/1.5 var(--f-mono);
+}
+.page-card-actions {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 20px;
+  padding-top: 12px;
+  border-top: 1px solid var(--c-rule);
+  font-size: 12px;
+}
+.page-card-actions details {
+  min-width: 0;
+}
+.page-card-actions summary {
+  cursor: pointer;
+}
+.page-card-actions button {
+  padding: 0;
+  border: 0;
+  box-shadow: none;
+  background: transparent;
+  white-space: nowrap;
 }
 .page-mark {
   color: var(--c-muted);
-  font-size: 24px;
+  width: 24px;
+  height: 24px;
 }
 .pages h2 {
   color: var(--c-text);
   font-size: 18px;
   font-weight: 600;
-  margin: 10px 0 0;
+  margin: 0;
+  overflow-wrap: anywhere;
 }
 .chip {
   font: 11px var(--f-mono);
@@ -164,41 +169,11 @@ footer {
   width: 100%;
   justify-content: space-between;
 }
-:root {
-  --page-bar-size: 56px;
-}
 .page-main {
   min-height: 0;
 }
 .page {
-  padding: calc(var(--page-bar-size) + env(safe-area-inset-top, 0px)) 0 0;
-  min-height: 100dvh;
-}
-.page-bar {
-  position: fixed;
-  left: 0;
-  right: 0;
-  height: var(--page-bar-size);
-  top: env(safe-area-inset-top, 0px);
-  z-index: 30;
-  display: flex;
-  align-items: center;
-  flex-wrap: nowrap;
-  gap: 12px;
-  padding: 0 20px;
-  background: var(--c-paper);
-  border-bottom: 1px solid var(--c-rule);
-  min-width: 0;
-}
-.page-bar h1 {
-  font-size: 18px;
-  font-weight: 600;
-  margin: 0;
-  min-width: 0;
-  flex: 1;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  min-height: calc(100dvh - var(--colab-header-height));
 }
 .page-backend {
   max-width: 180px;
@@ -209,8 +184,6 @@ footer {
   color: var(--c-muted);
   font: 11px var(--f-mono);
 }
-.page-bar button,
-.page-bar .page-information summary,
 .drawer-bar button {
   color: var(--c-text);
   background: transparent;
@@ -219,23 +192,14 @@ footer {
   white-space: nowrap;
   padding: 7px 8px;
 }
-.page-bar button:hover:not(:disabled),
-.page-bar .page-information summary:hover,
 .drawer-bar button:hover {
   text-decoration: underline;
   text-underline-offset: 4px;
 }
-.page-bar button[aria-expanded='true'],
-.page-bar button[aria-pressed='true'],
-.page-bar .page-information[open] summary {
-  background: transparent;
-  text-decoration: underline 2px var(--c-text);
-  text-underline-offset: 5px;
-}
-.page-bar .export-control {
+.colab-header .export-control {
   margin: 0;
 }
-.page-bar .export-control button:disabled {
+.colab-header .export-control button:disabled {
   opacity: 1;
   color: var(--c-muted);
   cursor: default;
@@ -250,29 +214,13 @@ footer {
   font-size: 20px;
   line-height: 1;
 }
-.back {
-  font-size: 22px;
-  display: flex;
-  align-items: center;
-  white-space: nowrap;
-}
-.page-tmt {
-  color: var(--c-muted);
-  font: 10px var(--f-mono);
-  margin-left: 6px;
-}
-.page-brand {
-  font-size: 14px;
-  font-weight: 600;
-  margin-left: 8px;
-}
 .status {
   color: var(--c-muted);
   font-size: 12px;
   white-space: nowrap;
 }
-.live > span:first-child {
-  color: var(--c-accent);
+.live svg {
+  color: var(--c-working);
 }
 .status-label {
   margin-left: 6px;
@@ -375,21 +323,13 @@ footer {
   margin-top: 24px;
 }
 @media (max-width: 1100px) {
-  .page-bar {
-    gap: 8px;
-    padding: 0 12px;
-  }
-  .page-bar button {
-    font-size: 12px;
-    padding: 8px 0;
-  }
   .page-overflow-toggle {
     display: block;
   }
   .page-secondary {
     display: none;
   }
-  .page-bar[data-menu-open='true'] .page-secondary {
+  .colab-header[data-menu-open='true'] .page-secondary {
     display: flex;
     position: fixed;
     top: calc(var(--page-bar-size) + env(safe-area-inset-top, 0px));
@@ -431,10 +371,6 @@ footer {
     border: 0;
     padding: 6px 0;
   }
-  .page-secondary .theme-symbol,
-  .page-secondary .info-symbol {
-    display: none;
-  }
   .page-secondary .theme-label,
   .page-secondary .info-label {
     display: inline;
@@ -442,17 +378,15 @@ footer {
   .page-secondary .theme {
     margin: 0;
   }
-  .page-bar h1 {
-    font-size: 15px;
-  }
-  .page-bar .chip {
+  .colab-header .chip {
     padding: 3px 5px;
     font-size: 10px;
   }
 }
 @media (max-width: 640px) {
-  .page-bar > .page-backend,
-  .page-bar > .page-sharing {
+  .colab-actions > .page-backend,
+  .colab-actions > .page-sharing,
+  .colab-actions > .status {
     display: none;
   }
   .page-menu-meta {
@@ -465,10 +399,6 @@ footer {
   .page-menu-meta span {
     padding: 10px 0;
     overflow-wrap: anywhere;
-  }
-  .page-bar {
-    gap: 6px;
-    padding: 0 10px;
   }
   .page-drawer,
   .page-drawer[data-panel='source'] {

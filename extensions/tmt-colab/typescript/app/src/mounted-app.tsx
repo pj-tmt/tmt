@@ -80,9 +80,25 @@ export function MountedApp() {
     };
   }, []);
   if (state === 'ready' && router) return <RouterProvider router={router} />;
+  return <MountedNotice state={state} useHere={useHere} />;
+}
+
+/** Presentation shared by the mounted lifecycle and the screen layout fixture. */
+export function MountedNotice({
+  state,
+  useHere,
+}: {
+  state: 'loading' | 'inactive' | 'failed' | 'ready';
+  useHere: (() => void) | null;
+}) {
   return (
     <>
-      <AppHeader linked={false} />
+      <AppHeader
+        linked={false}
+        title={
+          state === 'inactive' ? 'Another tab' : state === 'failed' ? text.error : 'Opening space'
+        }
+      />
       <main
         className="notice"
         role={state === 'failed' ? 'alert' : 'status'}

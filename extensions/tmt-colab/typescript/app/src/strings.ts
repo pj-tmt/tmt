@@ -1,6 +1,6 @@
 /** English chrome catalog; page content and fixture text are not UI strings. */
 export const text = {
-  unknownPageTitle: 'Untitled, not opened in this browser yet',
+  unknownPageTitle: 'Untitled page',
   askShort: 'Ask',
   comments: 'Comments',
   commentSelection: 'Comment on selection',

@@ -14,7 +14,7 @@ use std::{
 pub const DEFAULT_DIRECTORY: &str =
     concat!(env!("CARGO_MANIFEST_DIR"), "/../../typescript/app/dist");
 pub const BUILD_HINT: &str =
-    "build the app: corepack pnpm --dir typescript --filter @tmt/colab-app build";
+    "Build the app: corepack pnpm --dir typescript --filter @tmt/colab-app build";
 /// Trusted chrome admits only build-owned scripts and styles.
 pub const POLICY: &str = "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'self'; worker-src 'self'; frame-src 'self'; base-uri 'none'; form-action 'none'; object-src 'none'; frame-ancestors 'none'";
 
@@ -34,6 +34,7 @@ pub fn anonymous_file(path: &str) -> Option<&'static str> {
         "/assets/reader.css" => "/assets/reader.css",
         "/assets/reader-fold.js" => "/assets/reader-fold.js",
         "/assets/recovery.js" => "/assets/recovery.js",
+        "/assets/chrome.css" => "/assets/chrome.css",
         _ => return None,
     })
 }

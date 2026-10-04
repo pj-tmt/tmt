@@ -749,9 +749,9 @@ test.describe('relative retention evidence', () => {
     await page.goto(mount);
     const row = page.locator('.pages li').filter({ hasText: pageId });
     const hint = row.locator('.retention-hint');
-    await expect(row.getByRole('link').locator('.retention-hint')).toHaveText('◷expires in 6 days');
+    await expect(hint).toHaveText('expires in 6 days');
     await expect(hint).toHaveAttribute('title', 'Sat 10-10 21:34');
-    await expect(hint.locator('.retention-mark')).toHaveText('◷');
+    await expect(hint.locator('.retention-mark .lucide-clock')).toHaveClass(/lucide-clock/);
     await expect(hint).toHaveCSS(
       'color',
       await page.locator('body').evaluate((node) => getComputedStyle(node).color),
@@ -769,7 +769,7 @@ test.describe('relative retention evidence', () => {
           fullPage: true,
         });
         await row.getByRole('button', { name: 'Manage page' }).click();
-        await expect(dialog.locator('.retention-hint')).toHaveText('◷expires in 6 days');
+        await expect(dialog.locator('.retention-hint')).toHaveText('expires in 6 days');
         await expect(dialog.locator('.retention-hint')).toHaveAttribute('title', 'Sat 10-10 21:34');
         await dialog.getByText('Details', { exact: true }).click();
         await expect(dialog).toContainText('Last edit: Thu 09-10 21:34');
@@ -790,7 +790,7 @@ test.describe('relative retention evidence', () => {
     now = expires + 2 * 86400000;
     await page.clock.setFixedTime(now);
     await page.reload();
-    await expect(hint).toHaveText('◷expired 2 days ago');
+    await expect(hint).toHaveText('expired 2 days ago');
     await expect(row.getByRole('link')).toBeVisible();
     await row.getByRole('button', { name: 'Manage page' }).click();
     await expect(dialog.locator('.retention-hint')).toContainText('expired 2 days ago');
@@ -801,7 +801,7 @@ test.describe('relative retention evidence', () => {
     await page.clock.setFixedTime(now);
     await page.reload();
     await expect(hint).toHaveText('expires in 10 days');
-    await expect(hint.locator('.retention-mark')).toHaveCount(0);
+    await expect(hint.locator('.retention-mark .lucide-clock')).toHaveCount(0);
     await expect(hint).toHaveCSS(
       'color',
       await page.locator('.intro').evaluate((node) => getComputedStyle(node).color),

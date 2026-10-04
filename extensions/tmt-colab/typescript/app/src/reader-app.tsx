@@ -1,3 +1,5 @@
+import { Circle, Info, LoaderCircle, X } from 'lucide-react';
+import { ColabHeader } from './colab-header.js';
 import { useEffect, useRef, useState } from 'react';
 import { mountRenderer, type RenderState } from './renderer.js';
 import { text } from './strings.js';
@@ -25,7 +27,7 @@ export function ReaderApp({ state }: { state: ReaderState }) {
       signal: controller.signal,
       onState: setRender,
       viewportInset: () =>
-        (bar.current?.offsetHeight ?? 56) + (bar.current?.getBoundingClientRect().top ?? 0),
+        (bar.current?.offsetHeight ?? 0) + (bar.current?.getBoundingClientRect().top ?? 0),
     }).catch(() => {
       if (!controller.signal.aborted) setRender('failed');
     });
@@ -33,36 +35,53 @@ export function ReaderApp({ state }: { state: ReaderState }) {
   }, [source]);
   return (
     <>
-      <header className="reader-bar" ref={bar}>
-        <span className="reader-brand">
-          {text.product}
-          <span>tmt</span>
-        </span>
-        {state.kind === 'ready' && (
+      <ColabHeader
+        headerRef={bar}
+        title={
+          state.kind === 'ready'
+            ? title || text.unknownPageTitle
+            : state.kind === 'opening'
+              ? 'Opening page'
+              : state.kind === 'ended'
+                ? text.readerEnded
+                : text.error
+        }
+        actions={
           <>
-            <h1 className="reader-title">{title}</h1>
-            <span className="chip">{text.readerOnly}</span>
-            <span
-              className={`status ${render === 'ready' ? 'live' : render === 'loading' ? 'waiting' : 'blocked'}`}
-              role="status"
-            >
-              <span aria-hidden>{render === 'ready' ? '●' : render === 'loading' ? '○' : '✗'}</span>{' '}
-              {render === 'ready'
-                ? text.readerLive
-                : render === 'loading'
-                  ? text.readerLoading
-                  : text.readerStopped}
-            </span>
+            {state.kind === 'ready' && (
+              <>
+                <span className="chip">{text.readerOnly}</span>
+                <span
+                  className={`status ${render === 'ready' ? 'live' : render === 'loading' ? 'waiting' : 'blocked'}`}
+                  role="status"
+                >
+                  {render === 'ready' ? (
+                    <Circle fill="currentColor" aria-hidden />
+                  ) : render === 'loading' ? (
+                    <LoaderCircle aria-hidden />
+                  ) : (
+                    <X aria-hidden />
+                  )}{' '}
+                  {render === 'ready'
+                    ? text.readerLive
+                    : render === 'loading'
+                      ? text.readerLoading
+                      : text.readerStopped}
+                </span>
+              </>
+            )}
+            <details className="reader-information">
+              <summary aria-label={text.readerInfo}>
+                <Info aria-hidden />
+              </summary>
+              <div className="reader-information-panel">
+                <p>{text.readerNote}</p>
+                <p>{text.warning}</p>
+              </div>
+            </details>
           </>
-        )}
-        <details className="reader-information">
-          <summary>{text.readerInfo}</summary>
-          <div className="reader-information-panel">
-            <p>{text.readerNote}</p>
-            <p>{text.warning}</p>
-          </div>
-        </details>
-      </header>
+        }
+      />
       <main>
         {state.kind === 'ready' ? (
           <section className="page">
@@ -72,7 +91,7 @@ export function ReaderApp({ state }: { state: ReaderState }) {
                 {(render === 'navigation' || render === 'failed') && (
                   <div className="notice blocked" role="alert">
                     <span className="notice-mark" aria-hidden>
-                      ✗
+                      <X aria-hidden />
                     </span>
                     <h2>{text.blocked}</h2>
                     <p>{render === 'navigation' ? text.navigation : text.failed}</p>
@@ -84,20 +103,26 @@ export function ReaderApp({ state }: { state: ReaderState }) {
           </section>
         ) : (
           <section
-            className={`notice ${state.kind === 'opening' ? 'waiting' : 'blocked'}`}
+            className={`notice ${state.kind === 'opening' ? 'waiting' : state.kind === 'ended' ? 'ended' : 'blocked'}`}
             role={state.kind === 'opening' ? 'status' : 'alert'}
           >
             <span className="notice-mark" aria-hidden>
-              {state.kind === 'opening' ? '○' : '✗'}
+              {state.kind === 'opening' ? (
+                <LoaderCircle aria-hidden />
+              ) : state.kind === 'ended' ? (
+                <Circle aria-hidden />
+              ) : (
+                <X aria-hidden />
+              )}
             </span>
             <p className="notice-eyebrow">{text.readerOnly}</p>
-            <h1>
+            <h2>
               {state.kind === 'opening'
                 ? text.readerOpening
                 : state.kind === 'ended'
                   ? text.readerEnded
                   : text.error}
-            </h1>
+            </h2>
             {state.kind === 'ended' && <p>{text.readerEndedNote}</p>}
             {state.kind === 'invalid' && <p>{text.readerInvalid}</p>}
             {state.kind === 'failed' && <p>{text.readerFailed}</p>}

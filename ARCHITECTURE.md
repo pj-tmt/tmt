@@ -51,8 +51,8 @@ tracked-file guard. Handbook language exceptions belong to
 [AGENTS](AGENTS.md#repository-content-language) and the allowlist.
 
 Shared visual tokens have one owner, `design/tokens/tokens.json`, maintained by
-the design lead. Its Vite projection and Rust CLI theme tests consume the same
-source. Release procedures belong to the
+the design lead. Its Vite projection, Rust CLI theme tests and native Colab guidance consume the same
+source. Colab projects its header metrics into React and static native CSS from these tokens. Release procedures belong to the
 [release skill](.agents/skills/tmt-release/SKILL.md), including the archive's
 product-neutral `rust/archive/NATIVE-INSTALL.md`.
 

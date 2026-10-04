@@ -180,19 +180,94 @@ fn closed(socket: &mut UnixStream) -> bool {
 }
 
 #[test]
+#[ignore = "Invoked explicitly by the cross-screen browser chrome test"]
+fn chrome_browser_responses() {
+    let directory =
+        PathBuf::from(std::env::var_os("COLAB_CHROME_FIXTURE_DIR").expect("fixture directory"));
+    assert!(directory.is_absolute() && directory.is_dir());
+    let server = Running::start(Tunnels::PRODUCT);
+    let responses = [
+        ("private", server.request(&Running::get("/", ""))),
+        (
+            "owner",
+            server.request(&Running::get(
+                "/",
+                &format!("{}\r\n", owner(DEVICE).replace("<b>Laptop</b>", "Laptop")),
+            )),
+        ),
+        (
+            "css",
+            server.request(&Running::get("/assets/chrome.css", "")),
+        ),
+    ];
+    for (name, response) in responses {
+        let (head, body) = response.split_once("\r\n\r\n").unwrap();
+        assert!(head.starts_with("HTTP/1.1 200"));
+        let headers: std::collections::BTreeMap<_, _> = head
+            .lines()
+            .skip(1)
+            .map(|line| {
+                let (key, value) = line.split_once(": ").unwrap();
+                (key.to_ascii_lowercase(), value)
+            })
+            .collect();
+        fs::write(
+            directory.join(format!("{name}.json")),
+            serde_json::to_vec(&json!({"headers":headers,"body":body})).unwrap(),
+        )
+        .unwrap();
+    }
+    drop(server);
+}
+
+#[test]
 fn pages_follow_the_forwarded_owner_context_within_the_door_bounds() {
     let server = Running::start(Tunnels::PRODUCT);
     let private = server.request(&Running::get("/", ""));
     assert!(private.starts_with("HTTP/1.1 200"));
     assert!(private.contains("<title>Colab</title>"));
-    assert!(private.contains("<h1>Pair this browser first</h1>"));
+    assert!(private.contains("<h2>Pair this browser first</h2>"));
     assert!(private.contains("This colab space is private. Pair this browser with"));
     assert!(private.contains("<code>tmt remote pair</code>"));
     assert!(private.contains("or open a share link."));
     assert!(private.contains("<main class=\"guidance-main\">"));
     assert!(!private.contains("./assets/reader.css"));
+    assert!(private.contains("./assets/chrome.css"));
+    assert!(private.contains("class=\"colab-header\""));
+    let chrome = server.request(&Running::get("/assets/chrome.css", ""));
+    assert!(chrome.starts_with("HTTP/1.1 200"));
+    assert!(chrome.contains("Content-Type: text/css; charset=utf-8"));
+    assert!(chrome.contains(&format!(
+        "Content-Security-Policy: {}",
+        tmt_colab::assets::POLICY
+    )));
+    assert!(chrome.contains("Referrer-Policy: no-referrer"));
+    assert!(chrome.contains("X-Content-Type-Options: nosniff"));
+    assert!(chrome.contains("Cache-Control: no-store"));
+    assert!(chrome.contains("--colab-header-height:56px"));
+    assert!(chrome.contains(".colab-header"));
+    assert_eq!(
+        tmt_colab::assets::anonymous_file("/assets/chrome.css"),
+        Some("/assets/chrome.css")
+    );
+    assert_eq!(
+        chrome,
+        server.request(&Running::get("/assets/chrome.css", ""))
+    );
+    assert!(
+        server
+            .request(
+                "POST /assets/chrome.css HTTP/1.1\r\nHost: localhost\r\nContent-Length: 0\r\n\r\n"
+            )
+            .starts_with("HTTP/1.1 403")
+    );
     assert!(private.contains("Referrer-Policy: no-referrer"));
     assert!(private.contains("Content-Security-Policy: default-src 'none'"));
+    assert!(private.contains(&format!(
+        "Content-Security-Policy: {}\r\n",
+        tmt_colab::assets::POLICY
+    )));
+    assert!(!private.contains("unsafe-inline"));
     let owner_header = owner(DEVICE);
     let owned = server.request(&Running::get("/", &format!("{owner_header}\r\n")));
     assert!(owned.contains(&format!(
@@ -1661,11 +1736,11 @@ fn owner_static_assets_have_exact_bytes_types_and_no_filesystem_path_resolution(
     }
     let guidance = server.request(&Running::get("/", ""));
     assert!(guidance.contains("This colab space is private"));
-    assert!(guidance.contains("<span class=\"guidance-brand\">Colab <span>tmt</span></span>"));
-    assert!(guidance.contains("<span class=\"guidance-mark\" aria-hidden=\"true\">○</span>"));
-    assert!(guidance.contains("<h1>Pair this browser first</h1>"));
+    assert!(guidance.contains("<span class=\"colab-brand\"><span class=\"colab-mark\">tmt</span><span class=\"colab-wordmark\">Colab</span></span>"));
+    assert!(guidance.contains("<svg class=\"guidance-mark lucide\""));
+    assert!(guidance.contains("<h2>Pair this browser first</h2>"));
     assert!(guidance.contains("<code>tmt remote pair</code>"));
-    assert!(guidance.contains("<link rel=\"stylesheet\" href=\"./assets/reader.css\">"));
+    assert!(guidance.contains("<link rel=\"stylesheet\" href=\"./assets/chrome.css\">"));
     assert!(guidance.contains("<main class=\"guidance-main\">"));
     assert!(
         guidance.contains("id=\"colab-recovery-status\" class=\"guidance-status\" role=\"status\"")
