@@ -6,14 +6,12 @@
       "plan": {
         "steps": ["uses:actions/checkout@v4", "uses:actions/setup-node@v4", "id:plan"],
         "sha256": "62740008dab2b6f1731cd2c02bba1ff1ceac7fbdddb167b5e150e7cf178c09bd",
-        "releaseOnly": "Preparation and draft/recovery admission are main-only. No PR counterpart resolves live draft state; tagless PR preparation is deferred to #1581 rehearsal.",
-        "followUp": 1581
+        "releaseOnly": "Preparation and draft/recovery admission are main-only: this job resolves live draft and release state that cannot exist before publication. Tagless preparation itself runs before merge through the release rehearsal, which skips this planning."
       },
       "bundle": {
         "steps": ["uses:./.github/workflows/native-release-bundle.yml"],
         "sha256": "97e540892c8e36b07380c41ce965db1b0088be3b5f82dd87859eeb9ceea8d48c",
-        "releaseOnly": "The complete per-product four-host pipeline is not called before merge. Its child jobs are inventoried separately; selected PR preparation is deferred to #1581 rehearsal.",
-        "followUp": 1581
+        "releaseOnly": "The bundle call adds draft admission, attachment and publication to the prepare stages; those stages are inventoried under native-release-bundle.yml and native-release-prepare.yml, where the prepare jobs have a pre-merge rehearsal and the publishing jobs carry their own entries."
       }
     },
     "native-release-bundle.yml": {
@@ -25,8 +23,19 @@
       "prepare": {
         "steps": ["uses:./.github/workflows/native-release-prepare.yml"],
         "sha256": "eb461961f8ef7e5fe2087cebd55840725f5f46ec5f803a912b75e7041ccb305f",
-        "releaseOnly": "Draft admission (check) and the main-only condition gate this call; its jobs are inventoried under native-release-prepare.yml. Before merge, ci.yml's release-rehearsal job runs the same prepare workflow for the products whose release inputs a PR changes (never in the merge group) and release-rehearsal.yml runs every active product nightly on main; mapping these rows to that counterpart is deferred to #1581 B3.",
-        "followUp": 1581
+        "preMerge": [
+          {
+            "workflow": "ci.yml",
+            "job": "release-rehearsal",
+            "selection": {
+              "kind": "ci-scope",
+              "output": "release_rehearsal",
+              "value": "true",
+              "source": "typescript/scripts/release-rehearsal.mjs"
+            },
+            "coverage": "runtime"
+          }
+        ]
       },
       "attach": {
         "steps": [
@@ -124,8 +133,19 @@
           "uses:actions/upload-artifact@v4"
         ],
         "sha256": "c9cb8b9d3590e797363b6552c6d9c5bf77cd887d1720dd532cd431bcc8c67ea5",
-        "releaseOnly": "The injection PR workflow builds synthetic archives on four hosts for its own narrow workflow paths. It does not select the full release packaging input set; affected-product preparation is deferred to #1581 rehearsal.",
-        "followUp": 1581
+        "preMerge": [
+          {
+            "workflow": "ci.yml",
+            "job": "release-rehearsal",
+            "selection": {
+              "kind": "ci-scope",
+              "output": "release_rehearsal",
+              "value": "true",
+              "source": "typescript/scripts/release-rehearsal.mjs"
+            },
+            "coverage": "runtime"
+          }
+        ]
       },
       "assemble": {
         "steps": [
@@ -142,8 +162,19 @@
           "uses:actions/upload-artifact@v4"
         ],
         "sha256": "1b7a985d2a077634142ab562526fd5cd819e0c21114a352e292e36762bd090c4",
-        "releaseOnly": "No PR job merges all four cargo-dist target manifests, generates the complete bootstrap and checks the version-only source contract on that final bundle. Shared preparation is deferred to #1581 rehearsal.",
-        "followUp": 1581
+        "preMerge": [
+          {
+            "workflow": "ci.yml",
+            "job": "release-rehearsal",
+            "selection": {
+              "kind": "ci-scope",
+              "output": "release_rehearsal",
+              "value": "true",
+              "source": "typescript/scripts/release-rehearsal.mjs"
+            },
+            "coverage": "runtime"
+          }
+        ]
       },
       "verify": {
         "steps": [
@@ -161,8 +192,19 @@
           "name:Recheck version-only source after this stage"
         ],
         "sha256": "28fb80f4c56529d06918a282616da88dd5a57688838a61ca84c2e676615b33da",
-        "releaseOnly": "Raw runtime/injection PR proofs do not execute the assembled final bundle on four hosts. Independent Colab frontend comparison, combined notices and Rosetta final verification are deferred to #1581 rehearsal.",
-        "followUp": 1581
+        "preMerge": [
+          {
+            "workflow": "ci.yml",
+            "job": "release-rehearsal",
+            "selection": {
+              "kind": "ci-scope",
+              "output": "release_rehearsal",
+              "value": "true",
+              "source": "typescript/scripts/release-rehearsal.mjs"
+            },
+            "coverage": "runtime"
+          }
+        ]
       }
     },
     "native-release-upgrade.yml": {
@@ -371,8 +413,19 @@
         "job": "verify",
         "step": "name:Execute final archive and bootstrap with the matching target process"
       },
-      "releaseOnly": "Existing injection PR builds verify archive versions but do not execute the complete Intel final verifier process tree after injection under Rosetta. The matching-host shared final-bundle rehearsal remains required.",
-      "followUp": 1581
+      "preMerge": [
+        {
+          "workflow": "ci.yml",
+          "job": "release-rehearsal",
+          "selection": {
+            "kind": "ci-scope",
+            "output": "release_rehearsal",
+            "value": "true",
+            "source": "typescript/scripts/release-rehearsal.mjs"
+          },
+          "coverage": "runtime"
+        }
+      ]
     },
     "1541": {
       "release": {
@@ -380,8 +433,19 @@
         "job": "verify",
         "step": "name:Build independent expected Colab app bytes"
       },
-      "releaseOnly": "PR Code quality builds the real Colab app and checks entry dependencies (#1604); it does not rebuild independent expected bytes and compare them with a released final archive on all matching hosts.",
-      "followUp": 1581
+      "preMerge": [
+        {
+          "workflow": "ci.yml",
+          "job": "release-rehearsal",
+          "selection": {
+            "kind": "ci-scope",
+            "output": "release_rehearsal",
+            "value": "true",
+            "source": "typescript/scripts/release-rehearsal.mjs"
+          },
+          "coverage": "runtime"
+        }
+      ]
     },
     "1542": {
       "release": {
@@ -422,8 +486,95 @@
             "value": "true"
           },
           "coverage": "runtime"
+        },
+        {
+          "workflow": "ci.yml",
+          "job": "release-rehearsal",
+          "selection": {
+            "kind": "ci-scope",
+            "output": "release_rehearsal",
+            "value": "true",
+            "source": "typescript/scripts/release-rehearsal.mjs"
+          },
+          "coverage": "runtime"
         }
       ]
+    },
+    "1593": {
+      "release": {
+        "workflow": "native-release-bundle.yml",
+        "job": "project-release",
+        "step": "name:Dispatch the full Project sweep"
+      },
+      "releaseOnly": "Project readback drift needs live GitHub Project state after publication; the diagnosis and one-time reconciliation retry are covered by the project-release tests, but no pre-merge job can reproduce live drift."
+    },
+    "1604": {
+      "release": {
+        "workflow": "native-release-prepare.yml",
+        "job": "verify",
+        "step": "name:Execute final archive and bootstrap with the matching target process"
+      },
+      "preMerge": [
+        {
+          "workflow": "ci.yml",
+          "job": "release-rehearsal",
+          "selection": {
+            "kind": "ci-scope",
+            "output": "release_rehearsal",
+            "value": "true",
+            "source": "typescript/scripts/release-rehearsal.mjs"
+          },
+          "coverage": "runtime"
+        }
+      ]
+    },
+    "1616": {
+      "release": {
+        "workflow": "native-release-prepare.yml",
+        "job": "verify",
+        "step": "id:version"
+      },
+      "preMerge": [
+        {
+          "workflow": "ci.yml",
+          "job": "release-rehearsal",
+          "selection": {
+            "kind": "ci-scope",
+            "output": "release_rehearsal",
+            "value": "true",
+            "source": "typescript/scripts/release-rehearsal.mjs"
+          },
+          "coverage": "runtime"
+        }
+      ]
+    },
+    "1646": {
+      "release": {
+        "workflow": "native-release-prepare.yml",
+        "job": "verify",
+        "step": "id:version"
+      },
+      "preMerge": [
+        {
+          "workflow": "ci.yml",
+          "job": "release-rehearsal",
+          "selection": {
+            "kind": "ci-scope",
+            "output": "release_rehearsal",
+            "value": "true",
+            "source": "typescript/scripts/release-rehearsal.mjs"
+          },
+          "coverage": "runtime"
+        }
+      ]
+    },
+    "1661": {
+      "release": {
+        "workflow": "native-release-bundle.yml",
+        "job": "project-release",
+        "step": "name:Dispatch the full Project sweep"
+      },
+      "releaseOnly": "The race is between a sweep's tag fetch and a sibling product publishing seconds later, which cannot occur before publication; injected and real-git tests cover the fetch-and-revalidate path."
     }
   }
 }
