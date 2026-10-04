@@ -137,19 +137,20 @@ pub(super) fn hints(app: &App, width: usize) -> String {
         hints.push(crate::status::UNKNOWN_YOU.to_owned());
     }
     if let Some((base, oldest)) = waiting {
-        let minimum = [base.as_str(), "? more", "q quit"]
-            .into_iter()
-            .chain(
-                hints
-                    .iter()
-                    .filter(|hint| hint.ends_with(" ask lead"))
-                    .map(String::as_str),
-            )
+        // Reserve the existing row actions through refresh before spending
+        // space on the optional oldest label; secondary tail hints keep their
+        // established whole-hint fitting priority.
+        let reserved = hints
+            .iter()
+            .position(|hint| hint == "ctrl-r refresh")
+            .map_or(hints.len().min(7), |index| index + 1);
+        let minimum = std::iter::once(base.as_str())
+            .chain(hints.iter().take(reserved).map(String::as_str))
             .collect::<Vec<_>>()
             .join("  ")
             .width();
         let summary = oldest
-            .filter(|oldest| minimum + oldest.width().saturating_sub(base.width()) + 10 <= width)
+            .filter(|oldest| minimum + oldest.width().saturating_sub(base.width()) <= width)
             .unwrap_or(base);
         hints.insert(0, summary);
     }
