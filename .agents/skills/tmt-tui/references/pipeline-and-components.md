@@ -34,8 +34,9 @@ Maintained module reference. Commands and admitted spellings are in [development
    ellipsize already measured lines without rewrapping (end or middle); a wide
    grapheme crossing a clip edge leaves styled blanks. Theme and Depth are
    injected; roles inherit and resolve through the shared screen adapter. The
-   caller supplies the complete selected-role style, so selection policy stays
-   with the application.
+   caller supplies the complete selected-role style, or `paint_with`'s preorder-indexed
+   callback for the full style and text alignment; selection policy stays with the
+   application.
 5. **Hits**: hits borrow scoped IDs and semantic row IDs, inherit identity,
    intersect visible buffer clips, omit zero areas and resolve in reverse paint
    order.
