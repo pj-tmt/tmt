@@ -27,6 +27,10 @@ const { selectNativeArtifact, withNativeArtifact } = (await import(
   ) => Promise<T>;
 };
 
+const { shipsSkills } = (await import(
+  new URL('../../scripts/component-skills.mjs', import.meta.url).href
+)) as { shipsSkills: (product: string) => boolean };
+
 const REQUIRED_FILES = ['tmt', 'LICENSE', 'NATIVE-INSTALL.md', 'THIRD-PARTY-NOTICES.txt'];
 /** Product::companions(): executables a product's archive carries beside its own. */
 const COMPANIONS: Record<
@@ -54,7 +58,7 @@ interface ArchiveOptions {
   readonly product?: 'cli' | 'office' | 'squad' | 'remote' | 'colab' | 'driver-herdr';
   /** Files under `skills/`, by path relative to it. */
   readonly skills?: Record<string, string>;
-  /** Whether the manifest declares the `skills` asset (default: when Squad). */
+  /** Whether the manifest declares the `skills` asset (default: component skills declaration). */
   readonly declareSkills?: boolean;
   readonly skillLink?: boolean;
   readonly duplicate?: string;
@@ -111,7 +115,11 @@ async function createArchiveFixture(
       file === executable || (companions.includes(file) && options.companionExecutable !== false);
     fs.writeFileSync(target, `${file} fixture\n`, { mode: runs ? 0o755 : 0o644 });
   }
-  for (const [file, content] of Object.entries(options.skills ?? {})) {
+  const product = options.product ?? 'cli';
+  const skills =
+    options.skills ??
+    (shipsSkills(product) ? { [`tmt-${product}/SKILL.md`]: 'agent skill\n' } : {});
+  for (const [file, content] of Object.entries(skills)) {
     fs.mkdirSync(path.dirname(path.join(root, 'skills', file)), { recursive: true });
     fs.writeFileSync(path.join(root, 'skills', file), content);
   }
@@ -168,7 +176,7 @@ async function createArchiveFixture(
           ...files.filter(
             (file) => options.declareCompanions !== false || !companions.includes(file)
           ),
-          ...((options.declareSkills ?? options.product === 'squad') ? ['skills'] : []),
+          ...((options.declareSkills ?? shipsSkills(options.product ?? 'cli')) ? ['skills'] : []),
         ].map((file) => ({ path: file })),
       },
     },
@@ -195,7 +203,7 @@ function withArtifactMetadata(sha256: string): NativeArtifact {
 }
 
 describe('native artifact policy', () => {
-  it.each(['remote', 'colab'] as const)(
+  it.each(['remote'] as const)(
     'verifies %s without skills or companions and rejects another product or missing executable',
     async (product) => {
       await withSandbox(async (sandbox) => {
@@ -227,50 +235,53 @@ describe('native artifact policy', () => {
       });
     }
   );
-  it('verifies a Squad archive with its declared skills tree and rejects any other tree', async () => {
-    await withSandbox(async (sandbox) => {
-      const skills = {
-        'tmt-squad/SKILL.md': 'lead skill\n',
-        'tmt-squad/references/usage.md': 'usage\n',
-      };
-      const squad = await createArchiveFixture(sandbox, { product: 'squad', skills });
-      await withNativeArtifact(squad.archiveFile, squad.metadata, (root) => {
-        expect(fs.readdirSync(root).sort()).toEqual([
-          'LICENSE',
-          'NATIVE-INSTALL.md',
-          'THIRD-PARTY-NOTICES.txt',
-          'skills',
-          'tmt-squad',
-        ]);
-        expect(
-          fs.readFileSync(path.join(root, 'skills/tmt-squad/references/usage.md'), 'utf8')
-        ).toBe('usage\n');
+  it.each(['squad', 'colab'] as const)(
+    'verifies a %s archive with its declared skills tree and rejects missing or malformed trees',
+    async (product) => {
+      await withSandbox(async (sandbox) => {
+        const skills = {
+          [`tmt-${product}/SKILL.md`]: 'lead skill\n',
+          [`tmt-${product}/references/usage.md`]: 'usage\n',
+        };
+        const squad = await createArchiveFixture(sandbox, { product, skills });
+        await withNativeArtifact(squad.archiveFile, squad.metadata, (root) => {
+          expect(fs.readdirSync(root).sort()).toEqual([
+            'LICENSE',
+            'NATIVE-INSTALL.md',
+            'THIRD-PARTY-NOTICES.txt',
+            'skills',
+            `tmt-${product}`,
+          ]);
+          expect(
+            fs.readFileSync(path.join(root, `skills/tmt-${product}/references/usage.md`), 'utf8')
+          ).toBe('usage\n');
+        });
+        // The declared component requires its tree; the CLI may not carry an extension tree.
+        await expect(
+          createArchiveFixture(sandbox, { product, skills, declareSkills: false })
+        ).rejects.toThrow('Manifest must describe exactly the native runtime files');
+        const cli = await createArchiveFixture(sandbox, { skills });
+        await expect(
+          withNativeArtifact(cli.archiveFile, cli.metadata, () => undefined)
+        ).rejects.toThrow('Unexpected native archive entry');
+        const empty = await createArchiveFixture(sandbox, { product, skills: {} });
+        await expect(
+          withNativeArtifact(empty.archiveFile, empty.metadata, () => undefined)
+        ).rejects.toThrow('Native archive declares skills but carries none');
+        const linked = await createArchiveFixture(sandbox, {
+          product,
+          skills,
+          skillLink: true,
+        });
+        await expect(
+          withNativeArtifact(linked.archiveFile, linked.metadata, () => undefined)
+        ).rejects.toThrow('Native archive entry must be regular');
+        await expect(
+          createArchiveFixture(sandbox, { skills, declareSkills: true })
+        ).rejects.toThrow('Manifest must describe exactly the native runtime files');
       });
-      // Squad must declare the tree; nothing else may carry one.
-      await expect(
-        createArchiveFixture(sandbox, { product: 'squad', skills, declareSkills: false })
-      ).rejects.toThrow('Manifest must describe exactly the native runtime files');
-      const cli = await createArchiveFixture(sandbox, { skills });
-      await expect(
-        withNativeArtifact(cli.archiveFile, cli.metadata, () => undefined)
-      ).rejects.toThrow('Unexpected native archive entry');
-      const empty = await createArchiveFixture(sandbox, { product: 'squad' });
-      await expect(
-        withNativeArtifact(empty.archiveFile, empty.metadata, () => undefined)
-      ).rejects.toThrow('Native archive declares skills but carries none');
-      const linked = await createArchiveFixture(sandbox, {
-        product: 'squad',
-        skills,
-        skillLink: true,
-      });
-      await expect(
-        withNativeArtifact(linked.archiveFile, linked.metadata, () => undefined)
-      ).rejects.toThrow('Native archive entry must be regular');
-      await expect(createArchiveFixture(sandbox, { skills, declareSkills: true })).rejects.toThrow(
-        'Manifest must describe exactly the native runtime files'
-      );
-    });
-  });
+    }
+  );
 
   it('verifies Office through the shared allowlist without accepting CLI ownership or a non-executable payload', async () => {
     await withSandbox(async (sandbox) => {

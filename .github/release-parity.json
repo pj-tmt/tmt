@@ -191,7 +191,7 @@
           "name:Execute final archive and bootstrap with the matching target process",
           "name:Recheck version-only source after this stage"
         ],
-        "sha256": "28fb80f4c56529d06918a282616da88dd5a57688838a61ca84c2e676615b33da",
+        "sha256": "104a4c7e3d65e40e53751af3a869cd6a24bfaae9c63c2143a4c1363599813f20",
         "preMerge": [
           {
             "workflow": "ci.yml",
@@ -575,6 +575,26 @@
         "step": "name:Dispatch the full Project sweep"
       },
       "releaseOnly": "The race is between a sweep's tag fetch and a sibling product publishing seconds later, which cannot occur before publication; injected and real-git tests cover the fetch-and-revalidate path."
+    },
+    "1680": {
+      "release": {
+        "workflow": "native-release-prepare.yml",
+        "job": "verify",
+        "step": "name:Execute final archive and bootstrap with the matching target process"
+      },
+      "preMerge": [
+        {
+          "workflow": "ci.yml",
+          "job": "release-rehearsal",
+          "selection": {
+            "kind": "ci-scope",
+            "output": "release_rehearsal",
+            "value": "true",
+            "source": "typescript/scripts/release-rehearsal.mjs"
+          },
+          "coverage": "runtime"
+        }
+      ]
     }
   }
 }

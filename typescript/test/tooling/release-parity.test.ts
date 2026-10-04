@@ -195,8 +195,13 @@ describe('release gate parity inventory', () => {
       ['native-release-prepare.yml', 'verify'],
     ])
       expect(value.workflows[file][job].preMerge, `${file}:${job}`).toEqual([rehearsal]);
-    for (const issue of ['1534', '1541', '1604', '1616', '1646'])
+    for (const issue of ['1534', '1541', '1604', '1616', '1646', '1680'])
       expect(value.incidents[issue].preMerge, issue).toEqual([rehearsal]);
+    expect(value.incidents['1680'].release).toEqual({
+      workflow: 'native-release-prepare.yml',
+      job: 'verify',
+      step: 'name:Execute final archive and bootstrap with the matching target process',
+    });
     expect(value.incidents['1550'].preMerge.map((c: { job: string }) => c.job)).toEqual([
       'native-notices',
       'release-rehearsal',

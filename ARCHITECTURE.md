@@ -1157,7 +1157,10 @@ owns both shapes; Colab never reads Remote's private state.
 ## Colab extension
 
 Colab (`extensions/tmt-colab/`: `tmt-colab`, `tmt-colab-model`, `@tmt/colab-client`,
-`@tmt/colab-app`) is an activated native extension whose executable embeds the app.
+`@tmt/colab-app`) is an activated native extension whose executable embeds the app and
+canonical agent skill. Its archive carries `skills/` from `extensions/tmt-colab/skills` for the existing
+opt-in extension skill installer; `tmt colab skill` reads those same embedded bytes without
+core discovery or storage access.
 [colab-v1](extensions/tmt-colab/contracts/colab-v1.md) is the normative contract; the
 [tmt-colab skill](.agents/skills/tmt-colab/SKILL.md) holds module knowledge and procedures.
 

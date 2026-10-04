@@ -113,6 +113,70 @@ describe('components that ship agent skills', () => {
     }
   });
 
+  it('builds prepare verification arguments from the component policy without a skills product list', () => {
+    const workflow = fs.readFileSync(
+      path.join(repositoryRoot, '.github/workflows/native-release-prepare.yml'),
+      'utf8'
+    );
+    const start = workflow.indexOf('            verification_args=(');
+    const end = workflow.indexOf('          fi\n          echo "Verified $TARGET', start);
+    expect(start).toBeGreaterThan(0);
+    expect(end).toBeGreaterThan(start);
+    const script = `node() {
+      if [ "$1" = typescript/scripts/verify-native-artifact.mjs ]; then
+        printf '%s\\n' "$@"
+      else
+        command node "$@"
+      fi
+    }
+    ${workflow.slice(start, end)}`;
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'tmt-skills-prepare-'));
+    try {
+      for (const product of ['squad', 'remote', 'colab']) {
+        const args = runPackedCommand(
+          '/bin/bash',
+          ['--noprofile', '--norc', '-euo', 'pipefail', '-c', script],
+          {
+            cwd: repositoryRoot,
+            env: {
+              PATH: path.dirname(process.execPath),
+              HOME: root,
+              PRODUCT: product,
+              TARGET: 'fixture-target',
+              RUNNER_TEMP: root,
+            },
+          }
+        )
+          .trimEnd()
+          .split('\n');
+        expect(args[0]).toBe('typescript/scripts/verify-native-artifact.mjs');
+        const skills = args.indexOf('--skills');
+        if (shipsSkills(product)) expect(args[skills + 1]).toBe(`extensions/tmt-${product}/skills`);
+        else expect(skills).toBe(-1);
+        expect(args[args.indexOf('--archive') + 1]).toBe(
+          `target/distrib/tmt-${product}-fixture-target.tar.gz`
+        );
+        if (product === 'colab')
+          expect(args[args.indexOf('--app-dir') + 1]).toBe(path.join(root, 'colab-app'));
+        else expect(args).not.toContain('--app-dir');
+      }
+      expect(() =>
+        runPackedCommand('/bin/bash', ['--noprofile', '--norc', '-euo', 'pipefail', '-c', script], {
+          cwd: repositoryRoot,
+          env: {
+            PATH: path.dirname(process.execPath),
+            HOME: root,
+            PRODUCT: 'nonexistent',
+            TARGET: 'fixture-target',
+            RUNNER_TEMP: root,
+          },
+        })
+      ).toThrow('Ambiguous or missing component');
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it.each(skillsComponents.map((component) => [component.name, component] as const))(
     '%s carries a skills tree its archive includes',
     (_name, component) => {

@@ -7,6 +7,7 @@ mod settings_cli;
 mod status;
 mod supervisor;
 const IPC_RESPONSE_BYTES: usize = 8192;
+const SKILL: &str = include_str!("../../../skills/tmt-colab/SKILL.md");
 use clap::{Arg, ArgAction, Command};
 use serde_json::json;
 use std::{
@@ -63,6 +64,16 @@ fn grammar() -> Command {
         ],
         outputs: OutputModes::Human,
         details: "Every command that names a page prints its full link: give that link to the person, not JSON. The space is reached through tmt remote, which mounts it for paired browsers. Serve the bundled browser app, or build it for local development. Local root-authorized management uses the same owner service as mounted browser requests.",
+    };
+    const SKILL_COMMAND: CommandSpec = CommandSpec {
+        name: "skill",
+        summary: "Print the bundled Colab agent skill",
+        examples: &[Example {
+            command: "tmt colab skill",
+            note: "Read the exact instructions shipped with this executable",
+        }],
+        outputs: OutputModes::Human,
+        details: "Prints the canonical skill bytes without core discovery, storage access or a running server. Install through tmt extension install colab --skills; this command only reads the embedded instructions.",
     };
     const SERVE: CommandSpec = CommandSpec {
         name: "serve",
@@ -190,6 +201,7 @@ fn grammar() -> Command {
                         ),
                 ),
             ))
+            .subcommand(tmt_cli_style::command(&SKILL_COMMAND))
             .subcommand(tmt_cli_style::command(&STOP))
             .subcommand(
                 tmt_cli_style::command(&SETTINGS)
@@ -265,6 +277,12 @@ fn grammar() -> Command {
 }
 fn run(matches: &clap::ArgMatches) -> Result<()> {
     let (command, args) = matches.subcommand().expect("required subcommand");
+    if command == "skill" {
+        let mut output = tmt_cli_style::stream::stdout(false);
+        output.write_all(SKILL.as_bytes())?;
+        output.flush()?;
+        return Ok(());
+    }
     let stop = Arc::new(AtomicBool::new(false));
     let mut signals = Vec::new();
     let result = (|| -> Result<()> {

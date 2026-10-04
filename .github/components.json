@@ -101,6 +101,7 @@
     },
     "tmt-colab": {
       "package": "tmt-colab",
+      "skills": true,
       "owns": ["extensions/tmt-colab"],
       "release": true,
       "bootstrapSha": "b9ea8cdfe477a596934a59a5b7eb066fbe755ebb",

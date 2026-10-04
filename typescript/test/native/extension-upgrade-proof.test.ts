@@ -9,6 +9,9 @@ import { createArtifact, nativeTarget } from '../support/native-artifact.js';
 const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const verifier = path.join(repositoryRoot, 'scripts/verify-native-extension-upgrade.mjs');
 const installationVerifier = path.join(repositoryRoot, 'scripts/verify-native-installation.mjs');
+const { shipsSkills } = (await import(
+  new URL('../../scripts/component-skills.mjs', import.meta.url).href
+)) as { shipsSkills: (product: string) => boolean };
 const PROOF_BUDGET_MS = 60_000;
 const recordingDriver = fileURLToPath(
   new URL('../../../rust/target/debug/examples/recording-cli-fixture', import.meta.url)
@@ -62,7 +65,7 @@ describe('extension upgrade proof against the real CLI', () => {
             new Uint8Array(),
             product,
             undefined,
-            product === 'squad' ? { 'tmt-squad/SKILL.md': 'lead skill\n' } : {}
+            shipsSkills(product) ? { [`tmt-${product}/SKILL.md`]: 'agent skill\n' } : {}
           );
         const previous = await artifact('previous', '0.1.0-alpha.1', extension);
         const candidate = await artifact('candidate', '0.1.0-alpha.2', extension);

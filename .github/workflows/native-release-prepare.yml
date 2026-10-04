@@ -311,7 +311,7 @@ jobs:
         uses: ./.github/actions/warm-xcrun
       - name: Build independent expected Colab app bytes
         if: inputs.product == 'colab'
-        working-directory: typescript
+        working-directory: release-source/typescript
         run: |
           corepack pnpm@10.33.0 --filter @tmt/colab-app --fail-if-no-match install --frozen-lockfile --ignore-scripts
           corepack pnpm@10.33.0 --filter @tmt/colab-app --fail-if-no-match build
@@ -337,41 +337,24 @@ jobs:
             node typescript/scripts/generate-native-bootstrap.mjs --manifest target/distrib/dist-manifest.json --archive-dir target/distrib > "$RUNNER_TEMP/installer.sh"
             cmp "$RUNNER_TEMP/installer.sh" target/distrib/tmt-installer.sh
             cmp target/distrib/tmt-installer.sh target/distrib/install.sh
-          elif [ "$PRODUCT" = squad ]; then
-            node typescript/scripts/verify-native-artifact.mjs \
-              --product squad \
-              --manifest target/distrib/dist-manifest.json \
-              --archive "target/distrib/tmt-squad-$TARGET.tar.gz" --target "$TARGET" \
-              --skills extensions/tmt-squad/skills --license LICENSE \
-              --notices "target/distrib/$TARGET-notices.txt"
-          elif [ "$PRODUCT" = driver-herdr ]; then
-            node typescript/scripts/verify-native-artifact.mjs \
-              --product driver-herdr \
-              --manifest target/distrib/dist-manifest.json \
-              --archive "target/distrib/tmt-driver-herdr-$TARGET.tar.gz" --target "$TARGET" \
-              --license LICENSE \
-              --notices "target/distrib/$TARGET-notices.txt"
-          elif [ "$PRODUCT" = remote ]; then
-            node typescript/scripts/verify-native-artifact.mjs \
-              --product remote \
-              --manifest target/distrib/dist-manifest.json \
-              --archive "target/distrib/tmt-remote-$TARGET.tar.gz" --target "$TARGET" \
-              --license LICENSE \
-              --notices "target/distrib/$TARGET-notices.txt"
-          elif [ "$PRODUCT" = colab ]; then
-            node typescript/scripts/verify-native-artifact.mjs \
-              --product colab \
-              --manifest target/distrib/dist-manifest.json \
-              --archive "target/distrib/tmt-colab-$TARGET.tar.gz" --target "$TARGET" \
-              --app-dir "$RUNNER_TEMP/colab-app" --license LICENSE \
-              --notices "target/distrib/$TARGET-notices.txt"
           else
-            node typescript/scripts/verify-native-artifact.mjs \
-              --product office \
-              --manifest target/distrib/dist-manifest.json \
-              --archive "target/distrib/tmt-office-$TARGET.tar.gz" --target "$TARGET" \
-              --license LICENSE \
-              --notices "target/distrib/$TARGET-notices.txt"
+            verification_args=(
+              --product "$PRODUCT"
+              --manifest target/distrib/dist-manifest.json
+              --archive "target/distrib/tmt-$PRODUCT-$TARGET.tar.gz" --target "$TARGET"
+              --license LICENSE --notices "target/distrib/$TARGET-notices.txt"
+            )
+            ships_skills=$(node --input-type=module --eval '
+              import { shipsSkills } from "./typescript/scripts/component-skills.mjs";
+              process.stdout.write(String(shipsSkills(process.argv[1])));
+            ' "$PRODUCT")
+            if [ "$ships_skills" = true ]; then
+              verification_args+=(--skills "extensions/tmt-$PRODUCT/skills")
+            fi
+            if [ "$PRODUCT" = colab ]; then
+              verification_args+=(--app-dir "$RUNNER_TEMP/colab-app")
+            fi
+            node typescript/scripts/verify-native-artifact.mjs "${verification_args[@]}"
           fi
           echo "Verified $TARGET in $((SECONDS - started)) s." | tee -a "$GITHUB_STEP_SUMMARY"
           VERIFY

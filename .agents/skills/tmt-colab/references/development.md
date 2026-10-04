@@ -3,6 +3,20 @@
 Run from the repository root; `(cd rust && ...)` runs from `rust/`. Use
 `CARGO_BUILD_JOBS=2` on shared machines.
 
+## Shipped agent skill
+
+`extensions/tmt-colab/skills/tmt-colab/SKILL.md` is the canonical user-facing agent
+skill; this development skill remains the repository guide. The executable embeds
+it, and `tmt colab skill` prints its exact bytes without core discovery or storage.
+`tests/cli.rs` verifies a relocated executable with no core or checkout.
+
+The component map declares `skills: true`; cargo-dist includes `../../skills`.
+The existing consented `tmt extension install colab --skills` path owns provider
+links, update receipts and unmanaged conflicts. Archive verification must supply
+the expected canonical tree via `--skills extensions/tmt-colab/skills`; a raw
+executable smoke does not establish that the tree ships. Shared release prepare
+verification derives this argument from `shipsSkills(product)`.
+
 ## Package gates
 
 ```bash
@@ -219,6 +233,7 @@ node typescript/scripts/verify-native-artifact.mjs --product colab \
   --manifest /absolute/colab-manifest.json \
   --archive /absolute/tmt-colab-aarch64-apple-darwin.tar.gz \
   --target aarch64-apple-darwin --app-dir /absolute/expected-colab-app \
+  --skills extensions/tmt-colab/skills \
   --notices /absolute/combined-notices.txt --license LICENSE
 ```
 
