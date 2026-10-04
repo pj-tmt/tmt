@@ -435,3 +435,44 @@ jobs:
       sha: ${{ inputs.sha || github.sha }}
       outcome: ${{ needs.upgrade-fetch.outputs.outcome }}
       fetch-reason: ${{ needs.upgrade-fetch.outputs.reason }}
+
+  # The rehearsal's dry run of the publication gates that need no draft (channel, immutability,
+  # monotonic, migration; commit only on main): the candidate's synthetic alpha tag and source
+  # commit go through the same checks `native-release-bundle.yml` runs on a draft. It reads
+  # published releases and git history, records no hold and publishes nothing.
+  gates-dry:
+    name: Publication gates (dry) for the ${{ inputs.product }} candidate
+    needs: assemble
+    if: inputs.upgrade
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: ./.github/actions/setup-tooling
+      - name: Install reviewed publication-gate dependencies
+        working-directory: typescript
+        run: pnpm install --frozen-lockfile --ignore-scripts
+      - name: Install the pinned metadata toolchain
+        run: rustup toolchain install 1.97.0 --profile minimal
+      - name: Restore dependency cache for locked source acquisition
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: rust
+          shared-key: native-rust
+          save-if: false
+      - name: Evaluate the gates for the candidate without a draft
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PRODUCT: ${{ inputs.product }}
+          CANDIDATE_TAG: ${{ needs.assemble.outputs.tag }}
+          CANDIDATE_SHA: ${{ inputs.sha || github.sha }}
+          ON_MAIN: ${{ github.ref == 'refs/heads/main' }}
+        run: |
+          args=(--product "$PRODUCT" --tag "$CANDIDATE_TAG" --sha "$CANDIDATE_SHA")
+          if [ "$ON_MAIN" = true ]; then args+=(--on-main); fi
+          node typescript/scripts/publication-gates.mjs dry "${args[@]}"

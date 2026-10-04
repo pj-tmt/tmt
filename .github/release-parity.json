@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "description": "Current coverage only. Whole-job release-stage entries inventory every executable step; publication policy and incident entries name narrower counterparts. Policy tests do not prove live publication or actual-archive upgrade. followUp 1581 marks gaps to close with the separately approved rehearsal PR.",
+  "description": "Current coverage only. Whole-job release-stage entries inventory every executable step; publication policy and incident entries name narrower counterparts. Policy tests do not prove live publication. A releaseOnly entry names the live state no pull request can reach.",
   "workflows": {
     "native-release.yml": {
       "plan": {
@@ -66,8 +66,7 @@
           "id:gates"
         ],
         "sha256": "26ab758ceea3dca7f8fdda9762eacec0ef8c89696ab8f046c00a942d6f57b931",
-        "releaseOnly": "Live checks consume allocated-tag, merged-main, completed PR check-suite and published-release state. Pure policy tests are mapped separately; dry candidate evaluation is deferred to #1581 rehearsal.",
-        "followUp": 1581
+        "releaseOnly": "Live checks read the allocated draft, its merged-main commit, the PR check suite and published releases, and the hold marker is a write to the real draft. The same gates run before merge in the rehearsal on the candidate (publication-gates.mjs dry, native-release-prepare.yml gates-dry); only the draft-bound evidence stays release-only."
       },
       "upgrade": {
         "steps": ["uses:./.github/workflows/native-release-upgrade.yml"],
@@ -245,6 +244,30 @@
             "coverage": "runtime"
           }
         ]
+      },
+      "gates-dry": {
+        "steps": [
+          "uses:actions/checkout@v4",
+          "uses:./.github/actions/setup-tooling",
+          "name:Install reviewed publication-gate dependencies",
+          "name:Install the pinned metadata toolchain",
+          "name:Restore dependency cache for locked source acquisition",
+          "name:Evaluate the gates for the candidate without a draft"
+        ],
+        "sha256": "c57f2c4d5813936708825fadeda7af497d42fde24ce5524dc639139749b95002",
+        "preMerge": [
+          {
+            "workflow": "ci.yml",
+            "job": "release-rehearsal",
+            "selection": {
+              "kind": "ci-scope",
+              "output": "release_rehearsal",
+              "value": "true",
+              "source": "typescript/scripts/release-rehearsal.mjs"
+            },
+            "coverage": "runtime"
+          }
+        ]
       }
     },
     "native-release-upgrade.yml": {
@@ -371,8 +394,7 @@
           "uses:actions/upload-artifact@v4"
         ],
         "sha256": "b8f5e4c8980e0e489f9bae65b1daf61736f7df164bf200b46c8684f07ef21371",
-        "releaseOnly": "Cadence, draft visibility and concurrent allocation/recovery admission depend on live main/release state. The pure cut planner is tested pre-merge, but selected candidate dry planning is deferred to #1581 rehearsal.",
-        "followUp": 1581
+        "releaseOnly": "Cadence, draft visibility and concurrent allocation/recovery admission depend on live main and release state, and the planner needs a token that sees drafts, which no pull request holds. The pure cut planner is tested pre-merge; the commit-title input that once broke it is checked on every pull request (#1643)."
       }
     }
   },
@@ -392,6 +414,17 @@
             "typescript/test/tooling/publication-gates.test.ts",
             "typescript/test/tooling/publication-gates-script.test.ts"
           ]
+        },
+        {
+          "workflow": "ci.yml",
+          "job": "release-rehearsal",
+          "selection": {
+            "kind": "ci-scope",
+            "output": "release_rehearsal",
+            "value": "true",
+            "source": "typescript/scripts/release-rehearsal.mjs"
+          },
+          "coverage": "runtime"
         }
       ]
     },
@@ -428,6 +461,17 @@
             "typescript/test/tooling/publication-gates.test.ts",
             "typescript/test/tooling/publication-gates-script.test.ts"
           ]
+        },
+        {
+          "workflow": "ci.yml",
+          "job": "release-rehearsal",
+          "selection": {
+            "kind": "ci-scope",
+            "output": "release_rehearsal",
+            "value": "true",
+            "source": "typescript/scripts/release-rehearsal.mjs"
+          },
+          "coverage": "runtime"
         }
       ]
     },
@@ -446,6 +490,17 @@
             "typescript/test/tooling/publication-gates.test.ts",
             "typescript/test/tooling/publication-gates-script.test.ts"
           ]
+        },
+        {
+          "workflow": "ci.yml",
+          "job": "release-rehearsal",
+          "selection": {
+            "kind": "ci-scope",
+            "output": "release_rehearsal",
+            "value": "true",
+            "source": "typescript/scripts/release-rehearsal.mjs"
+          },
+          "coverage": "runtime"
         }
       ]
     },
@@ -464,6 +519,17 @@
             "typescript/test/tooling/publication-gates.test.ts",
             "typescript/test/tooling/publication-gates-script.test.ts"
           ]
+        },
+        {
+          "workflow": "ci.yml",
+          "job": "release-rehearsal",
+          "selection": {
+            "kind": "ci-scope",
+            "output": "release_rehearsal",
+            "value": "true",
+            "source": "typescript/scripts/release-rehearsal.mjs"
+          },
+          "coverage": "runtime"
         }
       ]
     },
@@ -547,6 +613,17 @@
             "typescript/test/tooling/publication-gates.test.ts",
             "typescript/test/tooling/publication-gates-script.test.ts"
           ]
+        },
+        {
+          "workflow": "ci.yml",
+          "job": "release-rehearsal",
+          "selection": {
+            "kind": "ci-scope",
+            "output": "release_rehearsal",
+            "value": "true",
+            "source": "typescript/scripts/release-rehearsal.mjs"
+          },
+          "coverage": "runtime"
         }
       ]
     },
@@ -623,6 +700,24 @@
             "output": "release_rehearsal",
             "value": "true",
             "source": "typescript/scripts/release-rehearsal.mjs"
+          },
+          "coverage": "runtime"
+        }
+      ]
+    },
+    "1643": {
+      "release": {
+        "workflow": "release.yml",
+        "job": "cut",
+        "step": "name:Draft immutable source cuts and dispatch their native gates"
+      },
+      "preMerge": [
+        {
+          "workflow": "ci.yml",
+          "job": "code-quality",
+          "selection": {
+            "kind": "always",
+            "step": "name:Check conventional PR titles"
           },
           "coverage": "runtime"
         }

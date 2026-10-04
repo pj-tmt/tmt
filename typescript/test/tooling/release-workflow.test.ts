@@ -679,7 +679,17 @@ describe('shared prepare pipeline and release rehearsal', () => {
       'verify',
       'upgrade-fetch',
       'upgrade',
+      'gates-dry',
     ]);
+  });
+  it('dry-runs the publication gates only for rehearsals, read-only, with the commit gate on main only', () => {
+    const dry = job(prepare, 'gates-dry');
+    expect(dry).toContain('if: inputs.upgrade');
+    expect(dry).toContain('contents: read');
+    expect(dry).toContain('publication-gates.mjs dry');
+    expect(dry).toContain("ON_MAIN: ${{ github.ref == 'refs/heads/main' }}");
+    expect(dry).toContain('CANDIDATE_TAG: ${{ needs.assemble.outputs.tag }}');
+    expect(dry).not.toMatch(/\b(early|finish)\b|release-hold|--rerun/);
   });
   it('lets both the draft pipeline and the rehearsal call it with an exact source commit', () => {
     expect(job(bundle, 'prepare')).toContain(
