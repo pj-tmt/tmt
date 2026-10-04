@@ -2023,7 +2023,8 @@ fn cli_member_changes_capture_complete_verified_assignments() {
 const READY: &str = r#"{"profile":"local-v1","binding":"loopback-http","state":"ready","address":"http://127.0.0.1:53253/r/3e2c69f7","machineId":"m","windowId":"w","startupCoreCalls":2}"#;
 const STOPPED: &str = r#"{"running":false,"lastPort":53253}"#;
 const PAGE_LINK: &str = "http://127.0.0.1:53253/r/3e2c69f7/x/colab/";
-const PORT_BUSY: &str = "Remembered Remote port 53253 is busy. Stop the process using that port to keep browser pairing, or choose a new origin with tmt remote serve --port <n> or tmt remote serve --port 0.";
+// Remote's JSON envelope joins its message and hint without introducing a hint field (#1734).
+const PORT_BUSY: &str = "Remote's port 53253 is in use: stop what is using it to keep this browser paired, or run tmt remote serve --port <n> and pair again";
 /// What the stand-in for `tmt remote serve --json` does.
 #[derive(Clone, Copy)]
 enum Serve {
@@ -2285,12 +2286,8 @@ fn serve_preserves_remote_start_errors_on_either_stream_in_human_and_json_output
                 );
                 assert_eq!(fs::read_to_string(&serving.err).unwrap(), "");
             } else {
-                // Human messages omit one final period; JSON keeps Remote's exact text.
-                let warning = Serving::wait_for(&serving.err, "--port 0");
-                assert_eq!(
-                    warning,
-                    format!("warning: {}\n", PORT_BUSY.trim_end_matches('.'))
-                );
+                let warning = Serving::wait_for(&serving.err, "--port <n> and pair again");
+                assert_eq!(warning, format!("warning: {PORT_BUSY}\n"));
                 let text = Serving::wait_for(&serving.out, "local only");
                 assert!(
                     text.contains("unavailable") && !text.contains("pair"),
