@@ -62,10 +62,10 @@ pub(crate) fn summary(home: &Home, width: u16, look: Look) -> Line<'static> {
 }
 
 pub(crate) fn age_label(age: &Age, now: u64) -> String {
-    let age_text = crate::requests::age(now, age.since_ms);
+    let age_text = tmt_cli_style::value::relative_time(now.saturating_sub(age.since_ms));
     match age.source {
         AgeSource::Request => age_text,
-        AgeSource::Observed => format!("obs {age_text}"),
+        AgeSource::Observed => format!("observed {age_text}"),
     }
 }
 
@@ -197,7 +197,7 @@ pub(super) fn render_at(frame: &mut Frame, app: &App, area: Rect, now: u64) {
                 .count();
             let (label, role) = match section {
                 "needs-you" => ("② ◆ needs you", Role::Waiting),
-                "blocked" => ("② ✗ blocked", Role::Blocked),
+                "blocked" => ("✗ blocked", Role::Blocked),
                 _ => ("③ squads", Role::Muted),
             };
             lines.push(Line::default());
@@ -250,14 +250,18 @@ pub(super) fn render_at(frame: &mut Frame, app: &App, area: Rect, now: u64) {
                         let before = lines.len();
                         if selected_region.is_some() {
                             if app.sent.as_ref().is_some_and(|feedback| {
-                                feedback.target == crate::board::app::RowTarget::Home(
-                                    entries[app.selected].target.clone(),
-                                )
+                                feedback.target
+                                    == crate::board::app::RowTarget::Home(
+                                        entries[app.selected].target.clone(),
+                                    )
                             }) {
                                 lines.push(Line::styled("   ✓ sent", look.role(Role::Working)));
                             }
                             input_range = crate::board::view::waiting::reserve_input(
-                                app, app.selected, area, &mut lines,
+                                app,
+                                app.selected,
+                                area,
+                                &mut lines,
                             );
                         }
                         let inserted = lines.len() - before;

@@ -306,14 +306,25 @@ send shows its error and does not show `✓ sent` or retry automatically.
 
 ## Home dashboard
 
-The built-in `all` board shows ① counts, ② needs you/blocked members and ③ one
-line per squad with its lead, state counts and most pressing member. Attention
-rows show only member, squad and available age; questions appear in the inline
-composer after `a`.
-Quiet needs-you takes one line, and empty blocked disappears. Public
-`tmt sq ls --tab all --json` and text retain the aggregate document.
+The built-in `all` board shows ① counts, ② needs-you members and a blocked subgroup,
+then ⑤ cron and ③ squads. Circled numbers label sections; they are not keys.
+At 150 columns and wider squads use three tile columns, at 100–149 two, and below
+100 one compact line per squad. Ten or more visible squads use compact lines,
+in two columns from 150. A tile shows squad attention, lead/model/token windows
+and the lead's share of the longest window, followed by non-lead member marks
+in urgency order (◆ ✗ ◐ ● ○) and a member count. A member contributes one mark;
+unknown/custom states count without a mark. Compact lines keep the last two lead
+windows. Selection covers the whole tile, including padding and continuation rows.
 
-One cursor spans attention rows and squads. Arrows or j/k move it; Tab and
+Tiles use the board's observed usage (see below). Missing values show `–`, measured
+zero shows `0`, and partial totals/share carry `~`; a zero squad total has no share.
+The ③ heading names shared windows once. Mixed `tok` settings label each tile's
+actual windows. Attention rows show only member, squad and available relative age;
+blocked ages say `observed` to identify the task/state observation. Questions appear
+in the inline composer after `a`. Quiet needs-you takes one line, and empty blocked
+disappears. Public `tmt sq ls --tab all --json` and text retain the aggregate document.
+
+One cursor spans attention rows, cron and squads. Arrows or j/k move it; Tab and
 Shift-Tab traverse sections. Open on the first decision, otherwise the first
 squad. Enter jumps to the member or opens the squad. `a` answers an open request
 through public `tmt answer`, otherwise annotates for that squad's actual lead.
@@ -699,7 +710,7 @@ enabled = true # individual keys override global policy and layout preset
 w = "token-window"
 ```
 
-`—` means no usable observed interval for that member; a baseline alone is not
+`–` means no usable observed interval for that member; a baseline alone is not
 measured zero. Any covered reading, including measured zero, is numeric. `~` marks
 a window longer than available coverage or with missing evidence. Windows beyond
 one hour include retained board observations when available; partial history
@@ -872,7 +883,7 @@ shows no ages. Home shows blocked ages only
 where this observation policy is enabled (Team by default; other layouts off);
 disabled or unavailable observation provides no age. Request ages use the real
 inbox timestamp, and pending-only rows have no age. Home labels blocked
-age `obs`: observed unchanged task/state, not an authoritative blocked start.
+age `observed`: unchanged task/state observation, not an authoritative blocked start.
 
 The row's age changes only when its raw task/state changes; links, notes and
 provider refreshes do not renew it. `activityAfterUpdate` records relevant

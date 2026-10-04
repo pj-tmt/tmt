@@ -504,3 +504,77 @@ fn full_tile_reveal_and_clipped_continuation_hits_share_the_scroll_viewport() {
         3
     );
 }
+
+#[test]
+fn tile_note_band_shifts_later_grid_rows_without_changing_hits_or_selection() {
+    for width in [160, 100, 80] {
+        for (base, depth) in [
+            ("tmt", tmt_cli_style::Depth::TrueColor),
+            ("tmt-light", tmt_cli_style::Depth::TrueColor),
+            ("tmt", tmt_cli_style::Depth::None),
+        ] {
+            let mut app = tile_board();
+            app.view.as_mut().unwrap().look = crate::look::Look {
+                theme: tmt_cli_style::Theme::new(tmt_cli_style::theme::Base::parse(base).unwrap()),
+                depth,
+            };
+            app.select(1);
+            let target = app.home_target.clone();
+            press(&mut app, Char('a'));
+            let mut terminal = Terminal::new(TestBackend::new(width, 30)).unwrap();
+            terminal
+                .draw(|frame| crate::board::view::render(frame, &app))
+                .unwrap();
+            let band = app
+                .input_band
+                .get()
+                .expect("note beneath the selected tile");
+            let hits = app.hits.borrow().clone();
+            let selected = hits.iter().filter(|hit| hit.row == 1).collect::<Vec<_>>();
+            assert_eq!(selected.len(), if width < 100 { 1 } else { 3 });
+            assert_eq!(selected.last().unwrap().y + 1, band.y);
+            assert!(
+                !hits
+                    .iter()
+                    .any(|hit| (band.y..band.bottom()).contains(&hit.y))
+            );
+            let next_grid_row = if width >= 150 { 3 } else { 2 };
+            assert!(
+                hits.iter()
+                    .filter(|hit| hit.row == next_grid_row)
+                    .all(|hit| hit.y >= band.bottom())
+            );
+            let lines = terminal
+                .backend()
+                .buffer()
+                .content
+                .chunks(width as usize)
+                .map(|cells| cells.iter().map(|cell| cell.symbol()).collect::<String>())
+                .collect::<Vec<_>>();
+            assert!(lines[usize::from(band.y + 1)].contains("✎ note → lead-b · about b"));
+            press(&mut app, Esc);
+            assert!(app.input.is_none());
+            assert_eq!(app.home_target, target);
+            press(&mut app, Char('a'));
+            press(&mut app, Char('x'));
+            assert!(
+                matches!(press(&mut app, Enter), Effect::Act(Request::Annotate { ref to, .. }) if to == "lead-b")
+            );
+            app.finished(Ok("Sent".into()));
+            terminal
+                .draw(|frame| crate::board::view::render(frame, &app))
+                .unwrap();
+            assert!(
+                terminal
+                    .backend()
+                    .buffer()
+                    .content
+                    .iter()
+                    .map(|cell| cell.symbol())
+                    .collect::<String>()
+                    .contains("✓ sent")
+            );
+            assert_eq!(app.home_target, target);
+        }
+    }
+}

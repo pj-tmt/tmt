@@ -272,14 +272,14 @@ fn runtime_observations_keep_missing_zero_partial_model_and_supplied_share_disti
     let painted = paint(std::slice::from_ref(&item), 160, Look::default(), None).unwrap();
     let line = text(&painted.lines)[1].clone();
     assert!(line.contains("gpt"));
-    assert!(line.contains("     0     —   ~8k  ~38%"), "{line}");
+    assert!(line.contains("     0     –   ~8k  ~38%"), "{line}");
     let missing = TileItem {
         squad: &squad,
         members: &counts,
         usage: None,
     };
     let missing = paint(&[missing], 160, Look::default(), None).unwrap();
-    assert_eq!(text(&missing.lines)[1].matches('—').count(), 5);
+    assert_eq!(text(&missing.lines)[1].matches('–').count(), 5);
     assert!(!text(&missing.lines)[1].contains('0'));
 }
 
@@ -303,16 +303,16 @@ fn uniform_labels_appear_once_and_narrow_rows_retain_the_last_two_windows() {
         assert_eq!(
             label,
             match width {
-                160 => "lead tokens · 5m · 60m · 24h · share (24h)",
-                100 => "lead tokens · 60m · 24h · share (24h)",
-                _ => "lead tokens · 60m · 24h",
+                160 => "lead tokens · 5m · 1h · 24h · share (24h)",
+                100 => "lead tokens · 1h · 24h · share (24h)",
+                _ => "lead tokens · 1h · 24h",
             }
         );
         let painted = text(&paint(items, width, Look::default(), None).unwrap().lines).join("\n");
         assert!(painted.contains("2k"));
         assert!(painted.contains("3k"));
         assert_eq!(painted.contains("1k"), width == 160);
-        assert!(!painted.contains("60m"));
+        assert!(!painted.contains("1h"));
         assert!(!painted.contains("24h"));
     }
 }
@@ -342,10 +342,10 @@ fn mixed_windows_label_each_observation_and_share_without_reordering_tiles() {
         let painted = paint(&items, width, Look::default(), None).unwrap();
         let output = text(&painted.lines).join("\n");
         assert!(output.contains("5m:2k"), "{output}");
-        assert!(output.contains("60m:3k"), "{output}");
-        assert!(output.contains("60m:2k"), "{output}");
+        assert!(output.contains("1h:3k"), "{output}");
+        assert!(output.contains("1h:2k"), "{output}");
         assert!(output.contains("24h:3k"), "{output}");
-        assert!(output.contains("60m:~38%"), "{output}");
+        assert!(output.contains("1h:~38%"), "{output}");
         assert!(output.contains("24h:~38%"), "{output}");
         assert_eq!(
             painted

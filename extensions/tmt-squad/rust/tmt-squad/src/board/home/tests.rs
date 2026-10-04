@@ -387,3 +387,30 @@ fn tile_members_exclude_the_lead_and_choose_one_urgent_mark_per_membership() {
     assert_eq!(home.squads[0].members.members, 1);
     assert_eq!(home.squads[0].members.idle, 1);
 }
+
+#[test]
+fn home_ages_use_registered_relative_time_and_identify_observed_provenance() {
+    for (elapsed, expected) in [(0, "just now"), (45_000, "45s ago"), (180_000, "3m ago")] {
+        let now = 1_000_000;
+        assert_eq!(
+            paint::age_label(
+                &Age {
+                    source: AgeSource::Request,
+                    since_ms: now - elapsed
+                },
+                now
+            ),
+            expected
+        );
+        assert_eq!(
+            paint::age_label(
+                &Age {
+                    source: AgeSource::Observed,
+                    since_ms: now - elapsed
+                },
+                now
+            ),
+            format!("observed {expected}")
+        );
+    }
+}

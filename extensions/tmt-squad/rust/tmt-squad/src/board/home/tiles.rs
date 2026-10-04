@@ -225,7 +225,7 @@ fn tokens(item: &TileItem<'_>, index: usize) -> String {
         .as_ref()
         .and_then(|usage| usage.lead[index])
         .map_or_else(
-            || "—".into(),
+            || "–".into(),
             |reading| {
                 format!(
                     "{}{}",
@@ -246,7 +246,7 @@ fn share(item: &TileItem<'_>) -> String {
         .as_ref()
         .and_then(|usage| usage.share.as_ref())
         .map_or_else(
-            || "—".into(),
+            || "–".into(),
             |share| {
                 format!(
                     "{}{:.0}%",
@@ -287,7 +287,7 @@ fn lead_line(
                 item.usage
                     .as_ref()
                     .and_then(|usage| usage.lead_model)
-                    .unwrap_or("—"),
+                    .unwrap_or("–"),
                 model_width,
             ),
             Role::Muted,
