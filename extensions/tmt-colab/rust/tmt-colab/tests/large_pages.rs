@@ -291,7 +291,7 @@ fn a_write_past_the_browsers_tail_limit_refuses_while_the_page_stays_readable() 
     assert!(message.contains(PAGE), "{message}");
     assert!(
         message.contains(
-            "it already has 200 changes since its last baseline (limit 200 for another edit)"
+            "is full: it has 200 changes, the most one page can hold. Nothing was deleted."
         ),
         "{message}"
     );
@@ -315,10 +315,7 @@ fn a_write_onto_a_tail_past_256_kib_refuses_with_the_byte_limit() {
     let (source, _, tail) = grow(&mut f, PAGE, 5, true);
     assert!(tail > 256 * 1024);
     let message = edit_fault(&f, &format!("{source}<i>no</i>"));
-    assert!(
-        message.contains("its changes since its last baseline are already"),
-        "{message}"
-    );
+    assert!(message.contains("its changes add up to"), "{message}");
 }
 
 /// Plaintext objects past the page-state cap, without caring what they decode to: the size check

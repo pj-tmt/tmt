@@ -388,19 +388,17 @@ impl Snapshot {
             // accept more. The new update's own size is checked once it is prepared.
             let detail = if self.objects.len() >= crate::decoder::WRITE_TAIL_UPDATES {
                 Some(format!(
-                    "it already has {} changes since its last baseline (limit {} for another edit)",
-                    count(self.objects.len()),
-                    count(crate::decoder::WRITE_TAIL_UPDATES)
+                    "it has {} changes, the most one page can hold",
+                    count(self.objects.len())
                 ))
             } else if tail >= crate::decoder::UPDATE_BYTES {
                 Some(format!(
-                    "its changes since its last baseline are already {} (limit {} for another edit)",
-                    size(tail),
-                    size(crate::decoder::UPDATE_BYTES)
+                    "its changes add up to {}, the most one page can hold",
+                    size(tail)
                 ))
             } else if baseline.len() > crate::decoder::BASELINE_BYTES {
                 Some(format!(
-                    "its baseline is {} (limit {})",
+                    "its content is {}, the most one page can hold is {}",
                     size(baseline.len()),
                     size(crate::decoder::BASELINE_BYTES)
                 ))
@@ -490,7 +488,7 @@ impl Snapshot {
             return Err(OwnerFault::too_large_to_edit(
                 page,
                 format!(
-                    "this edit would take its changes since the last baseline to {} (limit {})",
+                    "this edit would take its changes to {}, more than the {} one page can hold",
                     size(tail + folded.merged.len()),
                     size(crate::decoder::UPDATE_BYTES)
                 ),

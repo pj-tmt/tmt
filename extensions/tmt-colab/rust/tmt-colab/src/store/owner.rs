@@ -84,7 +84,7 @@ impl std::fmt::Display for OwnerFault {
         match self {
             Self::PageCapacity(c) if c.edit => write!(
                 f,
-                "Page {page} cannot take another edit: {detail}. Nothing was deleted. Export it with `tmt colab export \
+                "Page {page} is full: {detail}. Nothing was deleted. Export it with `tmt colab export \
                  {page} --dir <dir>`, then create a new page from it with `tmt colab page create \
                  --title <title> --file <dir>/page.html`.",
                 page = c.page,
