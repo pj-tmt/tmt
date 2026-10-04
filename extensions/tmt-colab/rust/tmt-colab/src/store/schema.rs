@@ -42,6 +42,12 @@ const MIGRATIONS: &[&str] = &[
         envelope BLOB NOT NULL, PRIMARY KEY(page,epoch),
         FOREIGN KEY(page,epoch) REFERENCES epoch_secrets(page,epoch));
     "#,
+    // Schema 5: server-observed content update evidence; legacy pages stay unknown.
+    r#"
+    ALTER TABLE pages ADD COLUMN last_update_at_ms INTEGER
+        CHECK(last_update_at_ms IS NULL OR
+            (typeof(last_update_at_ms)='integer' AND last_update_at_ms>=0 AND last_update_at_ms<=9007199254740991));
+    "#,
 ];
 
 pub(super) fn check_version(connection: &Connection) -> StoreResult<u32> {

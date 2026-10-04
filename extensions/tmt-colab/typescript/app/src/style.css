@@ -146,6 +146,17 @@ footer {
   border-radius: 0;
   white-space: nowrap;
 }
+.retention-hint {
+  margin: 0;
+  color: var(--c-muted);
+}
+.retention-warning {
+  color: var(--c-text);
+}
+.retention-mark {
+  color: var(--c-waiting);
+  margin-right: 6px;
+}
 .open {
   color: var(--c-accent);
   font-size: 12px;

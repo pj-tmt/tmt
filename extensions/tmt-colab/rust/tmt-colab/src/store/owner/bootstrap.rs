@@ -174,17 +174,27 @@ impl OwnerTransaction<'_> {
     pub(crate) fn page_list(&self) -> Result<serde_json::Value> {
         let mut query = self
             .tx
-            .prepare("SELECT page,epoch FROM pages ORDER BY page LIMIT 1001")?;
-        let rows = query.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))?;
+            .prepare("SELECT page,epoch,last_update_at_ms FROM pages ORDER BY page LIMIT 1001")?;
+        let rows = query.query_map([], |r| {
+            Ok((
+                r.get::<_, String>(0)?,
+                r.get::<_, String>(1)?,
+                r.get::<_, Option<i64>>(2)?,
+            ))
+        })?;
         let mut pages = std::collections::BTreeMap::new();
         for row in rows {
-            let (id, epoch) = row?;
+            let (id, epoch, updated) = row?;
+            let updated = updated
+                .map(u64::try_from)
+                .transpose()
+                .map_err(|_| OwnerFault::Invalid)?;
             values::generated_id(&id)?;
             values::decimal(&epoch, false)?;
             if pages.len() == 1000 {
                 return Err(OwnerFault::Capacity.into());
             }
-            pages.insert(id.clone(),serde_json::json!({"pageId":id,"epoch":epoch,"sharing":"private","history":"shared","archived":false}));
+            pages.insert(id.clone(),serde_json::json!({"pageId":id,"epoch":epoch,"sharing":"private","history":"shared","archived":false,"retentionDays":30,"lastUpdateAtMs":updated}));
         }
         // Existence/epoch are the local creation projection; presentation policy
         // comes only from owner-signed statements. Never expose encrypted titles.
@@ -220,6 +230,14 @@ impl OwnerTransaction<'_> {
                         });
                     }
                 }
+                payload::Payload::RetentionSet(p) => {
+                    if let Some(page) = pages.get_mut(&p.page_id) {
+                        page["retentionDays"] = match p.days {
+                            payload::Days::Forever => serde_json::Value::Null,
+                            payload::Days::Count(n) => serde_json::json!(n),
+                        };
+                    }
+                }
                 payload::Payload::Archive(p) => {
                     if let Some(page) = pages.get_mut(&p.page_id) {
                         page["archived"] = true.into();
@@ -233,6 +251,32 @@ impl OwnerTransaction<'_> {
         }
         if head.as_ref() != self.head() {
             return Err(OwnerFault::Invalid.into());
+        }
+        let now = (self.clock)()?;
+        values::time(now)?;
+        for page in pages.values_mut() {
+            let updated = page["lastUpdateAtMs"].as_u64();
+            if let Some(updated) = updated {
+                values::time(updated)?;
+            }
+            let (expiry, warning) = match (page["retentionDays"].as_u64(), updated) {
+                (None, _) => (None, None),
+                (Some(_), None) => (None, Some("expiry-unavailable")),
+                (Some(days), Some(updated)) => match days
+                    .checked_mul(86_400_000)
+                    .and_then(|d| updated.checked_add(d))
+                    .filter(|&n| values::time(n).is_ok())
+                {
+                    None => (None, Some("expiry-out-of-range")),
+                    Some(expiry) if expiry <= now => (Some(expiry), Some("expired")),
+                    Some(expiry) if expiry - now <= 7 * 86_400_000 => {
+                        (Some(expiry), Some("expires-soon"))
+                    }
+                    Some(expiry) => (Some(expiry), None),
+                },
+            };
+            page["expiresAtMs"] = serde_json::json!(expiry);
+            page["warnings"] = serde_json::json!(warning.into_iter().collect::<Vec<_>>());
         }
         Ok(
             serde_json::json!({"spaceId":self.space,"ownerKey":values::encode_binary(self.root),"revision":self.head().map_or(0,|h| h.revision).to_string(),"pages":pages.into_values().collect::<Vec<_>>()}),

@@ -48,6 +48,30 @@ test('native sharing and lifecycle verification preserve Ask, page recovery and 
     await expect(page.getByRole('button', { name: 'More page actions' })).toBeFocused();
     await page.setViewportSize({ width: 1280, height: 900 });
     dialog = await manage(page);
+    const initialCatalog = JSON.parse(run(world, world.binaries.colab, ['ls', '--json']));
+    const initialPage = initialCatalog.pages.find(
+      (item: { pageId: string }) => item.pageId === first.pageId,
+    );
+    expect(Number.isSafeInteger(initialPage.lastUpdateAtMs)).toBe(true);
+    expect(initialPage.expiresAtMs).toBe(initialPage.lastUpdateAtMs + 30 * 86400000);
+    expect(initialPage.warnings).toEqual([]);
+    const expiry = await page.evaluate((value: number) => {
+      const parts = new Intl.DateTimeFormat('en-US', {
+        weekday: 'short',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        hourCycle: 'h23',
+      }).formatToParts(new Date(value));
+      const part = (type: Intl.DateTimeFormatPartTypes) =>
+        parts.find((p) => p.type === type)?.value;
+      return `${part('weekday')} ${part('month')}-${part('day')} ${part('hour')}:${part('minute')}`;
+    }, initialPage.expiresAtMs);
+    await expect(dialog.locator('.retention-hint')).toHaveAttribute('title', expiry);
+    await expect(dialog.locator('.retention-hint')).toHaveText(
+      /Retention ends in (29|30) days · advisory; local copy stays\./,
+    );
     for (const theme of ['light', 'dark']) {
       await page.evaluate((theme) => {
         document.documentElement.dataset.theme = theme;
@@ -66,6 +90,12 @@ test('native sharing and lifecycle verification preserve Ask, page recovery and 
     await dialog.getByRole('button', { name: 'Set retention', exact: true }).click();
     await dialog.getByRole('button', { name: 'Confirm set retention', exact: true }).click();
     await expect(dialog.getByRole('status')).toContainText('Change verified');
+    const forever = JSON.parse(
+      run(world, world.binaries.colab, ['show', first.pageId, '--json']),
+    ).page;
+    expect(forever.lastUpdateAtMs).toBe(initialPage.lastUpdateAtMs);
+    expect(forever.expiresAtMs).toBeNull();
+    expect(forever.warnings).toEqual([]);
     await expect(page.getByTestId('ask-preview')).toHaveCount(0);
     await dialog.getByRole('button', { name: 'Close', exact: true }).click();
     await expect(page.locator('iframe')).toBeVisible();

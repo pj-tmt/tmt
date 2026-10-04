@@ -1057,7 +1057,7 @@ fn owner_discovery_and_paged_log_bootstrap_use_exact_signed_bytes() {
     assert_eq!(
         pages,
         json!({"spaceId":server.space,"ownerKey":values::encode_binary(&key.owner_public()),"revision":"130",
-        "pages":[{"pageId":PAGE,"epoch":"1","sharing":"private","history":"current","archived":false}]})
+        "pages":[{"pageId":PAGE,"epoch":"1","sharing":"private","history":"current","archived":false,"retentionDays":30,"lastUpdateAtMs":null,"expiresAtMs":null,"warnings":["expiry-unavailable"]}]})
     );
     let mut peer = server.peer(DEVICE);
     send(
