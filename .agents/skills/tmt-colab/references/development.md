@@ -124,6 +124,14 @@ Run app gates and the real-binary lifecycle acceptance after changing mounted
 management/Ask lifetimes. Use a seat-owned `COLAB_APP_TEST_PORT`, not the default
 4179 on a shared machine; the acceptance harness picks private free ports.
 
+Browser title checks are `test/title-cache.test.ts` (WebCrypto encryption, scope
+binding and fallback), `test/live.test.ts` / `test/mounted.test.ts` (accepted fold
+and registration fencing), `e2e/live.spec.ts` (real browser storage/reload and plain
+text rendering), and `acceptance/titles.spec.ts` (native page creation, title
+propagation and separate paired profiles). Run app gates and real-binary acceptance
+when changing the fold publication/cache wiring; capture home/dialog light/dark and
+mobile screenshots.
+
 Browser client (three engines):
 
 ```sh

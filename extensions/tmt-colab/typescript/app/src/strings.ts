@@ -1,5 +1,6 @@
 /** English chrome catalog; page content and fixture text are not UI strings. */
 export const text = {
+  unknownPageTitle: 'Untitled, not opened in this browser yet',
   reconnect: 'Reconnect',
   reconnectFailed:
     'Could not reconnect. Open this page from a paired browser, or pair with tmt remote pair.',
