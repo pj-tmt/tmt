@@ -231,26 +231,40 @@ by record when no positions were drawn.
 
 ## Home
 
-- `board::home` keeps a board-only summary, shared-filter attention sections and a compact
-  squad-line model as `View.home: Option<home::Home>`; other views carry none. It reuses
-  `tab_view` acquisition and the user-tab section pipeline. Optional observed ages come from the
-  staleness observer: the home tab starts one for every squad before its roster read and records
-  afterward, writing the cache under the held per-squad lock when enabled and available, and it
-  follows the reminders policy without extra core commands. Request ages use shared-inbox
-  timestamps; pending-only rows have no age. The source aggregate document and `ls --tab all`
-  stay unchanged.
+- `board::home` keeps a board-only summary, shared-filter attention sections and squad tile
+  model as `View.home: Option<home::Home>`; other views carry none. It reuses `tab_view`
+  acquisition and the user-tab section pipeline. Optional observed ages come from the
+  staleness observer: the home tab starts one for every squad before its roster read and
+  records afterward, writing the cache under the held per-squad lock when enabled and
+  available. It follows the reminders policy without extra core commands. Request ages use
+  shared-inbox timestamps; pending-only rows have no age. The source aggregate document and
+  `ls --tab all` stay unchanged.
 - The home painter uses the summary band and a flat body, bypassing ordinary pane composition
-  for the shown immutable home view. It keeps one `App.selected` cursor reconciled by
-  section/squad/member identity across refresh and search; attention precedes squads. Hits,
-  paging and overflow reuse `Scrolls`. Enter jumps to a member or opens a squad; Tab traverses
-  attention/squads, and `a` opens the real request picker or an annotation to the selected
-  squad's lead. The shared composer revalidates sender, target, lead and open request before
-  public `tmt answer` or annotation dispatch; its inline band quotes the chosen question. Home
-  synthesizes no tiles, replies feed or model/token totals; its ⑤ cron line is the
-  [cron board](#cron-on-the-board).
-- New home sections add pure line builders that return lines and local
-  entry/x/width/start/end placements; home translates them into the shared cursor, paging,
-  reveal and clipped hits. Their acquisition and lifecycle owners stay outside paint.
+  for the shown immutable home view. `home::tiles` returns pure lines and local item/line/x/width
+  regions from one admitted Taffy grid: three columns from 150 cells, two from 100, and compact
+  rows below 100 or with at least ten visible squads (two compact columns from 150). Filtered
+  reading order is row-major. Each tile shows squad attention, lead/model/window totals/share
+  and exclusive non-lead urgency marks/member count; compact rows retain the last two lead
+  windows. Whole-roster summary and attention semantics stay unchanged. Unknown member states
+  count without inventing a mark; `attention::waits_on_you` owns waiting precedence.
+- Runtime `App::home_usage` owns observations, model attribution and the configured longest-window
+  share; tiles only format them. Missing and measured zero remain distinct; partial readings
+  and shares carry `~`. Uniform window labels appear once in ③; mixed configurations use a
+  “windows vary” legend and label each tile's totals and displayed share with its actual window.
+- Home keeps one `App.selected` cursor reconciled by section/squad/member identity across
+  refresh and search; attention precedes ⑤ cron, then squads. Home translates tile regions into
+  global ordinals, complete selected-range reveal and viewport-clipped continuation hits through
+  one `Scrolls` pass. Selection covers every padded tile row; gaps and headings have no hit.
+  Inline composers and sent feedback insert beneath the complete selected tile's grid row,
+  shifting subsequent tile regions together. Ordinary panes retain their existing owners.
+  Enter jumps to a member or opens a squad; Tab traverses attention/cron/squads, and `a` opens
+  the real request picker or an annotation to the selected squad's lead. The shared composer
+  revalidates sender, target, lead and open request before public `tmt answer` or annotation
+  dispatch; its inline band quotes the chosen question. Tiles show no member names, task/PR
+  fields or private question text. Cron acquisition/lifecycle remains the [cron board](#cron-on-the-board).
+- New home sections add pure line builders returning lines and local entry/x/width/start/end
+  placements; home translates them into the shared cursor, paging, reveal and clipped hits.
+  Their acquisition and lifecycle owners stay outside paint.
 
 ## Cron on the board
 
