@@ -7,3 +7,11 @@
 use tmt_cli_style::audit::Rule;
 
 pub const MIGRATING: &[(&str, &[Rule])] = &[];
+
+/// Hidden Squad subcommands, each with why. Board-only actions are not
+/// commands (`design/cli-style.md`, "Hidden commands"); only a protocol entry
+/// that a shell or host invokes belongs here.
+pub const HIDDEN: &[(&str, &str)] = &[(
+    "tmt squad __complete",
+    "shell completion scripts ask it for candidates",
+)];
