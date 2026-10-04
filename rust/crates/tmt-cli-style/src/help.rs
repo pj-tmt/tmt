@@ -126,12 +126,87 @@ pub fn frame(command: Command) -> Command {
 
 /// What `-h`, `--help` and `help <command>` all print.
 pub fn help_text(command: &Command, terminal: Terminal) -> String {
-    let help = command.clone().render_help();
-    if terminal.color {
+    rendered_help(&command.clone().render_help(), terminal)
+}
+
+/// Format clap's already-rendered help, including a `DisplayHelp` error,
+/// through the same path as [`help_text`]. Prose wraps only at known terminal
+/// widths of at least 40 cells; Usage, commands and Examples remain intact.
+pub fn rendered_help(help: &clap::builder::StyledStr, terminal: Terminal) -> String {
+    let text = if terminal.color {
         help.ansi().to_string()
     } else {
         help.to_string()
+    };
+    let Some(width) = terminal.width.filter(|width| *width >= 40) else {
+        return text;
+    };
+    let plain = help.to_string();
+    let program = plain.lines().find_map(|line| {
+        line.trim_start()
+            .strip_prefix("Usage: ")?
+            .split_whitespace()
+            .next()
+    });
+    let mut output = String::with_capacity(text.len());
+    let mut in_examples = false;
+    for line in text.split_inclusive('\n') {
+        let body = line.strip_suffix('\n').unwrap_or(line);
+        let visible = anstream::adapter::strip_str(body).to_string();
+        let trimmed = visible.trim_start();
+        in_examples |= trimmed == "Examples:";
+        let is_command = program.is_some_and(|program| {
+            trimmed == program
+                || trimmed
+                    .strip_prefix(program)
+                    .is_some_and(|tail| tail.starts_with(char::is_whitespace))
+        });
+        if in_examples
+            || trimmed.starts_with("Usage:")
+            || is_command
+            || visible.width() <= usize::from(width)
+        {
+            output.push_str(line);
+            continue;
+        }
+        wrap_prose(body, usize::from(width), &mut output);
+        if line.ends_with('\n') {
+            output.push('\n');
+        }
     }
+    output
+}
+
+/// Retain each word and its ANSI bytes; replace only the whitespace at a wrap.
+fn wrap_prose(line: &str, width: usize, output: &mut String) {
+    let visible = anstream::adapter::strip_str(line).to_string();
+    let indent = &visible[..visible.len() - visible.trim_start().len()];
+    let mut column = 0;
+    let mut has_word = false;
+    let mut cursor = 0;
+    while let Some(offset) = line[cursor..].find(|c: char| !c.is_whitespace()) {
+        let start = cursor + offset;
+        let end = start
+            + line[start..]
+                .find(char::is_whitespace)
+                .unwrap_or(line.len() - start);
+        let word = &line[start..end];
+        let word_width = anstream::adapter::strip_str(word).to_string().width();
+        let gap = &line[cursor..start];
+        if word_width > 0 && has_word && column + gap.width() + word_width > width {
+            output.push('\n');
+            output.push_str(indent);
+            column = indent.width();
+        } else {
+            output.push_str(gap);
+            column += gap.width();
+        }
+        output.push_str(word);
+        column += word_width;
+        has_word |= word_width > 0;
+        cursor = end;
+    }
+    output.push_str(&line[cursor..]);
 }
 
 /// What a `help [command...]` request resolves to.

@@ -130,6 +130,157 @@ fn details_render_just_before_examples_and_only_when_set() {
     assert!(!text.contains("Details:"));
 }
 
+fn wrapping_command() -> Command {
+    let mut definition = spec(
+        &[Example {
+            command: "tmt talk worker 'Keep this runnable command on one line even when its quoted message makes it longer than eighty display cells'",
+            note: "This example note also stays on one line even when its explanation is longer than eighty display cells",
+        }],
+        OutputModes::Human,
+    );
+    definition.details = "Only the recorded user or squad lead may change scheduled jobs; announcements are best effort and no catch-up or run results are stored.";
+    command(&definition).arg(Arg::new("actor").long("actor").help(
+        "Explicit actor; otherwise use the verified caller, then the recorded user, while preserving the scheduled job's owner and permission checks",
+    ))
+}
+
+#[test]
+fn terminal_help_wraps_prose_at_80_cells_without_splitting_words() {
+    let command = wrapping_command();
+    let original = help_text(&command, Terminal::PLAIN);
+    for color in [false, true] {
+        let terminal = Terminal {
+            color,
+            width: Some(80),
+            theme: None,
+        };
+        let text = help_text(&command, terminal);
+        assert_eq!(
+            text.split_whitespace().collect::<Vec<_>>(),
+            rendered_help(
+                &command.clone().render_help(),
+                Terminal {
+                    width: None,
+                    ..terminal
+                }
+            )
+            .split_whitespace()
+            .collect::<Vec<_>>(),
+            "wrapping preserves the ANSI bytes attached to every word"
+        );
+        let text = anstream::adapter::strip_str(&text).to_string();
+        assert_eq!(
+            text,
+            help_text(
+                &command,
+                Terminal {
+                    color: false,
+                    ..terminal
+                }
+            )
+        );
+        assert_ne!(text, original);
+        assert_eq!(
+            text.split_whitespace().collect::<Vec<_>>(),
+            original.split_whitespace().collect::<Vec<_>>(),
+            "every original word survives intact"
+        );
+        let prose = text.split("Examples:").next().unwrap();
+        assert!(prose.lines().all(|line| line.width() <= 80));
+        let details = prose.split("Details:\n").nth(1).unwrap();
+        assert!(details.lines().filter(|line| !line.is_empty()).count() > 1);
+        assert!(
+            details
+                .lines()
+                .filter(|line| !line.is_empty())
+                .all(|line| line.starts_with("  ") && !line.starts_with("   "))
+        );
+        assert_eq!(examples(&text), examples(&original));
+        let error = command
+            .clone()
+            .try_get_matches_from(["ls", "--help"])
+            .unwrap_err();
+        assert_eq!(
+            rendered_help(&error.render(), terminal),
+            help_text(&command, terminal)
+        );
+    }
+}
+
+#[test]
+fn cjk_help_paragraphs_use_display_cells_and_preserve_indentation() {
+    // CJK fixture words intentionally exercise double-width display cells.
+    let paragraph = "  日本語 表示幅 保存済み 利用者 実行予定 確認事項 日本語 表示幅 保存済み 利用者 実行予定 確認事項 日本語 表示幅 保存済み 利用者 実行予定 確認事項";
+    let rendered = clap::builder::StyledStr::from(format!("Details:\n{paragraph}\n"));
+    let text = rendered_help(
+        &rendered,
+        Terminal {
+            width: Some(80),
+            ..Terminal::PLAIN
+        },
+    );
+    let lines: Vec<_> = text.lines().skip(1).collect();
+    assert!(
+        lines.len() > 1,
+        "byte or scalar width must not stand in for cells"
+    );
+    assert_eq!(lines[0].width(), 79);
+    assert!(
+        lines
+            .iter()
+            .all(|line| line.width() <= 80 && line.starts_with("  "))
+    );
+    assert_eq!(
+        lines.join(" ").split_whitespace().collect::<Vec<_>>(),
+        paragraph.split_whitespace().collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn usage_commands_and_examples_never_wrap() {
+    let long = "tmt talk worker 'A runnable command with a quoted message that exceeds the terminal width must stay on its original line'";
+    let input = format!(
+        "Usage: {long}\n\nDetails:\n  {long}\n\nExamples:\n  # A very long example explanation that must stay on its original line just like the command below it\n  {long}\n"
+    );
+    let rendered = clap::builder::StyledStr::from(input.clone());
+    assert_eq!(
+        rendered_help(
+            &rendered,
+            Terminal {
+                width: Some(80),
+                ..Terminal::PLAIN
+            }
+        ),
+        input
+    );
+}
+
+#[test]
+fn pipes_json_unknown_and_small_widths_keep_existing_help_bytes() {
+    let command = wrapping_command();
+    let rendered = command.clone().render_help();
+    assert_eq!(
+        help_text(&command, Terminal::stdout(true)),
+        rendered.to_string()
+    );
+    for color in [false, true] {
+        for width in [None, Some(0), Some(39)] {
+            let terminal = Terminal {
+                color,
+                width,
+                theme: None,
+            };
+            let expected = if color {
+                rendered.ansi().to_string()
+            } else {
+                rendered.to_string()
+            };
+            assert_eq!(help_text(&command, terminal), expected);
+            assert_eq!(rendered_help(&rendered, terminal), expected);
+        }
+    }
+}
+
 fn nested() -> clap::Command {
     let leaf = |name: &'static str| {
         command(&CommandSpec {
