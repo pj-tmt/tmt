@@ -56,6 +56,8 @@ struct Part {
     row: Option<usize>,
     /// A row's identity root: it carries IDs and hits, never a style.
     root: bool,
+    /// The leading `◆`: waiting-colored where there is color, plain in NO_COLOR.
+    marker: bool,
     emphasize: bool,
     align: Align,
 }
@@ -104,6 +106,7 @@ impl RowPaint {
             parent,
             row: parent.and_then(|index| self.parts[index].row),
             root: false,
+            marker: false,
             emphasize: false,
             align: Align::Left,
         });
@@ -340,14 +343,17 @@ impl RowPaint {
             }
             for visual in 0..height {
                 let initial = first && visual == 0;
+                let mark = initial && waits;
+                // Only the diamond takes the token; its blank follows the row's style.
                 let marker = self.label(
-                    Some(if initial && waits { "◆ " } else { "  " }.into()),
-                    (0, y + visual, 2, 1),
-                    None,
+                    Some(if mark { "◆" } else { "  " }.into()),
+                    (0, y + visual, if mark { 1 } else { 2 }, 1),
+                    mark.then_some(Role::Waiting),
                     TextFlow::Clip,
                     Some(root),
                 );
-                self.parts[marker].emphasize = initial && waits;
+                self.parts[marker].marker = mark;
+                self.parts[marker].emphasize = mark;
             }
             if first && height > 0 {
                 // Its age mark: the first candidate that fits after the cells.
@@ -500,10 +506,13 @@ impl RowPaint {
             } else {
                 Style::new()
             };
+            // Without color the mark keeps its plain style.
+            let plain = part.marker && look.depth == tmt_cli_style::Depth::None;
             let mut style = part
                 .node
                 .style
                 .token
+                .filter(|_| !plain)
                 .map_or_else(Style::new, |role| look.role(role));
             if part.row.is_none() && part.emphasize {
                 style = style.add_modifier(Modifier::BOLD);

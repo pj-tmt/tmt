@@ -1193,6 +1193,54 @@ fn cell_tokens_override_decoration_but_keep_missing_failure_and_reverse_rules() 
 }
 
 #[test]
+fn the_waiting_row_mark_takes_the_waiting_token_like_the_tab_mark() {
+    for base in ["tmt", "tmt-light"] {
+        for depth in [
+            tmt_cli_style::Depth::TrueColor,
+            tmt_cli_style::Depth::Ansi16,
+            tmt_cli_style::Depth::None,
+        ] {
+            let look = crate::look::Look {
+                theme: tmt_cli_style::Theme::new(tmt_cli_style::theme::Base::parse(base).unwrap()),
+                depth,
+            };
+            for selected in [false, true] {
+                let mut app = board(json!([{"title": null, "rows": [
+                    row("waits", "working", "ship", json!({"pending": "approve"})),
+                    row("quiet", "working", "docs", json!({})),
+                ]}]));
+                app.view.as_mut().unwrap().look = look;
+                app.selected = usize::from(!selected);
+                let buffer = board_buffer(&app, 60, 10);
+                // The tab line also carries a diamond: look only inside the rows.
+                let (x, y) = (2..10u16)
+                    .flat_map(|y| (0..4u16).map(move |x| (x, y)))
+                    .find(|(x, y)| buffer[(*x, *y)].symbol() == "◆")
+                    .expect("the waiting row has its mark");
+                let token = if depth == tmt_cli_style::Depth::None {
+                    Style::new()
+                } else {
+                    look.role(Role::Waiting)
+                };
+                let base_style = if selected {
+                    look.selection()
+                } else {
+                    Style::new()
+                };
+                assert_eq!(
+                    painted_at(&buffer, x, y),
+                    painted(base_style.patch(look.row_span(selected, token, true))),
+                    "{base} {depth:?} selected={selected}"
+                );
+                // The blank after the diamond and the quiet row's mark are unchanged.
+                let blank = painted(base_style);
+                assert_eq!(painted_at(&buffer, x + 1, y), blank, "{base} {depth:?}");
+            }
+        }
+    }
+}
+
+#[test]
 fn declarative_style_preserves_stale_row_inheritance() {
     let mut app = board(json!([{"title":null,"rows":[
         row("worker", "working", "ship", json!({

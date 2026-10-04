@@ -59,6 +59,7 @@ painter directly.
   recorded `text_width`, cut intent and the owning row. It paints through `paint_with`, where
   Squad's callback supplies selection, stale-dim, token and emphasis styles and column
   alignment (`Look` stays the selection policy owner; annotations never take selection).
+  The leading `◆` takes the `waiting` token like the tab mark, and stays plain without color.
   Each row line has a backdrop that reaches only as far as its text or row-end label, as the
   selection always did. Clipped hits come from the root's scoped identity; UUID-free rows
   keep their clip. `Scrolls::show_paint` supplies the viewport, offset and indicator.
