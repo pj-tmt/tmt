@@ -47,6 +47,15 @@ upgrade proof do not publish. Never commit injected versions to main, create tag
 early, replace public assets or replay publication to recover a smoke failure.
 Published releases are immutable; a repair requires a new reviewed version.
 
+## Incident rule
+
+Every failed or held release answers one question in its tracking issue: which pre-merge check
+should have caught this? Close that gap in `.github/release-parity.json` (an incident row naming
+the release step and either a pre-merge counterpart or a concrete release-only reason, with the
+guard's incident list and tests extended) in the same change as the fix. The fix alone is not
+enough: a release must never be the first run of a check. See
+[Release gate parity](references/ci-selection.md#release-gate-parity).
+
 ## Procedure routing
 
 Read the relevant reference before acting; archive, installer, upgrade, bootstrap

@@ -1500,8 +1500,22 @@ fn selected_tabs_keep_foregrounds_and_geometry_with_selection_background() {
                     "◆ product 2 ✗1 ",
                 ),
             ] {
-                let selected = tab(look, "product", true, attention, &TabColors::default());
-                let unselected = tab(look, "product", false, attention, &TabColors::default());
+                let selected = tab(
+                    look,
+                    "product",
+                    true,
+                    false,
+                    attention,
+                    &TabColors::default(),
+                );
+                let unselected = tab(
+                    look,
+                    "product",
+                    false,
+                    false,
+                    attention,
+                    &TabColors::default(),
+                );
                 assert_eq!(selected.to_string(), text);
                 assert_eq!(selected.to_string(), unselected.to_string());
                 assert_eq!(selected.width(), unselected.width());
@@ -1589,6 +1603,7 @@ fn tab_fallback_depends_on_background_even_with_an_accent_foreground() {
             look,
             "product",
             true,
+            false,
             Attention::default(),
             &TabColors::default(),
         )
@@ -2328,6 +2343,7 @@ fn attention_counts_keep_shared_marks_and_tab_width_without_color() {
             app.look(),
             "product",
             false,
+            false,
             Attention::default(),
             &TabColors::default()
         )
@@ -2335,8 +2351,8 @@ fn attention_counts_keep_shared_marks_and_tab_width_without_color() {
         "  product "
     );
     let colors = TabColors::default();
-    let plain = tab(app.look(), "product", false, counts, &colors);
-    let selected = tab(app.look(), "product", true, counts, &colors);
+    let plain = tab(app.look(), "product", false, false, counts, &colors);
+    let selected = tab(app.look(), "product", true, false, counts, &colors);
     assert_eq!(selected.to_string(), "◆ product 2 ✗1 ");
     assert_eq!(selected.to_string(), plain.to_string());
     assert_eq!(selected.width(), "◆ product 2 ✗1 ".width());
