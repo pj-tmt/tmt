@@ -8,3 +8,5 @@ description: Build and verify the Squad extension (`tmt-squad`, `tmt-sq`, the bo
 ## References
 
 - [references/development.md](references/development.md): build, test and verification commands moved from DEVELOPMENT.md.
+
+- [references/board.md](references/board.md): Home model, squad tiles and shared cursor/scroll contract.
