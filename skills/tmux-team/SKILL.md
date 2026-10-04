@@ -1039,4 +1039,6 @@ delete user content. Check `pathWarning` before assuming the
 shell selects the updated binary. Reload/restart the agent, or read the complete
 `tmt learn --skill` output in an existing conversation.
 
-If Office is installed, read its separate skill with `tmt learn --skill tmt-office`.
+Office is optional and separate. Install it only after explicit user consent
+(`tmt office install --yes`); never disclose an Office session token or URL token.
+If installed, read its skill with `tmt learn --skill tmt-office`.
