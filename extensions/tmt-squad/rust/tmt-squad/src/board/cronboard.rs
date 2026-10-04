@@ -23,7 +23,9 @@ pub(super) use half::{render as render_half, wanted as half_wanted};
 pub(super) use hints::{help as help_keys, jobs as jobs_hints};
 pub(super) use line::line as home_line;
 #[cfg(test)]
-pub(super) use line::tests::{NOW as TEST_NOW, cron as test_cron, view as test_view};
+pub(super) use line::tests::{
+    NOW as TEST_NOW, cron as test_cron, view as test_view, views as test_views,
+};
 pub(super) use list::{Input as ListInput, List};
 pub(super) use load::{Fetch, fetch};
 pub(super) use place::Places;
