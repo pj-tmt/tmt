@@ -90,7 +90,11 @@ never maps tags through those parents.
 
 For authorized local proof, follow the shared-host build/disk rules and use one
 Cargo target. Build `tmt-release-tool` first; Node finds its `release-version`
-binary at that target's `debug/` (or default `rust/target/debug/`). Run
+binary at that target's `debug/` (or default `rust/target/debug/`).
+The TOML helper uses the module's 60-second process bound to allow cold Rosetta
+startup; timeout, signal and nonzero-exit failures still fail the source gate.
+Include cold helper startup when rehearsing the Intel-host upgrade proof.
+Run
 `release-version-injection.mjs prepare <checkout> <snapshot-outside-checkout>
 <product> <tag>`; an empty tag selects the shared non-publishing preparation version. When
 versions differ, demonstrate stale-lock rejection with full `cargo metadata
