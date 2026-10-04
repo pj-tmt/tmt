@@ -104,7 +104,13 @@ function projectResponse(p: Project, cursor: string | null = null) {
     },
   };
 }
-function stateApi(p: Project, releases: Release[], prs: Map<string, ClosingPr[]>): Api {
+function stateApi(
+  p: Project,
+  releases: Release[],
+  prs: Map<string, ClosingPr[]>,
+  onProjectRead?: (project: Project, read: number) => void
+): Api {
+  let reads = 0;
   return fakeApi(
     () => releases,
     (query) => {
@@ -129,7 +135,8 @@ function stateApi(p: Project, releases: Release[], prs: Map<string, ClosingPr[]>
           ])
         );
       }
-      return projectResponse(p);
+      onProjectRead?.(p, ++reads);
+      return structuredClone(projectResponse(p));
     }
   );
 }
@@ -682,7 +689,211 @@ describe('bounded discovery and mutation safety', () => {
         git: { validateTags() {}, paths: () => [], containingTags: () => new Set() },
       })
     ).toThrow('readback did not match');
+    expect(writes(api)).toHaveLength(2);
+  });
+
+  it('reports every persistent mismatching issue and both fields, then stops after one correction', () => {
+    const p = project([item(1), item(2, 'Released', 'stale\nevidence')]);
+    const reportReadbackMismatch = vi.fn();
+    let reads = 0;
+    const api = fakeApi(
+      () => [],
+      (query) => {
+        if (query.startsWith('mutation'))
+          return Object.fromEntries(
+            [...query.matchAll(/(u\d+):[^\n]+?itemId:"([^"]+)"/g)].map(([, alias, id]) => [
+              alias,
+              { projectV2Item: { id } },
+            ])
+          );
+        if (query.includes('closedByPullRequestsReferences'))
+          return Object.fromEntries(
+            [...p.items.keys()].map((id, i) => [
+              `i${i}`,
+              { id, state: 'CLOSED', closedByPullRequestsReferences: connection([]) },
+            ])
+          );
+        reads++;
+        return projectResponse(p);
+      }
+    );
+    let failure: Error | undefined;
+    try {
+      reconcile({
+        api,
+        repository,
+        dryRun: false,
+        map,
+        reportReadbackMismatch,
+        git: { validateTags() {}, paths: () => [], containingTags: () => new Set() },
+      });
+    } catch (error) {
+      failure = error as Error;
+    }
+    expect(failure?.message).toContain('after one correction');
+    const rendered = renderFailure(failure!, api);
+    expect(rendered).toContain('attempt 2/2');
+    expect(rendered).toContain('https://github.com/pj-tmt/tmt/issues/1 (item-1)');
+    expect(rendered).toContain('https://github.com/pj-tmt/tmt/issues/2 (item-2)');
+    expect(rendered).toContain('expected {"Status":"Done","Released in":""}');
+    expect(rendered).toContain('observed {"Status":"Merged","Released in":""}');
+    expect(rendered).toContain('observed {"Status":"Released","Released in":"stale\\nevidence"}');
+    expect(reportReadbackMismatch).toHaveBeenCalledTimes(2);
+    expect(reportReadbackMismatch.mock.calls[0][0]).toContain('attempt 1/2');
+    expect(reads).toBe(3);
+    expect(writes(api)).toHaveLength(4);
+    expect(p.items.get('issue-2')!.released!.text).toBe('stale\nevidence');
+  });
+
+  it('repairs close-to-Done drift using fresh item IDs and only fields still wrong', () => {
+    const sha = 'a'.repeat(40);
+    const p = project([item(1, 'Released', 'stale'), item(2), item(3, 'Released', 'owner gate')]);
+    p.items.get('issue-3')!.content.labels.nodes.push({ name: 'epic' });
+    const reportReadbackMismatch = vi.fn();
+    const api = stateApi(
+      p,
+      [],
+      new Map([
+        ['issue-1', [closingPr(1, sha)]],
+        ['issue-2', [closingPr(2, sha)]],
+      ]),
+      (fresh, read) => {
+        if (read !== 2) return;
+        fresh.items.get('issue-1')!.id = 'replacement-item';
+        fresh.items.get('issue-1')!.status = { name: 'Done' };
+        fresh.items.get('issue-2')!.status = { name: 'Done' };
+      }
+    );
+    const result = reconcile({
+      api,
+      repository,
+      dryRun: false,
+      map,
+      workspace,
+      reportReadbackMismatch,
+      git: { validateTags() {}, paths: () => ['rust/input'], containingTags: () => new Set() },
+    });
+    expect(reportReadbackMismatch).toHaveBeenCalledTimes(1);
+    expect(reportReadbackMismatch.mock.calls[0][0]).toContain('replacement-item');
+    expect(reportReadbackMismatch.mock.calls[0][0]).toContain('/issues/2');
+    expect(writes(api)).toHaveLength(3);
+    const correction = writes(api)[2][0];
+    expect(correction).toContain('itemId:"replacement-item"');
+    expect(correction).toContain('itemId:"item-2"');
+    expect(correction).not.toContain('fieldId:"released"');
+    expect(correction).not.toContain('item-3');
+    expect([...p.items.values()].map((row) => [row.status!.name, row.released!.text])).toEqual([
+      ['Merged', ''],
+      ['Merged', ''],
+      ['Released', 'owner gate'],
+    ]);
+    expect(result.requests).toEqual({ graphql: 7, rest: 1 });
+    expect(renderSummary(result)).toContain('REST 1/20; GraphQL 7/200');
+  });
+
+  it('corrects text-only drift without rewriting a settled status', () => {
+    const p = project();
+    const api = stateApi(p, [], new Map(), (fresh, read) => {
+      if (read === 2) fresh.items.get('issue-1')!.released = { text: 'late evidence' };
+    });
+    reconcile({
+      api,
+      repository,
+      dryRun: false,
+      map,
+      git: { validateTags() {}, paths: () => [], containingTags: () => new Set() },
+    });
+    expect(writes(api)).toHaveLength(2);
+    expect(writes(api)[1][0]).toContain('clearProjectV2ItemFieldValue');
+    expect(writes(api)[1][0]).not.toContain('fieldId:"status"');
+    expect(p.items.get('issue-1')!.released!.text).toBe('');
+  });
+
+  it.each(['reopened', 'missing', 'epic'])(
+    'refuses a %s issue before correction writes',
+    (change) => {
+      const p = project();
+      const api = stateApi(p, [], new Map(), (fresh, read) => {
+        if (read !== 2) return;
+        const row = fresh.items.get('issue-1')!;
+        if (change === 'reopened') row.content.state = 'OPEN';
+        else if (change === 'missing') fresh.items.delete('issue-1');
+        else row.content.labels.nodes.push({ name: 'EPIC' });
+      });
+      expect(() =>
+        reconcile({
+          api,
+          repository,
+          dryRun: false,
+          map,
+          git: { validateTags() {}, paths: () => [], containingTags: () => new Set() },
+        })
+      ).toThrow(/during reconciliation: https:\/\/github.com\/pj-tmt\/tmt\/issues\/1/);
+      expect(writes(api)).toHaveLength(1);
+    }
+  );
+
+  it('refuses an issue reopened on the second readback without a third write attempt', () => {
+    const p = project();
+    const api = stateApi(p, [], new Map(), (fresh, read) => {
+      if (read === 2) fresh.items.get('issue-1')!.status = { name: 'Merged' };
+      if (read === 3) fresh.items.get('issue-1')!.content.state = 'OPEN';
+    });
+    expect(() =>
+      reconcile({
+        api,
+        repository,
+        dryRun: false,
+        map,
+        git: { validateTags() {}, paths: () => [], containingTags: () => new Set() },
+      })
+    ).toThrow('Issue reopened');
+    expect(writes(api)).toHaveLength(2);
+  });
+
+  it('reserves the correction and second readback before retry writes', () => {
+    const p = project();
+    const budget = githubApi({ repository, appToken: 'test-token' });
+    const reportReadbackMismatch = vi.fn();
+    const api = stateApi(p, [], new Map(), (fresh, read) => {
+      if (read !== 2) return;
+      fresh.items.get('issue-1')!.status = { name: 'Merged' };
+      budget.counts.graphql = LIMITS.graphql - LIMITS.pages;
+    });
+    api.reserve = vi.fn(budget.reserve);
+    expect(() =>
+      reconcile({
+        api,
+        repository,
+        dryRun: false,
+        map,
+        reportReadbackMismatch,
+        git: { validateTags() {}, paths: () => [], containingTags: () => new Set() },
+      })
+    ).toThrow('Insufficient GraphQL budget before writes');
+    expect(api.reserve).toHaveBeenCalledTimes(2);
+    expect(reportReadbackMismatch).toHaveBeenCalledTimes(1);
     expect(writes(api)).toHaveLength(1);
+    expect(p.items.get('issue-1')!.status!.name).toBe('Merged');
+  });
+
+  it('does not read back or correct drift during a dry run', () => {
+    const p = project();
+    const onRead = vi.fn();
+    const reportReadbackMismatch = vi.fn();
+    const api = stateApi(p, [], new Map(), onRead);
+    reconcile({
+      api,
+      repository,
+      dryRun: true,
+      map,
+      reportReadbackMismatch,
+      git: { validateTags() {}, paths: () => [], containingTags: () => new Set() },
+    });
+    expect(onRead).toHaveBeenCalledTimes(1);
+    expect(reportReadbackMismatch).not.toHaveBeenCalled();
+    expect(writes(api)).toHaveLength(0);
+    expect(p.items.get('issue-1')!.status!.name).toBe('Merged');
   });
 
   it('counts real transport attempts, scopes credentials and stops without retries', () => {

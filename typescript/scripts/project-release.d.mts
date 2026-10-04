@@ -118,6 +118,7 @@ export function reconcile(options: {
   repository: string;
   dryRun: boolean;
   projectId?: string;
+  reportReadbackMismatch?: (details: string) => void;
   git?: GitEvidence;
   map?: ComponentMap;
   workspace?: CargoWorkspace;
