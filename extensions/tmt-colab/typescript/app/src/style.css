@@ -1012,3 +1012,29 @@ footer {
   text-decoration: underline;
   text-underline-offset: 4px;
 }
+
+/* A state is a mark plus a word; the mark takes the state's role color, the word stays muted text. */
+.ask-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.ask-state-mark {
+  display: inline-flex;
+}
+.ask-state-mark .lucide {
+  width: 14px;
+  height: 14px;
+}
+.ask-state[data-tone='done'] .ask-state-mark {
+  color: var(--c-working);
+}
+.ask-state[data-tone='waiting'] .ask-state-mark {
+  color: var(--c-waiting);
+}
+.ask-state[data-tone='held'] .ask-state-mark {
+  color: var(--c-muted);
+}
+.ask-state[data-tone='problem'] .ask-state-mark {
+  color: var(--c-blocked);
+}

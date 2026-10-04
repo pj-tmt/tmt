@@ -94,15 +94,29 @@ test('Chat shows held, pending, replied and display-only reply timeout without c
   await mount(page);
   await page.evaluate(() => (document.documentElement.dataset.theme = 'dark'));
   await run(page, 'syncRecords', 'held');
+  // Every state is a Lucide mark plus its word, the mark colored by the state's role.
+  const state = (tone: string) =>
+    page.getByTestId('ask-state').first().locator(`.ask-state[data-tone="${tone}"]`);
   await expect(page.getByTestId('ask-state').first()).toContainText('held');
+  await expect(state('held').locator('svg.lucide')).toBeVisible();
+  await page.screenshot({ path: '/tmp/1730-390-dark-held.png' });
   await run(page, 'pending');
   await expect(page.getByTestId('ask-state').first()).toContainText('waiting');
+  await expect(state('waiting').locator('svg.lucide')).toBeVisible();
+  await page.screenshot({ path: '/tmp/1730-390-dark-waiting.png' });
   await page.clock.fastForward(2 * 60 * 60 * 1000 + 1);
-  await expect(page.getByTestId('ask-state').first()).toContainText('… no reply yet');
+  await expect(page.getByTestId('ask-state').first()).toContainText('no reply yet');
+  await expect(state('waiting').locator('svg.lucide')).toBeVisible();
   await expect(page.getByTestId('ask-state').first()).toHaveAttribute('data-state', 'accepted');
   await page.screenshot({ path: '/tmp/1645-chromium-390-dark-timeout.png' });
   await run(page, 'syncRecords', 'accepted');
   await expect(page.getByTestId('ask-state').first()).toContainText('replied');
+  await expect(state('done').locator('svg.lucide')).toBeVisible();
+  await expect(state('done').locator('.ask-state-mark')).toHaveCSS('color', /./);
+  await page.screenshot({ path: '/tmp/1730-390-dark-replied.png' });
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.evaluate(() => (document.documentElement.dataset.theme = 'light'));
+  await page.screenshot({ path: '/tmp/1730-1440-light-replied.png' });
   expect((await run(page, 'proof')).sends).toEqual([]);
 });
 test('verified refusal reasons use actionable copy without exposing a resend', async ({ page }) => {
@@ -123,6 +137,9 @@ test('verified refusal reasons use actionable copy without exposing a resend', a
   ]) {
     await run(page, 'syncRefusal', reason);
     await expect(page.getByTestId('ask-state').first()).toContainText(copy);
+    await expect(
+      page.getByTestId('ask-state').first().locator('.ask-state[data-tone="problem"] svg.lucide'),
+    ).toBeVisible();
     await expect(page.getByRole('button', { name: 'Abandon tracking' })).toHaveCount(0);
     await expect(page.getByRole('button', { name: 'Re-check delivery' })).toHaveCount(0);
   }
