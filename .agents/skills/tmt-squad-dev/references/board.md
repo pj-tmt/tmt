@@ -128,7 +128,9 @@ empty Enter send nothing, and pending is never cleared or acknowledged by it.
 `App::input` is the one composer for talk, answer, annotation, ask-lead and HOME
 lead audiences, and owns the read-only expanded-message mode. That mode consumes
 input without editing or submitting; e/Esc collapse, a transitions into the ordinary
-answer/note owner, and arrows/page keys scroll the wrapped body.
+answer/note owner, and arrows/page keys scroll the wrapped body. `home_leads::message_lines`
+preserves retained paragraph breaks and fits each logical line through the shared
+text fitter; reservation, painting and scrolling use that same projection.
 Row composers retain a `RowSend` with tab/section/squad/member occurrence and
 opening sender. Home uses its existing section/squad/member target. A single
 request opens directly; multiple requests retain the explicit picker. The

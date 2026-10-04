@@ -147,12 +147,22 @@ fn expanded_body_and_answer_share_the_full_inner_band_at_every_width_and_theme()
             let Compose::ReadLead { key, .. } = app.input.as_ref().unwrap().compose.clone() else {
                 panic!("expanded mode")
             };
-            app.apply_message(&key, Ok("First complete line\nSecond complete line".into()));
+            app.apply_message(
+                &key,
+                Ok("First complete line\n\nSecond complete line".into()),
+            );
             let buffer = draw(&app, width, 30);
             let band = app.input_band.get().unwrap();
             assert_eq!((band.x, band.width), (1, width - 2));
             let text = lines(&buffer);
             assert!(text[usize::from(band.y + 1)].contains("First complete line"));
+            assert!(
+                text[usize::from(band.y + 2)]
+                    .chars()
+                    .all(|c| c == ' ' || c == '│')
+            );
+            assert!(text[usize::from(band.y + 3)].contains("Second complete line"));
+            assert!(!text.join("\n").contains("\\n"));
             assert!(
                 text[usize::from(band.bottom() - 2)].contains("e collapse · a reply to lead-a")
             );
@@ -202,6 +212,11 @@ fn long_expanded_message_scrolls_and_rejects_changed_exchange_or_actor() {
     press(&mut app, PageDown);
     let next = lines(&draw(&app, 100, 12));
     assert!(!next.iter().any(|line| line.contains("body line 0")));
+    for _ in 0..50 {
+        press(&mut app, PageDown);
+    }
+    let last = lines(&draw(&app, 80, 12));
+    assert!(last.iter().any(|line| line.contains("body line 49")));
     app.home_leads.leads[0].exchange.as_mut().unwrap().request = Some("new-question".into());
     app.apply_message(&key, Ok("late old body".into()));
     assert!(!app.input.as_ref().unwrap().text.contains("late old body"));

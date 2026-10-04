@@ -113,11 +113,8 @@ pub(in crate::board) fn reserved_lines(
     }
     let demand = match input.compose {
         crate::board::app::Compose::ReadLead { .. } => {
-            let lines = tmt_tui::text::lines(
-                &input.text,
-                area.width.saturating_sub(4),
-                tmt_tui::style::TextFlow::Wrap,
-            );
+            let lines =
+                crate::board::home_leads::message_lines(&input.text, area.width.saturating_sub(4));
             lines.len().saturating_add(3).max(5)
         }
         crate::board::app::Compose::Reply { .. } => 6,
@@ -205,8 +202,7 @@ pub(super) fn inline_prompt(
             height: areas.content.height + areas.position.height,
             ..areas.content
         };
-        let lines =
-            tmt_tui::text::lines(&input.text, content.width, tmt_tui::style::TextFlow::Wrap);
+        let lines = crate::board::home_leads::message_lines(&input.text, content.width);
         let skip = offset.min(lines.len().saturating_sub(usize::from(content.height)));
         for (index, line) in lines
             .iter()

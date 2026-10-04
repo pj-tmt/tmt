@@ -330,10 +330,9 @@ impl App {
                 }) = &mut self.input
                 {
                     let (maximum, page) = band.map_or((usize::MAX, 1), |band| {
-                        let lines = tmt_tui::text::lines(
+                        let lines = crate::board::home_leads::message_lines(
                             text,
                             band.width.saturating_sub(4),
-                            tmt_tui::style::TextFlow::Wrap,
                         );
                         let page = usize::from(band.height.saturating_sub(3));
                         (lines.len().saturating_sub(page), page.max(1))

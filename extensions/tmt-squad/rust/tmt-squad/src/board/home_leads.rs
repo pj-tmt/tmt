@@ -11,6 +11,14 @@ use std::{collections::BTreeMap, time::Instant};
 
 const LIMIT: usize = 50;
 
+/// Retained bodies preserve paragraph breaks; the shared fitter escapes each
+/// logical line and wraps it to the band's recorded content width.
+pub(super) fn message_lines(text: &str, width: u16) -> Vec<String> {
+    text.split('\n')
+        .flat_map(|line| tmt_tui::text::lines(line, width, tmt_tui::style::TextFlow::Wrap))
+        .collect()
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Kind {
     Question,
