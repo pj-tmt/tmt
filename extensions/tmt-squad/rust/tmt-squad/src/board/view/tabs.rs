@@ -981,11 +981,11 @@ mod tests {
                 ),
                 (
                     100,
-                    " ▚ tmt ◆ 3 ✗ 2    leads   mamezu tmt · ◆ colab 1 ✗ core 1   infra ◆ remote 2 ✗ 1 +9 › perf✗ 2 …",
+                    " ▚ tmt ◆ 3 ✗ 2    leads   mamezu tmt · ◆ colab 1 ✗ core 1   infra ◆ remote 2 ✗ 1 +9 › perf ✗ 2 …",
                 ),
                 (
                     80,
-                    " ▚ tmt ◆ 3 ✗ 2    leads   mamezu ◆ tmt-colab 1 +12 › tmt-remote◆ 2✗ 1 …",
+                    " ▚ tmt ◆ 3 ✗ 2    leads   mamezu ◆ tmt-colab 1 +12 › tmt-remote ◆ 2 ✗ 1 …",
                 ),
             ] {
                 for (current, selected) in [(tabs::ALL, true), ("tmt-colab", false)] {
