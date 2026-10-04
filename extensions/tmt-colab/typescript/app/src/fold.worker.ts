@@ -136,13 +136,19 @@ self.onmessage = async (event: MessageEvent<{ id: number; command: FoldCommand }
       for (const item of command.updates) Y.applyUpdate(candidate, item);
       for (const item of command.own ?? []) Y.applyUpdate(writerDoc(item.writer), item.update);
     } else if (command.type === 'prepare-own') {
-      const doc = writerDoc(command.writer),
-        map = doc.getMap(command.root);
-      const previous = map.get(command.key);
-      if (previous !== undefined && JSON.stringify(previous) !== JSON.stringify(command.value))
-        throw new Error('Own record is immutable');
+      if (command.records.length < 1 || command.records.length > 32)
+        throw new Error('Own batch capacity');
+      const doc = writerDoc(command.writer);
       const vector = Y.encodeStateVector(doc);
-      if (previous === undefined) map.set(command.key, command.value);
+      for (const record of command.records) {
+        if (!['threads', 'messages', 'intents', 'replies'].includes(record.root))
+          throw new Error('Invalid own root');
+        const map = doc.getMap(record.root);
+        const previous = map.get(record.key);
+        if (previous !== undefined && JSON.stringify(previous) !== JSON.stringify(record.value))
+          throw new Error('Own record is immutable');
+        if (previous === undefined) map.set(record.key, record.value);
+      }
       update = new Uint8Array(Y.encodeStateAsUpdate(doc, vector));
       if (update.length > UPDATE_BYTES) throw new Error('Own record exceeds update capacity');
     } else if (command.type === 'prepare') {
@@ -196,6 +202,18 @@ self.onmessage = async (event: MessageEvent<{ id: number; command: FoldCommand }
       [...nextOwn].map(([writer, doc]) => [writer, projectOwn(doc, command.type !== 'checkpoint')]),
     );
     validateOwn(ownProjection);
+    for (const [writer] of changed) {
+      const previous = own.get(writer);
+      if (!previous) continue;
+      const roots = projectOwn(previous, false);
+      for (const root of ['threads', 'messages'])
+        for (const [key, value] of Object.entries(roots[root])) {
+          if (value?.kind !== 'thread' && value?.kind !== 'comment') continue;
+          if (JSON.stringify(value) !== JSON.stringify(ownProjection[writer][root][key]))
+            throw new Error('Discussion record is immutable');
+        }
+    }
+
     if (
       stateBytes(candidate) + [...nextOwn.values()].reduce((n, doc) => n + stateBytes(doc), 0) >
         STATE_BYTES ||

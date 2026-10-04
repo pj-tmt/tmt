@@ -52,6 +52,9 @@ browsers register: each paired device registers when it first opens the app.
 
 ## Cases
 
+`discussion.spec.ts` covers two paired writers and comment-origin Ask. Its module
+contracts and focused cases are described in [discussion.md](discussion.md).
+
 `ask.spec.ts` holds the Ask cases: direct send with exact bytes and a second viewer, browser
 reload, Remote restart after the core accepted, Remote restart before dispatch, Colab restart,
 device revocation and two tabs of one browser (one active tab, "Use here" takes it back). They

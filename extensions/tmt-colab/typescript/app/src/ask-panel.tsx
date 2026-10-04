@@ -1,3 +1,4 @@
+import type { CommentContext } from './thread-store.js';
 import { useEffect, useRef, useState } from 'react';
 import type { PreviewAttempt } from './ask-preview.js';
 import type { LedgerState } from './ask-records.js';
@@ -6,6 +7,7 @@ import type { RemoteAgent } from './ask-remote.js';
 import type { AskDestination } from './ask-intent.js';
 import { AskPreview } from './ask-preview.js';
 import { text } from './strings.js';
+import { relativeTime } from './display-time.js';
 
 /** Capabilities stay in trusted parent chrome. The mounted adapter owns current
  * page/member/grant admission and returns the existing frozen/signing attempt. */
@@ -17,6 +19,7 @@ export interface AskBinding {
     title: string;
     url: string;
     destination: AskDestination;
+    context?: CommentContext;
   }): Promise<PreviewAttempt>;
   recheck(operationId: string): Promise<void>;
   abandon(operationId: string): Promise<void>;
@@ -44,17 +47,6 @@ function presenceLabel(presence: RemoteAgent['presence']) {
       ? text.presenceOffline
       : text.presenceUnknown;
 }
-function relativeTime(issuedAt: number, now: number) {
-  if (now === 0) return text.askJustNow;
-  const minutes = Math.round((issuedAt - now) / 60000);
-  if (Math.abs(minutes) < 1) return text.askJustNow;
-  const format = new Intl.RelativeTimeFormat('en', { numeric: 'auto' });
-  if (Math.abs(minutes) < 60) return format.format(minutes, 'minute');
-  const hours = Math.round(minutes / 60);
-  return Math.abs(hours) < 24
-    ? format.format(hours, 'hour')
-    : format.format(Math.round(hours / 24), 'day');
-}
 const refusals: Record<string, string> = {
   REMOTE_SCOPE_DENIED: text.askScopeDenied,
   REMOTE_INPUT_INVALID: text.askInputInvalid,
@@ -72,14 +64,19 @@ export function AskControl({
   selection,
   title,
   blocked,
+  origin,
+  originUnavailable = false,
 }: {
   binding?: AskBinding;
   selection: string;
   title: string;
   blocked: boolean;
+  origin?: { context: CommentContext; body: string };
+  originUnavailable?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [quote, setQuote] = useState('');
+  const [context, setContext] = useState<CommentContext>();
   const [comment, setComment] = useState('');
   const [agents, setAgents] = useState<(AskDestination & { presence?: RemoteAgent['presence'] })[]>(
     [],
@@ -125,7 +122,14 @@ export function AskControl({
     if (!binding || !destination || blocked) return;
     const current = ++generation.current;
     // Capture parent form values before any async authority check.
-    const input = { quote, comment, title, url: location.href, destination: { ...destination } };
+    const input = {
+      quote,
+      comment,
+      title,
+      url: location.href,
+      destination: { ...destination },
+      context,
+    };
     setLoading(true);
     setError(null);
     try {
@@ -140,11 +144,12 @@ export function AskControl({
   return (
     <div className="ask-control">
       <button
-        data-testid="ask-action"
-        disabled={open || !binding || !selection || blocked}
+        data-testid={origin ? 'comment-ask-action' : 'ask-action'}
+        disabled={open || !binding || (!selection && !origin) || blocked || originUnavailable}
         onClick={(event) => {
           if (!event.isTrusted) return;
-          setComment('');
+          setContext(origin ? structuredClone(origin.context) : undefined);
+          setComment(origin?.body ?? '');
           setQuote(selection);
           setOpen(true);
           setAttempt(null);
@@ -155,7 +160,7 @@ export function AskControl({
       </button>
       {!binding ? (
         <span className="isolation-note">{text.askUnavailable}</span>
-      ) : !selection && !open ? (
+      ) : !selection && !origin && !open ? (
         <span className="isolation-note">{text.askSelection}</span>
       ) : null}
       {open && !attempt && (
@@ -167,7 +172,7 @@ export function AskControl({
             {text.askComment}
             <textarea
               value={comment}
-              disabled={loading}
+              disabled={loading || !!origin}
               onChange={(event) => setComment(event.target.value)}
             />
           </label>
