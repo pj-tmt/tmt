@@ -112,9 +112,12 @@ export function selectNativeArtifact(
   assert.equal(releases[0].app_name, `tmt-${product}`, 'Archive must belong to the TMT release');
   const version = releases[0].app_version;
   assert(typeof version === 'string' && version.length > 0, 'Manifest requires a version');
-  // cargo-dist declares an included directory as one asset named after it.
-  const declared = shipsSkills(product) ? [skillsRoot] : [];
   const assets = artifact.assets.map((asset) => asset.path);
+  // cargo-dist declares an included directory as one asset named after it. The archive under
+  // release must carry the skills its component declares; a published archive (an upgrade proof's
+  // previous release) is read against its own manifest, because it may predate the declaration.
+  const declared =
+    shipsSkills(product) && (release || assets.includes(skillsRoot)) ? [skillsRoot] : [];
   // The companions this archive declares, in their one order.
   const carried = companionFiles(product).filter((companion) => assets.includes(companion));
   assert.deepEqual(
