@@ -6,7 +6,7 @@ import type { AskBinding, PageAsk } from '../src/ask-panel.js';
 import type { PageView, PageBinding } from '../src/transport.js';
 import { createAppRouter } from '../src/router.js';
 import { fixtureAttempt } from './ask-browser-attempt.js';
-import { destination, id, RemoteDouble, selection } from './ask-fixtures.js';
+import { destination, id, pageLink, RemoteDouble, selection } from './ask-fixtures.js';
 let root: Root | undefined;
 let sends: RemoteDouble;
 let actions: string[];
@@ -45,7 +45,11 @@ export async function mount() {
       }));
     },
     async prepare(input) {
-      const fixture = fixtureAttempt({ ...selection(), ...input }, input.destination);
+      // The fixture routes by hash, so location.href is not the mounted page URL a real app has.
+      const fixture = fixtureAttempt(
+        { ...selection(), ...input, url: pageLink() },
+        input.destination,
+      );
       if (preparing) await preparing;
       const result = await fixture;
       sends = result.remote;
@@ -109,10 +113,14 @@ export function resumePrepare() {
   prepareRelease?.();
   preparing = undefined;
 }
-export function syncRecords(state: PageAsk['state'] = 'uncertain') {
+/** The admitted record of the ask this page just sent. */
+export function syncSent() {
+  syncRecords('accepted', sends.sends[0].operationId);
+}
+export function syncRecords(state: PageAsk['state'] = 'uncertain', operationId = id(21)) {
   records = [
     {
-      operationId: id(21),
+      operationId,
       writer: id(4),
       agent: id(6),
       agentName: 'Agent 1',

@@ -18,10 +18,13 @@ import { text } from './strings.js';
 export function AskPreview({
   attempt,
   close,
+  sent,
   blocked = false,
 }: {
   attempt: PreviewAttempt;
   close(): void;
+  /** Called once the Send settled as accepted, held or uncertain: the ask is on the page. */
+  sent?(operationId: string): void;
   blocked?: boolean;
 }) {
   const [state, setState] = useState(attempt.state);
@@ -62,7 +65,9 @@ export function AskPreview({
     const pending = attempt.send();
     setState(attempt.state);
     const next = await pending;
-    if (current.current === attempt) setState(next);
+    if (current.current !== attempt) return;
+    setState(next);
+    if (['accepted', 'held', 'uncertain'].includes(next.state)) sent?.(view.operationId);
   }
   return (
     <section

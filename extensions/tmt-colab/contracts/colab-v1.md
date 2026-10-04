@@ -1184,6 +1184,12 @@ storage or invoke core directly. Uncertainty recovers on the existing session;
 only session end requires Live to replace it before original-ID recovery. Frozen byte/signature vectors live in
 `vectors/send-preview-v1.json`, with independent Python regeneration.
 
+The frozen `Link:` is the page's own mounted URL, `<mount>/#space=<spaceId>&path=%2Fpages%2F<pageId>`,
+built from the admitted selection; the fragment carries only those two public IDs. A source URL whose
+fragment is anything else (a reader seed, any other key), or that has a query or a `/read` path, is refused
+rather than stripped, so a reader link can never reach agent text. After an accepted, held or uncertain
+Send the trusted preview closes, and the matching Page asks entry is scrolled into view and focused.
+
 ### Member machines
 
 Local v1 is owner-only: mounted writers are certified devices of the pinned

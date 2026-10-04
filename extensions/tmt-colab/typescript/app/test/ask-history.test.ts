@@ -8,7 +8,7 @@ import { FrozenAsk } from '../src/ask-intent.js';
 import { pageAsks } from '../src/live-ask.js';
 import type { Registration } from '../src/registration.js';
 import type { FoldCommand, FoldResult } from '../src/fold-protocol.js';
-import { destination, id, selection } from './ask-fixtures.js';
+import { destination, id, pageLink, selection } from './ask-fixtures.js';
 const records = new Map<string, unknown>();
 vi.mock('../src/storage.js', () => ({
   record: async (key: string, ...values: unknown[]) => {
@@ -76,7 +76,13 @@ it('retains cut-admitted Ask history after revocation but never decodes or rende
   );
   const capture = (operationId: string) =>
     FrozenAsk.capture(
-      { ...selection(), space: v.space, page: v.page, senderDevice: v.page },
+      {
+        ...selection(),
+        space: v.space,
+        page: v.page,
+        senderDevice: v.page,
+        url: pageLink(v.space, v.page),
+      },
       destination(),
       { issuedAt: 50, operationId },
     );

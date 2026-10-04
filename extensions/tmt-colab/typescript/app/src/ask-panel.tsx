@@ -227,9 +227,43 @@ export function AskControl({
           </div>
         </section>
       )}
-      {open && attempt && <AskPreview attempt={attempt} close={close} blocked={blocked} />}
+      {open && attempt && (
+        <AskPreview
+          attempt={attempt}
+          close={close}
+          blocked={blocked}
+          sent={(operationId) => {
+            close();
+            revealAsk(operationId);
+          }}
+        />
+      )}
     </div>
   );
+}
+
+/** After a Send the preview closes and the matching Page asks entry is scrolled to and focused.
+ * The entry appears when its record is admitted, so wait for it briefly. */
+export function revealAsk(operationId: string, timeoutMs = 5000) {
+  const find = () =>
+    [...document.querySelectorAll<HTMLElement>('[data-testid=ask-entry]')].find(
+      (entry) => entry.dataset.operationId === operationId,
+    );
+  const reveal = (entry: HTMLElement) => {
+    entry.scrollIntoView({ block: 'center' });
+    entry.focus({ preventScroll: true });
+  };
+  const now = find();
+  if (now) return reveal(now);
+  const observer = new MutationObserver(() => {
+    const entry = find();
+    if (!entry) return;
+    observer.disconnect();
+    clearTimeout(timer);
+    reveal(entry);
+  });
+  const timer = setTimeout(() => observer.disconnect(), timeoutMs);
+  observer.observe(document.body, { childList: true, subtree: true });
 }
 
 /** Only admitted sync records enter this view. Responses to Send/retry/abandon
@@ -306,6 +340,7 @@ export function AskPanel({
           data-testid="ask-entry"
           data-operation-id={record.operationId}
           data-writer={record.writer}
+          tabIndex={-1}
           key={`${record.writer}:${record.operationId}`}
           aria-label={`${text.ask} ${record.operationId}`}
         >
