@@ -80,6 +80,13 @@ cost or text volume. `board::rate` owns evidence, `board::meter` presentation an
   tokens, increment unreported once, and make totals/shares partial; a measured
   zero stays numeric but has no share denominator. Current model attribution is
   best effort. The header painter consumes this typed projection only.
+  `home::paint::usage` formats the global windows and shares, using shared model
+  family names and grapheme-safe fitting. `view::render_frame` reserves one row
+  below counts at 100+ only when observations admit it, painted through Strip.
+  The 100–149 row keeps w2/w3 and top; 150+ adds w1, whole fitting model-share
+  groups and the unreported count. No readings means no usage row, including
+  warmup; measured zero admits it without a share denominator. Narrow widths,
+  disabled sampling and search with no shown sampling squads keep their height.
 - Coverage: covered readings stay numeric, including measured zero. Known nonzero
   history deltas also remain numeric lower bounds without continuous coverage;
   zero without coverage stays unavailable. Partial coverage, windows longer than available evidence and unreported members prefix

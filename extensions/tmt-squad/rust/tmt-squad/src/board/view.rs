@@ -37,6 +37,19 @@ pub fn fit(text: &str, width: usize) -> String {
 }
 
 pub fn render(frame: &mut Frame, app: &App) {
+    let home_usage = (!app.loading())
+        .then(|| app.home_header_usage(std::time::Instant::now()))
+        .flatten()
+        .and_then(|usage| super::home::usage(&usage, frame.area().width, app.look()));
+    render_frame(frame, app, home_usage);
+}
+
+/// Frame geometry consumes an already formatted header, independent of acquisition.
+pub(in crate::board) fn render_frame(
+    frame: &mut Frame,
+    app: &App,
+    home_usage: Option<ratatui::text::Line<'static>>,
+) {
     let look = app.look();
     app.input_band.set(None);
     app.hits.borrow_mut().clear();
@@ -51,7 +64,9 @@ pub fn render(frame: &mut Frame, app: &App) {
     let [tabs, summary, meter_status, body, footer] = Layout::vertical([
         Constraint::Length(1),
         Constraint::Length(1),
-        Constraint::Length(u16::from(header::meter_enabled(app))),
+        Constraint::Length(u16::from(
+            header::meter_enabled(app) || home_usage.is_some(),
+        )),
         Constraint::Min(1),
         Constraint::Length(1),
     ])
@@ -86,6 +101,15 @@ pub fn render(frame: &mut Frame, app: &App) {
     );
     header::render_meter(frame, app, summary);
     header::render_meter_status(frame, app, meter_status);
+    if let Some(line) = home_usage {
+        strip::paint_left(
+            frame.buffer_mut(),
+            meter_status,
+            line,
+            &look.theme,
+            look.depth,
+        );
+    }
     panes::render_body(frame, app, body);
     waiting::inline_prompt(frame, app, body);
     footer::render(frame, app, footer, look);

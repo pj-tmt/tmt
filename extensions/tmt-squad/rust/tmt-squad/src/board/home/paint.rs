@@ -6,7 +6,7 @@ use super::{
 };
 use crate::{
     board::{
-        app::{App, Hit},
+        app::{App, Hit, HomeHeaderUsage, UsageShare},
         view::fit,
     },
     config::Pane,
@@ -63,6 +63,121 @@ pub(crate) fn summary(home: &Home, width: u16, look: Look) -> Line<'static> {
     })];
     spans.extend(counts(&home.summary, look, wide));
     Line::from(spans)
+}
+
+fn percent(share: &UsageShare) -> String {
+    format!(
+        "{}{:.0}%",
+        if share.partial { "~" } else { "" },
+        share.fraction * 100.0
+    )
+}
+
+/// Formats only the accepted meter projection; no acquisition or share arithmetic.
+pub(crate) fn usage(usage: &HomeHeaderUsage<'_>, width: u16, look: Look) -> Option<Line<'static>> {
+    if width < 100 || usage.totals.iter().all(Option::is_none) {
+        return None;
+    }
+    let wide = width >= 150;
+    let width = usize::from(width);
+    let windows = (usize::from(!wide)..3)
+        .map(|index| {
+            let number = usage.totals[index].map_or_else(
+                || "–".into(),
+                |reading| {
+                    let number = crate::source::render_value(
+                        &serde_json::json!(reading.tokens.to_string()),
+                        crate::source::Format::Tokens,
+                        0,
+                    )
+                    .expect("token count is numeric");
+                    format!("{}{number}", if reading.partial { "~" } else { "" })
+                },
+            );
+            format!("{} {number}", usage.windows[index].label())
+        })
+        .collect::<Vec<_>>()
+        .join(" · ");
+    let windows = format!("tok {windows}");
+    let unreported = wide.then(|| format!("{} unreported", usage.unreported));
+    let reserved = unreported.as_ref().map_or(0, |text| text.len() + 3);
+    let mut member_width = 18;
+    let mut model_width = 12;
+    let top = loop {
+        let top = usage.top.as_ref().map_or_else(
+            || format!("top – ({})", usage.windows[2].label()),
+            |top| {
+                format!(
+                    "top {} {} {} ({})",
+                    fit(&escape(top.member), member_width).trim_end(),
+                    fit(
+                        &escape(top.model.map(crate::source::model_name).unwrap_or("–")),
+                        model_width
+                    )
+                    .trim_end(),
+                    percent(&top.share),
+                    usage.windows[2].label()
+                )
+            },
+        );
+        let used = unicode_width::UnicodeWidthStr::width(windows.as_str())
+            + unicode_width::UnicodeWidthStr::width(top.as_str())
+            + 3
+            + reserved
+            + if wide { 13 } else { 0 };
+        if used <= width || (member_width == 1 && model_width == 1) {
+            break top;
+        }
+        if member_width >= model_width && member_width > 1 {
+            member_width -= 1;
+        } else {
+            model_width -= 1;
+        }
+    };
+    let mut spans = vec![
+        Span::styled(windows, look.role(Role::Text)),
+        Span::styled(" · ", look.role(Role::Dim)),
+        Span::styled(
+            top,
+            look.role(if usage.top.is_some() {
+                Role::Accent
+            } else {
+                Role::Dim
+            }),
+        ),
+    ];
+    if wide {
+        let used: usize = spans.iter().map(Span::width).sum();
+        let available = width.saturating_sub(used + reserved + 3);
+        let mut models = String::from("by model ");
+        for model in &usage.models {
+            let one = format!(
+                "{} {}",
+                fit(
+                    &escape(model.model.map(crate::source::model_name).unwrap_or("–")),
+                    12
+                )
+                .trim_end(),
+                percent(&model.share)
+            );
+            let separator = if models == "by model " { "" } else { " · " };
+            let next = format!("{models}{separator}{one}");
+            if unicode_width::UnicodeWidthStr::width(next.as_str()) > available {
+                break;
+            }
+            models = next;
+        }
+        if models == "by model " {
+            models.push('–');
+        }
+        if unicode_width::UnicodeWidthStr::width(models.as_str()) <= available {
+            spans.push(Span::styled(" · ", look.role(Role::Dim)));
+            spans.push(Span::styled(models, look.role(Role::Text)));
+        }
+        spans.push(Span::styled(" · ", look.role(Role::Dim)));
+        spans.push(Span::styled(unreported.unwrap(), look.role(Role::Dim)));
+    }
+    Some(Line::from(spans))
 }
 
 pub(crate) fn age_label(age: &Age, now: u64) -> String {

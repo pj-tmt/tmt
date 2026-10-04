@@ -327,6 +327,17 @@ order (◆ ✗ ◐ ● ○) and a member count. Each mark has a trailing space. 
 with unknown/custom states appear as `N other`. Sampled token windows and the lead's share follow the member count.
 Selection covers the whole row, including padding.
 
+At 100 columns and wider, observed HOME usage adds a header row below the counts:
+`tok 5m ~N · 1h ~N · top <member> <model> P% (1h)`. At 150 columns it also
+shows the first window, model shares and `N unreported`. The labels use global
+`[board] tok`; the top and model shares use its longest window. Squad rows and
+member grids retain their own overrides. UUIDs in several shown sampling squads
+count once, using the better-covered observation. Missing readings are excluded
+from totals and counted once as unreported; incomplete totals and shares carry
+`~`. A zero total has no share. Model attribution uses the current observed model
+and is best effort. The row hides below 100 columns and when no shown sampling
+squad has observed readings. Search limits it to the squads currently shown.
+
 Tiles use the board's observed usage (see below). Missing values show `–`, measured
 zero shows `0`, and partial totals/share carry `~`; a zero squad total has no share.
 A sampling lead with no observed totals shows one dim `–` in the first token column. When a squad's token sampling
