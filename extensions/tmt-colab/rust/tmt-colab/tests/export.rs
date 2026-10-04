@@ -182,7 +182,10 @@ fn verify(
     assert_eq!(m["title"], title);
     assert_eq!(m["epoch"], epoch);
     assert_eq!(m["plaintext"], true);
-    assert_eq!(m["discussions"], "not-included");
+    assert_eq!(
+        m["discussions"],
+        json!({"included":true,"scope":"current-epoch","format":"tmt-colab-conversations","version":1})
+    );
     assert_eq!(m["membershipHead"]["revision"], revision);
     let head = f
         .store
@@ -196,11 +199,38 @@ fn verify(
             .map(|b| format!("{b:02x}"))
             .collect::<String>()
     );
+    // A page with no discussion still exports its (empty) conversations, frozen and hashed.
+    let conversations = fs::read(directory.join("conversations.json")).unwrap();
+    let c: Value = serde_json::from_slice(&conversations).unwrap();
+    assert_eq!(c["format"], "tmt-colab-conversations");
+    assert_eq!(
+        (c["spaceId"].as_str(), c["pageId"].as_str()),
+        (Some(f.key.space_id.as_str()), Some(PAGE))
+    );
+    assert_eq!(
+        (c["title"].as_str(), c["epoch"].as_str()),
+        (Some(title), Some(epoch))
+    );
+    assert_eq!(c["membershipHead"], m["membershipHead"]);
+    assert_eq!(
+        (c["threads"].clone(), c["asks"].clone()),
+        (json!([]), json!([]))
+    );
+    let markdown = fs::read(directory.join("conversations.md")).unwrap();
+    assert!(
+        String::from_utf8(markdown.clone())
+            .unwrap()
+            .contains("No threads.")
+    );
     assert_eq!(
         m["files"],
-        json!([{"name":"page.html","sizeBytes":source.len(),"sha256":hash(source.as_bytes())}])
+        json!([
+            {"name":"page.html","sizeBytes":source.len(),"sha256":hash(source.as_bytes())},
+            {"name":"conversations.json","sizeBytes":conversations.len(),"sha256":hash(&conversations)},
+            {"name":"conversations.md","sizeBytes":markdown.len(),"sha256":hash(&markdown)}
+        ])
     );
-    assert_eq!(fs::read_dir(directory).unwrap().count(), 2);
+    assert_eq!(fs::read_dir(directory).unwrap().count(), 4);
     for key in ["secret", "wraps", "ownerKey", "seed", "session"] {
         assert!(m.get(key).is_none());
     }
@@ -237,7 +267,12 @@ fn exact_authenticated_bytes_survive_export_reopen_and_baseline_rotation() {
         .unwrap()
         .publish(&f.root)
         .unwrap();
-        for name in ["page.html", "manifest.json"] {
+        for name in [
+            "page.html",
+            "conversations.json",
+            "conversations.md",
+            "manifest.json",
+        ] {
             assert_eq!(
                 fs::read(reopened.directory.join(name)).unwrap(),
                 fs::read(published.directory.join(name)).unwrap()
