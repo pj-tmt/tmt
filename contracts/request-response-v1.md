@@ -381,7 +381,8 @@ shell. Rebinding or coming online never triggers automatic re-wake. Explicit
 Unknown/unverified recipient readiness refuses live input with exit 1,
 `DELIVERY_PREPARATION_FAILED` and `deliveryState:"not_delivered"`. Human and JSON
 error text say the request stays queued, name the recipient's `tmt inbox` pull,
-and suggest starting a turn/session or `tmt resume` to repair live delivery.
+and suggest starting a turn/session or `tmt resume <recipient name>` in the
+recipient's pane to repair live delivery.
 After provider end, an exact live process under the verified pane (and an exact
 live launch owner when recorded) can accept plain delivery without another
 SessionStart; this also handles legacy stored Ended without rewriting it.

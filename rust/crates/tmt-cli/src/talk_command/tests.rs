@@ -180,7 +180,17 @@ fn explicit_and_offline_pending_inbox_report_pull_without_live_notification() {
 
 #[test]
 fn unverified_delivery_reports_no_live_input_and_recipient_recovery_in_json() {
-    let failure = correlation().unverified_delivery();
+    let mut recipient = correlation();
+    recipient.target = "recipient-uuid".into();
+    recipient.identity = Some(Identity {
+        id: "recipient-uuid".into(),
+        name: "Team Lead".into(),
+        canonical_name: "team lead".into(),
+        lifetime: tmt_core::identity::Lifetime::Temporary,
+        created_at: "created".into(),
+        updated_at: "updated".into(),
+    });
+    let failure = recipient.unverified_delivery();
     let document = failure.document();
     assert_eq!(document["deliveryState"], "not_delivered");
     assert_eq!(document["requestId"], "request-talk");
@@ -189,18 +199,18 @@ fn unverified_delivery_reports_no_live_input_and_recipient_recovery_in_json() {
         document["error"]["suggestion"]
             .as_str()
             .unwrap()
-            .contains("tmt inbox --identity worker --json")
+            .contains("tmt inbox --identity 'Team Lead' --json")
     );
     assert!(
         document["error"]["suggestion"]
             .as_str()
             .unwrap()
-            .contains("new turn or session")
+            .contains("In the recipient's pane, start a new turn or session")
     );
     assert!(
         document["error"]["suggestion"]
             .as_str()
             .unwrap()
-            .contains("tmt resume worker")
+            .contains("tmt resume 'Team Lead' there")
     );
 }

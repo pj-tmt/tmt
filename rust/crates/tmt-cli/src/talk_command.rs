@@ -110,9 +110,9 @@ impl Correlation {
         let recipient = self
             .identity
             .as_ref()
-            .map_or(self.target.as_str(), |identity| identity.id.as_str());
+            .map_or(self.target.as_str(), |identity| identity.name.as_str());
         format!(
-            "The recipient must pull with tmt inbox --identity {} --json. Start a new turn or session in that agent, or use tmt resume {} to repair live delivery.",
+            "The recipient must pull with tmt inbox --identity {} --json. In the recipient's pane, start a new turn or session, or run tmt resume {} there to repair live delivery.",
             crate::output::shell_word(recipient),
             crate::output::shell_word(recipient)
         )
@@ -647,8 +647,8 @@ fn warn_unattributed_record(record: &std::path::Path) {
 #[cfg(test)]
 pub(crate) const PRINTED_HINTS: &[crate::cli_style_tests::HintSpec] = &[
     crate::cli_style_tests::HintSpec::core(
-        "The recipient must pull with tmt inbox --identity {} --json. Start a new turn or session in that agent, or use tmt resume {} to repair live delivery.",
-        &[". Start", " to repair"],
+        "The recipient must pull with tmt inbox --identity {} --json. In the recipient's pane, start a new turn or session, or run tmt resume {} there to repair live delivery.",
+        &[". In", " there to repair"],
         &[],
     ),
     crate::cli_style_tests::HintSpec::core(

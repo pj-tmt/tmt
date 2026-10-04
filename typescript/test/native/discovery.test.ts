@@ -46,7 +46,8 @@ describe('first-time CLI discovery', () => {
         `${name} is offline; the request was not delivered live and is kept in Inbox`
       );
       expect(queued.stdout).toContain('tmt inbox --identity');
-      expect(queued.stdout).toContain('tmt resume');
+      expect(queued.stdout).toContain("In the recipient's pane, start a new turn or session");
+      expect(queued.stdout).toContain("tmt resume 'Team'\\''s Lead' there");
       expect(queued.stderr).toBe('');
 
       const unknown = await runCli(sandbox, ['talk', 'Missing', 'do not deliver']);
