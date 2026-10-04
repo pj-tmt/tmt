@@ -5,7 +5,10 @@ mod schema;
 use crate::{Result, keyring::Layout, limits};
 use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 use sha2::{Digest, Sha256};
-use std::time::Duration;
+use std::{
+    sync::Arc,
+    time::{Duration, SystemTime, UNIX_EPOCH},
+};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -84,8 +87,19 @@ pub struct ReadObject {
     pub bytes: Vec<u8>,
 }
 
+type Clock = dyn Fn() -> StoreResult<u64> + Send + Sync;
+fn now_ms() -> StoreResult<u64> {
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|_| Fault::Invalid)?
+        .as_millis();
+    let now = u64::try_from(now).map_err(|_| Fault::Invalid)?;
+    tmt_colab_model::values::time(now).map_err(|_| Fault::Invalid)?;
+    Ok(now)
+}
 pub struct Store {
     connection: Connection,
+    clock: Arc<Clock>,
 }
 impl Store {
     pub fn open(layout: &Layout) -> Result<Self> {
@@ -99,7 +113,10 @@ impl Store {
         schema::check_version(&connection)?;
         connection.pragma_update(None, "journal_mode", "DELETE")?;
         schema::migrate(&mut connection)?;
-        Ok(Self { connection })
+        Ok(Self {
+            connection,
+            clock: Arc::new(now_ms),
+        })
     }
     /// Existing-state reads never create files, change pragmas or run migrations.
     pub fn read(layout: &Layout) -> Result<Self> {
@@ -136,11 +153,22 @@ impl Store {
             }) | rusqlite::OpenFlags::SQLITE_OPEN_NOFOLLOW,
         )?;
         connection.busy_timeout(Duration::from_secs(2))?;
-        let version = schema::check_version(&connection)?;
-        if writable && version != 4 {
-            return Err(Fault::UnsupportedSchema(version).into());
+        schema::check_version(&connection)?;
+        if writable {
+            schema::check_read_version(&connection)?;
         }
-        Ok(Self { connection })
+        Ok(Self {
+            connection,
+            clock: Arc::new(now_ms),
+        })
+    }
+    /// Trusted server clock; injected by tests, never selected by a request.
+    pub fn with_clock(
+        mut self,
+        clock: impl Fn() -> StoreResult<u64> + Send + Sync + 'static,
+    ) -> Self {
+        self.clock = Arc::new(clock);
+        self
     }
     /// Management inspection requires current tables, without migrating legacy state.
     pub fn require_current_schema(&self) -> StoreResult<()> {
@@ -149,7 +177,7 @@ impl Store {
     pub fn create_page(&self, page: &str) -> StoreResult<()> {
         bounded_id(page)?;
         self.connection
-            .execute("INSERT INTO pages VALUES (?,'1')", [page])?;
+            .execute("INSERT INTO pages(page,epoch) VALUES (?,'1')", [page])?;
         Ok(())
     }
     /// Metadata seam for a caller's verified owner transition; no remote route in L2a.
@@ -165,7 +193,7 @@ impl Store {
         let tx = self
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
-        let result = append_in(&tx, envelope);
+        let result = append_in(&tx, envelope, self.clock.as_ref());
         if result.is_ok() {
             tx.commit()?;
         }
@@ -513,7 +541,11 @@ fn resolve_cursor(
 }
 
 /// Shared create-only append; its caller owns commit/rollback and authority fencing.
-fn append_in(tx: &Connection, envelope: &Envelope<'_>) -> StoreResult<Option<Accepted>> {
+fn append_in(
+    tx: &Connection,
+    envelope: &Envelope<'_>,
+    clock: &Clock,
+) -> StoreResult<Option<Accepted>> {
     validate(envelope)?;
     let s = envelope.scope;
     let epoch = s.epoch.to_string();
@@ -577,5 +609,11 @@ fn append_in(tx: &Connection, envelope: &Envelope<'_>) -> StoreResult<Option<Acc
             envelope.bytes
         ],
     )?;
+    if envelope.namespace == Namespace::Content {
+        let now = clock()?;
+        tmt_colab_model::values::time(now).map_err(|_| Fault::Invalid)?;
+        tx.execute("UPDATE pages SET last_update_at_ms=CASE WHEN last_update_at_ms IS NULL OR last_update_at_ms<?1 THEN ?1 ELSE last_update_at_ms END WHERE page=?2",
+            params![now as i64, s.page])?;
+    }
     Ok(Some(Accepted::New))
 }

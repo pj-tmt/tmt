@@ -1,3 +1,4 @@
+import { expiryText, utcTime } from './expiry.js';
 import { useEffect, useRef, useState } from 'react';
 import type { payload } from '@tmt/colab-client';
 import {
@@ -270,13 +271,14 @@ export function ShareDialog({
           <details>
             <summary>Details</summary>
             <p>Verified revision {view.revision}</p>
+            <p>Last edit: {utcTime(view.page.lastUpdateAtMs)}</p>
           </details>
           <section aria-label="Page lifecycle">
             <h3>Retention and lifecycle</h3>
             <p>
               Retention:{' '}
-              {view.page.retentionDays === null ? 'forever' : `${view.page.retentionDays} days`}.
-              Expiry time unavailable.
+              {view.page.retentionDays === null ? 'forever' : `${view.page.retentionDays} days`}.{' '}
+              {expiryText(view.page)}
             </p>
             <form
               key={view.revision}
@@ -292,7 +294,7 @@ export function ShareDialog({
                   'Set retention',
                   days === null
                     ? 'Keep this page until it is explicitly deleted.'
-                    : `Set retention to ${days} days after the last page update. Expiry time is unavailable.`,
+                    : `Set retention to ${days} days after the last page update. Local expiry is advisory and never automatically deletes data.`,
                 );
               }}
             >

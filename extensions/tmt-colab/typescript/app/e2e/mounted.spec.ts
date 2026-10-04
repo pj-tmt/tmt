@@ -78,7 +78,19 @@ async function fixture(page: Page | BrowserContext, tamper = false, empty = fals
         revision: '2',
         pages: empty
           ? []
-          : [{ pageId, epoch: '1', sharing: 'private', history: 'current', archived: false }],
+          : [
+              {
+                pageId,
+                epoch: '1',
+                sharing: 'private',
+                history: 'current',
+                archived: false,
+                retentionDays: 30,
+                lastUpdateAtMs: null,
+                expiresAtMs: null,
+                warnings: ['expiry-unavailable'],
+              },
+            ],
       },
     }),
   );
@@ -312,7 +324,19 @@ test('trusted sharing confirms narrowing, retries frozen bytes and exposes a new
         spaceId: f.space,
         ownerKey: c.encodeBinary(f.ownerKey),
         revision: String(head.revision),
-        pages: [{ pageId, epoch: '1', sharing, history: 'shared', archived: false }],
+        pages: [
+          {
+            pageId,
+            epoch: '1',
+            sharing,
+            history: 'shared',
+            archived: false,
+            retentionDays: 30,
+            lastUpdateAtMs: null,
+            expiresAtMs: null,
+            warnings: ['expiry-unavailable'],
+          },
+        ],
       },
     }),
   );
@@ -451,7 +475,17 @@ test('trusted home manages retention, archive and verified or awaiting deletion'
   const states = new Map(
     [pageId, other].map((id) => [
       id,
-      { pageId: id, epoch: '1', sharing: 'private', history: 'shared', archived: false },
+      {
+        pageId: id,
+        epoch: '1',
+        sharing: 'private',
+        history: 'shared',
+        archived: false,
+        retentionDays: 30,
+        lastUpdateAtMs: null,
+        expiresAtMs: null,
+        warnings: ['expiry-unavailable'],
+      },
     ]),
   );
   const contexts: string[] = [];
@@ -534,7 +568,7 @@ test('trusted home manages retention, archive and verified or awaiting deletion'
   const row = (id: string) => page.locator('.pages li').filter({ hasText: id });
   await row(pageId).getByRole('button', { name: 'Manage page' }).click();
   const dialog = page.getByRole('dialog');
-  await expect(dialog).toContainText('Expiry time unavailable');
+  await expect(dialog).toContainText('Expiry starts after the next edit');
   await dialog.getByLabel('Retention days').fill('14');
   await dialog.getByRole('button', { name: 'Set retention', exact: true }).click();
   await expect(dialog).toContainText('14 days after the last page update');
@@ -615,4 +649,71 @@ test('trusted home manages retention, archive and verified or awaiting deletion'
   await expect(page.getByText('No pages in this space yet.', { exact: false })).toContainText(
     'tmt colab page create',
   );
+});
+
+test('home and management show durable UTC expiry hints without ending local access', async ({
+  page,
+}, testInfo) => {
+  const f = await fixture(page);
+  let warning = 'expires-soon';
+  const updated = Date.UTC(2026, 8, 10, 12, 34, 56, 789);
+  const expires = updated + 30 * 86400000;
+  await page.route(`**${mount}api/pages`, (route) =>
+    route.fulfill({
+      json: {
+        spaceId: f.space,
+        ownerKey: c.encodeBinary(f.ownerKey),
+        revision: '2',
+        pages: [
+          {
+            pageId,
+            epoch: '1',
+            sharing: 'private',
+            history: 'shared',
+            archived: false,
+            retentionDays: 30,
+            lastUpdateAtMs: updated,
+            expiresAtMs: expires,
+            warnings: [warning],
+          },
+        ],
+      },
+    }),
+  );
+  await page.goto(mount);
+  const row = page.locator('.pages li').filter({ hasText: pageId });
+  await expect(row).toContainText('Expires 2026-10-10 12:34:56.789 UTC, within seven days');
+  await expect(row.getByRole('link')).toBeVisible();
+  const dialog = page.getByRole('dialog');
+  for (const width of [1440, 390]) {
+    await page.setViewportSize({ width, height: 900 });
+    for (const theme of ['light', 'dark']) {
+      await page.evaluate((theme) => {
+        document.documentElement.dataset.theme = theme;
+      }, theme);
+      await page.screenshot({
+        path: testInfo.outputPath(`expiry-home-${width}-${theme}.png`),
+        fullPage: true,
+      });
+      await row.getByRole('button', { name: 'Manage page' }).click();
+      await expect(dialog).toContainText('within seven days');
+      await dialog.getByText('Details', { exact: true }).click();
+      await expect(dialog).toContainText('2026-09-10 12:34:56.789 UTC');
+      await dialog.getByText('Details', { exact: true }).click();
+      expect(await dialog.evaluate((node) => node.scrollWidth <= node.clientWidth)).toBe(true);
+      await page.screenshot({
+        path: testInfo.outputPath(`expiry-dialog-${width}-${theme}.png`),
+        fullPage: true,
+      });
+      await dialog.getByRole('button', { name: 'Close', exact: true }).click();
+    }
+  }
+  warning = 'expired';
+  await page.reload();
+  await expect(row).toContainText('Expired 2026-10-10 12:34:56.789 UTC');
+  await expect(row).toContainText('Advisory only: this page is still available');
+  await expect(row.getByRole('link')).toBeVisible();
+  await row.getByRole('button', { name: 'Manage page' }).click();
+  await expect(dialog).toContainText('Advisory only: this page is still available');
+  await expect(dialog.getByRole('button', { name: 'Set retention', exact: true })).toBeEnabled();
 });

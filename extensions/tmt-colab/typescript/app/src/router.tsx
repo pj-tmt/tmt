@@ -1,3 +1,4 @@
+import { expiryText } from './expiry.js';
 import { useEffect, useRef, useState } from 'react';
 import {
   createHashHistory,
@@ -181,8 +182,8 @@ function Home() {
               )}
               {transport.management && (
                 <p>
-                  Retention: {p.retentionDays === null ? 'forever' : `${p.retentionDays} days`}.
-                  Expiry time unavailable.
+                  Retention: {p.retentionDays === null ? 'forever' : `${p.retentionDays} days`}.{' '}
+                  {expiryText(p)}
                 </p>
               )}
               <ManageButton pageId={p.id} />

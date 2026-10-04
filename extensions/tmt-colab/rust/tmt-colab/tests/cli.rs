@@ -484,14 +484,14 @@ fn management_reads_verify_encrypted_titles_and_preserve_missing_and_existing_st
     assert_eq!(list["pages"][0]["title"], "Encrypted π\u{1b}[31m");
     assert_eq!(show["page"], list["pages"][0]);
     assert_eq!(show["members"][0]["id"], MEMBER);
-    assert_eq!(show["page"]["warnings"], json!(["expiry-unavailable"]));
-    assert_eq!(show["page"]["lastUpdateAtMs"], Value::Null);
-    assert_eq!(show["page"]["expiresAtMs"], Value::Null);
+    assert_eq!(show["page"]["warnings"], json!([]));
+    let updated = show["page"]["lastUpdateAtMs"].as_u64().unwrap();
+    assert_eq!(show["page"]["expiresAtMs"], updated + 30 * 86_400_000);
     assert_eq!(show["discussions"], "not-available");
     let human = pilot.command().args(["ls"]).output().unwrap();
     assert!(human.status.success());
     assert!(!human.stdout.contains(&0x1b));
-    assert!(String::from_utf8_lossy(&human.stdout).contains("Expiry times are not available yet"));
+    assert!(String::from_utf8_lossy(&human.stdout).contains("Expires"));
     assert_eq!(fs::read(db).unwrap(), before);
 }
 #[test]
@@ -1192,7 +1192,11 @@ fn human_output_is_readable_and_the_decoder_note_is_not_repeated_per_command() {
     );
     assert!(shown.contains("links") && shown.contains("none"), "{shown}");
     assert!(!shown.contains('{') && !shown.contains('['), "{shown}");
-    assert!(warning.contains("Expiry times are not available yet"));
+    assert!(
+        shown.contains("Expires") && shown.contains("UTC"),
+        "{shown}"
+    );
+    assert!(warning.is_empty(), "{warning}");
     // Page read/write keep decoder state in JSON only.
     let (source, metadata) = human(&["page", "read", page]);
     assert_eq!(source, "");

@@ -632,6 +632,73 @@ pub fn run(command: &str, args: &ArgMatches, root: &Path, json_output: bool) -> 
     })?;
     output(&outcome, json_output)
 }
+// Civil UTC date from Unix days; Gregorian cycle decomposition follows
+// https://howardhinnant.github.io/date_algorithms.html#civil_from_days.
+fn utc_time(ms: u64) -> String {
+    let days = ms / 86_400_000 + 719_468;
+    let era = days / 146_097;
+    let day_in_era = days % 146_097;
+    let year_in_era =
+        (day_in_era - day_in_era / 1460 + day_in_era / 36524 - day_in_era / 146096) / 365;
+    let day_in_year = day_in_era - (365 * year_in_era + year_in_era / 4 - year_in_era / 100);
+    let month_index = (5 * day_in_year + 2) / 153;
+    let day = day_in_year - (153 * month_index + 2) / 5 + 1;
+    let month = if month_index < 10 {
+        month_index + 3
+    } else {
+        month_index - 9
+    };
+    let year = year_in_era + era * 400 + u64::from(month <= 2);
+    let seconds = ms / 1000 % 86_400;
+    format!(
+        "{year:04}-{month:02}-{day:02} {:02}:{:02}:{:02}.{:03} UTC",
+        seconds / 3600,
+        seconds / 60 % 60,
+        seconds % 60,
+        ms % 1000
+    )
+}
+fn expiry_text(page: &Value) -> String {
+    if page["retentionDays"].is_null() {
+        return "No expiry: kept forever.".into();
+    }
+    let warnings = page["warnings"].as_array();
+    let has = |name: &str| warnings.is_some_and(|w| w.iter().any(|v| v == name));
+    if has("expiry-out-of-range") {
+        return "Expiry date is beyond the supported range.".into();
+    }
+    let Some(ms) = page["expiresAtMs"].as_u64() else {
+        return "Expiry starts after the next edit.".into();
+    };
+    let date = utc_time(ms);
+    if has("expired") {
+        format!("Expired {date}. Advisory only: this page is still available.")
+    } else if has("expires-soon") {
+        format!("Expires {date}, within seven days.")
+    } else {
+        format!("Expires {date}.")
+    }
+}
+fn warn_expiry(page: &Value) -> Result<()> {
+    if page["warnings"]
+        .as_array()
+        .is_some_and(|w| w.iter().any(|v| v == "expires-soon" || v == "expired"))
+    {
+        let mut out = tmt_cli_style::stream::stderr();
+        let terminal = out.terminal();
+        tmt_cli_style::message::warning(
+            &mut out,
+            terminal,
+            &format!(
+                "{}: {} Local data is never automatically deleted.",
+                page["pageId"].as_str().unwrap_or("Page"),
+                expiry_text(page)
+            ),
+            None,
+        )?;
+    }
+    Ok(())
+}
 /// Readable lines for a management result: no raw JSON blobs, full IDs where a command needs them.
 fn human_fields(value: &Value) -> Result<Vec<(String, String)>> {
     let object = value
@@ -679,6 +746,10 @@ fn human_fields(value: &Value) -> Result<Vec<(String, String)>> {
                 if let Some(days) = v["retentionDays"].as_u64() {
                     fields.push(("retention".to_owned(), format!("{days} days")));
                 }
+                if let Some(updated) = v["lastUpdateAtMs"].as_u64() {
+                    fields.push(("last edit".to_owned(), utc_time(updated)));
+                }
+                fields.push(("expiry".to_owned(), expiry_text(v)));
                 if v["archived"] == true {
                     fields.push(("archived".to_owned(), "yes".to_owned()));
                 }
@@ -717,7 +788,7 @@ fn output(value: &Value, json_output: bool) -> Result<()> {
     let terminal = out.terminal();
     if let Some(pages) = value["pages"].as_array() {
         use tmt_cli_style::table::{Cell, Column, Table};
-        let mut rows = Table::new(&[Column::Fixed, Column::Detail, Column::Fixed]);
+        let mut rows = Table::new(&[Column::Fixed, Column::Detail, Column::Fixed, Column::Detail]);
         for page in pages {
             rows.row([
                 Cell::from(page["pageId"].as_str().unwrap_or("")),
@@ -732,18 +803,20 @@ fn output(value: &Value, json_output: bool) -> Result<()> {
                         ""
                     }
                 )),
+                Cell::from(expiry_text(page)),
             ]);
         }
         tmt_cli_style::list::Section {
             title: "PAGES",
             count: Some(pages.len()),
             rows,
-            note: Some(
-                "Expiry times are not available yet; local data is never automatically deleted.",
-            ),
+            note: Some("Local expiry is advisory; data is never automatically deleted."),
             hint: None,
         }
         .write(&mut out, terminal)?;
+        for page in pages {
+            warn_expiry(page)?;
+        }
     } else {
         let fields = human_fields(value)?;
         let fields = fields
@@ -751,16 +824,20 @@ fn output(value: &Value, json_output: bool) -> Result<()> {
             .map(|(k, v)| (k.as_str(), v.clone()))
             .collect::<Vec<_>>();
         tmt_cli_style::detail::write(&mut out, terminal, "COLAB", &fields)?;
-        if value.get("page").is_some() {
-            let mut stderr = tmt_cli_style::stream::stderr();
-            let terminal = stderr.terminal();
-            tmt_cli_style::message::warning(
-                &mut stderr,
-                terminal,
-                "Expiry times are not available yet; local data is never automatically deleted.",
-                None,
-            )?;
+        if let Some(page) = value.get("page") {
+            warn_expiry(page)?;
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod expiry_tests {
+    use super::utc_time;
+    #[test]
+    fn utc_dates_cover_epoch_leap_century_and_milliseconds() {
+        assert_eq!(utc_time(0), "1970-01-01 00:00:00.000 UTC");
+        assert_eq!(utc_time(951_827_696_789), "2000-02-29 12:34:56.789 UTC");
+        assert_eq!(utc_time(1_791_072_000_000), "2026-10-04 00:00:00.000 UTC");
+    }
 }

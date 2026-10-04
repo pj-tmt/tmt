@@ -128,7 +128,19 @@ async function wire(
         spaceId: v.space,
         ownerKey: c.encodeBinary(owner),
         revision: String(head.head.revision),
-        pages: [{ pageId: v.page, epoch, sharing: 'private', history: 'current', archived: false }],
+        pages: [
+          {
+            pageId: v.page,
+            epoch,
+            sharing: 'private',
+            history: 'current',
+            archived: false,
+            retentionDays: 30,
+            lastUpdateAtMs: null,
+            expiresAtMs: null,
+            warnings: ['expiry-unavailable'],
+          },
+        ],
       },
     }),
   );

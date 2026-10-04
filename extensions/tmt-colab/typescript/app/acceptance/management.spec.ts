@@ -31,6 +31,18 @@ test('native sharing and lifecycle verification preserve Ask, page recovery and 
     await selectInRenderer(page, '#quote');
     await previewAsk(page, recipient.id, 'Do not dispatch this preview');
     let dialog = await manage(page);
+    const initialCatalog = JSON.parse(run(world, world.binaries.colab, ['ls', '--json']));
+    const initialPage = initialCatalog.pages.find(
+      (item: { pageId: string }) => item.pageId === first.pageId,
+    );
+    expect(Number.isSafeInteger(initialPage.lastUpdateAtMs)).toBe(true);
+    expect(initialPage.expiresAtMs).toBe(initialPage.lastUpdateAtMs + 30 * 86400000);
+    expect(initialPage.warnings).toEqual([]);
+    const expiry = new Date(initialPage.expiresAtMs)
+      .toISOString()
+      .replace('T', ' ')
+      .replace('Z', ' UTC');
+    await expect(dialog).toContainText(`Expires ${expiry}`);
     for (const theme of ['light', 'dark']) {
       await page.evaluate((theme) => {
         document.documentElement.dataset.theme = theme;
@@ -49,6 +61,12 @@ test('native sharing and lifecycle verification preserve Ask, page recovery and 
     await dialog.getByRole('button', { name: 'Set retention', exact: true }).click();
     await dialog.getByRole('button', { name: 'Confirm set retention', exact: true }).click();
     await expect(dialog.getByRole('status')).toContainText('Change verified');
+    const forever = JSON.parse(
+      run(world, world.binaries.colab, ['show', first.pageId, '--json']),
+    ).page;
+    expect(forever.lastUpdateAtMs).toBe(initialPage.lastUpdateAtMs);
+    expect(forever.expiresAtMs).toBeNull();
+    expect(forever.warnings).toEqual([]);
     await expect(page.getByTestId('ask-preview')).toHaveCount(0);
     await dialog.getByRole('button', { name: 'Close', exact: true }).click();
     await expect(page.locator('iframe')).toBeVisible();

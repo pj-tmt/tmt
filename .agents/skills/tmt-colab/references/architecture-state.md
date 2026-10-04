@@ -77,17 +77,25 @@ in `acceptance/ask.spec.ts`.
   `Keyring`; callers ask it to sign or seal.
 - `space.db` schemas are append-only (`store/schema.rs`): 1 ciphertext (pages, streams,
   receipts, checkpoints), 2 owner authority (membership log, recipients, devices, epoch
-  secrets, wraps, `owner_operations`), 3 `device_registrations`, 4 `baselines`. Epoch
+  secrets, wraps, `owner_operations`), 3 `device_registrations`, 4 `baselines`,
+  5 nullable checked server-observed content time on `pages`. Migration leaves legacy
+  times null without backfill. Epoch
   secrets are local key material, not an encrypted-at-rest guarantee.
 - `Store::open` creates and migrates. `Store::read` and `Store::write_existing` open only
   existing 0600 state owned by the user, create nothing and never migrate;
   `write_existing` requires the serve lifecycle lock and exactly the current schema.
-  **Adding a migration means updating the hard-coded current version in
-  `Store::existing`** as well as `MIGRATIONS`.
+  Both existing-state paths check the version derived from `MIGRATIONS`; a future
+  schema fails closed.
 - Receipts are create-only: an exact retry returns the stored receipt, a conflicting
   envelope freezes its stream. Checkpoint publication prunes a shared prefix only when
   every namespace with updates there has a checkpoint at the same sequence/hash; pinned
   checkpoints and receipts survive. Capacity returns `Fault::Capacity`; nothing is evicted.
+- The shared create-only append samples the injected server clock only for new
+  content, in the same transaction as its receipt. Page time is nondecreasing; exact
+  replay, own/discussion/Ask updates, checkpoints and policy/epoch changes do not
+  refresh it. A failed later operation receipt rolls back content and time together.
+  `owner/bootstrap.rs` verifies the owner log and supplies one retention/expiry
+  projection to inspection and mounted discovery; unsigned dates remain display hints.
 - The store never decides authority. Callers verify signatures, roles, sessions and epochs
   before an append (`Admission`, below).
 
@@ -156,5 +164,8 @@ in `acceptance/ask.spec.ts`.
   page's owner log plus discovery absence and the frozen initiating context.
   Without that evidence, last-page deletion remains acknowledged/awaiting
   verification. A dropped/DENIED target socket never erases the acknowledgment.
-- Expiry stays unavailable until native durable update timestamps exist. The link
-  artifact is a transient ID/seed, not a new reader URL/import grammar.
+- `expiry.ts` presents native last-edit/expiry evidence in home and dialog; the CLI
+  formats the same projection. Warnings begin seven days ahead, and expired local
+  pages remain available. Legacy unknown times say "Expiry starts after the next edit".
+  Exact warning codes, checked arithmetic and forever semantics live in the contract.
+  The link artifact is a transient ID/seed, not a new reader URL/import grammar.

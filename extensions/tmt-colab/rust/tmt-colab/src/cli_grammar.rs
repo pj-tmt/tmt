@@ -90,8 +90,8 @@ pub fn extend(root: Command) -> Command {
         ),
     )
     .subcommand(links);
-    root.subcommand(cmd!("ls", "List local pages", "tmt colab ls --json", "Archived pages need --archived. Local expiry is advisory and never deletes data. Expiry times are not available yet.")
+    root.subcommand(cmd!("ls", "List local pages", "tmt colab ls --json", "Archived pages need --archived. Local expiry is advisory and never deletes data. Expiry starts after the next edit for pages without recorded update time.")
         .alias("list").arg(Arg::new("archived").long("archived").action(ArgAction::SetTrue)))
-        .subcommand(cmd!("show", "Inspect one local page", "tmt colab show 10000000-0000-4000-8000-000000000001 --json", "Archived titles and discussions are unavailable. Expiry times are not available yet; local data is never automatically deleted.").arg(page()))
+        .subcommand(cmd!("show", "Inspect one local page", "tmt colab show 10000000-0000-4000-8000-000000000001 --json", "Archived titles and discussions are unavailable. Local expiry is advisory; local data is never automatically deleted.").arg(page()))
         .subcommand(share)
 }
