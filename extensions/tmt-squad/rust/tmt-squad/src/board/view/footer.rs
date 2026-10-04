@@ -2,7 +2,6 @@
 
 use crate::board::app::App;
 use crate::config::{BoardMode, Pane};
-use ratatui::widgets::Paragraph;
 use ratatui::{
     Frame,
     layout::Rect,
@@ -83,6 +82,52 @@ pub(super) fn hints(app: &App, width: usize) -> String {
         Some(format!("{label} {}", action.verb.name()))
     })
     .collect();
+    if let Some((key, _)) = bindings.iter().find(|(key, action)| {
+        !matches!(key.as_str(), "click" | "double-click")
+            && action.verb == crate::action::Verb::AskLead
+    }) {
+        // Keep the existing row-action order while reserving the new action
+        // ahead of secondary layout, meter and navigation hints.
+        hints.insert(0, format!("{key} ask lead"));
+    }
+    let waiting = app
+        .view
+        .as_ref()
+        .filter(|_| {
+            app.current
+                .as_deref()
+                .is_some_and(|key| !crate::tabs::aggregate(key))
+        })
+        .filter(|view| crate::attention::Attention::of(&view.document).waiting > 0)
+        .map(|view| {
+            let count = crate::attention::Attention::of(&view.document).waiting;
+            let base = format!("◆ {count} waiting");
+            let now = crate::status::now_ms();
+            let oldest = view.document["squad"]["lead"]
+                .as_object()
+                .map(|_| &view.document["squad"]["lead"])
+                .into_iter()
+                .chain(
+                    view.document["sections"]
+                        .as_array()
+                        .into_iter()
+                        .flatten()
+                        .flat_map(|section| section["rows"].as_array().into_iter().flatten()),
+                )
+                .filter_map(|row| {
+                    Some((row, super::waiting::oldest(row)?["preparedAtMs"].as_u64()?))
+                })
+                .filter(|(_, since)| *since > 0 && *since <= now)
+                .min_by_key(|(_, since)| *since)
+                .map(|(row, since)| {
+                    format!(
+                        "{base} · oldest {} {}",
+                        row["name"].as_str().unwrap_or_default(),
+                        crate::requests::age(now, since)
+                    )
+                });
+            (base, oldest)
+        });
     hints.extend(["/ search", "←→ tab"].map(str::to_owned));
     if !bindings.contains_key("s") {
         hints.push("s switch".into());
@@ -90,6 +135,24 @@ pub(super) fn hints(app: &App, width: usize) -> String {
     hints.extend(["? more", "q quit"].map(str::to_owned));
     if app.view.as_ref().is_some_and(|view| view.me.is_none()) {
         hints.push(crate::status::UNKNOWN_YOU.to_owned());
+    }
+    if let Some((base, oldest)) = waiting {
+        // Reserve the existing row actions through refresh before spending
+        // space on the optional oldest label; secondary tail hints keep their
+        // established whole-hint fitting priority.
+        let reserved = hints
+            .iter()
+            .position(|hint| hint == "ctrl-r refresh")
+            .map_or(hints.len().min(7), |index| index + 1);
+        let minimum = std::iter::once(base.as_str())
+            .chain(hints.iter().take(reserved).map(String::as_str))
+            .collect::<Vec<_>>()
+            .join("  ")
+            .width();
+        let summary = oldest
+            .filter(|oldest| minimum + oldest.width().saturating_sub(base.width()) <= width)
+            .unwrap_or(base);
+        hints.insert(0, summary);
     }
     let mut shown = String::new();
     for hint in hints {
@@ -107,7 +170,11 @@ pub(super) fn hints(app: &App, width: usize) -> String {
 }
 
 pub(super) fn render(frame: &mut Frame, app: &App, footer: Rect, look: crate::look::Look) {
-    let mut footer_line = if let Some(input) = &app.input {
+    let mut footer_line = if let Some(input) = app
+        .input
+        .as_ref()
+        .filter(|input| !matches!(input.compose, crate::board::app::Compose::AskLead { .. }))
+    {
         Line::from(format!("{} › {}▏", input.prompt, input.text))
     } else if app.searching {
         Line::from(format!("/{}▏", app.search))
@@ -138,5 +205,5 @@ pub(super) fn render(frame: &mut Frame, app: &App, footer: Rect, look: crate::lo
             span.style = look.role(Role::Dim);
         }
     }
-    frame.render_widget(Paragraph::new(footer_line), footer);
+    crate::markup::paint_line(frame, footer, footer_line, look);
 }

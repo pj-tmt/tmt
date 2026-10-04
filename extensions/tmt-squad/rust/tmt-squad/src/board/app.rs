@@ -27,6 +27,7 @@ pub struct RateView {
 }
 
 pub struct View {
+    pub ask_lead: String,
     pub token_rate: Option<RateView>,
     /// The `status --json` document, so the board and `status` never differ.
     pub document: Value,
@@ -198,6 +199,7 @@ pub struct Menu {
 /// Where composed text goes.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Compose {
+    AskLead { to: String, sender: String },
     Talk { to: String },
     Annotate { to: String, row: String },
     Reply { request: String, from: String },
@@ -1098,6 +1100,7 @@ impl App {
                 }
                 return Effect::None;
             }
+            Verb::AskLead => return self.ask_lead(),
             Verb::Settings => return Effect::Settings,
             Verb::Theme => return Effect::PickTheme,
             Verb::View => return Effect::PickView,
@@ -1232,6 +1235,31 @@ impl App {
             }
             _ => "this squad has no lead; set one with tmt squad lead <name>".to_owned(),
         })
+    }
+
+    fn ask_lead(&mut self) -> Effect {
+        if self.current.as_deref().is_none_or(crate::tabs::aggregate) {
+            return self.say("Ask the lead from the squad's own tab.");
+        }
+        let Some(view) = &self.view else {
+            return Effect::None;
+        };
+        let Some(sender) = view.me.clone() else {
+            return self.say("Who is sending? Record yourself with tmt squad me <name>.");
+        };
+        let to = match self.lead() {
+            Ok(to) => to,
+            Err(reason) => return self.say(format!("ask lead: {reason}.")),
+        };
+        let text = view.ask_lead.clone();
+        let squad = self.current.clone().unwrap();
+        self.ask(
+            format!("ask lead {to}"),
+            Compose::AskLead { to, sender },
+            squad,
+        );
+        self.input.as_mut().unwrap().text = text;
+        Effect::None
     }
 
     pub(super) fn ask(&mut self, prompt: String, compose: Compose, squad: String) -> Effect {
@@ -1588,12 +1616,21 @@ impl App {
         {
             return self.say("The home target, lead or request changed; nothing sent.");
         }
+        if let Compose::AskLead { to, sender } = &input.compose
+            && (self.loading()
+                || self.current.as_deref() != Some(&input.squad)
+                || self.lead().as_ref() != Ok(to)
+                || self.view.as_ref().and_then(|view| view.me.as_ref()) != Some(sender))
+        {
+            return self.say("The squad, sender or lead changed; nothing sent.");
+        }
         if let Some(LinkSend { member, sender }) = &input.link {
             let row = self.link_member(member);
             let valid = self.view.as_ref().and_then(|view| view.me.as_ref()) == Some(sender)
                 && !self.loading()
                 && self.current.as_deref() == Some(&input.squad)
                 && row.is_some_and(|row| match &input.compose {
+                    Compose::AskLead { .. } => false,
                     Compose::Talk { to } => to == member,
                     Compose::Annotate { to, .. } => self.lead().as_ref() == Ok(to),
                     Compose::Reply { request, from } => {
@@ -1617,7 +1654,7 @@ impl App {
             return self.say("Nothing sent.");
         }
         Effect::Act(match input.compose {
-            Compose::Talk { to } => Request::Talk {
+            Compose::Talk { to } | Compose::AskLead { to, .. } => Request::Talk {
                 me,
                 squad,
                 to,
@@ -2265,6 +2302,7 @@ pub(crate) mod tests {
 
     fn view(sections: Value) -> View {
         View {
+            ask_lead: crate::config::DEFAULT_ASK_LEAD.into(),
             token_rate: None,
             home: None,
             derived: Default::default(),
@@ -2598,6 +2636,62 @@ pub(crate) mod tests {
 
     pub(super) fn bind(entries: &[(&str, &str)]) -> crate::action::Bindings {
         crate::action::parse_bindings(entries.iter().map(|(e, a)| (*e, Some(*a))), "bind").unwrap()
+    }
+
+    #[test]
+    fn ask_lead_requires_confirmation_and_revalidates_sender_and_lead() {
+        let mut app = crew(crate::action::preset(true, &[]), Vec::new());
+        app.view.as_mut().unwrap().me = Some("Ben".into());
+        app.view.as_mut().unwrap().document["squad"]["lead"] = json!({"name": "sol"});
+        assert_eq!(press(&mut app, KeyCode::Char('A')), Effect::None);
+        assert_eq!(app.input.as_ref().unwrap().prompt, "ask lead sol");
+        assert_eq!(
+            app.input.as_ref().unwrap().text,
+            crate::config::DEFAULT_ASK_LEAD
+        );
+        assert_eq!(press(&mut app, KeyCode::Esc), Effect::None);
+        assert!(app.input.is_none());
+        press(&mut app, KeyCode::Char('A'));
+        assert_eq!(
+            press(&mut app, KeyCode::Enter),
+            Effect::Act(Request::Talk {
+                me: "Ben".into(),
+                squad: "product".into(),
+                to: "sol".into(),
+                text: crate::config::DEFAULT_ASK_LEAD.into(),
+            })
+        );
+        for change in ["lead", "sender", "squad"] {
+            let mut app = crew(crate::action::preset(true, &[]), Vec::new());
+            app.view.as_mut().unwrap().me = Some("Ben".into());
+            app.view.as_mut().unwrap().document["squad"]["lead"] = json!({"name": "sol"});
+            press(&mut app, KeyCode::Char('A'));
+            match change {
+                "lead" => {
+                    app.view.as_mut().unwrap().document["squad"]["lead"] = json!({"name": "other"})
+                }
+                "sender" => app.view.as_mut().unwrap().me = Some("other".into()),
+                _ => app.current = Some("other".into()),
+            }
+            assert_eq!(press(&mut app, KeyCode::Enter), Effect::None);
+            assert!(app.notice.as_deref().unwrap().contains("nothing sent"));
+        }
+    }
+
+    #[test]
+    fn ask_lead_missing_lead_and_rebinding_never_send_on_open() {
+        let mut app = crew(bind(&[("z", "ask-lead")]), Vec::new());
+        app.view.as_mut().unwrap().me = Some("Ben".into());
+        press(&mut app, KeyCode::Char('z'));
+        assert!(app.input.is_none());
+        assert!(app.notice.as_deref().unwrap().contains("no lead"));
+        app.view.as_mut().unwrap().document["squad"]["lead"] = json!({"name": "sol"});
+        app.view.as_mut().unwrap().ask_lead = "What needs a decision?".into();
+        assert_eq!(press(&mut app, KeyCode::Char('z')), Effect::None);
+        assert_eq!(app.input.as_ref().unwrap().text, "What needs a decision?");
+        app.input.as_mut().unwrap().text.clear();
+        assert_eq!(press(&mut app, KeyCode::Enter), Effect::None);
+        assert_eq!(app.notice.as_deref(), Some("Nothing sent."));
     }
 
     /// `L` (`jump lead`) goes to the squad's lead on its own tab, and to the
