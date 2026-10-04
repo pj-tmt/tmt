@@ -483,6 +483,204 @@ fn closed_storage_and_immediate_lock_contention_are_reported() {
 }
 
 #[test]
+fn presence_probes_do_not_block_a_resumed_claude_hook() {
+    use super::test_support::DuringProbe;
+    use tmt_core::{
+        binding::{self, session::*},
+        endpoint::{EndpointSnapshot, ProcessIncarnation},
+    };
+
+    for reader in ["pane", "name", "current name", "list"] {
+        let fixture = Fixture::new();
+        let mut storage = fixture.open();
+        let identity = create_or_resolve(&mut storage, "Resume reader", Lifetime::Saved)
+            .unwrap()
+            .identity;
+        let mut bound = storage
+            .with_binding_transaction(|records| {
+                records.insert_binding(&identity, &server(), &pane("%3", 99))
+            })
+            .unwrap();
+        let launched = bound
+            .session
+            .admit_launched(
+                ObservedSessionKey {
+                    incarnation: ProcessIncarnation::new(100, "runtime-start").unwrap(),
+                    provider_session: None,
+                },
+                ProcessIncarnation::new(101, "owner-start").unwrap(),
+                SessionTransition::Started,
+                RuntimeLiveness::Alive,
+                RuntimeLiveness::Alive,
+            )
+            .unwrap();
+        storage
+            .with_binding_transaction(|records| {
+                records.set_session_state(&bound.id, &bound.session, &launched)
+            })
+            .unwrap();
+        bound.session = launched;
+        let mut observed = pane("%3", 99);
+        observed.marker = Some(bound.marker(&identity));
+        let mut endpoint = DuringProbe {
+            snapshot: EndpointSnapshot {
+                server: server(),
+                panes: vec![observed],
+            },
+            on_probe: || {
+                let event = crate::drivers::claude::decode_hook(br#"{"hook_event_name":"SessionStart","source":"resume","session_id":"resumed-session","model":"model-a"}"#).unwrap();
+                let process = &bound.session.key.as_ref().unwrap().incarnation;
+                let next = event
+                    .propose(&bound.session, process, RuntimeLiveness::Alive)
+                    .unwrap();
+                let mut hook = Storage::open_hook(&fixture.database)?;
+                hook.with_binding_transaction::<_, StorageError>(|records| {
+                    assert!(records.set_session_state(&bound.id, &bound.session, &next)?);
+                    let mut preferences = records.session_preferences(&bound.identity_id)?;
+                    preferences.remember(
+                        HarnessId::new("claude").unwrap(),
+                        RuntimeMode::new("default").unwrap(),
+                        event.session.clone(),
+                    );
+                    records.set_session_preferences(&bound.identity_id, &preferences)?;
+                    Ok(())
+                })?;
+                hook.close()
+            },
+        };
+        match reader {
+            "pane" => {
+                let row = binding::pane_presence(&mut storage, &mut endpoint, "%3").unwrap();
+                assert_eq!(row.identity, Some(identity.clone()));
+                assert_eq!(
+                    row.binding.unwrap().session.last_transition,
+                    Some(SessionTransition::Resumed)
+                );
+            }
+            "name" => {
+                let row =
+                    binding::name_presence(&mut storage, &mut endpoint, &identity.name).unwrap();
+                assert_eq!(row.identity, identity);
+                assert_eq!(row.presence, binding::Presence::Active);
+            }
+            "current name" => {
+                let row =
+                    binding::current_name_presence(&mut storage, &mut endpoint, &identity.name)
+                        .unwrap()
+                        .unwrap();
+                assert_eq!(row.identity, Some(identity.clone()));
+            }
+            "list" => {
+                let rows = binding::list_presence(&mut storage, &mut endpoint, None).unwrap();
+                assert_eq!(rows.len(), 1);
+                assert_eq!(rows[0].identity, identity);
+                assert_eq!(rows[0].presence, binding::Presence::Active);
+            }
+            _ => unreachable!(),
+        }
+        let stored = storage
+            .with_binding_transaction(|records| records.entry_by_id(&identity.id))
+            .unwrap()
+            .unwrap();
+        let state = stored.binding.unwrap().session;
+        assert_eq!(
+            state.last_transition,
+            Some(SessionTransition::Resumed),
+            "{reader}"
+        );
+        assert_eq!(
+            state.key.unwrap().provider_session.unwrap().as_str(),
+            "resumed-session",
+            "{reader}"
+        );
+        assert_eq!(
+            storage
+                .session_preferences(&identity.id)
+                .unwrap()
+                .remembered
+                .unwrap()
+                .provider_session
+                .as_str(),
+            "resumed-session",
+            "{reader}"
+        );
+        storage.close().unwrap();
+    }
+}
+
+#[test]
+fn stale_presence_evidence_cannot_detach_or_retire_a_replacement_binding() {
+    use super::test_support::DuringProbe;
+    use tmt_core::{binding, endpoint::EndpointSnapshot};
+
+    for reader in ["pane", "name", "current name", "list"] {
+        for lifetime in [Lifetime::Temporary, Lifetime::Saved] {
+            let fixture = Fixture::new();
+            let mut storage = fixture.open();
+            let identity = create_or_resolve(&mut storage, "Replacement", lifetime)
+                .unwrap()
+                .identity;
+            let original = storage
+                .with_binding_transaction(|records| {
+                    records.insert_binding(&identity, &server(), &pane("%3", 99))
+                })
+                .unwrap();
+            // Host evidence was captured for a different pane incarnation. A
+            // new binding is committed before that evidence reaches the reader.
+            let mut observed = pane("%3", 100);
+            observed.marker = Some(original.marker(&identity));
+            let mut replacement = None;
+            let mut endpoint = DuringProbe {
+                snapshot: EndpointSnapshot {
+                    server: server(),
+                    panes: vec![observed],
+                },
+                on_probe: || {
+                    let mut concurrent = fixture.open();
+                    replacement = Some(concurrent.with_binding_transaction(|records| {
+                        records.detach_binding(&original.id)?;
+                        records.insert_binding(&identity, &server(), &pane("%3", 99))
+                    })?);
+                    concurrent.close()
+                },
+            };
+            match reader {
+                "pane" => assert!(
+                    binding::pane_presence(&mut storage, &mut endpoint, "%3")
+                        .unwrap()
+                        .identity
+                        .is_none()
+                ),
+                "name" => assert_eq!(
+                    binding::name_presence(&mut storage, &mut endpoint, &identity.name)
+                        .unwrap()
+                        .presence,
+                    binding::Presence::Unknown
+                ),
+                "current name" => assert!(
+                    binding::current_name_presence(&mut storage, &mut endpoint, &identity.name)
+                        .unwrap()
+                        .is_none()
+                ),
+                "list" => assert_eq!(
+                    binding::list_presence(&mut storage, &mut endpoint, None).unwrap()[0].presence,
+                    binding::Presence::Unknown
+                ),
+                _ => unreachable!(),
+            }
+            let stored = storage
+                .with_binding_transaction(|records| records.entry_by_id(&identity.id))
+                .unwrap()
+                .expect("replacement identity must remain unretired");
+            assert_eq!(stored.identity, identity, "{reader} {lifetime:?}");
+            assert_eq!(stored.binding, replacement, "{reader} {lifetime:?}");
+            assert_ne!(stored.binding.unwrap().id, original.id);
+            storage.close().unwrap();
+        }
+    }
+}
+
+#[test]
 fn a_binding_stores_its_host_and_reads_any_other_host_by_name() {
     let fixture = Fixture::new();
     let mut storage = fixture.open();
