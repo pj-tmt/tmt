@@ -12,6 +12,7 @@ test('native page titles become durable browser-local labels after their first v
     const created = createPage(world, title, '<p>Title acceptance.</p>');
     const browser = await pairBrowser(world, 'title-browser');
     const page = await openColab(door, browser);
+    await page.setViewportSize({ width: 1440, height: 900 });
     const row = () => page.locator(`[data-page-id="${created.pageId}"]`);
     await expect(row().getByRole('heading')).toHaveText('Untitled, not opened in this browser yet');
     await row().locator('a').click();
@@ -26,12 +27,13 @@ test('native page titles become durable browser-local labels after their first v
       await page.evaluate((theme) => {
         document.documentElement.dataset.theme = theme;
       }, theme);
-      await page.screenshot({ path: testInfo.outputPath(`title-dialog-${theme}.png`) });
+      for (const width of [1440, 390]) {
+        await page.setViewportSize({ width, height: width === 390 ? 844 : 900 });
+        await page.screenshot({ path: testInfo.outputPath(`title-dialog-${width}-${theme}.png`) });
+        expect(await dialog.evaluate((node) => node.scrollWidth <= node.clientWidth)).toBe(true);
+      }
     }
-    await page.setViewportSize({ width: 390, height: 844 });
-    await page.screenshot({ path: testInfo.outputPath('title-dialog-mobile.png') });
-    expect(await dialog.evaluate((node) => node.scrollWidth <= node.clientWidth)).toBe(true);
-    await page.setViewportSize({ width: 1280, height: 720 });
+    await page.setViewportSize({ width: 1440, height: 900 });
     await dialog.getByRole('button', { name: 'Close', exact: true }).click();
     await page.getByRole('link', { name: 'Space home', exact: true }).click();
     await expect(row().getByRole('heading')).toHaveText(title);
@@ -42,11 +44,12 @@ test('native page titles become durable browser-local labels after their first v
       await page.evaluate((theme) => {
         document.documentElement.dataset.theme = theme;
       }, theme);
-      await page.screenshot({ path: testInfo.outputPath(`title-home-${theme}.png`) });
+      for (const width of [1440, 390]) {
+        await page.setViewportSize({ width, height: width === 390 ? 844 : 900 });
+        await page.screenshot({ path: testInfo.outputPath(`title-home-${width}-${theme}.png`) });
+        expect(await row().evaluate((node) => node.scrollWidth <= node.clientWidth)).toBe(true);
+      }
     }
-    await page.setViewportSize({ width: 390, height: 844 });
-    await page.screenshot({ path: testInfo.outputPath('title-home-mobile.png') });
-    expect(await row().evaluate((node) => node.scrollWidth <= node.clientWidth)).toBe(true);
     await row().getByText('Details', { exact: true }).click();
     await expect(row().getByText(`Page ID: ${created.pageId}`, { exact: true })).toBeVisible();
     const other = await pairBrowser(world, 'other-title-browser');

@@ -223,7 +223,6 @@ export class Live implements PageBinding {
           (writer) => connection.objects.ownSigningKey(writer),
         );
         this.#projection = { ...value, asks, threads };
-
         this.#listeners.forEach((v) => v.publish(structuredClone(this.#projection)));
         this.#observe();
       }

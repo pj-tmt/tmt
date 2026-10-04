@@ -28,7 +28,6 @@ export const text = {
   threadResolve: 'Resolve',
   threadReopen: 'Reopen',
   threadDelete: 'Delete thread',
-
   reconnect: 'Reconnect',
   reconnectFailed:
     'Could not reconnect. Open this page from a paired browser, or pair with tmt remote pair.',
