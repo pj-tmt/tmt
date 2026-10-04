@@ -1,8 +1,10 @@
-//! Public cumulative counters become receipt-time completed-request buckets.
+//! Public closed history and live counters share one per-identity bucket ring.
 //! No provider files, core crate, context-window subtraction or in-flight estimate.
 use crate::config::TokenWindow;
 use serde_json::Value;
 use std::collections::BTreeMap;
+
+pub(super) mod history;
 
 const SAFE: u64 = 9_007_199_254_740_991;
 const SLOT_MS: u64 = 5_000;
@@ -124,6 +126,7 @@ struct Member {
     reporter: bool,
     model: Option<String>,
     began: Option<u64>,
+    sampled: Option<u64>,
     buckets: Vec<Bucket>,
 }
 
@@ -134,6 +137,8 @@ struct Bucket {
     tokens: u128,
     evidence: bool,
     gap: bool,
+    /// Whole core rollup tokens cannot be split at a shorter window boundary.
+    source_from: Option<u64>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -147,7 +152,6 @@ pub struct Reading {
 pub struct Rate {
     members: BTreeMap<String, Member>,
     slots: usize,
-    sampled: Option<u64>,
     last_success: Option<u64>,
 }
 
@@ -167,6 +171,7 @@ impl Member {
         tokens: u128,
         slots: usize,
     ) {
+        self.sampled = Some(now);
         if !self.reporter {
             return;
         }
@@ -211,18 +216,27 @@ impl Member {
             span,
         };
         let mut evidence = false;
+        let mut observed_slots = 0;
         for bucket in &self.buckets {
             if bucket
                 .slot
                 .is_some_and(|slot| slot <= end && end - slot < count)
             {
-                reading.tokens += bucket.tokens;
+                let cut = bucket
+                    .source_from
+                    .is_some_and(|from| from < now.saturating_sub(window.milliseconds()));
+                if !cut {
+                    reading.tokens += bucket.tokens;
+                }
+                reading.partial |= cut;
                 reading.partial |= bucket.gap;
                 evidence |= bucket.evidence;
+                observed_slots += 1;
             }
         }
+        reading.partial |= observed_slots < count;
         // A baseline alone is not a measured zero.
-        (span >= 10_000 && evidence).then_some(reading)
+        evidence.then_some(reading)
     }
 }
 
@@ -231,8 +245,62 @@ impl Rate {
         Self {
             members: BTreeMap::new(),
             slots: (longest.milliseconds() / SLOT_MS) as usize,
-            sampled: None,
             last_success: None,
+        }
+    }
+
+    /// Replace the authoritative recent range, preserving older observations.
+    pub fn seed(&mut self, input: &Input, seeds: &history::Seeds, now: u64) {
+        self.retain(input);
+        for id in input.resumes.keys() {
+            let state = self.members.entry(id.clone()).or_default();
+            let Some(seed) = seeds.get(id).and_then(Option::as_ref) else {
+                state.previous = None;
+                state.blocked = true;
+                state.interval(state.sampled, now, false, state.reporter, 0, self.slots);
+                continue;
+            };
+            if seed.through > now {
+                state.previous = None;
+                state.blocked = true;
+                continue;
+            }
+            state.reporter |= seed.reporting;
+            if let Some(available) = seed.available {
+                state.began = Some(state.began.map_or(available, |old| old.min(available)));
+            }
+            if state.buckets.is_empty() {
+                state.buckets.resize(self.slots, Bucket::default());
+            }
+            // Includes open live receipts: latest, not through, is the seed watermark.
+            for bucket in &mut state.buckets {
+                if bucket.slot.is_some_and(|slot| slot >= seed.from / SLOT_MS) {
+                    *bucket = Bucket::default();
+                }
+            }
+            for slice in &seed.buckets {
+                let first = slice.from_ms / SLOT_MS;
+                let last = (slice.to_ms - 1) / SLOT_MS;
+                for slot in first..=last {
+                    let bucket = &mut state.buckets[(slot % self.slots as u64) as usize];
+                    *bucket = Bucket {
+                        slot: Some(slot),
+                        evidence: slice.complete,
+                        gap: !slice.complete || slice.gap || slice.discontinuous,
+                        ..Default::default()
+                    };
+                }
+                let bucket = &mut state.buckets[(last % self.slots as u64) as usize];
+                bucket.tokens = u128::from(slice.input_tokens) + u128::from(slice.output_tokens);
+                bucket.source_from = Some(slice.from_ms);
+                bucket.evidence |= slice.covered_ms > 0;
+            }
+            state.previous = Counter::read(&seed.latest);
+            state.blocked = state
+                .previous
+                .as_ref()
+                .is_none_or(|counter| !counter.usable);
+            state.sampled = seed.sampled;
         }
     }
 
@@ -246,7 +314,7 @@ impl Rate {
             state.reporter |= resume["consumption"].is_object();
             let Some(next) = Counter::read(resume) else {
                 state.blocked = true;
-                state.interval(self.sampled, now, false, state.reporter, 0, self.slots);
+                state.interval(state.sampled, now, false, state.reporter, 0, self.slots);
                 continue;
             };
             state.reporter = true;
@@ -257,13 +325,13 @@ impl Rate {
                     || (next.sequence == previous.sequence && next != *previous))
             {
                 state.blocked = true;
-                state.interval(self.sampled, now, false, true, 0, self.slots);
+                state.interval(state.sampled, now, false, true, 0, self.slots);
                 continue;
             }
             if !next.usable {
                 state.previous = Some(next);
                 state.blocked = true;
-                state.interval(self.sampled, now, false, true, 0, self.slots);
+                state.interval(state.sampled, now, false, true, 0, self.slots);
                 continue;
             }
             let continuous = state.previous.as_ref().filter(|previous| {
@@ -283,16 +351,15 @@ impl Rate {
                 ),
                 None => (
                     false,
-                    state.previous.is_some() || self.sampled.is_some_and(|at| at < now),
+                    state.previous.is_some() || state.sampled.is_some_and(|at| at < now),
                     0,
                 ),
             };
             state.began.get_or_insert(now);
             state.previous = Some(next);
             state.blocked = false;
-            state.interval(self.sampled, now, evidence, gap, tokens, self.slots);
+            state.interval(state.sampled, now, evidence, gap, tokens, self.slots);
         }
-        self.sampled = Some(now);
     }
 
     pub fn retain(&mut self, input: &Input) {
@@ -306,9 +373,8 @@ impl Rate {
             .is_some_and(|at| now.saturating_sub(at) >= every_ms * 2);
         for member in self.members.values_mut() {
             member.blocked = true;
-            member.interval(self.sampled, now, false, gap, 0, self.slots);
+            member.interval(member.sampled, now, false, gap, 0, self.slots);
         }
-        self.sampled = Some(now);
     }
 
     pub fn member(&self, id: &str, now: u64, window: TokenWindow) -> Option<Reading> {
@@ -343,10 +409,6 @@ impl Rate {
         self.members.get(id).is_some_and(|member| member.reporter)
     }
 
-    pub fn reporting(&self) -> bool {
-        self.members.values().any(|member| member.reporter)
-    }
-
     /// Eight bucket-aligned totals, from the same UUID rings as member readings.
     pub fn trend(&self, now: u64, window: TokenWindow) -> [Option<f64>; 8] {
         let bar_slots = (window.milliseconds() / SLOT_MS).div_ceil(8);
@@ -361,7 +423,12 @@ impl Rate {
                     .slot
                     .is_some_and(|slot| (first..=last).contains(&slot))
                 {
-                    tokens += bucket.tokens;
+                    if bucket
+                        .source_from
+                        .is_none_or(|from| from >= now.saturating_sub(window.milliseconds()))
+                    {
+                        tokens += bucket.tokens;
+                    }
                     evidence |= bucket.evidence;
                 }
             }

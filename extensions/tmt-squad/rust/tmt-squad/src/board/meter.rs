@@ -27,6 +27,7 @@ pub struct Meter {
     pub settings: TokenRate,
     pub room: String,
     origin: Instant,
+    origin_ms: u64,
     sampled: Instant,
     rate: Rate,
     reading: Option<Reading>,
@@ -42,6 +43,7 @@ impl Meter {
             settings,
             room: input.room.clone(),
             origin: now,
+            origin_ms: crate::status::now_ms(),
             sampled: now,
             rate: Rate::new(settings.windows[2]),
             reading: None,
@@ -82,10 +84,28 @@ impl Meter {
     }
 
     fn milliseconds(&self, now: Instant) -> u64 {
-        now.saturating_duration_since(self.origin)
-            .as_millis()
-            .try_into()
-            .unwrap_or(u64::MAX)
+        self.origin_ms.saturating_add(
+            now.saturating_duration_since(self.origin)
+                .as_millis()
+                .try_into()
+                .unwrap_or(u64::MAX),
+        )
+    }
+
+    /// The transient API payload is consumed into Rate; cached views retain no copy.
+    pub fn seed(
+        &mut self,
+        input: &Input,
+        seeds: &super::rate::history::Seeds,
+        now: Instant,
+        observe: bool,
+    ) {
+        let ms = self.milliseconds(now);
+        self.rate.seed(input, seeds, ms);
+        if observe {
+            self.rate.sample(input, ms);
+        }
+        self.settle(now);
     }
 
     pub fn sample(&mut self, input: Result<&Input, ()>, now: Instant) {
@@ -162,26 +182,22 @@ impl Meter {
             return;
         }
         self.window = window;
+        self.settle(now);
+    }
+
+    fn settle(&mut self, now: Instant) {
         let ms = self.milliseconds(now);
-        self.reading = self.rate.reading(ms, window);
+        self.reading = self.rate.reading(ms, self.window);
         self.displayed = self
             .reading
             .map(|reading| reading.tokens as f64)
             .unwrap_or(0.0);
         self.animation = None;
-        self.trend = self.rate.trend(ms, window);
+        self.trend = self.rate.trend(ms, self.window);
     }
 
     pub fn label(&self) -> Option<String> {
         Some(self.window.label())
-    }
-
-    pub fn empty_text(&self) -> &'static str {
-        if self.rate.reporting() {
-            "(no covered consumption)"
-        } else {
-            "(no consumption data)"
-        }
     }
 
     /// Board-only display fields; callers preserve the public status document.
@@ -228,22 +244,10 @@ impl Meter {
 
     /// Step aside without dropping the window label.
     pub fn layout(&self, available: usize) -> Option<Layout> {
-        if !self.settings.enabled {
+        if !self.settings.enabled || self.digits()?.chars().count() > NUMBER_WIDTH {
             return None;
         }
         let label = self.label()?;
-        let Some(digits) = self.digits() else {
-            let width = self.empty_text().len() + label.len() + 1;
-            return (width <= available).then_some(Layout {
-                label: Some(label),
-                spark: false,
-                unit: "",
-                width,
-            });
-        };
-        if digits.chars().count() > NUMBER_WIDTH {
-            return None;
-        }
         let make = |spark: bool, short: bool| Layout {
             label: Some(label.clone()),
             spark,

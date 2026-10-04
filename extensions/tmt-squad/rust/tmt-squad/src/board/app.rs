@@ -24,6 +24,7 @@ use std::{
 pub struct RateView {
     pub settings: crate::config::TokenRate,
     pub input: super::rate::Input,
+    pub history: Option<super::rate::history::Seeds>,
 }
 
 /// Raw observations for tiles and headers; formatting belongs to the caller.
@@ -776,7 +777,7 @@ impl App {
         self.current = snapshot.squad;
         self.loading_since = None;
         match snapshot.view {
-            Ok(view) => {
+            Ok(mut view) => {
                 let now = Instant::now();
                 if view.home.is_some() {
                     for (name, meter) in &mut self.meters {
@@ -790,7 +791,7 @@ impl App {
                     }
                     for (name, rate) in view
                         .home_rate
-                        .iter()
+                        .iter_mut()
                         .filter(|(_, rate)| rate.settings.enabled)
                     {
                         if self.meters.get(name).is_none_or(|meter| {
@@ -803,9 +804,17 @@ impl App {
                         } else if let Some(meter) = self.meters.get_mut(name) {
                             meter.retain(&rate.input);
                         }
+                        if let Some(seeds) = rate.history.take() {
+                            self.meters.get_mut(name).unwrap().seed(
+                                &rate.input,
+                                &seeds,
+                                now,
+                                false,
+                            );
+                        }
                     }
                 }
-                match &view.token_rate {
+                match &mut view.token_rate {
                     Some(rate) if rate.settings.enabled => {
                         if !self.window_changed {
                             self.token_window = rate.settings.window;
@@ -820,6 +829,10 @@ impl App {
                         } else {
                             self.meter =
                                 Some(super::meter::Meter::new(rate.settings, &rate.input, now));
+                        }
+                        if let Some(seeds) = rate.history.take() {
+                            let meter = self.meter.as_mut().unwrap();
+                            meter.seed(&rate.input, &seeds, now, true);
                         }
                     }
                     _ => self.meter = None,
@@ -4219,6 +4232,7 @@ mod token_window_tests {
         view.home_rate.insert(
             "product".into(),
             RateView {
+                history: None,
                 settings,
                 input: input.clone(),
             },

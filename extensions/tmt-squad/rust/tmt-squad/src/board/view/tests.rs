@@ -441,7 +441,7 @@ fn factory_views_render_crew_team_and_custom_rows_at_each_width() {
                 view.board = config.board("product").unwrap();
                 view.rows = config.rows("product").unwrap();
                 view.notes = Notes::Text("# Notebook\nLead notebook sentinel".into());
-                for width in [80, 100, 120, 160, 200] {
+                for width in [80, 120, 200] {
                     app.set_body_width(width);
                     let screen = draw(&app, width, 42);
                     assert!(
@@ -480,7 +480,7 @@ fn default_team_is_readable_at_80_120_and_200_columns() {
     let view = app.view.as_mut().unwrap();
     view.rows = config.rows("product").unwrap();
     view.board = config.board("product").unwrap();
-    for width in [80, 120, 200] {
+    for width in [80, 100, 120, 160, 200] {
         app.set_body_width(width);
         let screen = draw(&app, width, 42);
         let widths = app

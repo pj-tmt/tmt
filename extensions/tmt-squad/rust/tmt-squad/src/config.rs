@@ -101,7 +101,7 @@ impl TokenWindow {
         windows[(windows.iter().position(|w| *w == self).unwrap_or(2) + 1) % 3]
     }
     pub fn label(self) -> String {
-        if self.0 > 3_600_000 && self.0.is_multiple_of(3_600_000) {
+        if self.0 >= 3_600_000 && self.0.is_multiple_of(3_600_000) {
             format!("{}h", self.0 / 3_600_000)
         } else {
             format!("{}m", self.0 / 60_000)
@@ -3989,7 +3989,7 @@ filter = "not pending"
                 .iter()
                 .map(|column| column.title.as_str())
                 .collect::<Vec<_>>(),
-            ["5m", "60m", "24h"]
+            ["5m", "1h", "24h"]
         );
         assert_eq!(
             config.token_windows("p").unwrap(),
