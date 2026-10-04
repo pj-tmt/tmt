@@ -565,7 +565,7 @@ pub fn create_page(root: &Path, args: &ArgMatches, source: String) -> Result<()>
         // The page is committed: unreadable settings are the defaults, never a failed command.
         let settings = tmt_colab::settings::read_or_default(root);
         let outcome =
-            crate::open::open_link(&link, crate::open::Flag::of(args), settings.open(), false);
+            crate::open::open_link(&link, crate::open::flag(args), settings.open(), false);
         let (text, failed) = crate::open::describe(&outcome, &link);
         shown = text;
         warnings.extend(failed);

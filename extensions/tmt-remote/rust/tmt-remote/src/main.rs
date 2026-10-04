@@ -224,7 +224,7 @@ fn run(matches: &clap::ArgMatches) -> Result<(), RemoteError> {
         return approval_command(name, arguments);
     }
     if name == "pair" {
-        return pair(arguments.get_flag("json"), open::Flag::of(arguments));
+        return pair(arguments.get_flag("json"), open::flag(arguments));
     }
     if name == "status" {
         return status(arguments.get_flag("json"));

@@ -111,7 +111,8 @@ and CI-scope checks.
 
 ## Browser opening and settings
 
-Remote's `open` owner mirrors Colab's platform opener without a Colab dependency.
+Remote's `open` module supplies CLI flags and interaction to `tmt-invoke::open`,
+the platform opener shared with Colab; Remote retains its own presentation.
 `pair --open` overrides the saved setting and terminal, CI and SSH/display checks;
 only `--no-open`, JSON and a missing platform opener suppress an explicit open.
 `settings` owns the private `settings.json` / `settings.lock` under Remote's

@@ -679,6 +679,10 @@ core, adapters, CLI or extension behavior. Squad is its sole reviewed consumer; 
 consumer or dependency goes to tmt-lead. Rules and limits: the
 [`tmt-tui` skill](.agents/skills/tmt-tui/SKILL.md).
 
+`rust/crates/tmt-invoke` owns neutral executable discovery, bounded waited byte
+capture and the shared browser-opening policy, discovery and launch. It takes plain
+inputs and has no TMT dependencies; Colab and Remote own CLI interaction and presentation.
+
 `rust/crates/tmt-cli/tests/architecture.rs` is a test-only import and dependency
 guard. One reviewed manifest table owns the fixed workspace package names and
 their manifest locations. The guard follows the actual Rust module tree, checks
