@@ -1,6 +1,6 @@
 ---
 source: site/src/chapters/squad.mdx
-sourceRevision: b40cddd71fed227a9a62d6ae2d8b410c0160f81e
+sourceRevision: b0bd9ca6a2c24f3e09501d5d4082179f6b31f0e5
 title: Squad：lead、成員與一個 board
 ---
 
@@ -143,6 +143,21 @@ o = "tab"
 
 `tmt sq config show` 從指令列印出同樣的內容：單獨執行顯示 board 預設值，用 `--squad product` 選一個 squad，或用 `--tab all` 選一個頁籤（也可以是 `leads` 或自訂頁籤）。一次只用其中一個旗標。`--json` 會提供完整數值與各自的來源。
 
+<Mdx.h3 id="change-settings-from-the-command-line">從命令列變更設定</Mdx.h3>
+
+`tmt sq config set` 會檢查設定，再將它存入 `squad.toml`：
+
+<Cmd>{`
+$ tmt sq config set notes.render plain --squad product
+$ tmt sq config set board.refresh 10s --squad product
+$ tmt sq config set board.hidden_columns '["pr_link"]' --squad product
+$ tmt sq config set tabs.hide '["leads"]'
+`}</Cmd>
+
+大多數設定只適用於一個 squad，請加上 `--squad`。頁籤順序與隱藏的頁籤（`tabs.*`）一律是全域設定；`board.refresh` 預設也是全域設定，除非你指定 squad。清單值要寫成 JSON。tmt 會拒絕無效值；若檔案在讀取後發生變更，也會拒絕寫入。註解與其他設定會保留。變更分割版面的窗格、方向或尺寸，會把整份版面存入檔案，因此之後切換預設樣式也不會覆寫。巢狀分割、指令、狀態模式與提醒只能編輯檔案來變更。
+
+`board.hidden_columns` 會隱藏 board 欄位，但不變更格線。跨越多欄的儲存格會縮到仍顯示的欄位；如果設定會隱藏某個儲存格的所有欄位，tmt 會拒絕。設成 `[]` 可重新顯示所有欄位。`tmt sq ls` 也會隱藏同樣的欄位，`--json` 則仍包含所有值。
+
 <Mdx.h3 id="board-views">Board 視圖</Mdx.h3>
 
 視圖安排窗格與初始的摺疊狀態，保留 squad 的狀態、列、provider、提醒、token 計量表與主題。用 `tmt sq view ls`（或直接用 `tmt sq view`）列出五種內建視圖：
@@ -176,6 +191,10 @@ board 由窗格組成：**rows**（上面的清單）、**notes**（lead 自己�
 點擊筆記窗格中的一行，就會把游標放到那裡。筆記窗格有焦點時（點擊一行，或用 Tab 切過去），↑↓ 或 j/k 移動一行，PgUp/PgDn 移動一頁，g/G 或 Home/End 跳到第一行或最後一行。換行的長行會整行反白。lead 編輯筆記本時，游標會留在同一段文字；用滾輪捲動不會移動游標。
 
 在一行按 `a` 可以向 lead 傳送關於該行的筆記。提示會顯示行號與一小段引文；輸入訊息後按 Enter，或按 Esc 取消。lead 回答前，該行會顯示 `✎`。筆記本本身仍是唯讀。
+
+筆記裡的連結也能操作。Tab 與 Shift-Tab 會在連結之間移動（除非你為 Tab 設了別的動作），底部一行會顯示所選連結的文字與目的地。按 Enter 開啟；用滑鼠時，第一次點擊選取，第二次點擊開啟。Esc 會清除選取。筆記沒有連結時，Tab 仍會切到下一個窗格。網址和完整的 GitHub issue 或 PR 連結可以開啟。絕對檔案路徑只會在所屬資料夾中顯示檔案，絕不直接開啟檔案。相對路徑、單獨的 `#12` 與未知類型的連結仍是純文字。
+
+筆記本也可以連到 board 動作：`tmt:jump/<member>`、`tmt:open/<member>`、`tmt:copy/<member>`、`tmt:talk/<member>`、`tmt:answer/<member>`、`tmt:annotate/<member>` 與 `tmt:back`。`<member>` 是目前 squad 中成員或 lead 的名稱或 ID；其他名稱不會執行動作，並會說明原因。talk、answer 與 annotate 會開啟一般提示；如果連結有 `?text=…`，會先填入文字。按 Enter 前不會傳送任何內容。要從連結執行自己的程式，請在 `squad.toml` 的 `[links]` 下加入設定，例如 `gh = "run gh issue view {path}"`；筆記中的 `gh:1234` 就會執行 `gh issue view 1234`。tmt 直接執行程式，不經過 shell。
 
 詳細資料窗格會在欄位下方顯示選取成員自己的筆記本，唯讀，使用與 lead 筆記相同的 Markdown 樣式。已儲存的成員沒有筆記本時，顯示 `(no notes yet)`；暫時成員則顯示 `(temporary identity: no notebook)`。每個成員都應在筆記本頂端保留同樣簡短的 **Current state**。leads 與 all 頁籤仍只顯示列。
 
@@ -260,7 +279,7 @@ Y = "copy - [{name}]({pr_link}) {state}"
 board 每一層的配置方式都相同，所以一套規則就能說明全部。每一列都使用同一套欄位格線，列與列能對齊，方便比較成員。一列可以占多行，每行的儲存格又可以跨多欄。
 
 - **欄位**可以設定寬度，或用 `min`／`max` 與 `grow` 分配剩餘空間；也可以設定 `align`、在 `end` 或 `middle` 處 `truncate`（適合路徑與連結），以及 `priority`。伸展欄位從 `min` 開始（沒設定時為 4 格），不會超過 `max`；一欄達到 `max` 後，剩餘空間會給其他欄。窄畫面會先把欄位縮到 `min`。如果一列仍放不下，就逐一隱藏欄位，`priority` 最高的先隱藏，直到其他欄能完整放下；沒有 `priority` 的欄位不會被這樣隱藏。最後一欄至少保留 4 格，否則隱藏。
-- **行**：`lines` 指定一列占幾行，以及每行顯示什麼。每行列出使用的欄位，儲存格可以 `span` 多欄，所以第二行能在工作下方顯示成員在等你處理什麼。後面的行如果沒有內容，就不顯示。
+- **行**：`lines` 指定一列占幾行，以及每行顯示什麼。每行列出使用的欄位，儲存格可以 `span` 多欄，所以第二行能在工作下方顯示成員在等你處理什麼。後面的行如果沒有內容，就不顯示。儲存格也可以指定主題 `token` 作為顏色，例如 `{ field = "pending", span = 3, token = "waiting" }`。`team` 預設樣式會這樣設定，讓「成員正在等你處理」的內容顯示為 `waiting` 顏色。其他預設樣式會保留原本的顏色，除非你加入 token。儲存格的 token 優先於欄位的 `color` 門檻。token 是主題名稱，不是固定的色彩值。空值仍會變暗，選取時也仍會整列反白。
 - **值從哪裡來**：欄位預設顯示成員在 squad 裡的同名欄位，除非 `from` 把它綁到成員自己的 tmt 資料：`member`、`presence`、`cwd`、`target`、`session.driver`、`session.model`、`session.usage.tokens`、`session.usage.remaining`（driver 回報 context window 時，就是 window 減去這些 token）、`meta.<key>` 或 `meta.squad.<field>`。每個 driver 的路徑都相同，所以成員從 Claude 換成 Codex，也會保留欄位。`format` 可以顯示為 `text`、`tokens`（`487k`）、`age`（`5m`）或 `count`（`12,345`）。區段、篩選與排序使用同一個值，數字會依數值排序。沒有值時顯示 `–`，這是 board 表示「這裡沒有內容」的統一標記。Squad 自己的欄位（`member`、`role`、`state`、`pending`、`note`）不能綁定來源。欄位也能依值為儲存格上色：`color = [{ at = 400000, token = "review" }, { at = 600000, token = "blocked" }]` 會選擇數值已達到的最高 `at` 所對應的主題 token。顏色只是裝飾：沒有顏色也能讀到同樣的值。
 - **百分比寬度**的方式和 CSS 相同。`width = "30%"` 是 board 扣除邊框與列標記後內部寬度的比例，不是固定寬欄位剩下的空間；欄位間距另計。設定的百分比加總最多 100%，`min` 與 `max` 仍以格數計算。要改為分配剩餘空間，請用 `grow`，它和 CSS 的 `fr` 相同。尾端沒有被任何行使用的欄位，不會占用自己的寬度；它的值仍能填到其他儲存格。隱藏欄位時，剩餘欄位的比例會重新計算。
 - **儲存格預設不換行。** 放不下的文字會用 `…` 截斷，依終端機實際繪製的寬度計算，所以中文與 emoji 能對齊。在欄位設定 `overflow = "wrap"`，就能換行，最多 `max_lines` 行（1–8，預設 2）；如果仍放不下，最後一行會用 `…` 截斷。續行會從儲存格下方開始，選取、翻頁、捲動與點擊都會依畫面上的行操作。跨欄儲存格使用第一欄的設定。舊的 `[squad.<name>.columns]` 格式也接受百分比寬度與 `overflow`。
