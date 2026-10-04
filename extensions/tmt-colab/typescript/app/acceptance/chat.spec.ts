@@ -81,6 +81,7 @@ test('page-visible device Chat threads send exact bytes once, preserve drafts, k
     const panel = first.getByTestId('chat-panel');
     const input = panel.getByRole('combobox', { name: 'Message to agent' });
     await expect(input).toHaveValue(`@${agent.name} `);
+    await expect(panel.locator('.annotation-compose details')).not.toHaveAttribute('open', '');
     await expect(panel).toContainText('Visible to everyone with page access.');
     expect(await first.locator('iframe').boundingBox()).toEqual(before);
     const opening = `@${agent.name} <script>private Chat turn</script> Explain this page.`;
@@ -102,13 +103,24 @@ test('page-visible device Chat threads send exact bytes once, preserve drafts, k
     const writer = (await own.getAttribute('data-writer'))!;
     await expect(own).toHaveAttribute('data-thread-id', writer);
     await expect(askEntry(first, sent.operationId).getByTestId('ask-state')).toContainText(
-      'Pending',
+      'waiting',
     );
     const requestId = agent.received()[0].requestId as string;
     fs.writeFileSync(`${agent.gate}/${requestId}.release`, '');
     const reply =
       'ask-reply:' + createHash('sha256').update(draft.deliveredMessage).digest('hex').slice(0, 16);
     await expect(askEntry(first, sent.operationId).getByTestId('ask-reply')).toHaveText(reply);
+    const exchange = askEntry(first, sent.operationId);
+    const userTurn = exchange.locator('.chat-user-turn');
+    await expect(userTurn.locator('header')).toContainText('You · just now');
+    await expect(userTurn.locator('header')).toContainText('✓ replied');
+    await expect(
+      userTurn.getByRole('button', { name: 'Delete message', exact: true }),
+    ).toBeVisible();
+    await expect(userTurn.locator('details')).toContainText('Show exactly what was sent');
+    await expect(exchange.locator('.chat-agent-turn')).toHaveCount(1);
+    await expect(exchange.getByTestId('ask-reply-attribution')).toContainText(agent.name);
+    await expect(exchange.locator('.chat-agent-turn details')).toHaveCount(0);
     await openChat(second);
     await expect(
       second.getByTestId('chat-thread').filter({ hasText: 'private Chat turn' }),
@@ -116,6 +128,9 @@ test('page-visible device Chat threads send exact bytes once, preserve drafts, k
     await expect(askEntry(second, sent.operationId).getByTestId('ask-reply')).toHaveText(reply);
     await expect(panel.locator('script')).toHaveCount(0);
     await expect(first.frameLocator('iframe').locator('[data-colab-thread]')).toHaveCount(0);
+    const disclosure = panel.locator('.annotation-compose > details');
+    if ((await disclosure.getAttribute('open')) !== null)
+      await disclosure.getByText('Show exactly what is sent', { exact: true }).click();
     for (const width of [1440, 390]) {
       await first.setViewportSize({ width, height: 900 });
       for (const theme of ['light', 'dark']) {

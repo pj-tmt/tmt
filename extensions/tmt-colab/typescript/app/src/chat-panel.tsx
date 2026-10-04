@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, type ReactNode } from 'react';
 import { AnnotationInput } from './annotation-input.js';
 import { AskPanel, type AskBinding, type PageAsk } from './ask-panel.js';
 import { DiscussionComment } from './thread-panel.js';
@@ -47,18 +47,38 @@ export function ChatPanel({
             data-thread-id={thread.threadId}
             data-writer={thread.ref.writer}
           >
-            {thread.comments.map((comment) => (
-              <DiscussionComment
-                key={`${comment.ref.writer}:${comment.messageId}`}
-                comment={comment}
-                thread={thread}
-                binding={discussion}
-                ask={binding}
-                asks={asks}
-                blocked={blocked}
-                chat
-              />
-            ))}
+            {thread.comments.map((comment) => {
+              const records = asks.filter(
+                (record) =>
+                  record.thread === thread.threadId &&
+                  record.messageIds?.includes(comment.messageId),
+              );
+              const user = (status?: ReactNode, delivery?: ReactNode) => (
+                <DiscussionComment
+                  comment={comment}
+                  thread={thread}
+                  binding={discussion}
+                  asks={asks}
+                  blocked={blocked}
+                  chat
+                  status={status}
+                  delivery={delivery}
+                />
+              );
+              return records.length ? (
+                <AskPanel
+                  key={`${comment.ref.writer}:${comment.messageId}`}
+                  inline
+                  chat
+                  records={records}
+                  binding={binding}
+                  blocked={blocked}
+                  renderUser={(_record, status, delivery) => user(status, delivery)}
+                />
+              ) : (
+                <div key={`${comment.ref.writer}:${comment.messageId}`}>{user()}</div>
+              );
+            })}
           </section>
         ))}
         {legacy.length > 0 && (

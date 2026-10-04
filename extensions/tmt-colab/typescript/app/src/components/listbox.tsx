@@ -291,7 +291,7 @@ export function Listbox<Value extends string>({
         </button>
       )}
       {inputTrigger
-        ? createPortal(optionList, trigger.current?.closest('dialog[open]') ?? document.body)
+        ? createPortal(optionList, trigger.current?.closest('dialog') ?? document.body)
         : optionList}
     </div>
   );

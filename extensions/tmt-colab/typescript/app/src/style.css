@@ -1002,4 +1002,40 @@ footer {
 }
 .chat-panel .ask-panel {
   margin: 12px 0;
+  border: 0;
+  padding: 0;
+  background: transparent;
+}
+.chat-panel .ask-panel .chat-exchange {
+  border: 0;
+  padding: 0;
+  margin: 0;
+}
+.chat-panel .chat-user-turn,
+.chat-panel .chat-agent-turn {
+  margin: 16px 0;
+  padding: 12px;
+  border: 1px solid var(--c-rule);
+  background: var(--c-sheet);
+}
+.chat-user-turn > header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+  color: var(--c-muted);
+  font-size: 12px;
+}
+.chat-user-turn .comment-byline,
+.chat-byline {
+  margin: 0 0 8px;
+  color: var(--c-muted);
+  font-size: 12px;
+}
+.chat-panel .chat-agent-turn pre {
+  margin-bottom: 0;
+}
+.chat-user-turn details {
+  margin-top: 8px;
 }

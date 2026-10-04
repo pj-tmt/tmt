@@ -26,8 +26,8 @@ owns record fields, limits, revision semantics and trust boundaries.
   Send, Shift+Enter newline, Escape cancellation and exact-byte disclosure. It
   opens at the selection in a cosmetic parent popover; saved threads open in Comments.
   It extends the same `components/listbox.tsx` used by Manage and the agent list;
-  input options portal into the closest open dialog (otherwise the body), so mobile
-  modal sheets retain visible, clickable autocomplete in their top layer.
+  input options portal into its dialog ancestor (otherwise the body), so mobile
+  modal sheets retain visible, clickable autocomplete across close/reopen.
   UI capture/default labels grant no routing authority.
 - `chat-panel.tsx` reads designated device threads from the same admitted projection,
   shows their page-visible history and inline outcomes, and continues only its device's thread with the shared input. Chat threads are excluded from Comments. No new store

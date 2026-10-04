@@ -1,12 +1,12 @@
 import type { CommentContext } from './thread-store.js';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import type { PreviewAttempt } from './ask-preview.js';
 import { ASK_OBSERVATION_MS, type LedgerState } from './ask-records.js';
 import { ReadRefusedError } from './ask-remote.js';
 import type { RemoteAgent } from './ask-remote.js';
 import type { AskDestination } from './ask-intent.js';
 import { text } from './strings.js';
-import { relativeTime } from './display-time.js';
+import { relativeTime, compactRelativeTime } from './display-time.js';
 
 /** Capabilities stay in trusted parent chrome. The mounted adapter owns current
  * page/member/grant admission and returns the existing frozen/signing attempt. */
@@ -62,12 +62,14 @@ export function AskPanel({
   blocked,
   inline = false,
   chat = false,
+  renderUser,
 }: {
   records: readonly PageAsk[];
   binding?: AskBinding;
   blocked: boolean;
   inline?: boolean;
   chat?: boolean;
+  renderUser?(record: PageAsk, status: ReactNode, delivery: ReactNode): ReactNode;
 }) {
   const [now, setNow] = useState(0);
   useEffect(() => {
@@ -138,35 +140,45 @@ export function AskPanel({
 
   return (
     <section className="ask-panel" aria-label={text.asks} data-testid="ask-panel">
-      {!inline && (
+      {!inline && !chat && (
         <>
           <h2>{text.asks}</h2>
           <p>{text.askVisible}</p>
         </>
       )}
-      {!inline && records.length === 0 && <p>{text.askEmpty}</p>}
-      {records.map((record) => (
-        <article
-          data-testid="ask-entry"
-          data-operation-id={record.operationId}
-          data-writer={record.writer}
-          tabIndex={-1}
-          key={`${record.writer}:${record.operationId}`}
-          aria-label={`${text.ask} ${record.operationId}`}
-        >
-          {!inline && <h3>{record.agentName || text.askAgentLabel}</h3>}
-          <p className="isolation-note">
-            {inline ? record.agentName || text.askAgentLabel : record.deviceName} ·{' '}
-            <time
-              dateTime={new Date(record.issuedAt).toISOString()}
-              title={`${text.askCreated} ${new Date(record.issuedAt).toISOString()}`}
-            >
-              {relativeTime(record.issuedAt, now)}
-            </time>
-          </p>
+      {!inline && !chat && records.length === 0 && <p>{text.askEmpty}</p>}
+      {records.map((record) => {
+        const timedOut =
+          record.state === 'accepted' &&
+          !record.resultUnavailable &&
+          record.reply === undefined &&
+          now >= record.issuedAt + ASK_OBSERVATION_MS;
+        const stateCopy =
+          record.state === 'refused'
+            ? (refusals[record.reason ?? ''] ?? states.refused)
+            : record.state === 'accepted' &&
+                (record.reply !== undefined || record.resultUnavailable)
+              ? text.askDeliveryAccepted
+              : states[record.state];
+        const status = (
+          <span role="status" data-testid="ask-state" data-state={record.state}>
+            {chat
+              ? record.reply !== undefined
+                ? '✓ replied'
+                : timedOut
+                  ? '! timed out'
+                  : ['dispatching', 'accepted'].includes(record.state) && !record.resultUnavailable
+                    ? '… waiting'
+                    : record.state === 'held'
+                      ? `• held · ${stateCopy}`
+                      : `! ${stateCopy}`
+              : stateCopy}
+          </span>
+        );
+        const details = (
           <details>
-            <summary>{inline ? 'Show exactly what was sent' : text.askDetails}</summary>
-            {inline && <pre>{record.deliveredMessage ?? record.message}</pre>}
+            <summary>{inline || chat ? 'Show exactly what was sent' : text.askDetails}</summary>
+            {(inline || chat) && <pre>{record.deliveredMessage ?? record.message}</pre>}
             <dl className="ask-identities">
               <dt>{text.askAgent}</dt>
               <dd>{record.agent}</dd>
@@ -178,35 +190,16 @@ export function AskPanel({
               <dd>{record.operationId}</dd>
             </dl>
           </details>
-          {!inline && <pre>{record.message}</pre>}
-          <p role="status" data-testid="ask-state" data-state={record.state}>
-            {chat &&
-              (record.reply !== undefined
-                ? '✓ Replied · '
-                : record.state === 'accepted' &&
-                    !record.resultUnavailable &&
-                    now >= record.issuedAt + ASK_OBSERVATION_MS
-                  ? '× Reply timeout · '
-                  : ['dispatching', 'accepted'].includes(record.state) && !record.resultUnavailable
-                    ? '… Pending · '
-                    : record.state === 'held'
-                      ? '• Held · '
-                      : '• ')}
-            {record.state === 'refused'
-              ? (refusals[record.reason ?? ''] ?? states.refused)
-              : record.state === 'accepted' &&
-                  (record.reply !== undefined || record.resultUnavailable)
-                ? text.askDeliveryAccepted
-                : states[record.state]}
-          </p>
-          {record.state === 'uncertain' &&
-            ['REMOTE_SESSION_ENDED', 'REMOTE_SEQUENCE_UNAVAILABLE'].includes(
-              record.reason ?? '',
-            ) && <p>{text.askSessionEnded}</p>}
-          {['uncertain', 'held', 'dispatching', 'accepted'].includes(record.state) &&
-            record.reply === undefined &&
-            !record.resultUnavailable && (
-              <>
+        );
+        const controls = (
+          <>
+            {record.state === 'uncertain' &&
+              ['REMOTE_SESSION_ENDED', 'REMOTE_SEQUENCE_UNAVAILABLE'].includes(
+                record.reason ?? '',
+              ) && <p>{text.askSessionEnded}</p>}
+            {['uncertain', 'held', 'dispatching', 'accepted'].includes(record.state) &&
+              record.reply === undefined &&
+              !record.resultUnavailable && (
                 <div className="ask-actions">
                   <button
                     disabled={
@@ -231,27 +224,92 @@ export function AskPanel({
                     </button>
                   )}
                 </div>
-              </>
-            )}
-          {errors.has(record.operationId) && <p role="alert">{errors.get(record.operationId)}</p>}
-          {record.reply !== undefined && (
-            <section aria-label={text.askReply}>
+              )}
+            {errors.has(record.operationId) && <p role="alert">{errors.get(record.operationId)}</p>}
+            {record.resultUnavailable && <p>{text.askFinalUnavailable}</p>}
+          </>
+        );
+        const reply = record.reply !== undefined && (
+          <section className={chat ? 'chat-agent-turn' : undefined} aria-label={text.askReply}>
+            {chat ? (
+              <p className="chat-byline" data-testid="ask-reply-attribution">
+                {record.agentName || text.askAgentLabel} ·{' '}
+                <time dateTime={new Date(record.issuedAt).toISOString()}>
+                  {compactRelativeTime(record.issuedAt, now)}
+                </time>
+              </p>
+            ) : (
               <h4 data-testid="ask-reply-attribution">
                 {text.askReplyFrom} {record.agentName || text.askAgentLabel}
                 <small className="isolation-note">
-                  {!chat && <>{record.deviceName} · </>}
-                  {relativeTime(record.issuedAt, now)}
+                  {record.deviceName} · {relativeTime(record.issuedAt, now)}
                 </small>
               </h4>
-              <pre data-testid="ask-reply" data-empty={record.reply === ''}>
-                {record.reply}
-              </pre>
-              {record.reply === '' && <p>{text.askEmptyReply}</p>}
-            </section>
-          )}
-          {record.resultUnavailable && <p>{text.askFinalUnavailable}</p>}
-        </article>
-      ))}
+            )}
+            <pre data-testid="ask-reply" data-empty={record.reply === ''}>
+              {record.reply}
+            </pre>
+            {record.reply === '' && <p>{text.askEmptyReply}</p>}
+          </section>
+        );
+        return (
+          <article
+            className={chat ? 'chat-exchange' : undefined}
+            data-testid="ask-entry"
+            data-operation-id={record.operationId}
+            data-writer={record.writer}
+            tabIndex={-1}
+            key={`${record.writer}:${record.operationId}`}
+            aria-label={`${text.ask} ${record.operationId}`}
+          >
+            {chat ? (
+              <>
+                {renderUser ? (
+                  renderUser(
+                    record,
+                    status,
+                    <>
+                      {details}
+                      {controls}
+                    </>,
+                  )
+                ) : (
+                  <article className="chat-user-turn">
+                    <header>
+                      <p className="chat-byline">
+                        {record.deviceName} · {compactRelativeTime(record.issuedAt, now)}
+                      </p>
+                      {status}
+                    </header>
+                    <pre>{record.message}</pre>
+                    {details}
+                    {controls}
+                  </article>
+                )}
+                {reply}
+              </>
+            ) : (
+              <>
+                {!inline && <h3>{record.agentName || text.askAgentLabel}</h3>}
+                <p className="isolation-note">
+                  {inline ? record.agentName || text.askAgentLabel : record.deviceName} ·{' '}
+                  <time
+                    dateTime={new Date(record.issuedAt).toISOString()}
+                    title={`${text.askCreated} ${new Date(record.issuedAt).toISOString()}`}
+                  >
+                    {relativeTime(record.issuedAt, now)}
+                  </time>
+                </p>
+                {details}
+                {!inline && <pre>{record.message}</pre>}
+                {status}
+                {controls}
+                {reply}
+              </>
+            )}
+          </article>
+        );
+      })}
     </section>
   );
 }

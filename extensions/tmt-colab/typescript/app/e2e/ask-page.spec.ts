@@ -54,10 +54,12 @@ test('Chat retains drafts across close and live edits; only trusted Enter freeze
   await expect(page.getByTestId('annotation-row')).toHaveCount(0);
   await page.locator('#ask-page-fixture').getByTestId('chat-toggle').click();
   await run(page, 'syncRecords');
-  await expect(page.getByText('<script>inert ask</script>')).toBeVisible();
+  await expect(page.locator('.chat-user-turn > pre').first()).toHaveText(
+    '<script>inert ask</script>',
+  );
   await expect(page.locator('.chat-panel script,.chat-panel img')).toHaveCount(0);
   await expect(page.getByText('The agent returned an empty reply.')).toBeVisible();
-  await expect(page.getByTestId('ask-reply-attribution')).toContainText('Reply from Agent 2');
+  await expect(page.getByTestId('ask-reply-attribution')).toContainText('Agent 2');
   await page.getByRole('button', { name: 'Re-check delivery' }).click();
   await page.getByRole('button', { name: 'Abandon tracking' }).click();
   expect((await run(page, 'proof')).actions).toEqual([
@@ -87,17 +89,20 @@ test('closing a pending explicit send retains it and never dispatches again on r
 test('Chat shows held, pending, replied and display-only reply timeout without changing the ledger or sending', async ({
   page,
 }) => {
+  await page.setViewportSize({ width: 390, height: 900 });
   await page.clock.install();
   await mount(page);
+  await page.evaluate(() => (document.documentElement.dataset.theme = 'dark'));
   await run(page, 'syncRecords', 'held');
-  await expect(page.getByTestId('ask-state').first()).toContainText('Held');
+  await expect(page.getByTestId('ask-state').first()).toContainText('held');
   await run(page, 'pending');
-  await expect(page.getByTestId('ask-state').first()).toContainText('Pending');
+  await expect(page.getByTestId('ask-state').first()).toContainText('waiting');
   await page.clock.fastForward(2 * 60 * 60 * 1000 + 1);
-  await expect(page.getByTestId('ask-state').first()).toContainText('Reply timeout');
+  await expect(page.getByTestId('ask-state').first()).toContainText('timed out');
   await expect(page.getByTestId('ask-state').first()).toHaveAttribute('data-state', 'accepted');
+  await page.screenshot({ path: '/tmp/1645-chromium-390-dark-timeout.png' });
   await run(page, 'syncRecords', 'accepted');
-  await expect(page.getByTestId('ask-state').first()).toContainText('Replied');
+  await expect(page.getByTestId('ask-state').first()).toContainText('replied');
   expect((await run(page, 'proof')).sends).toEqual([]);
 });
 test('verified refusal reasons use actionable copy without exposing a resend', async ({ page }) => {
@@ -174,5 +179,42 @@ test('mobile modal Chat keeps the shared autocomplete visible and clickable in i
   await option.click();
   await expect(input).toHaveValue('@Agent 1 ');
   await expect(input).toBeFocused();
+  expect((await run(page, 'proof')).sends).toEqual([]);
+});
+
+test('mobile Chat preserves an open autocomplete inside its dialog across keyboard close and reopen', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 390, height: 900 });
+  await mount(page);
+  const drawer = page.locator('.page-drawer[data-panel=chat][open]');
+  const input = drawer.getByRole('combobox', { name: 'Message to agent' });
+  await input.fill('@');
+  await expect(drawer.getByRole('option')).toHaveCount(5);
+  const close = drawer.getByRole('button', { name: 'Close Chat' });
+  await close.focus();
+  await close.press('Enter');
+  await expect(page.locator('.page-drawer[data-panel=chat][open]')).toHaveCount(0);
+  const more = page.locator('#ask-page-fixture').getByRole('button', { name: 'More page actions' });
+  await more.focus();
+  await more.press('Enter');
+  const toggle = page.locator('#ask-page-fixture').getByTestId('chat-toggle');
+  await toggle.focus();
+  await toggle.press('Enter');
+  await expect(input).toHaveValue('@');
+  const option = drawer.getByRole('option').first();
+  await expect(option).toBeInViewport();
+  await expect
+    .poll(() =>
+      option.evaluate((node) => {
+        const box = node.getBoundingClientRect();
+        return node.contains(
+          document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2),
+        );
+      }),
+    )
+    .toBe(true);
+  await option.click();
+  await expect(input).toHaveValue('@Agent 1 ');
   expect((await run(page, 'proof')).sends).toEqual([]);
 });
