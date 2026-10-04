@@ -299,6 +299,32 @@ The composer refuses changed targets/requests/leads and missing sender/lead;
 Esc cancels and empty text sends nothing. Left/right switch tabs, `s` opens the
 switcher, and `/` searches. Home has no r/R reply shortcut or numeric navigation.
 
+## Cron on the board
+
+The home tab shows one line, `⑤ ⏱ N cron jobs · next <time> <owner> <what> · <clock> · c list`:
+the job count, the earliest active slot, and whether a clock runs (`no clock` means
+due slots are not sent; `clock: checking…` is the first read). A running clock shows where it
+runs as `session:window` (from tmux, when the board runs inside tmux), else the pane id. Tab reaches it like any section. Enter on it, or `c` anywhere,
+lists every squad's jobs, hidden squads included; Enter opens the job's squad and Esc closes.
+
+A squad tab is split in two: members above, that squad's jobs below (as tall as its jobs, at
+most two fifths of the body). The `c` list is as tall as its jobs too. Tab moves into the
+jobs after the last pane and back to the first. Members who own an active job show
+`⏱ <next>` at the row end (the first thing to drop when narrow) and in their detail. The selected job expands in
+place with its full message, its next three runs and its time zone.
+
+While the jobs (or the `c` list) have focus these keys are job keys, and `?` lists them:
+Enter go to the owner (open the squad, in the list), `n` new, `e` edit, `p` pause or resume,
+`x` send now, `o` reassign and `d` delete (after a confirmation). A key you bound in `[bind]`
+keeps its binding. New, edit and reassign use the input line one step at a time: owner
+(member name), message, then schedule (`every 3h from 09:00`, `daily 09:00`, `weekdays 09:00`,
+`mon,thu 10:00` or five cron fields); Esc cancels and nothing is written. The message is sent as
+typed, and an edit leaves untouched fields as stored; a message with several lines is kept and
+only its owner and schedule can be changed there (use `tmt sq cron edit --message`). Changes
+use the same permission and revision checks as the commands: only the recorded user or the
+squad's lead can change jobs, and a job that changed since you looked is refused, not
+overwritten. Failures are shown and never retried. `x` sends once, like `tmt sq cron send`.
+
 ## Manage recurring jobs
 
 `tmt sq cron ls [--squad NAME]` lists jobs across all active squads, including
@@ -344,7 +370,7 @@ user/lead actor. It can send a paused job with a current owner and changes no
 schedule. Each explicit send is a separate action. Output confirms acceptance,
 not delivery or completion; Squad stores no run results. If acceptance is
 uncertain, retain the reported operation ID and recover it with `dispatch.show`
-through `tmt api` before deciding on another action. Board cron controls are
+through `tmt api` before deciding on another action. Board cron controls (above) are
 separate from the clock lifecycle.
 
 ## Inspect board settings

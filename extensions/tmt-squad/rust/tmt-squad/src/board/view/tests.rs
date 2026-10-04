@@ -23,6 +23,7 @@ use serde_json::Value;
 use tmt_cli_style::{Role, mark::Mark};
 use unicode_width::UnicodeWidthStr;
 
+mod cron;
 mod help;
 mod meter;
 mod parity;

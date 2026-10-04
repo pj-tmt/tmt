@@ -20,6 +20,23 @@ use tmt_cli_style::Role;
 /// Split mode tiles the configured panes; tabs mode shows the focused pane
 /// under a tab bar. The focused pane's border is highlighted.
 pub(super) fn render_body(frame: &mut Frame, app: &App, area: Rect) {
+    let jobs = app
+        .view
+        .as_ref()
+        .filter(|view| view.home.is_none())
+        .and_then(|_| crate::board::cronboard::half_wanted(app, area))
+        // A failed split leaves the whole body to the members.
+        .and_then(|lower| crate::board::composition::halves(area, lower).ok());
+    match jobs {
+        Some((members, jobs)) => {
+            render_members(frame, app, members);
+            crate::board::cronboard::render_half(frame, app, jobs);
+        }
+        None => render_members(frame, app, area),
+    }
+}
+
+fn render_members(frame: &mut Frame, app: &App, area: Rect) {
     let look = app.look();
     let Some(view) = &app.view else {
         render_rows(frame, app, area);

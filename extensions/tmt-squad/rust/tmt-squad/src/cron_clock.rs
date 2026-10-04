@@ -53,7 +53,7 @@ fn status_document(status: ClockStatus) -> Value {
     }
 }
 
-fn manual_operation() -> Result<String, SquadError> {
+pub(crate) fn manual_operation() -> Result<String, SquadError> {
     // A new explicit action gets one ID. Revalidation and recovery keep it unchanged.
     let mut bytes = [0u8; 16];
     std::fs::File::open("/dev/urandom")

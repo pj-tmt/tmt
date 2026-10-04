@@ -176,6 +176,31 @@ fn tmux(program: &Path, socket: &str, args: &[&str], input: &[u8]) -> Result<Str
     Ok(String::from_utf8_lossy(&finished.stdout).trim().to_owned())
 }
 
+/// Where a pane lives, as `session:window`, from one bounded `display-message`
+/// on the invoker's server. Only a pane id (`%N`) is asked about, so a stored
+/// holder can never pass an option. Any failure is `None`.
+pub fn pane_place(program: &Path, socket: &str, pane: &str) -> Option<String> {
+    let numbered = pane.strip_prefix('%')?;
+    if numbered.is_empty() || !numbered.bytes().all(|byte| byte.is_ascii_digit()) {
+        return None;
+    }
+    let place = tmux(
+        program,
+        socket,
+        &[
+            "display-message",
+            "-p",
+            "-t",
+            pane,
+            "#{session_name}:#{window_name}",
+        ],
+        b"",
+    )
+    .ok()?;
+    let place = place.lines().next()?.trim();
+    (!place.is_empty() && place != ":").then(|| place.to_owned())
+}
+
 /// `tmux -V` as (major, minor); load-buffer -w needs 3.2.
 fn tmux_version(text: &str) -> Option<(u32, u32)> {
     let number = text

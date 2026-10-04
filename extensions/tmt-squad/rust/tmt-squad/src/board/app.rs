@@ -128,6 +128,8 @@ pub enum Request {
     },
     /// Save this tab order to `[tabs] order` (tab keys, in order).
     Reorder(Vec<String>),
+    /// A cron job control, with its actor, job and viewed revision resolved.
+    Cron(super::cronboard::CronRequest),
 }
 
 impl Request {
@@ -136,7 +138,11 @@ impl Request {
     pub fn sends(&self) -> bool {
         matches!(
             self,
-            Self::Talk { .. } | Self::Annotate { .. } | Self::Reply { .. } | Self::Reorder(_)
+            Self::Talk { .. }
+                | Self::Annotate { .. }
+                | Self::Reply { .. }
+                | Self::Reorder(_)
+                | Self::Cron(_)
         )
     }
 }
@@ -168,7 +174,14 @@ pub enum Item<'a> {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Choice {
     Action(Action),
-    Reply { request: String, from: String },
+    /// Confirms a cron control picked from a menu.
+    Cron(super::cronboard::CronRequest),
+    /// Leaves the menu without doing anything.
+    Dismiss,
+    Reply {
+        request: String,
+        from: String,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -199,10 +212,23 @@ pub struct Menu {
 /// Where composed text goes.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Compose {
-    AskLead { to: String, sender: String },
-    Talk { to: String },
-    Annotate { to: String, row: String },
-    Reply { request: String, from: String },
+    AskLead {
+        to: String,
+        sender: String,
+    },
+    Talk {
+        to: String,
+    },
+    Annotate {
+        to: String,
+        row: String,
+    },
+    Reply {
+        request: String,
+        from: String,
+    },
+    /// One step of a cron form; its draft lives in `App::cron_draft`.
+    Cron,
 }
 
 /// The one-line composer: Enter sends, Esc cancels, empty sends nothing.
@@ -214,6 +240,14 @@ pub struct Input {
     pub compose: Compose,
     /// The squad the text is sent in: the row's own on the leads tab.
     pub squad: String,
+    /// A line after the text: the accepted forms, or why the last entry failed.
+    pub hint: Option<Hint>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Hint {
+    pub text: String,
+    pub error: bool,
 }
 
 /// Longest text the composer accepts, in characters.
@@ -229,6 +263,7 @@ pub(super) enum Overlay {
     View,
     Theme,
     Switcher,
+    CronList,
 }
 impl Overlay {
     fn id(self) -> tmt_tui::app::ComponentId {
@@ -239,6 +274,7 @@ impl Overlay {
                 Self::View => "view-picker",
                 Self::Theme => "theme-picker",
                 Self::Switcher => "switcher",
+                Self::CronList => "cron-list",
             }
             .into(),
         ]
@@ -304,6 +340,15 @@ pub struct App {
     pub(super) note_cursors: RefCell<BTreeMap<String, super::notes::NotesCursor>>,
     pub(super) note_hits: RefCell<Vec<(ratatui::layout::Rect, usize)>>,
     pub(super) notebooks: RefCell<super::notes::Notebooks>,
+    pub(super) cron: super::cronboard::State,
+    /// The cron form being filled in on the input line, if any.
+    pub(super) cron_draft: Option<super::cronboard::Draft>,
+    /// The squad tab's jobs half has focus (Tab moves in after the last pane).
+    pub(super) jobs_focus: bool,
+    /// One list state per squad room; selection survives tab switches.
+    pub(super) jobs: RefCell<BTreeMap<String, super::cronboard::JobsPane>>,
+    /// Where the jobs half was last drawn, for the pointer; empty when absent.
+    pub(super) jobs_area: std::cell::Cell<ratatui::layout::Rect>,
     pub(super) meter: Option<super::meter::Meter>,
     meters: BTreeMap<String, super::meter::Meter>,
     pub(super) token_window: crate::config::TokenWindow,
@@ -316,6 +361,8 @@ pub struct App {
     pub pinned: usize,
     /// The quick switcher (`s`), while open.
     pub switcher: Option<Switcher>,
+    /// The `c` list of every squad's jobs, while open.
+    pub(super) cron_list: Option<super::cronboard::List>,
     pub attention: BTreeMap<String, Attention>,
     pub current: Option<String>,
     pub view: Option<View>,
@@ -818,6 +865,7 @@ impl App {
             meter.resume(self.token_window, Instant::now());
         }
         self.current = Some(next.clone());
+        self.jobs_focus = false;
         self.menu = None;
         self.loading_since = Some(Instant::now());
         // Never blank the screen: a visited squad shows from the cache at
@@ -1030,7 +1078,7 @@ impl App {
     pub fn focused_pane(&self) -> Option<Pane> {
         self.effective_board()
             .and_then(|board| board.panes.get(self.focus).copied())
-            .filter(|pane| !self.collapsed_panes().contains(pane))
+            .filter(|pane| !self.collapsed_panes().contains(pane) && !self.jobs_focus)
     }
 
     pub fn focused(&self) -> Pane {
@@ -1058,7 +1106,7 @@ impl App {
 
     /// A hidden focus returns to rows; boards without visible rows use the next pane.
     fn restore_focus(&mut self) {
-        if self.focused_pane().is_some() {
+        if self.jobs_focus || self.focused_pane().is_some() {
             return;
         }
         if let Some(position) = self
@@ -1073,9 +1121,20 @@ impl App {
     }
 
     fn next_pane(&mut self) {
+        if self.jobs_focus {
+            self.jobs_leave(false);
+            return;
+        }
         if let Some(board) = self.effective_board() {
             let collapsed = self.collapsed_panes();
             let count = board.panes.len();
+            // After the last visible pane, Tab enters the jobs half when it is drawn.
+            if self.jobs_painted()
+                && !(self.focus + 1..count).any(|index| !collapsed.contains(&board.panes[index]))
+            {
+                self.jobs_focus = true;
+                return;
+            }
             if let Some(next) = (1..=count)
                 .map(|step| (self.focus + step) % count)
                 .find(|index| !collapsed.contains(&board.panes[*index]))
@@ -1085,7 +1144,25 @@ impl App {
         }
     }
 
+    /// Leaves the jobs half for the first (or, backwards, last) visible pane.
+    pub(super) fn jobs_leave(&mut self, backwards: bool) {
+        self.jobs_focus = false;
+        let collapsed = self.collapsed_panes();
+        let visible = |pane: &Pane| !collapsed.contains(pane);
+        let target = self.effective_board().and_then(|board| {
+            if backwards {
+                board.panes.iter().rposition(visible)
+            } else {
+                board.panes.iter().position(visible)
+            }
+        });
+        if let Some(target) = target {
+            self.focus = target;
+        }
+    }
+
     fn toggle_panes(&mut self, panes: &[Pane]) -> Effect {
+        self.jobs_focus = false;
         if self.loading() {
             return self.say(format!(
                 "Loading {}…",
@@ -1241,6 +1318,7 @@ impl App {
                         if self.collapsed_panes().contains(&Pane::Notes) {
                             self.toggle_panes(&[Pane::Notes]);
                         }
+                        self.jobs_focus = false;
                         self.focus = position;
                         Effect::None
                     }
@@ -1255,6 +1333,9 @@ impl App {
                 };
             }
             _ => {}
+        }
+        if self.jobs_focus && action.verb.acts_on_member() {
+            return self.say("Tab returns to the members; this key acts on a member row.");
         }
         let Some(row) = self.selected_row().cloned() else {
             return self.say("No row is selected.");
@@ -1384,6 +1465,7 @@ impl App {
             text: String::new(),
             compose,
             squad,
+            hint: None,
         });
         Effect::None
     }
@@ -1465,6 +1547,8 @@ impl App {
     fn choose(&mut self, choice: Choice) -> Effect {
         match choice {
             Choice::Action(action) => self.perform(&action),
+            Choice::Cron(request) => Effect::Act(Request::Cron(request)),
+            Choice::Dismiss => Effect::None,
             Choice::Reply { request, from } => {
                 let squad = self.current.clone().unwrap_or_default();
                 self.ask(
@@ -1703,7 +1787,12 @@ impl App {
         };
         match key.code {
             KeyCode::Esc => {
+                let cron = matches!(input.compose, Compose::Cron);
                 self.input = None;
+                if cron {
+                    self.cron_draft = None;
+                    return self.say("Cancelled; nothing changed.");
+                }
                 return self.say("Nothing sent.");
             }
             KeyCode::Enter => {}
@@ -1722,6 +1811,10 @@ impl App {
             _ => return Effect::None,
         }
         let input = self.input.take().expect("composing");
+        if matches!(input.compose, Compose::Cron) {
+            // A job message is stored exactly as typed: no trim, unlike talk.
+            return self.cron_submit(input.text);
+        }
         let text = input.text.trim().to_owned();
         if input
             .home
@@ -1747,6 +1840,7 @@ impl App {
                     Compose::AskLead { .. } => false,
                     Compose::Talk { to } => to == member,
                     Compose::Annotate { to, .. } => self.lead().as_ref() == Ok(to),
+                    Compose::Cron => false,
                     Compose::Reply { request, from } => {
                         from == member
                             && row["waitingOnYou"].as_array().is_some_and(|items| {
@@ -1781,6 +1875,7 @@ impl App {
                 row,
                 text,
             },
+            Compose::Cron => unreachable!("a cron step is submitted before this match"),
             Compose::Reply { request, from } => Request::Reply {
                 me,
                 request,
@@ -1847,7 +1942,7 @@ impl App {
         use tmt_tui::app::{Routed, route};
         let Some(overlay) = self.overlay() else {
             self.overlay_focus.close();
-            return None;
+            return self.jobs_event(event);
         };
         let id = overlay.id();
         let mut focus = std::mem::take(&mut self.overlay_focus);
@@ -1861,6 +1956,7 @@ impl App {
                 Overlay::Theme => vec![vec!["theme-picker".into(), "choices".into()]],
                 Overlay::View => vec![vec!["view-picker".into(), "choices".into()]],
                 Overlay::Settings => vec![vec!["settings".into(), "content".into()]],
+                Overlay::CronList => vec![vec!["cron-list".into(), "choices".into()]],
                 _ => vec![],
             };
             focus.open(id, fields);
@@ -1891,6 +1987,8 @@ impl App {
             Some(Overlay::Theme)
         } else if self.switcher.is_some() {
             Some(Overlay::Switcher)
+        } else if self.cron_list.is_some() {
+            Some(Overlay::CronList)
         } else {
             None
         }
@@ -1959,6 +2057,7 @@ impl App {
                 }
             }),
             Overlay::Switcher => self.switcher_event(event, field),
+            Overlay::CronList => self.cron_list_event(event),
         }
     }
 
@@ -2102,6 +2201,10 @@ impl App {
             KeyCode::Char('/') => self.searching = true,
             // The switcher's key, unless the user bound `s` to something.
             KeyCode::Char('s') if !self.bound(key) => self.switcher = Some(Switcher::default()),
+            // Every squad's jobs, unless the user bound `c` to something.
+            KeyCode::Char('c') if !self.bound(key) && self.cron_shown() => {
+                return self.open_cron_list(None);
+            }
             KeyCode::Char('?') => {
                 self.help_state.borrow_mut().open();
                 self.help = true;
@@ -2214,6 +2317,12 @@ impl App {
         if let Some(switcher) = &self.switcher {
             switcher.surface.borrow_mut().invalidate();
         }
+        if let Some(list) = &self.cron_list {
+            list.invalidate();
+        }
+        for pane in self.jobs.borrow_mut().values_mut() {
+            pane.invalidate();
+        }
     }
 
     fn bound(&self, key: KeyEvent) -> bool {
@@ -2265,6 +2374,9 @@ impl App {
         }
         if self.menu.is_some() || self.input.is_some() {
             return Effect::None;
+        }
+        if let Some(effect) = self.jobs_mouse(event) {
+            return effect;
         }
         let lines = match event.kind {
             MouseEventKind::ScrollUp => Some(-(WHEEL_LINES as isize)),
@@ -3375,6 +3487,7 @@ pub(crate) mod tests {
                     text: "draft".into(),
                     compose: compose.clone(),
                     squad: "product".into(),
+                    hint: None,
                 });
                 assert_eq!(app.key(refresh), Effect::Refresh);
                 let input = app.input.as_ref().unwrap();
@@ -3900,6 +4013,7 @@ mod token_window_tests {
                 text: String::new(),
                 compose,
                 squad: "x".into(),
+                hint: None,
             });
             app.key(key);
             assert_eq!(app.input.as_ref().unwrap().text, "w");
