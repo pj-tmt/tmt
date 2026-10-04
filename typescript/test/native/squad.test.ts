@@ -1910,6 +1910,7 @@ o = "run touch ${marker}"
       const one = await squad(sandbox, ['ls', '--squad', 'product']);
       expect(Object.keys(one.body).sort()).toEqual([
         'columns',
+        'hidden_columns',
         'lines',
         'olderRequestsNotShown',
         'sections',
@@ -1917,10 +1918,11 @@ o = "run touch ${marker}"
         'you',
       ]);
       expect(json.body.squads[0]).toEqual({ ...one.body, you: undefined });
+      expect(one.body.hidden_columns).toEqual(['tok_1', 'tok_2', 'tok_3']);
       expect(one.body.columns.map((column: { field: string }) => column.field)).toEqual(crewFields);
       // The preset's grid: fixed widths, a growing task, and a link that
       // steps aside first on a narrow board; one line per row.
-      expect(one.body.columns[2]).toMatchObject({ field: 'task', width: null, grow: 1 });
+      expect(one.body.columns[2]).toMatchObject({ field: 'task', width: null, grow: 1, min: 20 });
       expect(one.body.columns[3]).toMatchObject({ field: 'pr_link', width: 12, priority: 6 });
       expect(one.body.lines).toEqual([crewFields.map((field) => ({ field, span: 1 }))]);
       for (const args of [
