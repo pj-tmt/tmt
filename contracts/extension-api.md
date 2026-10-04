@@ -502,6 +502,13 @@ command with `tmt_cli_style::command`, resolve `<cli> help <command>` with
 `tmt_cli_style::route` so it prints what `<command> -h` prints, and print
 through its list, message and table renderers.
 
+An action that only makes sense in a full-screen surface is not a command, and
+a hidden subcommand needs an allowlist entry with a reason that
+`tmt_cli_style::audit::hidden_report` checks in the extension's own tests: see
+[Hidden commands](../design/cli-style.md#hidden-commands). Agents never call a
+hidden or `__` command, including the `__tmt-hooks` entry below, which only core
+invokes.
+
 ## Lifecycle hooks
 
 An extension can receive best-effort observations after core commits, once the

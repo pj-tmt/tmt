@@ -33,6 +33,11 @@ markup: see [tmt-tui](../../tmt-tui/SKILL.md).
   remain in `specs.rs`/`main.rs`; the shared style crate owns terminal wrapping.
   Main's help regression pins 80-cell wrapping and unchanged pipe bytes across
   root and nested commands; verify the real `tmt sq cron --help` in a private tmux.
+- Hidden commands: `cargo test --locked -p tmt-squad cli_style_tests` also runs
+  `tmt_cli_style::audit::hidden_report` over Squad's grammar against `HIDDEN` in
+  `cli_style_allowlist.rs` (today only `__complete`). Board-only actions are not
+  commands: do not add a CLI or hidden twin for a board key
+  ([rule](../../../../design/cli-style.md#hidden-commands)).
 - Cron management (service, announcements, retirement): `cargo test --locked -p tmt-squad
 cron_service` and the native `squad.test.ts` cron cases cover actor permission, locked
   room/revision refusal, exact messages, post-commit announcement recipients, hook
