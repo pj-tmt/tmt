@@ -10,8 +10,34 @@ const APP_BYTES = 16 * 1024 * 1024;
 const APP_FILES = 128;
 const context = JSON.stringify({ owner: true, deviceId: 'packaging-proof', name: 'Packaging' });
 const shellQuote = (value) => `'${value.replaceAll("'", "'\\''")}'`;
+const ENTRIES = new URL(
+  '../../extensions/tmt-colab/rust/tmt-colab/app-entries.txt',
+  import.meta.url
+);
 
-function expectedFiles(directory) {
+/**
+ * The app's top-level files from the one declaration the native inventory also compiles in
+ * (`app-entries.txt`): `html` entries are required, `text` entries optional. Read lazily so
+ * only a Colab proof needs the file.
+ */
+export function appEntries(text = fs.readFileSync(ENTRIES, 'utf8')) {
+  const entries = { html: [], text: [] };
+  for (const line of text.split('\n')) {
+    if (line === '' || line.startsWith('#')) continue;
+    const [kind, name, ...extra] = line.split(' ');
+    assert(
+      Object.hasOwn(entries, kind) && /^[a-zA-Z0-9][a-zA-Z0-9._-]*$/.test(name) && !extra.length,
+      'Invalid app entry declaration'
+    );
+    entries[kind].push(name);
+  }
+  assert(entries.html.length > 0, 'The app declares no entries');
+  return entries;
+}
+
+/** The exact files a built app directory must hold, read against the declaration. */
+export function expectedFiles(directory) {
+  const declared = appEntries();
   assert(fs.lstatSync(directory).isDirectory(), 'Expected app must be a real directory');
   const files = new Map();
   let total = 0;
@@ -34,15 +60,13 @@ function expectedFiles(directory) {
         add(`assets/${asset}`);
       }
     } else {
-      assert(
-        ['index.html', 'renderer.html', 'THIRD-PARTY-NOTICES.txt'].includes(name),
-        'Unexpected app entry'
-      );
+      assert([...declared.html, ...declared.text].includes(name), `Unexpected app entry: ${name}`);
       add(name);
     }
   }
+  // The inventory treats `text` entries as optional; an archive under proof must carry them.
   assert(
-    files.has('/index.html') && files.has('/THIRD-PARTY-NOTICES.txt'),
+    [...declared.html, ...declared.text].every((name) => files.has(`/${name}`)),
     'Expected app is incomplete'
   );
   return files;
