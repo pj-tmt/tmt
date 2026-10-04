@@ -57,7 +57,10 @@ socket. With an absent or stale socket, it admits an existing private layout and
 an existing serve lease before opening SQLite read-only. It never calls
 `Store::open`, creates files, migrates old schemas or reads the machine key.
 Pre-schema-5 state reports no remembered port. Unsafe files, malformed/silent
-control replies and a held lease without reachable serve return errors.
+control replies and a held lease without reachable serve return errors. A serve
+that answers the operation as unknown (alpha.1's `REMOTE_INPUT_INVALID` or the
+current `REMOTE_CONTROL_UNSUPPORTED`) maps to `REMOTE_SERVE_OUTDATED` for both
+status and stop, in `control::request_operation`.
 
 Stop resolves the same public root, sends one control request to set serve's SIGTERM
 shutdown flag, then waits at most 40 seconds after acknowledgment for the lifecycle

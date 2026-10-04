@@ -494,6 +494,16 @@ fn pair_json_confirms_one_device_and_grant_survives_control_stop_restart() {
         assert!(!accepted);
         assert_eq!(bad["error"]["code"], "REMOTE_INPUT_INVALID");
     }
+    // A serve names an unknown operation with its own code, so clients match
+    // on the code rather than on `REMOTE_INPUT_INVALID` text.
+    let mut control = UnixStream::connect(pilot.root.join("state/remote/control.sock")).unwrap();
+    control
+        .write_all(b"{\"op\":\"from-the-future\"}\n")
+        .unwrap();
+    let mut reply = String::new();
+    BufReader::new(control).read_line(&mut reply).unwrap();
+    let reply: Value = serde_json::from_str(&reply).unwrap();
+    assert_eq!(reply["error"]["code"], "REMOTE_CONTROL_UNSUPPORTED");
     assert_eq!(stop_json(&pilot), serde_json::json!({"stopped":true}));
     wait_stopped(pilot.child.as_mut().unwrap());
     assert_eq!(status_json(&pilot)["running"], false);
@@ -1201,6 +1211,27 @@ fn status_and_stop_refuse_unsafe_state_and_unresponsive_or_malformed_control() {
             "REMOTE_IO",
         ),
         (None, "REMOTE_IO"),
+        // An alpha.1 serve answers an unknown operation as invalid input; a
+        // later serve uses the dedicated code. Both mean the serve is older.
+        (
+            Some(
+                "{\"error\":{\"code\":\"REMOTE_INPUT_INVALID\",\"message\":\"Unknown control operation.\"}}\n",
+            ),
+            "REMOTE_SERVE_OUTDATED",
+        ),
+        (
+            Some(
+                "{\"error\":{\"code\":\"REMOTE_CONTROL_UNSUPPORTED\",\"message\":\"Unknown control operation.\"}}\n",
+            ),
+            "REMOTE_SERVE_OUTDATED",
+        ),
+        // Other invalid-input replies are not the legacy unknown-operation reply.
+        (
+            Some(
+                "{\"error\":{\"code\":\"REMOTE_INPUT_INVALID\",\"message\":\"Revoke needs a clientId.\"}}\n",
+            ),
+            "REMOTE_INPUT_INVALID",
+        ),
     ] {
         for command in ["status", "stop"] {
             let expected = if command == "stop" && reply == Some("{\"stopping\":true}\n") {
@@ -1254,6 +1285,11 @@ fn status_and_stop_refuse_unsafe_state_and_unresponsive_or_malformed_control() {
             let error: Value = serde_json::from_slice(&result.stdout).unwrap();
             assert_eq!(error.as_object().unwrap().len(), 1);
             assert_eq!(error["error"]["code"], expected);
+            if expected == "REMOTE_SERVE_OUTDATED" {
+                let message = error["error"]["message"].as_str().unwrap();
+                assert!(message.contains("older") && message.contains("Ctrl-C"));
+                assert!(!message.contains("remote stop"), "{message}");
+            }
         }
     }
     assert!(!status_json(&pilot)["running"].as_bool().unwrap());
