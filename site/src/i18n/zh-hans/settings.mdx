@@ -1,6 +1,6 @@
 ---
 source: site/src/chapters/settings.mdx
-sourceRevision: 02bce181de70733848240e8fc7ab016894774958
+sourceRevision: ab133ca5788ed088a74e52f31f26436570feb2f0
 title: 设置与故障排查
 ---
 
@@ -30,7 +30,7 @@ $ tmt config rm pasteEnterDelayMs                 # 删除当前文件夹的覆�
 | `preambleEvery`                    | `3`      | 每隔多少次请求附带一次前置信息；`0` 表示关闭                                                                             | `config set`，两种范围均可 |
 | `pasteEnterDelayMs`                | `500`    | 粘贴消息与按下 Enter 之间的间隔，单位为毫秒；`0` 表示不等待                                                              | `config set`，两种范围均可 |
 | `exchange.retentionDays`           | `90`     | 新请求及其回复的保留天数，范围为 1 到 3650                                                                               | `config set --global`      |
-| `ui.paneBadge`                     | `off`    | [窗格徽标](/drivers/tmux#the-pane-badge)                                                                                 | `config set --global`      |
+| `ui.paneBadge`                     | `on`     | [窗格徽标](/drivers/tmux#the-pane-badge)                                                                                 | `config set --global`      |
 | `notes.compactionReminder`         | `true`   | 已保存的 Claude 或 Codex agent 压缩会话后，提醒它重读并更新[笔记](/working#notes-roles-and-preambles)；`true` 或 `false` | `config set --global`      |
 | `notifications.replyBatchWindowMs` | `5000`   | 将回复行合并为一次粘贴前的等待时间，单位为毫秒，最大为 60000；`0` 表示逐条发送                                           | `config set --global`      |
 | `notifications.typingQuietMs`      | `2000`   | 停止输入多久后才粘贴合并的回复，单位为毫秒，最大为 30000；`0` 表示不等待                                                 | `config set --global`      |

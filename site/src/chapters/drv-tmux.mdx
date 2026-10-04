@@ -26,7 +26,8 @@ import { Badge, BadgeBorders, DriverCard } from "../components/samples";
     [
       "Setup",
       <>
-        None. Opt into the badge with <code>tmt config set ui.paneBadge on --global</code>.
+        None. The badge is on by default; turn it off with{" "}
+        <code>tmt config set ui.paneBadge off --global</code>.
       </>,
     ],
   ]}
@@ -38,11 +39,11 @@ Before typing into a pane, tmt checks that the pane still belongs to the name yo
 
 ### The pane badge
 
-Turn it on once, and each named pane gets a small label you can place in your own pane border:
+Each named pane gets a small label you can place in your own pane border. It is on by default:
 
 <BadgeBorders />
 
-<Cmd>{`$ tmt config set ui.paneBadge on --global`}</Cmd>
+<Cmd>{`$ tmt config set ui.paneBadge off --global   # turn it off`}</Cmd>
 
 Then add this fragment where you want it in your own `pane-border-format`:
 

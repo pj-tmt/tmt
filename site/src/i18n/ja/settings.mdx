@@ -1,6 +1,6 @@
 ---
 source: site/src/chapters/settings.mdx
-sourceRevision: 02bce181de70733848240e8fc7ab016894774958
+sourceRevision: ab133ca5788ed088a74e52f31f26436570feb2f0
 title: 設定と困ったときの対処
 ---
 
@@ -30,7 +30,7 @@ $ tmt config rm pasteEnterDelayMs                 # このフォルダーの上�
 | `preambleEvery`                    | `3`      | preamble を付ける頻度です。`0` で無効になります                                                                                                             | `config set`、どちらも可 |
 | `pasteEnterDelayMs`                | `500`    | 貼り付けから Enter までのミリ秒数です。`0` で待機しません                                                                                                   | `config set`、どちらも可 |
 | `exchange.retentionDays`           | `90`     | 新しいリクエストと返事の保存日数です。1〜3650を指定できます                                                                                                 | `config set --global`    |
-| `ui.paneBadge`                     | `off`    | [ペインのバッジ](/drivers/tmux#the-pane-badge)です                                                                                                          | `config set --global`    |
+| `ui.paneBadge`                     | `on`     | [ペインのバッジ](/drivers/tmux#the-pane-badge)です                                                                                                          | `config set --global`    |
 | `notes.compactionReminder`         | `true`   | 保存済みの Claude や Codex の agent が会話を圧縮した後、[notes](/working#notes-roles-and-preambles) を読み直して更新するよう促します。`true` または `false` | `config set --global`    |
 | `notifications.replyBatchWindowMs` | `5000`   | 返事の通知を1回の貼り付けにまとめる待ち時間です。最大60000ミリ秒、`0` で個別に送ります                                                                      | `config set --global`    |
 | `notifications.typingQuietMs`      | `2000`   | まとめた通知を貼り付ける前に、キー入力が止まるのを待つ時間です。最大30000ミリ秒、`0` で待機しません                                                         | `config set --global`    |
