@@ -2,6 +2,8 @@
 
 mod notices;
 
+pub(crate) use notices::queued_wake;
+
 use crate::{
     host::{ActionError, Host},
     process::{SupervisedProbeRunner, runtime::observe_runtime_process},

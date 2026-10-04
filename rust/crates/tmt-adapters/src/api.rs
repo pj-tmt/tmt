@@ -19,8 +19,8 @@ use crate::{
 use serde::Deserialize;
 use serde_json::{json, value::RawValue};
 use tmt_core::{
-    dispatch::DispatchInput, identity_hooks::IdentityHook, request::history::HistoryQuery,
-    room::RoomWrite,
+    dispatch::DispatchInput, identity::Identity, identity_hooks::IdentityHook,
+    request::history::HistoryQuery, room::RoomWrite,
 };
 
 // Preserve the canonical message limit even when every byte is JSON-escaped.
@@ -277,10 +277,14 @@ pub fn capabilities() -> Vec<u8> {
 }
 
 fn identity(storage: &mut Storage, selector: &str) -> Result<String, Fault> {
+    Ok(identity_entry(storage, selector)?.id)
+}
+
+fn identity_entry(storage: &mut Storage, selector: &str) -> Result<Identity, Fault> {
     let found = storage
         .resolve_identity(selector)
         .map_err(|_| Fault::unavailable())?;
-    found.map(|id| id.id).ok_or_else(|| {
+    found.ok_or_else(|| {
         Fault::new(
             "NAME_NOT_FOUND",
             "Explicit originator identity was not found.",
