@@ -225,8 +225,10 @@ here reads the store or core directly.
 - **Home ⑤.** One cursor target between attention and squads (`home::CRON`); Enter or `c` opens
   the list. `cronboard::line` is pure: preview, then owner, step aside before the count, time,
   clock and `c list`; below that the line compacts. The clock reads `checking…` until the second
-  read and names its holder `session:window` from the member row whose pane id matches
-  (`App::clock_place`), else the pane id; `clock --json` keeps the pane id. The read's failure shows as a blocked line.
+  read and names its holder `session:window`: the refresh worker asks tmux once per pane id
+  (`effects::pane_place`, one bounded `display-message` on the invoker's socket, cached in
+  `cronboard::Places`, failures too) and stores it on the read; outside tmux or on any failure the
+  pane id shows. `clock --json` keeps the pane id. The read's failure shows as a blocked line.
 - **`c` list.** `Overlay::CronList` routed through the shared `FocusStack` and `app::route`,
   painted by a `picker_surface::State` list modal docked at its content height (like the
   prompt band, so nine tenths wide from 100 columns). Row IDs are `<room uuid>/<c-id>`. Enter opens

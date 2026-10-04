@@ -106,7 +106,7 @@ fn cron_line(app: &App, selected: bool, width: usize) -> Line<'static> {
         app.cron.now_ms(),
         width as u16,
         look,
-        app.clock_place().as_deref(),
+        app.clock_place(),
     )
     .expect("a cron target exists only with a read or its failure");
     let mut spans: Vec<Span<'static>> = line

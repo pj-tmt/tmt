@@ -85,6 +85,7 @@ impl Worker {
             let caller = crate::me::caller(&initial).ok().flatten();
             let mut changes =
                 Changes::new(Config::locate(&initial).ok(), provider::Cache::directory());
+            let mut places = super::cronboard::Places::new(crate::effects::tmux_socket());
             serve(
                 &pending,
                 |snapshot, generation| {
@@ -123,6 +124,7 @@ impl Worker {
                                 &reader,
                                 *job,
                                 crate::status::now_ms() as i64,
+                                &mut places,
                             ),
                             cancellation: cancellation.clone(),
                         },

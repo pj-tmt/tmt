@@ -116,13 +116,10 @@ fn the_clock_reads_checking_until_a_second_read_and_the_holder_shows_its_window(
         settled.contains("no clock") && !settled.contains("checking"),
         "{settled}"
     );
-    // A holder pane that is a member row shows session:window, not the pane id.
-    let mut rows = members();
-    rows[0]["rows"][0]["pane"] = json!({"id": "%7", "target": "team:agents.2", "cwd": "/"});
-    let mut app = board(rows);
-    app.view.as_mut().unwrap().document["squad"]["roomId"] = json!("room");
-    app.cron
-        .replace(Ok(test_cron(Vec::new(), running_in("%7"))));
+    // A holder the worker resolved shows session:window, not the pane id.
+    let mut resolved = test_cron(Vec::new(), running_in("%7"));
+    resolved.place = Some("team:agents".into());
+    app.cron.replace(Ok(resolved));
     let rule = rule_of(&app);
     assert!(
         rule.contains("clock: team:agents ·") && !rule.contains("%7"),

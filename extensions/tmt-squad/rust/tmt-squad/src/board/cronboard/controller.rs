@@ -53,37 +53,10 @@ impl App {
         }
     }
 
-    /// Where the clock runs, as `session:window`, when a loaded member row sits in
-    /// the holder's pane: that is the pane target the roster read already carries.
-    /// Otherwise the caller falls back to the pane id.
-    pub(in crate::board) fn clock_place(&self) -> Option<String> {
-        use tmt_squad::cron::ClockStatus;
-        let ClockStatus::Running(holder) = &self.cron.cron.as_ref()?.clock else {
-            return None;
-        };
-        let pane = holder.pane.as_deref()?;
-        let view = self.view.as_ref()?;
-        let sections = view.document["sections"].as_array().into_iter().flatten();
-        let home = view
-            .home
-            .iter()
-            .flat_map(|home| &home.sections)
-            .flat_map(|section| &section.rows)
-            .map(|row| &row.member);
-        let target = sections
-            .flat_map(|section| section["rows"].as_array().into_iter().flatten())
-            .chain(home)
-            .find(|row| row["pane"]["id"].as_str() == Some(pane))
-            .and_then(|row| row["pane"]["target"].as_str())?;
-        // tmux targets read `session:window.pane`; the pane index adds nothing.
-        let place = target.rsplit_once('.').map_or(target, |(window, index)| {
-            if index.chars().all(|c| c.is_ascii_digit()) {
-                window
-            } else {
-                target
-            }
-        });
-        Some(super::line::first_line(place))
+    /// Where the clock runs as `session:window`, when the worker could resolve the
+    /// holder's pane; otherwise the caller shows the pane id.
+    pub(in crate::board) fn clock_place(&self) -> Option<&str> {
+        self.cron.cron.as_ref()?.place.as_deref()
     }
 
     /// Whether the jobs half was drawn on the last frame, so Tab can enter it.

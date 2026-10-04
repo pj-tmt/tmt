@@ -304,7 +304,7 @@ switcher, and `/` searches. Home has no r/R reply shortcut or numeric navigation
 The home tab shows one line, `⑤ ⏱ N cron jobs · next <time> <owner> <what> · <clock> · c list`:
 the job count, the earliest active slot, and whether a clock runs (`no clock` means
 due slots are not sent; `clock: checking…` is the first read). A running clock shows where it
-runs as `session:window` when a member row sits in that pane, else the pane id. Tab reaches it like any section. Enter on it, or `c` anywhere,
+runs as `session:window` (from tmux, when the board runs inside tmux), else the pane id. Tab reaches it like any section. Enter on it, or `c` anywhere,
 lists every squad's jobs, hidden squads included; Enter opens the job's squad and Esc closes.
 
 A squad tab is split in two: members above, that squad's jobs below (as tall as its jobs, at

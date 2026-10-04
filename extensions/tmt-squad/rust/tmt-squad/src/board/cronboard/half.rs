@@ -95,12 +95,7 @@ fn rule(app: &App, width: usize, jobs: usize, look: Look, now_ms: i64) -> Line<'
     }
     let right = app.cron.cron.as_ref().map(|cron| {
         let place = app.clock_place();
-        let (text, role) = clock(
-            &cron.clock,
-            now_ms,
-            false,
-            app.cron.clock_note(place.as_deref()),
-        );
+        let (text, role) = clock(&cron.clock, now_ms, false, app.cron.clock_note(place));
         (format!(" {text} "), role)
     });
     let used = |spans: &[Span]| spans.iter().map(Span::width).sum::<usize>();

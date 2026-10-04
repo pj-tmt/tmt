@@ -58,7 +58,7 @@ pub(super) fn render(frame: &mut Frame, app: &App, body: Rect, look: crate::look
         list.render(
             &app.cron,
             app.cron.now_ms(),
-            app.clock_place().as_deref(),
+            app.clock_place(),
             frame,
             look,
             body,

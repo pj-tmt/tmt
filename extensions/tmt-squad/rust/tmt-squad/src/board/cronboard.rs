@@ -10,6 +10,7 @@ mod hints;
 mod line;
 mod list;
 mod load;
+mod place;
 mod rows;
 mod surface;
 
@@ -25,6 +26,7 @@ pub(super) use line::line as home_line;
 pub(super) use line::tests::{NOW as TEST_NOW, cron as test_cron, view as test_view};
 pub(super) use list::{Input as ListInput, List};
 pub(super) use load::{Fetch, fetch};
+pub(super) use place::Places;
 pub(super) use surface::Pane as JobsPane;
 
 /// One successful read. The same instant produced every field.
@@ -34,6 +36,8 @@ pub struct Cron {
     pub clock: ClockStatus,
     /// Resolved once per read so input never touches core; `apply` revalidates it.
     pub actor: Result<CronActor, String>,
+    /// The clock holder's `session:window`, when tmux could say; else the pane id shows.
+    pub place: Option<String>,
     /// When the read happened. Every time shown derives from it, so the text is
     /// one coherent snapshot of the read rather than of a moving clock.
     pub read_ms: i64,

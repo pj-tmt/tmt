@@ -35,6 +35,7 @@ pub(in crate::board) fn cron(jobs: Vec<JobView>, clock: ClockStatus) -> Cron {
             id: "user-id".into(),
             name: "Ben".into(),
         }),
+        place: None,
         read_ms: NOW,
     }
 }
