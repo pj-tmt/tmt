@@ -455,6 +455,15 @@ pub fn create_page(root: &Path, args: &ArgMatches, source: String) -> Result<()>
             code:crate::error_code(error.as_ref()),message:error.to_string(),correlation:correlation.clone(),
         }) as Box<dyn std::error::Error + Send + Sync>
     })?;
+    let mut result = result;
+    let relative = result["path"]
+        .as_str()
+        .ok_or_else(|| input("Missing created page path."))?
+        .to_owned();
+    let lookup = crate::door::Door::lookup();
+    if let crate::door::Lookup::Running(door) = &lookup {
+        result["url"] = json!(door.url(&relative));
+    }
     if args.get_flag("json") {
         return output(&result, true);
     }
@@ -467,15 +476,7 @@ pub fn create_page(root: &Path, args: &ArgMatches, source: String) -> Result<()>
         &[
             ("page", page_id),
             ("title", title.to_owned()),
-            (
-                "open",
-                format!(
-                    "Open {} under your Remote door address (the one tmt remote pair printed).",
-                    result["path"]
-                        .as_str()
-                        .ok_or_else(|| input("Missing created page path."))?
-                ),
-            ),
+            ("open", crate::door::Door::hint(&lookup, &relative)),
         ],
     )?;
     Ok(())
@@ -605,7 +606,12 @@ pub fn run(command: &str, args: &ArgMatches, root: &Path, json_output: bool) -> 
             _ => None,
         };
         if let Some(created) = created {
-            value["readerPath"] = json!(reader_path(&key.space_id, &id, created, &ack.membership_head));
+            let path = reader_path(&key.space_id, &id, created, &ack.membership_head);
+            // The door is looked up after the commit, so a slow answer never delays the effect.
+            if let crate::door::Lookup::Running(door) = crate::door::Door::lookup() {
+                value["readerUrl"] = json!(door.url(&path));
+            }
+            value["readerPath"] = json!(path);
         }
         Ok(value)
     })()
@@ -625,6 +631,82 @@ pub fn run(command: &str, args: &ArgMatches, root: &Path, json_output: bool) -> 
         }
     })?;
     output(&outcome, json_output)
+}
+/// Readable lines for a management result: no raw JSON blobs, full IDs where a command needs them.
+fn human_fields(value: &Value) -> Result<Vec<(String, String)>> {
+    let object = value
+        .as_object()
+        .ok_or_else(|| input("Invalid CLI result."))?;
+    let text = |v: &Value| {
+        v.as_str()
+            .map(str::to_owned)
+            .unwrap_or_else(|| v.to_string())
+    };
+    let principals = |rows: &Value| match rows.as_array() {
+        Some(rows) if !rows.is_empty() => rows
+            .iter()
+            .map(|row| {
+                let mut line = text(&row["id"]);
+                if let Some(role) = row["role"].as_str() {
+                    line = format!("{line} {role}");
+                }
+                if row["revoked"] == true {
+                    line.push_str(" (revoked)");
+                }
+                line
+            })
+            .collect::<Vec<_>>()
+            .join(", "),
+        _ => "none".to_owned(),
+    };
+    let mut fields = Vec::new();
+    for (key, v) in object {
+        match key.as_str() {
+            "page" if v.is_object() => {
+                fields.push(("page".to_owned(), text(&v["pageId"])));
+                if let Some(title) = v["title"].as_str() {
+                    fields.push(("title".to_owned(), title.to_owned()));
+                }
+                fields.push((
+                    "audience".to_owned(),
+                    format!(
+                        "{} · {} history",
+                        v["sharing"].as_str().unwrap_or("private"),
+                        v["history"].as_str().unwrap_or("shared")
+                    ),
+                ));
+                fields.push(("epoch".to_owned(), text(&v["epoch"])));
+                if let Some(days) = v["retentionDays"].as_u64() {
+                    fields.push(("retention".to_owned(), format!("{days} days")));
+                }
+                if v["archived"] == true {
+                    fields.push(("archived".to_owned(), "yes".to_owned()));
+                }
+            }
+            "membershipHead" if v.is_object() => {
+                let hash = v["statementHash"].as_str().unwrap_or_default();
+                fields.push((
+                    "membership".to_owned(),
+                    format!(
+                        "revision {} · {}",
+                        text(&v["revision"]),
+                        hash.get(..12).unwrap_or(hash)
+                    ),
+                ));
+            }
+            // The full link replaces the relative one; without a door the path says how to get one.
+            "readerUrl" => fields.push(("reader link".to_owned(), text(v))),
+            "readerPath" if object.contains_key("readerUrl") => {}
+            "readerPath" => fields.push((
+                "reader link".to_owned(),
+                crate::door::Door::hint(&crate::door::Lookup::Unknown, &text(v)),
+            )),
+            "members" => fields.push(("members".to_owned(), principals(v))),
+            "links" => fields.push(("links".to_owned(), principals(v))),
+            _ => fields.push((key.clone(), text(v))),
+        }
+    }
+    Ok(fields)
 }
 fn output(value: &Value, json_output: bool) -> Result<()> {
     let mut out = tmt_cli_style::stream::stdout(json_output);
@@ -663,18 +745,10 @@ fn output(value: &Value, json_output: bool) -> Result<()> {
         }
         .write(&mut out, terminal)?;
     } else {
-        let fields = value
-            .as_object()
-            .ok_or_else(|| input("Invalid CLI result."))?
+        let fields = human_fields(value)?;
+        let fields = fields
             .iter()
-            .map(|(k, v)| {
-                (
-                    k.as_str(),
-                    v.as_str()
-                        .map(str::to_owned)
-                        .unwrap_or_else(|| v.to_string()),
-                )
-            })
+            .map(|(k, v)| (k.as_str(), v.clone()))
             .collect::<Vec<_>>();
         tmt_cli_style::detail::write(&mut out, terminal, "COLAB", &fields)?;
         if value.get("page").is_some() {

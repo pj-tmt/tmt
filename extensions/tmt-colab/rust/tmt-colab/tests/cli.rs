@@ -74,6 +74,27 @@ impl Pilot {
         assert!(!pilot.root.join("calls").exists());
         pilot
     }
+    /// A core stand-in that also answers Remote's `status --json`; everything else is the fixture core.
+    fn door_core(&self, status: &str, delay: Option<u32>) -> PathBuf {
+        let path = self.root.join("core-door");
+        let sleep = delay.map_or(String::new(), |s| format!("sleep {s}\n"));
+        fs::write(
+            &path,
+            format!(
+                "#!/bin/sh\nif [ \"$1 $2 $3\" = 'remote status --json' ]; then\n{sleep}printf '%s\\n' {}\nexit 0\nfi\nexec {} \"$@\"\n",
+                quote(status),
+                quote(self.root.join("core").to_str().unwrap())
+            ),
+        )
+        .unwrap();
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o700)).unwrap();
+        path
+    }
+    fn command_with_door(&self, status: &str) -> Command {
+        let mut cmd = self.command();
+        cmd.env("TMT_EXECUTABLE", self.door_core(status, None));
+        cmd
+    }
     fn command(&self) -> Command {
         let mut cmd = Command::new(BINARY);
         cmd.env("HOME", &self.root)
@@ -1014,6 +1035,238 @@ fn create_supports_empty_source_and_stdin_and_refuses_invalid_input_before_state
     assert!(human.stderr.is_empty());
     let message = String::from_utf8(human.stdout).unwrap();
     assert!(message.contains("PAGE CREATED"));
-    assert!(message.contains("Open x/colab/#space="));
-    assert!(message.contains("under your Remote door address (the one tmt remote pair printed)."));
+    // Without a running door the path stays relative and says how to get a full link.
+    assert!(message.contains("x/colab/#space="));
+    assert!(message.contains("(start tmt remote serve to get a full link)"));
+    assert!(!message.contains("tmt remote pair printed"));
+}
+const DOOR: &str = r#"{"running":true,"origin":"http://127.0.0.1:53253","path":"/r/3e2c69f7"}"#;
+#[test]
+fn reader_links_print_a_full_url_only_while_a_door_runs() {
+    let pilot = Pilot::new(None);
+    seed_page(&pilot);
+    pilot.call(&["share", "mode", PAGE, "link", "--yes", "--json"]);
+    let add = |status: Option<&str>, extra: &[&str]| {
+        let mut command = status.map_or_else(|| pilot.command(), |s| pilot.command_with_door(s));
+        let out = command
+            .args(["share", "link", "add", PAGE, "--yes"])
+            .args(extra)
+            .output()
+            .unwrap();
+        assert!(out.status.success(), "{out:?}");
+        String::from_utf8(out.stdout).unwrap()
+    };
+    // No door: the path alone, with how to get a full link.
+    let plain: Value = serde_json::from_str(&add(None, &["--json"])).unwrap();
+    assert!(plain.get("readerUrl").is_none());
+    assert!(add(None, &[]).contains("start tmt remote serve to get a full link"));
+    let running: Value = serde_json::from_str(&add(Some(DOOR), &["--json"])).unwrap();
+    let path = running["readerPath"].as_str().unwrap();
+    assert_eq!(
+        running["readerUrl"],
+        format!("http://127.0.0.1:53253/r/3e2c69f7/{path}")
+    );
+    let human = add(Some(DOOR), &[]);
+    assert!(
+        human.contains("http://127.0.0.1:53253/r/3e2c69f7/x/colab/read#v=1&"),
+        "{human}"
+    );
+    assert!(!human.contains("start tmt remote serve"));
+    // The listing never carries a link, with or without a door.
+    let listed = pilot
+        .command_with_door(DOOR)
+        .args(["share", "link", "list", PAGE, "--json"])
+        .output()
+        .unwrap();
+    assert!(!String::from_utf8_lossy(&listed.stdout).contains("readerUrl"));
+}
+#[test]
+fn created_pages_print_a_copyable_full_link_only_while_a_door_runs() {
+    let pilot = Pilot::new(None);
+    let json = |status: &str| -> Value {
+        let out = pilot
+            .command_with_door(status)
+            .args(["page", "create", "--title", "Linked", "--json"])
+            .output()
+            .unwrap();
+        assert!(out.status.success(), "{out:?}");
+        serde_json::from_slice(&out.stdout).unwrap()
+    };
+    // No door (the fixture core has no remote status): relative path, no url.
+    let plain = pilot.call(&["page", "create", "--title", "Plain", "--json"]);
+    assert!(plain.get("url").is_none());
+    for status in [
+        r#"{"running":false}"#,
+        "not json",
+        r#"{"running":true,"origin":"http://127.0.0.1:1/x","path":"/r/ab"}"#,
+    ] {
+        assert!(json(status).get("url").is_none(), "{status}");
+    }
+    let created = json(DOOR);
+    let path = created["path"].as_str().unwrap();
+    assert!(path.starts_with("x/colab/#space="));
+    assert_eq!(
+        created["url"],
+        format!("http://127.0.0.1:53253/r/3e2c69f7/{path}")
+    );
+    let human = pilot
+        .command_with_door(DOOR)
+        .args(["page", "create", "--title", "Human link"])
+        .output()
+        .unwrap();
+    assert!(
+        human.status.success() && human.stderr.is_empty(),
+        "{human:?}"
+    );
+    let text = String::from_utf8(human.stdout).unwrap();
+    assert!(
+        text.contains("http://127.0.0.1:53253/r/3e2c69f7/x/colab/#space="),
+        "{text}"
+    );
+    assert!(!text.contains("start tmt remote serve"));
+    // A stopped door that remembers its port says so; an extra field never breaks the answer.
+    let stopped = pilot
+        .command_with_door(r#"{"running":false,"lastPort":53253,"future":1}"#)
+        .args(["page", "create", "--title", "Stopped"])
+        .output()
+        .unwrap();
+    let text = String::from_utf8(stopped.stdout).unwrap();
+    assert!(
+        text.contains("(start tmt remote serve (last door port 53253) to get a full link)"),
+        "{text}"
+    );
+}
+#[test]
+fn a_door_that_does_not_answer_in_time_falls_back_to_the_relative_path() {
+    let pilot = Pilot::new(None);
+    let mut cmd = pilot.command();
+    cmd.env("TMT_EXECUTABLE", pilot.door_core(DOOR, Some(8)));
+    // Capture to a file and wait on the process itself: a parallel test's child can inherit a pipe
+    // end and delay its EOF, which says nothing about this command's own duration.
+    let capture = pilot.root.join("slow.out");
+    let started = Instant::now();
+    let status = cmd
+        .args(["page", "create", "--title", "Slow", "--json"])
+        .stdout(fs::File::create(&capture).unwrap())
+        .status()
+        .unwrap();
+    assert!(status.success());
+    assert!(
+        started.elapsed() < Duration::from_secs(7),
+        "{:?}",
+        started.elapsed()
+    );
+    let out = fs::read(&capture).unwrap();
+    let created: Value = serde_json::from_slice(&out).unwrap();
+    assert!(created.get("url").is_none());
+    assert!(
+        created["path"]
+            .as_str()
+            .unwrap()
+            .starts_with("x/colab/#space=")
+    );
+}
+
+#[test]
+fn human_output_is_readable_and_the_decoder_note_is_not_repeated_per_command() {
+    let pilot = Pilot::new(None);
+    let created = pilot.call(&["page", "create", "--title", "Notes", "--json"]);
+    let page = created["pageId"].as_str().unwrap();
+    let human = |args: &[&str]| {
+        let out = pilot.command().args(args).output().unwrap();
+        assert!(out.status.success(), "{out:?}");
+        (
+            String::from_utf8(out.stdout).unwrap(),
+            String::from_utf8(out.stderr).unwrap(),
+        )
+    };
+    // `show` is a summary, not raw JSON blobs.
+    let (shown, warning) = human(&["show", page]);
+    assert!(
+        shown.contains("audience") && shown.contains("private · shared history"),
+        "{shown}"
+    );
+    assert!(
+        shown.contains("membership") && shown.contains("revision "),
+        "{shown}"
+    );
+    assert!(shown.contains("links") && shown.contains("none"), "{shown}");
+    assert!(!shown.contains('{') && !shown.contains('['), "{shown}");
+    assert!(warning.contains("Expiry times are not available yet"));
+    // Page read/write keep decoder state in JSON only.
+    let (source, metadata) = human(&["page", "read", page]);
+    assert_eq!(source, "");
+    assert!(
+        metadata.contains("PAGE SOURCE") && !metadata.contains("decoder"),
+        "{metadata}"
+    );
+    let revision = pilot.call(&["page", "read", page, "--json"]);
+    assert!(revision["memoryLimit"].is_string());
+    let (written, _) = human(&[
+        "page",
+        "write",
+        page,
+        "--expected-revision",
+        revision["revision"].as_str().unwrap(),
+        "--file",
+        "-",
+    ]);
+    // (stdin is empty here, so the write stays a no-op update of the same empty source)
+    assert!(
+        written.contains("PAGE WRITTEN") && !written.contains("decoder"),
+        "{written}"
+    );
+    // Help examples cover creating a page and sharing it.
+    let (root, _) = human(&["help"]);
+    assert!(
+        root.contains("page create") && root.contains("share mode"),
+        "{root}"
+    );
+    let (group, _) = human(&["help", "page"]);
+    assert!(group.contains("page create"), "{group}");
+}
+#[test]
+fn serve_names_the_link_only_when_a_door_runs_and_reports_the_decoder_once() {
+    for door in [false, true] {
+        let pilot = Pilot::new(None);
+        let mut cmd = if door {
+            pilot.command_with_door(DOOR)
+        } else {
+            pilot.command()
+        };
+        let mut child = cmd
+            .arg("serve")
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap();
+        let mut reader = BufReader::new(child.stdout.take().unwrap());
+        let mut text = String::new();
+        let deadline = Instant::now() + Duration::from_secs(5);
+        let wanted = if cfg!(target_os = "linux") {
+            "open"
+        } else {
+            "decoder"
+        };
+        while !text.contains(wanted) && Instant::now() < deadline {
+            let mut line = String::new();
+            if reader.read_line(&mut line).unwrap() == 0 {
+                break;
+            }
+            text.push_str(&line);
+        }
+        kill(Pid::from_raw(child.id() as i32), Signal::SIGTERM).unwrap();
+        child.wait().unwrap();
+        if door {
+            assert!(
+                text.contains("http://127.0.0.1:53253/r/3e2c69f7/x/colab/"),
+                "{text}"
+            );
+        } else {
+            assert!(
+                text.contains("start tmt remote serve, then open colab"),
+                "{text}"
+            );
+        }
+    }
 }

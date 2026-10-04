@@ -69,7 +69,7 @@ pub enum MemoryLimit {
     #[serde(rename = "memory limit unavailable")]
     Unavailable,
 }
-fn memory_limit() -> MemoryLimit {
+pub fn memory_limit() -> MemoryLimit {
     if cfg!(target_os = "linux") {
         MemoryLimit::Enforced
     } else {
