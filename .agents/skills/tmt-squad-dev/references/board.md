@@ -202,10 +202,53 @@ by record when no positions were drawn.
   attention/squads, and `a` opens the real request picker or an annotation to the selected
   squad's lead. The composer keeps and revalidates sender, target, lead and open request before
   the public `tmt answer` or annotation dispatch, and questions stay inside the picker. Home
-  synthesizes no tiles, replies feed, cron data or model/token totals.
+  synthesizes no tiles, replies feed or model/token totals; its ⑤ cron line is the
+  [cron board](#cron-on-the-board).
 - New home sections add pure line builders that return lines and local
   entry/x/width/start/end placements; home translates them into the shared cursor, paging,
   reveal and clipped hits. Their acquisition and lifecycle owners stay outside paint.
+
+## Cron on the board
+
+`board::cronboard` owns every board-side cron concern; all reads and writes go through
+`cron_service`, `cron_clock::send_now` and `cron::Clock::status` (the
+[cron section](data-and-state.md#cron) owns their contracts). Squad stays an extension: nothing
+here reads the store or core directly.
+
+- **Acquisition.** The refresh worker queues one `Deferred::Cron` read after every full reload
+  (any tab, same lane and generation cancellation as attention), published as `BoardEvent::Cron`
+  into `App.cron` (`State { cron, failure }`): jobs of every active squad including hidden ones
+  (`list_jobs`, one next slot each), the clock status and the actor resolved once per read. A
+  failed refresh keeps the previous jobs next to its reason; before the first read nothing is
+  drawn. Paint and input never read it from core. `list_jobs` resolves each owner through one
+  public `references.resolve`, so a read costs one core call per job.
+- **Home ⑤.** One cursor target between attention and squads (`home::CRON`); Enter or `c` opens
+  the list. `cronboard::line` is pure: preview, then owner, step aside before the count, time,
+  clock and `c list`; below that the line compacts. The read's failure shows as a blocked line.
+- **`c` list.** `Overlay::CronList` routed through the shared `FocusStack` and `app::route`,
+  painted by a `picker_surface::State` list modal. Row IDs are `<room uuid>/<c-id>`. Enter opens
+  the job's squad; refresh keeps the selection by identity. It closes for forms and the delete
+  confirmation and stays open for pause/resume and send.
+- **Jobs half.** On a squad tab (`document.squad.roomId`) `composition::halves` places the
+  configured composition above and the half below from one flex computation; the half takes its
+  content height up to half the body, and below 12 body lines keeps only its rule line. Its list is
+  an ordinary `tmt-list` with a per-room `ListState` (selection survives tab switches); the
+  selected job expands in place while the half has focus. Tab enters the half after the last
+  visible pane and leaves it for the first; a pointer press inside focuses it. `focused_pane()`
+  is `None` while it has focus, and `App::perform` refuses member-row actions then.
+- **Scoped keys.** While the half or the list has focus, `n e p x o d` and Enter are job keys,
+  routed through the `FocusStack` base field `cron-jobs` before board dispatch; a key the user
+  bound in `[bind]` still wins. Footer, list footer and help share one table (`cronboard::hints`).
+- **Controls.** Pause, resume, send and delete build a `CronRequest` with the actor from the read,
+  the job key and the viewed revision, executed on the existing `execute` path; apply revalidates
+  actor, room, owner and revision under the jobs lock, so stale, unauthorized or invalid requests
+  write nothing and are shown, never retried (the next reload shows the truth). New, edit and
+  reassign are a typed `Draft` on the input line (owner name, message, schedule text): no trim, an
+  untouched message or schedule is not submitted, and a message with control characters or over the
+  line limit is kept as stored. Owner names resolve through `identity show` at submission.
+- **Members.** A row's `⏱ <next>` joins the row-end label after the age mark and is the first to
+  drop; the grid reserves its room only when no column would hide, and the cached grid is keyed on
+  the labels.
 
 ## Notes pane
 
