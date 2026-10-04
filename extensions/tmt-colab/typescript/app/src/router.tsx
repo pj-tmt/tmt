@@ -1,3 +1,4 @@
+import { validPagePrefix } from './short-links.js';
 import {
   FileText,
   ArrowUpRight,
@@ -21,6 +22,7 @@ import {
   createRoute,
   createRouter,
   Link,
+  redirect,
   Outlet,
   useRouter,
   useRouterState,
@@ -168,6 +170,81 @@ const page = createRoute({
   component: Page,
 });
 
+const shortPage = createRoute({
+  getParentRoute: () => root,
+  path: '/short/$prefix',
+  loader: async ({ context, params }) => {
+    if (!validPagePrefix(params.prefix)) throw new Error('Page unavailable');
+    const home = await context.transport.spaceHome();
+    const known = home.pageIds ?? home.pages.map((page) => ({ pageId: page.id, deleted: false }));
+    const pages = known
+      .filter((page) => page.pageId.startsWith(params.prefix))
+      .map((row) => ({
+        id: row.pageId,
+        deleted: row.deleted,
+        title: row.deleted
+          ? ''
+          : (home.pages.find((page) => page.id === row.pageId)?.title ?? text.unknownPageTitle),
+        archived: row.deleted ? false : home.pages.find((page) => page.id === row.pageId)?.archived,
+      }));
+    if (pages.length === 0) throw new Error('Page unavailable');
+    if (pages.length === 1 && !pages[0].deleted)
+      throw redirect({ to: '/pages/$pageId', params: { pageId: pages[0].id }, replace: true });
+    return { pages, prefix: params.prefix };
+  },
+  component: ShortPageChoice,
+});
+function ShortPageChoice() {
+  const { pages, prefix } = shortPage.useLoaderData();
+  const deleted = pages.length === 1 && pages[0].deleted;
+  return (
+    <NoticeCard
+      state={deleted ? 'blocked' : 'waiting'}
+      eyebrow={text.pages}
+      title={deleted ? 'This page was deleted' : 'Choose a page'}
+      testId="short-page-choice"
+      actions={
+        deleted ? (
+          <Link className="notice-action" to="/">
+            Back to pages
+          </Link>
+        ) : undefined
+      }
+    >
+      {deleted ? (
+        <p>Its owner deleted it. Ask them for a new link if you still need it.</p>
+      ) : (
+        <p>More than one page matches {prefix}. Choose the page you want to open.</p>
+      )}
+      <ul className="short-page-options">
+        {pages.map((page) => (
+          <li key={page.id}>
+            {page.deleted ? (
+              <span aria-disabled="true">
+                Deleted page
+                <br />
+                <code>{page.id}</code>
+              </span>
+            ) : (
+              <Link to="/pages/$pageId" params={{ pageId: page.id }}>
+                <span>
+                  <span className="short-page-title">
+                    {page.title}
+                    {page.archived ? ' · Archived' : ''}
+                  </span>
+                  <br />
+                  <code>{page.id}</code>
+                </span>
+                <ArrowUpRight aria-hidden />
+              </Link>
+            )}
+          </li>
+        ))}
+      </ul>
+    </NoticeCard>
+  );
+}
+
 const blocked = createRoute({
   getParentRoute: () => root,
   path: '/blocked',
@@ -222,7 +299,17 @@ function Shell() {
   const isPage = pathname.startsWith('/pages/');
   return (
     <>
-      {!isPage && <AppHeader title={pathname === '/' ? text.pages : text.error} />}
+      {!isPage && (
+        <AppHeader
+          title={
+            pathname.startsWith('/short/')
+              ? 'Open a page'
+              : pathname === '/'
+                ? text.pages
+                : text.error
+          }
+        />
+      )}
       <main className={isPage ? 'page-main' : undefined}>
         <Outlet />
       </main>
@@ -902,7 +989,7 @@ export function createAppRouter(transport: PageTransport, space?: string) {
         parseLocation: () => {
           const fragment = new URLSearchParams(location.hash.slice(1));
           let path = fragment.get('space') === space ? (fragment.get('path') ?? '/') : '/blocked';
-          if (!/^\/(?:pages\/[0-9a-f-]+)?$/.test(path)) path = '/blocked';
+          if (!/^\/(?:pages\/[0-9a-f-]+|short\/[0-9a-f-]{8,36})?$/.test(path)) path = '/blocked';
           return {
             href: path,
             pathname: path,
@@ -916,7 +1003,7 @@ export function createAppRouter(transport: PageTransport, space?: string) {
       })
     : createHashHistory();
   return createRouter({
-    routeTree: root.addChildren([home, page, blocked]),
+    routeTree: root.addChildren([home, page, shortPage, blocked]),
     history,
     context: { transport },
   });

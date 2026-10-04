@@ -9,6 +9,7 @@ import {
   spaceId,
 } from '@tmt/colab-client';
 import { record } from './storage.js';
+import { validPagePrefix } from './short-links.js';
 import { jsonResponse } from './registration.js';
 
 import type { ExpiryInfo } from './expiry.js';
@@ -20,11 +21,16 @@ export interface PageInfo extends ExpiryInfo {
   history: 'shared' | 'current';
   archived: boolean;
 }
+export interface PageId {
+  pageId: string;
+  deleted: boolean;
+}
 export interface Bootstrap {
   space: string;
   owner: Uint8Array;
   revision: string;
   pages: PageInfo[];
+  pageIds: PageId[];
 }
 export function mountUrl(): URL {
   const url = new URL(location.href);
@@ -45,9 +51,9 @@ export async function discover(
         ? AbortSignal.any([signal, AbortSignal.timeout(10_000)])
         : AbortSignal.timeout(10_000),
     }),
-    256 * 1024,
+    512 * 1024,
   );
-  exactKeys(value, ['spaceId', 'ownerKey', 'revision', 'pages']);
+  exactKeys(value, ['spaceId', 'ownerKey', 'revision', 'pages', 'pageIds']);
   requireValue(typeof value.spaceId === 'string' && typeof value.revision === 'string');
   spaceId(value.spaceId);
   decimal(value.revision);
@@ -95,6 +101,18 @@ export async function discover(
     );
     previous = page.pageId;
   }
+  requireValue(Array.isArray(value.pageIds) && value.pageIds.length <= 1000);
+  let previousId = '';
+  const liveIds: string[] = [];
+  for (const page of value.pageIds) {
+    exactKeys(page, ['pageId', 'deleted']);
+    requireValue(typeof page.pageId === 'string' && typeof page.deleted === 'boolean');
+    generatedId(page.pageId);
+    requireValue(page.pageId > previousId);
+    previousId = page.pageId;
+    if (!page.deleted) liveIds.push(page.pageId);
+  }
+  requireValue(JSON.stringify(liveIds) === JSON.stringify(value.pages.map((page) => page.pageId)));
   await verify?.(value.spaceId, owner);
   await navigator.locks.request(`colab-pin:${mount.href}`, async () => {
     const pin = await record<{ space: string; owner: Uint8Array }>(`pin:${mount.href}`),
@@ -103,14 +121,29 @@ export async function discover(
       (!fragment || fragment === value.spaceId) &&
         (!pin || (pin.space === value.spaceId && equal(pin.owner, owner))),
     );
+    let path: string | null = null;
+    if (!fragment) {
+      const incoming = new URLSearchParams(location.hash.slice(1));
+      path = incoming.get('path');
+      requireValue(
+        [...incoming.keys()].every((key) => key === 'path') && incoming.getAll('path').length <= 1,
+      );
+      requireValue(path === null || (path.startsWith('/short/') && validPagePrefix(path.slice(7))));
+    }
     if (!pin) await record(`pin:${mount.href}`, { space: value.spaceId, owner });
-    if (!fragment)
-      history.replaceState(history.state, '', `${mount.pathname}#space=${value.spaceId}`);
+    if (!fragment) {
+      history.replaceState(
+        history.state,
+        '',
+        `${mount.pathname}#space=${value.spaceId}${path ? `&path=${encodeURIComponent(path)}` : ''}`,
+      );
+    }
   });
   return {
     space: value.spaceId,
     owner,
     revision: value.revision,
     pages: value.pages as unknown as PageInfo[],
+    pageIds: value.pageIds as unknown as PageId[],
   };
 }

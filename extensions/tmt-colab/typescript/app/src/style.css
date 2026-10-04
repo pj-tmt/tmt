@@ -988,6 +988,53 @@ footer {
   position: relative;
 }
 
+.short-page-options {
+  list-style: none;
+  padding: 0;
+}
+.short-page-options li {
+  border-top: 1px solid var(--c-rule);
+}
+.short-page-options li > a,
+.short-page-options li > span {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px 8px;
+}
+.short-page-options li > span {
+  display: block;
+}
+.short-page-options li > a > span {
+  min-width: 0;
+}
+.short-page-options li > a > svg {
+  flex: 0 0 var(--colab-header-icon-size);
+  width: var(--colab-header-icon-size);
+  height: var(--colab-header-icon-size);
+  color: var(--c-accent);
+}
+.short-page-options li > a:hover,
+.short-page-options li > a:focus-visible {
+  background: var(--c-accent-soft);
+}
+.short-page-title {
+  color: var(--c-accent);
+}
+.short-page-options li > a:hover .short-page-title,
+.short-page-options li > a:focus-visible .short-page-title {
+  text-decoration: underline;
+}
+.short-page-options code,
+.short-page-options [aria-disabled='true'] {
+  color: var(--c-muted);
+}
+.short-page-options code {
+  overflow-wrap: anywhere;
+  font: 11px var(--f-mono);
+}
+
 .annotation-new {
   position: relative;
 }

@@ -17,6 +17,7 @@ pub mod page;
 pub mod readers;
 pub mod registration;
 pub mod settings;
+pub mod short_links;
 pub mod socket;
 pub mod store;
 pub mod sync;

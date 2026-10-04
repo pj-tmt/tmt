@@ -191,6 +191,26 @@ in `acceptance/ask.spec.ts`.
   Exact warning codes, checked arithmetic and forever semantics live in the contract.
   The link artifact is a transient ID/seed, not a new reader URL/import grammar.
 
+## Short owner-page links
+
+- `short_links.rs` and `short-links.ts` derive display-only UUID prefixes from the existing
+  complete verified catalog, including retained deleted IDs (ID/deleted flag only). Archive
+  filtering and deletion never rebind a prefix; no alias state is stored.
+- `socket.rs` admits the mounted alias and emits a same-mount relative redirect. Registration
+  supplies metadata through the existing owner snapshot, without decoding titles. Anonymous
+  requests retain only their requested prefix through root pairing/recovery guidance.
+- `router.tsx` resolves the `/short/$prefix` chooser from its existing admitted transport;
+  one live match canonicalizes to the full page route, deleted matches show disabled untitled
+  rows or the deleted-page view, multiple matches show plain links and none
+  use the unavailable-page view. The chooser and deleted view reuse `ColabHeader` through
+  `AppHeader` and the shared `NoticeCard`; only their list rows own additional styling.
+  `bootstrap.ts` preserves only the strict alias target on pinning.
+- `Reach`/`Status` keep full JSON links and add `shortLink`; human output and auto-open use the
+  Remote root alias. Human `ls` puts the page title first, with the same shortest unique catalog prefix as its link;
+  JSON and `show` retain full IDs. Ask composition captures the catalog prefix in `Live`, preserving full
+  signed scope, legacy source-link admission and unchanged reader links. See the contract for
+  Remote's root-redirect dependency and exact URL/JSON shapes.
+
 ## Browser title hints
 
 - `title-cache.ts` owns optional encrypted title records scoped to space/device/page.
