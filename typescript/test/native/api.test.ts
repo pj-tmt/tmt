@@ -288,6 +288,187 @@ describe('public local extension API', () => {
     });
   });
 
+  it('reads bounded originator results across recipients without mutating durable state', async () => {
+    await withSandbox(async (sandbox) => {
+      const sender = await identity(sandbox, 'Results Sender');
+      const outsider = await identity(sandbox, 'Other Sender');
+      const recipients = [await identity(sandbox, 'One'), await identity(sandbox, 'Two')];
+      const ids: string[] = [];
+      for (let i = 0; i < 10; i++) {
+        const recipient = recipients[i % 2]!;
+        const sent = await api(
+          sandbox,
+          'dispatch.create',
+          {
+            operationId: randomUUID(),
+            recipientIds: [recipient],
+            message: `Prompt ${i}`,
+          },
+          sender
+        );
+        expect(sent.status).toBe(0);
+        const requestId = sent.body.items[0].requestId;
+        ids.push(requestId);
+        const shown = await runCli(sandbox, [
+          'x',
+          'show',
+          requestId,
+          '--incoming',
+          '--identity',
+          recipient,
+          '--json',
+        ]);
+        expect(shown.status).toBe(0);
+        const submitted = await runCli(sandbox, [
+          'reply',
+          requestId,
+          '--receipt',
+          JSON.parse(shown.stdout).exchange.reply.receipt,
+          '--message',
+          `Reply ${i}\tdata\r\nSecond line`,
+          '--json',
+        ]);
+        expect(submitted.status).toBe(0);
+      }
+      const unanswered = await api(
+        sandbox,
+        'dispatch.create',
+        {
+          operationId: randomUUID(),
+          recipientIds: [recipients[0]],
+          message: 'Not a result',
+        },
+        sender
+      );
+      expect(unanswered.status).toBe(0);
+      const foreign = await api(
+        sandbox,
+        'dispatch.create',
+        {
+          operationId: randomUUID(),
+          recipientIds: [recipients[0]],
+          message: 'Other originator',
+        },
+        outsider
+      );
+      expect(foreign.status).toBe(0);
+      const foreignId = foreign.body.items[0].requestId;
+      const shown = await runCli(sandbox, [
+        'x',
+        'show',
+        foreignId,
+        '--incoming',
+        '--identity',
+        recipients[0]!,
+        '--json',
+      ]);
+      expect(shown.status).toBe(0);
+      expect(
+        (
+          await runCli(sandbox, [
+            'reply',
+            foreignId,
+            '--receipt',
+            JSON.parse(shown.stdout).exchange.reply.receipt,
+            '--message',
+            'Foreign final',
+            '--json',
+          ])
+        ).status
+      ).toBe(0);
+      // Independent oracle makes submission order deterministic, including a late final on the oldest request.
+      const now = Date.now();
+      const database = new Database(sandbox.database);
+      try {
+        for (let i = 0; i < ids.length; i++) {
+          const time = now - 1000 + (i === 0 ? 11 : i);
+          database
+            .prepare('UPDATE request_attempts SET response_submitted_at_ms=? WHERE request_id=?')
+            .run(time, ids[i]);
+          database
+            .prepare('UPDATE request_responses SET submitted_at_ms=? WHERE request_id=?')
+            .run(time, ids[i]);
+        }
+      } finally {
+        database.close();
+      }
+      expect((await runCli(sandbox, ['x', 'ackall', '--identity', sender, '--json'])).status).toBe(
+        0
+      );
+      const before = everyTable(sandbox);
+      const input = { originatorId: sender, view: 'results' };
+      const first = await api(sandbox, 'requests.list', input);
+      expect(first.status).toBe(0);
+      expect(first.body.items.map((row: { requestId: string }) => row.requestId)).toEqual([
+        ids[0],
+        ...ids.slice(3).reverse(),
+      ]);
+      expect(first.body.items[0]).toMatchObject({
+        recipientId: recipients[0],
+        kind: 'request',
+        preview: 'Prompt 0',
+        responsePreview: 'Reply 0 data',
+        previewTruncated: true,
+        final: { status: 'retained', submittedAtMs: now - 989 },
+      });
+      expect(first.body.items[0].final.response).toBeUndefined();
+      expect(first.body.nextBefore).toEqual({ submittedAtMs: now - 997, requestId: ids[3] });
+      const next = await api(sandbox, 'requests.list', { ...input, before: first.body.nextBefore });
+      expect(next.status).toBe(0);
+      expect(next.body.items.map((row: { requestId: string }) => row.requestId)).toEqual([
+        ids[2],
+        ids[1],
+      ]);
+      expect(next.body.nextBefore).toBeNull();
+      const all = await api(sandbox, 'requests.list', { ...input, limit: 50 });
+      expect(all.body.items).toHaveLength(10);
+      for (const invalid of [
+        { ...input, roomId: randomUUID() },
+        { ...input, recipientId: recipients[0] },
+        { ...input, limit: 51 },
+        { ...input, before: { preparedAtMs: now, requestId: ids[0] } },
+      ]) {
+        const rejected = await api(sandbox, 'requests.list', invalid);
+        expect(rejected.status).toBe(1);
+        expect(rejected.body.error.code).toBe('API_INPUT_INVALID');
+      }
+      expect(everyTable(sandbox)).toEqual(before);
+      // Expired/missing bodies still have truthful headers and are not cleaned by this read.
+      const oracle = new Database(sandbox.database);
+      try {
+        oracle
+          .prepare(
+            'UPDATE request_responses SET submitted_at_ms=?,response_expires_at_ms=? WHERE request_id=?'
+          )
+          .run(now - 86_400_000, now - 1, ids[1]);
+        oracle
+          .prepare('UPDATE request_attempts SET response_submitted_at_ms=? WHERE request_id=?')
+          .run(now - 86_400_000, ids[1]);
+        oracle.prepare('DELETE FROM request_responses WHERE request_id=?').run(ids[2]);
+      } finally {
+        oracle.close();
+      }
+      const expiredBefore = everyTable(sandbox);
+      const expired = await api(sandbox, 'requests.list', { ...input, limit: 50 });
+      expect(expired.status).toBe(0);
+      expect(
+        expired.body.items.find((row: { requestId: string }) => row.requestId === ids[1])
+      ).toMatchObject({
+        final: { status: 'expired' },
+        responsePreview: null,
+        previewTruncated: false,
+      });
+      expect(
+        expired.body.items.find((row: { requestId: string }) => row.requestId === ids[2])
+      ).toMatchObject({
+        final: { status: 'unavailable' },
+        responsePreview: null,
+        previewTruncated: false,
+      });
+      expect(everyTable(sandbox)).toEqual(expiredBefore);
+    });
+  });
+
   it('projects one room roster exactly like the ordinary reads, without mutation', async () => {
     await withSandbox(async (sandbox) => {
       const json = async (args: string[]) => {

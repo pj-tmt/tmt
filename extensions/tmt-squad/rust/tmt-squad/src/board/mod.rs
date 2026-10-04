@@ -4,6 +4,7 @@
 mod app;
 mod changes;
 mod composition;
+mod cronboard;
 mod derived;
 mod help;
 mod home;
@@ -106,6 +107,10 @@ pub(super) enum BoardEvent {
         cancellation: crate::runner::Cancellation,
         attention: std::collections::BTreeMap<String, crate::attention::Attention>,
     },
+    Cron {
+        cancellation: crate::runner::Cancellation,
+        read: Result<cronboard::Cron, String>,
+    },
 }
 
 fn spawn_input(sender: Sender<BoardEvent>, mut filter: Option<terminal::background::ReplyFilter>) {
@@ -193,6 +198,7 @@ fn execute(core: &Core, request: Request) -> Result<String, String> {
             .and_then(|mut config| config.set_tab_order(&keys))
             .map(|()| "Tab order saved.".to_owned())
             .map_err(|error| error.message),
+        Request::Cron(request) => cronboard::act(core, request),
         Request::Reply {
             me,
             request,
@@ -317,6 +323,13 @@ fn session(
                 if !cancellation.cancelled() {
                     dirty |= app.attention != attention;
                     app.attention = attention;
+                }
+                Effect::None
+            }
+            Ok(BoardEvent::Cron { cancellation, read }) => {
+                if !cancellation.cancelled() {
+                    app.cron.replace(read);
+                    dirty = true;
                 }
                 Effect::None
             }

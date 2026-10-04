@@ -246,5 +246,5 @@ mod tests;
 
 mod controller;
 mod paint;
-pub(super) use controller::{Send, Target};
+pub(super) use controller::{CRON, Send, Target};
 pub(super) use paint::{age_label, hints, render, summary};

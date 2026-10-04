@@ -31,8 +31,13 @@ const PAGE_HTML = '<h1>Ask acceptance</h1><p id="quote">Exact selected sentence 
 
 /** Recover the paired session after a Remote restart through the page's own Reconnect. */
 async function reconnect(page: Page) {
-  await page.getByRole('button', { name: 'Reconnect', exact: true }).click();
-  await expect(page.getByTestId('ask-action')).toBeVisible({ timeout: 60_000 });
+  await Promise.all([
+    page.waitForEvent('load', { timeout: 60_000 }),
+    page.getByRole('button', { name: 'Reconnect', exact: true }).click(),
+  ]);
+  await expect(page.getByTestId('ask-toggle')).toBeVisible({ timeout: 60_000 });
+  if ((await page.getByTestId('ask-toggle').getAttribute('aria-expanded')) === 'false')
+    await page.getByTestId('ask-toggle').click();
 }
 
 async function scenario(world: AcceptanceWorld, options: { gated?: boolean } = {}) {
@@ -244,6 +249,7 @@ test.describe('Ask agent real-binary acceptance (#1110)', () => {
       // "Use here" in A takes the session back; the ask made in B is visible in A,
       // and B now shows the notice instead.
       await tabA.getByRole('button', { name: 'Use here' }).click();
+      await tabA.getByTestId('ask-toggle').click();
       await expect(askEntry(tabA, ask.operationId)).toBeVisible();
       await expect(tabB.getByText('Colab is open in another tab')).toBeVisible();
       await expect(askEntry(tabA, ask.operationId).getByTestId('ask-reply')).toHaveText(

@@ -354,8 +354,12 @@ fn run(request: ExtensionInstallRequest, mode: OutputMode) -> Result<Outcome, Fa
             // a skill that points at a removed command is broken guidance.
             let owned = skill_installation::owned_by(Some(&environment), &global, product.as_str())
                 .map_err(|error| failure("EXTENSION_SKILLS_FAILED", error))?;
+            let affects = native_install::affected(&prefix, product, None);
             let mut question =
                 format!("Remove the {name} extension's commands (releases and data are kept)");
+            if let Some(warning) = list_upgrade::affects_warning(&affects) {
+                question.push_str(&warning);
+            }
             if !owned.is_empty() {
                 question.push_str(&format!(
                     " and its agent skills {} from {}",
@@ -411,12 +415,11 @@ fn run(request: ExtensionInstallRequest, mode: OutputMode) -> Result<Outcome, Fa
             } else {
                 Human::plain(text)
             };
-            Ok(Some((
-                json!({"extension": name, "installed": false, "changed": changed,
-                    "skillsRemoved": skills.removed, "skillsKept": skills.kept,
-                    "kept": kept.iter().map(|(what, _)| *what).collect::<Vec<_>>()}),
-                human,
-            )))
+            let mut document = json!({"extension": name, "installed": false, "changed": changed,
+                "skillsRemoved": skills.removed, "skillsKept": skills.kept,
+                "kept": kept.iter().map(|(what, _)| *what).collect::<Vec<_>>()});
+            list_upgrade::record_affects(&mut document, &affects);
+            Ok(Some((document, human)))
         }
         ExtensionInstallRequest::List {
             prefix: selected,

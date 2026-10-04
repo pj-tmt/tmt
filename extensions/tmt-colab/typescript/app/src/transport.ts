@@ -44,6 +44,8 @@ export interface SpaceHome {
 /** App data port. Mounted adapters own authentication and admission;
  * neither HTML nor the renderer receives that adapter or its capabilities. */
 export interface PageTransport {
+  /** Display-only name from the mounted session device context. */
+  readonly backendName?: string;
   readonly management?: ManagementPort;
   spaceHome(): Promise<SpaceHome>;
   page(id: string, signal?: AbortSignal): Promise<PageSnapshot>;

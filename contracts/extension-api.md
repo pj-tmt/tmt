@@ -41,28 +41,29 @@ operation was performed. Other storage-open failures retain `API_UNAVAILABLE`
 or the resource's existing code. `capabilities` and `storage.root` remain
 independent of storage access.
 
-| Operation                | Input                                                                     | Result                                                                                                                                                            |
-| ------------------------ | ------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `capabilities`           | `{}`                                                                      | Protocol range, operations, byte limits and ordinary commands                                                                                                     |
-| `storage.root`           | `{}`                                                                      | `dataRoot`: absolute selected TMT data directory; no directory creation or storage/config reads                                                                   |
-| `changes.cursor`         | `{}`                                                                      | `cursor`: an opaque non-negative integer that changes whenever core's durable records change (see below)                                                          |
-| `requests.list`          | `recipientId` and/or `roomId`, optional `limit` and `before`              | `items`, `nextBefore`                                                                                                                                             |
-| `requests.show`          | `requestId`                                                               | Request detail including retained prompt/final state                                                                                                              |
-| `dispatch.show`          | `operationId`                                                             | Immutable acceptance receipt                                                                                                                                      |
-| `dispatch.create`        | `operationId`, `recipientIds`, `message`, optional `kind`, `room`         | Acceptance receipt; optional independent `wake` on first direct request                                                                                           |
-| `rooms.write`            | `roomId`, `room: {expectedRevision, name, memberIds}`                     | Room resource                                                                                                                                                     |
-| `rooms.retire`           | `roomId`, `expectedRevision` (positive)                                   | Room resource (same shape as `rooms.write`); a repeat at the pre- or post-retirement revision is idempotent, any other stale revision is `ROOM_REVISION_CONFLICT` |
-| `rooms.roster`           | `room` (UUID or unique exact name), optional `metadataPrefix`             | `room` resource and `members` with metadata and status                                                                                                            |
-| `notes.read`             | `identityId`                                                              | Saved identity's `identityId`, `name`, `content`                                                                                                                  |
-| `identityHooks.register` | `consumer`, `identityId`, `reference`                                     | `state`: `registered`, `pending` or `delivered`                                                                                                                   |
-| `identityHooks.pending`  | `consumer`, `limit` (1–16)                                                | This consumer's `hooks` (`identityId`, `reference`, `attemptCount`) and `pending` count                                                                           |
-| `identityHooks.attempt`  | `consumer`, `identityId`, `reference`                                     | `recorded`                                                                                                                                                        |
-| `identityHooks.ack`      | `consumer`, `identityId`, `reference`                                     | `acknowledged`                                                                                                                                                    |
-| `skills.install`         | `owner`, `consent: true`, `skills`, optional `force`                      | `owner`, `published` targets                                                                                                                                      |
-| `skills.remove`          | `owner`, `consent: true`, optional `skills` (names)                       | `owner`, `removed` and `kept` targets                                                                                                                             |
-| `references.resolve`     | optional `identityIds`, `roomIds` (canonical UUIDs, at most 256 in total) | `identities` (`id`, `found`, `name`, `lifetime`, `retired`) and `rooms` (`id`, `found`, `retired`)                                                                |
-| `consumption.history`    | `identityIds` (1–32 UUIDs), `windowsMs` (1–3), optional `maxBuckets`      | Closed timestamped deltas, coverage and included cumulative seed watermark (see below)                                                                            |
-| `identities.status`      | `identityIds` (canonical UUIDs, at most 256)                              | `identities`: `{id, found}` and, when found, `status`: the `tmt identity status` value or `null`                                                                  |
+| Operation                | Input                                                                                              | Result                                                                                                                                                            |
+| ------------------------ | -------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `capabilities`           | `{}`                                                                                               | Protocol range, operations, byte limits and ordinary commands                                                                                                     |
+| `storage.root`           | `{}`                                                                                               | `dataRoot`: absolute selected TMT data directory; no directory creation or storage/config reads                                                                   |
+| `changes.cursor`         | `{}`                                                                                               | `cursor`: an opaque non-negative integer that changes whenever core's durable records change (see below)                                                          |
+| `requests.list`          | `recipientId` and/or `roomId`, or `originatorId` + `view:"results"`; optional `limit` and `before` | `items`, `nextBefore`                                                                                                                                             |
+| `requests.show`          | `requestId`                                                                                        | Request detail including retained prompt/final state                                                                                                              |
+| `dispatch.show`          | `operationId`                                                                                      | Immutable acceptance receipt                                                                                                                                      |
+| `dispatch.create`        | `operationId`, `recipientIds`, `message`, optional `kind`, `room`                                  | Acceptance receipt; optional independent `wake` on first direct request                                                                                           |
+| `rooms.write`            | `roomId`, `room: {expectedRevision, name, memberIds}`                                              | Room resource                                                                                                                                                     |
+| `rooms.retire`           | `roomId`, `expectedRevision` (positive)                                                            | Room resource (same shape as `rooms.write`); a repeat at the pre- or post-retirement revision is idempotent, any other stale revision is `ROOM_REVISION_CONFLICT` |
+| `rooms.roster`           | `room` (UUID or unique exact name), optional `metadataPrefix`                                      | `room` resource and `members` with metadata and status                                                                                                            |
+| `notes.read`             | `identityId`                                                                                       | Saved identity's `identityId`, `name`, `content`                                                                                                                  |
+| `identityHooks.register` | `consumer`, `identityId`, `reference`                                                              | `state`: `registered`, `pending` or `delivered`                                                                                                                   |
+| `identityHooks.pending`  | `consumer`, `limit` (1–16)                                                                         | This consumer's `hooks` (`identityId`, `reference`, `attemptCount`) and `pending` count                                                                           |
+| `identityHooks.attempt`  | `consumer`, `identityId`, `reference`                                                              | `recorded`                                                                                                                                                        |
+| `identityHooks.ack`      | `consumer`, `identityId`, `reference`                                                              | `acknowledged`                                                                                                                                                    |
+| `skills.install`         | `owner`, `consent: true`, `skills`, optional `force`                                               | `owner`, `published` targets                                                                                                                                      |
+| `skills.remove`          | `owner`, `consent: true`, optional `skills` (names)                                                | `owner`, `removed` and `kept` targets                                                                                                                             |
+| `references.resolve`     | optional `identityIds`, `roomIds` (canonical UUIDs, at most 256 in total)                          | `identities` (`id`, `found`, `name`, `lifetime`, `retired`) and `rooms` (`id`, `found`, `retired`)                                                                |
+| `consumption.history`    | `identityIds` (1–32 UUIDs), `windowsMs` (1–3), optional `maxBuckets`                               | Closed timestamped deltas, coverage and included cumulative seed watermark (see below)                                                                            |
+| `identities.status`      | `identityIds` (canonical UUIDs, at most 256)                                                       | `identities`: `{id, found}` and, when found, `status`: the `tmt identity status` value or `null`                                                                  |
+| `extensions.uses`        | `extension`, `feature`                                                                             | `available`, `installed`, `reason`, `hint` for a declared optional use (see [Optional cross-extension uses](#optional-cross-extension-uses))                      |
 
 `storage.root` reports the data directory selected by the invoking core, including
 its normal explicit-home/XDG/legacy selection. Extensions MUST use this operation
@@ -348,10 +349,40 @@ For room creation use a new UUID and `expectedRevision:0`; updates use the curre
 revision. Refresh rather than blindly retrying a stale write. The returned resource
 matches the `room` member of `tmt room show <id> --json`.
 
-History list defaults to the canonical history page limit. Pass `nextBefore`
+Ordinary recipient/room history lists default to 20 items (maximum 50). Pass `nextBefore`
 unchanged as the next request's `before`. Concurrent new requests above that cursor
 will appear on a fresh first page; final-state changes can appear when detail is
 reread. This is not a live change feed. Reads never mark incoming work as read.
+For submitted replies across rooms and recipients, call `requests.list` with
+`{"originatorId":"<canonical UUID>","view":"results"}`. Both fields are required
+and cannot be combined with `recipientId` or `roomId`. The default limit is 8;
+`limit` accepts 1 through 50. This view includes acknowledged submitted finals,
+newest first by `(submittedAtMs, requestId)` descending. `nextBefore` is null
+at the end or `{submittedAtMs, requestId}`; pass it unchanged as `before` with the
+same scope. A preparation-time history cursor is invalid for results and vice
+versa. Refresh the first page to discover newly submitted replies, including
+late finals on older requests; continuation does not include newer submissions.
+
+Results retain the ordinary history item fields: `requestId`, `roomId`,
+`recipientId`, `sender`, request `kind`, `preparedAtMs`, `delivery`,
+`recipientAcknowledged`, `final`, and the unchanged prompt `preview`. They add
+`responsePreview` (string or null) and `previewTruncated` (boolean). A retained
+response preview is its first line, at most 160 Unicode scalar values / 640 UTF-8
+bytes, with no appended ellipsis. CRLF, CR, LF and Unicode line/paragraph separators
+end the line; other control characters become spaces. Leading spaces remain.
+`previewTruncated` is true when a line ending or the cap omits any original
+content. Storage reads at most 644 response bytes per row, without loading full
+bodies. An expired or unavailable final retains its honest submission/expiry
+header with null `responsePreview` and false `previewTruncated`; expired request
+metadata is omitted. The view uses one observation snapshot without housekeeping,
+acknowledgment, retention renewal or other durable row changes.
+
+A submitted final means a reply exists, not that the work succeeded. Core does
+not classify historical replies as question or blocked, or infer those categories
+from body text or delivery failures. Extensions own those labels from their inbox
+and status, and may join recipient/room UUIDs to their roster for member/squad
+names. `requests.show` and `tmt result` remain the full-text reads.
+
 Use `tmt x` and its revision cursor for attention, and the ordinary JSON commands
 for identity, presence, room ls/show/retire, reply and result. Notes accepts a
 saved identity UUID, never a caller-selected path, and does not initialize a file.
@@ -391,6 +422,75 @@ Example conditional room write (replace the UUIDs with actual identities):
   }
 }
 ```
+
+## Optional cross-extension uses
+
+An extension can depend on another one for a single feature and still work without it. Core does not
+install such a dependency; the feature checks for it when it is used, and core only answers whether the
+other extension is installed and recent enough.
+
+**Declaration.** An extension release may carry `TMT-USES.json` at the archive root (added through the
+package's cargo-dist `include`). It is optional: no file means no uses, and every release without it stays
+valid. It is covered by the archive checksum like the other release files; a release that carries a
+malformed one is rejected before publication, and an installed one is inspected with the rest of the
+release. At most 4 KiB of UTF-8 JSON:
+
+```json
+{
+  "version": 1,
+  "uses": [
+    {
+      "feature": "browser-access",
+      "label": "Browser access",
+      "extension": "remote",
+      "requires": ">=0.1.0-alpha.1"
+    }
+  ]
+}
+```
+
+- `version` is `1`. `uses` has at most 8 entries. Unknown keys and duplicate `feature` values are rejected.
+- `feature` matches `[a-z][a-z0-9-]{0,31}`. `label` is 1 to 48 printable characters: no control,
+  bidirectional-override or line-separator characters, so it is safe on one terminal line (the same rule
+  as notice display fields).
+- `extension` names an installable official extension other than the declaring one.
+- `requires` is an exact minimum, `>=X.Y.Z` or `>=X.Y.Z-pre`, at most 64 bytes, compared with semantic
+  versioning precedence (a prerelease sorts below its release). No other operator or range exists.
+
+Core never interprets a feature; `label` and `feature` are display and lookup data from the declarer.
+
+**`extensions.uses`** answers from the installed receipts of the calling and the named extension. It reads
+no network, application storage or extension process, and never installs or changes anything. `extension`
+is the caller's own name and `feature` one it declared. The result:
+
+| Field                                       | Meaning                                                                                                                                                                                                                                                                                                                                |
+| ------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `feature`, `label`, `extension`, `requires` | The declaration, as written.                                                                                                                                                                                                                                                                                                           |
+| `available`                                 | `true` when the named extension is installed, verified and at least `requires`.                                                                                                                                                                                                                                                        |
+| `installed`                                 | The installed version of the named extension, or `null`.                                                                                                                                                                                                                                                                               |
+| `reason`                                    | `null` when available, else `missing`, `tooOld` or `damaged` (installed but failing verification).                                                                                                                                                                                                                                     |
+| `hint`                                      | One actionable line, empty when available: `<label> needs the <Extension> extension: tmt extension install <extension> --yes`; for `tooOld`, `... tmt extension upgrade <extension> --yes`; for `damaged`, a pointer to `tmt extension ls`, which lists the damaged entry with its path and the exact repair (it does not fail on it). |
+
+A caller shows `hint` as its failure and keeps the rest of its features working. Errors are
+`API_INPUT_INVALID` (a non-canonical name) and `EXTENSION_USE_UNDECLARED` (the caller has no managed
+installation, or declares no such feature); a caller treats an error as "cannot check" and fails closed
+with its message. The operation resolves the default installation prefix, the one `tmt extension` uses
+without `--prefix`; an installation under another prefix is not visible to it. Same-user bookkeeping like
+`skills.install`: the API cannot prove which extension is calling.
+
+**Older core.** A core without `extensions.uses` does not list it in `capabilities`, and an unknown
+operation is an error. A caller reads `capabilities` first (or treats the error the same way): the use
+counts as "cannot check", and its message is to update tmt (`tmt upgrade --channel alpha --yes`). A release
+that carries `TMT-USES.json` also needs a CLI that accepts the file: an older installer rejects an unknown
+archive path, so the CLI release that supports it must publish before any extension release that carries it
+(the same rule as skills trees). A caller checks a use when the feature starts (for example once at server
+start) rather than on every request.
+
+**Visibility and removal.** `tmt extension ls` lists each installed extension's `uses` (`feature`, `label`,
+`extension`, `requires`, `available`, `installed`, `reason`) and prints one dim line per use. `tmt extension rm`
+and an exact `tmt extension upgrade --to` name the installed extensions whose declared features stop working
+because of the change, in the consent question and as `affects` (`extension`, `feature`, `label`) in JSON.
+This is a warning only: the consent gate is unchanged and nothing is blocked.
 
 ## Command-line style
 

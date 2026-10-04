@@ -235,7 +235,15 @@ impl Receipt {
             .copied()
             .filter(|name| hashes.contains_key(*name))
             .collect::<Vec<_>>();
-        if hashes.len() != product.files().len() + skill_hashes.len() + companions.len() {
+        let optional = product
+            .optional_files()
+            .iter()
+            .copied()
+            .filter(|name| hashes.contains_key(*name))
+            .collect::<Vec<_>>();
+        if hashes.len()
+            != product.files().len() + skill_hashes.len() + companions.len() + optional.len()
+        {
             return Err(invalid("Unexpected installed file digest inventory."));
         }
         skills_tree::validate(product, skill_hashes.iter().copied())?;
@@ -245,6 +253,7 @@ impl Receipt {
             .into_iter()
             .chain(skill_hashes.iter().copied())
             .chain(companions.iter().copied())
+            .chain(optional.iter().copied())
         {
             let expected = hashes
                 .get(name)
@@ -271,8 +280,19 @@ impl Receipt {
             .copied()
             .filter(|name| self.file_hashes.contains_key(*name))
             .collect::<Vec<_>>();
+        let optional = product
+            .optional_files()
+            .iter()
+            .copied()
+            .filter(|name| self.file_hashes.contains_key(*name))
+            .collect::<Vec<_>>();
         let mut inventory = fs::read_dir(directory)?
-            .take(product.files().len() + product.companions().len() + 3)
+            .take(
+                product.files().len()
+                    + product.companions().len()
+                    + product.optional_files().len()
+                    + 3,
+            )
             .map(|entry| entry.map(|entry| entry.file_name()))
             .collect::<io::Result<Vec<_>>>()?;
         inventory.sort();
@@ -285,6 +305,7 @@ impl Receipt {
             .into_iter()
             .chain(["receipt.json"])
             .chain(companions.iter().copied())
+            .chain(optional.iter().copied())
             .chain(has_skills.then_some(skills_tree::ROOT))
             .map(std::ffi::OsString::from)
             .collect::<Vec<_>>();
@@ -305,6 +326,7 @@ impl Receipt {
             .files()
             .into_iter()
             .chain(companions.iter().copied())
+            .chain(optional.iter().copied())
         {
             let metadata = fs::symlink_metadata(directory.join(name))?;
             let mode = metadata.permissions().mode();

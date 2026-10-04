@@ -35,7 +35,19 @@ test('native sharing and lifecycle verification preserve Ask, page recovery and 
     const page = await openPage(door, device, first);
     await selectInRenderer(page, '#quote');
     await previewAsk(page, recipient.id, 'Do not dispatch this preview');
+    // Narrow page actions must open outside the overflow menu and return focus there.
+    await page.getByRole('button', { name: 'Close Ask agent', exact: true }).click();
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.getByRole('button', { name: 'More page actions' }).click();
     let dialog = await manage(page);
+    await expect(page.getByRole('button', { name: 'More page actions' })).toHaveAttribute(
+      'aria-expanded',
+      'false',
+    );
+    await dialog.getByRole('button', { name: 'Close', exact: true }).click();
+    await expect(page.getByRole('button', { name: 'More page actions' })).toBeFocused();
+    await page.setViewportSize({ width: 1280, height: 900 });
+    dialog = await manage(page);
     const initialCatalog = JSON.parse(run(world, world.binaries.colab, ['ls', '--json']));
     const initialPage = initialCatalog.pages.find(
       (item: { pageId: string }) => item.pageId === first.pageId,
@@ -112,7 +124,7 @@ test('native sharing and lifecycle verification preserve Ask, page recovery and 
     await dialog.getByRole('button', { name: 'Close', exact: true }).click();
     await expect(page.locator('iframe')).toBeVisible();
     await page.reload();
-    await expect(page.getByTestId('ask-action')).toBeVisible();
+    await expect(page.getByTestId('ask-toggle')).toBeVisible();
     expect(recipient.received()).toHaveLength(0);
     expect(world.coreCalls().filter((call) => call.operation === 'dispatch.create')).toHaveLength(
       0,

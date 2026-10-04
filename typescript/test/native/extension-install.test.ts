@@ -437,6 +437,149 @@ describe('tmt extension install surface', () => {
     });
   }, 60_000);
 
+  it('declares optional uses, lists them, answers extensions.uses and warns before removing what they use', async () => {
+    await withSandbox(async (sandbox) => {
+      const cli = (args: string[]) =>
+        runCli(sandbox, [...args, '--json'], { deadlineMs: INSTALL_PROCESS_BUDGET_MS });
+      const uses = JSON.stringify({
+        version: 1,
+        uses: [
+          {
+            feature: 'browser-access',
+            label: 'Browser access',
+            extension: 'remote',
+            requires: '>=0.1.0-alpha.1',
+          },
+        ],
+      });
+      const install = async (product: 'colab' | 'remote', version: string, declared?: string) => {
+        const artifact = await createArtifact(
+          sandbox,
+          version,
+          new Uint8Array(),
+          product,
+          undefined,
+          {},
+          undefined,
+          declared
+        );
+        const result = await cli([
+          'extension',
+          'install',
+          product,
+          '--yes',
+          '--channel',
+          'alpha',
+          '--archive',
+          artifact.archive,
+          '--manifest',
+          artifact.manifest,
+        ]);
+        expect(result.status, result.stdout + result.stderr).toBe(0);
+      };
+      type UseRow = { available: boolean; reason: string | null; installed: string | null };
+      const listed = async (): Promise<UseRow> => {
+        const rows = parseWholeStdout(await cli(['extension', 'ls'])).extensions as {
+          name: string;
+          uses?: UseRow[];
+        }[];
+        return rows.find((row) => row.name === 'colab')!.uses![0];
+      };
+      const answer = async (extension: string) =>
+        JSON.parse(
+          (
+            await runCli(sandbox, ['api'], {
+              stdin: JSON.stringify({
+                version: 1,
+                operation: 'extensions.uses',
+                input: { extension, feature: 'browser-access' },
+              }),
+            })
+          ).stdout
+        );
+
+      await install('colab', '0.1.0-alpha.1', uses);
+      expect(await listed()).toMatchObject({
+        feature: 'browser-access',
+        extension: 'remote',
+        requires: '>=0.1.0-alpha.1',
+        available: false,
+        reason: 'missing',
+        installed: null,
+      });
+      expect(await answer('colab')).toMatchObject({
+        available: false,
+        reason: 'missing',
+        hint: 'Browser access needs the Remote extension: tmt extension install remote --yes',
+      });
+      const text = await runCli(sandbox, ['extension', 'ls']);
+      expect(text.stdout).toContain('tmt extension install remote --yes');
+      // The default prefix needs no --prefix in a printed command.
+      expect(text.stdout).not.toContain('--prefix');
+
+      await install('remote', '0.1.0-alpha.0');
+      expect(await listed()).toMatchObject({ available: false, reason: 'tooOld' });
+      expect((await answer('colab')).hint).toContain('tmt extension upgrade remote --yes');
+
+      await install('remote', '0.1.0-alpha.2');
+      expect(await listed()).toMatchObject({
+        available: true,
+        reason: null,
+        installed: '0.1.0-alpha.2',
+      });
+      expect(await answer('colab')).toMatchObject({ available: true, reason: null, hint: '' });
+      expect((await answer('remote')).error.code).toBe('EXTENSION_USE_UNDECLARED');
+
+      // Removal warns about what stops working and still needs consent.
+      const refused = await cli(['extension', 'rm', 'remote']);
+      const message = (
+        expectError(refused, 'EXTENSION_CONSENT_REQUIRED').error as { message: string }
+      ).message;
+      expect(message).toContain("colab's Browser access");
+      const removed = await cli(['extension', 'rm', 'remote', '--yes']);
+      expect(removed.status).toBe(0);
+      expect(parseWholeStdout(removed)).toMatchObject({
+        affects: [{ extension: 'colab', feature: 'browser-access', label: 'Browser access' }],
+      });
+      expect(await listed()).toMatchObject({ available: false, reason: 'missing' });
+    });
+  }, 120_000);
+
+  it('rejects a release whose TMT-USES.json is malformed before anything is published', async () => {
+    await withSandbox(async (sandbox) => {
+      const cli = (args: string[]) =>
+        runCli(sandbox, [...args, '--json'], { deadlineMs: INSTALL_PROCESS_BUDGET_MS });
+      const artifact = await createArtifact(
+        sandbox,
+        '0.1.0-alpha.1',
+        new Uint8Array(),
+        'colab',
+        undefined,
+        {},
+        undefined,
+        '{"version":1,"uses":[{"feature":"Browser Access"}]}'
+      );
+      const refused = await cli([
+        'extension',
+        'install',
+        'colab',
+        '--yes',
+        '--channel',
+        'alpha',
+        '--archive',
+        artifact.archive,
+        '--manifest',
+        artifact.manifest,
+      ]);
+      expectError(refused, 'EXTENSION_INSTALL_FAILED');
+      const rows = parseWholeStdout(await cli(['extension', 'ls'])).extensions as {
+        name: string;
+        installed: boolean;
+      }[];
+      expect(rows.find((row) => row.name === 'colab')?.installed).toBe(false);
+    });
+  }, 120_000);
+
   it('offers bundled skills, refreshes them by name on update, and uninstall removes every owned skill', async () => {
     await withSandbox(async (sandbox) => {
       const prefix = path.join(sandbox.root, 'extension prefix');
