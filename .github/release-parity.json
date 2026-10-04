@@ -25,7 +25,7 @@
       "prepare": {
         "steps": ["uses:./.github/workflows/native-release-prepare.yml"],
         "sha256": "eb461961f8ef7e5fe2087cebd55840725f5f46ec5f803a912b75e7041ccb305f",
-        "releaseOnly": "Draft admission (check) and the main-only condition gate this call; its jobs are inventoried under native-release-prepare.yml. The rehearsal workflow calls the same prepare workflow before merge for Colab only when the prepare, bundle or rehearsal workflow changes; selection by affected product and the nightly run are deferred to #1581 B2.",
+        "releaseOnly": "Draft admission (check) and the main-only condition gate this call; its jobs are inventoried under native-release-prepare.yml. Before merge, ci.yml's release-rehearsal job runs the same prepare workflow for the products whose release inputs a PR changes (never in the merge group) and release-rehearsal.yml runs every active product nightly on main; mapping these rows to that counterpart is deferred to #1581 B3.",
         "followUp": 1581
       },
       "attach": {

@@ -1,37 +1,50 @@
 name: Release rehearsal
 
-# Runs the read-only prepare pipeline (build, assemble, final verification on the four matching
-# hosts) before merge, so a release never runs a packaging check for the first time. No secrets,
-# no Environment, no cache writes, no tags, drafts, publication or dispatch. For now it covers one
-# product whenever the prepare, bundle or rehearsal workflow itself changes; selection by affected
-# product and a nightly run on main extend this job (#1581).
+# Nightly and manual rehearsal of every active product's prepare pipeline (build, assemble, final
+# verification on the four matching hosts) on main, so drift in release inputs shows up here and
+# never for the first time in a release. Pull requests rehearse only the products their release
+# inputs affect, from `ci.yml`, and merge groups never rehearse. No secrets, no Environment, no
+# tags, drafts, publication or dispatch of other workflows; a red run is the triage evidence.
 on:
-  pull_request:
-    paths:
-      - '.github/workflows/release-rehearsal.yml'
-      - '.github/workflows/native-release-prepare.yml'
-      - '.github/workflows/native-release-bundle.yml'
+  schedule:
+    - cron: '17 3 * * *'
   workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: release-rehearsal-${{ github.event.pull_request.number || github.ref }}
+  group: release-rehearsal-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
+  plan:
+    name: Plan the rehearsal
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      products: ${{ steps.plan.outputs.products }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.23.2
+      - name: List the active products
+        id: plan
+        run: node typescript/scripts/release-rehearsal.mjs all >> "$GITHUB_OUTPUT"
+
   prepare:
     name: Rehearse ${{ matrix.product }} bundle
+    needs: plan
     strategy:
       fail-fast: false
       matrix:
-        # Colab exercises the most prepare steps: independently built frontend bytes, app entries,
-        # combined notices and Rosetta verification.
-        product: [colab]
+        product: ${{ fromJSON(needs.plan.outputs.products) }}
     permissions:
       contents: read
     uses: ./.github/workflows/native-release-prepare.yml
     with:
       product: ${{ matrix.product }}
-      sha: ${{ github.event.pull_request.head.sha || github.sha }}
+      sha: ${{ github.sha }}

@@ -68,6 +68,11 @@ export interface E2eShardResults {
 
 export function globToRegExp(glob: string): RegExp;
 export function parseComponentMap(text: string): ComponentMap;
+export function releasedComponentNamesOfPath(
+  path: string,
+  map: ComponentMap,
+  workspace?: CargoWorkspace
+): Set<string>;
 export function isReleased(map: ComponentMap, name: string): boolean;
 export function componentMap(): ComponentMap;
 export function ownerOf(path: string, map?: ComponentMap): string;

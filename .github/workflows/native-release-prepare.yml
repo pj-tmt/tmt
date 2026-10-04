@@ -1,10 +1,13 @@
 name: Native release prepare
 
-# Read-only build, assemble and final verification of one product's native bundle for an exact
-# source commit: the four target archives, the cargo-dist manifest, notices, bootstrap and the
+# Build, assemble and final verification of one product's native bundle for an exact source
+# commit: the four target archives, the cargo-dist manifest, notices, bootstrap and the
 # matching-host verifiers (including x64 Node under Rosetta). Called by `native-release-bundle.yml`
-# for a draft release and by `release-rehearsal.yml` before merge, so a release never runs a
-# packaging check for the first time. It has no secrets, writes no cache and publishes nothing.
+# for a draft release and by `release-rehearsal.yml` and `ci.yml` before merge, so a release never
+# runs a packaging check for the first time. It has no secrets, Environment or write permission on
+# the repository and publishes nothing. Cache behavior: the Rust dependency cache is saved by main
+# only; the packaging-tools cache is saved on a miss in any run, including a pull request's own
+# scope, and holds only developer tools keyed by exact versions.
 on:
   workflow_call:
     inputs:

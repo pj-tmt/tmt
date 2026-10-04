@@ -183,6 +183,16 @@ export function releasedComponentsForPath(path, map = componentMap(), workspace)
   );
 }
 
+/** Names of released components a path changes: owned or closure roots plus declared private-leaf consumers. */
+export function releasedComponentNamesOfPath(path, map, workspace) {
+  const names = new Set(
+    releasedComponentsForPath(path, map, workspace).map((component) => component.name)
+  );
+  const owner = map.components.find((component) => component.name === ownerOf(path, map));
+  for (const consumer of owner?.releaseConsumers ?? []) names.add(consumer);
+  return names;
+}
+
 /**
  * Whether a component is released: `release: false` keeps it out of automatic cuts and
  * publication. An unknown component is an error.

@@ -2,9 +2,8 @@
 // reported (never failing) over the cumulative squash merge-group range.
 import { appendFileSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { componentMap } from './ci-scope.mjs';
+import { componentMap, releasedComponentNamesOfPath } from './ci-scope.mjs';
 import { runPackedCommand } from './packed-command.mjs';
-import { releasedComponentNamesOfPath } from './release-cut.mjs';
 
 const ROOT = fileURLToPath(new URL('../../', import.meta.url));
 const SHA = /^[a-f0-9]{40}$/;

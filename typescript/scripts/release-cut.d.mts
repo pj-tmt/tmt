@@ -50,11 +50,6 @@ export function parseReleaseCommits(commits: CutCommit[]): {
   scope: string | null;
   notes: { title: string; text: string }[];
 }[];
-export function releasedComponentNamesOfPath(
-  path: string,
-  map: ComponentMap,
-  workspace?: CargoWorkspace
-): Set<string>;
 export function attributeCutCommits(
   commits: CutCommit[],
   map: ComponentMap,
