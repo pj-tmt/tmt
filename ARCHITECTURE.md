@@ -622,7 +622,9 @@ files, and ordered rules select CI consumers independently. `release:false`
 excludes a component from automatic cuts/publication. Only non-released components
 may declare `releaseStatus:never` (never shipped) or `releaseStatus:parked`
 (explicitly deferred); absence means awaiting activation. `releaseConsumers` names
-packaged consumers of private components. Registration alone never authorizes activation.
+packaged consumers of private components. `skills:true` declares a packaged component's
+agent-skills archive tree; archive verification uses the shared map parser and native
+product policy. Registration alone never authorizes activation.
 
 `typescript/scripts/ci-scope.mjs` owns map validation, path ownership, conservative
 CI selection and final gate validation. Its `releasedComponentsForPath` is the

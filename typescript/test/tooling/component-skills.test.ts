@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import os from 'node:os';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { describe, expect, it } from 'vite-plus/test';
 
@@ -22,6 +23,13 @@ const { shipsSkills } = (await import(scripts('component-skills.mjs'))) as {
 const { productOfComponent } = (await import(scripts('native-release-policy.mjs'))) as {
   productOfComponent: (name: string) => string;
 };
+const { runPackedCommand } = (await import(scripts('packed-command.mjs'))) as {
+  runPackedCommand: (
+    executable: string,
+    args: string[],
+    options: { cwd: string; env: NodeJS.ProcessEnv; expectedStatus?: number }
+  ) => string;
+};
 const text = fs.readFileSync(path.join(repositoryRoot, '.github', 'components.json'), 'utf8');
 const { components } = parseComponentMap(text);
 const skillsComponents = components.filter((component) => component.skills);
@@ -37,20 +45,72 @@ describe('components that ship agent skills', () => {
 
   it('refuses an unknown or ambiguous product and a malformed declaration', () => {
     expect(() => shipsSkills('nonexistent')).toThrow('Ambiguous or missing component');
-    const declare = (skills: unknown, packageName: string | null = 'tmt-example') =>
+    const declare = (skills: unknown, packageName: string | null = 'tmt-squad', name = 'squad') =>
       JSON.stringify({
         components: {
-          example: {
+          [name]: {
             ...(packageName ? { package: packageName } : {}),
             skills,
-            owns: ['extensions/tmt-example'],
+            owns: ['extensions/tmt-squad'],
           },
         },
       });
-    expect(shipsSkills('example', declare(true))).toBe(true);
-    expect(shipsSkills('example', declare(false))).toBe(false);
-    expect(() => parseComponentMap(declare('yes'))).toThrow('skills must be boolean');
-    expect(() => parseComponentMap(declare(true, null))).toThrow('needs a package');
+    expect(shipsSkills('squad', declare(true))).toBe(true);
+    expect(shipsSkills('squad', declare(false))).toBe(false);
+    expect(shipsSkills('squad', declare(undefined))).toBe(false);
+    expect(shipsSkills('squad', declare(true, 'tmt-squad', 'tmt-squad'))).toBe(true);
+    expect(() => shipsSkills('squad', declare('yes'))).toThrow('skills must be boolean');
+    expect(() => shipsSkills('squad', declare(true, null))).toThrow('needs a package');
+    const ambiguous = JSON.parse(declare(true));
+    ambiguous.components['tmt-squad'] = ambiguous.components.squad;
+    expect(() => shipsSkills('squad', JSON.stringify(ambiguous))).toThrow(
+      'Ambiguous or missing component'
+    );
+    expect(() => shipsSkills('example', declare(true, 'tmt-example', 'example'))).toThrow(
+      'No native publication policy for component example'
+    );
+  });
+
+  it('loads skills policy from the verification image inputs with only Node', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'tmt-skills-image-'));
+    try {
+      const dockerfile = fs.readFileSync(
+        path.join(repositoryRoot, 'typescript/test/native/artifact.Dockerfile'),
+        'utf8'
+      );
+      const verification = dockerfile.slice(dockerfile.indexOf('WORKDIR /verification'));
+      for (const line of verification.split('\n').filter((line) => line.startsWith('COPY '))) {
+        const entries = line.split(/\s+/).slice(1);
+        const destination = entries.pop()!;
+        for (const source of entries.filter(
+          (entry) => entry.startsWith('typescript/scripts/') || entry === '.github/components.json'
+        )) {
+          const target = path.join(
+            root,
+            destination,
+            ...(destination.endsWith('/') ? [path.basename(source)] : [])
+          );
+          fs.mkdirSync(path.dirname(target), { recursive: true });
+          fs.copyFileSync(path.join(repositoryRoot, source), target);
+        }
+      }
+      const module = pathToFileURL(path.join(root, 'typescript/scripts/component-skills.mjs')).href;
+      const invoke = (expectedStatus = 0) =>
+        runPackedCommand(
+          process.execPath,
+          [
+            '--input-type=module',
+            '--eval',
+            `import { shipsSkills } from ${JSON.stringify(module)}; console.log(shipsSkills('squad'));`,
+          ],
+          { cwd: root, env: { PATH: path.dirname(process.execPath), HOME: root }, expectedStatus }
+        );
+      expect(invoke()).toBe('true\n');
+      fs.unlinkSync(path.join(root, 'typescript/scripts/native-release-policy.mjs'));
+      expect(() => invoke()).toThrow('ERR_MODULE_NOT_FOUND');
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
   });
 
   it.each(skillsComponents.map((component) => [component.name, component] as const))(
