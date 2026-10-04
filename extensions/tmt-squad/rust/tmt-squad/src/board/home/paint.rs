@@ -505,95 +505,64 @@ pub(super) fn render_at(frame: &mut Frame, app: &App, area: Rect, now: u64) {
         }
         if section != entry.target.section {
             section = &entry.target.section;
-            let count = entries
-                .iter()
-                .filter(|e| e.target.section == section)
-                .count();
-            let (label, role) = match section {
-                "needs-you" => ("◆ needs you", Role::Waiting),
-                "blocked" => ("✗ blocked", Role::Blocked),
-                _ => ("squads", Role::Muted),
-            };
             lines.push(Line::default());
-            let items = if section == "squads" {
-                entries[index..]
-                    .iter()
-                    .take_while(|entry| entry.target.section == "squads")
-                    .map(|entry| {
-                        let squad = home
-                            .squads
-                            .iter()
-                            .find(|squad| squad.squad == entry.target.squad)
-                            .expect("home target retains its acquired squad");
-                        TileItem {
-                            squad,
-                            members: &squad.members,
-                            lead_model: app.home_lead_model(&squad.squad),
-                            usage: app.home_usage(&squad.squad, receipt_now),
-                        }
-                    })
-                    .collect::<Vec<_>>()
-            } else {
-                Vec::new()
-            };
-            let legend = tiles::legend(&items, area.width);
-            let legend = if legend.is_empty() {
-                legend
-            } else {
-                format!(" · {legend}")
-            };
-            lines.push(Line::styled(
-                rule(&format!("{label} · {count}{legend}"), width),
-                look.role(role),
-            ));
-            if section == "squads" {
-                let start = lines.len();
-                let selected = app
-                    .selected
-                    .checked_sub(index)
-                    .filter(|local| *local < items.len());
-                let painted = tiles::paint(&items, area.width, look, selected);
-                let selected_region = selected
-                    .and_then(|item| painted.regions.iter().find(|region| region.item == item));
-                let boundary = selected_region.map(|region| region.lines.end);
-                let mut tile_lines = painted.lines;
-                let tail = boundary.map(|end| tile_lines.split_off(end));
-                lines.extend(tile_lines);
-                let before = lines.len();
-                if selected_region.is_some() {
-                    if app.sent.as_ref().is_some_and(|feedback| {
-                        feedback.target
-                            == crate::board::app::RowTarget::Home(
-                                entries[app.selected].target.clone(),
-                            )
-                    }) {
-                        lines.push(Line::styled("   ✓ sent", look.role(Role::Working)));
+            let items = entries[index..]
+                .iter()
+                .take_while(|entry| entry.target.section == "squads")
+                .map(|entry| {
+                    let squad = home
+                        .squads
+                        .iter()
+                        .find(|squad| squad.squad == entry.target.squad)
+                        .expect("home target retains its acquired squad");
+                    TileItem {
+                        squad,
+                        members: &squad.members,
+                        lead_model: app.home_lead_model(&squad.squad),
+                        usage: app.home_usage(&squad.squad, receipt_now),
                     }
-                    input_range = crate::board::view::waiting::reserve_input(
-                        app,
-                        app.selected,
-                        area,
-                        &mut lines,
-                    );
+                })
+                .collect::<Vec<_>>();
+            let selected = app
+                .selected
+                .checked_sub(index)
+                .filter(|local| *local < items.len());
+            let painted = tiles::paint(&items, area.width, look, selected);
+            lines.extend(painted.head);
+            let start = lines.len();
+            let selected_region =
+                selected.and_then(|item| painted.regions.iter().find(|region| region.item == item));
+            let boundary = selected_region.map(|region| region.lines.end);
+            let mut tile_lines = painted.lines;
+            let tail = boundary.map(|end| tile_lines.split_off(end));
+            lines.extend(tile_lines);
+            let before = lines.len();
+            if selected_region.is_some() {
+                if app.sent.as_ref().is_some_and(|feedback| {
+                    feedback.target
+                        == crate::board::app::RowTarget::Home(entries[app.selected].target.clone())
+                }) {
+                    lines.push(Line::styled("   ✓ sent", look.role(Role::Working)));
                 }
-                let inserted = lines.len() - before;
-                if let Some(tail) = tail {
-                    lines.extend(tail);
+                input_range =
+                    crate::board::view::waiting::reserve_input(app, app.selected, area, &mut lines);
+            }
+            let inserted = lines.len() - before;
+            if let Some(tail) = tail {
+                lines.extend(tail);
+            }
+            for region in painted.regions {
+                let shift = if boundary.is_some_and(|end| region.lines.start >= end) {
+                    inserted
+                } else {
+                    0
+                };
+                let range = start + region.lines.start + shift..start + region.lines.end + shift;
+                starts.push(range.start);
+                if index + region.item == app.selected {
+                    selected_range = range.start..range.end + inserted;
                 }
-                for region in painted.regions {
-                    let shift = if boundary.is_some_and(|end| region.lines.start >= end) {
-                        inserted
-                    } else {
-                        0
-                    };
-                    let range =
-                        start + region.lines.start + shift..start + region.lines.end + shift;
-                    starts.push(range.start);
-                    if index + region.item == app.selected {
-                        selected_range = range.start..range.end + inserted;
-                    }
-                    regions.push((index + region.item, range, region.x, region.width));
-                }
+                regions.push((index + region.item, range, region.x, region.width));
             }
         }
     }

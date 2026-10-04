@@ -48,9 +48,17 @@ impl Painted {
     }
 }
 
-/// How one node is decorated: its own scoped identity (the last element names
-/// the part), its inherited role and its alignment inside the recorded width.
-pub(super) type Decorate<'a> = dyn FnMut(Option<&[String]>, Role) -> (Style, Align) + 'a;
+/// The node being decorated: its own scoped identity (the last element names the
+/// part), the identity it inherits from the nearest ancestor that has one (the
+/// block it belongs to), and its inherited role.
+pub(super) struct Part<'a> {
+    pub id: Option<&'a [String]>,
+    pub scope: Option<&'a [String]>,
+    pub role: Role,
+}
+
+/// The complete style of a node and its alignment inside the recorded width.
+pub(super) type Decorate<'a> = dyn FnMut(Part<'_>) -> (Style, Align) + 'a;
 
 /// Solve and paint `template` bound to `data` at `width` cells.
 pub(super) fn paint(
@@ -76,7 +84,13 @@ pub(super) fn paint(
     // A root without content has no rows and no cells to lift.
     let mut buffer = Buffer::empty(Rect::new(0, 0, width, height));
     paint::paint_with(&cells, &mut buffer, |index, role, _| {
-        decorate(cells[index].node.id.as_deref(), role)
+        let scope = std::iter::successors(Some(index), |at| cells[*at].parent)
+            .find_map(|at| cells[at].node.id.as_deref());
+        decorate(Part {
+            id: cells[index].node.id.as_deref(),
+            scope,
+            role,
+        })
     });
     let nodes = cells
         .iter()

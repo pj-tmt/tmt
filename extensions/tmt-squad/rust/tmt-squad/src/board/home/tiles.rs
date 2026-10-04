@@ -1,10 +1,18 @@
 //! The squad section returns lines and local regions to the single home painter.
-use super::{Counts, SquadLine};
+use super::{
+    Counts, SquadLine,
+    paint::rule,
+    scene::{self, Part},
+};
 use crate::{board::app::HomeUsage, config::TokenWindow, look::Look};
-use ratatui::text::{Line, Span};
-use std::ops::Range;
+use ratatui::{style::Style, text::Line};
+use serde_json::{Value, json};
+use std::{ops::Range, sync::OnceLock};
 use tmt_cli_style::{Role, grid::Align};
-use tmt_tui::style::TextFlow;
+use tmt_tui::{
+    binding::{Schema, Template},
+    style::TextFlow,
+};
 
 pub(super) struct TileItem<'a> {
     pub squad: &'a SquadLine,
@@ -33,6 +41,9 @@ pub(super) struct TileRegion {
 }
 
 pub(super) struct TilePaint {
+    /// The section rule, a line above the rows.
+    pub head: Vec<Line<'static>>,
+    /// One compact row per squad; local line ranges are also the scroll/hit map.
     pub lines: Vec<Line<'static>>,
     pub regions: Vec<TileRegion>,
 }
@@ -54,47 +65,6 @@ fn placement(width: u16, count: usize) -> Vec<TileRegion> {
 
 fn fit(value: &str, width: u16) -> String {
     tmt_tui::text::fit_line(value, width, TextFlow::Truncate, Align::Left)
-}
-
-fn span(text: String, role: Role, selected: bool, look: Look) -> Span<'static> {
-    let emphasize = matches!(
-        role,
-        Role::Accent | Role::Waiting | Role::Blocked | Role::Review | Role::Working
-    );
-    let style = look.row_span(selected, look.role(role), emphasize);
-    let style = if selected {
-        look.selection().patch(style)
-    } else {
-        style
-    };
-    Span::styled(text, style)
-}
-
-fn marks(counts: &Counts, width: u16, selected: bool, look: Look) -> Vec<Span<'static>> {
-    let mut remaining = usize::from(width);
-    let mut spans = Vec::new();
-    for (mark, count, role) in [
-        ('◆', counts.waiting, Role::Waiting),
-        ('✗', counts.blocked, Role::Blocked),
-        ('◐', counts.review, Role::Review),
-        ('●', counts.working, Role::Working),
-        ('○', counts.idle, Role::Dim),
-    ] {
-        let shown = count.min(remaining / 2);
-        spans.push(span(format!("{mark} ").repeat(shown), role, selected, look));
-        remaining -= shown * 2;
-    }
-    spans.push(span(" ".repeat(remaining), Role::Text, selected, look));
-    spans
-}
-
-fn member_line(counts: &Counts, width: u16, selected: bool, look: Look) -> Line<'static> {
-    let label = format!(" {}", member_label(counts));
-    let label_width =
-        unicode_width::UnicodeWidthStr::width(label.as_str()).min(usize::from(width)) as u16;
-    let mut spans = marks(counts, width - label_width, selected, look);
-    spans.push(span(fit(&label, label_width), Role::Dim, selected, look));
-    Line::from(spans)
 }
 
 fn lead<'a>(item: &'a TileItem<'_>) -> &'a str {
@@ -159,9 +129,10 @@ fn member_label(counts: &Counts) -> String {
 }
 
 impl Columns {
-    fn new(items: &[TileItem<'_>], width: u16) -> Self {
+    /// `wide` is the `md` step: the markup's switch picks the branch that was
+    /// built with it; nothing here measures the terminal against a number.
+    fn new(items: &[TileItem<'_>], width: u16, wide: bool) -> Self {
         use unicode_width::UnicodeWidthStr;
-        let wide = width >= 100;
         let indices = (usize::from(!wide)..3)
             .filter(|&index| {
                 items.iter().any(|item| {
@@ -247,8 +218,8 @@ impl Columns {
 }
 
 /// The home painter owns the section heading; admit only rendered observations.
-pub(super) fn legend(items: &[TileItem<'_>], width: u16) -> String {
-    let columns = Columns::new(items, width);
+pub(super) fn legend(items: &[TileItem<'_>], width: u16, wide: bool) -> String {
+    let columns = Columns::new(items, width, wide);
     if columns.indices.is_empty() && !columns.share || columns.values < columns.slots() as u16 * 2 {
         return String::new();
     }
@@ -309,15 +280,6 @@ fn share(item: &TileItem<'_>) -> String {
         )
 }
 
-fn value_span(value: &str, width: u16, selected: bool, look: Look) -> Span<'static> {
-    span(
-        tmt_tui::text::fit_line(value, width, TextFlow::Truncate, Align::Right),
-        Role::Text,
-        selected,
-        look,
-    )
-}
-
 fn column(value: &str, width: u16) -> String {
     if width == 0 {
         String::new()
@@ -326,13 +288,33 @@ fn column(value: &str, width: u16) -> String {
     }
 }
 
-fn table_line(
-    item: &TileItem<'_>,
-    width: u16,
-    columns: &Columns,
-    selected: bool,
-    look: Look,
-) -> Line<'static> {
+type Piece = (String, Role);
+
+/// The marks of one squad's members, then the count label, in `width` cells.
+fn member_pieces(counts: &Counts, width: u16) -> Vec<Piece> {
+    let label = format!(" {}", member_label(counts));
+    let label_width =
+        unicode_width::UnicodeWidthStr::width(label.as_str()).min(usize::from(width)) as u16;
+    let mut remaining = usize::from(width - label_width);
+    let mut pieces = Vec::new();
+    for (mark, count, role) in [
+        ('◆', counts.waiting, Role::Waiting),
+        ('✗', counts.blocked, Role::Blocked),
+        ('◐', counts.review, Role::Review),
+        ('●', counts.working, Role::Working),
+        ('○', counts.idle, Role::Dim),
+    ] {
+        let shown = count.min(remaining / 2);
+        pieces.push((format!("{mark} ").repeat(shown), role));
+        remaining -= shown * 2;
+    }
+    pieces.push((" ".repeat(remaining), Role::Text));
+    pieces.push((fit(&label, label_width), Role::Dim));
+    pieces
+}
+
+/// One squad's row as role-tagged pieces whose widths add up to `width`.
+fn pieces(item: &TileItem<'_>, width: u16, columns: &Columns) -> Vec<Piece> {
     let (badge, role) = if item.squad.counts.waiting > 0 {
         (" ◆ ", Role::Waiting)
     } else if item.squad.counts.blocked > 0 {
@@ -340,23 +322,16 @@ fn table_line(
     } else {
         ("   ", Role::Dim)
     };
-    let mut spans = vec![
-        span(fit(badge, width.min(3)), role, selected, look),
-        span(
-            column(&item.squad.squad, columns.name),
-            Role::Accent,
-            selected,
-            look,
-        ),
-        span(column(lead(item), columns.lead), Role::Text, selected, look),
-        span(
+    let mut pieces = vec![
+        (fit(badge, width.min(3)), role),
+        (column(&item.squad.squad, columns.name), Role::Accent),
+        (column(lead(item), columns.lead), Role::Text),
+        (
             column(model(item).unwrap_or_default(), columns.model),
             Role::Muted,
-            selected,
-            look,
         ),
     ];
-    spans.extend(member_line(item.members, columns.members, selected, look).spans);
+    pieces.extend(member_pieces(item.members, columns.members));
     let unavailable = item
         .usage
         .as_ref()
@@ -389,7 +364,7 @@ fn table_line(
         if cell_width == 0 {
             continue;
         }
-        spans.push(span(" ".into(), Role::Text, selected, look));
+        pieces.push((" ".into(), Role::Text));
         let value = if item.usage.is_none() || unavailable && index > 0 {
             String::new()
         } else if unavailable {
@@ -397,53 +372,156 @@ fn table_line(
         } else {
             value
         };
-        spans.push(if unavailable {
-            span(
-                tmt_tui::text::fit_line(&value, cell_width - 1, TextFlow::Truncate, Align::Right),
-                Role::Dim,
-                selected,
-                look,
-            )
-        } else {
-            value_span(&value, cell_width - 1, selected, look)
-        });
+        pieces.push((
+            tmt_tui::text::fit_line(&value, cell_width - 1, TextFlow::Truncate, Align::Right),
+            if unavailable { Role::Dim } else { Role::Text },
+        ));
     }
-    Line::from(spans)
+    let used: usize = pieces
+        .iter()
+        .map(|(text, _)| unicode_width::UnicodeWidthStr::width(text.as_str()))
+        .sum();
+    pieces.push((
+        " ".repeat(usize::from(width).saturating_sub(used)),
+        Role::Text,
+    ));
+    pieces.retain(|(text, _)| !text.is_empty());
+    pieces
 }
 
-/// Regions and lines share one geometry result; no scroll, cursor or core effects.
+/// Names are display text and may hold anything; the ordinal is the frame's identity.
+fn row_id(item: usize) -> String {
+    format!("squad-{item}")
+}
+
+/// The rule and rows of one branch of the `md` switch.
+fn branch(items: &[TileItem<'_>], width: u16, wide: bool) -> Value {
+    let columns = Columns::new(items, width, wide);
+    let legend = legend(items, width, wide);
+    let title = format!(
+        "squads · {}{}",
+        items.len(),
+        if legend.is_empty() {
+            String::new()
+        } else {
+            format!(" · {legend}")
+        }
+    );
+    json!({
+        "rule": rule(&title, usize::from(width)),
+        "rows": items.iter().enumerate().map(|(at, item)| {
+            json!({
+                "id": row_id(at),
+                "cells": pieces(item, width, &columns).into_iter().enumerate().map(|(at, (text, role))| {
+                    json!({"id": format!("c{at}"), "text": text, "role": role.name()})
+                }).collect::<Vec<_>>(),
+            })
+        }).collect::<Vec<_>>(),
+    })
+}
+
+const FILE: &str = "squad.home.squads.xml";
+
+fn markup() -> String {
+    let body = |branch: &str| {
+        format!(
+            r#"<tmt-text id="rule" bind="$.{branch}.rule" token="muted" class="w-full"/><tmt-repeat each="$.{branch}.rows" as="row"><tmt-row id-bind="row.id" class="w-full"><tmt-repeat each="row.cells" as="cell"><tmt-text id-bind="cell.id" bind="cell.text" token-bind="cell.role" class="shrink-0"/></tmt-repeat></tmt-row></tmt-repeat>"#
+        )
+    };
+    format!(
+        r#"<tmt-view version="1"><tmt-switch><tmt-case min="md">{}</tmt-case><tmt-default>{}</tmt-default></tmt-switch></tmt-view>"#,
+        body("wide"),
+        body("narrow")
+    )
+}
+
+fn schema() -> Schema {
+    use std::collections::BTreeMap;
+    let object = |fields: Vec<(&str, Schema)>| {
+        Schema::Object(
+            fields
+                .into_iter()
+                .map(|(name, schema)| (name.to_owned(), schema))
+                .collect::<BTreeMap<_, _>>(),
+        )
+    };
+    let branch = || {
+        object(vec![
+            ("rule", Schema::Scalar),
+            (
+                "rows",
+                Schema::Collection(Box::new(object(vec![
+                    ("id", Schema::StableId),
+                    (
+                        "cells",
+                        Schema::Collection(Box::new(object(vec![
+                            ("id", Schema::StableId),
+                            ("text", Schema::Scalar),
+                            ("role", Schema::Scalar),
+                        ]))),
+                    ),
+                ]))),
+            ),
+        ])
+    };
+    object(vec![("wide", branch()), ("narrow", branch())])
+}
+
+fn template() -> &'static Template<()> {
+    static TEMPLATE: OnceLock<Template<()>> = OnceLock::new();
+    TEMPLATE.get_or_init(|| scene::compile(FILE, &markup(), &schema()))
+}
+
+/// The squads section: its rule and one full-width row per squad. A single
+/// column at every width; `md` decides which columns the table has.
 pub(super) fn paint(
     items: &[TileItem<'_>],
     width: u16,
     look: Look,
     selected: Option<usize>,
 ) -> TilePaint {
-    let placements = placement(width, items.len());
-    let columns = Columns::new(items, width);
-    let height = placements
-        .iter()
-        .map(|region| region.lines.end)
-        .max()
-        .unwrap_or(0);
-    let mut lines = vec![Line::default(); height];
-    let mut regions = Vec::new();
-    for region in placements {
-        let text_width = region.width;
-        let item = &items[region.item];
-        let selected = selected == Some(region.item);
-        let rows = vec![table_line(item, text_width, &columns, selected, look)];
-        for (index, mut row) in region.lines.clone().zip(rows) {
-            let target = &mut lines[index];
-            let gap = usize::from(region.x).saturating_sub(target.width());
-            target.spans.push(Span::raw(" ".repeat(gap)));
-            let padding = usize::from(region.width).saturating_sub(row.width());
-            row.spans
-                .push(span(" ".repeat(padding), Role::Text, selected, look));
-            target.spans.extend(row.spans);
-        }
-        regions.push(region);
+    if width == 0 {
+        return TilePaint {
+            head: vec![Line::default()],
+            lines: Vec::new(),
+            regions: Vec::new(),
+        };
     }
-    TilePaint { lines, regions }
+    let selected = selected.map(row_id);
+    let painted = scene::paint(
+        FILE,
+        template(),
+        &json!({"wide": branch(items, width, true), "narrow": branch(items, width, false)}),
+        width,
+        &mut |Part { id, scope, role }| {
+            let row = scope.and_then(<[String]>::first).map(String::as_str);
+            let style = match id {
+                Some([rule]) if rule == "rule" => look.role(role),
+                Some([_, _]) => {
+                    let selected = selected.as_deref().is_some_and(|id| Some(id) == row);
+                    let emphasize = matches!(
+                        role,
+                        Role::Accent | Role::Waiting | Role::Blocked | Role::Review | Role::Working
+                    );
+                    let style = look.row_span(selected, look.role(role), emphasize);
+                    if selected {
+                        look.selection().patch(style)
+                    } else {
+                        style
+                    }
+                }
+                _ => Style::new(),
+            };
+            (style, Align::Left)
+        },
+    );
+    let mut lines = painted.lines;
+    let rows = lines.split_off(1);
+    TilePaint {
+        head: lines,
+        regions: placement(width, items.len()),
+        lines: rows,
+    }
 }
 
 #[cfg(test)]

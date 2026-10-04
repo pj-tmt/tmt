@@ -464,7 +464,11 @@ fn tiles(width: u16, look: crate::look::Look, styles: &mut Styles) -> Vec<Value>
             captured["case"] = json!(name);
             captured["selected"] = json!(selected);
             captured["width"] = json!(width);
-            captured["legend"] = json!(tiles::legend(&items, width));
+            captured["legend"] = json!(tiles::legend(
+                &items,
+                width,
+                width >= tmt_cli_style::breakpoint::MD.cells
+            ));
             captured["regions"] = json!(format!("{:?}", painted.regions));
             frames.push(captured);
         }

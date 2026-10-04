@@ -2,7 +2,7 @@
 use super::{
     controller::HomeEntry,
     paint::{age_label, rule},
-    scene::{self, Painted},
+    scene::{self, Painted, Part},
 };
 use crate::{
     board::{app::App, view::fit},
@@ -113,13 +113,10 @@ fn head(section: &Section<'_>, width: usize) -> Vec<Value> {
     head
 }
 
-fn id(entry: &HomeEntry<'_>) -> String {
-    format!(
-        "{}/{}/{}",
-        entry.target.section,
-        entry.target.squad,
-        entry.target.member.as_deref().unwrap_or("-")
-    )
+/// Block identity is private to one frame; entry names may hold anything, so the
+/// ordinal stands in for them.
+fn id(index: usize) -> String {
+    format!("entry-{index}")
 }
 
 pub(super) fn paint(app: &App, look: Look, area: Rect, now: u64, section: &Section<'_>) -> Block {
@@ -148,7 +145,7 @@ pub(super) fn paint(app: &App, look: Look, area: Rect, now: u64, section: &Secti
                 after.push(json!({"id": format!("reserve-{line}"), "text": null, "role": null}));
             }
             json!({
-                "id": id(entry),
+                "id": id(local),
                 "mark": format!(" {} ", if waiting { "◆" } else { "✗" }),
                 "mark_role": if waiting { Role::Waiting } else { Role::Blocked }.name(),
                 "name": fit(&escape(entry.row["name"].as_str().unwrap_or_default()), name_width),
@@ -158,9 +155,11 @@ pub(super) fn paint(app: &App, look: Look, area: Rect, now: u64, section: &Secti
             })
         })
         .collect::<Vec<_>>();
-    let selected = (section.first..section.first + section.entries.len())
-        .find(|index| *index == app.selected)
-        .map(|index| id(&section.entries[index - section.first]));
+    let selected = app
+        .selected
+        .checked_sub(section.first)
+        .filter(|local| *local < section.entries.len())
+        .map(id);
     let reserving = rows
         .iter()
         .map(|row| {
@@ -174,9 +173,13 @@ pub(super) fn paint(app: &App, look: Look, area: Rect, now: u64, section: &Secti
         template(),
         &json!({"head": head(section, width), "rows": rows}),
         area.width,
-        &mut |node, role| {
+        &mut |Part {
+                  id: node,
+                  scope,
+                  role,
+              }| {
             let part = node.and_then(<[String]>::last).map(String::as_str);
-            let row = node.and_then(<[String]>::first).map(String::as_str);
+            let row = scope.and_then(<[String]>::first).map(String::as_str);
             let selected = selected.as_deref().is_some_and(|id| Some(id) == row);
             let base = if selected {
                 look.selection().add_modifier(Modifier::BOLD)
@@ -199,13 +202,10 @@ pub(super) fn paint(app: &App, look: Look, area: Rect, now: u64, section: &Secti
             (style, Align::Left)
         },
     );
-    let rows = section
-        .entries
-        .iter()
-        .enumerate()
-        .map(|(local, entry)| {
+    let rows = (0..section.entries.len())
+        .map(|local| {
             let block = painted
-                .lines(&[&id(entry)])
+                .lines(&[&id(local)])
                 .expect("every entry is a scene block");
             let reserve = (reserving[local] > 0).then(|| block.end - reserving[local]..block.end);
             RowSpan {

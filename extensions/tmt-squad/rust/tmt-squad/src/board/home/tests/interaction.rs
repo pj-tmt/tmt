@@ -955,3 +955,36 @@ fn record_home_header_diff() {
     assert!(std::path::Path::new(&path).starts_with("/private/tmp"));
     fs::write(path, serde_json::to_string(&header_frames()).unwrap()).unwrap();
 }
+
+#[test]
+fn names_that_are_not_stable_ids_never_reach_the_scene_identity() {
+    // Squad and member names are display text: all digits, control characters and
+    // very long names must paint, escaped, instead of failing admission.
+    let long = "q".repeat(300);
+    for squad in ["2024", "tab\there", long.as_str(), " padded "] {
+        let mut member = row("W", "wor\nker", "blocked");
+        member["waitingOnYou"] = json!([{"requestId":"q","preparedAtMs":20,"preview":"private"}]);
+        let app = board(&[(
+            squad,
+            document(squad, row("L", "lead", "working"), vec![member]),
+        )]);
+        for width in [80, 100, 160] {
+            let mut terminal = Terminal::new(TestBackend::new(width, 30)).unwrap();
+            terminal
+                .draw(|frame| crate::board::view::render(frame, &app))
+                .unwrap();
+            let text = terminal
+                .backend()
+                .buffer()
+                .content
+                .iter()
+                .map(|cell| cell.symbol())
+                .collect::<String>();
+            assert!(
+                text.contains("needs you") && text.contains("squads"),
+                "{squad:?}/{width}"
+            );
+            assert!(!text.contains('\n') && !text.contains('\t'));
+        }
+    }
+}
