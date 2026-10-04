@@ -56,8 +56,10 @@ browsers register: each paired device registers when it first opens the app.
 real `tmt-remote` door through the real core's public CLI, a paired device opens the printed
 link and a created page, and stopping Colab closes the door it started (`doorAnswers`).
 `world.linkExtensions()` puts `tmt-remote` and `tmt-colab` on the world's PATH, which is how
-the core resolves `tmt remote`. The attach case needs `tmt remote status --json` (#1571). A second case drives `tmt colab stop`
-(#1594): the started door closes, a second stop is `not-running`, and the pairing stays listed.
+the core resolves `tmt remote`. `page create --json` prints the door's full `link` and `paired` (#1614), and the link opens as the
+paired device. A second case drives `tmt colab stop` (#1594): the started door closes, a second
+stop is `not-running`, and the pairing stays listed. A third attaches to a door started outside
+Colab: stop and exit leave that door running.
 
 `discussion.spec.ts` covers two paired writers and comment-origin Ask. Its module
 contracts and focused cases are described in [discussion.md](discussion.md).

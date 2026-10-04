@@ -1,6 +1,9 @@
 mod cli_grammar;
 mod cli_management;
 mod door;
+mod open;
+mod reach;
+mod settings_cli;
 mod status;
 mod supervisor;
 const IPC_RESPONSE_BYTES: usize = 8192;
@@ -22,6 +25,24 @@ use tmt_colab::{
     store::Store,
 };
 
+/// `--open` / `--no-open`: per command, over the `open` setting.
+fn open_args(command: Command) -> Command {
+    command
+        .arg(
+            Arg::new("open")
+                .long("open")
+                .action(ArgAction::SetTrue)
+                .overrides_with("no-open")
+                .help("Open the link in your browser even when the setting or environment says not to"),
+        )
+        .arg(
+            Arg::new("no-open")
+                .long("no-open")
+                .action(ArgAction::SetTrue)
+                .overrides_with("open")
+                .help("Only print the link"),
+        )
+}
 fn grammar() -> Command {
     const ROOT: CommandSpec = CommandSpec {
         name: "colab",
@@ -41,7 +62,7 @@ fn grammar() -> Command {
             },
         ],
         outputs: OutputModes::Human,
-        details: "The space is reached through tmt remote, which mounts it for paired browsers. Serve the bundled browser app, or build it for local development. Local root-authorized management uses the same owner service as mounted browser requests.",
+        details: "Every command that names a page prints its full link: give that link to the person, not JSON. The space is reached through tmt remote, which mounts it for paired browsers. Serve the bundled browser app, or build it for local development. Local root-authorized management uses the same owner service as mounted browser requests.",
     };
     const SERVE: CommandSpec = CommandSpec {
         name: "serve",
@@ -62,6 +83,22 @@ fn grammar() -> Command {
         }],
         outputs: OutputModes::HumanAndJson,
         details: "Asks the serving process over its owner-only socket, never by signalling a pid. A Remote door that serve started stops with it; a door it only attached to keeps running. Pairings and data are untouched. Not running is not an error.",
+    };
+    const SETTINGS: CommandSpec = CommandSpec {
+        name: "settings",
+        summary: "Show or change Colab settings",
+        examples: &[
+            Example {
+                command: "tmt colab settings",
+                note: "Show each setting and where its value comes from",
+            },
+            Example {
+                command: "tmt colab settings open off",
+                note: "Stop opening the browser from serve and page create",
+            },
+        ],
+        outputs: OutputModes::HumanAndJson,
+        details: "open (default on) controls whether serve and page create open the link in your browser. It is skipped without a terminal, with --json, in CI, in an SSH session without a display and when no opener is installed; --open and --no-open override it per command. Stored in <data root>/colab/settings.json.",
     };
     const SPACES: CommandSpec = CommandSpec {
         name: "spaces",
@@ -107,7 +144,7 @@ fn grammar() -> Command {
             note: "Create a page editable by your registered owner browsers",
         }],
         outputs: OutputModes::HumanAndJson,
-        details: "Initializes a fresh local space when needed. Without --file the source is empty; use --file - for bounded UTF-8 stdin. Commits a private page, epoch key, owner-device wraps and encrypted initial content through the same owner service whether serve is running or stopped. While tmt remote serve runs, the full link is printed (url in JSON); otherwise only the path relative to the Remote door address is.",
+        details: "Initializes a fresh local space when needed. Without --file the source is empty; use --file - for bounded UTF-8 stdin. Commits a private page, epoch key, owner-device wraps and encrypted initial content through the same owner service whether serve is running or stopped. While a Remote door runs, the full link is printed (link in JSON, null otherwise) and opened in your browser unless --no-open, --json, the open setting or the environment says not to; without a door the path relative to the Remote door address and the reason are printed.",
     };
     const READ: CommandSpec = CommandSpec {
         name: "read",
@@ -142,7 +179,7 @@ fn grammar() -> Command {
             .version(env!("CARGO_PKG_VERSION"))
             .arg(tmt_cli_style::version_arg(ArgAction::Version))
             .subcommand_required(true)
-            .subcommand(
+            .subcommand(open_args(
                 tmt_cli_style::command(&SERVE).arg(
                     Arg::new("app-dir")
                         .long("app-dir")
@@ -152,17 +189,33 @@ fn grammar() -> Command {
                             "Override embedded or checkout app bytes with an absolute build directory",
                         ),
                 ),
-            )
+            ))
             .subcommand(tmt_cli_style::command(&STOP))
+            .subcommand(
+                tmt_cli_style::command(&SETTINGS)
+                    .arg(
+                        Arg::new("key")
+                            .value_name("setting")
+                            .value_parser(["open"]),
+                    )
+                    .arg(
+                        Arg::new("value")
+                            .value_name("on|off")
+                            .value_parser(["on", "off"])
+                            .requires("key"),
+                    ),
+            )
             .subcommand(tmt_cli_style::command(&SPACES))
             .subcommand(
                 tmt_cli_style::command(&PAGE)
                     .subcommand_required(true)
                     .subcommand(
-                        tmt_cli_style::command(&CREATE)
-                            .arg(Arg::new("title").long("title").required(true).value_name("TITLE"))
-                            .arg(Arg::new("file").long("file").value_name("path|-")
-                                .value_parser(clap::value_parser!(std::path::PathBuf))),
+                        open_args(
+                            tmt_cli_style::command(&CREATE)
+                                .arg(Arg::new("title").long("title").required(true).value_name("TITLE"))
+                                .arg(Arg::new("file").long("file").value_name("path|-")
+                                    .value_parser(clap::value_parser!(std::path::PathBuf))),
+                        ),
                     )
                     .subcommand(tmt_cli_style::command(&READ).arg(page_id()))
                     .subcommand(
@@ -226,6 +279,9 @@ fn run(matches: &clap::ArgMatches) -> Result<()> {
         if command == "spaces" {
             return spaces(&root, json_output);
         }
+        if command == "settings" {
+            return settings_cli::run(&root, args, json_output);
+        }
         if command == "stop" {
             return stop_serving(&root, json_output);
         }
@@ -265,13 +321,27 @@ fn run(matches: &clap::ArgMatches) -> Result<()> {
             supervisor::Access::Unavailable { .. } => None,
             _ => Some(door::Pairing::lookup()),
         };
-        let status = status::Status {
+        let mut status = status::Status {
             space: &space_id,
             socket: &socket.path,
             access: &access,
             pairing,
             pages,
+            opened: false,
         };
+        // Once the door is ready, open the page (or the space home) unless told or unable not to.
+        let mut open_warnings = Vec::new();
+        if let Some(link) = status.open_link() {
+            // The door is ready: unreadable settings are the defaults, never a failed serve.
+            let settings = tmt_colab::settings::read_or_default(&root);
+            let outcome =
+                open::open_link(&link, open::Flag::of(args), settings.open(), json_output);
+            status.opened = matches!(outcome, open::Outcome::Opened);
+            open_warnings.extend(open::describe(&outcome, &link).1);
+            if settings.malformed {
+                open_warnings.push(tmt_colab::settings::UNREADABLE.to_owned());
+            }
+        }
         if json_output {
             writeln!(output, "{}", status.json())?;
         } else {
@@ -290,6 +360,11 @@ fn run(matches: &clap::ArgMatches) -> Result<()> {
             let mut warning = tmt_cli_style::stream::stderr();
             let terminal = warning.terminal();
             tmt_cli_style::message::warning(&mut warning, terminal, what, hint)?;
+        }
+        for what in open_warnings.iter().filter(|_| !json_output) {
+            let mut warning = tmt_cli_style::stream::stderr();
+            let terminal = warning.terminal();
+            tmt_cli_style::message::warning(&mut warning, terminal, what, None)?;
         }
         output.flush()?;
         drop(output);

@@ -84,6 +84,12 @@ in `contracts/`.
   so a late update for a superseded conversation cannot win. Admission needs fresh live
   evidence; inconclusive admission keeps the previous observation, known-ended included. Clear
   and in-process resume are nonterminal; end/compact must match the exact current key.
+  Provider end retains that key and launch owner in Unknown until a fresh start;
+  the same live incarnation can then turn over its session. Only conclusive
+  process loss/owned-child exit yields runtime Ended. Delivery probes can report
+  Running after provider end (including legacy Ended) only for an exact live process
+  under the verified pane and an exact live launch owner when recorded, without
+  rewriting storage; shared servers outside that ancestry remain unverified.
 - The channel choice (nullable) is recorded after an admitted fresh launch or explicit resume
   flag; null keeps the driver default; flagless resume does not rewrite it.
 - Activity comes from TMT's own UserPromptSubmit/Stop hooks (Claude runs them synchronously;
@@ -129,7 +135,9 @@ in `contracts/`.
   never migrate, and on failure emit no context and at most one fixed stderr line. A hook
   supplies observation only: the binding must match fresh server/pane/marker evidence and
   payload session IDs never create bindings or move identities.
-- An unknown Claude `SessionEnd` reason is rejected without mutation; Codex accepts only `other`.
+- An unknown Claude `SessionEnd` reason is rejected without mutation; its known
+  logout/prompt-input-exit/other reasons end the session, not the process. Codex
+  maps SessionEnd regardless of reason to the same provider-session boundary.
   Shared Codex app-server hooks need one exact provider-session mapping and then revalidate the
   binding's endpoint and session compare-and-set; a shared client exit is unknown.
 - `tmt-adapters::setup` replaces or removes only exact owned hook entries, keeps user values as

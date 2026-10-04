@@ -1,8 +1,7 @@
 //! Codex: its descriptor, file locations, runtime, caller recognition
 //! (`caller`) and lifecycle mapping. Shared server ancestry never selects an
 //! identity.
-//! The verified 0.157.1 contract reports SessionEnd reason `other`; unsupported
-//! reasons leave state unchanged rather than guessing that a client ended a thread.
+//! SessionEnd ends the provider thread, not its live process incarnation.
 
 pub mod attachment;
 pub mod caller;
@@ -63,7 +62,6 @@ struct Payload {
     /// Documented provider field: the active model slug.
     model: Option<String>,
     source: Option<String>,
-    reason: Option<String>,
     /// `string | null`; read only for a turn end (#519), under `CODEX_HOME`.
     transcript_path: Option<String>,
 }
@@ -84,9 +82,7 @@ pub fn decode_hook(bytes: &[u8]) -> Option<CodexObservation> {
                 _ => return None,
             },
         ),
-        "SessionEnd" if payload.reason.as_deref() == Some("other") => {
-            (false, SessionTransition::Ended)
-        }
+        "SessionEnd" => (false, SessionTransition::Ended),
         _ => return None,
     };
     Some(CodexObservation {
@@ -184,6 +180,11 @@ impl CodexObservation {
                 }
                 if current.state == RuntimeState::Ended {
                     return None;
+                }
+                if current.state == RuntimeState::Unknown
+                    && current.last_transition == Some(SessionTransition::Ended)
+                {
+                    return current.admit(key, self.transition, RuntimeLiveness::Alive);
                 }
                 if matches!(
                     self.transition,
@@ -363,18 +364,18 @@ pub fn is_shared_session(
     })
 }
 
-/// A reaped client is not a shared-thread end, but a hook's matching terminal
-/// observation must remain terminal even when it arrived before launch probing.
+/// A reaped client is not a shared-runtime end. Preserve an already confirmed
+/// terminal observation for this exact key; a provider end alone is nonterminal.
 pub fn record_client_exit(
     current: &BindingSessionState,
     key: ObservedSessionKey,
     owner: ProcessIncarnation,
     preferences: &tmt_core::binding::session::SessionPreferences,
 ) -> Option<BindingSessionState> {
-    let provider_ended = current.state == RuntimeState::Ended && current.key.as_ref() == Some(&key);
+    let runtime_ended = current.state == RuntimeState::Ended && current.key.as_ref() == Some(&key);
     let shared = is_shared_session(&key, preferences);
     let mut next = current.record_launched_exit(key, owner)?;
-    if shared && !provider_ended {
+    if shared && !runtime_ended {
         next.state = RuntimeState::Unknown;
         next.last_transition = Some(SessionTransition::Resumed);
     }
@@ -670,6 +671,73 @@ mod tests {
     }
 
     #[test]
+    fn provider_end_then_start_turns_over_the_same_embedded_process() {
+        let process = ProcessIncarnation::new(20, "embedded-start").unwrap();
+        let running = start("startup", "old-thread")
+            .propose(
+                &BindingSessionState::default(),
+                &process,
+                RuntimeLiveness::Unknown,
+                false,
+            )
+            .unwrap();
+        let end = decode_hook(
+            br#"{"hook_event_name":"SessionEnd","session_id":"old-thread","reason":"other"}"#,
+        )
+        .unwrap();
+        let ended = end
+            .propose(&running, &process, RuntimeLiveness::Alive, false)
+            .unwrap();
+        assert_eq!(ended.state, RuntimeState::Unknown);
+        assert_eq!(ended.key, running.key);
+        assert_eq!(ended.last_transition, Some(SessionTransition::Ended));
+        for source in ["startup", "resume", "clear"] {
+            let next = start(source, "new-thread")
+                .propose(&ended, &process, RuntimeLiveness::Alive, false)
+                .unwrap();
+            assert_eq!(next.state, RuntimeState::Running);
+            assert_eq!(next.key.as_ref().unwrap().incarnation, process);
+            assert_eq!(
+                next.key
+                    .as_ref()
+                    .unwrap()
+                    .provider_session
+                    .as_ref()
+                    .unwrap()
+                    .as_str(),
+                "new-thread"
+            );
+            assert!(
+                end.propose(&next, &process, RuntimeLiveness::Alive, false)
+                    .is_none()
+            );
+            assert!(
+                start("startup", "old-thread")
+                    .propose(&next, &process, RuntimeLiveness::Alive, false)
+                    .is_none()
+            );
+        }
+        assert!(
+            start("compact", "old-thread")
+                .propose(&ended, &process, RuntimeLiveness::Alive, false)
+                .is_none()
+        );
+        let replacement = ProcessIncarnation::new(20, "different-start").unwrap();
+        for evidence in [RuntimeLiveness::Alive, RuntimeLiveness::Unknown] {
+            assert!(
+                start("startup", "new-thread")
+                    .propose(&ended, &replacement, evidence, false)
+                    .is_none()
+            );
+        }
+        assert!(
+            start("startup", "new-thread")
+                .propose(&ended, &process, RuntimeLiveness::Alive, true)
+                .is_none()
+        );
+    }
+
+    #[test]
     fn owned_resume_preserves_owner_and_client_exit_is_not_thread_end() {
         use tmt_core::binding::session::{
             HarnessId, RememberedSession, RuntimeMode, SessionPreferences,
@@ -720,13 +788,10 @@ mod tests {
             .propose(&lost, &server, RuntimeLiveness::Alive, true)
             .unwrap();
         assert_eq!(restored.state, RuntimeState::Running);
-        let ended = restored
-            .transition(
-                restored.key.as_ref().unwrap(),
-                SessionTransition::Ended,
-                None,
-            )
-            .unwrap();
+        let ended = BindingSessionState {
+            state: RuntimeState::Ended,
+            ..restored
+        };
         assert!(disconnected(&ended, &preferences).is_none());
         let fast = record_client_exit(
             &BindingSessionState::default(),
@@ -809,24 +874,25 @@ mod tests {
             .propose(&clear, &server, RuntimeLiveness::Gone, true)
             .unwrap();
         assert_eq!(shared.key.as_ref().unwrap().incarnation, server);
-        let disconnected = decode_hook(
-            br#"{"hook_event_name":"SessionEnd","session_id":"b","reason":"disconnect"}"#,
+        let future_end = decode_hook(
+            br#"{"hook_event_name":"SessionEnd","session_id":"b","reason":"future-provider-reason"}"#,
         );
-        assert!(
-            disconnected.is_none(),
-            "a client disconnect is not a provider end"
-        );
+        assert_eq!(future_end.unwrap().transition, SessionTransition::Ended);
         let end =
             decode_hook(br#"{"hook_event_name":"SessionEnd","session_id":"b","reason":"other"}"#)
                 .unwrap();
         let ended = end
             .propose(&shared, &server, RuntimeLiveness::Alive, true)
             .unwrap();
-        assert_eq!(ended.state, RuntimeState::Ended);
+        assert_eq!(ended.state, RuntimeState::Unknown);
         assert!(
-            start("resume", "b")
+            start("resume", "foreign")
                 .propose(&ended, &server, RuntimeLiveness::Alive, true)
                 .is_none()
         );
+        let resumed = start("resume", "b")
+            .propose(&ended, &server, RuntimeLiveness::Alive, true)
+            .unwrap();
+        assert_eq!(resumed.state, RuntimeState::Running);
     }
 }

@@ -244,7 +244,7 @@ fn session(
                 },
             ),
             _ => Some(Err(RemoteError::new(
-                "REMOTE_INPUT_INVALID",
+                UNSUPPORTED,
                 "Unknown control operation.",
             ))),
         };
@@ -435,7 +435,7 @@ fn socket_path(remote_directory: &Path) -> Result<PathBuf, RemoteError> {
 /// Bounded read-only discovery. The live address comes from this run, never
 /// from remembered state. Malformed or silent peers cannot become stopped status.
 pub fn status(remote_directory: &Path) -> Result<Option<Value>, RemoteError> {
-    let Some(answer) = request(remote_directory, &json!({"op":"status"}))? else {
+    let Some(answer) = request_operation(remote_directory, "status")? else {
         return Ok(None);
     };
     let origin = answer["origin"].as_str().unwrap_or("");
@@ -465,7 +465,7 @@ pub fn status(remote_directory: &Path) -> Result<Option<Value>, RemoteError> {
 /// Request shutdown only through the admitted control socket. A response means
 /// requested, not stopped; the caller confirms lifecycle lease release.
 pub fn request_stop(remote_directory: &Path) -> Result<bool, RemoteError> {
-    let Some(answer) = request(remote_directory, &json!({"op":"stop"}))? else {
+    let Some(answer) = request_operation(remote_directory, "stop")? else {
         return Ok(false);
     };
     if answer != json!({"stopping":true}) {
@@ -474,6 +474,28 @@ pub fn request_stop(remote_directory: &Path) -> Result<bool, RemoteError> {
         ));
     }
     Ok(true)
+}
+/// Sent for an operation this serve does not implement. Clients match on the
+/// code; alpha.1 serves answered `REMOTE_INPUT_INVALID` instead.
+const UNSUPPORTED: &str = "REMOTE_CONTROL_UNSUPPORTED";
+const LEGACY_UNSUPPORTED_MESSAGE: &str = "Unknown control operation.";
+
+/// Discovery operations postdate alpha.1, so a refusal as unsupported means the
+/// running serve is older than this client. It cannot be asked to stop, so the
+/// message sends the user to its terminal.
+fn request_operation(remote_directory: &Path, op: &str) -> Result<Option<Value>, RemoteError> {
+    request(remote_directory, &json!({ "op": op })).map_err(|error| {
+        let legacy = error.code == "REMOTE_INPUT_INVALID"
+            && error.message == LEGACY_UNSUPPORTED_MESSAGE;
+        if error.code == UNSUPPORTED || legacy {
+            RemoteError::new(
+                "REMOTE_SERVE_OUTDATED",
+                "The running tmt remote serve is older than this tmt remote and does not support this command. Stop it by hand (Ctrl-C in its terminal) and start it again.",
+            )
+        } else {
+            error
+        }
+    })
 }
 fn request(remote_directory: &Path, value: &Value) -> Result<Option<Value>, RemoteError> {
     use nix::sys::socket::{AddressFamily, SockFlag, SockType, UnixAddr, connect, socket};
