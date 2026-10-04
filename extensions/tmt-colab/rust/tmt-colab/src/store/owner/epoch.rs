@@ -372,8 +372,9 @@ impl OwnerTransaction<'_> {
             return Err(OwnerFault::too_large(
                 &cut.page,
                 format!(
-                    "it has {total} updates since its last baseline (limit {})",
-                    crate::decoder::UPDATES
+                    "it has {} changes since its last baseline (limit {})",
+                    count(usize::try_from(total).unwrap_or(usize::MAX)),
+                    count(crate::decoder::UPDATES)
                 ),
             )
             .into());

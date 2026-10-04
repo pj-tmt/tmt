@@ -291,7 +291,7 @@ fn a_write_past_the_browsers_tail_limit_refuses_while_the_page_stays_readable() 
     assert!(message.contains(PAGE), "{message}");
     assert!(
         message.contains(
-            "it has 200 updates since its last baseline, and one more would pass the limit of 200"
+            "is full: it has 200 changes, the most one page can hold. Nothing was deleted."
         ),
         "{message}"
     );
@@ -315,12 +315,7 @@ fn a_write_onto_a_tail_past_256_kib_refuses_with_the_byte_limit() {
     let (source, _, tail) = grow(&mut f, PAGE, 5, true);
     assert!(tail > 256 * 1024);
     let message = edit_fault(&f, &format!("{source}<i>no</i>"));
-    assert!(
-        message.contains(
-            "bytes of updates since its last baseline, and one more would pass the limit of 262144"
-        ),
-        "{message}"
-    );
+    assert!(message.contains("its changes add up to"), "{message}");
 }
 
 /// Plaintext objects past the page-state cap, without caring what they decode to: the size check
@@ -363,7 +358,8 @@ fn a_page_that_cannot_open_names_itself_and_does_not_hide_the_others() {
     for part in [
         HUGE,
         "too large to open",
-        "bytes (limit 25165824)",
+        "(limit 24 MiB)",
+        "Nothing was deleted.",
         "cannot open a page this large yet",
     ] {
         assert!(message.contains(part), "{part} missing from {message}");
@@ -397,6 +393,10 @@ fn a_page_that_cannot_open_names_itself_and_does_not_hide_the_others() {
         .output()
         .unwrap();
     assert!(human.status.success());
-    assert!(String::from_utf8_lossy(&human.stdout).contains("unavailable (COLAB_CAPACITY)"));
+    let listed = String::from_utf8_lossy(&human.stdout);
+    assert!(
+        listed.contains("too large to open") && !listed.contains("COLAB_CAPACITY"),
+        "{listed}"
+    );
     assert!(String::from_utf8_lossy(&human.stderr).contains("too large to open"));
 }
