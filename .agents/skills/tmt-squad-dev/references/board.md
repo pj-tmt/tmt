@@ -294,7 +294,9 @@ here reads the store or core directly.
   read and names its holder `session:window`: the refresh worker asks tmux once per pane id
   (`effects::pane_place`, one bounded `display-message` on the invoker's socket, cached in
   `cronboard::Places`, failures too) and stores it on the read; outside tmux or on any failure the
-  pane id shows. `clock --json` keeps the pane id. The read's failure shows as a blocked line.
+  pane id shows. Its lease age uses `tmt-cli-style::value::relative_time`, like the clock
+  command (`6s ago` or `just now`); narrow lines drop the whole age. `clock --json` keeps
+  the pane id. The read's failure shows as a blocked line.
 - **`c` list.** `Overlay::CronList` routed through the shared `FocusStack` and `app::route`,
   painted by a `picker_surface::State` list modal docked at its content height (like the
   prompt band, so nine tenths wide from 100 columns). Row IDs are `<room uuid>/<c-id>`. Enter opens

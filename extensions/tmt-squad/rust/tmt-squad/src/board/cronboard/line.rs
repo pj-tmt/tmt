@@ -41,7 +41,10 @@ pub(in crate::board) fn clock(
                 format!("clock: {place}")
             } else {
                 let held = u64::try_from(now_ms.saturating_sub(holder.since_ms)).unwrap_or(0);
-                format!("clock: {place} · {}", crate::requests::age(held, 0))
+                format!(
+                    "clock: {place} · {}",
+                    tmt_cli_style::value::relative_time(held)
+                )
             };
             (first_line(&text), Role::Dim)
         }
