@@ -202,7 +202,7 @@ impl Drop for TunnelSlot {
 }
 impl Mounts {
     /// `root` is the absolute core data root; `origin` the door's exact
-    /// origin; `prefix` the machine's `/r/<32 hex>` route prefix.
+    /// origin; `prefix` the machine's `/r/<16 lowercase base32>` route prefix.
     pub fn new(root: PathBuf, origin: &str, prefix: &str, sessions: Arc<dyn Sessions>) -> Self {
         Self::with_extensions(root, origin, prefix, sessions, &EXTENSIONS)
     }

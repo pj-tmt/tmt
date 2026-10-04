@@ -1,5 +1,5 @@
 import { expect, test, chromium, type Browser } from '@playwright/test';
-import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
+import { spawn, execFileSync, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { createPublicKey, verify } from 'node:crypto';
 import { extCertSigningBytes } from '../src/canonical-bytes.js';
 import type { ExtCertificate } from '../src/device.js';
@@ -118,10 +118,18 @@ test('a browser pairs, gets a door session and certifies only its own extension'
   const offer = await events.next();
   const link = offer.link as string;
   const code = link.split('#')[1]!;
+  expect(new URL(link).pathname).toBe('/pair');
+  expect(code).toMatch(/^[A-Z2-7]{26}$/);
+  expect(link.length).toBeLessThanOrEqual(59);
   const context = await browser.newContext();
   const requested: string[] = [];
   context.on('request', (request) => requested.push(request.url()));
   const page = await context.newPage();
+  await page.route('**/sdk/remote-v1.js', async (route) => {
+    // The synchronous bootstrap must erase the code before the SDK is even requested.
+    expect(await page.evaluate(() => location.hash)).toBe('');
+    await route.continue();
+  });
   await page.goto(link);
   // The page removed the fragment before anything else ran.
   await page.waitForFunction(() => location.hash === '');
@@ -219,6 +227,7 @@ test('a browser pairs, gets a door session and certifies only its own extension'
     'RefusalError',
     'certifyKey',
     'operations',
+    'pairingPage',
     'reopenSession',
   ]);
   expect(result.newRecordHasCache).toBe(false);
@@ -306,6 +315,59 @@ test('a browser pairs, gets a door session and certifies only its own extension'
     deviceId: device.deviceId,
   });
   await exited(pair);
+  // Model a previously shipped schema5 door and browser address. The real restart migrates
+  // the machine path; the stored origin-bound key/grant must reopen without pairing again.
+  const oldMounts = mounts;
+  const legacyPrefix = '/r/0123456789abcdef0123456789abcdef';
+  await app.evaluate(async (address) => {
+    const database = await new Promise<IDBDatabase>((resolve) => {
+      const request = indexedDB.open('tmt-remote', 1);
+      request.onsuccess = () => resolve(request.result);
+    });
+    const stored = await new Promise<Record<string, unknown>>((resolve) => {
+      const request = database.transaction('device').objectStore('device').get('device');
+      request.onsuccess = () => resolve(request.result as Record<string, unknown>);
+    });
+    await new Promise<void>((resolve, reject) => {
+      const transaction = database.transaction('device', 'readwrite');
+      transaction
+        .objectStore('device')
+        .put({ ...stored, paired: { ...(stored.paired as object), address } }, 'device');
+      transaction.oncomplete = () => resolve();
+      transaction.onerror = () => reject(transaction.error);
+    });
+    database.close();
+  }, `${origin}${legacyPrefix}`);
+  serve.kill('SIGTERM');
+  await exited(serve);
+  execFileSync(
+    'python3',
+    [
+      '-c',
+      "import sqlite3,sys; db=sqlite3.connect(sys.argv[1]); db.execute('UPDATE machine SET route_prefix=?', (sys.argv[2],)); db.execute('DELETE FROM _migrations WHERE version=6'); db.commit(); db.close()",
+      join(root, 'state/remote/remote.db'),
+      legacyPrefix,
+    ],
+    { timeout: 10_000 },
+  );
+  serve = spawn(BINARY, ['serve', '--json'], { env });
+  const restarted = await lines(serve).next();
+  expect(new URL(restarted.address as string).origin).toBe(origin);
+  expect(new URL(restarted.address as string).pathname).toMatch(/^\/r\/[a-z2-7]{16}$/);
+  mounts = `${restarted.address as string}/x/`;
+  expect(mounts).not.toBe(oldMounts);
+  expect((await app.goto(`${origin}${legacyPrefix}/x/colab/home`))?.status()).toBe(404);
+  await app.goto(`${mounts}colab/home`);
+  await expect(app.locator('#context')).toHaveText('none');
+  await app.evaluate(async () => {
+    const sdk = (await import('/sdk/remote-v1.js' as string)) as typeof import('../src/browser.js');
+    await sdk.reopenSession();
+  });
+  await app.reload();
+  expect(JSON.parse((await app.locator('#context').textContent())!)).toMatchObject({
+    deviceId: device.deviceId,
+  });
+  expect((await page.request.get(`${origin}/sdk/pair-offer`)).status()).toBe(404);
   const revoke = spawn(BINARY, ['devices', 'revoke', device.deviceId as string, '--json'], { env });
   const revoked = await lines(revoke).next();
   await exited(revoke);
@@ -464,7 +526,8 @@ test('browser pages use local tokens in both schemes and fit desktop and mobile'
           'Pairing did not complete. Run tmt remote pair again for a new link.',
         );
         await expect(page.locator('#mark')).toHaveText('✗');
-        await page.goto(`${origin}/pair/abc`);
+        expect((await page.goto(`${origin}/pair/abc`))?.status()).toBe(404);
+        await page.goto(`${origin}/pair#BAD`);
         await expect(page.locator('#status')).toHaveAttribute('data-state', 'blocked');
         await expect(page.locator('#pair')).toBeHidden();
         expect(requests.every((url) => new URL(url).origin === origin)).toBe(true);

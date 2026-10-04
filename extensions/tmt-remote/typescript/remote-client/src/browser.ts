@@ -16,6 +16,7 @@ import {
   openSession,
   pair,
   parseLink,
+  resolveLink,
   type ExtCertificate,
   type Paired,
   type Session,
@@ -90,7 +91,14 @@ export async function reopenSession(): Promise<Session> {
   const current = await door();
   if (current.machineId !== record.paired.machineId)
     throw new Error('Paired with another machine.');
-  return openSession(record.paired, key, current.windowId);
+  // A schema migration may replace the non-credential route path while the origin/grant survive.
+  if (
+    !current.address.startsWith(`${location.origin}/r/`) ||
+    !/^[a-z2-7]{16}$/.test(current.address.slice(`${location.origin}/r/`.length))
+  ) {
+    throw new Error('The door advertised an invalid address.');
+  }
+  return openSession({ ...record.paired, address: current.address }, key, current.windowId);
 }
 
 /**
@@ -123,24 +131,30 @@ function showState(
   status.textContent = text;
   element('mark').textContent = { waiting: '◆', paired: '✓', blocked: '✗' }[state];
 }
-/** The pairing page. The fragment holding the code is removed before anything else runs. */
-function pairingPage(): void {
-  const link = location.href;
-  history.replaceState(null, '', location.pathname);
+/** Called by the fragment-erasing bootstrap after the page DOM is ready. */
+export async function pairingPage(link: string): Promise<void> {
+  if (document.readyState === 'loading') {
+    await new Promise<void>((resolve) =>
+      document.addEventListener('DOMContentLoaded', () => resolve(), { once: true }),
+    );
+  }
   const status = element('status');
   const form = element('pair') as HTMLFormElement;
+  const button = form.querySelector('button')!;
+  button.disabled = true;
   let parsed: ReturnType<typeof parseLink>;
   try {
-    parsed = parseLink(link);
+    parsed = await resolveLink(link);
   } catch {
     form.hidden = true;
     showState(
       status,
       'blocked',
-      'This pairing link is incomplete. Copy the whole link from tmt remote pair.',
+      'This pairing link is unavailable. Run tmt remote pair again for a new link.',
     );
     return;
   }
+  button.disabled = false;
   form.addEventListener('submit', (event) => {
     event.preventDefault();
     form.hidden = true;
@@ -181,5 +195,3 @@ async function ceremony(
   await openSession(result, key, descriptor.windowId);
   showState(status, 'paired', 'This browser is paired. You can close this page.');
 }
-
-if (document.documentElement.dataset.tmtPage === 'pair') pairingPage();

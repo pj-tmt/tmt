@@ -14,7 +14,7 @@ use tmt_remote::{
     limits,
     routes::Routes,
 };
-const PREFIX: &str = "/r/0123456789abcdef0123456789abcdef";
+const PREFIX: &str = "/r/k7qxm4tz2pbwn6rh";
 struct Running {
     addr: SocketAddr,
     prefix: String,
@@ -25,7 +25,7 @@ impl Running {
     fn new() -> Self {
         let routes = Arc::new(Routes::new(1024, PREFIX.into()).unwrap());
         let prefix = routes.prefix().to_owned();
-        assert_eq!(prefix.len(), 35);
+        assert_eq!(prefix.len(), 19);
         let door = Door::bind(0).unwrap();
         let addr = door.socket_addr().unwrap();
         assert!(addr.ip().is_loopback() && addr.is_ipv4());
@@ -124,10 +124,7 @@ fn remote_routes_refuse_with_isolated_framing_controls() {
         (valid.replace("/append", "/./append"), 400),
         (valid.replace("/append", "//append"), 400),
         (valid.replace("POST", "GET"), 404),
-        (
-            valid.replace(&door.prefix, "/r/00000000000000000000000000000000"),
-            404,
-        ),
+        (valid.replace(&door.prefix, "/r/aaaaaaaaaaaaaaaa"), 404),
         (door.post("/append", "Cookie: x=y\r\n", "{}"), 400),
         (
             door.post("/append", "Authorization: Bearer x\r\n", "{}"),
@@ -248,10 +245,12 @@ fn capacity_acquisition_and_shutdown_close_retained_sockets_twice() {
     assert!(Routes::new(0, PREFIX.into()).is_err());
     assert!(Routes::new(limits::CORE_INPUT_BYTES + 1, PREFIX.into()).is_err());
     for prefix in [
-        "/r/0123456789abcdef0123456789ABCDEF",
-        "/r/0123456789abcdef0123456789abcde",
-        "/x/0123456789abcdef0123456789abcdef",
-        "/r/0123456789abcdef0123456789abcdef/",
+        "/r/K7qxm4tz2pbwn6rh",
+        "/r/07qxm4tz2pbwn6rh",
+        "/r/0123456789abcdef0123456789abcdef",
+        "/r/k7qxm4tz2pbwn6r",
+        "/x/k7qxm4tz2pbwn6rh",
+        "/r/k7qxm4tz2pbwn6rh/",
     ] {
         assert!(Routes::new(1024, prefix.into()).is_err(), "{prefix}");
     }

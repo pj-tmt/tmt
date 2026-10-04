@@ -58,7 +58,7 @@ fn machine_key_and_identity_are_created_once_and_stable() {
             .unwrap(),
         machine
     );
-    assert!(machine.route_prefix.starts_with("/r/") && machine.route_prefix.len() == 35);
+    assert!(machine.route_prefix.starts_with("/r/") && machine.route_prefix.len() == 19);
     // Distinct roots get distinct identities.
     let other = Root::new();
     let other_layout = Layout::open(&other.0).unwrap();
@@ -292,7 +292,8 @@ fn schema_history_uses_core_migrations() {
             (2, "grants".to_owned()),
             (3, "sessions".to_owned()),
             (4, "journal".to_owned()),
-            (5, "door_port".to_owned())
+            (5, "door_port".to_owned()),
+            (6, "short_route_prefix".to_owned())
         ]
     );
     let journal: String = inspect
@@ -306,11 +307,11 @@ fn schema_history_uses_core_migrations() {
         .unwrap()
         .query_row("SELECT COUNT(*) FROM _migrations", [], |r| r.get(0))
         .unwrap();
-    assert_eq!(count, 5);
+    assert_eq!(count, 6);
     // A newer build's history refuses instead of being reinterpreted.
     Connection::open(&db)
         .unwrap()
-        .execute("INSERT INTO _migrations VALUES (6, 'future', 'now')", [])
+        .execute("INSERT INTO _migrations VALUES (7, 'future', 'now')", [])
         .unwrap();
     assert_eq!(
         Store::open(&layout.serve_lock().unwrap())
@@ -322,7 +323,7 @@ fn schema_history_uses_core_migrations() {
     // A renamed step refuses as damaged history.
     let damage = Connection::open(&db).unwrap();
     damage
-        .execute("DELETE FROM _migrations WHERE version = 6", [])
+        .execute("DELETE FROM _migrations WHERE version = 7", [])
         .unwrap();
     damage
         .execute(
@@ -337,6 +338,81 @@ fn schema_history_uses_core_migrations() {
             .unwrap()
             .code,
         "REMOTE_STATE_UNAVAILABLE"
+    );
+}
+
+/// Frozen pre-change schema copied from 180295209; expected preservation is literal.
+fn schema5(root: &Root, prefix: &str) -> Layout {
+    let layout = Layout::open(&root.0).unwrap();
+    drop(layout.file("remote.db").unwrap());
+    let connection = Connection::open(root.remote().join("remote.db")).unwrap();
+    connection
+        .execute_batch(include_str!("fixtures/schema5.sql"))
+        .unwrap();
+    connection
+        .execute(
+            "INSERT INTO machine VALUES (1, '00000000-0000-4000-8000-000000000001', ?1)",
+            [prefix],
+        )
+        .unwrap();
+    connection.execute_batch("INSERT INTO door_port VALUES (1, 12345);
+        INSERT INTO grants VALUES ('00000000-0000-4000-8000-000000000002', zeroblob(32), 'browser',
+        'http://127.0.0.1:12345', 'Legacy browser', 'all', 'agents.read talk', 'direct', 1, NULL, 1, 0);").unwrap();
+    layout
+}
+#[test]
+fn schema6_changes_only_the_prefix_once_and_preserves_origin_bound_grants() {
+    let root = Root::new();
+    let old_prefix = "/r/0123456789abcdef0123456789abcdef";
+    let layout = schema5(&root, old_prefix);
+    let public = MachineKey::open(&layout).unwrap().public();
+    let serving = layout.serve_lock().unwrap();
+    let before = fs::read(root.remote().join("remote.db")).unwrap();
+    assert_eq!(Store::stopped_port(&serving).unwrap(), Some(12345));
+    assert_eq!(fs::read(root.remote().join("remote.db")).unwrap(), before);
+    let mut migrated = Store::open(&serving).unwrap();
+    let machine = migrated.machine().unwrap();
+    assert_eq!(machine.id, "00000000-0000-4000-8000-000000000001");
+    assert!(tmt_remote::canonical::route_prefix(&machine.route_prefix));
+    assert_ne!(machine.route_prefix, old_prefix);
+    assert_eq!(migrated.remembered_port().unwrap(), Some(12345));
+    let grants = migrated.grants().unwrap();
+    assert_eq!(grants.len(), 1);
+    assert_eq!(grants[0].client_id, "00000000-0000-4000-8000-000000000002");
+    assert_eq!(grants[0].origin, "http://127.0.0.1:12345");
+    assert_eq!(grants[0].name, "Legacy browser");
+    assert_eq!(grants[0].revision, 1);
+    assert!(!grants[0].disabled);
+    assert_eq!(grants[0].public_key, [0; 32]);
+    drop(migrated);
+    let mut again = Store::open(&serving).unwrap();
+    assert_eq!(again.machine().unwrap(), machine);
+    assert_eq!(again.grants().unwrap(), grants);
+    assert_eq!(MachineKey::open(&layout).unwrap().public(), public);
+}
+#[test]
+fn a_damaged_legacy_prefix_refuses_without_recording_the_migration() {
+    let root = Root::new();
+    let layout = schema5(&root, "/r/invalid");
+    let serving = layout.serve_lock().unwrap();
+    assert_eq!(
+        Store::open(&serving).err().unwrap().code,
+        "REMOTE_STATE_UNAVAILABLE"
+    );
+    let inspect = Connection::open(root.remote().join("remote.db")).unwrap();
+    assert_eq!(
+        inspect
+            .query_row("SELECT COUNT(*) FROM _migrations", [], |r| r
+                .get::<_, i64>(0))
+            .unwrap(),
+        5
+    );
+    assert_eq!(
+        inspect
+            .query_row("SELECT route_prefix FROM machine", [], |r| r
+                .get::<_, String>(0))
+            .unwrap(),
+        "/r/invalid"
     );
 }
 
@@ -365,7 +441,7 @@ fn stopped_port_reads_are_noncreating_and_legacy_state_is_not_migrated() {
     drop(stopped);
     // Model the previously shipped schema, preserving its exact migration names.
     let old = Connection::open(&db).unwrap();
-    old.execute_batch("DROP TABLE door_port; DELETE FROM _migrations WHERE version = 5")
+    old.execute_batch("DROP TABLE door_port; DELETE FROM _migrations WHERE version >= 5")
         .unwrap();
     drop(old);
     let before = fs::read(&db).unwrap();

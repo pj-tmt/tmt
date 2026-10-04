@@ -107,7 +107,7 @@ export class DeviceKey {
   }
 }
 
-/** The pairing descriptor printed by `tmt remote pair`, carried in the link path. */
+/** The public current-offer descriptor printed by `tmt remote pair` and served by the door. */
 export interface Descriptor {
   profile: 'local-v1';
   binding: 'loopback-http';
@@ -127,12 +127,32 @@ const DESCRIPTOR_FIELDS = [
   'address',
   'serverChallenge',
 ];
-/** Parse `<door>/pair/<descriptor>#<code>`. The page removes the fragment before calling this. */
-export function parseLink(link: string): { descriptor: Descriptor; code: Uint8Array } {
+function pairingUrl(link: string): URL {
   const url = new URL(link);
-  const encoded = /^\/pair\/([A-Za-z0-9_-]+)$/.exec(url.pathname)?.[1];
-  requireValue(encoded !== undefined && url.search === '', 'pairing link');
-  const descriptor = JSON.parse(strictUtf8.decode(decode(encoded))) as Record<string, unknown>;
+  requireValue(
+    url.protocol === 'http:' &&
+      url.hostname === '127.0.0.1' &&
+      url.pathname === '/pair' &&
+      url.search === '' &&
+      url.username === '' &&
+      url.password === '' &&
+      /^[A-Z2-7]{26}$/.test(url.hash.slice(1)),
+    'pairing link',
+  );
+  pairingCode(url.hash.slice(1));
+  return url;
+}
+/** Parse a short link and validate the separately obtained public offer descriptor. */
+export function parseLink(
+  link: string,
+  value: unknown,
+): { descriptor: Descriptor; code: Uint8Array } {
+  const url = pairingUrl(link);
+  requireValue(
+    value !== null && typeof value === 'object' && !Array.isArray(value),
+    'pairing descriptor',
+  );
+  const descriptor = value as Record<string, unknown>;
   requireValue(
     Object.keys(descriptor).length === DESCRIPTOR_FIELDS.length &&
       DESCRIPTOR_FIELDS.every((field) => typeof descriptor[field] === 'string') &&
@@ -140,10 +160,21 @@ export function parseLink(link: string): { descriptor: Descriptor; code: Uint8Ar
       descriptor.binding === 'loopback-http' &&
       ['machineId', 'windowId', 'offerId'].every((id) => UUID.test(descriptor[id] as string)) &&
       HEX16.test(descriptor.serverChallenge as string) &&
-      (descriptor.address as string).startsWith(`${url.origin}/r/`),
+      (descriptor.address as string).startsWith(`${url.origin}/r/`) &&
+      /^[a-z2-7]{16}$/.test((descriptor.address as string).slice(`${url.origin}/r/`.length)),
     'pairing descriptor',
   );
   return { descriptor: descriptor as unknown as Descriptor, code: pairingCode(url.hash.slice(1)) };
+}
+/** Fetch only the public offer; the code never enters a request URL or body here. */
+export async function resolveLink(
+  link: string,
+  network: typeof fetch = fetch,
+): Promise<ReturnType<typeof parseLink>> {
+  const url = pairingUrl(link);
+  const response = await network(`${url.origin}/sdk/pair-offer`, { cache: 'no-store' });
+  requireValue(response.status === 200, 'pairing offer');
+  return parseLink(link, await response.json());
 }
 
 /** What the device keeps after a verified pairing. */

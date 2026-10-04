@@ -8,7 +8,14 @@ use std::{fs::File, ops::Deref, path::Path};
 use tmt_extension_state::Error as StateError;
 
 /// Private file names; anything else is refused.
-const FILES: [&str; 4] = ["machine.key", "key.lock", "serve.lock", "remote.db"];
+const FILES: [&str; 6] = [
+    "machine.key",
+    "key.lock",
+    "serve.lock",
+    "remote.db",
+    "settings.json",
+    "settings.lock",
+];
 
 fn unsafe_directory() -> RemoteError {
     RemoteError::new(
@@ -32,7 +39,7 @@ fn io(error: impl std::fmt::Display) -> RemoteError {
     RemoteError::new("REMOTE_IO", &format!("Remote state I/O failed: {error}."))
 }
 
-fn state_error(error: StateError) -> RemoteError {
+pub(crate) fn state_error(error: StateError) -> RemoteError {
     match error {
         StateError::RootNotAbsolute => {
             RemoteError::new("REMOTE_ROOT_INVALID", "Data root must be absolute.")

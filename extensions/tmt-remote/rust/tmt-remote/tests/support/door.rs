@@ -122,12 +122,15 @@ impl Harness {
                 &machine.route_prefix,
                 Arc::clone(&sessions) as _,
             )),
-            pages: Some(Pages::new(
-                &origin,
-                machine.id.clone(),
-                window_id.clone(),
-                &machine.route_prefix,
-            )),
+            pages: Some(
+                Pages::new(
+                    &origin,
+                    machine.id.clone(),
+                    window_id.clone(),
+                    &machine.route_prefix,
+                )
+                .with_pairing(Arc::clone(&pairing)),
+            ),
         });
         let flag = Arc::clone(&stop);
         let door = thread::spawn(move || door.run(&flag, site as Arc<dyn Handler>).unwrap());

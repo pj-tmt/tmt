@@ -94,10 +94,7 @@ fn the_pairing_page_and_sdk_are_served_with_exact_types_and_policy() {
             .contains(r#"<link rel="stylesheet" href="/sdk/pages.css" />"#)
     );
     assert!(page.body.contains(r#"data-tmt-page="pair""#));
-    assert!(
-        page.body
-            .contains(r#"<script type="module" src="/sdk/remote-v1.js">"#)
-    );
+    assert!(page.body.contains(r#"<script src="/sdk/pair.js">"#));
     let sdk = get(
         &h,
         "/sdk/remote-v1.js",
@@ -127,6 +124,41 @@ fn the_pairing_page_and_sdk_are_served_with_exact_types_and_policy() {
         let label = &path[..path.len().min(40)];
         assert_eq!(get(&h, path, headers).status, status, "{label}");
     }
+}
+
+#[test]
+fn offer_lookup_is_public_same_origin_data_and_tracks_offer_lifetime() {
+    let h = Harness::new(FAST);
+    assert_eq!(get(&h, "/sdk/pair-offer", "").status, 404);
+    let mut first = open(&h);
+    let answer = get(&h, "/sdk/pair-offer", &format!("Origin: {}\r\n", h.origin));
+    assert_eq!(answer.status, 200);
+    assert_eq!(answer.header("cache-control"), Some("no-store"));
+    assert_eq!(
+        serde_json::from_str::<Value>(&answer.body).unwrap(),
+        first.descriptor
+    );
+    assert!(!answer.body.contains("code"));
+    assert_eq!(
+        get(&h, "/sdk/pair-offer", "Origin: http://127.0.0.1:1\r\n").status,
+        403
+    );
+    let mut second = open(&h);
+    assert_eq!(first.owner.next()["reason"], "replaced");
+    let current: Value = serde_json::from_str(&get(&h, "/sdk/pair-offer", "").body).unwrap();
+    assert_eq!(current, second.descriptor);
+    assert_ne!(current, first.descriptor);
+    second.owner.answer("refuse");
+    assert_eq!(second.owner.next()["reason"], "refused");
+    assert_eq!(get(&h, "/sdk/pair-offer", "").status, 404);
+    let bootstrap = get(&h, "/sdk/pair.js", "");
+    assert_eq!(bootstrap.status, 200);
+    assert_eq!(bootstrap.body, include_str!("../assets/pair.js"));
+    assert!(
+        bootstrap.body.find("history.replaceState").unwrap()
+            < bootstrap.body.find("import(").unwrap()
+    );
+    assert_eq!(get(&h, "/pair/old", "").status, 404);
 }
 
 #[test]
@@ -193,7 +225,7 @@ fn static_pages_and_styles_are_exact_and_refusals_remain_generic() {
         ("/pair/", "", 404),
         ("/pair/a.b", "", 404),
         ("/", "Origin: http://127.0.0.1:1\r\n", 403),
-        ("/pair/abc", "Origin: http://127.0.0.1:1\r\n", 403),
+        ("/pair", "Origin: http://127.0.0.1:1\r\n", 403),
     ] {
         let reply = get(&h, path, headers);
         assert_eq!(reply.status, status);

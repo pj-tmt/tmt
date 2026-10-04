@@ -1135,8 +1135,11 @@ Colab has no door of its own: Remote mounts its owner-only socket under
 `/r/<prefix>/x/colab/` and keeps Host/Origin, pairing, cookie and live-grant
 admission. [`contracts/remote-channel-v1.md`](contracts/remote-channel-v1.md) owns
 the wire, pairing, session, operations and extension channel API. Remote owns the
-static root landing and pairing-page errors as well as the pairing ceremony;
-protocol refusals and mounted extension responses retain their own representation.
+static root landing, pairing-page errors and pairing ceremony; protocol refusals and mounted
+extension responses retain their own representation. Remote's browser-open setting uses its private
+layout independently of the serve/database lease. Its bootstrap erases the secret fragment before
+loading the SDK. Schema 6 replaces the non-credential route prefix once while preserving
+origin-bound grants; browser reopen adopts the current path.
 The door serves the browser SDK `remote-v1.js` (built from `remote-client`), which
 gives mounted pages `reopenSession`, `operations(session)` and `certifyKey`; its README owns
 the caller-facing recovery rules. The
