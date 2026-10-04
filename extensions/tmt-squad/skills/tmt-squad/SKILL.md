@@ -714,7 +714,9 @@ w = "token-window"
 ```
 
 `–` means no usable observed interval for that member; a baseline alone is not
-measured zero. Any covered reading, including measured zero, is numeric. `~` marks
+measured zero. Covered readings, including measured zero, are numeric. Known nonzero history
+deltas also show as partial lower bounds even without continuous coverage;
+zero without coverage stays unavailable. `~` marks
 a window longer than available coverage or with missing evidence. Windows beyond
 one hour include retained board observations when available; partial history
 shows the covered total. Core rollups crossing a shorter window boundary are

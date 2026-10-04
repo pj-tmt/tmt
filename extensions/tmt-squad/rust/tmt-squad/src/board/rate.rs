@@ -227,6 +227,8 @@ impl Member {
                     .is_some_and(|from| from < now.saturating_sub(window.milliseconds()));
                 if !cut {
                     reading.tokens += bucket.tokens;
+                    // Known lower-bound deltas remain data without continuous coverage.
+                    evidence |= bucket.tokens > 0;
                 }
                 reading.partial |= cut;
                 reading.partial |= bucket.gap;
@@ -235,7 +237,7 @@ impl Member {
             }
         }
         reading.partial |= observed_slots < count;
-        // A baseline alone is not a measured zero.
+        // A baseline or uncovered zero alone is not a measured zero.
         evidence.then_some(reading)
     }
 }
@@ -428,6 +430,7 @@ impl Rate {
                         .is_none_or(|from| from >= now.saturating_sub(window.milliseconds()))
                     {
                         tokens += bucket.tokens;
+                        evidence |= bucket.tokens > 0;
                     }
                     evidence |= bucket.evidence;
                 }
