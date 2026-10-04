@@ -470,7 +470,10 @@ is required for `layout`, `board.panes`, `board.direction`, `board.sizes`,
 `board.hidden_columns`, `notes.render`, `states.STATE.color`, `reminders.enabled`
 and `reminders.stale_after`. `board.refresh` and `board.ask_lead`
 use the squad layer with `--squad`, otherwise the global Squad board layer.
-`tabs.order` and `tabs.hide` always edit global Squad tab policy. Arrays use JSON;
+`board.home_replies` is a global boolean (default `true`) controlling HOME's
+lead-message previews and separators; it rejects `--squad`. `t` on HOME saves
+this setting through the same validated writer. `tabs.order` and `tabs.hide`
+always edit global Squad tab policy. Arrays use JSON;
 other values are unquoted scalar arguments. Examples:
 
 ```sh

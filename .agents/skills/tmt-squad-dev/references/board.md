@@ -125,7 +125,10 @@ keep their own fitting and the same reserved tail.
 revalidation accepts the member as recipient); without either it only says so. Opening, Esc and an
 empty Enter send nothing, and pending is never cleared or acknowledged by it.
 
-`App::input` is the one composer for talk, answer, annotation and ask-lead.
+`App::input` is the one composer for talk, answer, annotation, ask-lead and HOME
+lead audiences, and owns the read-only expanded-message mode. That mode consumes
+input without editing or submitting; e/Esc collapse, a transitions into the ordinary
+answer/note owner, and arrows/page keys scroll the wrapped body.
 Row composers retain a `RowSend` with tab/section/squad/member occurrence and
 opening sender. Home uses its existing section/squad/member target. A single
 request opens directly; multiple requests retain the explicit picker. The
@@ -138,8 +141,8 @@ acquire no additional data.
 The home and member painters reserve the inline band's visual lines beneath the
 complete target row. The same line stream supplies row starts, scroll reveal and
 clipped hits. `board::view::waiting` projects that reservation into a current-frame
-band spanning the body width, paints opaque `tmt-tui::Modal` chrome and admitted
-strips, and removes covered pane hits. Note headers derive recipient and subject
+band spanning the body width (the box's inner width for HOME leads), paints
+opaque `tmt-tui::Modal` chrome and admitted strips, and removes covered pane hits. Note headers derive recipient and subject
 from `Compose::Annotate { to, row }`, adding `about <row>` only when they differ.
 Recipient headers use Accent; the quoted question's ◆ uses Waiting. The quote truncates before the input or recipient.
 Unanchored composers, including notebook-level annotations and links to a lead

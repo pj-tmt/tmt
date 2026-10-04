@@ -28,6 +28,10 @@ pub enum Verb {
     Tab,
     Talk,
     AskLead,
+    HomeReplies,
+    HomeMessage,
+    HomeWrite,
+    HomePick,
     Reply,
     Annotate,
 }
@@ -53,6 +57,10 @@ impl Verb {
             "tab" => Self::Tab,
             "talk" => Self::Talk,
             "ask-lead" => Self::AskLead,
+            "home-replies" => Self::HomeReplies,
+            "home-message" => Self::HomeMessage,
+            "home-write" => Self::HomeWrite,
+            "home-pick" => Self::HomePick,
             "reply" => Self::Reply,
             "annotate" => Self::Annotate,
             _ => return None,
@@ -95,6 +103,10 @@ impl Verb {
             Self::Tab => "tab",
             Self::Talk => "talk",
             Self::AskLead => "ask-lead",
+            Self::HomeReplies => "home-replies",
+            Self::HomeMessage => "home-message",
+            Self::HomeWrite => "home-write",
+            Self::HomePick => "home-pick",
             Self::Reply => "reply",
             Self::Annotate => "annotate",
         }
@@ -173,7 +185,11 @@ impl Action {
             Verb::Notes => 6,
             Verb::Run => 7,
             Verb::Tab => 8,
-            Verb::AskLead => 10,
+            Verb::AskLead
+            | Verb::HomeReplies
+            | Verb::HomeMessage
+            | Verb::HomeWrite
+            | Verb::HomePick => 10,
             Verb::Jump => 11,
             Verb::View => 12,
             Verb::Theme => 13,
@@ -211,7 +227,14 @@ impl Action {
             Verb::Theme => 13,
             Verb::TokenWindow => 14,
             Verb::Jump => 15,
-            Verb::Notes | Verb::PickTab | Verb::Settings | Verb::Run => return None,
+            Verb::Notes
+            | Verb::PickTab
+            | Verb::Settings
+            | Verb::Run
+            | Verb::HomeReplies
+            | Verb::HomeMessage
+            | Verb::HomeWrite
+            | Verb::HomePick => return None,
         })
     }
 
@@ -250,6 +273,10 @@ impl Action {
             Verb::Tab => "open the selected squad".into(),
             Verb::Talk => "send the member a message".into(),
             Verb::AskLead => "ask the lead what waits on you".into(),
+            Verb::HomeReplies => "show or hide HOME reply previews".into(),
+            Verb::HomeMessage => "expand the selected HOME lead message".into(),
+            Verb::HomeWrite => "write to all HOME leads".into(),
+            Verb::HomePick => "pick a HOME lead to write to".into(),
             Verb::Reply => "answer the member's request, or note its pending decision".into(),
             Verb::Annotate if target == Some("member") => "send the member a note".into(),
             Verb::Annotate => "send the lead a note".into(),
@@ -456,6 +483,10 @@ pub fn all_preset() -> Bindings {
         [
             ("tab", Some("next-pane")),
             ("a", Some("annotate lead")),
+            ("t", Some("home-replies")),
+            ("e", Some("home-message")),
+            ("A", Some("home-write")),
+            ("@", Some("home-pick")),
             ("enter", Some("tab")),
             ("double-click", Some("tab")),
             ("ctrl-r", Some("refresh")),

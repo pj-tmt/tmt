@@ -1674,6 +1674,30 @@ impl Config {
         Ok(draft)
     }
 
+    /// HOME preview visibility is global; squad-local copies are invalid.
+    pub fn home_replies(&self) -> Result<bool, SquadError> {
+        if let Some(squads) = self.document.get("squad").and_then(Item::as_table_like) {
+            for (name, table) in squads.iter() {
+                if table
+                    .get("board")
+                    .and_then(|board| board.get("home_replies"))
+                    .is_some()
+                {
+                    return Err(invalid(format!(
+                        "`squad.{name}.board.home_replies` is global-only; use `board.home_replies`."
+                    )));
+                }
+            }
+        }
+        self.source_item(&["board", "home_replies"])
+            .map(|item| {
+                item.as_bool()
+                    .ok_or_else(|| invalid("`board.home_replies` must be true or false."))
+            })
+            .transpose()
+            .map(|value| value.unwrap_or(true))
+    }
+
     /// Validate both layers even when the squad masks the global question.
     pub fn ask_lead(&self, squad: &str) -> Result<String, SquadError> {
         let mut question = DEFAULT_ASK_LEAD.to_owned();
@@ -2528,6 +2552,55 @@ mod tests {
             assert_eq!(fs::read_to_string(&path).unwrap(), original);
         }
         fs::remove_dir_all(path.parent().unwrap()).unwrap();
+    }
+
+    #[test]
+    fn home_replies_is_global_boolean_and_failed_edits_preserve_the_file() {
+        let path = temp("home-replies");
+        let mut config = Config::read(path.clone()).unwrap();
+        assert!(config.home_replies().unwrap());
+        assert!(config.can_edit_setting("board.home_replies", None));
+        assert!(!config.can_edit_setting("board.home_replies", Some("x")));
+        config
+            .set_setting(None, "board.home_replies", "false")
+            .unwrap();
+        assert!(!Config::read(path.clone()).unwrap().home_replies().unwrap());
+        let shown = config
+            .settings(Some(crate::tabs::ALL), false, None)
+            .unwrap()
+            .value();
+        let entry = shown["entries"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|entry| entry["key"] == "board.home_replies")
+            .unwrap();
+        assert_eq!(entry["value"], false);
+        assert_eq!(entry["source"], "board.home_replies");
+        assert_eq!(entry["editable"], true);
+        let before = std::fs::read(&path).unwrap();
+        for (scope, text) in [(None, "yes"), (None, "'false'"), (Some("x"), "true")] {
+            assert!(
+                config
+                    .set_setting(scope, "board.home_replies", text)
+                    .is_err()
+            );
+            assert_eq!(std::fs::read(&path).unwrap(), before);
+        }
+        for body in [
+            "[board]\nhome_replies='false'\n",
+            "[squad.x.board]\nhome_replies=false\n",
+        ] {
+            std::fs::write(&path, body).unwrap();
+            let invalid = Config::read(path.clone()).unwrap();
+            assert!(invalid.home_replies().is_err());
+            assert!(
+                invalid
+                    .settings(Some(crate::tabs::ALL), false, None)
+                    .is_err()
+            );
+        }
+        std::fs::remove_dir_all(path.parent().unwrap()).unwrap();
     }
 
     #[test]

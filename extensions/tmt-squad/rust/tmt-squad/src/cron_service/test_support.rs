@@ -89,6 +89,7 @@ if a[0]=='api':
     if structured: fail('STORAGE_UNAVAILABLE')
     print('interrupted'); sys.exit(0)
  elif op=='dispatch.show':
+  if m.get('dispatchShowFailure'): save(m); fail('STORAGE_UNAVAILABLE')
   previous=m.get('dispatches',{}).get(i['operationId'])
   if not previous: save(m); fail('DISPATCH_NOT_FOUND')
   out=previous['receipt']

@@ -1,7 +1,10 @@
 //! Home targets share the board's selection, effects, composer and scroll owner.
 
 use super::{Age, Home};
-use crate::board::app::{App, Effect, Request};
+use crate::board::{
+    app::{App, Effect, Request},
+    home_leads::MessageKey,
+};
 use serde_json::Value;
 
 /// Section key of the one cron cursor target.
@@ -152,5 +155,283 @@ impl App {
             _ => unreachable!("home target"),
         };
         self.compose_row(send, crate::action::Verb::Annotate, squad)
+    }
+}
+
+impl App {
+    pub(in crate::board) fn home_expand(&mut self) -> crate::board::app::Effect {
+        use crate::board::app::{Compose, Input};
+        let Some(entry) = self
+            .home_entries()
+            .get(self.selected)
+            .map(|entry| entry.target.clone())
+        else {
+            return self.say("No lead is selected.");
+        };
+        let Some(lead) = self.home_leads.leads.iter().find(|lead| {
+            entry.section == "leads"
+                && entry.squad == lead.squad
+                && entry.member.as_deref() == Some(lead.id())
+        }) else {
+            return self.say("Select a lead to expand its latest message.");
+        };
+        let Some(exchange) = &lead.exchange else {
+            return self.say("No exchange with this lead yet.");
+        };
+        let Some(request) = exchange.request.clone() else {
+            return self.say("This question has no retained request body.");
+        };
+        let Some(sender) = self.view.as_ref().and_then(|view| view.me_id.clone()) else {
+            return self.say("Record yourself with tmt squad me <name>.");
+        };
+        let key = MessageKey {
+            sender,
+            lead: lead.id().into(),
+            squad: lead.squad.clone(),
+            request,
+            kind: exchange.kind,
+        };
+        let name = lead.name().to_owned();
+        let row_send = self.row_send(self.selected, false);
+        self.input = Some(Input {
+            squad: lead.squad.clone(),
+            prompt: format!("latest from {name}"),
+            text: "(reading message…)".into(),
+            compose: Compose::ReadLead { key, offset: 0 },
+            row_send,
+            alternative: None,
+            quote: None,
+            link: None,
+            hint: None,
+        });
+        self.notice = None;
+        crate::board::app::Effect::None
+    }
+
+    pub(in crate::board) fn message_valid(&self) -> bool {
+        let Some(crate::board::app::Input {
+            compose: crate::board::app::Compose::ReadLead { key, .. },
+            ..
+        }) = &self.input
+        else {
+            return true;
+        };
+        self.current.as_deref() == Some(crate::board::ALL)
+            && self
+                .view
+                .as_ref()
+                .is_some_and(|view| view.home.is_some() && view.me_id.as_ref() == Some(&key.sender))
+            && self.home_leads.leads.iter().any(|lead| {
+                lead.squad == key.squad
+                    && lead.id() == key.lead
+                    && lead.exchange.as_ref().is_some_and(|exchange| {
+                        exchange.request.as_ref() == Some(&key.request) && exchange.kind == key.kind
+                    })
+            })
+    }
+
+    pub(in crate::board) fn apply_message(
+        &mut self,
+        key: &MessageKey,
+        body: Result<String, String>,
+    ) {
+        if !self.message_valid() {
+            return;
+        }
+        if let Some(input) = &mut self.input
+            && matches!(&input.compose, crate::board::app::Compose::ReadLead { key: current, .. } if current == key)
+        {
+            input.text = body.unwrap_or_else(|error| {
+                format!(
+                    "(message unavailable: {})",
+                    crate::board::notes::sanitize(&error)
+                )
+            });
+        }
+    }
+
+    pub(in crate::board) fn message_key(
+        &mut self,
+        key: ratatui::crossterm::event::KeyEvent,
+    ) -> crate::board::app::Effect {
+        use ratatui::crossterm::event::{KeyCode, KeyModifiers};
+        match key.code {
+            KeyCode::Esc | KeyCode::Char('e') if !key.modifiers.contains(KeyModifiers::CONTROL) => {
+                self.input = None;
+                self.notice = None;
+            }
+            KeyCode::Char('a') if key.modifiers.is_empty() => {
+                self.input = None;
+                return self.home_answer();
+            }
+            KeyCode::Up
+            | KeyCode::Char('k')
+            | KeyCode::Down
+            | KeyCode::Char('j')
+            | KeyCode::PageUp
+            | KeyCode::PageDown => {
+                let band = self.input_band.get();
+                if let Some(crate::board::app::Input {
+                    compose: crate::board::app::Compose::ReadLead { offset, .. },
+                    text,
+                    ..
+                }) = &mut self.input
+                {
+                    let (maximum, page) = band.map_or((usize::MAX, 1), |band| {
+                        let lines = tmt_tui::text::lines(
+                            text,
+                            band.width.saturating_sub(4),
+                            tmt_tui::style::TextFlow::Wrap,
+                        );
+                        let page = usize::from(band.height.saturating_sub(3));
+                        (lines.len().saturating_sub(page), page.max(1))
+                    });
+                    let step = if matches!(key.code, KeyCode::PageUp | KeyCode::PageDown) {
+                        page
+                    } else {
+                        1
+                    };
+                    if matches!(key.code, KeyCode::Up | KeyCode::Char('k') | KeyCode::PageUp) {
+                        *offset = (*offset).min(maximum).saturating_sub(step);
+                    } else {
+                        *offset = offset.saturating_add(step).min(maximum);
+                    }
+                }
+            }
+            _ => {}
+        }
+        crate::board::app::Effect::None
+    }
+}
+
+impl App {
+    pub(in crate::board) fn lead_audience(&self) -> Vec<crate::send::LeadRecipient> {
+        self.home_leads
+            .leads
+            .iter()
+            .map(|lead| crate::send::LeadRecipient {
+                squad: lead.squad.clone(),
+                id: lead.id().into(),
+                name: lead.name().into(),
+            })
+            .collect()
+    }
+
+    pub(in crate::board) fn leads_valid(&self, input: &crate::board::app::Input) -> bool {
+        let crate::board::app::Compose::Leads {
+            sender,
+            recipients,
+            all,
+        } = &input.compose
+        else {
+            return false;
+        };
+        let current = self.lead_audience();
+        !self.loading()
+            && self.current.as_deref() == Some(crate::board::ALL)
+            && self.view.as_ref().and_then(|view| view.me_id.as_ref()) == Some(sender)
+            && recipients
+                .iter()
+                .all(|recipient| current.contains(recipient))
+            && (!all || current.len() == recipients.len())
+    }
+
+    pub(in crate::board) fn home_write(&mut self) -> Effect {
+        self.compose_leads(self.lead_audience(), true)
+    }
+
+    pub(in crate::board) fn home_pick(&mut self) -> Effect {
+        use crate::board::app::{Choice, Menu, MenuEntry};
+        if self.current.as_deref() != Some(crate::board::ALL) {
+            return Effect::None;
+        }
+        let recipients = self.lead_audience();
+        if recipients.is_empty() {
+            return self.say("No current leads to pick.");
+        }
+        self.menu = Some(Menu {
+            title: "Write to a lead".into(),
+            entries: recipients
+                .into_iter()
+                .enumerate()
+                .map(|(index, recipient)| MenuEntry {
+                    key: (index + 1).to_string(),
+                    label: format!("{} ({})", recipient.name, recipient.squad),
+                    choice: Choice::Leads {
+                        recipients: vec![recipient],
+                        all: false,
+                    },
+                })
+                .collect(),
+            row_send: None,
+            link: None,
+            prefill: String::new(),
+            selected: 0,
+            surface: Default::default(),
+        });
+        self.notice = None;
+        Effect::None
+    }
+
+    pub(in crate::board) fn compose_leads(
+        &mut self,
+        recipients: Vec<crate::send::LeadRecipient>,
+        all: bool,
+    ) -> Effect {
+        use crate::board::app::{Compose, Input, RowSend, RowTarget};
+        if self.current.as_deref() != Some(crate::board::ALL) || self.loading() {
+            return Effect::None;
+        }
+        if recipients.is_empty() {
+            return self.say("No current leads to write to.");
+        }
+        let Some(view) = &self.view else {
+            return Effect::None;
+        };
+        let Some(sender) = view.me_id.clone() else {
+            return self.say("Record yourself with tmt squad me <name>.");
+        };
+        let name = if all {
+            "all leads".to_owned()
+        } else {
+            recipients[0].name.clone()
+        };
+        let target = Target {
+            section: "all-leads".into(),
+            squad: String::new(),
+            member: None,
+        };
+        if let Some(index) = self
+            .home_entries()
+            .iter()
+            .position(|entry| entry.target == target)
+        {
+            self.selected = index;
+            self.home_target = Some(target.clone());
+        }
+        self.input = Some(Input {
+            prompt: format!("→ {name}"),
+            text: String::new(),
+            squad: String::new(),
+            compose: Compose::Leads {
+                sender,
+                recipients,
+                all,
+            },
+            row_send: Some(RowSend {
+                target: RowTarget::Home(target),
+                sender: view.me.clone().unwrap_or_default(),
+                name,
+                note: None,
+                note_member: false,
+            }),
+            alternative: None,
+            quote: None,
+            link: None,
+            hint: None,
+        });
+        self.notice = None;
+        self.follow = true;
+        Effect::None
     }
 }

@@ -19,7 +19,7 @@ pub(super) enum Kind {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(super) struct Exchange {
+pub(super) struct LeadPreview {
     pub kind: Kind,
     pub request: Option<String>,
     pub since_ms: Option<u64>,
@@ -32,7 +32,7 @@ pub(super) struct Exchange {
 pub(super) struct Lead {
     pub squad: String,
     pub row: Value,
-    pub exchange: Option<Exchange>,
+    pub exchange: Option<LeadPreview>,
     pub failure: Option<String>,
 }
 
@@ -42,6 +42,63 @@ impl Lead {
     }
     pub fn name(&self) -> &str {
         self.row["name"].as_str().unwrap_or_default()
+    }
+}
+
+/// A full-body read is anchored to the exact user, lead and latest exchange.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct MessageKey {
+    pub(super) sender: String,
+    pub(super) lead: String,
+    pub(super) squad: String,
+    pub(super) request: String,
+    pub(super) kind: Kind,
+}
+
+impl MessageKey {
+    pub(super) fn read(&self, core: &Core) -> Result<String, SquadError> {
+        self.body(crate::requests::show_request(core, &self.request)?)
+    }
+
+    fn body(&self, detail: Value) -> Result<String, SquadError> {
+        let (from, to) = match self.kind {
+            Kind::Question => (&self.lead, &self.sender),
+            Kind::Asked | Kind::Reply => (&self.sender, &self.lead),
+        };
+        if detail["requestId"].as_str() != Some(&self.request)
+            || detail["sender"]["identityId"].as_str() != Some(from)
+            || detail["recipientId"].as_str() != Some(to)
+            || detail["kind"] != "request"
+        {
+            return Err(SquadError::new(
+                "SQUAD_CORE_UNAVAILABLE",
+                "The request no longer matches this lead exchange.",
+            ));
+        }
+        let part = if self.kind == Kind::Reply {
+            &detail["final"]
+        } else {
+            &detail["prompt"]
+        };
+        let field = if self.kind == Kind::Reply {
+            "response"
+        } else {
+            "message"
+        };
+        match part["status"].as_str() {
+            Some("retained") => part[field]
+                .as_str()
+                .map(super::notes::sanitize)
+                .ok_or_else(|| {
+                    SquadError::new(
+                        "SQUAD_CORE_UNAVAILABLE",
+                        "The retained message body is unavailable.",
+                    )
+                }),
+            Some("expired") => Ok("(message expired)".into()),
+            Some("not_submitted") => Ok("(reply not submitted)".into()),
+            _ => Ok("(message unavailable)".into()),
+        }
     }
 }
 
@@ -187,13 +244,21 @@ impl State {
         });
         for lead in &mut read.leads {
             if (read.failure.is_some() || lead.failure.is_some())
-                && lead.exchange.is_none()
                 && let Some(old) = self
                     .leads
                     .iter()
                     .find(|old| old.squad == lead.squad && old.id() == lead.id())
             {
-                lead.exchange = old.exchange.clone();
+                // Missing pages cannot erase a newer submitted reply. Questions
+                // are transient roster evidence and may have been answered.
+                let missing = lead.exchange.is_none();
+                let newer_reply = old.exchange.as_ref().is_some_and(|prior| {
+                    prior.kind == Kind::Reply
+                        && prior.since_ms > lead.exchange.as_ref().and_then(|next| next.since_ms)
+                });
+                if missing || newer_reply {
+                    lead.exchange = old.exchange.clone();
+                }
             }
         }
         sort(&mut read.leads);
@@ -241,11 +306,11 @@ fn latest(
     results: &[Value],
     history: &[Value],
     now: u64,
-) -> Option<Exchange> {
+) -> Option<LeadPreview> {
     let mut exchanges = Vec::new();
     for item in lead.row["waitingOnYou"].as_array().into_iter().flatten() {
         exchanges.push((
-            Exchange {
+            LeadPreview {
                 kind: Kind::Question,
                 request: item["requestId"].as_str().map(str::to_owned),
                 since_ms: item["preparedAtMs"].as_u64().filter(|at| *at <= now),
@@ -259,7 +324,7 @@ fn latest(
         && let Some(pending) = lead.row["pending"].as_str().filter(|text| !text.is_empty())
     {
         exchanges.push((
-            Exchange {
+            LeadPreview {
                 kind: Kind::Question,
                 request: None,
                 since_ms: None,
@@ -296,7 +361,7 @@ fn latest(
                     _ => "(reply preview unavailable)".into(),
                 });
             exchanges.push((
-                Exchange {
+                LeadPreview {
                     kind: Kind::Reply,
                     request: item["requestId"].as_str().map(str::to_owned),
                     since_ms: (at <= now).then_some(at),
@@ -310,7 +375,7 @@ fn latest(
             continue;
         };
         exchanges.push((
-            Exchange {
+            LeadPreview {
                 kind,
                 request: item["requestId"].as_str().map(str::to_owned),
                 since_ms: time.as_u64().filter(|at| *at <= now),

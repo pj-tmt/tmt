@@ -111,6 +111,11 @@ shared fetcher path.
   prompt and never replaces concurrent edits. While the overlay is open the ordinary loader
   acquires preview notes/replies and metadata behind its existing cancellation fence, and
   closing returns to resolved-pane acquisition.
+- HOME `board.home_replies` is a global-only boolean, default true. The reader
+  rejects scoped copies and non-booleans. The bindable `home-replies` effect and
+  settings overlay use `Config::set_setting`; a failed save does not flip the
+  displayed choice. Settings preview applies the boolean through the existing
+  disposable draft.
 - `config::edit` owns the shared edit policy and a disposable validated Config draft.
   `sq config set KEY VALUE` accepts layout preset, flat split panes/direction/sizes,
   refresh, notes mode, hidden tracks, exact state colors, global tabs order/hide and the
@@ -189,3 +194,16 @@ calls `skills.install` as owner `squad`; `rm` calls `skills.remove` with the pla
 so the lead skill and `tmt extension rm squad` are unaffected. Squad never writes a provider
 directory and never executes a playbook. The lead skill source is embedded only in the squad
 executable, never in the core skill bundle.
+
+## HOME lead sends
+
+`send::leads` owns all-leads and picked-lead effects. The existing `App.input`
+keeps the opening user UUID and squad/lead occurrences; both submission and the
+send effect validate current authority. The public dispatch deduplicates recipient
+UUIDs. `send::new_operation` supplies a fresh UUID for explicit sends, shared with
+manual cron sends. Before dispatch, a private 0600 intent under
+`board-dispatches/<operation>.json` beside Squad configuration is synced. Confirmed
+acceptance removes it; uncertain acceptance retains it for manual inspection.
+One `dispatch.show` read can recover lost output; there is no create replay,
+automatic resend or wake retry. Feedback distinguishes each recipient's queued or
+unavailable acceptance without claiming delivery or processing.

@@ -38,7 +38,7 @@ fn late_acknowledged_reply_and_newer_question_use_event_times_not_request_order(
     let selected = latest(
         &one,
         "me",
-        &[final_item.clone()],
+        std::slice::from_ref(&final_item),
         &[ask("pending", "a", 20)],
         100,
     )
@@ -150,7 +150,7 @@ fn expired_finals_keep_submission_evidence_and_future_times_have_no_age() {
 
 #[test]
 fn failed_reads_are_not_empty_evidence_and_changed_sender_drops_observations() {
-    let prior = Exchange {
+    let prior = LeadPreview {
         kind: Kind::Reply,
         request: Some("id".into()),
         since_ms: Some(20),
@@ -207,4 +207,122 @@ fn malformed_pages_report_failure_instead_of_claiming_no_exchange() {
     assert!(read.failure.is_some());
     assert!(read.leads[0].failure.is_some());
     assert!(read.leads[0].exchange.is_none());
+}
+
+#[test]
+fn partial_failure_does_not_replace_a_newer_reply_with_an_older_ask() {
+    let prior = latest(
+        &lead("a", "squad"),
+        "me",
+        &[reply("new", "a", 40, Some("answer"))],
+        &[],
+        100,
+    );
+    let mut state = State {
+        sender: Some("me".into()),
+        leads: vec![Lead {
+            exchange: prior.clone(),
+            ..lead("a", "squad")
+        }],
+        ..Default::default()
+    };
+    let read = fetch(vec![lead("a", "squad")]).read(
+        |input| {
+            if input["view"] == "results" {
+                Err(SquadError::new("READ_FAILED", "results unavailable"))
+            } else {
+                Ok(json!({"items":[ask("old", "a", 20)],"nextBefore":null}))
+            }
+        },
+        100,
+    );
+    state.replace(read);
+    assert!(state.failure.is_some());
+    assert_eq!(state.leads[0].exchange, prior);
+}
+
+fn message(kind: Kind) -> MessageKey {
+    MessageKey {
+        sender: "me".into(),
+        lead: "a".into(),
+        squad: "squad".into(),
+        request: "id".into(),
+        kind,
+    }
+}
+
+#[test]
+fn full_messages_use_the_chosen_body_and_verify_participants_without_acknowledging() {
+    let mut detail = reply("id", "a", 20, Some("preview"));
+    detail["final"]["response"] = json!("first\nsecond\n\x1b[31mthird\x1b[0m");
+    detail["prompt"] = json!({"status":"retained","message":"original ask"});
+    assert_eq!(
+        message(Kind::Reply).body(detail.clone()).unwrap(),
+        "first\nsecond\nthird"
+    );
+    assert_eq!(
+        message(Kind::Asked).body(detail.clone()).unwrap(),
+        "original ask"
+    );
+    detail["final"]["response"] = json!("");
+    assert_eq!(message(Kind::Reply).body(detail.clone()).unwrap(), "");
+    detail["sender"]["identityId"] = json!("a");
+    detail["recipientId"] = json!("me");
+    assert_eq!(
+        message(Kind::Question).body(detail.clone()).unwrap(),
+        "original ask"
+    );
+    assert!(message(Kind::Reply).body(detail).is_err());
+}
+
+#[test]
+fn full_message_expiry_and_missing_body_are_honest() {
+    let mut detail = reply("id", "a", 20, None);
+    detail["final"]["status"] = json!("expired");
+    assert_eq!(
+        message(Kind::Reply).body(detail.clone()).unwrap(),
+        "(message expired)"
+    );
+    detail["final"]["status"] = json!("retained");
+    assert!(message(Kind::Reply).body(detail).is_err());
+}
+
+#[test]
+fn read_only_band_rejects_typing_and_submission_and_e_collapses() {
+    use super::super::app::{App, Compose, Effect, Input};
+    use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    let mut app = App::new(None);
+    app.input = Some(Input {
+        compose: Compose::ReadLead {
+            key: message(Kind::Reply),
+            offset: 0,
+        },
+        prompt: "latest from a".into(),
+        text: "full reply".into(),
+        squad: "squad".into(),
+        row_send: None,
+        alternative: None,
+        quote: None,
+        link: None,
+        hint: None,
+    });
+    for code in [
+        KeyCode::Char('x'),
+        KeyCode::Enter,
+        KeyCode::Backspace,
+        KeyCode::Tab,
+    ] {
+        assert_eq!(
+            app.message_key(KeyEvent::new(code, KeyModifiers::NONE)),
+            Effect::None
+        );
+        assert_eq!(app.input.as_ref().unwrap().text, "full reply");
+    }
+    app.message_key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
+    assert!(matches!(
+        app.input.as_ref().unwrap().compose,
+        Compose::ReadLead { offset: 1, .. }
+    ));
+    app.message_key(KeyEvent::new(KeyCode::Char('e'), KeyModifiers::NONE));
+    assert!(app.input.is_none());
 }
