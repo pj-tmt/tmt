@@ -245,17 +245,6 @@ fn reader_path(space: &str, page: &str, link: &Value, head: &AcknowledgedHead) -
         link["seed"].as_str().unwrap_or_default(),
     )
 }
-/// A copyable link when a Remote door is running, else the mount-relative path and how to get one.
-fn open_line(lookup: &crate::door::Lookup, relative: &str) -> String {
-    use crate::door::Lookup;
-    match lookup {
-        Lookup::Running(door) => door.url(relative),
-        Lookup::Stopped(Some(port)) => format!(
-            "{relative} (start tmt remote serve (last door port {port}) to get a full link)"
-        ),
-        _ => format!("{relative} (start tmt remote serve to get a full link)"),
-    }
-}
 fn remaining(deadline: Instant) -> Result<Duration> {
     deadline.checked_duration_since(Instant::now()).filter(|d|!d.is_zero()).ok_or_else(||fail("COLAB_OUTCOME_UNKNOWN","Management IPC deadline expired; effects may have committed. Inspect state before an exact retry."))
 }
@@ -487,7 +476,7 @@ pub fn create_page(root: &Path, args: &ArgMatches, source: String) -> Result<()>
         &[
             ("page", page_id),
             ("title", title.to_owned()),
-            ("open", open_line(&lookup, &relative)),
+            ("open", crate::door::Door::hint(&lookup, &relative)),
         ],
     )?;
     Ok(())
@@ -710,7 +699,7 @@ fn human_fields(value: &Value) -> Result<Vec<(String, String)>> {
             "readerPath" if object.contains_key("readerUrl") => {}
             "readerPath" => fields.push((
                 "reader link".to_owned(),
-                format!("{} (start tmt remote serve to get a full link)", text(v)),
+                crate::door::Door::hint(&crate::door::Lookup::Unknown, &text(v)),
             )),
             "members" => fields.push(("members".to_owned(), principals(v))),
             "links" => fields.push(("links".to_owned(), principals(v))),

@@ -1,14 +1,10 @@
 //! The Remote door address, learned only through Remote's public CLI (`tmt remote status --json`).
 //! Never Remote's private state: any failure, a missing command or a stopped door is `None`.
-use std::{
-    io::Read,
-    process::{Command, Stdio},
-    sync::mpsc,
-    time::Duration,
-};
+use std::time::{Duration, Instant};
+use tmt_invoke::Request;
 
 const TIMEOUT: Duration = Duration::from_secs(3);
-const MAX_BYTES: u64 = 16 * 1024;
+const MAX_BYTES: usize = 16 * 1024;
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct Door(String);
@@ -32,32 +28,27 @@ impl Door {
     pub fn lookup() -> Lookup {
         Self::run().map_or(Lookup::Unknown, |text| Self::interpret(&text))
     }
+    /// One bounded call of the public CLI: its deadline, output cap and process cleanup belong
+    /// to `tmt_invoke`. A missing command, failure, deadline or cap is no answer.
     fn run() -> Option<String> {
-        let tmt = tmt_invoke::invoking_tmt().ok()?;
-        let mut child = Command::new(tmt)
-            .args(["remote", "status", "--json"])
-            .stdin(Stdio::null())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::null())
-            .spawn()
-            .ok()?;
-        let mut stdout = child.stdout.take()?;
-        let (tx, rx) = mpsc::channel();
-        std::thread::spawn(move || {
-            let mut text = String::new();
-            let _ = stdout.by_ref().take(MAX_BYTES).read_to_string(&mut text);
-            let _ = tx.send(text);
-        });
-        let text = rx.recv_timeout(TIMEOUT).ok();
-        let status = match child.try_wait() {
-            Ok(Some(status)) => Some(status),
-            _ => {
-                let _ = child.kill();
-                child.wait().ok()
-            }
-        };
-        let text = text?;
-        status?.success().then_some(text)
+        let executable = tmt_invoke::invoking_tmt().ok()?;
+        let args = ["remote".into(), "status".into(), "--json".into()];
+        let output = tmt_invoke::invoke(
+            Request {
+                program: &executable,
+                args: &args,
+                input: &[],
+                deadline: Instant::now() + TIMEOUT,
+                max_stream_bytes: MAX_BYTES,
+                launch: Default::default(),
+            },
+            None,
+        )
+        .ok()?;
+        output
+            .status
+            .success()
+            .then(|| String::from_utf8(output.stdout).ok())?
     }
     /// `{"running":false,"lastPort":53253|null}` is a stopped door; anything else unusable is unknown.
     pub fn interpret(json: &str) -> Lookup {
@@ -90,6 +81,16 @@ impl Door {
                 .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit()))
         .then(|| Self(format!("{origin}{path}")))
     }
+    /// What a human is told beside a mount-relative path when no door runs: how to get a full link.
+    pub fn hint(lookup: &Lookup, relative: &str) -> String {
+        match lookup {
+            Lookup::Running(door) => door.url(relative),
+            Lookup::Stopped(Some(port)) => format!(
+                "{relative} (start tmt remote serve (last door port {port}) to get a full link)"
+            ),
+            _ => format!("{relative} (start tmt remote serve to get a full link)"),
+        }
+    }
     /// A copyable link for a mount-relative path such as `x/colab/#space=...`.
     pub fn url(&self, relative: &str) -> String {
         format!("{}/{}", self.0, relative)
@@ -98,6 +99,25 @@ impl Door {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn the_hint_names_the_link_or_how_to_get_one() {
+        let door = Door::parse(r#"{"running":true,"origin":"http://127.0.0.1:1","path":"/r/ab"}"#)
+            .unwrap();
+        assert_eq!(
+            Door::hint(&Lookup::Running(door), "x/colab/"),
+            "http://127.0.0.1:1/r/ab/x/colab/"
+        );
+        assert_eq!(
+            Door::hint(&Lookup::Stopped(Some(7)), "p"),
+            "p (start tmt remote serve (last door port 7) to get a full link)"
+        );
+        for lookup in [Lookup::Stopped(None), Lookup::Unknown] {
+            assert_eq!(
+                Door::hint(&lookup, "p"),
+                "p (start tmt remote serve to get a full link)"
+            );
+        }
+    }
     use super::{Door, Lookup};
     #[test]
     fn interprets_running_stopped_and_unusable_answers() {
