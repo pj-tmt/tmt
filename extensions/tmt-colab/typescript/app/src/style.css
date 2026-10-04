@@ -1066,3 +1066,28 @@ footer {
 .comment-main {
   position: relative;
 }
+
+.short-page-choice {
+  max-width: 800px;
+  margin-inline: auto;
+}
+.short-page-choice ul {
+  list-style: none;
+  padding: 0;
+}
+.short-page-choice li {
+  border-top: 1px solid var(--c-rule);
+}
+.short-page-choice li > a,
+.short-page-choice li > span {
+  display: block;
+  padding: 16px 0;
+}
+.short-page-choice code,
+.short-page-choice [aria-disabled='true'] {
+  color: var(--c-muted);
+}
+.short-page-choice code {
+  overflow-wrap: anywhere;
+  font: 11px var(--f-mono);
+}

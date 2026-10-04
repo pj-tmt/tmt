@@ -30,7 +30,7 @@ vi.mock('../src/bootstrap.js', () => ({
   discover: async (_mount: URL, verify: (space: string, owner: Uint8Array) => Promise<void>) => {
     const owner = new Uint8Array(32);
     await verify('space', owner);
-    return { space: 'space', owner, pages: [{ pageId: 'page', sharing: 'private' }] };
+    return { space: 'space', owner, pageIds: [], pages: [{ pageId: 'page', sharing: 'private' }] };
   },
 }));
 vi.mock('../src/registration.js', () => ({
@@ -60,7 +60,7 @@ vi.mock('../src/management.js', () => ({
     send = setup.managementSend;
     verify = setup.managementVerify;
     async snapshot() {
-      return { boot: { pages: [] }, log: [] };
+      return { boot: { pages: [], pageIds: [] }, log: [] };
     }
   },
 }));

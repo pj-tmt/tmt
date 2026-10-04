@@ -1311,8 +1311,11 @@ storage or invoke core directly. Uncertainty recovers on the existing session;
 only session end requires Live to replace it before original-ID recovery. Frozen byte/signature vectors live in
 `vectors/send-preview-v1.json`, with independent Python regeneration.
 
-The frozen `Link:` is the page's own mounted URL, `<mount>/#space=<spaceId>&path=%2Fpages%2F<pageId>`,
-built from the admitted selection; the fragment carries only those two public IDs. A source URL whose
+The frozen `Link:` for a new mounted Ask or Chat turn is the page's short owner URL,
+`<origin>/p/<shortId>`, derived from its admitted full page ID and current discovery catalog.
+Its signed scope retains the full space/page/thread/message IDs; the prefix grants no authority.
+An older captured Ask without a short prefix retains its canonical full owner fragment URL.
+The source URL is still admitted against the exact full page fragment before shortening. A source URL whose
 fragment is anything else (a reader seed, any other key), or that has a query or a `/read` path, is refused
 rather than stripped, so a reader link can never reach agent text. After an accepted, held or uncertain
 Send the admitted turn and inline outcome remain in their conversation; the input can compose another explicit turn.
@@ -1584,7 +1587,11 @@ Owner discovery on the mounted socket uses read-only `GET /api/session` and
 `GET /api/pages`. Missing or non-owner context returns 403 JSON `{code:"DENIED"}`.
 Session returns exactly `{deviceId, publicKey, grantRevision, name}`; revision
 is decimal text. It works before Colab extension-key registration and forwards
-no credential. Pages returns exactly `{spaceId, ownerKey, revision, pages}`;
+no credential. Pages returns exactly `{spaceId, ownerKey, revision, pages, pageIds}`;
+`pageIds` is sorted, at most 1,000 entries, each exactly `{pageId, deleted}`. It includes
+the existing retained deleted-page IDs solely to prevent historical prefixes rebinding;
+no title/content of deleted pages is exposed. Its non-deleted IDs exactly match `pages`.
+Browser discovery caps the complete serialized metadata response at 512 KiB.
 `pages` is sorted by page ID, at most 1,000 entries, each exactly
 `{pageId, epoch, sharing, history, archived, retentionDays, lastUpdateAtMs,
 expiresAtMs, warnings}`. These time/expiry hints use the same verified projection
@@ -1817,7 +1824,8 @@ facts are `null`: `spaceId`, `socket`, `profile:"colab-sync-v1"`, `state:"mounte
 `door` (`"attached"|"started"|"unavailable"`), `origin`, `url` (the app link
 `<origin>/r/<prefix>/x/colab/`), `paired` (`true|false|null` when unreadable or no door),
 `devices` (count), `pages` (count of non-archived pages, `null` if unreadable), `page` (the
-first page's full link, or its relative path without a door), `next` (commands still
+first page's full link, or its relative path without a door), `shortLink` (its short owner link,
+`null` without a page or door), `next` (commands still
 needed: `tmt remote pair` unless paired, `tmt colab page create --title <title>` when there
 is no page) and `warning`. Human output is the `LOCAL SPACE` detail view with the same
 facts and the next step: `door`, `paired`, `open` (the page link or `create one: ...`) and
@@ -1831,7 +1839,9 @@ unavailable: see warning`), never a command that `serve` replaces.
 Every command that names a page tells a person where to open it, from one door and pairing
 lookup per command (`tmt remote status --json`, then `tmt remote devices --json` while a door
 runs; the same bounded calls as `serve`). `page create`, `ls`, `show` and the `share` commands
-print the **full link** while a door runs. Without one they print the relative path and the
+print the **short owner link**, `<origin>/p/<shortId>`, while a door runs. Remote owns that
+root redirect into `<door>/x/colab/p/<shortId>`; it does not bypass pairing or grant admission.
+Without a door they print the mount-relative alias `x/colab/p/<shortId>` and the
 reason: the install line when Remote gave no answer; Remote's own message for an error envelope,
 with one shared wording for `REMOTE_SERVE_OUTDATED` (`The running Remote serve is older than
 this Colab. Stop it with Ctrl-C in its terminal, then run tmt colab serve.`; the `serve` row then only says `(Remote serve is outdated; see warning)`; else `run tmt colab
@@ -1839,11 +1849,38 @@ serve to get a full link`; never a manual `tmt remote serve`. When no paired dev
 as `serve` follows (`pair this browser once: tmt remote pair`, or `if this browser is new: ...`).
 
 `--json` results that name a page carry `path` (relative), `link` (full, `null` without a
-door), `paired` (`true|false|null`) and `next` (`["tmt remote pair"]` or `[]`). `ls` carries
-`path` and `link` on each page and `paired`/`next` once; its human form puts each link on its
+door), `shortLink` (short owner link, `null` without a door), `paired` (`true|false|null`) and `next` (`["tmt remote pair"]` or `[]`). `ls` carries
+`path`, `link` and `shortLink` on each page and `paired`/`next` once; its human form puts each link on its
 own indented line under the row. `show` prints rows of words (`title`, `link`, `pair`, `page`,
 `sharing`, `history`, `retention`, `membership`, `members`, `links`; `–` for none), never an
 embedded JSON object. `page create` keeps `url`'s role under the name `link`.
+
+### Short owner-page aliases (#1688)
+
+The shortest unique canonical page UUID prefix in the complete current catalog is the
+`shortId`, with a minimum of eight ASCII characters. Archived pages participate even when a
+listing hides them. Retained deleted IDs also participate, so a historical link cannot rebind
+to a later page after deletion. No alias table, stored short ID, plaintext title or schema is added.
+A missing catalog entry uses its full UUID rather than borrowing another page's prefix.
+Previously copied aliases can become ambiguous when another page is created; they never
+choose an arbitrary match.
+
+Colab handles GET `/p/<shortId>` directly inside its mount, independently of Remote's root
+redirect. Prefixes are bounded to 8–36 canonical lowercase UUID-prefix characters; malformed
+or non-GET aliases receive the existing 404. Owner-context discovery uses the existing
+verified metadata catalog, without Yjs decoding, and responds with a relative same-mount 302
+and the existing no-store, no-referrer and CSP headers. A unique match targets the full
+`#space=<spaceId>&path=%2Fpages%2F<pageId>` route. Ambiguous and unknown prefixes target
+`#space=<spaceId>&path=%2Fshort%2F<shortId>`; the admitted parent shows every matching page
+as a plain link row, or the existing unavailable-page view when none match. A sole deleted
+match shows "This page was deleted"; deleted chooser rows are disabled and have no title. Choosing a live row
+opens its full UUID route. Display title hints confer no authority.
+
+Without owner context, the alias redirects to the private root guidance with only the
+requested prefix, never the space ID or inventory. The existing paired-session recovery
+retains that target across discovery/pinning; it creates no anonymous asset or API access.
+The long owner fragment route remains supported. Reader links retain their capability
+fragment and are never shortened into an owner alias.
 
 `serve` (once the door is ready, attached or started) and `page create` open the link in the
 default browser: the page when the space has exactly one, else the space home. Opening is

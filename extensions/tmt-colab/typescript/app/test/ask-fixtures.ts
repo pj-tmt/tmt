@@ -15,6 +15,7 @@ export function selection(): AdmittedSelection {
     comment: 'Keep ! and café exact',
     title: 'Shared page',
     url: pageLink(),
+    shortId: '00000000',
   };
 }
 export function destination(): AskDestination {

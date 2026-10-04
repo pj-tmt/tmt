@@ -1,3 +1,4 @@
+import { validPagePrefix } from './short-links.js';
 import { RetentionHint } from './retention-hint.js';
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
@@ -8,6 +9,7 @@ import {
   createRoute,
   createRouter,
   Link,
+  redirect,
   Outlet,
   useRouter,
   useRouterState,
@@ -134,6 +136,61 @@ const page = createRoute({
     context.transport.page(params.pageId, abortController.signal),
   component: Page,
 });
+
+const shortPage = createRoute({
+  getParentRoute: () => root,
+  path: '/short/$prefix',
+  loader: async ({ context, params }) => {
+    if (!validPagePrefix(params.prefix)) throw new Error('Page unavailable');
+    const home = await context.transport.spaceHome();
+    const known = home.pageIds ?? home.pages.map((page) => ({ pageId: page.id, deleted: false }));
+    const pages = known
+      .filter((page) => page.pageId.startsWith(params.prefix))
+      .map((row) => ({
+        id: row.pageId,
+        deleted: row.deleted,
+        title: row.deleted
+          ? ''
+          : (home.pages.find((page) => page.id === row.pageId)?.title ?? text.unknownPageTitle),
+        archived: row.deleted ? false : home.pages.find((page) => page.id === row.pageId)?.archived,
+      }));
+    if (pages.length === 0) throw new Error('Page unavailable');
+    if (pages.length === 1 && !pages[0].deleted)
+      throw redirect({ to: '/pages/$pageId', params: { pageId: pages[0].id }, replace: true });
+    return { pages, prefix: params.prefix };
+  },
+  component: ShortPageChoice,
+});
+function ShortPageChoice() {
+  const { pages, prefix } = shortPage.useLoaderData();
+  const deleted = pages.length === 1 && pages[0].deleted;
+  return (
+    <section className="notice short-page-choice">
+      <h1>{deleted ? 'This page was deleted' : 'Choose a page'}</h1>
+      {!deleted && <p>More than one page matches {prefix}. Choose the page you want to open.</p>}
+      <ul>
+        {pages.map((page) => (
+          <li key={page.id}>
+            {page.deleted ? (
+              <span aria-disabled="true">
+                Deleted page
+                <br />
+                <code>{page.id}</code>
+              </span>
+            ) : (
+              <Link to="/pages/$pageId" params={{ pageId: page.id }}>
+                {page.title}
+                {page.archived ? ' · Archived' : ''}
+                <br />
+                <code>{page.id}</code>
+              </Link>
+            )}
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
 
 const blocked = createRoute({
   getParentRoute: () => root,
@@ -774,7 +831,7 @@ export function createAppRouter(transport: PageTransport, space?: string) {
         parseLocation: () => {
           const fragment = new URLSearchParams(location.hash.slice(1));
           let path = fragment.get('space') === space ? (fragment.get('path') ?? '/') : '/blocked';
-          if (!/^\/(?:pages\/[0-9a-f-]+)?$/.test(path)) path = '/blocked';
+          if (!/^\/(?:pages\/[0-9a-f-]+|short\/[0-9a-f-]{8,36})?$/.test(path)) path = '/blocked';
           return {
             href: path,
             pathname: path,
@@ -788,7 +845,7 @@ export function createAppRouter(transport: PageTransport, space?: string) {
       })
     : createHashHistory();
   return createRouter({
-    routeTree: root.addChildren([home, page, blocked]),
+    routeTree: root.addChildren([home, page, shortPage, blocked]),
     history,
     context: { transport },
   });

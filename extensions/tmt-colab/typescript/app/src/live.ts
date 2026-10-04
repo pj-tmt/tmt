@@ -1,3 +1,4 @@
+import { shortPageId } from './short-links.js';
 import { ThreadStore, commentForAsk, conversationForAsk } from './thread-store.js';
 import { readThreads } from './thread-records.js';
 import { LiveAsk, pageAsks } from './live-ask.js';
@@ -83,6 +84,10 @@ export class Live implements PageBinding {
           remote,
           space: bootstrap.space,
           page: page.pageId,
+          shortId: shortPageId(
+            page.pageId,
+            bootstrap.pageIds.map((page) => page.pageId),
+          ),
           sharing: page.sharing,
           deviceId: registration.deviceId,
           key: registration.keys.sign,

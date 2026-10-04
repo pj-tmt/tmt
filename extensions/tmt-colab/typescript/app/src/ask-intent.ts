@@ -16,6 +16,8 @@ import {
   type Bytes,
 } from '@tmt/colab-client';
 
+import { shortPageUrl } from './short-links.js';
+
 export const REQUEST_BYTES = 1024 * 1024;
 const HOUR = 60 * 60 * 1000;
 
@@ -31,6 +33,8 @@ export interface AdmittedSelection {
   comment: string;
   title: string;
   url: string;
+  /** Supplied only by admitted page composition, never renderer geometry. */
+  shortId?: string;
 }
 /** Caller-verified machine/grant snapshot; this primitive creates no authority.
  * Revision and session expiry reference the verified Remote grant; unavailable policy stays null. */
@@ -121,14 +125,18 @@ export class FrozenAsk {
         !url.pathname.endsWith('/read'),
     );
     url.hash = pageFragment;
-    const message = formatAskMessage({ ...selection, url: url.href });
+    const pageUrl =
+      selection.shortId === undefined
+        ? url.href
+        : shortPageUrl(url.origin, selection.page, selection.shortId);
+    const message = formatAskMessage({ ...selection, url: pageUrl });
     requireValue(Number.isSafeInteger(inputLimit) && inputLimit > 0 && inputLimit <= REQUEST_BYTES);
     this.#final = text(message);
     requireValue(this.#final.length <= inputLimit);
     this.#ids = idList(selection.messageIds);
     this.#scope = Object.freeze({
       ...selection,
-      url: url.href,
+      url: pageUrl,
       messageIds: Object.freeze([...selection.messageIds]),
     });
     this.#issuedAt = issuedAt;

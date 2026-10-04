@@ -24,6 +24,7 @@ async function response(pages: unknown[]) {
     ownerKey: encodeBinary(owner),
     revision: '1',
     pages,
+    pageIds: pages.map((page) => ({ pageId: (page as { pageId: string }).pageId, deleted: false })),
   });
   vi.stubGlobal('fetch', async () => new Response(body));
   return body;
@@ -37,7 +38,7 @@ it('accepts 1000 worst-sized valid expiry rows within the existing bounded respo
     pageId: `10000000-0000-4000-8000-${String(index + 1).padStart(12, '0')}`,
   }));
   const body = await response(pages);
-  expect(new TextEncoder().encode(body).length).toBeLessThan(256 * 1024);
+  expect(new TextEncoder().encode(body).length).toBeLessThan(512 * 1024);
   const boot = await discover(mount);
   expect(boot.pages).toHaveLength(1000);
   expect(boot.pages[999].lastUpdateAtMs).toBe(Number.MAX_SAFE_INTEGER);
@@ -60,6 +61,52 @@ it('rejects unsafe or ill-typed expiry hints before accepting discovery', async 
 });
 it('rejects oversized discovery bodies even without Content-Length', async () => {
   await response([]);
-  vi.stubGlobal('fetch', async () => new Response(' '.repeat(256 * 1024 + 1)));
+  vi.stubGlobal('fetch', async () => new Response(' '.repeat(512 * 1024 + 1)));
   await expect(discover(mount)).rejects.toThrow('exceeds limit');
+});
+
+it('retains an anonymous short-link target across authenticated discovery and mount pinning', async () => {
+  vi.stubGlobal('navigator', {
+    locks: { request: async (_key: string, run: () => unknown) => run() },
+  });
+  await response([]);
+  vi.stubGlobal('location', { hash: '#path=%2Fshort%2F12345678' });
+  const replaceState = vi.fn();
+  vi.stubGlobal('history', { state: null, replaceState });
+  const boot = await discover(mount);
+  expect(replaceState).toHaveBeenCalledWith(
+    null,
+    '',
+    `${mount.pathname}#space=${boot.space}&path=%2Fshort%2F12345678`,
+  );
+});
+it('rejects secret or malformed fragments instead of retaining them in a short-link recovery', async () => {
+  vi.stubGlobal('navigator', {
+    locks: { request: async (_key: string, run: () => unknown) => run() },
+  });
+  for (const hash of [
+    '#seed=secret',
+    '#path=%2Fshort%2F1234567',
+    '#path=%2Fshort%2F12345678&path=%2Fpages%2Ffoo',
+  ]) {
+    await response([]);
+    vi.stubGlobal('location', { hash });
+    await expect(discover(mount)).rejects.toThrow();
+  }
+});
+
+it('rejects inconsistent or title-bearing tombstone metadata before pinning', async () => {
+  vi.stubGlobal('navigator', {
+    locks: { request: async (_key: string, run: () => unknown) => run() },
+  });
+  for (const pageIds of [
+    [{ pageId: metadata.pageId, deleted: true }],
+    [{ pageId: metadata.pageId, deleted: false, title: 'deleted text' }],
+    [{ pageId: metadata.pageId, deleted: 'true' }],
+    [],
+  ]) {
+    const body = JSON.parse(await response([metadata]));
+    vi.stubGlobal('fetch', async () => new Response(JSON.stringify({ ...body, pageIds })));
+    await expect(discover(mount)).rejects.toThrow();
+  }
 });

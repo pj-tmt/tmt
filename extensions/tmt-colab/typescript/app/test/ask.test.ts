@@ -83,7 +83,7 @@ it('copies scopes and bytes before asynchronous signing, including paused-source
   const signed = await signing;
   expect(decodeText(binary(signed.finalBytes, REQUEST_BYTES))).toBe(frozen.view.message);
   expect(frozen.view.message).toContain(selection().quote);
-  expect(frozen.view.message).toContain(`Link: ${pageLink()}\n`);
+  expect(frozen.view.message).toContain('Link: https://example.test/p/00000000\n');
   expect(frozen.view.agent).toBe(id(6));
   expect(
     await strictVerify(
@@ -165,4 +165,9 @@ it('reservation conflicts preserve immutable metadata', async () => {
     'INTENT_CONFLICT',
   );
   expect([...records.values()]).toEqual(stored);
+});
+
+it('retains the full owner-fragment input for legacy captured asks without a short prefix', () => {
+  const legacy = { ...selection(), shortId: undefined };
+  expect(FrozenAsk.capture(legacy, destination()).view.message).toContain(`Link: ${pageLink()}\n`);
 });

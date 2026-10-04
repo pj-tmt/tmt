@@ -568,6 +568,41 @@ fn serve(
         live.fetch_sub(1, Ordering::AcqRel);
         return;
     }
+    if let Some(prefix) = request.path.strip_prefix("/p/") {
+        if request.method != "GET" || !crate::short_links::valid_prefix(prefix) {
+            let _ = response(&mut socket, 404, b"NOT FOUND", false);
+            return;
+        }
+        // Recovery must keep the requested alias without revealing private inventory.
+        let result = if request.owner.is_none() {
+            Ok(format!("../#path=%2Fshort%2F{prefix}"))
+        } else {
+            registration
+                .ok_or(registration::Code::Unavailable)
+                .and_then(|service| {
+                    service
+                        .lock()
+                        .map_err(|_| registration::Code::Unavailable)?
+                        .page_alias(request.context.as_deref(), prefix)
+                })
+        };
+        match result {
+            Ok(location) => {
+                let _ = response_with_headers(
+                    &mut socket,
+                    302,
+                    b"",
+                    "text/plain",
+                    POLICY,
+                    &format!("Location: {location}\r\n"),
+                );
+            }
+            Err(code) => {
+                let _ = response(&mut socket, code.status(), code.text().as_bytes(), false);
+            }
+        }
+        return;
+    }
     if request.method == "GET"
         && let Some(file) = assets::anonymous_file(&request.path)
     {
@@ -918,9 +953,19 @@ fn response_with_policy(
     kind: &str,
     policy: &str,
 ) -> std::io::Result<()> {
+    response_with_headers(socket, status, body, kind, policy, "")
+}
+fn response_with_headers(
+    socket: &mut UnixStream,
+    status: u16,
+    body: &[u8],
+    kind: &str,
+    policy: &str,
+    headers: &str,
+) -> std::io::Result<()> {
     let deadline = Instant::now() + limits::RESPONSE;
     let bytes = format!(
-        "HTTP/1.1 {status} Response\r\nContent-Type: {kind}\r\nContent-Length: {}\r\nConnection: close\r\nCache-Control: no-store\r\nContent-Security-Policy: {policy}\r\nReferrer-Policy: no-referrer\r\nX-Content-Type-Options: nosniff\r\n\r\n",
+        "HTTP/1.1 {status} Response\r\nContent-Type: {kind}\r\nContent-Length: {}\r\nConnection: close\r\nCache-Control: no-store\r\nContent-Security-Policy: {policy}\r\nReferrer-Policy: no-referrer\r\nX-Content-Type-Options: nosniff\r\n{headers}\r\n",
         body.len()
     );
     for mut bytes in [bytes.as_bytes(), body] {
