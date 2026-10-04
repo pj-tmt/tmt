@@ -389,7 +389,13 @@ fn compact_line(
         span(fit(lead(item), lead_width), Role::Text, selected, look),
         span(
             fit(
-                &format!(" {}", model(item).unwrap_or_default()),
+                &format!(
+                    " {} ",
+                    fit(
+                        model(item).unwrap_or_default(),
+                        model_width.saturating_sub(2),
+                    )
+                ),
                 model_width,
             ),
             Role::Muted,

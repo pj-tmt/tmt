@@ -50,6 +50,24 @@ fn other_members_keep_the_marks_row_informative_without_inventing_a_state() {
 }
 
 #[test]
+fn compact_unknown_models_keep_a_gap_before_member_marks() {
+    let squad = squad("squad");
+    let counts = members();
+    let item = TileItem {
+        squad: &squad,
+        members: &counts,
+        lead_model: Some("unfamiliar-model-123"),
+        usage: None,
+    };
+    for width in [80, 99] {
+        let painted = paint(std::slice::from_ref(&item), width, Look::default(), None);
+        let line = painted.lines[0].to_string();
+        assert!(line.contains("unfami… ◆ "), "{line}");
+        assert_eq!(painted.lines[0].width(), usize::from(width));
+    }
+}
+
+#[test]
 fn large_partial_token_values_keep_a_guaranteed_gap_and_short_models() {
     let squad = squad("remote");
     let counts = members();
@@ -348,8 +366,12 @@ fn disabled_sampling_hides_cells_and_only_sampled_squads_define_the_legend() {
     for width in [160, 100, 80] {
         let output = text(&paint(&items, width, Look::default(), None).lines).join("\n");
         assert!(
-            output.contains("off-mod"),
-            "known model survives sampling off: {output}"
+            output.contains(if width < 100 {
+                "off-mo…"
+            } else {
+                "off-mod…"
+            }),
+            "observed model survives sampling off: {output}"
         );
         assert!(!output.contains('–'));
     }
