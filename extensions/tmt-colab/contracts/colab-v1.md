@@ -1099,8 +1099,7 @@ remain separate.
 Linux sets and verifies its address-space limit before reading child input;
 failure rejects the job. On macOS and platforms without enforced memory limits,
 run with deadline/output containment and report `memory limit unavailable`: in JSON
-page receipts (`memoryLimit`) and once at `serve` startup. One-shot human page output does
-not repeat it.
+page receipts and in `serve --json` (`memoryLimit`). Human output never repeats it.
 
 These are pinned v1 defaults; tuning MUST preserve cryptographic ceilings and
 bounded admission. Enforce bounds before allocating/decoding, not only after
@@ -1912,7 +1911,7 @@ positive day count or forever override. Each write sets expiry; checkpoints and
 referenced blobs needed for the live page MUST last at least as long as the page.
 The owning device's compaction or owner's cleanup refreshes them within seven
 days of expiry. Cloud readers treat expired-but-present data as gone. Local
-expiry is advisory: warnings begin seven days ahead in the browser and `ls/show`,
+expiry never deletes local data: warnings begin seven days ahead in the browser and `ls/show`,
 and expired local pages remain readable and writable unless signed archive/delete
 policy forbids it. Local data is never automatically deleted.
 
@@ -2112,7 +2111,7 @@ evidence for a legacy page.
 Retention defaults to 30 days; forever is null. Finite `expiresAtMs` is
 `lastUpdateAtMs + retentionDays * 86400000`, using checked arithmetic bounded to
 safe integers. A legacy unknown finite expiry is null with `expiry-unavailable`
-("Expiry starts after the next edit"); an unrepresentable finite expiry is null
+("expiry starts after the next edit"); an unrepresentable finite expiry is null
 with `expiry-out-of-range`. Forever has no expiry or expiry warning, even with
 unknown last-update time. At most one expiry warning is emitted: `expires-soon`
 when expiry is in the future and at most seven days away; `expired` at or after
@@ -2468,10 +2467,11 @@ of wire framing but is never decrypted or materialized for management. A failed
 preview does not remove home management access. Retention defaults to 30 days.
 Chrome presents the native durable last-update/expiry display hints as relative
 retention time, with the absolute local date on hover. The hint stays inside the
-page card under its status badge. The seven-day warning and advisory expired state
-add a waiting mark and body text color; ordinary hints use dim text. The copy names
-retention and says the local copy stays; legacy unknown times say "Expiry starts
-after the next edit". The collapsed Details line includes the local last-edit date.
+page card under its status badge. The seven-day warning and the expired state
+add a waiting mark and body text color; ordinary hints use dim text. The copy is the
+CLI's lowercase wording (`expires in 6 days`, `expired 2 days ago`, `kept forever`,
+`expiry starts after the next edit`, `expiry beyond the supported range`); the
+local-copy note is separate (the dialog's retention form and the CLI footer). The collapsed Details line includes the local last-edit date.
 Local expiry never automatically deletes data or ends access.
 
 Confirmation discloses shared/current history scope, the 64-epoch limit, editors'

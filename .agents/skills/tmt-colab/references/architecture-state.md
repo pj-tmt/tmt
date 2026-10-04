@@ -183,8 +183,8 @@ in `acceptance/ask.spec.ts`.
   result: relative last edits, short expiry values, and dim list hints under each link.
   Finite expiry within seven days has a waiting mark; its footer says "Expiry never
   deletes your local copy." JSON keeps exact milliseconds, and expired local pages remain
-  available. Browser legacy hints say "Expiry starts after the next edit"; CLI values
-  use UX's lowercase values: `kept forever`, `starts after the next edit`,
+  available. Browser hints use the same lowercase wording (`expires in 6 days`, `expired 2 days ago`,
+  `expiry starts after the next edit`); CLI values use UX's lowercase values: `kept forever`, `starts after the next edit`,
   and `beyond the supported range`. A verified out-of-range warning masks the human retention count
   as `out of range`, without changing JSON or policy.
   Exact warning codes, checked arithmetic and forever semantics live in the contract.

@@ -1,4 +1,4 @@
-//! Durable server time and advisory expiry through real creation/write/projections.
+//! Durable server time and expiry through real creation/write/projections.
 mod support;
 use ed25519_dalek::SigningKey;
 use serde_json::{Value, json};
@@ -136,7 +136,7 @@ fn verified_projection_uses_same_durable_time_for_defaults_override_and_boundari
     assert_eq!(f.projection()["warnings"], json!(["expires-soon"]));
     f.clock.store(NOW + 30 * DAY, Ordering::SeqCst);
     assert_eq!(f.projection()["warnings"], json!(["expired"]));
-    // Advisory expiry leaves readable content and edit authority in place.
+    // Expiry leaves readable content and edit authority in place.
     assert_eq!(
         page::read(&f.store, &f.key, PAGE, &mut f.decoder())
             .unwrap()

@@ -61,9 +61,7 @@ test('native sharing and lifecycle verification preserve Ask, page recovery and 
       return `${part('weekday')} ${part('month')}-${part('day')} ${part('hour')}:${part('minute')}`;
     }, initialPage.expiresAtMs);
     await expect(dialog.locator('.retention-hint')).toHaveAttribute('title', expiry);
-    await expect(dialog.locator('.retention-hint')).toHaveText(
-      /Retention ends in (29|30) days · advisory; local copy stays\./,
-    );
+    await expect(dialog.locator('.retention-hint')).toHaveText(/expires in (29|30) days/);
     for (const theme of ['light', 'dark']) {
       await page.evaluate((theme) => {
         document.documentElement.dataset.theme = theme;

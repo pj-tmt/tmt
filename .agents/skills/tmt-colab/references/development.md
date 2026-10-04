@@ -45,7 +45,7 @@ Each is `(cd rust && cargo test --offline --locked -p tmt-colab <selector>)`:
 | Area                                            | Selector                                                                                                                         |
 | ----------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
 | Store state, paired checkpoints                 | `--test state`                                                                                                                   |
-| Durable time and advisory expiry                | `--test expiry`                                                                                                                  |
+| Durable time and expiry                         | `--test expiry`                                                                                                                  |
 | Owner state and schema preservation             | `--test owner_state --test registration`                                                                                         |
 | Owner transitions (real child, FIFO barriers)   | `--test transitions`                                                                                                             |
 | Registration, revoke callback, mounted endpoint | `--test registration`                                                                                                            |

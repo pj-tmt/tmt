@@ -364,14 +364,7 @@ fn run(matches: &clap::ArgMatches) -> Result<()> {
             writeln!(output, "{}", status.json())?;
         } else {
             let terminal = output.terminal();
-            let mut rows = status.rows();
-            // One-shot page commands keep this in JSON only; the long-running owner reports it once.
-            if tmt_colab::decoder::memory_limit() == tmt_colab::decoder::MemoryLimit::Unavailable {
-                rows.push((
-                    "decoder",
-                    "memory limit unavailable on this platform".into(),
-                ));
-            }
+            let rows = status.rows();
             tmt_cli_style::detail::write(&mut output, terminal, "LOCAL SPACE", &rows)?;
         }
         if let (Some((what, hint)), false) = (access.warning(), json_output) {
