@@ -152,7 +152,8 @@ fn waiting_hint_uses_rebound_key_and_drops_oldest_before_actions() {
     assert!(hints(&app, 50).contains("z ask lead"));
     assert!(!hints(&app, 50).contains("oldest"));
     assert!(!hints(&app, 80).contains("oldest"));
-    assert!(hints(&app, 100).contains("ctrl-r refresh"));
+    assert!(hints(&app, 100).contains("r reply"));
+    assert!(hints(&app, 100).ends_with("q quit  ? more"));
     assert!(!hints(&app, 50).contains("A ask lead"));
     assert_eq!(
         super::waiting::text(app.selected_row().unwrap()),
@@ -184,6 +185,105 @@ fn footer_omits_whole_hints_instead_of_clipping_words() {
         );
     }
     assert!(!draw(&app, 108, 8).last().unwrap().ends_with("◆ ne"));
+}
+
+/// The shown hints without the reserved tail.
+fn shown_hints(text: &str) -> Vec<&str> {
+    text.split("  ")
+        .filter(|hint| !hint.is_empty() && !["q quit", "? more"].contains(hint))
+        .collect()
+}
+
+#[test]
+fn footer_orders_hints_by_priority_and_always_keeps_quit_and_more() {
+    let mut app = paned(
+        split(Direction::LeftRight, vec![Pane::Rows], vec![100]),
+        Notes::NotShown,
+    );
+    app.select(1);
+    assert_eq!(app.selected_row().unwrap()["name"], "auth-fix");
+    let full = hints(&app, usize::MAX);
+    let order = [
+        "⏎ jump",
+        "r reply",
+        "⌫ back",
+        "/ search",
+        "t talk",
+        "a annotate",
+        "o open",
+        "y copy",
+        "tab pane",
+        "ctrl-r refresh",
+    ];
+    let at = |hint: &str| full.find(hint).unwrap_or_else(|| panic!("{hint}: {full}"));
+    assert!(
+        order.windows(2).all(|pair| at(pair[0]) < at(pair[1])),
+        "{full}"
+    );
+    assert!(!full.contains("next-pane"), "{full}");
+    assert!(full.ends_with("q quit  ? more"));
+    let whole = shown_hints(&full);
+    for width in 0..=full.width() {
+        let shown = hints(&app, width);
+        assert!(shown.width() <= width, "{width}: {shown}");
+        match width {
+            0..=5 => assert_eq!(shown, ""),
+            6..=13 => assert_eq!(shown, "? more", "{width}"),
+            _ => assert!(shown.ends_with("q quit  ? more"), "{width}: {shown}"),
+        }
+        // Whole hints only, always a prefix of the priority order.
+        let kept = shown_hints(&shown);
+        assert_eq!(kept, whole[..kept.len()], "{width}: {shown}");
+    }
+    // The decisive keys survive an 80-cell footer.
+    let narrow = hints(&app, 80);
+    for hint in ["⏎ jump", "r reply", "⌫ back", "/ search"] {
+        assert!(narrow.contains(hint), "{narrow}");
+    }
+}
+
+#[test]
+fn footer_shows_only_the_row_actions_the_selected_row_allows() {
+    let mut app = paned(
+        split(Direction::LeftRight, vec![Pane::Rows], vec![100]),
+        Notes::NotShown,
+    );
+    // The lead row waits on nothing and has no link: no reply, no open.
+    app.select(0);
+    assert_eq!(app.selected_row().unwrap()["name"], "sol");
+    let lead = hints(&app, usize::MAX);
+    for hint in ["⏎ jump", "t talk", "a annotate"] {
+        assert!(lead.contains(hint), "{lead}");
+    }
+    for hint in ["r reply", "o open"] {
+        assert!(!lead.contains(hint), "{lead}");
+    }
+    // Only a decision (pending text or an open request) enables reply.
+    app.select(1);
+    assert!(hints(&app, usize::MAX).contains("r reply"));
+    let set = |app: &mut App, key: &str, value: Value| {
+        app.view.as_mut().unwrap().document["sections"][0]["rows"][0][key] = value;
+    };
+    set(&mut app, "pending", Value::Null);
+    assert!(!hints(&app, usize::MAX).contains("r reply"));
+    set(
+        &mut app,
+        "waitingOnYou",
+        json!([{"requestId": "q-1", "preview": "approve?"}]),
+    );
+    assert!(hints(&app, usize::MAX).contains("r reply"));
+    // No row: board keys only, and the reserved tail.
+    let mut empty = App::new(Some("product".into()));
+    empty.apply(crate::board::app::tests::snapshot("product", json!([])));
+    let text = hints(&empty, usize::MAX);
+    for hint in ["⏎", "t talk", "r reply", "a annotate", "o open", "y copy"] {
+        assert!(!text.contains(hint), "{text}");
+    }
+    assert!(text.contains("/ search") && text.ends_with("q quit  ? more"));
+    // The plain host's Enter is the row menu; rebinding changes the word.
+    let view = app.view.as_mut().unwrap();
+    view.bindings = crate::action::preset(false, &view.board.panes);
+    assert!(hints(&app, usize::MAX).contains("⏎ menu"));
 }
 
 /// Rows read from a squad config snippet, as `squad.toml` would give them.
