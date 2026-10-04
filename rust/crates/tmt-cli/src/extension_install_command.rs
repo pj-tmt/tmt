@@ -454,6 +454,8 @@ struct ExtensionListRow {
     status: String,
     update: Option<&'static str>,
     shadowed: Vec<String>,
+    /// Dim detail lines under the row, such as the repair for a bad entry.
+    notes: Vec<String>,
 }
 
 fn extension_list(rows: &[ExtensionListRow], home: Option<&Path>) -> Human {
@@ -473,6 +475,13 @@ fn extension_list(rows: &[ExtensionListRow], home: Option<&Path>) -> Human {
             ));
         }
         table.row(cells);
+        for note in &row.notes {
+            let mut cells = vec![Cell::from(""), Cell::styled(note, Token::Dim)];
+            if show_update {
+                cells.push(Cell::from(""));
+            }
+            table.row(cells);
+        }
         for path in &row.shadowed {
             let mut cells = vec![
                 Cell::from(""),
@@ -553,6 +562,68 @@ mod tests {
         );
         assert!(!marker.exists(), "nothing was executed");
         let _ = fs::remove_dir_all(&root);
+    }
+
+    fn scratch(name: &str) -> PathBuf {
+        let root = std::env::temp_dir().join(format!("tmt-{name}-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(root.join("bin")).unwrap();
+        root
+    }
+
+    #[test]
+    fn an_unmanaged_command_degrades_its_own_entry_and_names_the_path() {
+        let prefix = scratch("unmanaged-listing");
+        let binary = prefix.join("bin/tmt-remote");
+        fs::write(&binary, "#!/bin/sh\n").unwrap();
+        fs::set_permissions(&binary, fs::Permissions::from_mode(0o755)).unwrap();
+        let (document, human) = listing(&prefix, false, prefix.join("empty").as_os_str())
+            .expect("one bad entry never fails the whole listing");
+        let rows = document["extensions"].as_array().unwrap();
+        let names: Vec<_> = rows
+            .iter()
+            .map(|row| row["name"].as_str().unwrap())
+            .collect();
+        assert_eq!(names, ["squad", "remote", "colab"]);
+        let remote = &rows[1];
+        assert_eq!(remote["status"], "unmanaged");
+        assert_eq!(remote["installed"], false);
+        assert_eq!(remote["path"], binary.to_string_lossy().as_ref());
+        let hint = remote["hint"].as_str().unwrap();
+        assert!(hint.contains(&*binary.to_string_lossy()));
+        assert!(hint.contains("tmt extension install remote --yes"));
+        assert!(!hint.contains("extension ls"), "the repair is not circular");
+        for other in [&rows[0], &rows[2]] {
+            assert_eq!(other["installed"], false);
+            assert!(other.get("status").is_none());
+        }
+        let mut output = Vec::new();
+        human
+            .write(&mut output, tmt_cli_style::Terminal::PLAIN)
+            .unwrap();
+        let text = String::from_utf8(output).unwrap();
+        assert!(text.contains(&*binary.to_string_lossy()));
+        assert!(text.contains("unmanaged"));
+        let _ = fs::remove_dir_all(&prefix);
+    }
+
+    #[test]
+    fn an_activation_that_cannot_be_read_is_invalid_with_a_removal_hint() {
+        let prefix = scratch("invalid-listing");
+        let release = prefix.join("lib/tmt-remote");
+        fs::create_dir_all(release.join("releases")).unwrap();
+        fs::write(release.join("current"), "not a receipt").unwrap();
+        let binary = prefix.join("bin/tmt-remote");
+        fs::write(&binary, "#!/bin/sh\n").unwrap();
+        let (document, _) = listing(&prefix, false, prefix.join("empty").as_os_str())
+            .expect("an unreadable entry never fails the whole listing");
+        let remote = &document["extensions"][1];
+        assert_eq!(remote["status"], "invalid");
+        assert_eq!(remote["path"], binary.to_string_lossy().as_ref());
+        let hint = remote["hint"].as_str().unwrap();
+        assert!(hint.contains("tmt extension rm remote --yes --prefix"));
+        assert!(!hint.contains("extension ls"));
+        let _ = fs::remove_dir_all(&prefix);
     }
 
     #[test]
@@ -642,6 +713,7 @@ mod presentation_tests {
                 status: "not installed".into(),
                 update: Some("available"),
                 shadowed: Vec::new(),
+                notes: Vec::new(),
             },
             ExtensionListRow {
                 name: "squad".into(),
@@ -651,6 +723,7 @@ mod presentation_tests {
                     "/home/ada/.local/other/bin/tmt-squad".into(),
                     "/opt/other/bin/tmt-sq".into(),
                 ],
+                notes: Vec::new(),
             },
         ]
     }

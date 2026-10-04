@@ -181,6 +181,24 @@ fn every_printed_hint_and_help_example_is_runnable() {
     );
 }
 
+/// Extension changes are consent-gated and a non-interactive run refuses without
+/// `--yes`, so each shown example of one must carry it (#1569).
+#[test]
+fn extension_change_examples_carry_the_consent_flag() {
+    for subcommand in ["install", "upgrade", "rm"] {
+        let text = help(&["help".into(), "extension".into(), subcommand.into()]).unwrap();
+        let examples: Vec<_> = text
+            .lines()
+            .map(str::trim)
+            .filter(|line| line.starts_with(&format!("tmt extension {subcommand} ")))
+            .collect();
+        assert!(!examples.is_empty(), "{subcommand} shows no examples");
+        for example in examples {
+            assert!(example.contains(" --yes"), "{example:?} would be refused");
+        }
+    }
+}
+
 #[test]
 fn printed_command_validation_rejects_the_reported_regressions() {
     for command in [
