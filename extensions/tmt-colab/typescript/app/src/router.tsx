@@ -638,7 +638,7 @@ function Page() {
                 ) : state === 'loading' ? (
                   <LoaderCircle aria-hidden />
                 ) : (
-                  <Circle fill="currentColor" aria-hidden />
+                  <Circle className="status-dot" fill="currentColor" aria-hidden />
                 )}
               </span>
               <span className="status-label">
