@@ -321,6 +321,47 @@ function pauseBeforeAdmission(fixture: E2EFixture, name: string): void {
 }
 
 describe('Claude channel delivery', { concurrent: false }, () => {
+  it('an enrolled live channel retains delivery when provider bookkeeping is Unknown', async () => {
+    await withE2EFixture(async (fixture) => {
+      const worker = start(fixture, 'UnknownProvider', { channel: true });
+      await withCompletedSession(fixture, worker, async () => {
+        await ready(fixture, worker, 'UnknownProvider');
+        const trace = installTmuxTrace(fixture);
+        const id = identityId(fixture, 'UnknownProvider');
+        // Fixture-owned observations: an ended provider session, then missing
+        // provider-start evidence. Channel enrollment independently proves its client.
+        for (const transition of ['ended', null]) {
+          sql(fixture, (db) =>
+            db
+              .prepare(
+                "UPDATE bindings SET runtime_state = 'unknown', last_transition = ? WHERE identity_id = ?"
+              )
+              .run(transition, id)
+          );
+          const message = `channel with Unknown provider transition ${transition}`;
+          const result = await talk(fixture, 'UnknownProvider', message, ['--detach']);
+          expect(result.code).toBe(0);
+          expect(result.json).toMatchObject({ status: 'sent', pane: worker.pane });
+          await fixture.waitFor(
+            () => contents(worker).some((content) => content.includes(message)),
+            5000,
+            'channel consumed request'
+          );
+          expect(terminalWrites(trace, worker.pane)).toEqual([]);
+          expect(
+            sql(fixture, (db) =>
+              db
+                .prepare(
+                  'SELECT runtime_state, last_transition FROM bindings WHERE identity_id = ?'
+                )
+                .get(id)
+            )
+          ).toEqual({ runtime_state: 'unknown', last_transition: transition });
+        }
+      });
+    });
+  });
+
   it.each([true, false])(
     'resumes a saved bound Claude identity with remembered channel=%s and persists explicit overrides',
     async (channel) => {

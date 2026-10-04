@@ -779,6 +779,8 @@ falls back to a working directory, active pane or sole identity.
   binding-owned runtime observations, and observation writes are compare-and-set
   inside the binding transaction. Drivers own process verification, event mapping
   and driver-state persistence; core stores driver state without parsing it.
+  Provider end leaves stored readiness Unknown pending a fresh start; only conclusive
+  process loss ends the runtime incarnation.
 - Provider hooks supply observation only: they never create bindings or move
   identities, they run under a bounded supervised worker that always exits zero,
   and provider configuration changes only through consented `tmt setup`.
