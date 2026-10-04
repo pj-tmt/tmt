@@ -7,11 +7,11 @@
       "  product   reviews",
       "lead sol · 3 members",
       "  MEMBER     STATE    TASK",
+      "  sol        –        –",
+      "── members · 3 ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
       "  alpha      working  task one                                                                                                                    cron Mon 00:30",
       "  bravo      idle     task two",
       "  carol      idle     task three",
-      "",
-      "",
       "",
       "",
       "",
@@ -29,7 +29,7 @@
       "",
       "A ask lead  ⏎ jump  o open  y copy  tab next-pane  ctrl-r refresh  l view  T theme  / search  ←→ tab  s switch  c cron  q quit  ? more"
     ],
-    "hits": "[Hit { y: 3, x: 0, width: 160, row: 0 }, Hit { y: 4, x: 0, width: 160, row: 1 }, Hit { y: 5, x: 0, width: 160, row: 2 }]"
+    "hits": "[Hit { y: 3, x: 0, width: 160, row: 0 }, Hit { y: 5, x: 0, width: 160, row: 1 }, Hit { y: 6, x: 0, width: 160, row: 2 }, Hit { y: 7, x: 0, width: 160, row: 3 }]"
   },
   {
     "scenario": "members above jobs",
@@ -39,11 +39,11 @@
       "  product   reviews",
       "lead sol · 3 members",
       "  MEMBER     STATE    TASK",
+      "  sol        –        –",
+      "── members · 3 ─────────────────────────────────────────────────────────────────────────────────────",
       "  alpha      working  task one                                                        cron Mon 00:30",
       "  bravo      idle     task two",
       "  carol      idle     task three",
-      "",
-      "",
       "",
       "",
       "",
@@ -61,7 +61,7 @@
       "",
       "A ask lead  ⏎ jump  o open  y copy  tab next-pane  ctrl-r refresh  l view  T theme  / search  ? more"
     ],
-    "hits": "[Hit { y: 3, x: 0, width: 100, row: 0 }, Hit { y: 4, x: 0, width: 100, row: 1 }, Hit { y: 5, x: 0, width: 100, row: 2 }]"
+    "hits": "[Hit { y: 3, x: 0, width: 100, row: 0 }, Hit { y: 5, x: 0, width: 100, row: 1 }, Hit { y: 6, x: 0, width: 100, row: 2 }, Hit { y: 7, x: 0, width: 100, row: 3 }]"
   },
   {
     "scenario": "members above jobs",
@@ -71,11 +71,11 @@
       "  product   reviews",
       "lead sol · 3 members",
       "  MEMBER     STATE    TASK",
+      "  sol        –        –",
+      "── members · 3 ─────────────────────────────────────────────────────────────────",
       "  alpha      working  task one                                    cron Mon 00:30",
       "  bravo      idle     task two",
       "  carol      idle     task three",
-      "",
-      "",
       "",
       "",
       "",
@@ -93,7 +93,7 @@
       "",
       "A ask lead  ⏎ jump  o open  y copy  tab next-pane  ctrl-r refresh  ? more"
     ],
-    "hits": "[Hit { y: 3, x: 0, width: 80, row: 0 }, Hit { y: 4, x: 0, width: 80, row: 1 }, Hit { y: 5, x: 0, width: 80, row: 2 }]"
+    "hits": "[Hit { y: 3, x: 0, width: 80, row: 0 }, Hit { y: 5, x: 0, width: 80, row: 1 }, Hit { y: 6, x: 0, width: 80, row: 2 }, Hit { y: 7, x: 0, width: 80, row: 3 }]"
   },
   {
     "scenario": "jobs focused",
@@ -103,11 +103,11 @@
       "  product   reviews",
       "lead sol · 3 members",
       "  MEMBER     STATE    TASK",
+      "  sol        –        –",
+      "── members · 3 ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
       "  alpha      working  task one                                                                                                                    cron Mon 00:30",
       "  bravo      idle     task two",
       "  carol      idle     task three",
-      "",
-      "",
       "",
       "",
       "",
@@ -125,7 +125,7 @@
       "next     Mon 10-05 00:00 · Mon 10-05 00:30 · Mon 10-05 01:00   tz Asia/Tokyo",
       "⏎ owner  n new  e edit  p pause  x send  o reassign  d delete  tab members  c all squads  q quit  ? more"
     ],
-    "hits": "[Hit { y: 3, x: 0, width: 160, row: 0 }, Hit { y: 4, x: 0, width: 160, row: 1 }, Hit { y: 5, x: 0, width: 160, row: 2 }]"
+    "hits": "[Hit { y: 3, x: 0, width: 160, row: 0 }, Hit { y: 5, x: 0, width: 160, row: 1 }, Hit { y: 6, x: 0, width: 160, row: 2 }, Hit { y: 7, x: 0, width: 160, row: 3 }]"
   },
   {
     "scenario": "jobs focused",
@@ -135,11 +135,11 @@
       "  product   reviews",
       "lead sol · 3 members",
       "  MEMBER     STATE    TASK",
+      "  sol        –        –",
+      "── members · 3 ─────────────────────────────────────────────────────────────────────────────────────",
       "  alpha      working  task one                                                        cron Mon 00:30",
       "  bravo      idle     task two",
       "  carol      idle     task three",
-      "",
-      "",
       "",
       "",
       "",
@@ -157,7 +157,7 @@
       "next     Mon 10-05 00:00 · Mon 10-05 00:30 · Mon 10-05 01:00   tz Asia/Tokyo",
       "⏎ owner  n new  e edit  p pause  x send  o reassign  d delete  tab members  q quit  ? more"
     ],
-    "hits": "[Hit { y: 3, x: 0, width: 100, row: 0 }, Hit { y: 4, x: 0, width: 100, row: 1 }, Hit { y: 5, x: 0, width: 100, row: 2 }]"
+    "hits": "[Hit { y: 3, x: 0, width: 100, row: 0 }, Hit { y: 5, x: 0, width: 100, row: 1 }, Hit { y: 6, x: 0, width: 100, row: 2 }, Hit { y: 7, x: 0, width: 100, row: 3 }]"
   },
   {
     "scenario": "jobs focused",
@@ -167,11 +167,11 @@
       "  product   reviews",
       "lead sol · 3 members",
       "  MEMBER     STATE    TASK",
+      "  sol        –        –",
+      "── members · 3 ─────────────────────────────────────────────────────────────────",
       "  alpha      working  task one                                    cron Mon 00:30",
       "  bravo      idle     task two",
       "  carol      idle     task three",
-      "",
-      "",
       "",
       "",
       "",
@@ -189,6 +189,6 @@
       "next     Mon 10-05 00:00 · Mon 10-05 00:30 · Mon 10-05 01:00   tz Asia/Tokyo",
       "⏎ owner  n new  e edit  p pause  x send  o reassign  d delete  q quit  ? more"
     ],
-    "hits": "[Hit { y: 3, x: 0, width: 80, row: 0 }, Hit { y: 4, x: 0, width: 80, row: 1 }, Hit { y: 5, x: 0, width: 80, row: 2 }]"
+    "hits": "[Hit { y: 3, x: 0, width: 80, row: 0 }, Hit { y: 5, x: 0, width: 80, row: 1 }, Hit { y: 6, x: 0, width: 80, row: 2 }, Hit { y: 7, x: 0, width: 80, row: 3 }]"
   }
 ]
