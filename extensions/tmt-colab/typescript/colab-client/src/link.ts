@@ -108,6 +108,44 @@ export async function deriveLink(seed: Uint8Array, space: string, id: string): P
     encryptionSeed.fill(0);
   }
 }
+/** A link's reader device is a pure function of its seed, so every open reuses one server row
+ * (the server keeps a device row per ID and only accepts a byte-identical chain for it). */
+export interface DerivedDevice {
+  id: string;
+  sign: CryptoKey;
+  signingPublic: Bytes;
+}
+/** The fixed validity window of a derived device: liveness is the link's, never the certificate's. */
+export const DEVICE_ISSUED_AT = 0;
+export const DEVICE_EXPIRES_AT = Number.MAX_SAFE_INTEGER;
+export async function deriveDevice(
+  seed: Uint8Array,
+  space: string,
+  linkId: string,
+): Promise<DerivedDevice> {
+  spaceId(space);
+  generatedId(linkId);
+  const deviceSeed = await derive(seed, 'tmt-colab-link-device-seed-v1', space, linkId),
+    idBytes = (await derive(seed, 'tmt-colab-link-device-id-v1', space, linkId)).slice(0, 16);
+  try {
+    const pkcs8 = concat(ED25519_PKCS8, deviceSeed);
+    const probe = await crypto.subtle.importKey('pkcs8', pkcs8, 'Ed25519', true, ['sign']);
+    const jwk = await crypto.subtle.exportKey('jwk', probe);
+    requireValue(typeof jwk.x === 'string');
+    const handle = await crypto.subtle.importKey('pkcs8', pkcs8, 'Ed25519', false, ['sign']);
+    pkcs8.fill(0);
+    idBytes[6] = (idBytes[6] & 15) | 64;
+    idBytes[8] = (idBytes[8] & 63) | 128;
+    const h = Array.from(idBytes, (b) => b.toString(16).padStart(2, '0')).join('');
+    return {
+      id: `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`,
+      sign: handle,
+      signingPublic: binary(jwk.x, 32, 32),
+    };
+  } finally {
+    deviceSeed.fill(0);
+  }
+}
 export interface LinkDevice {
   deviceId: string;
   signingPublic: Uint8Array;

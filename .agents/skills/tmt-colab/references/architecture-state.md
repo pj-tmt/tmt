@@ -43,8 +43,8 @@ guidance CSP and pairing failure/reload guard alongside the app lifecycle tests 
 ## Read-only reader
 
 `src/reader-link.ts` parses the fragment (strict grammar in the contract), `src/reader.ts`
-(`ReaderSession`) derives the link keys with `link.deriveLink`, certifies a fresh in-memory device
-(`link.certifyDevice`), runs challenge, session and sync, and reconnects until access ends.
+(`ReaderSession`) derives the link keys and the link's one reader device from the seed
+(`link.deriveLink`, `link.deriveDevice`, `link.certifyDevice`; byte-identical chain on every open), runs challenge, session and sync, and reconnects until access ends.
 It reuses `Admission` through its `ReaderSeat` option (link-addressed wraps, owner-log
 verification, nothing persisted) and `Connection` with the ticket subprotocol. `src/reader-main.tsx`
 removes the fragment first; `src/reader-app.tsx` renders read-only with the sandboxed renderer. The

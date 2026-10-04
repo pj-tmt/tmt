@@ -22,8 +22,6 @@ export class AccessEndedError extends Error {
 }
 /** Page modes a link may read: `link`, or `public` where anyone may. */
 const SHARING = ['link', 'public'];
-const CERTIFICATE_SKEW_MS = 10 * 60 * 1000;
-const CERTIFICATE_LIFETIME_MS = 24 * 60 * 60 * 1000;
 const RETRIES = 5;
 
 async function post(mount: URL, path: string, body: unknown) {
@@ -48,7 +46,7 @@ export class ReaderSession {
     readonly target: ReaderLink,
     readonly mount: URL,
     readonly link: linkKeys.LinkKeys,
-    readonly device: { id: string; sign: CryptoKey; signPublic: Uint8Array<ArrayBuffer> },
+    readonly device: linkKeys.DerivedDevice,
     readonly chain: Uint8Array,
     readonly publish: (view: PageView) => void,
     readonly ended: (error: Error) => void,
@@ -61,23 +59,19 @@ export class ReaderSession {
     publish: (view: PageView) => void,
     ended: (error: Error) => void,
   ): Promise<ReaderSession> {
-    const link = await linkKeys.deriveLink(target.seed, target.space, target.link);
+    const link = await linkKeys.deriveLink(target.seed, target.space, target.link),
+      device = await linkKeys.deriveDevice(target.seed, target.space, target.link);
     target.seed.fill(0);
-    const pair = (await crypto.subtle.generateKey('Ed25519', false, [
-        'sign',
-        'verify',
-      ])) as CryptoKeyPair,
-      signPublic = new Uint8Array(await crypto.subtle.exportKey('raw', pair.publicKey)),
-      device = { id: crypto.randomUUID(), sign: pair.privateKey, signPublic },
-      now = Date.now();
+    // Everything in the chain is derived from the link, so each open presents byte-identical
+    // bytes and the server keeps one device row per link, however often the page is reloaded.
     const chain = await linkKeys.certifyDevice(link, {
       deviceId: device.id,
-      signingPublic: signPublic,
+      signingPublic: device.signingPublic,
       encryptionPublic: link.encryption.publicKey(),
       membershipRevision: target.revision,
       issuerStatement: target.statement,
-      issuedAt: now - CERTIFICATE_SKEW_MS,
-      expiresAt: now + CERTIFICATE_LIFETIME_MS,
+      issuedAt: linkKeys.DEVICE_ISSUED_AT,
+      expiresAt: linkKeys.DEVICE_EXPIRES_AT,
     });
     const session = new ReaderSession(target, mount, link, device, chain, publish, ended);
     const { dropped } = await session.#establish();
@@ -140,7 +134,7 @@ export class ReaderSession {
       deviceId: this.device.id,
       keys: {
         sign: this.device.sign,
-        signPublic: this.device.signPublic,
+        signPublic: this.device.signingPublic,
         enc: this.link.encryption,
       },
       chain,

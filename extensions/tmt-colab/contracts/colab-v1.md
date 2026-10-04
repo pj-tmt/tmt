@@ -638,18 +638,24 @@ escapes, an unknown key or more than 512 bytes, is not a reader link.
 
 The public `/read` entry removes the fragment from the address bar before any other work
 (a reload therefore needs the full link again). In memory only, it derives the link keys from
-the seed with the model's `link::Keys` derivation, wipes the seed, generates a fresh Ed25519
-device key and certifies it as a `link` issuer chain (certificate window: ten minutes of skew
-before now, 24 hours after), then runs the challenge and session exchange above and opens
+the seed with the model's `link::Keys` derivation and wipes the seed. Its reader device is
+also derived from the seed: Ed25519 signing seed `HKDF(seed, LP("tmt-colab-link-device-seed-v1",
+space, link))` and a device ID from the first 16 bytes of `HKDF(seed, LP("tmt-colab-link-device-id-v1",
+space, link))` with UUIDv4 version and variant bits set. It certifies that device as a `link`
+issuer chain with the link's encryption public key, the `rev`/`st` statement and a fixed validity
+window of `issuedAt` 0 to `expiresAt` 9007199254740991 (liveness is the link's, never the
+certificate's). Ed25519 signing is deterministic, so every open presents a byte-identical chain
+and the server keeps one device row per link however often the link is opened
+(`authority-v1.json` `linkDevice` freezes the oracle bytes). The server never enforces this
+derivation: any seed holder may still certify a fresh random device, as the revocation rules above
+state. The entry then runs the challenge and session exchange above and opens
 `/sync` with the ticket subprotocol; hello names the session's `principal`. It checks that the
 returned owner key derives the linked `space`, verifies the owner log and link-addressed wraps
 with the owner-browser rules, and pins and stores nothing in the owner app's records
 (IndexedDB, local or session storage, cookies). It shows the page read-only and live, with no
 editor, Ask, share, export or history control. The ten-minute session ends in a reconnect with
 a fresh challenge; a `DENIED`/`STALE_EPOCH` result or a 403 from the exchange ends access
-("Access ended"), which is what Reset, remove, narrowing or rotation produce. Every
-challenge adds a link-device projection on the server, so a holder that opens the link often
-adds one row per open until the link is removed or reset.
+("Access ended"), which is what Reset, remove, narrowing or rotation produce.
 
 Reader access is limited to whoever can reach the loopback or Remote door and holds the link.
 The CLI help and the entry say so plainly.

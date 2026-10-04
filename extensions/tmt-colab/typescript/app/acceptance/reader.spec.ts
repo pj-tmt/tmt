@@ -1,3 +1,5 @@
+import { execFileSync } from 'node:child_process';
+import path from 'node:path';
 import { expect, test } from '@playwright/test';
 import { openReaderLink, startDoor } from './harness/browser.js';
 import { createPage, freePort, run } from './harness/ask.js';
@@ -16,6 +18,16 @@ const colab = (world: AcceptanceWorld, args: string[], input?: string) =>
   > &
     Record<string, unknown>;
 
+/** Link-device rows in the owner store: one per link, however often it is opened. */
+const deviceRows = (world: AcceptanceWorld) =>
+  Number(
+    execFileSync(
+      'sqlite3',
+      [path.join(world.dataRoot, 'colab', 'space.db'), 'SELECT count(*) FROM devices'],
+      { encoding: 'utf8' },
+    ).trim(),
+  );
+
 /** The seed is the one secret in a reader link; it lives in the fragment only. */
 const seedOf = (readerPath: string) => new URLSearchParams(readerPath.split('#')[1]).get('seed')!;
 
@@ -32,6 +44,7 @@ test('reader link: opens unpaired, shows live edits read-only, and ends on Reset
     const owner = await fetch(`${door.address}/x/colab/index.html`);
     expect(owner.status).toBe(403);
 
+    const baseline = deviceRows(world);
     const reader = await openReaderLink(world, door, readerPath, 'reader-one');
     const frame = reader.page.frameLocator('iframe');
     await expect(frame.locator('#text')).toHaveText('First text', { timeout: 30_000 });
@@ -56,6 +69,15 @@ test('reader link: opens unpaired, shows live edits read-only, and ends on Reset
       '<h1 id="text">Second text</h1>',
     );
     await expect(frame.locator('#text')).toHaveText('Second text', { timeout: 30_000 });
+
+    // Re-opening the same link in more browsers presents the same derived device: still one row.
+    for (const name of ['reader-again-1', 'reader-again-2']) {
+      const again = await openReaderLink(world, door, readerPath, name);
+      await expect(again.page.frameLocator('iframe').locator('#text')).toHaveText('Second text', {
+        timeout: 30_000,
+      });
+    }
+    expect(deviceRows(world)).toBe(baseline + 1);
 
     // The seed never left the browser: no request URL or body carries it.
     const seed = seedOf(readerPath);
@@ -84,5 +106,7 @@ test('reader link: opens unpaired, shows live edits read-only, and ends on Reset
     await expect(fresh.page.frameLocator('iframe').locator('#text')).toHaveText('Second text', {
       timeout: 30_000,
     });
+    // The replacement link is a new identity with its own device; the old one stays revoked.
+    expect(deviceRows(world)).toBe(baseline + 2);
   });
 });

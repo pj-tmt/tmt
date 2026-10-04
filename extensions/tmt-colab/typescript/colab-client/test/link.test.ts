@@ -24,6 +24,35 @@ describe('link keys', () => {
   });
 });
 
+describe('derived link device', () => {
+  it('matches the independent oracle: id, key and byte-identical chain', async () => {
+    const seed = hex(v.linkSeed);
+    const keys = await c.link.deriveLink(seed, v.space, v.linkId);
+    const device = await c.link.deriveDevice(seed, v.space, v.linkId);
+    expect(device.id).toBe(v.linkDevice.id);
+    expect(device.signingPublic).toEqual(hex(v.linkDevice.signingPublic));
+    const build = () =>
+      c.link.certifyDevice(keys, {
+        deviceId: device.id,
+        signingPublic: device.signingPublic,
+        encryptionPublic: keys.encryption.publicKey(),
+        membershipRevision: '1',
+        issuerStatement: hex(v.statementHash),
+        issuedAt: c.link.DEVICE_ISSUED_AT,
+        expiresAt: c.link.DEVICE_EXPIRES_AT,
+      });
+    const first = await build();
+    expect(JSON.parse(c.decodeText(first))).toEqual(v.linkDevice.chain);
+    expect(await c.certificate.Chain.fromJson(first).digest()).toEqual(
+      hex(v.linkDevice.chainDigest),
+    );
+    // A second open derives the same bytes, so the server sees one idempotent row.
+    expect(await build()).toEqual(first);
+    const other = await c.link.deriveDevice(seed, v.space, '00000000-0000-4000-8000-000000000061');
+    expect(other.id).not.toBe(device.id);
+  });
+});
+
 describe('link-device chain', () => {
   const statement = hex('11'.repeat(32));
   async function chain(overrides: Partial<c.link.LinkDevice> = {}) {
