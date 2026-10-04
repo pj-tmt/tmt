@@ -28,6 +28,27 @@ Maintained module reference. Commands and admitted spellings are in [development
    hides whole. Percentages are CSS content-box shares with gaps added; CLI lists
    keep their own after-gap base and rounding in `tmt-cli-style::grid`, and no
    adapter joins the two policies.
+   **Width-conditional layout** (`tmt-switch`): `<tmt-switch>` holds ordered
+   `<tmt-case min="lg|md|sm">` branches and a final `<tmt-default>`; geometry lays out
+   exactly one. The first case whose `min` is at most the measured width wins, so
+   boundaries are inclusive and there are no gaps or overlaps. The width is the
+   container's (the content width of the switch's parent box), or the viewport's with
+   `of="terminal"`. A parent is measured with its unresolved switches absent, so a
+   box never takes its width from the branch chosen inside it; nested switches resolve
+   one level per pass and a tree without a switch is laid out once. A case or default
+   is not a box: its children join the parent in place, so grid items stay grid items
+   and the result equals the hand-written markup of that branch. Admission accepts
+   only breakpoint names (`tmt_cli_style::breakpoint`), never numbers or `max`, and
+   rejects cases that do not descend, duplicate `min`, a missing or non-final default,
+   a switch without a case and a branch outside a switch. `hide-below="md"` on
+   `tmt-row`, `tmt-col`, `tmt-cell` or `tmt-text` is the one-element form: the element
+   is the only case and the default is empty. Binding compiles and materializes every
+   branch, so a schema or data error shows at every width; IDs may repeat across the
+   branches of one switch (a cell present at several widths keeps its identity over a
+   resize) and stay unique everywhere else. Node and byte budgets count all branches.
+   Hits and selection follow stable IDs, never the branch. Fit-driven decisions (a
+   column that drops until the tracks fit, a hint list cut by measured text) are not
+   steps; they stay with the application that measures.
 4. **Text and paint** (`text`, `paint`): `text` owns grapheme measurement and fitting
    for markup; `paint` consumes geometry in preorder into a caller-owned Ratatui
    buffer. Both use `Cell::text_width`, never the rounded spare cell. Cuts

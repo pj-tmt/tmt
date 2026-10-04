@@ -29,20 +29,27 @@ fn members() -> Counts {
     }
 }
 
+fn member_text(counts: &Counts, width: u16) -> String {
+    member_pieces(counts, width)
+        .iter()
+        .map(|(text, _)| text.as_str())
+        .collect()
+}
+
 #[test]
 fn other_members_keep_the_marks_row_informative_without_inventing_a_state() {
     let counts = Counts {
         members: 2,
         ..Default::default()
     };
-    let line = member_line(&counts, 100, false, Look::default()).to_string();
+    let line = member_text(&counts, 100);
     assert!(line.contains("2 other · 2 members"), "{line}");
     assert!(!line.contains('◌'));
     let mixed = Counts {
         working: 1,
         ..counts
     };
-    let line = member_line(&mixed, 100, false, Look::default()).to_string();
+    let line = member_text(&mixed, 100);
     assert!(
         line.starts_with("● ") && line.contains("1 other · 2 members"),
         "{line}"
@@ -351,7 +358,10 @@ fn disabled_sampling_hides_cells_and_only_sampled_squads_define_the_legend() {
         usage: None,
     }];
     for width in [160, 100, 80] {
-        assert_eq!(legend(&items, width), "");
+        assert_eq!(
+            legend(&items, width, width >= tmt_cli_style::breakpoint::MD.cells),
+            ""
+        );
         let output = text(&paint(&items, width, Look::default(), None).lines).join("\n");
         assert!(output.contains("lead") && output.contains("6 members"));
         assert!(
@@ -380,8 +390,12 @@ fn disabled_sampling_hides_cells_and_only_sampled_squads_define_the_legend() {
         usage: Some(usage(windows)),
     });
     for width in [160, 100, 80] {
-        assert!(legend(&items, width).contains("24h"));
-        assert!(!legend(&items, width).contains("vary"));
+        assert!(
+            legend(&items, width, width >= tmt_cli_style::breakpoint::MD.cells).contains("24h")
+        );
+        assert!(
+            !legend(&items, width, width >= tmt_cli_style::breakpoint::MD.cells).contains("vary")
+        );
         let output = paint(&items, width, Look::default(), None);
         let off = &output.regions[0];
         for line in &output.lines[off.lines.clone()] {
@@ -406,7 +420,10 @@ fn disabled_sampling_hides_cells_and_only_sampled_squads_define_the_legend() {
         lead_model: None,
         usage: Some(usage(TokenWindow::DEFAULTS)),
     });
-    assert_eq!(legend(&items, 160), "lead tokens · windows vary");
+    assert_eq!(
+        legend(&items, 160, 160 >= tmt_cli_style::breakpoint::MD.cells),
+        "lead tokens · windows vary"
+    );
 }
 
 #[test]
@@ -435,7 +452,10 @@ fn sampling_without_observations_hides_the_legend_and_keeps_one_aligned_dash() {
         },
     ];
     for width in [80, 100, 113, 160, 200] {
-        assert_eq!(legend(&items, width), "");
+        assert_eq!(
+            legend(&items, width, width >= tmt_cli_style::breakpoint::MD.cells),
+            ""
+        );
         let output = text(&paint(&items, width, Look::default(), None).lines);
         assert!(!output[0].contains('–'));
         assert_eq!(output[1].matches('–').count(), 1);
@@ -475,7 +495,7 @@ fn uniform_labels_appear_once_and_narrow_rows_retain_the_last_two_windows() {
     };
     for width in [160, 100, 80] {
         let items = std::slice::from_ref(&item);
-        let label = legend(items, width);
+        let label = legend(items, width, width >= tmt_cli_style::breakpoint::MD.cells);
         assert_eq!(
             label,
             match width {
@@ -516,7 +536,10 @@ fn mixed_windows_label_each_observation_and_share_without_reordering_tiles() {
         },
     ];
     for width in [160, 100, 80] {
-        assert_eq!(legend(&items, width), "lead tokens · windows vary");
+        assert_eq!(
+            legend(&items, width, width >= tmt_cli_style::breakpoint::MD.cells),
+            "lead tokens · windows vary"
+        );
         let painted = paint(&items, width, Look::default(), None);
         let output = text(&painted.lines).join("\n");
         assert!(output.contains("5m:2k"), "{output}");

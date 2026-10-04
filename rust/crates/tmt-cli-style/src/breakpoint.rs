@@ -26,5 +26,10 @@ pub const LG: Breakpoint = Breakpoint {
 /// Every step, narrowest first.
 pub const ALL: [Breakpoint; 3] = [SM, MD, LG];
 
+/// The step with this exact token name, for markup that names a step.
+pub fn by_name(name: &str) -> Option<Breakpoint> {
+    ALL.into_iter().find(|step| step.name == name)
+}
+
 #[cfg(test)]
 mod tests;

@@ -367,7 +367,11 @@ User bindings can change a key; help and footers always show the effective key.
 A view that changes with the terminal width names one of three steps, never a
 number: `sm` (80 cells), `md` (100) and `lg` (140). They live in
 `design/tokens/tokens.json`; add a new step there, never a number in a view. A
-step is a lower bound, so a width exactly at the step takes it.
+step is a lower bound, so a width exactly at the step takes it. In markup a view
+names a step with `<tmt-switch>` (ordered `<tmt-case min="lg">` branches and a
+final `<tmt-default>`) or, for one optional element, `hide-below="md"`; a
+decision that follows the measured text, such as hints dropped until the line
+fits, is a fit and not a step.
 
 ### Overlays
 

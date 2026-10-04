@@ -1,5 +1,10 @@
 //! One Taffy computation; no application priority policy, painting or terminal owner.
-use crate::{MAX_DEPTH, MAX_NODES, binding::Node, style::*};
+use crate::{
+    Kind, MAX_DEPTH, MAX_NODES,
+    binding::{Cond, Node, Of},
+    style::*,
+};
+use std::collections::HashMap;
 use taffy::{geometry as tg, prelude as t};
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -130,12 +135,41 @@ fn style(node: &Node) -> t::Style {
 }
 // Flat preorder mapping, not another layout tree or solver.
 type GeometryEntry<'a> = (t::NodeId, &'a Node, Option<usize>);
+
+/// The branch chosen for each switch, by node address, as an index into its children.
+type Choices = HashMap<*const Node, usize>;
+/// Switches whose branch is not chosen yet, with the entry index of their parent.
+type Pending<'a> = Vec<(&'a Node, usize)>;
+
+/// The children as laid out: a chosen switch is replaced by its branch's children,
+/// in place, so a case is never a box and a grid item stays a grid item. A switch
+/// without a choice contributes nothing to this pass and is returned as pending.
+fn laid_out<'a>(
+    node: &'a Node,
+    parent: usize,
+    choices: &Choices,
+    pending: &mut Pending<'a>,
+    out: &mut Vec<&'a Node>,
+) {
+    for child in &node.children {
+        if child.kind != Kind::Switch {
+            out.push(child);
+        } else if let Some(&branch) = choices.get(&std::ptr::from_ref(child)) {
+            laid_out(&child.children[branch], parent, choices, pending, out);
+        } else {
+            pending.push((child, parent));
+        }
+    }
+}
+
 fn insert<'a>(
     tree: &mut t::TaffyTree<&'a Node>,
     entries: &mut Vec<GeometryEntry<'a>>,
     node: &'a Node,
     parent: Option<usize>,
     depth: usize,
+    choices: &Choices,
+    pending: &mut Pending<'a>,
 ) -> Result<t::NodeId, String> {
     if depth >= MAX_DEPTH || entries.len() >= MAX_NODES as usize {
         return Err("geometry exceeds scene depth/node limit".into());
@@ -154,10 +188,21 @@ fn insert<'a>(
         .map_err(|e| e.to_string())?;
     let index = entries.len();
     entries.push((id, node, parent));
-    let children = node
-        .children
-        .iter()
-        .map(|child| insert(tree, entries, child, Some(index), depth + 1))
+    let mut flat = Vec::new();
+    laid_out(node, index, choices, pending, &mut flat);
+    let children = flat
+        .into_iter()
+        .map(|child| {
+            insert(
+                tree,
+                entries,
+                child,
+                Some(index),
+                depth + 1,
+                choices,
+                pending,
+            )
+        })
         .collect::<Result<Vec<_>, _>>()?;
     tree.set_children(id, &children)
         .map_err(|e| e.to_string())?;
@@ -171,14 +216,60 @@ fn budget(width: f32) -> u16 {
 /// It must use exactly the supplied width again at paint time; no second wrapper.
 /// Markup percentages are CSS content-box shares; gaps are additional space.
 /// Squad chooses visible tracks before calling this API (#774), never here.
+///
+/// A `tmt-switch` takes the first case whose `min` is at most the measured width:
+/// the content width of the switch's parent (`of="container"`) or the viewport
+/// (`of="terminal"`), and the default when no case fits. A parent's width is
+/// measured with its not yet resolved switches absent, so it never depends on the
+/// branch being chosen; nested switches resolve one level per pass. A tree
+/// without switches is laid out once.
 pub fn layout(
     root: &Node,
     viewport: [u16; 2],
     mut measure_text: impl FnMut(&str, TextFlow, Space) -> [u16; 2],
 ) -> Result<Vec<Cell<'_>>, String> {
+    let mut choices = Choices::new();
+    loop {
+        let (cells, pending) = solve(root, viewport, &choices, &mut measure_text)?;
+        if pending.is_empty() {
+            return Ok(cells);
+        }
+        for (switch, parent) in pending {
+            let width = match switch.cond {
+                Cond::Switch(Of::Terminal) => u32::from(viewport[0]),
+                _ => cells[parent].content.width,
+            };
+            let branch = switch
+                .children
+                .iter()
+                .position(|branch| match branch.cond {
+                    Cond::Case(min) => width >= u32::from(min),
+                    _ => true,
+                })
+                .expect("admitted switches end in a default");
+            choices.insert(std::ptr::from_ref(switch), branch);
+        }
+    }
+}
+
+fn solve<'a>(
+    root: &'a Node,
+    viewport: [u16; 2],
+    choices: &Choices,
+    measure_text: &mut impl FnMut(&str, TextFlow, Space) -> [u16; 2],
+) -> Result<(Vec<Cell<'a>>, Pending<'a>), String> {
     let mut tree = t::TaffyTree::new();
     let mut entries = Vec::new();
-    let id = insert(&mut tree, &mut entries, root, None, 0)?;
+    let mut pending = Vec::new();
+    let id = insert(
+        &mut tree,
+        &mut entries,
+        root,
+        None,
+        0,
+        choices,
+        &mut pending,
+    )?;
     let mut root_style = tree.style(id).map_err(|e| e.to_string())?.clone();
     if root.style.width == Extent::Auto {
         root_style.size.width = dimension(Extent::Cells(viewport[0]));
@@ -266,7 +357,7 @@ pub fn layout(
                 || rounded.content_size.height > rounded.size.height,
         });
     }
-    Ok(result)
+    Ok((result, pending))
 }
 
 #[cfg(test)]

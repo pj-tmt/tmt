@@ -21,7 +21,9 @@ pub(super) use act::{CronRequest, Op, act};
 pub(super) use forms::Draft;
 pub(super) use half::{render as render_half, wanted as half_wanted};
 pub(super) use hints::{help as help_keys, jobs as jobs_hints};
+#[cfg(test)]
 pub(super) use line::line as home_line;
+pub(super) use line::pieces as home_pieces;
 #[cfg(test)]
 pub(super) use line::tests::{
     NOW as TEST_NOW, cron as test_cron, view as test_view, views as test_views,

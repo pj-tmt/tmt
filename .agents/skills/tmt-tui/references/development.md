@@ -33,6 +33,11 @@ One spelling per value kind; anything else fails admission with a located error:
   gaps/padding/grow to zero, shrink to one, text to clipping. `token` names a shared
   `Role`; omission inherits.
 
+- Width steps: `<tmt-switch of="container|terminal">`, `<tmt-case min="sm|md|lg">` and
+  `<tmt-default>`; `hide-below="sm|md|lg"` on row, col, cell and text. The names come
+  from `design/tokens/tokens.json`; no other attribute (`max`, numbers, style, id,
+  token) is admitted on a branch.
+
 ## Components
 
 - `components::surface::compile` lowers `tmt-modal`, `tmt-scroll` and `tmt-key-help`
