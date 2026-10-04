@@ -6,6 +6,8 @@ mod changes;
 mod composition;
 mod cronboard;
 mod derived;
+#[cfg(test)]
+mod glyph_guard;
 mod help;
 mod home;
 mod markdown;

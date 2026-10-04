@@ -213,7 +213,10 @@ selected and marked `(hidden)`, without a drag target. There are no number keys.
 
 `ctrl-r` refreshes the board in squad, leads and all views, including while
 searching or composing a message, without changing the entered text. The footer
-and `?` help list the effective bindings. Rebind it in `[bind]` (or a section),
+and `?` help list the effective bindings. The footer shows only the row actions the
+selected row allows (`r reply` needs a decision to answer, `o open` a link) and,
+when the width runs out, drops whole hints from the end; `q quit` and `? more`
+always stay. Rebind it in `[bind]` (or a section),
 or `[tabs.all.bind]` for all. F5 has no default action; an explicit
 `f5 = "refresh"` binding remains supported.
 

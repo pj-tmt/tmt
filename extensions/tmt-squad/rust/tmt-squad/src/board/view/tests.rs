@@ -152,7 +152,8 @@ fn waiting_hint_uses_rebound_key_and_drops_oldest_before_actions() {
     assert!(hints(&app, 50).contains("z ask lead"));
     assert!(!hints(&app, 50).contains("oldest"));
     assert!(!hints(&app, 80).contains("oldest"));
-    assert!(hints(&app, 100).contains("ctrl-r refresh"));
+    assert!(hints(&app, 100).contains("r reply"));
+    assert!(hints(&app, 100).ends_with("q quit  ? more"));
     assert!(!hints(&app, 50).contains("A ask lead"));
     assert_eq!(
         super::waiting::text(app.selected_row().unwrap()),
@@ -184,6 +185,188 @@ fn footer_omits_whole_hints_instead_of_clipping_words() {
         );
     }
     assert!(!draw(&app, 108, 8).last().unwrap().ends_with("◆ ne"));
+}
+
+/// The shown hints without the reserved tail.
+fn shown_hints(text: &str) -> Vec<&str> {
+    text.split("  ")
+        .filter(|hint| !hint.is_empty() && !["q quit", "? more"].contains(hint))
+        .collect()
+}
+
+#[test]
+fn footer_orders_hints_by_priority_and_always_keeps_quit_and_more() {
+    let mut app = paned(
+        split(Direction::LeftRight, vec![Pane::Rows], vec![100]),
+        Notes::NotShown,
+    );
+    app.select(1);
+    assert_eq!(app.selected_row().unwrap()["name"], "auth-fix");
+    let full = hints(&app, usize::MAX);
+    let order = [
+        "⏎ jump",
+        "t talk",
+        "r reply",
+        "⌫ back",
+        "a answer · note",
+        "/ search",
+        "o open",
+        "y copy",
+        "tab pane",
+        "ctrl-r refresh",
+    ];
+    let at = |hint: &str| full.find(hint).unwrap_or_else(|| panic!("{hint}: {full}"));
+    assert!(
+        order.windows(2).all(|pair| at(pair[0]) < at(pair[1])),
+        "{full}"
+    );
+    assert!(!full.contains("next-pane"), "{full}");
+    assert!(full.ends_with("q quit  ? more"));
+    let whole = shown_hints(&full);
+    for width in 0..=full.width() {
+        let shown = hints(&app, width);
+        assert!(shown.width() <= width, "{width}: {shown}");
+        match width {
+            0..=5 => assert_eq!(shown, ""),
+            6..=13 => assert_eq!(shown, "? more", "{width}"),
+            _ => assert!(shown.ends_with("q quit  ? more"), "{width}: {shown}"),
+        }
+        // Whole hints only, always a prefix of the priority order.
+        let kept = shown_hints(&shown);
+        assert_eq!(kept, whole[..kept.len()], "{width}: {shown}");
+    }
+    // Talking, replying and going back survive an 80-cell footer.
+    let narrow = hints(&app, 80);
+    assert!(
+        narrow.ends_with("⏎ jump  t talk  r reply  ⌫ back  q quit  ? more"),
+        "{narrow}"
+    );
+}
+
+#[test]
+fn footer_shows_only_the_row_actions_the_selected_row_allows() {
+    let mut app = paned(
+        split(Direction::LeftRight, vec![Pane::Rows], vec![100]),
+        Notes::NotShown,
+    );
+    // The lead row waits on nothing and has no link: no reply, no open.
+    app.select(0);
+    assert_eq!(app.selected_row().unwrap()["name"], "sol");
+    let lead = hints(&app, usize::MAX);
+    for hint in ["⏎ jump", "t talk", "a answer · note"] {
+        assert!(lead.contains(hint), "{lead}");
+    }
+    for hint in ["r reply", "o open"] {
+        assert!(!lead.contains(hint), "{lead}");
+    }
+    // Only a decision (pending text or an open request) enables reply.
+    app.select(1);
+    assert!(hints(&app, usize::MAX).contains("r reply"));
+    let set = |app: &mut App, key: &str, value: Value| {
+        app.view.as_mut().unwrap().document["sections"][0]["rows"][0][key] = value;
+    };
+    set(&mut app, "pending", Value::Null);
+    assert!(!hints(&app, usize::MAX).contains("r reply"));
+    set(
+        &mut app,
+        "waitingOnYou",
+        json!([{"requestId": "q-1", "preview": "approve?"}]),
+    );
+    assert!(hints(&app, usize::MAX).contains("r reply"));
+    // No row: board keys only, and the reserved tail.
+    let mut empty = App::new(Some("product".into()));
+    empty.apply(crate::board::app::tests::snapshot("product", json!([])));
+    let text = hints(&empty, usize::MAX);
+    for hint in [
+        "⏎",
+        "t talk",
+        "r reply",
+        "answer · note",
+        "o open",
+        "y copy",
+    ] {
+        assert!(!text.contains(hint), "{text}");
+    }
+    assert!(text.contains("/ search") && text.ends_with("q quit  ? more"));
+    // The plain host's Enter is the row menu; rebinding changes the word.
+    let view = app.view.as_mut().unwrap();
+    view.bindings = crate::action::preset(false, &view.board.panes);
+    assert!(hints(&app, usize::MAX).contains("⏎ menu"));
+}
+
+#[test]
+fn footer_labels_use_only_registered_spaced_marks_and_structural_typography() {
+    use crate::board::glyph_guard::glyph_error;
+    for panes in [
+        vec![Pane::Rows],
+        vec![Pane::Rows, Pane::Detail],
+        vec![Pane::Rows, Pane::Replies],
+        vec![Pane::Rows, Pane::Detail, Pane::Replies, Pane::Notes],
+    ] {
+        for tmux in [true, false] {
+            let mut app = paned(
+                split(Direction::LeftRight, panes.clone(), vec![]),
+                Notes::NotShown,
+            );
+            let view = app.view.as_mut().unwrap();
+            view.bindings = crate::action::preset(tmux, &view.board.panes);
+            for folded in [false, true] {
+                if folded && panes.len() > 1 {
+                    app.key(KeyEvent::new(KeyCode::Char('d'), KeyModifiers::NONE));
+                }
+                for selected in [0, 1] {
+                    app.select(selected);
+                    for width in [usize::MAX, 160, 100, 80, 48] {
+                        let shown = hints(&app, width);
+                        assert_eq!(glyph_error(&shown), None, "{width}: {shown}");
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn footer_hints_follow_rebound_keys_and_show_one_hint_per_action() {
+    use crate::action::Action;
+    let mut app = paned(
+        split(Direction::LeftRight, vec![Pane::Rows], vec![100]),
+        Notes::NotShown,
+    );
+    app.select(1);
+    let default = hints(&app, usize::MAX);
+    let view = app.view.as_mut().unwrap();
+    // Rebinding talk moves its hint to the new key and keeps its rank.
+    view.bindings.remove("t");
+    view.bindings
+        .insert("m".into(), Action::parse("talk").unwrap());
+    let rebound = hints(&app, usize::MAX);
+    assert_eq!(rebound, default.replace("t talk", "m talk"), "{rebound}");
+    // An unbound action has no hint.
+    let view = app.view.as_mut().unwrap();
+    view.bindings.remove("m");
+    let unbound = hints(&app, usize::MAX);
+    assert_eq!(unbound, default.replace("t talk  ", ""), "{unbound}");
+    // A second key for one action adds no hint, and Enter stays the shown key.
+    let view = app.view.as_mut().unwrap();
+    view.bindings
+        .insert("J".into(), Action::parse("jump").unwrap());
+    view.bindings
+        .insert("x".into(), Action::parse("copy {name}").unwrap());
+    let text = hints(&app, usize::MAX);
+    let shown = shown_hints(&text);
+    assert_eq!(
+        shown.iter().filter(|hint| hint.ends_with(" jump")).count(),
+        1
+    );
+    assert!(shown.contains(&"⏎ jump"), "{shown:?}");
+    // A different action text is its own hint: `copy` with another template.
+    assert!(shown.iter().any(|hint| hint.ends_with(" copy")));
+    // Rebound unlisted verbs (`run`, `notes`) never reach the footer.
+    let view = app.view.as_mut().unwrap();
+    view.bindings
+        .insert("R".into(), Action::parse("run true").unwrap());
+    assert!(!hints(&app, usize::MAX).contains("R run"));
 }
 
 /// Rows read from a squad config snippet, as `squad.toml` would give them.
@@ -3591,6 +3774,12 @@ fn toggle_footer_and_help_show_current_state_and_drop_the_whole_hint() {
             assert!(!help_lines(&app).iter().any(|line| line.starts_with("d ")));
             continue;
         }
+        // The footer's word has no state glyph; help keeps the state.
+        let word = if targets.len() == 2 {
+            "side panel".to_owned()
+        } else {
+            targets[0].title().to_owned()
+        };
         let label = targets
             .iter()
             .map(|pane| pane.title())
@@ -3601,16 +3790,19 @@ fn toggle_footer_and_help_show_current_state_and_drop_the_whole_hint() {
                 app.key(KeyEvent::new(KeyCode::Char('d'), KeyModifiers::NONE));
             }
             let state = if folded { "▸" } else { "▾" };
-            let hint = format!("d {label} {state}");
+            let hint = format!("d {word}");
             let full = hints(&app, usize::MAX);
             assert!(full.contains(&hint), "{full}");
+            assert!(!full.contains('▾') && !full.contains('▸'), "{full}");
             let description = app.bindings()["d"].description();
             assert!(help_lines(&app).contains(&format!("d  {description} (▾ open, ▸ folded)")));
+            assert_eq!(
+                crate::board::view::toggle_label(&app, &app.bindings()["d"]),
+                Some(format!("{label} {state}")),
+                "help keeps the state"
+            );
             for width in 0..160 {
                 let shown = hints(&app, width);
-                if shown.contains(&format!("d {label}")) {
-                    assert!(shown.contains(&hint), "{width}: {shown}");
-                }
                 assert!(!shown.contains('…'));
                 assert!(shown.width() <= width);
                 assert!(shown.is_empty() || !shown.ends_with(" ·"));
@@ -3618,9 +3810,11 @@ fn toggle_footer_and_help_show_current_state_and_drop_the_whole_hint() {
         }
         if targets.len() == 2 {
             fold(&mut app, Pane::Detail);
-            assert!(
-                hints(&app, usize::MAX).contains("d detail+replies ▾"),
-                "mixed state uses open mark"
+            assert!(hints(&app, usize::MAX).contains("d side panel"));
+            assert_eq!(
+                crate::board::view::toggle_label(&app, &app.bindings()["d"]).as_deref(),
+                Some("detail+replies ▾"),
+                "mixed state uses the open mark in help"
             );
         }
     }
@@ -3640,10 +3834,10 @@ fn footer_hints_are_conditional_and_effective_bindings_remain_visible() {
     );
     let view = app.view.as_mut().unwrap();
     view.bindings = crate::action::preset(true, &view.board.panes);
-    assert!(hints(&app, usize::MAX).contains("d detail ▾"));
+    assert!(hints(&app, usize::MAX).contains("d detail"));
     assert!(draw(&app, 48, 12)[11].contains("A ask lead"));
     assert!(
-        !draw(&app, 48, 12)[11].contains("d detail ▾"),
+        !draw(&app, 48, 12)[11].contains("d detail"),
         "decision actions take priority when narrow"
     );
     app.view
@@ -3651,7 +3845,9 @@ fn footer_hints_are_conditional_and_effective_bindings_remain_visible() {
         .unwrap()
         .bindings
         .insert("d".into(), crate::action::Action::parse("refresh").unwrap());
-    assert!(hints(&app, usize::MAX).contains("d refresh"));
+    // One hint per action: `refresh` stays on its first key, `ctrl-r`.
+    let shown = hints(&app, usize::MAX);
+    assert!(shown.contains("ctrl-r refresh") && !shown.contains("d refresh"));
     assert!(
         help_lines(&app)
             .iter()
