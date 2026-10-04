@@ -170,6 +170,27 @@ interrupt groups. Grouping changes display only: each squad keeps its own mark
 slot, count, selection, click and drag target. The prefix is not clickable.
 The `s` switcher retains full names, including hidden tabs.
 
+`tmt sq board --tabs product,infra,needs-me` picks the tabs this board shows,
+using names from the tab line. Squad names take precedence over user-tab labels;
+use `@tab:NAME` for an unambiguous user tab. `leads` selects leads; omit `--tabs`
+or use `--tabs all` for the default set. Unknown names produce a usage error
+listing valid names. `--squad NAME` must be among the picks when both flags are
+given. This resolver is board-only; `ls --tab` keeps its own names.
+
+In the switcher, Space includes or excludes the highlighted tab. `[x]` marks
+included tabs and `[ ]` excluded tabs. Enter opens a tab and includes it on this
+board; opening a squad from home does the same. Excluding the current tab opens
+the next included tab, or home if none remain. The named action `pick-tab` is
+rebindable, for example `[bind] p = "pick-tab"`; that binding replaces Space
+and opens the switcher from the board. A different action bound to Space takes
+precedence.
+
+Unpicked squads share one `N not on this board` segment, dim when quiet and
+lit with ◆ waiting and ✗ blocked counts when they need attention. Click it to
+open a switcher limited to those squads. Picks belong to this board process,
+survive refresh and resizing, and never write `squad.toml`. `tabs.hide` remains
+global: hidden tabs stay out of the tab line even when opened or picked.
+
 The line keeps the current tab visible. Left overflow shows `‹ N`; right
 overflow names hidden tabs as `+N › remote◆2 docs …`, waiting first, then
 blocked, then quiet, retaining arrangement order within each tier. Names remain
@@ -237,6 +258,30 @@ constructs appear as source text. Focus replies to scroll with arrows or j/k,
 PgUp/PgDn and Home/End, or use the wheel over the pane. The scroll marks show
 remaining content. Older replies without a loaded body retain `tmt result <id>`
 hints; reading and scrolling acknowledge nothing.
+
+Rows that wait on you show a single decision line: `pending` when set,
+otherwise the oldest unanswered request preview. Text ends in `…` when it does
+not fit; detail retains the full available text and the effective reply/jump
+keys. Request age comes from the inbox timestamp; pending-only rows have no
+request age. The hint uses the tab's member count and drops its oldest-member
+label first when space is short.
+
+Press `A` (`ask-lead`, rebindable) on a squad tab to open `ask lead <name>`.
+The prompt starts with "List what waits on me: one line each with who, the
+decision, your suggestion and what happens if I wait." Edit before Enter sends;
+Esc cancels. Missing or changed lead/sender/squad refuses without sending.
+It uses ordinary detached `tmt talk`; replies and ▚ notices follow the normal
+request path.
+
+Set the question with `[board] ask_lead`, overridden by
+`[squad.<name>.board] ask_lead`. It must be a nonempty single line of at most
+4000 characters. The settings editor and `tmt sq config set board.ask_lead`
+use the same validation and concurrent-edit refusal as other board settings.
+
+```sh
+tmt sq config set board.ask_lead "What needs my decision?"
+tmt sq config set board.ask_lead "Summarize our pending decisions." --squad product
+```
 
 ## Home dashboard
 
@@ -322,8 +367,8 @@ settings supported by `config set`; the board uses the same validation and write
 Use `tmt sq config set KEY VALUE [--squad NAME]` for validated edits. Squad scope
 is required for `layout`, `board.panes`, `board.direction`, `board.sizes`,
 `board.hidden_columns`, `notes.render`, `states.STATE.color`, `reminders.enabled`
-and `reminders.stale_after`. `board.refresh`
-uses the squad layer with `--squad`, otherwise the global Squad board layer.
+and `reminders.stale_after`. `board.refresh` and `board.ask_lead`
+use the squad layer with `--squad`, otherwise the global Squad board layer.
 `tabs.order` and `tabs.hide` always edit global Squad tab policy. Arrays use JSON;
 other values are unquoted scalar arguments. Examples:
 

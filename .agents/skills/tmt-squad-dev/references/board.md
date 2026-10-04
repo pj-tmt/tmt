@@ -58,6 +58,25 @@ painter directly.
   no actionable IDs. `App::shown_tab` supplies the retained view owner while another tab
   loads, and resize/search never substitute the requested tab.
 
+## Decisions and ask-lead
+
+`attention::waits_on_you` owns the shared pending/request predicate.
+`board::view::waiting` selects pending text before the oldest acquired request
+preview and formats only authoritative nonfuture request ages. Authored pending
+cells keep their grid position; rows without one gain a continuation line with
+its own row hit. `time_marks` includes request ages so they advance without reads.
+The waiting hint uses `Attention::of`, matching the tab's count, and effective
+bindings; narrow fitting removes the oldest-member label before the actions.
+The footer reserves `? more` as its final hint before fitting whole tail hints.
+
+`ask-lead` opens the existing input composer with the configured question.
+Enter validates the opening sender, squad and current lead, then produces the
+existing `Request::Talk`; no extra client or read path exists. Its docked prompt
+uses an opaque full-width `tmt-tui::Modal` band and admitted text strips. `board::view::strip` also
+owns the converted footer/loading/empty-detail text, leaving their callers'
+resolved styles intact. User-facing action and question settings are owned by
+the shipped Squad skill.
+
 ## Composition and folds
 
 - `split` owns validated row/column trees up to `MAX_DEPTH` 3 and reading/focus order, not
@@ -138,6 +157,22 @@ by record when no positions were drawn.
 - The switcher (`s`, unless rebound) filters tab-line and hidden tabs with `tabs::matching`: a
   prefix match first, then a substring, then letters in order. A shown squad that is not on the
   tab line is drawn first, selected, with no `TabHit`, so it cannot be moved.
+- `board::pick::Picks` owns the transient admission policy: omitted/`all` follows inventory,
+  while explicit names and switcher toggles retain canonical keys. Startup resolves only board
+  inventory before terminal admission; `ls --tab` is unchanged. `App` retains full arranged and
+  hidden inventories for caches, ordering and switcher selection; navigation and paint filter
+  them without rewriting config. Opening an excluded tab admits it. Removing the current pick
+  requests the next picked tab or home through the ordinary cached/uncached load path. Refresh
+  prunes removed keys but preserves picks during a failed empty inventory read.
+- `view::tabs` measures the folded unpicked-squad segment first, then applies the existing
+  admission/window policy to picked tabs and recomputes groups over that sequence. Drawn hits
+  retain canonical indices. The fold sums `Attention::of`-derived attention from visible,
+  unpicked squads only, excluding aggregates and global hide; its separate rectangle opens a
+  restricted switcher and never participates in dragging. `view.rs` resets both hit maps.
+- The switcher adapter consumes the named `pick-tab` action before shared picker text handling
+  in both query/list fields. Default Space is local to this adapter; explicit bindings replace
+  it and a non-pick Space binding takes precedence. The shared picker stays unchanged. Pick
+  markers and the effective key appear in its markup/footer and board help.
 - `App` keeps the view of each visited squad. A switch shows a cached view at once; otherwise it
   keeps the current frame (marked stale, so row actions refuse) until the new snapshot swaps in
   whole. An uncached switch lasting at least `SPINNER_DELAY` (100 ms) shows a spinner in the

@@ -124,6 +124,9 @@ impl Door {
     /// The use-time line when no Remote door can be reached (#1575's wording).
     pub const INSTALL_HINT: &str =
         "Browser access needs the Remote extension: tmt extension install remote --yes";
+    /// What `tmt colab stop` says about a door it did not start. Names no Remote command until
+    /// `tmt remote stop` ships (#1571); then it becomes "... (stop it with tmt remote stop)".
+    pub const ATTACHED_STOP_NOTE: &str = "Remote is still running (started outside Colab)";
     /// What a human is told beside a mount-relative path when no door runs: how to get a full link.
     pub fn hint(lookup: &Lookup, relative: &str) -> String {
         match lookup {

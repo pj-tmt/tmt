@@ -5,6 +5,14 @@
 use serde_json::{Value, json};
 use std::collections::BTreeSet;
 
+/// The same decision predicate serves tab counts and board presentation.
+pub fn waits_on_you(row: &Value) -> bool {
+    row["pending"].is_string()
+        || row["waitingOnYou"]
+            .as_array()
+            .is_some_and(|requests| !requests.is_empty())
+}
+
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct Attention {
     /// Members that owe the user a decision (`pending`, ◆) or sent a request
@@ -33,10 +41,7 @@ impl Attention {
             let Some(id) = row["id"].as_str().or_else(|| row["name"].as_str()) else {
                 continue;
             };
-            let asks = row["waitingOnYou"]
-                .as_array()
-                .is_some_and(|requests| !requests.is_empty());
-            if row["pending"].is_string() || asks {
+            if waits_on_you(row) {
                 waiting.insert(id);
             }
             if row["state"] == "blocked" {

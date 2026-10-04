@@ -1,7 +1,7 @@
 //! What `tmt colab serve` reports once the local space is mounted: the state, and the next step,
 //! for a person (detail rows) and for an agent (one stable JSON line).
 use crate::{
-    door::{Door, Lookup, Pairing},
+    door::{Door, Pairing},
     supervisor::Access,
 };
 use serde_json::{Value, json};
@@ -42,12 +42,24 @@ impl Status<'_> {
             self.space
         ))
     }
-    /// A full link when a door runs, else the relative path with how to get a full one.
+    /// A full link when a door runs, else the relative path.
     fn page_link(&self) -> Option<String> {
         let relative = self.first_page()?;
         Some(match self.door() {
             Some(door) => door.url(&relative),
-            None => Door::hint(&Lookup::Unknown, &relative),
+            None => relative,
+        })
+    }
+    /// What a person reads beside a page link: the link, or, without a door, the relative path
+    /// and why there is no full link. Never a command that `serve` itself replaces.
+    fn page_text(&self) -> Option<String> {
+        let link = self.page_link()?;
+        Some(match self.access {
+            Access::Unavailable { missing: true } => format!("{link} ({})", Door::INSTALL_HINT),
+            Access::Unavailable { missing: false } => {
+                format!("{link} (browser access unavailable: see warning)")
+            }
+            _ => link,
         })
     }
     fn needs_pairing(&self) -> bool {
@@ -110,23 +122,24 @@ impl Status<'_> {
                 },
             ));
         }
-        rows.push((
-            "open",
-            match (self.page_link(), self.pages.as_ref()) {
-                (Some(link), _) => link,
-                (None, Some(_)) => format!("create one: {CREATE}"),
-                (None, None) => "pages unknown: tmt colab ls".into(),
-            },
-        ));
+        // Next steps come in the order they are needed: the link opens only once a browser is paired.
         if self.needs_pairing() {
             rows.push((
                 "pair",
                 match self.pairing {
-                    Some(Pairing::Unpaired) => format!("Pair this browser once: {PAIR}"),
-                    _ => format!("If this browser is new: {PAIR}"),
+                    Some(Pairing::Unpaired) => format!("pair this browser once: {PAIR}"),
+                    _ => format!("if this browser is new: {PAIR}"),
                 },
             ));
         }
+        rows.push((
+            "open",
+            match (self.page_text(), self.pages.as_ref()) {
+                (Some(text), _) => text,
+                (None, Some(_)) => format!("create one: {CREATE}"),
+                (None, None) => "pages unknown: tmt colab ls".into(),
+            },
+        ));
         rows
     }
 }

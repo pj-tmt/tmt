@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Locator, type Page } from '@playwright/test';
 import { pairBrowser, startDoor } from './harness/browser.js';
 import {
   createPage,
@@ -14,8 +14,13 @@ import { disposeActiveWorlds, withWorld } from './harness/with-world.js';
 async function manage(page: Page) {
   await page.getByRole('button', { name: 'Manage page', exact: true }).click();
   const dialog = page.getByRole('dialog');
-  await expect(dialog.getByLabel('Audience')).toBeVisible();
+  await expect(dialog.getByRole('combobox', { name: /^Audience/ })).toBeVisible();
   return dialog;
+}
+
+async function choose(dialog: Locator, label: string, option: string) {
+  await dialog.getByRole('combobox', { name: new RegExp(`^${label}`) }).click();
+  await dialog.getByRole('listbox', { name: label }).getByRole('option', { name: option }).click();
 }
 
 test.afterEach(disposeActiveWorlds);
@@ -73,7 +78,7 @@ test('native sharing and lifecycle verification preserve Ask, page recovery and 
     expect(recipient.received()).toHaveLength(0);
 
     dialog = await manage(page);
-    await dialog.getByLabel('Audience').selectOption('link');
+    await choose(dialog, 'Audience', 'Link');
     await dialog.getByRole('button', { name: 'Confirm make link' }).click();
     await expect(dialog.getByRole('status')).toContainText('Change verified');
     await dialog.getByRole('button', { name: 'Manage another change' }).click();
@@ -88,7 +93,7 @@ test('native sharing and lifecycle verification preserve Ask, page recovery and 
     await expect(dialog.getByRole('status')).toContainText('Change verified');
     expect(await dialog.getByLabel('Link ID', { exact: true }).inputValue()).not.toBe(oldLink);
     await dialog.getByRole('button', { name: 'Manage another change' }).click();
-    await dialog.getByLabel('Audience').selectOption('private');
+    await choose(dialog, 'Audience', 'Private');
     await expect(dialog).toContainText('links are revoked and affected pages rotate');
     await dialog.getByRole('button', { name: 'Confirm make private' }).click();
     await expect(dialog.getByRole('status')).toContainText('Change verified');
