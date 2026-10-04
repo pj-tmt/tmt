@@ -16,7 +16,7 @@ use tmt_adapters::{
     native_install::{self, UpgradeReport, UpgradeRequest},
     process::{CommandFailure, CommandRequest, CommandRunner, UnixCommandRunner},
 };
-use tmt_core::native_install::Channel;
+use tmt_core::{native_install::Channel, skill_catalog::Group};
 
 pub fn execute(
     channel: Option<Channel>,
@@ -246,16 +246,10 @@ fn publish_products(
             if !report.skipped_pinned
                 && let Some(refreshed) = document["skills"]["refreshed"].as_array()
             {
-                let skipped = document["skills"]["skipped"].as_array().map_or(0, Vec::len);
                 let conflicts = document["skills"]["conflicts"]
                     .as_array()
                     .expect("validated skill report");
-                writeln!(
-                    stdout,
-                    "Managed skills: {} current/refreshed, {skipped} missing, {} conflicts preserved.",
-                    refreshed.len(),
-                    conflicts.len()
-                )?;
+                writeln!(stdout, "{}", skills_summary(&document["skills"]))?;
                 for target in conflicts {
                     tmt_cli_style::message::hint(
                         &mut stdout,
@@ -381,6 +375,39 @@ fn retry_hint(report: &UpgradeReport) -> String {
         Some(version) => format!("tmt upgrade --to {version}"),
         None => "tmt upgrade".into(),
     }
+}
+
+/// The plain-text skills line. Only core's own skills that went missing are
+/// worth the user's attention: a skill of an extension that is frozen or not
+/// installed is not a fault, and the JSON report keeps every skipped path.
+fn skills_summary(skills: &Value) -> String {
+    let core = |target: &Value| {
+        target
+            .as_str()
+            .and_then(|target| Path::new(target).file_name())
+            .and_then(|name| name.to_str())
+            .is_some_and(|name| {
+                tmt_core::skill_catalog::BUNDLED
+                    .iter()
+                    .any(|skill| skill.name == name && skill.group == Group::Core)
+            })
+    };
+    let missing = skills["skipped"]
+        .as_array()
+        .map_or(0, |skipped| skipped.iter().filter(|t| core(t)).count());
+    let mut line = format!(
+        "Managed skills: {} current/refreshed",
+        skills["refreshed"].as_array().map_or(0, Vec::len)
+    );
+    if missing > 0 {
+        line.push_str(&format!(", {missing} missing"));
+    }
+    let conflicts = skills["conflicts"].as_array().map_or(0, Vec::len);
+    if conflicts > 0 {
+        line.push_str(&format!(", {conflicts} conflicts preserved"));
+    }
+    line.push('.');
+    line
 }
 
 #[cfg(test)]
