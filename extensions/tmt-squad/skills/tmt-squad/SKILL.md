@@ -266,7 +266,7 @@ report notification warnings. Owner retirement pauses the job as no owner and
 notifies the lead; each management invocation handles at most 16 pending hooks.
 An open board keeps the clock running independently of its refresh setting.
 Outside a board, `tmt sq cron run` keeps it in the current pane; `clock` shows
-its pane, PID and start time. Only one clock holds the lease. Stop `run` with
+its pane, PID and how long it has held the lease. Only one clock holds the lease. Stop `run` with
 Ctrl-C; stale leases can be taken over. Startup and takeover begin at now, so
 slots missed while no clock was running are not caught up. A running clock
 admits slots since its previous tick, capped at five minutes. `tick` makes one

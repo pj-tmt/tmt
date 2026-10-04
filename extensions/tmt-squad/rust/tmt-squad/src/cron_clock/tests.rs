@@ -81,6 +81,25 @@ fn clock_status_projection_keeps_full_holder_evidence() {
 }
 
 #[test]
+fn clock_text_uses_relative_age_without_changing_exact_json_evidence() {
+    let since_ms = 100_000;
+    let document = json!({"action":"clock","clock":status_document(ClockStatus::Running(cron::Holder {
+        pane: Some("%41".into()), pid: 123, since_ms, expires_ms: 400_000,
+    }))});
+    let unchanged = document.clone();
+    let text = text_at(&document, Terminal::PLAIN, since_ms + 180_000);
+    assert!(
+        text.lines()
+            .any(|line| line.trim_start().starts_with("since") && line.ends_with("3m ago")),
+        "{text}"
+    );
+    assert!(!text.contains("1970-"));
+    assert!(text_at(&document, Terminal::PLAIN, since_ms - 1).contains("just now"));
+    assert_eq!(document, unchanged);
+    assert_eq!(document["clock"]["sinceMs"], since_ms);
+}
+
+#[test]
 fn manual_send_preserves_operator_revision_paused_state_and_exact_message() {
     let f = Fixture::new();
     let lead = f.actor(LEAD);

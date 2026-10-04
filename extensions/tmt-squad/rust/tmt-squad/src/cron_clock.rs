@@ -407,6 +407,10 @@ fn foreground(core: &Core, config: &Config) -> Result<Value, SquadError> {
 }
 
 pub fn text(document: &Value, terminal: Terminal) -> String {
+    text_at(document, terminal, now())
+}
+
+fn text_at(document: &Value, terminal: Terminal, now_ms: i64) -> String {
     let mut out = Vec::new();
     if document["action"] == "send" {
         let job = &document["job"];
@@ -442,8 +446,11 @@ pub fn text(document: &Value, terminal: Terminal) -> String {
                     "since",
                     clock["sinceMs"]
                         .as_i64()
-                        .and_then(|ms| jiff::Timestamp::from_millisecond(ms).ok())
-                        .map(|t| t.to_string())
+                        .map(|since| {
+                            tmt_cli_style::value::relative_time(
+                                now_ms.saturating_sub(since).max(0) as u64
+                            )
+                        })
                         .unwrap_or_default(),
                 ),
             ]);

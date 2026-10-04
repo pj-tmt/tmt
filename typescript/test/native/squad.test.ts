@@ -2833,6 +2833,21 @@ describe('Squad cron clock', () => {
       expect(tick).toMatchObject({ status: 0, body: { accepted: 0, complete: true } });
       const lease = path.join(directory, 'clock.json');
       expect(existsSync(lease)).toBe(false);
+      const sinceMs = Date.now() - 180_000;
+      const evidence = JSON.stringify({
+        version: 1,
+        pane: '%41',
+        pid: 123,
+        sinceMs,
+        expiresMs: sinceMs + 300_000,
+      });
+      writeFileSync(lease, evidence);
+      const runningText = await runCli(sandbox, ['squad', 'cron', 'clock']);
+      expect(runningText.status).toBe(0);
+      expect(runningText.stdout).toContain('3m ago');
+      const running = await squad(sandbox, ['cron', 'clock']);
+      expect(running).toMatchObject({ status: 0, body: { clock: { state: 'running', sinceMs } } });
+      expect(readFileSync(lease, 'utf8')).toBe(evidence);
       writeFileSync(lease, 'corrupt clock evidence');
       const unknown = await squad(sandbox, ['cron', 'clock']);
       expect(unknown).toMatchObject({ status: 1, body: { clock: { state: 'unknown' } } });

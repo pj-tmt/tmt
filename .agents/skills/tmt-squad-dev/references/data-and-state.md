@@ -257,7 +257,8 @@ own these layers:
   standalone tick admits the last 60 seconds. No absent-clock history is replayed.
 
 - `cron_clock` adapts `run/tick/clock/send` to public core commands/API and the shared
-  admission service. Each scheduled send revalidates revision, room and owner,
+  admission service. Clock text shows the relative start age; JSON retains exact
+  millisecond evidence. Each scheduled send revalidates revision, room and owner,
   renews its lease, then dispatches the exact message anonymously outside the jobs
   lock. An uncertain create recovers the same operation with `dispatch.show`; it
   never invents a replacement or re-wakes a replay. Manual send retains an explicit
