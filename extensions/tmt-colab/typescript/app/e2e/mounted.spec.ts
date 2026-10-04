@@ -185,7 +185,7 @@ test('mounted owner discovers a pinned space; registration failure stays blocked
   await page.goto(mount);
   await expect(page.getByRole('heading', { name: 'Colab', exact: true })).toBeVisible();
   await expect(page).toHaveURL(new RegExp(`#space=${f.space}$`));
-  await expect(page.getByRole('link', { name: new RegExp(pageId) })).toBeVisible();
+  await expect(page.locator(`[data-page-id="${pageId}"] a`)).toBeVisible();
   await page.route(`**${mount}api/devices/register`, (route) =>
     route.fulfill({ status: 403, json: { code: 'DENIED' } }),
   );
@@ -249,7 +249,7 @@ test('verified metadata with no wraps keeps the page blocked and opens no render
     });
   });
   await page.goto(mount);
-  await page.getByRole('link', { name: new RegExp(pageId) }).click();
+  await page.locator(`[data-page-id="${pageId}"] a`).click();
   await expect(page.getByRole('alert')).toContainText('no verified page key');
   await expect(page.locator('iframe')).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Source', exact: true })).toHaveCount(0);

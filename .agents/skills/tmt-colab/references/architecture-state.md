@@ -173,7 +173,30 @@ in `acceptance/ask.spec.ts`.
 - `expiry.ts` formats browser relative retention time and local absolute dates;
   `retention-hint.tsx` presents the same hint inside home cards and the dialog.
   Warnings begin seven days ahead with a waiting mark and body text color; normal
-  hints are dim. The CLI formats the same projection, and expired local pages remain
-  available. Legacy unknown times say "Expiry starts after the next edit".
+  hints are dim. The CLI formats the same projection with one local clock per human
+  result: relative last edits, short expiry values, and dim list hints under each link.
+  Finite expiry within seven days has a waiting mark; its footer says "Expiry never
+  deletes your local copy." JSON keeps exact milliseconds, and expired local pages remain
+  available. Browser legacy hints say "Expiry starts after the next edit"; CLI values
+  use UX's lowercase values: `kept forever`, `starts after the next edit`,
+  and `beyond the supported range`. A verified out-of-range warning masks the human retention count
+  as `out of range`, without changing JSON or policy.
   Exact warning codes, checked arithmetic and forever semantics live in the contract.
   The link artifact is a transient ID/seed, not a new reader URL/import grammar.
+
+## Browser title hints
+
+- `title-cache.ts` owns optional encrypted title records scoped to space/device/page.
+  `keyring.ts::titleKey` owns their local non-extractable AES-GCM key, without changing
+  Remote-certified device keys. The existing IndexedDB record helper owns durable writes.
+- `Live#publishViews` passes accepted folded titles and their exact admission
+  registration to `mounted.ts`. Mounted tab ownership/current registration fences
+  the best-effort cache write. Rejected folds and replaced sessions cannot supply hints.
+- Home reads hints only after verified discovery/policy. `router.tsx` and
+  `share-dialog.tsx` use them as display labels, with UUIDs under Details and the
+  explicit unopened fallback; the parent tab title follows the live page. A later
+  fold replaces stale hints. Missing/corrupt cache data never authorizes or denies access.
+- The cache adds no plaintext server field, native schema or Worker/renderer capability.
+  Crypto/scope tests live in `test/title-cache.test.ts`; real IndexedDB reload and
+  safe rendering are covered in `e2e/live.spec.ts`, and native page-create title
+  propagation/profile isolation in `acceptance/titles.spec.ts`.

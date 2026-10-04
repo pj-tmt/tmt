@@ -14,6 +14,7 @@ use crate::{
     requests::{BODIES, age},
     rows::Rows,
 };
+use ratatui::widgets::Paragraph;
 use ratatui::{
     layout::Rect,
     style::{Modifier, Style},
@@ -25,6 +26,7 @@ use unicode_width::UnicodeWidthStr;
 
 mod cron;
 mod help;
+mod menu;
 mod meter;
 mod parity;
 use super::*;
@@ -795,11 +797,12 @@ fn drawn_rows_are_clickable_and_the_menu_and_help_show_bindings() {
     );
     app.help = false;
     app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
-    let screen = draw(&app, 60, 16);
+    let screen = draw(&app, 60, 24);
+    assert!(screen.iter().any(|line| line.contains("┌ docs ")));
     assert!(
         screen
             .iter()
-            .any(|line| line.contains("docs · Enter runs, Esc closes"))
+            .any(|line| line.contains("Enter runs · Esc closes"))
     );
     assert!(screen.iter().any(|line| line.contains("backspace back")));
     assert!(draw(&App::new(None), 60, 4)[3].starts_with("/ search"));
@@ -1497,8 +1500,22 @@ fn selected_tabs_keep_foregrounds_and_geometry_with_selection_background() {
                     "◆ product 2 ✗1 ",
                 ),
             ] {
-                let selected = tab(look, "product", true, attention, &TabColors::default());
-                let unselected = tab(look, "product", false, attention, &TabColors::default());
+                let selected = tab(
+                    look,
+                    "product",
+                    true,
+                    false,
+                    attention,
+                    &TabColors::default(),
+                );
+                let unselected = tab(
+                    look,
+                    "product",
+                    false,
+                    false,
+                    attention,
+                    &TabColors::default(),
+                );
                 assert_eq!(selected.to_string(), text);
                 assert_eq!(selected.to_string(), unselected.to_string());
                 assert_eq!(selected.width(), unselected.width());
@@ -1586,6 +1603,7 @@ fn tab_fallback_depends_on_background_even_with_an_accent_foreground() {
             look,
             "product",
             true,
+            false,
             Attention::default(),
             &TabColors::default(),
         )
@@ -2325,6 +2343,7 @@ fn attention_counts_keep_shared_marks_and_tab_width_without_color() {
             app.look(),
             "product",
             false,
+            false,
             Attention::default(),
             &TabColors::default()
         )
@@ -2332,8 +2351,8 @@ fn attention_counts_keep_shared_marks_and_tab_width_without_color() {
         "  product "
     );
     let colors = TabColors::default();
-    let plain = tab(app.look(), "product", false, counts, &colors);
-    let selected = tab(app.look(), "product", true, counts, &colors);
+    let plain = tab(app.look(), "product", false, false, counts, &colors);
+    let selected = tab(app.look(), "product", true, false, counts, &colors);
     assert_eq!(selected.to_string(), "◆ product 2 ✗1 ");
     assert_eq!(selected.to_string(), plain.to_string());
     assert_eq!(selected.width(), "◆ product 2 ✗1 ".width());

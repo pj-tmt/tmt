@@ -103,6 +103,14 @@ publication or actual-archive proof. `releaseOnly` gives the reason a stage has 
 equivalent pre-merge execution. `followUp: 1581` marks an unresolved rehearsal gap,
 not a permanent exemption or shipped coverage.
 
+A `preMerge` counterpart names a job in `ci.yml` selected by a ci-scope output; a selector
+with its own module (the release rehearsal's `release-rehearsal.mjs`) names it as `selection.source`,
+and the guard requires that file to emit the output. The rehearsed prepare stages (`build`,
+`assemble`, `verify` and the bundle's `prepare` call) and the packaging incidents map to
+`release-rehearsal`. Incident rows (#1534, #1541, #1542, #1550, #1593, #1604, #1616, #1646,
+#1661) name the release step that caught the failure and a counterpart or a concrete
+release-only reason; adding an incident also extends the guard's incident list and tests.
+
 For a release workflow change, review its coverage and update the recorded step
 inventory and SHA-256 of the admitted job definition. `node
 typescript/scripts/release-parity.mjs inventory` prints the current definitions;

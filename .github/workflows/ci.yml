@@ -43,6 +43,8 @@ jobs:
       native_office: ${{ steps.scope.outputs.native_office || steps.queue.outputs.native_office || steps.seed.outputs.native_office }}
       native_scope: ${{ steps.scope.outputs.native_scope || steps.queue.outputs.native_scope || steps.seed.outputs.native_scope }}
       native_notices: ${{ steps.scope.outputs.native_notices || steps.queue.outputs.native_notices || steps.seed.outputs.native_notices }}
+      release_rehearsal: ${{ steps.rehearsal.outputs.release_rehearsal || 'false' }}
+      release_rehearsal_products: ${{ steps.rehearsal.outputs.release_rehearsal_products || '[]' }}
       scoped_native_tests: ${{ steps.scope.outputs.scoped_native_tests || steps.queue.outputs.scoped_native_tests }}
       e2e_shard_1: ${{ steps.scope.outputs.e2e_shard_1 || steps.queue.outputs.e2e_shard_1 }}
       e2e_shard_2: ${{ steps.scope.outputs.e2e_shard_2 || steps.queue.outputs.e2e_shard_2 }}
@@ -80,6 +82,14 @@ jobs:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: node typescript/scripts/ci-scope.mjs "$BASE_SHA" "$HEAD_SHA" >> "$GITHUB_OUTPUT"
+      # Pull requests only: merge groups never rehearse, and seed/weekly runs have the nightly workflow.
+      - name: Select the release rehearsal products
+        if: github.event_name == 'pull_request'
+        id: rehearsal
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: node typescript/scripts/release-rehearsal.mjs select "$BASE_SHA" "$HEAD_SHA" >> "$GITHUB_OUTPUT"
 
   office:
     name: Office SPA
@@ -126,7 +136,7 @@ jobs:
         working-directory: typescript
         run: |
           pnpm check:tooling
-          pnpm exec vp test run --config vitest.config.ts test/tooling/ci-scope.test.ts test/tooling/component-skills.test.ts test/tooling/release-cut.test.ts test/tooling/release-cut-live.test.ts test/tooling/release-source-at-ref.test.ts test/tooling/release-version-injection.test.ts test/tooling/release-workflow.test.ts test/tooling/release-parity.test.ts test/tooling/guide-budget.test.ts
+          pnpm exec vp test run --config vitest.config.ts test/tooling/ci-scope.test.ts test/tooling/component-skills.test.ts test/tooling/release-cut.test.ts test/tooling/release-cut-live.test.ts test/tooling/release-source-at-ref.test.ts test/tooling/release-version-injection.test.ts test/tooling/release-workflow.test.ts test/tooling/release-parity.test.ts test/tooling/release-rehearsal.test.ts test/tooling/guide-budget.test.ts
       - name: Check conventional PR titles
         env:
           GITHUB_TOKEN: ${{ github.token }}
@@ -169,6 +179,21 @@ jobs:
           pnpm --filter @tmt/colab-app --fail-if-no-match build
           # The archive proof's app inventory, run on the real build so it cannot first fail at release.
           node scripts/verify-colab-app-entries.mjs ../extensions/tmt-colab/typescript/app/dist
+
+  release-rehearsal:
+    name: Release rehearsal (${{ matrix.product }})
+    needs: changes
+    if: needs.changes.outputs.verify == 'true' && needs.changes.outputs.release_rehearsal == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        product: ${{ fromJSON(needs.changes.outputs.release_rehearsal_products) }}
+    permissions:
+      contents: read
+    uses: ./.github/workflows/native-release-prepare.yml
+    with:
+      product: ${{ matrix.product }}
+      sha: ${{ github.event.pull_request.head.sha }}
 
   native-notices:
     name: Native dependency notices
@@ -867,6 +892,7 @@ jobs:
       [
         changes,
         native-notices,
+        release-rehearsal,
         native-rust,
         unit-tests,
         docker-e2e-shard-1,
@@ -903,3 +929,8 @@ jobs:
           NOTICES_SELECTED: ${{ needs.changes.outputs.native_notices }}
           NOTICES_RESULT: ${{ needs.native-notices.result }}
         run: node typescript/scripts/ci-scope.mjs gate "$NOTICES_SELECTED" "$NOTICES_RESULT"
+      - name: Require the selected release rehearsal
+        env:
+          REHEARSAL_SELECTED: ${{ needs.changes.outputs.release_rehearsal }}
+          REHEARSAL_RESULT: ${{ needs.release-rehearsal.result }}
+        run: node typescript/scripts/ci-scope.mjs gate "$REHEARSAL_SELECTED" "$REHEARSAL_RESULT"

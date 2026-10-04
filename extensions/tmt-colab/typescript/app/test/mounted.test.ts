@@ -18,6 +18,7 @@ const setup = vi.hoisted(() => {
     verify: vi.fn(async () => {}),
     remote: vi.fn(),
     owner: null as LiveSessionOwner | null,
+    titleRemember: vi.fn(async () => {}),
     managementRead: vi.fn(async () => ({ page: { pageId: 'page' } })),
     managementPrepare: vi.fn(async () => ({ id: 'operation' })),
     managementSend: vi.fn(async () => ({ operationId: 'operation' })),
@@ -38,6 +39,14 @@ vi.mock('../src/registration.js', () => ({
   verifyRegistration: setup.verify,
 }));
 vi.mock('../src/ask-remote.js', () => ({ createRemoteClient: setup.remote }));
+vi.mock('../src/title-cache.js', () => ({
+  TitleCache: class {
+    remember = setup.titleRemember;
+    async read() {
+      return undefined;
+    }
+  },
+}));
 vi.mock('../src/management.js', () => ({
   ManagementError: class extends Error {
     constructor(readonly code: string) {
@@ -364,4 +373,32 @@ it('takeover during acknowledgment verification cancels its read and refuses a l
   release();
   await expect(verifying).rejects.toBeInstanceOf(InactiveTabError);
   expect(setup.managementSend).not.toHaveBeenCalled();
+});
+
+it('title hints from a replaced registration or lost tab cannot reach the cache', async () => {
+  setup.register.mockReset().mockResolvedValueOnce(setup.first).mockResolvedValueOnce(setup.second);
+  setup.remote.mockReset().mockResolvedValue(null);
+  setup.titleRemember.mockClear();
+  let active = true;
+  const mounted = await mountedTransport({
+    get active() {
+      return active;
+    },
+    run: (action) => action(),
+  });
+  await mounted.transport.page('page');
+  const owner = setup.owner!;
+  await owner.reconnect(setup.first as never);
+  await owner.rememberTitle!('page', 'Old session', setup.first as never);
+  expect(setup.titleRemember).not.toHaveBeenCalled();
+  await owner.rememberTitle!('page', 'Current session', setup.second as never);
+  expect(setup.titleRemember).toHaveBeenCalledExactlyOnceWith(
+    'page',
+    'Current session',
+    expect.any(AbortSignal),
+  );
+  active = false;
+  mounted.close();
+  await owner.rememberTitle!('page', 'Late view', setup.second as never);
+  expect(setup.titleRemember).toHaveBeenCalledOnce();
 });

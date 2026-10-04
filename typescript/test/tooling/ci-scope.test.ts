@@ -558,6 +558,7 @@ describe('component map', () => {
       'typescript/test/tooling/component-skills.test.ts',
       'typescript/test/tooling/release-cut.test.ts',
       'typescript/test/tooling/release-cut-live.test.ts',
+      'typescript/test/tooling/release-rehearsal.test.ts',
       'typescript/test/tooling/release-version-injection.test.ts',
       'typescript/test/tooling/release-workflow.test.ts',
     ];
@@ -621,6 +622,8 @@ describe('component map', () => {
       'typescript/test/tooling/format-workspace.test.ts':
         'selection path fixtures only; never reads prose contents',
       'typescript/test/tooling/ci-scope.test.ts': 'path fixtures for the selector tests',
+      'typescript/test/tooling/release-rehearsal.test.ts':
+        'path fixtures for the selection tests; never reads prose contents',
       'typescript/test/fixtures/release-cut-history.json':
         'immutable historical path/map data; cut tests compare strings without reading the named prose',
       'scripts/dev-disk-check.sh': 'names DEVELOPMENT.md in a message',

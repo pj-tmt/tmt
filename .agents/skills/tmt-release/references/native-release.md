@@ -18,14 +18,26 @@ its independent inventory/checksum/notices and failure/cleanup checks.
 
 The packaging stages (build, assemble, final verification on the four matching hosts) live in the
 read-only reusable `.github/workflows/native-release-prepare.yml`, called with an exact source SHA
-by `native-release-bundle.yml` for a draft and by `release-rehearsal.yml` before merge, so a
-release is never the first run of a packaging check. The rehearsal has no secrets, Environment,
-cache writes, tags or draft access; it does not run in the merge group. Today it rehearses Colab
-when the prepare, bundle or rehearsal workflow changes; selection by affected product and a nightly
-main run extend it under #1581. Publishing stays in `native-release-bundle.yml` (`check`, `prepare`
-call, `attach` and the jobs after it), whose `attach` and `record-failure` depend on the `prepare`
-call exactly as they did on build/assemble/verify. The matching-host pipeline is
-`.github/workflows/native-release-bundle.yml`; exact-tag
+by `native-release-bundle.yml` for a draft and by the rehearsal before merge, so a release is never
+the first run of a packaging check. The rehearsal has no secrets, Environment, repository write
+access, tags or draft access. Cache behavior: the Rust dependency cache is saved by main only; the
+packaging-tools cache is saved on a miss in any run, including a pull request's own scope.
+
+**Release rehearsal.** `ci.yml` selects it on pull requests only, never in the merge group:
+`typescript/scripts/release-rehearsal.mjs select <base> <head>` rehearses every active product
+(released components with a package, from the component map and native release policy) when a
+shared release input changes (lockfiles, workspace/toolchain/notice/dist configuration, the
+component map and parity manifest, packaging and verification scripts, the prepare, bundle,
+upgrade and rehearsal workflows and their local actions, and Cargo manifests under `rust/`), and
+only the owning products for an extension Cargo manifest. Bundled-frontend source edits and
+ordinary source changes never select it; their own jobs cover them, and a frontend-only change
+that needs packaging proof uses `release-rehearsal.yml` by dispatch. `Native package matrix`
+requires a selected rehearsal to succeed and an unselected one to be skipped.
+`release-rehearsal.yml` runs every active product nightly on main (and by dispatch); a red run is
+the triage evidence. Publishing stays in `native-release-bundle.yml` (`check`, the `prepare` call,
+`attach` and the jobs after it), whose `attach` and `record-failure` depend on the `prepare` call.
+Verify with `test/tooling/release-rehearsal.test.ts` and `test/tooling/release-workflow.test.ts`.
+The matching-host pipeline is `.github/workflows/native-release-bundle.yml`; exact-tag
 dispatch, failed-draft recovery, publication gates and manual readback are owned by
 [main-cuts.md](main-cuts.md). Cached packaging tools are keyed by OS, architecture and
 exact tool versions and are developer tools only; Rust dependency caches are per product

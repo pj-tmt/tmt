@@ -412,6 +412,48 @@ fn closed_shared_seed_and_open_live_delta_never_recount_cumulative_tokens() {
 }
 
 #[test]
+fn known_history_deltas_without_coverage_remain_partial_and_count_once() {
+    let mut fixture = history_fixture();
+    for bucket in fixture["response"]["identities"][0]["windows"][0]["buckets"]
+        .as_array_mut()
+        .unwrap()
+    {
+        bucket["coveredMs"] = json!(0);
+        bucket["complete"] = json!(false);
+        bucket["gap"] = json!(true);
+    }
+    // Valid public lower-bound deltas, with no continuous covered interval.
+    let seeds = fixture_seeds(&fixture);
+    let input = historical_input(&fixture, true);
+    let mut rate = Rate::default();
+    rate.seed(&input, &seeds, 22_500);
+    let reading = rate.member("a", 22_500, TokenWindow::MINUTE).unwrap();
+    assert_eq!(reading.tokens, 21);
+    assert!(reading.partial);
+    assert_eq!(rate.reading(22_500, TokenWindow::MINUTE), Some(reading));
+    assert_eq!(
+        rate.trend(22_500, TokenWindow::MINUTE)
+            .into_iter()
+            .flatten()
+            .sum::<f64>(),
+        21.0
+    );
+    rate.failed(23_000, 5_000);
+    rate.seed(&input, &seeds, 25_000);
+    rate.sample(&input, 25_000);
+    rate.sample(&input, 30_000);
+    let reading = rate.reading(30_000, TokenWindow::MINUTE).unwrap();
+    assert_eq!(reading.tokens, 30, "only the delta beyond latest is added");
+    assert!(reading.partial);
+    assert_eq!(rate.member("a", 95_000, TokenWindow::MINUTE), None);
+    assert_eq!(
+        rate.member("a", 95_000, TokenWindow::HOUR).unwrap().tokens,
+        30,
+        "expiry uses the requested window, not lifetime counters"
+    );
+}
+
+#[test]
 fn history_coverage_zero_and_missing_watermarks_have_distinct_meanings() {
     let fixture = history_fixture();
     let input = historical_input(&fixture, true);
@@ -534,6 +576,41 @@ fn rolled_history_is_not_prorated_at_a_short_window_boundary() {
         rate.member("a", 75_000, TokenWindow::HOUR).unwrap().tokens,
         60
     );
+}
+
+#[test]
+fn uncovered_rollup_outside_short_window_is_not_zero_evidence() {
+    let mut seeds = fixture_seeds(&history_fixture());
+    let seed = seeds.get_mut("a").unwrap().as_mut().unwrap();
+    seed.from = 0;
+    seed.through = 60_000;
+    seed.available = Some(0);
+    seed.buckets = [0, 30_000]
+        .into_iter()
+        .map(|from| history::Slice {
+            from_ms: from,
+            to_ms: from + 30_000,
+            input_tokens: if from == 0 { 20 } else { 0 },
+            output_tokens: if from == 0 { 10 } else { 0 },
+            cached_input_tokens: 0,
+            covered_ms: 0,
+            complete: false,
+            gap: true,
+            discontinuous: false,
+        })
+        .collect();
+    let mut rate = Rate::default();
+    rate.seed(&input(100), &seeds, 75_000);
+    assert_eq!(rate.member("a", 75_000, TokenWindow::MINUTE), None);
+    assert!(
+        rate.trend(75_000, TokenWindow::MINUTE)
+            .iter()
+            .all(Option::is_none),
+        "excluded rollups cannot make the spark show measured zero"
+    );
+    let reading = rate.member("a", 75_000, TokenWindow::HOUR).unwrap();
+    assert_eq!(reading.tokens, 30);
+    assert!(reading.partial);
 }
 
 #[test]

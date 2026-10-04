@@ -10,12 +10,14 @@ import { Admission } from './admission.js';
 import { Connection } from './connection.js';
 import { Writer } from './writer.js';
 import { prepareExport, hex, type ExportBundle } from './export.js';
+import { text } from './strings.js';
 
 export interface LiveSession {
   registration: Registration;
   remote: RemoteClient | null;
 }
 export interface LiveSessionOwner {
+  rememberTitle?(page: string, title: string, registration: Registration): Promise<void>;
   recover?(): Promise<boolean>;
   reconnect(previous: Registration): Promise<LiveSession>;
 }
@@ -206,6 +208,13 @@ export class Live implements PageBinding {
         );
         if (this.#closed || this.#connection?.admission !== admission || this.#pendingView)
           continue;
+        await this.sessionOwner?.rememberTitle?.(
+          this.page.pageId,
+          value.title,
+          admission.registration,
+        );
+        if (this.#closed || this.#connection?.admission !== admission || this.#pendingView)
+          continue;
         const threads = readThreads(
           value.own ?? {},
           {
@@ -267,7 +276,7 @@ export class Live implements PageBinding {
       id: this.page.pageId,
       sharing: this.page.sharing,
       ...structuredClone(this.#projection),
-      title: this.#projection.title || this.page.pageId,
+      title: this.#projection.title || text.unknownPageTitle,
       binding: this,
     };
   }

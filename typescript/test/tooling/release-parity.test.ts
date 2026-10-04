@@ -175,16 +175,98 @@ describe('release gate parity inventory', () => {
     }
   });
 
-  it('records final-bundle gaps honestly while retaining policy and Rust-notice evidence', () => {
+  it('maps the rehearsed prepare stages and incidents to the selected rehearsal job', () => {
     const value = manifest();
-    expect(value.incidents['1534'].followUp).toBe(1581);
-    expect(value.incidents['1541'].followUp).toBe(1581);
-    expect(value.incidents['1542'].preMerge[0].coverage).toBe('policy');
-    expect(value.incidents['1550'].preMerge[0]).toMatchObject({
-      job: 'native-notices',
+    const rehearsal = {
+      workflow: 'ci.yml',
+      job: 'release-rehearsal',
+      selection: {
+        kind: 'ci-scope',
+        output: 'release_rehearsal',
+        value: 'true',
+        source: 'typescript/scripts/release-rehearsal.mjs',
+      },
       coverage: 'runtime',
-      selection: { output: 'native_notices' },
+    };
+    for (const [file, job] of [
+      ['native-release-bundle.yml', 'prepare'],
+      ['native-release-prepare.yml', 'build'],
+      ['native-release-prepare.yml', 'assemble'],
+      ['native-release-prepare.yml', 'verify'],
+    ])
+      expect(value.workflows[file][job].preMerge, `${file}:${job}`).toEqual([rehearsal]);
+    for (const issue of ['1534', '1541', '1604', '1616', '1646', '1680'])
+      expect(value.incidents[issue].preMerge, issue).toEqual([rehearsal]);
+    expect(value.incidents['1680'].release).toEqual({
+      workflow: 'native-release-prepare.yml',
+      job: 'verify',
+      step: 'name:Execute final archive and bootstrap with the matching target process',
     });
+    expect(value.incidents['1550'].preMerge.map((c: { job: string }) => c.job)).toEqual([
+      'native-notices',
+      'release-rehearsal',
+    ]);
+    expect(value.incidents['1542'].preMerge[0].coverage).toBe('policy');
+  });
+
+  it('keeps live-state races release-only with a concrete reason and no rehearsal claim', () => {
+    const value = manifest();
+    for (const issue of ['1593', '1661']) {
+      expect(value.incidents[issue].preMerge, issue).toBeUndefined();
+      expect(value.incidents[issue].releaseOnly.length, issue).toBeGreaterThan(40);
+      expect(value.incidents[issue].followUp, issue).toBeUndefined();
+    }
+  });
+
+  it('rejects a rehearsal counterpart whose selector, source or job is not real', () => {
+    const rehearsalOf = (value: ReturnType<typeof manifest>) => value.incidents['1604'].preMerge[0];
+    for (const mutate of [
+      (value: ReturnType<typeof manifest>) => {
+        rehearsalOf(value).selection.output = 'missing';
+      },
+      (value: ReturnType<typeof manifest>) => {
+        // ci-scope does not emit this output; the declared source must.
+        rehearsalOf(value).selection.source = 'typescript/scripts/ci-scope.mjs';
+      },
+      (value: ReturnType<typeof manifest>) => {
+        rehearsalOf(value).selection.source = '../outside.mjs';
+      },
+      (value: ReturnType<typeof manifest>) => {
+        rehearsalOf(value).selection.source = 'typescript/scripts/missing-selector.mjs';
+      },
+      (value: ReturnType<typeof manifest>) => {
+        rehearsalOf(value).job = 'missing';
+      },
+      (value: ReturnType<typeof manifest>) => {
+        delete value.incidents['1646'];
+      },
+      (value: ReturnType<typeof manifest>) => {
+        value.incidents['1999'] = { releaseOnly: 'Unlisted incident' };
+      },
+      (value: ReturnType<typeof manifest>) => {
+        value.incidents['1646'].release.step = 'name:Obsolete step';
+      },
+    ]) {
+      const value = manifest();
+      mutate(value);
+      expect(() => checkReleaseParity(value, { read })).toThrow();
+    }
+  });
+
+  it('does not accept a rehearsal job whose condition no longer uses its selector', () => {
+    const source = read('.github/workflows/ci.yml');
+    const job = inventoryWorkflow(source, 'ci.yml', 'release-rehearsal')['release-rehearsal'].body;
+    const changedJob = job.replace(
+      "    if: needs.changes.outputs.verify == 'true' && needs.changes.outputs.release_rehearsal == 'true'",
+      "    if: needs.changes.outputs.verify == 'true'"
+    );
+    expect(changedJob).not.toBe(job);
+    const readChanged = changed('.github/workflows/ci.yml', (text) =>
+      text.replace(job, changedJob)
+    );
+    expect(() => checkReleaseParity(manifest(), { read: readChanged })).toThrow(
+      'preMerge job does not use'
+    );
   });
 
   it('runs the parity guard even for docs-only PRs and merge groups', () => {

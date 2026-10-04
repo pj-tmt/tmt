@@ -531,7 +531,7 @@ fn management_reads_verify_encrypted_titles_and_preserve_missing_and_existing_st
     let human = pilot.command().args(["ls"]).output().unwrap();
     assert!(human.status.success());
     assert!(!human.stdout.contains(&0x1b));
-    assert!(String::from_utf8_lossy(&human.stdout).contains("Expires"));
+    assert!(String::from_utf8_lossy(&human.stdout).contains("expires in 29 days"));
     assert_eq!(fs::read(db).unwrap(), before);
 }
 #[test]
@@ -1234,7 +1234,7 @@ fn human_output_is_readable_and_the_decoder_note_is_not_repeated_per_command() {
     assert!(shown.contains("links") && shown.contains('–'), "{shown}");
     assert!(!shown.contains('{') && !shown.contains('['), "{shown}");
     assert!(
-        shown.contains("Expires") && shown.contains("UTC"),
+        shown.contains("expiry") && shown.contains("in 29 days") && !shown.contains(" UTC"),
         "{shown}"
     );
     assert!(warning.is_empty(), "{warning}");
@@ -1589,7 +1589,10 @@ fn full_management_confirmation_input_and_retention_reads_preserve_state() {
         assert!(!shown.contains("retentionDays") && !shown.contains('{'));
         assert!(!shown.contains("audience") && !shown.contains("epoch"));
         assert!(human.stderr.is_empty());
-        assert!(shown.contains("last edit") && shown.contains("expiry") && shown.contains(" UTC"));
+        assert!(
+            shown.contains("last edit") && shown.contains("expiry") && shown.contains("in 29 days")
+        );
+        assert!(!shown.contains(" UTC"));
         let updated = before["page"]["lastUpdateAtMs"].as_u64().unwrap();
         assert_eq!(before["page"]["expiresAtMs"], updated + 30 * 86_400_000);
         assert_eq!(before["page"]["warnings"], json!([]));
@@ -2529,6 +2532,150 @@ fn settings_show_and_change_open_with_its_source_and_survive_a_damaged_file() {
     );
 }
 #[test]
+fn expiry_human_lines_are_relative_dim_and_keep_exact_json_and_local_state() {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    let pilot = Pilot::new(None);
+    pilot.devices(r#"{"devices":[]}"#);
+    let created = pilot.call(&["page", "create", "--title", "Relative expiry", "--json"]);
+    let id = created["pageId"].as_str().unwrap();
+    let day = 86_400_000u64;
+    // Only fixture SQL sets the observation time. Production still uses admitted content updates.
+    let set_updated = |ms: Option<u64>| {
+        rusqlite::Connection::open(pilot.root.join("selected/colab/space.db"))
+            .unwrap()
+            .execute(
+                "UPDATE pages SET last_update_at_ms=?1",
+                [ms.map(|value| i64::try_from(value).unwrap())],
+            )
+            .unwrap();
+    };
+    let now = || {
+        u64::try_from(
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_millis(),
+        )
+        .unwrap()
+    };
+    for (updated, expiry, last_edit, warning) in [
+        (Some(now() - 120_000), "in 29 days", Some("2 min ago"), None),
+        (
+            Some(now() - 23 * day - 3_600_000),
+            "◷ in 6 days",
+            Some("23 days ago"),
+            Some("expires-soon"),
+        ),
+        (
+            Some(now() - 32 * day - 3_600_000),
+            "expired 2 days ago",
+            Some("32 days ago"),
+            Some("expired"),
+        ),
+        (
+            None,
+            "starts after the next edit",
+            None,
+            Some("expiry-unavailable"),
+        ),
+    ] {
+        set_updated(updated);
+        let before = pilot.call(&["show", id, "--json"]);
+        assert_eq!(before["page"]["lastUpdateAtMs"], json!(updated));
+        assert_eq!(
+            before["page"]["expiresAtMs"],
+            json!(updated.map(|ms| ms + 30 * day))
+        );
+        assert_eq!(
+            before["page"]["warnings"],
+            json!(warning.into_iter().collect::<Vec<_>>())
+        );
+        for columns in ["40", "120"] {
+            for color in [false, true] {
+                let human = |args: &[&str]| {
+                    let mut cmd = pilot.command();
+                    cmd.env("COLUMNS", columns);
+                    if color {
+                        cmd.env("CLICOLOR_FORCE", "1");
+                    }
+                    let out = cmd.args(args).output().unwrap();
+                    assert!(out.status.success(), "{out:?}");
+                    out
+                };
+                let list = human(&["ls"]);
+                let list_text = String::from_utf8(list.stdout).unwrap();
+                let list_expiry = expiry.replace("in ", "expires in ");
+                let line = if color {
+                    format!("    \x1b[2m{list_expiry}\x1b[0m\n")
+                } else {
+                    format!("    {list_expiry}\n")
+                };
+                assert!(list_text.contains(&line), "{list_text:?}");
+                let link = before["path"].as_str().unwrap();
+                assert!(
+                    list_text.contains(link),
+                    "full link survives narrow output: {list_text}"
+                );
+                assert!(list_text.find(link).unwrap() < list_text.find(&list_expiry).unwrap());
+                for args in [["show", id], ["retention", id]] {
+                    let out = human(&args);
+                    let text = String::from_utf8(out.stdout).unwrap();
+                    assert!(text.contains(expiry), "{args:?}: {text}");
+                    if let Some(last_edit) = last_edit {
+                        assert!(text.contains(last_edit), "{text}");
+                    } else {
+                        assert!(!text.contains("last edit"), "legacy time is not invented");
+                    }
+                    assert!(text.contains("Expiry never deletes your local copy."));
+                    assert!(!text.contains(" UTC") && !text.contains("advisory"));
+                    if matches!(warning, Some("expires-soon" | "expired")) {
+                        let stderr = String::from_utf8(out.stderr).unwrap();
+                        assert!(
+                            stderr.contains(expiry)
+                                && stderr.contains("Expiry never deletes your local copy"),
+                            "{stderr:?}"
+                        );
+                    } else {
+                        assert!(out.stderr.is_empty());
+                    }
+                }
+            }
+        }
+        assert_eq!(
+            pilot.call(&["show", id, "--json"]),
+            before,
+            "human reads cannot refresh timestamps or policy"
+        );
+        let list = pilot.call(&["ls", "--json"]);
+        for field in ["retentionDays", "lastUpdateAtMs", "expiresAtMs", "warnings"] {
+            assert_eq!(list["pages"][0][field], before["page"][field]);
+        }
+    }
+    set_updated(Some(now() - 120_000));
+    pilot.call(&["retention", id, "9007199254740991", "--json"]);
+    let out = pilot.command().args(["show", id]).output().unwrap();
+    assert!(out.status.success());
+    let text = String::from_utf8(out.stdout).unwrap();
+    assert!(text.contains("beyond the supported range"));
+    assert!(text.contains("retention") && text.contains("out of range"));
+    assert!(!text.contains("9007199254740991"));
+    let before = pilot.call(&["retention", id, "--json"]);
+    assert_eq!(before["page"]["retentionDays"], 9_007_199_254_740_991u64);
+    assert!(before["page"]["expiresAtMs"].is_null());
+    assert_eq!(before["page"]["warnings"], json!(["expiry-out-of-range"]));
+    pilot.call(&["retention", id, "forever", "--json"]);
+    for args in [vec!["ls"], vec!["show", id], vec!["retention", id]] {
+        let out = pilot.command().args(&args).output().unwrap();
+        assert!(out.status.success());
+        assert!(
+            String::from_utf8(out.stdout)
+                .unwrap()
+                .contains("kept forever")
+        );
+        assert!(out.stderr.is_empty());
+    }
+}
+#[test]
 fn page_commands_print_the_link_and_the_pairing_step_or_the_reason_there_is_none() {
     let pilot = Pilot::new(None);
     pilot.devices(r#"{"devices":[]}"#);
@@ -2572,8 +2719,9 @@ fn page_commands_print_the_link_and_the_pairing_step_or_the_reason_there_is_none
     // The listing's footer is set off from the rows at the list indent, not tucked under the last page.
     let listing = human(Some(DOOR), &["ls"]);
     assert!(
-        listing
-            .contains("\n\n  pair this browser once: tmt remote pair\n  Local expiry is advisory"),
+        listing.contains(
+            "\n\n  pair this browser once: tmt remote pair\n  Expiry never deletes your local copy."
+        ),
         "{listing}"
     );
     let shown = human(Some(DOOR), &["show", page]);

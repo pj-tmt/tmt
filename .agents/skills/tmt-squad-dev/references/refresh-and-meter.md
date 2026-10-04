@@ -69,10 +69,11 @@ cost or text volume. `board::rate` owns evidence, `board::meter` presentation an
   `board.tok` select three distinct ascending whole m/h durations from 1m through
   24h, default 1m/5m/60m. Both layers validate even when masked. The config reader
   reports the winning setting path and preserves explicit column titles.
-- Coverage: any covered reading stays numeric, including measured zero. Partial
-  coverage, windows longer than available evidence and unreported members prefix
+- Coverage: covered readings stay numeric, including measured zero. Known nonzero
+  history deltas also remain numeric lower bounds without continuous coverage;
+  zero without coverage stays unavailable. Partial coverage, windows longer than available evidence and unreported members prefix
   the known total with `~`. Unreported identities contribute no tokens. A baseline
-  alone is not measured zero. Without coverage, the meter retains its active
+  alone is not measured zero. Without usable interval evidence, the meter retains its active
   window label and `–`, plus one dim `no usage reported yet` line; member cells
   also show `–`. Built-in all/leads tabs omit the named-squad summary meter.
 - Window selection: bindable `token-window` (`w` in both host presets, outside text

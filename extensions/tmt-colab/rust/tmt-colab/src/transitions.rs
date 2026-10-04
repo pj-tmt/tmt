@@ -69,7 +69,7 @@ impl TransitionError {
                 OwnerFault::StaleHead => Code::StaleHead,
                 OwnerFault::WrongOwner => Code::Denied,
                 OwnerFault::Invalid => Code::Invalid,
-                OwnerFault::Capacity => Code::Capacity,
+                OwnerFault::Capacity | OwnerFault::PageCapacity(_) => Code::Capacity,
             }
         } else if let Some(f) = cause.downcast_ref::<crate::store::Fault>() {
             match f {

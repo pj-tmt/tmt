@@ -1,7 +1,7 @@
 //! Owner-local authenticated fold. The opaque sync server never calls this module.
 use crate::{
     Result,
-    decoder::{BaselineInput, Decoder, Namespace, Role, UpdateBatch},
+    decoder::{BaselineInput, DecodeFault, Decoder, Namespace, Role, UpdateBatch},
     keyring::Keyring,
     store::{
         Store,
@@ -159,7 +159,15 @@ impl Snapshot {
                 }
             }
             if objects.len() > crate::decoder::UPDATES {
-                return Err(OwnerFault::Capacity.into());
+                return Err(OwnerFault::too_large(
+                    page,
+                    format!(
+                        "it has {} updates since its last baseline (limit {})",
+                        objects.len(),
+                        crate::decoder::UPDATES
+                    ),
+                )
+                .into());
             }
             Ok(Self {
                 authority,
@@ -373,16 +381,65 @@ impl Snapshot {
                     .push(plaintext);
             }
         }
-        if baseline.len() > crate::decoder::BASELINE_BYTES
-            || updates.iter().map(Vec::len).sum::<usize>() > crate::decoder::UPDATE_BYTES
-        {
-            return Err(OwnerFault::Capacity.into());
+        let state = baseline.len() + updates.iter().map(Vec::len).sum::<usize>();
+        let tail = updates.iter().map(Vec::len).sum::<usize>();
+        if edit.is_some() {
+            // A write adds one update and must not leave a page the browser cannot open; reads
+            // accept more. The new update's own size is checked once it is prepared.
+            let (what, measured, limit) = if self.objects.len()
+                >= crate::decoder::WRITE_TAIL_UPDATES
+            {
+                (
+                    "updates since its last baseline, and one more would pass the limit",
+                    self.objects.len(),
+                    crate::decoder::WRITE_TAIL_UPDATES,
+                )
+            } else if tail >= crate::decoder::UPDATE_BYTES {
+                (
+                    "bytes of updates since its last baseline, and one more would pass the limit",
+                    tail,
+                    crate::decoder::UPDATE_BYTES,
+                )
+            } else if baseline.len() > crate::decoder::BASELINE_BYTES {
+                (
+                    "baseline bytes",
+                    baseline.len(),
+                    crate::decoder::BASELINE_BYTES,
+                )
+            } else {
+                ("", 0, 0)
+            };
+            if limit != 0 {
+                return Err(OwnerFault::too_large_to_edit(
+                    page,
+                    format!("it has {measured} {what} of {limit}"),
+                )
+                .into());
+            }
+        }
+        if state > crate::decoder::STATE_BYTES {
+            return Err(OwnerFault::too_large(
+                page,
+                format!(
+                    "its state is {state} bytes (limit {})",
+                    crate::decoder::STATE_BYTES
+                ),
+            )
+            .into());
         }
         let mut threads = 0;
         let mut own_views = BTreeMap::new();
         for (writer, own) in &own_updates {
-            if own.iter().map(Vec::len).sum::<usize>() > crate::decoder::UPDATE_BYTES {
-                return Err(OwnerFault::Capacity.into());
+            let discussion = own.iter().map(Vec::len).sum::<usize>();
+            if discussion > crate::decoder::STATE_BYTES {
+                return Err(OwnerFault::too_large(
+                    page,
+                    format!(
+                        "one writer's discussion state is {discussion} bytes (limit {})",
+                        crate::decoder::STATE_BYTES
+                    ),
+                )
+                .into());
             }
             let refs = own.iter().map(Vec::as_slice).collect::<Vec<_>>();
             let decoded = decoder.decode(
@@ -412,8 +469,37 @@ impl Snapshot {
         let folded = if let Some(edit) = edit {
             decoder.prepare(batch, edit, None)?
         } else {
-            decoder.decode(batch, Role::Editor, None)?
+            decoder
+                .decode(batch, Role::Editor, None)
+                .map_err(|fault| match fault {
+                    // The decoder's own deadline is the containment; say which page hit it.
+                    DecodeFault::Invoke(ref invoke)
+                        if invoke.kind == tmt_invoke::FailureKind::Deadline =>
+                    {
+                        OwnerFault::too_large(
+                            page,
+                            format!(
+                                "decoding its {} updates ({state} bytes) did not finish within {} s",
+                                updates.len(),
+                                crate::decoder::DEADLINE.as_secs()
+                            ),
+                        )
+                        .into()
+                    }
+                    other => Box::<dyn std::error::Error + Send + Sync>::from(other),
+                })?
         };
+        if edit.is_some() && tail + folded.merged.len() > crate::decoder::UPDATE_BYTES {
+            return Err(OwnerFault::too_large_to_edit(
+                page,
+                format!(
+                    "this edit would take its updates since the last baseline to {} bytes, past the limit of {}",
+                    tail + folded.merged.len(),
+                    crate::decoder::UPDATE_BYTES
+                ),
+            )
+            .into());
+        }
         Ok(View {
             publisher_agent: folded.projection["meta"]["publisherAgent"]
                 .as_str()

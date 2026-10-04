@@ -25,10 +25,54 @@ pub enum OwnerFault {
     WrongOwner,
     Invalid,
     Capacity,
+    /// One page's state is past a read limit; names the page, what was measured and the limit.
+    PageCapacity(PageCapacity),
+}
+/// A page whose size stops an operation. `detail` finishes the sentence with the measured value
+/// and the limit; `edit` is set when only a write is refused and the page still reads.
+#[derive(Debug, PartialEq, Eq)]
+pub struct PageCapacity {
+    pub page: String,
+    pub detail: String,
+    pub edit: bool,
+}
+impl OwnerFault {
+    pub fn too_large(page: &str, detail: String) -> Self {
+        Self::PageCapacity(PageCapacity {
+            page: page.to_owned(),
+            detail,
+            edit: false,
+        })
+    }
+    /// The page reads, but takes no further edit until its tail fits what the browser opens.
+    pub fn too_large_to_edit(page: &str, detail: String) -> Self {
+        Self::PageCapacity(PageCapacity {
+            page: page.to_owned(),
+            detail,
+            edit: true,
+        })
+    }
 }
 impl std::fmt::Display for OwnerFault {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Owner store: {self:?}")
+        match self {
+            Self::PageCapacity(c) if c.edit => write!(
+                f,
+                "Page {page} cannot take another edit: {detail}. Export it with `tmt colab export \
+                 {page} --dir <dir>`, then create a new page from it with `tmt colab page create \
+                 --title <title> --file <dir>/page.html`.",
+                page = c.page,
+                detail = c.detail
+            ),
+            // Export folds the same state, so a page past a read limit cannot be exported either.
+            Self::PageCapacity(c) => write!(
+                f,
+                "Page {page} is too large to open: {detail}. Colab cannot open a page this large yet.",
+                page = c.page,
+                detail = c.detail
+            ),
+            _ => write!(f, "Owner store: {self:?}"),
+        }
     }
 }
 impl std::error::Error for OwnerFault {}

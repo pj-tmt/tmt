@@ -9,6 +9,7 @@ mod derived;
 mod help;
 mod home;
 mod markdown;
+mod menu_surface;
 mod meter;
 pub(crate) mod notes;
 mod pick;

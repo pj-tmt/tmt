@@ -54,13 +54,13 @@ fn execute() -> Result<(), DecodeFault> {
     {
         return Err(DecodeFault::InvalidInput);
     }
-    let baseline = binary(&wire.baseline, BASELINE_BYTES)?;
+    let baseline = binary(&wire.baseline, STATE_BYTES)?;
     let updates: Vec<_> = wire
         .updates
         .iter()
-        .map(|v| binary(v, UPDATE_BYTES))
+        .map(|v| binary(v, STATE_BYTES))
         .collect::<Result<_, _>>()?;
-    if updates.iter().map(Vec::len).sum::<usize>() > UPDATE_BYTES {
+    if baseline.len() + updates.iter().map(Vec::len).sum::<usize>() > STATE_BYTES {
         return Err(DecodeFault::InvalidInput);
     }
     let doc = Doc::new();
@@ -143,7 +143,14 @@ fn execute() -> Result<(), DecodeFault> {
             .map_err(|_| DecodeFault::Rejected)?
     };
     let projection = project(&doc, wire.namespace)?;
-    if merged.len() > UPDATE_BYTES {
+    // A prepared edit is one update; a read's merged tail may be the whole state.
+    if merged.len()
+        > if wire.source.is_some() {
+            UPDATE_BYTES
+        } else {
+            STATE_BYTES
+        }
+    {
         return Err(DecodeFault::Rejected);
     }
     let reply = WireResult {

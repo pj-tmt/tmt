@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 import parser from '@conventional-commits/parser';
 import presetFactory from 'conventional-changelog-conventionalcommits';
 import writer from 'conventional-changelog-writer';
-import { ownerOf, releasedComponentsForPath } from './ci-scope.mjs';
+import { releasedComponentNamesOfPath } from './ci-scope.mjs';
 import {
   componentOfProduct,
   productOfComponent,
@@ -146,16 +146,6 @@ export function parseReleaseCommits(commits) {
     for (const message of messages.slice(1)) parse(message);
   }
   return parsed;
-}
-
-/** Names of released components a path changes: owned or closure roots plus declared private-leaf consumers. */
-export function releasedComponentNamesOfPath(path, map, workspace) {
-  const names = new Set(
-    releasedComponentsForPath(path, map, workspace).map((component) => component.name)
-  );
-  const owner = map.components.find((component) => component.name === ownerOf(path, map));
-  for (const consumer of owner?.releaseConsumers ?? []) names.add(consumer);
-  return names;
 }
 
 /** Ownership is the component map's responsibility, including private-leaf consumers. */

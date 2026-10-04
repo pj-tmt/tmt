@@ -5,6 +5,9 @@ import { fileURLToPath } from 'node:url';
 import { GATES } from './publication-gates.mjs';
 
 const ROOTS = ['native-release.yml', 'release.yml'];
+// Every failed or held release closes its gap here: an incident row names the release step that
+// caught it and either a pre-merge counterpart or a concrete release-only reason.
+const INCIDENTS = [1534, 1541, 1542, 1550, 1593, 1604, 1616, 1646, 1661, 1680];
 const repository = fileURLToPath(new URL('../../', import.meta.url));
 const digest = (text) => createHash('sha256').update(text).digest('hex');
 const nonempty = (value) => typeof value === 'string' && value.trim().length > 0;
@@ -160,9 +163,15 @@ function checkCoverage(entry, label, read) {
       source.includes(`      ${selection.output}:`),
       `${label}: missing ci-scope output ${selection.output}`
     );
+    // ci-scope emits most selections; a selector with its own module names it as `source`.
+    const emitter = selection.source ?? 'typescript/scripts/ci-scope.mjs';
     ensure(
-      read('typescript/scripts/ci-scope.mjs').includes(`${selection.output}=`),
-      `${label}: ci-scope does not emit ${selection.output}`
+      /^typescript\/scripts\/[\w-]+\.mjs$/.test(emitter),
+      `${label}: invalid ci-scope selector source`
+    );
+    ensure(
+      read(emitter).includes(`${selection.output}=`),
+      `${label}: ${emitter} does not emit ${selection.output}`
     );
     ensure(
       ['runtime', 'policy'].includes(counterpart.coverage),
@@ -220,7 +229,7 @@ export function checkReleaseParity(manifest, { read, publicationGates = GATES })
   for (const [gate, entry] of Object.entries(manifest.publicationGates))
     checkCoverage(entry, `publication:${gate}`, read);
   sameKeys(
-    { 1534: true, 1541: true, 1542: true, 1550: true },
+    Object.fromEntries(INCIDENTS.map((issue) => [issue, true])),
     manifest.incidents,
     'release incidents'
   );

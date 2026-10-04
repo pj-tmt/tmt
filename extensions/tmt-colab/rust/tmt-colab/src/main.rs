@@ -789,6 +789,13 @@ fn error_code(error: &(dyn std::error::Error + Send + Sync + 'static)) -> &'stat
                 .map(|e| e.code())
         })
         .or_else(|| {
+            matches!(
+                error.downcast_ref::<tmt_colab::store::owner::OwnerFault>(),
+                Some(tmt_colab::store::owner::OwnerFault::PageCapacity(_))
+            )
+            .then_some("COLAB_CAPACITY")
+        })
+        .or_else(|| {
             error
                 .downcast_ref::<tmt_colab::assets::AssetFault>()
                 .map(|_| "COLAB_APP_UNAVAILABLE")
