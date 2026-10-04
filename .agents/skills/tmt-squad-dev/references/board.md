@@ -64,9 +64,22 @@ painter directly.
   Each row line has a backdrop that reaches only as far as its text or row-end label, as the
   selection always did. Clipped hits come from the root's scoped identity; UUID-free rows
   keep their clip. `Scrolls::show_paint` supplies the viewport, offset and indicator.
+- `display_rows::project` is the one display order of a squad document: the acquired `squad.lead`
+  first (`Slot::Lead`), a members rule (`Rule`: distinct members shown, lead excluded; `none yet`
+  only when the squad has no member), then each authored section (`Item::Section`, `Slot::Section`)
+  as before. `App::items` (paint, sizing, ages) and `App::rows` (cursor, hits, actions, bindings,
+  occurrences) both read it, and so does text `ls` (`status::squad_text`: a `LEAD` list section ahead
+  of the members); no other code walks `sections` for display. A search filters the lead too and
+  keeps the rule; a squad without a lead has no lead row and no rule. `display_rows::each_row` is the
+  one visitor that also reaches the lead for projections (waiting, staleness, usage, state colors).
+  The rule is never selectable, `Slot::Lead` has no section bindings, and a tab switch's cursor
+  start (index 0) is the lead. The lead row's cells and detail are the ordinary row's; its position and the rule
+  say who leads, so it carries no tag and reserves no column width.
+  Public documents keep the lead outside `sections`.
 - Occurrence IDs contain tab, authored section slot, source squad and member UUID followed
-  by static line/column keys; member order is never identity, and UUID-free display rows have
-  no actionable IDs. `App::shown_tab` supplies the retained view owner while another tab
+  by static line/column keys (the lead's scope is `lead`, and its `RowTarget::Lead` the one
+  occurrence shared with notebook links); member order is never identity, and UUID-free display rows
+  have no actionable IDs. `App::shown_tab` supplies the retained view owner while another tab
   loads, and resize/search never substitute the requested tab.
 
 ## Offline layout validation
@@ -88,6 +101,11 @@ its own row hit. `time_marks` includes request ages so they advance without read
 The waiting hint uses `Attention::of`, matching the tab's count, and effective
 bindings; narrow fitting removes the oldest-member label before the actions.
 The footer reserves `? more` as its final hint before fitting whole tail hints.
+
+`r` (`Verb::Reply`) answers a real open request (a chooser for several). With none and a non-empty
+`pending`, `compose_row` opens the annotation composer addressed to that member (`note_member`, so
+revalidation accepts the member as recipient); without either it only says so. Opening, Esc and an
+empty Enter send nothing, and pending is never cleared or acknowledged by it.
 
 `App::input` is the one composer for talk, answer, annotation and ask-lead.
 Row composers retain a `RowSend` with tab/section/squad/member occurrence and
@@ -230,9 +248,10 @@ by record when no positions were drawn.
   through `[bind]` and all keeps its own `[tabs.all.bind]`. The effective refresh binding is
   dispatched before text inputs, preserving search and composed messages. F5 has no default but
   is configurable.
-- `jump lead` (`L` in the tmux preset) resolves a lead name in `App::lead`: the document's
-  `squad.lead` on a squad tab, the selected row on the leads tab, the selected entry's lead on
-  home. It then takes the ordinary jump request, so the popup closes and `back` returns.
+- `jump lead` is bindable but no preset binds it (the lead is the first row of its tab). It
+  resolves a lead name in `App::lead`: the document's `squad.lead` on a squad tab, the selected row
+  on the leads tab, the selected entry's lead on home. It then takes the ordinary jump request, so
+  the popup closes and `back` returns.
 
 ## Home
 
