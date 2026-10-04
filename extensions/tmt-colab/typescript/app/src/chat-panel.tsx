@@ -29,6 +29,12 @@ export function ChatPanel({
   const chats = threads.filter(isChatThread);
   const own = chats.find((thread) => thread.ref.writer === discussion?.deviceId);
   const legacy = asks.filter((ask) => !ask.thread);
+  const replier = asks
+    .filter((ask) => ask.reply !== undefined)
+    .reduce<PageAsk | undefined>(
+      (latest, ask) => (!latest || ask.issuedAt > latest.issuedAt ? ask : latest),
+      undefined,
+    )?.agentName;
   useEffect(() => {
     const node = history.current;
     if (node) node.scrollTop = node.scrollHeight;
@@ -94,6 +100,7 @@ export function ChatPanel({
         asks={asks}
         title={title}
         publisher={publisher}
+        replier={replier}
         blocked={blocked || !!own?.deleted}
         cancel={close}
         committed={() => {}}

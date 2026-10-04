@@ -1,5 +1,6 @@
 import { useEffect, useId, useState, type ReactNode } from 'react';
 import { AskPanel, type AskBinding, type PageAsk } from './ask-panel.js';
+import { ActionMenu } from './components/action-menu.js';
 import type { ThreadBinding } from './thread-store.js';
 import type { CommentView, QuoteSelector, ThreadView, DiscussionRef } from './thread-records.js';
 import { text } from './strings.js';
@@ -101,6 +102,20 @@ export function DiscussionComment({
   const [busy, setBusy] = useState(false),
     [error, setError] = useState(false);
   const owned = binding?.deviceId === comment.ref.writer;
+  const menu = [
+    ...(owned && !chat
+      ? [{ key: 'edit', label: text.commentEdit, disabled: busy || blocked }]
+      : []),
+    ...(owned
+      ? [
+          {
+            key: 'delete',
+            label: chat ? 'Delete message' : text.commentDelete,
+            disabled: busy || blocked,
+          },
+        ]
+      : []),
+  ];
   const action = (run: () => Promise<void>) => {
     if (busy || blocked) return;
     setBusy(true);
@@ -136,6 +151,20 @@ export function DiscussionComment({
         <p className="comment-status">{text.commentDeleted}</p>
       ) : (
         <>
+          {menu.length > 0 && !editing && (
+            <ActionMenu
+              label="Message actions"
+              items={menu}
+              onSelect={(key) => {
+                if (key === 'edit') {
+                  setDraft(comment.body);
+                  setEditRevision(comment.revision);
+                  setEditing(true);
+                } else if (key === 'delete')
+                  action(() => binding!.deleteComment(comment.ref, comment.revision));
+              }}
+            />
+          )}
           {editing ? (
             <form
               onSubmit={(event) => {
@@ -166,31 +195,6 @@ export function DiscussionComment({
             </form>
           ) : (
             <p className="comment-body">{comment.body}</p>
-          )}
-          {owned && !editing && (
-            <div className="comment-actions">
-              <button
-                disabled={busy || blocked}
-                onClick={(event) => {
-                  if (event.isTrusted) {
-                    setDraft(comment.body);
-                    setEditRevision(comment.revision);
-                    setEditing(true);
-                  }
-                }}
-              >
-                {text.commentEdit}
-              </button>
-              <button
-                disabled={busy || blocked}
-                onClick={(event) => {
-                  if (event.isTrusted)
-                    action(() => binding!.deleteComment(comment.ref, comment.revision));
-                }}
-              >
-                {chat ? 'Delete message' : text.commentDelete}
-              </button>
-            </div>
           )}
         </>
       )}

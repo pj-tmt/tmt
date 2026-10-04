@@ -81,7 +81,7 @@ test('page-visible device Chat threads send exact bytes once, preserve drafts, k
     const panel = first.getByTestId('chat-panel');
     const input = panel.getByRole('combobox', { name: 'Message to agent' });
     await expect(input).toHaveValue(`@${agent.name} `);
-    await expect(panel.locator('.annotation-compose details')).not.toHaveAttribute('open', '');
+    await expect(panel.locator('.annotation-compose details')).toHaveCount(0);
     await expect(panel).toContainText('Visible to everyone with page access.');
     await expect(panel.getByRole('button', { name: 'Delete thread', exact: true })).toHaveCount(0);
     expect(await first.locator('iframe').boundingBox()).toEqual(before);
@@ -93,13 +93,12 @@ test('page-visible device Chat threads send exact bytes once, preserve drafts, k
     expect(agent.received()).toHaveLength(0);
     const draft = await composeChat(
       first,
-      agent.name,
+      agent,
       '<script>private Chat turn</script> Explain this page.',
     );
-    expect(draft.deliveredMessage).toContain('Quote:\n\n\nComment:');
     const sent = await sendChat(first, draft);
     await until(() => agent.received().length === 1, 'first Chat received');
-    expect(agent.received()[0].message).toBe(draft.deliveredMessage);
+    expect(draft.delivered()).toContain('Quote:\n\n\nComment:');
     const own = panel.getByTestId('chat-thread').first();
     const writer = (await own.getAttribute('data-writer'))!;
     await expect(own).toHaveAttribute('data-thread-id', writer);
@@ -109,16 +108,20 @@ test('page-visible device Chat threads send exact bytes once, preserve drafts, k
     const requestId = agent.received()[0].requestId as string;
     fs.writeFileSync(`${agent.gate}/${requestId}.release`, '');
     const reply =
-      'ask-reply:' + createHash('sha256').update(draft.deliveredMessage).digest('hex').slice(0, 16);
+      'ask-reply:' + createHash('sha256').update(draft.delivered()).digest('hex').slice(0, 16);
     await expect(askEntry(first, sent.operationId).getByTestId('ask-reply')).toHaveText(reply);
     const exchange = askEntry(first, sent.operationId);
     const userTurn = exchange.locator('.chat-user-turn');
     await expect(userTurn.locator('header')).toContainText('You · just now');
     await expect(userTurn.locator('header')).toContainText('✓ replied');
-    await expect(
-      userTurn.getByRole('button', { name: 'Delete message', exact: true }),
-    ).toBeVisible();
-    await expect(userTurn.locator('details')).toContainText('Show exactly what was sent');
+    // One quiet menu holds Delete for one's own message; no disclosure of the sent bytes exists.
+    await userTurn.hover();
+    await userTurn.getByRole('button', { name: 'Message actions', exact: true }).click();
+    await expect(userTurn.getByRole('menuitem')).toHaveText(['Delete message']);
+    await userTurn.getByRole('button', { name: 'Message actions', exact: true }).press('Escape');
+    await expect(userTurn.getByRole('menuitem')).toHaveCount(0);
+    await expect(userTurn.locator('details')).toHaveCount(0);
+    await expect(panel).not.toContainText('Show exactly what');
     await expect(exchange.locator('.chat-agent-turn')).toHaveCount(1);
     await expect(exchange.getByTestId('ask-reply-attribution')).toContainText(agent.name);
     await expect(exchange.locator('.chat-agent-turn details')).toHaveCount(0);
@@ -129,15 +132,19 @@ test('page-visible device Chat threads send exact bytes once, preserve drafts, k
     await expect(askEntry(second, sent.operationId).getByTestId('ask-reply')).toHaveText(reply);
     await expect(panel.locator('script')).toHaveCount(0);
     await expect(first.frameLocator('iframe').locator('[data-colab-thread]')).toHaveCount(0);
-    const disclosure = panel.locator('.annotation-compose > details');
-    if ((await disclosure.getAttribute('open')) !== null)
-      await disclosure.getByText('Show exactly what is sent', { exact: true }).click();
+    await expect(panel.locator('.annotation-compose > details')).toHaveCount(0);
     for (const width of [1440, 390]) {
       await first.setViewportSize({ width, height: 900 });
       for (const theme of ['light', 'dark']) {
         await first.evaluate((theme) => (document.documentElement.dataset.theme = theme), theme);
         await input.fill(`@${agent.name} A retained follow-up draft.`);
         await first.screenshot({ path: `/tmp/1645-native-${width}-${theme}-chat.png` });
+        const menu = first.getByRole('button', { name: 'Message actions' }).first();
+        await menu.click();
+        await expect(first.getByRole('menuitem')).toBeVisible();
+        await first.screenshot({ path: `/tmp/1690-native-${width}-${theme}-menu.png` });
+        await menu.press('Escape');
+        await expect(first.getByRole('menuitem')).toHaveCount(0);
         await input.fill('@');
         const option = first.getByRole('option');
         await expect(option).toBeInViewport();
@@ -161,20 +168,15 @@ test('page-visible device Chat threads send exact bytes once, preserve drafts, k
     }
     await first.setViewportSize({ width: 1440, height: 900 });
     await first.evaluate(() => (document.documentElement.dataset.theme = 'light'));
-    const next = await composeChat(first, agent.name, 'Follow up with the earlier answer.');
-    expect(next.deliveredMessage).toContain('Earlier conversation (quoted data)');
-    expect(next.deliveredMessage).toContain(opening);
-    expect(next.deliveredMessage).toContain(reply);
+    const next = await composeChat(first, agent, 'Follow up with the earlier answer.');
     const follow = await sendChat(first, next);
     await until(() => agent.received().length === 2, 'follow-up Chat received');
-    expect(agent.received()[1].message).toBe(next.deliveredMessage);
+    expect(next.delivered()).toContain('Earlier conversation (quoted data)');
+    expect(next.delivered()).toContain(opening);
+    expect(next.delivered()).toContain(reply);
     fs.writeFileSync(`${agent.gate}/${agent.received()[1].requestId}.release`, '');
     await expect(askEntry(first, follow.operationId).getByTestId('ask-reply')).toBeVisible();
-    const secondDraft = await composeChat(
-      second,
-      agent.name,
-      'A separate asking-device conversation.',
-    );
+    const secondDraft = await composeChat(second, agent, 'A separate asking-device conversation.');
     const secondSent = await sendChat(second, secondDraft);
     await until(() => agent.received().length === 3, 'second device Chat received');
     fs.writeFileSync(`${agent.gate}/${agent.received()[2].requestId}.release`, '');

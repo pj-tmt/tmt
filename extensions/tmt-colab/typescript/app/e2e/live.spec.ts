@@ -931,7 +931,6 @@ test('Ask publishes owner own envelopes through production Connection before Rem
     requestId = 'req_00000000-0000-4000-8000-000000000007',
     reply = 'Wire reply <script>inert</script>';
   let sends = 0;
-  let deliveredMessage: string | null = null;
   let operationId: string | null = null;
   // Only Remote and the signed sync server are doubles: registration, controller,
   // Worker preparation, Writer, Connection, receipts and projection are production.
@@ -987,7 +986,7 @@ result:async()=>({state:'replied',requestId:'${requestId}',message:${JSON.string
         expect.objectContaining({ operationId: input.operationId, state: 'dispatching' }),
       );
       expect(input.agentId).toBe(agentId);
-      expect(deliveredMessage).toBe(`[remote: Fixture]\n${input.message}`);
+      expect(input.message).toContain('Explain this page.');
       operationId = input.operationId;
       sends++;
       await route.fulfill({ json: { state: 'accepted', operationId, requestId } });
@@ -1035,14 +1034,7 @@ result:async()=>({state:'replied',requestId:'${requestId}',message:${JSON.string
   await input.fill('@');
   await page.getByRole('option').click();
   await input.fill('@Wire agent Explain this page.');
-  await page
-    .getByTestId('chat-panel')
-    .getByText('Show exactly what is sent', { exact: true })
-    .click();
-  deliveredMessage = await page
-    .getByTestId('chat-panel')
-    .getByTestId('annotation-exact-bytes')
-    .textContent();
+  await expect(page.getByTestId('chat-panel').locator('details')).toHaveCount(0);
   await input.press('Enter');
   await expect(page.getByTestId('ask-reply')).toHaveText(reply);
   expect(sends).toBe(1);

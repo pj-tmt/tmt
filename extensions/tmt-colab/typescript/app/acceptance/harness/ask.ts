@@ -1,7 +1,7 @@
 import { execFileSync } from 'node:child_process';
 import { expect, type Locator, type Page } from '@playwright/test';
 import type { Door, PairedBrowser } from './browser.js';
-import type { AcceptanceWorld } from './world.js';
+import type { AcceptanceWorld, Agent } from './world.js';
 
 /** Run a real binary with the world's environment; fails with its output. */
 export function run(
@@ -101,8 +101,8 @@ export async function annotationInput(container: Locator, agent: string) {
 }
 
 export interface ComposedChat {
-  /** Disclosure bytes before Enter; composing itself never freezes or sends. */
-  deliveredMessage: string;
+  /** The text the recipient received for this turn; it exists only after Enter has sent it. */
+  delivered(): string;
 }
 export async function openChat(page: Page) {
   if (await page.locator('.page-drawer[data-panel=chat][open]').isVisible()) return;
@@ -113,22 +113,24 @@ export async function openChat(page: Page) {
   await toggle.click();
   await expect(page.getByTestId('chat-panel')).toBeVisible();
 }
-/** Compose one plain input and inspect its disclosure, with no effect before Enter. */
+/** Compose one plain input, with no effect before Enter. */
 export async function composeChat(
   page: Page,
-  agentName: string,
+  agent: Agent,
   question: string,
 ): Promise<ComposedChat> {
   await openChat(page);
   const panel = page.getByTestId('chat-panel');
-  const input = await annotationInput(panel, agentName);
-  await input.fill(`@${agentName} ${question}`);
-  const disclosure = panel.locator('.annotation-compose > details');
-  if ((await disclosure.getAttribute('open')) === null)
-    await disclosure.getByText('Show exactly what is sent', { exact: true }).click();
-  const deliveredMessage = await panel.getByTestId('annotation-exact-bytes').textContent();
-  if (deliveredMessage === null) throw new Error('No exact-byte disclosure');
-  return { deliveredMessage };
+  const input = await annotationInput(panel, agent.name);
+  await input.fill(`@${agent.name} ${question}`);
+  const turn = agent.received().length;
+  return {
+    delivered() {
+      const row = agent.received()[turn];
+      if (typeof row?.message !== 'string') throw new Error('The turn was not received yet');
+      return row.message;
+    },
+  };
 }
 /** Enter creates the frozen operation; discover its ID only from the admitted stream. */
 export async function sendChat(page: Page, composed: ComposedChat) {

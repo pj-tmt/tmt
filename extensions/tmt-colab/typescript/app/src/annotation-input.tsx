@@ -3,9 +3,8 @@ import { Listbox } from './components/listbox.js';
 import type { AskBinding, PageAsk } from './ask-panel.js';
 import type { AgentDestination } from './live-ask.js';
 import type { ThreadBinding } from './thread-store.js';
-import { conversationText, captureConversation } from './thread-store.js';
+import { captureConversation } from './thread-store.js';
 import type { DiscussionRef, QuoteSelector, ThreadView } from './thread-records.js';
-import { formatAskMessage } from './ask-intent.js';
 
 export function publishingDestination(agents: readonly AgentDestination[], publisher?: string) {
   const matches = agents.filter(
@@ -13,6 +12,13 @@ export function publishingDestination(agents: readonly AgentDestination[], publi
       agent.agentName === publisher && agent.online === 'online' && agent.presence !== 'offline',
   );
   return matches.length === 1 ? matches[0] : undefined;
+}
+/** The one agent a chat can reach without asking: exactly one is online. */
+function soleDestination(agents: readonly AgentDestination[]) {
+  const reachable = agents.filter(
+    (agent) => agent.online === 'online' && agent.presence !== 'offline',
+  );
+  return reachable.length === 1 ? reachable[0] : undefined;
 }
 function destinationKey(agent: AgentDestination) {
   return `${agent.machine}:${agent.agent}`;
@@ -41,6 +47,7 @@ export function AnnotationInput({
   asks,
   title,
   publisher,
+  replier,
   blocked,
   cancel,
   committed,
@@ -53,6 +60,8 @@ export function AnnotationInput({
   asks: readonly PageAsk[];
   title: string;
   publisher?: string;
+  /** Chat only: the agent that answered last. */
+  replier?: string;
   blocked: boolean;
   cancel(): void;
   committed(ref: DiscussionRef): void;
@@ -68,7 +77,6 @@ export function AnnotationInput({
   const dirty = useRef(false);
   const wasBusy = useRef(false);
   const [error, setError] = useState<string>();
-  const [delivered, setDelivered] = useState<string>();
   const [recorded, setRecorded] = useState<DiscussionRef>();
   useEffect(() => {
     let active = true;
@@ -77,7 +85,10 @@ export function AnnotationInput({
       (destinations) => {
         if (!active) return;
         setAgents(destinations);
-        const target = publishingDestination(destinations, publisher);
+        const target =
+          (chat && replier ? publishingDestination(destinations, replier) : undefined) ??
+          publishingDestination(destinations, publisher) ??
+          (chat ? soleDestination(destinations) : undefined);
         if (target && !dirty.current) {
           setSelected(destinationKey(target));
           setValue(`@${target.agentName} `);
@@ -90,7 +101,7 @@ export function AnnotationInput({
     return () => {
       active = false;
     };
-  }, [binding, publisher]);
+  }, [binding, publisher, replier, chat]);
   useEffect(() => {
     if (!dirty.current && inputElement.current) {
       inputElement.current.setSelectionRange(value.length, value.length);
@@ -113,12 +124,6 @@ export function AnnotationInput({
   }, [busy, chat, blocked, recorded]);
   const destination = mentionedDestination(value, agents, selected);
   const quote = thread?.anchor?.exact ?? anchor?.exact ?? '';
-  const comment = thread ? conversationText(thread.comments, thread.threadId, value, asks) : value;
-  const disclosure =
-    delivered ??
-    (destination
-      ? `[remote: ${destination.deviceName}]\n${formatAskMessage({ title, url: location.href, quote, comment })}`
-      : 'Choose a recipient by typing @.');
   const query = /^@([^\n]*)$/.exec(value)?.[1] ?? '';
   const options = agents
     .filter((agent) => agent.agentName.toLowerCase().startsWith(query.toLowerCase()))
@@ -128,9 +133,18 @@ export function AnnotationInput({
       disabled: agent.online === 'offline' || agent.presence === 'offline',
     }));
   async function send() {
-    if (sending.current || recorded || blocked || !binding || !discussion) return;
-    if (!destination || !value.slice(destination.agentName.length + 1).trim()) {
-      setError('Start with @agent and write a message.');
+    if (sending.current || recorded) return;
+    if (blocked || !binding || !discussion) {
+      setError('Sending is unavailable right now.');
+      return;
+    }
+    if (!destination) {
+      setError('Add @agent to choose who gets this');
+      if (options.length > 0) setOpen(true);
+      return;
+    }
+    if (!value.slice(destination.agentName.length + 1).trim()) {
+      setError(`Write a message for @${destination.agentName}`);
       return;
     }
     const captured = {
@@ -161,7 +175,6 @@ export function AnnotationInput({
         destination: captured.destination,
         context: { ...origin, conversation: captured.conversation },
       });
-      setDelivered(attempt.preview.view.deliveredMessage);
       const outcome = await attempt.send();
       if (!['accepted', 'held', 'uncertain'].includes(outcome.state))
         setError(`Send ${outcome.state}. The recorded turn was kept.`);
@@ -216,11 +229,13 @@ export function AnnotationInput({
               onChange={(event) => {
                 dirty.current = true;
                 setValue(event.target.value);
-                setDelivered(undefined);
+                setError(undefined);
                 setOpen(/^@[^\s]*$/.test(event.target.value));
               }}
               onKeyDown={(event) => {
-                if (!event.isTrusted || event.nativeEvent.isComposing) return;
+                // keyCode 229 is the Enter that ends a composition in browsers that report it after compositionend.
+                if (!event.isTrusted || event.nativeEvent.isComposing || event.keyCode === 229)
+                  return;
                 props.onKeyDown?.(event);
                 if (event.defaultPrevented) return;
                 if (event.key === 'Enter' && !event.shiftKey) {
@@ -239,10 +254,6 @@ export function AnnotationInput({
       <p className="annotation-hint">
         {busy ? 'Sending…' : 'Enter sends · Shift+Enter adds a line · Esc cancels'}
       </p>
-      <details>
-        <summary>Show exactly what is sent</summary>
-        <pre data-testid="annotation-exact-bytes">{disclosure}</pre>
-      </details>
       {error && <p role="alert">{error}</p>}
       {recorded && (chat || !thread) && (
         <button

@@ -1,0 +1,67 @@
+.tmt-action-menu {
+  position: absolute;
+  z-index: 5;
+  right: 4px;
+  bottom: 2px;
+}
+/* Hidden without taking layout space: revealed by hover or focus, always shown where there is no hover. */
+.tmt-action-menu .tmt-action-menu-trigger {
+  margin: 0;
+  border: 0;
+  padding: 2px 8px;
+  background: var(--c-sheet);
+  color: var(--c-muted);
+  box-shadow: none;
+  font: 600 18px/1 var(--f-mono);
+  text-decoration: none;
+  opacity: 0;
+}
+.comment:hover .tmt-action-menu-trigger,
+.chat-user-turn:hover .tmt-action-menu-trigger,
+.tmt-action-menu-trigger:focus-visible,
+.tmt-action-menu-trigger[aria-expanded='true'] {
+  opacity: 1;
+}
+@media (hover: none) {
+  .tmt-action-menu .tmt-action-menu-trigger {
+    opacity: 1;
+  }
+}
+.tmt-action-menu-trigger:hover {
+  color: var(--c-text);
+}
+.tmt-action-menu-list {
+  position: absolute;
+  bottom: calc(100% + 2px);
+  right: 0;
+  min-width: 180px;
+  border: 2px solid var(--c-text);
+  background: var(--c-sheet);
+  box-shadow: 4px 4px 0 var(--c-text);
+}
+.tmt-action-menu .tmt-action-menu-item {
+  display: block;
+  width: 100%;
+  margin: 0;
+  border: 0;
+  border-bottom: 1px solid var(--c-rule);
+  padding: 9px 10px;
+  background: var(--c-sheet);
+  color: var(--c-text);
+  box-shadow: none;
+  font-size: 12px;
+  text-align: left;
+}
+.tmt-action-menu-item:last-child {
+  border-bottom: 0;
+}
+.tmt-action-menu-item:hover,
+.tmt-action-menu-item:focus-visible {
+  background: var(--c-accent-soft);
+  color: var(--c-text);
+}
+.tmt-action-menu-item:disabled {
+  color: var(--c-muted);
+  background: var(--c-paper);
+  cursor: default;
+}

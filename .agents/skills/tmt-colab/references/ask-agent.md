@@ -89,8 +89,11 @@ modules in `extensions/tmt-colab/typescript/app/src` and `rust/tmt-colab/src/ask
   keep reading the committed document.
 - **UI.** `annotation-input.tsx` uses the same Ask binding for direct explicit Enter
   sends; it freezes the current text and captured conversation references without a
-  confirmation screen, with exact bytes behind a disclosure. `thread-panel.tsx`
-  renders verified replies inline; held/recheck/uncertainty keep the existing ledger.
+  confirmation screen; no surface offers a "show what was sent" view. In Chat it
+  prefills `@agent` (last replier, else publisher, else the only reachable agent) and
+  Enter without a recipient shows an error and opens the list. `thread-panel.tsx`
+  renders verified replies inline and puts Edit (own annotation comments) and Delete
+  (own) in the square `⋯` menu (`components/action-menu.tsx`); held/recheck/uncertainty keep the existing ledger.
   `chat-panel.tsx` replaces standalone Ask with one bottom input and page-visible
   null-anchor threads. `ask-panel.tsx` displays verified ledger outcomes/replies and
   owns trusted recheck/abandon actions; it has no composer or dispatch button. Test

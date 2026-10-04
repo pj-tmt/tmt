@@ -28,8 +28,7 @@ test('the shared input listbox consumes recipient Enter; explicit message Enter 
   await input.press('Shift+Enter');
   await expect(input).toHaveValue('@Deterministic agent Explain this.\n');
   await input.type('More detail.');
-  await page.getByText('Show exactly what is sent', { exact: true }).click();
-  const exact = await page.getByTestId('annotation-exact-bytes').textContent();
+  await expect(page.locator('.annotation-compose details')).toHaveCount(0);
   await input.evaluate((node) =>
     node.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })),
   );
@@ -41,7 +40,7 @@ test('the shared input listbox consumes recipient Enter; explicit message Enter 
   expect(result.preparations).toBe(1);
   expect(result.commits).toBe(1);
   expect(result.sends).toHaveLength(1);
-  expect(`[remote: Fixture browser]\n${result.sends[0].message}`).toBe(exact);
+  expect(result.sends[0].message).toContain('Explain this.\nMore detail.');
   await expect(page.getByTestId('ask-entry')).toContainText('Deterministic agent');
   await expect(page.getByTestId('ask-preview')).toHaveCount(0);
   await expect(page.locator('dialog')).toHaveCount(0);

@@ -64,7 +64,7 @@ Colab: stop and exit leave that door running.
 `discussion.spec.ts` covers two paired writers and comment-origin Ask. Its module
 contracts and focused cases are described in [discussion.md](discussion.md).
 
-`ask.spec.ts` holds the Ask cases: direct send with exact bytes and a second viewer, browser
+`ask.spec.ts` holds the Ask cases: direct send (the recipient's received text is the oracle for the exact bytes) and a second viewer, browser
 reload, Remote restart after the core accepted, Remote restart before dispatch, Colab restart,
 device revocation and two tabs of one browser (one active tab, "Use here" takes it back). They
 drive direct Chat (`composeChat`, `sendChat`, `askEntry`, `askState`) and run against the built binaries. A restarted Remote keeps sessions and door cookies in memory, so the page

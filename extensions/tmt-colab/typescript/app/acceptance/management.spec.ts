@@ -26,7 +26,7 @@ test('native sharing and lifecycle verification preserve Ask, page recovery and 
     const first = createPage(world, 'Managed page', '<p id="quote">Management selection.</p>');
     const second = createPage(world, 'Remaining page', '<p>Still readable.</p>');
     const page = await openPage(door, device, first);
-    await composeChat(page, recipient.name, 'Do not send this draft');
+    await composeChat(page, recipient, 'Do not send this draft');
     // Narrow page actions must open outside the overflow menu and return focus there.
     await page.getByRole('button', { name: 'Close Chat', exact: true }).click();
     await page.setViewportSize({ width: 390, height: 844 });

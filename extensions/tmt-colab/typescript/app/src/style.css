@@ -750,6 +750,7 @@ footer {
   unicode-bidi: plaintext;
 }
 .comment {
+  position: relative;
   padding: 16px 0;
   border-bottom: 1px solid var(--c-rule);
 }
