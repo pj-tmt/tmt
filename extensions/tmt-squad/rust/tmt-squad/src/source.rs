@@ -2,7 +2,8 @@
 //! projection (`from`) rather than a squad field, shown in a `format`. The
 //! paths are a public contract: they name TMT's normalized member data (the
 //! `ls --json` row and identity metadata), never a driver's raw state, so a
-//! member that switches drivers keeps its columns.
+//! member that switches drivers keeps its columns. `usage.w1`–`usage.w3` instead
+//! name runtime board observation windows; one-shot projections have no values.
 
 use crate::squad::Member;
 use serde_json::Value;
@@ -10,7 +11,7 @@ use serde_json::Value;
 /// Every path `from` accepts, for the validation message and the guide.
 pub const PATHS: &str = "member, presence, cwd, target, session.driver, session.model, \
      session.usage.tokens, session.usage.remaining, meta.<key>, meta.squad.<field>, \
-     fields.<provided field>";
+     fields.<provided field>, usage.w1, usage.w2, usage.w3 (board only)";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum Origin {
@@ -21,6 +22,7 @@ enum Origin {
     SessionDriver,
     SessionModel,
     UsageTokens,
+    ObservedWindow(usize),
     /// The context window less what is used; only when the driver states a
     /// window.
     UsageRemaining,
@@ -97,6 +99,9 @@ impl ColumnSource {
             "session.model" => Origin::SessionModel,
             "session.usage.tokens" => Origin::UsageTokens,
             "session.usage.remaining" => Origin::UsageRemaining,
+            "usage.w1" => Origin::ObservedWindow(0),
+            "usage.w2" => Origin::ObservedWindow(1),
+            "usage.w3" => Origin::ObservedWindow(2),
             // A provider's value is the member's field of its name.
             path if path.starts_with("fields.") => {
                 let name = &path["fields.".len()..];
@@ -116,6 +121,18 @@ impl ColumnSource {
         })
     }
 
+    /// Runtime board observations have no value in a one-shot member projection.
+    pub fn window(&self) -> Option<usize> {
+        match self.origin {
+            Origin::ObservedWindow(index) => Some(index),
+            _ => None,
+        }
+    }
+
+    pub fn board_only(&self) -> bool {
+        self.window().is_some()
+    }
+
     /// Whether the member needs identity metadata beyond its squad's fields.
     pub fn reads_metadata(&self) -> bool {
         matches!(self.origin, Origin::Meta(_))
@@ -133,6 +150,7 @@ impl ColumnSource {
             Origin::Target => text(&seen["target"]),
             Origin::SessionDriver => text(&seen["resume"]["driver"]),
             Origin::SessionModel => text(&seen["resume"]["model"]),
+            Origin::ObservedWindow(_) => None,
             Origin::UsageTokens => usage["tokens"].as_u64().map(Value::from),
             Origin::UsageRemaining => {
                 let (used, window) = (usage["tokens"].as_u64()?, usage["windowTokens"].as_u64()?);
@@ -270,6 +288,9 @@ mod tests {
             "meta.team.role",
             "meta.squad.state",
             "fields.pr_state",
+            "usage.w1",
+            "usage.w2",
+            "usage.w3",
         ] {
             assert_eq!(bind(path).path, path);
         }
@@ -287,6 +308,9 @@ mod tests {
             "meta.squad.Bad",
             "fields.other",
             "fields.",
+            "usage.w0",
+            "usage.w4",
+            "usage.model",
         ] {
             assert!(
                 ColumnSource::parse(path, field, provided).is_none(),
@@ -296,6 +320,12 @@ mod tests {
         assert!(bind("meta.team.role").reads_metadata());
         assert!(!bind("meta.squad.state").reads_metadata());
         assert!(!bind("session.model").reads_metadata());
+        assert!(bind("usage.w1").board_only());
+        assert_eq!(bind("usage.w3").window(), Some(2));
+        assert_eq!(
+            bind("usage.w1").value(&member(Value::Null), Format::Tokens, 0),
+            None
+        );
     }
 
     /// Values come from the `ls --json` row's normalized `resume`, whatever

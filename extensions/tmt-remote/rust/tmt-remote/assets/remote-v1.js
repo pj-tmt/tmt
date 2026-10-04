@@ -964,25 +964,36 @@ function element(id) {
 	if (!found) throw new Error(`The pairing page lacks #${id}.`);
 	return found;
 }
+/** Present the ceremony state without coloring its instruction text. */
+function showState(status, state, text) {
+	status.dataset.state = state;
+	status.textContent = text;
+	element("mark").textContent = {
+		waiting: "◆",
+		paired: "✓",
+		blocked: "✗"
+	}[state];
+}
 /** The pairing page. The fragment holding the code is removed before anything else runs. */
 function pairingPage() {
 	const link = location.href;
 	history.replaceState(null, "", location.pathname);
 	const status = element("status");
+	const form = element("pair");
 	let parsed;
 	try {
 		parsed = parseLink(link);
 	} catch {
-		status.textContent = "This pairing link is incomplete. Copy the whole link from tmt remote pair.";
+		form.hidden = true;
+		showState(status, "blocked", "This pairing link is incomplete. Copy the whole link from tmt remote pair.");
 		return;
 	}
-	const form = element("pair");
 	form.addEventListener("submit", (event) => {
 		event.preventDefault();
 		form.hidden = true;
 		const name = element("name").value.trim();
 		ceremony(parsed, name, status).catch(() => {
-			status.textContent = "Pairing did not complete. Run tmt remote pair again for a new link.";
+			showState(status, "blocked", "Pairing did not complete. Run tmt remote pair again for a new link.");
 		});
 	});
 }
@@ -990,9 +1001,9 @@ async function ceremony({ descriptor, code }, name, status) {
 	const key = await DeviceKey.generate();
 	const indexes = await fingerprintIndexes(key.publicKey());
 	const words = element("words");
-	words.textContent = `Words: ${indexes.map((i) => WORDS[i]).join(" ")}`;
-	words.hidden = false;
-	status.textContent = "Compare these words with the terminal, then confirm there.";
+	words.textContent = indexes.map((i) => WORDS[i]).join(" ");
+	element("comparison").hidden = false;
+	showState(status, "waiting", "Compare these words with the terminal, then confirm there.");
 	const result = await pair({
 		descriptor,
 		code,
@@ -1007,7 +1018,7 @@ async function ceremony({ descriptor, code }, name, status) {
 		paired: result
 	});
 	await openSession(result, key, descriptor.windowId);
-	status.textContent = "This browser is paired. You can close this page.";
+	showState(status, "paired", "This browser is paired. You can close this page.");
 }
 if (document.documentElement.dataset.tmtPage === "pair") pairingPage();
 //#endregion

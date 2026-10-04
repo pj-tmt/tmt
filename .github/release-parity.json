@@ -1,0 +1,421 @@
+{
+  "schemaVersion": 1,
+  "description": "Current coverage only. Whole-job release-stage entries inventory every executable step; publication policy and incident entries name narrower counterparts. Policy tests do not prove live publication or actual-archive upgrade. followUp 1581 marks gaps to close with the separately approved rehearsal PR.",
+  "workflows": {
+    "native-release.yml": {
+      "plan": {
+        "steps": ["uses:actions/checkout@v4", "uses:actions/setup-node@v4", "id:plan"],
+        "sha256": "62740008dab2b6f1731cd2c02bba1ff1ceac7fbdddb167b5e150e7cf178c09bd",
+        "releaseOnly": "Preparation and draft/recovery admission are main-only. No PR counterpart resolves live draft state; tagless PR preparation is deferred to #1581 rehearsal.",
+        "followUp": 1581
+      },
+      "bundle": {
+        "steps": ["uses:./.github/workflows/native-release-bundle.yml"],
+        "sha256": "97e540892c8e36b07380c41ce965db1b0088be3b5f82dd87859eeb9ceea8d48c",
+        "releaseOnly": "The complete per-product four-host pipeline is not called before merge. Its child jobs are inventoried separately; selected PR preparation is deferred to #1581 rehearsal.",
+        "followUp": 1581
+      }
+    },
+    "native-release-bundle.yml": {
+      "check": {
+        "steps": ["uses:actions/checkout@v4", "uses:actions/setup-node@v4", "id:check"],
+        "sha256": "a586da7b1428271c19b0510e5f8fb366fb039421539a35c06f8804884923c72a",
+        "releaseOnly": "Admission re-reads a live draft and its failure/bundle markers immediately before building; those mutation races exist only in the allocated release pipeline."
+      },
+      "build": {
+        "steps": [
+          "uses:actions/checkout@v4",
+          "uses:actions/checkout@v4#2",
+          "name:Set up Node.js and pnpm",
+          "name:Install embedded Office build dependencies",
+          "name:Install native build dependencies",
+          "name:Install pinned Rust",
+          "name:Cache Rust dependencies",
+          "id:version",
+          "id:tools",
+          "name:Build pinned packaging tools",
+          "name:Build release archive and target manifest",
+          "name:Verify plan, archive and binary versions against the injected tag",
+          "name:Recheck version-only source after this stage",
+          "uses:actions/upload-artifact@v4"
+        ],
+        "sha256": "9b51622283849732d52bbac8c888f85b2912ce336a5fc4d0d34853cfafc4ba09",
+        "releaseOnly": "The injection PR workflow builds synthetic archives on four hosts for its own narrow workflow paths. It does not select the full release packaging input set; affected-product preparation is deferred to #1581 rehearsal.",
+        "followUp": 1581
+      },
+      "assemble": {
+        "steps": [
+          "uses:actions/checkout@v4",
+          "uses:actions/checkout@v4#2",
+          "name:Set up Node.js and pnpm",
+          "name:Install pinned Rust",
+          "id:version",
+          "uses:actions/cache/restore@v4",
+          "name:Install verification dependencies",
+          "uses:actions/download-artifact@v4",
+          "name:Merge with cargo-dist and verify bootstrap inputs",
+          "name:Recheck version-only source after this stage",
+          "uses:actions/upload-artifact@v4"
+        ],
+        "sha256": "1b7a985d2a077634142ab562526fd5cd819e0c21114a352e292e36762bd090c4",
+        "releaseOnly": "No PR job merges all four cargo-dist target manifests, generates the complete bootstrap and checks the version-only source contract on that final bundle. Shared preparation is deferred to #1581 rehearsal.",
+        "followUp": 1581
+      },
+      "verify": {
+        "steps": [
+          "uses:actions/checkout@v4",
+          "uses:actions/checkout@v4#2",
+          "name:Require candidate Rosetta tooling",
+          "name:Set up Node.js and pnpm",
+          "name:Install verification dependencies",
+          "name:Install pinned Rust for version-only resolution",
+          "id:version",
+          "uses:actions/download-artifact@v4",
+          "name:Warm the macOS toolchain lookup",
+          "name:Build independent expected Colab app bytes",
+          "name:Execute final archive and bootstrap with the matching target process",
+          "name:Recheck version-only source after this stage"
+        ],
+        "sha256": "28fb80f4c56529d06918a282616da88dd5a57688838a61ca84c2e676615b33da",
+        "releaseOnly": "Raw runtime/injection PR proofs do not execute the assembled final bundle on four hosts. Independent Colab frontend comparison, combined notices and Rosetta final verification are deferred to #1581 rehearsal.",
+        "followUp": 1581
+      },
+      "attach": {
+        "steps": [
+          "uses:actions/checkout@v4",
+          "uses:actions/setup-node@v4",
+          "uses:actions/download-artifact@v4",
+          "name:Attach the bundle to the draft release"
+        ],
+        "sha256": "4bc9d5d744c24843e3f6daa17c24c74bb141282c7369cbe675b13385e7eba4d1",
+        "releaseOnly": "Uploading to a real draft, re-reading asset digests and attaching the completeness marker require an allocated draft and publication privileges."
+      },
+      "record-failure": {
+        "steps": [
+          "uses:actions/checkout@v4",
+          "uses:actions/setup-node@v4",
+          "name:Record the failure on the draft release"
+        ],
+        "sha256": "5cf2bbab0520dbca23df664735f39416b5d1ae2a4f3b912dbec7afd72aedc218",
+        "releaseOnly": "The durable failure marker is a write to a real allocated draft; pre-merge tests cover the marker policy without performing this write."
+      },
+      "gates": {
+        "steps": [
+          "uses:actions/checkout@v4",
+          "uses:./.github/actions/setup-tooling",
+          "name:Install reviewed publication-gate dependencies",
+          "name:Install the pinned metadata toolchain",
+          "name:Restore dependency cache for locked source acquisition",
+          "id:gates"
+        ],
+        "sha256": "26ab758ceea3dca7f8fdda9762eacec0ef8c89696ab8f046c00a942d6f57b931",
+        "releaseOnly": "Live checks consume allocated-tag, merged-main, completed PR check-suite and published-release state. Pure policy tests are mapped separately; dry candidate evaluation is deferred to #1581 rehearsal.",
+        "followUp": 1581
+      },
+      "upgrade": {
+        "steps": ["uses:./.github/workflows/native-release-upgrade.yml"],
+        "sha256": "b6ca7271302c4756fc0be8568041b3d9b5a1d95c671c334108d2d5cc8219e96f",
+        "releaseOnly": "The called upgrade workflow currently requires a GitHub draft or published candidate tag. Locally staged rehearsal candidate inputs are deferred to #1581 rehearsal.",
+        "followUp": 1581
+      },
+      "finish": {
+        "steps": [
+          "uses:actions/checkout@v4",
+          "uses:./.github/actions/setup-tooling",
+          "name:Install reviewed publication-gate dependencies",
+          "id:finish"
+        ],
+        "sha256": "aba14215f843bc9e8f10a55895ed482d6fcefea9eb6f8277b854b70c1de508fe",
+        "releaseOnly": "The decision removes or preserves the real draft hold marker after the live upgrade outcome; policy tests do not attest that live state transition."
+      },
+      "publish": {
+        "steps": [
+          "uses:actions/checkout@v4",
+          "uses:actions/setup-node@v4",
+          "name:Publish the draft under the product's policy"
+        ],
+        "sha256": "f831a620811f86054f75228dad72061be35167cb415c0ef6acc6debc545d8173",
+        "releaseOnly": "Publishing the allocated immutable release is an authorized side effect that cannot happen in pre-merge verification."
+      },
+      "published": {
+        "steps": [
+          "uses:actions/checkout@v4",
+          "uses:actions/setup-node@v4",
+          "name:Check immutability, flags, tag and attestation of the published release"
+        ],
+        "sha256": "1e8a000d8807ab34a0005a955349c5da314e68911072b3fcaa4311d071ff779c",
+        "releaseOnly": "Public immutable flags, exact tag ancestry and GitHub release/asset attestations can only be read back after publication."
+      },
+      "smoke": {
+        "steps": ["uses:./.github/workflows/native-release-smoke.yml"],
+        "sha256": "9710f250905f97606e58d12d96b051084ab23a233622b6a2b2d2d043189ddc48",
+        "releaseOnly": "The public URLs and release metadata under test exist only after publication. Matching-host candidate installation/upgrade remains a separate rehearsal gap."
+      },
+      "project-release": {
+        "steps": ["name:Dispatch the full Project sweep"],
+        "sha256": "022e0727a249025cd2cdb6a62755a1592386e85c18494e6c2cfafbf4804dc803",
+        "releaseOnly": "Dispatching the Project sweep changes delivery tracking after publication and successful public smoke; it is not a pre-merge release verification gate."
+      }
+    },
+    "native-release-upgrade.yml": {
+      "fetch": {
+        "steps": [
+          "uses:actions/checkout@v4",
+          "uses:actions/setup-node@v4",
+          "id:sha",
+          "name:Download and check the release assets",
+          "id:assess",
+          "name:Hand the assets to the proof"
+        ],
+        "sha256": "f4679c63e310b93657d1e41b46acf7d30a36fbfdfe660f0100fd66b2df4dad13",
+        "releaseOnly": "The current fetch path reads an actual draft/published candidate and stages digest-checked previous releases. A read-only local candidate artifact adapter is deferred to #1581 rehearsal.",
+        "followUp": 1581
+      },
+      "prove": {
+        "steps": [
+          "uses:actions/checkout@v4",
+          "uses:actions/checkout@v4#2",
+          "name:Require candidate Rosetta tooling",
+          "name:Set up Node.js and pnpm",
+          "name:Install verification dependencies",
+          "name:Install release-cut proof dependencies",
+          "name:Warm the macOS toolchain lookup",
+          "name:Install Rust for version-only resolution and adapter acceptance",
+          "name:Restore Rust dependencies for version-only resolution and adapter acceptance",
+          "name:Inject the reviewed draft version for upgrade proof and #575 acceptance",
+          "uses:actions/download-artifact@v4",
+          "name:Prove last-published and declared-floor installation and bootstrap recovery",
+          "name:Prove the real-archive CLI upgrade adapter",
+          "name:Recheck version-only source after runtime proof and adapter acceptance",
+          "name:Keep the log of a failed proof"
+        ],
+        "sha256": "edf58fe39c38c8c1f16373022968b155c7d75c4fa01f033621c8def1b5f99e83",
+        "releaseOnly": "Native process fixtures test installer behavior, but no persistent selected PR job runs this four-host actual release-archive/support-floor and CLI adapter proof. This is deferred to #1581 rehearsal.",
+        "followUp": 1581
+      },
+      "conclude": {
+        "steps": [
+          "uses:actions/checkout@v4",
+          "uses:actions/setup-node@v4",
+          "uses:actions/download-artifact@v4",
+          "id:failure",
+          "name:Fail a release the proof cannot run for"
+        ],
+        "sha256": "f6cb4134ab0d3f4309e5ddb471fd3187d02bfec2e5e7f6493281fd3e7261587b",
+        "releaseOnly": "This job must reflect the actual matching-host upgrade results and reject unavailable proof; a pre-merge equivalent depends on the #1581 rehearsal upgrade path.",
+        "followUp": 1581
+      }
+    },
+    "native-release-smoke.yml": {
+      "smoke": {
+        "steps": [
+          "uses:actions/checkout@v4",
+          "name:Install from the public release",
+          "name:Keep the host conclusion"
+        ],
+        "sha256": "62c8a12fcb0e2a53f2e28b38bdc3ddb58960b700f7ee19369de861db112d9d4c",
+        "releaseOnly": "Public bootstrap and native acquisition validate the just-published immutable release through real public URLs; that candidate cannot be fetched publicly before publication."
+      },
+      "report": {
+        "steps": [
+          "uses:actions/checkout@v4",
+          "uses:actions/setup-node@v4",
+          "uses:actions/download-artifact@v4",
+          "name:Open or update the issue"
+        ],
+        "sha256": "16a64422ddd49509b2f5180116ffaaa01969629a2217cb94da4576e178f8f60f",
+        "releaseOnly": "Opening/updating a failure issue is a post-publication reporting side effect; it does not establish candidate verification."
+      }
+    },
+    "release.yml": {
+      "cut": {
+        "steps": [
+          "uses:actions/checkout@v4",
+          "id:mode",
+          "name:Admit live release cut",
+          "uses:./.github/actions/setup-tooling",
+          "name:Install reviewed release parsing and rendering dependencies",
+          "name:Install the pinned metadata toolchain",
+          "name:Restore dependency cache for locked source acquisition",
+          "name:Draft immutable source cuts and dispatch their native gates",
+          "uses:actions/upload-artifact@v4"
+        ],
+        "sha256": "b8f5e4c8980e0e489f9bae65b1daf61736f7df164bf200b46c8684f07ef21371",
+        "releaseOnly": "Cadence, draft visibility and concurrent allocation/recovery admission depend on live main/release state. The pure cut planner is tested pre-merge, but selected candidate dry planning is deferred to #1581 rehearsal.",
+        "followUp": 1581
+      }
+    }
+  },
+  "publicationGates": {
+    "channel": {
+      "preMerge": [
+        {
+          "workflow": "ci.yml",
+          "job": "unit-tests",
+          "selection": {
+            "kind": "ci-scope",
+            "output": "native_scope",
+            "value": "full"
+          },
+          "coverage": "policy",
+          "tests": [
+            "typescript/test/tooling/publication-gates.test.ts",
+            "typescript/test/tooling/publication-gates-script.test.ts"
+          ]
+        }
+      ]
+    },
+    "commit": {
+      "preMerge": [
+        {
+          "workflow": "ci.yml",
+          "job": "unit-tests",
+          "selection": {
+            "kind": "ci-scope",
+            "output": "native_scope",
+            "value": "full"
+          },
+          "coverage": "policy",
+          "tests": [
+            "typescript/test/tooling/publication-gates.test.ts",
+            "typescript/test/tooling/publication-gates-script.test.ts"
+          ]
+        }
+      ]
+    },
+    "immutability": {
+      "preMerge": [
+        {
+          "workflow": "ci.yml",
+          "job": "unit-tests",
+          "selection": {
+            "kind": "ci-scope",
+            "output": "native_scope",
+            "value": "full"
+          },
+          "coverage": "policy",
+          "tests": [
+            "typescript/test/tooling/publication-gates.test.ts",
+            "typescript/test/tooling/publication-gates-script.test.ts"
+          ]
+        }
+      ]
+    },
+    "monotonic": {
+      "preMerge": [
+        {
+          "workflow": "ci.yml",
+          "job": "unit-tests",
+          "selection": {
+            "kind": "ci-scope",
+            "output": "native_scope",
+            "value": "full"
+          },
+          "coverage": "policy",
+          "tests": [
+            "typescript/test/tooling/publication-gates.test.ts",
+            "typescript/test/tooling/publication-gates-script.test.ts"
+          ]
+        }
+      ]
+    },
+    "migration": {
+      "preMerge": [
+        {
+          "workflow": "ci.yml",
+          "job": "unit-tests",
+          "selection": {
+            "kind": "ci-scope",
+            "output": "native_scope",
+            "value": "full"
+          },
+          "coverage": "policy",
+          "tests": [
+            "typescript/test/tooling/publication-gates.test.ts",
+            "typescript/test/tooling/publication-gates-script.test.ts"
+          ]
+        }
+      ]
+    },
+    "upgrade": {
+      "preMerge": [
+        {
+          "workflow": "ci.yml",
+          "job": "unit-tests",
+          "selection": {
+            "kind": "ci-scope",
+            "output": "native_scope",
+            "value": "full"
+          },
+          "coverage": "policy",
+          "tests": [
+            "typescript/test/tooling/publication-gates.test.ts",
+            "typescript/test/tooling/publication-gates-script.test.ts"
+          ]
+        }
+      ]
+    }
+  },
+  "incidents": {
+    "1534": {
+      "release": {
+        "workflow": "native-release-bundle.yml",
+        "job": "verify",
+        "step": "name:Execute final archive and bootstrap with the matching target process"
+      },
+      "releaseOnly": "Existing injection PR builds verify archive versions but do not execute the complete Intel final verifier process tree after injection under Rosetta. The matching-host shared final-bundle rehearsal remains required.",
+      "followUp": 1581
+    },
+    "1541": {
+      "release": {
+        "workflow": "native-release-bundle.yml",
+        "job": "verify",
+        "step": "name:Build independent expected Colab app bytes"
+      },
+      "releaseOnly": "PR Code quality builds the real Colab app and checks entry dependencies (#1604); it does not rebuild independent expected bytes and compare them with a released final archive on all matching hosts.",
+      "followUp": 1581
+    },
+    "1542": {
+      "release": {
+        "workflow": "native-release-bundle.yml",
+        "job": "gates",
+        "step": "id:gates"
+      },
+      "preMerge": [
+        {
+          "workflow": "ci.yml",
+          "job": "unit-tests",
+          "selection": {
+            "kind": "ci-scope",
+            "output": "native_scope",
+            "value": "full"
+          },
+          "coverage": "policy",
+          "tests": [
+            "typescript/test/tooling/publication-gates.test.ts",
+            "typescript/test/tooling/publication-gates-script.test.ts"
+          ]
+        }
+      ]
+    },
+    "1550": {
+      "release": {
+        "workflow": "native-release-bundle.yml",
+        "job": "verify",
+        "step": "name:Execute final archive and bootstrap with the matching target process"
+      },
+      "preMerge": [
+        {
+          "workflow": "ci.yml",
+          "job": "native-notices",
+          "selection": {
+            "kind": "ci-scope",
+            "output": "native_notices",
+            "value": "true"
+          },
+          "coverage": "runtime"
+        }
+      ]
+    }
+  }
+}

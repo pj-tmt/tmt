@@ -247,7 +247,7 @@ fn home_acquisition_reuses_public_reads_and_preserves_all_json_and_text() {
         id: "me-id".into(),
         name: "me".into(),
     };
-    let (home_public, home) = load(&f.core, &f.config, &squads, &order, Some(&me)).unwrap();
+    let (home_public, home, rates) = load(&f.core, &f.config, &squads, &order, Some(&me)).unwrap();
     let calls = fs::read_to_string(f.root.join("calls")).unwrap();
     assert_eq!(
         calls.lines().collect::<Vec<_>>(),
@@ -258,6 +258,19 @@ fn home_acquisition_reuses_public_reads_and_preserves_all_json_and_text() {
         let input: Value = serde_json::from_str(input).unwrap();
         assert_eq!(input["operation"], "rooms.roster");
     }
+    assert_eq!(rates.len(), squads.len());
+    for name in ["a", "b"] {
+        assert_eq!(rates[name].input.room, format!("room-{name}"));
+        assert_eq!(
+            rates[name].input.resumes.keys().collect::<Vec<_>>(),
+            [&format!("id-{name}")]
+        );
+    }
+    assert!(
+        rates
+            .values()
+            .all(|rate| rate.input.resumes.values().all(Value::is_null))
+    );
     let public = tab_view::load(&f.core, &f.config, &squads, &order, Some(&me), ALL).unwrap();
     assert_eq!(
         serde_json::to_vec(&home_public.document).unwrap(),
@@ -304,7 +317,8 @@ fn failed_roster_and_inbox_are_reported_and_recovery_replaces_the_partial_model(
         id: "me-id".into(),
         name: "me".into(),
     };
-    let (public, home) = load(&f.core, &f.config, &squads(), &[], Some(&me)).unwrap();
+    let (public, home, rates) = load(&f.core, &f.config, &squads(), &[], Some(&me)).unwrap();
+    assert_eq!(rates.keys().map(String::as_str).collect::<Vec<_>>(), ["b"]);
     assert_eq!(public.document["partial"], true);
     assert_eq!(home.failures.len(), 2);
     assert_eq!(home.squads.len(), 1);
@@ -313,7 +327,7 @@ fn failed_roster_and_inbox_are_reported_and_recovery_replaces_the_partial_model(
     fs::remove_file(f.root.join("a-fail")).unwrap();
     fs::write(f.root.join("inbox"), "{\"items\":[],\"more\":false}").unwrap();
     fs::write(f.root.join("a"), roster("a").to_string()).unwrap();
-    let (public, home) = load(&f.core, &f.config, &squads(), &[], Some(&me)).unwrap();
+    let (public, home, _) = load(&f.core, &f.config, &squads(), &[], Some(&me)).unwrap();
     assert!(public.document.get("partial").is_none());
     assert!(home.failures.is_empty());
     assert_eq!(home.squads.len(), 2);

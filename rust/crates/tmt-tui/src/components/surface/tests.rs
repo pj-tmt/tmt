@@ -339,6 +339,29 @@ fn malformed_components_and_empty_collection_schemas_fail_before_render() {
 }
 
 #[test]
+fn untitled_modal_has_a_continuous_rule_in_each_theme_and_no_color() {
+    for base in ["tmt", "tmt-light"] {
+        for depth in [Depth::TrueColor, Depth::None] {
+            let theme = Theme::new(tmt_cli_style::theme::Base::parse(base).unwrap());
+            let modal = Modal {
+                title: String::new(),
+                placement: Placement::Body,
+            };
+            let areas = modal.areas(Rect::new(2, 2, 80, 7), [80, 7], true, false);
+            let mut buffer =
+                Buffer::filled(Rect::new(0, 0, 84, 11), ratatui::buffer::Cell::new("X"));
+            modal.paint(areas, &mut buffer, &theme, depth);
+            assert_eq!(
+                line(&buffer, areas.outer, 2),
+                format!("┌{}┐", "─".repeat(78))
+            );
+            assert_eq!(buffer[(1, 2)].symbol(), "X");
+            assert_eq!(buffer[(4, 3)].symbol(), " ");
+        }
+    }
+}
+
+#[test]
 fn small_modal_is_centered_and_capped_but_narrow_modal_fills_width() {
     let modal = Modal {
         title: "Confirm".into(),

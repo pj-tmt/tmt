@@ -93,6 +93,34 @@ primitive-library evidence, not product or publication acceptance.
 
 ## Verification
 
+### Release gate parity
+
+`.github/release-parity.json` records current release verification coverage, owned by
+infra. Its whole-job entries inventory every executable step in `native-release.yml`,
+`release.yml` and their local reusable workflows. Publication-policy and incident
+entries name narrower checks; `coverage: policy` means regression tests, not live
+publication or actual-archive proof. `releaseOnly` gives the reason a stage has no
+equivalent pre-merge execution. `followUp: 1581` marks an unresolved rehearsal gap,
+not a permanent exemption or shipped coverage.
+
+For a release workflow change, review its coverage and update the recorded step
+inventory and SHA-256 of the admitted job definition. `node
+typescript/scripts/release-parity.mjs inventory` prints the current definitions;
+it does not update the manifest. A changed command, condition, target matrix or
+called workflow needs the same review even if the step name is unchanged.
+The guard rejects unmapped/stale workflows, jobs, steps and publication policies,
+invalid counterpart jobs/selectors and unsupported workflow structure. It follows
+local reusable workflow calls; external reusable release workflows and alias/flow
+job or step mappings require extending admission with tests before use. Manifest
+fingerprints require review, rather than establishing semantic equivalence by hash.
+
+Run `node typescript/scripts/release-parity.mjs check` and, from `typescript/`,
+`corepack pnpm exec vp test run --config vitest.config.ts
+test/tooling/release-parity.test.ts test/tooling/release-workflow.test.ts`.
+`Code quality` runs the cheap parity guard for PRs and merge groups, including
+prose-only changes. Actual rehearsal remains separately tracked in #1581; the
+manifest must describe existing coverage until that pipeline lands.
+
 From `typescript/`, run the selection and workflow guards for a selection change:
 
 ```sh

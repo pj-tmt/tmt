@@ -286,7 +286,7 @@ export function Listbox<Value extends string>({
         >
           <span id={valueId}>{selected?.label ?? 'Choose an option'}</span>
           <span className="tmt-listbox-chevron" aria-hidden="true">
-            ▾
+            ⌄
           </span>
         </button>
       )}

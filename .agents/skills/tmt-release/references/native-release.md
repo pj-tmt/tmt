@@ -36,6 +36,10 @@ and `THIRD-PARTY-NOTICES.txt`. The CLI may also carry optional companion executa
 Squad additionally carries its skills tree. The installer enforces inventory in
 `tmt-core`'s `native_install/product.rs`: adding, renaming or dropping an entry
 changes the installer contract and needs upgrade proof.
+An extension archive may also carry `TMT-USES.json`; the installer validates it
+(`native_install/uses.rs`, rules in `contracts/extension-api.md`) and a malformed file rejects
+the release before publication. No script re-parses it: `extension-install.test.ts` proves the
+rejection through the real CLI before merge, so the release verifiers need no separate check.
 
 `rust/archive/NATIVE-INSTALL.md` supplies the archive note through
 `dist-workspace.toml` and extension includes. Keep it short, product-neutral and

@@ -1059,9 +1059,13 @@ envelopes. No unauthenticated GET inventory.
 
 Browser assets live at the door root, disjoint from the route prefix, under the same Host, path and
 framing rules. `GET /pair/<descriptor>` (1–4096 base64url characters) serves the pairing page with
-`default-src 'none'; script-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none';
+`default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none';
 frame-ancestors 'none'`; the descriptor names the offer and never the code, which stays in the
-fragment that the page removes before anything else runs. `GET /sdk/remote-v1.js` serves the device
+fragment that the page removes before anything else runs. `GET /` serves a static pairing landing
+page; malformed pairing-page paths receive generic HTML errors with their refusal status. These
+pages load only the embedded same-origin `GET /sdk/pages.css` stylesheet, using the shared design
+tokens and system font fallbacks without network fonts. Protocol refusals below `/r/` remain JSON.
+`GET /sdk/remote-v1.js` serves the device
 SDK as `text/javascript; charset=utf-8` with `nosniff`; the path names the SDK interface version,
 not a build, so it is not cached across upgrades. `POST /sdk/mount` takes exactly `{path}` from a
 page on the door's own origin and answers `{machineId, windowId, address, extension, mount}`: this

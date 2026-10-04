@@ -303,3 +303,93 @@ fn record_home_snapshots() {
     )
     .unwrap();
 }
+
+#[test]
+fn middle_home_row_composes_inline_and_success_survives_answer_refresh() {
+    for width in [160, 100, 80] {
+        for (base, depth) in [
+            ("tmt", tmt_cli_style::Depth::TrueColor),
+            ("tmt-light", tmt_cli_style::Depth::TrueColor),
+            ("tmt", tmt_cli_style::Depth::None),
+        ] {
+            let members = (0..5).map(|index| {
+                let mut member = row(&format!("W{index}"), &format!("worker-{index}"), "working");
+                member["waitingOnYou"] = json!([{"requestId":format!("q{index}"), "preview":"Should this decision proceed?", "preparedAtMs":20}]);
+                member
+            }).collect::<Vec<_>>();
+            let doc = document("a", row("L", "lead-a", "working"), members);
+            let mut app = board(&[("a", doc.clone())]);
+            app.view.as_mut().unwrap().look = crate::look::Look {
+                theme: tmt_cli_style::Theme::new(tmt_cli_style::theme::Base::parse(base).unwrap()),
+                depth,
+            };
+            press(&mut app, Down);
+            press(&mut app, Down);
+            press(&mut app, Char('a'));
+            assert!(app.menu.is_none());
+            let mut terminal = Terminal::new(TestBackend::new(width, 30)).unwrap();
+            terminal
+                .draw(|frame| crate::board::view::render(frame, &app))
+                .unwrap();
+            let band = app.input_band.get().unwrap();
+            let lines = terminal
+                .backend()
+                .buffer()
+                .content
+                .chunks(usize::from(width))
+                .map(|cells| cells.iter().map(|cell| cell.symbol()).collect::<String>())
+                .collect::<Vec<_>>();
+            assert!(lines[usize::from(band.y + 1)].contains("→ worker-2 (a)"));
+            assert!(lines[usize::from(band.y + 2)].contains("◆ “Should this decision proceed?”"));
+            assert!(lines[usize::from(band.y + 4)].contains("Enter send · Esc cancel"));
+            assert!(lines[usize::from(band.bottom())].contains("worker-3"));
+            assert!(
+                !app.hits
+                    .borrow()
+                    .iter()
+                    .any(|hit| (band.y..band.bottom()).contains(&hit.y))
+            );
+            press(&mut app, Tab);
+            assert_eq!(
+                app.input.as_ref().unwrap().header(),
+                "✎ note → lead-a · about worker-2"
+            );
+            press(&mut app, Tab);
+            press(&mut app, Char('y'));
+            assert!(
+                matches!(press(&mut app,Enter),Effect::Act(Request::Reply { ref request,.. }) if request == "q2")
+            );
+            app.finished(Ok("Replied".into()));
+            let mut answered = doc;
+            answered["sections"][0]["rows"][2]["waitingOnYou"] = json!([]);
+            let refreshed = board(&[("a", answered)]);
+            app.apply(Snapshot {
+                squad_keys: vec!["a".into()],
+                tabs: app.tabs.clone(),
+                hidden: vec![],
+                pinned: 0,
+                attention: Default::default(),
+                squad: Some(ALL.into()),
+                view: Ok(refreshed.view.unwrap()),
+            });
+            assert_eq!(app.selected_row().unwrap()["name"], "worker-2");
+            assert_eq!(app.selected, 2);
+            terminal
+                .draw(|frame| crate::board::view::render(frame, &app))
+                .unwrap();
+            let text = terminal
+                .backend()
+                .buffer()
+                .content
+                .iter()
+                .map(|cell| cell.symbol())
+                .collect::<String>();
+            assert!(text.contains("✓ sent"));
+            press(&mut app, Char('x'));
+            assert!(app.sent.is_none());
+            assert!(!app.home_entries().iter().any(
+                |entry| entry.row["name"] == "worker-2" && entry.target.section == "needs-you"
+            ));
+        }
+    }
+}
