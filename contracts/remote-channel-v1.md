@@ -394,7 +394,10 @@ advisory, not a live address. Live `origin` and `path` come only from the runnin
 owner-only control socket. Stopped inspection creates nothing and does not initialize or migrate
 state. Unsafe or unreadable state, an unavailable lifecycle lease, and failure to reach or read a
 live serve return the standard `{"error":{"code":"REMOTE_…","message":"…"}}` document with a
-nonzero exit. Status contains no other fields, secrets, cookies or device inventory.
+nonzero exit. A running serve that predates `status` or `stop` (alpha.1 answered
+`REMOTE_INPUT_INVALID` "Unknown control operation."; later serves answer
+`REMOTE_CONTROL_UNSUPPORTED`) yields `REMOTE_SERVE_OUTDATED` from either command: it must be
+stopped by hand (Ctrl-C in its terminal) and started again, since `stop` cannot reach it. Status contains no other fields, secrets, cookies or device inventory.
 
 `tmt remote stop --json` asks the running serve to shut down through its owner-only control
 socket, then waits up to 40 seconds after acknowledgment for the lifecycle lease to be released
