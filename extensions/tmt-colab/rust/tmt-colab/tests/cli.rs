@@ -2955,7 +2955,7 @@ fn human_ls_uses_the_link_prefix_even_when_a_collision_is_archived_or_deleted() 
     seed_page_with_title(&pilot, "Original page");
     let other = "10000000-1000-4000-8000-000000000002";
     let layout = Layout::open(&pilot.root.join("selected")).unwrap();
-    let mut store = Store::open(&layout).unwrap();
+    let store = Store::open(&layout).unwrap();
     // The creation projection reserves this sibling ID even before it has content.
     store.create_page(other).unwrap();
     store.close().unwrap();

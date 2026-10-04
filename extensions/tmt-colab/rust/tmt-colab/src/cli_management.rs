@@ -1086,7 +1086,7 @@ fn output_with(value: &Value, json_output: bool, extra: &[(&str, String)]) -> Re
                     (None, Some(code)) => Cell::from(format!("unavailable ({code})")),
                     (None, None) => Cell::from("title unavailable"),
                 },
-                Cell::from(crate::short_links::shortest_id(
+                Cell::from(tmt_colab::short_links::shortest_id(
                     page["pageId"].as_str().unwrap_or(""),
                     &ids,
                 )),
