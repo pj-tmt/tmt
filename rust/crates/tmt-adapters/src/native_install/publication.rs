@@ -281,6 +281,13 @@ impl Layout {
                     write(&release.join(name), bytes, 0o755)?;
                 }
             }
+            // Optional plain files (such as the declaration of optional uses).
+            for name in self.product.optional_files() {
+                if let Some(bytes) = artifact.files.get(*name) {
+                    checkpoint()?;
+                    write(&release.join(name), bytes, 0o644)?;
+                }
+            }
             // A verified skills tree is published with its release, read-only
             // content under directories only this release owns.
             let skills = artifact

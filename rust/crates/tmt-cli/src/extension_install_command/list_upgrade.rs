@@ -36,10 +36,50 @@ pub(super) fn upgrade_extension(
             1,
         ));
     }
-    if !ask(yes, mode, &format!("Update the {name} extension"))? {
+    let affects = to
+        .as_deref()
+        .and_then(|version| version.parse().ok())
+        .map(|version| native_install::affected(&prefix, product, Some(&version)))
+        .unwrap_or_default();
+    let mut question = format!("Update the {name} extension");
+    if let Some(warning) = affects_warning(&affects) {
+        question.push_str(&warning);
+    }
+    if !ask(yes, mode, &question)? {
         return Ok(None);
     }
-    upgrade_at(product, &prefix, channel, to.as_deref(), unpin, None)
+    let mut outcome = upgrade_at(product, &prefix, channel, to.as_deref(), unpin, None)?;
+    if let Some((document, _)) = outcome.as_mut() {
+        record_affects(document, &affects);
+    }
+    Ok(outcome)
+}
+
+/// The installed extensions whose declared features stop working, as one
+/// sentence for a consent question. A warning only: nothing is blocked.
+pub(super) fn affects_warning(affects: &[native_install::Affected]) -> Option<String> {
+    if affects.is_empty() {
+        return None;
+    }
+    let features = affects
+        .iter()
+        .map(|used| format!("{}'s {}", used.extension.as_str(), used.label))
+        .collect::<Vec<_>>()
+        .join(", ");
+    Some(format!(". This stops {features} from working"))
+}
+
+pub(super) fn record_affects(document: &mut Value, affects: &[native_install::Affected]) {
+    if !affects.is_empty() {
+        document["affects"] = affects
+            .iter()
+            .map(|used| {
+                json!({"extension": used.extension.as_str(), "feature": used.feature,
+                    "label": used.label})
+            })
+            .collect::<Vec<_>>()
+            .into();
+    }
 }
 
 pub(super) fn upgrade_at(
@@ -184,6 +224,20 @@ pub(super) fn listing(
             row["hint"] = hint.clone().into();
         }
         let mut notes = Vec::new();
+        let explicit = non_default(prefix);
+        if state.is_some() {
+            // A declaration that cannot be read is simply not shown: the entry
+            // itself is already verified above.
+            let statuses = native_install::use_statuses(product, prefix).unwrap_or_default();
+            if !statuses.is_empty() {
+                row["uses"] = statuses
+                    .iter()
+                    .map(native_install::UseStatus::to_json)
+                    .collect::<Vec<_>>()
+                    .into();
+                notes.extend(statuses.iter().map(|used| use_line(used, explicit)));
+            }
+        }
         if let Some(issue) = &issue {
             row["status"] = issue.status().into();
             row["path"] = issue.path.to_string_lossy().into_owned().into();
@@ -232,6 +286,28 @@ pub(super) fn listing(
         json!({"extensions": rows}),
         extension_list(&lines, env::home_dir().as_deref()),
     ))
+}
+
+/// The prefix only when it is not the one `tmt extension` uses by default, so a
+/// printed command carries `--prefix` exactly when it needs it.
+fn non_default(prefix: &Path) -> Option<&Path> {
+    let canonical = |path: &Path| fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    let default = native_install::default_install_prefix().ok()?;
+    (canonical(&default) != canonical(prefix)).then_some(prefix)
+}
+
+/// One dim line per declared use: available, or the exact next step.
+fn use_line(used: &native_install::UseStatus, prefix: Option<&Path>) -> String {
+    if used.available() {
+        format!(
+            "{}: uses {} >={}, available",
+            used.declared.label,
+            used.declared.extension.as_str(),
+            used.declared.minimum
+        )
+    } else {
+        used.hint(prefix)
+    }
 }
 
 /// One extension entry TMT cannot read as a managed installation. Listing
