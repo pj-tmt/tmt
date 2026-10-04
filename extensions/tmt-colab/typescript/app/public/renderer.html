@@ -27,9 +27,74 @@
             requestId = '',
             stopped = false,
             timer;
-          let layer;
+          let heightTimer,
+            height = 0,
+            innerScroll = false;
+          function measureHeight() {
+            heightTimer = undefined;
+            if (stopped || !document.body) return;
+            const body = document.body,
+              root = document.documentElement,
+              rect = body.getBoundingClientRect(),
+              margin = parseFloat(getComputedStyle(body).marginBottom) || 0;
+            // Root scrollHeight is at least the frame viewport. Ignore that floor
+            // so content can shrink; retain root overflow and body/absolute content.
+            const next = Math.max(
+              1,
+              Math.ceil(
+                Math.max(
+                  rect.bottom + scrollY + margin,
+                  rect.top + scrollY + body.scrollHeight + margin,
+                  root.scrollHeight > innerHeight + 1 ? root.scrollHeight : 0,
+                ),
+              ),
+            );
+            if (next === height) return;
+            height = next;
+            parent.postMessage({ type: 'colab.render.height', renderId, height }, '*');
+          }
+          const scheduleHeight = () => {
+            if (!stopped && heightTimer === undefined) heightTimer = setTimeout(measureHeight, 100);
+          };
+          const sizeObserver = new ResizeObserver(() => {
+            scheduleHeight();
+            schedule();
+            capture();
+          });
+          function anchor(event) {
+            if (
+              !event.isTrusted ||
+              event.defaultPrevented ||
+              event.button !== 0 ||
+              event.metaKey ||
+              event.ctrlKey ||
+              event.shiftKey ||
+              event.altKey
+            )
+              return;
+            const link = event.target instanceof Element ? event.target.closest('a[href]') : null,
+              href = link?.getAttribute('href');
+            if (!href?.startsWith('#') || href.length > 1024) return;
+            let id;
+            try {
+              id = decodeURIComponent(href.slice(1));
+            } catch {
+              return;
+            }
+            const target = id
+              ? (document.getElementById(id) ?? document.getElementsByName(id)[0])
+              : document.body;
+            if (!target) return;
+            const top = Math.max(0, target.getBoundingClientRect().top + scrollY);
+            event.preventDefault();
+            if (innerScroll) target.scrollIntoView();
+            parent.postMessage({ type: 'colab.render.anchor', renderId, top }, '*');
+          }
+          let layer, markers;
+          const anchorRanges = new Map();
           const sheet = document.createElement('style');
-          sheet.textContent = '::highlight(colab-comments){background:#ffe18a;color:inherit}';
+          sheet.textContent =
+            '::highlight(colab-comments){background:#ffe18a55;color:inherit;text-decoration:underline}';
           document.head.append(sheet);
           function collect() {
             const deadline = performance.now() + 20;
@@ -74,9 +139,11 @@
             }
             return { points, spans, units, text: points.join('') };
           }
+          let selected = JSON.stringify({ selector: null, rect: null });
           function capture() {
             if (stopped) return;
-            let selector = null;
+            let selector = null,
+              rect = null;
             try {
               const selection = getSelection();
               if (selection?.rangeCount === 1 && !selection.isCollapsed) {
@@ -104,12 +171,25 @@
                     suffix: map.points.slice(end, end + 32).join(''),
                   };
                 if (!validQuote(selector)) selector = null;
+                if (selector) {
+                  const box = range.getBoundingClientRect();
+                  rect = { x: box.x, y: box.y, width: box.width, height: box.height };
+                }
               }
             } catch {
               selector = null;
             }
+            const next = JSON.stringify({ selector, rect });
+            if (next === selected) return;
+            selected = next;
             parent.postMessage(
-              { type: 'colab.render.selection', renderId, text: selector?.exact ?? '', selector },
+              {
+                type: 'colab.render.selection',
+                renderId,
+                text: selector?.exact ?? '',
+                selector,
+                rect,
+              },
               '*',
             );
           }
@@ -119,12 +199,16 @@
             } catch {}
             layer?.remove();
             layer = undefined;
+            markers?.remove();
+            markers = undefined;
+            anchorRanges.clear();
           }
           function resolve() {
             if (stopped || !requestId) return;
             clear();
             const resolved = [],
-              ranges = [];
+              ranges = [],
+              positions = [];
             try {
               const map = collect(),
                 deadline = performance.now() + 20;
@@ -160,6 +244,9 @@
                 range.setEnd(b.node, b.end);
                 ranges.push(range);
                 resolved.push(item.id);
+                anchorRanges.set(item.id, range);
+                const top = Math.max(0, range.getBoundingClientRect().top + scrollY);
+                if (Number.isFinite(top) && top <= 1000000) positions.push({ id: item.id, top });
               }
               if (ranges.length && typeof Highlight === 'function' && CSS.highlights) {
                 CSS.highlights.set('colab-comments', new Highlight(...ranges));
@@ -178,11 +265,55 @@
                   }
                 document.body.append(layer);
               }
+              if (positions.length) {
+                markers = document.createElement('div');
+                markers.dataset.colabHighlight = '';
+                markers.dataset.colabMarkers = '';
+                markers.style.cssText =
+                  'position:absolute;top:0;left:0;width:100%;pointer-events:none;z-index:2147483647';
+                document.body.append(markers);
+                const origin = markers.getBoundingClientRect().top + scrollY;
+                const lines = new Map();
+                for (const position of positions) {
+                  const line = Math.round(position.top / 8) * 8;
+                  const group = lines.get(line) ?? [];
+                  group.push(position.id);
+                  lines.set(line, group);
+                }
+                for (const [top, ids] of lines) {
+                  const marker = document.createElement('button');
+                  marker.type = 'button';
+                  marker.dataset.colabThread = ids[0];
+                  marker.textContent = ids.length > 1 ? String(ids.length) : '▪';
+                  marker.title =
+                    batch.find((item) => item.id === ids[0])?.selector.exact.slice(0, 80) ??
+                    'Annotation';
+                  marker.setAttribute('aria-label', 'Open annotation: ' + marker.title);
+                  marker.style.cssText = `position:absolute;right:8px;top:${top - origin}px;width:20px;height:20px;padding:0;border:1px solid #625327;border-radius:0;background:#ffe18a;color:#392e12;font:12px/18px sans-serif;pointer-events:auto;cursor:pointer`;
+                  marker.addEventListener('click', (event) => {
+                    if (event.isTrusted)
+                      port.postMessage({
+                        type: 'colab.render.open-thread',
+                        renderId,
+                        requestId,
+                        id: ids[0],
+                      });
+                  });
+                  markers.append(marker);
+                }
+              }
             } catch {
+              positions.length = 0;
               resolved.length = 0;
               clear();
             }
-            port.postMessage({ type: 'colab.render.anchors', renderId, requestId, resolved });
+            port.postMessage({
+              type: 'colab.render.anchors',
+              renderId,
+              requestId,
+              resolved,
+              positions,
+            });
           }
           const schedule = () => {
             clearTimeout(timer);
@@ -190,6 +321,33 @@
           };
           port.onmessage = (event) => {
             const v = event.data;
+            if (
+              v &&
+              typeof v === 'object' &&
+              !Array.isArray(v) &&
+              Object.keys(v).length === 3 &&
+              v.type === 'colab.render.layout' &&
+              v.renderId === renderId &&
+              v.mode === 'frame'
+            ) {
+              innerScroll = true;
+              return;
+            }
+            if (
+              v &&
+              typeof v === 'object' &&
+              !Array.isArray(v) &&
+              Object.keys(v).length === 4 &&
+              v.type === 'colab.render.scroll-thread' &&
+              v.renderId === renderId &&
+              v.requestId === requestId &&
+              typeof v.id === 'string' &&
+              anchorRanges.has(v.id)
+            ) {
+              if (innerScroll)
+                anchorRanges.get(v.id).startContainer.parentElement?.scrollIntoView();
+              return;
+            }
             if (
               !v ||
               typeof v !== 'object' ||
@@ -211,6 +369,7 @@
                   typeof item === 'object' &&
                   !Array.isArray(item) &&
                   Object.keys(item).length === 2 &&
+                  Object.keys(item).every((key) => ['id', 'selector'].includes(key)) &&
                   typeof item.id === 'string' &&
                   item.id.length <= 73 &&
                   validQuote(item.selector),
@@ -226,6 +385,7 @@
               mutations.some(
                 (m) =>
                   !layer?.contains(m.target) &&
+                  !markers?.contains(m.target) &&
                   !(
                     m.type === 'childList' &&
                     [...m.addedNodes, ...m.removedNodes].every(
@@ -235,6 +395,7 @@
               )
             )
               schedule();
+            scheduleHeight();
           });
           addEventListener(
             'load',
@@ -248,19 +409,47 @@
               });
               parent.postMessage({ type: 'colab.render.bound', renderId }, '*');
               document.addEventListener('selectionchange', capture);
+              document.addEventListener('click', anchor, true);
+              sizeObserver.observe(document.documentElement);
+              sizeObserver.observe(document.body);
+              scheduleHeight();
             },
             { once: true },
           );
+          const annotate = (event) => {
+            if (
+              event.isTrusted &&
+              event.altKey &&
+              event.key === 'Enter' &&
+              !getSelection()?.isCollapsed
+            ) {
+              event.preventDefault();
+              capture();
+              parent.postMessage({ type: 'colab.render.annotate', renderId }, '*');
+            }
+          };
+          document.addEventListener('keydown', annotate);
+          addEventListener('resize', capture);
+          addEventListener('scroll', capture, { passive: true });
           addEventListener('resize', schedule);
+          addEventListener('resize', scheduleHeight);
           addEventListener(
             'pagehide',
             () => {
               stopped = true;
               clearTimeout(timer);
+              clearTimeout(heightTimer);
+              sizeObserver.disconnect();
               observer.disconnect();
               port.close();
               clear();
               document.removeEventListener('selectionchange', capture);
+              document.removeEventListener('click', anchor, true);
+              document.removeEventListener('keydown', annotate);
+              removeEventListener('resize', capture);
+              removeEventListener('scroll', capture);
+              removeEventListener('resize', schedule);
+              removeEventListener('resize', scheduleHeight);
             },
             { once: true },
           );

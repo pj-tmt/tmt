@@ -128,7 +128,19 @@ async function wire(
         spaceId: v.space,
         ownerKey: c.encodeBinary(owner),
         revision: String(head.head.revision),
-        pages: [{ pageId: v.page, epoch, sharing: 'private', history: 'current', archived: false }],
+        pages: [
+          {
+            pageId: v.page,
+            epoch,
+            sharing: 'private',
+            history: 'current',
+            archived: false,
+            retentionDays: 30,
+            lastUpdateAtMs: null,
+            expiresAtMs: null,
+            warnings: ['expiry-unavailable'],
+          },
+        ],
       },
     }),
   );
@@ -271,6 +283,7 @@ async function wire(
     signer,
     reset ? new Uint8Array([0, 0]) : new Uint8Array(Y.encodeStateAsUpdate(doc)),
   );
+  const contentSnapshot = new Uint8Array(Y.encodeStateAsUpdate(doc));
   doc.destroy();
   const entry = async (env: c.Envelope) => ({
     seq: c.decodeHeader(env.header()).context.streamSeq,
@@ -732,6 +745,39 @@ async function wire(
     resync() {
       for (const peer of peers) send(peer, 'error', { code: 'RESYNC_REQUIRED' });
     },
+    async contentUpdate(source: string) {
+      const writer = new Y.Doc();
+      try {
+        Y.applyUpdate(writer, contentSnapshot);
+        const vector = Y.encodeStateVector(writer);
+        const html = writer.getText('html');
+        writer.transact(() => {
+          html.delete(0, html.length);
+          html.insert(0, source);
+        });
+        const env = await c.Envelope.seal(
+          {
+            space: v.space,
+            page: v.page,
+            epoch,
+            kind: 'update',
+            namespace: 'content',
+            authorDevice: v.device,
+            membershipRevision: String(head.head.revision),
+            streamSeq: String(entries.length + 1),
+            prevHash: c.binary(entries.at(-1)!.envelopeHash, 32, 32),
+          },
+          hex(v.epochKey),
+          signer,
+          new Uint8Array(Y.encodeStateAsUpdate(writer, vector)),
+        );
+        const row = await entry(env);
+        entries.push(row);
+        for (const peer of peers) deliver(peer, 'broadcast', row, { streamId: v.device });
+      } finally {
+        writer.destroy();
+      }
+    },
     async ownUpdate() {
       const env = await c.Envelope.seal(
         {
@@ -952,14 +998,41 @@ result:async()=>({state:'replied',requestId:'${requestId}',message:${JSON.string
   await page.getByRole('link', { name: new RegExp(v.page) }).click();
   const heading = page.frameLocator('iframe').getByRole('heading', { name: 'Live fixture' });
   await expect(heading).toBeVisible();
+  const renderId = (await page.locator('iframe').getAttribute('data-render-id'))!;
+  await page
+    .frames()
+    .find((value) => value.url().endsWith('/renderer.html'))!
+    .evaluate((renderId) => {
+      parent.postMessage(
+        {
+          type: 'colab.render.selection',
+          renderId,
+          text: 'Cosmetic claim',
+          selector: { exact: 'Cosmetic claim', prefix: '', suffix: '' },
+          rect: { x: -1000000, y: -1000000, width: 1, height: 1 },
+        },
+        '*',
+      );
+    }, renderId);
+  const bubble = page.getByTestId('selection-ask');
+  await expect(bubble).toBeVisible();
+  const bounds = (await bubble.boundingBox())!,
+    frameBounds = (await page.locator('iframe').boundingBox())!;
+  expect(bounds.x).toBeGreaterThanOrEqual(frameBounds.x);
+  expect(bounds.y).toBeGreaterThanOrEqual(frameBounds.y);
+  expect(bounds.x + bounds.width).toBeLessThanOrEqual(frameBounds.x + frameBounds.width);
+  expect(bounds.y + bounds.height).toBeLessThanOrEqual(page.viewportSize()!.height);
+  await expect(page.getByTestId('annotation-compose')).toHaveCount(0);
   await heading.evaluate((node) => {
     const range = document.createRange();
     range.selectNodeContents(node);
     getSelection()!.removeAllRanges();
     getSelection()!.addRange(range);
   });
+  await page.getByTestId('ask-toggle').click();
   await page.getByTestId('ask-action').click();
-  await page.getByTestId('ask-agent-option').getByRole('radio').check();
+  await page.getByRole('combobox', { name: /Choose an agent/ }).click();
+  await page.getByTestId('ask-agent-option').click();
   await page.getByRole('button', { name: 'Ask agent — preview', exact: true }).click();
   deliveredMessage = await page.getByTestId('ask-preview-text').textContent();
   await page.getByTestId('ask-send').click();
@@ -1377,9 +1450,8 @@ test('parent export downloads exact frozen baseline files, ignores drafts and re
   const html = await download('page.html');
   expect(html).toEqual(Buffer.from(source, 'utf8'));
   await expect(panel.getByRole('status')).toContainText('Some files requested');
-  // A committed edit after preparation must not replace the frozen download.
-  await page.getByRole('textbox').fill('<h1>New live page</h1>');
-  await page.getByRole('button', { name: 'Save source' }).click();
+  // A separately admitted content update must not replace the frozen download.
+  await f.contentUpdate('<h1>New live page</h1>');
   await expect(
     page.frameLocator('iframe').getByRole('heading', { name: 'New live page' }),
   ).toBeVisible();
@@ -1434,6 +1506,10 @@ test('parent export downloads exact frozen baseline files, ignores drafts and re
   await download('page.html');
   await panel.getByRole('button', { name: 'Close export' }).click();
   await expect.poll(urlCount).toBe(0);
+  await page.getByRole('button', { name: 'Source', exact: true }).click();
+  await expect(page.getByRole('textbox', { name: 'Source', exact: true })).toHaveValue(
+    '<p>Unsaved draft</p>',
+  );
   await exportButton.click();
   await expect(panel.getByRole('button', { name: 'Download page.html' })).toBeEnabled();
   await download('page.html');

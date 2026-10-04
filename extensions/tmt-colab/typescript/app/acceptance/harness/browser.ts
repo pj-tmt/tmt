@@ -70,6 +70,16 @@ export async function startServe(world: AcceptanceWorld): Promise<ServedDoor> {
   };
 }
 
+/** Start `tmt-remote serve` alone, so a later `tmt-colab serve` has a door to attach to. */
+export async function startRemoteOnly(world: AcceptanceWorld) {
+  const remote = world.spawn(`remote-serve-${Date.now()}`, world.binaries.remote, [
+    'serve',
+    '--json',
+  ]);
+  const descriptor = await remote.event((value) => typeof value.address === 'string');
+  return { remote, address: descriptor.address as string };
+}
+
 /** Whether something still accepts connections on a door's origin. */
 export async function doorAnswers(origin: string): Promise<boolean> {
   try {

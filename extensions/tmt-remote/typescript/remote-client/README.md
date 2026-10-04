@@ -152,3 +152,8 @@ recovery and an explicit identical resend. The Chromium smoke additionally reads
 agents, sends a direct request and reads its operation/final through the real Remote
 door with a deterministic public-core fixture, asserting one core dispatch. It does
 not claim real-core agent execution.
+
+Set `TMT_REMOTE_CAPTURE_DIR` to an absolute output directory when running `pnpm test:browser`
+to export pairing, four-word confirmation, static landing and page-error PNGs at 1440 and 390 px
+in light and dark. The browser-page test uses the real debug door and asserts local-only requests,
+CSP compliance, token colors, square hard shadows and no horizontal overflow.

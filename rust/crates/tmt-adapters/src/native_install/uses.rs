@@ -4,7 +4,7 @@
 //! declared minimum. Nothing here installs, executes or reads application state.
 
 use super::{Product, inspect_product_prefix};
-use crate::bounded_file;
+use crate::{bounded_file, request_text::display_control};
 use semver::Version;
 use serde_json::{Map, Value};
 use std::{
@@ -132,22 +132,6 @@ fn shell_word(text: &str) -> String {
     }
 }
 
-/// Safe on one terminal line: no control, bidirectional-override or
-/// line-separator characters.
-fn printable(character: char) -> bool {
-    !character.is_control()
-        && !matches!(
-            character,
-            '\u{061C}'
-                | '\u{200E}'
-                | '\u{200F}'
-                | '\u{2028}'
-                | '\u{2029}'
-                | '\u{202A}'..='\u{202E}'
-                | '\u{2066}'..='\u{2069}'
-        )
-}
-
 /// A feature id: `[a-z][a-z0-9-]{0,31}`.
 pub fn valid_feature(text: &str) -> bool {
     let mut bytes = text.bytes();
@@ -211,7 +195,8 @@ pub(super) fn parse(owner: Product, bytes: &[u8]) -> io::Result<Vec<Use>> {
             .ok_or_else(|| invalid("feature must match [a-z][a-z0-9-]{0,31}"))?;
         let label = text("label")
             .filter(|label| {
-                (1..=48).contains(&label.chars().count()) && label.chars().all(printable)
+                (1..=48).contains(&label.chars().count())
+                    && label.chars().all(|c| !display_control(c))
             })
             .ok_or_else(|| invalid("label must be 1 to 48 printable characters"))?;
         let extension = text("extension")
@@ -365,6 +350,24 @@ mod tests {
         assert!(Version::parse("0.1.0-alpha.0").unwrap() < uses[0].minimum);
         assert!(Version::parse("0.1.0").unwrap() >= uses[0].minimum);
         assert_eq!(parsed(r#"{"version":1,"uses":[]}"#).unwrap(), []);
+    }
+
+    #[test]
+    fn labels_reject_direction_controls_and_preserve_script_and_emoji_formatting() {
+        for control in [
+            '\u{061c}', '\u{200e}', '\u{200f}', '\u{202a}', '\u{202b}', '\u{202c}', '\u{202d}',
+            '\u{202e}', '\u{2066}', '\u{2067}', '\u{2068}', '\u{2069}',
+        ] {
+            let text = GOOD.replace("Browser access", &format!("a{control}z"));
+            assert!(
+                parsed(&text).is_err(),
+                "direction control {control:?} was accepted"
+            );
+        }
+        // Natural RTL letters, script joiners and emoji formatting are valid labels.
+        let label = "עברית العربية می\u{200c}روم 👩\u{200d}💻 ✈\u{fe0f}";
+        let uses = parsed(&GOOD.replace("Browser access", label)).unwrap();
+        assert_eq!(uses[0].label, label);
     }
 
     #[test]

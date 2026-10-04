@@ -184,6 +184,7 @@ fn pages_follow_the_forwarded_owner_context_within_the_door_bounds() {
     let server = Running::start(Tunnels::PRODUCT);
     let private = server.request(&Running::get("/", ""));
     assert!(private.starts_with("HTTP/1.1 200"));
+    assert!(private.contains("<title>Colab</title>"));
     assert!(private.contains("<h1>Pair this browser first</h1>"));
     assert!(private.contains("This colab space is private. Pair this browser with"));
     assert!(private.contains("<code>tmt remote pair</code>"));
@@ -1056,7 +1057,7 @@ fn owner_discovery_and_paged_log_bootstrap_use_exact_signed_bytes() {
     assert_eq!(
         pages,
         json!({"spaceId":server.space,"ownerKey":values::encode_binary(&key.owner_public()),"revision":"130",
-        "pages":[{"pageId":PAGE,"epoch":"1","sharing":"private","history":"current","archived":false}]})
+        "pages":[{"pageId":PAGE,"epoch":"1","sharing":"private","history":"current","archived":false,"retentionDays":30,"lastUpdateAtMs":null,"expiresAtMs":null,"warnings":["expiry-unavailable"]}]})
     );
     let mut peer = server.peer(DEVICE);
     send(
@@ -2456,8 +2457,32 @@ fn root_local_page_write_broadcasts_chain_chunks_and_replays_without_fanout() {
     ))
     .unwrap();
     let source = "source 🐈\r\n".repeat(6000);
-    let prepared = page::prepare(&store, &key, PAGE, &source, None, &mut decoder, now()).unwrap();
-    let base = page::prepare(&store, &key, PAGE, "stale", None, &mut decoder, now()).unwrap();
+    let prepared = page::prepare(
+        &store,
+        &key,
+        PAGE,
+        tmt_colab::decoder::ContentEdit {
+            source: &source,
+            publisher_agent: None,
+        },
+        None,
+        &mut decoder,
+        now(),
+    )
+    .unwrap();
+    let base = page::prepare(
+        &store,
+        &key,
+        PAGE,
+        tmt_colab::decoder::ContentEdit {
+            source: "stale",
+            publisher_agent: None,
+        },
+        None,
+        &mut decoder,
+        now(),
+    )
+    .unwrap();
     store.close().unwrap();
     let body = serde_json::to_string(&prepared).unwrap();
     assert!(body.len() > limits::HTTP_BODY_BYTES);

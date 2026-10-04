@@ -1,5 +1,5 @@
 use super::*;
-use crate::board::cronboard::line::tests::{NOW, cron, view};
+use crate::board::cronboard::line::tests::{NOW, cron, view, views};
 use ratatui::{
     Terminal,
     backend::TestBackend,
@@ -106,7 +106,7 @@ fn selection_follows_job_identity_across_refresh_and_reorder() {
     let state = jobs();
     let list = List::open(&state, None);
     paint(&list, &state, 120, 12);
-    assert!(matches!(list.input(&key(KeyCode::Down)), Input::None));
+    assert!(matches!(list.input(&key(KeyCode::Down)), Some(Input::None)));
     let second = list.selected().unwrap();
     assert!(
         second.ends_with("/c0") && second.starts_with("room-b"),
@@ -127,11 +127,11 @@ fn enter_opens_the_selected_job_and_a_stale_frame_never_activates_a_click() {
     let state = jobs();
     let list = List::open(&state, None);
     paint(&list, &state, 120, 12);
-    let Input::Open(id) = list.input(&key(KeyCode::Enter)) else {
+    let Some(Input::Open(id)) = list.input(&key(KeyCode::Enter)) else {
         panic!("Enter opens the selected job");
     };
     assert!(id.starts_with("room-a"));
-    assert!(matches!(list.input(&key(KeyCode::Esc)), Input::Close));
+    assert!(matches!(list.input(&key(KeyCode::Esc)), Some(Input::Close)));
     // Geometry painted before a resize is discarded and cannot activate.
     list.invalidate();
     let click = Event::Mouse(MouseEvent {
@@ -140,7 +140,7 @@ fn enter_opens_the_selected_job_and_a_stale_frame_never_activates_a_click() {
         row: 2,
         modifiers: KeyModifiers::NONE,
     });
-    assert!(matches!(list.input(&click), Input::None));
+    assert!(list.input(&click).is_none());
 }
 
 #[test]
@@ -157,7 +157,10 @@ fn an_empty_or_failed_read_says_so() {
         text.contains("0 jobs · clock: unknown · ! storage unreachable"),
         "{text}"
     );
-    assert!(matches!(list.input(&key(KeyCode::Enter)), Input::None));
+    assert!(matches!(
+        list.input(&key(KeyCode::Enter)),
+        Some(Input::None)
+    ));
 }
 
 fn snapshots() -> serde_json::Value {
@@ -202,4 +205,52 @@ fn record_list_snapshots() {
         serde_json::to_string_pretty(&snapshots()).unwrap() + "\n",
     )
     .unwrap();
+}
+
+/// One press moves exactly one job, in the order shown, down and back up, and the
+/// selected job stays painted (the list scrolls when the body is short).
+#[test]
+fn up_and_down_move_one_job_per_press_and_keep_the_selection_visible() {
+    let state = State {
+        cron: Some(cron(views(8, "alpha", "room-a"), ClockStatus::NoClock)),
+        failure: None,
+        reads: 2,
+    };
+    let order: Vec<String> = state
+        .cron
+        .iter()
+        .flat_map(|cron| &cron.jobs)
+        .map(|view| row_id(&key_of(view)))
+        .collect();
+    for height in [30, 9] {
+        for (down, up) in [
+            (KeyCode::Down, KeyCode::Up),
+            (KeyCode::Char('j'), KeyCode::Char('k')),
+        ] {
+            let list = List::open(&state, None);
+            paint(&list, &state, 100, height);
+            assert_eq!(list.selected().as_deref(), Some(order[0].as_str()));
+            let walk = |code: KeyCode, expected: &str| {
+                assert!(matches!(list.input(&key(code)), Some(Input::None)));
+                assert_eq!(
+                    list.selected().as_deref(),
+                    Some(expected),
+                    "height {height}"
+                );
+                let screen = paint(&list, &state, 100, height);
+                let cid = expected.rsplit('/').next().unwrap();
+                assert!(
+                    screen.iter().any(|line| line.contains(&format!(" {cid} "))),
+                    "{cid} stays painted at height {height}\n{}",
+                    screen.join("\n")
+                );
+            };
+            for expected in &order[1..] {
+                walk(down, expected);
+            }
+            for expected in order[..order.len() - 1].iter().rev() {
+                walk(up, expected);
+            }
+        }
+    }
 }

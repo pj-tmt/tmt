@@ -483,10 +483,15 @@ pub fn create_page(root: &Path, args: &ArgMatches, source: String) -> Result<()>
     if title.len() > tmt_colab::decoder::BASELINE_TITLE_BYTES {
         return Err(management_error("CAPACITY"));
     }
+    let publisher_agent = crate::core::publisher_agent();
     let operation_id = fresh_id()?;
     let page_id = fresh_id()?;
     let layout = Layout::open(root)?;
     let correlation = json!({"operationId":operation_id,"pageId":page_id});
+    let mut payload = json!({"pageId":page_id,"title":title,"source":source});
+    if let Some(agent) = publisher_agent {
+        payload["publisherAgent"] = json!(agent);
+    }
     let request = |key: &Keyring, store: &Store| -> Result<Vec<u8>> {
         let revision = store
             .owner_head(&key.space_id, &key.owner_public())?
@@ -495,9 +500,7 @@ pub fn create_page(root: &Path, args: &ArgMatches, source: String) -> Result<()>
         Ok(serde_json::to_vec(
             &json!({"space":key.space_id,"page":page_id,
             "expectedRevision":revision,"operationId":operation_id,"operation":"page.create",
-            "payload":values::encode_binary(&serde_json::to_vec(&json!({
-                "pageId":page_id,"title":title,"source":source
-            }))?)}),
+            "payload":values::encode_binary(&serde_json::to_vec(&payload)?)}),
         )?)
     };
     let result = (|| -> Result<Value> {
@@ -542,25 +545,40 @@ pub fn create_page(root: &Path, args: &ArgMatches, source: String) -> Result<()>
         .as_str()
         .ok_or_else(|| input("Missing created page path."))?
         .to_owned();
-    let lookup = crate::door::Door::lookup();
-    if let crate::door::Lookup::Running(door) = &lookup {
-        result["url"] = json!(door.url(&relative));
-    }
+    let reach = crate::reach::Reach::gather();
     if args.get_flag("json") {
+        reach.annotate(&mut result, &relative);
         return output(&result, true);
     }
     let mut out = tmt_cli_style::stream::stdout(false);
     let terminal = out.terminal();
-    tmt_cli_style::detail::write(
-        &mut out,
-        terminal,
-        "PAGE CREATED",
-        &[
-            ("page", page_id),
-            ("title", title.to_owned()),
-            ("open", crate::door::Door::hint(&lookup, &relative)),
-        ],
-    )?;
+    // The page opens in the browser unless the setting, a flag or the environment says not to.
+    let mut shown = reach.text(&relative);
+    let mut warnings = Vec::new();
+    if let Some(link) = reach.link(&relative) {
+        // The page is committed: unreadable settings are the defaults, never a failed command.
+        let settings = tmt_colab::settings::read_or_default(root);
+        let outcome =
+            crate::open::open_link(&link, crate::open::Flag::of(args), settings.open(), false);
+        let (text, failed) = crate::open::describe(&outcome, &link);
+        shown = text;
+        warnings.extend(failed);
+        if settings.malformed {
+            warnings.push(tmt_colab::settings::UNREADABLE.to_owned());
+        }
+    }
+    let mut rows = vec![
+        ("page", page_id),
+        ("title", title.to_owned()),
+        ("open", shown),
+    ];
+    rows.extend(reach.step().map(|step| ("pair", step.to_owned())));
+    tmt_cli_style::detail::write(&mut out, terminal, "PAGE CREATED", &rows)?;
+    for what in &warnings {
+        let mut err = tmt_cli_style::stream::stderr();
+        let terminal = err.terminal();
+        tmt_cli_style::message::warning(&mut err, terminal, what, None)?;
+    }
     Ok(())
 }
 pub fn run(command: &str, args: &ArgMatches, root: &Path, json_output: bool) -> Result<()> {
@@ -605,6 +623,27 @@ pub fn run(command: &str, args: &ArgMatches, root: &Path, json_output: bool) -> 
         if catalog["membershipHead"] != inspection::catalog(&store, &key)?["membershipHead"] {
             return Err(management_error("STALE_HEAD"));
         }
+        // One door lookup for the whole listing; each page carries its own path and link.
+        let reach = crate::reach::Reach::gather();
+        for page in catalog["pages"].as_array_mut().into_iter().flatten() {
+            let path =
+                crate::reach::Reach::path(&key.space_id, page["pageId"].as_str().unwrap_or(""));
+            if json_output {
+                reach.annotate_link(page, &path);
+            } else {
+                // Human-only: the text under each row, which JSON replaces with `path` and `link`.
+                page["linkText"] = json!(reach.text(&path));
+            }
+        }
+        let listed = catalog["pages"].as_array().is_some_and(|p| !p.is_empty());
+        if json_output {
+            let mut facts = json!({});
+            reach.annotate(&mut facts, "");
+            catalog["paired"] = facts["paired"].take();
+            catalog["next"] = facts["next"].take();
+        } else if let (true, Some(step)) = (listed, reach.step()) {
+            catalog["pairStep"] = json!(step);
+        }
         return output(&catalog, json_output);
     }
     let mut page_args = args;
@@ -641,8 +680,14 @@ pub fn run(command: &str, args: &ArgMatches, root: &Path, json_output: bool) -> 
             return Err(management_error("STALE_HEAD"));
         }
         let mut detail = detail;
+        let reach = crate::reach::Reach::gather();
+        let path = crate::reach::Reach::path(&key.space_id, &id);
         detail["page"] = page;
-        return output(&detail, json_output);
+        if json_output {
+            reach.annotate(&mut detail, &path);
+            return output(&detail, true);
+        }
+        return output_with(&detail, false, &page_rows(&reach, &path));
     }
     let Some((operation, payload, widening)) = selection(command, args, &page, &detail)? else {
         if command == "retention" {
@@ -710,12 +755,12 @@ pub fn run(command: &str, args: &ArgMatches, root: &Path, json_output: bool) -> 
             _ => None,
         };
         if let Some(created) = created {
-            let path = reader_path(&key.space_id, &id, created, &ack.membership_head);
-            // The door is looked up after the commit, so a slow answer never delays the effect.
-            if let crate::door::Lookup::Running(door) = crate::door::Door::lookup() {
-                value["readerUrl"] = json!(door.url(&path));
-            }
-            value["readerPath"] = json!(path);
+            value["readerPath"] = json!(reader_path(
+                &key.space_id,
+                &id,
+                created,
+                &ack.membership_head
+            ));
         }
         Ok(value)
     })()
@@ -734,7 +779,98 @@ pub fn run(command: &str, args: &ArgMatches, root: &Path, json_output: bool) -> 
             }) as Box<dyn std::error::Error + Send + Sync>
         }
     })?;
-    output(&outcome, json_output)
+    // The door is looked up after the commit, so a slow answer never delays the effect.
+    let reach = crate::reach::Reach::gather();
+    let path = crate::reach::Reach::path(&key.space_id, &id);
+    let mut outcome = outcome;
+    if let Some(url) = outcome["readerPath"]
+        .as_str()
+        .and_then(|reader| reach.link(reader))
+    {
+        outcome["readerUrl"] = json!(url);
+    }
+    if json_output {
+        reach.annotate(&mut outcome, &path);
+        return output(&outcome, true);
+    }
+    let mut rows = page_rows(&reach, &path);
+    if let Some(reader) = outcome["readerPath"].as_str() {
+        rows.push(("reader link", reach.text(reader)));
+    }
+    output_with(&outcome, false, &rows)
+}
+/// The rows every page-naming command shares: where to open the page, and the pairing step.
+fn page_rows(reach: &crate::reach::Reach, path: &str) -> Vec<(&'static str, String)> {
+    let mut rows = vec![("link", reach.text(path))];
+    rows.extend(reach.step().map(|step| ("pair", step.to_owned())));
+    rows
+}
+// Civil UTC date from Unix days; Gregorian cycle decomposition follows
+// https://howardhinnant.github.io/date_algorithms.html#civil_from_days.
+fn utc_time(ms: u64) -> String {
+    let days = ms / 86_400_000 + 719_468;
+    let era = days / 146_097;
+    let day_in_era = days % 146_097;
+    let year_in_era =
+        (day_in_era - day_in_era / 1460 + day_in_era / 36524 - day_in_era / 146096) / 365;
+    let day_in_year = day_in_era - (365 * year_in_era + year_in_era / 4 - year_in_era / 100);
+    let month_index = (5 * day_in_year + 2) / 153;
+    let day = day_in_year - (153 * month_index + 2) / 5 + 1;
+    let month = if month_index < 10 {
+        month_index + 3
+    } else {
+        month_index - 9
+    };
+    let year = year_in_era + era * 400 + u64::from(month <= 2);
+    let seconds = ms / 1000 % 86_400;
+    format!(
+        "{year:04}-{month:02}-{day:02} {:02}:{:02}:{:02}.{:03} UTC",
+        seconds / 3600,
+        seconds / 60 % 60,
+        seconds % 60,
+        ms % 1000
+    )
+}
+fn expiry_text(page: &Value) -> String {
+    if page["retentionDays"].is_null() {
+        return "No expiry: kept forever.".into();
+    }
+    let warnings = page["warnings"].as_array();
+    let has = |name: &str| warnings.is_some_and(|w| w.iter().any(|v| v == name));
+    if has("expiry-out-of-range") {
+        return "Expiry date is beyond the supported range.".into();
+    }
+    let Some(ms) = page["expiresAtMs"].as_u64() else {
+        return "Expiry starts after the next edit.".into();
+    };
+    let date = utc_time(ms);
+    if has("expired") {
+        format!("Expired {date}. Advisory only: this page is still available.")
+    } else if has("expires-soon") {
+        format!("Expires {date}, within seven days.")
+    } else {
+        format!("Expires {date}.")
+    }
+}
+fn warn_expiry(page: &Value) -> Result<()> {
+    if page["warnings"]
+        .as_array()
+        .is_some_and(|w| w.iter().any(|v| v == "expires-soon" || v == "expired"))
+    {
+        let mut out = tmt_cli_style::stream::stderr();
+        let terminal = out.terminal();
+        tmt_cli_style::message::warning(
+            &mut out,
+            terminal,
+            &format!(
+                "{}: {} Local data is never automatically deleted.",
+                page["pageId"].as_str().unwrap_or("Page"),
+                expiry_text(page)
+            ),
+            None,
+        )?;
+    }
+    Ok(())
 }
 /// Readable lines for a management result: no raw JSON blobs, full IDs where a command needs them.
 fn human_fields(value: &Value) -> Result<Vec<(String, String)>> {
@@ -761,16 +897,16 @@ fn human_fields(value: &Value) -> Result<Vec<(String, String)>> {
             })
             .collect::<Vec<_>>()
             .join(", "),
-        _ => "none".to_owned(),
+        _ => "–".to_owned(),
     };
     let mut fields = Vec::new();
     for (key, v) in object {
         match key.as_str() {
             "page" if v.is_object() => {
-                fields.push(("page".to_owned(), text(&v["pageId"])));
                 if let Some(title) = v["title"].as_str() {
                     fields.push(("title".to_owned(), title.to_owned()));
                 }
+                fields.push(("page".to_owned(), text(&v["pageId"])));
                 if let (Some(sharing), Some(history)) =
                     (v["sharing"].as_str(), v["history"].as_str())
                 {
@@ -792,6 +928,10 @@ fn human_fields(value: &Value) -> Result<Vec<(String, String)>> {
                         },
                     ));
                 }
+                if let Some(updated) = v["lastUpdateAtMs"].as_u64() {
+                    fields.push(("last edit".to_owned(), utc_time(updated)));
+                }
+                fields.push(("expiry".to_owned(), expiry_text(v)));
                 if v["archived"] == true {
                     fields.push(("archived".to_owned(), "yes".to_owned()));
                 }
@@ -807,13 +947,8 @@ fn human_fields(value: &Value) -> Result<Vec<(String, String)>> {
                     ),
                 ));
             }
-            // The full link replaces the relative one; without a door the path says how to get one.
-            "readerUrl" => fields.push(("reader link".to_owned(), text(v))),
-            "readerPath" if object.contains_key("readerUrl") => {}
-            "readerPath" => fields.push((
-                "reader link".to_owned(),
-                crate::door::Door::hint(&crate::door::Lookup::Unknown, &text(v)),
-            )),
+            // The link rows carry the space; the reader link is added by the caller.
+            "spaceId" | "readerUrl" | "readerPath" => {}
             "operationId" => fields.push(("operation".to_owned(), text(v))),
             "expectedRevision" => fields.push(("expected revision".to_owned(), text(v))),
             "linkId" => fields.push(("link".to_owned(), text(v))),
@@ -825,6 +960,11 @@ fn human_fields(value: &Value) -> Result<Vec<(String, String)>> {
     Ok(fields)
 }
 fn output(value: &Value, json_output: bool) -> Result<()> {
+    output_with(value, json_output, &[])
+}
+/// Human output for a result; `extra` rows (the page link, the pairing step) follow the title,
+/// or the other rows when the result has none.
+fn output_with(value: &Value, json_output: bool, extra: &[(&str, String)]) -> Result<()> {
     let mut out = tmt_cli_style::stream::stdout(json_output);
     if json_output {
         writeln!(out, "{value}")?;
@@ -832,51 +972,100 @@ fn output(value: &Value, json_output: bool) -> Result<()> {
     }
     let terminal = out.terminal();
     if let Some(pages) = value["pages"].as_array() {
-        use tmt_cli_style::table::{Cell, Column, Table};
-        let mut rows = Table::new(&[Column::Fixed, Column::Detail, Column::Fixed]);
+        use tmt_cli_style::{
+            palette::Token,
+            table::{Cell, Column, Table, escape},
+        };
+        writeln!(
+            out,
+            "{} {}",
+            terminal.paint(Token::Title, "PAGES"),
+            terminal.paint(Token::Dim, &pages.len().to_string())
+        )?;
+        // The audience column is padded to one width so separate rows still line up. Under each
+        // row sit the link and the expiry line: titles truncate, links never do.
+        let audience = |page: &Value| {
+            format!(
+                "{} / {}{}",
+                page["sharing"].as_str().unwrap_or(""),
+                page["history"].as_str().unwrap_or(""),
+                if page["archived"] == true {
+                    " / archived"
+                } else {
+                    ""
+                }
+            )
+        };
+        let width = pages
+            .iter()
+            .map(|p| audience(p).chars().count())
+            .max()
+            .unwrap_or(0);
         for page in pages {
+            let mut rows = Table::new(&[Column::Fixed, Column::Fixed, Column::Name]);
             rows.row([
                 Cell::from(page["pageId"].as_str().unwrap_or("")),
+                Cell::from(format!("{:<width$}", audience(page))),
                 Cell::from(page["title"].as_str().unwrap_or("title unavailable")),
-                Cell::from(format!(
-                    "{} / {}{}",
-                    page["sharing"].as_str().unwrap_or(""),
-                    page["history"].as_str().unwrap_or(""),
-                    if page["archived"] == true {
-                        " / archived"
-                    } else {
-                        ""
-                    }
-                )),
             ]);
+            rows.write(&mut out, terminal)?;
+            if let Some(text) = page["linkText"].as_str() {
+                writeln!(out, "    {}", escape(text))?;
+            }
+            writeln!(
+                out,
+                "    {}",
+                terminal.paint(Token::Dim, &escape(&expiry_text(page)))
+            )?;
         }
-        tmt_cli_style::list::Section {
-            title: "PAGES",
-            count: Some(pages.len()),
-            rows,
-            note: Some(
-                "Expiry times are not available yet; local data is never automatically deleted.",
-            ),
-            hint: None,
+        // A footer, set off from the rows at the list indent: what to do, then the standing note.
+        writeln!(out)?;
+        if let Some(step) = value["pairStep"].as_str() {
+            writeln!(out, "  {}", terminal.paint(Token::Dim, &escape(step)))?;
         }
-        .write(&mut out, terminal)?;
+        writeln!(
+            out,
+            "  {}",
+            terminal.paint(
+                Token::Dim,
+                "Local expiry is advisory; data is never automatically deleted."
+            )
+        )?;
+        for page in pages {
+            warn_expiry(page)?;
+        }
     } else {
-        let fields = human_fields(value)?;
+        let mut fields = human_fields(value)?;
+        // The title leads, then where to open it.
+        if let Some(at) = fields.iter().position(|(key, _)| key == "title") {
+            let title = fields.remove(at);
+            fields.insert(0, title);
+        }
+        let at = fields
+            .iter()
+            .position(|(key, _)| key == "title")
+            .map_or(fields.len(), |at| at + 1);
+        let extra = extra.iter().map(|(k, v)| (k.to_string(), v.clone()));
+        fields.splice(at..at, extra);
         let fields = fields
             .iter()
             .map(|(k, v)| (k.as_str(), v.clone()))
             .collect::<Vec<_>>();
         tmt_cli_style::detail::write(&mut out, terminal, "COLAB", &fields)?;
-        if value.get("page").is_some() {
-            let mut stderr = tmt_cli_style::stream::stderr();
-            let terminal = stderr.terminal();
-            tmt_cli_style::message::warning(
-                &mut stderr,
-                terminal,
-                "Expiry times are not available yet; local data is never automatically deleted.",
-                None,
-            )?;
+        if let Some(page) = value.get("page") {
+            warn_expiry(page)?;
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod expiry_tests {
+    use super::utc_time;
+    #[test]
+    fn utc_dates_cover_epoch_leap_century_and_milliseconds() {
+        assert_eq!(utc_time(0), "1970-01-01 00:00:00.000 UTC");
+        assert_eq!(utc_time(951_827_696_789), "2000-02-29 12:34:56.789 UTC");
+        assert_eq!(utc_time(1_791_072_000_000), "2026-10-04 00:00:00.000 UTC");
+    }
 }

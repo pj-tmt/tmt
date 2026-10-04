@@ -31,9 +31,12 @@ pub(super) fn json_document(
         if correlation.offline {
             value["offline"] = true.into();
         }
-        if correlation.explicit_inbox {
+        if correlation.explicit_inbox || correlation.offline {
             value["notification"] = "not_attempted".into();
             value["waitingFor"] = "recipient_inbox_pull".into();
+        }
+        if correlation.offline {
+            value["suggestion"] = correlation.recipient_recovery().into();
         }
     }
     if correlation.delivery_uncertain {
@@ -84,7 +87,7 @@ pub(super) fn publish(report: Report, mode: OutputMode) -> io::Result<u8> {
         } else if correlation.offline {
             writeln!(
                 stdout,
-                "{} is offline; the request is kept in Inbox ({}).",
+                "{} is offline; the request was not delivered live and is kept in Inbox ({}).",
                 correlation.target, correlation.request_id
             )?;
         } else if correlation.inbox {
@@ -117,6 +120,9 @@ pub(super) fn publish(report: Report, mode: OutputMode) -> io::Result<u8> {
             for hint in inbox_hints(&correlation) {
                 tmt_cli_style::message::hint(&mut stdout, terminal, &hint)?;
             }
+        }
+        if correlation.offline && !completed {
+            tmt_cli_style::message::hint(&mut stdout, terminal, &correlation.recipient_recovery())?;
         }
         tmt_cli_style::message::hint(
             &mut stdout,

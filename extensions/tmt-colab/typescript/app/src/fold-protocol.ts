@@ -30,6 +30,7 @@ export interface OwnRecord {
 export interface Projection {
   source: string;
   title: string;
+  publisherAgent?: string;
 }
 export interface OwnUpdate {
   writer: string;
@@ -113,10 +114,15 @@ export interface FoldResult extends Projection {
 }
 export function validateProjection(value: unknown): asserts value is Projection {
   if (!value || typeof value !== 'object') throw new Error('Invalid decoder projection');
-  const { source, title } = value as Projection;
+  const { source, title, publisherAgent } = value as Projection;
   if (
     typeof source !== 'string' ||
     typeof title !== 'string' ||
+    (publisherAgent !== undefined &&
+      (typeof publisherAgent !== 'string' ||
+        !publisherAgent ||
+        text(publisherAgent).length > 128 ||
+        /[\p{Cc}]/u.test(publisherAgent))) ||
     text(source).length > SOURCE_BYTES ||
     text(title).length > UPDATE_BYTES
   )

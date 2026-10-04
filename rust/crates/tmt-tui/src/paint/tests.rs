@@ -296,3 +296,29 @@ fn aligned_board_text_keeps_graphemes_and_intrinsic_width_upper_bound() {
         ""
     );
 }
+
+#[test]
+fn caller_decoration_aligns_at_recorded_width_and_retains_scoped_hits() {
+    let root = scene(
+        "class='grid grid-cols-[1fr_1fr]'",
+        "<tmt-text id='left' token='waiting'>x</tmt-text><tmt-text id='right' token='review'>y</tmt-text>",
+    );
+    let cells = geometry::layout(&root, [9, 1], text::measure).unwrap();
+    let mut buffer = Buffer::empty(Area::new(0, 0, 9, 1));
+    let hits = paint_with(&cells, &mut buffer, |index, role, selected| {
+        assert!(!selected);
+        match index {
+            1 => assert_eq!(role, Role::Waiting),
+            2 => assert_eq!(role, Role::Review),
+            _ => {}
+        }
+        (Style::new().fg(Color::Green), Align::Right)
+    });
+    assert_eq!(
+        row(&buffer, 0),
+        [" ", " ", " ", "x", " ", " ", " ", " ", "y"]
+    );
+    assert_eq!(buffer[(4, 0)].fg, Color::Green);
+    assert_eq!(hit_at(&hits, 4, 0).unwrap().id.unwrap(), ["left"]);
+    assert_eq!(hit_at(&hits, 8, 0).unwrap().id.unwrap(), ["right"]);
+}

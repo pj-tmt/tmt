@@ -21,7 +21,9 @@ export interface LiveAskOptions {
   key: CryptoKey;
   publicKey: Uint8Array;
   own(): OwnState;
-  commentContext?(context: CommentContext): ReturnType<typeof commentForAsk>;
+  commentContext?(
+    context: CommentContext,
+  ): ReturnType<typeof commentForAsk> | Promise<ReturnType<typeof commentForAsk>>;
   publish(root: AskRoot, key: string, value: JsonValue): Promise<void>;
   connection(): Promise<Connection>;
   remote: RemoteClient;
@@ -97,8 +99,10 @@ export class LiveAsk implements AskBinding {
     const c = await this.#admit();
     const preview = await c.run(async () => {
       requireValue(!this.#closed && c.active);
-      const origin = captured.context ? this.options.commentContext?.(captured.context) : undefined;
-      requireValue(!captured.context || origin !== undefined);
+      const origin = captured.context
+        ? await this.options.commentContext?.(captured.context)
+        : undefined;
+      requireValue(!this.#closed && c.active && (!captured.context || origin !== undefined));
       this.#selection = {
         space: this.options.space,
         page: this.options.page,
@@ -184,8 +188,11 @@ export async function pageAsks(
   }
   return views.map((view) => ({
     operationId: view.intent.operationId,
+    thread: view.intent.thread,
+    messageIds: view.intent.messageIds,
     writer: view.writer,
     message: view.intent.message,
+    deliveredMessage: `[remote: ${view.deviceName}]\n${view.intent.message}`,
     agent: view.intent.agent,
     agentName: view.agentName || text.askAgentLabel,
     deviceName:

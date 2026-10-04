@@ -89,9 +89,10 @@ pub enum SettingKey {
     PaneBadge,
     ReplyBatchWindowMs,
     TypingQuietMs,
+    NotesCompactionReminder,
 }
 
-pub const EDITABLE_KEYS: [SettingKey; 7] = [
+pub const EDITABLE_KEYS: [SettingKey; 8] = [
     SettingKey::PreambleMode,
     SettingKey::PaneBadge,
     SettingKey::PreambleEvery,
@@ -99,6 +100,7 @@ pub const EDITABLE_KEYS: [SettingKey; 7] = [
     SettingKey::RetentionDays,
     SettingKey::ReplyBatchWindowMs,
     SettingKey::TypingQuietMs,
+    SettingKey::NotesCompactionReminder,
 ];
 
 impl SettingKey {
@@ -114,6 +116,7 @@ impl SettingKey {
             Self::PaneBadge => "ui.paneBadge",
             Self::ReplyBatchWindowMs => "notifications.replyBatchWindowMs",
             Self::TypingQuietMs => "notifications.typingQuietMs",
+            Self::NotesCompactionReminder => "notes.compactionReminder",
         }
     }
 
@@ -129,13 +132,18 @@ impl SettingKey {
             Self::PaneBadge => "'on' or 'off'",
             Self::ReplyBatchWindowMs => "an integer from 0 through 60000 milliseconds",
             Self::TypingQuietMs => "an integer from 0 through 30000 milliseconds",
+            Self::NotesCompactionReminder => "true or false",
         }
     }
 
     pub fn global_only(self) -> bool {
         matches!(
             self,
-            Self::RetentionDays | Self::PaneBadge | Self::ReplyBatchWindowMs | Self::TypingQuietMs
+            Self::RetentionDays
+                | Self::PaneBadge
+                | Self::ReplyBatchWindowMs
+                | Self::TypingQuietMs
+                | Self::NotesCompactionReminder
         )
     }
 
@@ -153,10 +161,11 @@ impl SettingKey {
 }
 
 /// The boundary accepts only scalar kinds needed by policy. Null, arrays,
-/// objects and booleans become Invalid without making core depend on JSON.
+/// objects become Invalid without making core depend on JSON.
 pub enum Scalar<'a> {
     Text(&'a str),
     Number(f64),
+    Boolean(bool),
     Invalid,
 }
 
@@ -172,6 +181,7 @@ pub enum Setting {
     PaneBadge(PaneBadge),
     ReplyBatchWindowMs(u64),
     TypingQuietMs(u64),
+    NotesCompactionReminder(bool),
 }
 
 fn unsigned_integer(value: f64, maximum: u64) -> bool {
@@ -191,6 +201,9 @@ impl Setting {
 
     pub fn validate(key: SettingKey, value: Scalar<'_>) -> Option<Self> {
         match (key, value) {
+            (SettingKey::NotesCompactionReminder, Scalar::Boolean(value)) => {
+                Some(Self::NotesCompactionReminder(value))
+            }
             (SettingKey::PreambleMode, Scalar::Text("always")) => {
                 Some(Self::PreambleMode(PreambleMode::Always))
             }
@@ -245,7 +258,13 @@ impl Setting {
     }
 
     pub fn parse_edit(key: SettingKey, text: &str) -> Result<Self, String> {
-        let scalar = if matches!(key, SettingKey::PreambleMode | SettingKey::PaneBadge) {
+        let scalar = if key == SettingKey::NotesCompactionReminder {
+            match text {
+                "true" => Scalar::Boolean(true),
+                "false" => Scalar::Boolean(false),
+                _ => Scalar::Invalid,
+            }
+        } else if matches!(key, SettingKey::PreambleMode | SettingKey::PaneBadge) {
             Scalar::Text(text)
         } else {
             if text.is_empty() || !text.bytes().all(|byte| byte.is_ascii_digit()) {
@@ -267,6 +286,7 @@ impl Setting {
             let expected = match key {
                 SettingKey::PreambleMode => "Valid values: always, disabled",
                 SettingKey::PaneBadge => "Valid values: on, off",
+                SettingKey::NotesCompactionReminder => "Valid values: true, false",
                 _ => "Must be a supported non-negative integer.",
             };
             format!("Invalid value for {}: {text}. {expected}", key.name())
@@ -285,6 +305,7 @@ impl Setting {
             Self::PaneBadge(_) => SettingKey::PaneBadge,
             Self::ReplyBatchWindowMs(_) => SettingKey::ReplyBatchWindowMs,
             Self::TypingQuietMs(_) => SettingKey::TypingQuietMs,
+            Self::NotesCompactionReminder(_) => SettingKey::NotesCompactionReminder,
         }
     }
 }
@@ -301,6 +322,7 @@ pub struct Settings {
     pub pane_badge: PaneBadge,
     pub reply_batch_window_ms: u64,
     pub typing_quiet_ms: u64,
+    pub notes_compaction_reminder: bool,
 }
 
 pub struct ResolvedSettings {
@@ -348,9 +370,10 @@ impl Default for Settings {
             preamble_every: 3,
             paste_enter_delay_ms: 500.0,
             retention_days: DEFAULT_RETENTION_DAYS,
-            pane_badge: PaneBadge::Off,
+            pane_badge: PaneBadge::On,
             reply_batch_window_ms: 5_000,
             typing_quiet_ms: 2_000,
+            notes_compaction_reminder: true,
         }
     }
 }
@@ -368,6 +391,7 @@ impl Settings {
             Setting::PaneBadge(value) => self.pane_badge = value,
             Setting::ReplyBatchWindowMs(value) => self.reply_batch_window_ms = value,
             Setting::TypingQuietMs(value) => self.typing_quiet_ms = value,
+            Setting::NotesCompactionReminder(value) => self.notes_compaction_reminder = value,
         }
     }
 }

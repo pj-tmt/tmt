@@ -9,10 +9,11 @@ export function run(
   binary: string,
   args: string[],
   input?: string,
+  callerPane?: string,
 ): string {
   try {
     return execFileSync(binary, args, {
-      env: world.env(),
+      env: world.env(callerPane),
       encoding: 'utf8',
       input,
       stdio: [input === undefined ? 'ignore' : 'pipe', 'pipe', 'pipe'],
@@ -42,13 +43,19 @@ export interface CreatedPage {
 }
 
 /** Create a private page through the real `tmt colab page create` (source on stdin). */
-export function createPage(world: AcceptanceWorld, title: string, html: string): CreatedPage {
+export function createPage(
+  world: AcceptanceWorld,
+  title: string,
+  html: string,
+  callerPane?: string,
+): CreatedPage {
   const created = JSON.parse(
     run(
       world,
       world.binaries.colab,
       ['page', 'create', '--title', title, '--file', '-', '--json'],
       html,
+      callerPane,
     ),
   ) as { pageId: string; path: string };
   return { pageId: created.pageId, path: created.path };
@@ -80,6 +87,18 @@ export async function selectInRenderer(page: Page, selector: string): Promise<vo
   await expect(page.getByTestId('ask-action')).toBeEnabled();
 }
 
+/** Choose an annotation recipient through the shared parent input listbox. */
+export async function annotationInput(container: Locator, agent: string) {
+  const input = container.getByRole('combobox', { name: 'Message to agent', exact: true });
+  await input.fill('@');
+  await container
+    .page()
+    .getByRole('option')
+    .filter({ hasText: `@${agent} ·` })
+    .click();
+  return input;
+}
+
 export interface PreviewedAsk {
   operationId: string;
   /** Exact text of the preview: the Remote device-name line plus the transport message. */
@@ -92,8 +111,11 @@ export async function previewAsk(
   agentId: string,
   question: string,
 ): Promise<PreviewedAsk> {
+  if ((await page.getByTestId('ask-toggle').getAttribute('aria-expanded')) === 'false')
+    await page.getByTestId('ask-toggle').click();
   await page.getByTestId('ask-action').click();
-  await page.locator(`[data-testid=ask-agent-option][data-agent-id="${agentId}"] input`).check();
+  await page.getByRole('combobox', { name: /Choose an agent/ }).click();
+  await page.locator(`[data-testid=ask-agent-option][data-agent-id="${agentId}"]`).click();
   await page.getByLabel('Question or instruction').fill(question);
   await page.getByRole('button', { name: 'Ask agent — preview', exact: true }).click();
   const preview = page.getByTestId('ask-preview');

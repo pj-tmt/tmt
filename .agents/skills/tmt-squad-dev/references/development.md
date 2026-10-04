@@ -47,12 +47,24 @@ cron_service` and the native `squad.test.ts` cron cases cover actor permission, 
   covers the split squad tab, focus transfer, scoped keys and forms; `home::tests::cron` the ⑤
   cursor. Capture the home line, `c` list, split tab, expanded job and forms at 160/100/80 in
   `tmt`, `tmt-light` and `NO_COLOR` with a private HOME, `TMUX_TEAM_HOME` and tmux socket.
+- Row paint: `cargo test --locked -p tmt-squad board::view` covers painted cells and hits. A
+  scene change keeps the frozen parity capture and compares the old and new renderers on
+  literal buffers, styles and hits (themes, depths, widths, selection, stale, waiting, `⏱`,
+  annotation) before the old one goes.
+- Layout validation: `cargo test --locked -p tmt-squad layout` and the native `squad.test.ts`
+  offline case cover invalid core/config inputs, located errors, the size bound and the
+  human/JSON exit codes.
 - Tab parity: `built_in_board_documents_equal_ls_tab_documents` and
   `user_board_and_ls_share_members_sections_bindings_and_failed_reads` require board
   views and `ls --tab` to project identical documents, including hidden squads/tabs
   and partial-read recovery. `board::home::tests` checks the retained board model
   against that aggregate. Use an isolated `XDG_CACHE_HOME` when testing board
   observation.
+- Home tile checks cover literal 160/100/80 geometry, exclusive non-lead marks/counts,
+  missing/zero/partial observations, configured and mixed window labels, full selection
+  in `tmt`, `tmt-light` and `NO_COLOR`, continuation clicks, complete selected-range
+  reveal, clipped hits and resize without target drift. Capture quiet/waiting/blocked/many
+  squads with isolated state; frozen board/list parity remains unchanged.
 - Settings editor changes: cover live preview, focus and age-evidence restoration on cancel,
   invalid input, read-only command entries and stale-file refusal (native edits verify shared
   staleness after reload, including the disabled no-publication path); capture normal and
@@ -63,6 +75,13 @@ cron_service` and the native `squad.test.ts` cron cases cover actor permission, 
   consumed close, scoped preview/save/cancel and stale-file refusal; check clipped mouse maps
   after resize or model replacement and semantic attention styles under background and
   reverse selection (same isolated 160/100/80, dark/light/`NO_COLOR` captures as below).
+- Observed token usage checks cover per-identity window boundaries, configured
+  1m–24h retention, tab/member cleanup, no-data/zero/gap aging and current model
+  attribution. Use the shared consumption-history contract vector for seed/live
+  watermark subtraction, re-entry replacement and no-proration boundaries; verify
+  public API batching and seed-on-entry without polling on ordinary reload. App projection preserves public `ls` JSON and invalidates only
+  changed row derivations. Verify summary animation coordinates, sampled member
+  cells and disabled buffer/ANSI equality through the normal renderer.
 - UI changes: verify real private-tmux captures in `tmt`, `tmt-light` and `NO_COLOR`,
   at top and end of scroll, with isolated HOME, `TMUX_TEAM_HOME` and XDG cache, and
   the help modal at 160/100/80 columns. Meter CPU measurements (matched 60-second

@@ -16,6 +16,7 @@ export function ReaderApp({ state }: { state: ReaderState }) {
   const title = state.kind === 'ready' ? state.view.title : '';
   const [render, setRender] = useState<RenderState | 'loading'>('loading');
   const host = useRef<HTMLDivElement>(null);
+  const bar = useRef<HTMLElement>(null);
   useEffect(() => {
     if (source === null) return;
     const controller = new AbortController();
@@ -23,6 +24,8 @@ export function ReaderApp({ state }: { state: ReaderState }) {
     void mountRenderer(host.current!, source, {
       signal: controller.signal,
       onState: setRender,
+      viewportInset: () =>
+        (bar.current?.offsetHeight ?? 56) + (bar.current?.getBoundingClientRect().top ?? 0),
     }).catch(() => {
       if (!controller.signal.aborted) setRender('failed');
     });
@@ -30,37 +33,41 @@ export function ReaderApp({ state }: { state: ReaderState }) {
   }, [source]);
   return (
     <>
-      <header className="masthead">
-        <span className="brand">
+      <header className="reader-bar" ref={bar}>
+        <span className="reader-brand">
           {text.product}
           <span>tmt</span>
         </span>
-        <span className="local">{text.readerOnly}</span>
+        {state.kind === 'ready' && (
+          <>
+            <h1 className="reader-title">{title}</h1>
+            <span className="chip">{text.readerOnly}</span>
+            <span
+              className={`status ${render === 'ready' ? 'live' : render === 'loading' ? 'waiting' : 'blocked'}`}
+              role="status"
+            >
+              <span aria-hidden>{render === 'ready' ? '●' : render === 'loading' ? '○' : '✗'}</span>{' '}
+              {render === 'ready'
+                ? text.readerLive
+                : render === 'loading'
+                  ? text.readerLoading
+                  : text.readerStopped}
+            </span>
+          </>
+        )}
+        <details className="reader-information">
+          <summary>{text.readerInfo}</summary>
+          <div className="reader-information-panel">
+            <p>{text.readerNote}</p>
+            <p>{text.warning}</p>
+          </div>
+        </details>
       </header>
       <main>
         {state.kind === 'ready' ? (
           <section className="page">
-            <div className="page-bar">
-              <h1>{title}</h1>
-              <span className="chip">{text.readerOnly}</span>
-              <span
-                className={`status ${render === 'ready' ? 'live' : render === 'loading' ? 'waiting' : 'blocked'}`}
-              >
-                <span aria-hidden>
-                  {render === 'ready' ? '●' : render === 'loading' ? '○' : '✗'}
-                </span>{' '}
-                {render === 'ready'
-                  ? text.loaded
-                  : render === 'loading'
-                    ? text.loading
-                    : text.blocked}
-              </span>
-            </div>
             <div className="workspace">
               <div className="canvas">
-                <div className="boundary">
-                  <span>{text.boundary}</span>
-                </div>
                 <div className="frame-host" ref={host} />
                 {(render === 'navigation' || render === 'failed') && (
                   <div className="notice blocked" role="alert">
@@ -74,7 +81,6 @@ export function ReaderApp({ state }: { state: ReaderState }) {
                 )}
               </div>
             </div>
-            <p className="isolation-note">{text.warning}</p>
           </section>
         ) : (
           <section
@@ -98,7 +104,6 @@ export function ReaderApp({ state }: { state: ReaderState }) {
           </section>
         )}
       </main>
-      <footer>{text.readerNote}</footer>
     </>
   );
 }

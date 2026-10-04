@@ -161,7 +161,8 @@ export function parseComponentMap(text) {
 }
 
 let defaultMap;
-function componentMap() {
+/** The checked-in component map, parsed once. */
+export function componentMap() {
   defaultMap ??= parseComponentMap(readFileSync(COMPONENT_MAP, 'utf8'));
   return defaultMap;
 }

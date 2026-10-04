@@ -23,7 +23,7 @@ pub mod value;
 pub use anstyle::{AnsiColor, Effects};
 pub use help::{
     CommandSpec, Example, HelpSection, OutputModes, Route, ShownExample, apply, command,
-    command_with_sections, examples, frame, help_text, route, version_arg,
+    command_with_sections, examples, frame, help_text, rendered_help, route, version_arg,
 };
 pub use interaction::{Interaction, Mode};
 pub use palette::{Terminal, Token};

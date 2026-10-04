@@ -1,6 +1,6 @@
 //! The squad tab's jobs half: composition, focus transfer, scoped keys, row labels.
 use super::*;
-use crate::board::cronboard::{TEST_NOW, test_cron, test_view};
+use crate::board::cronboard::{TEST_NOW, test_cron, test_view, test_views};
 use std::time::Instant;
 use tmt_squad::cron::ClockStatus;
 
@@ -618,4 +618,113 @@ fn record_split_squad_tab_snapshots() {
         serde_json::to_string_pretty(&snapshots()).unwrap() + "\n",
     )
     .unwrap();
+}
+
+/// A squad tab with `count` jobs of its own room, `u1` owning them all.
+fn many_jobs(count: usize) -> App {
+    let mut app = board(members());
+    app.view.as_mut().unwrap().document["squad"]["roomId"] = json!("room");
+    let jobs = test_views(count, "product", "room");
+    app.cron
+        .replace(Ok(test_cron(jobs.clone(), ClockStatus::NoClock)));
+    app.cron.replace(Ok(test_cron(jobs, ClockStatus::NoClock)));
+    app
+}
+
+fn walk_ids(count: usize) -> Vec<String> {
+    (1..=count).map(|id| format!("room/c{id}")).collect()
+}
+
+#[test]
+fn walking_the_jobs_half_moves_one_job_per_press_with_the_detail_expanded() {
+    let order = walk_ids(8);
+    for (down, up) in [
+        (KeyCode::Down, KeyCode::Up),
+        (KeyCode::Char('j'), KeyCode::Char('k')),
+    ] {
+        for (width, height) in [(100, 40), (80, 24)] {
+            let mut app = many_jobs(8);
+            draw(&app, width, height);
+            press(&mut app, KeyCode::Tab);
+            draw(&app, width, height);
+            assert_eq!(app.jobs_selected().as_deref(), Some(order[0].as_str()));
+            let members = app.selected;
+            let step = |app: &mut App, code: KeyCode, expected: &str| {
+                press(app, code);
+                let screen = draw(app, width, height);
+                assert_eq!(
+                    app.jobs_selected().as_deref(),
+                    Some(expected),
+                    "{code:?} at {width}x{height}\n{}",
+                    screen.join("\n")
+                );
+                assert_eq!(app.selected, members, "the member selection never moves");
+                let cid = expected.rsplit('/').next().unwrap();
+                // The selected job is painted, with its detail below it.
+                let at = screen
+                    .iter()
+                    .position(|line| line.contains(&format!(" {cid} ")) && line.contains("●"))
+                    .unwrap_or_else(|| panic!("{cid} painted\n{}", screen.join("\n")));
+                assert!(
+                    screen[at + 1..].iter().any(|line| line.contains("message")),
+                    "{cid} shows its detail\n{}",
+                    screen.join("\n")
+                );
+            };
+            for expected in &order[1..] {
+                step(&mut app, down, expected);
+            }
+            // A press past either end stays put, and never reaches the member rows.
+            step(&mut app, down, &order[7]);
+            for expected in order[..order.len() - 1].iter().rev() {
+                step(&mut app, up, expected);
+            }
+            step(&mut app, up, &order[0]);
+        }
+    }
+}
+
+#[test]
+fn walking_the_c_list_from_the_board_moves_one_job_per_press() {
+    let order = walk_ids(8);
+    for (down, up) in [
+        (KeyCode::Down, KeyCode::Up),
+        (KeyCode::Char('j'), KeyCode::Char('k')),
+    ] {
+        for (width, height) in [(100, 40), (80, 24)] {
+            let mut app = many_jobs(8);
+            draw(&app, width, height);
+            press(&mut app, KeyCode::Tab);
+            draw(&app, width, height);
+            press(&mut app, KeyCode::Char('c'));
+            draw(&app, width, height);
+            let selected = |app: &App| app.cron_list.as_ref().unwrap().selected();
+            assert_eq!(selected(&app).as_deref(), Some(order[0].as_str()));
+            let step = |app: &mut App, code: KeyCode, expected: &str| {
+                press(app, code);
+                let screen = draw(app, width, height);
+                assert_eq!(
+                    selected(app).as_deref(),
+                    Some(expected),
+                    "{code:?} at {width}x{height}\n{}",
+                    screen.join("\n")
+                );
+                let cid = expected.rsplit('/').next().unwrap();
+                assert!(
+                    screen.iter().any(|line| line.contains(&format!(" {cid} "))),
+                    "{cid} painted\n{}",
+                    screen.join("\n")
+                );
+            };
+            for expected in &order[1..] {
+                step(&mut app, down, expected);
+            }
+            // A press past either end stays put, and never reaches the member rows.
+            step(&mut app, down, &order[7]);
+            for expected in order[..order.len() - 1].iter().rev() {
+                step(&mut app, up, expected);
+            }
+            step(&mut app, up, &order[0]);
+        }
+    }
 }

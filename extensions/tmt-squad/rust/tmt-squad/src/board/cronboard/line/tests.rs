@@ -27,6 +27,26 @@ pub(in crate::board) fn view(owner: &str, message: &str, next: Option<i64>) -> J
     }
 }
 
+/// `count` jobs of one squad with the distinct c-ids (`c1`, `c2`, ...) the store
+/// assigns; the plain `view` fixture reuses one id.
+pub(in crate::board) fn views(count: usize, squad: &str, room: &str) -> Vec<JobView> {
+    let mut store = tmt_squad::cron::Jobs::default();
+    (1..=count)
+        .map(|index| {
+            let mut job = view(
+                "someone",
+                &format!("job number {index}"),
+                Some(NOW + 3_600_000),
+            );
+            job.job.squad = squad.into();
+            job.job.room_id = room.into();
+            store.insert(job.job.clone()).unwrap();
+            job.job = store.jobs().last().unwrap().clone();
+            job
+        })
+        .collect()
+}
+
 pub(in crate::board) fn cron(jobs: Vec<JobView>, clock: ClockStatus) -> Cron {
     Cron {
         jobs,

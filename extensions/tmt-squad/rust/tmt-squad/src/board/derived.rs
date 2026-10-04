@@ -23,9 +23,12 @@ pub(super) struct NotebookLines {
 pub(super) struct Grid {
     pub width: usize,
     pub search: String,
-    /// Each row's `⏱ next` label: cron text changes rebuild the reserved layout.
-    pub next_labels: Vec<Option<String>>,
+    /// Clock-derived row labels: a changed label rebuilds the layout and scene.
+    pub extras: Vec<super::view::row_paint::Extra>,
+    pub scene: super::view::row_paint::RowPaint,
+    #[cfg(test)]
     pub layout: crate::markup::Grid,
+    #[cfg(test)]
     pub cells: Vec<tmt_tui::binding::Node>,
 }
 

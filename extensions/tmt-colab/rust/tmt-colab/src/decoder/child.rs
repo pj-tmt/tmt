@@ -44,7 +44,14 @@ fn execute() -> Result<(), DecodeFault> {
         return baseline(&input);
     }
     let wire: WireBatch = serde_json::from_slice(&input).map_err(|_| DecodeFault::InvalidInput)?;
-    if wire.version != 1 || wire.updates.len() > UPDATES {
+    if wire.version != 1
+        || wire.updates.len() > UPDATES
+        || wire
+            .publisher_agent
+            .as_deref()
+            .is_some_and(|v| !valid_publisher_agent(v))
+        || (wire.source.is_none() && wire.publisher_agent.is_some())
+    {
         return Err(DecodeFault::InvalidInput);
     }
     let baseline = binary(&wire.baseline, BASELINE_BYTES)?;
@@ -110,6 +117,7 @@ fn execute() -> Result<(), DecodeFault> {
             .sum::<usize>();
         let vector = doc.transact().state_vector();
         let text = doc.get_or_insert_text("html");
+        let meta = doc.get_or_insert_map("meta");
         let mut tx = doc.transact_mut();
         text.remove_range(
             &mut tx,
@@ -123,6 +131,11 @@ fn execute() -> Result<(), DecodeFault> {
             start.try_into().map_err(|_| DecodeFault::Rejected)?,
             &source[start..source.len() - end],
         );
+        if let Some(agent) = wire.publisher_agent.as_deref() {
+            meta.insert(&mut tx, "publisherAgent", agent);
+        } else {
+            meta.remove(&mut tx, "publisherAgent");
+        }
         tx.encode_state_as_update_v1(&vector)
     } else {
         // Merge the author's updates, never encode the shared document.
@@ -242,13 +255,19 @@ fn project(doc: &Doc, namespace: Namespace) -> Result<Value, DecodeFault> {
 fn baseline(input: &[u8]) -> Result<(), DecodeFault> {
     let wire: WireBaseline =
         serde_json::from_slice(input).map_err(|_| DecodeFault::InvalidInput)?;
-    if wire.version != 1 {
+    if wire.version != 1
+        || wire
+            .publisher_agent
+            .as_deref()
+            .is_some_and(|v| !valid_publisher_agent(v))
+    {
         return Err(DecodeFault::InvalidInput);
     }
     let digest = binary(&wire.source_digest, 32)?;
     if digest.len() != 32 || wire.title.len() > BASELINE_TITLE_BYTES {
         return Err(DecodeFault::InvalidInput);
     }
+    let producing = matches!(wire.action, BaselineAction::Produce {});
     let (update, expected_source, expected_commitment) = match wire.action {
         BaselineAction::Produce {} => {
             let source = binary(&wire.source, BASELINE_BYTES)?;
@@ -256,7 +275,12 @@ fn baseline(input: &[u8]) -> Result<(), DecodeFault> {
             let source_text =
                 std::str::from_utf8(&source).map_err(|_| DecodeFault::InvalidInput)?;
             (
-                fresh_baseline(Doc::new(), source_text, &wire.title),
+                fresh_baseline(
+                    Doc::new(),
+                    source_text,
+                    &wire.title,
+                    wire.publisher_agent.as_deref(),
+                ),
                 Some(source),
                 None,
             )
@@ -288,7 +312,9 @@ fn baseline(input: &[u8]) -> Result<(), DecodeFault> {
     let projection = project(&doc, Namespace::Content)?;
     let source_text = projection["html"].as_str().ok_or(DecodeFault::Rejected)?;
     validate_view(source_text.as_bytes(), &wire.title, &digest)?;
-    if projection["meta"] != serde_json::json!({"title":wire.title})
+    if projection["meta"]["title"].as_str() != Some(wire.title.as_str())
+        || (producing
+            && projection["meta"]["publisherAgent"].as_str() != wire.publisher_agent.as_deref())
         || expected_source.is_some_and(|source| source != source_text.as_bytes())
     {
         return Err(DecodeFault::Rejected);
@@ -307,12 +333,15 @@ fn baseline(input: &[u8]) -> Result<(), DecodeFault> {
         pid: std::process::id(),
     })
 }
-fn fresh_baseline(doc: Doc, source: &str, title: &str) -> Vec<u8> {
+fn fresh_baseline(doc: Doc, source: &str, title: &str, publisher_agent: Option<&str>) -> Vec<u8> {
     let html = doc.get_or_insert_text("html");
     let meta = doc.get_or_insert_map("meta");
     let mut txn = doc.transact_mut();
     html.insert(&mut txn, 0, source);
     meta.insert(&mut txn, "title", title);
+    if let Some(agent) = publisher_agent {
+        meta.insert(&mut txn, "publisherAgent", agent);
+    }
     txn.encode_state_as_update_v1(&StateVector::default())
 }
 
@@ -328,7 +357,12 @@ mod baseline_tests {
         for vector in vectors.as_array().unwrap() {
             let source = vector["source"].as_str().unwrap();
             let title = vector["title"].as_str().unwrap();
-            let update = fresh_baseline(Doc::with_client_id(1159), source, title);
+            let update = fresh_baseline(
+                Doc::with_client_id(1159),
+                source,
+                title,
+                vector["publisherAgent"].as_str(),
+            );
             assert_eq!(URL_SAFE_NO_PAD.encode(&update), vector["update"]);
             assert_eq!(
                 URL_SAFE_NO_PAD.encode(Sha256::digest(source.as_bytes())),

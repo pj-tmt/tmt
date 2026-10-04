@@ -531,8 +531,8 @@ accepts `%pane_id`, `window.pane`, or `session:window.pane` and stores the
 resolved stable `%pane_id`. `marked` resolves the explicit mark only on the
 invocation-selected server, freezes that pane evidence for the binding, and
 leaves the mark unchanged. It never falls back to the active or caller pane.
-There is no daemon. Identity badges are off by default; TMT never changes pane
-titles or window border layout.
+There is no daemon. Identity badges are on by default (`ui.paneBadge`); TMT never
+changes pane titles or window border layout.
 
 Global identities are independent of the current working directory. `talk`,
 `check`, and `ls` accept either a global name or a direct pane target. The
@@ -642,6 +642,15 @@ transcripts, secrets, receipt proofs, or untrusted/privileged instructions into
 it. After a meaningful edit, briefly summarize what changed. TMT does not merge
 concurrent writes, lock, watch, version, truncate, template, encrypt, upload, or
 limit this file.
+
+After an admitted Claude/Codex compaction, saved identities receive a short
+context reminder to re-read and update their notes. It prints the existing path
+as quoted data or gives the explicit `tmt notes path --identity '<UUID>'` command;
+the hook never creates or reads/writes notebook content. Follow it within the
+current task's authority. Temporary and unverifiable identities receive none.
+`tmt config set notes.compactionReminder false --global` disables the reminder;
+`true` restores the default. The setting is a global-only JSON boolean; local
+writes and local `config rm` are refused.
 
 The path belongs to the saved identity UUID, not its display name, pane, role,
 working directory. Retiring an identity retains the file; a
@@ -876,8 +885,8 @@ from submission, so metadata can outlive the original request horizon. Reads
 never acknowledge a result. Cleanup is not file shrinkage or secure erasure;
 wall-clock rollback can delay logical expiry while data remains stored.
 
-`tmt config set ui.paneBadge on --global` opts into a cosmetic pane-local
-`@tmux-team.badge` label; `off` is the default. Recorded Running displays
+A cosmetic pane-local `@tmux-team.badge` label is on by default;
+`tmt config set ui.paneBadge off --global` turns it off. Recorded Running displays
 `● alice (tmt)` with a green dot, Ended displays a dim `○ alice (tmt)`, and
 Unknown displays plain `alice (tmt)`. This is recorded session state, not work
 activity or permission to type; without lifecycle updates it can become stale.

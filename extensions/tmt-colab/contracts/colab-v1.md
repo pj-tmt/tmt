@@ -674,10 +674,20 @@ scoped `(streamId, seq)` key. One browser tab owns the device's write lock with
 `own` have separate documents and decoders; unsigned routing cannot choose a
 document. The following roots are exhaustive:
 
-| Namespace | Roots                                               | Fold and authority                                                                   |
-| --------- | --------------------------------------------------- | ------------------------------------------------------------------------------------ |
-| `content` | `html` Y.Text; `meta` Y.Map containing only `title` | Shared page document, folded from admitted owner/editor streams in the current epoch |
-| `own`     | `threads`, `messages`, `intents`, `replies` Y.Maps  | Separate document per writer; only that writer's signed stream mutates it            |
+| Namespace | Roots                                                                        | Fold and authority                                                                   |
+| --------- | ---------------------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
+| `content` | `html` Y.Text; `meta` Y.Map containing `title` and optional `publisherAgent` | Shared page document, folded from admitted owner/editor streams in the current epoch |
+| `own`     | `threads`, `messages`, `intents`, `replies` Y.Maps                           | Separate document per writer; only that writer's signed stream mutates it            |
+
+`meta.publisherAgent`, when present, is a nonempty string of at most 128 UTF-8
+bytes without control characters. It is a publisher-asserted display/default label,
+never an identity binding, agent ID or publication authority. CLI page create/write
+captures it best-effort through the fixed public `identity show --json` command via
+`tmt_invoke` and the invoking TMT executable (one-second deadline, 64 KiB output
+cap). Unknown/unbound callers, invalid output and invocation failures produce no
+label; an unknown CLI writer removes the previous label. Browser source edits
+retain the last CLI label. Content folding and epoch baselines preserve it in the
+committed update bytes; no descriptor field or extra signature is added.
 
 Mixed-root updates or other root names/types reject before atomic application.
 Sharing, roles, script policy, retention and local grants MUST NOT be Yjs state.
@@ -803,7 +813,7 @@ and atomic epoch transitions remain caller-owned, later integration work.
 [Baseline vectors](vectors/baseline-v1.json) pin update-v1 bytes and commitment
 with a test-only fixed client ID; production uses a fresh identity. Their
 [independent oracle](vectors/baseline-reference.py) covers only the fresh
-`html`/`meta.title` schema and requires no third-party libraries.
+`html`/`meta.title` plus optional `meta.publisherAgent` schema and requires no third-party libraries.
 
 The owner-local epoch engine stores baseline plaintext as strict JSON with exactly
 `source` (the exact UTF-8 source string) and `update` (canonical base64url update-v1).
@@ -1154,7 +1164,7 @@ shared Session; pending previews close, and recovery reads the original IDs.
 
 Only explicit Send in trusted parent chrome dispatches agent work. Comments,
 sync, replay, compaction, reload and renderer messages MUST NOT dispatch. Ask
-agent is separate from Comment. The parent freezes the admitted quote/comment,
+agent uses the same send path for annotation turns and standalone asks. The parent freezes the admitted quote/comment,
 page title, fragment-free HTTP(S) URL and chosen agent/machine before signing.
 Credentialed URLs and malformed Unicode refuse. Paused rendering or later edits
 cannot replace frozen text. The preview displays destination UUIDs, verified
@@ -1247,7 +1257,7 @@ read leaves the existing accepted record unchanged and stops observation until
 reconnect. Every refused operation/result read leaves the ledger unchanged;
 missing operations do not prove absence. Transient state/core-unavailable refusals
 continue bounded backoff. Read refusal copy is ephemeral, never an own-state
-transition. A fresh preview is required for later Send. Unknown-effect errors
+transition. Fresh input capture is required for each later Send. Unknown-effect errors
 remain uncertain. SDK error handling branches only on the exported class and
 reviewed code, never text or an unverified error-shaped object. Records are immutable under
 the parent-owned publication API.
@@ -1260,7 +1270,8 @@ machine and preserve an established request ID. Reply agent UUID and request ID
 must match the intent and accepted receipt correlation. Content author claims
 cannot choose another writer or agent. The native isolated own decoder validates
 Ask syntax/digests and bounds; it holds no keys or dispatch capability. General
-threads/comments UI is separate from the minimal Ask panel.
+annotations join verified Ask records to their existing thread and current comment
+IDs, displaying agent replies inside the thread. There is no second discussion store.
 
 Only the asking device observes its unresolved operations and publishes finals,
 through Remote's device-owned result operation and request IDs already in its
@@ -1355,8 +1366,8 @@ The initial window handshake carries renderId and transfers a MessagePort;
 accept its reply only with `event.source === frame.contentWindow` and matching
 renderId. Highlight requests/results use that bound port; selections use the
 bound window channel. Port events do not have the window-source predicate. Close it on rerender/teardown and discard stale
-messages. Allow only bounded selection/anchor-result inbound and highlight
-outbound. No secrets, signing/send capabilities or bridge actions cross it.
+messages. Allow only bounded selection/rectangle/anchor-result inbound,
+known-thread view actions and narrow highlight/scroll outbound. No secrets, signing/send capabilities or bridge actions cross it.
 Interactive page scripts can intercept the port and forge a schema-valid quote;
 port possession does not prove selection truth. Frame data is untrusted text,
 never HTML in parent UI. A selection cannot silently
@@ -1374,14 +1385,22 @@ script-mutated DOM may change cosmetic feedback; neither selection nor successfu
 highlight proves source truth or authority.
 
 Bound window selection messages to the current frame and renderId. Selection adds
-`selector:null` or the bounded quote/context fields to `type`, `renderId`, `text`;
-legacy text-only messages supply no anchor. Parent Comment captures and displays
-the quote only after a trusted user action. Page-wide comments have null anchors.
+`selector:null` or the bounded quote/context fields to `type`, `renderId`, `text`,
+plus an optional `rect:{x,y,width,height}` in frame viewport coordinates. Its four
+numbers must be finite, at most 1,000,000 in absolute value, with nonnegative
+width/height. The parent clamps this cosmetic rectangle to the frame and visible
+window when positioning its Annotate control and input popover; it never treats geometry as authority.
+Legacy text-only messages supply no anchor. Alt+Enter can request the same view
+using exactly `type:"colab.render.annotate",renderId`; it cannot send. A trusted
+parent action captures the quote. Page-wide comments have null anchors.
 
 The bound MessagePort accepts only parent highlight messages with exactly
 `type:"colab.render.highlight"`, `renderId`, `requestId` and `anchors`, whose entries
-are `{id,selector}`. Results contain exactly `type:"colab.render.anchors"`,
-`renderId`, `requestId`, `resolved` IDs. The parent admits only unique IDs from its
+are exactly `{id,selector}`. Comment bodies, reply text and discussion display labels
+MUST NOT enter the author-code frame; the parent reconstructs these narrow objects
+instead of forwarding caller records. Results contain `type:"colab.render.anchors"`, `renderId`,
+`requestId`, `resolved` IDs and optional `positions:[{id,top}]`; top is finite,
+nonnegative and at most 1,000,000. Position IDs must be unique resolved IDs. The parent admits only unique IDs from its
 current request; stale frame/request results cannot change current feedback.
 Batches are at most 1,000 anchors and 256 KiB UTF-8. Collection is bounded to 20,000
 text nodes, 256 Ki code points and 20 ms; matching considers at most 64 candidates
@@ -1391,11 +1410,47 @@ There is no fuzzy automatic attachment. DOM mutations trigger bounded debounced
 resolution; replacement/navigation/disposal closes ports, observers and highlights.
 
 CSS Highlights, or pointer-inert range overlays when unavailable, leave author text
-nodes intact. Author scripts can tamper with these APIs, DOM or cosmetic results;
-the parent sends no records, keys or application capability through the channel.
+nodes intact. Resolved ranges keep a light highlight and a small square right-margin
+marker in the frame's document flow, with a count for anchors on the same line. Hover
+shows the bounded quoted text. Comment first-line tooltips stay in parent chrome. A marker posts exactly `type:"colab.render.open-thread"`,
+`renderId`, `requestId`, `id` on the bound port; the parent accepts only a known ID in
+its current highlight request and opens that thread's overlay. Forging this view-only
+action cannot publish, sign or send. Resize and DOM changes re-resolve positions;
+thread-list navigation scrolls the window to the reported anchor offset (the bounded
+viewport-coupled fallback scrolls inside its frame). Author scripts can tamper with these APIs, DOM or cosmetic results;
+the parent sends bounded quote/tooltip data, never full records, keys or application capability through the channel.
 Detached threads retain their quote and require a fresh selection plus explicit
 parent confirmation to reattach. Re-resolve against every fresh render and epoch;
 absent own history is never recreated automatically.
+
+### Inline annotation conversations (#1587)
+
+The Annotate control beside a selection opens one plain trusted-parent input in a
+small anchored popover at that span. Its placement is cosmetic; the captured quote
+selector owns the thread anchor. Enter sends, Shift+Enter inserts a newline, and Esc cancels. There
+is no confirmation screen or automatic send. `@` opens the shared styled keyboard
+listbox. The optional publishing name supplies a default only when it matches one
+unique reachable `agents.list` entry; unknown or ambiguous names supply no default.
+The current verified Remote grant and agent/machine UUIDs own routing and admission.
+
+Send captures the composed text, selected destination and existing conversation
+references, publishes the current comment through the existing own stream, then
+freezes and signs the exact Ask with its real thread and message IDs. Prior user
+comments and verified agent replies are included as quoted data, in the existing
+projection order, with their captured references/revisions rechecked before signing.
+Display timestamps never determine record ordering or authority. Deleted/stale
+context and byte overflow refuse; no context is silently truncated. A failure after
+comment publication retains that comment and shows the outcome; it never resends.
+A small disclosure shows exact delivered bytes, including Remote's device-name line,
+quote and context. Recorded turns retain their frozen message disclosure. Held
+approval stays inline; approval itself happens on the machine through Remote.
+The existing ledger, expiry, recheck, abandon and uncertainty rules still apply.
+
+The Comments overlay lists every annotation and page-level thread, with a quote
+snippet, participants, display time and open/resolved status. Selecting a row scrolls
+the window to its anchor and expands that thread inside the overlay; a margin marker
+opens the same thread. Agent replies join verified Ask records to comment IDs and
+remain attributed to their agent. Overlay geometry does not reflow page content.
 
 ## Sync and backend admission
 
@@ -1485,7 +1540,10 @@ Session returns exactly `{deviceId, publicKey, grantRevision, name}`; revision
 is decimal text. It works before Colab extension-key registration and forwards
 no credential. Pages returns exactly `{spaceId, ownerKey, revision, pages}`;
 `pages` is sorted by page ID, at most 1,000 entries, each exactly
-`{pageId, epoch, sharing, history, archived}`. Local creation/epoch records own
+`{pageId, epoch, sharing, history, archived, retentionDays, lastUpdateAtMs,
+expiresAtMs, warnings}`. These time/expiry hints use the same verified projection
+as `ls/show`, defined in [Local management CLI](#local-management-cli-1307).
+Local creation/epoch records own
 existence; sharing/history/archive/delete derive from verified owner statements.
 Absent sharing/history mean private/shared. Deleted pages are excluded. Titles
 are encrypted content and never returned here. `revision:"0"` means no owner log
@@ -1718,6 +1776,36 @@ pairing is unknown), shown before `open` because the link needs a paired browser
 door, `open` shows the relative path and the reason (the install line, or `browser access
 unavailable: see warning`), never a command that `serve` replaces.
 
+### Page links and opening the browser (#1614)
+
+Every command that names a page tells a person where to open it, from one door and pairing
+lookup per command (`tmt remote status --json`, then `tmt remote devices --json` while a door
+runs; the same bounded calls as `serve`). `page create`, `ls`, `show` and the `share` commands
+print the **full link** while a door runs. Without one they print the relative path and the
+reason: the install line when Remote gave no answer, else `run tmt colab serve to get a full
+link`; never a manual `tmt remote serve`. When no paired device is known, the same pairing step
+as `serve` follows (`pair this browser once: tmt remote pair`, or `if this browser is new: ...`).
+
+`--json` results that name a page carry `path` (relative), `link` (full, `null` without a
+door), `paired` (`true|false|null`) and `next` (`["tmt remote pair"]` or `[]`). `ls` carries
+`path` and `link` on each page and `paired`/`next` once; its human form puts each link on its
+own indented line under the row. `show` prints rows of words (`title`, `link`, `pair`, `page`,
+`sharing`, `history`, `retention`, `membership`, `members`, `links`; `–` for none), never an
+embedded JSON object. `page create` keeps `url`'s role under the name `link`.
+
+`serve` (once the door is ready, attached or started) and `page create` open the link in the
+default browser: the page when the space has exactly one, else the space home. Opening is
+skipped, printing the link only, with `--no-open`, `--json`, the setting `open` off, no
+terminal on stdout, `CI`, an SSH session without a display, Linux without `DISPLAY` or
+`WAYLAND_DISPLAY` (WSL excepted) or no opener on `PATH`; `--open` overrides everything except
+`--json`, `--no-open` and a missing opener. Openers: macOS `open`, Linux `xdg-open`, WSL
+`wslview` then `explorer.exe`. The row reads `opened in your browser: <link>` or just the link;
+a failing opener warns once and keeps the printed link. `serve --json` adds `opened`.
+
+`tmt colab settings [open on|off] [--json]` shows or sets the one setting, stored as
+`{"open":true|false}` in `<dataRoot>/colab/settings.json` (default on; unknown keys ignored; a
+damaged file reads as the default with a warning). JSON: `{open,source:"default"|"settings.json"}`.
+
 ### `tmt colab stop` (#1594)
 
 `tmt colab stop [--json]` asks the serving process of this data root to shut down. It never
@@ -1770,9 +1858,10 @@ Cloud expiry is 30 days after last page update by default, with a per-page
 positive day count or forever override. Each write sets expiry; checkpoints and
 referenced blobs needed for the live page MUST last at least as long as the page.
 The owning device's compaction or owner's cleanup refreshes them within seven
-days of expiry. Readers treat expired-but-present data as gone. Warnings begin
-seven days ahead in the browser and `ls/show`. Local data is never automatically
-deleted.
+days of expiry. Cloud readers treat expired-but-present data as gone. Local
+expiry is advisory: warnings begin seven days ahead in the browser and `ls/show`,
+and expired local pages remain readable and writable unless signed archive/delete
+policy forbids it. Local data is never automatically deleted.
 
 Firestore Rules deny expired reads; owner browser/CLI cleanup removes expired
 pages. Optional Blaze TTL is eventual physical cleanup, not timely revocation.
@@ -1846,7 +1935,7 @@ recover authority by retrying. New operations fence the expected owner revision.
 The owner-only `POST /.tmt/colab/management` route takes exactly
 `space, page, expectedRevision, operationId, operation, payload`; revision is canonical
 positive decimal text and payload is canonical base64url of the same typed JSON.
-The root-only `page.create` selection is exactly `{pageId,title,source}`; it accepts
+The root-only `page.create` selection is `{pageId,title,source}` with optional bounded `publisherAgent`; it accepts
 revision `"0"` only when initializing owner genesis. Browser-signed management
 cannot create pages. Its source/title bounds are 2 MiB/256 KiB in UTF-8; the
 local route has a separate body cap for worst-case JSON escaping plus base64
@@ -1951,18 +2040,36 @@ Page lists return `{spaceId, membershipHead, pages}`; an uninitialized list has 
 space/head and empty pages. Show returns `{spaceId, membershipHead, page, members,
 links, discussions:"not-available"}`. Page fields are `pageId, title, epoch,
 sharing, history, archived, retentionDays, lastUpdateAtMs, expiresAtMs, warnings`.
-IDs, epochs and revisions retain canonical full values; times would be UTC
+IDs, epochs and revisions retain canonical full values; times are UTC
 milliseconds. Policy derives from verified owner statements; titles require the
 authenticated fold and isolated decoder. Archived titles are null with
 `title-unavailable` because the fold refuses archived pages. Members/links expose
 ID, role, page assignments and revocation, never secret material.
 
-Until durable last-update evidence is available, both timestamp fields are null
-and warnings contain `expiry-unavailable`; human output states this plainly.
-No file time, read time or fabricated zero establishes expiry. Retention defaults
-to 30 days; forever is null. Local policy never automatically deletes or denies
-access. Discussion summaries in management listings remain deferred; the
-page view projects verified discussion separately.
+Schema 5 adds nullable, nonnegative safe-integer `pages.last_update_at_ms`. The
+server clock is sampled only when a new admitted content envelope is appended,
+including initial creation and browser/local writes, in the receipt transaction.
+The stored time never decreases for a page. Exact replay, failed/rolled-back
+updates, own/discussion/Ask updates, reads, checkpoints and policy/epoch changes
+never refresh it. Schema-4 migration preserves content and receipts and leaves
+legacy times null without backfill. No client envelope time, file time, read time
+or fabricated zero establishes expiry. The next admitted content edit starts
+evidence for a legacy page.
+
+Retention defaults to 30 days; forever is null. Finite `expiresAtMs` is
+`lastUpdateAtMs + retentionDays * 86400000`, using checked arithmetic bounded to
+safe integers. A legacy unknown finite expiry is null with `expiry-unavailable`
+("Expiry starts after the next edit"); an unrepresentable finite expiry is null
+with `expiry-out-of-range`. Forever has no expiry or expiry warning, even with
+unknown last-update time. At most one expiry warning is emitted: `expires-soon`
+when expiry is in the future and at most seven days away; `expired` at or after
+expiry. Otherwise warnings are empty, apart from a separate `title-unavailable`
+CLI hint. Human output shows the actual UTC date and advisory status.
+
+One verified owner-log projection supplies these hints to CLI and `/api/pages`.
+Discovery metadata never grants signed policy or write authority. Local expiry
+never automatically deletes or denies access. Discussion summaries in management
+listings remain deferred; the page view projects verified discussion separately.
 
 Failures exit 1. JSON is `{error:{code,message}}` with operation/revision/link
 correlation when captured; human failures use styled stderr. Management codes
@@ -2012,10 +2119,9 @@ hash32). `path` is relative to the Remote door address:
 `x/colab/#space=<spaceId>&path=%2Fpages%2F<pageId>`. It pins the space using the
 browser router's existing fragment format. The CLI learns the door only through
 Remote's public `tmt remote status --json` (`{running,origin,path}`, one call with a
-three-second cap, run through the invoking core executable), never Remote's files. While
-a door is running, JSON adds `url` (door address plus `path`) and human output prints that
-link; otherwise `path` stays relative and human output says to start `tmt remote serve`
-to get a full link. Any failure, timeout or malformed answer is the no-door case. JSON
+three-second cap, run through the invoking core executable), never Remote's files. See
+[page links](#page-links-and-opening-the-browser-1614) for what is printed with and without a door.
+JSON
 failures use `{error:{code,message}}`,
 with generated `operationId` and `pageId` when available for inspection after an
 unknown outcome. Existing input/capacity/denial/conflict/stale-head/state/unknown
@@ -2027,7 +2133,7 @@ codes apply; failures exit 1. The browser home empty state names this command.
 owner-authenticated fold and isolated decoder. Raw stdout is exact admitted UTF-8
 source, without an added newline; stderr carries the verified head, epoch and
 page revision. JSON is `{spaceId,pageId,source,title,epoch,membershipHead,
-revision,memoryLimit}`. `membershipHead` is `{revision,statementHash}` with decimal
+revision,memoryLimit}` with optional bounded `publisherAgent`. `membershipHead` is `{revision,statementHash}` with decimal
 revision and lowercase hex hash. Reads never initialize or migrate state.
 Archive/delete reads retain the fold's current inactive-page restriction.
 
@@ -2259,9 +2365,14 @@ assignments derive from the contiguous verified owner log, never discovery label
 Metadata catchup reuses bounded frame/chunk assembly and owner-log admission,
 then closes before content decoding. Baseline ciphertext can be consumed as part
 of wire framing but is never decrypted or materialized for management. A failed
-preview does not remove home management access. Retention defaults to 30 days;
-durable last-update/expiry evidence remains unavailable, so chrome says so and
-never invents expiry warnings. Local expiry never automatically deletes data.
+preview does not remove home management access. Retention defaults to 30 days.
+Chrome presents the native durable last-update/expiry display hints as relative
+retention time, with the absolute local date on hover. The hint stays inside the
+page card under its status badge. The seven-day warning and advisory expired state
+add a waiting mark and body text color; ordinary hints use dim text. The copy names
+retention and says the local copy stays; legacy unknown times say "Expiry starts
+after the next edit". The collapsed Details line includes the local last-edit date.
+Local expiry never automatically deletes data or ends access.
 
 Confirmation discloses shared/current history scope, the 64-epoch limit, editors'
 script power, renderer self-navigation limits and separate Remote device/agent

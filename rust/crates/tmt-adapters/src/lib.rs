@@ -51,6 +51,7 @@ pub mod reply_receipt;
 pub mod repository_remote;
 pub mod request_history;
 pub mod request_runtime;
+mod request_text;
 #[cfg(unix)]
 pub mod response_input;
 pub mod room;

@@ -41,12 +41,12 @@
   overflow-y: auto;
   border: 2px solid var(--c-text);
   background: var(--c-sheet);
-  box-shadow: 4px 4px 0 var(--c-accent);
+  box-shadow: 4px 4px 0 var(--c-text);
 }
 .tmt-listbox-options[hidden] {
   display: none;
 }
-.tmt-listbox .tmt-listbox-option {
+.tmt-listbox-options .tmt-listbox-option {
   display: block;
   width: 100%;
   margin: 0;
@@ -74,4 +74,12 @@
   color: var(--c-muted);
   background: var(--c-paper);
   cursor: default;
+}
+
+.tmt-listbox-input .tmt-listbox-label {
+  display: none;
+}
+.tmt-listbox-input-list {
+  position: fixed;
+  z-index: 60;
 }

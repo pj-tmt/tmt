@@ -52,6 +52,11 @@ and `limits.rs`; do not restate them.
 - `page.rs` reads and writes admitted source locally: it prepares through the fold and
   decoder, and the opaque token binds the owner head, page epoch and every namespace
   position, because content appends do not advance the membership log.
+- CLI create/write obtains an optional caller display label from the fixed public
+  `identity show --json` command in `core.rs`; failures leave no label. The decoder's
+  `ContentEdit` replaces/clears `meta.publisherAgent` atomically with source. Browser
+  edits preserve it, and owner epoch baselines carry it in their committed update.
+  No label selects an identity or grant.
 - Offline writes hold the serve lifecycle lock and use `Store::write_existing`; when `serve`
   holds the lock, `page/ipc.rs` makes one bounded request to the owned socket and never
   retries or falls back. The write signs with a purpose-separated local device certified by

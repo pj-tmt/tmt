@@ -22,5 +22,23 @@
     "update": "AQKHCQAEAQRodG1sETxwPvCfmoAgZcyBIAA8L3A-KAEEbWV0YQV0aXRsZQF3ClRpdGxlIPCfmoAA",
     "sourceDigest": "DDP7uq1jTGCD39uflFYGqmam0stJ7BugI8QbVuOwciU",
     "commitment": "g25zzOLYxBYsX6s1eN439OPWsN3YjTeJc4-gs6CeQlA"
+  },
+  {
+    "source": "<p>Annotated</p>",
+    "title": "Annotations",
+    "clientId": 1159,
+    "update": "AQOHCQAEAQRodG1sEDxwPkFubm90YXRlZDwvcD4oAQRtZXRhBXRpdGxlAXcLQW5ub3RhdGlvbnMoAQRtZXRhDnB1Ymxpc2hlckFnZW50AXcQcHVibGlzaGluZy1hZ2VudAA",
+    "sourceDigest": "XbSNaA-CMGRg55ML3fqiW2qjvzihguJkfMzeS37Uz08",
+    "commitment": "Ftz57GQfMG1BEAYWdLaT6hsjos45Myl_jamypw8Lxdo",
+    "publisherAgent": "publishing-agent"
+  },
+  {
+    "source": "",
+    "title": "Empty published page",
+    "clientId": 1159,
+    "update": "AQKHCQAoAQRtZXRhBXRpdGxlAXcURW1wdHkgcHVibGlzaGVkIHBhZ2UoAQRtZXRhDnB1Ymxpc2hlckFnZW50AXcKYWdlbnQt8J-agAA",
+    "sourceDigest": "47DEQpj8HBSa-_TImW-5JCeuQeRkm5NMpJWZG3hSuFU",
+    "commitment": "mGkw2pk8MWpzxDgSXucHRQuKLJO4b1zEgxzI9c3uvj8",
+    "publisherAgent": "agent-\ud83d\ude80"
   }
 ]

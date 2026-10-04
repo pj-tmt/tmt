@@ -38,6 +38,10 @@ pub struct LifecycleUnavailable;
 pub trait LifecycleObservation {
     fn session(&self) -> &ProviderSessionId;
     fn starting(&self) -> bool;
+    /// The callback's own normalized transition, not the previously stored one.
+    fn transition(&self) -> Option<tmt_core::binding::session::SessionTransition> {
+        None
+    }
     /// A binding locator held by a driver's private enrollment record for this
     /// exact session. Only such drivers may supply it. This selects stored
     /// evidence; fresh host/process proof and `propose` still authorize context.

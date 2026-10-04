@@ -4,6 +4,20 @@ import { text } from './strings.js';
 /** Exact HTML source byte limit, owned by colab-v1 Resource bounds. */
 export const MAX_RENDER_SOURCE_BYTES = 2 * 1024 * 1024;
 export const MAX_SELECTION_BYTES = 16 * 1024;
+/** Cosmetic layout claims never allocate an unbounded frame or resize it faster than 10 Hz. */
+export const MAX_RENDER_HEIGHT = 1_000_000;
+const HEIGHT_UPDATE_MS = 100;
+const GROWTH_REPORT_LIMIT = 5;
+export interface SelectionRect {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+export interface AnchorPosition {
+  id: string;
+  top: number;
+}
 export type RenderState = 'ready' | 'navigation' | 'failed';
 export interface RenderSnapshot {
   readonly renderId: string;
@@ -33,12 +47,17 @@ export async function mountRenderer(
   options: {
     signal: AbortSignal;
     onState(state: RenderState): void;
-    onSelection?(text: string, selector?: QuoteSelector | null): void;
+    onSelection?(text: string, selector?: QuoteSelector | null, rect?: SelectionRect | null): void;
+    onAnnotate?(): void;
+    onOpenThread?(id: string): void;
     onAnchors?(resolved: string[]): void;
+    /** Trusted chrome's fixed header inset; absent for standalone renderer probes. */
+    viewportInset?(): number;
   },
 ): Promise<{
   readonly snapshot: RenderSnapshot;
   highlight(anchors: { id: string; selector: QuoteSelector }[]): void;
+  scrollAnchor(id: string): void;
   destroy(): void;
 }> {
   const snapshot = await captureRender(source);
@@ -55,10 +74,71 @@ export async function mountRenderer(
   const channel = new MessageChannel();
   let requestId = '';
   let anchors: { id: string; selector: QuoteSelector }[] = [];
+  const positions = new Map<string, number>();
+  const inset = () => Math.max(0, Math.min(window.innerHeight, options.viewportInset?.() ?? 0));
+  const viewportHeight = () => Math.max(1, window.innerHeight - inset());
+  let reportedHeight = 0,
+    pendingHeight: number | undefined,
+    heightTimer: ReturnType<typeof setTimeout> | undefined,
+    updatedAt = -Infinity,
+    growingAt = 0,
+    growthReports = 0,
+    lastHeight = viewportHeight(),
+    innerScroll = false,
+    scrolledAt = -Infinity;
+  frame.scrolling = 'no';
+  frame.dataset.scrollMode = 'window';
+  frame.style.height = `${lastHeight}px`;
+  const fallback = () => {
+    innerScroll = true;
+    pendingHeight = undefined;
+    clearTimeout(heightTimer);
+    heightTimer = undefined;
+    frame.scrolling = 'auto';
+    frame.dataset.scrollMode = 'frame';
+    frame.style.height = `${viewportHeight()}px`;
+    channel.port1.postMessage({
+      type: 'colab.render.layout',
+      renderId: snapshot.renderId,
+      mode: 'frame',
+    });
+  };
+  const resize = () => {
+    lastHeight = innerScroll ? viewportHeight() : Math.max(viewportHeight(), reportedHeight);
+    growthReports = 0;
+    frame.style.height = `${lastHeight}px`;
+  };
+  const applyHeight = () => {
+    heightTimer = undefined;
+    if (stopped || innerScroll || pendingHeight === undefined) return;
+    const now = performance.now(),
+      claimed = pendingHeight,
+      next = Math.max(viewportHeight(), claimed);
+    pendingHeight = undefined;
+    // Repeated growth after sizing the frame is a viewport-coupled page. A bounded
+    // cosmetic fallback is preferable to an indefinitely growing browser document.
+    if (next > lastHeight + 1) {
+      if (now - growingAt > 2000) {
+        growthReports = 0;
+        growingAt = now;
+      }
+      if (!growthReports) growingAt = now;
+      if (++growthReports >= GROWTH_REPORT_LIMIT) {
+        fallback();
+        return;
+      }
+    } else growthReports = 0;
+    reportedHeight = claimed;
+    lastHeight = next;
+    updatedAt = now;
+    frame.style.height = `${next}px`;
+  };
   const destroy = () => {
     if (stopped) return;
     stopped = true;
     clearTimeout(deadline);
+    clearTimeout(heightTimer);
+    window.removeEventListener('resize', resize);
     window.removeEventListener('message', bound);
     options.signal.removeEventListener('abort', destroy);
     frame.onload = null;
@@ -77,11 +157,61 @@ export async function mountRenderer(
     const data = event.data;
     if (!data || typeof data !== 'object' || Array.isArray(data)) return;
     const value = data as Record<string, unknown>;
+    if (ready && value.renderId === snapshot.renderId && Object.keys(value).length === 3) {
+      if (
+        value.type === 'colab.render.height' &&
+        typeof value.height === 'number' &&
+        Number.isFinite(value.height) &&
+        value.height > 0
+      ) {
+        if (innerScroll) return;
+        pendingHeight = Math.min(MAX_RENDER_HEIGHT, Math.ceil(value.height));
+        const remaining = HEIGHT_UPDATE_MS - (performance.now() - updatedAt);
+        if (remaining <= 0) applyHeight();
+        else if (heightTimer === undefined) heightTimer = setTimeout(applyHeight, remaining);
+        return;
+      }
+      if (
+        value.type === 'colab.render.anchor' &&
+        typeof value.top === 'number' &&
+        Number.isFinite(value.top) &&
+        value.top >= 0 &&
+        value.top <= MAX_RENDER_HEIGHT
+      ) {
+        const now = performance.now();
+        if (now - scrolledAt < HEIGHT_UPDATE_MS) return;
+        scrolledAt = now;
+        const top =
+          frame.getBoundingClientRect().top +
+          window.scrollY +
+          (innerScroll ? 0 : value.top) -
+          inset();
+        window.scrollTo({
+          top: Math.max(
+            0,
+            Math.min(document.documentElement.scrollHeight - window.innerHeight, top),
+          ),
+          behavior: 'instant',
+        });
+        return;
+      }
+    }
     if (
       ready &&
-      (Object.keys(value).length === 3 ||
-        (Object.keys(value).length === 4 && Object.hasOwn(value, 'selector'))) &&
-      Object.keys(value).every((key) => ['type', 'renderId', 'text', 'selector'].includes(key)) &&
+      Object.keys(value).length === 2 &&
+      value.renderId === snapshot.renderId &&
+      value.type === 'colab.render.annotate'
+    ) {
+      options.onAnnotate?.();
+      return;
+    }
+    if (
+      ready &&
+      Object.keys(value).length >= 3 &&
+      Object.keys(value).length <= 5 &&
+      Object.keys(value).every((key) =>
+        ['type', 'renderId', 'text', 'selector', 'rect'].includes(key),
+      ) &&
       value.type === 'colab.render.selection' &&
       value.renderId === snapshot.renderId &&
       typeof value.text === 'string' &&
@@ -99,7 +229,33 @@ export async function mountRenderer(
           return;
         }
       }
-      options.onSelection?.(value.text, selector);
+      let rect: SelectionRect | null = null;
+      if (value.rect !== undefined && value.rect !== null) {
+        const candidate = value.rect as Record<string, unknown>;
+        if (
+          !candidate ||
+          typeof candidate !== 'object' ||
+          Array.isArray(candidate) ||
+          Object.keys(candidate).length !== 4 ||
+          !['x', 'y', 'width', 'height'].every(
+            (key) =>
+              typeof candidate[key] === 'number' &&
+              Number.isFinite(candidate[key]) &&
+              Math.abs(candidate[key] as number) <= MAX_RENDER_HEIGHT,
+          ) ||
+          (candidate.width as number) < 0 ||
+          (candidate.height as number) < 0
+        )
+          return;
+        if (selector)
+          rect = {
+            x: candidate.x as number,
+            y: candidate.y as number,
+            width: candidate.width as number,
+            height: candidate.height as number,
+          };
+      }
+      options.onSelection?.(value.text, selector, rect);
       return;
     }
     if (
@@ -117,10 +273,27 @@ export async function mountRenderer(
     if (stopped || !ready) return;
     const value = event.data as Record<string, unknown> | null;
     if (
+      value &&
+      typeof value === 'object' &&
+      !Array.isArray(value) &&
+      Object.keys(value).length === 4 &&
+      value.type === 'colab.render.open-thread' &&
+      value.renderId === snapshot.renderId &&
+      value.requestId === requestId &&
+      typeof value.id === 'string' &&
+      anchors.some((anchor) => anchor.id === value.id)
+    ) {
+      options.onOpenThread?.(value.id);
+      return;
+    }
+    if (
       !value ||
       typeof value !== 'object' ||
       Array.isArray(value) ||
-      Object.keys(value).length !== 4 ||
+      ![4, 5].includes(Object.keys(value).length) ||
+      Object.keys(value).some(
+        (key) => !['type', 'renderId', 'requestId', 'resolved', 'positions'].includes(key),
+      ) ||
       value.type !== 'colab.render.anchors' ||
       value.renderId !== snapshot.renderId ||
       value.requestId !== requestId ||
@@ -134,14 +307,40 @@ export async function mountRenderer(
       new Set(value.resolved).size !== value.resolved.length
     )
       return;
+    positions.clear();
+    if (value.positions !== undefined) {
+      if (!Array.isArray(value.positions) || value.positions.length > value.resolved.length) return;
+      for (const position of value.positions) {
+        if (
+          !position ||
+          typeof position !== 'object' ||
+          Array.isArray(position) ||
+          Object.keys(position).length !== 2 ||
+          typeof position.id !== 'string' ||
+          !value.resolved.includes(position.id) ||
+          positions.has(position.id) ||
+          typeof position.top !== 'number' ||
+          !Number.isFinite(position.top) ||
+          position.top < 0 ||
+          position.top > MAX_RENDER_HEIGHT
+        ) {
+          positions.clear();
+          return;
+        }
+        positions.set(position.id, position.top);
+      }
+    }
     options.onAnchors?.([...value.resolved] as string[]);
   };
   const highlight = (input: { id: string; selector: QuoteSelector }[]) => {
     if (stopped) return;
-    const next = structuredClone(input);
+    // Author code can inspect everything delivered into its frame. Rebuild this
+    // narrow view instead of forwarding caller objects or discussion labels.
+    const next = input.map(({ id, selector }) => ({ id, selector: structuredClone(selector) }));
     if (next.length > 1000 || next.some((v) => typeof v.id !== 'string' || v.id.length > 73))
       return;
     for (const item of next) validateSelector(item.selector);
+    positions.clear();
     requestId = crypto.randomUUID();
     const message = {
       type: 'colab.render.highlight',
@@ -161,6 +360,7 @@ export async function mountRenderer(
   };
   const deadline = setTimeout(() => stop('failed'), 5000);
   window.addEventListener('message', bound);
+  window.addEventListener('resize', resize);
   options.signal.addEventListener('abort', destroy, { once: true });
   frame.onload = () => {
     if (stopped) return;
@@ -181,5 +381,23 @@ export async function mountRenderer(
   };
   frame.src = new URL('./renderer.html', document.baseURI).href;
   host.replaceChildren(frame);
-  return { snapshot, highlight, destroy };
+  const scrollAnchor = (id: string) => {
+    const top = positions.get(id);
+    if (stopped || top === undefined) return;
+    if (innerScroll)
+      channel.port1.postMessage({
+        type: 'colab.render.scroll-thread',
+        renderId: snapshot.renderId,
+        requestId,
+        id,
+      });
+    window.scrollTo({
+      top: Math.max(
+        0,
+        frame.getBoundingClientRect().top + window.scrollY + (innerScroll ? 0 : top) - inset(),
+      ),
+      behavior: 'instant',
+    });
+  };
+  return { snapshot, highlight, scrollAnchor, destroy };
 }

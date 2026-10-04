@@ -48,15 +48,34 @@ painter directly.
   original ranges and a cell with zero surviving tracks is omitted. `ls` text uses the same
   visibility; JSON keeps every field value and original column/line metadata and emits
   `hidden_columns` only when nonempty.
-- The immutable view owns disposable derivations keyed by effective pane width (and grid
-  search): the width/search cache keeps admitted projected row cells and geometry together,
+- The immutable view owns disposable derivations keyed by effective pane width, grid search
+  and the clock-derived row labels (`row_paint::Extra`: `⏱ next`, oldest request age): the
+  cache keeps the paint scene built from admitted projected row cells and geometry,
   markdown wrapping caches styled lines by the active look so theme previews repaint them,
   and replacing the view invalidates them. Selection-only frames change styles without
-  rebuilding templates or sizing.
+  rebuilding templates or sizing. The scene is prepared before the cache is replaced; a
+  layout or values failure shows a muted strip and leaves the previous cache.
+- `board::view::row_paint::RowPaint` is the one row renderer: scene parts carry admitted nodes, the
+  recorded `text_width`, cut intent and the owning row. It paints through `paint_with`, where
+  Squad's callback supplies selection, stale-dim, token and emphasis styles and column
+  alignment (`Look` stays the selection policy owner; annotations never take selection).
+  The leading `◆` takes the `waiting` token like the tab mark, and stays plain without color.
+  Each row line has a backdrop that reaches only as far as its text or row-end label, as the
+  selection always did. Clipped hits come from the root's scoped identity; UUID-free rows
+  keep their clip. `Scrolls::show_paint` supplies the viewport, offset and indicator.
 - Occurrence IDs contain tab, authored section slot, source squad and member UUID followed
   by static line/column keys; member order is never identity, and UUID-free display rows have
   no actionable IDs. `App::shown_tab` supplies the retained view owner while another tab
   loads, and resize/search never substitute the requested tab.
+
+## Offline layout validation
+
+`tmt sq layout validate <file>` (module `layout`) checks an authoring file before any core,
+config or storage discovery: at most `MAX_BYTES` + 1 bytes are read, then XML/style admission
+and eager binding against the explicit `squad-projected-v1` schema. Fields and sources come
+from `rows::field_name`, `rows::OWN_FIELDS`, `ColumnSource` and `Format` (provider names are
+checked syntactically; configuration and data are not). Nothing is materialized and the board
+never loads the file. The user-facing schema and examples are in the shipped Squad skill.
 
 ## Decisions and ask-lead
 
@@ -69,13 +88,38 @@ The waiting hint uses `Attention::of`, matching the tab's count, and effective
 bindings; narrow fitting removes the oldest-member label before the actions.
 The footer reserves `? more` as its final hint before fitting whole tail hints.
 
-`ask-lead` opens the existing input composer with the configured question.
-Enter validates the opening sender, squad and current lead, then produces the
-existing `Request::Talk`; no extra client or read path exists. Its docked prompt
-uses an opaque full-width `tmt-tui::Modal` band and admitted text strips. `board::view::strip` also
-owns the converted footer/loading/empty-detail text, leaving their callers'
-resolved styles intact. User-facing action and question settings are owned by
-the shipped Squad skill.
+`App::input` is the one composer for talk, answer, annotation and ask-lead.
+Row composers retain a `RowSend` with tab/section/squad/member occurrence and
+opening sender. Home uses its existing section/squad/member target. A single
+request opens directly; multiple requests retain the explicit picker. The
+composer keeps the chosen request, quoted preview and available note recipient;
+Tab exchanges answer/note modes without changing draft text. Submission
+revalidates the occurrence, sender, actual lead or chosen open request against
+acquired data before producing the existing public send effect. Paint and input
+acquire no additional data.
+
+The home and member painters reserve the inline band's visual lines beneath the
+complete target row. The same line stream supplies row starts, scroll reveal and
+clipped hits. `board::view::waiting` projects that reservation into a current-frame
+band spanning the body width, paints opaque `tmt-tui::Modal` chrome and admitted
+strips, and removes covered pane hits. Note headers derive recipient and subject
+from `Compose::Annotate { to, row }`, adding `about <row>` only when they differ.
+Recipient headers use Accent; the quoted question's ◆ uses Waiting. The quote truncates before the input or recipient.
+Unanchored composers, including notebook-level annotations and links to a lead
+outside member rows, retain their footer path.
+`board::view::strip` owns single-line admitted paint without raw widgets.
+
+`RowFeedback` is session-only send evidence: it appears as `✓ sent` only after
+success, follows the anchored occurrence through refresh and clears on the next
+key. A Home row removed by the answer refresh remains in that transient display
+projection until confirmation clears; it does not alter the acquired Home model,
+public row documents or request state. The next key removes the projection before
+any underlying action can use it.
+
+`ask-lead` keeps its opaque full-width docked prompt with recipient-first header
+and configured question. Enter validates the opening sender, squad and current
+lead, then produces the existing `Request::Talk`. User-facing action and question
+settings are owned by the shipped Squad skill.
 
 ## Composition and folds
 
@@ -187,26 +231,47 @@ by record when no positions were drawn.
 
 ## Home
 
-- `board::home` keeps a board-only summary, shared-filter attention sections and a compact
-  squad-line model as `View.home: Option<home::Home>`; other views carry none. It reuses
-  `tab_view` acquisition and the user-tab section pipeline. Optional observed ages come from the
-  staleness observer: the home tab starts one for every squad before its roster read and records
-  afterward, writing the cache under the held per-squad lock when enabled and available, and it
-  follows the reminders policy without extra core commands. Request ages use shared-inbox
-  timestamps; pending-only rows have no age. The source aggregate document and `ls --tab all`
-  stay unchanged.
+- `board::home` keeps a board-only summary, shared-filter attention sections and squad tile
+  model as `View.home: Option<home::Home>`; other views carry none. It reuses `tab_view`
+  acquisition and the user-tab section pipeline. Optional observed ages come from the
+  staleness observer: the home tab starts one for every squad before its roster read and
+  records afterward, writing the cache under the held per-squad lock when enabled and
+  available. It follows the reminders policy without extra core commands. Request ages use
+  shared-inbox timestamps; pending-only rows have no age. The source aggregate document and
+  `ls --tab all` stay unchanged.
 - The home painter uses the summary band and a flat body, bypassing ordinary pane composition
-  for the shown immutable home view. It keeps one `App.selected` cursor reconciled by
-  section/squad/member identity across refresh and search; attention precedes squads. Hits,
-  paging and overflow reuse `Scrolls`. Enter jumps to a member or opens a squad; Tab traverses
-  attention/squads, and `a` opens the real request picker or an annotation to the selected
-  squad's lead. The composer keeps and revalidates sender, target, lead and open request before
-  the public `tmt answer` or annotation dispatch, and questions stay inside the picker. Home
-  synthesizes no tiles, replies feed or model/token totals; its ⑤ cron line is the
-  [cron board](#cron-on-the-board).
-- New home sections add pure line builders that return lines and local
-  entry/x/width/start/end placements; home translates them into the shared cursor, paging,
-  reveal and clipped hits. Their acquisition and lifecycle owners stay outside paint.
+  for the shown immutable home view. `home::tiles` returns pure lines and local item/line/x/width
+  regions from one admitted Taffy grid: three columns from 150 cells, two from 100, and compact
+  rows below 100 or with at least ten visible squads (two compact columns from 150). Filtered
+  reading order is row-major. Each tile shows squad attention, lead/model/window totals/share
+  and exclusive non-lead urgency marks/member count; compact rows retain the last two lead
+  windows. Whole-roster summary and attention semantics stay unchanged. Unknown member states
+  count without inventing a mark; `attention::waits_on_you` owns waiting precedence.
+- Runtime `App::home_usage` owns observations, model attribution and the configured longest-window
+  share; tiles only format them. Missing and measured zero remain distinct; partial readings
+  and shares carry `~`. Disabled sampling returns no HOME usage projection, so that squad's
+  tile has no token cells. Only sampling squads contribute to the ③ token legend; with none
+  enabled the legend is absent. Uniform window labels appear once in ③; mixed configurations use a
+  “windows vary” legend and label each tile's totals and displayed share with its actual window.
+- HOME retains public session models independently of token sampling: one bounded `tmt ls --json`
+  read seeds the existing per-squad observed input on refresh, and the shared meter receipt
+  refreshes those models when sampling is active. `App::home_lead_model` projects the acquired
+  lead's model even for a disabled squad. A failed model read appears in the retained HOME failed-read notice
+  without changing public aggregate JSON. Unknown models can disappear when sampling is off.
+- Home keeps one `App.selected` cursor reconciled by section/squad/member identity across
+  refresh and search; attention precedes ⑤ cron, then squads. Home translates tile regions into
+  global ordinals, complete selected-range reveal and viewport-clipped continuation hits through
+  one `Scrolls` pass. Selection covers every padded tile row; gaps and headings have no hit.
+  Inline composers and sent feedback insert beneath the complete selected tile's grid row,
+  shifting subsequent tile regions together. Ordinary panes retain their existing owners.
+  Enter jumps to a member or opens a squad; Tab traverses attention/cron/squads, and `a` opens
+  the real request picker or an annotation to the selected squad's lead. The shared composer
+  revalidates sender, target, lead and open request before public `tmt answer` or annotation
+  dispatch; its inline band quotes the chosen question. Tiles show no member names, task/PR
+  fields or private question text. Cron acquisition/lifecycle remains the [cron board](#cron-on-the-board).
+- New home sections add pure line builders returning lines and local entry/x/width/start/end
+  placements; home translates them into the shared cursor, paging, reveal and clipped hits.
+  Their acquisition and lifecycle owners stay outside paint.
 
 ## Cron on the board
 
@@ -343,6 +408,10 @@ here reads the store or core directly.
   moves between the two fields and query edits reset to the first match. Refresh follows the
   selected complete tab key, and resize or model replacement invalidates hits. Its semantic
   attention spans use shared hit geometry and Squad's tab-color/selection policy.
+- A modal controller returns `None` only for an event it does not take. `tmt-tui::app::route`
+  offers a `None` again to the overlay layer, so a controller that consumed a move and returned
+  `None` applied it twice (the `c` list jumped two jobs per press). Consumed events, including
+  boundary presses, return `Some`; the shared picker reports them as `PickerInput::Captured`.
 - All of these use shared modal chrome, wrapping, scrolling and inside footers. Settings use
   grouped stable-key list rows for the reference and an admitted docked prompt for edits; the
   Config controller keeps raw edit text, validation, the disposable preview, stale-file refusal

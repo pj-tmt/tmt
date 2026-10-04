@@ -1,7 +1,10 @@
-// Report-only conventional titles from the cumulative squash merge-group range.
+// Conventional PR titles: enforced on pull requests that change a released component, and
+// reported (never failing) over the cumulative squash merge-group range.
 import { appendFileSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import { componentMap } from './ci-scope.mjs';
 import { runPackedCommand } from './packed-command.mjs';
+import { releasedComponentNamesOfPath } from './release-cut.mjs';
 
 const ROOT = fileURLToPath(new URL('../../', import.meta.url));
 const SHA = /^[a-f0-9]{40}$/;
@@ -43,6 +46,50 @@ export function checkQueueTitles({ event, reader }) {
   };
 }
 
+/**
+ * A non-conventional squash title on a released component's change is dropped silently by the
+ * cut planner's conventional types, so it must be fixed before it enters the queue. Pull
+ * requests that change no released component keep any title.
+ */
+export function checkPullRequestTitle({ title, paths, map }) {
+  const components = new Set();
+  for (const path of paths)
+    for (const name of releasedComponentNamesOfPath(path, map)) components.add(name);
+  return {
+    components: [...components].sort(),
+    ok: conventionalPrTitle(title) || components.size === 0,
+  };
+}
+
+function enforcePullRequestTitle({ event, reader }) {
+  const pull = event?.pull_request;
+  if (
+    !Number.isInteger(pull?.number) ||
+    ![pull.base?.sha, pull.head?.sha].every((s) => SHA.test(s ?? ''))
+  )
+    throw new Error('Missing pull-request event data.');
+  // A rerun reuses the original event payload, so the current title comes from REST.
+  const title = JSON.parse(
+    reader.rest(`repos/${process.env.GITHUB_REPOSITORY}/pulls/${pull.number}`)
+  ).title;
+  const changed = reader.git([
+    'diff',
+    '--no-renames',
+    '--name-only',
+    '-z',
+    `${pull.base.sha}...${pull.head.sha}`,
+    '--',
+  ]);
+  return {
+    title,
+    ...checkPullRequestTitle({
+      title,
+      paths: changed.split('\0').filter(Boolean),
+      map: componentMap(),
+    }),
+  };
+}
+
 function summaryText(text) {
   return String(text).replace(
     /[&<>"']/g,
@@ -50,7 +97,7 @@ function summaryText(text) {
   );
 }
 
-// The observation phase must not turn missing evidence or summary I/O into a queue gate.
+// Summary I/O never decides the result; only the pull-request gate's evidence and title do.
 function writeTitleReport(text) {
   process.stdout.write(text);
   try {
@@ -61,17 +108,14 @@ function writeTitleReport(text) {
   }
 }
 
-if (process.argv[1] === fileURLToPath(import.meta.url)) {
-  try {
-    if (process.argv.length !== 2) throw new Error('Usage: pr-title-check.mjs');
-    const reader = {
-      git: (args) =>
-        runPackedCommand('git', args, { cwd: ROOT, env: process.env, timeoutMs: 30_000 }).trim(),
-    };
+function reportMergeGroupUnavailable(error) {
+  writeTitleReport(
+    `### Conventional PR titles (report-only)\n\nTitle evidence unavailable: <code>${summaryText(error.message)}</code>. This report does not fail the merge group.\n`
+  );
+}
 
-    if (process.env.GITHUB_EVENT_NAME !== 'merge_group')
-      throw new Error('The title report runs only on merge groups.');
-    const event = JSON.parse(readFileSync(process.env.GITHUB_EVENT_PATH, 'utf8'));
+function runMergeGroupReport(event, reader) {
+  try {
     const { checked, findings } = checkQueueTitles({ event, reader });
     const details = findings
       .map(
@@ -85,8 +129,50 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
         details
     );
   } catch (error) {
+    reportMergeGroupUnavailable(error);
+  }
+}
+
+// Enforcement fails closed: missing evidence is not a pass, and a rerun fixes a transient read.
+function runPullRequestGate(event, reader) {
+  const { title, components, ok } = enforcePullRequestTitle({ event, reader });
+  if (ok) {
     writeTitleReport(
-      `### Conventional PR titles (report-only)\n\nTitle evidence unavailable: <code>${summaryText(error.message)}</code>. This report does not fail the merge group.\n`
+      `### Conventional PR title\n\n${components.length ? 'Conventional title for a PR that changes released component(s).' : 'No released component changed; any title is accepted.'}\n`
     );
+    return;
+  }
+  writeTitleReport(
+    `### Conventional PR title\n\nThis PR changes released component(s) ${components.join(', ')}, but its title is not conventional: <code>${summaryText(title)}</code>. ` +
+      'The cut planner would otherwise list it only under "Other changes". Edit the PR title to type(scope)?: subject (for example fix(remote): keep door origins stable), then rerun Code quality.\n'
+  );
+  process.exitCode = 1;
+}
+
+if (process.argv[1] === fileURLToPath(import.meta.url)) {
+  try {
+    if (process.argv.length !== 2) throw new Error('Usage: pr-title-check.mjs');
+    const run = (command, args) =>
+      runPackedCommand(command, args, { cwd: ROOT, env: process.env, timeoutMs: 30_000 });
+    const reader = {
+      git: (args) => run('git', args).trim(),
+      rest: (endpoint) => run('gh', ['api', endpoint]),
+    };
+    const eventName = process.env.GITHUB_EVENT_NAME;
+    if (!['merge_group', 'pull_request'].includes(eventName))
+      throw new Error('The title check runs only on pull requests and merge groups.');
+    const event = JSON.parse(readFileSync(process.env.GITHUB_EVENT_PATH, 'utf8'));
+    if (eventName === 'merge_group') runMergeGroupReport(event, reader);
+    else runPullRequestGate(event, reader);
+  } catch (error) {
+    // Only the merge-group observation phase may pass without evidence.
+    if (process.env.GITHUB_EVENT_NAME === 'merge_group') {
+      reportMergeGroupUnavailable(error);
+    } else {
+      writeTitleReport(
+        `### Conventional PR title\n\nTitle evidence unavailable: <code>${summaryText(error.message)}</code>. Rerun Code quality.\n`
+      );
+      process.exitCode = 1;
+    }
   }
 }

@@ -56,6 +56,7 @@ pub const STATEMENT_BYTES: usize = (tmt_colab_model::payload::MAX_BYTES + 1024) 
 pub const SYNC_CONTEXT_BYTES: usize = 8 * 1024;
 
 /// Inert discussion text and quote-selector context bounds.
+pub const PUBLISHER_AGENT_BYTES: usize = 128;
 pub const COMMENT_BODY_BYTES: usize = 16 * 1024;
 pub const COMMENT_CONTEXT_BYTES: usize = 128;
 pub const COMMENT_CONTEXT_POINTS: usize = 32;

@@ -75,6 +75,8 @@ pub struct Page {
     pub page_id: String,
     pub source: String,
     pub title: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub publisher_agent: Option<String>,
     pub epoch: String,
     pub membership_head: Head,
     pub revision: String,
@@ -166,6 +168,7 @@ pub fn read(store: &Store, key: &Keyring, page: &str, decoder: &mut Decoder) -> 
         page_id: page.into(),
         source: view.source,
         title: view.title,
+        publisher_agent: view.publisher_agent,
         epoch: s.epoch.to_string(),
         membership_head: Head::from(&s.authority.head),
         revision: token(&key.space_id, page, &s.authority.head, s.epoch, &s.cuts)?,
@@ -176,12 +179,12 @@ pub fn prepare(
     store: &Store,
     key: &Keyring,
     page: &str,
-    source: &str,
+    edit: crate::decoder::ContentEdit<'_>,
     expected: Option<&str>,
     decoder: &mut Decoder,
     now: u64,
 ) -> Result<Prepared> {
-    if source.len() > crate::decoder::BASELINE_BYTES {
+    if edit.source.len() > crate::decoder::BASELINE_BYTES {
         return Err(Fault::Capacity.into());
     }
     let s = snapshot(store, key, page, true)?;
@@ -216,7 +219,7 @@ pub fn prepare(
     } else {
         writer_chain(key, &s.authority.head, &issuer, now)?
     };
-    let view = s.materialize_edit(key, page, decoder, Some(source))?;
+    let view = s.materialize_edit(key, page, decoder, Some(edit))?;
     let head = s
         .cuts
         .iter()
@@ -262,7 +265,7 @@ pub fn prepare(
         epoch: s.epoch.to_string(),
         membership_head: Head::from(&s.authority.head),
         base_revision: revision,
-        source_sha256: hex(&crypto::digest(source.as_bytes())),
+        source_sha256: hex(&crypto::digest(edit.source.as_bytes())),
         memory_limit: view.memory_limit,
         chain: values::encode_binary(&chain),
         envelope: values::encode_binary(&envelope.to_json()?),

@@ -172,6 +172,9 @@ impl LifecycleObservation for ChannelObservation {
     fn starting(&self) -> bool {
         self.event.starting
     }
+    fn transition(&self) -> Option<SessionTransition> {
+        Some(self.event.transition)
+    }
     fn verified_binding(&self) -> Option<&str> {
         let record = self.record.as_ref()?;
         let ready = record.ready.as_ref()?;

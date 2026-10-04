@@ -131,6 +131,35 @@ describe('mechanical version injection', () => {
       f.snapshot.source.replace(f.snapshot.oldVersion, f.snapshot.version)
     );
   });
+  it('logs the duration and input size of every helper call, including a timed-out one', () => {
+    const f = fixture();
+    const write = vi.spyOn(process.stderr, 'write').mockReturnValue(true);
+    injectVersion(f.root, f.snapshot);
+    const lines = write.mock.calls.map(([line]) => String(line));
+    expect(lines).toEqual([
+      expect.stringMatching(
+        new RegExp(
+          `^release-version edit: ${Buffer.byteLength(f.snapshot.source)} input bytes, \\d+ms, ok\\n$`
+        )
+      ),
+    ]);
+    write.mockClear();
+    const g = fixture();
+    vi.spyOn(childProcess, 'spawnSync').mockReturnValueOnce({
+      pid: 0,
+      output: [],
+      stdout: '',
+      stderr: '',
+      status: null,
+      signal: null,
+      error: Object.assign(new Error('spawnSync ETIMEDOUT'), { code: 'ETIMEDOUT' }),
+    });
+    syncBuiltinESMExports();
+    expect(() => injectVersion(g.root, g.snapshot)).toThrow('ETIMEDOUT');
+    expect(String(write.mock.calls.at(-1)![0])).toMatch(
+      /release-version \w+: \d+ input bytes, \d+ms, failed \(ETIMEDOUT\)/
+    );
+  });
   it.each(['timeout', 'exit', 'signal'])(
     'keeps the source unchanged and fails loudly on TOML helper %s',
     (failure) => {

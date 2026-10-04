@@ -148,7 +148,10 @@ impl Fixture {
             &self.store,
             &self.key,
             PAGE,
-            source,
+            tmt_colab::decoder::ContentEdit {
+                source,
+                publisher_agent: None,
+            },
             revision,
             &mut self.decoder(),
             NOW,
@@ -490,7 +493,10 @@ fn expired_local_certificate_renews_same_device_atomically() {
         &f.store,
         &f.key,
         PAGE,
-        "after expiry",
+        tmt_colab::decoder::ContentEdit {
+            source: "after expiry",
+            publisher_agent: None,
+        },
         None,
         &mut f.decoder(),
         later,
@@ -541,7 +547,10 @@ fn expired_local_certificate_renews_same_device_atomically() {
             &f.store,
             &f.key,
             PAGE,
-            "revoked",
+            tmt_colab::decoder::ContentEdit {
+                source: "revoked",
+                publisher_agent: None
+            },
             None,
             &mut f.decoder(),
             cert.expires_at

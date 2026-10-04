@@ -394,7 +394,10 @@ advisory, not a live address. Live `origin` and `path` come only from the runnin
 owner-only control socket. Stopped inspection creates nothing and does not initialize or migrate
 state. Unsafe or unreadable state, an unavailable lifecycle lease, and failure to reach or read a
 live serve return the standard `{"error":{"code":"REMOTE_…","message":"…"}}` document with a
-nonzero exit. Status contains no other fields, secrets, cookies or device inventory.
+nonzero exit. A running serve that predates `status` or `stop` (alpha.1 answered
+`REMOTE_INPUT_INVALID` "Unknown control operation."; later serves answer
+`REMOTE_CONTROL_UNSUPPORTED`) yields `REMOTE_SERVE_OUTDATED` from either command: it must be
+stopped by hand (Ctrl-C in its terminal) and started again, since `stop` cannot reach it. Status contains no other fields, secrets, cookies or device inventory.
 
 `tmt remote stop --json` asks the running serve to shut down through its owner-only control
 socket, then waits up to 40 seconds after acknowledgment for the lifecycle lease to be released
@@ -1059,9 +1062,13 @@ envelopes. No unauthenticated GET inventory.
 
 Browser assets live at the door root, disjoint from the route prefix, under the same Host, path and
 framing rules. `GET /pair/<descriptor>` (1–4096 base64url characters) serves the pairing page with
-`default-src 'none'; script-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none';
+`default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none';
 frame-ancestors 'none'`; the descriptor names the offer and never the code, which stays in the
-fragment that the page removes before anything else runs. `GET /sdk/remote-v1.js` serves the device
+fragment that the page removes before anything else runs. `GET /` serves a static pairing landing
+page; malformed pairing-page paths receive generic HTML errors with their refusal status. These
+pages load only the embedded same-origin `GET /sdk/pages.css` stylesheet, using the shared design
+tokens and system font fallbacks without network fonts. Protocol refusals below `/r/` remain JSON.
+`GET /sdk/remote-v1.js` serves the device
 SDK as `text/javascript; charset=utf-8` with `nosniff`; the path names the SDK interface version,
 not a build, so it is not cached across upgrades. `POST /sdk/mount` takes exactly `{path}` from a
 page on the door's own origin and answers `{machineId, windowId, address, extension, mount}`: this

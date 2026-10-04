@@ -45,7 +45,8 @@ impl Pilot {
             .map(str::to_owned)
             .unwrap_or_else(|| json!({"dataRoot":pilot.root.join("selected")}).to_string());
         let payload = format!(
-            "#!/bin/sh\n[ \"$#\" = 1 ] && [ \"$1\" = api ] || exit 9\ncd {} || exit 9\nprintf '%s\\n' \"$*\" >> calls\ncat > input\nprintf '%s\\n' {}\n",
+            "#!/bin/sh\nif [ \"$1 $2 $3\" = 'identity show --json' ]; then\ncd {} || exit 9\nprintf '%s\\n' \"$*\" >> publisher-calls\n[ -f publisher ] || exit 9\ncat publisher\nexit 0\nfi\n[ \"$#\" = 1 ] && [ \"$1\" = api ] || exit 9\ncd {} || exit 9\nprintf '%s\\n' \"$*\" >> calls\ncat > input\nprintf '%s\\n' {}\n",
+            quote(pilot.root.to_str().unwrap()),
             quote(pilot.root.to_str().unwrap()),
             quote(&response)
         );
@@ -85,8 +86,58 @@ impl Pilot {
             .env("XDG_CACHE_HOME", self.root.join("cache"))
             .env("TMPDIR", &self.root)
             .env("TMUX_TEAM_HOME", self.root.join("selected"))
-            .env("TMT_EXECUTABLE", self.root.join("core"));
+            .env("TMT_EXECUTABLE", self.root.join("core"))
+            // A stub opener lives in `bin`; a real one must never be reached by a test.
+            .env(
+                "PATH",
+                format!("{}:/usr/bin:/bin", self.root.join("bin").display()),
+            );
         cmd
+    }
+    /// A stand-in for the platform opener (`open` / `xdg-open`) that records each link it gets.
+    fn opener(&self, exit: i32) {
+        let name = if cfg!(target_os = "macos") {
+            "open"
+        } else {
+            "xdg-open"
+        };
+        fs::create_dir_all(self.root.join("bin")).unwrap();
+        let path = self.root.join("bin").join(name);
+        fs::write(
+            &path,
+            format!(
+                "#!/bin/sh\nif [ \"$1\" = __fixture_ready ]; then exit 0; fi\nprintf '%s\\n' \"$1\" >> {}\nexit {exit}\n",
+                quote(self.root.join("opened").to_str().unwrap())
+            ),
+        )
+        .unwrap();
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o700)).unwrap();
+        // A just-written executable can be briefly busy while a parallel test forks; wait it out
+        // through the no-effect branch so the product's one exec is never the probe.
+        let deadline = Instant::now() + Duration::from_secs(1);
+        loop {
+            match Command::new(&path).arg("__fixture_ready").output() {
+                Ok(output) => {
+                    assert!(output.status.success());
+                    break;
+                }
+                Err(e)
+                    if e.kind() == std::io::ErrorKind::ExecutableFileBusy
+                        && Instant::now() < deadline =>
+                {
+                    thread::sleep(Duration::from_millis(10))
+                }
+                Err(e) => panic!("opener publication failed: {e}"),
+            }
+        }
+        assert!(!self.root.join("opened").exists());
+    }
+    fn opened(&self) -> Vec<String> {
+        fs::read_to_string(self.root.join("opened"))
+            .unwrap_or_default()
+            .lines()
+            .map(str::to_owned)
+            .collect()
     }
     fn call(&self, args: &[&str]) -> Value {
         let output = self.command().args(args).output().unwrap();
@@ -466,16 +517,21 @@ fn management_reads_verify_encrypted_titles_and_preserve_missing_and_existing_st
     let list = pilot.call(&["ls", "--json"]);
     let show = pilot.call(&["show", PAGE, "--json"]);
     assert_eq!(list["pages"][0]["title"], "Encrypted π\u{1b}[31m");
-    assert_eq!(show["page"], list["pages"][0]);
+    // `ls` adds each page's `path` and `link`; everything else is the same record.
+    let mut listed = list["pages"][0].clone();
+    for key in ["path", "link"] {
+        listed.as_object_mut().unwrap().remove(key);
+    }
+    assert_eq!(show["page"], listed);
     assert_eq!(show["members"][0]["id"], MEMBER);
-    assert_eq!(show["page"]["warnings"], json!(["expiry-unavailable"]));
-    assert_eq!(show["page"]["lastUpdateAtMs"], Value::Null);
-    assert_eq!(show["page"]["expiresAtMs"], Value::Null);
+    assert_eq!(show["page"]["warnings"], json!([]));
+    let updated = show["page"]["lastUpdateAtMs"].as_u64().unwrap();
+    assert_eq!(show["page"]["expiresAtMs"], updated + 30 * 86_400_000);
     assert_eq!(show["discussions"], "not-available");
     let human = pilot.command().args(["ls"]).output().unwrap();
     assert!(human.status.success());
     assert!(!human.stdout.contains(&0x1b));
-    assert!(String::from_utf8_lossy(&human.stdout).contains("Expiry times are not available yet"));
+    assert!(String::from_utf8_lossy(&human.stdout).contains("Expires"));
     assert_eq!(fs::read(db).unwrap(), before);
 }
 #[test]
@@ -1021,7 +1077,8 @@ fn create_supports_empty_source_and_stdin_and_refuses_invalid_input_before_state
     assert!(message.contains("PAGE CREATED"));
     // Without a running door the path stays relative and says how to get a full link.
     assert!(message.contains("x/colab/#space="));
-    assert!(message.contains("(start tmt remote serve to get a full link)"));
+    assert!(message.contains("(Browser access needs the Remote extension"));
+    assert!(!message.contains("start tmt remote serve"));
     assert!(!message.contains("tmt remote pair printed"));
 }
 const DOOR: &str = r#"{"running":true,"origin":"http://127.0.0.1:53253","path":"/r/3e2c69f7"}"#;
@@ -1043,7 +1100,7 @@ fn reader_links_print_a_full_url_only_while_a_door_runs() {
     // No door: the path alone, with how to get a full link.
     let plain: Value = serde_json::from_str(&add(None, &["--json"])).unwrap();
     assert!(plain.get("readerUrl").is_none());
-    assert!(add(None, &[]).contains("start tmt remote serve to get a full link"));
+    assert!(add(None, &[]).contains("Browser access needs the Remote extension"));
     let running: Value = serde_json::from_str(&add(Some(DOOR), &["--json"])).unwrap();
     let path = running["readerPath"].as_str().unwrap();
     assert_eq!(
@@ -1090,7 +1147,7 @@ fn created_pages_print_a_copyable_full_link_only_while_a_door_runs() {
     let path = created["path"].as_str().unwrap();
     assert!(path.starts_with("x/colab/#space="));
     assert_eq!(
-        created["url"],
+        created["link"],
         format!("http://127.0.0.1:53253/r/3e2c69f7/{path}")
     );
     let human = pilot
@@ -1108,7 +1165,7 @@ fn created_pages_print_a_copyable_full_link_only_while_a_door_runs() {
         "{text}"
     );
     assert!(!text.contains("start tmt remote serve"));
-    // A stopped door that remembers its port says so; an extra field never breaks the answer.
+    // A stopped door says how to get one; an extra field never breaks the answer.
     let stopped = pilot
         .command_with_door(r#"{"running":false,"lastPort":53253,"future":1}"#)
         .args(["page", "create", "--title", "Stopped"])
@@ -1116,7 +1173,7 @@ fn created_pages_print_a_copyable_full_link_only_while_a_door_runs() {
         .unwrap();
     let text = String::from_utf8(stopped.stdout).unwrap();
     assert!(
-        text.contains("(start tmt remote serve (last door port 53253) to get a full link)"),
+        text.contains("(run tmt colab serve to get a full link)"),
         "{text}"
     );
 }
@@ -1174,9 +1231,13 @@ fn human_output_is_readable_and_the_decoder_note_is_not_repeated_per_command() {
         shown.contains("membership") && shown.contains("revision "),
         "{shown}"
     );
-    assert!(shown.contains("links") && shown.contains("none"), "{shown}");
+    assert!(shown.contains("links") && shown.contains('–'), "{shown}");
     assert!(!shown.contains('{') && !shown.contains('['), "{shown}");
-    assert!(warning.contains("Expiry times are not available yet"));
+    assert!(
+        shown.contains("Expires") && shown.contains("UTC"),
+        "{shown}"
+    );
+    assert!(warning.is_empty(), "{warning}");
     // Page read/write keep decoder state in JSON only.
     let (source, metadata) = human(&["page", "read", page]);
     assert_eq!(source, "");
@@ -1227,11 +1288,8 @@ fn serve_names_the_link_only_when_a_door_runs_and_reports_the_decoder_once() {
         let mut reader = BufReader::new(child.stdout.take().unwrap());
         let mut text = String::new();
         let deadline = Instant::now() + Duration::from_secs(5);
-        let wanted = if cfg!(target_os = "linux") {
-            "open"
-        } else {
-            "decoder"
-        };
+        // The last row every platform prints for an empty space; the `decoder` row is macOS-only.
+        let wanted = "create";
         while !text.contains(wanted) && Instant::now() < deadline {
             let mut line = String::new();
             if reader.read_line(&mut line).unwrap() == 0 {
@@ -1530,9 +1588,15 @@ fn full_management_confirmation_input_and_retention_reads_preserve_state() {
         assert!(shown.contains("membership") && shown.contains("revision"));
         assert!(!shown.contains("retentionDays") && !shown.contains('{'));
         assert!(!shown.contains("audience") && !shown.contains("epoch"));
-        assert!(
-            String::from_utf8_lossy(&human.stderr).contains("Expiry times are not available yet")
-        );
+        assert!(human.stderr.is_empty());
+        assert!(shown.contains("last edit") && shown.contains("expiry") && shown.contains(" UTC"));
+        let updated = before["page"]["lastUpdateAtMs"].as_u64().unwrap();
+        assert_eq!(before["page"]["expiresAtMs"], updated + 30 * 86_400_000);
+        assert_eq!(before["page"]["warnings"], json!([]));
+        let catalog = pilot.call(&["ls", "--json"]);
+        for field in ["retentionDays", "lastUpdateAtMs", "expiresAtMs", "warnings"] {
+            assert_eq!(before["page"][field], catalog["pages"][0][field]);
+        }
         pilot.call(&[
             "share", "member", "role", PAGE, MEMBER, "editor", "--yes", "--json",
         ]);
@@ -1947,6 +2011,14 @@ fn pid_file(pilot: &Pilot, name: &str) -> Pid {
             .unwrap(),
     )
 }
+/// Rows are padded to the longest key, which differs by platform (the `decoder` row is macOS-only):
+/// compare words, not columns.
+fn squashed(text: &str) -> String {
+    text.lines()
+        .map(|line| line.split_whitespace().collect::<Vec<_>>().join(" "))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
 fn assert_gone(pid: Pid) {
     assert_eq!(kill(pid, None), Err(Errno::ESRCH), "process {pid} leaked");
 }
@@ -1955,21 +2027,21 @@ fn serve_attaches_to_a_running_door_and_says_what_to_do_next() {
     let pilot = Pilot::new(None);
     pilot.devices(r#"{"devices":[]}"#);
     let mut serving = Serving::start(&pilot, pilot.remote_core(Some(DOOR), Serve::Fail), &[]);
-    let text = Serving::wait_for(&serving.out, "create one:");
+    let text = squashed(&Serving::wait_for(&serving.out, "create "));
     // Whole values in the existing LOCAL SPACE layout: state first, then the next steps.
     for wanted in [
         "LOCAL SPACE",
         "(ready)",
         "attached · http://127.0.0.1:53253",
         "no",
-        "create one: tmt colab page create --title <title>",
+        "create tmt colab page create --title <title>",
         "pair this browser once: tmt remote pair",
     ] {
         assert!(text.contains(wanted), "{wanted:?} missing in {text}");
     }
     // The link opens only once a browser is paired, so the pairing step comes before it.
     assert!(
-        text.find("pair   ").unwrap() < text.find("open   ").unwrap(),
+        text.find("\npair ").unwrap() < text.find("\nopen ").unwrap(),
         "{text}"
     );
     serving.stop(Signal::SIGTERM);
@@ -2255,4 +2327,380 @@ fn without_a_door_the_page_text_gives_the_reason_and_never_a_manual_remote_comma
         assert!(!text.contains("tmt remote serve"), "{text}");
         serving.stop(Signal::SIGTERM);
     }
+}
+
+#[test]
+fn cli_publisher_label_uses_fixed_public_command_and_unknown_writes_clear_it() {
+    let pilot = Pilot::new(None);
+    let publisher = pilot.root.join("publisher");
+    fs::write(
+        &publisher,
+        json!({"identity":{"name":"publishing-agent"}}).to_string(),
+    )
+    .unwrap();
+    let created = pilot.call(&["page", "create", "--title", "Published", "--json"]);
+    let page = created["pageId"].as_str().unwrap();
+    assert_eq!(
+        pilot.call(&["page", "read", page, "--json"])["publisherAgent"],
+        "publishing-agent"
+    );
+    let file = pilot.root.join("page.html");
+    fs::write(&file, "<p>New content</p>").unwrap();
+    for reply in [
+        Some(json!({"identity":{"name":"next-agent"}})),
+        None,
+        Some(json!({"error":{"code":"IDENTITY_REQUIRED"}})),
+        Some(json!({"identity":{"name":"é".repeat(65)}})),
+    ] {
+        let expected = reply
+            .as_ref()
+            .and_then(|value| value["identity"]["name"].as_str())
+            .filter(|value| tmt_colab::decoder::valid_publisher_agent(value))
+            .map(str::to_owned);
+        if let Some(value) = reply {
+            fs::write(&publisher, value.to_string()).unwrap();
+        } else {
+            fs::remove_file(&publisher).unwrap();
+        }
+        pilot.call(&[
+            "page",
+            "write",
+            page,
+            "--file",
+            file.to_str().unwrap(),
+            "--json",
+        ]);
+        let read = pilot.call(&["page", "read", page, "--json"]);
+        assert_eq!(read["source"], "<p>New content</p>");
+        assert_eq!(
+            read.get("publisherAgent").and_then(Value::as_str),
+            expected.as_deref()
+        );
+    }
+    let calls = fs::read_to_string(pilot.root.join("publisher-calls")).unwrap();
+    assert_eq!(
+        calls.lines().collect::<Vec<_>>(),
+        vec!["identity show --json"; 5]
+    );
+}
+
+#[test]
+fn serve_opens_the_space_home_only_when_told_or_allowed_and_says_so() {
+    let pilot = Pilot::new(None);
+    pilot.opener(0);
+    let home = PAGE_LINK;
+    // No terminal under test: without a flag nothing opens and the link is just printed.
+    let mut serving = Serving::start(&pilot, pilot.remote_core(Some(DOOR), Serve::Fail), &[]);
+    let text = Serving::wait_for(&serving.out, "create");
+    assert!(squashed(&text).contains(&format!("open {home}")), "{text}");
+    assert!(pilot.opened().is_empty());
+    serving.stop(Signal::SIGTERM);
+    // `--no-open` and `--json` always skip, even with the setting on and `--open` absent.
+    let mut serving = Serving::start(
+        &pilot,
+        pilot.remote_core(Some(DOOR), Serve::Fail),
+        &["--open", "--json"],
+    );
+    assert_eq!(serving.ready()["opened"], false);
+    serving.stop(Signal::SIGTERM);
+    assert!(pilot.opened().is_empty());
+    // `--open` forces it past the missing terminal, and the row says what happened.
+    let mut serving = Serving::start(
+        &pilot,
+        pilot.remote_core(Some(DOOR), Serve::Fail),
+        &["--open"],
+    );
+    let text = Serving::wait_for(&serving.out, "create");
+    assert!(
+        text.contains(&format!("opened in your browser: {home}")),
+        "{text}"
+    );
+    serving.stop(Signal::SIGTERM);
+    assert_eq!(pilot.opened(), vec![home.to_owned()]);
+}
+#[test]
+fn serve_opens_the_single_page_and_the_setting_is_overridden_by_flags_only() {
+    let pilot = Pilot::new(None);
+    pilot.opener(0);
+    let created = pilot.call(&["page", "create", "--title", "Only", "--json"]);
+    let page = created["pageId"].as_str().unwrap();
+    pilot.call(&["settings", "open", "off", "--json"]);
+    let core = pilot.remote_core(Some(DOOR), Serve::Fail);
+    // `--no-open` wins over `--open` given later? No: the last one given wins.
+    let mut serving = Serving::start(&pilot, core.clone(), &["--open", "--no-open"]);
+    Serving::wait_for(&serving.out, "open");
+    serving.stop(Signal::SIGTERM);
+    assert!(pilot.opened().is_empty());
+    let mut serving = Serving::start(&pilot, core, &["--open"]);
+    Serving::wait_for(&serving.out, "opened in your browser");
+    serving.stop(Signal::SIGTERM);
+    let opened = pilot.opened();
+    assert_eq!(opened.len(), 1);
+    assert!(opened[0].starts_with("http://127.0.0.1:53253/r/3e2c69f7/x/colab/#space="));
+    assert!(
+        opened[0].ends_with(&format!("path=%2Fpages%2F{page}")),
+        "{opened:?}"
+    );
+}
+#[test]
+fn a_failing_opener_warns_once_and_keeps_the_printed_link() {
+    let pilot = Pilot::new(None);
+    pilot.opener(1);
+    let mut serving = Serving::start(
+        &pilot,
+        pilot.remote_core(Some(DOOR), Serve::Fail),
+        &["--open"],
+    );
+    let warning = Serving::wait_for(&serving.err, "Could not open the browser");
+    assert_eq!(warning.matches("Could not open").count(), 1, "{warning}");
+    let text = Serving::wait_for(&serving.out, "create");
+    assert!(
+        text.contains(PAGE_LINK) && !text.contains("opened in your browser"),
+        "{text}"
+    );
+    serving.stop(Signal::SIGTERM);
+}
+#[test]
+fn page_create_opens_its_page_only_with_a_door_and_never_for_json() {
+    let pilot = Pilot::new(None);
+    pilot.opener(0);
+    let create = |door: Option<&str>, extra: &[&str]| {
+        let mut cmd = pilot.command();
+        if let Some(status) = door {
+            cmd.env("TMT_EXECUTABLE", pilot.door_core(status, None));
+        }
+        let out = cmd
+            .args(["page", "create", "--title", "T"])
+            .args(extra)
+            .output()
+            .unwrap();
+        assert!(out.status.success(), "{out:?}");
+        String::from_utf8(out.stdout).unwrap()
+    };
+    // Not without --open (no terminal), not without a door, not for --json.
+    create(Some(DOOR), &[]);
+    create(None, &["--open"]);
+    create(Some(DOOR), &["--open", "--json"]);
+    assert!(pilot.opened().is_empty());
+    let text = create(Some(DOOR), &["--open"]);
+    let opened = pilot.opened();
+    assert_eq!(opened.len(), 1);
+    assert!(opened[0].starts_with("http://127.0.0.1:53253/r/3e2c69f7/x/colab/#space="));
+    assert!(
+        text.contains(&format!("opened in your browser: {}", opened[0])),
+        "{text}"
+    );
+    assert!(
+        text.contains("pair this browser") || text.contains("if this browser is new"),
+        "{text}"
+    );
+}
+#[test]
+fn settings_show_and_change_open_with_its_source_and_survive_a_damaged_file() {
+    let pilot = Pilot::new(None);
+    assert_eq!(
+        pilot.call(&["settings", "--json"]),
+        json!({"open":true,"source":"default"})
+    );
+    assert!(!pilot.root.join("selected/colab").exists());
+    assert_eq!(
+        pilot.call(&["settings", "open", "off", "--json"]),
+        json!({"open":false,"source":"settings.json"})
+    );
+    let out = pilot.command().arg("settings").output().unwrap();
+    let text = String::from_utf8(out.stdout).unwrap();
+    assert!(
+        text.contains("open") && text.contains("off (settings.json)"),
+        "{text}"
+    );
+    let file = pilot.root.join("selected/colab/settings.json");
+    assert_eq!(fs::read_to_string(&file).unwrap(), r#"{"open":false}"#);
+    // A damaged file reads as the defaults with a warning, never an error.
+    fs::write(&file, "{").unwrap();
+    let out = pilot.command().arg("settings").output().unwrap();
+    assert!(out.status.success());
+    assert!(String::from_utf8_lossy(&out.stdout).contains("on (default)"));
+    assert!(String::from_utf8_lossy(&out.stderr).contains("settings.json could not be read"));
+    assert_eq!(
+        pilot.call(&["settings", "open", "on", "--json"]),
+        json!({"open":true,"source":"settings.json"})
+    );
+}
+#[test]
+fn page_commands_print_the_link_and_the_pairing_step_or_the_reason_there_is_none() {
+    let pilot = Pilot::new(None);
+    pilot.devices(r#"{"devices":[]}"#);
+    let created = pilot.call(&["page", "create", "--title", "Notes", "--json"]);
+    let page = created["pageId"].as_str().unwrap();
+    let space = created["spaceId"].as_str().unwrap();
+    let path = format!("x/colab/#space={space}&path=%2Fpages%2F{page}");
+    let full = format!("http://127.0.0.1:53253/r/3e2c69f7/{path}");
+    let human = |door: Option<&str>, args: &[&str]| {
+        let mut cmd = pilot.command();
+        if let Some(status) = door {
+            cmd.env(
+                "TMT_EXECUTABLE",
+                pilot.remote_core(Some(status), Serve::Fail),
+            );
+        }
+        let out = cmd.args(args).output().unwrap();
+        assert!(out.status.success(), "{out:?}");
+        String::from_utf8(out.stdout).unwrap()
+    };
+    for args in [["show", page], ["ls", ""]] {
+        let args: Vec<&str> = args.into_iter().filter(|a| !a.is_empty()).collect();
+        // With a door and nobody paired: the whole link, then the pairing step.
+        let text = human(Some(DOOR), &args);
+        assert!(text.contains(&full), "{args:?}: {text}");
+        assert!(
+            text.contains("pair this browser once: tmt remote pair"),
+            "{text}"
+        );
+        // Without a door: the path and the reason, never a manual `tmt remote serve`.
+        let text = human(None, &args);
+        assert!(
+            text.contains(&path) && text.contains("Browser access needs the Remote"),
+            "{text}"
+        );
+        assert!(
+            !text.contains("tmt remote serve") && !text.contains("pair this browser"),
+            "{text}"
+        );
+    }
+    // The listing's footer is set off from the rows at the list indent, not tucked under the last page.
+    let listing = human(Some(DOOR), &["ls"]);
+    assert!(
+        listing
+            .contains("\n\n  pair this browser once: tmt remote pair\n  Local expiry is advisory"),
+        "{listing}"
+    );
+    let shown = human(Some(DOOR), &["show", page]);
+    assert!(
+        shown.contains("audience") && shown.contains("history"),
+        "{shown}"
+    );
+    assert!(
+        shown.find("link").unwrap() < shown.find("page ").unwrap(),
+        "{shown}"
+    );
+    // JSON: `link` null without a door; `paired` and `next` say what to do.
+    let json_of = |door: Option<&str>, args: &[&str]| {
+        let mut cmd = pilot.command();
+        if let Some(status) = door {
+            cmd.env(
+                "TMT_EXECUTABLE",
+                pilot.remote_core(Some(status), Serve::Fail),
+            );
+        }
+        let out = cmd.args(args).arg("--json").output().unwrap();
+        serde_json::from_slice::<Value>(&out.stdout).unwrap()
+    };
+    let shown = json_of(Some(DOOR), &["show", page]);
+    assert_eq!(shown["link"], full);
+    assert_eq!(shown["path"], path);
+    assert_eq!(shown["paired"], false);
+    assert_eq!(shown["next"], json!(["tmt remote pair"]));
+    assert!(json_of(None, &["show", page])["link"].is_null());
+    let listed = json_of(Some(DOOR), &["ls"]);
+    assert_eq!(listed["pages"][0]["link"], full);
+    assert_eq!(listed["paired"], false);
+}
+#[test]
+fn unreadable_settings_never_fail_a_committed_page_create_or_a_ready_serve() {
+    let pilot = Pilot::new(None);
+    pilot.opener(0);
+    // A directory where the file belongs: unreadable, and not something this command may fix.
+    let colab = pilot.root.join("selected/colab");
+    fs::create_dir_all(&colab).unwrap();
+    fs::set_permissions(&colab, fs::Permissions::from_mode(0o700)).unwrap();
+    fs::create_dir(colab.join("settings.json")).unwrap();
+    let out = pilot
+        .command()
+        .env("TMT_EXECUTABLE", pilot.door_core(DOOR, None))
+        .args(["page", "create", "--title", "Kept", "--open"])
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "{out:?}");
+    let text = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        text.contains("PAGE CREATED") && text.contains("Kept"),
+        "{text}"
+    );
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        stderr.contains("settings.json could not be read"),
+        "{stderr}"
+    );
+    // The page exists exactly once: a failure after the commit would have invited a duplicate.
+    assert_eq!(
+        pilot.call(&["ls", "--json"])["pages"]
+            .as_array()
+            .unwrap()
+            .len(),
+        1
+    );
+    // Serve is just as unaffected, and `--open` still works with the defaults.
+    let mut serving = Serving::start(
+        &pilot,
+        pilot.remote_core(Some(DOOR), Serve::Fail),
+        &["--open"],
+    );
+    let warning = Serving::wait_for(&serving.err, "settings.json could not be read");
+    assert!(warning.contains("warning:"), "{warning}");
+    Serving::wait_for(&serving.out, "opened in your browser");
+    assert!(serving.running());
+    serving.stop(Signal::SIGTERM);
+}
+#[test]
+fn reading_settings_waits_for_a_setter_instead_of_seeing_a_half_written_file() {
+    let pilot = Pilot::new(None);
+    pilot.call(&["settings", "open", "off", "--json"]);
+    // Hold the setter's lock as a running setter would; a reader must wait for it.
+    let held = fs::File::open(pilot.root.join("selected/colab/settings.lock")).unwrap();
+    let lock = nix::fcntl::Flock::lock(held, nix::fcntl::FlockArg::LockExclusiveNonblock)
+        .map_err(|(_, e)| e)
+        .unwrap();
+    let mut reader = pilot
+        .command()
+        .args(["settings", "--json"])
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+    thread::sleep(Duration::from_millis(400));
+    assert!(
+        reader.try_wait().unwrap().is_none(),
+        "the reader did not wait for the lock"
+    );
+    drop(lock);
+    let out = reader.wait_with_output().unwrap();
+    assert!(out.status.success());
+    let answer: Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(answer, json!({"open":false,"source":"settings.json"}));
+}
+#[test]
+fn setting_waits_for_a_reader_that_holds_the_lock() {
+    let pilot = Pilot::new(None);
+    pilot.call(&["settings", "open", "off", "--json"]);
+    let held = fs::File::open(pilot.root.join("selected/colab/settings.lock")).unwrap();
+    let lock = nix::fcntl::Flock::lock(held, nix::fcntl::FlockArg::LockExclusiveNonblock)
+        .map_err(|(_, e)| e)
+        .unwrap();
+    let mut setter = pilot
+        .command()
+        .args(["settings", "open", "on", "--json"])
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+    thread::sleep(Duration::from_millis(400));
+    assert!(
+        setter.try_wait().unwrap().is_none(),
+        "the setter did not wait for the lock"
+    );
+    drop(lock);
+    let out = setter.wait_with_output().unwrap();
+    assert!(out.status.success());
+    assert_eq!(
+        serde_json::from_slice::<Value>(&out.stdout).unwrap(),
+        json!({"open":true,"source":"settings.json"})
+    );
 }

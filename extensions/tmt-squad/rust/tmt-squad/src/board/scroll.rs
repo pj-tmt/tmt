@@ -158,7 +158,38 @@ impl Scrolls {
         dim: Style,
         mut decorate: impl FnMut(usize, &Line<'a>) -> Line<'a>,
     ) -> (usize, usize) {
-        let content = lines.len();
+        self.show_paint(
+            frame,
+            pane,
+            area,
+            lines.len(),
+            dim,
+            |frame, body, offset| {
+                frame.render_widget(
+                    Paragraph::new(
+                        lines[offset..(offset + usize::from(body.height)).min(lines.len())]
+                            .iter()
+                            .enumerate()
+                            .map(|(index, line)| decorate(offset + index, line))
+                            .collect::<Vec<_>>(),
+                    ),
+                    body,
+                );
+            },
+        )
+    }
+
+    /// The same scroll and indicator owner for a pane that paints its own buffer
+    /// cells: `paint` gets the viewport rectangle and the first content line shown.
+    pub fn show_paint(
+        &self,
+        frame: &mut Frame,
+        pane: Pane,
+        area: Rect,
+        content: usize,
+        dim: Style,
+        paint: impl FnOnce(&mut Frame, Rect, usize),
+    ) -> (usize, usize) {
         let viewport = Self::viewport(area, content);
         self.drawn.borrow_mut().insert(
             pane,
@@ -174,16 +205,7 @@ impl Scrolls {
             height: viewport as u16,
             ..area
         };
-        frame.render_widget(
-            Paragraph::new(
-                lines[offset..(offset + viewport).min(content)]
-                    .iter()
-                    .enumerate()
-                    .map(|(index, line)| decorate(offset + index, line))
-                    .collect::<Vec<_>>(),
-            ),
-            body,
-        );
+        paint(frame, body, offset);
         if viewport < usize::from(area.height) {
             let above = offset;
             let below = content.saturating_sub(offset + viewport);

@@ -177,6 +177,31 @@ describe('conventional cut notes', () => {
     expect(result.notes).not.toContain('9.0.0');
     expect(nextAlphaVersion('5.0.0-alpha.46')).toBe('5.0.0-alpha.47');
   });
+  it('lists a non-conventional subject under Other changes instead of dropping it', async () => {
+    const result = await render([
+      commit('Keep Remote door origins stable and add status (#1605)'),
+      commit('Squad: capitalized type (#7)', ['rust/x'], 2),
+      commit('docs: explain', ['rust/x'], 3),
+      commit('Subject only\n\nfeat: body text is not a subject', ['rust/x'], 4),
+    ]);
+    expect(result.commits).toEqual([sha(1), sha(2), sha(4)].sort());
+    expect(result.breaking).toBe(false);
+    expect(result.notes).toContain('### Other changes');
+    expect(result.notes).toContain('Keep Remote door origins stable and add status');
+    expect(result.notes).toContain('/commit/' + sha(2));
+    expect(result.notes).not.toContain('explain');
+    expect(result.notes).not.toContain('body text');
+  });
+  it('keeps Other changes after the conventional groups and conventional types unchanged', async () => {
+    const result = await render([
+      commit('Plain title'),
+      commit('feat: real feature', ['rust/x'], 2),
+    ]);
+    expect(result.notes.indexOf('### Features')).toBeGreaterThanOrEqual(0);
+    expect(result.notes.indexOf('### Features')).toBeLessThan(
+      result.notes.indexOf('### Other changes')
+    );
+  });
   it('rejects notes that introduce an out-of-range commit link through a subject', async () => {
     await expect(
       render([commit(`feat: see [other](https://github.com/pj-tmt/tmt/commit/${sha(9)})`)])
@@ -294,6 +319,38 @@ describe('immutable plans and independent cuts', () => {
     expect(renderCutSummary(result)).toContain('Creates no drafts, tags or dispatches');
     const diffs = fixture.git.mock.calls.filter(([args]) => args[0] === 'diff');
     expect(diffs.every(([args]) => args.at(-2) === sha(0))).toBe(true);
+  });
+  it('proposes a cut for a non-conventional commit that touches a released component only', async () => {
+    const fixture = planningFixture();
+    const original = fixture.git.getMockImplementation()!;
+    fixture.git.mockImplementation((args) =>
+      args[0] === 'log'
+        ? `${sha(1)}\0Keep Remote door origins stable (#1605)\n\0\n`
+        : args[0] === 'diff'
+          ? 'extensions/squad/door.rs\0'
+          : original(args)
+    );
+    const result = await planReleaseCuts(fixture);
+    expect(result.components.map((c) => [c.product, c.status])).toEqual([
+      ['cli', 'no-releasable-commits'],
+      ['squad', 'proposed'],
+    ]);
+    expect(result.components[1]).toMatchObject({
+      commits: [sha(1)],
+      tag: 'tmt-squad-v0.1.0-alpha.14',
+    });
+    expect(result.components[1].notes).toContain('Other changes');
+    fixture.git.mockImplementation((args) =>
+      args[0] === 'log'
+        ? `${sha(1)}\0docs: explain door\n\0\n`
+        : args[0] === 'diff'
+          ? 'extensions/squad/door.md\0'
+          : original(args)
+    );
+    expect((await planReleaseCuts(fixture)).components.map((c) => c.status)).toEqual([
+      'no-releasable-commits',
+      'no-releasable-commits',
+    ]);
   });
   it('does not refuse a new cut for an existing unpublished draft', async () => {
     const fixture = planningFixture();
