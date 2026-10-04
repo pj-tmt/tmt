@@ -39,7 +39,7 @@
         }
       ]
     },
-    "rate": null
+    "tokens": null
   },
   {
     "receiptMs": 5000,
@@ -81,7 +81,7 @@
         }
       ]
     },
-    "rate": null
+    "tokens": 5421606
   },
   {
     "receiptMs": 10000,
@@ -123,7 +123,7 @@
         }
       ]
     },
-    "rate": 542160.6
+    "tokens": 5421606
   },
   {
     "receiptMs": 60000,
@@ -165,7 +165,7 @@
         }
       ]
     },
-    "rate": 90360.1
+    "tokens": 5421606
   },
   {
     "receiptMs": 65000,
@@ -207,6 +207,6 @@
         }
       ]
     },
-    "rate": 0.0
+    "tokens": 0
   }
 ]

@@ -53,6 +53,9 @@ fn baseline() -> Value {
         let projected = view.rows.value();
         view.document["columns"] = projected["columns"].clone();
         view.document["lines"] = projected["lines"].clone();
+        if let Some(hidden) = projected.get("hidden_columns") {
+            view.document["hidden_columns"] = hidden.clone();
+        }
         let document = view.document.clone();
         let frames: Vec<_> = [120, 80, 120]
             .into_iter()
