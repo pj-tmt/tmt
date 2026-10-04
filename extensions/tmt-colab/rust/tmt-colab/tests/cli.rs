@@ -420,6 +420,9 @@ const MEMBER: &str = "20000000-0000-4000-8000-000000000001";
 const LINK: &str = "20000000-0000-4000-8000-000000000002";
 const OPERATION: &str = "40000000-0000-4000-8000-000000000001";
 fn seed_page(pilot: &Pilot) {
+    seed_page_with_title(pilot, "Encrypted π\u{1b}[31m");
+}
+fn seed_page_with_title(pilot: &Pilot, title: &str) {
     use ed25519_dalek::{Signer, SigningKey};
     use tmt_colab::{
         keyring::{Keyring, Layout},
@@ -458,7 +461,7 @@ fn seed_page(pilot: &Pilot) {
     {
         let mut tx = doc.transact_mut();
         html.insert(&mut tx, 0, "<h1>Encrypted source</h1>");
-        meta.insert(&mut tx, "title", "Encrypted π\u{1b}[31m");
+        meta.insert(&mut tx, "title", title);
     }
     let update = doc
         .transact()
@@ -2916,14 +2919,34 @@ fn page_commands_print_the_link_and_the_pairing_step_or_the_reason_there_is_none
     assert_eq!(listed["pages"][0]["link"], long_link);
     assert_eq!(listed["pages"][0]["shortLink"], full);
     assert_eq!(listed["paired"], false);
-    let untitled = pilot.call(&["page", "create", "--title", "", "--json"]);
-    let untitled_id = untitled["pageId"].as_str().unwrap();
-    let listing = human(None, &["ls"]);
-    let row = listing
-        .lines()
-        .find(|line| line.contains(&untitled_id[..8]))
-        .unwrap();
-    assert!(row.trim_start().starts_with("Untitled page"), "{listing}");
+}
+#[test]
+fn human_ls_names_an_admitted_empty_title_without_changing_the_json_title() {
+    let pilot = Pilot::new(None);
+    // Empty document titles are admitted; CLI creation deliberately requires a title.
+    seed_page_with_title(&pilot, "");
+    for columns in ["40", "120"] {
+        let out = pilot
+            .command()
+            .env("COLUMNS", columns)
+            .args(["ls"])
+            .output()
+            .unwrap();
+        assert!(out.status.success(), "{out:?}");
+        let listing = String::from_utf8(out.stdout).unwrap();
+        let row = listing
+            .lines()
+            .find(|line| line.contains(&PAGE[..8]))
+            .unwrap();
+        assert!(row.trim_start().starts_with("Untitled"), "{listing}");
+        if columns == "120" {
+            assert!(row.trim_start().starts_with("Untitled page"), "{listing}");
+        }
+        assert!(!listing.contains(PAGE), "{listing}");
+    }
+    let listed = pilot.call(&["ls", "--json"]);
+    assert_eq!(listed["pages"][0]["pageId"], PAGE);
+    assert_eq!(listed["pages"][0]["title"], "");
 }
 #[test]
 fn unreadable_settings_never_fail_a_committed_page_create_or_a_ready_serve() {
