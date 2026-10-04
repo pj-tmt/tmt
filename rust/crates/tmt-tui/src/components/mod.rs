@@ -6,6 +6,7 @@ mod list;
 mod modal;
 mod picker;
 mod scroll;
+pub mod strip;
 pub mod surface;
 
 pub use key_help::{KeyHelp, KeyHelpEntry, KeyHelpSection, KeyHint, footer};
