@@ -5,7 +5,7 @@ use crate::{
     text,
 };
 use ratatui::{buffer::Buffer, style::Style};
-use tmt_cli_style::{Depth, Role, Theme, theme::screen};
+use tmt_cli_style::{Depth, Role, Theme, grid::Align, theme::screen};
 use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::UnicodeWidthStr;
 
@@ -34,6 +34,26 @@ pub fn paint<'a>(
     depth: Depth,
     mut selected_style: impl FnMut(Role) -> Style,
 ) -> Vec<Hit<'a>> {
+    paint_with(cells, buffer, |_, role, selected| {
+        (
+            if selected {
+                selected_style(role)
+            } else {
+                screen::style(theme, role, depth)
+            },
+            Align::Left,
+        )
+    })
+}
+/// Paint resolved geometry with caller-owned decoration and alignment. `decorate`
+/// receives the cell's preorder index, inherited Role and selection, and returns the
+/// complete style and the text alignment within the recorded width; no application
+/// policy lives here.
+pub fn paint_with<'a>(
+    cells: &[Cell<'a>],
+    buffer: &mut Buffer,
+    mut decorate: impl FnMut(usize, Role, bool) -> (Style, Align),
+) -> Vec<Hit<'a>> {
     let area = buffer.area;
     let bounds = Rect {
         x: i32::from(area.x),
@@ -43,7 +63,7 @@ pub fn paint<'a>(
     };
     let mut inherited = Vec::with_capacity(cells.len());
     let mut hits = Vec::new();
-    for cell in cells {
+    for (index, cell) in cells.iter().enumerate() {
         let (role, selected, id, row, cut) = cell
             .parent
             .map_or((Role::Text, false, None, None, false), |index| {
@@ -59,11 +79,7 @@ pub fn paint<'a>(
         if visible.width == 0 || visible.height == 0 {
             continue;
         }
-        let mut style = if selected {
-            selected_style(role)
-        } else {
-            screen::style(theme, role, depth)
-        };
+        let (mut style, align) = decorate(index, role, selected);
         if cell.node.style.bold {
             style = style.add_modifier(ratatui::style::Modifier::BOLD);
         }
@@ -91,20 +107,26 @@ pub fn paint<'a>(
         } else {
             cell.text_width
         };
-        for (line, logical) in text::lines(value, cell.text_width, cell.node.style.text_flow)
-            .iter()
-            .enumerate()
+        for (line, logical) in
+            text::fit_lines(value, cell.text_width, cell.node.style.text_flow, align)
+                .iter()
+                .enumerate()
         {
             let y = i64::from(cell.content.y) + line as i64;
             if y < i64::from(clip.y) || y >= i64::from(clip.y) + i64::from(clip.height) {
                 continue;
             }
             let visual = if cut {
-                text::fit(
+                // `logical` is already escaped, and escaping is idempotent.
+                text::fit_line(
                     logical,
-                    usize::from(width),
-                    cell.node.style.text_flow == TextFlow::Middle,
-                    true,
+                    width,
+                    if cell.node.style.text_flow == TextFlow::Middle {
+                        TextFlow::Middle
+                    } else {
+                        TextFlow::Truncate
+                    },
+                    align,
                 )
             } else {
                 logical.clone()

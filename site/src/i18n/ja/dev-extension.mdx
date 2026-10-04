@@ -1,6 +1,6 @@
 ---
 source: site/src/chapters/dev-extension.mdx
-sourceRevision: 4bc2a059aed3b33fd0c2eb90c1ed543de73b0103
+sourceRevision: 030a7a908f72f986b7da3962b64e66437b054906
 title: 拡張機能を作る
 ---
 
@@ -59,14 +59,14 @@ $ printf '%s' '{"version":1,"operation":"capabilities","input":{}}' | "$TMT_EXEC
  "changes.cursor","requests.list","requests.show","dispatch.show","dispatch.create", ...],...}
 `}</Cmd>
 
-| 操作                 | 用途                                                                                                                                      |
-| -------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
-| storage.root         | tmt のデータディレクトリを調べます。自分のファイルは `<dataRoot>/<your-name>/` 以下に置き、tmt のデータベースや設定は開かないでください。 |
-| requests.list / show | agent や room のリクエスト履歴をページ単位で取得し、1件のリクエストと返事を読みます。読むだけでは既読になりません。                       |
-| dispatch.create      | 1つ以上の agent に仕事を送ります。先に `operationId` を決めます。同じ ID で再送すると元の receipt を返し、二重に送ることはありません。    |
-| dispatch.show        | クラッシュやタイムアウトの後、`operationId` に対応する receipt を取り出します。                                                           |
-| rooms.write          | 現在の revision を使って room を作成・変更し、同時編集による上書きを防ぎます。                                                            |
-| notes.read           | 保存済みの agent の notes を ID で読みます。                                                                                              |
+| 操作                 | 用途                                                                                                                                                                                          |
+| -------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| storage.root         | tmt のデータディレクトリを調べます。自分のファイルは `<dataRoot>/<your-name>/` 以下に置き、tmt のデータベースや設定は開かないでください。                                                     |
+| requests.list / show | agent や room のリクエスト履歴、または `"view":"results"` で1つの agent が送ったリクエストへの最新の返事をページ単位で取得し、1件のリクエストと返事を読みます。読むだけでは既読になりません。 |
+| dispatch.create      | 1つ以上の agent に仕事を送ります。先に `operationId` を決めます。同じ ID で再送すると元の receipt を返し、二重に送ることはありません。                                                        |
+| dispatch.show        | クラッシュやタイムアウトの後、`operationId` に対応する receipt を取り出します。                                                                                                               |
+| rooms.write          | 現在の revision を使って room を作成・変更し、同時編集による上書きを防ぎます。                                                                                                                |
+| notes.read           | 保存済みの agent の notes を ID で読みます。                                                                                                                                                  |
 
 これらは主な操作です。インストールされている tmt が対応するすべての操作は、`capabilities` で確認できます。
 

@@ -17,6 +17,7 @@ mod effects;
 mod filter;
 mod hook_protocol;
 mod hotkeys;
+mod layout;
 mod links;
 mod look;
 mod markup;
@@ -268,6 +269,7 @@ fn grammar() -> Command {
                 )
                 .arg(squad_option()),
         )
+        .subcommand(layout::grammar())
         .subcommand(settings::grammar())
         .subcommand(theme::grammar())
         .subcommand(view::grammar())
@@ -499,6 +501,10 @@ fn human(command: &str, document: &Value, terminal: Terminal) -> String {
         "ls" | "board" => status::text(document, terminal),
         "hotkeys" => hotkeys_text(document, terminal),
         "playbook" => playbook::text(document, terminal),
+        "layout" => done(
+            terminal,
+            &format!("Valid layout: {}", text(&document["file"])),
+        ),
         "config" => settings::text(document, terminal),
         "theme" => theme::text(document, terminal),
         "view" => view::text(document, terminal),
@@ -782,6 +788,10 @@ fn run(
 ) -> Result<Outcome, SquadError> {
     if command == "playbook" {
         return playbook_command(matches, interaction);
+    }
+    // Offline authoring check: no core, config or storage discovery.
+    if command == "layout" {
+        return layout::run(matches).map(Outcome::from);
     }
     let core = Core::discover()?;
     let text = |name: &str| matches.get_one::<String>(name).map(String::as_str);
@@ -1307,13 +1317,13 @@ mod tests {
     #[test]
     fn completion_offers_literal_subcommands_and_options_only() {
         assert_eq!(complete(&words("-- s")), ["set", "skill"]);
-        assert_eq!(complete(&words("-- l")), ["lead", "ls"]);
+        assert_eq!(complete(&words("-- l")), ["layout", "lead", "ls"]);
         assert_eq!(
             complete(&words("-- ")),
             [
                 "add", "annotate", "back", "board", "config", "copy", "cron", "help", "hotkeys",
-                "init", "jump", "lead", "ls", "me", "open", "playbook", "rm", "set", "skill",
-                "theme", "view"
+                "init", "jump", "layout", "lead", "ls", "me", "open", "playbook", "rm", "set",
+                "skill", "theme", "view"
             ]
         );
         assert_eq!(complete(&words("-- view ")), ["ls", "rm", "set"]);

@@ -75,6 +75,25 @@ mod tests {
     use super::*;
 
     #[test]
+    fn waiting_requires_a_pending_string_or_a_nonempty_request_array() {
+        for row in [
+            json!({"pending": "approve"}),
+            json!({"pending": "", "waitingOnYou": []}),
+            json!({"pending": null, "waitingOnYou": [{"requestId": "q"}]}),
+        ] {
+            assert!(waits_on_you(&row), "{row}");
+        }
+        for row in [
+            json!({}),
+            json!({"pending": null, "waitingOnYou": []}),
+            json!({"pending": false, "waitingOnYou": "q"}),
+            json!({"pending": [], "waitingOnYou": {"requestId": "q"}}),
+        ] {
+            assert!(!waits_on_you(&row), "{row}");
+        }
+    }
+
+    #[test]
     fn waiting_wins_over_blocked_and_each_member_counts_once() {
         let document = json!({
             "squad": {"lead": {"id": "L", "name": "sol", "pending": "approve", "state": null}},

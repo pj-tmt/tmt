@@ -23,9 +23,11 @@ impl App {
     }
 
     pub(in crate::board) fn cron_list_event(&mut self, event: &Event) -> Option<Effect> {
-        let input = self.cron_list.as_ref()?.input(event);
+        // `None` is only an event the list does not take; one it consumed is
+        // handled, or the router would offer it again and apply it twice.
+        let input = self.cron_list.as_ref()?.input(event)?;
         match input {
-            ListInput::None => None,
+            ListInput::None => Some(Effect::None),
             ListInput::Close => {
                 self.cron_list = None;
                 Some(Effect::None)

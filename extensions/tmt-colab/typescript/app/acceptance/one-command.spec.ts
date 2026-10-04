@@ -1,6 +1,12 @@
 import { expect, test } from '@playwright/test';
 import { createPage, openPage } from './harness/ask.js';
-import { doorAnswers, openColab, pairBrowser, startServe } from './harness/browser.js';
+import {
+  doorAnswers,
+  openColab,
+  pairBrowser,
+  startRemoteOnly,
+  startServe,
+} from './harness/browser.js';
 import { until } from './harness/process.js';
 import { disposeActiveWorlds, withWorld } from './harness/with-world.js';
 
@@ -27,6 +33,15 @@ test('one command starts the door; pairing opens a page; stopping it closes both
     const printed = await device.context.newPage();
     expect((await printed.goto(door.url))?.status()).toBe(200);
     await openColab(door, device);
+    // `page create` prints the full link (#1614): the door address plus the page path, and it
+    // opens as the paired device without any hand-built URL.
+    const printed2 = await world.tmt(['colab', 'page', 'create', '--title', 'Linked', '--json']);
+    expect(printed2.code, printed2.stdout + printed2.stderr).toBe(0);
+    const linked = JSON.parse(printed2.stdout) as { link: string; path: string; paired: boolean };
+    expect(linked.link).toBe(`${door.address}/${linked.path}`);
+    expect(linked.paired).toBe(true);
+    const linkedPage = await device.context.newPage();
+    expect((await linkedPage.goto(linked.link))?.status()).toBe(200);
     const created = createPage(world, 'One command', '<p id="body">Opened by one command.</p>');
     const page = await openPage(door, device, created);
     await expect(page.locator('iframe')).toBeVisible();
@@ -64,5 +79,22 @@ test('tmt colab stop ends Colab and the door it started, and is idempotent', asy
     expect(JSON.parse(devices.stdout).devices.map((d: { name: string }) => d.name)).toContain(
       device.name,
     );
+  });
+});
+
+// A door started outside Colab is attached to, never started or stopped by Colab (#1584, #1594).
+test('Colab attaches to a running door; stop and exit leave that door running', async () => {
+  await withWorld(async (world) => {
+    const remote = await startRemoteOnly(world);
+    const door = await startServe(world);
+    expect(door.state).toBe('attached');
+    expect(door.address).toBe(remote.address);
+    const stopped = await world.tmt(['colab', 'stop', '--json']);
+    expect(stopped.code, stopped.stdout + stopped.stderr).toBe(0);
+    expect(JSON.parse(stopped.stdout)).toEqual({ state: 'stopped', door: 'attached' });
+    await door.colab.exited;
+    expect(await doorAnswers(door.origin)).toBe(true);
+    await remote.remote.stop();
+    expect(await doorAnswers(door.origin)).toBe(false);
   });
 });

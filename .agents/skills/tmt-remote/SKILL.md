@@ -57,7 +57,10 @@ socket. With an absent or stale socket, it admits an existing private layout and
 an existing serve lease before opening SQLite read-only. It never calls
 `Store::open`, creates files, migrates old schemas or reads the machine key.
 Pre-schema-5 state reports no remembered port. Unsafe files, malformed/silent
-control replies and a held lease without reachable serve return errors.
+control replies and a held lease without reachable serve return errors. A serve
+that answers the operation as unknown (alpha.1's `REMOTE_INPUT_INVALID` or the
+current `REMOTE_CONTROL_UNSUPPORTED`) maps to `REMOTE_SERVE_OUTDATED` for both
+status and stop, in `control::request_operation`.
 
 Stop resolves the same public root, sends one control request to set serve's SIGTERM
 shutdown flag, then waits at most 40 seconds after acknowledgment for the lifecycle
@@ -98,6 +101,11 @@ library-only and shared with Colab:
 Synced publication tests prove filesystem behavior, not power-loss recovery. A new
 workspace path also needs the tracked-file layout, generated release configuration
 and CI-scope checks.
+
+## Browser pages
+
+The embedded same-origin stylesheet projects the shared design tokens with system
+font fallbacks and light/dark scheme preference under the contract-defined CSP.
 
 ## Embedded client and crypto fixtures
 
@@ -182,7 +190,7 @@ and `transport` have no I/O, clock, storage or `CoreClient` access):
 | `operations`, `approval`            | Dispatch/read operations over the public core API; local held-operation confirmation on the control socket                                                                     |
 | `authority`, `store`, `state`       | Typed grants, `remote.db` and schema history, layout/machine key/serve lock                                                                                                    |
 | `pairing`, `control`, `devices`     | One pairing offer per run, owner-only control socket for discovery/stop and device list/revoke/rename                                                                          |
-| `mount`, `pages`                    | Extension mounts (allowlisted extensions only) and the pairing page/SDK assets                                                                                                 |
+| `mount`, `pages`                    | Extension mounts (allowlisted extensions only), static landing/pairing/error pages and embedded stylesheet/SDK assets                                                          |
 
 Rules that are easy to get wrong:
 

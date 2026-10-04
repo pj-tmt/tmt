@@ -68,6 +68,7 @@ export interface E2eShardResults {
 export function globToRegExp(glob: string): RegExp;
 export function parseComponentMap(text: string): ComponentMap;
 export function isReleased(map: ComponentMap, name: string): boolean;
+export function componentMap(): ComponentMap;
 export function ownerOf(path: string, map?: ComponentMap): string;
 /** Released roots and normal/build Cargo closure; fixtures without a Cargo checkout may omit workspace. */
 export function releasedComponentsForPath(

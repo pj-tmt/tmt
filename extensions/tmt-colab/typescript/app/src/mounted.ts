@@ -151,6 +151,9 @@ export async function mountedTransport(
     space: bootstrap.space,
     close: () => lifetime.abort(),
     transport: {
+      get backendName() {
+        return current.registration.deviceName;
+      },
       management,
       async spaceHome() {
         const client = managementClient;
@@ -167,6 +170,9 @@ export async function mountedTransport(
                   sharing: policy.sharing,
                   archived: policy.archived,
                   retentionDays: policy.retentionDays,
+                  lastUpdateAtMs: policy.lastUpdateAtMs,
+                  expiresAtMs: policy.expiresAtMs,
+                  warnings: policy.warnings,
                 };
               }),
             ),

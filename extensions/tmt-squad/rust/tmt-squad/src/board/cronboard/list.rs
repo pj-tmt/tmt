@@ -19,7 +19,7 @@ use std::cell::RefCell;
 use tmt_tui::components::{ListRow, PickerEvent, PickerField, PickerInput, surface::Template};
 
 pub(in crate::board) enum Input {
-    /// Consumed by the list, or not meant for it.
+    /// Consumed by the list without an effect (a move, a boundary press).
     None,
     Close,
     /// Enter or a click on this row id.
@@ -121,7 +121,10 @@ impl List {
             .render("squad.cron.xml", template, value, frame, look, body);
     }
 
-    pub fn input(&self, event: &Event) -> Input {
+    /// `None` is an event the list does not take, so the caller's router can offer
+    /// it elsewhere; a consumed event must come back as `Some`, or the router asks
+    /// again and a move is applied twice.
+    pub fn input(&self, event: &Event) -> Option<Input> {
         if let Event::Key(key) = event
             && key.kind != KeyEventKind::Release
             && !key
@@ -129,20 +132,20 @@ impl List {
                 .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT)
         {
             match key.code {
-                KeyCode::Esc | KeyCode::Char('q') => return Input::Close,
+                KeyCode::Esc | KeyCode::Char('q') => return Some(Input::Close),
                 KeyCode::Enter => {
-                    return self.selected().map_or(Input::None, Input::Open);
+                    return Some(self.selected().map_or(Input::None, Input::Open));
                 }
                 KeyCode::Char(job @ ('n' | 'e' | 'p' | 'x' | 'o' | 'd')) => {
-                    return Input::Job(job, self.selected());
+                    return Some(Input::Job(job, self.selected()));
                 }
                 _ => {}
             }
         }
-        match self.surface.borrow_mut().input(event, PickerField::List) {
-            Some(PickerInput::Event(PickerEvent::Confirm(id))) => Input::Open(id),
-            Some(PickerInput::Event(PickerEvent::Cancel)) => Input::Close,
-            _ => Input::None,
+        match self.surface.borrow_mut().input(event, PickerField::List)? {
+            PickerInput::Event(PickerEvent::Confirm(id)) => Some(Input::Open(id)),
+            PickerInput::Event(PickerEvent::Cancel) => Some(Input::Close),
+            _ => Some(Input::None),
         }
     }
 }

@@ -385,6 +385,15 @@ fn project_rows(
 }
 
 impl Acquired {
+    /// Full roster UUIDs retained before sections can repeat or omit rows.
+    pub fn member_ids(&self, squad: &str) -> impl Iterator<Item = &str> {
+        self.rows
+            .get(squad)
+            .into_iter()
+            .flatten()
+            .filter_map(|row| row.value["id"].as_str())
+    }
+
     pub fn attention(&self, config: &Config, order: &[String]) -> BTreeMap<String, Attention> {
         let mut attention = tab_attention(&self.documents);
         if let Ok(settings) = config.tabs() {

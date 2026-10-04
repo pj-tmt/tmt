@@ -1,6 +1,6 @@
 ---
 source: site/src/chapters/dev-extension.mdx
-sourceRevision: 4bc2a059aed3b33fd0c2eb90c1ed543de73b0103
+sourceRevision: 030a7a908f72f986b7da3962b64e66437b054906
 title: 构建扩展
 ---
 
@@ -57,14 +57,14 @@ $ printf '%s' '{"version":1,"operation":"capabilities","input":{}}' | "$TMT_EXEC
  "changes.cursor","requests.list","requests.show","dispatch.show","dispatch.create", ...],...}
 `}</Cmd>
 
-| 操作                 | 用途                                                                                                      |
-| -------------------- | --------------------------------------------------------------------------------------------------------- |
-| storage.root         | 查找 tmt 数据目录。将自己的文件放在 `<dataRoot>/<your-name>/` 下，绝不打开 tmt 数据库或设置。             |
-| requests.list / show | 分页浏览 agent 或房间的请求历史，读取单个请求及其 reply。读取不会标为已读。                               |
-| dispatch.create      | 向一个或多个 agent 发送任务。先选择 `operationId`；再次发送同一个 ID 会返回原来的 receipt，绝不重复发送。 |
-| dispatch.show        | 崩溃或超时后，找回 `operationId` 对应的 receipt。                                                         |
-| rooms.write          | 使用房间的当前修订号创建或修改房间，防止并发编辑互相覆盖。                                                |
-| notes.read           | 按 ID 读取已保存 agent 的笔记。                                                                           |
+| 操作                 | 用途                                                                                                                                     |
+| -------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| storage.root         | 查找 tmt 数据目录。将自己的文件放在 `<dataRoot>/<your-name>/` 下，绝不打开 tmt 数据库或设置。                                            |
+| requests.list / show | 分页浏览 agent 或房间的请求历史，或用 `"view":"results"` 浏览某个 agent 所发请求的最新 reply，读取单个请求及其 reply。读取不会标为已读。 |
+| dispatch.create      | 向一个或多个 agent 发送任务。先选择 `operationId`；再次发送同一个 ID 会返回原来的 receipt，绝不重复发送。                                |
+| dispatch.show        | 崩溃或超时后，找回 `operationId` 对应的 receipt。                                                                                        |
+| rooms.write          | 使用房间的当前修订号创建或修改房间，防止并发编辑互相覆盖。                                                                               |
+| notes.read           | 按 ID 读取已保存 agent 的笔记。                                                                                                          |
 
 以上是主要操作。`capabilities` 会列出当前安装的 tmt 支持的全部操作。
 

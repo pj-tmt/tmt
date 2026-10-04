@@ -1,6 +1,7 @@
 /** English chrome catalog; page content and fixture text are not UI strings. */
 export const text = {
   unknownPageTitle: 'Untitled, not opened in this browser yet',
+  askShort: 'Ask',
   comments: 'Comments',
   commentSelection: 'Comment on selection',
   commentPage: 'Comment on page',
@@ -156,6 +157,10 @@ export const text = {
     'Page scripts run inside an isolated frame. A page can navigate its own frame; complete exfiltration prevention is not guaranteed.',
   adapter: 'This preview uses local sample pages. It is not connected to a remote space.',
   readerOnly: 'Read-only',
+  readerLive: 'Live',
+  readerLoading: 'Opening',
+  readerStopped: 'Stopped',
+  readerInfo: 'Info',
   readerOpening: 'Opening shared page…',
   readerEnded: 'Access ended',
   readerEndedNote: 'This link no longer gives access to the page. Ask the owner for a new link.',

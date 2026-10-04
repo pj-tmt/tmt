@@ -1,4 +1,5 @@
-//! Door-served browser assets, outside the route prefix: the pairing page
+//! Static landing and pairing pages, page refusals and their stylesheet, outside
+//! the route prefix. The pairing page
 //! at `/pair/<descriptor>`, the device SDK module at `/sdk/remote-v1.js`, and
 //! `/sdk/mount`, which tells a page this run's identity and which mounted
 //! extension its path belongs to. None of them carries authority.
@@ -11,8 +12,11 @@ use serde_json::{Value, json};
 /// Built from `typescript/remote-client` by `pnpm build`; CI checks it is current.
 const SDK: &str = include_str!("../assets/remote-v1.js");
 const PAGE: &str = include_str!("../assets/pair.html");
+const LANDING: &str = include_str!("../assets/landing.html");
+const ERROR: &str = include_str!("../assets/error.html");
+const STYLE: &str = include_str!("../assets/pages.css");
 /// The page runs only the same-origin SDK module and talks only to this door.
-const PAGE_POLICY: &str = "default-src 'none'; script-src 'self'; connect-src 'self'; \
+const PAGE_POLICY: &str = "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; \
     base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
 /// Bound on a `/sdk/mount` body: one page path.
 const MOUNT_BODY_BYTES: usize = 2048;
@@ -34,17 +38,23 @@ impl Pages {
         }
     }
     pub fn serves(path: &str) -> bool {
-        path.starts_with("/pair/") || path.starts_with("/sdk/")
+        path == "/" || path.starts_with("/pair/") || path.starts_with("/sdk/")
     }
     pub fn admit(&self, head: &Head<'_>) -> Result<usize, Reply> {
         if head.upgrade {
             return Err(Reply::empty(404));
         }
         match (head.method, head.path) {
-            ("GET", path) if path == "/sdk/remote-v1.js" || descriptor(path) => {
+            ("GET", path)
+                if matches!(path, "/" | "/sdk/remote-v1.js" | "/sdk/pages.css")
+                    || path.starts_with("/pair/") =>
+            {
                 // Navigation omits Origin; a cross-origin load is refused.
                 if head.origin.is_some_and(|o| o != self.origin) {
-                    return Err(Reply::empty(403));
+                    return Err(page_refusal(path, 403));
+                }
+                if path.starts_with("/pair/") && !descriptor(path) {
+                    return Err(page_refusal(path, 404));
                 }
                 Ok(0)
             }
@@ -67,6 +77,8 @@ impl Pages {
                 // is not cached across upgrades.
                 asset("text/javascript; charset=utf-8", SDK, None)
             }
+            "/sdk/pages.css" => asset("text/css; charset=utf-8", STYLE, None),
+            "/" => asset("text/html; charset=utf-8", LANDING, Some(PAGE_POLICY)),
             "/sdk/mount" => self.mount(&request.body, mounts),
             _ => asset("text/html; charset=utf-8", PAGE, Some(PAGE_POLICY)),
         }
@@ -116,5 +128,15 @@ fn asset(content_type: &str, body: &str, policy: Option<&str>) -> Reply {
             .push(("content-security-policy".into(), policy.into()));
     }
     reply.body = body.as_bytes().to_vec();
+    reply
+}
+
+/// Only browser page routes receive HTML. SDK and protocol refusals stay JSON.
+fn page_refusal(path: &str, status: u16) -> Reply {
+    if path != "/" && !path.starts_with("/pair/") {
+        return Reply::empty(status);
+    }
+    let mut reply = asset("text/html; charset=utf-8", ERROR, Some(PAGE_POLICY));
+    reply.status = status;
     reply
 }

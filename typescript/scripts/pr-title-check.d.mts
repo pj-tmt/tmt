@@ -1,3 +1,5 @@
+import type { ComponentMap } from './ci-scope.mjs';
+
 export interface QueueReader {
   git(args: string[]): string;
 }
@@ -12,3 +14,8 @@ export function checkQueueTitles(input: { event: unknown; reader: QueueReader })
   checked: number;
   findings: QueueTitle[];
 };
+export function checkPullRequestTitle(input: {
+  title: unknown;
+  paths: string[];
+  map: ComponentMap;
+}): { components: string[]; ok: boolean };

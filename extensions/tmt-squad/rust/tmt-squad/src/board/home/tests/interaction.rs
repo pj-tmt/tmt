@@ -303,3 +303,287 @@ fn record_home_snapshots() {
     )
     .unwrap();
 }
+
+#[test]
+fn middle_home_row_composes_inline_and_success_survives_answer_refresh() {
+    for width in [160, 100, 80] {
+        for (base, depth) in [
+            ("tmt", tmt_cli_style::Depth::TrueColor),
+            ("tmt-light", tmt_cli_style::Depth::TrueColor),
+            ("tmt", tmt_cli_style::Depth::None),
+        ] {
+            let members = (0..5).map(|index| {
+                let mut member = row(&format!("W{index}"), &format!("worker-{index}"), "working");
+                member["waitingOnYou"] = json!([{"requestId":format!("q{index}"), "preview":"Should this decision proceed?", "preparedAtMs":20}]);
+                member
+            }).collect::<Vec<_>>();
+            let doc = document("a", row("L", "lead-a", "working"), members);
+            let mut app = board(&[("a", doc.clone())]);
+            app.view.as_mut().unwrap().look = crate::look::Look {
+                theme: tmt_cli_style::Theme::new(tmt_cli_style::theme::Base::parse(base).unwrap()),
+                depth,
+            };
+            press(&mut app, Down);
+            press(&mut app, Down);
+            press(&mut app, Char('a'));
+            assert!(app.menu.is_none());
+            let mut terminal = Terminal::new(TestBackend::new(width, 30)).unwrap();
+            terminal
+                .draw(|frame| crate::board::view::render(frame, &app))
+                .unwrap();
+            let band = app.input_band.get().unwrap();
+            let lines = terminal
+                .backend()
+                .buffer()
+                .content
+                .chunks(usize::from(width))
+                .map(|cells| cells.iter().map(|cell| cell.symbol()).collect::<String>())
+                .collect::<Vec<_>>();
+            assert!(lines[usize::from(band.y + 1)].contains("→ worker-2 (a)"));
+            assert!(lines[usize::from(band.y + 2)].contains("◆ “Should this decision proceed?”"));
+            assert!(lines[usize::from(band.y + 4)].contains("Enter send · Esc cancel"));
+            assert!(lines[usize::from(band.bottom())].contains("worker-3"));
+            assert!(
+                !app.hits
+                    .borrow()
+                    .iter()
+                    .any(|hit| (band.y..band.bottom()).contains(&hit.y))
+            );
+            press(&mut app, Tab);
+            assert_eq!(
+                app.input.as_ref().unwrap().header(),
+                "✎ note → lead-a · about worker-2"
+            );
+            press(&mut app, Tab);
+            press(&mut app, Char('y'));
+            assert!(
+                matches!(press(&mut app,Enter),Effect::Act(Request::Reply { ref request,.. }) if request == "q2")
+            );
+            app.finished(Ok("Replied".into()));
+            let mut answered = doc;
+            answered["sections"][0]["rows"][2]["waitingOnYou"] = json!([]);
+            let refreshed = board(&[("a", answered)]);
+            app.apply(Snapshot {
+                squad_keys: vec!["a".into()],
+                tabs: app.tabs.clone(),
+                hidden: vec![],
+                pinned: 0,
+                attention: Default::default(),
+                squad: Some(ALL.into()),
+                view: Ok(refreshed.view.unwrap()),
+            });
+            assert_eq!(app.selected_row().unwrap()["name"], "worker-2");
+            assert_eq!(app.selected, 2);
+            terminal
+                .draw(|frame| crate::board::view::render(frame, &app))
+                .unwrap();
+            let text = terminal
+                .backend()
+                .buffer()
+                .content
+                .iter()
+                .map(|cell| cell.symbol())
+                .collect::<String>();
+            assert!(text.contains("✓ sent"));
+            press(&mut app, Char('x'));
+            assert!(app.sent.is_none());
+            assert!(!app.home_entries().iter().any(
+                |entry| entry.row["name"] == "worker-2" && entry.target.section == "needs-you"
+            ));
+        }
+    }
+}
+
+fn tile_board() -> App {
+    tile_board_with(["a", "b", "c", "d", "e"])
+}
+
+fn tile_board_with<const N: usize>(names: [&str; N]) -> App {
+    board(&names.map(|name| {
+        (
+            name,
+            document(
+                name,
+                row(&format!("L{name}"), &format!("lead-{name}"), "working"),
+                vec![row(&format!("W{name}"), "worker", "idle")],
+            ),
+        )
+    }))
+}
+
+fn tile_frame(app: &App, area: Rect) -> ratatui::buffer::Buffer {
+    app.hits.borrow_mut().clear();
+    app.scrolls.begin_frame();
+    let mut terminal =
+        Terminal::new(TestBackend::new(area.right() + 1, area.bottom() + 1)).unwrap();
+    terminal
+        .draw(|frame| paint::render_at(frame, app, area, 100))
+        .unwrap();
+    terminal.backend().buffer().clone()
+}
+
+#[test]
+fn tile_continuations_click_the_same_stable_squad_and_gaps_have_no_hits() {
+    use ratatui::crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
+    for width in [160, 100, 80] {
+        let mut app = tile_board();
+        let area = Rect::new(2, 1, width, 24);
+        tile_frame(&app, area);
+        let hits = app.hits.borrow().clone();
+        let height = if width < 100 { 1 } else { 3 };
+        for row in 0..5 {
+            let tiles = hits.iter().filter(|hit| hit.row == row).collect::<Vec<_>>();
+            assert_eq!(tiles.len(), height);
+            assert!(tiles.windows(2).all(|pair| pair[1].y == pair[0].y + 1));
+        }
+        for hit in &hits {
+            assert!((area.x..area.right()).contains(&hit.x));
+            assert!(hit.x + hit.width <= area.right());
+            assert!((area.y..area.bottom()).contains(&hit.y));
+        }
+        if width >= 100 {
+            let left = hits.iter().find(|hit| hit.row == 0).unwrap();
+            assert!(!hits.iter().any(|hit| hit.y == left.y
+                && (hit.x..hit.x + hit.width).contains(&(left.x + left.width))));
+        }
+        let continuation = hits.iter().rfind(|hit| hit.row == 4).unwrap();
+        assert_eq!(
+            app.mouse(
+                MouseEvent {
+                    kind: MouseEventKind::Down(MouseButton::Left),
+                    column: continuation.x + 1,
+                    row: continuation.y,
+                    modifiers: KeyModifiers::NONE
+                },
+                std::time::Instant::now()
+            ),
+            Effect::None
+        );
+        assert_eq!(app.selected, 4);
+        assert_eq!(app.home_target.as_ref().unwrap().squad, "e");
+        assert!(app.home_target.as_ref().unwrap().member.is_none());
+        assert_eq!(press(&mut app, Enter), Effect::Load("e".into()));
+    }
+}
+
+#[test]
+fn full_tile_reveal_and_clipped_continuation_hits_share_the_scroll_viewport() {
+    use crate::{board::scroll::Step, config::Pane};
+    let mut app = tile_board();
+    app.select(4);
+    let target = app.home_target.clone();
+    for width in [160, 100, 80, 160] {
+        let area = Rect::new(3, 2, width, 5);
+        tile_frame(&app, area);
+        let selected = app
+            .hits
+            .borrow()
+            .iter()
+            .filter(|hit| hit.row == 4)
+            .copied()
+            .collect::<Vec<_>>();
+        assert_eq!(selected.len(), if width < 100 { 1 } else { 3 });
+        assert!(
+            selected
+                .iter()
+                .all(|hit| hit.y >= area.y && hit.y < area.bottom() - 1)
+        );
+        assert_eq!(app.home_target, target);
+    }
+    // A viewport shorter than a tile clips hits to visible continuations.
+    app.follow = false;
+    let area = Rect::new(3, 2, 100, 3);
+    tile_frame(&app, area);
+    app.scrolls.scroll(Pane::Rows, Step::Bottom);
+    tile_frame(&app, area);
+    let hits = app.hits.borrow().clone();
+    assert_eq!(hits.iter().filter(|hit| hit.row == 4).count(), 2);
+    assert!(hits.iter().all(|hit| hit.y < area.bottom() - 1));
+    assert_eq!(app.selected, 4);
+    app.follow = true;
+    tile_frame(&app, Rect::new(3, 2, 100, 5));
+    assert_eq!(
+        app.hits.borrow().iter().filter(|hit| hit.row == 4).count(),
+        3
+    );
+}
+
+#[test]
+fn tile_note_band_shifts_later_grid_rows_without_changing_hits_or_selection() {
+    for width in [160, 100, 80] {
+        for (base, depth) in [
+            ("tmt", tmt_cli_style::Depth::TrueColor),
+            ("tmt-light", tmt_cli_style::Depth::TrueColor),
+            ("tmt", tmt_cli_style::Depth::None),
+        ] {
+            let mut app = tile_board_with(["a", "b", "c", "d", "e", "f", "g", "h", "i"]);
+            app.view.as_mut().unwrap().look = crate::look::Look {
+                theme: tmt_cli_style::Theme::new(tmt_cli_style::theme::Base::parse(base).unwrap()),
+                depth,
+            };
+            app.select(4);
+            let target = app.home_target.clone();
+            press(&mut app, Char('a'));
+            let mut terminal = Terminal::new(TestBackend::new(width, 30)).unwrap();
+            terminal
+                .draw(|frame| crate::board::view::render(frame, &app))
+                .unwrap();
+            let band = app
+                .input_band
+                .get()
+                .expect("note beneath the selected tile");
+            let hits = app.hits.borrow().clone();
+            let selected = hits.iter().filter(|hit| hit.row == 4).collect::<Vec<_>>();
+            assert_eq!(selected.len(), if width < 100 { 1 } else { 3 });
+            assert_eq!(selected.last().unwrap().y + 1, band.y);
+            assert!(
+                !hits
+                    .iter()
+                    .any(|hit| (band.y..band.bottom()).contains(&hit.y))
+            );
+            let next_grid_row = if width >= 100 { 6 } else { 5 };
+            assert!(hits.iter().any(|hit| hit.row == next_grid_row));
+            assert!(
+                hits.iter()
+                    .filter(|hit| hit.row == 0)
+                    .all(|hit| hit.y < band.y)
+            );
+            assert!(
+                hits.iter()
+                    .filter(|hit| hit.row == next_grid_row)
+                    .all(|hit| hit.y >= band.bottom())
+            );
+            let lines = terminal
+                .backend()
+                .buffer()
+                .content
+                .chunks(width as usize)
+                .map(|cells| cells.iter().map(|cell| cell.symbol()).collect::<String>())
+                .collect::<Vec<_>>();
+            assert!(lines[usize::from(band.y + 1)].contains("✎ note → lead-e · about e"));
+            press(&mut app, Esc);
+            assert!(app.input.is_none());
+            assert_eq!(app.home_target, target);
+            press(&mut app, Char('a'));
+            press(&mut app, Char('x'));
+            assert!(
+                matches!(press(&mut app, Enter), Effect::Act(Request::Annotate { ref to, .. }) if to == "lead-e")
+            );
+            app.finished(Ok("Sent".into()));
+            terminal
+                .draw(|frame| crate::board::view::render(frame, &app))
+                .unwrap();
+            assert!(
+                terminal
+                    .backend()
+                    .buffer()
+                    .content
+                    .iter()
+                    .map(|cell| cell.symbol())
+                    .collect::<String>()
+                    .contains("✓ sent")
+            );
+            assert_eq!(app.home_target, target);
+        }
+    }
+}

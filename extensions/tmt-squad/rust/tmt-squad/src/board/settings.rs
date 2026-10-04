@@ -980,7 +980,10 @@ mod tests {
                 }
                 "board.refresh" => assert!(view.refresh.is_none()),
                 "notes.render" => assert_eq!(view.render, crate::config::NotesRender::Plain),
-                "board.hidden_columns" => assert_eq!(view.rows.hidden_columns, ["task"]),
+                "board.hidden_columns" => assert_eq!(
+                    view.rows.hidden_columns,
+                    ["task", "tok_1", "tok_2", "tok_3"]
+                ),
                 "states.working.color" => assert_eq!(
                     view.document["sections"][0]["rows"][0]["colors"]["state"],
                     "red"

@@ -34,8 +34,9 @@ Maintained module reference. Commands and admitted spellings are in [development
    ellipsize already measured lines without rewrapping (end or middle); a wide
    grapheme crossing a clip edge leaves styled blanks. Theme and Depth are
    injected; roles inherit and resolve through the shared screen adapter. The
-   caller supplies the complete selected-role style, so selection policy stays
-   with the application.
+   caller supplies the complete selected-role style, or `paint_with`'s preorder-indexed
+   callback for the full style and text alignment; selection policy stays with the
+   application.
 5. **Hits**: hits borrow scoped IDs and semantic row IDs, inherit identity,
    intersect visible buffer clips, omit zero areas and resolve in reverse paint
    order.
@@ -45,8 +46,9 @@ Maintained module reference. Commands and admitted spellings are in [development
 - `app` owns base focus, one replaceable modal and top-first event routing:
   unhandled modal keys and mouse are captured, closing events never replay into the
   base, and Ctrl-C returns a quit effect.
-- `components` owns opaque square-border modal chrome, fixed footer/status/position
-  slots, visual-line scroll/clamp/reveal and typed key-help sections. Wrapped fixed text is measured by the
+- `components` owns opaque square-border modal chrome, with titles only when nonempty,
+  fixed footer/status/position slots, visual-line scroll/clamp/reveal and typed key-help
+  sections. Wrapped fixed text is measured by the
   text owner before the scroll viewport is reserved; nowrap slots keep their one-line default.
   Authored modal cell height controls demand within placement bounds, while body references
   still fill the application body. Its surface

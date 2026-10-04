@@ -1,10 +1,10 @@
+use super::row_paint::GAP;
 use super::{
     detail::{detail_represents, render_detail},
     footer::hints,
     header::{SPINNER_TICK, meter_region, summary_line},
     overlays::render_switcher,
     replies::reply_lines,
-    rows::{GAP, grid_line},
     tabs::{pane_tab, tab},
 };
 use crate::board::app::Switcher;
@@ -88,11 +88,20 @@ fn waiting_rows_detail_and_ask_prompt_fit_each_width_and_theme() {
             let prompt = draw(&app, width, 24);
             let title = prompt
                 .iter()
-                .find(|line| line.contains("ask lead sol"))
+                .find(|line| line.contains("→ lead sol"))
                 .unwrap();
-            assert!(title.starts_with("┌ ask lead sol"));
-            assert!(title.ends_with('┐'), "opaque prompt spans the whole band");
+            assert!(title.starts_with("│ → lead sol"));
+            assert!(title.ends_with('│'), "opaque prompt spans the whole band");
             assert_eq!(title.width(), usize::from(width));
+            let top = prompt
+                .iter()
+                .position(|line| line.contains("→ lead sol"))
+                .unwrap()
+                - 1;
+            assert_eq!(
+                prompt[top],
+                format!("┌{}┐", "─".repeat(usize::from(width) - 2))
+            );
             assert!(
                 prompt
                     .iter()
@@ -219,6 +228,7 @@ pub(super) fn board(sections: Value) -> App {
             view: Ok(View {
                 ask_lead: crate::config::DEFAULT_ASK_LEAD.into(),
                 token_rate: None,
+                home_rate: Default::default(),
                 home: None,
             derived: Default::default(),
                 document: json!({"squad": {"name": "product", "lead": {"name": "sol"}}, "sections": sections}),
@@ -401,15 +411,8 @@ fn uncovered_source_columns_do_not_squeeze_the_drawn_grid() {
     }
 }
 
-/// Explicit crew keeps its original columns and rendering byte for byte.
+/// Legacy four-column fixture; real preset defaults are covered by frozen parity.
 fn preset_board() -> App {
-    static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
-    let serial = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-    let path =
-        std::env::temp_dir().join(format!("squad-golden-{}-{serial}.toml", std::process::id()));
-    std::fs::write(&path, "[squad.product]\nlayout = \"crew\"\n").unwrap();
-    let config = crate::config::Config::read(path.clone()).unwrap();
-    std::fs::remove_file(&path).unwrap();
     let mut app = board(json!([
         {"title": "Needs me", "rows": [
             row("auth-fix", "blocked", "rotate session tokens without logging everyone out", json!({
@@ -422,7 +425,7 @@ fn preset_board() -> App {
             row("perf", "", "", json!({"fields": {}, "annotation": {"to": "sol", "text": "check the cache hit rate"}})),
         ]}
     ]));
-    app.view.as_mut().unwrap().rows = config.rows("product").unwrap();
+    app.view.as_mut().unwrap().rows = Rows::preset();
     app
 }
 
@@ -486,7 +489,7 @@ fn default_team_is_readable_at_80_120_and_200_columns() {
     let view = app.view.as_mut().unwrap();
     view.rows = config.rows("product").unwrap();
     view.board = config.board("product").unwrap();
-    for width in [80, 120, 200] {
+    for width in [80, 100, 120, 160, 200] {
         app.set_body_width(width);
         let screen = draw(&app, width, 42);
         let widths = app
@@ -505,8 +508,11 @@ fn default_team_is_readable_at_80_120_and_200_columns() {
             widths[..3].iter().all(Option::is_some),
             "essential columns at {width}"
         );
-        assert!(widths[3].is_some(), "PR remains visible at {width}");
-        assert_eq!(widths[4].is_some(), width == 200, "model steps aside first");
+        assert_eq!(widths.len(), 8);
+        assert!(widths[4].is_none_or(|width| width <= 14), "model cap");
+        for (earlier, later) in [(7, 6), (6, 3), (3, 4), (4, 5)] {
+            assert!(widths[earlier].is_none() || widths[later].is_some());
+        }
         assert!(
             screen.iter().any(|line| line.contains("TASK")),
             "task title at {width}"
@@ -526,10 +532,9 @@ fn default_team_is_readable_at_80_120_and_200_columns() {
     assert!(widths[3..].iter().all(Option::is_none));
 }
 
-/// Golden: every preset's board as drawn before the rows moved onto the
-/// shared grid solver. The layout engine must keep these byte for byte.
+/// Golden: the legacy four-column grid before adoption of the shared solver.
 #[test]
-fn preset_columns_draw_exactly_as_before_at_every_width() {
+fn legacy_four_column_grid_draws_exactly_as_before_at_every_width() {
     let app = preset_board();
     let golden: [(u16, [&str; 8]); 4] = [
         (
@@ -897,6 +902,7 @@ fn paned(board: crate::config::Board, notes: Notes) -> App {
             view: Ok(View {
                 ask_lead: crate::config::DEFAULT_ASK_LEAD.into(),
                 token_rate: None,
+                home_rate: Default::default(),
                 home: None,
             derived: Default::default(),
                 document: json!({"squad": {"name": "product", "lead": {"name": "sol"}}, "sections": [
@@ -932,39 +938,62 @@ fn split(direction: Direction, panes: Vec<Pane>, sizes: Vec<u16>) -> crate::conf
     crate::config::Board::simple(BoardMode::Split, direction, panes, &sizes)
 }
 
+/// The painted cells of the first board row, from its first line down.
+fn board_buffer(app: &App, width: u16, height: u16) -> ratatui::buffer::Buffer {
+    let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
+    terminal.draw(|frame| render(frame, app)).unwrap();
+    terminal.backend().buffer().clone()
+}
+
+/// The foreground, background and modifiers a style gives a cell.
+fn painted(style: Style) -> (ratatui::style::Color, ratatui::style::Color, Modifier) {
+    let mut cell = ratatui::buffer::Cell::default();
+    cell.set_style(style);
+    (cell.fg, cell.bg, cell.modifier)
+}
+
+fn painted_at(
+    buffer: &ratatui::buffer::Buffer,
+    x: u16,
+    y: u16,
+) -> (ratatui::style::Color, ratatui::style::Color, Modifier) {
+    let cell = &buffer[(x, y)];
+    (cell.fg, cell.bg, cell.modifier)
+}
+
 #[test]
 fn state_cells_use_the_projected_token_for_pattern_and_exact_states() {
     let rows = rows_from("[p.columns]\nshow = ['state']\nstate = { width = 20 }\n");
     let look = crate::look::Look::default();
     for state in ["blocked", "blocked-on-ci"] {
-        let row =
-            json!({"state": state, "fields": {"state": state}, "colors": {"state": "review"}});
-        let spans = grid_line(
-            look,
-            &rows,
-            &crate::markup::Grid::compile(&rows, |_| 20, 20).unwrap(),
-            &crate::markup::row_values(&rows, "product", vec![(0, &row)]).unwrap()[0],
-            &row,
-            0,
-            false,
-        )
-        .unwrap();
-        assert_eq!(spans.len(), 1);
-        assert_eq!(spans[0][0].style.fg, look.named("review").fg);
-        assert_eq!(spans[0][0].content.trim(), state);
-        let plain = json!({"state": state, "fields": {"state": state}});
-        let spans = grid_line(
-            look,
-            &rows,
-            &crate::markup::Grid::compile(&rows, |_| 20, 20).unwrap(),
-            &crate::markup::row_values(&rows, "product", vec![(0, &plain)]).unwrap()[0],
-            &plain,
-            0,
-            false,
-        )
-        .unwrap();
-        assert_eq!(spans.len(), 1);
-        assert_eq!(spans[0][0].style, Style::new());
+        let draw_row = |colors: Value| {
+            let mut app = board(json!([{"title": null, "rows": [
+                {"name": "x", "pending": null, "fields": {"state": state}, "colors": colors}
+            ]}]));
+            let view = app.view.as_mut().unwrap();
+            view.rows = rows.clone();
+            view.look = look;
+            app.selected = 1;
+            board_buffer(&app, 30, 8)
+        };
+        let colored = draw_row(json!({"state": "review"}));
+        let plain = draw_row(json!({}));
+        let y = (0..8u16)
+            .find(|y| {
+                (0..30u16)
+                    .map(|x| colored[(x, *y)].symbol())
+                    .collect::<String>()
+                    .contains(state)
+            })
+            .unwrap();
+        for x in 2..2 + state.len() as u16 {
+            assert_eq!(
+                painted_at(&colored, x, y),
+                painted(look.named("review")),
+                "{state}"
+            );
+            assert_eq!(painted_at(&plain, x, y), painted(Style::new()), "{state}");
+        }
     }
 }
 
@@ -1067,11 +1096,46 @@ lines = [
 }
 
 #[test]
+fn sent_feedback_sits_under_its_row_before_the_annotation_and_stays_clickable() {
+    let mut app = board(json!([{"title": null, "rows": [
+        row("alpha", "working", "one", json!({"id": "u1", "annotation": {"to": "sol", "text": "noted"}})),
+        row("bravo", "working", "two", json!({"id": "u2"})),
+    ]}]));
+    app.view.as_mut().unwrap().look = Default::default();
+    app.sent = Some(crate::board::app::RowFeedback {
+        target: app.row_target(0).unwrap(),
+        home: None,
+    });
+    let screen = draw(&app, 60, 12);
+    let alpha = screen.iter().position(|l| l.contains("alpha")).unwrap();
+    assert_eq!(screen[alpha + 1], "    ✓ sent");
+    assert!(screen[alpha + 2].starts_with("    ✎ sent to sol: noted"));
+    assert!(screen[alpha + 3].contains("bravo"));
+    // The feedback line is the row's, so a click on it selects the row, and the
+    // sent mark takes the working role without the row's selection.
+    let hit = app
+        .hits
+        .borrow()
+        .iter()
+        .copied()
+        .find(|hit| usize::from(hit.y) == alpha + 1);
+    assert_eq!(hit.map(|hit| hit.row), Some(0));
+    let buffer = board_buffer(&app, 60, 12);
+    let look = app.look();
+    assert_eq!(
+        painted_at(&buffer, 4, (alpha + 1) as u16),
+        painted(look.role(Role::Working))
+    );
+    // The next frame without feedback restores the original stream.
+    app.sent = None;
+    assert_eq!(draw(&app, 60, 12)[alpha + 1], "    ✎ sent to sol: noted");
+}
+
+#[test]
 fn cell_tokens_override_decoration_but_keep_missing_failure_and_reverse_rules() {
     let rows = rows_from(
         "[p.rows]\ncolumns=[{name='task',width=12,overflow='wrap',max_lines=2}]\nlines=[[{field='task',token='waiting'}]]\n",
     );
-    let grid = crate::markup::Grid::compile(&rows, |_| 20, 12).unwrap();
     for depth in [
         tmt_cli_style::Depth::TrueColor,
         tmt_cli_style::Depth::Ansi16,
@@ -1081,25 +1145,96 @@ fn cell_tokens_override_decoration_but_keep_missing_failure_and_reverse_rules() 
             depth,
             ..Default::default()
         };
-        for (row, role) in [
+        for (row, role, lines) in [
             (
                 json!({"fields":{"task":"alpha beta gamma"},"colors":{"task":"review"}}),
                 Role::Waiting,
+                2,
             ),
-            (json!({"fields":{"task":"?"},"failed":["task"]}), Role::Dim),
-            (json!({"fields":{"task":""}}), Role::Dim),
-            (json!({"fields":{}}), Role::Dim),
+            (
+                json!({"fields":{"task":"?"},"failed":["task"]}),
+                Role::Dim,
+                1,
+            ),
+            (json!({"fields":{"task":""}}), Role::Dim, 1),
+            (json!({"fields":{}}), Role::Dim, 1),
         ] {
-            let scene = crate::markup::row_values(&rows, "product", vec![(0, &row)]).unwrap();
             for selected in [false, true] {
-                let lines = grid_line(look, &rows, &grid, &scene[0], &row, 0, selected).unwrap();
-                for spans in lines {
-                    assert_eq!(spans.len(), 1);
-                    assert_eq!(
-                        spans[0].style,
-                        look.row_span(selected, look.role(role), role == Role::Waiting)
-                    );
+                let mut app = board(json!([{"title": null, "rows": [row.clone(), row.clone()]}]));
+                let view = app.view.as_mut().unwrap();
+                view.rows = rows.clone();
+                view.look = look;
+                app.selected = usize::from(!selected);
+                let buffer = board_buffer(&app, 30, 10);
+                let base = if selected {
+                    look.selection()
+                } else {
+                    Style::new()
+                };
+                let expected = painted(base.patch(look.row_span(
+                    selected,
+                    look.role(role),
+                    role == Role::Waiting,
+                )));
+                // The first row's cell spans its wrapped lines, padding included.
+                let first = 3;
+                for y in first..first + lines {
+                    for x in 2..14 {
+                        assert_eq!(
+                            painted_at(&buffer, x, y),
+                            expected,
+                            "{depth:?} {role:?} selected={selected} ({x},{y})"
+                        );
+                    }
                 }
+            }
+        }
+    }
+}
+
+#[test]
+fn the_waiting_row_mark_takes_the_waiting_token_like_the_tab_mark() {
+    for base in ["tmt", "tmt-light"] {
+        for depth in [
+            tmt_cli_style::Depth::TrueColor,
+            tmt_cli_style::Depth::Ansi16,
+            tmt_cli_style::Depth::None,
+        ] {
+            let look = crate::look::Look {
+                theme: tmt_cli_style::Theme::new(tmt_cli_style::theme::Base::parse(base).unwrap()),
+                depth,
+            };
+            for selected in [false, true] {
+                let mut app = board(json!([{"title": null, "rows": [
+                    row("waits", "working", "ship", json!({"pending": "approve"})),
+                    row("quiet", "working", "docs", json!({})),
+                ]}]));
+                app.view.as_mut().unwrap().look = look;
+                app.selected = usize::from(!selected);
+                let buffer = board_buffer(&app, 60, 10);
+                // The tab line also carries a diamond: look only inside the rows.
+                let (x, y) = (2..10u16)
+                    .flat_map(|y| (0..4u16).map(move |x| (x, y)))
+                    .find(|(x, y)| buffer[(*x, *y)].symbol() == "◆")
+                    .expect("the waiting row has its mark");
+                let token = if depth == tmt_cli_style::Depth::None {
+                    Style::new()
+                } else {
+                    look.role(Role::Waiting)
+                };
+                let base_style = if selected {
+                    look.selection()
+                } else {
+                    Style::new()
+                };
+                assert_eq!(
+                    painted_at(&buffer, x, y),
+                    painted(base_style.patch(look.row_span(selected, token, true))),
+                    "{base} {depth:?} selected={selected}"
+                );
+                // The blank after the diamond and the quiet row's mark are unchanged.
+                let blank = painted(base_style);
+                assert_eq!(painted_at(&buffer, x + 1, y), blank, "{base} {depth:?}");
             }
         }
     }
@@ -3480,4 +3615,98 @@ fn help_lines(app: &App) -> Vec<String> {
         .flat_map(|section| section.entries)
         .map(|entry| format!("{}  {}", entry.keys, entry.description))
         .collect()
+}
+
+#[test]
+fn inline_middle_row_band_moves_rows_masks_panes_and_fits_every_theme() {
+    for width in [160, 100, 80] {
+        for (base, depth) in [
+            ("tmt", tmt_cli_style::Depth::TrueColor),
+            ("tmt-light", tmt_cli_style::Depth::TrueColor),
+            ("tmt", tmt_cli_style::Depth::None),
+        ] {
+            for tab in ["product", crate::board::LEADS] {
+                let rows = (0..5).map(|i| json!({"id":format!("id-{i}"), "name":format!("member-{i}"), "squad":"product",
+                    "state":"working", "fields":{"task":"row remains visible"},
+                    "waitingOnYou":[{"requestId":format!("q-{i}"), "preview":"A long waiting question that must truncate before the recipient or input disappears. ".repeat(8)}]})).collect::<Vec<_>>();
+                let mut snapshot =
+                    crate::board::app::tests::snapshot(tab, json!([{"title":null, "rows":rows}]));
+                let view = snapshot.view.as_mut().unwrap();
+                view.me = Some("Ben".into());
+                view.document["squad"]["lead"] = json!({"name":"sol"});
+                view.look = crate::look::Look {
+                    theme: tmt_cli_style::Theme::new(
+                        tmt_cli_style::theme::Base::parse(base).unwrap(),
+                    ),
+                    depth,
+                };
+                view.board = split(
+                    Direction::LeftRight,
+                    vec![Pane::Rows, Pane::Notes],
+                    vec![55, 45],
+                );
+                view.notes = Notes::Text("neighbor pane fragment\n".repeat(25));
+                let mut app = App::new(Some(tab.into()));
+                app.apply(snapshot);
+                app.select(2);
+                let before = draw(&app, width, 30);
+                let old_after = before
+                    .iter()
+                    .position(|line| line.contains("member-3"))
+                    .unwrap();
+                app.key(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE));
+                app.input.as_mut().unwrap().text = "x".repeat(30);
+                let mut terminal = Terminal::new(TestBackend::new(width, 30)).unwrap();
+                terminal.draw(|frame| render(frame, &app)).unwrap();
+                let buffer = terminal.backend().buffer();
+                let screen = draw(&app, width, 30);
+                let band = app.input_band.get().expect("inline band");
+                let header = &screen[usize::from(band.y + 1)];
+                assert!(
+                    header.contains("→ member-2 (product)"),
+                    "{base}/{width}/{tab}: {header}"
+                );
+                assert_eq!(band.height, 6);
+                assert!(screen[usize::from(band.y + 3)].contains(&format!("{}▏", "x".repeat(30))));
+                assert!(screen[usize::from(band.y + 2)].contains("◆ “A long waiting"));
+                assert!(screen[usize::from(band.y + 2)].contains('…'));
+                assert!(screen[usize::from(band.y + 4)].contains("Enter send · Esc cancel"));
+                assert_eq!(
+                    screen[usize::from(band.y)],
+                    format!("┌{}┐", "─".repeat(usize::from(width) - 2))
+                );
+                assert_eq!(screen[usize::from(band.y)].width(), usize::from(width));
+                for y in band.y..band.bottom() {
+                    assert!(!screen[usize::from(y)].contains("neighbor pane fragment"));
+                    assert!(!app.hits.borrow().iter().any(|hit| hit.y == y));
+                    assert!(!app.note_hits.borrow().iter().any(|(area, _)| area.y == y));
+                }
+                assert_eq!(
+                    screen
+                        .iter()
+                        .position(|line| line.contains("member-3"))
+                        .unwrap(),
+                    old_after + 6
+                );
+                let accent = app.look().role(Role::Accent);
+                assert_eq!(buffer[(2, band.y + 1)].fg, accent.fg.unwrap_or_default());
+                let waiting = app.look().role(Role::Waiting);
+                assert_eq!(buffer[(2, band.y + 2)].fg, waiting.fg.unwrap_or_default());
+                app.key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+                let note = draw(&app, width, 30);
+                assert!(note.iter().any(|line| line.contains(if tab == "product" {
+                    "✎ note → sol · about member-2"
+                } else {
+                    "✎ note → member-2"
+                })));
+                assert_eq!(app.input_band.get().unwrap().height, 5);
+                app.key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+                assert_eq!(
+                    &draw(&app, width, 30)[..29],
+                    &before[..29],
+                    "cancel restores the body"
+                );
+            }
+        }
+    }
 }

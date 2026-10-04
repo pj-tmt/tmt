@@ -11,8 +11,6 @@ use crate::{
     source::{ColumnSource, Format, PATHS},
 };
 use serde_json::{Value, json};
-#[cfg(test)]
-use tmt_cli_style::grid;
 use tmt_cli_style::{
     Role,
     grid::{Align, Basis, Overflow, Track, Truncate},
@@ -284,22 +282,29 @@ impl Rows {
             .unwrap_or(0)
     }
 
-    /// Legacy CLI-policy oracle for coverage tests; production boards use Taffy.
-    #[cfg(test)]
-    pub fn solve(
-        &self,
-        natural: impl Fn(usize) -> usize,
-        available: usize,
-        gap: usize,
-    ) -> Vec<Option<usize>> {
-        let tracks: Vec<_> = self.columns[..self.covered_tracks()]
+    /// Keep the active observation column longest using the authored priority ranks.
+    /// Unprioritized columns remain under the user's fixed visibility policy.
+    pub(super) fn select_window(&mut self, selected: usize) -> bool {
+        let mut columns: Vec<_> = self
+            .columns
             .iter()
             .enumerate()
-            .map(|(index, column)| column.track(natural(index)))
+            .filter_map(|(index, column)| {
+                Some((index, column.from.as_ref()?.window()?, column.priority?))
+            })
             .collect();
-        let mut widths = grid::solve(&tracks, Some(available), gap);
-        widths.resize(self.columns.len(), None);
-        widths
+        if !columns.iter().any(|(_, window, _)| *window == selected) {
+            return false;
+        }
+        let mut priorities: Vec<_> = columns.iter().map(|(_, _, priority)| *priority).collect();
+        priorities.sort_unstable();
+        columns.sort_by_key(|(index, window, _)| (*window != selected, *index));
+        let mut changed = false;
+        for ((index, _, _), priority) in columns.into_iter().zip(priorities) {
+            changed |= self.columns[index].priority != Some(priority);
+            self.columns[index].priority = Some(priority);
+        }
+        changed
     }
 
     /// Inspect the configured row lines in tests, in first-occurrence order.
@@ -515,7 +520,16 @@ fn width_value(width: Option<Basis>) -> Value {
 
 /// `[squad.<name>.rows]` when present, else the older `columns` table, else
 /// the preset. Setting both is refused rather than guessed.
+#[cfg(test)]
 pub fn read(squad: Option<&dyn TableLike>, name: &str) -> Result<Rows, SquadError> {
+    read_with_windows(squad, name, crate::config::TokenWindow::DEFAULTS)
+}
+
+pub fn read_with_windows(
+    squad: Option<&dyn TableLike>,
+    name: &str,
+    windows: [crate::config::TokenWindow; 3],
+) -> Result<Rows, SquadError> {
     let rows = squad.and_then(|table| table.get("rows"));
     let columns = squad.and_then(|table| table.get("columns"));
     let mut result = match (rows, columns) {
@@ -530,7 +544,7 @@ pub fn read(squad: Option<&dyn TableLike>, name: &str) -> Result<Rows, SquadErro
                     .and_then(Item::as_table_like)
                     .is_some_and(|fields| fields.contains_key(field))
             };
-            read_rows(rows, &format!("squad.{name}.rows"), &provided)
+            read_rows(rows, &format!("squad.{name}.rows"), &provided, windows)
         }
         (None, Some(columns)) => read_legacy(columns, &format!("squad.{name}.columns")),
         (None, None) => Ok(Rows::preset()),
@@ -586,6 +600,7 @@ fn read_rows(
     item: &Item,
     place: &str,
     provided: &dyn Fn(&str) -> bool,
+    windows: [crate::config::TokenWindow; 3],
 ) -> Result<Rows, SquadError> {
     let table = item
         .as_table_like()
@@ -622,7 +637,12 @@ fn read_rows(
     for (index, entry) in list.into_iter().enumerate() {
         let here = format!("{place}.columns[{index}]");
         let settings = entry.ok_or_else(|| invalid(format!("`{here}` must be a table.")))?;
-        let column = read_column(settings, &here, provided)?;
+        let mut column = read_column(settings, &here, provided)?;
+        if settings.get("title").is_none()
+            && let Some(index) = column.from.as_ref().and_then(ColumnSource::window)
+        {
+            column.title = windows[index].label();
+        }
         if columns.iter().any(|known| known.field == column.field) {
             return Err(invalid(format!(
                 "`{here}.name` repeats the column `{}`.",

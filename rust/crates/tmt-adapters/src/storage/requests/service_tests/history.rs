@@ -150,7 +150,7 @@ fn history_filters_before_keyset_pagination_and_keeps_original_room_after_leave(
         assert_eq!(first.items[0].item.request_id, "c");
         assert_eq!(
             first.next_before,
-            Some(HistoryCursor {
+            Some(HistoryCursor::Prepared {
                 prepared_at_ms: NOW_MS,
                 request_id: "c".into()
             })

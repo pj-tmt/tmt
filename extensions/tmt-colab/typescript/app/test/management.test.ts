@@ -31,6 +31,10 @@ const page: PageInfo = {
   sharing: 'private',
   history: 'shared',
   archived: false,
+  retentionDays: 30,
+  lastUpdateAtMs: null,
+  expiresAtMs: null,
+  warnings: ['expiry-unavailable'],
 };
 async function fixture() {
   const signer = await crypto.subtle.importKey(

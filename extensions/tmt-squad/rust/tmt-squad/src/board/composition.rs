@@ -60,6 +60,14 @@ struct Scaffold {
     slot: Node,
 }
 impl Scaffold {
+    /// The embedded scaffold is admitted once; every later use clones its prototypes.
+    fn get() -> Result<&'static Self, String> {
+        static ADMITTED: std::sync::OnceLock<Result<Scaffold, String>> = std::sync::OnceLock::new();
+        ADMITTED
+            .get_or_init(Self::read)
+            .as_ref()
+            .map_err(Clone::clone)
+    }
     fn read() -> Result<Self, String> {
         let parsed = tmt_tui::parse(FILE, SCAFFOLD).map_err(|e| e.to_string())?;
         let schema = Schema::Object(Default::default());
@@ -178,13 +186,13 @@ fn element(split: &Split, mut node: Node, collapsed: &BTreeSet<Pane>, scaffold: 
 }
 
 fn compile(split: &Split, collapsed: &BTreeSet<Pane>) -> Result<Node, String> {
-    let scaffold = Scaffold::read()?;
+    let scaffold = Scaffold::get()?;
     let mut child = scaffold.node(split);
     if footprint(split, collapsed).is_none() {
         child.style.grow = 1;
     }
-    let child = element(split, child, collapsed, &scaffold);
-    let mut root = scaffold.root;
+    let child = element(split, child, collapsed, scaffold);
+    let mut root = scaffold.root.clone();
     root.children = vec![child];
     Ok(root)
 }
@@ -220,16 +228,16 @@ pub(super) fn slots(node: &Node, area: Rect) -> Result<Vec<(Vec<String>, Rect)>,
 }
 
 fn tabs(focused: Pane) -> Result<Node, String> {
-    let scaffold = Scaffold::read()?;
+    let scaffold = Scaffold::get()?;
     let mut bar = scaffold.slot.clone();
     bar.id = Some(vec!["pane-tabs".into()]);
     bar.style.height = Extent::Cells(1);
     bar.style.shrink = 1;
-    let mut pane = scaffold.slot;
+    let mut pane = scaffold.slot.clone();
     pane.id = Some(vec![focused.title().into()]);
     pane.style.height = Extent::Cells(1);
     pane.style.grow = 1;
-    let mut root = scaffold.root;
+    let mut root = scaffold.root.clone();
     root.children = vec![bar, pane];
     Ok(root)
 }
@@ -237,15 +245,15 @@ fn tabs(focused: Pane) -> Result<Node, String> {
 /// A squad tab's two halves: the configured composition above and the jobs
 /// half below at `lower` lines, from the same flex computation as the panes.
 pub(super) fn halves(area: Rect, lower: u16) -> Result<(Rect, Rect), String> {
-    let scaffold = Scaffold::read()?;
+    let scaffold = Scaffold::get()?;
     let mut upper = scaffold.slot.clone();
     upper.id = Some(vec!["members".into()]);
     upper.style.basis = Extent::Cells(0);
     upper.style.grow = 1;
-    let mut below = scaffold.slot;
+    let mut below = scaffold.slot.clone();
     below.id = Some(vec!["jobs".into()]);
     below.style.basis = Extent::Cells(lower);
-    let mut root = scaffold.root;
+    let mut root = scaffold.root.clone();
     root.children = vec![upper, below];
     let mut slots = slots(&root, area)?.into_iter().map(|(_, rect)| rect);
     match (slots.next(), slots.next()) {
@@ -255,7 +263,7 @@ pub(super) fn halves(area: Rect, lower: u16) -> Result<(Rect, Rect), String> {
 }
 
 pub(super) fn admit() -> Result<(), String> {
-    Scaffold::read().map(|_| ())
+    Scaffold::get().map(|_| ())
 }
 
 pub(super) struct Cache {

@@ -109,13 +109,15 @@ impl Modal {
         Clear.render(area, buffer);
         // Establish an opaque text style even on blank cells and with NO_COLOR.
         buffer.set_style(area, screen::style(theme, Role::Text, depth));
-        Block::new()
+        let mut border = Block::new()
             .borders(Borders::ALL)
-            .border_style(screen::style(theme, Role::Dim, depth))
-            .title(Line::styled(
+            .border_style(screen::style(theme, Role::Dim, depth));
+        if !self.title.is_empty() {
+            border = border.title(Line::styled(
                 format!(" {} ", escape(&self.title)),
                 screen::style(theme, Role::Muted, depth),
-            ))
-            .render(area, buffer);
+            ));
+        }
+        border.render(area, buffer);
     }
 }

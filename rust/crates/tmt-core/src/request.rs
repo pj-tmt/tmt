@@ -252,8 +252,9 @@ pub struct RequestContext {
     pub prompt: RequestPrompt,
 }
 
-/// These methods are exposed only while the invocation's immediate transaction
-/// is held. Domain decisions remain in RequestService, not in SQL adapters.
+/// Records are exposed only inside the invocation's transaction: immediate for
+/// writes, a consistent snapshot for read-only observation. Domain decisions
+/// remain in RequestService, not in SQL adapters.
 pub trait RequestRecords {
     type Error;
     fn notification(

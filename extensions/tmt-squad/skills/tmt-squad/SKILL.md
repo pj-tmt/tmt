@@ -266,7 +266,8 @@ keys. Request age comes from the inbox timestamp; pending-only rows have no
 request age. The hint uses the tab's member count and drops its oldest-member
 label first when space is short.
 
-Press `A` (`ask-lead`, rebindable) on a squad tab to open `ask lead <name>`.
+Press `A` (`ask-lead`, rebindable) on a squad tab to open the docked prompt
+with recipient-first header `→ lead <name>`.
 The prompt starts with "List what waits on me: one line each with who, the
 decision, your suggestion and what happens if I wait." Edit before Enter sends;
 Esc cancels. Missing or changed lead/sender/squad refuses without sending.
@@ -283,15 +284,50 @@ tmt sq config set board.ask_lead "What needs my decision?"
 tmt sq config set board.ask_lead "Summarize our pending decisions." --squad product
 ```
 
+Press `a` on a home, squad member or leads row to answer an open request,
+otherwise to send the squad's lead a note. The input opens directly beneath the
+complete selected row in an opaque full-width band, shifting rows below it.
+The header names the actual recipient first: `→ docs-sweep (tmt-product)` for
+an answer, or `✎ note → sol · about docs-sweep` for a note to the lead about
+that member. When the row itself receives the note, the header is simply
+`✎ note → docs-sweep`. The chosen waiting question is quoted above the answer input.
+Several open requests require an explicit
+choice before composing. `r` still opens the answer path on member/leads rows;
+`t` still composes a direct message. Explicit member-note bindings retain that
+recipient.
+
+Inside the band, Enter sends and Esc cancels; Tab switches answer/note when
+both apply, preserving your text. The band has a visible rule in both themes
+and NO_COLOR. At 80 columns the quoted question truncates before the recipient
+or input, which retains at least 30 columns. A successful send closes the band
+and shows `✓ sent` on the row until the next key; the cursor stays with it.
+Opening, cancelling, empty input or a changed target sends nothing. A failed
+send shows its error and does not show `✓ sent` or retry automatically.
+
 ## Home dashboard
 
-The built-in `all` board shows ① counts, ② needs you/blocked members and ③ one
-line per squad with its lead, state counts and most pressing member. Attention
-rows show only member, squad and available age; questions appear after `a`.
-Quiet needs-you takes one line, and empty blocked disappears. Public
-`tmt sq ls --tab all --json` and text retain the aggregate document.
+The built-in `all` board shows ① counts, ② needs-you members and a blocked subgroup,
+then ⑤ cron and ③ squads. Circled numbers label sections; they are not keys.
+At 150 columns and wider squads use three tile columns, at 100–149 two, and below
+100 one compact line per squad. Ten or more visible squads use compact lines,
+in two columns from 150. A tile shows squad attention, lead/model/token windows
+and the lead's share of the longest window, followed by non-lead member marks
+in urgency order (◆ ✗ ◐ ● ○) and a member count. A member contributes one mark;
+unknown/custom states count without a mark. Compact lines keep the last two lead
+windows. Selection covers the whole tile, including padding and continuation rows.
 
-One cursor spans attention rows and squads. Arrows or j/k move it; Tab and
+Tiles use the board's observed usage (see below). Missing values show `–`, measured
+zero shows `0`, and partial totals/share carry `~`; a zero squad total has no share.
+When a squad's token sampling is off, its tile hides token cells. If every squad
+has sampling off, the ③ heading hides the token legend too. Only sampling squads
+contribute windows to that legend. Known lead models remain visible with sampling
+off; unknown models may disappear. The ③ heading names shared windows once. Mixed `tok` settings label each tile's
+actual windows. Attention rows show only member, squad and available relative age;
+blocked ages say `observed` to identify the task/state observation. Questions appear
+in the inline composer after `a`. Quiet needs-you takes one line, and empty blocked
+disappears. Public `tmt sq ls --tab all --json` and text retain the aggregate document.
+
+One cursor spans attention rows, cron and squads. Arrows or j/k move it; Tab and
 Shift-Tab traverse sections. Open on the first decision, otherwise the first
 squad. Enter jumps to the member or opens the squad. `a` answers an open request
 through public `tmt answer`, otherwise annotates for that squad's actual lead.
@@ -626,54 +662,80 @@ states and key bindings. Bindings and actions are the user's. Never edit them
 silently. If a change would help, propose the exact lines and let the user
 apply them.
 
-## Completed-request token rate
+## Observed token usage
 
-The selected named squad's summary shows **tokens of completed requests observed
-by this board**, averaged over 5s, 1m, 30m or 1h. Input and output count once;
-cached input is already included in input, and normalized reasoning in output.
-Mixed providers sum provider-reported token units, not cost or interchangeable
-text volume. Counters update at request completion and are observed every 5–10 s;
-these are sampled batches, not in-flight generation throughput.
+The selected named squad shows completed-request tokens from public core history
+and this board's observations, in **1m / 5m / 1h windows**. The default member grid adds the current
+session model and those three totals, declared in the TEAM/crew preset rows.
+Custom grids opt in with `from = "usage.w1"`, `"usage.w2"`, or `"usage.w3"` on a
+column. Default headers follow `tok`; an explicit `title` stays as configured.
+One-shot `tmt sq ls` has no window history. JSON keeps column descriptors without
+usage values; text omits columns whose source is board-only.
+When token sampling is off, usage columns hide and MODEL remains. Default
+member grids keep at least 20 cells for TASK when space permits. On narrow
+boards, inactive window columns step aside first, then PR, then MODEL, and
+finally the active window. Pressing `w` also changes which window stays visible
+longest. MODEL follows its content up to 14 cells and truncates longer names.
 
-Team (the default board) enables the meter; crew, pr-queue and minimal keep it off.
-The all/leads tabs omit it. `w` cycles available windows through the bindable
-`token-window` action; default is 1m. The 5s heartbeat is offered only with exactly
-5 s sampling: usually zero between completions, then a sampled batch spike.
-Until a window is full, its label shows the covered span (for example `12m`), and
-the number averages that span. No earlier history is loaded or persisted.
+Input and output count once; cached input is already included in input, and
+normalized reasoning in output. Mixed providers sum reported token units, not
+cost or interchangeable text volume. Model attribution is best effort: a
+mid-session model change attributes retained observations to the current model.
+Counters update at request completion and are observed every 5–10 seconds,
+not while a model writes. On entry, the board reads closed core history for up to
+one hour and continues from its included counter watermark. It stores no separate
+usage history and computes no money estimate.
 
-True absence hides the window/meter; there are no placeholders. Longer windows
-remain hidden until usable observations span at least 10 s. A genuinely measured
-zero shows `0`. Never-reporting members are excluded and listed in `?` help;
-`≥N`/`≥0` means a reporting member or interval is missing, and remains until that
-gap ages out of the selected window. Resets, new sessions, compaction gaps and
-failed reads rebaseline without inventing tokens. Returning to a tab preserves
-its bounded history but does not treat the cached view as a fresh observation.
+Team enables observation; crew, pr-queue and minimal keep it off by default.
+The all/leads tabs omit this named-squad meter. `w` cycles the summary's windows
+through the bindable `token-window` action; member columns show all three at once.
+The label always names the configured window; the number is a total, never a
+per-second rate. Configure exactly three distinct ascending whole `m`/`h`
+durations, from 1m through 24h:
 
 ```toml
+[board]
+tok = "1m/5m/60m" # for example, "5m/60m/24h"
+
 [board.token_rate]
 enabled = false
 every = "5s" # 5s through 10s; independent of board.refresh
-window = "1m" # 5s, 1m, 30m, 1h; 5s falls back to 1m unless every = "5s"
+window = "1m" # initial summary window; falls back to the first configured window
 reduced_motion = true
+
+[squad.checkout.board]
+tok = "5m/60m/24h" # overrides the global windows
 
 [squad.checkout.board.token_rate]
 enabled = true # individual keys override global policy and layout preset
 
 [bind]
-w = "token-window" # may be rebound through normal global/section bindings
+w = "token-window"
 ```
 
-Digits count with cubic ease-out for at most 600 ms; reduced motion and window
-switches show the exact value immediately. Idle values do not animate. Eight
-sparkline bars derive from 5 s buckets: their trend spans are 40s/80s/30m/1h for
-the four windows, respectively. Blank means no evidence; ▁ means measured zero;
-▂ through █ scale nonzero values against the eight-bar maximum. Narrow boards
-drop the sparkline, then only a full default-1m label, shorten `tok/s` to `/s`,
-then hide the meter before cutting lead/attention text. The number, unit, label
-and trend form one contiguous right-aligned group; empty trend slices retain
-their positions. Covered-span and other
-window labels always remain while the meter is visible.
+`–` means no usable observed interval for that member; a baseline alone is not
+measured zero. Any covered reading, including measured zero, is numeric. `~` marks
+a window longer than available coverage or with missing evidence. Windows beyond
+one hour include retained board observations when available; partial history
+shows the covered total. Core rollups crossing a shorter window boundary are
+excluded whole rather than prorated. Unreported members are excluded from
+totals and make the total approximate; `?` lists never-reporting members.
+Resets, new sessions, invalid counters, gaps and failed reads rebaseline without
+inventing tokens. Returning to a tab refreshes its recent range from core while
+preserving older board observations, without bridging uncovered intervals.
+Changing the observation policy starts fresh observations; core history seeds again
+on the next tab entry.
+
+Digits count with cubic ease-out for at most 600 ms; reduced motion and summary
+window switches show the exact value immediately. Eight bucket-aligned bars show
+observed totals by slice: blank is no evidence, ▁ is measured zero and ▂–█ scale
+nonzero values. Narrow boards drop the trend, then shorten the unit. The active
+window label stays next to the meter values; lead/attention text clips if needed.
+Only a terminal too narrow for the compact meter hides it. Without a
+covered reading it shows `–` and a dim `no usage reported yet` line. `w` still
+switches the label immediately and posts the window in the board notice. `?`
+explains the totals, best-effort coverage, switch order and `tok` configuration.
+Whole-hour labels use `h`, so 60m displays as `1h`.
 
 ## Columns and row lines
 
@@ -781,9 +843,10 @@ Widening restores automatically folded panes without moving focus; manual folds
 keep the session policy described above. Custom split
 boards can set `fold_below` with width 1–1000 and panes present in their layout.
 
-Member, state, PR and model use percentage widths (22%, 14%, 24%, 16%);
-task grows into the remaining space. Model yields first when space is short,
-then PR; member/state/task remain. Values truncate with the existing ellipsis.
+Member, state and PR use percentage widths (22%, 14%, 24%); TASK grows from
+a 20-cell minimum and MODEL follows its content up to 14 cells. Usage columns
+follow the sampling and active-window policy under Observed token usage above.
+Values truncate with the existing ellipsis.
 
 Team uses crew states and pending-first ordering. Rows show member, state,
 task, PR and model (`session.model` from the existing presence read); pending
@@ -823,7 +886,7 @@ shows no ages. Home shows blocked ages only
 where this observation policy is enabled (Team by default; other layouts off);
 disabled or unavailable observation provides no age. Request ages use the real
 inbox timestamp, and pending-only rows have no age. Home labels blocked
-age `obs`: observed unchanged task/state, not an authoritative blocked start.
+age `observed`: unchanged task/state observation, not an authoritative blocked start.
 
 The row's age changes only when its raw task/state changes; links, notes and
 provider refreshes do not renew it. `activityAfterUpdate` records relevant
@@ -856,3 +919,38 @@ cutoff after publication can lose a reminder; it is never blindly retried.
 At-most-once applies while the cache survives: loss/corruption restarts grace,
 and changed content starts a new generation. This is best-effort context, not a
 notification queue. Board reminder-setting controls are a separate slice.
+
+## Offline markup authoring
+
+`tmt sq layout validate board.xml` checks an authoring file only; add `--json`
+for a structured result. Success exits 0, invalid/unreadable files exit 1, and
+invalid command syntax exits 2. It does not discover core, read Squad config, run
+providers or open a terminal. **The board does not load these files.** Board rows
+and pane composition still come from the existing Squad settings.
+
+The `squad-projected-v1` schema declares `$.squad.name` and `$.rows` (a collection).
+With `each="$.rows" as="row"`, each row declares stable `row.id`, scalar `name`,
+`presence`, `pending`, and `fields`/`colors` with valid Squad row field names.
+Field names and sources reuse the row/config owners; IDs must bind stable IDs.
+Binding checks repeat bodies even without data. Sources reuse column `from`/`format`
+in lexical `row` scope. Provider field names are checked syntactically offline;
+provider configuration/data availability is not checked. Direct binds retain display text.
+
+```xml
+<tmt-view version="1" class="flex-col">
+  <tmt-repeat each="$.rows" as="row">
+    <tmt-row id-bind="row.id" row-bind="row.id" class="grid grid-cols-[12_1fr] gap-1">
+      <tmt-cell bind="row.name"/>
+      <tmt-cell bind="row.fields.task" wrap="true"/>
+    </tmt-row>
+  </tmt-repeat>
+</tmt-view>
+```
+
+Integers are terminal cells: `w-4` means 4 cells, unlike Tailwind's rem scale.
+Use `flex`/`flex-col`, `grid`, `grid-cols-[12_30%_1fr]`,
+`grid-cols-[minmax(4,1fr)_8]`, `col-span-N`, `gap-N`, cell padding and bounds.
+A cut column keeps at least four cells or hides whole; Squad chooses priority tracks before sizing.
+Admission bounds: 256 KiB XML, depth 32, 20,000 parser/expanded nodes, 20,000
+repeat iterations and 8 MiB bound text/ID bytes. The offline check validates the
+template; runtime expansion limits require data and are not simulated here.

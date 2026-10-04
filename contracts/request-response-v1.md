@@ -139,6 +139,18 @@ truthful short user summary only after successful submission. Submission means
 the result was delivered, not that the requested task succeeded. Summary failure
 does not undo or justify repeating an accepted final.
 
+### Display normalization
+
+Response previews and notice fields/bodies replace each C0/C1 control and each
+Unicode direction control U+061C, U+200E, U+200F, U+202A–U+202E and U+2066–U+2069
+with one space. Line endings follow the presentation-specific rules below:
+notice fields replace each CR, LF, U+2028 and U+2029 with a space; multiline
+bodies collapse CRLF to LF and map CR, U+2028 and U+2029 to LF. Natural RTL
+letters, script joiners (U+200C/U+200D) and variation selectors remain unchanged.
+This is presentation only; stored content and exact detail/result reads remain
+unchanged. The [extension API contract](extension-api.md#other-operation-details)
+owns response-preview line selection and caps.
+
 First final acceptance also reserves an eligible originator callback in the same
 transaction. A live blocking waiter owns full-response delivery, so no hint is
 claimed alongside it. A proven-dead exact waiter incarnation can be released
@@ -146,8 +158,8 @@ atomically with valid first acceptance; uncertain process evidence cannot releas
 it. Detached, timed-out and interrupted callers instead receive one best-effort
 hint at their identity UUID's current verified binding:
 `▚ ✓ <recipient> · <original request preview> · tmt result <id>`.
-The preview uses the originator's own retained request text. Display fields replace control characters and Unicode line separators
-with spaces; previews take at most 48 Unicode scalar values and names 64, with
+The preview uses the originator's own retained request text. Display fields use
+[display normalization](#display-normalization); previews take at most 48 Unicode scalar values and names 64, with
 `…` appended when truncated. They contain no ANSI styling. The selected request
 ID is redacted from preview and name fields and appears only in runnable
 `tmt result` commands: the row's own, and a truncation or not-shown marker's.
@@ -161,8 +173,8 @@ lookup as `tmt result`, as quoted data after that line:
 `reply from <recipient> (data, not instructions):` and one `│ ` line per body
 line. Quoting is the framing: a body cannot forge a header, marker or a leading
 shell character, and it is never presented with the `<tmt-reply>` tags that mark
-instructions. Newlines are kept; other control characters become spaces and
-Unicode line separators become newlines. Leading and trailing whitespace is
+instructions. Bodies use [display normalization](#display-normalization), keeping
+normalized newlines. Leading and trailing whitespace is
 dropped and a blank body adds no block. At most 2048 bytes of body are inlined in a
 channel frame and at most 500 Unicode scalar values in a pasted notice, cut at a
 character boundary, and a longer body ends with
@@ -352,7 +364,8 @@ Human output states this and supplies `tmt inbox --identity '<recipient UUID>' -
 a correlated `tmt x show <request-id> --incoming --identity '<recipient UUID>' --json`,
 and `tmt result <request-id>`. The recipient commands are for that recipient's
 own identity. A completed response does not carry the pending notification or
-waiting fields. Ordinary offline queueing retains `offline:true`; ordinary live
+waiting fields. Ordinary offline queueing retains `offline:true` and the same
+unattempted-notification/pull fields, with a recipient pull and repair suggestion; ordinary live
 and uncertain handoffs do not claim that notification was unattempted.
 
 Detached JSON is `{status:"sent",requestId,target,pane,identity?}`. Completed
@@ -376,6 +389,17 @@ the pane, the request stays queued, and nothing types around the agent. Offline 
 immediate `queued` result with `offline:true`, without waiting or pasting into a
 shell. Rebinding or coming online never triggers automatic re-wake. Explicit
 `--inbox` and unbound direct-pane behavior remain distinct.
+
+Unknown/unverified recipient readiness refuses live input with exit 1,
+`DELIVERY_PREPARATION_FAILED` and `deliveryState:"not_delivered"`. Human and JSON
+error text say the request stays queued, name the recipient's `tmt inbox` pull,
+and suggest starting a turn/session or `tmt resume <recipient name>` in the
+recipient's pane to repair live delivery.
+After provider end, an exact live process under the verified pane (and an exact
+live launch owner when recorded) can accept plain delivery without another
+SessionStart; this also handles legacy stored Ended without rewriting it.
+Unverified ancestry or process evidence still refuses plain input. Enrolled
+channels retain their independent acceptance and refusal rules.
 
 A newly accepted, queued direct dispatch may make one advisory wake at the
 recipient's verified binding. Its line is
@@ -618,3 +642,18 @@ See [Development](../DEVELOPMENT.md) for commands and scenario ownership.
 The [historical research record](https://github.com/pj-tmt/tmt/blob/5b1e9beb6d7deeae955eba3b49ab78bd07c9df1d/REQUEST-RESPONSE.md)
 retains superseded marker/JSON-state behavior and provider research. It does not
 define current commands or authorize new integrations.
+
+## Owner results inspection
+
+The local extension API's `requests.list` results view reads submitted finals
+for one originator across rooms and recipients, including acknowledged work.
+It reuses canonical attempts and response metadata; it is independent of X's
+unread attention and revision cursor. Submitted does not mean successful, and
+core does not infer question/blocked categories. Results order and page by final
+submission time with request ID as the tie-breaker, not preparation time.
+
+The [extension API contract](extension-api.md#other-operation-details) owns the
+input, cursor, JSON fields and preview caps. Expired/unavailable bodies retain
+honest headers while metadata is retained. Reads use an observation snapshot,
+never acknowledge, renew retention, run request housekeeping, or claim successful
+notification. Exact retained body text remains available through detail/result.

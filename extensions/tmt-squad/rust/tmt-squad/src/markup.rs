@@ -113,6 +113,9 @@ fn binding_reuses_acquired_sources_and_never_reformats_projected_fields() {
         ).parse().unwrap();
         let rows = rows::read(configured["p"].as_table_like(), "p").unwrap();
         let column = &rows.columns[0];
+        // Offline validation accepts exactly what the row config and board accept.
+        crate::layout::validate("squad.xml", &xml.replace("row.shown", "row.fields.shown"))
+            .unwrap();
         assert_eq!(
             node.children[0].text,
             column
