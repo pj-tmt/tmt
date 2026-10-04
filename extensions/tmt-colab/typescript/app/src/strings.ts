@@ -128,4 +128,12 @@ export const text = {
   warning:
     'Page scripts run inside an isolated frame. A page can navigate its own frame; complete exfiltration prevention is not guaranteed.',
   adapter: 'This preview uses local sample pages. It is not connected to a remote space.',
+  readerOnly: 'Read-only',
+  readerOpening: 'Opening shared page…',
+  readerEnded: 'Access ended',
+  readerEndedNote: 'This link no longer gives access to the page. Ask the owner for a new link.',
+  readerInvalid: 'This link is incomplete or malformed. Open the full link again.',
+  readerFailed: 'Could not open this page. Open the full link again.',
+  readerNote:
+    'You are reading a shared page. You cannot edit it or ask agents. Anyone who holds this link and can reach this address can read the page.',
 } as const;

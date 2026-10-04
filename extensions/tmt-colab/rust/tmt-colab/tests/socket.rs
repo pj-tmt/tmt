@@ -1591,9 +1591,13 @@ fn owner_static_assets_have_exact_bytes_types_and_no_filesystem_path_resolution(
     fs::create_dir_all(directory.join("assets")).unwrap();
     assert!(!POLICY.contains("unsafe-inline"));
     assert!(RENDERER_POLICY.ends_with("sandbox allow-scripts"));
-    let files: [(&str, &str, &[u8]); 8] = [
+    let files: [(&str, &str, &[u8]); 12] = [
         ("index.html", "text/html; charset=utf-8", br#"<link href="./assets/app.css"><script type="module" src="./assets/app.js"></script>"#),
         ("renderer.html", "text/html; charset=utf-8", b"<!doctype html><title>Renderer</title>"),
+        ("reader.html", "text/html; charset=utf-8", br#"<script type="module" src="./assets/reader.js"></script>"#),
+        ("assets/reader.js", "text/javascript; charset=utf-8", b"export const reader = true;"),
+        ("assets/reader.css", "text/css; charset=utf-8", b"body{color:blue}"),
+        ("assets/reader-fold.js", "text/javascript; charset=utf-8", b"export const fold = true;"),
         ("assets/app.js", "text/javascript; charset=utf-8", b"export {};"),
         ("assets/recovery.js", "text/javascript; charset=utf-8", b"export const recovery = true;"),
         ("assets/app.css", "text/css; charset=utf-8", b"body{color:red}"),
@@ -1635,11 +1639,12 @@ fn owner_static_assets_have_exact_bytes_types_and_no_filesystem_path_resolution(
         };
         assert!(head.contains(&format!("Content-Security-Policy: {policy}\r\n")));
         assert_eq!(&reply[end..], bytes);
-        if path == "/assets/recovery.js" {
+        if tmt_colab::assets::anonymous_file(&path).is_some() {
+            // The reader entry and its files are public static bytes.
             let public = server.request(&Running::get(&path, ""));
-            assert!(public.starts_with("HTTP/1.1 200"));
+            assert!(public.starts_with("HTTP/1.1 200"), "{path}");
             assert!(public.ends_with(std::str::from_utf8(bytes).unwrap()));
-            assert!(public.contains(&format!("Content-Security-Policy: {POLICY}\r\n")));
+            assert!(public.contains(&format!("Content-Security-Policy: {policy}\r\n")));
         } else if path != "/" {
             assert!(
                 server
@@ -1654,6 +1659,15 @@ fn owner_static_assets_have_exact_bytes_types_and_no_filesystem_path_resolution(
     assert!(guidance.contains("<script type=\"module\" src=\"./assets/recovery.js\"></script>"));
     assert!(guidance.contains(&format!("Content-Security-Policy: {POLICY}\r\n")));
     assert!(!guidance.contains("unsafe-inline"));
+    let read = server.request(&Running::get("/read", ""));
+    assert!(read.starts_with("HTTP/1.1 200"));
+    assert!(read.contains("Content-Type: text/html; charset=utf-8\r\n"));
+    assert!(read.contains(&format!("Content-Security-Policy: {POLICY}\r\n")));
+    assert!(read.ends_with(r#"<script type="module" src="./assets/reader.js"></script>"#));
+    for path in ["/read/", "/read?x=1", "/reader.html"] {
+        let reply = server.request(&Running::get(path, ""));
+        assert!(!reply.starts_with("HTTP/1.1 200"), "{path}");
+    }
     for path in [
         "/../index.html",
         "/assets/../index.html",

@@ -69,8 +69,8 @@ A mount-scoped session-storage marker prevents a recovery reload loop and clears
 only after authenticated boot succeeds. An active page blocked by a sync
 disconnect offers Reconnect through the same helper, closing its Live, Ask and
 observer first. Recovery never dispatches or retries an Ask. The app `build`
-script emits both the main app and the standalone recovery entry; other app
-assets remain owner-gated.
+script emits the main app, the standalone recovery entry and the read-only reader
+entry (`/read`, fixed-name `assets/reader.*`); other app assets remain owner-gated.
 
 Browser tests may set `COLAB_APP_TEST_PORT` to isolate their loopback Vite server;
 the default remains 4179. The deterministic Page/Remote doubles live only in

@@ -36,6 +36,11 @@ impl Build {
             b"<!doctype html><title>Renderer</title>",
         )
         .unwrap();
+        fs::write(
+            root.join("reader.html"),
+            b"<!doctype html><title>Reader</title>",
+        )
+        .unwrap();
         fs::write(root.join("assets/a.js"), b"console.log('embedded');").unwrap();
         fs::write(root.join("assets/a.css"), b"body{}").unwrap();
         fs::write(root.join("THIRD-PARTY-NOTICES.txt"), b"test notice").unwrap();
@@ -88,6 +93,7 @@ fn generator_rejects_invalid_or_partial_builds_before_emitting_a_table() {
         "entry",
         "renderer",
         "missing-renderer",
+        "missing-reader",
         "empty",
         "nested",
         "file-link",
@@ -104,6 +110,7 @@ fn generator_rejects_invalid_or_partial_builds_before_emitting_a_table() {
             "notice" => fs::remove_file(build.root.join("THIRD-PARTY-NOTICES.txt")).unwrap(),
             "entry" => fs::remove_file(build.root.join("assets/a.js")).unwrap(),
             "missing-renderer" => fs::remove_file(build.root.join("renderer.html")).unwrap(),
+            "missing-reader" => fs::remove_file(build.root.join("reader.html")).unwrap(),
             "renderer" => fs::write(
                 build.root.join("renderer.html"),
                 br#"<script src="./assets/missing.js"></script>"#,

@@ -118,8 +118,16 @@ fn source(path: &str) -> Result<Vec<u8>> {
     }
     Ok(bytes)
 }
+/// A caller-held seed from `--seed-file`, or a fresh one from the OS RNG when the flag is absent.
 fn seed(args: &ArgMatches) -> Result<String> {
-    let mut raw = source(text(args, "seed-file"))?;
+    let Some(path) = args.get_one::<String>("seed-file") else {
+        let mut fresh = [0u8; 32];
+        getrandom::fill(&mut fresh).map_err(|_| input("Could not generate a sharing seed."))?;
+        let encoded = values::encode_binary(&fresh);
+        fresh.fill(0);
+        return Ok(encoded);
+    };
+    let mut raw = source(path)?;
     let result = (|| {
         let value = std::str::from_utf8(&raw)
             .map_err(|_| input("Seed must be canonical base64url seed32."))?
@@ -225,6 +233,17 @@ struct Acknowledgment {
 struct AcknowledgedHead {
     revision: String,
     statement_hash: String,
+}
+/// The reader link grammar is owned by the colab-v1 contract. The path is relative to the
+/// Remote door address, like `page create`'s `path`; everything secret is in the fragment.
+fn reader_path(space: &str, page: &str, link: &Value, head: &AcknowledgedHead) -> String {
+    format!(
+        "x/colab/read#v=1&space={space}&page={page}&link={}&rev={}&st={}&seed={}",
+        link["linkId"].as_str().unwrap_or_default(),
+        head.revision,
+        head.statement_hash,
+        link["seed"].as_str().unwrap_or_default(),
+    )
 }
 fn remaining(deadline: Instant) -> Result<Duration> {
     deadline.checked_duration_since(Instant::now()).filter(|d|!d.is_zero()).ok_or_else(||fail("COLAB_OUTCOME_UNKNOWN","Management IPC deadline expired; effects may have committed. Inspect state before an exact retry."))
@@ -579,6 +598,15 @@ pub fn run(command: &str, args: &ArgMatches, root: &Path, json_output: bool) -> 
             "membershipHead":{"revision":ack.membership_head.revision,"statementHash":ack.membership_head.statement_hash}});
         value["expectedRevision"] = json!(revision);
         if let Some(id) = link_id { value["linkId"] = id.clone(); }
+        // The one place a seed leaves the CLI: inside the reader link's fragment.
+        let created = match operation {
+            "link.add" => Some(&payload),
+            "link.remove" => payload.get("replacement").filter(|r| !r.is_null()),
+            _ => None,
+        };
+        if let Some(created) = created {
+            value["readerPath"] = json!(reader_path(&key.space_id, &id, created, &ack.membership_head));
+        }
         Ok(value)
     })()
     .map_err(|e| {

@@ -62,7 +62,18 @@ def generate():
     link_id = "00000000-0000-4000-8000-000000000060"
     def derive(label):
         return expand(mac(bytes(32),link_seed),lp(label,space.encode(),link_id.encode()),32)
-    return dict(space=space,page=page,device=device,seed=seed.hex(),public=pub.hex(),recipientSeed=sk_r.hex(),epochKey=epoch_key.hex(),wrap=wrap,payload=payload.decode(),statement=dict(statement=b64(statement),payload=b64(payload),signature=b64(sig)),statementHash=statement_hash.hex(),chain=chain,chainDigest=digest(lp(b"tmt-colab-chain-v1",b"1",statement_hash,cert,cert_sig)).hex(),linkId=link_id,linkSeed=link_seed.hex(),linkSigningPublic=public(Ed25519PrivateKey.from_private_bytes(derive(b"tmt-colab-link-signing-seed-v1"))).hex(),linkEncryptionPublic=public(X25519PrivateKey.from_private_bytes(derive(b"tmt-colab-link-encryption-seed-v1"))).hex(),joinProof=mac(link_seed,lp(b"tmt-colab-join-v1",space.encode(),link_id.encode())).hex())
+    # The browser reader's deterministic link device: re-opens reuse one server row.
+    link_signer = Ed25519PrivateKey.from_private_bytes(derive(b"tmt-colab-link-signing-seed-v1"))
+    link_device_key = Ed25519PrivateKey.from_private_bytes(derive(b"tmt-colab-link-device-seed-v1"))
+    link_device_bytes = bytearray(derive(b"tmt-colab-link-device-id-v1")[:16])
+    link_device_bytes[6] = (link_device_bytes[6] & 15) | 64
+    link_device_bytes[8] = (link_device_bytes[8] & 63) | 128
+    h = bytes(link_device_bytes).hex()
+    link_device_id = f"{h[:8]}-{h[8:12]}-{h[12:16]}-{h[16:20]}-{h[20:]}"
+    link_device_cert = lp(b"tmt-colab-device-cert-v1",b"1",space.encode(),b"link",link_id.encode(),link_device_id.encode(),public(link_device_key),public(X25519PrivateKey.from_private_bytes(derive(b"tmt-colab-link-encryption-seed-v1"))),b"1",b"0",b"9007199254740991")
+    link_device_sig = link_signer.sign(link_device_cert)
+    link_device = dict(id=link_device_id,signingPublic=public(link_device_key).hex(),chain=dict(version=1,issuerStatement=b64(statement_hash),deviceCertificate=b64(link_device_cert),issuerSignature=b64(link_device_sig)),chainDigest=digest(lp(b"tmt-colab-chain-v1",b"1",statement_hash,link_device_cert,link_device_sig)).hex())
+    return dict(space=space,page=page,device=device,seed=seed.hex(),public=pub.hex(),recipientSeed=sk_r.hex(),epochKey=epoch_key.hex(),wrap=wrap,payload=payload.decode(),statement=dict(statement=b64(statement),payload=b64(payload),signature=b64(sig)),statementHash=statement_hash.hex(),chain=chain,chainDigest=digest(lp(b"tmt-colab-chain-v1",b"1",statement_hash,cert,cert_sig)).hex(),linkId=link_id,linkSeed=link_seed.hex(),linkSigningPublic=public(Ed25519PrivateKey.from_private_bytes(derive(b"tmt-colab-link-signing-seed-v1"))).hex(),linkEncryptionPublic=public(X25519PrivateKey.from_private_bytes(derive(b"tmt-colab-link-encryption-seed-v1"))).hex(),joinProof=mac(link_seed,lp(b"tmt-colab-join-v1",space.encode(),link_id.encode())).hex(),linkDevice=link_device)
 def owner_member_vectors(authority):
     owner = Ed25519PrivateKey.from_private_bytes(bytes.fromhex(authority["seed"]))
     cases = []

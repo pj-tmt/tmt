@@ -113,3 +113,33 @@ export async function restartColab(world: AcceptanceWorld, door: Door): Promise<
   await colab.event((value) => value.state === 'mounted');
   door.colab = colab;
 }
+
+export interface UnpairedBrowser {
+  context: BrowserContext;
+  page: Page;
+  /** Every request the profile made: URL, and POST body when it had one. */
+  requests: { url: string; body: string | null }[];
+}
+
+/**
+ * Open a reader link in a fresh Chromium profile that never paired with the door. The profile
+ * is its own origin storage, so nothing from an owner or paired device is shared with it.
+ */
+export async function openReaderLink(
+  world: AcceptanceWorld,
+  door: Door,
+  readerPath: string,
+  name: string,
+): Promise<UnpairedBrowser> {
+  const profile = path.join(world.root, `profile-${name}`);
+  fs.mkdirSync(profile, { mode: 0o700 });
+  const context = await chromium.launchPersistentContext(profile, { headless: true });
+  world.onDispose(() => context.close());
+  const requests: UnpairedBrowser['requests'] = [];
+  context.on('request', (request) =>
+    requests.push({ url: request.url(), body: request.postData() }),
+  );
+  const page = await context.newPage();
+  await page.goto(`${door.address}/${readerPath}`);
+  return { context, page, requests };
+}
