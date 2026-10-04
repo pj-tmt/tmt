@@ -117,9 +117,7 @@ export async function pairBrowser(world: AcceptanceWorld, name: string): Promise
   await page.click('button');
   await expect(page.locator('#words')).toBeVisible();
   const candidate = await pair.event((value) => value.event === 'candidate');
-  await expect(page.locator('#words')).toHaveText(
-    `Words: ${(candidate.words as string[]).join(' ')}`,
-  );
+  await expect(page.locator('#words')).toHaveText((candidate.words as string[]).join(' '));
   pair.child.stdin.write('confirm\n');
   await pair.event((value) => value.reason === 'paired');
   await expect(page.locator('#status')).toHaveText(

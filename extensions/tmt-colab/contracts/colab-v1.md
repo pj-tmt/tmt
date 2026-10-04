@@ -1774,8 +1774,12 @@ learns the door only through Remote's public CLI, run through the invoking core 
 with a bounded call each (three seconds, 16 KiB), never Remote's files:
 
 - `tmt remote status --json` → `{running:true,origin,path:"/r/<prefix>"}` **attaches**: nothing
-  is started and the door is never stopped. Anything else (stopped, failed, timed out,
-  malformed) falls through to the next step.
+  is started and the door is never stopped. `{running:false,...}` is the only answer that
+  starts a door (next bullet). A Remote error envelope (`{error:{code,message}}` with a
+  non-zero exit, for example `REMOTE_SERVE_OUTDATED` from a serve that predates `status`) is
+  shown as Remote wrote it, with no start attempt, because a second door would race the one
+  that may be running. No answer at all (missing command, timeout, malformed) is the install
+  line below.
 - `tmt remote serve --json` is started as a supervised child in its own process group and its
   first stdout line `{state:"ready",address,...}` gives the door (15-second bound; Ctrl-C
   aborts the wait). Colab passes no port: Remote owns port reuse. On Ctrl-C or SIGTERM Colab
@@ -1811,8 +1815,10 @@ Every command that names a page tells a person where to open it, from one door a
 lookup per command (`tmt remote status --json`, then `tmt remote devices --json` while a door
 runs; the same bounded calls as `serve`). `page create`, `ls`, `show` and the `share` commands
 print the **full link** while a door runs. Without one they print the relative path and the
-reason: the install line when Remote gave no answer, else `run tmt colab serve to get a full
-link`; never a manual `tmt remote serve`. When no paired device is known, the same pairing step
+reason: the install line when Remote gave no answer; Remote's own message for an error envelope,
+with one shared wording for `REMOTE_SERVE_OUTDATED` (`The running Remote serve is older than
+this Colab. Stop it with Ctrl-C in its terminal, then run tmt colab serve.`; the `serve` row then only says `(Remote serve is outdated; see warning)`; else `run tmt colab
+serve to get a full link`; never a manual `tmt remote serve`. When no paired device is known, the same pairing step
 as `serve` follows (`pair this browser once: tmt remote pair`, or `if this browser is new: ...`).
 
 `--json` results that name a page carry `path` (relative), `link` (full, `null` without a
@@ -1849,8 +1855,7 @@ door `serve` started (never an attached one). Pairings, grants and data are unto
 The command then waits up to 10 seconds for the serve lock to release. Output: when nothing
 runs (including no state at all) it succeeds with `Colab is not running`, JSON
 `{state:"not-running",door:null}`; after a stop `Colab stopped` (`, and the Remote door it
-started` for a started door) and, for an attached door, `Remote is still running (started
-outside Colab)`; JSON `{state:"stopped",door}`. A refused or unanswered request is
+started` for a started door) and, for an attached door, `Remote is still running; stop it with tmt remote stop`; JSON `{state:"stopped",door}`. A refused or unanswered request is
 `COLAB_UNAVAILABLE`; a request accepted but a serve still running after the wait is
 `COLAB_OUTCOME_UNKNOWN`; both exit 1 and are never retried. A `stop` sent while `serve` is still
 waiting (at most 15 seconds) for a starting door is not answered until the wait ends.

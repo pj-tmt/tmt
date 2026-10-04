@@ -35,13 +35,21 @@ test('one command starts the door; pairing opens a page; stopping it closes both
     await openColab(door, device);
     // `page create` prints the full link (#1614): the door address plus the page path, and it
     // opens as the paired device without any hand-built URL.
-    const printed2 = await world.tmt(['colab', 'page', 'create', '--title', 'Linked', '--json']);
+    const printed2 = await world.tmt(
+      ['colab', 'page', 'create', '--title', 'Linked', '--file', '-', '--json'],
+      { stdin: '<p id="body">Opened from the printed link.</p>' },
+    );
     expect(printed2.code, printed2.stdout + printed2.stderr).toBe(0);
     const linked = JSON.parse(printed2.stdout) as { link: string; path: string; paired: boolean };
     expect(linked.link).toBe(`${door.address}/${linked.path}`);
     expect(linked.paired).toBe(true);
     const linkedPage = await device.context.newPage();
     expect((await linkedPage.goto(linked.link))?.status()).toBe(200);
+    // The link renders the page, not just an HTTP 200: the sandboxed frame shows its body.
+    await expect(linkedPage.locator('iframe')).toBeVisible();
+    await expect(linkedPage.frameLocator('iframe').locator('#body')).toHaveText(
+      'Opened from the printed link.',
+    );
     const created = createPage(world, 'One command', '<p id="body">Opened by one command.</p>');
     const page = await openPage(door, device, created);
     await expect(page.locator('iframe')).toBeVisible();

@@ -952,6 +952,8 @@ fn human_fields(value: &Value) -> Result<Vec<(String, String)>> {
             "operationId" => fields.push(("operation".to_owned(), text(v))),
             "expectedRevision" => fields.push(("expected revision".to_owned(), text(v))),
             "linkId" => fields.push(("link".to_owned(), text(v))),
+            // An unavailable value is a missing one, written like the other missing values.
+            "discussions" if v == "not-available" => fields.push((key.clone(), "–".to_owned())),
             "members" => fields.push(("members".to_owned(), principals(v))),
             "links" => fields.push(("links".to_owned(), principals(v))),
             _ => fields.push((key.clone(), text(v))),

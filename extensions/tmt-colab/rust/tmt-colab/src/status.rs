@@ -3,7 +3,7 @@
 use crate::{
     door::{Door, Pairing},
     reach::Reach,
-    supervisor::Access,
+    supervisor::{Access, Reason},
 };
 use serde_json::{Value, json};
 use std::path::Path;
@@ -58,10 +58,22 @@ impl Status<'_> {
     fn page_text(&self) -> Option<String> {
         let link = self.page_link()?;
         Some(match self.access {
-            Access::Unavailable { missing: true } => format!("{link} ({})", Door::INSTALL_HINT),
-            Access::Unavailable { missing: false } => {
-                format!("{link} (browser access unavailable: see warning)")
+            Access::Unavailable {
+                reason: Reason::Missing,
+            } => format!("{link} ({})", Door::INSTALL_HINT),
+            Access::Unavailable {
+                reason: Reason::Remote(failure),
+            } => {
+                // The warning below carries the whole instruction; the row only points at it.
+                if failure.code == "REMOTE_SERVE_OUTDATED" {
+                    format!("{link} (Remote serve is outdated; see warning)")
+                } else {
+                    format!("{link} (browser access unavailable: see warning)")
+                }
             }
+            Access::Unavailable {
+                reason: Reason::WouldNotStart,
+            } => format!("{link} (browser access unavailable: see warning)"),
             _ => link,
         })
     }

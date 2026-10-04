@@ -1,6 +1,6 @@
 //! The Remote door `tmt colab serve` attaches to or starts, through Remote's public CLI only.
 //! A door Colab started is stopped and reaped on every exit path; an attached door is never touched.
-use crate::door::{Door, Lookup};
+use crate::door::{Door, Lookup, RemoteFailure};
 use nix::{
     sys::signal::{Signal, killpg},
     unistd::Pid,
@@ -31,17 +31,33 @@ pub enum Access {
     Attached(Door),
     /// Colab started the door; dropping the supervisor stops it.
     Started { door: Door, _supervisor: Supervisor },
-    /// No door could be reached. `missing` is true when Remote gave no answer at all, which is
-    /// what a missing extension looks like until core offers the use-time check (#1575).
-    Unavailable { missing: bool },
+    /// No door could be reached, and why.
+    Unavailable { reason: Reason },
+}
+/// Why browser access is missing. Only `Stopped` ever starts a door.
+pub enum Reason {
+    /// Remote gave no answer at all, which is what a missing extension looks like until core offers
+    /// the use-time check (#1575).
+    Missing,
+    /// Remote answered with an error envelope; shown as it is, nothing started.
+    Remote(RemoteFailure),
+    /// Remote said no door runs, and starting one failed.
+    WouldNotStart,
 }
 
 impl Access {
     /// What a person is told when browser access is missing: the line, and the next step if any.
-    pub fn warning(&self) -> Option<(&'static str, Option<&'static str>)> {
+    pub fn warning(&self) -> Option<(&str, Option<&'static str>)> {
         match self {
-            Self::Unavailable { missing: true } => Some((Door::INSTALL_HINT, None)),
-            Self::Unavailable { missing: false } => Some((
+            Self::Unavailable {
+                reason: Reason::Missing,
+            } => Some((Door::INSTALL_HINT, None)),
+            Self::Unavailable {
+                reason: Reason::Remote(failure),
+            } => Some((failure.text(), None)),
+            Self::Unavailable {
+                reason: Reason::WouldNotStart,
+            } => Some((
                 "The Remote door did not start; the local space runs without browser access",
                 Some("tmt remote serve shows why"),
             )),
@@ -51,14 +67,23 @@ impl Access {
     pub fn open(stop: &AtomicBool) -> Self {
         match Door::lookup() {
             Lookup::Running(door) => Self::Attached(door),
-            lookup => match Supervisor::start(stop) {
+            // Only a Remote that says no door runs gets one started. An error envelope (a serve
+            // that predates `status`, any other code) is shown as it is: a second door must not
+            // race the one that may be running.
+            Lookup::Stopped(_) => match Supervisor::start(stop) {
                 Some((door, supervisor)) => Self::Started {
                     door,
                     _supervisor: supervisor,
                 },
                 None => Self::Unavailable {
-                    missing: lookup == Lookup::Unknown,
+                    reason: Reason::WouldNotStart,
                 },
+            },
+            Lookup::Failed(failure) => Self::Unavailable {
+                reason: Reason::Remote(failure),
+            },
+            Lookup::Unknown => Self::Unavailable {
+                reason: Reason::Missing,
             },
         }
     }
