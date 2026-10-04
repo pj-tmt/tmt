@@ -85,14 +85,14 @@ test('reader link: opens unpaired, shows live edits read-only, and ends on Reset
         expect(Math.abs((frameBox?.width ?? 0) - contentWidth)).toBeLessThan(1);
         await reader.page.evaluate(() => window.scrollTo(0, 0));
         await expect.poll(() => reader.page.evaluate(() => window.scrollY)).toBe(0);
-        await expect(reader.page.locator('.reader-bar')).toBeInViewport();
+        await expect(reader.page.locator('.colab-header')).toBeInViewport();
         if (captures)
           await reader.page.screenshot({ path: `${captures}/reader-${width}-${theme}-top.png` });
         await reader.page.evaluate(() => window.scrollTo(0, 1800));
         await expect.poll(() => reader.page.evaluate(() => window.scrollY)).toBeGreaterThan(1000);
-        await expect(reader.page.locator('.reader-bar')).toBeInViewport();
+        await expect(reader.page.locator('.colab-header')).toBeInViewport();
         expect(
-          Math.abs((await reader.page.locator('.reader-bar').boundingBox())?.y ?? Infinity),
+          Math.abs((await reader.page.locator('.colab-header').boundingBox())?.y ?? Infinity),
         ).toBeLessThan(1);
         expect(
           await frame.locator('html').evaluate((node) => node.ownerDocument.defaultView!.scrollY),

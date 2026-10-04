@@ -60,6 +60,13 @@ async function nativeScreen(page: Page, name: 'private' | 'owner') {
   await page.route('**/native-chrome/', (route) => route.fulfill(response));
   await page.goto('/native-chrome/');
   await expect(page.locator('.guidance-card')).toBeVisible();
+  if (name === 'owner') {
+    await expect(page.locator('.guidance-mark')).toHaveAttribute('fill', 'currentColor');
+    await expect(page.locator('.guidance-detail')).toContainText('You are signed in as Laptop.');
+    await expect(page.locator('.guidance-detail')).toContainText('Build the app:');
+  } else {
+    await expect(page.locator('.guidance-mark path')).toBeVisible();
+  }
 }
 
 async function metrics(page: Page) {
@@ -163,7 +170,7 @@ for (const width of [1440, 390])
               'Untitled page',
             );
           }
-          for (const icon of await page.locator('.colab-header:visible svg').all()) {
+          for (const icon of await page.locator('svg.lucide:visible').all()) {
             await expect(icon).toHaveCSS('stroke-linecap', 'square');
             await expect(icon).toHaveCSS('stroke-linejoin', 'miter');
             await expect(icon).toHaveCSS('stroke-width', `${tokens.colab.header['icon-stroke']}px`);

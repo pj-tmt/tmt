@@ -481,9 +481,6 @@ footer {
   font-size: 18px;
 }
 @media (max-width: 800px) {
-  .masthead {
-    padding: 0 20px;
-  }
   .home {
     padding-left: 20px;
     padding-right: 20px;

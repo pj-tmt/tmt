@@ -532,7 +532,8 @@ API routes and registered-owner `/sync` admission/transport are unchanged.
 
 Vite output MUST use relative URLs beneath `/r/<prefix>/x/colab/`, with no
 third-party requests. The current app declares installed/system font fallbacks;
-no external font service is used. The app response CSP is exactly:
+no external font service is used. App and native guidance responses share this
+exact parent CSP, including guidance served without an app build:
 
 ```text
 default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'self'; worker-src 'self'; frame-src 'self'; base-uri 'none'; form-action 'none'; object-src 'none'; frame-ancestors 'none'

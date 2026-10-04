@@ -17,7 +17,7 @@ widths the page actions move into an overflow menu. The existing display-only
 `local · <name>` label and sharing metadata move inside that menu on mobile.
 Page-list cards show their name (or `Untitled page`), a short mono ID and the
 shared expiry hint; Details and Manage stay inside the card. Full IDs remain in
-Details. Neither titles nor advisory retention hints grant access.
+Details. Neither titles nor retention hints grant access.
 
 The browser window scrolls the author page. `renderer.ts` initially sizes the
 opaque iframe to the remaining viewport, disables its scrollbar, then uses the

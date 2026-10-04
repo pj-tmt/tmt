@@ -14,7 +14,7 @@ test('native page titles become durable browser-local labels after their first v
     const page = await openColab(door, browser);
     await page.setViewportSize({ width: 1440, height: 900 });
     const row = () => page.locator(`[data-page-id="${created.pageId}"]`);
-    await expect(row().getByRole('heading')).toHaveText('Untitled, not opened in this browser yet');
+    await expect(row().getByRole('heading')).toHaveText('Untitled page');
     await row().locator('a').click();
     await expect(page.getByRole('heading', { name: title, exact: true })).toBeVisible();
     await expect(page).toHaveTitle(`${title} · Colab`);
@@ -56,7 +56,7 @@ test('native page titles become durable browser-local labels after their first v
     const otherPage = await openColab(door, other);
     await expect(
       otherPage.locator(`[data-page-id="${created.pageId}"]`).getByRole('heading'),
-    ).toHaveText('Untitled, not opened in this browser yet');
+    ).toHaveText('Untitled page');
     expect(world.coreCalls().filter((call) => call.operation === 'dispatch.create')).toHaveLength(
       0,
     );
