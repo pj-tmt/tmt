@@ -448,6 +448,7 @@ fn export(root: &std::path::Path, args: &clap::ArgMatches) -> Result<()> {
     let layout = Layout::existing(root)?.ok_or(Fault::MissingState)?;
     let keyring = Keyring::read(&layout)?;
     let store = Store::read(&layout)?;
+    store.require_current_schema()?;
     let mut decoder = tmt_colab::decoder::Decoder::new(std::env::current_exe()?)?;
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)?
@@ -533,6 +534,7 @@ fn page(root: &std::path::Path, args: &clap::ArgMatches) -> Result<()> {
     let layout = Layout::existing(root)?.ok_or(Fault::Missing)?;
     let key = Keyring::read(&layout)?;
     let store = Store::read(&layout)?;
+    store.require_current_schema()?;
     let mut decoder = Decoder::new(std::env::current_exe()?)?;
     let id = args.get_one::<String>("page").expect("required page");
     let json_output = args.get_flag("json");
@@ -782,16 +784,21 @@ fn error_code(error: &(dyn std::error::Error + Send + Sync + 'static)) -> &'stat
                 .downcast_ref::<tmt_colab::assets::AssetFault>()
                 .map(|_| "COLAB_APP_UNAVAILABLE")
         })
-        .unwrap_or_else(|| {
-            if matches!(
-                error.downcast_ref::<tmt_colab::store::Fault>(),
-                Some(tmt_colab::store::Fault::UnsupportedSchema(_))
-            ) {
-                "COLAB_SCHEMA_UNSUPPORTED"
-            } else {
-                "COLAB_UNAVAILABLE"
-            }
-        })
+        .or_else(|| schema_fault(error).and_then(tmt_colab::store::Fault::code))
+        .unwrap_or("COLAB_UNAVAILABLE")
+}
+/// Correlation adapters preserve the source so schema recovery remains typed.
+fn schema_fault<'a>(
+    error: &'a (dyn std::error::Error + 'static),
+) -> Option<&'a tmt_colab::store::Fault> {
+    let mut cause = Some(error);
+    while let Some(error) = cause {
+        if let Some(fault) = error.downcast_ref::<tmt_colab::store::Fault>() {
+            return Some(fault);
+        }
+        cause = error.source();
+    }
+    None
 }
 fn main() -> ExitCode {
     if std::env::args().nth(1).as_deref() == Some("__decoder") {
@@ -836,11 +843,22 @@ fn main() -> ExitCode {
         Err(error) => {
             let cli_failure = error.downcast_ref::<cli_management::ManagementFault>();
             let code = error_code(error.as_ref());
+            let schema = schema_fault(error.as_ref());
+            let next = schema.and_then(tmt_colab::store::Fault::next);
             if json_output {
                 let mut value = cli_failure
                     .map(|e| e.correlation.clone())
                     .unwrap_or_else(|| json!({}));
                 value["error"] = json!({"code":code,"message":error.to_string()});
+                if let Some((stored, supported)) =
+                    schema.and_then(tmt_colab::store::Fault::schema_versions)
+                {
+                    value["error"]["storeSchema"] = json!(stored);
+                    value["error"]["supportedSchema"] = json!(supported);
+                }
+                if let Some(next) = next {
+                    value["next"] = json!([next]);
+                }
                 if let Some(path) = error
                     .downcast_ref::<tmt_colab::export::Fault>()
                     .and_then(|fault| fault.partial_directory())
@@ -852,7 +870,7 @@ fn main() -> ExitCode {
                 let mut output = tmt_cli_style::stream::stderr();
                 let terminal = output.terminal();
                 let _ =
-                    tmt_cli_style::message::error(&mut output, terminal, &error.to_string(), None);
+                    tmt_cli_style::message::error(&mut output, terminal, &error.to_string(), next);
             }
             ExitCode::FAILURE
         }
@@ -862,6 +880,33 @@ fn main() -> ExitCode {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn schema_restart_hint_parses_without_execution() {
+        let hint = tmt_colab::store::Fault::OutdatedSchema(4).next().unwrap();
+        // Explicit command boundaries in the actual presentation-owned hint.
+        let command = hint
+            .strip_prefix("Start or restart ")
+            .unwrap()
+            .strip_suffix(" to update it.")
+            .unwrap();
+        let words = Example {
+            command,
+            note: "Restart the migration-owning serve",
+        }
+        .argv()
+        .unwrap();
+        assert_eq!(&words[..2], &["tmt", "colab"]);
+        grammar()
+            .try_get_matches_from(
+                std::iter::once("colab").chain(words[2..].iter().map(String::as_str)),
+            )
+            .unwrap();
+        // Upgrade is a core-owned command, covered by its existing printed-command guard.
+        assert_eq!(
+            tmt_colab::store::Fault::UnsupportedSchema(99).next(),
+            Some("Run tmt upgrade, then try again.")
+        );
+    }
     #[test]
     fn help_and_examples_obey_shared_style() {
         let help = |words: &[String]| match tmt_cli_style::route(&grammar(), words) {
