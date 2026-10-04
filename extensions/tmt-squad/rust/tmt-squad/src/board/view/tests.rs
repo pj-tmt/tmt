@@ -93,6 +93,15 @@ fn waiting_rows_detail_and_ask_prompt_fit_each_width_and_theme() {
             assert!(title.starts_with("│ → lead sol"));
             assert!(title.ends_with('│'), "opaque prompt spans the whole band");
             assert_eq!(title.width(), usize::from(width));
+            let top = prompt
+                .iter()
+                .position(|line| line.contains("→ lead sol"))
+                .unwrap()
+                - 1;
+            assert_eq!(
+                prompt[top],
+                format!("┌{}┐", "─".repeat(usize::from(width) - 2))
+            );
             assert!(
                 prompt
                     .iter()
@@ -3536,8 +3545,10 @@ fn inline_middle_row_band_moves_rows_masks_panes_and_fits_every_theme() {
                 assert!(screen[usize::from(band.y + 2)].contains("◆ “A long waiting"));
                 assert!(screen[usize::from(band.y + 2)].contains('…'));
                 assert!(screen[usize::from(band.y + 4)].contains("Enter send · Esc cancel"));
-                assert!(screen[usize::from(band.y)].starts_with('┌'));
-                assert!(screen[usize::from(band.y)].ends_with('┐'));
+                assert_eq!(
+                    screen[usize::from(band.y)],
+                    format!("┌{}┐", "─".repeat(usize::from(width) - 2))
+                );
                 assert_eq!(screen[usize::from(band.y)].width(), usize::from(width));
                 for y in band.y..band.bottom() {
                     assert!(!screen[usize::from(y)].contains("neighbor pane fragment"));
@@ -3558,7 +3569,7 @@ fn inline_middle_row_band_moves_rows_masks_panes_and_fits_every_theme() {
                 app.key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
                 let note = draw(&app, width, 30);
                 assert!(note.iter().any(|line| line.contains(if tab == "product" {
-                    "✎ note → sol"
+                    "✎ note → sol · about member-2"
                 } else {
                     "✎ note → member-2"
                 })));

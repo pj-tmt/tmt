@@ -288,8 +288,10 @@ Press `a` on a home, squad member or leads row to answer an open request,
 otherwise to send the squad's lead a note. The input opens directly beneath the
 complete selected row in an opaque full-width band, shifting rows below it.
 The header names the actual recipient first: `→ docs-sweep (tmt-product)` for
-an answer, or `✎ note → sol` for a note to the lead. The chosen waiting question
-is quoted above the answer input. Several open requests require an explicit
+an answer, or `✎ note → sol · about docs-sweep` for a note to the lead about
+that member. When the row itself receives the note, the header is simply
+`✎ note → docs-sweep`. The chosen waiting question is quoted above the answer input.
+Several open requests require an explicit
 choice before composing. `r` still opens the answer path on member/leads rows;
 `t` still composes a direct message. Explicit member-note bindings retain that
 recipient.

@@ -333,6 +333,9 @@ impl Input {
         match &self.compose {
             Compose::Talk { to } => format!("→ {to} ({})", self.squad),
             Compose::Reply { from, .. } => format!("→ {from} ({})", self.squad),
+            Compose::Annotate { to, row } if to != row => {
+                format!("✎ note → {to} · about {row}")
+            }
             Compose::Annotate { to, .. } => format!("✎ note → {to}"),
             Compose::AskLead { to, .. } => format!("→ lead {to}"),
             Compose::Cron => self.prompt.clone(),
@@ -3662,7 +3665,10 @@ pub(crate) mod tests {
         assert_eq!(app.menu.as_ref().unwrap().entries.len(), 2);
         press(&mut app, KeyCode::Char('1'));
         press(&mut app, KeyCode::Tab);
-        assert_eq!(app.input.as_ref().unwrap().prompt, "✎ note → sol");
+        assert_eq!(
+            app.input.as_ref().unwrap().prompt,
+            "✎ note → sol · about auth-fix"
+        );
         typed(&mut app, "split the job");
         assert_eq!(
             press(&mut app, KeyCode::Enter),
@@ -3735,7 +3741,10 @@ pub(crate) mod tests {
         );
         typed(&mut app, "draft");
         press(&mut app, KeyCode::Tab);
-        assert_eq!(app.input.as_ref().unwrap().header(), "✎ note → sol");
+        assert_eq!(
+            app.input.as_ref().unwrap().header(),
+            "✎ note → sol · about auth-fix"
+        );
         assert_eq!(app.input.as_ref().unwrap().text, "draft");
         press(&mut app, KeyCode::Tab);
         assert!(

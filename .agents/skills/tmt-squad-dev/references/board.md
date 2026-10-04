@@ -83,8 +83,9 @@ The home and member painters reserve the inline band's visual lines beneath the
 complete target row. The same line stream supplies row starts, scroll reveal and
 clipped hits. `board::view::waiting` projects that reservation into a current-frame
 band spanning the body width, paints opaque `tmt-tui::Modal` chrome and admitted
-strips, and removes covered pane hits. Recipient headers use Accent; the quoted
-question's ◆ uses Waiting. The quote truncates before the input or recipient.
+strips, and removes covered pane hits. Note headers derive recipient and subject
+from `Compose::Annotate { to, row }`, adding `about <row>` only when they differ.
+Recipient headers use Accent; the quoted question's ◆ uses Waiting. The quote truncates before the input or recipient.
 Unanchored composers, including notebook-level annotations and links to a lead
 outside member rows, retain their footer path.
 `board::view::strip` owns single-line admitted paint without raw widgets.

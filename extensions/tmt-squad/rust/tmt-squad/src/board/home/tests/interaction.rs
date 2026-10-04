@@ -350,7 +350,10 @@ fn middle_home_row_composes_inline_and_success_survives_answer_refresh() {
                     .any(|hit| (band.y..band.bottom()).contains(&hit.y))
             );
             press(&mut app, Tab);
-            assert_eq!(app.input.as_ref().unwrap().header(), "✎ note → lead-a");
+            assert_eq!(
+                app.input.as_ref().unwrap().header(),
+                "✎ note → lead-a · about worker-2"
+            );
             press(&mut app, Tab);
             press(&mut app, Char('y'));
             assert!(
