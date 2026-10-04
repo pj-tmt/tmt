@@ -1680,6 +1680,42 @@ framing. Upgrades require an active registered owner context or the page-scoped
 [read-only reader ticket](#mounted-read-only-reader-sessions-1310). Public grants
 no write/agent authority; a bare unauthenticated upgrade rejects before effects.
 
+### `serve` and the Remote door (#1584)
+
+`tmt colab serve` is the one command for browser access. After its socket is bound it
+learns the door only through Remote's public CLI, run through the invoking core executable
+with a bounded call each (three seconds, 16 KiB), never Remote's files:
+
+- `tmt remote status --json` → `{running:true,origin,path:"/r/<prefix>"}` **attaches**: nothing
+  is started and the door is never stopped. Anything else (stopped, failed, timed out,
+  malformed) falls through to the next step.
+- `tmt remote serve --json` is started as a supervised child in its own process group and its
+  first stdout line `{state:"ready",address,...}` gives the door (15-second bound; Ctrl-C
+  aborts the wait). Colab passes no port: Remote owns port reuse. On Ctrl-C or SIGTERM Colab
+  closes its socket, then sends SIGTERM to the child's whole group, SIGKILL after three
+  seconds, and always reaps it. A door that exits on its own is reported once and the local
+  space keeps running. A SIGKILL of Colab itself cannot clean up; run `tmt remote serve`
+  separately to recover.
+- No door can be started: Colab runs local-only. When Remote gave no answer at all, the
+  warning is `Browser access needs the Remote extension: tmt extension install remote --yes`;
+  when Remote answered but would not start, `The Remote door did not start; ...`.
+
+Pairing is never done by `serve`: it reads `tmt remote devices --json` (devices not
+`revoked`) and only reports. Running `tmt remote serve` separately keeps working and is the
+attach path.
+
+`serve --json` prints one line, then nothing until shutdown. Keys are stable and absent
+facts are `null`: `spaceId`, `socket`, `profile:"colab-sync-v1"`, `state:"mounted"`,
+`door` (`"attached"|"started"|"unavailable"`), `origin`, `url` (the app link
+`<origin>/r/<prefix>/x/colab/`), `paired` (`true|false|null` when unreadable or no door),
+`devices` (count), `pages` (count of non-archived pages, `null` if unreadable), `page` (the
+first page's full link, or its relative path without a door), `next` (commands still
+needed: `tmt remote pair` unless paired, `tmt colab page create --title <title>` when there
+is no page) and `warning`. Human output is the `LOCAL SPACE` detail view with the same
+facts and the next step: `door`, `paired`, `open` (the page link or `create one: ...`) and
+`pair` (`Pair this browser once: tmt remote pair`, or `If this browser is new: ...` when
+pairing is unknown).
+
 The local space is loopback-only: there is no `--bind`, LAN or other
 non-loopback mode. Other people's machines reach a page only through a cloud
 backend (Firestore, then Cloudflare). L2 verifies owner-only socket admission,

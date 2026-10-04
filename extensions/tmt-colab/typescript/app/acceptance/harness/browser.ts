@@ -37,6 +37,49 @@ export async function startDoor(world: AcceptanceWorld, port = 0): Promise<Door>
   };
 }
 
+/** The door the one-command `tmt-colab serve` reached; Colab owns it only when it started it. */
+export interface ServedDoor extends Pick<Door, 'address' | 'origin' | 'mounts' | 'colab'> {
+  state: 'attached' | 'started';
+  /** The full page link `serve` printed. */
+  url: string;
+  /** The whole status line `serve --json` printed. */
+  status: Record<string, unknown>;
+}
+
+/**
+ * Start only `tmt-colab serve`: it attaches to a running door or starts `tmt remote serve`
+ * itself, through the real core's public CLI.
+ */
+export async function startServe(world: AcceptanceWorld): Promise<ServedDoor> {
+  world.linkExtensions();
+  const colab = world.spawn(`colab-serve-${Date.now()}`, world.binaries.colab, ['serve', '--json']);
+  const ready = await colab.event((value) => value.state === 'mounted');
+  if (ready.door !== 'attached' && ready.door !== 'started')
+    throw new Error(`Colab found no door: ${String(ready.warning)}`);
+  const url = ready.url as string;
+  const address = url.replace(/\/x\/colab\/$/, '');
+  if (address === url) throw new Error(`Unexpected page link ${url}`);
+  return {
+    state: ready.door,
+    status: ready,
+    url,
+    address,
+    origin: new URL(address).origin,
+    mounts: `${address}/x/`,
+    colab,
+  };
+}
+
+/** Whether something still accepts connections on a door's origin. */
+export async function doorAnswers(origin: string): Promise<boolean> {
+  try {
+    await fetch(origin, { signal: AbortSignal.timeout(2_000) });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export interface PairedBrowser {
   name: string;
   context: BrowserContext;
@@ -77,7 +120,7 @@ export async function pairBrowser(world: AcceptanceWorld, name: string): Promise
 }
 
 /** Open the mounted Colab app as this paired device. */
-export async function openColab(door: Door, browser: PairedBrowser): Promise<Page> {
+export async function openColab(door: Pick<Door, 'mounts'>, browser: PairedBrowser): Promise<Page> {
   const page = await browser.context.newPage();
   const response = await page.goto(`${door.mounts}colab/`);
   expect(response?.status()).toBe(200);

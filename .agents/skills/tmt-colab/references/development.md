@@ -69,8 +69,10 @@ PATH="$PWD/rust/target/debug:$PATH" tmt colab serve --json
 from `tmt api storage.root` (no path guess or Colab root variable), and direct
 invocation needs an absolute `TMT_EXECUTABLE`. A stale socket is replaced; any other
 file at the path refuses with `COLAB_STATE_UNSAFE`, and a too-deep root with
-`COLAB_SOCKET_PATH_TOO_LONG`. Browsers reach Colab through `tmt remote serve` at
-`/r/<prefix>/x/colab/`. Page source and export:
+`COLAB_SOCKET_PATH_TOO_LONG`. Browsers reach Colab at
+`/r/<prefix>/x/colab/` through the Remote door, which `serve` attaches to or starts itself
+(see the [colab-v1 contract](../../../../extensions/tmt-colab/contracts/colab-v1.md#serve-and-the-remote-door-1584)).
+Page source and export:
 
 ```bash
 tmt colab page read <page-uuid> --json
@@ -83,6 +85,13 @@ and is never retried. A failed or uncertain serving IPC returns `COLAB_UNAVAILAB
 without an offline fallback. Export needs an existing parent, creates a new UUID
 directory with `page.html` and `manifest.json` (never replacing output), and reports
 `error.partialDirectory` on a failed publication.
+
+Serve and the door: the CLI suites in `tests/cli.rs` run a scripted `tmt remote ...` stand-in
+(`Pilot::remote_core`: attach, start, not installed, door that dies, a wrapper that leaves a
+grandchild, Ctrl-C while starting) with a private HOME and no real Remote. The real-binary case
+is `acceptance/one-command.spec.ts` (needs `tmt`, `tmt-remote` and `tmt-colab` built; see
+[acceptance.md](acceptance.md)); it links the extensions onto the world's PATH so the real core
+resolves `tmt remote`.
 
 ## App and browser client
 
