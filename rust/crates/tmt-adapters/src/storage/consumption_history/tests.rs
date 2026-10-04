@@ -1,6 +1,236 @@
 use super::*;
 
 #[test]
+fn competing_prompt_claims_commit_one_activity_state_with_the_shown_nudge() {
+    use tmt_core::binding::session::{DriverState, NotesNudge};
+    let (_directory, path, id) = fixture();
+    let mut seed = Storage::open(&path).unwrap();
+    let initial = Storage::context_by_identity(&path, &id, 6000)
+        .unwrap()
+        .unwrap();
+    assert!(
+        seed.commit_runtime_observation(RuntimeObservation {
+            expected: &initial,
+            preferences: &initial.preferences,
+            notes_nudge: Some(NotesNudge::Due(80)),
+            remember_source: false,
+            locator: None,
+            sampled: false,
+            consumption: None,
+            now_ms: 0,
+            deadline: Instant::now() + std::time::Duration::from_secs(1),
+        })
+        .unwrap()
+    );
+    seed.close().unwrap();
+    let due = Storage::context_by_identity(&path, &id, 6000)
+        .unwrap()
+        .unwrap();
+    // Open both actors before synchronizing the actual write attempt; migrations
+    // are not part of the prompt path and cannot hide a claim race.
+    let actors = [
+        Storage::open_hook(&path).unwrap(),
+        Storage::open_hook(&path).unwrap(),
+    ];
+    let barrier = std::sync::Barrier::new(2);
+    let results = std::thread::scope(|scope| {
+        let handles: Vec<_> = actors
+            .into_iter()
+            .enumerate()
+            .map(|(actor, mut storage)| {
+                let barrier = &barrier;
+                let due = &due;
+                scope.spawn(move || {
+                    let mut preferences = due.preferences.clone();
+                    let state =
+                        DriverState::new(1, &format!("{{\"model\":\"actor-{actor}\"}}")).unwrap();
+                    preferences.remembered.as_mut().unwrap().state = Some(state.clone());
+                    barrier.wait();
+                    let result = storage.commit_runtime_observation(RuntimeObservation {
+                        expected: due,
+                        preferences: &preferences,
+                        notes_nudge: Some(NotesNudge::Shown),
+                        remember_source: false,
+                        locator: None,
+                        sampled: false,
+                        consumption: None,
+                        now_ms: 0,
+                        deadline: Instant::now() + std::time::Duration::from_secs(1),
+                    });
+                    storage.close().unwrap();
+                    (result, state)
+                })
+            })
+            .collect();
+        handles
+            .into_iter()
+            .map(|handle| handle.join().unwrap())
+            .collect::<Vec<_>>()
+    });
+    let winners: Vec<_> = results
+        .iter()
+        .filter(|(result, _)| matches!(result, Ok(true)))
+        .collect();
+    assert_eq!(winners.len(), 1, "{results:?}");
+    let final_state = Storage::context_by_identity(&path, &id, 6001)
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        final_state.entry.binding.unwrap().session.notes_nudge,
+        NotesNudge::Shown
+    );
+    assert_eq!(
+        final_state.preferences.remembered.unwrap().state.as_ref(),
+        Some(&winners[0].1)
+    );
+}
+
+#[test]
+fn notes_nudge_sampler_and_prompt_updates_share_full_snapshot_cas_and_rollback() {
+    use tmt_core::binding::session::{DriverState, NotesNudge};
+    let (_directory, path, id) = fixture();
+    let mut first = Storage::open(&path).unwrap();
+    let mut second = Storage::open(&path).unwrap();
+    let snapshot = |now| {
+        Storage::context_by_identity(&path, &id, now)
+            .unwrap()
+            .unwrap()
+    };
+    let original = snapshot(6000);
+    let mut preferences = original.preferences.clone();
+    preferences.remembered.as_mut().unwrap().state =
+        Some(DriverState::new(1, "{\"model\":\"observed\"}").unwrap());
+    let commit = |storage: &mut Storage,
+                  expected: &IdentityContextSnapshot,
+                  preferences: &SessionPreferences,
+                  state,
+                  deadline,
+                  sampled| {
+        storage.commit_runtime_observation(RuntimeObservation {
+            expected,
+            preferences,
+            notes_nudge: Some(state),
+            remember_source: sampled,
+            locator: sampled.then_some("project/session.jsonl"),
+            sampled,
+            consumption: sampled.then(|| latest(100, 50, 1, 6000).consumption),
+            now_ms: 6000,
+            deadline,
+        })
+    };
+    let live = || Instant::now() + std::time::Duration::from_secs(1);
+    assert!(
+        commit(
+            &mut first,
+            &original,
+            &preferences,
+            NotesNudge::Due(80),
+            live(),
+            true
+        )
+        .unwrap()
+    );
+    assert!(
+        !commit(
+            &mut second,
+            &original,
+            &original.preferences,
+            NotesNudge::Due(90),
+            live(),
+            true
+        )
+        .unwrap(),
+        "stale sampler cannot overwrite due state, driver state or history"
+    );
+    let due = snapshot(6001);
+    assert_eq!(
+        due.entry.binding.as_ref().unwrap().session.notes_nudge,
+        NotesNudge::Due(80)
+    );
+    assert_eq!(due.preferences, preferences);
+    assert!(
+        !commit(
+            &mut first,
+            &due,
+            &preferences,
+            NotesNudge::Shown,
+            Instant::now(),
+            false
+        )
+        .unwrap()
+    );
+    assert_eq!(
+        snapshot(6002).entry.binding.unwrap().session.notes_nudge,
+        NotesNudge::Due(80)
+    );
+    first.connection().unwrap().execute_batch("CREATE TRIGGER reject_shown BEFORE UPDATE OF notes_nudge ON bindings WHEN NEW.notes_nudge=0 BEGIN SELECT RAISE(ABORT, 'injected claim failure'); END;").unwrap();
+    let mut activity = preferences.clone();
+    activity.remembered.as_mut().unwrap().state =
+        Some(DriverState::new(1, "{\"model\":\"prompt\"}").unwrap());
+    assert!(
+        commit(
+            &mut first,
+            &due,
+            &activity,
+            NotesNudge::Shown,
+            live(),
+            false
+        )
+        .is_err()
+    );
+    assert_eq!(
+        snapshot(6003).preferences,
+        preferences,
+        "claim failure rolls back normal activity state too"
+    );
+    first
+        .connection()
+        .unwrap()
+        .execute_batch("DROP TRIGGER reject_shown")
+        .unwrap();
+    assert!(
+        commit(
+            &mut first,
+            &due,
+            &activity,
+            NotesNudge::Shown,
+            live(),
+            false
+        )
+        .unwrap()
+    );
+    assert!(
+        !commit(
+            &mut second,
+            &due,
+            &activity,
+            NotesNudge::Shown,
+            live(),
+            false
+        )
+        .unwrap(),
+        "only one prompt can win"
+    );
+    assert_eq!(
+        snapshot(6004).entry.binding.unwrap().session.notes_nudge,
+        NotesNudge::Shown
+    );
+    assert_eq!(snapshot(6004).preferences, activity);
+    assert_eq!(
+        first
+            .connection()
+            .unwrap()
+            .query_row("SELECT count(*) FROM consumption_buckets", [], |row| row
+                .get::<_, i64>(0))
+            .unwrap(),
+        1,
+        "a losing sampler creates no duplicate history"
+    );
+    first.close().unwrap();
+    second.close().unwrap();
+}
+
+#[test]
 fn shared_seed_fixture_excludes_open_counter() {
     let fixture: Value = serde_json::from_str(include_str!(
         "../../../../../../contracts/consumption-history-v1.json"
@@ -217,6 +447,7 @@ fn binding_and_preferences_cas_commits_counter_and_history_once() {
                   consumption| {
         storage
             .commit_runtime_observation(RuntimeObservation {
+                notes_nudge: None,
                 expected,
                 preferences,
                 remember_source: true,

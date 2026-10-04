@@ -15,6 +15,8 @@ struct Step {
     input: Option<serde_json::Value>,
     #[serde(default)]
     measure: bool,
+    #[serde(default)]
+    close_stdout: bool,
     checkpoint: Option<std::path::PathBuf>,
 }
 
@@ -63,6 +65,11 @@ fn main() {
             .stderr(Stdio::piped())
             .spawn()
             .expect("spawn fixture-owned CLI");
+        if step.close_stdout {
+            // Close the sole reader before the hook runs, exercising an actual
+            // provider-output failure after any durable observation commits.
+            drop(child.stdout.take());
+        }
         if let Some(input) = step.input {
             child
                 .stdin

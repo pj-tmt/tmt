@@ -190,7 +190,7 @@ fn observe_turn(
     if Instant::now() >= deadline {
         return Err(());
     }
-    commit_observation(&paths, &stored, next, Some(reading), deadline).map(|_| ())
+    commit_observation(&paths, &stored, next, Some(reading), None, deadline).map(|_| ())
 }
 
 /// The caller a hook event came from, verified the same way for every event.
@@ -471,6 +471,7 @@ fn observe(provider: &str, input: &str, deadline: Instant) -> Result<String, ()>
             .commit_runtime_observation(tmt_adapters::storage::RuntimeObservation {
                 expected: &refreshed,
                 preferences: &refreshed.preferences,
+                notes_nudge: None,
                 remember_source: true,
                 locator: locator.as_deref(),
                 sampled: false,
@@ -586,13 +587,38 @@ fn observe_prompt(
     {
         return Ok(String::new());
     }
+    let reminder = match binding.session.notes_nudge {
+        tmt_core::binding::session::NotesNudge::Due(percent)
+            if tmt_core::identity::NotesIdentityId::try_from(&stored.entry.identity).is_ok()
+                && tmt_adapters::drivers::Registry::builtin()
+                    .find(provider)
+                    .is_some_and(tmt_adapters::setup::prompt_hook_installed)
+                && tmt_adapters::config::ConfigFiles {
+                    paths: paths.clone(),
+                }
+                .notes_compaction_reminder()
+                .unwrap_or(false) =>
+        {
+            Some(percent)
+        }
+        _ => None,
+    };
     let context = crate::context_command::render_prompt(
         &stored,
         &paths,
         deadline
             .checked_sub(Duration::from_millis(200))
             .unwrap_or(deadline),
+        reminder,
     );
+    // Prepare the complete provider envelope before claiming the advisory.
+    // A committed winner is best effort on timeout/output failure, never replayed.
+    let encoded = if context.is_empty() {
+        String::new()
+    } else {
+        lifecycle.encode_prompt_context(&context).ok_or(())?
+    };
+    let notes_nudge = reminder.and_then(|_| binding.session.notes_nudge.shown());
     // A callback can run public commands: do not hand its context to a binding
     // or conversation that changed while the callback was running.
     let refreshed = Storage::context_by_pane(
@@ -663,21 +689,22 @@ fn observe_prompt(
             )
         })
         .or_else(|| reading.as_ref().and_then(|(state, _)| state.clone()));
-    if (next.is_some() || reading.is_some())
+    if (next.is_some() || reading.is_some() || notes_nudge.is_some())
         && !commit_observation(
             &paths,
             &stored,
             next,
             reading.map(|(_, reading)| reading),
+            notes_nudge,
             deadline,
         )?
     {
         return Err(());
     }
-    if context.is_empty() {
-        return Ok(String::new());
+    if Instant::now() >= deadline {
+        return Err(());
     }
-    lifecycle.encode_prompt_context(&context).ok_or(())
+    Ok(encoded)
 }
 
 /// Shared publication boundary: a current binding/preferences snapshot and enough
@@ -693,6 +720,7 @@ fn commit_observation(
     stored: &IdentityContextSnapshot,
     next: Option<tmt_core::binding::session::DriverState>,
     reading: Option<ConsumptionReading>,
+    notes_nudge: Option<tmt_core::binding::session::NotesNudge>,
     deadline: Instant,
 ) -> Result<bool, ()> {
     if Instant::now() + Duration::from_millis(100) >= deadline {
@@ -708,6 +736,7 @@ fn commit_observation(
     let pending = storage.commit_runtime_observation(tmt_adapters::storage::RuntimeObservation {
         expected: stored,
         preferences: &preferences,
+        notes_nudge,
         remember_source: reading.is_some(),
         locator: reading.as_ref().and_then(|r| r.locator.as_deref()),
         sampled: reading.is_some(),

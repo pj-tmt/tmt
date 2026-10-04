@@ -245,7 +245,8 @@ pub trait RuntimeLifecycle {
         None
     }
 
-    /// The context usage recorded in this driver's own state, for display only.
+    /// Driver-reported context usage for display and bounded notes advisories,
+    /// never binding admission or permission to deliver input.
     fn state_usage(&self, _state: &DriverState) -> Option<super::driver_state::Usage> {
         None
     }

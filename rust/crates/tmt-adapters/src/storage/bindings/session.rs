@@ -2,7 +2,7 @@
 
 use rusqlite::{Connection, OptionalExtension, Row, params};
 use tmt_core::binding::session::{
-    BindingSessionState, DriverState, HarnessId, ObservedSessionKey, ProviderSessionId,
+    BindingSessionState, DriverState, HarnessId, NotesNudge, ObservedSessionKey, ProviderSessionId,
     RememberedSession, RuntimeMode, RuntimeState, SessionPreferences, SessionTransition,
 };
 use tmt_core::endpoint::ProcessIncarnation;
@@ -63,11 +63,39 @@ pub(super) fn decode_state(row: &Row<'_>, offset: usize) -> rusqlite::Result<Bin
         _ => return Err(rusqlite::Error::InvalidQuery),
     };
     Ok(BindingSessionState {
+        notes_nudge: decode_notes_nudge(row.get(offset + 9)?)?,
         launch_owner,
         last_transition,
         state,
         key,
     })
+}
+
+// Private row encoding: NULL = unclaimed, 0 = shown, >=80 = due percentage.
+// The bound is MAX_JS_SAFE_INTEGER tokens * 100 / a one-token window.
+fn decode_notes_nudge(value: Option<i64>) -> rusqlite::Result<NotesNudge> {
+    match value {
+        None => Ok(NotesNudge::Unclaimed),
+        Some(0) => Ok(NotesNudge::Shown),
+        Some(percent) if (80..=900_719_925_474_099_100).contains(&percent) => {
+            Ok(NotesNudge::Due(percent as u64))
+        }
+        _ => Err(rusqlite::Error::InvalidQuery),
+    }
+}
+
+fn encode_notes_nudge(value: NotesNudge) -> rusqlite::Result<Option<i64>> {
+    let encoded = match value {
+        NotesNudge::Unclaimed => None,
+        NotesNudge::Shown => Some(0),
+        NotesNudge::Due(percent) => {
+            Some(i64::try_from(percent).map_err(|_| rusqlite::Error::InvalidQuery)?)
+        }
+    };
+    if decode_notes_nudge(encoded)? != value {
+        return Err(rusqlite::Error::InvalidQuery);
+    }
+    Ok(encoded)
 }
 
 pub(super) fn preferences(
@@ -229,6 +257,10 @@ pub(super) fn set_state(
     };
     let next_owner_pid = owner_pid(value)?;
     let expected_owner_pid = owner_pid(expected)?;
+    let next_nudge = encode_notes_nudge(value.notes_nudge)
+        .map_err(|error| classify(error, "Validate notes nudge"))?;
+    let expected_nudge = encode_notes_nudge(expected.notes_nudge)
+        .map_err(|error| classify(error, "Validate notes nudge"))?;
     let state = |value| match value {
         RuntimeState::Unknown => "unknown",
         RuntimeState::Running => "running",
@@ -245,8 +277,8 @@ pub(super) fn set_state(
         })
     };
     connection.execute(
-        "UPDATE bindings SET runtime_state = ?, last_transition = ?, runtime_pid = ?, runtime_start_identity = ?, observed_provider_session_id = ?, launch_owner_pid = ?, launch_owner_start_identity = ?
-         WHERE id = ? AND runtime_state = ? AND last_transition IS ? AND runtime_pid IS ? AND runtime_start_identity IS ? AND observed_provider_session_id IS ? AND launch_owner_pid IS ? AND launch_owner_start_identity IS ?
+        "UPDATE bindings SET runtime_state = ?, last_transition = ?, runtime_pid = ?, runtime_start_identity = ?, observed_provider_session_id = ?, launch_owner_pid = ?, launch_owner_start_identity = ?, notes_nudge = ?
+         WHERE id = ? AND runtime_state = ? AND last_transition IS ? AND runtime_pid IS ? AND runtime_start_identity IS ? AND observed_provider_session_id IS ? AND launch_owner_pid IS ? AND launch_owner_start_identity IS ? AND notes_nudge IS ?
          AND EXISTS (SELECT 1 FROM identities i WHERE i.id = bindings.identity_id AND i.retired_at_ms IS NULL)",
         params![state(value.state), transition(value.last_transition),
             next_pid,
@@ -254,12 +286,13 @@ pub(super) fn set_state(
             value.key.as_ref().and_then(|key| key.provider_session.as_ref()).map(ProviderSessionId::as_str),
             next_owner_pid,
             value.launch_owner.as_ref().map(ProcessIncarnation::start_identity),
+            next_nudge,
             binding_id, state(expected.state), transition(expected.last_transition),
             expected_pid,
             expected.key.as_ref().map(|key| key.incarnation.start_identity()),
             expected.key.as_ref().and_then(|key| key.provider_session.as_ref()).map(ProviderSessionId::as_str),
             expected_owner_pid,
-            expected.launch_owner.as_ref().map(ProcessIncarnation::start_identity)],
+            expected.launch_owner.as_ref().map(ProcessIncarnation::start_identity), expected_nudge],
     ).map(|changed| changed == 1).map_err(|error| classify(error, "Write binding session state"))
 }
 
@@ -272,6 +305,28 @@ mod tests {
         endpoint::ServerEvidence,
         identity::{Lifetime, create_or_resolve},
     };
+
+    #[test]
+    fn notes_nudge_private_row_codec_round_trips_and_rejects_invalid_percentages() {
+        for (state, raw) in [
+            (NotesNudge::Unclaimed, None),
+            (NotesNudge::Shown, Some(0)),
+            (NotesNudge::Due(80), Some(80)),
+            (
+                NotesNudge::Due(900_719_925_474_099_100),
+                Some(900_719_925_474_099_100),
+            ),
+        ] {
+            assert_eq!(encode_notes_nudge(state).unwrap(), raw);
+            assert_eq!(decode_notes_nudge(raw).unwrap(), state);
+        }
+        for raw in [-1, 1, 79, 900_719_925_474_099_101, i64::MAX] {
+            assert!(decode_notes_nudge(Some(raw)).is_err());
+        }
+        for percent in [0, 79, 900_719_925_474_099_101, u64::MAX] {
+            assert!(encode_notes_nudge(NotesNudge::Due(percent)).is_err());
+        }
+    }
 
     fn server() -> ServerEvidence {
         ServerEvidence {
@@ -528,6 +583,7 @@ mod tests {
                     &binding.id,
                     &BindingSessionState::default(),
                     &BindingSessionState {
+                        notes_nudge: Default::default(),
                         launch_owner: None,
                         state: RuntimeState::Running,
                         last_transition: Some(SessionTransition::Started),
@@ -756,6 +812,7 @@ mod tests {
                 &binding.id,
                 &BindingSessionState::default(),
                 &BindingSessionState {
+                    notes_nudge: Default::default(),
                     launch_owner: None,
                     state: RuntimeState::Ended,
                     last_transition: Some(SessionTransition::Ended),

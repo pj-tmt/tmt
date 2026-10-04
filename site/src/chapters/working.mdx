@@ -155,7 +155,7 @@ $ tmt preamble show reviewer
 
 Notes need a saved identity; a temporary one gets an error. The notes file follows the identity, not its name, so a new identity that reuses a name starts with a new file.
 
-After a saved Claude or Codex agent compacts its conversation, tmt reminds it to reread and update its notes. The reminder quotes the notes file path, or says to run `tmt notes path` when the path is missing or can't be quoted safely. tmt never creates, reads or changes the notes for this, and temporary identities get no reminder. `tmt config set notes.compactionReminder false --global` turns it off; `true` turns it back on.
+After a saved Claude or Codex agent compacts its conversation, tmt reminds it to reread and update its notes. It also reminds an agent before that point: once the agent's reported context reaches 80% of a known window, its next prompt carries the reminder, once until the context resets. This needs tmt's prompt hook, and an agent that reports no window, such as Claude today, gets no early reminder. It measures context size, not tokens used, and never types an extra message. The reminder quotes the notes file path, or says to run `tmt notes path` when the path is missing or can't be quoted safely. tmt never creates, reads or changes the notes for this, and temporary identities get no reminder. `tmt config set notes.compactionReminder false --global` turns both reminders off; `true` turns them back on.
 
 ### `tmt setup`
 

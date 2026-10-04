@@ -141,6 +141,17 @@ in `contracts/`.
   config suppresses the advisory without vetoing the hook. Existing notes paths are quoted;
   missing/unsafe/long paths fall back to the explicit notes-path command. Hooks never initialize
   or read/write notebook content. The core line survives optional context trimming within 4 KiB.
+- Binding-owned core `NotesNudge::{Unclaimed, Due(percent), Shown}` tracks one threshold advisory
+  per context climb. The foreground sampler marks Unclaimed→Due only from fresh normalized
+  reported usage at >=80% of a known positive window, with the global setting enabled, saved
+  identity and existing owned prompt hook installed. Unknown windows/failed reads are no-op;
+  cumulative consumption is not usage. The storage row encoding is private to its codec.
+  The admitted prompt precomputes its bounded envelope before claiming Due→Shown in the existing
+  observation transaction with normal activity/source updates. Full binding/preferences CAS
+  fences both transitions; losers and post-commit output failures never replay. Disabling
+  prevents claims/display while an existing Due may wait. Compacted/Cleared and new-key admission
+  reset in the lifecycle CAS; duplicate starts and same-key resumes preserve the state. No send,
+  subprocess, timer, attention state or permission gate changes; unsupported prompt paths do nothing.
 - An unknown Claude `SessionEnd` reason is rejected without mutation; its known
   logout/prompt-input-exit/other reasons end the session, not the process. Codex
   maps SessionEnd regardless of reason to the same provider-session boundary.

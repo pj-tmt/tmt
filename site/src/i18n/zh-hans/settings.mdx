@@ -1,6 +1,6 @@
 ---
 source: site/src/chapters/settings.mdx
-sourceRevision: ab133ca5788ed088a74e52f31f26436570feb2f0
+sourceRevision: 4106b240193f631a1b472d314ba52a97eef58550
 title: 设置与故障排查
 ---
 
@@ -24,19 +24,19 @@ $ tmt config set exchange.retentionDays 30 --global
 $ tmt config rm pasteEnterDelayMs                 # 删除当前文件夹的覆盖值
 `}</Cmd>
 
-| 设置                               | 默认值   | 作用                                                                                                                     | 设置位置                   |
-| ---------------------------------- | -------- | ------------------------------------------------------------------------------------------------------------------------ | -------------------------- |
-| `preambleMode`                     | `always` | `always` 或 `disabled`：请求是否携带接收者的前置信息                                                                     | `config set`，两种范围均可 |
-| `preambleEvery`                    | `3`      | 每隔多少次请求附带一次前置信息；`0` 表示关闭                                                                             | `config set`，两种范围均可 |
-| `pasteEnterDelayMs`                | `500`    | 粘贴消息与按下 Enter 之间的间隔，单位为毫秒；`0` 表示不等待                                                              | `config set`，两种范围均可 |
-| `exchange.retentionDays`           | `90`     | 新请求及其回复的保留天数，范围为 1 到 3650                                                                               | `config set --global`      |
-| `ui.paneBadge`                     | `on`     | [窗格徽标](/drivers/tmux#the-pane-badge)                                                                                 | `config set --global`      |
-| `notes.compactionReminder`         | `true`   | 已保存的 Claude 或 Codex agent 压缩会话后，提醒它重读并更新[笔记](/working#notes-roles-and-preambles)；`true` 或 `false` | `config set --global`      |
-| `notifications.replyBatchWindowMs` | `5000`   | 将回复行合并为一次粘贴前的等待时间，单位为毫秒，最大为 60000；`0` 表示逐条发送                                           | `config set --global`      |
-| `notifications.typingQuietMs`      | `2000`   | 停止输入多久后才粘贴合并的回复，单位为毫秒，最大为 30000；`0` 表示不等待                                                 | `config set --global`      |
-| `defaults.timeout`                 | `180`    | `talk` 等待回复的秒数                                                                                                    | 编辑 `config.json`         |
-| `defaults.pollInterval`            | `1`      | `talk` 等待期间两次检查之间的秒数                                                                                        | 编辑 `config.json`         |
-| `defaults.captureLines`            | `100`    | `tmt check` 显示的行数                                                                                                   | 编辑 `config.json`         |
+| 设置                               | 默认值   | 作用                                                                                                                       | 设置位置                   |
+| ---------------------------------- | -------- | -------------------------------------------------------------------------------------------------------------------------- | -------------------------- |
+| `preambleMode`                     | `always` | `always` 或 `disabled`：请求是否携带接收者的前置信息                                                                       | `config set`，两种范围均可 |
+| `preambleEvery`                    | `3`      | 每隔多少次请求附带一次前置信息；`0` 表示关闭                                                                               | `config set`，两种范围均可 |
+| `pasteEnterDelayMs`                | `500`    | 粘贴消息与按下 Enter 之间的间隔，单位为毫秒；`0` 表示不等待                                                                | `config set`，两种范围均可 |
+| `exchange.retentionDays`           | `90`     | 新请求及其回复的保留天数，范围为 1 到 3650                                                                                 | `config set --global`      |
+| `ui.paneBadge`                     | `on`     | [窗格徽标](/drivers/tmux#the-pane-badge)                                                                                   | `config set --global`      |
+| `notes.compactionReminder`         | `true`   | 在上下文接近上限时和压缩会话后，提醒已保存的 agent 重读并更新[笔记](/working#notes-roles-and-preambles)；`true` 或 `false` | `config set --global`      |
+| `notifications.replyBatchWindowMs` | `5000`   | 将回复行合并为一次粘贴前的等待时间，单位为毫秒，最大为 60000；`0` 表示逐条发送                                             | `config set --global`      |
+| `notifications.typingQuietMs`      | `2000`   | 停止输入多久后才粘贴合并的回复，单位为毫秒，最大为 30000；`0` 表示不等待                                                   | `config set --global`      |
+| `defaults.timeout`                 | `180`    | `talk` 等待回复的秒数                                                                                                      | 编辑 `config.json`         |
+| `defaults.pollInterval`            | `1`      | `talk` 等待期间两次检查之间的秒数                                                                                          | 编辑 `config.json`         |
+| `defaults.captureLines`            | `100`    | `tmt check` 显示的行数                                                                                                     | 编辑 `config.json`         |
 
 “两种范围均可”指当前文件夹，或加上 `--global` 后的所有文件夹。全局文件是 tmt 配置目录 `~/.config/tmux-team/` 中的 `config.json`；这个目录保留了 tmt 的旧名称。文件夹的覆盖值保存在运行 tmt 时所在文件夹的 `tmux-team.json` 中。`tmt config show` 会输出这两个路径。tmt 会保留它不认识的字段，`config show` 则显示实际使用的值及其来源。
 

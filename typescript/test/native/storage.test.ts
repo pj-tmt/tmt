@@ -111,6 +111,7 @@ function expectNativeSchema(
     { version: 45, name: 'remember runtime channel preference for exact resume' },
     { version: 46, name: 'retain bounded consumption sources and timestamped history' },
     { version: 47, name: 'index originator results by final submission time' },
+    { version: 48, name: 'retain binding-owned notes nudge state' },
   ];
   expect(migrated.migrations.slice(8)).toEqual(additions);
   expect(migrated.tables.map(({ name }) => name)).toEqual(
@@ -380,6 +381,7 @@ function expectNativeSchema(
       pk: 0,
     },
     { cid: 18, name: 'pane_incarnation', type: 'TEXT', notnull: 0, dflt_value: null, pk: 0 },
+    { cid: 19, name: 'notes_nudge', type: 'INTEGER', notnull: 0, dflt_value: null, pk: 0 },
   ]);
   expect(newBindings.indexes).toEqual(oldBindings.indexes);
   expect(newBindings.foreignKeys).toEqual(oldBindings.foreignKeys);
@@ -395,6 +397,7 @@ function expectNativeSchema(
       launch_owner_start_identity: null,
       // Bindings made before schema 42 keep an unknown pane incarnation.
       pane_incarnation: null,
+      notes_nudge: null,
     }))
   );
 

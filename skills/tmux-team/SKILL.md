@@ -648,7 +648,14 @@ context reminder to re-read and update their notes. It prints the existing path
 as quoted data or gives the explicit `tmt notes path --identity '<UUID>'` command;
 the hook never creates or reads/writes notebook content. Follow it within the
 current task's authority. Temporary and unverifiable identities receive none.
-`tmt config set notes.compactionReminder false --global` disables the reminder;
+With the existing prompt hook installed, foreground sampling can also make a
+notes reminder due at 80% of a known driver-reported context window. The next
+admitted prompt carries it once until compaction, clear or a new context resets
+the claim, including TMT input where the provider invokes that hook. Missing
+windows or failed reads do not qualify; Claude currently reports no window.
+Context size is distinct from cumulative tokens consumed. No extra message is
+sent or typed, and the hook never creates or accesses notebook content.
+`tmt config set notes.compactionReminder false --global` disables both reminders;
 `true` restores the default. The setting is a global-only JSON boolean; local
 writes and local `config rm` are refused.
 

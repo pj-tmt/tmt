@@ -10,7 +10,10 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::time::Instant;
 use tmt_core::{
-    binding::{BindingRecords, session::SessionPreferences},
+    binding::{
+        BindingRecords,
+        session::{NotesNudge, SessionPreferences},
+    },
     limits::MAX_JS_SAFE_INTEGER,
 };
 
@@ -30,6 +33,7 @@ pub struct ConsumptionLatest {
 pub struct RuntimeObservation<'a> {
     pub expected: &'a IdentityContextSnapshot,
     pub preferences: &'a SessionPreferences,
+    pub notes_nudge: Option<NotesNudge>,
     pub remember_source: bool,
     pub locator: Option<&'a str>,
     pub sampled: bool,
@@ -131,6 +135,13 @@ impl Storage {
             }
             if !records.set_session_preferences(&binding.identity_id, observation.preferences)? {
                 return Ok(false);
+            }
+            if let Some(notes_nudge) = observation.notes_nudge {
+                let mut next = binding.session.clone();
+                next.notes_nudge = notes_nudge;
+                if !records.set_session_state(&binding.id, &binding.session, &next)? {
+                    return Err(invalid());
+                }
             }
             let Some(remembered) = observation.preferences.remembered.as_ref() else {
                 return Ok(true);

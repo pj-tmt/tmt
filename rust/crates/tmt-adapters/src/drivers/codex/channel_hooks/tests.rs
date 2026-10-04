@@ -57,6 +57,7 @@ fn channel_server_resume_and_end_preserve_foreground_but_require_exact_live_proo
     });
     record.foreground = Foreground::Known(Process::of(&foreground));
     let current = BindingSessionState {
+        notes_nudge: Default::default(),
         state: RuntimeState::Running,
         key: Some(ObservedSessionKey {
             incarnation: foreground,
@@ -296,6 +297,7 @@ fn timed_out_early_hook_does_not_latch_unready_or_authorize_another_session() {
         .admit_fresh(&candidate, &foreground, |_| RuntimeLiveness::Alive)
         .unwrap();
     let current = BindingSessionState {
+        notes_nudge: Default::default(),
         state: RuntimeState::Running,
         key: Some(ObservedSessionKey {
             incarnation: foreground,
@@ -360,6 +362,7 @@ fn activity_fixture() -> (
     let foreground = ProcessIncarnation::new(12, "foreground").unwrap();
     record.foreground = Foreground::Known(Process::of(&foreground));
     let current = BindingSessionState {
+        notes_nudge: Default::default(),
         state: RuntimeState::Running,
         key: Some(ObservedSessionKey {
             incarnation: foreground,

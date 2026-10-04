@@ -2,6 +2,99 @@ use super::*;
 use crate::{storage::Storage, test_support::TestDirectory};
 
 #[test]
+fn notes_nudge_upgrade_is_atomic_preserves_sessions_and_covers_change_cursor() {
+    let directory = TestDirectory::new();
+    let path = directory.path.join("schema47.db");
+    let mut old = Connection::open(&path).unwrap();
+    test_support::seed_history(&mut old);
+    apply_identity_lifetime(&mut old, &MIGRATIONS[8]).unwrap();
+    for (index, migration) in MIGRATIONS[9..47].iter().enumerate() {
+        apply_version(&mut old, index as u32 + 10, migration).unwrap();
+    }
+    old.execute_batch("INSERT INTO bindings (id,identity_id,transport,pane_id,server_id,socket_path,server_pid,server_start_time,pane_pid,bound_at,last_verified_at,runtime_state,last_transition,runtime_pid,runtime_start_identity,observed_provider_session_id) VALUES ('binding','old-id','tmux','%3','server','/tmp/fixture',41,'start',51,'bound','verified','running','started',61,'child-start','session');
+        INSERT INTO identity_session_preferences (identity_id,preferred_harness,remembered_harness,runtime_mode,provider_session_id) VALUES ('old-id','codex','codex','default','session');
+        CREATE TRIGGER reject_nudge_migration BEFORE INSERT ON _migrations WHEN NEW.version=48 BEGIN SELECT RAISE(ABORT, 'injected nudge migration failure'); END;").unwrap();
+    old.close().unwrap();
+    assert_eq!(
+        Storage::open(&path).err().unwrap().migration_version,
+        Some(48)
+    );
+    let oracle = Connection::open(&path).unwrap();
+    assert_eq!(
+        oracle
+            .query_row("SELECT max(version) FROM _migrations", [], |row| row
+                .get::<_, i64>(0))
+            .unwrap(),
+        47
+    );
+    assert_eq!(
+        oracle
+            .query_row(
+                "SELECT count(*) FROM pragma_table_info('bindings') WHERE name='notes_nudge'",
+                [],
+                |row| row.get::<_, i64>(0)
+            )
+            .unwrap(),
+        0
+    );
+    oracle
+        .execute_batch("DROP TRIGGER reject_nudge_migration")
+        .unwrap();
+    let mut storage = Storage::open(&path).unwrap();
+    assert_eq!(storage.health().unwrap().schema_version, 48);
+    assert_eq!(oracle.query_row("SELECT runtime_state,runtime_pid,runtime_start_identity,observed_provider_session_id,notes_nudge FROM bindings", [], |row| Ok((row.get::<_, String>(0)?,row.get::<_, i64>(1)?,row.get::<_, String>(2)?,row.get::<_, String>(3)?,row.get::<_, Option<i64>>(4)?))).unwrap(), ("running".into(),61,"child-start".into(),"session".into(),None));
+    assert_eq!(
+        oracle
+            .query_row(
+                "SELECT provider_session_id FROM identity_session_preferences",
+                [],
+                |row| row.get::<_, String>(0)
+            )
+            .unwrap(),
+        "session"
+    );
+    let cursor = || {
+        oracle
+            .query_row("SELECT value FROM change_cursor WHERE id=1", [], |row| {
+                row.get::<_, i64>(0)
+            })
+            .unwrap()
+    };
+    for raw in ["-1", "1", "79", "80.5", "'invalid'", "900719925474099101"] {
+        assert!(
+            oracle
+                .execute(&format!("UPDATE bindings SET notes_nudge={raw}"), [])
+                .is_err(),
+            "{raw}"
+        );
+    }
+    for raw in [Some(80), Some(0), None] {
+        let before = cursor();
+        oracle
+            .execute("UPDATE bindings SET notes_nudge=?", [raw])
+            .unwrap();
+        assert_eq!(cursor(), before + 1);
+        oracle
+            .execute("UPDATE bindings SET notes_nudge=?", [raw])
+            .unwrap();
+        oracle
+            .execute("UPDATE bindings SET last_verified_at='later'", [])
+            .unwrap();
+        assert_eq!(cursor(), before + 1);
+    }
+    let before = cursor();
+    oracle
+        .execute("UPDATE bindings SET runtime_state='unknown'", [])
+        .unwrap();
+    assert_eq!(
+        cursor(),
+        before + 1,
+        "existing lifecycle fields remain covered"
+    );
+    storage.close().unwrap();
+}
+
+#[test]
 fn launch_owner_upgrade_is_atomic_and_preserves_unowned_observations() {
     let directory = TestDirectory::new();
     let path = directory.path.join("schema33.db");
@@ -123,7 +216,7 @@ fn session_upgrade_preserves_binding_and_rolls_back_observations_with_history() 
         .execute_batch("DROP TRIGGER reject_session_migration;")
         .unwrap();
     let mut storage = Storage::open(&path).unwrap();
-    assert_eq!(storage.health().unwrap().schema_version, 47);
+    assert_eq!(storage.health().unwrap().schema_version, 48);
     let row = oracle.query_row(
         "SELECT id, identity_id, pane_id, bound_at, last_verified_at, runtime_state, last_transition FROM bindings",
         [], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?, row.get::<_, String>(3)?, row.get::<_, String>(4)?, row.get::<_, String>(5)?, row.get::<_, Option<String>>(6)?)),
@@ -180,7 +273,7 @@ fn driver_state_upgrade_keeps_remembered_sessions_without_state() {
     .unwrap();
     old.close().unwrap();
     let mut storage = Storage::open(&path).unwrap();
-    assert_eq!(storage.health().unwrap().schema_version, 47);
+    assert_eq!(storage.health().unwrap().schema_version, 48);
     storage.close().unwrap();
     let oracle = Connection::open(&path).unwrap();
     let row: (String, Option<String>, Option<i64>, Option<i64>) = oracle

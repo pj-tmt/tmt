@@ -20,6 +20,7 @@ const mock = fs.existsSync('/opt/tmt-tests/codex-channel-fixture')
   : localMock;
 const quote = (text: string) => `'${text.replaceAll("'", "'\\''")}'`;
 interface Session {
+  home: string;
   pane: string;
   log: string;
   status: string;
@@ -83,7 +84,7 @@ function start(
     .join(' ');
   f.tmux(['send-keys', '-t', pane, '-l', `${command}; printf '%s' "$?" > ${quote(status)}`]);
   f.tmux(['send-keys', '-t', pane, 'Enter']);
-  return { pane, log, status, channel: channel === true };
+  return { home, pane, log, status, channel: channel === true };
 }
 function events(s: Session, name: string): Event[] {
   return fs.existsSync(s.log)
@@ -223,6 +224,119 @@ async function assertTurnActivity(
 }
 
 describe('Codex native channel product routing', { concurrent: false }, () => {
+  it('shows a due notes reminder once in the existing hook for TMT channel input', async () => {
+    await withE2EFixture(async (f) => {
+      const worker = start(f, 'ThresholdChannel', true, {
+        MOCK_EAGER_HOOK_MODEL: 'fixture-model',
+        MOCK_ACTIVITY_HOOKS: '1',
+      });
+      let server: number | undefined;
+      try {
+        await ready(f, worker);
+        const [{ record }] = records(f);
+        server = record.ready.server.pid;
+        const hookEntry = [
+          {
+            hooks: [
+              {
+                type: 'command',
+                command: `${quote(f.executables.cli.executable)} __hook codex`,
+                timeout: 3,
+              },
+            ],
+          },
+        ];
+        fs.writeFileSync(
+          path.join(worker.home, 'hooks.json'),
+          JSON.stringify({ hooks: { Stop: hookEntry, UserPromptSubmit: hookEntry } })
+        );
+        const tree = path.join(worker.home, 'sessions/2026/10/04');
+        fs.mkdirSync(tree, { recursive: true });
+        const usage = JSON.parse(
+          fs.readFileSync(
+            path.resolve(
+              '../rust/crates/tmt-adapters/src/runtime/fixtures/codex-token-count.jsonl'
+            ),
+            'utf8'
+          )
+        );
+        usage.payload.info.last_token_usage.total_tokens = 8000;
+        usage.payload.info.model_context_window = 10000;
+        fs.writeFileSync(
+          path.join(tree, `rollout-2026-10-04-${record.ready.thread}.jsonl`),
+          JSON.stringify(usage) + '\n'
+        );
+        const current = () =>
+          sql(f, (db) =>
+            db
+              .prepare(
+                'SELECT i.id,b.notes_nudge,p.driver_state FROM identities i JOIN bindings b ON b.identity_id=i.id JOIN identity_session_preferences p ON p.identity_id=i.id WHERE i.name=?'
+              )
+              .get('ThresholdChannel')
+          ) as { id: string; notes_nudge: number | null; driver_state: string };
+        await f.waitFor(
+          () => current().notes_nudge === 80,
+          10000,
+          'channel sampler committed fresh threshold eligibility'
+        );
+        expect(JSON.parse(current().driver_state).usage).toMatchObject({
+          tokens: 8000,
+          windowTokens: 10000,
+        });
+        expect(fs.existsSync(path.join(f.globalDir, 'notes'))).toBe(false);
+        const trace = installTmuxTrace(f);
+        expect((await talk(f, 'ThresholdChannel', 'first incoming threshold turn')).code).toBe(0);
+        await f.waitFor(
+          () => events(worker, 'prompt-hook').length === 1,
+          10000,
+          'TMT input reached existing prompt hook'
+        );
+        const first = events(worker, 'prompt-hook')[0];
+        expect(first.ok).toBe(true);
+        expect(first.stderr).toBe('');
+        const context = JSON.parse(first.stdout as string).hookSpecificOutput
+          .additionalContext as string;
+        expect(context).toContain(
+          `Context usage is 80% of the reported window. Re-read and update your notes using tmt notes path --identity '${current().id}' before compaction.`
+        );
+        expect(context).toContain('Incoming X items:');
+        expect(Buffer.byteLength(context)).toBeLessThanOrEqual(4096);
+        expect(current().notes_nudge).toBe(0);
+        fs.writeFileSync(`${worker.log}.finish-turn`, '');
+        await f.waitFor(
+          () => events(worker, 'stop-hook').length === 1,
+          10000,
+          'first channel turn settled'
+        );
+        expect((await talk(f, 'ThresholdChannel', 'second incoming threshold turn')).code).toBe(0);
+        await f.waitFor(
+          () => events(worker, 'prompt-hook').length === 2,
+          10000,
+          'second TMT prompt hook'
+        );
+        const second = events(worker, 'prompt-hook')[1];
+        expect(second.ok).toBe(true);
+        expect(second.stderr).toBe('');
+        expect(
+          JSON.parse(second.stdout as string).hookSpecificOutput.additionalContext
+        ).not.toContain('Context usage is');
+        await f.waitFor(
+          () => events(worker, 'stop-hook').length === 2,
+          10000,
+          'second channel turn settled'
+        );
+        expect(events(worker, 'queue')).toHaveLength(2);
+        expect(writes(trace, worker.pane)).toEqual([]);
+        expect(fs.existsSync(path.join(f.globalDir, 'notes'))).toBe(false);
+      } finally {
+        fs.writeFileSync(`${worker.log}.finish-turn`, '');
+        await quit(worker);
+        if (server)
+          await f.waitFor(() => gone(server!), 5000, 'owned threshold channel server exited');
+      }
+    });
+  }, 60000);
+
   it('an eager fresh SessionStart waits for admission and remembers the exact foreground', async () => {
     await withE2EFixture(async (f) => {
       const worker = start(f, 'EagerHook', true, {

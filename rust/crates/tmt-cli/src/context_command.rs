@@ -122,7 +122,15 @@ pub(crate) fn render_prompt(
     stored: &tmt_adapters::storage::IdentityContextSnapshot,
     paths: &ConfigPaths,
     deadline: Instant,
+    reminder: Option<u64>,
 ) -> String {
+    let reminder = reminder.map(|percent| {
+        let path = NotesIdentityId::try_from(&stored.entry.identity)
+            .ok()
+            .and_then(|id| notes::existing_path(paths, &id).ok().flatten())
+            .and_then(|path| path.into_os_string().into_string().ok());
+        presentation::threshold_reminder(percent, &stored.entry.identity.id, path.as_deref())
+    });
     presentation::bounded_prompt(
         stored.requests.incoming,
         &stored.entry.identity.id,
@@ -131,6 +139,7 @@ pub(crate) fn render_prompt(
             &stored.entry.identity.id,
             deadline,
         ),
+        reminder.as_deref(),
     )
 }
 

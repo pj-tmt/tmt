@@ -91,21 +91,26 @@ fn hook_entry(provider: &DriverDefinition, launcher: &str) -> Result<serde_json:
 /// settings. Read-only and bounded; an unreadable or invalid file counts as
 /// not installed.
 pub fn start_hook_installed(provider: &DriverDefinition) -> bool {
-    provider_settings(provider)
-        .and_then(|path| read_settings(&path))
-        .ok()
-        .flatten()
-        .is_some_and(|text| document::has_owned_hook(provider, &text, "SessionStart"))
+    installed_hook(provider, "SessionStart")
 }
 
 /// Effective owned Stop installation is the existing collection consent evidence.
 /// Legacy lifecycle-only and explicit opt-outs do not enable foreground sampling.
 pub fn usage_hook_installed(provider: &DriverDefinition) -> bool {
+    installed_hook(provider, document::USAGE)
+}
+
+/// Existing owned prompt-context installation; never installs or infers consent.
+pub fn prompt_hook_installed(provider: &DriverDefinition) -> bool {
+    installed_hook(provider, "UserPromptSubmit")
+}
+
+fn installed_hook(provider: &DriverDefinition, event: &str) -> bool {
     provider_settings(provider)
         .and_then(|path| read_settings(&path))
         .ok()
         .flatten()
-        .is_some_and(|text| document::has_owned_hook(provider, &text, document::USAGE))
+        .is_some_and(|text| document::has_owned_hook(provider, &text, event))
 }
 
 pub fn plan(

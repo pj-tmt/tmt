@@ -560,13 +560,35 @@ content. The complete reminder shares SessionStart's 4096-byte aggregate limit;
 optional extension summaries and role data are trimmed before it. This changes
 core context only; extension Compacted observations retain their existing contract.
 
-Provider prompt submission also requests this context for an already verified
-current session. The provider receives only extension summaries in
-`UserPromptSubmit.additionalContext`; startup identity context remains at
-SessionStart. Installing the prompt hook requires a consented `tmt setup` run.
+Foreground sampling can also mark a saved identity's notes reminder due when fresh
+driver-reported context tokens reach at least 80% of a known positive window.
+The existing owned prompt-context hook must be installed and the same global
+boolean must be enabled. Missing/unknown windows, failed reads and temporary
+identities do not qualify; cumulative consumption never supplies context size.
+Claude currently reports no window, so it has no threshold reminder.
+
+The binding owns `NotesNudge::{Unclaimed, Due(percent), Shown}`. Eligibility
+commits with normal driver state/history under the full binding/preferences CAS.
+The next admitted prompt hook precomputes its bounded provider envelope, then
+claims Due→Shown in the same observation transaction as activity/source updates.
+Only the winner includes the line; timeout/output failure after commit is best
+effort and never replays. Compacted/Cleared admission, a different session key
+or replacement binding resets eligibility; duplicate starts and same-key resumes
+preserve it. Disabling the setting prevents eligibility and display; an existing
+Due can wait for re-enabling within the same climb. The quoted existing path or
+complete UUID fallback and the 4096-byte limit are the same as for compaction;
+optional extension summaries yield before the complete core line.
+
+Provider prompt submission requests context for an already verified current
+session. `UserPromptSubmit.additionalContext` carries incoming attention,
+eligible notes context and consented extension summaries; startup identity
+context remains at SessionStart. Installing the prompt hook requires a consented
+`tmt setup` run. This also covers TMT-originated input where the provider invokes
+that hook (including the enrolled Codex channel); unsupported prompt paths are
+no-op. Sampling never sends or types input and introduces no worker or timer.
 Both paths share the aggregate 300 ms callback deadline inside the provider
 hook's existing supervised deadline. Unknown, stale or unbound sessions receive
-no extension context. Stop does not request context. Truncated prompt context
+no context. Stop does not request context. Truncated prompt context
 includes the same shortened-output notice as startup context.
 
 Summaries are untrusted informational text. TMT attributes them by extension name,

@@ -803,8 +803,10 @@ layout owner and `tmt-adapters::notes` alone creates
 The file body, concurrency and retention are ordinary user-filesystem concerns:
 there is no SQLite copy, lock, size policy or secure deletion, and retirement leaves
 notebooks in place.
-Admitted compaction context reminds saved identities through global `notes.compactionReminder`
-(default true), within the existing hook budget and without notebook creation or content access.
+Admitted compaction and due prompt context remind saved identities through global `notes.compactionReminder`
+(default true), without notebook creation or content access. Binding-owned `NotesNudge` records fresh reported
+80%-of-known-window eligibility in the sampler CAS; the existing prompt hook claims it in its observation
+transaction. Context boundaries reset the claim; no additional delivery path or worker is introduced.
 
 ### Settings and configuration
 

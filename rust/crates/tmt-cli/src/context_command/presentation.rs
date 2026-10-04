@@ -43,21 +43,30 @@ pub(super) fn document(
 /// The notebook path is quoted data. A long/absent path uses a complete command;
 /// hooks never initialize or read the notebook and the reminder stays bounded.
 pub(super) fn add_compaction_reminder(document: &mut Value) {
-    let destination = document["notesPath"]
-        .as_str()
-        .map(|path| json!(path).to_string())
-        .filter(|path| path.len() <= OUTPUT_LIMIT / 4)
-        .map(|path| format!("at {path}"))
-        .unwrap_or_else(|| {
-            let identity = document["id"]
-                .as_str()
-                .unwrap_or_default()
-                .replace('\'', "'\\''");
-            format!("using tmt notes path --identity '{identity}'")
-        });
+    let destination = notes_destination(
+        document["id"].as_str().unwrap_or_default(),
+        document["notesPath"].as_str(),
+    );
     document["compactionReminder"] = format!(
         "Context was compacted. Re-read your notes {destination} and update them with anything still open.\n"
     ).into();
+}
+
+fn notes_destination(identity: &str, path: Option<&str>) -> String {
+    path.map(|path| json!(path).to_string())
+        .filter(|path| path.len() <= OUTPUT_LIMIT / 4)
+        .map(|path| format!("at {path}"))
+        .unwrap_or_else(|| {
+            let identity = identity.replace('\'', "'\\''");
+            format!("using tmt notes path --identity '{identity}'")
+        })
+}
+
+pub(super) fn threshold_reminder(percent: u64, identity: &str, path: Option<&str>) -> String {
+    let destination = notes_destination(identity, path);
+    format!(
+        "Context usage is {percent}% of the reported window. Re-read and update your notes {destination} before compaction.\n"
+    )
 }
 
 fn render(document: &Value, json_mode: bool) -> io::Result<String> {
@@ -112,7 +121,12 @@ pub(super) fn extension_line(name: &str, summary: &Value) -> String {
     format!("Extension {name} (informational): {summary}\n")
 }
 
-pub(super) fn bounded_prompt(count: u64, identity: &str, extensions: &[Contribution]) -> String {
+pub(super) fn bounded_prompt(
+    count: u64,
+    identity: &str,
+    extensions: &[Contribution],
+    reminder: Option<&str>,
+) -> String {
     // This is unacknowledged attention, not a count of unsent requests.
     let incoming = if count == 0 {
         String::new()
@@ -122,19 +136,20 @@ pub(super) fn bounded_prompt(count: u64, identity: &str, extensions: &[Contribut
             "Incoming X items: {count} unacknowledged; pull with tmt inbox --identity '{identity}' --json\n"
         )
     };
+    let core = incoming + reminder.unwrap_or_default();
     let mut lines: Vec<String> = extensions
         .iter()
         .map(|item| extension_line(&item.extension, &json!(item.summary)))
         .collect();
-    let mut length: usize = incoming.len() + lines.iter().map(String::len).sum::<usize>();
+    let mut length: usize = core.len() + lines.iter().map(String::len).sum::<usize>();
     if length <= OUTPUT_LIMIT {
-        return incoming + &lines.concat();
+        return core + &lines.concat();
     }
     while length + SHORTENED.len() > OUTPUT_LIMIT {
         let Some(line) = lines.pop() else { break };
         length -= line.len();
     }
-    incoming + &lines.concat() + SHORTENED
+    core + &lines.concat() + SHORTENED
 }
 
 pub(super) fn bounded(mut document: Value, json_mode: bool) -> io::Result<String> {
@@ -210,6 +225,37 @@ mod tests {
     use super::*;
 
     #[test]
+    fn threshold_reminder_preserves_quoted_paths_and_whole_fallback_before_extensions() {
+        let id = "11111111-1111-4111-8111-111111111111";
+        let extensions: Vec<_> = (0..20)
+            .map(|i| Contribution {
+                extension: format!("ext{i}"),
+                summary: "☃".repeat(240),
+            })
+            .collect();
+        for path in [
+            None,
+            Some("/notes/line\n\u{1b}quote\""),
+            Some(&"p".repeat(8000)),
+        ] {
+            let reminder = threshold_reminder(80, id, path);
+            let output = bounded_prompt(2, id, &extensions, Some(&reminder));
+            assert!(output.len() <= OUTPUT_LIMIT);
+            assert_eq!(output.matches("Context usage is 80%").count(), 1);
+            assert!(output.contains(&reminder));
+            assert!(output.ends_with(SHORTENED));
+            assert!(!output.contains('\u{1b}'));
+            if path.is_none_or(|path| path.len() > OUTPUT_LIMIT) {
+                assert!(output.contains(
+                    "using tmt notes path --identity '11111111-1111-4111-8111-111111111111'"
+                ));
+            } else {
+                assert!(output.contains("at \"/notes/line\\n\\u001bquote\\\"\""));
+            }
+        }
+    }
+
+    #[test]
     fn prompt_truncation_preserves_whole_escaped_lines_and_reports_omission() {
         let contributions: Vec<_> = (0..20)
             .map(|index| Contribution {
@@ -217,37 +263,37 @@ mod tests {
                 summary: "☃".repeat(240),
             })
             .collect();
-        let text = bounded_prompt(0, "identity", &contributions);
+        let text = bounded_prompt(0, "identity", &contributions, None);
         assert!(text.len() <= OUTPUT_LIMIT);
         assert!(text.ends_with(SHORTENED));
         assert!(text.starts_with(&extension_line("ext0", &json!(contributions[0].summary))));
         assert_eq!(
-            bounded_prompt(0, "identity", &contributions[..1]),
+            bounded_prompt(0, "identity", &contributions[..1], None),
             extension_line("ext0", &json!(contributions[0].summary))
         );
-        assert_eq!(bounded_prompt(0, "identity", &[]), "");
+        assert_eq!(bounded_prompt(0, "identity", &[], None), "");
     }
 
     #[test]
     fn prompt_incoming_attention_is_nonzero_only_and_survives_extension_truncation() {
-        assert_eq!(bounded_prompt(0, "recipient", &[]), "");
+        assert_eq!(bounded_prompt(0, "recipient", &[], None), "");
         let line = "Incoming X items: 2 unacknowledged; pull with tmt inbox --identity 'recipient' --json\n";
-        assert_eq!(bounded_prompt(2, "recipient", &[]), line);
+        assert_eq!(bounded_prompt(2, "recipient", &[], None), line);
         let contributions: Vec<_> = (0..20)
             .map(|index| Contribution {
                 extension: format!("ext{index}"),
                 summary: "☃".repeat(240),
             })
             .collect();
-        let output = bounded_prompt(2, "recipient", &contributions);
+        let output = bounded_prompt(2, "recipient", &contributions, None);
         assert!(output.starts_with(line));
         assert!(output.ends_with(SHORTENED));
         assert!(output.len() <= OUTPUT_LIMIT);
         assert_eq!(output.matches("Incoming X items:").count(), 1);
-        assert!(bounded_prompt(1, "id'quote", &[]).contains("'id'\\''quote'"));
+        assert!(bounded_prompt(1, "id'quote", &[], None).contains("'id'\\''quote'"));
         // No incoming attention preserves the existing escaped extension bytes.
         assert_eq!(
-            bounded_prompt(0, "recipient", &contributions[..1]),
+            bounded_prompt(0, "recipient", &contributions[..1], None),
             extension_line("ext0", &json!(contributions[0].summary))
         );
     }

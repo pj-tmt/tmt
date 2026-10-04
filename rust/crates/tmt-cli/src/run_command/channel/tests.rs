@@ -278,6 +278,7 @@ fn binding(session: BindingSessionState) -> Binding {
 #[test]
 fn a_claim_is_current_only_for_the_same_session_or_its_own_unknown_fence() {
     let running = BindingSessionState {
+        notes_nudge: Default::default(),
         last_transition: Some(SessionTransition::Started),
         state: RuntimeState::Running,
         key: Some(key(child(), None)),

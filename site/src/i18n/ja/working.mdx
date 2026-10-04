@@ -1,6 +1,6 @@
 ---
 source: site/src/chapters/working.mdx
-sourceRevision: 84f4db1a7324997af9b0f01a760de1623dc41d89
+sourceRevision: 1c386993460e045ab658facd11426f1391737132
 title: 起動して、送り、返事を受け取る
 ---
 
@@ -168,7 +168,7 @@ $ tmt preamble show reviewer
 
 notes には保存済みの identity が必要で、一時的な identity ではエラーになります。notes ファイルは名前ではなく identity に属するので、同じ名前を再利用した新しい identity は新しいファイルから始まります。
 
-保存済みの Claude や Codex の agent が会話を圧縮すると、tmt は notes を読み直して更新するよう促します。リマインダーには notes ファイルのパスを引用し、パスがない場合や安全に引用できない場合は `tmt notes path` を実行するよう伝えます。このために tmt が notes を作成したり、読んだり、変更したりすることはなく、一時的な identity にはリマインダーは届きません。`tmt config set notes.compactionReminder false --global` でオフにし、`true` で元に戻します。
+保存済みの Claude や Codex の agent が会話を圧縮すると、tmt は notes を読み直して更新するよう促します。圧縮の前にも促します。agent が報告するコンテキストが既知の上限の 80% に達すると、次のプロンプトにリマインダーが付きます。コンテキストがリセットされるまでは1回だけです。これには tmt のプロンプト hook が必要で、上限を報告しない agent（現在の Claude など）には事前のリマインダーは届きません。これはコンテキストの大きさであって使用トークン数ではなく、追加のメッセージを入力することもありません。リマインダーには notes ファイルのパスを引用し、パスがない場合や安全に引用できない場合は `tmt notes path` を実行するよう伝えます。このために tmt が notes を作成したり、読んだり、変更したりすることはなく、一時的な identity にはリマインダーは届きません。`tmt config set notes.compactionReminder false --global` で両方のリマインダーをオフにし、`true` で元に戻します。
 
 <Mdx.h3 id="tmt-setup">
   <code>tmt setup</code>

@@ -6,7 +6,7 @@ use std::{
 };
 use tmt_adapters::runtime::sampling::SamplingRequest;
 use tmt_adapters::{
-    config::ConfigPaths,
+    config::{ConfigFiles, ConfigPaths},
     drivers::Registry,
     host::{Host, OperationOptions},
     process::{
@@ -15,7 +15,7 @@ use tmt_adapters::{
     },
     response_input::read_stdin_bounded,
     runtime::RuntimeRegistry,
-    setup::usage_hook_installed,
+    setup::{prompt_hook_installed, usage_hook_installed},
     skill_installation::ProviderEnvironment,
     storage::{RuntimeObservation, Storage},
 };
@@ -25,6 +25,7 @@ use tmt_core::{
         session::{RuntimeLiveness, RuntimeState},
     },
     endpoint::{EndpointProbe, ProcessIncarnation},
+    identity::NotesIdentityId,
 };
 
 const BUDGET: Duration = Duration::from_secs(2);
@@ -152,6 +153,28 @@ fn sample(deadline: Instant) -> Result<(), ()> {
     let consumption = next
         .as_ref()
         .and_then(|state| lifecycle.state_consumption(state));
+    let notes_nudge = next
+        .as_ref()
+        .and_then(|state| lifecycle.state_usage(state))
+        .filter(|usage| usage.observed_at_ms == now)
+        .filter(|_| {
+            NotesIdentityId::try_from(&stored.entry.identity).is_ok()
+                && Registry::builtin()
+                    .find(remembered.harness.as_str())
+                    .is_some_and(prompt_hook_installed)
+                && ConfigFiles {
+                    paths: paths.clone(),
+                }
+                .notes_compaction_reminder()
+                .unwrap_or(false)
+        })
+        .map(|usage| {
+            binding
+                .session
+                .notes_nudge
+                .observe(usage.tokens, usage.window_tokens)
+        })
+        .filter(|next| *next != binding.session.notes_nudge);
     let mut preferences = stored.preferences.clone();
     if let Some(next) = next {
         preferences.remembered.as_mut().ok_or(())?.state = Some(next);
@@ -176,6 +199,7 @@ fn sample(deadline: Instant) -> Result<(), ()> {
         .commit_runtime_observation(RuntimeObservation {
             expected: &stored,
             preferences: &preferences,
+            notes_nudge,
             remember_source: true,
             locator: source.as_deref(),
             sampled: true,

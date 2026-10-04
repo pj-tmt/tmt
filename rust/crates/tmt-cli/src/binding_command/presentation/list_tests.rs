@@ -53,6 +53,7 @@ fn binding(state: RuntimeState, session: Option<&str>) -> Binding {
         pane_pid: 10,
         pane_incarnation: None,
         session: BindingSessionState {
+            notes_nudge: Default::default(),
             last_transition: None,
             state,
             key: session.map(|session| ObservedSessionKey {

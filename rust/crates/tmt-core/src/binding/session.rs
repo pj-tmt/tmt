@@ -45,6 +45,54 @@ pub enum SessionTransition {
     Ended,
 }
 
+/// A binding's once-per-context-climb advisory; never runtime or identity authority.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum NotesNudge {
+    #[default]
+    Unclaimed,
+    Due(u64),
+    Shown,
+}
+
+impl NotesNudge {
+    /// Only fresh driver-reported usage with a known positive window qualifies.
+    /// Wide arithmetic preserves the threshold even above 100 percent.
+    pub fn observe(self, tokens: u64, window: Option<u64>) -> Self {
+        let Some(window) =
+            window.filter(|window| *window > 0 && *window <= crate::limits::MAX_JS_SAFE_INTEGER)
+        else {
+            return self;
+        };
+        if self != Self::Unclaimed || tokens > crate::limits::MAX_JS_SAFE_INTEGER {
+            return self;
+        }
+        let percent = (u128::from(tokens) * 100 / u128::from(window)) as u64;
+        if percent >= 80 {
+            Self::Due(percent)
+        } else {
+            self
+        }
+    }
+
+    /// Only a due reminder can be claimed by an admitted prompt observation.
+    pub fn shown(self) -> Option<Self> {
+        matches!(self, Self::Due(_)).then_some(Self::Shown)
+    }
+
+    fn after_session(self, same_key: bool, transition: SessionTransition) -> Self {
+        if !same_key
+            || matches!(
+                transition,
+                SessionTransition::Compacted | SessionTransition::Cleared
+            )
+        {
+            Self::Unclaimed
+        } else {
+            self
+        }
+    }
+}
+
 /// A driver identifier, not an executable name, shell command or config path.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HarnessId(String);
@@ -235,6 +283,7 @@ impl DriverState {
 /// Evidence belongs to one binding, unlike the identity's remembered preferences.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct BindingSessionState {
+    pub notes_nudge: NotesNudge,
     pub last_transition: Option<SessionTransition>,
     pub state: RuntimeState,
     pub key: Option<ObservedSessionKey>,
@@ -277,6 +326,9 @@ impl BindingSessionState {
             return None;
         }
         Some(Self {
+            notes_nudge: self
+                .notes_nudge
+                .after_session(self.key.as_ref() == Some(&key), SessionTransition::Ended),
             key: Some(key),
             launch_owner: Some(owner),
             state: RuntimeState::Ended,
@@ -344,6 +396,9 @@ impl BindingSessionState {
             return None;
         }
         Some(Self {
+            notes_nudge: self
+                .notes_nudge
+                .after_session(self.key.as_ref() == Some(&key), transition),
             launch_owner: self
                 .key
                 .as_ref()
@@ -391,6 +446,9 @@ impl BindingSessionState {
         if let Some(session) = next_session {
             next.key.as_mut()?.provider_session = Some(session);
         }
+        next.notes_nudge = self
+            .notes_nudge
+            .after_session(next.key == self.key, transition);
         next.last_transition = Some(transition);
         next.state = if transition == SessionTransition::Ended {
             RuntimeState::Unknown
@@ -427,10 +485,118 @@ mod tests {
     use super::*;
 
     #[test]
+    fn notes_nudge_requires_known_usage_and_claims_once_per_climb() {
+        let unclaimed = NotesNudge::Unclaimed;
+        for (tokens, window) in [
+            (80, None),
+            (80, Some(0)),
+            (799, Some(1000)),
+            (u64::MAX, Some(100)),
+            (80, Some(u64::MAX)),
+        ] {
+            assert_eq!(unclaimed.observe(tokens, window), unclaimed);
+        }
+        assert_eq!(unclaimed.observe(800, Some(1000)), NotesNudge::Due(80));
+        assert_eq!(unclaimed.observe(1200, Some(1000)), NotesNudge::Due(120));
+        assert_eq!(
+            unclaimed.observe(crate::limits::MAX_JS_SAFE_INTEGER, Some(1)),
+            NotesNudge::Due(900_719_925_474_099_100)
+        );
+        let due = unclaimed.observe(800, Some(1000));
+        assert_eq!(due.observe(900, Some(1000)), due);
+        assert_eq!(due.shown(), Some(NotesNudge::Shown));
+        assert_eq!(
+            NotesNudge::Shown.observe(1000, Some(1000)),
+            NotesNudge::Shown
+        );
+        assert_eq!(unclaimed.shown(), None);
+        assert_eq!(NotesNudge::Shown.shown(), None);
+    }
+
+    #[test]
+    fn notes_nudge_resets_with_admitted_context_boundaries_not_duplicate_starts() {
+        let key = ObservedSessionKey {
+            incarnation: ProcessIncarnation::new(20, "start").unwrap(),
+            provider_session: Some(ProviderSessionId::new("session").unwrap()),
+        };
+        let mut running = BindingSessionState::default()
+            .admit(
+                key.clone(),
+                SessionTransition::Started,
+                RuntimeLiveness::Alive,
+            )
+            .unwrap();
+        for state in [NotesNudge::Due(80), NotesNudge::Shown] {
+            running.notes_nudge = state;
+            for transition in [SessionTransition::Started, SessionTransition::Resumed] {
+                assert_eq!(
+                    running
+                        .admit(key.clone(), transition, RuntimeLiveness::Alive)
+                        .unwrap()
+                        .notes_nudge,
+                    state
+                );
+            }
+            for transition in [SessionTransition::Compacted, SessionTransition::Cleared] {
+                let next = running.transition(&key, transition, None).unwrap();
+                assert_eq!(next.key, running.key);
+                assert_eq!(next.notes_nudge, NotesNudge::Unclaimed);
+            }
+            assert_eq!(
+                running
+                    .transition(&key, SessionTransition::Resumed, None)
+                    .unwrap()
+                    .notes_nudge,
+                state
+            );
+            assert_eq!(
+                running
+                    .transition(
+                        &key,
+                        SessionTransition::Resumed,
+                        Some(ProviderSessionId::new("next").unwrap())
+                    )
+                    .unwrap()
+                    .notes_nudge,
+                NotesNudge::Unclaimed
+            );
+            let replacement = ObservedSessionKey {
+                incarnation: ProcessIncarnation::new(20, "replacement").unwrap(),
+                provider_session: key.provider_session.clone(),
+            };
+            assert_eq!(
+                running
+                    .admit(
+                        replacement,
+                        SessionTransition::Started,
+                        RuntimeLiveness::Alive
+                    )
+                    .unwrap()
+                    .notes_nudge,
+                NotesNudge::Unclaimed
+            );
+            assert!(
+                running
+                    .transition(
+                        &ObservedSessionKey {
+                            incarnation: key.incarnation.clone(),
+                            provider_session: Some(ProviderSessionId::new("stale").unwrap())
+                        },
+                        SessionTransition::Compacted,
+                        None
+                    )
+                    .is_none()
+            );
+            assert_eq!(running.notes_nudge, state);
+        }
+    }
+
+    #[test]
     fn a_binding_without_runtime_evidence_is_unknown() {
         assert_eq!(
             BindingSessionState::default(),
             BindingSessionState {
+                notes_nudge: Default::default(),
                 last_transition: None,
                 state: RuntimeState::Unknown,
                 key: None,
