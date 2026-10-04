@@ -1049,13 +1049,13 @@ fn output_with(value: &Value, json_output: bool, extra: &[(&str, String)]) -> Re
             rows.row([
                 Cell::from(page["pageId"].as_str().unwrap_or("")),
                 Cell::from(format!("{:<width$}", audience(page))),
-                Cell::from(
-                    match (page["title"].as_str(), page["error"]["code"].as_str()) {
-                        (Some(title), _) => title.to_owned(),
-                        (None, Some(code)) => format!("unavailable ({code})"),
-                        (None, None) => "title unavailable".to_owned(),
-                    },
-                ),
+                match (page["title"].as_str(), page["error"]["code"].as_str()) {
+                    (Some(title), _) => Cell::from(title),
+                    // The page is intact but too big to open; the code stays in --json and on stderr.
+                    (None, Some("COLAB_CAPACITY")) => Cell::styled("too large to open", Token::Dim),
+                    (None, Some(code)) => Cell::from(format!("unavailable ({code})")),
+                    (None, None) => Cell::from("title unavailable"),
+                },
             ]);
             rows.write(&mut out, terminal)?;
             if let Some(text) = page["linkText"].as_str() {

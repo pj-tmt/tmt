@@ -36,6 +36,32 @@ pub struct PageCapacity {
     pub detail: String,
     pub edit: bool,
 }
+/// A count for people: `5,001`.
+pub fn count(value: usize) -> String {
+    let digits = value.to_string();
+    let mut out = String::new();
+    for (index, digit) in digits.chars().enumerate() {
+        if index > 0 && (digits.len() - index).is_multiple_of(3) {
+            out.push(',');
+        }
+        out.push(digit);
+    }
+    out
+}
+/// A byte size for people in binary units with one decimal, without a trailing `.0`: `24 MiB`.
+pub fn size(bytes: usize) -> String {
+    const KIB: usize = 1024;
+    const MIB: usize = 1024 * KIB;
+    let (unit, name) = if bytes >= MIB {
+        (MIB, "MiB")
+    } else if bytes >= KIB {
+        (KIB, "KiB")
+    } else {
+        return format!("{bytes} bytes");
+    };
+    let text = format!("{:.1}", bytes as f64 / unit as f64);
+    format!("{} {name}", text.strip_suffix(".0").unwrap_or(&text))
+}
 impl OwnerFault {
     pub fn too_large(page: &str, detail: String) -> Self {
         Self::PageCapacity(PageCapacity {
@@ -58,7 +84,7 @@ impl std::fmt::Display for OwnerFault {
         match self {
             Self::PageCapacity(c) if c.edit => write!(
                 f,
-                "Page {page} cannot take another edit: {detail}. Export it with `tmt colab export \
+                "Page {page} cannot take another edit: {detail}. Nothing was deleted. Export it with `tmt colab export \
                  {page} --dir <dir>`, then create a new page from it with `tmt colab page create \
                  --title <title> --file <dir>/page.html`.",
                 page = c.page,
@@ -67,7 +93,7 @@ impl std::fmt::Display for OwnerFault {
             // Export folds the same state, so a page past a read limit cannot be exported either.
             Self::PageCapacity(c) => write!(
                 f,
-                "Page {page} is too large to open: {detail}. Colab cannot open a page this large yet.",
+                "Page {page} is too large to open: {detail}. Nothing was deleted. Colab cannot open a page this large yet.",
                 page = c.page,
                 detail = c.detail
             ),
@@ -598,4 +624,22 @@ fn read_head(
             encryption_key: key(encryption)?,
         },
     }))
+}
+
+#[cfg(test)]
+mod people_units {
+    use super::{count, size};
+    #[test]
+    fn counts_and_sizes_read_like_a_person_would_say_them() {
+        assert_eq!(count(7), "7");
+        assert_eq!(count(5_000), "5,000");
+        assert_eq!(count(5_001), "5,001");
+        assert_eq!(count(1_234_567), "1,234,567");
+        assert_eq!(size(512), "512 bytes");
+        assert_eq!(size(1024), "1 KiB");
+        assert_eq!(size(256 * 1024), "256 KiB");
+        assert_eq!(size(1536), "1.5 KiB");
+        assert_eq!(size(24 * 1024 * 1024), "24 MiB");
+        assert_eq!(size(26_500_000), "25.3 MiB");
+    }
 }

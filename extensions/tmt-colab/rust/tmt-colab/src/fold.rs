@@ -5,7 +5,7 @@ use crate::{
     keyring::Keyring,
     store::{
         Store,
-        owner::{Cut, Device, OwnerFault, Recipient, StoredBaseline},
+        owner::{Cut, Device, OwnerFault, Recipient, StoredBaseline, count, size},
     },
 };
 use serde::{Deserialize, Serialize};
@@ -162,9 +162,9 @@ impl Snapshot {
                 return Err(OwnerFault::too_large(
                     page,
                     format!(
-                        "it has {} updates since its last baseline (limit {})",
-                        objects.len(),
-                        crate::decoder::UPDATES
+                        "it has {} changes since its last baseline (limit {})",
+                        count(objects.len()),
+                        count(crate::decoder::UPDATES)
                     ),
                 )
                 .into());
@@ -386,43 +386,38 @@ impl Snapshot {
         if edit.is_some() {
             // A write adds one update and must not leave a page the browser cannot open; reads
             // accept more. The new update's own size is checked once it is prepared.
-            let (what, measured, limit) = if self.objects.len()
-                >= crate::decoder::WRITE_TAIL_UPDATES
-            {
-                (
-                    "updates since its last baseline, and one more would pass the limit",
-                    self.objects.len(),
-                    crate::decoder::WRITE_TAIL_UPDATES,
-                )
+            let detail = if self.objects.len() >= crate::decoder::WRITE_TAIL_UPDATES {
+                Some(format!(
+                    "it already has {} changes since its last baseline (limit {} for another edit)",
+                    count(self.objects.len()),
+                    count(crate::decoder::WRITE_TAIL_UPDATES)
+                ))
             } else if tail >= crate::decoder::UPDATE_BYTES {
-                (
-                    "bytes of updates since its last baseline, and one more would pass the limit",
-                    tail,
-                    crate::decoder::UPDATE_BYTES,
-                )
+                Some(format!(
+                    "its changes since its last baseline are already {} (limit {} for another edit)",
+                    size(tail),
+                    size(crate::decoder::UPDATE_BYTES)
+                ))
             } else if baseline.len() > crate::decoder::BASELINE_BYTES {
-                (
-                    "baseline bytes",
-                    baseline.len(),
-                    crate::decoder::BASELINE_BYTES,
-                )
+                Some(format!(
+                    "its baseline is {} (limit {})",
+                    size(baseline.len()),
+                    size(crate::decoder::BASELINE_BYTES)
+                ))
             } else {
-                ("", 0, 0)
+                None
             };
-            if limit != 0 {
-                return Err(OwnerFault::too_large_to_edit(
-                    page,
-                    format!("it has {measured} {what} of {limit}"),
-                )
-                .into());
+            if let Some(detail) = detail {
+                return Err(OwnerFault::too_large_to_edit(page, detail).into());
             }
         }
         if state > crate::decoder::STATE_BYTES {
             return Err(OwnerFault::too_large(
                 page,
                 format!(
-                    "its state is {state} bytes (limit {})",
-                    crate::decoder::STATE_BYTES
+                    "its state is {} (limit {})",
+                    size(state),
+                    size(crate::decoder::STATE_BYTES)
                 ),
             )
             .into());
@@ -435,8 +430,9 @@ impl Snapshot {
                 return Err(OwnerFault::too_large(
                     page,
                     format!(
-                        "one writer's discussion state is {discussion} bytes (limit {})",
-                        crate::decoder::STATE_BYTES
+                        "one writer's discussion state is {} (limit {})",
+                        size(discussion),
+                        size(crate::decoder::STATE_BYTES)
                     ),
                 )
                 .into());
@@ -479,8 +475,9 @@ impl Snapshot {
                         OwnerFault::too_large(
                             page,
                             format!(
-                                "decoding its {} updates ({state} bytes) did not finish within {} s",
-                                updates.len(),
+                                "decoding its {} changes ({}) did not finish within {} s",
+                                count(updates.len()),
+                                size(state),
                                 crate::decoder::DEADLINE.as_secs()
                             ),
                         )
@@ -493,9 +490,9 @@ impl Snapshot {
             return Err(OwnerFault::too_large_to_edit(
                 page,
                 format!(
-                    "this edit would take its updates since the last baseline to {} bytes, past the limit of {}",
-                    tail + folded.merged.len(),
-                    crate::decoder::UPDATE_BYTES
+                    "this edit would take its changes since the last baseline to {} (limit {})",
+                    size(tail + folded.merged.len()),
+                    size(crate::decoder::UPDATE_BYTES)
                 ),
             )
             .into());
