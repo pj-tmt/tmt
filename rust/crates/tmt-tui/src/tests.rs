@@ -188,3 +188,149 @@ fn dtd_and_entity_expansion_are_refused() {
         "&<>\"'"
     );
 }
+
+const KEY_LINE: &str = "<tmt-switch><tmt-case min=\"lg\"><tmt-text>full</tmt-text></tmt-case><tmt-case min=\"md\"><tmt-text>short</tmt-text></tmt-case><tmt-default><tmt-text>min</tmt-text></tmt-default></tmt-switch>";
+
+#[test]
+fn switch_admits_ordered_cases_with_a_default() {
+    let root = parse("switch.xml", &view(KEY_LINE)).unwrap();
+    let switch = &root.children[0];
+    assert_eq!(switch.kind, Kind::Switch);
+    let kinds: Vec<_> = switch.children.iter().map(|c| c.kind).collect();
+    assert_eq!(kinds, [Kind::Case, Kind::Case, Kind::Default]);
+    assert_eq!(switch.children[1].attributes["min"], "md");
+    // `of` is optional and takes exactly container or terminal.
+    for of in ["container", "terminal"] {
+        let source = KEY_LINE.replace("<tmt-switch>", &format!("<tmt-switch of=\"{of}\">"));
+        parse("switch.xml", &view(&source)).unwrap();
+    }
+}
+
+#[test]
+fn switch_rejects_what_would_leave_a_gap_overlap_or_raw_number() {
+    let case = |min: &str| format!("<tmt-case min=\"{min}\"><tmt-text>x</tmt-text></tmt-case>");
+    let default = "<tmt-default/>";
+    let switch = |body: &str| view(&format!("<tmt-switch>{body}</tmt-switch>"));
+    for (source, message) in [
+        // Only names: a raw number or a differently spelled name is refused.
+        (
+            switch(&format!("{}{default}", case("100"))),
+            "breakpoint name (sm, md, lg)",
+        ),
+        (
+            switch(&format!("{}{default}", case("MD"))),
+            "breakpoint name",
+        ),
+        (switch(&format!("{}{default}", case(""))), "breakpoint name"),
+        (
+            switch(&format!("<tmt-case max=\"md\"/>{default}")),
+            "max=\"md\"",
+        ),
+        (switch(&format!("<tmt-case/>{default}")), "requires min"),
+        // Order and uniqueness.
+        (
+            switch(&format!("{}{}{default}", case("md"), case("lg"))),
+            "must come before \"md\"",
+        ),
+        (
+            switch(&format!("{}{}{default}", case("md"), case("md"))),
+            "never repeat",
+        ),
+        // The default is required, single and last.
+        (switch(&case("md")), "requires a final <tmt-default>"),
+        (switch(&format!("{default}{}", case("md"))), "single last"),
+        (
+            switch(&format!("{}{default}{default}", case("md"))),
+            "single last",
+        ),
+        (switch(default), "at least one <tmt-case"),
+        (switch(""), "at least one <tmt-case"),
+        // Branches are not boxes and a switch holds nothing else.
+        (
+            switch(&format!("{}<tmt-row/>{default}", case("md"))),
+            "holds only",
+        ),
+        (view(&case("md")), "belong directly inside <tmt-switch>"),
+        (
+            view(&format!("<tmt-row>{default}</tmt-row>")),
+            "belong directly inside",
+        ),
+        (
+            view(&format!(
+                "<tmt-switch><tmt-case min=\"md\">{}</tmt-case>{default}</tmt-switch>",
+                case("sm")
+            )),
+            "belong directly inside",
+        ),
+        (
+            view("<tmt-switch of=\"screen\"><tmt-default/></tmt-switch>"),
+            "container or terminal",
+        ),
+        (
+            view("<tmt-switch class=\"flex\"><tmt-default/></tmt-switch>"),
+            "class=",
+        ),
+        (
+            view("<tmt-switch><tmt-case min=\"md\" id=\"x\"/><tmt-default/></tmt-switch>"),
+            "id=",
+        ),
+        (
+            view("<tmt-switch><tmt-case min=\"md\"/><tmt-default token=\"dim\"/></tmt-switch>"),
+            "token=",
+        ),
+    ] {
+        rejects(&source, message);
+    }
+    // Located at the offending branch, not at the switch.
+    let err = parse(
+        "switch.xml",
+        &view(&format!(
+            "<tmt-switch>\n{}\n{}\n{default}</tmt-switch>",
+            case("md"),
+            case("lg")
+        )),
+    )
+    .unwrap_err();
+    assert_eq!(err.location.line, 3, "{err}");
+}
+
+#[test]
+fn hide_below_is_a_switch_with_the_element_and_an_empty_default() {
+    let root = parse(
+        "hide.xml",
+        &view("<tmt-cell id=\"squad\" hide-below=\"md\">squad</tmt-cell>"),
+    )
+    .unwrap();
+    let switch = &root.children[0];
+    assert_eq!(switch.kind, Kind::Switch);
+    assert!(switch.attributes.is_empty());
+    let [case, default] = &switch.children[..] else {
+        panic!("one case and a default");
+    };
+    assert_eq!(
+        (case.kind, case.attributes["min"].as_str()),
+        (Kind::Case, "md")
+    );
+    assert_eq!(default.kind, Kind::Default);
+    assert!(default.children.is_empty());
+    let cell = &case.children[0];
+    assert_eq!((cell.kind, cell.text.as_str()), (Kind::Cell, "squad"));
+    assert!(!cell.attributes.contains_key("hide-below"));
+    for tag in ["tmt-row", "tmt-col", "tmt-text"] {
+        parse("hide.xml", &view(&format!("<{tag} hide-below=\"sm\"/>"))).unwrap();
+    }
+    for (body, message) in [
+        ("<tmt-cell hide-below=\"100\"/>", "breakpoint name"),
+        ("<tmt-cell hide-below=\"\"/>", "breakpoint name"),
+        (
+            "<tmt-repeat each=\"$.x\" as=\"x\" hide-below=\"md\"/>",
+            "hide-below",
+        ),
+        (
+            "<tmt-switch hide-below=\"md\"><tmt-default/></tmt-switch>",
+            "hide-below",
+        ),
+    ] {
+        rejects(&view(body), message);
+    }
+}

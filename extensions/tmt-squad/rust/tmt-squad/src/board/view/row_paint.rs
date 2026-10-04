@@ -130,6 +130,7 @@ impl RowPaint {
         style.text_flow = flow;
         let node = Node {
             kind: tmt_tui::Kind::Text,
+            cond: tmt_tui::binding::Cond::None,
             style,
             id: None,
             row_id: None,

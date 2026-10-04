@@ -250,3 +250,159 @@ fn manually_forged_scene_limits_fail_before_engine_allocation() {
             .contains("depth/node")
     );
 }
+
+fn shown(root: &Node, width: u16) -> Vec<String> {
+    layout(root, [width, 4], measure)
+        .unwrap()
+        .iter()
+        .filter_map(|cell| cell.node.text.clone().filter(|text| !text.is_empty()))
+        .collect()
+}
+const KEY_LINE: &str = "<tmt-switch><tmt-case min='lg'><tmt-cell>full</tmt-cell></tmt-case><tmt-case min='md'><tmt-cell>short</tmt-cell></tmt-case><tmt-default><tmt-cell>min</tmt-cell></tmt-default></tmt-switch>";
+
+#[test]
+fn switch_picks_the_branch_by_width_and_boundaries_are_inclusive_at_min() {
+    let root = scene("", KEY_LINE);
+    for (width, expected) in [
+        (1, "min"),
+        (79, "min"),
+        (80, "min"),
+        (99, "min"),
+        (100, "short"),
+        (139, "short"),
+        (140, "full"),
+        (400, "full"),
+    ] {
+        assert_eq!(shown(&root, width), [expected], "width {width}");
+    }
+    // The same scene re-lays out at every resize; nothing is retained between calls.
+    for width in [140, 99, 100, 80, 140] {
+        let expected = if width >= 140 {
+            "full"
+        } else if width >= 100 {
+            "short"
+        } else {
+            "min"
+        };
+        assert_eq!(shown(&root, width), [expected], "resize to {width}");
+    }
+}
+
+#[test]
+fn switch_output_equals_the_hand_written_branch_for_every_width() {
+    // Case and default are not boxes: the chosen children are laid out as if written in place.
+    let signature = |root: &Node, width| {
+        layout(root, [width, 6], measure)
+            .unwrap()
+            .iter()
+            .map(|cell| {
+                (
+                    cell.rect,
+                    cell.content,
+                    cell.clip,
+                    cell.node.text.clone(),
+                    cell.node.id.clone(),
+                    cell.cut,
+                )
+            })
+            .collect::<Vec<_>>()
+    };
+    let around = |inner: &str| {
+        scene(
+            "class='grid grid-cols-[6_1fr_8] gap-x-1'",
+            &format!("<tmt-cell id='a'>aa</tmt-cell>{inner}<tmt-cell id='z'>zz</tmt-cell>"),
+        )
+    };
+    let switch = around(
+        "<tmt-switch><tmt-case min='md'><tmt-cell id='b' class='col-span-2'>wide</tmt-cell></tmt-case><tmt-default><tmt-cell id='b'>narrow</tmt-cell></tmt-default></tmt-switch>",
+    );
+    let wide = around("<tmt-cell id='b' class='col-span-2'>wide</tmt-cell>");
+    let narrow = around("<tmt-cell id='b'>narrow</tmt-cell>");
+    for width in [60, 99, 100, 130] {
+        let expected = if width >= 100 { &wide } else { &narrow };
+        assert_eq!(
+            signature(&switch, width),
+            signature(expected, width),
+            "{width}"
+        );
+    }
+}
+
+#[test]
+fn container_width_is_the_parent_content_width_and_terminal_is_the_viewport() {
+    // The parent's padding is not available width: 120 cells with px-10 is 100 for its children.
+    let container = scene("class='px-10'", KEY_LINE);
+    assert_eq!(shown(&container, 120), ["short"]);
+    assert_eq!(shown(&container, 119), ["min"]);
+    assert_eq!(shown(&container, 159), ["short"]);
+    assert_eq!(shown(&container, 160), ["full"]);
+    // A pane narrower than the terminal decides for its own switch; `of="terminal"` ignores it.
+    let pane = |of: &str| {
+        scene(
+            "class='flex-row'",
+            &format!(
+                "<tmt-col class='w-60'>{}</tmt-col><tmt-col class='grow'/>",
+                KEY_LINE.replace("<tmt-switch>", &format!("<tmt-switch of='{of}'>"))
+            ),
+        )
+    };
+    assert_eq!(shown(&pane("container"), 200), ["min"]);
+    assert_eq!(shown(&pane("terminal"), 200), ["full"]);
+    assert_eq!(shown(&pane("terminal"), 99), ["min"]);
+}
+
+#[test]
+fn a_switch_inside_a_width_chosen_branch_resolves_on_the_next_level() {
+    let nested = scene(
+        "",
+        "<tmt-switch><tmt-case min='md'><tmt-col class='w-60'><tmt-switch><tmt-case min='lg'><tmt-cell>inner-lg</tmt-cell></tmt-case><tmt-default><tmt-cell>inner-min</tmt-cell></tmt-default></tmt-switch></tmt-col><tmt-switch of='terminal'><tmt-case min='lg'><tmt-cell>outer-lg</tmt-cell></tmt-case><tmt-default><tmt-cell>outer-md</tmt-cell></tmt-default></tmt-switch></tmt-case><tmt-default><tmt-cell>none</tmt-cell></tmt-default></tmt-switch>",
+    );
+    assert_eq!(shown(&nested, 90), ["none"]);
+    // The inner container is the 60-cell column, so it never reaches lg.
+    assert_eq!(shown(&nested, 120), ["inner-min", "outer-md"]);
+    assert_eq!(shown(&nested, 200), ["inner-min", "outer-lg"]);
+}
+
+#[test]
+fn hide_below_removes_only_that_element_and_keeps_the_siblings_in_place() {
+    let hidden = scene(
+        "class='flex-row gap-x-1'",
+        "<tmt-cell class='w-4'>a</tmt-cell><tmt-cell class='w-4' hide-below='md'>b</tmt-cell><tmt-cell class='w-4'>c</tmt-cell>",
+    );
+    let at = |width| {
+        layout(&hidden, [width, 1], measure)
+            .unwrap()
+            .iter()
+            .filter(|cell| cell.node.text.is_some() && cell.node.kind == Kind::Cell)
+            .map(|cell| (cell.node.text.clone().unwrap(), cell.rect.x))
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(at(99), [("a".into(), 0), ("c".into(), 5)]);
+    assert_eq!(
+        at(100),
+        [("a".into(), 0), ("b".into(), 5), ("c".into(), 10)]
+    );
+}
+
+#[test]
+fn the_resolving_pass_measures_no_branch_text() {
+    // Text is measured once per final layout: an unresolved switch has no children
+    // in the pass that measures its parent, so branches never cost a second measure.
+    let count = |root: &Node, width| {
+        let mut calls = 0;
+        layout(root, [width, 2], |text, flow, space| {
+            calls += usize::from(!text.is_empty());
+            measure(text, flow, space)
+        })
+        .unwrap();
+        calls
+    };
+    let switch = scene(
+        "",
+        "<tmt-switch><tmt-case min='md'><tmt-cell>wide</tmt-cell></tmt-case><tmt-default><tmt-cell>narrow</tmt-cell></tmt-default></tmt-switch>",
+    );
+    let wide = scene("", "<tmt-cell>wide</tmt-cell>");
+    let narrow = scene("", "<tmt-cell>narrow</tmt-cell>");
+    assert_eq!(count(&switch, 100), count(&wide, 100));
+    assert_eq!(count(&switch, 99), count(&narrow, 99));
+}

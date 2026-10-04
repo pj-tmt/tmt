@@ -201,3 +201,69 @@ fn output_and_work_limits_accept_exact_bounds_then_reject_one_more() {
     .unwrap();
     assert!(render("<tmt-row id=\"x\" row-id=\"x\"><tmt-cell bind=\"$.value\"/><tmt-text>y</tmt-text></tmt-row>", &data).is_err());
 }
+
+fn switch_result(body: &str, data: &serde_json::Value) -> Result<Node, Error> {
+    let element = parse(body);
+    compile("test.xml", &element, &schema(), &Registry)?.materialize("test.xml", data, &Registry)
+}
+
+#[test]
+fn branches_may_share_an_id_but_not_with_anything_outside_the_switch() {
+    let data = json!({"value": "v", "rows": []});
+    let branches = "<tmt-switch><tmt-case min=\"md\"><tmt-cell id=\"squad\"/></tmt-case><tmt-default><tmt-cell id=\"squad\"/></tmt-default></tmt-switch>";
+    let scene = switch_result(branches, &data).unwrap();
+    assert_eq!(scene.children[0].kind, Kind::Switch);
+    assert_eq!(scene.children[0].cond, Cond::Switch(Of::Container));
+    assert_eq!(scene.children[0].children[0].cond, Cond::Case(100));
+    assert_eq!(scene.children[0].children[1].cond, Cond::None);
+    for outside in [
+        format!("<tmt-cell id=\"squad\"/>{branches}"),
+        format!("{branches}<tmt-cell id=\"squad\"/>"),
+    ] {
+        let err = switch_result(&outside, &data).unwrap_err();
+        assert!(err.message.contains("duplicate resolved id"), "{err}");
+    }
+    // Two branches of one switch still cannot repeat an ID inside one branch.
+    let twice = "<tmt-switch><tmt-case min=\"md\"/><tmt-default><tmt-cell id=\"a\"/><tmt-cell id=\"a\"/></tmt-default></tmt-switch>";
+    assert!(switch_result(twice, &data).is_err());
+}
+
+#[test]
+fn every_branch_is_checked_and_materialized_not_only_the_one_that_shows() {
+    // An unknown path in the narrowest branch fails at admission, at every width.
+    let bad = "<tmt-switch><tmt-case min=\"lg\"><tmt-cell bind=\"$.value\"/></tmt-case><tmt-default><tmt-cell bind=\"$.missing\"/></tmt-default></tmt-switch>";
+    let err = compile("test.xml", &parse(bad), &schema(), &Registry)
+        .err()
+        .unwrap();
+    assert!(err.message.contains("unknown path"), "{err}");
+    // Branch text, scope and repeats resolve like any other child.
+    let good = "<tmt-switch of=\"terminal\"><tmt-case min=\"lg\"><tmt-cell bind=\"$.value\"/></tmt-case><tmt-default><tmt-repeat each=\"$.rows\" as=\"row\"><tmt-cell bind=\"row.shown\"/></tmt-repeat></tmt-default></tmt-switch>";
+    let scene = switch_result(
+        good,
+        &json!({"value": "wide", "rows": [{"id": "r1", "shown": "one", "token": null, "children": []}]}),
+    )
+    .unwrap();
+    let switch = &scene.children[0];
+    assert_eq!(switch.cond, Cond::Switch(Of::Terminal));
+    assert_eq!(switch.children[0].children[0].text.as_deref(), Some("wide"));
+    assert_eq!(switch.children[1].children[0].text.as_deref(), Some("one"));
+}
+
+#[test]
+fn branches_count_against_the_work_budget() {
+    let rows: Vec<_> = (0..MAX_REPEAT_WORK / 2 + 1)
+        .map(|i| json!({"id": format!("r{i}"), "shown": "x", "token": null, "children": []}))
+        .collect();
+    let data = json!({"value": "v", "rows": rows});
+    let branch = "<tmt-repeat each=\"$.rows\" as=\"row\"><tmt-cell/></tmt-repeat>";
+    let one = format!(
+        "<tmt-switch><tmt-case min=\"md\"/><tmt-default>{branch}</tmt-default></tmt-switch>"
+    );
+    switch_result(&one, &data).unwrap();
+    // Every branch is expanded, so two of them cost twice as much.
+    let both = format!(
+        "<tmt-switch><tmt-case min=\"md\">{branch}</tmt-case><tmt-default>{branch}</tmt-default></tmt-switch>"
+    );
+    let err = switch_result(&both, &data).unwrap_err();
+    assert!(err.message.contains("20,000"), "{err}");
+}
