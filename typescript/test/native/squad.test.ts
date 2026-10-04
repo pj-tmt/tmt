@@ -2759,6 +2759,88 @@ sort = ["-name"]
   });
 });
 
+describe('Squad cron clock', () => {
+  it('keeps status read-only and admits exact paused manual sends through the explicit actor', async () => {
+    await withSandbox(async (sandbox) => {
+      installSquad(sandbox);
+      const user = await identity(sandbox, 'Ben');
+      const lead = await identity(sandbox, 'Sol');
+      const worker = await identity(sandbox, 'worker');
+      expect((await squad(sandbox, ['init', 'product', '--me', 'Ben'])).status).toBe(0);
+      expect((await squad(sandbox, ['lead', 'Sol'])).status).toBe(0);
+      expect((await squad(sandbox, ['add', 'worker'])).status).toBe(0);
+      const root = parseWholeStdout(
+        await runCli(sandbox, ['api'], {
+          stdin: JSON.stringify({ version: 1, operation: 'storage.root', input: {} }),
+        })
+      ).dataRoot as string;
+      const directory = path.join(root, 'squad', 'cron');
+      const absent = await squad(sandbox, ['cron', 'clock']);
+      expect(absent).toMatchObject({ status: 0, body: { clock: { state: 'no clock' } } });
+      expect(existsSync(directory)).toBe(false);
+      const help = await runCli(sandbox, ['squad', 'cron', '--help']);
+      expect(help.status).toBe(0);
+      for (const command of ['send', 'run', 'tick', 'clock']) {
+        expect(help.stdout).toMatch(new RegExp(`^  ${command}\\s`, 'm'));
+      }
+      const message = 'literal {time}\nmanual reminder';
+      const added = await squad(sandbox, [
+        'cron',
+        'add',
+        'product',
+        'worker',
+        '--every',
+        '1h',
+        '--paused',
+        message,
+      ]);
+      expect(added.status, JSON.stringify(added.body)).toBe(0);
+      const store = path.join(directory, 'jobs.json');
+      const before = readFileSync(store);
+      const denied = await squad(sandbox, [
+        'cron',
+        'send',
+        'product',
+        'c1',
+        '--identity',
+        'worker',
+      ]);
+      expect(denied).toMatchObject({
+        status: 1,
+        body: { error: { code: 'SQUAD_CRON_PERMISSION_DENIED' } },
+      });
+      const first = await squad(sandbox, ['cron', 'send', 'product', 'c1', '--identity', 'Sol']);
+      const second = await squad(sandbox, ['cron', 'send', 'product', 'c1', '--identity', 'Ben']);
+      expect(first.status, JSON.stringify(first.body)).toBe(0);
+      expect(second.status, JSON.stringify(second.body)).toBe(0);
+      expect(first.body.dispatch.operationId).not.toBe(second.body.dispatch.operationId);
+      expect(readFileSync(store)).toEqual(before);
+      const db = new Database(sandbox.database, { readonly: true });
+      try {
+        expect(
+          db
+            .prepare(`SELECT recipient_identity_id AS recipient, originator_identity_id AS actor,
+          room_id AS room, message_text AS message FROM request_attempts WHERE request_kind='request' ORDER BY rowid`)
+            .all()
+        ).toEqual([
+          { recipient: worker, actor: lead, room: added.body.job.roomId, message },
+          { recipient: worker, actor: user, room: added.body.job.roomId, message },
+        ]);
+      } finally {
+        db.close();
+      }
+      const tick = await squad(sandbox, ['cron', 'tick']);
+      expect(tick).toMatchObject({ status: 0, body: { accepted: 0, complete: true } });
+      const lease = path.join(directory, 'clock.json');
+      expect(existsSync(lease)).toBe(false);
+      writeFileSync(lease, 'corrupt clock evidence');
+      const unknown = await squad(sandbox, ['cron', 'clock']);
+      expect(unknown).toMatchObject({ status: 1, body: { clock: { state: 'unknown' } } });
+      expect(readFileSync(lease, 'utf8')).toBe('corrupt clock evidence');
+    });
+  }, 20_000);
+});
+
 describe('Squad cron management', () => {
   it('admits the user and lead, preserves exact jobs, and records announcements independently', async () => {
     await withSandbox(async (sandbox) => {

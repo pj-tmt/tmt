@@ -264,7 +264,22 @@ Change notices are best-effort announcements to the owner; reassignment notifies
 old/new owners, and the actor's own notice is suppressed. A committed change can
 report notification warnings. Owner retirement pauses the job as no owner and
 notifies the lead; each management invocation handles at most 16 pending hooks.
-This release provides job management; clock and board controls land separately.
+An open board keeps the clock running independently of its refresh setting.
+Outside a board, `tmt sq cron run` keeps it in the current pane; `clock` shows
+its pane, PID and start time. Only one clock holds the lease. Stop `run` with
+Ctrl-C; stale leases can be taken over. Startup and takeover begin at now, so
+slots missed while no clock was running are not caught up. A running clock
+admits slots since its previous tick, capped at five minutes. `tick` makes one
+pass over the last 60 seconds and refuses an active clock. Scheduled messages
+are anonymous requests; the same room/job/slot operation is accepted once.
+
+`tmt sq cron send product c1` sends once now using the recorded or explicit
+user/lead actor. It can send a paused job with a current owner and changes no
+schedule. Each explicit send is a separate action. Output confirms acceptance,
+not delivery or completion; Squad stores no run results. If acceptance is
+uncertain, retain the reported operation ID and recover it with `dispatch.show`
+through `tmt api` before deciding on another action. Board cron controls are
+separate from the clock lifecycle.
 
 ## Inspect board settings
 

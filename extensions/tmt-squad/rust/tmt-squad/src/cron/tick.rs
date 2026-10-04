@@ -5,6 +5,10 @@ use sha2::{Digest, Sha256};
 /// It runs outside the jobs lock and retains this operation ID on every retry.
 pub trait Dispatch {
     fn send(&mut self, job: &Job, operation_id: &str) -> Result<(), Error>;
+    /// The lifecycle owner stops further work after cancellation or lease loss.
+    fn stopped(&self) -> bool {
+        false
+    }
 }
 
 /// The operation excludes actor, clock and revision so changed slot intent conflicts.
@@ -77,6 +81,9 @@ fn send_due(after_ms: i64, now_ms: i64, jobs: &[Job], dispatch: &mut impl Dispat
     {
         let mut previous = after_ms;
         loop {
+            if dispatch.stopped() {
+                return report;
+            }
             let slot = match job.schedule.next_after(previous) {
                 Ok(Some(slot)) if slot <= now_ms => slot,
                 Ok(_) => break,

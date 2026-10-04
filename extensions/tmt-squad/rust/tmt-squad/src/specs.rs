@@ -54,6 +54,17 @@ pub const CRON_RESUME: &CommandSpec = spec!("resume", "Resume a job with a curre
     ["Resume one job" => "tmt squad cron resume product c1"]);
 pub const CRON_REASSIGN: &CommandSpec = spec!("reassign", "Assign a job to another member, retaining its pause",
     ["Choose a new owner" => "tmt squad cron reassign product c1 reviewer"]);
+pub const CRON_SEND: &CommandSpec = spec!("send", "Send a job's exact message once now without changing its schedule",
+    details = "Requires the recorded user or the squad's lead. Paused jobs may be sent; jobs without an owner must be reassigned.",
+    ["Send one job now" => "tmt squad cron send product c1"]);
+pub const CRON_RUN: &CommandSpec = spec!("run", "Keep the Squad cron clock running here until Ctrl-C",
+    details = "Only one clock holds the lease. Startup and takeover start at now; periods without a clock are never caught up. Scheduled requests are anonymous.",
+    ["Keep the clock in this pane" => "tmt squad cron run"]);
+pub const CRON_TICK: &CommandSpec = spec!("tick", "Send scheduled slots from the last sixty seconds, then exit",
+    details = "Requires the clock lease. Repeated ticks reuse slot operation IDs; no run results are stored.",
+    ["Run one clock pass" => "tmt squad cron tick"]);
+pub const CRON_CLOCK: &CommandSpec = spec!("clock", "Show read-only clock lease evidence: pane, pid and since",
+    ["Find the current clock" => "tmt squad cron clock"]);
 pub const CONFIG_SHOW: &CommandSpec = spec!(
     "show", "Show effective board settings and where they come from",
     details = "Read-only. Configured commands are displayed, never executed.",

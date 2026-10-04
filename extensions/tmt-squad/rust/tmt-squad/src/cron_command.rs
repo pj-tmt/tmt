@@ -54,66 +54,68 @@ fn schedules(command: Command, required: bool) -> Command {
 }
 pub fn grammar() -> Command {
     let build = tmt_cli_style::command;
-    build(specs::CRON)
-        .subcommand_required(true)
-        .arg(
-            Arg::new("identity")
-                .long("identity")
-                .global(true)
-                .help("Explicit actor; otherwise verified caller, then recorded user"),
-        )
-        .subcommand(
-            build(specs::CRON_LS).alias("list").arg(
-                Arg::new("squad")
-                    .long("squad")
-                    .help("List one squad instead of all squads"),
-            ),
-        )
-        .subcommand(selected(build(specs::CRON_SHOW)))
-        .subcommand(
-            schedules(build(specs::CRON_ADD), true)
-                .arg(Arg::new("squad").required(true).help("Squad name"))
-                .arg(
+    crate::cron_clock::extend(
+        build(specs::CRON)
+            .subcommand_required(true)
+            .arg(
+                Arg::new("identity")
+                    .long("identity")
+                    .global(true)
+                    .help("Explicit actor; otherwise verified caller, then recorded user"),
+            )
+            .subcommand(
+                build(specs::CRON_LS).alias("list").arg(
+                    Arg::new("squad")
+                        .long("squad")
+                        .help("List one squad instead of all squads"),
+                ),
+            )
+            .subcommand(selected(build(specs::CRON_SHOW)))
+            .subcommand(
+                schedules(build(specs::CRON_ADD), true)
+                    .arg(Arg::new("squad").required(true).help("Squad name"))
+                    .arg(
+                        Arg::new("member")
+                            .required(true)
+                            .help("Member to own the job"),
+                    )
+                    .arg(
+                        Arg::new("message")
+                            .required(true)
+                            .help("Exact message to send"),
+                    )
+                    .arg(
+                        Arg::new("paused")
+                            .long("paused")
+                            .action(ArgAction::SetTrue)
+                            .help("Create the job paused"),
+                    ),
+            )
+            .subcommand(
+                schedules(selected(build(specs::CRON_EDIT)), false)
+                    .arg(
+                        Arg::new("message")
+                            .long("message")
+                            .help("Replace the exact message"),
+                    )
+                    .group(
+                        ArgGroup::new("edit")
+                            .args(["message", "every", "at", "expression"])
+                            .multiple(true)
+                            .required(true),
+                    ),
+            )
+            .subcommand(selected(build(specs::CRON_RM)))
+            .subcommand(selected(build(specs::CRON_PAUSE)))
+            .subcommand(selected(build(specs::CRON_RESUME)))
+            .subcommand(
+                selected(build(specs::CRON_REASSIGN)).arg(
                     Arg::new("member")
                         .required(true)
-                        .help("Member to own the job"),
-                )
-                .arg(
-                    Arg::new("message")
-                        .required(true)
-                        .help("Exact message to send"),
-                )
-                .arg(
-                    Arg::new("paused")
-                        .long("paused")
-                        .action(ArgAction::SetTrue)
-                        .help("Create the job paused"),
+                        .help("New owner, a current squad member"),
                 ),
-        )
-        .subcommand(
-            schedules(selected(build(specs::CRON_EDIT)), false)
-                .arg(
-                    Arg::new("message")
-                        .long("message")
-                        .help("Replace the exact message"),
-                )
-                .group(
-                    ArgGroup::new("edit")
-                        .args(["message", "every", "at", "expression"])
-                        .multiple(true)
-                        .required(true),
-                ),
-        )
-        .subcommand(selected(build(specs::CRON_RM)))
-        .subcommand(selected(build(specs::CRON_PAUSE)))
-        .subcommand(selected(build(specs::CRON_RESUME)))
-        .subcommand(
-            selected(build(specs::CRON_REASSIGN)).arg(
-                Arg::new("member")
-                    .required(true)
-                    .help("New owner, a current squad member"),
             ),
-        )
+    )
 }
 fn flag<'a>(matches: &'a ArgMatches, name: &str) -> Option<&'a str> {
     matches
@@ -142,6 +144,9 @@ fn schedule(matches: &ArgMatches, zone: &str, now_ms: i64) -> Result<Option<Sche
 }
 pub fn run(core: &Core, config: &Config, parent: &ArgMatches) -> Result<Value, SquadError> {
     let (action, flags) = parent.subcommand().expect("cron subcommand required");
+    if matches!(action, "send" | "run" | "tick" | "clock") {
+        return crate::cron_clock::run(core, config, parent);
+    }
     let now_ms = jiff::Timestamp::now().as_millisecond();
     if action == "ls" {
         let result = service::list_jobs(core, config, flag(flags, "squad"), now_ms)?;
@@ -217,6 +222,12 @@ pub fn run(core: &Core, config: &Config, parent: &ArgMatches) -> Result<Value, S
 }
 
 pub fn text(document: &Value, terminal: Terminal) -> String {
+    if matches!(
+        document["action"].as_str(),
+        Some("send" | "run" | "tick" | "clock")
+    ) {
+        return crate::cron_clock::text(document, terminal);
+    }
     let mut out = Vec::new();
     let text = |v: &Value| v.as_str().unwrap_or_default().to_owned();
     if document["action"] == "ls" {

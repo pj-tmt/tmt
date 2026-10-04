@@ -222,7 +222,7 @@ own these layers:
   0700/0600. Invalid existing state fails explicitly rather than resetting counters or
   overwriting it.
 - `cron_command` composes the management grammar and output; one `cron_service` is shared
-  with future clock and board callers. `cron_service` owns `list_jobs`/`show_job`/apply,
+  with clock and board callers. `cron_service` owns `list_jobs`/`show_job`/apply,
   explicit recorded-or-verified `CronActor` admission and room/owner/revision revalidation.
   Existing mutations carry a `JobKey` (squad name, room UUID, c-id) and an expected revision;
   `add` carries its selected room UUID. Admission and stored comparisons run inside the
@@ -235,7 +235,7 @@ own these layers:
   process owner with an explicit identity or anonymous envelope.
 - Owner hooks: `identityHooks` registration (consumer `squad-cron`) precedes job publication;
   a failed publication can leave a harmless unused reference. List, show and apply process
-  one pending retirement page of at most 16 hooks, and future clock ticks call the same drain.
+  one pending retirement page of at most 16 hooks, and clock ticks call the same drain.
   A still-matching room/job/owner reference becomes paused with no owner and a new revision
   before hook acknowledgment; obsolete hooks are acknowledged without editing a reassigned or
   removed job. Projections exclude jobs of retired or replaced rooms while keeping their
@@ -246,4 +246,26 @@ own these layers:
   room/job/revision/action/recipient operation UUIDs, report failures as warnings, and have no
   rollback, outbox or recovery journal, so an interruption can lose a notice. Reassignment
   keeps a pause; resume requires a current owner.
-- Clock commands and board integration are not part of this layer yet.
+- `cron::clock` owns the bounded, read-only Running/NoClock/Unknown lease projection
+  and atomic `clock.json` publication under the same extension directory. A stable,
+  nonblocking `clock.lock` serializes acquisition, renewal and ownership-checked
+  release. Pane, PID, start and expiry are evidence, not process probes; an expired
+  lease can be taken over. `cron::tick` owns slot selection and deterministic
+  operation UUIDs from room UUID, non-reused c-id and UTC slot milliseconds. A
+  running clock admits every slot since its own previous tick, capped at five
+  minutes; startup, takeover, restart and clock rollback baseline at now. A
+  standalone tick admits the last 60 seconds. No absent-clock history is replayed.
+
+- `cron_clock` adapts `run/tick/clock/send` to public core commands/API and the shared
+  admission service. Each scheduled send revalidates revision, room and owner,
+  renews its lease, then dispatches the exact message anonymously outside the jobs
+  lock. An uncertain create recovers the same operation with `dispatch.show`; it
+  never invents a replacement or re-wakes a replay. Manual send retains an explicit
+  CronActor and viewed revision, with a new operation ID per action; paused jobs
+  with a current owner may be sent without changing their schedule. Acceptance is
+  reported separately from delivery and results are not tracked. `board/mod.rs`
+  starts and stops an independent cancellable, joined clock worker; refresh-off,
+  repaint, tabs and usage generations do not own its lifetime. Foreground run
+  handles interrupt/termination/hangup through that same shutdown owner, cancelling
+  owned core children before releasing the lease. A second foreground run or tick
+  refuses an unexpired holder; a board waits and can take over after expiry.
