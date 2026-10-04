@@ -9,15 +9,17 @@ use std::{
 };
 use tmt_adapters::{
     config::{ConfigFiles, ConfigPaths},
+    drivers::Registry,
     extension_hooks,
     host::{CallerEnvironment, Host, OperationOptions},
     notes,
+    setup::prompt_hook_installed,
     storage::Storage,
 };
 use tmt_core::{
     binding::{BindingEvidence, evaluate_binding},
     endpoint::EndpointProbe,
-    identity::NotesIdentityId,
+    identity::{Identity, NotesIdentityId},
 };
 
 pub fn execute(mode: OutputMode) -> io::Result<u8> {
@@ -114,6 +116,23 @@ pub(crate) fn render_verified(
         presentation::add_compaction_reminder(&mut document);
     }
     presentation::bounded(document, false)
+}
+
+/// Sampling and prompt admission share the same notes reminder eligibility.
+pub(crate) fn threshold_reminder_eligible(
+    identity: &Identity,
+    paths: &ConfigPaths,
+    provider: &str,
+) -> bool {
+    NotesIdentityId::try_from(identity).is_ok()
+        && Registry::builtin()
+            .find(provider)
+            .is_some_and(prompt_hook_installed)
+        && ConfigFiles {
+            paths: paths.clone(),
+        }
+        .notes_compaction_reminder()
+        .unwrap_or(false)
 }
 
 /// An already verified prompt carries incoming attention and consented extension

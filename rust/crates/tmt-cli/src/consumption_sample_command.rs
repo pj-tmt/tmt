@@ -6,7 +6,7 @@ use std::{
 };
 use tmt_adapters::runtime::sampling::SamplingRequest;
 use tmt_adapters::{
-    config::{ConfigFiles, ConfigPaths},
+    config::ConfigPaths,
     drivers::Registry,
     host::{Host, OperationOptions},
     process::{
@@ -15,7 +15,7 @@ use tmt_adapters::{
     },
     response_input::read_stdin_bounded,
     runtime::RuntimeRegistry,
-    setup::{prompt_hook_installed, usage_hook_installed},
+    setup::usage_hook_installed,
     skill_installation::ProviderEnvironment,
     storage::{RuntimeObservation, Storage},
 };
@@ -25,7 +25,6 @@ use tmt_core::{
         session::{RuntimeLiveness, RuntimeState},
     },
     endpoint::{EndpointProbe, ProcessIncarnation},
-    identity::NotesIdentityId,
 };
 
 const BUDGET: Duration = Duration::from_secs(2);
@@ -158,15 +157,11 @@ fn sample(deadline: Instant) -> Result<(), ()> {
         .and_then(|state| lifecycle.state_usage(state))
         .filter(|usage| usage.observed_at_ms == now)
         .filter(|_| {
-            NotesIdentityId::try_from(&stored.entry.identity).is_ok()
-                && Registry::builtin()
-                    .find(remembered.harness.as_str())
-                    .is_some_and(prompt_hook_installed)
-                && ConfigFiles {
-                    paths: paths.clone(),
-                }
-                .notes_compaction_reminder()
-                .unwrap_or(false)
+            crate::context_command::threshold_reminder_eligible(
+                &stored.entry.identity,
+                &paths,
+                remembered.harness.as_str(),
+            )
         })
         .map(|usage| {
             binding

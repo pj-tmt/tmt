@@ -589,15 +589,11 @@ fn observe_prompt(
     }
     let reminder = match binding.session.notes_nudge {
         tmt_core::binding::session::NotesNudge::Due(percent)
-            if tmt_core::identity::NotesIdentityId::try_from(&stored.entry.identity).is_ok()
-                && tmt_adapters::drivers::Registry::builtin()
-                    .find(provider)
-                    .is_some_and(tmt_adapters::setup::prompt_hook_installed)
-                && tmt_adapters::config::ConfigFiles {
-                    paths: paths.clone(),
-                }
-                .notes_compaction_reminder()
-                .unwrap_or(false) =>
+            if crate::context_command::threshold_reminder_eligible(
+                &stored.entry.identity,
+                &paths,
+                provider,
+            ) =>
         {
             Some(percent)
         }
