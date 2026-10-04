@@ -6,7 +6,10 @@ use crate::{
     request_runtime::wall_time_ms,
     storage::{Storage, StorageError},
 };
-use tmt_core::request::{RequestService, history::HistoryQuery};
+use tmt_core::request::{
+    RequestService,
+    history::{HistoryQuery, HistoryScope},
+};
 
 pub(super) fn decode_list(input: &[u8]) -> Result<HistoryQuery, Fault> {
     request_history::decode_history_query(input).ok_or_else(invalid)
@@ -17,9 +20,10 @@ pub(super) fn decode_show(input: &[u8]) -> Result<String, Fault> {
 }
 
 pub(super) fn list_history(storage: &mut Storage, query: HistoryQuery) -> Result<Vec<u8>, Fault> {
+    let results = matches!(query.scope, HistoryScope::OriginatorResults(_));
     RequestService::new(storage, wall_time_ms)
         .request_history(query)
-        .map(|value| request_history::encode_history_page(&value))
+        .map(|value| request_history::encode_history_page(&value, results))
         .map_err(request_error)
 }
 

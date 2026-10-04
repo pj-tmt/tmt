@@ -1,7 +1,7 @@
 //! Plain notice presentation from originator-owned request context. Persisted
 //! notice strings and responder-authored final bodies are never parsed here.
 use super::{HintKind, OriginatorHint, RequestService, Storage, current};
-use crate::request_runtime::wall_time_ms;
+use crate::{request_runtime::wall_time_ms, request_text::normalized};
 use tmt_core::request::notification::batch::Notice;
 use unicode_width::UnicodeWidthStr;
 
@@ -32,23 +32,6 @@ struct Fields {
     preview: Option<String>,
     reply: Option<ReplyBody>,
     result_id: String,
-}
-
-/// Body text is data: newlines are kept, every other control character and
-/// Unicode line separator becomes a space or newline so it cannot style or
-/// restructure the notice.
-fn normalized(text: &str) -> impl Iterator<Item = char> + '_ {
-    let mut chars = text.chars().peekable();
-    std::iter::from_fn(move || {
-        loop {
-            return Some(match chars.next()? {
-                '\r' if chars.peek() == Some(&'\n') => continue,
-                '\r' | '\n' | '\u{2028}' | '\u{2029}' => '\n',
-                c if c.is_control() => ' ',
-                c => c,
-            });
-        }
-    })
 }
 
 fn reply_body(body: &str) -> Option<ReplyBody> {

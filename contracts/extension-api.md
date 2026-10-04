@@ -46,7 +46,7 @@ independent of storage access.
 | `capabilities`           | `{}`                                                                      | Protocol range, operations, byte limits and ordinary commands                                                                                                     |
 | `storage.root`           | `{}`                                                                      | `dataRoot`: absolute selected TMT data directory; no directory creation or storage/config reads                                                                   |
 | `changes.cursor`         | `{}`                                                                      | `cursor`: an opaque non-negative integer that changes whenever core's durable records change (see below)                                                          |
-| `requests.list`          | `recipientId` and/or `roomId`, optional `limit` and `before`              | `items`, `nextBefore`                                                                                                                                             |
+| `requests.list`          | `recipientId` and/or `roomId`, or `originatorId` + `view:"results"`; optional `limit` and `before`              | `items`, `nextBefore`                                                                                                                                             |
 | `requests.show`          | `requestId`                                                               | Request detail including retained prompt/final state                                                                                                              |
 | `dispatch.show`          | `operationId`                                                             | Immutable acceptance receipt                                                                                                                                      |
 | `dispatch.create`        | `operationId`, `recipientIds`, `message`, optional `kind`, `room`         | Acceptance receipt; optional independent `wake` on first direct request                                                                                           |
@@ -349,10 +349,40 @@ For room creation use a new UUID and `expectedRevision:0`; updates use the curre
 revision. Refresh rather than blindly retrying a stale write. The returned resource
 matches the `room` member of `tmt room show <id> --json`.
 
-History list defaults to the canonical history page limit. Pass `nextBefore`
+Ordinary recipient/room history lists default to 20 items (maximum 50). Pass `nextBefore`
 unchanged as the next request's `before`. Concurrent new requests above that cursor
 will appear on a fresh first page; final-state changes can appear when detail is
 reread. This is not a live change feed. Reads never mark incoming work as read.
+For submitted replies across rooms and recipients, call `requests.list` with
+`{"originatorId":"<canonical UUID>","view":"results"}`. Both fields are required
+and cannot be combined with `recipientId` or `roomId`. The default limit is 8;
+`limit` accepts 1 through 50. This view includes acknowledged submitted finals,
+newest first by `(submittedAtMs, requestId)` descending. `nextBefore` is null
+at the end or `{submittedAtMs, requestId}`; pass it unchanged as `before` with the
+same scope. A preparation-time history cursor is invalid for results and vice
+versa. Refresh the first page to discover newly submitted replies, including
+late finals on older requests; continuation does not include newer submissions.
+
+Results retain the ordinary history item fields: `requestId`, `roomId`,
+`recipientId`, `sender`, request `kind`, `preparedAtMs`, `delivery`,
+`recipientAcknowledged`, `final`, and the unchanged prompt `preview`. They add
+`responsePreview` (string or null) and `previewTruncated` (boolean). A retained
+response preview is its first line, at most 160 Unicode scalar values / 640 UTF-8
+bytes, with no appended ellipsis. CRLF, CR, LF and Unicode line/paragraph separators
+end the line; other control characters become spaces. Leading spaces remain.
+`previewTruncated` is true when a line ending or the cap omits any original
+content. Storage reads at most 644 response bytes per row, without loading full
+bodies. An expired or unavailable final retains its honest submission/expiry
+header with null `responsePreview` and false `previewTruncated`; expired request
+metadata is omitted. The view uses one observation snapshot without housekeeping,
+acknowledgment, retention renewal or other durable row changes.
+
+A submitted final means a reply exists, not that the work succeeded. Core does
+not classify historical replies as question or blocked, or infer those categories
+from body text or delivery failures. Extensions own those labels from their inbox
+and status, and may join recipient/room UUIDs to their roster for member/squad
+names. `requests.show` and `tmt result` remain the full-text reads.
+
 Use `tmt x` and its revision cursor for attention, and the ordinary JSON commands
 for identity, presence, room ls/show/retire, reply and result. Notes accepts a
 saved identity UUID, never a caller-selected path, and does not initialize a file.

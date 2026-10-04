@@ -14,12 +14,15 @@ pub const HISTORY_INPUT_LIMIT: usize = 4096;
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct CursorWire {
-    prepared_at_ms: u64,
+    prepared_at_ms: Option<u64>,
+    submitted_at_ms: Option<u64>,
     request_id: String,
 }
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct QueryWire {
+    originator_id: Option<String>,
+    view: Option<String>,
     recipient_id: Option<String>,
     room_id: Option<String>,
     limit: Option<u64>,
@@ -39,30 +42,54 @@ pub fn decode_history_query(bytes: &[u8]) -> Option<HistoryQuery> {
     {
         return None;
     }
-    let scope = match (input.recipient_id, input.room_id) {
-        (Some(identity_id), room_id) => HistoryScope::Recipient {
+    let scope = match (
+        input.originator_id,
+        input.view.as_deref(),
+        input.recipient_id,
+        input.room_id,
+    ) {
+        (Some(id), Some("results"), None, None) if canonical_id(&id) => {
+            HistoryScope::OriginatorResults(id)
+        }
+        (None, None, Some(identity_id), room_id) => HistoryScope::Recipient {
             identity_id,
             room_id,
         },
-        (None, Some(room)) => HistoryScope::Room(room),
-        (None, None) => return None,
+        (None, None, None, Some(room)) => HistoryScope::Room(room),
+        _ => return None,
     };
-    let limit = input.limit.unwrap_or(HISTORY_LIMIT);
+    let results = matches!(scope, HistoryScope::OriginatorResults(_));
+    let limit = input.limit.unwrap_or(if results {
+        RESULTS_LIMIT
+    } else {
+        HISTORY_LIMIT
+    });
     if !(1..=HISTORY_MAX_LIMIT).contains(&limit) {
         return None;
     }
     let before = match input.before {
         None => None,
         Some(cursor) => {
-            if cursor.prepared_at_ms == 0
-                || cursor.prepared_at_ms > MAX_JS_SAFE_INTEGER
+            let timestamp = match (results, cursor.prepared_at_ms, cursor.submitted_at_ms) {
+                (false, Some(time), None) | (true, None, Some(time)) => time,
+                _ => return None,
+            };
+            if timestamp == 0
+                || timestamp > MAX_JS_SAFE_INTEGER
                 || !valid_request_id(&cursor.request_id)
             {
                 return None;
             }
-            Some(HistoryCursor {
-                prepared_at_ms: cursor.prepared_at_ms,
-                request_id: cursor.request_id,
+            Some(if results {
+                HistoryCursor::Submitted {
+                    submitted_at_ms: timestamp,
+                    request_id: cursor.request_id,
+                }
+            } else {
+                HistoryCursor::Prepared {
+                    prepared_at_ms: timestamp,
+                    request_id: cursor.request_id,
+                }
             })
         }
     };
@@ -122,14 +149,21 @@ fn item_document<T>(item: &HistoryItem<T>, content: impl FnOnce(&T) -> Option<Va
         "recipientAcknowledged":item.recipient_acknowledged,"final":final_state})
 }
 
-pub fn encode_history_page(page: &HistoryPage) -> Vec<u8> {
+pub fn encode_history_page(page: &HistoryPage, results: bool) -> Vec<u8> {
     serde_json::to_vec(&json!({
         "items":page.items.iter().map(|row| {
             let mut value = item_document(&row.item, |_| None);
             value["preview"] = json!(row.preview);
+            if results {
+                value["responsePreview"] = json!(row.response_preview.as_ref().map(|preview| &preview.text));
+                value["previewTruncated"] = json!(row.response_preview.as_ref().is_some_and(|preview| preview.truncated));
+            }
             value
         }).collect::<Vec<_>>(),
-        "nextBefore":page.next_before.as_ref().map(|cursor| json!({"preparedAtMs":cursor.prepared_at_ms,"requestId":cursor.request_id})),
+        "nextBefore":page.next_before.as_ref().map(|cursor| match cursor {
+            HistoryCursor::Prepared { prepared_at_ms, request_id } => json!({"preparedAtMs":prepared_at_ms,"requestId":request_id}),
+            HistoryCursor::Submitted { submitted_at_ms, request_id } => json!({"submittedAtMs":submitted_at_ms,"requestId":request_id}),
+        }),
     })).expect("serializable request history")
 }
 
