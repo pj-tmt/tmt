@@ -1,14 +1,12 @@
 import type { CommentContext } from './thread-store.js';
 import { useEffect, useRef, useState } from 'react';
 import type { PreviewAttempt } from './ask-preview.js';
-import type { LedgerState } from './ask-records.js';
+import { ASK_OBSERVATION_MS, type LedgerState } from './ask-records.js';
 import { ReadRefusedError } from './ask-remote.js';
 import type { RemoteAgent } from './ask-remote.js';
 import type { AskDestination } from './ask-intent.js';
-import { AskPreview } from './ask-preview.js';
 import { text } from './strings.js';
 import { relativeTime } from './display-time.js';
-import { Listbox } from './components/listbox.js';
 
 /** Capabilities stay in trusted parent chrome. The mounted adapter owns current
  * page/member/grant admission and returns the existing frozen/signing attempt. */
@@ -44,13 +42,6 @@ export interface PageAsk {
   resultUnavailable?: boolean;
 }
 
-function presenceLabel(presence: RemoteAgent['presence']) {
-  return presence === 'active'
-    ? text.presenceOnline
-    : presence === 'offline'
-      ? text.presenceOffline
-      : text.presenceUnknown;
-}
 const refusals: Record<string, string> = {
   REMOTE_SCOPE_DENIED: text.askScopeDenied,
   REMOTE_INPUT_INVALID: text.askInputInvalid,
@@ -63,206 +54,6 @@ const refusals: Record<string, string> = {
   REMOTE_CORE_UNAVAILABLE: text.askCoreUnavailable,
 };
 
-export function AskControl({
-  binding,
-  selection,
-  title,
-  blocked,
-  origin,
-  originUnavailable = false,
-}: {
-  binding?: AskBinding;
-  selection: string;
-  title: string;
-  blocked: boolean;
-  origin?: { context: CommentContext; body: string };
-  originUnavailable?: boolean;
-}) {
-  const [open, setOpen] = useState(false);
-  const [quote, setQuote] = useState('');
-  const [context, setContext] = useState<CommentContext>();
-  const [comment, setComment] = useState('');
-  const [agents, setAgents] = useState<(AskDestination & { presence?: RemoteAgent['presence'] })[]>(
-    [],
-  );
-  const [agent, setAgent] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [attempt, setAttempt] = useState<PreviewAttempt | null>(null);
-  const generation = useRef(0);
-  useEffect(() => {
-    setOpen(false);
-    setAttempt(null);
-    const ref = generation;
-    return () => {
-      ref.current++;
-    };
-  }, [binding]);
-  async function refresh() {
-    const current = ++generation.current;
-    setLoading(true);
-    setError(null);
-    setAgents([]);
-    setAgent('');
-    try {
-      const destinations = await binding!.destinations();
-      if (generation.current !== current) return;
-      setAgents(destinations);
-    } catch {
-      if (generation.current === current) setError(text.askUnavailable);
-    } finally {
-      if (generation.current === current) setLoading(false);
-    }
-  }
-  function close() {
-    generation.current++;
-    setOpen(false);
-    setAttempt(null);
-    setComment('');
-    setLoading(false);
-  }
-  async function preview() {
-    const destination = agents.find((value) => value.agent === agent);
-    if (!binding || !destination || blocked) return;
-    const current = ++generation.current;
-    // Capture parent form values before any async authority check.
-    const input = {
-      quote,
-      comment,
-      title,
-      url: location.href,
-      destination: { ...destination },
-      context,
-    };
-    setLoading(true);
-    setError(null);
-    try {
-      const frozen = await binding.prepare(input);
-      if (generation.current === current) setAttempt(frozen);
-    } catch {
-      if (generation.current === current) setError(text.askPreviewFailed);
-    } finally {
-      if (generation.current === current) setLoading(false);
-    }
-  }
-  return (
-    <div className="ask-control">
-      <button
-        data-testid={origin ? 'comment-ask-action' : 'ask-action'}
-        disabled={open || !binding || (!selection && !origin) || blocked || originUnavailable}
-        onClick={(event) => {
-          if (!event.isTrusted) return;
-          setContext(origin ? structuredClone(origin.context) : undefined);
-          setComment(origin?.body ?? '');
-          setQuote(selection);
-          setOpen(true);
-          setAttempt(null);
-          void refresh();
-        }}
-      >
-        {text.ask}
-      </button>
-      {!binding ? (
-        <span className="isolation-note">{text.askUnavailable}</span>
-      ) : !selection && !origin && !open ? (
-        <span className="isolation-note">{text.askSelection}</span>
-      ) : null}
-      {open && !attempt && (
-        <section className="ask-compose" aria-label={text.ask}>
-          <h2>{text.ask}</h2>
-          <p>{text.askVisible}</p>
-          <blockquote>{quote}</blockquote>
-          <label>
-            {text.askComment}
-            <textarea
-              value={comment}
-              disabled={loading || !!origin}
-              onChange={(event) => setComment(event.target.value)}
-            />
-          </label>
-          <Listbox
-            label={text.askPick}
-            value={agent}
-            onChange={setAgent}
-            disabled={loading || blocked}
-            options={agents.map((destination) => ({
-              value: destination.agent,
-              label: `${destination.agentName} · ${destination.machineName} · ${presenceLabel(destination.presence)}`,
-            }))}
-            renderOption={(option) => (
-              <span data-testid="ask-agent-option" data-agent-id={option.value}>
-                {option.label}
-              </span>
-            )}
-          />
-          {loading && <p role="status">{text.askLoading}</p>}
-          {!loading && !error && agents.length === 0 && <p role="status">{text.askNone}</p>}
-          {blocked && <p role="status">{text.askOffline}</p>}
-          {error && (
-            <p role="alert" data-testid="ask-agents-unavailable">
-              {error}
-            </p>
-          )}
-          <div className="ask-actions">
-            <button
-              disabled={loading || blocked}
-              onClick={(event) => {
-                if (event.isTrusted) void refresh();
-              }}
-            >
-              {text.askRefresh}
-            </button>
-            <button
-              disabled={!agent || loading || blocked}
-              onClick={(event) => {
-                if (event.isTrusted) void preview();
-              }}
-            >
-              {text.askPreview}
-            </button>
-            <button onClick={close}>{text.askClose}</button>
-          </div>
-        </section>
-      )}
-      {open && attempt && (
-        <AskPreview
-          attempt={attempt}
-          close={close}
-          blocked={blocked}
-          sent={(operationId) => {
-            close();
-            revealAsk(operationId);
-          }}
-        />
-      )}
-    </div>
-  );
-}
-
-/** After a Send the preview closes and the matching Page asks entry is scrolled to and focused.
- * The entry appears when its record is admitted, so wait for it briefly. */
-export function revealAsk(operationId: string, timeoutMs = 5000) {
-  const find = () =>
-    [...document.querySelectorAll<HTMLElement>('[data-testid=ask-entry]')].find(
-      (entry) => entry.dataset.operationId === operationId,
-    );
-  const reveal = (entry: HTMLElement) => {
-    entry.scrollIntoView({ block: 'center' });
-    entry.focus({ preventScroll: true });
-  };
-  const now = find();
-  if (now) return reveal(now);
-  const observer = new MutationObserver(() => {
-    const entry = find();
-    if (!entry) return;
-    observer.disconnect();
-    clearTimeout(timer);
-    reveal(entry);
-  });
-  const timer = setTimeout(() => observer.disconnect(), timeoutMs);
-  observer.observe(document.body, { childList: true, subtree: true });
-}
-
 /** Only admitted sync records enter this view. Responses to Send/retry/abandon
  * never create a page row or reply; the signed own stream remains its owner. */
 export function AskPanel({
@@ -270,14 +61,30 @@ export function AskPanel({
   binding,
   blocked,
   inline = false,
+  chat = false,
 }: {
   records: readonly PageAsk[];
   binding?: AskBinding;
   blocked: boolean;
   inline?: boolean;
+  chat?: boolean;
 }) {
   const [now, setNow] = useState(0);
-  useEffect(() => setNow(Date.now()), [records]);
+  useEffect(() => {
+    const timestamp = Date.now();
+    setNow(timestamp);
+    if (!chat) return;
+    const deadlines = records
+      .filter(
+        (record) =>
+          record.state === 'accepted' && record.reply === undefined && !record.resultUnavailable,
+      )
+      .map((record) => record.issuedAt + ASK_OBSERVATION_MS)
+      .filter((deadline) => deadline > timestamp);
+    if (!deadlines.length) return;
+    const timer = setTimeout(() => setNow(Date.now()), Math.min(...deadlines) - timestamp);
+    return () => clearTimeout(timer);
+  }, [records, chat]);
   const [pending, setPending] = useState<Set<string>>(new Set());
   const [errors, setErrors] = useState<Map<string, string>>(new Map());
   const busy = useRef(new Set<string>());
@@ -373,6 +180,18 @@ export function AskPanel({
           </details>
           {!inline && <pre>{record.message}</pre>}
           <p role="status" data-testid="ask-state" data-state={record.state}>
+            {chat &&
+              (record.reply !== undefined
+                ? '✓ Replied · '
+                : record.state === 'accepted' &&
+                    !record.resultUnavailable &&
+                    now >= record.issuedAt + ASK_OBSERVATION_MS
+                  ? '× Reply timeout · '
+                  : ['dispatching', 'accepted'].includes(record.state) && !record.resultUnavailable
+                    ? '… Pending · '
+                    : record.state === 'held'
+                      ? '• Held · '
+                      : '• ')}
             {record.state === 'refused'
               ? (refusals[record.reason ?? ''] ?? states.refused)
               : record.state === 'accepted' &&
@@ -420,7 +239,8 @@ export function AskPanel({
               <h4 data-testid="ask-reply-attribution">
                 {text.askReplyFrom} {record.agentName || text.askAgentLabel}
                 <small className="isolation-note">
-                  {record.deviceName} · {relativeTime(record.issuedAt, now)}
+                  {!chat && <>{record.deviceName} · </>}
+                  {relativeTime(record.issuedAt, now)}
                 </small>
               </h4>
               <pre data-testid="ask-reply" data-empty={record.reply === ''}>

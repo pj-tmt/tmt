@@ -1,13 +1,6 @@
 import { expect, test, type Locator, type Page } from '@playwright/test';
 import { pairBrowser, startDoor } from './harness/browser.js';
-import {
-  createPage,
-  freePort,
-  openPage,
-  previewAsk,
-  run,
-  selectInRenderer,
-} from './harness/ask.js';
+import { createPage, freePort, openPage, composeChat, run } from './harness/ask.js';
 import { disposeActiveWorlds, withWorld } from './harness/with-world.js';
 
 /** Every mutation below traverses paired Remote admission and the real Colab engine. */
@@ -33,10 +26,9 @@ test('native sharing and lifecycle verification preserve Ask, page recovery and 
     const first = createPage(world, 'Managed page', '<p id="quote">Management selection.</p>');
     const second = createPage(world, 'Remaining page', '<p>Still readable.</p>');
     const page = await openPage(door, device, first);
-    await selectInRenderer(page, '#quote');
-    await previewAsk(page, recipient.id, 'Do not dispatch this preview');
+    await composeChat(page, recipient.name, 'Do not send this draft');
     // Narrow page actions must open outside the overflow menu and return focus there.
-    await page.getByRole('button', { name: 'Close Ask agent', exact: true }).click();
+    await page.getByRole('button', { name: 'Close Chat', exact: true }).click();
     await page.setViewportSize({ width: 390, height: 844 });
     await page.getByRole('button', { name: 'More page actions' }).click();
     let dialog = await manage(page);
@@ -124,7 +116,7 @@ test('native sharing and lifecycle verification preserve Ask, page recovery and 
     await dialog.getByRole('button', { name: 'Close', exact: true }).click();
     await expect(page.locator('iframe')).toBeVisible();
     await page.reload();
-    await expect(page.getByTestId('ask-toggle')).toBeVisible();
+    await expect(page.getByTestId('chat-toggle')).toBeVisible();
     expect(recipient.received()).toHaveLength(0);
     expect(world.coreCalls().filter((call) => call.operation === 'dispatch.create')).toHaveLength(
       0,

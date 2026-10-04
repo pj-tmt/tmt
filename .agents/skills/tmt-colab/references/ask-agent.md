@@ -15,9 +15,7 @@ modules in `extensions/tmt-colab/typescript/app/src` and `rust/tmt-colab/src/ask
   (`Page:`, `Link:`, `Quote:`, `Comment:`; http(s) URL without credentials) and the preview-only `deliveredMessage`, which prepends Remote's
   `[remote: <deviceName>]` line. Only the unprefixed `finalBytes` are digested, signed and
   sent. `Link:` is the page's own mounted URL with the canonical `#space=&path=` fragment built
-  from the selection; any other fragment, a query or a `/read` path is refused, never stripped. After an
-  accepted, held or uncertain Send `AskPreview` calls `sent`, so the control closes and `revealAsk`
-  focuses the matching Page asks entry. `signed` frames the 15-field `tmt-colab-send-v1` input (default validity one hour,
+  from the selection; any other fragment, a query or a `/read` path is refused, never stripped. Explicit Enter captures and sends the frozen intent; admitted outcomes remain inline in the conversation. `signed` frames the 15-field `tmt-colab-send-v1` input (default validity one hour,
   at most 24); `escapedPreview` shows control and format characters without replacing bytes.
 - **`ask-remote.ts`.** `RemoteClient` port and `createRemoteClient`, which wraps the exact
   verified registration Session in the served SDK's `operations` helper. It never reopens
@@ -93,13 +91,12 @@ modules in `extensions/tmt-colab/typescript/app/src` and `rust/tmt-colab/src/ask
   sends; it freezes the current text and captured conversation references without a
   confirmation screen, with exact bytes behind a disclosure. `thread-panel.tsx`
   renders verified replies inline; held/recheck/uncertainty keep the existing ledger.
-  The standalone parent (`ask-panel.tsx`, `ask-preview.tsx`) owns the agent list, preview and Send
-  (`event.isTrusted`); test IDs: `ask-action`, `ask-agent-option`
-  (`data-agent-id` in the shared styled listbox), `ask-agents-unavailable`, `ask-preview` (`data-operation-id`),
-  `ask-preview-text`, `ask-send`, `ask-panel`, `ask-entry` (`data-operation-id`,
-  `data-writer`), `ask-state` (`data-state`), `ask-reply` (`data-empty`) and
-  `ask-reply-attribution`. Entries show the publisher labels, with routing UUIDs under
-  Details.
+  `chat-panel.tsx` replaces standalone Ask with one bottom input and page-visible
+  null-anchor threads. `ask-panel.tsx` displays verified ledger outcomes/replies and
+  owns trusted recheck/abandon actions; it has no composer or dispatch button. Test
+  IDs remain `ask-entry`, `ask-state`, `ask-reply` and `ask-reply-attribution` for
+  admitted history. `chat-toggle` opens the pane; `chat-panel` scopes its shared
+  Message to agent combobox and exact-byte disclosure.
 
 ## Invariants and gotchas
 

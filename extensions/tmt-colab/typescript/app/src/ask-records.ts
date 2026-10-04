@@ -21,6 +21,7 @@ import type { OwnState } from './fold-protocol.js';
 export const ASK_INPUT_BYTES = 16 * 1024;
 export const ASK_MESSAGE_BYTES = 64 * 1024;
 export const ASK_REPLY_BYTES = 16 * 1024;
+export const ASK_OBSERVATION_MS = 2 * 60 * 60 * 1000;
 export type LedgerState =
   | 'dispatching'
   | 'held'

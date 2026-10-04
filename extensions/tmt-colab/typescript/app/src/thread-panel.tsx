@@ -71,16 +71,18 @@ function Composer({
   );
 }
 
-function Comment({
+export function DiscussionComment({
   comment,
   thread,
   binding,
   ask,
   asks,
   blocked,
+  chat = false,
 }: {
   comment: CommentView;
   thread: ThreadView;
+  chat?: boolean;
   binding?: ThreadBinding;
   ask?: AskBinding;
   asks: readonly PageAsk[];
@@ -188,6 +190,7 @@ function Comment({
         </>
       )}
       <AskPanel
+        chat={chat}
         inline
         records={asks.filter(
           (record) =>
@@ -264,7 +267,7 @@ function Thread({
       </header>
       {thread.anchor && <blockquote>{thread.anchor.exact}</blockquote>}
       {thread.comments.map((comment) => (
-        <Comment
+        <DiscussionComment
           key={`${comment.ref.writer}:${comment.messageId}`}
           comment={comment}
           thread={thread}

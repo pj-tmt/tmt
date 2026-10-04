@@ -7,7 +7,7 @@ import { ReaderApp } from '../src/reader-app.js';
 let root: Root | undefined;
 export function mount(source: string) {
   root?.unmount();
-  document.getElementById('root')!.hidden = true;
+  document.getElementById('root')!.style.display = 'none';
   let host = document.getElementById('layout-fixture');
   if (!host) {
     host = document.createElement('div');
@@ -24,9 +24,10 @@ export function mount(source: string) {
   location.hash = '/pages/layout';
 }
 
-export function mountReader(source: string) {
+export async function mountReader(source: string) {
+  await import('../src/reader-style.css');
   root?.unmount();
-  document.getElementById('root')!.hidden = true;
+  document.getElementById('root')!.style.display = 'none';
   let host = document.getElementById('layout-fixture');
   if (!host) {
     host = document.createElement('div');

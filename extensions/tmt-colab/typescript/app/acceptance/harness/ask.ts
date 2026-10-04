@@ -84,12 +84,13 @@ export async function selectInRenderer(page: Page, selector: string): Promise<vo
       selection.removeAllRanges();
       selection.addRange(range);
     });
-  await expect(page.getByTestId('ask-action')).toBeEnabled();
+  await expect(page.getByTestId('selection-ask')).toBeVisible();
 }
 
 /** Choose an annotation recipient through the shared parent input listbox. */
 export async function annotationInput(container: Locator, agent: string) {
   const input = container.getByRole('combobox', { name: 'Message to agent', exact: true });
+  await input.fill('');
   await input.fill('@');
   await container
     .page()
@@ -99,34 +100,62 @@ export async function annotationInput(container: Locator, agent: string) {
   return input;
 }
 
-export interface PreviewedAsk {
-  operationId: string;
-  /** Exact text of the preview: the Remote device-name line plus the transport message. */
-  previewText: string;
+export interface ComposedChat {
+  /** Disclosure bytes before Enter; composing itself never freezes or sends. */
+  deliveredMessage: string;
 }
-
-/** Drive the real Ask UI up to, but not including, Send. */
-export async function previewAsk(
+export async function openChat(page: Page) {
+  if (await page.locator('.page-drawer[data-panel=chat][open]').isVisible()) return;
+  const toggle = page.getByTestId('chat-toggle');
+  await expect(toggle).toBeAttached();
+  if (!(await toggle.isVisible()))
+    await page.getByRole('button', { name: 'More page actions' }).click();
+  await toggle.click();
+  await expect(page.getByTestId('chat-panel')).toBeVisible();
+}
+/** Compose one plain input and inspect its disclosure, with no effect before Enter. */
+export async function composeChat(
   page: Page,
-  agentId: string,
+  agentName: string,
   question: string,
-): Promise<PreviewedAsk> {
-  if ((await page.getByTestId('ask-toggle').getAttribute('aria-expanded')) === 'false')
-    await page.getByTestId('ask-toggle').click();
-  await page.getByTestId('ask-action').click();
-  await page.getByRole('combobox', { name: /Choose an agent/ }).click();
-  await page.locator(`[data-testid=ask-agent-option][data-agent-id="${agentId}"]`).click();
-  await page.getByLabel('Question or instruction').fill(question);
-  await page.getByRole('button', { name: 'Ask agent — preview', exact: true }).click();
-  const preview = page.getByTestId('ask-preview');
-  await expect(preview).toBeVisible();
-  const operationId = await preview.getAttribute('data-operation-id');
-  const previewText = await page.getByTestId('ask-preview-text').textContent();
-  if (!operationId || previewText === null) throw new Error('Preview did not freeze an ask');
-  return { operationId, previewText };
+): Promise<ComposedChat> {
+  await openChat(page);
+  const panel = page.getByTestId('chat-panel');
+  const input = await annotationInput(panel, agentName);
+  await input.fill(`@${agentName} ${question}`);
+  const disclosure = panel.locator('.annotation-compose > details');
+  if ((await disclosure.getAttribute('open')) === null)
+    await disclosure.getByText('Show exactly what is sent', { exact: true }).click();
+  const deliveredMessage = await panel.getByTestId('annotation-exact-bytes').textContent();
+  if (deliveredMessage === null) throw new Error('No exact-byte disclosure');
+  return { deliveredMessage };
 }
-
-export const send = (page: Page) => page.getByTestId('ask-send').click();
+/** Enter creates the frozen operation; discover its ID only from the admitted stream. */
+export async function sendChat(page: Page, composed: ComposedChat) {
+  const panel = page.getByTestId('chat-panel');
+  const earlier = await panel
+    .getByTestId('ask-entry')
+    .evaluateAll((nodes) => nodes.map((node) => (node as HTMLElement).dataset.operationId));
+  await panel.getByRole('combobox', { name: 'Message to agent' }).press('Enter');
+  const entries = panel.getByTestId('ask-entry');
+  await expect
+    .poll(
+      async () =>
+        (
+          await entries.evaluateAll((nodes) =>
+            nodes.map((node) => (node as HTMLElement).dataset.operationId),
+          )
+        ).filter((id) => !earlier.includes(id)).length,
+    )
+    .toBe(1);
+  const operationId = (
+    await entries.evaluateAll((nodes) =>
+      nodes.map((node) => (node as HTMLElement).dataset.operationId),
+    )
+  ).find((id) => !earlier.includes(id));
+  if (!operationId) throw new Error('No admitted Chat operation');
+  return { ...composed, operationId };
+}
 
 export const askEntry = (page: Page, operationId: string): Locator =>
   page.locator(`[data-testid=ask-entry][data-operation-id="${operationId}"]`);

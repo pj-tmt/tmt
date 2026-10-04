@@ -3,6 +3,8 @@ import { createRoot, type Root } from 'react-dom/client';
 import { RouterProvider } from '@tanstack/react-router';
 import { ReadRefusedError } from '../src/ask-remote.js';
 import type { AskBinding, PageAsk } from '../src/ask-panel.js';
+import type { ThreadBinding } from '../src/thread-store.js';
+import type { ThreadView } from '../src/thread-records.js';
 import type { PageView, PageBinding } from '../src/transport.js';
 import { createAppRouter } from '../src/router.js';
 import { fixtureAttempt } from './ask-browser-attempt.js';
@@ -34,6 +36,8 @@ export async function mount() {
     title: 'Live shared page',
     own: {},
     asks: [],
+    threads: [],
+    publisherAgent: 'Agent 1',
   };
   const ask: AskBinding = {
     async destinations() {
@@ -63,8 +67,78 @@ export async function mount() {
       actions.push(`abandon:${operationId}`);
     },
   };
+  function addTurn(body: string, thread: ThreadView) {
+    const messageId = crypto.randomUUID();
+    const {
+      kind: _kind,
+      threadId: _id,
+      anchor: _anchor,
+      resolved: _resolved,
+      comments: _comments,
+      ref: _ref,
+      ...scope
+    } = thread;
+    thread.comments.push({
+      ...scope,
+      kind: 'comment',
+      thread: thread.ref,
+      body,
+      messageId,
+      ref: { writer: id(4), id: messageId },
+    });
+    current = { ...current, threads: [thread] };
+    publish?.(current);
+    return {
+      thread: thread.ref,
+      threadRevision: thread.revision,
+      message: { writer: id(4), id: messageId },
+      messageRevision: '1',
+    };
+  }
+  const discussion: ThreadBinding = {
+    deviceId: id(4),
+    async createChat(body) {
+      const thread: ThreadView = {
+        version: 1,
+        kind: 'thread',
+        spaceId: selection().space,
+        pageId: id(1),
+        epoch: '1',
+        senderDevice: id(4),
+        deviceName: 'You',
+        threadId: id(4),
+        revision: '1',
+        at: String(Date.now()),
+        anchor: null,
+        resolved: false,
+        deleted: false,
+        ref: { writer: id(4), id: id(4) },
+        comments: [],
+      };
+      return addTurn(body, thread);
+    },
+    async reply(ref, body) {
+      return addTurn(
+        body,
+        current.threads!.find((thread) => thread.ref.id === ref.id)!,
+      );
+    },
+    async create() {
+      throw new Error('Not used');
+    },
+    async edit() {
+      throw new Error('Not used');
+    },
+    async deleteComment() {
+      throw new Error('Not used');
+    },
+    async updateThread() {
+      throw new Error('Not used');
+    },
+  };
   const binding: PageBinding = {
     ask,
+    discussion,
     subscribe(next, failed) {
       publish = next;
       fail = failed;
@@ -159,4 +233,10 @@ export function syncRefusal(reason: string) {
 
 export function refuseRead(code: ConstructorParameters<typeof ReadRefusedError>[0]) {
   readRefusal = code;
+}
+
+export function pending() {
+  syncRecords('accepted');
+  delete records[0].reply;
+  publish?.({ ...current, asks: [...records] });
 }

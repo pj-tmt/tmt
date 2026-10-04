@@ -10,171 +10,114 @@ async function mount(page: Page) {
   await page.goto('/');
   await run(page, 'mount');
   await expect(page.locator('#ask-page-fixture .status')).toContainText('Live preview');
-  await page
-    .frameLocator('#ask-page-fixture iframe')
-    .locator('#selected')
-    .evaluate((node) => {
-      const range = document.createRange();
-      range.selectNodeContents(node);
-      const selected = node.ownerDocument.getSelection()!;
-      selected.removeAllRanges();
-      selected.addRange(range);
-    });
-  await page.locator('#ask-page-fixture').getByTestId('ask-toggle').click();
-  await expect(page.getByRole('button', { name: 'Ask agent', exact: true })).toBeEnabled();
+  const toggle = page.locator('#ask-page-fixture').getByTestId('chat-toggle');
+  if (!(await toggle.isVisible()))
+    await page
+      .locator('#ask-page-fixture')
+      .getByRole('button', { name: 'More page actions' })
+      .click();
+  await toggle.click();
+  await expect(page.getByTestId('chat-panel')).toBeVisible();
 }
 async function compose(page: Page) {
-  await page.getByRole('button', { name: 'Ask agent', exact: true }).click();
-  await page.getByRole('combobox', { name: /Choose an agent/ }).click();
+  const input = page.getByTestId('chat-panel').getByRole('combobox', { name: 'Message to agent' });
+  await input.fill('@');
   await expect(page.getByRole('option')).toHaveCount(5);
   await page.getByRole('option').first().click();
-  await page.getByLabel('Question or instruction').fill('Explain exactly');
+  await input.fill('@Agent 1 Explain exactly');
+  return input;
 }
-
-test('live Page selection opens a parent picker, freezes preview through sync and requires trusted Send', async ({
+test('Chat retains drafts across close and live edits; only trusted Enter freezes and sends the current text without a confirmation', async ({
   page,
 }) => {
   await mount(page);
+  const input = await compose(page);
+  await page.getByRole('button', { name: 'Close Chat', exact: true }).click();
   expect((await run(page, 'proof')).sends).toEqual([]);
-  await compose(page);
-  await expect(
-    page.locator('.ask-compose').getByText('Delivery status unavailable', { exact: false }),
-  ).toHaveCount(0);
-  await expect(
-    page.locator('.ask-compose').getByRole('combobox', { name: /Choose an agent/ }),
-  ).toContainText('My machine · Online');
-  await page.getByRole('button', { name: 'Ask agent — preview', exact: true }).click();
-  const message = await page.getByLabel('Exact message').textContent();
-  expect(message).toContain('Exact selected text');
-  expect(message).toContain('Explain exactly');
-  await page.getByRole('button', { name: 'Close Ask agent', exact: true }).click();
-  expect((await run(page, 'proof')).sends).toEqual([]);
-  await page.locator('#ask-page-fixture').getByTestId('ask-toggle').click();
-  expect(await page.getByLabel('Exact message').textContent()).toBe(message);
+  await page.locator('#ask-page-fixture').getByTestId('chat-toggle').click();
+  await expect(input).toHaveValue('@Agent 1 Explain exactly');
   await run(page, 'change', '<p id="selected">Changed selected text</p>');
   await expect(page.getByRole('heading', { name: 'Changed live title' })).toBeVisible();
-  await expect(page.locator('#ask-page-fixture .status')).toContainText('Live preview');
-  expect(await page.getByLabel('Exact message').textContent()).toBe(message);
-  await page.evaluate(() =>
-    [...document.querySelectorAll<HTMLButtonElement>('button')]
-      .find((b) => b.textContent === 'Send')!
-      .click(),
+  await input.evaluate((node) =>
+    node.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })),
   );
   expect((await run(page, 'proof')).sends).toEqual([]);
-  await page.getByRole('button', { name: 'Send', exact: true }).click();
-  // An accepted Send closes the preview; the page's own ask entry takes the focus once admitted.
+  await input.press('Enter');
+  await expect.poll(async () => (await run(page, 'proof')).sends.length).toBe(1);
+  const sent = (await run(page, 'proof')).sends[0];
+  expect(sent.message).toContain('Page: Changed live title');
+  expect(sent.message).toContain('@Agent 1 Explain exactly');
+  expect(sent.message).not.toContain('Changed selected text');
   await expect(page.getByTestId('ask-preview')).toHaveCount(0);
-  const sent = (await run(page, 'proof')).sends;
-  expect(sent).toHaveLength(1);
-  expect(sent[0].message).toContain(
-    'Link: https://example.test/x/colab/#space=' + 'a'.repeat(32) + '&path=%2Fpages%2F',
-  );
-  await expect(
-    page.getByRole('region', { name: 'Page asks' }).getByText('No asks on this page yet.'),
-  ).toBeVisible();
-  await run(page, 'syncSent');
-  const entry = page.locator(`[data-testid=ask-entry][data-operation-id="${sent[0].operationId}"]`);
-  await expect(entry).toBeFocused();
-  await expect(entry).toBeInViewport();
+  await expect(input).toHaveValue('@Agent 1 ');
+  await page.locator('#ask-page-fixture').getByTestId('comments-toggle').click();
+  await expect(page.getByTestId('annotation-row')).toHaveCount(0);
+  await page.locator('#ask-page-fixture').getByTestId('chat-toggle').click();
   await run(page, 'syncRecords');
-  await expect(
-    page.getByRole('region', { name: 'Page asks' }).getByText('<script>inert ask</script>'),
-  ).toBeVisible();
-  await expect(page.locator('.ask-panel script, .ask-panel img')).toHaveCount(0);
+  await expect(page.getByText('<script>inert ask</script>')).toBeVisible();
+  await expect(page.locator('.chat-panel script,.chat-panel img')).toHaveCount(0);
   await expect(page.getByText('The agent returned an empty reply.')).toBeVisible();
   await expect(page.getByTestId('ask-reply-attribution')).toContainText('Reply from Agent 2');
-  await expect(page.getByTestId('ask-reply-attribution')).toContainText('Alex’s browser');
-  await expect(page.getByTestId('ask-reply-attribution')).toContainText('5 minutes ago');
-  await expect(page.getByTestId('ask-state').nth(1)).toHaveText('Accepted by your machine.');
   await page.getByRole('button', { name: 'Re-check delivery' }).click();
+  await page.getByRole('button', { name: 'Abandon tracking' }).click();
   expect((await run(page, 'proof')).actions).toEqual([
     'recheck:00000000-0000-4000-8000-000000000021',
+    'abandon:00000000-0000-4000-8000-000000000021',
   ]);
   expect((await run(page, 'proof')).sends).toHaveLength(1);
-  await page.getByRole('button', { name: 'Abandon tracking' }).click();
-  await run(page, 'syncRecords', 'abandoned');
-  await expect(
-    page.getByText('Tracking abandoned. The work may still have been delivered.'),
-  ).toBeVisible();
-  await page.locator('#ask-page-fixture iframe').scrollIntoViewIfNeeded();
-  await page.screenshot({
-    path: '/private/tmp/colab-1110-design/ask-page-light.png',
-    fullPage: true,
-  });
-  await page.getByRole('button', { name: 'Change color theme' }).click();
-  await page.locator('#ask-page-fixture iframe').scrollIntoViewIfNeeded();
-  await page
-    .frameLocator('#ask-page-fixture iframe')
-    .locator('body')
-    .evaluate(
-      (body) =>
-        new Promise<void>((resolve) => {
-          const view = body.ownerDocument.defaultView!;
-          view.requestAnimationFrame(() => view.requestAnimationFrame(() => resolve()));
-        }),
-    );
-  await page.screenshot({
-    path: '/private/tmp/colab-1110-design/ask-page-dark.png',
-    fullPage: true,
-  });
-  await page.setViewportSize({ width: 390, height: 844 });
-  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(390);
-  await page.screenshot({
-    path: '/private/tmp/colab-1110-design/ask-page-mobile.png',
-    fullPage: true,
-  });
 });
-
-test('closed preparation never reopens preview, and lost page connection disables Send', async ({
+test('closing a pending explicit send retains it and never dispatches again on reopen; connection loss disables new turns', async ({
   page,
 }) => {
   await mount(page);
-  await compose(page);
+  const input = await compose(page);
   await run(page, 'pausePrepare');
-  await page.getByRole('button', { name: 'Ask agent — preview', exact: true }).click();
-  await page.getByRole('button', { name: 'Close preview' }).click();
+  await input.press('Enter');
+  await expect(input).toBeDisabled();
+  await page.getByRole('button', { name: 'Close Chat', exact: true }).click();
   await run(page, 'resumePrepare');
-  await expect(page.getByRole('region', { name: 'Ask agent — preview' })).toHaveCount(0);
-  expect((await run(page, 'proof')).sends).toEqual([]);
-  await compose(page);
-  await page.getByRole('button', { name: 'Ask agent — preview', exact: true }).click();
-  await expect(page.getByRole('button', { name: 'Send', exact: true })).toBeEnabled();
+  await expect.poll(async () => (await run(page, 'proof')).sends.length).toBe(1);
+  await page.locator('#ask-page-fixture').getByTestId('chat-toggle').click();
+  await expect(input).toHaveValue('@Agent 1 ');
+  expect((await run(page, 'proof')).sends).toHaveLength(1);
   await run(page, 'block');
-  await expect(page.getByRole('button', { name: 'Send', exact: true })).toBeDisabled();
-  await expect(page.locator('.ask-preview')).toContainText('offline');
-  expect((await run(page, 'proof')).sends).toEqual([]);
+  await expect(input).toBeDisabled();
+  await expect(page.getByTestId('ask-preview')).toHaveCount(0);
 });
-
-test('expired preview visibly refuses Send and does not dispatch', async ({ page }) => {
+test('Chat shows held, pending, replied and display-only reply timeout without changing the ledger or sending', async ({
+  page,
+}) => {
   await page.clock.install();
   await mount(page);
-  await compose(page);
-  await page.getByRole('button', { name: 'Ask agent — preview', exact: true }).click();
-  await expect(page.getByRole('button', { name: 'Send', exact: true })).toBeEnabled();
-  await page.clock.fastForward(60 * 60 * 1000 + 1);
-  await expect(page.locator('.ask-preview')).toContainText('This preview has expired');
-  await expect(page.getByRole('button', { name: 'Send', exact: true })).toBeDisabled();
+  await run(page, 'syncRecords', 'held');
+  await expect(page.getByTestId('ask-state').first()).toContainText('Held');
+  await run(page, 'pending');
+  await expect(page.getByTestId('ask-state').first()).toContainText('Pending');
+  await page.clock.fastForward(2 * 60 * 60 * 1000 + 1);
+  await expect(page.getByTestId('ask-state').first()).toContainText('Reply timeout');
+  await expect(page.getByTestId('ask-state').first()).toHaveAttribute('data-state', 'accepted');
+  await run(page, 'syncRecords', 'accepted');
+  await expect(page.getByTestId('ask-state').first()).toContainText('Replied');
   expect((await run(page, 'proof')).sends).toEqual([]);
 });
-
 test('verified refusal reasons use actionable copy without exposing a resend', async ({ page }) => {
   await mount(page);
   for (const [reason, copy] of [
     ['REMOTE_SCOPE_DENIED', 'Your Remote permission does not allow this ask.'],
-    ['REMOTE_INPUT_INVALID', 'Remote rejected this message. Create a new preview.'],
-    ['REMOTE_RATE_LIMITED', 'Remote is busy. Review a fresh preview later.'],
+    ['REMOTE_INPUT_INVALID', 'Remote rejected this message. Write a new message.'],
+    ['REMOTE_RATE_LIMITED', 'Remote is busy. Try a new message later.'],
     [
       'REMOTE_INTENT_CONFLICT',
-      'This operation already has a different message. Create a new preview.',
+      'This operation already has a different message. Write a new message.',
     ],
-    ['REMOTE_CLOSED', 'Remote is closed. Reconnect and create a new preview.'],
+    ['REMOTE_CLOSED', 'Remote is closed. Reconnect before writing another message.'],
     [
       'REMOTE_SESSION_ENDED',
-      'Your Remote session ended. Create a fresh preview after the page reconnects.',
+      'Your Remote session ended. Reconnect before writing another message.',
     ],
   ]) {
     await run(page, 'syncRefusal', reason);
-    await expect(page.getByTestId('ask-state').first()).toHaveText(copy);
+    await expect(page.getByTestId('ask-state').first()).toContainText(copy);
     await expect(page.getByRole('button', { name: 'Abandon tracking' })).toHaveCount(0);
     await expect(page.getByRole('button', { name: 'Re-check delivery' })).toHaveCount(0);
   }
@@ -185,31 +128,19 @@ test('verified refusal reasons use actionable copy without exposing a resend', a
   });
 });
 
-test('navigation drops a pending preview without dispatch', async ({ page }) => {
-  await mount(page);
-  await compose(page);
-  await run(page, 'pausePrepare');
-  await page.getByRole('button', { name: 'Ask agent — preview', exact: true }).click();
-  await page.getByRole('link', { name: 'Space home', exact: true }).click();
-  await run(page, 'resumePrepare');
-  await expect(page.locator('#ask-page-fixture .page')).toHaveCount(0);
-  await expect(page.getByTestId('ask-preview')).toHaveCount(0);
-  expect((await run(page, 'proof')).sends).toEqual([]);
-});
-
 test('read refusals show ephemeral copy without changing the admitted operation or dispatching', async ({
   page,
 }) => {
   await mount(page);
   await run(page, 'syncRecords');
   for (const [code, copy] of [
-    ['REMOTE_INPUT_TOO_LARGE', 'Remote rejected the message size. Create a shorter preview.'],
+    ['REMOTE_INPUT_TOO_LARGE', 'Remote rejected the message size. Write a shorter message.'],
     ['REMOTE_STATE_UNAVAILABLE', 'Remote cannot read this operation yet. Re-check delivery later.'],
     ['REMOTE_CORE_UNAVAILABLE', 'The agent service is unavailable. Re-check delivery later.'],
   ]) {
     await run(page, 'refuseRead', code);
     await page.getByRole('button', { name: 'Re-check delivery' }).click();
-    await expect(page.locator('.ask-panel [role=alert]')).toHaveText(copy);
+    await expect(page.locator('.ask-panel [role=alert]')).toContainText(copy);
     await expect(page.getByTestId('ask-state').first()).toHaveAttribute('data-state', 'uncertain');
     expect((await run(page, 'proof')).sends).toEqual([]);
   }
@@ -217,4 +148,31 @@ test('read refusals show ephemeral copy without changing the admitted operation 
     path: '/private/tmp/colab-1110-design/ask-read-refused.png',
     fullPage: true,
   });
+});
+
+test('mobile modal Chat keeps the shared autocomplete visible and clickable in its top layer', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 390, height: 900 });
+  await mount(page);
+  const drawer = page.locator('.page-drawer[data-panel=chat][open]');
+  expect(await drawer.evaluate((node) => node.matches(':modal'))).toBe(true);
+  const input = drawer.getByRole('combobox', { name: 'Message to agent' });
+  await input.fill('@');
+  const option = drawer.getByRole('option').first();
+  await expect(option).toBeInViewport();
+  await expect
+    .poll(() =>
+      option.evaluate((node) => {
+        const box = node.getBoundingClientRect();
+        return node.contains(
+          document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2),
+        );
+      }),
+    )
+    .toBe(true);
+  await option.click();
+  await expect(input).toHaveValue('@Agent 1 ');
+  await expect(input).toBeFocused();
+  expect((await run(page, 'proof')).sends).toEqual([]);
 });

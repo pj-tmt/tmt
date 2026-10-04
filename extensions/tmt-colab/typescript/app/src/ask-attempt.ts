@@ -1,3 +1,4 @@
+import { ASK_OBSERVATION_MS } from './ask-records.js';
 import { decodeText, requireValue, text } from '@tmt/colab-client';
 import { FrozenAsk, type AdmittedSelection, type AskDestination } from './ask-intent.js';
 import {
@@ -256,11 +257,11 @@ export class AskController {
       !view.reply &&
       ['dispatching', 'held', 'accepted', 'uncertain'].includes(view.state) &&
       !['RESULT_UNAVAILABLE', 'REPLY_TOO_LARGE'].includes(view.reason ?? '') &&
-      Date.now() - view.intent.issuedAt < 7200000;
+      Date.now() - view.intent.issuedAt < ASK_OBSERVATION_MS;
     const task = (async () => {
       for (
         let cycle = 0;
-        !signal.aborted && !this.#ended && performance.now() - started < 7200000;
+        !signal.aborted && !this.#ended && performance.now() - started < ASK_OBSERVATION_MS;
         cycle++
       ) {
         if (typeof document !== 'undefined' && document.visibilityState === 'hidden') {
@@ -269,7 +270,7 @@ export class AskController {
               if (
                 !signal.aborted &&
                 document.visibilityState === 'hidden' &&
-                performance.now() - started < 7200000
+                performance.now() - started < ASK_OBSERVATION_MS
               )
                 return;
               clearTimeout(timer);
@@ -277,7 +278,10 @@ export class AskController {
               signal.removeEventListener('abort', wake);
               resolve();
             };
-            const timer = setTimeout(wake, Math.max(0, 7200000 - (performance.now() - started)));
+            const timer = setTimeout(
+              wake,
+              Math.max(0, ASK_OBSERVATION_MS - (performance.now() - started)),
+            );
             document.addEventListener('visibilitychange', wake);
             signal.addEventListener('abort', wake, { once: true });
             wake();
@@ -290,7 +294,7 @@ export class AskController {
           if (
             signal.aborted ||
             this.#ended ||
-            performance.now() - started >= 7200000 ||
+            performance.now() - started >= ASK_OBSERVATION_MS ||
             (typeof document !== 'undefined' && document.visibilityState === 'hidden')
           )
             break;
