@@ -113,7 +113,8 @@ footer {
   padding: 0;
   list-style: none;
 }
-.pages a {
+.pages a,
+.archived-page {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
@@ -428,4 +429,74 @@ footer {
   display: block;
   margin: 8px 0;
   font-weight: normal;
+}
+
+.pages li > button {
+  margin-top: 12px;
+}
+.management-dialog {
+  width: min(720px, calc(100% - 32px));
+  max-height: 85vh;
+  padding: 24px;
+  background: var(--c-paper);
+  color: var(--c-text);
+  border: 2px solid var(--c-text);
+}
+.management-dialog::backdrop {
+  background: #0008;
+}
+.dialog-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+.management-id,
+.recipient {
+  overflow-wrap: anywhere;
+}
+.management-dialog section {
+  margin: 24px 0;
+  border-top: 1px solid var(--c-rule);
+}
+.management-dialog label {
+  display: flex;
+  flex-direction: column;
+  margin: 12px 0;
+}
+.management-dialog input,
+.management-dialog select {
+  width: 100%;
+  padding: 8px;
+  font: inherit;
+  color: var(--c-text);
+  background: var(--c-sheet);
+  border: 1px solid var(--c-text);
+}
+.management-dialog button {
+  margin: 4px 4px 4px 0;
+}
+.management-dialog button:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+.recipient {
+  margin: 16px 0;
+}
+.bearer {
+  border: 2px solid var(--c-accent);
+  padding: 16px;
+}
+
+.archived-page {
+  overflow-wrap: anywhere;
+}
+.management-dialog .checkbox-label {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+}
+.management-dialog input[type='checkbox'] {
+  width: auto;
+  margin: 0;
 }

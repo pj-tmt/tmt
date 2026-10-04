@@ -1,6 +1,7 @@
 import { expect, it, vi } from 'vite-plus/test';
 import type { LiveSessionOwner } from '../src/live.js';
 import { InactiveTabError, type TabOwnership } from '../src/active-tab.js';
+import type { Pending } from '../src/management.js';
 import type { RemoteClient } from '../src/ask-remote.js';
 import { mountedTransport } from '../src/mounted.js';
 const setup = vi.hoisted(() => {
@@ -17,6 +18,10 @@ const setup = vi.hoisted(() => {
     verify: vi.fn(async () => {}),
     remote: vi.fn(),
     owner: null as LiveSessionOwner | null,
+    managementRead: vi.fn(async () => ({ page: { pageId: 'page' } })),
+    managementPrepare: vi.fn(async () => ({ id: 'operation' })),
+    managementSend: vi.fn(async () => ({ operationId: 'operation' })),
+    managementVerify: vi.fn(async () => ({ page: { pageId: 'page' } })),
   };
 });
 vi.mock('../src/bootstrap.js', () => ({
@@ -33,6 +38,23 @@ vi.mock('../src/registration.js', () => ({
   verifyRegistration: setup.verify,
 }));
 vi.mock('../src/ask-remote.js', () => ({ createRemoteClient: setup.remote }));
+vi.mock('../src/management.js', () => ({
+  ManagementError: class extends Error {
+    constructor(readonly code: string) {
+      super(code);
+    }
+  },
+  project: (page: unknown) => ({ page }),
+  ManagementClient: class {
+    read = setup.managementRead;
+    prepare = setup.managementPrepare;
+    send = setup.managementSend;
+    verify = setup.managementVerify;
+    async snapshot() {
+      return { boot: { pages: [] }, log: [] };
+    }
+  },
+}));
 vi.mock('../src/live.js', () => ({
   Live: class {
     constructor(
@@ -205,4 +227,141 @@ it('a takeover during explicit recovery prevents the old tab from reloading or r
   } finally {
     vi.unstubAllGlobals();
   }
+});
+
+it('takeover during management signing prevents POST and does not adopt the late signed request', async () => {
+  setup.register.mockReset().mockResolvedValue(setup.first);
+  setup.remote.mockReset().mockResolvedValue(null);
+  setup.managementSend.mockClear();
+  let active = true;
+  const mounted = await mountedTransport({
+    get active() {
+      return active;
+    },
+    run: (action) => action(),
+  });
+  const port = mounted.transport.management!;
+  const view = await port.read('page');
+  let release!: () => void;
+  setup.managementPrepare.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        release = () => resolve({ id: 'operation' });
+      }),
+  );
+  const preparing = port.prepare(view, { operation: 'page.archive', value: { pageId: 'page' } });
+  active = false;
+  mounted.close();
+  release();
+  await expect(preparing).rejects.toBeInstanceOf(InactiveTabError);
+  await expect(port.send({} as Pending)).rejects.toBeInstanceOf(InactiveTabError);
+  await expect(port.read('page')).rejects.toBeInstanceOf(InactiveTabError);
+  expect(setup.managementSend).not.toHaveBeenCalled();
+});
+
+it('a replaced session refuses old management views and frozen retries but permits read-only verification', async () => {
+  setup.register.mockReset().mockResolvedValueOnce(setup.first).mockResolvedValueOnce(setup.second);
+  setup.remote.mockReset().mockResolvedValue(null);
+  setup.managementSend.mockClear();
+  setup.managementPrepare.mockResolvedValue({ id: 'operation' });
+  const mounted = await mountedTransport({ active: true, run: (action) => action() });
+  await mounted.transport.page('page');
+  const port = mounted.transport.management!;
+  const view = await port.read('page');
+  const selection = { operation: 'page.archive' as const, value: { pageId: 'page' } };
+  const pending = await port.prepare(view, selection);
+  await setup.owner!.reconnect(setup.first as never);
+  await expect(port.send(pending)).rejects.toMatchObject({ code: 'DENIED' });
+  await expect(port.prepare(view, selection)).rejects.toMatchObject({ code: 'DENIED' });
+  expect(setup.managementSend).not.toHaveBeenCalled();
+  await port.verify(pending, {
+    operationId: pending.id,
+    membershipHead: { revision: '2', statementHash: 'hash' },
+  });
+  const refreshed = await port.read('page');
+  await port.send(await port.prepare(refreshed, selection));
+  expect(setup.managementSend).toHaveBeenCalledOnce();
+  mounted.close();
+});
+
+it('a management POST already started retains the lease until its result settles, without a takeover retry', async () => {
+  setup.register.mockReset().mockResolvedValue(setup.first);
+  setup.remote.mockReset().mockResolvedValue(null);
+  setup.managementSend.mockClear();
+  let active = true,
+    running = 0;
+  const mounted = await mountedTransport({
+    get active() {
+      return active;
+    },
+    async run(action) {
+      running++;
+      try {
+        return await action();
+      } finally {
+        running--;
+      }
+    },
+  });
+  const port = mounted.transport.management!;
+  const pending = await port.prepare(await port.read('page'), {
+    operation: 'page.archive',
+    value: { pageId: 'page' },
+  });
+  let release!: () => void;
+  setup.managementSend.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        release = () => resolve({ operationId: 'operation' });
+      }),
+  );
+  const sending = port.send(pending);
+  active = false;
+  mounted.close();
+  expect(running).toBe(1);
+  release();
+  await expect(sending).rejects.toBeInstanceOf(InactiveTabError);
+  expect(running).toBe(0);
+  expect(setup.managementSend).toHaveBeenCalledOnce();
+});
+
+it('takeover during acknowledgment verification cancels its read and refuses a late verified view without sending', async () => {
+  setup.register.mockReset().mockResolvedValue(setup.first);
+  setup.remote.mockReset().mockResolvedValue(null);
+  setup.managementSend.mockClear();
+  setup.managementVerify.mockClear();
+  let active = true;
+  const mounted = await mountedTransport({
+    get active() {
+      return active;
+    },
+    run: (action) => action(),
+  });
+  const port = mounted.transport.management!;
+  const pending = await port.prepare(await port.read('page'), {
+    operation: 'page.archive',
+    value: { pageId: 'page' },
+  });
+  const ack = {
+    operationId: pending.id,
+    membershipHead: { revision: '2', statementHash: 'hash' },
+  };
+  let release!: () => void;
+  setup.managementVerify.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        release = () => resolve({ page: { pageId: 'page' } });
+      }),
+  );
+  const verifying = port.verify(pending, ack);
+  active = false;
+  mounted.close();
+  expect(setup.managementVerify).toHaveBeenCalledWith(
+    pending,
+    ack,
+    expect.objectContaining({ aborted: true }),
+  );
+  release();
+  await expect(verifying).rejects.toBeInstanceOf(InactiveTabError);
+  expect(setup.managementSend).not.toHaveBeenCalled();
 });

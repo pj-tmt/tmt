@@ -1958,6 +1958,54 @@ bounded download handoff and all outstanding URLs on close/navigation or blocked
 binding cleanup. The renderer receives no export handler, URL or capability.
 Archived browser export remains deferred until #1348; deletion stays denied.
 
+### Trusted browser space management (#1308)
+
+The paired owner app exposes sharing/history, member add/remove/role, link
+create/remove/Reset and epoch advance in parent chrome. Home and page chrome open
+the same dialog; local samples remain read-only. Home defaults to active pages,
+offers an archived filter, and provides retention days/forever, archive and explicit
+delete confirmation. There is no unarchive action. Policy and complete recipient
+assignments derive from the contiguous verified owner log, never discovery labels.
+
+Metadata catchup reuses bounded frame/chunk assembly and owner-log admission,
+then closes before content decoding. Baseline ciphertext can be consumed as part
+of wire framing but is never decrypted or materialized for management. A failed
+preview does not remove home management access. Retention defaults to 30 days;
+durable last-update/expiry evidence remains unavailable, so chrome says so and
+never invents expiry warnings. Local expiry never automatically deletes data.
+
+Confirmation discloses shared/current history scope, the 64-epoch limit, editors'
+script power, renderer self-navigation limits and separate Remote device/agent
+grants. Narrowing and Reset identify affected pages and explain revocation and
+rotation; previously public content cannot be made private again. Requests freeze
+exact selections, initiating context, ID, revision, expiry, signature and any new
+seed before send. Only explicit, unexpired byte-identical retry is offered after
+uncertainty; stale/expired requests require fresh review. No reload, reconnect,
+timer or takeover submits a management request.
+
+The mounted tab lease fences preparation and POST. Current registration owns
+each prepared request; a replacement session refuses old views and mutation
+retries but may verify an earlier acknowledgment read-only. Management does not
+open a separate Remote session. Takeover closes metadata sockets and prevents
+new work while already-started effects settle under their existing bounded lease.
+An acknowledged or uncertain policy change closes stale Live/writer/Ask state; subsequent
+refresh never dispatches an Ask again.
+
+A transport acknowledgment is followed by verification of its exact signed-log
+revision/hash and requested change, tolerating later commits. Failed refresh stays
+acknowledged/awaiting verification. Archive verifies through the same owner-readable
+page. Delete verifies discovery absence plus the signed delete change through
+another readable page; the frozen initiating context survives removal. Last-page
+deletion stays acknowledged/awaiting verification when no readable context supplies
+signed evidence. A post-delete DENIED/1008 close is neither a rejection of the
+acknowledged change nor completion evidence. Verification retries only read.
+
+New link IDs/seeds appear only after verification with an explicit copy action;
+they are never persisted or logged. The reader browser flow is separate, so this
+dialog does not fabricate a reader URL. Lost seeds require Reset. Delete confirmation
+identifies the page, cessation of access and removal of backend ciphertext, and
+states that copies already made cannot be recalled.
+
 ## Conformance and acceptance gates
 
 C0 needs squad-lead, Remote security and core-lead review before implementation;
