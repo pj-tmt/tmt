@@ -898,7 +898,8 @@ test('authenticated tail past write limits opens and renders exact source', asyn
   context,
 }) => {
   test.setTimeout(90_000);
-  const source = '<h1>Live fixture</h1>' + ('é' + 'x'.repeat(1598)).repeat(205);
+  const heading = '<h1>Live fixture</h1>';
+  const source = heading + ('é' + 'x'.repeat(1598)).repeat(205);
   const f = await wire(context, undefined, undefined, undefined, true);
   expect(f.entries).toHaveLength(206);
   expect(f.tailBytes).toBeGreaterThan(256 * 1024);
@@ -908,7 +909,7 @@ test('authenticated tail past write limits opens and renders exact source', asyn
     page.frameLocator('iframe').getByRole('heading', { name: 'Live fixture' }),
   ).toBeVisible();
   await expect(page.frameLocator('iframe').locator('body')).toHaveText(
-    'Live fixture' + source.slice(21),
+    'Live fixture' + source.slice(heading.length),
   );
   await page.getByRole('button', { name: 'Source', exact: true }).click();
   await expect(page.getByRole('textbox')).toHaveValue(source);
