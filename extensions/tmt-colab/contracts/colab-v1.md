@@ -1068,7 +1068,9 @@ encoding byte order; declare all schema root types before projection.
 
 Linux sets and verifies its address-space limit before reading child input;
 failure rejects the job. On macOS and platforms without enforced memory limits,
-run with deadline/output containment and report `memory limit unavailable`.
+run with deadline/output containment and report `memory limit unavailable`: in JSON
+page receipts (`memoryLimit`) and once at `serve` startup. One-shot human page output does
+not repeat it.
 
 These are pinned v1 defaults; tuning MUST preserve cryptographic ceilings and
 bounded admission. Enforce bounds before allocating/decoding, not only after
@@ -1910,9 +1912,13 @@ JSON success is `{spaceId,pageId,title,path,operationId,membershipHead}` with
 `membershipHead:{revision,statementHash}` (decimal text and canonical base64url
 hash32). `path` is relative to the Remote door address:
 `x/colab/#space=<spaceId>&path=%2Fpages%2F<pageId>`. It pins the space using the
-browser router's existing fragment format; no Remote host discovery is added.
-Human output identifies the page and says to open the path under the Remote door
-address printed by `tmt remote pair`. JSON failures use `{error:{code,message}}`,
+browser router's existing fragment format. The CLI learns the door only through
+Remote's public `tmt remote status --json` (`{running,origin,path}`, one call with a
+three-second cap, run through the invoking core executable), never Remote's files. While
+a door is running, JSON adds `url` (door address plus `path`) and human output prints that
+link; otherwise `path` stays relative and human output says to start `tmt remote serve`
+to get a full link. Any failure, timeout or malformed answer is the no-door case. JSON
+failures use `{error:{code,message}}`,
 with generated `operationId` and `pageId` when available for inspection after an
 unknown outcome. Existing input/capacity/denial/conflict/stale-head/state/unknown
 codes apply; failures exit 1. The browser home empty state names this command.

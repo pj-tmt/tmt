@@ -1,5 +1,6 @@
 mod cli_grammar;
 mod cli_management;
+mod door;
 const IPC_RESPONSE_BYTES: usize = 8192;
 use clap::{Arg, ArgAction, Command};
 use serde_json::json;
@@ -23,10 +24,20 @@ fn grammar() -> Command {
     const ROOT: CommandSpec = CommandSpec {
         name: "colab",
         summary: "Local collaborative-space pilot",
-        examples: &[Example {
-            command: "tmt colab serve",
-            note: "Run the local foreground space",
-        }],
+        examples: &[
+            Example {
+                command: "tmt colab serve",
+                note: "Run the local foreground space",
+            },
+            Example {
+                command: "tmt colab page create --title Notes --file page.html",
+                note: "Create a page and print its link",
+            },
+            Example {
+                command: "tmt colab share mode 10000000-0000-4000-8000-000000000001 link --yes",
+                note: "Allow read-only share links for a page",
+            },
+        ],
         outputs: OutputModes::Human,
         details: "The space is reached through tmt remote, which mounts it for paired browsers. Serve the bundled browser app, or build it for local development. Local root-authorized management uses the same owner service as mounted browser requests.",
     };
@@ -63,10 +74,16 @@ fn grammar() -> Command {
     const PAGE: CommandSpec = CommandSpec {
         name: "page",
         summary: "Create, read and write local pages",
-        examples: &[Example {
-            command: "tmt colab page read 10000000-0000-4000-8000-000000000001 --json",
-            note: "Read source and its verified editing base",
-        }],
+        examples: &[
+            Example {
+                command: "tmt colab page create --title Notes --file page.html",
+                note: "Create a private page and print its link",
+            },
+            Example {
+                command: "tmt colab page read 10000000-0000-4000-8000-000000000001 --json",
+                note: "Read source and its verified editing base",
+            },
+        ],
         outputs: OutputModes::Human,
         details: "Root-local page access using existing encrypted state.",
     };
@@ -78,7 +95,7 @@ fn grammar() -> Command {
             note: "Create a page editable by your registered owner browsers",
         }],
         outputs: OutputModes::HumanAndJson,
-        details: "Initializes a fresh local space when needed. Without --file the source is empty; use --file - for bounded UTF-8 stdin. Commits a private page, epoch key, owner-device wraps and encrypted initial content through the same owner service whether serve is running or stopped. The returned path is relative to the Remote door address printed by tmt remote pair.",
+        details: "Initializes a fresh local space when needed. Without --file the source is empty; use --file - for bounded UTF-8 stdin. Commits a private page, epoch key, owner-device wraps and encrypted initial content through the same owner service whether serve is running or stopped. While tmt remote serve runs, the full link is printed (url in JSON); otherwise only the path relative to the Remote door address is.",
     };
     const READ: CommandSpec = CommandSpec {
         name: "read",
@@ -228,20 +245,26 @@ fn run(matches: &clap::ArgMatches) -> Result<()> {
             )?;
         } else {
             let terminal = output.terminal();
-            tmt_cli_style::detail::write(
-                &mut output,
-                terminal,
-                "LOCAL SPACE",
-                &[
-                    ("space", space_id),
-                    ("socket", socket.path.display().to_string()),
-                    (
-                        "open",
-                        "run tmt remote serve, then open colab from a browser paired with tmt remote pair"
+            let mut fields = vec![
+                ("space", space_id),
+                ("socket", socket.path.display().to_string()),
+                (
+                    "open",
+                    match door::Door::discover() {
+                        Some(door) => door.url("x/colab/"),
+                        None => "start tmt remote serve, then open colab from a browser paired with tmt remote pair"
                             .into(),
-                    ),
-                ],
-            )?;
+                    },
+                ),
+            ];
+            // One-shot page commands keep this in JSON only; the long-running owner reports it once.
+            if tmt_colab::decoder::memory_limit() == tmt_colab::decoder::MemoryLimit::Unavailable {
+                fields.push((
+                    "decoder",
+                    "memory limit unavailable on this platform".into(),
+                ));
+            }
+            tmt_cli_style::detail::write(&mut output, terminal, "LOCAL SPACE", &fields)?;
         }
         output.flush()?;
         drop(output);
@@ -389,13 +412,6 @@ fn page(root: &std::path::Path, args: &clap::ArgMatches) -> Result<()> {
                     ("page", receipt.page_id),
                     ("revision", receipt.revision),
                     ("epoch", receipt.epoch),
-                    (
-                        "decoder",
-                        serde_json::to_value(receipt.memory_limit)?
-                            .as_str()
-                            .unwrap()
-                            .into(),
-                    ),
                 ],
             )?;
         }
@@ -419,13 +435,6 @@ fn page(root: &std::path::Path, args: &clap::ArgMatches) -> Result<()> {
                     ("membership", value.membership_head.revision),
                     ("head", value.membership_head.statement_hash),
                     ("epoch", value.epoch),
-                    (
-                        "decoder",
-                        serde_json::to_value(value.memory_limit)?
-                            .as_str()
-                            .unwrap()
-                            .into(),
-                    ),
                 ],
             )?;
             output.write_all(value.source.as_bytes())?;
