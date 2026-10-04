@@ -550,6 +550,16 @@ See [the runtime contract](../ARCHITECTURE.md#identity-names-and-bindings) for e
 normalization and bounded-source limitations. Extensions read these public
 projections, never provider transcripts or private driver state.
 
+An admitted Claude/Codex Compacted SessionStart adds a core-owned reminder to
+re-read and update the saved identity's notes. Global boolean
+`notes.compactionReminder` defaults to `true`; `false` suppresses it. Temporary,
+unbound and stale sessions receive none. The reminder quotes an existing notebook
+path as data, or supplies `tmt notes path --identity '<UUID>'` for a missing,
+unsafe or excessively long path. Hooks never initialize or read/write notebook
+content. The complete reminder shares SessionStart's 4096-byte aggregate limit;
+optional extension summaries and role data are trimmed before it. This changes
+core context only; extension Compacted observations retain their existing contract.
+
 Provider prompt submission also requests this context for an already verified
 current session. The provider receives only extension summaries in
 `UserPromptSubmit.additionalContext`; startup identity context remains at

@@ -65,6 +65,26 @@ fn channel_server_resume_and_end_preserve_foreground_but_require_exact_live_proo
         launch_owner: Some(owner),
         last_transition: Some(SessionTransition::Resumed),
     };
+    // Startup preserves an admitted channel's stored transition. Consumers must
+    // inspect this callback's own kind rather than replay an old compaction.
+    let mut compacted = current.clone();
+    compacted.last_transition = Some(SessionTransition::Compacted);
+    let startup = CodexObservation {
+        session: thread.clone(),
+        model: None,
+        starting: true,
+        transition: SessionTransition::Started,
+    };
+    let next = transition(&startup, &record, &compacted, &server, &|_| {
+        RuntimeLiveness::Alive
+    })
+    .unwrap();
+    assert_eq!(next.last_transition, Some(SessionTransition::Compacted));
+    let observation = ChannelObservation {
+        event: startup,
+        record: Some(record.clone()),
+    };
+    assert_eq!(observation.transition(), Some(SessionTransition::Started));
     for kind in [
         SessionTransition::Resumed,
         SessionTransition::Compacted,

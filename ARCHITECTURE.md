@@ -803,6 +803,8 @@ layout owner and `tmt-adapters::notes` alone creates
 The file body, concurrency and retention are ordinary user-filesystem concerns:
 there is no SQLite copy, lock, size policy or secure deletion, and retirement leaves
 notebooks in place.
+Admitted compaction context reminds saved identities through global `notes.compactionReminder`
+(default true), within the existing hook budget and without notebook creation or content access.
 
 ### Settings and configuration
 

@@ -39,10 +39,12 @@ describe('native configuration process boundary', () => {
             line.startsWith('defaults.') ||
             line.startsWith('exchange.') ||
             line.startsWith('ui.') ||
-            line.startsWith('notifications.')
+            line.startsWith('notifications.') ||
+            line.startsWith('notes.')
         )
         .map((line) => line.split(/\s{2,}/));
       expect(rows).toEqual([
+        ['notes.compactionReminder', 'true', 'default', 'global CLI', 'true or false'],
         [
           'notifications.replyBatchWindowMs',
           '5000',
@@ -91,6 +93,51 @@ describe('native configuration process boundary', () => {
       expect(result.stdout).toContain(`  global  ${sandbox.globalConfig}\n`);
       expect(result.stdout).toContain(`  local   ${fs.realpathSync(sandbox.localConfig)}\n`);
       expect(fileSnapshot(sandbox.root)).toEqual(before);
+      expect(fs.existsSync(sandbox.database)).toBe(false);
+    });
+  });
+
+  it('edits the global notes reminder boolean without creating notes or storage', async () => {
+    await withSandbox(async (sandbox) => {
+      fs.mkdirSync(sandbox.globalDir, { recursive: true });
+      fs.writeFileSync(sandbox.globalConfig, JSON.stringify({ notes: { future: 'keep' } }));
+      expect(
+        (
+          await runCli(sandbox, [
+            'config',
+            'set',
+            'notes.compactionReminder',
+            'false',
+            '--global',
+            '--json',
+          ])
+        ).status
+      ).toBe(0);
+      expect(JSON.parse(fs.readFileSync(sandbox.globalConfig, 'utf8'))).toEqual({
+        notes: { future: 'keep', compactionReminder: false },
+      });
+      expect(parseWholeStdout(await runCli(sandbox, ['config', 'show', '--json']))).toMatchObject({
+        resolved: { notes: { compactionReminder: false } },
+        sources: { notes: { compactionReminder: 'global' } },
+      });
+      const before = fileSnapshot(sandbox.root);
+      for (const args of [
+        ['config', 'set', 'notes.compactionReminder', 'true'],
+        ['config', 'rm', 'notes.compactionReminder'],
+        ['config', 'set', 'notes.compactionReminder', '1', '--global'],
+        ['config', 'set', 'notes.compactionReminder', 'TRUE', '--global'],
+      ]) {
+        expectError(await runCli(sandbox, [...args, '--json']), 'ERROR');
+        expect(fileSnapshot(sandbox.root)).toEqual(before);
+      }
+      for (const value of ['false', 0, null, {}]) {
+        fs.writeFileSync(
+          sandbox.globalConfig,
+          JSON.stringify({ notes: { compactionReminder: value } })
+        );
+        expectError(await runCli(sandbox, ['config', 'show', '--json']), 'CONFIG_ERROR');
+      }
+      expect(fs.existsSync(path.join(sandbox.globalDir, 'notes'))).toBe(false);
       expect(fs.existsSync(sandbox.database)).toBe(false);
     });
   });
@@ -199,6 +246,7 @@ describe('native configuration process boundary', () => {
         exchange: { retentionDays: 90 },
         ui: { paneBadge: 'off' },
         notifications: { replyBatchWindowMs: 5000, typingQuietMs: 2000 },
+        notes: { compactionReminder: true },
         theme: {},
       });
       expect(document.sources).toEqual({
@@ -208,6 +256,7 @@ describe('native configuration process boundary', () => {
         exchange: { retentionDays: 'default' },
         ui: { paneBadge: 'default' },
         notifications: { replyBatchWindowMs: 'default', typingQuietMs: 'default' },
+        notes: { compactionReminder: 'default' },
         theme: 'default',
       });
       expect(fileSnapshot(sandbox.root)).toEqual(before);
@@ -336,6 +385,7 @@ describe('native configuration process boundary', () => {
         exchange: { retentionDays: 90 },
         ui: { paneBadge: 'off' },
         notifications: { replyBatchWindowMs: 5000, typingQuietMs: 2000 },
+        notes: { compactionReminder: true },
         theme: {},
       });
       expect(document.sources).toEqual({
@@ -345,6 +395,7 @@ describe('native configuration process boundary', () => {
         exchange: { retentionDays: 'default' },
         ui: { paneBadge: 'default' },
         notifications: { replyBatchWindowMs: 'default', typingQuietMs: 'default' },
+        notes: { compactionReminder: 'default' },
         theme: 'default',
       });
       expect(fileSnapshot(sandbox.root)).toEqual(before);

@@ -645,6 +645,9 @@ impl crate::runtime::lifecycle::LifecycleObservation for CodexObservation {
     fn starting(&self) -> bool {
         self.starting
     }
+    fn transition(&self) -> Option<SessionTransition> {
+        Some(self.transition)
+    }
     fn propose(
         &self,
         current: &BindingSessionState,
