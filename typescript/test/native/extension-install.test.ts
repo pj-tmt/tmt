@@ -545,6 +545,41 @@ describe('tmt extension install surface', () => {
     });
   }, 120_000);
 
+  it('rejects a release whose TMT-USES.json is malformed before anything is published', async () => {
+    await withSandbox(async (sandbox) => {
+      const cli = (args: string[]) =>
+        runCli(sandbox, [...args, '--json'], { deadlineMs: INSTALL_PROCESS_BUDGET_MS });
+      const artifact = await createArtifact(
+        sandbox,
+        '0.1.0-alpha.1',
+        new Uint8Array(),
+        'colab',
+        undefined,
+        {},
+        undefined,
+        '{"version":1,"uses":[{"feature":"Browser Access"}]}'
+      );
+      const refused = await cli([
+        'extension',
+        'install',
+        'colab',
+        '--yes',
+        '--channel',
+        'alpha',
+        '--archive',
+        artifact.archive,
+        '--manifest',
+        artifact.manifest,
+      ]);
+      expectError(refused, 'EXTENSION_INSTALL_FAILED');
+      const rows = parseWholeStdout(await cli(['extension', 'ls'])).extensions as {
+        name: string;
+        installed: boolean;
+      }[];
+      expect(rows.find((row) => row.name === 'colab')?.installed).toBe(false);
+    });
+  }, 120_000);
+
   it('offers bundled skills, refreshes them by name on update, and uninstall removes every owned skill', async () => {
     await withSandbox(async (sandbox) => {
       const prefix = path.join(sandbox.root, 'extension prefix');
