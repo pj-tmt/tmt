@@ -26,6 +26,8 @@ pub(in crate::board) const GAP: usize = 1;
 /// cache key, so a changed label rebuilds the scene.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub(in crate::board) struct Extra {
+    /// The squad's lead row: its name cell carries a dim `lead` tag.
+    pub lead: bool,
     /// `cron next` for the member's cron job.
     pub next: Option<String>,
     /// Age of the oldest request waiting on the user.
@@ -345,6 +347,10 @@ impl RowPaint {
                 part.emphasize = !nothing
                     && (matches!(cell.field.as_deref(), Some("state" | "pending"))
                         || role.is_some_and(|role| matches!(role, Role::Waiting | Role::Blocked)));
+                if extra.lead && first && cell.field.as_deref() == Some("member") {
+                    let name = self.parts[index].node.text.clone().unwrap_or_default();
+                    self.lead_tag(&name, &box_width, column, x, y, root);
+                }
                 x += box_width.visible + GAP;
             }
             if !first && !shown_any {
@@ -445,6 +451,37 @@ impl RowPaint {
         }
         self.ends.push(y);
         y
+    }
+
+    /// The dim `lead` tag two cells after the name, inside the name cell: it
+    /// reserves no width on other rows and is the first to be cut when the cell
+    /// is narrow, so the name keeps its room.
+    fn lead_tag(
+        &mut self,
+        name: &str,
+        cell: &markup::BoxWidth,
+        column: &crate::rows::Column,
+        x: usize,
+        y: usize,
+        root: usize,
+    ) {
+        let shown = tmt_tui::text::fit_lines(name, cell.text, markup::flow(column), column.align)
+            .into_iter()
+            .next()
+            .map_or(0, |line| line.trim_end().width());
+        let from = shown + 2;
+        let room = cell.visible.saturating_sub(from).min("lead".len());
+        // A lone ellipsis says nothing: below two cells the tag is cut entirely.
+        if room < 2 {
+            return;
+        }
+        self.label(
+            Some("lead".into()),
+            (x + from, y, room, 1),
+            Some(Role::Dim),
+            TextFlow::Truncate,
+            Some(root),
+        );
     }
 
     /// Right-align the first label that fits after `used` cells of the line.

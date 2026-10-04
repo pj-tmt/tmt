@@ -747,7 +747,7 @@ fn rows_ignore_retired_notes_and_show_pending_sections_and_aligned_wide_text() {
     assert_eq!(screen[1], "lead sol · 2 members");
     assert_eq!(screen[2], "  MEMBER     STATE    TASK");
     // The lead is the first row; the rule names what follows.
-    assert_eq!(screen[3], "  sol        working  coordinate");
+    assert_eq!(screen[3], "  sol  lead  working  coordinate");
     assert_eq!(screen[4], format!("── members · 2 {}", "─".repeat(33)));
     assert_eq!(screen[5], "NEEDS ME");
     assert_eq!(screen[6], "◆ auth-fix   blocked  rotate session tokens");
@@ -756,6 +756,28 @@ fn rows_ignore_retired_notes_and_show_pending_sections_and_aligned_wide_text() {
     assert_eq!(screen[9], "  文件-sweep working  整理安装指南");
     assert!(screen.iter().all(|line| !line.contains("needs a call")));
     assert!(screen[11].starts_with("◆ 1 waiting"));
+}
+
+#[test]
+fn the_lead_tag_sits_in_the_name_cell_and_is_the_first_thing_cut() {
+    let draw_lead = |member_width: usize| {
+        let mut app =
+            board(json!([{"title": null, "rows": [row("docs", "working", "guide", json!({}))]}]));
+        lead_sol(&mut app);
+        app.view.as_mut().unwrap().rows = rows_from(&format!(
+            "[p.rows]\ncolumns = [{{ name = \"member\", width = {member_width} }}, {{ name = \"state\", width = 8 }}]\n"
+        ));
+        draw(&app, 40, 8)
+    };
+    // Room for the tag: it follows the name by two cells; other rows are unchanged.
+    let screen = draw_lead(10);
+    assert_eq!(screen[3], "  sol  lead  working");
+    assert_eq!(screen[5], "  docs       working");
+    // Narrow cell: the tag shrinks (ellipsis) before the name does, then goes.
+    assert_eq!(draw_lead(8)[3], "  sol  le… working");
+    assert_eq!(draw_lead(7)[3], "  sol  l… working");
+    assert_eq!(draw_lead(6)[3], "  sol    working");
+    assert_eq!(draw_lead(3)[3], "  sol working");
 }
 
 #[test]

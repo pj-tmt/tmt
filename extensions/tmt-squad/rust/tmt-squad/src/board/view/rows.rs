@@ -3,7 +3,7 @@
 
 use super::row_paint::{Extra, GAP, RowPaint, row_end};
 use crate::board::{app::App, derived};
-use crate::display_rows::Item;
+use crate::display_rows::{Item, RowOrigin};
 use crate::{config::Pane, rows::Rows};
 use ratatui::{Frame, layout::Rect, text::Line};
 use tmt_cli_style::Role;
@@ -125,10 +125,11 @@ pub(super) fn render_rows(frame: &mut Frame, app: &App, area: Rect) {
         .filter(|item| matches!(item, Item::Row(..)))
         .enumerate()
         .map(|(index, item)| {
-            let Item::Row(_, row) = item else {
+            let Item::Row(origin, row) = item else {
                 unreachable!()
             };
             Extra {
+                lead: origin == RowOrigin::Lead,
                 next: row["id"]
                     .as_str()
                     .and_then(|id| app.cron.member_label(id, now)),
