@@ -70,8 +70,8 @@ it('matches independently framed bytes, SHA-256 and Ed25519 over exact frozen UT
     ).toBe(false);
   }
 });
-it('keeps the shipped skill page-ID instructions consistent with the delivered Ask link', () => {
-  const selected = { ...selection(), url: 'https://example.test/x/colab/' };
+it('keeps the shipped skill legacy page-ID instructions consistent with retained Ask links', () => {
+  const selected = { ...selection(), shortId: undefined, url: 'https://example.test/x/colab/' };
   const message = FrozenAsk.capture(selected, destination()).view.message;
   const link = message.match(/^Link: (.+)$/m)?.[1];
   expect(link).toBeDefined();
@@ -91,6 +91,23 @@ it('keeps the shipped skill page-ID instructions consistent with the delivered A
   expect(fragment.get('page')).toBeNull();
   expect(skill).toContain('Decode the `path`');
   expect(skill).toContain('the page ID follows `/pages/`');
+});
+it('keeps the shipped skill short-link instructions consistent with delivered Ask links', () => {
+  const selected = selection();
+  const message = FrozenAsk.capture(selected, destination()).view.message;
+  const url = new URL(message.match(/^Link: (.+)$/m)![1]);
+  const skill = readFileSync(
+    new URL('../../../skills/tmt-colab/SKILL.md', import.meta.url),
+    'utf8',
+  );
+  const documentedPath = skill.match(/`(\/p\/SHORT)`/)?.[1];
+  expect(documentedPath).toBeDefined();
+  expect(url.pathname).toBe(documentedPath!.replace('SHORT', selected.shortId!));
+  expect(url.hash).toBe('');
+  expect(selected.page.startsWith(selected.shortId!)).toBe(true);
+  expect(skill).toContain('tmt colab ls --archived --json');
+  expect(skill).toContain('including\nretained deleted IDs');
+  expect(skill).toContain('exactly one match with `deleted: false`');
 });
 it('copies scopes and bytes before asynchronous signing, including paused-source inputs', async () => {
   const s = selection(),

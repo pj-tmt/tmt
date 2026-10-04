@@ -19,7 +19,7 @@ pub struct Status<'a> {
     pub pairing: Option<Pairing>,
     /// Ids of the pages that are not archived; `None` when the catalog could not be read.
     pub pages: Option<Vec<String>>,
-    /// Full catalog, including archived pages, for collision-safe display aliases.
+    /// Full catalog, including archived and deleted IDs, for collision-safe display aliases.
     pub all_pages: Option<Vec<String>>,
     /// The browser was opened on the link `open_link` named.
     pub opened: bool,

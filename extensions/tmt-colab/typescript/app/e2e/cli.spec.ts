@@ -1,6 +1,6 @@
 import { execFile, spawn, type ChildProcess } from 'node:child_process';
 import { once } from 'node:events';
-import { access, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { access, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { createServer, request, type Server } from 'node:http';
 import { createConnection, type AddressInfo } from 'node:net';
 import type { Duplex } from 'node:stream';
@@ -277,6 +277,21 @@ test('a direct mounted short URL redirects into the native owner page with worki
     await expect(
       page.frameLocator('iframe').getByRole('heading', { name: 'Before CLI' }),
     ).toBeVisible();
+    const directory = process.env.COLAB_SHORT_LINK_CAPTURE_DIR;
+    if (directory) {
+      await mkdir(directory, { recursive: true });
+      for (const theme of ['light', 'dark']) {
+        await page.setViewportSize({ width: 1440, height: 900 });
+        if ((await page.evaluate(() => document.documentElement.dataset.theme)) !== theme)
+          await page.getByRole('button', { name: 'Change color theme' }).click();
+        await expect(page.locator('html')).toHaveAttribute('data-theme', theme);
+        for (const width of [1440, 390]) {
+          await page.setViewportSize({ width, height: 900 });
+          expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(width);
+          await page.screenshot({ path: `${directory}/native-short-${width}-${theme}.png` });
+        }
+      }
+    }
     await page.goto(`${server.origin}${mount}p/99999999`);
     await expect(page.getByRole('alert')).toContainText('Page unavailable');
   } finally {
