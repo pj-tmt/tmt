@@ -2378,7 +2378,6 @@ pages stay denied with the other export denials, because the fold has no archive
 path yet (see above); deleted pages stay denied. A failed capture or publication exposes
 no download and follows the create-only rules above.
 
-
 ### Trusted browser space management (#1308)
 
 The paired owner app exposes sharing/history, member add/remove/role, link
