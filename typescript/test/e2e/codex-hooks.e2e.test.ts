@@ -4,6 +4,7 @@ import path from 'node:path';
 import Database from 'better-sqlite3';
 import { expect, it } from 'vite-plus/test';
 import { withE2EFixture } from './harness.js';
+import type { E2EFixture } from './harness.js';
 
 const session = '33333333-3333-4333-8333-333333333333';
 const foreign = '44444444-4444-4444-8444-444444444444';
@@ -14,15 +15,40 @@ const hook = (source: string, id = session, model = 'gpt-5.2-codex') => ({
   input: { hook_event_name: 'SessionStart', source, session_id: id, model },
 });
 
+async function waitForRuntimeExit(
+  fixture: E2EFixture,
+  runtimePid: number,
+  status: string,
+  timeoutMs = 5000
+): Promise<void> {
+  await fixture.waitFor(
+    () => {
+      try {
+        process.kill(runtimePid, 0);
+        return false;
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'ESRCH') throw error;
+      }
+      return fs.existsSync(status) && fs.readFileSync(status, 'utf8') !== '';
+    },
+    timeoutMs,
+    'runtime fixture reaped by its pane shell'
+  );
+  expect(fs.readFileSync(status, 'utf8')).toBe('0');
+}
+
 it('maps independent Codex then shared exact-thread hooks without using the server pane', async () => {
   await withE2EFixture(
     async (fixture) => {
+      const home = path.join(fixture.root, 'home');
+      fs.mkdirSync(home);
       expect((await fixture.runJsonCli(['name', 'Owner', '-s'])).code).toBe(0);
       expect(
         (await fixture.runJsonCli(['config', 'set', 'ui.paneBadge', 'on', '--global'])).code
       ).toBe(0);
       const scenario = path.join(fixture.root, 'codex-independent.json');
       const report = path.join(fixture.root, 'codex-independent-report.json');
+      const independentStatus = path.join(fixture.root, 'codex-independent.status');
       fs.writeFileSync(
         scenario,
         JSON.stringify([
@@ -38,6 +64,7 @@ it('maps independent Codex then shared exact-thread hooks without using the serv
       );
       const command = [
         'env',
+        `HOME=${home}`,
         `TMUX_TEAM_HOME=${fixture.globalDir}`,
         '/opt/tmt-tests/hook-runtime/codex',
         fixture.executables.cli.executable,
@@ -48,7 +75,13 @@ it('maps independent Codex then shared exact-thread hooks without using the serv
         .join(' ');
       // Retain a real shell for the later exact shared resume and client exit.
       const targetPane = fixture.createShellPane('codex-target').pane;
-      fixture.tmux(['send-keys', '-t', targetPane, '-l', command]);
+      fixture.tmux([
+        'send-keys',
+        '-t',
+        targetPane,
+        '-l',
+        `${command}; printf '%s' "$?" > ${quote(independentStatus)}`,
+      ]);
       fixture.tmux(['send-keys', '-t', targetPane, 'Enter']);
       await fixture.waitFor(() => fs.existsSync(report), 15000, 'independent Codex hook report');
       const results = JSON.parse(fs.readFileSync(report, 'utf8'));
@@ -101,30 +134,24 @@ it('maps independent Codex then shared exact-thread hooks without using the serv
           driver_state: '{"model":"gpt-5.2-codex"}',
         });
         const before = read();
+        const runtimePid = () =>
+          (
+            db
+              .prepare('SELECT runtime_pid FROM bindings WHERE identity_id = ?')
+              .get(identity.id) as {
+              runtime_pid: number;
+            }
+          ).runtime_pid;
         expect(before).toMatchObject({
           runtime_state: 'ended',
           runtime_mode: 'embedded',
           observed_provider_session_id: session,
         });
         // The old process must be gone, not merely done writing its report.
-        await fixture.waitFor(
-          () => {
-            const row = db
-              .prepare('SELECT runtime_pid FROM bindings WHERE identity_id = ?')
-              .get(identity.id) as { runtime_pid: number };
-            try {
-              process.kill(row.runtime_pid, 0);
-              return false;
-            } catch (error) {
-              if ((error as NodeJS.ErrnoException).code === 'ESRCH') return true;
-              throw error;
-            }
-          },
-          5000,
-          'embedded fixture process exit'
-        );
+        await waitForRuntimeExit(fixture, runtimePid(), independentStatus);
         const sharedScenario = path.join(fixture.root, 'codex-shared.json');
         const sharedReport = path.join(fixture.root, 'codex-shared-report.json');
+        const sharedStatus = path.join(fixture.root, 'codex-shared.status');
         fs.writeFileSync(
           sharedScenario,
           JSON.stringify([
@@ -133,25 +160,29 @@ it('maps independent Codex then shared exact-thread hooks without using the serv
             hook('compact', session, 'gpt-5.3-codex'),
           ])
         );
+        // A retained shell owns wait/reaping. A direct tmux child can remain a
+        // zombie after reporting; kill(pid, 0) still succeeds until tmux reaps it.
+        const serverPane = fixture.createShellPane('codex-server').pane;
+        const sharedCommand = [
+          'env',
+          `HOME=${home}`,
+          `TMUX_TEAM_HOME=${fixture.globalDir}`,
+          '/opt/tmt-tests/hook-runtime/codex',
+          'app-server',
+          fixture.executables.cli.executable,
+          sharedScenario,
+          sharedReport,
+        ]
+          .map(quote)
+          .join(' ');
         fixture.tmux([
-          'new-window',
-          '-d',
+          'send-keys',
           '-t',
-          'e2e',
-          '-n',
-          'codex-server',
-          [
-            'env',
-            `TMUX_TEAM_HOME=${fixture.globalDir}`,
-            '/opt/tmt-tests/hook-runtime/codex',
-            'app-server',
-            fixture.executables.cli.executable,
-            sharedScenario,
-            sharedReport,
-          ]
-            .map(quote)
-            .join(' '),
+          serverPane,
+          '-l',
+          `${sharedCommand}; printf '%s' "$?" > ${quote(sharedStatus)}`,
         ]);
+        fixture.tmux(['send-keys', '-t', serverPane, 'Enter']);
         await fixture.waitFor(() => fs.existsSync(sharedReport), 15000, 'shared Codex hook report');
         const shared = JSON.parse(fs.readFileSync(sharedReport, 'utf8'));
         expect(shared[0]).toEqual({ code: 0, stdout: '', stderr: '', badge: '' });
@@ -171,22 +202,7 @@ it('maps independent Codex then shared exact-thread hooks without using the serv
         expect(badge()).toBe(
           '#[push-default]#[fg=green]●#[default]#[pop-default] Codex Reader (tmt)'
         );
-        await fixture.waitFor(
-          () => {
-            const row = db
-              .prepare('SELECT runtime_pid FROM bindings WHERE identity_id = ?')
-              .get(identity.id) as { runtime_pid: number };
-            try {
-              process.kill(row.runtime_pid, 0);
-              return false;
-            } catch (error) {
-              if ((error as NodeJS.ErrnoException).code === 'ESRCH') return true;
-              throw error;
-            }
-          },
-          5000,
-          'shared fixture process exit'
-        );
+        await waitForRuntimeExit(fixture, runtimePid(), sharedStatus);
 
         const resumed = path.join(fixture.root, 'resumed-client.json');
         const release = path.join(fixture.root, 'release-client');
@@ -197,6 +213,8 @@ it('maps independent Codex then shared exact-thread hooks without using the serv
           0o700
         );
         const resumeCommand = [
+          'env',
+          `HOME=${home}`,
           fixture.executables.cli.executable,
           ...fixture.executables.cli.args,
           'run',
@@ -237,6 +255,76 @@ it('maps independent Codex then shared exact-thread hooks without using the serv
         expect(fs.readFileSync(status, 'utf8')).toBe('0');
         expect(read()).toEqual({ ...before, runtime_state: 'unknown', runtime_mode: 'shared' });
         expect(badge()).toBe('Codex Reader (tmt)');
+      } finally {
+        db.close();
+      }
+    },
+    { mode: 'input-log' }
+  );
+});
+
+it('requires the hook runtime to exit and be reaped after publishing its report', async () => {
+  await withE2EFixture(
+    async (fixture) => {
+      const scenario = path.join(fixture.root, 'held-runtime.json');
+      const report = path.join(fixture.root, 'held-runtime-report.json');
+      const status = path.join(fixture.root, 'held-runtime.status');
+      fs.mkdirSync(path.join(fixture.root, 'home'));
+      fs.writeFileSync(
+        scenario,
+        JSON.stringify([{ args: ['name', 'Held Reader', '-s', '--json'] }, hook('startup')])
+      );
+      const pane = fixture.createShellPane('held-runtime').pane;
+      const command = [
+        'env',
+        `HOME=${path.join(fixture.root, 'home')}`,
+        `TMUX_TEAM_HOME=${fixture.globalDir}`,
+        '/opt/tmt-tests/hook-runtime/codex',
+        fixture.executables.cli.executable,
+        scenario,
+        report,
+        '--listen',
+      ]
+        .map(quote)
+        .join(' ');
+      fixture.tmux([
+        'send-keys',
+        '-t',
+        pane,
+        '-l',
+        `${command}; printf '%s' "$?" > ${quote(status)}`,
+      ]);
+      fixture.tmux(['send-keys', '-t', pane, 'Enter']);
+      await fixture.waitFor(() => fs.existsSync(report), 15000, 'held runtime hook report');
+      const results = JSON.parse(fs.readFileSync(report, 'utf8'));
+      expect(
+        results.every(
+          (item: { code: number; stderr: string }) => item.code === 0 && item.stderr === ''
+        )
+      ).toBe(true);
+      const db = new Database(path.join(fixture.globalDir, 'tmux-team.db'), { readonly: true });
+      try {
+        const identity = JSON.parse(results[0].stdout);
+        expect(JSON.parse(results[1].stdout).hookSpecificOutput.additionalContext).toContain(
+          identity.id
+        );
+        const { runtime_pid: pid } = db
+          .prepare('SELECT runtime_pid FROM bindings WHERE identity_id = ?')
+          .get(identity.id) as { runtime_pid: number };
+        expect(process.kill(pid, 0)).toBe(true);
+        expect(fs.existsSync(status)).toBe(false);
+        await expect(waitForRuntimeExit(fixture, pid, status, 100)).rejects.toThrow(
+          'Timed out waiting for runtime fixture reaped by its pane shell.'
+        );
+        fixture.tmux([
+          'send-keys',
+          '-t',
+          pane,
+          '-l',
+          'Submit your response with the command above.',
+        ]);
+        fixture.tmux(['send-keys', '-t', pane, 'Enter']);
+        await waitForRuntimeExit(fixture, pid, status);
       } finally {
         db.close();
       }
