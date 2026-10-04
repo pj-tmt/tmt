@@ -229,6 +229,7 @@ pub(super) enum Overlay {
     View,
     Theme,
     Switcher,
+    CronList,
 }
 impl Overlay {
     fn id(self) -> tmt_tui::app::ComponentId {
@@ -239,6 +240,7 @@ impl Overlay {
                 Self::View => "view-picker",
                 Self::Theme => "theme-picker",
                 Self::Switcher => "switcher",
+                Self::CronList => "cron-list",
             }
             .into(),
         ]
@@ -317,6 +319,8 @@ pub struct App {
     pub pinned: usize,
     /// The quick switcher (`s`), while open.
     pub switcher: Option<Switcher>,
+    /// The `c` list of every squad's jobs, while open.
+    pub(super) cron_list: Option<super::cronboard::List>,
     pub attention: BTreeMap<String, Attention>,
     pub current: Option<String>,
     pub view: Option<View>,
@@ -1862,6 +1866,7 @@ impl App {
                 Overlay::Theme => vec![vec!["theme-picker".into(), "choices".into()]],
                 Overlay::View => vec![vec!["view-picker".into(), "choices".into()]],
                 Overlay::Settings => vec![vec!["settings".into(), "content".into()]],
+                Overlay::CronList => vec![vec!["cron-list".into(), "choices".into()]],
                 _ => vec![],
             };
             focus.open(id, fields);
@@ -1892,6 +1897,8 @@ impl App {
             Some(Overlay::Theme)
         } else if self.switcher.is_some() {
             Some(Overlay::Switcher)
+        } else if self.cron_list.is_some() {
+            Some(Overlay::CronList)
         } else {
             None
         }
@@ -1960,6 +1967,7 @@ impl App {
                 }
             }),
             Overlay::Switcher => self.switcher_event(event, field),
+            Overlay::CronList => self.cron_list_event(event),
         }
     }
 
@@ -2103,6 +2111,10 @@ impl App {
             KeyCode::Char('/') => self.searching = true,
             // The switcher's key, unless the user bound `s` to something.
             KeyCode::Char('s') if !self.bound(key) => self.switcher = Some(Switcher::default()),
+            // Every squad's jobs, unless the user bound `c` to something.
+            KeyCode::Char('c') if !self.bound(key) && self.cron_shown() => {
+                return self.open_cron_list(None);
+            }
             KeyCode::Char('?') => {
                 self.help_state.borrow_mut().open();
                 self.help = true;
@@ -2214,6 +2226,9 @@ impl App {
         }
         if let Some(switcher) = &self.switcher {
             switcher.surface.borrow_mut().invalidate();
+        }
+        if let Some(list) = &self.cron_list {
+            list.invalidate();
         }
     }
 

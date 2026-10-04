@@ -67,7 +67,12 @@ pub(super) fn next_time(view: &JobView, now_ms: i64) -> Option<String> {
 
 /// `⑤ ⏱ N cron jobs · next <time> <owner> <what> · <clock> · c list`. The preview
 /// steps aside first, then the owner; count, time, clock and the key stay.
-pub(super) fn line(state: &State, now_ms: i64, width: u16, look: Look) -> Option<Line<'static>> {
+pub(in crate::board) fn line(
+    state: &State,
+    now_ms: i64,
+    width: u16,
+    look: Look,
+) -> Option<Line<'static>> {
     let width = usize::from(width);
     let Some(cron) = &state.cron else {
         let reason = first_line(state.failure.as_deref()?);

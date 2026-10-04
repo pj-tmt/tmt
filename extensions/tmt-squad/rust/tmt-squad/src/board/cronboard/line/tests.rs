@@ -1,9 +1,9 @@
 use super::*;
 use tmt_squad::cron::{Holder, Job, Schedule, ScheduleInput};
 
-pub(in crate::board::cronboard) const NOW: i64 = 1_791_124_200_000; // 2026-10-04T14:30:00Z
+pub(in crate::board) const NOW: i64 = 1_791_124_200_000; // 2026-10-04T14:30:00Z
 
-pub(in crate::board::cronboard) fn view(owner: &str, message: &str, next: Option<i64>) -> JobView {
+pub(in crate::board) fn view(owner: &str, message: &str, next: Option<i64>) -> JobView {
     let schedule = Schedule::parse(
         ScheduleInput::Every {
             duration: "30m",
@@ -27,7 +27,7 @@ pub(in crate::board::cronboard) fn view(owner: &str, message: &str, next: Option
     }
 }
 
-pub(in crate::board::cronboard) fn cron(jobs: Vec<JobView>, clock: ClockStatus) -> Cron {
+pub(in crate::board) fn cron(jobs: Vec<JobView>, clock: ClockStatus) -> Cron {
     Cron {
         jobs,
         clock,

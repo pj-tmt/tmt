@@ -66,7 +66,7 @@ pub(crate) fn age_label(age: &Age, now: u64) -> String {
     }
 }
 
-pub(crate) fn hints(width: usize) -> String {
+pub(crate) fn hints(width: usize, cron: bool) -> String {
     // Drop complete optional hints, preserving the two exit/help hints at 80.
     let mut optional = vec![
         "↑↓ move",
@@ -77,6 +77,9 @@ pub(crate) fn hints(width: usize) -> String {
         "s switch",
         "/ search",
     ];
+    if cron {
+        optional.insert(4, "c cron");
+    }
     loop {
         let text = optional
             .iter()
@@ -93,6 +96,27 @@ pub(crate) fn hints(width: usize) -> String {
 
 pub(crate) fn render(frame: &mut Frame, app: &App, area: Rect) {
     render_at(frame, app, area, crate::status::now_ms());
+}
+
+/// ⑤: the cron line is one selectable row; its text comes from the cron projection.
+fn cron_line(app: &App, selected: bool, width: usize, now: u64) -> Line<'static> {
+    let look = app.look();
+    let line = crate::board::cronboard::home_line(&app.cron, now as i64, width as u16, look)
+        .expect("a cron target exists only with a read or its failure");
+    let mut spans: Vec<Span<'static>> = line
+        .spans
+        .into_iter()
+        .map(|span| Span::styled(span.content, look.row_span(selected, span.style, false)))
+        .collect();
+    let used: usize = spans.iter().map(Span::width).sum();
+    spans.push(Span::raw(" ".repeat(width.saturating_sub(used))));
+    let mut line = Line::from(spans);
+    line.style = if selected {
+        look.selection().add_modifier(Modifier::BOLD)
+    } else {
+        look.role(Role::Text)
+    };
+    line
 }
 
 pub(super) fn render_at(frame: &mut Frame, app: &App, area: Rect, now: u64) {
@@ -141,6 +165,13 @@ pub(super) fn render_at(frame: &mut Frame, app: &App, area: Rect, now: u64) {
         ));
     }
     for (index, entry) in entries.iter().enumerate() {
+        if entry.target.section == super::CRON {
+            section = super::CRON;
+            lines.push(Line::default());
+            starts.push(lines.len());
+            lines.push(cron_line(app, index == app.selected, width, now));
+            continue;
+        }
         if section != entry.target.section {
             section = &entry.target.section;
             let count = entries

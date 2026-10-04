@@ -54,6 +54,9 @@ pub(super) fn render(frame: &mut Frame, app: &App, body: Rect, look: crate::look
     if let Some(switcher) = &app.switcher {
         render_switcher(frame, app, switcher, body);
     }
+    if let Some(list) = &app.cron_list {
+        list.render(&app.cron, crate::status::now_ms() as i64, frame, look, body);
+    }
     if let Some(picker) = &app.view_picker {
         crate::board::view_picker::render(frame, picker, look, body);
     }

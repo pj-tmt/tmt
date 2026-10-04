@@ -2,7 +2,9 @@
 //! loaded on the refresh worker. Paint and input only read it; reads and writes
 //! go through `cron_service`, never the store.
 
+mod controller;
 mod line;
+mod list;
 mod load;
 mod rows;
 mod surface;
@@ -10,6 +12,10 @@ mod surface;
 use crate::cron_service::{CronActor, JobView};
 use tmt_squad::cron::ClockStatus;
 
+pub(super) use line::line as home_line;
+#[cfg(test)]
+pub(super) use line::tests::{NOW as TEST_NOW, cron as test_cron, view as test_view};
+pub(super) use list::{Input as ListInput, List};
 pub(super) use load::{Fetch, fetch};
 
 /// One successful read. The same instant produced every field.

@@ -44,7 +44,7 @@ pub(in crate::board) fn toggle_label(app: &App, action: &crate::action::Action) 
 /// The footer names what the most used keys do for the selected row.
 pub(super) fn hints(app: &App, width: usize) -> String {
     if app.view.as_ref().is_some_and(|view| view.home.is_some()) {
-        return crate::board::home::hints(width);
+        return crate::board::home::hints(width, app.cron_shown());
     }
     let bindings = app.bindings();
     let mut hints: Vec<String> = [
@@ -131,6 +131,9 @@ pub(super) fn hints(app: &App, width: usize) -> String {
     hints.extend(["/ search", "←→ tab"].map(str::to_owned));
     if !bindings.contains_key("s") {
         hints.push("s switch".into());
+    }
+    if app.cron_shown() && !bindings.contains_key("c") {
+        hints.push("c cron".into());
     }
     hints.push("q quit".into());
     if app.view.as_ref().is_some_and(|view| view.me.is_none()) {
