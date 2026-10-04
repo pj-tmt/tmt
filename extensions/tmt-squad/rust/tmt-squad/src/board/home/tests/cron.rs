@@ -46,7 +46,7 @@ fn the_cron_line_sits_between_attention_and_squads_in_one_cursor_order() {
     for width in [160, 100, 80] {
         let lines = screen(&app, width);
         let at = |needle: &str| lines.iter().position(|line| line.contains(needle)).unwrap();
-        assert!(at("② ✗ blocked") < at("⑤ ⏱ 1"), "{lines:#?}");
+        assert!(at("✗ blocked") < at("⑤ ⏱ 1"), "{lines:#?}");
         assert!(at("⑤ ⏱ 1") < at("③ squads"), "{lines:#?}");
         assert!(lines[at("⑤ ⏱ 1")].ends_with("c list"), "{lines:#?}");
     }

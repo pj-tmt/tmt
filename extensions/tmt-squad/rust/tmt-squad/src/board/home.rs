@@ -58,7 +58,8 @@ pub struct SquadLine {
     pub squad: String,
     pub lead: Option<Value>,
     pub counts: Counts,
-    pub pressing: Option<Value>,
+    /// Exclusive non-lead membership counts, with one urgency state per known member.
+    pub members: Counts,
 }
 
 #[derive(Debug)]
@@ -86,8 +87,19 @@ pub fn load(
 > {
     let settings = config.tabs()?;
     let squads = squads.iter().collect::<Vec<_>>();
-    let acquired = tab_view::home_sources(core, config, &squads, me);
+    // Models are public session observations, independent of token sampling.
+    let listed = core.json(&["ls"]);
+    let mut acquired = tab_view::home_sources(core, config, &squads, me);
     let public = tab_view::document(config, &settings, order, ALL, &acquired)?;
+    let resumes = match listed {
+        Ok(listed) => super::rate::Input::resumes(&listed),
+        Err(error) => {
+            let mut failure = error.to_json();
+            failure["source"] = json!("models");
+            acquired.failures.push(failure);
+            Default::default()
+        }
+    };
     let inputs = squads
         .iter()
         .filter(|squad| acquired.documents.contains_key(&squad.name))
@@ -102,7 +114,12 @@ pub fn load(
                         names: Default::default(),
                         resumes: acquired
                             .member_ids(&squad.name)
-                            .map(|id| (id.to_owned(), Value::Null))
+                            .map(|id| {
+                                (
+                                    id.to_owned(),
+                                    resumes.get(id).cloned().unwrap_or(Value::Null),
+                                )
+                            })
                             .collect(),
                     },
                 },
@@ -140,6 +157,29 @@ fn counts(rows: &[Value]) -> Counts {
         working: rows.iter().filter(|row| row["state"] == "working").count(),
         idle: rows.iter().filter(|row| row["state"] == "idle").count(),
     }
+}
+
+fn member_counts(rows: &[Value], lead: &Value) -> Counts {
+    let mut counts = Counts::default();
+    for row in rows {
+        if lead["id"].is_string() && row["id"] == lead["id"] {
+            continue;
+        }
+        counts.members += 1;
+        if crate::attention::waits_on_you(row) {
+            counts.waiting += 1;
+        } else {
+            match row["state"].as_str() {
+                Some("blocked") => counts.blocked += 1,
+                Some("review") => counts.review += 1,
+                Some("working") => counts.working += 1,
+                Some("idle") => counts.idle += 1,
+                // Custom or unreported states still count as members.
+                _ => (),
+            }
+        }
+    }
+    counts
 }
 
 fn model(order: &[String], acquired: &Acquired, now: u64) -> Home {
@@ -233,31 +273,12 @@ fn model(order: &[String], acquired: &Acquired, now: u64) -> Home {
             summary.review += one.review;
             summary.working += one.working;
             summary.idle += one.idle;
-            let pressing = sections
-                .iter()
-                .flat_map(|section| &section.rows)
-                .find(|row| row.squad == name)
-                .map(|row| &row.member)
-                .or_else(|| {
-                    rows.iter().min_by_key(|row| {
-                        (
-                            match row["state"].as_str() {
-                                Some("review") => 0,
-                                Some("working") => 1,
-                                Some("idle") => 2,
-                                _ => 3,
-                            },
-                            row["name"].as_str().unwrap_or_default(),
-                        )
-                    })
-                })
-                .cloned();
             let lead = &acquired.documents[name]["squad"]["lead"];
             SquadLine {
                 squad: name.into(),
                 lead: lead.is_object().then(|| lead.clone()),
                 counts: one,
-                pressing,
+                members: member_counts(&rows, lead),
             }
         })
         .collect();
@@ -280,3 +301,5 @@ mod controller;
 mod paint;
 pub(super) use controller::{CRON, Target};
 pub(super) use paint::{age_label, hints, render, summary};
+
+mod tiles;

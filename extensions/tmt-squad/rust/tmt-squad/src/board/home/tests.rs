@@ -35,12 +35,16 @@ impl Fixture {
         acquired
     }
     fn install_core(&self) {
+        if !self.root.join("listed").exists() {
+            fs::write(self.root.join("listed"), r#"{"identities":[]}"#).unwrap();
+        }
         crate::test_support::write_ready_executable(
             self.core.executable(),
             &format!(
                 r#"#!/bin/sh
 printf '%s\n' "$*" >> '{root}/calls'
 case "$1" in
+  ls) cat '{root}/listed'; test ! -f '{root}/models-fail' ;;
   inbox) cat '{root}/inbox'; test ! -f '{root}/inbox-fail' ;;
   api)
     input=$(cat)
@@ -123,7 +127,8 @@ fn empty_and_quiet_home_keep_only_current_sections_and_squad_order() {
     );
     assert_eq!(home.squads[1].squad, "hidden");
     assert_eq!(home.squads[0].lead.as_ref().unwrap()["name"], "lead");
-    assert_eq!(home.squads[0].pressing.as_ref().unwrap()["name"], "worker");
+    assert_eq!(home.squads[0].members.members, 1);
+    assert_eq!(home.squads[0].members.review, 1);
     assert!(home.sections.iter().all(|section| section.rows.is_empty()));
 }
 
@@ -181,7 +186,9 @@ fn shared_sections_deduplicate_within_a_squad_and_keep_cross_squad_memberships()
             since_ms: 30
         })
     );
-    assert_eq!(home.squads[0].pressing.as_ref().unwrap()["id"], "A");
+    assert_eq!(home.squads[0].members.members, 2);
+    assert_eq!(home.squads[0].members.waiting, 1);
+    assert_eq!(home.squads[0].members.blocked, 1);
 }
 
 #[test]
@@ -227,7 +234,7 @@ fn roster(name: &str) -> Value {
 
 #[test]
 fn home_acquisition_reuses_public_reads_and_preserves_all_json_and_text() {
-    let f = Fixture::new("");
+    let f = Fixture::new("[board.token_rate]\nenabled = false\n");
     fs::write(
         f.root.join("inbox"),
         json!({"items":[{
@@ -240,6 +247,7 @@ fn home_acquisition_reuses_public_reads_and_preserves_all_json_and_text() {
     for name in ["a", "b"] {
         fs::write(f.root.join(name), roster(name).to_string()).unwrap();
     }
+    fs::write(f.root.join("listed"), json!({"identities":[{"id":"id-a","resume":{"model":"known-model"}},{"id":"outside","resume":{"model":"outside-model"}}]}).to_string()).unwrap();
     f.install_core();
     let squads = squads();
     let order = vec!["b".into(), "a".into()];
@@ -251,7 +259,12 @@ fn home_acquisition_reuses_public_reads_and_preserves_all_json_and_text() {
     let calls = fs::read_to_string(f.root.join("calls")).unwrap();
     assert_eq!(
         calls.lines().collect::<Vec<_>>(),
-        ["inbox --identity me-id --limit 200 --json", "api", "api"]
+        [
+            "ls --json",
+            "inbox --identity me-id --limit 200 --json",
+            "api",
+            "api"
+        ]
     );
     let inputs = fs::read_to_string(f.root.join("inputs")).unwrap();
     for input in inputs.lines() {
@@ -266,10 +279,13 @@ fn home_acquisition_reuses_public_reads_and_preserves_all_json_and_text() {
             [&format!("id-{name}")]
         );
     }
+    assert_eq!(rates["a"].input.resumes["id-a"]["model"], "known-model");
+    assert!(!rates["a"].settings.enabled);
+    assert!(rates["b"].input.resumes["id-b"].is_null());
     assert!(
         rates
             .values()
-            .all(|rate| rate.input.resumes.values().all(Value::is_null))
+            .all(|rate| !rate.input.resumes.contains_key("outside"))
     );
     let public = tab_view::load(&f.core, &f.config, &squads, &order, Some(&me), ALL).unwrap();
     assert_eq!(
@@ -294,6 +310,34 @@ fn home_acquisition_reuses_public_reads_and_preserves_all_json_and_text() {
     );
     assert_eq!(home.sections[1].rows[0].member["name"], "worker-a");
     assert!(home.sections[1].rows.iter().all(|row| row.age.is_none()));
+}
+
+#[test]
+fn failed_model_read_is_home_only_and_recovers_without_inventing_usage() {
+    let f = Fixture::new("[board.token_rate]\nenabled = false\n");
+    fs::write(f.root.join("inbox"), r#"{"items":[],"more":false}"#).unwrap();
+    for name in ["a", "b"] {
+        fs::write(f.root.join(name), roster(name).to_string()).unwrap();
+    }
+    fs::write(f.root.join("models-fail"), "").unwrap();
+    f.install_core();
+    let (public, home, rates) = load(&f.core, &f.config, &squads(), &[], None).unwrap();
+    assert!(public.document.get("partial").is_none());
+    assert!(
+        !home.incomplete,
+        "model failure does not invent truncated requests"
+    );
+    assert_eq!(home.failures.len(), 1);
+    assert_eq!(home.failures[0]["source"], "models");
+    assert!(
+        rates
+            .values()
+            .all(|rate| rate.input.resumes.values().all(Value::is_null))
+    );
+    fs::remove_file(f.root.join("models-fail")).unwrap();
+    let (recovered, home, _) = load(&f.core, &f.config, &squads(), &[], None).unwrap();
+    assert!(!home.incomplete && home.failures.is_empty());
+    assert_eq!(public.document, recovered.document);
 }
 
 #[test]
@@ -335,3 +379,79 @@ fn failed_roster_and_inbox_are_reported_and_recovery_replaces_the_partial_model(
 
 mod cron;
 mod interaction;
+
+#[test]
+fn tile_members_exclude_the_lead_and_choose_one_urgent_mark_per_membership() {
+    let fixture = Fixture::new("");
+    let mut lead = row("L", "lead", "blocked");
+    lead["pending"] = json!("lead decision");
+    let mut waiting = row("W", "waiting", "blocked");
+    waiting["waitingOnYou"] = json!([{"requestId":"q"}]);
+    let acquired = fixture.acquired(&[(
+        "a",
+        document(
+            "a",
+            lead,
+            vec![
+                waiting,
+                row("B", "blocked", "blocked"),
+                row("R", "review", "review"),
+                row("A", "active", "working"),
+                row("I", "idle", "idle"),
+                row("C", "custom", "investigating"),
+            ],
+        ),
+    )]);
+    let home = model(&["a".into()], &acquired, 100);
+    assert_eq!(
+        home.squads[0].members,
+        Counts {
+            members: 6,
+            waiting: 1,
+            blocked: 1,
+            review: 1,
+            working: 1,
+            idle: 1,
+        }
+    );
+    assert_eq!(home.summary.members, 7);
+    assert_eq!(home.summary.waiting, 2);
+    assert_eq!(
+        home.summary.blocked, 3,
+        "whole-roster summary keeps its public attention semantics"
+    );
+    let acquired = fixture.acquired(&[(
+        "a",
+        document("a", Value::Null, vec![row("W", "worker", "idle")]),
+    )]);
+    let home = model(&["a".into()], &acquired, 100);
+    assert_eq!(home.squads[0].members.members, 1);
+    assert_eq!(home.squads[0].members.idle, 1);
+}
+
+#[test]
+fn home_ages_use_registered_relative_time_and_identify_observed_provenance() {
+    for (elapsed, expected) in [(0, "just now"), (45_000, "45s ago"), (180_000, "3m ago")] {
+        let now = 1_000_000;
+        assert_eq!(
+            paint::age_label(
+                &Age {
+                    source: AgeSource::Request,
+                    since_ms: now - elapsed
+                },
+                now
+            ),
+            expected
+        );
+        assert_eq!(
+            paint::age_label(
+                &Age {
+                    source: AgeSource::Observed,
+                    since_ms: now - elapsed
+                },
+                now
+            ),
+            format!("observed {expected}")
+        );
+    }
+}
