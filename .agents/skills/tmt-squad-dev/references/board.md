@@ -73,8 +73,9 @@ painter directly.
   keeps the rule; a squad without a lead has no lead row and no rule. `display_rows::each_row` is the
   one visitor that also reaches the lead for projections (waiting, staleness, usage, state colors).
   The rule is never selectable, `RowOrigin::Lead` has no section bindings, and a tab switch's cursor
-  start (index 0) is the lead. The lead row's cells and detail are the ordinary row's; its position and the rule
-  say who leads, so it carries no tag and reserves no column width.
+  start (index 0) is the lead. The lead row's cells and detail are the ordinary row's; `RowPaint::lead_tag` adds a dim
+  `lead` two cells after the name inside the member cell (never a row-end label), so it reserves no
+  width on other rows and is cut before the name, entirely below two cells.
   Public documents keep the lead outside `sections`.
 - Occurrence IDs contain tab, authored section slot, source squad and member UUID followed
   by static line/column keys (the lead's scope is `lead`, and its `RowTarget::Lead` the one

@@ -159,7 +159,8 @@ user's board shows it as ✎ until you do. Never edit the user's notes for it.
 
 ## Board appearance
 
-On a squad tab the lead is the first row, in the same columns as the members, followed by
+On a squad tab the lead is the first row, in the same columns as the members, with a
+dim `lead` after its name (cut first when the name cell is narrow), followed by
 the dim rule `── members · N ───` (`── members · 0 · none yet ──` for a squad
 with no member; the numbers exclude the lead). The rule is not a row: ↑/↓ step from
 the lead straight to the first member. Opening a squad tab puts the cursor on
