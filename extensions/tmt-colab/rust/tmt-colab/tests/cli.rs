@@ -1042,6 +1042,45 @@ fn create_supports_empty_source_and_stdin_and_refuses_invalid_input_before_state
 }
 const DOOR: &str = r#"{"running":true,"origin":"http://127.0.0.1:53253","path":"/r/3e2c69f7"}"#;
 #[test]
+fn reader_links_print_a_full_url_only_while_a_door_runs() {
+    let pilot = Pilot::new(None);
+    seed_page(&pilot);
+    pilot.call(&["share", "mode", PAGE, "link", "--yes", "--json"]);
+    let add = |status: Option<&str>, extra: &[&str]| {
+        let mut command = status.map_or_else(|| pilot.command(), |s| pilot.command_with_door(s));
+        let out = command
+            .args(["share", "link", "add", PAGE, "--yes"])
+            .args(extra)
+            .output()
+            .unwrap();
+        assert!(out.status.success(), "{out:?}");
+        String::from_utf8(out.stdout).unwrap()
+    };
+    // No door: the path alone, with how to get a full link.
+    let plain: Value = serde_json::from_str(&add(None, &["--json"])).unwrap();
+    assert!(plain.get("readerUrl").is_none());
+    assert!(add(None, &[]).contains("start tmt remote serve to get a full link"));
+    let running: Value = serde_json::from_str(&add(Some(DOOR), &["--json"])).unwrap();
+    let path = running["readerPath"].as_str().unwrap();
+    assert_eq!(
+        running["readerUrl"],
+        format!("http://127.0.0.1:53253/r/3e2c69f7/{path}")
+    );
+    let human = add(Some(DOOR), &[]);
+    assert!(
+        human.contains("http://127.0.0.1:53253/r/3e2c69f7/x/colab/read#v=1&"),
+        "{human}"
+    );
+    assert!(!human.contains("start tmt remote serve"));
+    // The listing never carries a link, with or without a door.
+    let listed = pilot
+        .command_with_door(DOOR)
+        .args(["share", "link", "list", PAGE, "--json"])
+        .output()
+        .unwrap();
+    assert!(!String::from_utf8_lossy(&listed.stdout).contains("readerUrl"));
+}
+#[test]
 fn created_pages_print_a_copyable_full_link_only_while_a_door_runs() {
     let pilot = Pilot::new(None);
     let json = |status: &str| -> Value {

@@ -617,7 +617,12 @@ pub fn run(command: &str, args: &ArgMatches, root: &Path, json_output: bool) -> 
             _ => None,
         };
         if let Some(created) = created {
-            value["readerPath"] = json!(reader_path(&key.space_id, &id, created, &ack.membership_head));
+            let path = reader_path(&key.space_id, &id, created, &ack.membership_head);
+            // The door is looked up after the commit, so a slow answer never delays the effect.
+            if let crate::door::Lookup::Running(door) = crate::door::Door::lookup() {
+                value["readerUrl"] = json!(door.url(&path));
+            }
+            value["readerPath"] = json!(path);
         }
         Ok(value)
     })()
@@ -700,6 +705,13 @@ fn human_fields(value: &Value) -> Result<Vec<(String, String)>> {
                     ),
                 ));
             }
+            // The full link replaces the relative one; without a door the path says how to get one.
+            "readerUrl" => fields.push(("reader link".to_owned(), text(v))),
+            "readerPath" if object.contains_key("readerUrl") => {}
+            "readerPath" => fields.push((
+                "reader link".to_owned(),
+                format!("{} (start tmt remote serve to get a full link)", text(v)),
+            )),
             "members" => fields.push(("members".to_owned(), principals(v))),
             "links" => fields.push(("links".to_owned(), principals(v))),
             _ => fields.push((key.clone(), text(v))),

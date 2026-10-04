@@ -626,7 +626,8 @@ fences.
 ```
 
 The CLI prints the relative form `x/colab/read#...` (field `readerPath`), like `page create`'s
-`path`; the owner prepends the Remote door address `tmt remote pair` printed. Everything is in
+`path`; while a door runs it also prints the complete link as `readerUrl` (door discovery below),
+otherwise the owner prepends the Remote door address `tmt remote pair` printed. Everything is in
 the fragment, which a browser never sends to a server. Path and query carry nothing, and the
 seed appears nowhere else in any output. `rev` and `st` are the revision and canonical
 base64url hash of the `link.add` statement that introduced the link: the link-device chain
