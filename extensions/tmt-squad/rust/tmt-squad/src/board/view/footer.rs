@@ -132,8 +132,8 @@ pub(super) fn hints(app: &App, width: usize) -> String {
     if app.jobs_focus {
         return crate::board::cronboard::jobs_hints(width);
     }
-    if app.view.as_ref().is_some_and(|view| view.home.is_some()) {
-        return crate::board::home::hints(width, app.cron_shown());
+    if let Some(view) = app.view.as_ref().filter(|view| view.home.is_some()) {
+        return crate::board::home::hints_of(view, width, app.cron_shown());
     }
     let bindings = app.bindings();
     // One hint per action the effective bindings give the footer, ranked by

@@ -3,7 +3,7 @@
 //! into a scratch buffer whose rows join HOME's line stream. The stream, the
 //! shared cursor, hits, reveal and input reservations stay with the painter that
 //! owns them; a section only reports where each of its blocks landed.
-use crate::board::picker_surface::Data;
+use crate::{board::picker_surface::Data, look::Look};
 use ratatui::{
     buffer::Buffer,
     layout::Rect,
@@ -25,6 +25,52 @@ use unicode_width::UnicodeWidthStr;
 pub(super) fn compile(file: &str, markup: &str, schema: &Schema) -> Template<()> {
     let parsed = tmt_tui::parse(file, markup).expect("embedded HOME markup");
     tmt_tui::binding::compile(file, &parsed, schema, &Data).expect("embedded HOME schema")
+}
+
+/// Everything a section's painted output is a function of: the bound data (every
+/// clock-derived label, composer reservation and feedback line enters through
+/// it), the width, the look and the selected block. A section's template is fixed
+/// per slot, so equal keys paint equal lines.
+#[derive(PartialEq)]
+pub(super) struct Key {
+    pub width: u16,
+    pub look: Look,
+    pub selected: Option<String>,
+    pub data: Value,
+}
+
+/// A section's last painted output with the key it was painted for. It lives in
+/// the immutable view's derivations, so a new snapshot starts empty.
+pub(super) struct Kept<T> {
+    held: Option<(Key, T)>,
+    #[cfg(test)]
+    pub builds: usize,
+}
+
+impl<T> Default for Kept<T> {
+    fn default() -> Self {
+        Self {
+            held: None,
+            #[cfg(test)]
+            builds: 0,
+        }
+    }
+}
+
+impl<T> Kept<T> {
+    /// The output for `key`: the held one when the key is unchanged, otherwise
+    /// `build`'s, which replaces it.
+    pub fn get(&mut self, key: Key, build: impl FnOnce(&Key) -> T) -> &T {
+        if self.held.as_ref().is_none_or(|(held, _)| *held != key) {
+            let value = build(&key);
+            self.held = Some((key, value));
+            #[cfg(test)]
+            {
+                self.builds += 1;
+            }
+        }
+        &self.held.as_ref().expect("a held scene").1
+    }
 }
 
 /// The painted section and where each identified node landed.

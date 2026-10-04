@@ -296,12 +296,47 @@ fn model(order: &[String], acquired: &Acquired, now: u64) -> Home {
 }
 
 #[cfg(test)]
-mod tests;
+pub(super) mod tests;
 
 mod controller;
 mod paint;
 pub(super) use controller::{ALL_LEADS, CRON, LEADS, Target};
-pub(super) use paint::{age_label, hints, render, summary, usage};
+pub(super) use paint::{age_label, hints_of, render, summary_of, usage_of};
+
+/// The painted sections of one immutable view, each held with the key it was
+/// painted for (see `scene::Key`). A new snapshot starts empty, like the rows'
+/// derivations.
+#[derive(Default)]
+pub(super) struct Scenes {
+    /// By section: `needs-you`, `blocked`, and `quiet` for the empty needs-you rule.
+    attention: std::collections::BTreeMap<&'static str, scene::Kept<attention::Block>>,
+    leads: scene::Kept<leads::Block>,
+    audience: scene::Kept<rows::Block>,
+    cron: scene::Kept<rows::Block>,
+    squads: scene::Kept<tiles::TilePaint>,
+    /// The strips outside the body.
+    summary: scene::Kept<ratatui::text::Line<'static>>,
+    usage: scene::Kept<Option<ratatui::text::Line<'static>>>,
+    hints: scene::Kept<String>,
+}
+
+impl Scenes {
+    /// How many scenes were solved and painted since the view began.
+    #[cfg(test)]
+    pub(super) fn builds(&self) -> usize {
+        self.attention
+            .values()
+            .map(|slot| slot.builds)
+            .sum::<usize>()
+            + self.leads.builds
+            + self.audience.builds
+            + self.cron.builds
+            + self.squads.builds
+            + self.summary.builds
+            + self.usage.builds
+            + self.hints.builds
+    }
+}
 
 mod attention;
 mod bar;

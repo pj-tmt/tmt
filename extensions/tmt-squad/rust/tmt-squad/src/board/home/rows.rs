@@ -1,14 +1,14 @@
 //! The two one-line targets between the leads and the squads: the `→ all leads`
 //! audience line and the cron line. Each is one selectable row; the cron line's
 //! text comes from the cron projection, the audience line's from this module.
-use super::scene::{self, Part};
+use super::scene::{self, Kept, Key, Part};
 use crate::{board::app::App, board::view::fit, look::Look};
 use ratatui::{
     layout::Rect,
     style::{Modifier, Style},
     text::Line,
 };
-use serde_json::{Value, json};
+use serde_json::json;
 use std::{ops::Range, sync::OnceLock};
 use tmt_cli_style::{Role, grid::Align};
 use tmt_tui::binding::{Schema, Template};
@@ -61,6 +61,7 @@ pub(super) enum Kind {
     Cron,
 }
 
+#[derive(Clone)]
 pub(super) struct Block {
     pub lines: Vec<Line<'static>>,
     /// The row itself, relative to the block.
@@ -68,9 +69,17 @@ pub(super) struct Block {
     pub reserve: Option<Range<usize>>,
 }
 
-/// The row for the entry at `index`. The audience line reserves composer lines
-/// under it; the cron line has no composer.
-pub(super) fn paint(app: &App, look: Look, area: Rect, kind: Kind, index: usize) -> Block {
+/// The row for the entry at `index`, painted again only when its key changed.
+/// The audience line reserves composer lines under it; the cron line has no
+/// composer. One slot serves one kind.
+pub(super) fn paint(
+    app: &App,
+    look: Look,
+    area: Rect,
+    kind: Kind,
+    index: usize,
+    slot: &mut Kept<Block>,
+) -> Block {
     let pieces: Vec<(String, Role)> = match kind {
         Kind::AllLeads => vec![(
             fit(
@@ -89,19 +98,30 @@ pub(super) fn paint(app: &App, look: Look, area: Rect, kind: Kind, index: usize)
     } else {
         0
     };
-    let selected = index == app.selected;
-    let data: Value = json!({
-        "gap": if kind == Kind::Cron { vec![json!({})] } else { Vec::new() },
-        "pieces": pieces.iter().enumerate().map(|(at, (text, role))| {
-            json!({"id": format!("p{at}"), "text": text, "role": role.name()})
-        }).collect::<Vec<_>>(),
-        "reserve": (0..reserved).map(|at| json!({"id": format!("reserve-{at}")})).collect::<Vec<_>>(),
-    });
+    let key = Key {
+        width: area.width,
+        look,
+        selected: (index == app.selected).then(|| "row".to_owned()),
+        data: json!({
+            "gap": if kind == Kind::Cron { vec![json!({})] } else { Vec::new() },
+            "pieces": pieces.iter().enumerate().map(|(at, (text, role))| {
+                json!({"id": format!("p{at}"), "text": text, "role": role.name()})
+            }).collect::<Vec<_>>(),
+            "reserve": (0..reserved).map(|at| json!({"id": format!("reserve-{at}")})).collect::<Vec<_>>(),
+        }),
+    };
+    slot.get(key, |key| build(key, kind)).clone()
+}
+
+fn build(key: &Key, kind: Kind) -> Block {
+    let look = key.look;
+    let selected = key.selected.is_some();
+    let reserved = key.data["reserve"].as_array().map_or(0, Vec::len);
     let painted = scene::paint(
         FILE,
         template(),
-        &data,
-        area.width,
+        &key.data,
+        key.width,
         &mut |Part { id, role, .. }| {
             let part = id.and_then(<[String]>::last).map(String::as_str);
             let base = if selected {

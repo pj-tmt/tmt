@@ -357,6 +357,17 @@ by record when no positions were drawn.
   entry/x/width/start/end placements; home translates them into the shared cursor, paging,
   reveal and clipped hits.
   Their acquisition and lifecycle owners stay outside paint.
+- Each home section and the summary, usage and key-line strips is held in a
+  `home::scene::Kept` of the immutable view's `Derived` (`home::Scenes`) with its
+  `scene::Key`: the bound data, the width, the look and the selected block. Everything a
+  section shows enters through the data it binds, so clock-derived text (ages, the cron
+  time), composer reservations, the `✓ sent` line, search and usage are formatted before
+  the keys are compared, and a section's decorate callback may read only the look and the
+  selected block. A section reports entries relative to itself (the stream adds its
+  offset), so a shifted section keeps its block. A selection move repaints the section left
+  and the one entered; a new width or look repaints all (the key line takes no style); a new
+  snapshot starts empty. Anything a section starts to show must be bound data or part of the
+  key: `home::tests::cache` compares held frames with frames painted from nothing.
 
 ## Cron on the board
 

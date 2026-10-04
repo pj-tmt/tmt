@@ -4,9 +4,9 @@
 //! CARGO_BUILD_JOBS=2 cargo test --release -p tmt-squad frame_timing -- --ignored --nocapture
 //! ```
 //!
-//! Each scene (crew rows, team rows, home; the token meter is on in every scene)
-//! is drawn through `Terminal::draw` on a `TestBackend`, so ratatui's buffer diff
-//! is part of the cost. The surface split times the phases `view::render` runs, in
+//! Each scene (crew rows, team rows, home with attention sections only, home with
+//! every section; the token meter is on in all but the last) is drawn through
+//! `Terminal::draw` on a `TestBackend`, so ratatui's buffer diff is part of the cost. The surface split times the phases `view::render` runs, in
 //! its order; `render_replica_matches_render` keeps the replica honest. Pane
 //! painters, the rows scene and the outlines are timed again on their own, and the
 //! microbench times `strip::paint_*` alone. Numbers vary with the machine: compare
@@ -95,11 +95,10 @@ fn render_replica(frame: &mut Frame, app: &App, lap: &mut Lap) {
     let summary_text = app
         .view
         .as_ref()
-        .filter(|_| !app.loading())
-        .and_then(|view| view.home.as_ref())
+        .filter(|view| !app.loading() && view.home.is_some())
         .map_or_else(
             || header::summary_line(app),
-            |home| crate::board::home::summary(home, summary.width, look),
+            |view| crate::board::home::summary_of(view, summary.width, look),
         );
     let summary_area = header::meter_region(app, summary).map_or(summary, |(meter, _)| Rect {
         width: meter.x.saturating_sub(summary.x).saturating_sub(2),
@@ -243,6 +242,15 @@ fn home_board() -> App {
     view.me = Some("ben".into());
     view.bindings = crate::action::all_preset();
     meter(&mut app);
+    app.set_body_width(WIDTH);
+    app
+}
+
+/// Every HOME section: needs-you and blocked attention, the leads list with its
+/// exchanges, the audience line, cron and the squads table (the HOME oracle's
+/// model). It is the all-squads tab, which has no meter strips.
+fn home_full_board() -> App {
+    let mut app = crate::board::home::tests::oracle::rich();
     app.set_body_width(WIDTH);
     app
 }
@@ -539,6 +547,7 @@ fn frame_timing_report() {
         measure("crew rows + meter", crew),
         measure("team rows + meter", member_board(Layout::Team)),
         measure("home + meter", home_board()),
+        measure("home, all sections", home_full_board()),
     ] {
         print(&report);
     }
@@ -546,10 +555,11 @@ fn frame_timing_report() {
 
 #[test]
 fn render_replica_matches_render() {
-    for (app, sentinel) in [
-        (member_board(Layout::Crew), "member-05"),
-        (member_board(Layout::Team), "member-05"),
-        (home_board(), "needs you"),
+    for (app, sentinel, metered) in [
+        (member_board(Layout::Crew), "member-05", true),
+        (member_board(Layout::Team), "member-05", true),
+        (home_board(), "needs you", true),
+        (home_full_board(), "squads", false),
     ] {
         let mut expected = terminal();
         expected.draw(|frame| render(frame, &app)).unwrap();
@@ -566,7 +576,11 @@ fn render_replica_matches_render() {
             .map(|cell| cell.symbol())
             .collect();
         assert!(screen.contains(sentinel), "the scene shows {sentinel}");
-        assert!(screen.contains("tok"), "the meter is on in every scene");
+        assert_eq!(
+            screen.contains("tok"),
+            metered,
+            "the meter is on where expected"
+        );
         assert!(
             !app.hits.borrow().is_empty(),
             "the scene has interactive rows"

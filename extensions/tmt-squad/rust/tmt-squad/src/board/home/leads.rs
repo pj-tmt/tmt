@@ -4,7 +4,7 @@
 use super::{
     controller::HomeEntry,
     paint::rule,
-    scene::{self, Part},
+    scene::{self, Kept, Key, Part},
 };
 use crate::{
     board::{
@@ -141,14 +141,17 @@ impl Chrome {
 }
 
 /// What the section reports back, relative to its own first line.
+#[derive(Clone)]
 pub(super) struct Block {
     pub lines: Vec<Line<'static>>,
     pub leads: Vec<LeadSpan>,
 }
 
+#[derive(Clone)]
 pub(super) struct LeadSpan {
-    /// The entry's ordinal in `App::home_entries`.
-    pub index: usize,
+    /// The lead's ordinal within the section; the section's `first` is the
+    /// caller's, so a shifted section keeps its cached block.
+    pub local: usize,
     /// The heading line.
     pub start: usize,
     /// The heading and the preview under it: the lead's hits.
@@ -234,15 +237,21 @@ fn heading(lead: &Lead, width: u16, now: u64) -> Value {
     })
 }
 
-pub(super) fn paint(app: &App, look: Look, area: Rect, now: u64, section: &Section<'_>) -> Block {
-    let chrome = Chrome::new(area.width, look);
+/// The section's block, painted again only when its key changed.
+pub(super) fn paint(
+    app: &App,
+    look: Look,
+    area: Rect,
+    now: u64,
+    section: &Section<'_>,
+    slot: &mut Kept<Block>,
+) -> Block {
     let inner = Rect {
         x: area.x.saturating_add(1),
         width: area.width.saturating_sub(2),
         ..area
     };
     let mut previous_exchange = false;
-    let mut reserving = Vec::new();
     let rows =
         section
             .leads
@@ -275,7 +284,6 @@ pub(super) fn paint(app: &App, look: Look, area: Rect, now: u64, section: &Secti
                 }
                 let reserved = crate::board::view::waiting::reserved_lines(app, index, inner)
                     .unwrap_or_default();
-                reserving.push(reserved);
                 after.extend((0..reserved).map(
                     |line| json!({"id": format!("reserve-{line}"), "text": null, "role": null}),
                 ));
@@ -295,10 +303,11 @@ pub(super) fn paint(app: &App, look: Look, area: Rect, now: u64, section: &Secti
         .checked_sub(section.first)
         .filter(|local| *local < section.leads.len())
         .map(id);
-    let painted = scene::paint(
-        FILE,
-        template(),
-        &json!({
+    let key = Key {
+        width: area.width,
+        look,
+        selected,
+        data: json!({
             "head": [
                 {"id": "gap", "text": null, "role": null},
                 {
@@ -313,13 +322,38 @@ pub(super) fn paint(app: &App, look: Look, area: Rect, now: u64, section: &Secti
                     "role": Role::Muted.name(),
                 },
             ],
-            "top": chrome.top,
-            "bottom": chrome.bottom,
-            "left": chrome.left,
-            "right": chrome.right,
             "leads": rows,
         }),
-        area.width,
+    };
+    slot.get(key, build).clone()
+}
+
+/// The box's border strings are a function of the width alone, so they are read
+/// only when the section is painted.
+fn build(key: &Key) -> Block {
+    let look = key.look;
+    let selected = key.selected.as_deref();
+    let chrome = Chrome::new(key.width, look);
+    let reserving = key.data["leads"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .map(|lead| {
+            lead["after"].as_array().map_or(0, |after| {
+                after.iter().filter(|line| line["text"].is_null()).count()
+            })
+        })
+        .collect::<Vec<_>>();
+    let mut data = key.data.clone();
+    data["top"] = json!(chrome.top);
+    data["bottom"] = json!(chrome.bottom);
+    data["left"] = json!(chrome.left);
+    data["right"] = json!(chrome.right);
+    let painted = scene::paint(
+        FILE,
+        template(),
+        &data,
+        key.width,
         &mut |Part {
                   id: node,
                   scope,
@@ -329,8 +363,7 @@ pub(super) fn paint(app: &App, look: Look, area: Rect, now: u64, section: &Secti
             let line = node.and_then(|node| node.get(1)).map(String::as_str);
             let lead = scope.and_then(<[String]>::first).map(String::as_str);
             // Only a heading is ever selected; the lines under it keep their own style.
-            let selected =
-                selected.as_deref().is_some_and(|id| Some(id) == lead) && line == Some("head");
+            let selected = selected.is_some_and(|id| Some(id) == lead) && line == Some("head");
             let boxed = |style: Style| {
                 if selected {
                     look.selection().patch(style)
@@ -359,7 +392,7 @@ pub(super) fn paint(app: &App, look: Look, area: Rect, now: u64, section: &Secti
             (style, Align::Left)
         },
     );
-    let leads = (0..section.leads.len())
+    let leads = (0..reserving.len())
         .map(|local| {
             let lead = painted.lines(&[&id(local)]).expect("every lead is a block");
             let head = painted
@@ -367,7 +400,7 @@ pub(super) fn paint(app: &App, look: Look, area: Rect, now: u64, section: &Secti
                 .expect("every lead has a heading");
             let preview = painted.lines(&[&id(local), "preview"]);
             LeadSpan {
-                index: section.first + local,
+                local,
                 start: head.start,
                 hit: head.start..preview.map_or(head.end, |preview| preview.end),
                 end: lead.end,
