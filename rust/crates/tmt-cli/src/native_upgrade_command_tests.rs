@@ -170,3 +170,29 @@ fn upgrade_json_retains_rate_limit_reset_and_token_hint_in_cause() {
     assert_eq!(document["error"]["code"], "NATIVE_UPGRADE_FAILED");
     assert_eq!(document["error"]["cause"], cause);
 }
+
+#[test]
+fn skills_summary_counts_only_missing_core_skills() {
+    let office = json!({
+        "refreshed": vec![json!({"target": "/a/tmux-team", "changed": false}); 8],
+        "skipped": [
+            "/a/tmt-office", "/a/tmt-avatar-create", "/a/tmt-prop-create",
+            "/b/tmt-office", "/b/tmt-avatar-create", "/b/tmt-prop-create"
+        ],
+        "conflicts": [],
+    });
+    assert_eq!(
+        skills_summary(&office),
+        "Managed skills: 8 current/refreshed."
+    );
+    let mut missing = office.clone();
+    missing["skipped"]
+        .as_array_mut()
+        .unwrap()
+        .push(json!("/c/tmux-team"));
+    missing["conflicts"] = json!(["/d/tmt-inbox"]);
+    assert_eq!(
+        skills_summary(&missing),
+        "Managed skills: 8 current/refreshed, 1 missing, 1 conflicts preserved."
+    );
+}
