@@ -15,9 +15,9 @@ use crate::{
 use ratatui::{
     Frame,
     layout::Rect,
-    style::Modifier,
     text::{Line, Span},
 };
+use std::ops::Range;
 use tmt_cli_style::{
     Role,
     breakpoint::{LG, MD},
@@ -229,27 +229,6 @@ pub(crate) fn render(frame: &mut Frame, app: &App, area: Rect) {
     render_at(frame, app, area, crate::status::now_ms());
 }
 
-/// Home: the cron line is one selectable row; its text comes from the cron projection.
-fn cron_line(app: &App, selected: bool, width: usize) -> Line<'static> {
-    let look = app.look();
-    let line = crate::board::cronboard::home_line(&app.cron, app.cron.now_ms(), width as u16, look)
-        .expect("a cron target exists only with a read or its failure");
-    let mut spans: Vec<Span<'static>> = line
-        .spans
-        .into_iter()
-        .map(|span| Span::styled(span.content, look.row_span(selected, span.style, false)))
-        .collect();
-    let used: usize = spans.iter().map(Span::width).sum();
-    spans.push(Span::raw(" ".repeat(width.saturating_sub(used))));
-    let mut line = Line::from(spans);
-    line.style = if selected {
-        look.selection().add_modifier(Modifier::BOLD)
-    } else {
-        look.role(Role::Text)
-    };
-    line
-}
-
 pub(super) fn render_at(frame: &mut Frame, app: &App, area: Rect, now: u64) {
     let view = app.view.as_ref().expect("home dispatcher has a view");
     let home = view.home.as_ref().expect("home dispatcher has a model");
@@ -437,40 +416,26 @@ pub(super) fn render_at(frame: &mut Frame, app: &App, area: Rect, now: u64) {
             }
             continue;
         }
-        if entry.target.section == super::ALL_LEADS {
-            section = super::ALL_LEADS;
-            let start = lines.len();
-            starts.push(start);
-            regions.push((index, start..start + 1, 0, area.width));
-            let selected = index == app.selected;
-            lines.push(Line::styled(
-                fit("→ all leads  A to write · @ to pick", width),
-                if selected {
-                    look.selection().add_modifier(Modifier::BOLD)
-                } else {
-                    look.role(Role::Muted)
-                },
-            ));
-            if let Some(range) =
-                crate::board::view::waiting::reserve_input(app, index, area, &mut lines)
-            {
-                input_range = Some(range);
+        if entry.target.section == super::ALL_LEADS || entry.target.section == super::CRON {
+            let kind = if entry.target.section == super::CRON {
+                super::rows::Kind::Cron
+            } else {
+                super::rows::Kind::AllLeads
+            };
+            section = &entry.target.section;
+            let block = super::rows::paint(app, look, area, kind, index);
+            let base = lines.len();
+            lines.extend(block.lines);
+            starts.push(base + block.row);
+            regions.push((index, base + block.row..base + block.row + 1, 0, area.width));
+            if index == app.selected {
+                selected_range = base + block.row
+                    ..base + block.row + 1 + block.reserve.as_ref().map_or(0, Range::len);
+            }
+            if let Some(range) = block.reserve {
+                input_range = Some(base + range.start..base + range.end);
                 input_area = area;
             }
-            if selected {
-                selected_range = start..lines.len();
-            }
-            continue;
-        }
-        if entry.target.section == super::CRON {
-            section = super::CRON;
-            lines.push(Line::default());
-            starts.push(lines.len());
-            regions.push((index, lines.len()..lines.len() + 1, 0, area.width));
-            if index == app.selected {
-                selected_range = lines.len()..lines.len() + 1;
-            }
-            lines.push(cron_line(app, index == app.selected, width));
             continue;
         }
         if section != entry.target.section {

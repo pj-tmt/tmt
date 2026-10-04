@@ -2,7 +2,10 @@
 //! the projection it is given and never reads core, the store or the clock.
 
 use super::State;
-use crate::{board::notes::sanitize, board::view::fit, cron_service::JobView, look::Look};
+#[cfg(test)]
+use crate::look::Look;
+use crate::{board::notes::sanitize, board::view::fit, cron_service::JobView};
+#[cfg(test)]
 use ratatui::text::{Line, Span};
 use tmt_cli_style::Role;
 use tmt_squad::cron::ClockStatus;
@@ -110,24 +113,20 @@ pub(super) fn next_time(view: &JobView, now_ms: i64) -> Option<String> {
     time(*view.next_ms.first()?, now_ms, &zone(view))
 }
 
+/// A piece of display text and the role it is drawn in.
+pub(in crate::board) type Piece = (String, Role);
+
 /// Home keeps count, next time, owner, clock state and the list key; job text
 /// and clock locations remain behind `c`. A stale/failure projection stays explicit.
-pub(in crate::board) fn line(
-    state: &State,
-    now_ms: i64,
-    width: u16,
-    look: Look,
-) -> Option<Line<'static>> {
+/// The pieces add up to at most `width` cells; the painter owns their styles.
+pub(in crate::board) fn pieces(state: &State, now_ms: i64, width: u16) -> Option<Vec<Piece>> {
     let width = usize::from(width);
     let Some(cron) = &state.cron else {
         let text = format!(
             "cron · ✗ jobs unavailable: {}",
             first_line(state.failure.as_deref()?)
         );
-        return Some(Line::styled(
-            fit(&text, width.min(text.width())),
-            look.role(Role::Blocked),
-        ));
+        return Some(vec![(fit(&text, width.min(text.width())), Role::Blocked)]);
     };
     let (clock, clock_role) = match &cron.clock {
         ClockStatus::Running(_) => ("clock on", Role::Dim),
@@ -141,42 +140,54 @@ pub(in crate::board) fn line(
         if cron.jobs.len() == 1 { "" } else { "s" }
     );
     let tail = format!(" · {clock} · c list");
-    let mut spans = vec![Span::styled(count.clone(), look.role(Role::Text))];
+    let width_of =
+        |pieces: &[Piece]| -> usize { pieces.iter().map(|(text, _)| text.width()).sum() };
+    let mut pieces = vec![(count.clone(), Role::Text)];
     if state.failure.is_some() {
-        spans.push(Span::styled(" · ! stale", look.role(Role::Waiting)));
+        pieces.push((" · ! stale".into(), Role::Waiting));
     }
     if let Some((_, view)) = cron.next()
         && let Some(time) = next_time(view, now_ms)
     {
         let next = format!(" · next {time}");
-        let used: usize = spans.iter().map(Span::width).sum();
-        if used + next.width() + tail.width() <= width {
-            spans.push(Span::styled(next, look.role(Role::Text)));
+        if width_of(&pieces) + next.width() + tail.width() <= width {
+            pieces.push((next, Role::Text));
             let owner = first_line(view.owner_name.as_deref().unwrap_or("no owner"));
-            let used: usize = spans.iter().map(Span::width).sum();
-            let room = width.saturating_sub(used + tail.width() + 1);
+            let room = width.saturating_sub(width_of(&pieces) + tail.width() + 1);
             if room > 0 {
-                spans.push(Span::styled(
+                pieces.push((
                     format!(" {}", fit(&owner, room.min(owner.width()))),
-                    look.role(Role::Text),
+                    Role::Text,
                 ));
             }
         }
     }
-    spans.extend([
-        Span::styled(" · ", look.role(Role::Dim)),
-        Span::styled(clock, look.role(clock_role)),
-        Span::styled(" · c list", look.role(Role::Muted)),
+    pieces.extend([
+        (" · ".into(), Role::Dim),
+        (clock.into(), clock_role),
+        (" · c list".into(), Role::Muted),
     ]);
-    let line = Line::from(spans);
-    if line.width() <= width {
-        Some(line)
+    if width_of(&pieces) <= width {
+        Some(pieces)
     } else {
-        Some(Line::styled(
-            fit(&format!("{count}{tail}"), width),
-            look.role(clock_role),
-        ))
+        Some(vec![(fit(&format!("{count}{tail}"), width), clock_role)])
     }
+}
+
+/// The same pieces as a styled line, for the text the tests compare.
+#[cfg(test)]
+pub(in crate::board) fn line(
+    state: &State,
+    now_ms: i64,
+    width: u16,
+    look: Look,
+) -> Option<Line<'static>> {
+    Some(Line::from(
+        pieces(state, now_ms, width)?
+            .into_iter()
+            .map(|(text, role)| Span::styled(text, look.role(role)))
+            .collect::<Vec<_>>(),
+    ))
 }
 
 #[cfg(test)]

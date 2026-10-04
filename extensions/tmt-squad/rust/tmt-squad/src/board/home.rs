@@ -305,5 +305,6 @@ pub(super) use paint::{age_label, hints, render, summary, usage};
 
 mod attention;
 mod leads;
+mod rows;
 mod scene;
 mod tiles;
