@@ -387,6 +387,10 @@ here reads the store or core directly.
   moves between the two fields and query edits reset to the first match. Refresh follows the
   selected complete tab key, and resize or model replacement invalidates hits. Its semantic
   attention spans use shared hit geometry and Squad's tab-color/selection policy.
+- A modal controller returns `None` only for an event it does not take. `tmt-tui::app::route`
+  offers a `None` again to the overlay layer, so a controller that consumed a move and returned
+  `None` applied it twice (the `c` list jumped two jobs per press). Consumed events, including
+  boundary presses, return `Some`; the shared picker reports them as `PickerInput::Captured`.
 - All of these use shared modal chrome, wrapping, scrolling and inside footers. Settings use
   grouped stable-key list rows for the reference and an admitted docked prompt for edits; the
   Config controller keeps raw edit text, validation, the disposable preview, stale-file refusal
