@@ -185,7 +185,7 @@ pub(super) fn model(app: &App) -> KeyHelp {
             "tab switcher",
             &[(
                 &pick_keys,
-                "include or exclude the highlighted tab on this board; writes no configuration",
+                "pick or unpick the highlighted tab on this board; writes no configuration",
             )],
         ));
     }

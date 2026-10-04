@@ -165,7 +165,7 @@ impl Action {
             Verb::Notes => "show the lead's notes".into(),
             Verb::Refresh => "refresh the board now".into(),
             Verb::TokenWindow => "switch the token time window".into(),
-            Verb::PickTab => "include or exclude a tab on this board".into(),
+            Verb::PickTab => "pick or unpick a tab on this board".into(),
             Verb::Theme => "pick a theme".into(),
             Verb::Settings => "show settings".into(),
             Verb::View => "pick a pane layout".into(),
@@ -426,6 +426,7 @@ mod tests {
             }
         }
         for (configured, description) in [
+            ("pick-tab", "pick or unpick a tab on this board"),
             ("jump", "go to the member's pane"),
             ("jump lead", "go to the lead's pane"),
             ("annotate member", "send the member a note"),

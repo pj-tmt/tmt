@@ -177,10 +177,10 @@ or use `--tabs all` for the default set. Unknown names produce a usage error
 listing valid names. `--squad NAME` must be among the picks when both flags are
 given. This resolver is board-only; `ls --tab` keeps its own names.
 
-In the switcher, Space includes or excludes the highlighted tab. `[x]` marks
-included tabs and `[ ]` excluded tabs. Enter opens a tab and includes it on this
-board; opening a squad from home does the same. Excluding the current tab opens
-the next included tab, or home if none remain. The named action `pick-tab` is
+In the switcher, Space picks or unpicks the highlighted tab. `[x]` marks
+picked tabs and `[ ]` unpicked tabs. Enter opens a tab and picks it on this
+board; opening a squad from home does the same. Unpicking the current tab opens
+the next picked tab, or home if none remain. The named action `pick-tab` is
 rebindable, for example `[bind] p = "pick-tab"`; that binding replaces Space
 and opens the switcher from the board. A different action bound to Space takes
 precedence.
