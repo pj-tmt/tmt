@@ -170,6 +170,9 @@ const STATES: &[&str] = &[
     "read-lead",
     "searching",
     "no-user",
+    "cron-failed",
+    "cron-stale",
+    "narrow",
 ];
 
 /// The widths each state is captured at in the `tmt` look: every boundary for
@@ -178,6 +181,9 @@ fn widths(state: &str) -> &'static [u16] {
     match state {
         "base" | "replies-hidden" => &[160, 140, 139, 120, 100, 99, 80, 79],
         "squad-selected" => &[160, 100, 99, 80],
+        // Narrower than any supported width, where the cron line falls back.
+        "narrow" => &[60, 50],
+        "cron-failed" | "cron-stale" => &[160, 100, 80, 60],
         _ => &[160, 80],
     }
 }
@@ -238,6 +244,12 @@ fn state(name: &str) -> App {
             keys(&mut app, &[Char('/'), Char('l'), Char('e'), Char('a')]);
         }
         "no-user" => app.view.as_mut().unwrap().me = None,
+        "cron-failed" => {
+            app.cron = Default::default();
+            app.cron.replace(Err("storage unreachable".into()));
+        }
+        "cron-stale" => app.cron.replace(Err("boom".into())),
+        "narrow" => (),
         other => panic!("unknown state {other}"),
     }
     app
