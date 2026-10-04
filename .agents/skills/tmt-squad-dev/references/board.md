@@ -32,8 +32,9 @@ painter directly.
 - `markup::Grid` compiles the covered tracks and configured spans through `tmt-tui`
   admission and one Taffy grid computation. Squad resolves configured CSS clamp bases and
   selects priority tracks before sizing (priority hiding is Squad's, not Taffy's); growing
-  tracks default their minimum to `rows::NARROWEST`. The grid keeps geometry's logical text
-  widths and clips for fitting. There is no arithmetic span solver or scalar
+  tracks default their minimum to `rows::NARROWEST`. A capped natural track keeps its
+  content width within its bounds; only a growing track expands to its cap. The grid keeps
+  geometry's logical text widths and clips for fitting. There is no arithmetic span solver or scalar
   `grid::fit/fit_lines` in the board.
 - `rows::ListSizing` picks the text-list sizing policy once from the shown columns: without
   percent/overflow it keeps legacy list sizing and complete piped values. Opt-in text lists
