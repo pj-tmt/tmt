@@ -595,9 +595,12 @@ fn finish(
         else {
             return Ok(Finished::Replaced);
         };
+        if current.session.state == tmt_core::binding::session::RuntimeState::Ended {
+            return Ok(Finished::AlreadyEnded);
+        }
         if let Some(next) = current
             .session
-            .transition(key, SessionTransition::Ended, None)
+            .record_launched_exit(key.clone(), owner.clone())
         {
             return records
                 .set_session_state(&binding.id, &current.session, &next)
@@ -609,13 +612,7 @@ fn finish(
                     }
                 });
         }
-        Ok(
-            if current.session.state == tmt_core::binding::session::RuntimeState::Ended {
-                Finished::AlreadyEnded
-            } else {
-                Finished::Replaced
-            },
-        )
+        Ok(Finished::Replaced)
     })
 }
 
