@@ -488,6 +488,9 @@ impl crate::runtime::lifecycle::LifecycleObservation for ClaudeObservation {
     fn starting(&self) -> bool {
         self.starting
     }
+    fn transition(&self) -> Option<SessionTransition> {
+        Some(self.transition)
+    }
     fn propose(
         &self,
         current: &BindingSessionState,

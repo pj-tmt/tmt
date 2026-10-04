@@ -40,6 +40,26 @@ pub(super) fn document(
         "extensions": extensions, "truncated": snapshot.role_truncated})
 }
 
+/// The notebook path is quoted data. A long/absent path uses a complete command;
+/// hooks never initialize or read the notebook and the reminder stays bounded.
+pub(super) fn add_compaction_reminder(document: &mut Value) {
+    let destination = document["notesPath"]
+        .as_str()
+        .map(|path| json!(path).to_string())
+        .filter(|path| path.len() <= OUTPUT_LIMIT / 4)
+        .map(|path| format!("at {path}"))
+        .unwrap_or_else(|| {
+            let identity = document["id"]
+                .as_str()
+                .unwrap_or_default()
+                .replace('\'', "'\\''");
+            format!("using tmt notes path --identity '{identity}'")
+        });
+    document["compactionReminder"] = format!(
+        "Context was compacted. Re-read your notes {destination} and update them with anything still open.\n"
+    ).into();
+}
+
 fn render(document: &Value, json_mode: bool) -> io::Result<String> {
     if json_mode {
         return serde_json::to_string(document)
@@ -70,6 +90,9 @@ fn render(document: &Value, json_mode: bool) -> io::Result<String> {
             document[key]["count"],
             document[key]["inspect"].as_str().unwrap_or_default()
         ));
+    }
+    if let Some(reminder) = document["compactionReminder"].as_str() {
+        text.push_str(reminder);
     }
     // Extension text is informational data from a third party, quoted and
     // escaped like other user text, never presented as an instruction.
@@ -160,6 +183,11 @@ pub(crate) fn hint_commands() -> Vec<String> {
 // Source-checked command samples for the printed-command guard.
 #[cfg(test)]
 pub(crate) const PRINTED_HINTS: &[crate::cli_style_tests::HintSpec] = &[
+    crate::cli_style_tests::HintSpec::core(
+        "using tmt notes path --identity '{identity}'",
+        &[""],
+        &[],
+    ),
     crate::cli_style_tests::HintSpec::core(
         "Incoming X items: {count} unacknowledged; pull with tmt inbox --identity '{identity}' --json\n",
         &["\n"],
@@ -278,6 +306,30 @@ mod tests {
                 assert_eq!(parsed["originated"]["count"], 100);
                 assert_eq!(parsed["incoming"]["count"], 200);
             }
+        }
+    }
+
+    #[test]
+    fn compaction_reminder_survives_trimming_and_quotes_paths_as_data() {
+        let mut value = json!({"bound": true, "id": "11111111-1111-4111-8111-111111111111",
+            "name": "Agent", "lifetime": "saved", "role": "x".repeat(5000),
+            "notesPath": "/notes/line\n\u{1b}quoted", "truncated": false,
+            "extensions": (0..20).map(|i| json!({"extension": format!("ext{i}"), "summary": "y".repeat(400)})).collect::<Vec<_>>(),
+            "originated": requests(1, "identity", false), "incoming": requests(2, "identity", true)});
+        add_compaction_reminder(&mut value);
+        let text = bounded(value.clone(), false).unwrap();
+        assert!(text.len() <= OUTPUT_LIMIT);
+        assert!(text.contains("Context was compacted. Re-read your notes at \"/notes/line\\n\\u001bquoted\" and update them with anything still open."));
+        assert!(!text.contains('\u{1b}'));
+        assert_eq!(text.matches("Context was compacted.").count(), 1);
+        for path in [Value::Null, json!("p".repeat(8000))] {
+            value["notesPath"] = path;
+            add_compaction_reminder(&mut value);
+            let text = bounded(value.clone(), false).unwrap();
+            assert!(text.len() <= OUTPUT_LIMIT);
+            assert!(text.contains(
+                "using tmt notes path --identity '11111111-1111-4111-8111-111111111111'"
+            ));
         }
     }
 

@@ -135,6 +135,12 @@ in `contracts/`.
   never migrate, and on failure emit no context and at most one fixed stderr line. A hook
   supplies observation only: the binding must match fresh server/pane/marker evidence and
   payload session IDs never create bindings or move identities.
+- Compaction reminders use the admitted callback's normalized `LifecycleObservation::transition`,
+  never a retained `last_transition` (a Codex channel startup can preserve it). Saved identities
+  only receive the default-on global boolean `notes.compactionReminder` context line; invalid
+  config suppresses the advisory without vetoing the hook. Existing notes paths are quoted;
+  missing/unsafe/long paths fall back to the explicit notes-path command. Hooks never initialize
+  or read/write notebook content. The core line survives optional context trimming within 4 KiB.
 - An unknown Claude `SessionEnd` reason is rejected without mutation; its known
   logout/prompt-input-exit/other reasons end the session, not the process. Codex
   maps SessionEnd regardless of reason to the same provider-session boundary.

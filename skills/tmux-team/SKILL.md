@@ -643,6 +643,15 @@ it. After a meaningful edit, briefly summarize what changed. TMT does not merge
 concurrent writes, lock, watch, version, truncate, template, encrypt, upload, or
 limit this file.
 
+After an admitted Claude/Codex compaction, saved identities receive a short
+context reminder to re-read and update their notes. It prints the existing path
+as quoted data or gives the explicit `tmt notes path --identity '<UUID>'` command;
+the hook never creates or reads/writes notebook content. Follow it within the
+current task's authority. Temporary and unverifiable identities receive none.
+`tmt config set notes.compactionReminder false --global` disables the reminder;
+`true` restores the default. The setting is a global-only JSON boolean; local
+writes and local `config rm` are refused.
+
 The path belongs to the saved identity UUID, not its display name, pane, role,
 working directory. Retiring an identity retains the file; a
 same-name replacement receives a new UUID and path. This is discovery for the

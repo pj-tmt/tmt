@@ -78,6 +78,18 @@ pub struct ConfigFiles {
 }
 
 impl ConfigFiles {
+    /// Global advisory policy, independent of the hook worker's project cwd.
+    pub fn notes_compaction_reminder(&self) -> Result<bool, ConfigError> {
+        let path = &self.paths.global_config;
+        let value = document::read(path, Scope::Global)?;
+        Ok(ResolvedSettings::from_layers(
+            document::project(&value, path, Scope::Global)?,
+            Vec::new(),
+        )
+        .settings
+        .notes_compaction_reminder)
+    }
+
     pub fn notification_settings(&self) -> Result<(u64, u64), ConfigError> {
         document::notification_settings(&self.paths.global_config)
     }

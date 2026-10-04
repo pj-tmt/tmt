@@ -8,7 +8,7 @@ use std::{
     time::{Instant, SystemTime, UNIX_EPOCH},
 };
 use tmt_adapters::{
-    config::ConfigPaths,
+    config::{ConfigFiles, ConfigPaths},
     extension_hooks,
     host::{CallerEnvironment, Host, OperationOptions},
     notes,
@@ -99,8 +99,21 @@ pub(crate) fn render_verified(
     stored: tmt_adapters::storage::IdentityContextSnapshot,
     paths: &ConfigPaths,
     deadline: Instant,
+    compacted: bool,
 ) -> io::Result<String> {
-    presentation::bounded(verified_document(stored, paths, deadline), false)
+    let saved = NotesIdentityId::try_from(&stored.entry.identity).is_ok();
+    let enabled = compacted
+        && saved
+        && ConfigFiles {
+            paths: paths.clone(),
+        }
+        .notes_compaction_reminder()
+        .unwrap_or(false);
+    let mut document = verified_document(stored, paths, deadline);
+    if enabled {
+        presentation::add_compaction_reminder(&mut document);
+    }
+    presentation::bounded(document, false)
 }
 
 /// An already verified prompt carries incoming attention and consented extension

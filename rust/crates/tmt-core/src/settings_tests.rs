@@ -328,6 +328,7 @@ fn apply_has_last_write_precedence_across_all_setting_kinds() {
             pane_badge: PaneBadge::Off,
             reply_batch_window_ms: 5_000,
             typing_quiet_ms: 2_000,
+            notes_compaction_reminder: true,
         }
     );
 }
@@ -345,4 +346,33 @@ fn reply_notice_settings_are_bounded_global_millisecond_integers() {
         assert!(Setting::edit(key.name(), "100", Scope::Local).is_err());
         assert!(LocalClear::parse(Some(key.name())).is_err());
     }
+}
+
+#[test]
+fn notes_reminder_is_a_default_on_global_boolean() {
+    let key = SettingKey::NotesCompactionReminder;
+    assert!(Settings::default().notes_compaction_reminder);
+    assert!(key.global_only());
+    for value in [true, false] {
+        assert_eq!(
+            Setting::validate(key, Scalar::Boolean(value)),
+            Some(Setting::NotesCompactionReminder(value))
+        );
+        assert_eq!(
+            Setting::edit(key.name(), &value.to_string(), Scope::Global).unwrap(),
+            Setting::NotesCompactionReminder(value)
+        );
+    }
+    for value in [Scalar::Text("true"), Scalar::Number(1.0), Scalar::Invalid] {
+        assert!(Setting::validate(key, value).is_none());
+    }
+    for value in ["TRUE", "1", "on", "false "] {
+        assert!(Setting::edit(key.name(), value, Scope::Global).is_err());
+    }
+    assert!(Setting::edit(key.name(), "false", Scope::Local).is_err());
+    assert!(LocalClear::parse(Some(key.name())).is_err());
+    let resolved =
+        ResolvedSettings::from_layers(vec![Setting::NotesCompactionReminder(false)], vec![]);
+    assert!(!resolved.settings.notes_compaction_reminder);
+    assert_eq!(resolved.source(key), "global");
 }

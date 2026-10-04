@@ -523,6 +523,7 @@ fn observe(provider: &str, input: &str, deadline: Instant) -> Result<String, ()>
         deadline
             .checked_sub(Duration::from_millis(200))
             .unwrap_or(deadline),
+        event.transition() == Some(tmt_core::binding::session::SessionTransition::Compacted),
     )
     .map_err(|_| ())?;
     let encoded = lifecycle.encode_context(&context).ok_or(())?;
