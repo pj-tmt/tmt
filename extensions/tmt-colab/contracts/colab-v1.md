@@ -1713,8 +1713,30 @@ first page's full link, or its relative path without a door), `next` (commands s
 needed: `tmt remote pair` unless paired, `tmt colab page create --title <title>` when there
 is no page) and `warning`. Human output is the `LOCAL SPACE` detail view with the same
 facts and the next step: `door`, `paired`, `open` (the page link or `create one: ...`) and
-`pair` (`Pair this browser once: tmt remote pair`, or `If this browser is new: ...` when
-pairing is unknown).
+`pair` (`pair this browser once: tmt remote pair`, or `if this browser is new: ...` when
+pairing is unknown), shown before `open` because the link needs a paired browser. Without a
+door, `open` shows the relative path and the reason (the install line, or `browser access
+unavailable: see warning`), never a command that `serve` replaces.
+
+### `tmt colab stop` (#1594)
+
+`tmt colab stop [--json]` asks the serving process of this data root to shut down. It never
+signals a pid. The request is `POST /.tmt/colab/local/stop` on the owner-only
+`door.sock`, a root-local route like page write: a request carrying a forwarded device
+context, a non-POST or an upgrade is refused (403/400), and the mount never forwards the
+reserved `/.tmt/` subtree from a browser, so no new network surface exists. The reply
+`{stopping:true,door:"attached"|"started"|"unavailable"}` is written before the accept loop
+sees the flag, then shutdown is exactly SIGTERM's: close the socket and workers, then stop the
+door `serve` started (never an attached one). Pairings, grants and data are untouched.
+
+The command then waits up to 10 seconds for the serve lock to release. Output: when nothing
+runs (including no state at all) it succeeds with `Colab is not running`, JSON
+`{state:"not-running",door:null}`; after a stop `Colab stopped` (`, and the Remote door it
+started` for a started door) and, for an attached door, `Remote is still running (started
+outside Colab)`; JSON `{state:"stopped",door}`. A refused or unanswered request is
+`COLAB_UNAVAILABLE`; a request accepted but a serve still running after the wait is
+`COLAB_OUTCOME_UNKNOWN`; both exit 1 and are never retried. A `stop` sent while `serve` is still
+waiting (at most 15 seconds) for a starting door is not answered until the wait ends.
 
 The local space is loopback-only: there is no `--bind`, LAN or other
 non-loopback mode. Other people's machines reach a page only through a cloud

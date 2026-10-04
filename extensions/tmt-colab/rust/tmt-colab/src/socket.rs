@@ -7,6 +7,7 @@
 use crate::{
     Result,
     assets::{self, App},
+    control::{self, Control, StopReply},
     keyring::{Layout, StateFault},
     limits, management,
     registration::{self, OwnerAdmission, Registration},
@@ -107,6 +108,8 @@ pub struct MountSocket {
 struct Browser {
     space_id: String,
     app: Option<Arc<App>>,
+    /// How a root-local stop request is answered and acted on.
+    control: Control,
 }
 struct Worker {
     socket: UnixStream,
@@ -149,11 +152,17 @@ impl MountSocket {
             browser: Browser {
                 space_id: space_id.to_owned(),
                 app: None,
+                control: Control::new(),
             },
             tunnels,
             registration: None,
             sync: None,
         })
+    }
+    /// Record how the Remote door is held (one of `control::DOORS`) for a stop request to report.
+    pub fn with_door(mut self, door: &'static str) -> Self {
+        self.browser.control.door = door;
+        self
     }
     pub fn with_app(mut self, app: Option<App>) -> Self {
         self.browser.app = app.map(Arc::new);
@@ -176,8 +185,11 @@ impl MountSocket {
         let live = Arc::new(AtomicUsize::new(0));
         let active = Arc::new(Mutex::new(Vec::new()));
         let browser = Arc::new(self.browser.clone());
+        let stopping = Arc::clone(&self.browser.control.stopping);
         let result = (|| -> Result<()> {
-            while !stop.load(Ordering::Acquire) {
+            // SIGTERM/SIGINT or a root-local stop request ends serving the same way.
+            let halted = || stop.load(Ordering::Acquire) || stopping.load(Ordering::Acquire);
+            while !halted() {
                 for i in (0..workers.len()).rev() {
                     if workers[i].handle.is_finished() {
                         workers
@@ -200,7 +212,7 @@ impl MountSocket {
                         Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
                         Err(e) => return Err(e.into()),
                     };
-                    if stop.load(Ordering::Acquire) {
+                    if halted() {
                         break;
                     }
                     socket.set_nonblocking(false)?;
@@ -331,6 +343,18 @@ fn serve(
                     let _ = response_as(&mut socket, failure.status(), &bytes, "application/json");
                 }
             }
+        }
+        return;
+    }
+    if request.path == control::STOP_PATH {
+        if local_denied(&request) {
+            let _ = response(&mut socket, 403, b"DENIED", false);
+        } else if request.method != "POST" || request.upgrade {
+            let _ = response(&mut socket, 400, b"INVALID", false);
+        } else if let Ok(bytes) = serde_json::to_vec(&StopReply::new(&browser.control)) {
+            // Answer first: the accept loop closes retained sockets once it sees the flag.
+            let _ = response_as(&mut socket, 200, &bytes, "application/json");
+            browser.control.stopping.store(true, Ordering::Release);
         }
         return;
     }
@@ -1058,6 +1082,7 @@ fn acquire(socket: &mut UnixStream) -> std::result::Result<Request, u16> {
             | management::PATH
             | management::LOCAL_PATH
             | crate::page::ipc::PATH
+            | control::STOP_PATH
             | crate::readers::CHALLENGE_PATH
             | crate::readers::SESSION_PATH
     ) {

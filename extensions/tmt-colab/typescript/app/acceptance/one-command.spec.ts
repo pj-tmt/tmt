@@ -38,3 +38,31 @@ test('one command starts the door; pairing opens a page; stopping it closes both
     await until(async () => !(await doorAnswers(door.origin)), 'the started door closing');
   });
 });
+
+// #1594: `tmt colab stop` asks the serving Colab over its owner-only socket; the door it started
+// closes with it, pairings stay, and a second stop is a clear success.
+test('tmt colab stop ends Colab and the door it started, and is idempotent', async () => {
+  await withWorld(async (world) => {
+    const door = await startServe(world);
+    expect(door.state).toBe('started');
+    const device = await pairBrowser(world, 'stop-device');
+    expect(await doorAnswers(door.origin)).toBe(true);
+
+    const stopped = await world.tmt(['colab', 'stop', '--json']);
+    expect(stopped.code, stopped.stdout + stopped.stderr).toBe(0);
+    expect(JSON.parse(stopped.stdout)).toEqual({ state: 'stopped', door: 'started' });
+    await door.colab.exited;
+    expect(await doorAnswers(door.origin)).toBe(false);
+
+    const again = await world.tmt(['colab', 'stop', '--json']);
+    expect(again.code).toBe(0);
+    expect(JSON.parse(again.stdout)).toEqual({ state: 'not-running', door: null });
+
+    // Pairings survive: the same device is still listed by Remote.
+    const devices = await world.tmt(['remote', 'devices', '--json']);
+    expect(devices.code, devices.stderr).toBe(0);
+    expect(JSON.parse(devices.stdout).devices.map((d: { name: string }) => d.name)).toContain(
+      device.name,
+    );
+  });
+});
