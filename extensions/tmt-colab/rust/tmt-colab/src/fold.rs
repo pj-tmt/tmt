@@ -107,7 +107,7 @@ pub(crate) struct Snapshot {
     states: Vec<Authority>,
     payloads: Vec<Payload>,
     baseline: Option<StoredBaseline>,
-    objects: Vec<(usize, crate::store::owner::epoch::StoredObject)>,
+    pub(crate) objects: Vec<(usize, crate::store::owner::epoch::StoredObject)>,
 }
 pub(crate) struct View {
     pub source: String,
@@ -121,6 +121,33 @@ pub(crate) struct View {
     /// Each writer's historical signing key, from its cut-admitted envelopes. It gives no
     /// fresh write authority; it only lets a reader verify what the writer signed.
     pub signing_keys: BTreeMap<String, [u8; 32]>,
+}
+/// The gzipped size of the parts as one stream, the way a browser loads a page, if it is over
+/// the page budget.
+fn gzip_over_budget<'a>(parts: impl Iterator<Item = &'a [u8]>) -> Result<Option<usize>> {
+    use std::io::Write;
+    struct Count(usize);
+    impl Write for Count {
+        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+            self.0 += buf.len();
+            Ok(buf.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+    let mut encoder = flate2::write::GzEncoder::new(Count(0), flate2::Compression::new(6));
+    for part in parts {
+        encoder.write_all(part)?;
+    }
+    let compressed = encoder.finish()?.0;
+    Ok((compressed > crate::decoder::PAGE_BUDGET_GZIP_BYTES).then_some(compressed))
+}
+pub(crate) struct OpenedObject {
+    pub namespace: String,
+    pub author_device: String,
+    pub plaintext: Vec<u8>,
+    pub key_bytes: [u8; 32],
 }
 impl Snapshot {
     pub fn capture(store: &Store, key: &Keyring, page: &str) -> Result<Self> {
@@ -180,6 +207,149 @@ impl Snapshot {
                 baseline: tx.baseline(page, epoch)?,
                 objects,
             })
+        })
+    }
+    /// One stored object, verified against the authority at the time it was written and opened.
+    /// The same checks serve reads and the compaction of a device's own stream.
+    pub(crate) fn open_object(
+        &self,
+        key: &Keyring,
+        page: &str,
+        index: usize,
+        stored: &crate::store::owner::epoch::StoredObject,
+    ) -> Result<OpenedObject> {
+        let cut = &self.cuts[index];
+        let envelope = object::Envelope::from_json(&stored.bytes)?;
+        let h = object::Header::decode(envelope.header())?;
+        let c = &h.context;
+        let revision = values::decimal(&c.membership_revision, false)?;
+        let at_write = self
+            .states
+            .get(usize::try_from(revision - 1).map_err(|_| OwnerFault::Invalid)?)
+            .ok_or(OwnerFault::Invalid)?;
+        if c.space != key.space_id
+            || c.page != page
+            || c.epoch != self.epoch.to_string()
+            || c.author_device != cut.stream
+            || c.namespace != cut.namespace
+            || c.kind
+                != if stored.checkpoint {
+                    "checkpoint"
+                } else {
+                    "update"
+                }
+            || c.stream_seq != stored.seq.to_string()
+            || c.prev_hash != stored.previous
+            || envelope.hash()? != stored.hash
+            || at_write.policy.epoch != self.epoch
+            || at_write.revoked_devices.contains(&c.author_device)
+        {
+            return Err(OwnerFault::Invalid.into());
+        }
+        let bridge = at_write
+            .recipients
+            .get(&("bridge".into(), cut.stream.clone()));
+        let (issuer, key_bytes) = if let Some(bridge) = bridge {
+            if c.namespace != "own" {
+                return Err(OwnerFault::Invalid.into());
+            }
+            (bridge, bridge.recipient.signing_key)
+        } else {
+            let device = self
+                .devices
+                .iter()
+                .find(|d| {
+                    certificate::Chain::from_json(&d.chain)
+                        .and_then(|ch| Ok(ch.certificate()?.device_id == c.author_device))
+                        .unwrap_or(false)
+                })
+                .ok_or(OwnerFault::Invalid)?;
+            let chain = certificate::Chain::from_json(&device.chain)?;
+            let cert = chain.certificate()?;
+            let issuer = at_write
+                .recipients
+                .get(&(cert.issuer_kind.into(), cert.issuer_id.into()))
+                .ok_or(OwnerFault::Invalid)?;
+            verify_chain(&chain, issuer, key, revision)?;
+            (issuer, *cert.signing_key)
+        };
+        if !eligible(&issuer.recipient, at_write, page)
+            || (c.namespace == "content" && issuer.recipient.role.as_deref() != Some("editor"))
+            || issuer.recipient.role.as_deref() == Some("viewer")
+        {
+            return Err(OwnerFault::Invalid.into());
+        }
+        // Every later authority reduction must commit this exact prefix.
+        for (index, payload) in self
+            .payloads
+            .iter()
+            .enumerate()
+            .skip(usize::try_from(revision).map_err(|_| OwnerFault::Invalid)?)
+        {
+            let affected = match payload {
+                Payload::MemberRole(p)
+                    if issuer.recipient.kind == "member"
+                        && p.member_id == issuer.recipient.id
+                        && role_rank(role_name(&p.role))
+                            < role_rank(
+                                self.states[index - 1]
+                                    .recipients
+                                    .get(&("member".into(), p.member_id.clone()))
+                                    .ok_or(OwnerFault::Invalid)?
+                                    .recipient
+                                    .role
+                                    .as_deref()
+                                    .ok_or(OwnerFault::Invalid)?,
+                            ) =>
+                {
+                    Some(p.cuts.as_slice())
+                }
+                Payload::MemberRemove(p)
+                    if issuer.recipient.kind == "member" && p.member_id == issuer.recipient.id =>
+                {
+                    Some(p.cuts.as_slice())
+                }
+                Payload::LinkRemove(p)
+                    if issuer.recipient.kind == "link" && p.link_id == issuer.recipient.id =>
+                {
+                    Some(p.cuts.as_slice())
+                }
+                Payload::DeviceRevoke(p) if p.device_id == c.author_device => {
+                    Some(p.cuts.as_slice())
+                }
+                _ => None,
+            };
+            if let Some(cuts) = affected {
+                let bound = cuts
+                    .iter()
+                    .find(|p| {
+                        p.page_id == page
+                            && p.epoch == c.epoch
+                            && p.namespace == c.namespace
+                            && values::binary(&p.cut, 1024)
+                                .and_then(|bytes| {
+                                    Ok(stream_cut::decode(&bytes)?.stream_id == c.author_device)
+                                })
+                                .unwrap_or(false)
+                    })
+                    .ok_or(OwnerFault::Invalid)?;
+                let bytes = values::binary(&bound.cut, 1024)?;
+                let committed = stream_cut::decode(&bytes)?;
+                if stored.seq > values::decimal(committed.tail_head_seq, true)?
+                    || (stored.checkpoint
+                        && (stored.seq != values::decimal(committed.checkpoint_seq, true)?
+                            || committed.checkpoint_hash != Some(&stored.hash)))
+                {
+                    return Err(OwnerFault::Invalid.into());
+                }
+            }
+        }
+        let plaintext = object::open(&envelope, c, &self.secret, &key_bytes)?;
+        Ok(OpenedObject {
+            namespace: c.namespace.clone(),
+            author_device: c.author_device.clone(),
+            plaintext,
+            key_bytes,
         })
     }
     pub fn materialize(&self, key: &Keyring, page: &str, decoder: &mut Decoder) -> Result<View> {
@@ -242,159 +412,38 @@ impl Snapshot {
         let mut updates = Vec::new();
         let mut own_updates: BTreeMap<String, Vec<Vec<u8>>> = BTreeMap::new();
         let mut signing_keys: BTreeMap<String, [u8; 32]> = BTreeMap::new();
+        // What a reader still has to apply one by one: updates after a device's checkpoint.
+        let mut tail_count = 0;
+        let mut tail_bytes = 0;
         for (index, stored) in &self.objects {
-            let cut = &self.cuts[*index];
-            let envelope = object::Envelope::from_json(&stored.bytes)?;
-            let h = object::Header::decode(envelope.header())?;
-            let c = &h.context;
-            let revision = values::decimal(&c.membership_revision, false)?;
-            let at_write = self
-                .states
-                .get(usize::try_from(revision - 1).map_err(|_| OwnerFault::Invalid)?)
-                .ok_or(OwnerFault::Invalid)?;
-            if c.space != key.space_id
-                || c.page != page
-                || c.epoch != self.epoch.to_string()
-                || c.author_device != cut.stream
-                || c.namespace != cut.namespace
-                || c.kind
-                    != if stored.checkpoint {
-                        "checkpoint"
-                    } else {
-                        "update"
-                    }
-                || c.stream_seq != stored.seq.to_string()
-                || c.prev_hash != stored.previous
-                || envelope.hash()? != stored.hash
-                || at_write.policy.epoch != self.epoch
-                || at_write.revoked_devices.contains(&c.author_device)
-            {
-                return Err(OwnerFault::Invalid.into());
+            let opened = self.open_object(key, page, *index, stored)?;
+            if !stored.checkpoint {
+                tail_count += 1;
+                tail_bytes += opened.plaintext.len();
             }
-            let bridge = at_write
-                .recipients
-                .get(&("bridge".into(), cut.stream.clone()));
-            let (issuer, key_bytes) = if let Some(bridge) = bridge {
-                if c.namespace != "own" {
-                    return Err(OwnerFault::Invalid.into());
-                }
-                (bridge, bridge.recipient.signing_key)
+            if opened.namespace == "content" {
+                updates.push(opened.plaintext);
             } else {
-                let device = self
-                    .devices
-                    .iter()
-                    .find(|d| {
-                        certificate::Chain::from_json(&d.chain)
-                            .and_then(|ch| Ok(ch.certificate()?.device_id == c.author_device))
-                            .unwrap_or(false)
-                    })
-                    .ok_or(OwnerFault::Invalid)?;
-                let chain = certificate::Chain::from_json(&device.chain)?;
-                let cert = chain.certificate()?;
-                let issuer = at_write
-                    .recipients
-                    .get(&(cert.issuer_kind.into(), cert.issuer_id.into()))
-                    .ok_or(OwnerFault::Invalid)?;
-                verify_chain(&chain, issuer, key, revision)?;
-                (issuer, *cert.signing_key)
-            };
-            if !eligible(&issuer.recipient, at_write, page)
-                || (c.namespace == "content" && issuer.recipient.role.as_deref() != Some("editor"))
-                || issuer.recipient.role.as_deref() == Some("viewer")
-            {
-                return Err(OwnerFault::Invalid.into());
-            }
-            // Every later authority reduction must commit this exact prefix.
-            for (index, payload) in self
-                .payloads
-                .iter()
-                .enumerate()
-                .skip(usize::try_from(revision).map_err(|_| OwnerFault::Invalid)?)
-            {
-                let affected = match payload {
-                    Payload::MemberRole(p)
-                        if issuer.recipient.kind == "member"
-                            && p.member_id == issuer.recipient.id
-                            && role_rank(role_name(&p.role))
-                                < role_rank(
-                                    self.states[index - 1]
-                                        .recipients
-                                        .get(&("member".into(), p.member_id.clone()))
-                                        .ok_or(OwnerFault::Invalid)?
-                                        .recipient
-                                        .role
-                                        .as_deref()
-                                        .ok_or(OwnerFault::Invalid)?,
-                                ) =>
-                    {
-                        Some(p.cuts.as_slice())
-                    }
-                    Payload::MemberRemove(p)
-                        if issuer.recipient.kind == "member"
-                            && p.member_id == issuer.recipient.id =>
-                    {
-                        Some(p.cuts.as_slice())
-                    }
-                    Payload::LinkRemove(p)
-                        if issuer.recipient.kind == "link" && p.link_id == issuer.recipient.id =>
-                    {
-                        Some(p.cuts.as_slice())
-                    }
-                    Payload::DeviceRevoke(p) if p.device_id == c.author_device => {
-                        Some(p.cuts.as_slice())
-                    }
-                    _ => None,
-                };
-                if let Some(cuts) = affected {
-                    let bound = cuts
-                        .iter()
-                        .find(|p| {
-                            p.page_id == page
-                                && p.epoch == c.epoch
-                                && p.namespace == c.namespace
-                                && values::binary(&p.cut, 1024)
-                                    .and_then(|bytes| {
-                                        Ok(stream_cut::decode(&bytes)?.stream_id == c.author_device)
-                                    })
-                                    .unwrap_or(false)
-                        })
-                        .ok_or(OwnerFault::Invalid)?;
-                    let bytes = values::binary(&bound.cut, 1024)?;
-                    let committed = stream_cut::decode(&bytes)?;
-                    if stored.seq > values::decimal(committed.tail_head_seq, true)?
-                        || (stored.checkpoint
-                            && (stored.seq != values::decimal(committed.checkpoint_seq, true)?
-                                || committed.checkpoint_hash != Some(&stored.hash)))
-                    {
-                        return Err(OwnerFault::Invalid.into());
-                    }
-                }
-            }
-            let plaintext = object::open(&envelope, c, &self.secret, &key_bytes)?;
-            if c.namespace == "content" {
-                updates.push(plaintext);
-            } else {
-                signing_keys.insert(c.author_device.clone(), key_bytes);
+                signing_keys.insert(opened.author_device.clone(), opened.key_bytes);
                 own_updates
-                    .entry(c.author_device.clone())
+                    .entry(opened.author_device)
                     .or_default()
-                    .push(plaintext);
+                    .push(opened.plaintext);
             }
         }
         let state = baseline.len() + updates.iter().map(Vec::len).sum::<usize>();
-        let tail = updates.iter().map(Vec::len).sum::<usize>();
         if edit.is_some() {
             // A write adds one update and must not leave a page the browser cannot open; reads
             // accept more. The new update's own size is checked once it is prepared.
-            let detail = if self.objects.len() >= crate::decoder::WRITE_TAIL_UPDATES {
+            let detail = if tail_count >= crate::decoder::WRITE_TAIL_UPDATES {
                 Some(format!(
                     "it has {} changes, the most one page can hold",
-                    count(self.objects.len())
+                    count(tail_count)
                 ))
-            } else if tail >= crate::decoder::WRITE_TAIL_BYTES {
+            } else if tail_bytes >= crate::decoder::WRITE_TAIL_BYTES {
                 Some(format!(
                     "its changes add up to {}; one page holds at most {}",
-                    size(tail),
+                    size(tail_bytes),
                     size(crate::decoder::WRITE_TAIL_BYTES)
                 ))
             } else if baseline.len() > crate::decoder::BASELINE_BYTES {
@@ -502,16 +551,39 @@ impl Snapshot {
                     other => Box::<dyn std::error::Error + Send + Sync>::from(other),
                 })?
         };
-        if edit.is_some() && tail + folded.merged.len() > crate::decoder::WRITE_TAIL_BYTES {
+        if edit.is_some() && tail_bytes + folded.merged.len() > crate::decoder::WRITE_TAIL_BYTES {
             return Err(OwnerFault::too_large_to_edit(
                 page,
                 format!(
                     "this edit would take its changes to {}, more than the {} one page can hold",
-                    size(tail + folded.merged.len()),
+                    size(tail_bytes + folded.merged.len()),
                     size(crate::decoder::WRITE_TAIL_BYTES)
                 ),
             )
             .into());
+        }
+        if edit.is_some() {
+            // The budget is what a browser loads, compressed. Raw state under the budget cannot
+            // exceed it, so only larger pages are measured.
+            let after = state + folded.merged.len();
+            if after > crate::decoder::PAGE_BUDGET_GZIP_BYTES {
+                let parts = std::iter::once(baseline.as_slice())
+                    .chain(updates.iter().map(Vec::as_slice))
+                    .chain(own_updates.values().flatten().map(Vec::as_slice))
+                    .chain(std::iter::once(folded.merged.as_slice()));
+                if let Some(compressed) = gzip_over_budget(parts)? {
+                    return Err(OwnerFault::too_large_to_edit(
+                        page,
+                        format!(
+                            "its content would be {} ({} compressed), more than the {} one page can hold compressed",
+                            size(after),
+                            size(compressed),
+                            size(crate::decoder::PAGE_BUDGET_GZIP_BYTES)
+                        ),
+                    )
+                    .into());
+                }
+            }
         }
         Ok(View {
             publisher_agent: folded.projection["meta"]["publisherAgent"]
@@ -715,5 +787,39 @@ fn role_rank(role: &str) -> u8 {
         "editor" => 2,
         "commenter" => 1,
         _ => 0,
+    }
+}
+#[cfg(test)]
+mod budget_tests {
+    use super::*;
+    #[test]
+    fn the_page_budget_counts_compressed_bytes_not_raw_ones() {
+        // Text that compresses well is far under the budget at any raw size we allow.
+        let repetitive = "<p>lorem ipsum dolor sit amet</p>\n".repeat(400_000);
+        assert!(repetitive.len() > 10_000_000);
+        assert_eq!(
+            gzip_over_budget([repetitive.as_bytes()].into_iter()).unwrap(),
+            None
+        );
+        // Incompressible bytes pass the budget only below it.
+        let mut state = 0x2545_f491_4f6c_dd1du64;
+        let mut noise = |n: usize| {
+            (0..n)
+                .map(|_| {
+                    state ^= state << 13;
+                    state ^= state >> 7;
+                    state ^= state << 17;
+                    state as u8
+                })
+                .collect::<Vec<u8>>()
+        };
+        let under = noise(4_000_000);
+        assert_eq!(
+            gzip_over_budget([under.as_slice()].into_iter()).unwrap(),
+            None
+        );
+        let (first, second) = (noise(3_000_000), noise(2_500_000));
+        let over = gzip_over_budget([first.as_slice(), second.as_slice()].into_iter()).unwrap();
+        assert!(over.is_some_and(|n| n > 5_000_000), "{over:?}");
     }
 }

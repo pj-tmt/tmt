@@ -1064,24 +1064,25 @@ compaction and revocation cuts need Rust/browser interop evidence. Load cost
 must be bounded and measured in L3/L4 before a performance promise. Compare decoded state-vector client clocks, not
 encoding byte order; declare all schema root types before projection.
 
-| Default limit                         | Value                         |
-| ------------------------------------- | ----------------------------- |
-| Exact HTML source / snapshot source   | 2 MiB each                    |
-| Message body                          | 16 KiB UTF-8                  |
-| Threads per page                      | 1,000                         |
-| Update-envelope plaintext             | 256 KiB                       |
-| Compaction trigger per stream         | 200 updates or 256 KiB tail   |
-| Per-device append rate                | 10/s sustained, burst 50      |
-| Per-page decoder concurrency          | 1                             |
-| Rust decoder batch deadline           | 2 seconds                     |
-| Tail a write accepts                  | 200 updates, 4 MiB            |
-| New page source, per published update | 192 KiB of text               |
-| Page budget (browser load, gzipped)   | 5,000,000 bytes               |
-| Rust decoder new-baseline source      | 2 MiB                         |
-| Rust decoder read state (all bytes)   | 24 MiB, at most 5,000 updates |
-| Rust decoder input/output streams     | 208 MiB each                  |
-| Linux decoder address-space limit     | 512 MiB                       |
-| Spark deletion budget                 | 500/page/day                  |
+| Default limit                                | Value                         |
+| -------------------------------------------- | ----------------------------- |
+| Exact HTML source / snapshot source          | 2 MiB each                    |
+| Message body                                 | 16 KiB UTF-8                  |
+| Threads per page                             | 1,000                         |
+| Update-envelope plaintext                    | 256 KiB                       |
+| Compaction trigger per stream                | 200 updates or 256 KiB tail   |
+| Per-device append rate                       | 10/s sustained, burst 50      |
+| Per-page decoder concurrency                 | 1                             |
+| Rust decoder batch deadline                  | 2 seconds                     |
+| Updates after checkpoints a write accepts    | 200 updates, 4 MiB            |
+| Native compaction trigger, per device stream | 50 updates or 1 MiB           |
+| New page source, per published update        | 192 KiB of text               |
+| Page budget (browser load, gzipped)          | 5,000,000 bytes               |
+| Rust decoder new-baseline source             | 2 MiB                         |
+| Rust decoder read state (all bytes)          | 24 MiB, at most 5,000 updates |
+| Rust decoder input/output streams            | 208 MiB each                  |
+| Linux decoder address-space limit            | 512 MiB                       |
+| Spark deletion budget                        | 500/page/day                  |
 
 The read caps are derived once, from measurement (#1627), not from the write caps.
 Decoding peaked near 9 bytes of child memory per state byte, so 24 MiB of state stays
@@ -1090,14 +1091,24 @@ control characters that JSON escapes to six bytes each, plus base64. Decode time
 with the size of the largest text block times the number of updates appended to it
 (about 0.6 ms per MiB per update), not with raw size alone: a 2 MiB block with 1,000
 appends decoded in 1.15 s, an 8 MiB block with 1,000 appends exceeded the 2 second
-deadline. Only compaction or a new baseline removes that cost. A page that exceeds a read cap
+deadline. Compaction removes that cost: the same 8 MiB block with 1,000 appends, merged
+in steps of 50 appends, decodes as one checkpoint in 91 ms, and each merge step takes about
+0.27 s (2 MiB: 0.07 s). A page that exceeds a read cap
 or the deadline fails alone with `COLAB_CAPACITY`, naming the page, the limit and the next
 step; `ls` and `show` list the other pages. Reads accept these caps, but a write refuses
-once one more update would take the tail since the last baseline past the
-200-update/4 MiB write budget: `page write` fails with `COLAB_CAPACITY` naming the page, the limit and
+once one more update would take the updates after the devices' checkpoints past the
+200-update/4 MiB write budget, or the whole page past the read caps or past 5,000,000 bytes
+gzipped as one stream: `page write` fails with `COLAB_CAPACITY` naming the page, the limit and
 the way out (`tmt colab export`, then `tmt colab page create --file`), and the page stays
-readable. Browser read admission now matches the native read caps; write budgets
-remain separate.
+readable. Browser read admission matches the native read caps.
+
+Native compaction follows the compaction rules above. After a write, `tmt-colab` combines the
+local device's own stream once it holds 50 updates or 1 MiB after its last checkpoint: the
+decoder child merges only that stream's updates with `merge_updates_v1` (a device's stream may
+depend on structs another device wrote, so the merge does not build or project the page), the
+device seals a checkpoint per namespace at its stream head, and the store prunes the covered
+prefix when both namespaces are paired. Other devices' streams are never touched. Combining is
+best effort and repeatable; a failure leaves the write durable and every update in place.
 
 Linux sets and verifies its address-space limit before reading child input;
 failure rejects the job. On macOS and platforms without enforced memory limits,
