@@ -1909,7 +1909,7 @@ positive day count or forever override. Each write sets expiry; checkpoints and
 referenced blobs needed for the live page MUST last at least as long as the page.
 The owning device's compaction or owner's cleanup refreshes them within seven
 days of expiry. Cloud readers treat expired-but-present data as gone. Local
-expiry is advisory: warnings begin seven days ahead in the browser and `ls/show`,
+expiry never deletes local data: warnings begin seven days ahead in the browser and `ls/show`,
 and expired local pages remain readable and writable unless signed archive/delete
 policy forbids it. Local data is never automatically deleted.
 
@@ -2454,7 +2454,7 @@ of wire framing but is never decrypted or materialized for management. A failed
 preview does not remove home management access. Retention defaults to 30 days.
 Chrome presents the native durable last-update/expiry display hints as relative
 retention time, with the absolute local date on hover. The hint stays inside the
-page card under its status badge. The seven-day warning and advisory expired state
+page card under its status badge. The seven-day warning and the expired state
 add a waiting mark and body text color; ordinary hints use dim text. The copy names
 retention and says the local copy stays; legacy unknown times say "Expiry starts
 after the next edit". The collapsed Details line includes the local last-edit date.

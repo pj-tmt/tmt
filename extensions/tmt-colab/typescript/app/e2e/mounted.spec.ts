@@ -715,7 +715,7 @@ test('trusted home manages retention, archive and verified or awaiting deletion'
 
 test.describe('relative retention evidence', () => {
   test.use({ timezoneId: 'Asia/Tokyo' });
-  test('home and management keep advisory retention inside the card with local-date hover', async ({
+  test('home and management keep retention inside the card with local-date hover', async ({
     page,
   }, testInfo) => {
     let now = Date.UTC(2026, 9, 4, 12, 34, 56, 789);
@@ -750,7 +750,7 @@ test.describe('relative retention evidence', () => {
     const row = page.locator('.pages li').filter({ hasText: pageId });
     const hint = row.locator('.retention-hint');
     await expect(row.getByRole('link').locator('.retention-hint')).toHaveText(
-      '◷Retention ends in 6 days · advisory; local copy stays.',
+      '◷Retention ends in 6 days · your local copy stays',
     );
     await expect(hint).toHaveAttribute('title', 'Sat 10-10 21:34');
     await expect(hint.locator('.retention-mark')).toHaveText('◷');
@@ -772,7 +772,7 @@ test.describe('relative retention evidence', () => {
         });
         await row.getByRole('button', { name: 'Manage page' }).click();
         await expect(dialog.locator('.retention-hint')).toHaveText(
-          '◷Retention ends in 6 days · advisory; local copy stays.',
+          '◷Retention ends in 6 days · your local copy stays',
         );
         await expect(dialog.locator('.retention-hint')).toHaveAttribute('title', 'Sat 10-10 21:34');
         await dialog.getByText('Details', { exact: true }).click();
@@ -794,7 +794,7 @@ test.describe('relative retention evidence', () => {
     now = expires + 2 * 86400000;
     await page.clock.setFixedTime(now);
     await page.reload();
-    await expect(hint).toHaveText('◷Retention ended 2 days ago · advisory; local copy stays.');
+    await expect(hint).toHaveText('◷Retention ended 2 days ago · your local copy stays');
     await expect(row.getByRole('link')).toBeVisible();
     await row.getByRole('button', { name: 'Manage page' }).click();
     await expect(dialog.locator('.retention-hint')).toContainText('Retention ended 2 days ago');
@@ -804,7 +804,7 @@ test.describe('relative retention evidence', () => {
     now = expires - 10 * 86400000;
     await page.clock.setFixedTime(now);
     await page.reload();
-    await expect(hint).toHaveText('Retention ends in 10 days · advisory; local copy stays.');
+    await expect(hint).toHaveText('Retention ends in 10 days · your local copy stays');
     await expect(hint.locator('.retention-mark')).toHaveCount(0);
     await expect(hint).toHaveCSS(
       'color',

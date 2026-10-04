@@ -37,5 +37,5 @@ export function expiryText(page: Partial<ExpiryInfo>, now = Date.now()): string 
         ? `${hours} h`
         : 'less than an hour';
   const relative = remaining > 0 ? `ends in ${interval}` : `ended ${interval} ago`;
-  return `Retention ${relative} · advisory; local copy stays.`;
+  return `Retention ${relative} · your local copy stays`;
 }

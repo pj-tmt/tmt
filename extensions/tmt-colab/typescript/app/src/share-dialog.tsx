@@ -311,7 +311,7 @@ export function ShareDialog({
                   'Set retention',
                   days === null
                     ? 'Keep this page until it is explicitly deleted.'
-                    : `Set retention to ${days} days after the last page update. Local expiry is advisory and never automatically deletes data.`,
+                    : `Set retention to ${days} days after the last page update. Expiry never deletes your local copy.`,
                 );
               }}
             >

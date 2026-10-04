@@ -62,7 +62,7 @@ test('native sharing and lifecycle verification preserve Ask, page recovery and 
     }, initialPage.expiresAtMs);
     await expect(dialog.locator('.retention-hint')).toHaveAttribute('title', expiry);
     await expect(dialog.locator('.retention-hint')).toHaveText(
-      /Retention ends in (29|30) days · advisory; local copy stays\./,
+      /Retention ends in (29|30) days · your local copy stays/,
     );
     for (const theme of ['light', 'dark']) {
       await page.evaluate((theme) => {
