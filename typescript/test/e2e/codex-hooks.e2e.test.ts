@@ -519,9 +519,7 @@ it.each([false, true])(
             error: {
               code: 'DELIVERY_PREPARATION_FAILED',
               message: expect.stringContaining('not delivered live'),
-              suggestion: expect.stringContaining(
-                `tmt inbox --identity ${ended.identity_id} --json`
-              ),
+              suggestion: expect.stringContaining("tmt inbox --identity 'Idle recipient' --json"),
             },
           });
           const human = await fixture.runCli(
@@ -530,8 +528,8 @@ it.each([false, true])(
           );
           expect(human.code).toBe(1);
           expect(human.stderr).toContain('not delivered live');
-          expect(human.stderr).toContain('new turn or session');
-          expect(human.stderr).toContain('tmt resume');
+          expect(human.stderr).toContain("In the recipient's pane, start a new turn or session");
+          expect(human.stderr).toContain("tmt resume 'Idle recipient' there");
           expect(fixture.transportTrace()).toEqual([]);
           process.kill(runtimePid, 'SIGCONT');
 
