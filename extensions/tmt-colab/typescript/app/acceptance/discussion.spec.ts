@@ -238,7 +238,7 @@ test('paired writers retain anchored annotation conversations, direct exact send
     await t1.getByRole('button', { name: 'Delete thread', exact: true }).click();
     await expect(t2).toContainText('Deleted thread');
     await expect(t2.getByRole('combobox')).toHaveCount(0);
-    await first.getByRole('button', { name: 'Comment on page', exact: true }).click();
+    await first.getByRole('button', { name: '+ Comment on page', exact: true }).click();
     await first.getByLabel('Post comment', { exact: true }).fill('Page-wide discussion.');
     await first.getByRole('button', { name: 'Post comment', exact: true }).click();
     await expect(first.getByTestId('annotation-row')).toHaveCount(2);

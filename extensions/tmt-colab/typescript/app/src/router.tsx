@@ -23,7 +23,7 @@ import { ExportPanel } from './export-panel.js';
 import { PageDrawer } from './page-drawer.js';
 import { AskControl, AskPanel } from './ask-panel.js';
 
-function SelectionBubble({
+function SelectionAnnotation({
   host,
   rectangle,
   inset,
@@ -36,6 +36,7 @@ function SelectionBubble({
   open(): void;
   children?: React.ReactNode;
 }) {
+  const expanded = children !== undefined;
   const element = useRef<HTMLDivElement>(null);
   const [position, setPosition] = useState<{ left: number; top: number } | null>(null);
   useEffect(() => {
@@ -53,9 +54,9 @@ function SelectionBubble({
         setPosition(null);
         return;
       }
-      const width = children ? Math.min(380, innerWidth - 24) : 100;
-      const height = element.current?.offsetHeight ?? (children ? 200 : 38);
-      const beside = !children && right + width + 8 <= Math.min(frame.right, innerWidth - 8);
+      const width = expanded ? Math.min(380, innerWidth - 24) : 100;
+      const height = element.current?.offsetHeight ?? (expanded ? 200 : 38);
+      const beside = !expanded && right + width + 8 <= Math.min(frame.right, innerWidth - 8);
       const below = bottom + height + 8 <= innerHeight - 8;
       setPosition({
         left: Math.max(
@@ -78,7 +79,7 @@ function SelectionBubble({
       window.removeEventListener('scroll', place);
       window.removeEventListener('resize', place);
     };
-  }, [host, rectangle, inset, !!children]);
+  }, [host, rectangle, inset, expanded]);
   return (
     <div
       ref={element}
@@ -651,7 +652,7 @@ function Page() {
         </div>
       </div>
       {snapshot.binding?.discussion && snapshot.binding?.ask && !liveError && state === 'ready' && (
-        <SelectionBubble
+        <SelectionAnnotation
           host={host.current}
           rectangle={annotation?.rectangle ?? rectangle}
           inset={toolbar.current?.offsetHeight ?? 56}
@@ -674,7 +675,7 @@ function Page() {
               />
             </section>
           )}
-        </SelectionBubble>
+        </SelectionAnnotation>
       )}
       <PageDrawer
         open={panel === 'source'}

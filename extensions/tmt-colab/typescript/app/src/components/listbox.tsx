@@ -47,6 +47,7 @@ export function Listbox<Value extends string>({
     render(props: HTMLAttributes<HTMLElement> & { ref: Ref<HTMLElement> }): ReactNode;
   };
 }) {
+  const isInput = inputTrigger !== undefined;
   const id = useId();
   const root = useRef<HTMLDivElement>(null);
   const trigger = useRef<HTMLElement>(null);
@@ -93,7 +94,7 @@ export function Listbox<Value extends string>({
   }, [open, focusIndex]);
 
   useEffect(() => {
-    if (!open || !inputTrigger) return;
+    if (!open || !isInput) return;
     const place = () => {
       const box = trigger.current?.getBoundingClientRect();
       if (!box) return;
@@ -138,7 +139,7 @@ export function Listbox<Value extends string>({
       window.removeEventListener('resize', place);
       window.removeEventListener('scroll', place, true);
     };
-  }, [open, !!inputTrigger, options.length]);
+  }, [open, isInput, options.length]);
 
   function openList(index = selectedIndex >= 0 ? selectedIndex : firstIndex) {
     if (disabled || index < 0) return;
