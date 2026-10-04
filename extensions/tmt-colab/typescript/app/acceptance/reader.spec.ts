@@ -34,7 +34,11 @@ const seedOf = (readerPath: string) => new URLSearchParams(readerPath.split('#')
 test('reader link: opens unpaired, shows live edits read-only, and ends on Reset', async () => {
   await withWorld(async (world) => {
     const door = await startDoor(world, await freePort());
-    const created = createPage(world, 'Reader acceptance', '<h1 id="text">First text</h1>');
+    const created = createPage(
+      world,
+      'Reader acceptance',
+      '<h1 id="text">First text</h1><a href="#target">Jump to reader anchor</a><div style="height:2200px"></div><h2 id="target">Reader anchor</h2><div style="height:900px"></div>',
+    );
     colab(world, ['share', 'mode', created.pageId, 'link', '--yes']);
     const added = colab(world, ['share', 'link', 'add', created.pageId, '--yes']);
     const readerPath = added.readerPath as string;
@@ -48,6 +52,20 @@ test('reader link: opens unpaired, shows live edits read-only, and ends on Reset
     const reader = await openReaderLink(world, door, readerPath, 'reader-one');
     const frame = reader.page.frameLocator('iframe');
     await expect(frame.locator('#text')).toHaveText('First text', { timeout: 30_000 });
+    const element = reader.page.locator('iframe');
+    await expect.poll(async () => (await element.boundingBox())?.height ?? 0).toBeGreaterThan(3000);
+    await expect(element).toHaveAttribute('scrolling', 'no');
+    await expect
+      .poll(() =>
+        frame.locator('html').evaluate((node) => node.scrollHeight <= node.clientHeight + 1),
+      )
+      .toBe(true);
+    await frame.getByRole('link', { name: 'Jump to reader anchor' }).click();
+    await expect.poll(() => reader.page.evaluate(() => window.scrollY)).toBeGreaterThan(2000);
+    expect(
+      await frame.locator('html').evaluate((node) => node.ownerDocument.defaultView!.scrollY),
+    ).toBe(0);
+    await reader.page.evaluate(() => window.scrollTo(0, 0));
     // The fragment left the address bar, and the page offers no write or Ask control.
     expect(await reader.page.evaluate(() => location.hash)).toBe('');
     await expect(reader.page.getByText('Read-only').first()).toBeVisible();
@@ -69,6 +87,9 @@ test('reader link: opens unpaired, shows live edits read-only, and ends on Reset
       '<h1 id="text">Second text</h1>',
     );
     await expect(frame.locator('#text')).toHaveText('Second text', { timeout: 30_000 });
+    await expect
+      .poll(async () => (await element.boundingBox())?.height ?? Infinity)
+      .toBeLessThan(1100);
 
     // Re-opening the same link in more browsers presents the same derived device: still one row.
     for (const name of ['reader-again-1', 'reader-again-2']) {

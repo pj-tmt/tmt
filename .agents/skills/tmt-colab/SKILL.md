@@ -29,3 +29,6 @@ Product limits are named in `src/limits.rs`, not in guides.
   modules, invariants and tests.
 - [references/discussion.md](references/discussion.md): typed threads/comments,
   cosmetic quote anchors, parent actions and verification.
+
+- [references/page-chrome.md](references/page-chrome.md): frameless page viewport,
+  single-row chrome, persistent drawers and responsive layout verification.

@@ -1,5 +1,6 @@
 /** English chrome catalog; page content and fixture text are not UI strings. */
 export const text = {
+  askShort: 'Ask',
   comments: 'Comments',
   commentSelection: 'Comment on selection',
   commentPage: 'Comment on page',

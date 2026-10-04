@@ -16,6 +16,7 @@ export function ReaderApp({ state }: { state: ReaderState }) {
   const title = state.kind === 'ready' ? state.view.title : '';
   const [render, setRender] = useState<RenderState | 'loading'>('loading');
   const host = useRef<HTMLDivElement>(null);
+  const bar = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (source === null) return;
     const controller = new AbortController();
@@ -23,6 +24,8 @@ export function ReaderApp({ state }: { state: ReaderState }) {
     void mountRenderer(host.current!, source, {
       signal: controller.signal,
       onState: setRender,
+      viewportInset: () =>
+        (bar.current?.offsetHeight ?? 56) + (bar.current?.getBoundingClientRect().top ?? 0),
     }).catch(() => {
       if (!controller.signal.aborted) setRender('failed');
     });
@@ -40,7 +43,7 @@ export function ReaderApp({ state }: { state: ReaderState }) {
       <main>
         {state.kind === 'ready' ? (
           <section className="page">
-            <div className="page-bar">
+            <div className="page-bar" ref={bar}>
               <h1>{title}</h1>
               <span className="chip">{text.readerOnly}</span>
               <span
