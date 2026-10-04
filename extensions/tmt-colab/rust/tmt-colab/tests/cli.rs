@@ -1283,11 +1283,8 @@ fn serve_names_the_link_only_when_a_door_runs_and_reports_the_decoder_once() {
         let mut reader = BufReader::new(child.stdout.take().unwrap());
         let mut text = String::new();
         let deadline = Instant::now() + Duration::from_secs(5);
-        let wanted = if cfg!(target_os = "linux") {
-            "open"
-        } else {
-            "decoder"
-        };
+        // The last row every platform prints for an empty space; the `decoder` row is macOS-only.
+        let wanted = "create";
         while !text.contains(wanted) && Instant::now() < deadline {
             let mut line = String::new();
             if reader.read_line(&mut line).unwrap() == 0 {
@@ -2003,6 +2000,14 @@ fn pid_file(pilot: &Pilot, name: &str) -> Pid {
             .unwrap(),
     )
 }
+/// Rows are padded to the longest key, which differs by platform (the `decoder` row is macOS-only):
+/// compare words, not columns.
+fn squashed(text: &str) -> String {
+    text.lines()
+        .map(|line| line.split_whitespace().collect::<Vec<_>>().join(" "))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
 fn assert_gone(pid: Pid) {
     assert_eq!(kill(pid, None), Err(Errno::ESRCH), "process {pid} leaked");
 }
@@ -2011,21 +2016,21 @@ fn serve_attaches_to_a_running_door_and_says_what_to_do_next() {
     let pilot = Pilot::new(None);
     pilot.devices(r#"{"devices":[]}"#);
     let mut serving = Serving::start(&pilot, pilot.remote_core(Some(DOOR), Serve::Fail), &[]);
-    let text = Serving::wait_for(&serving.out, "create ");
+    let text = squashed(&Serving::wait_for(&serving.out, "create "));
     // Whole values in the existing LOCAL SPACE layout: state first, then the next steps.
     for wanted in [
         "LOCAL SPACE",
         "(ready)",
         "attached · http://127.0.0.1:53253",
         "no",
-        "create   tmt colab page create --title <title>",
+        "create tmt colab page create --title <title>",
         "pair this browser once: tmt remote pair",
     ] {
         assert!(text.contains(wanted), "{wanted:?} missing in {text}");
     }
     // The link opens only once a browser is paired, so the pairing step comes before it.
     assert!(
-        text.find("pair   ").unwrap() < text.find("open   ").unwrap(),
+        text.find("\npair ").unwrap() < text.find("\nopen ").unwrap(),
         "{text}"
     );
     serving.stop(Signal::SIGTERM);
@@ -2320,7 +2325,7 @@ fn serve_opens_the_space_home_only_when_told_or_allowed_and_says_so() {
     // No terminal under test: without a flag nothing opens and the link is just printed.
     let mut serving = Serving::start(&pilot, pilot.remote_core(Some(DOOR), Serve::Fail), &[]);
     let text = Serving::wait_for(&serving.out, "create");
-    assert!(text.contains(&format!("open     {home}")), "{text}");
+    assert!(squashed(&text).contains(&format!("open {home}")), "{text}");
     assert!(pilot.opened().is_empty());
     serving.stop(Signal::SIGTERM);
     // `--no-open` and `--json` always skip, even with the setting on and `--open` absent.
