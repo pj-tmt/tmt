@@ -285,7 +285,9 @@ describe('Codex native channel product routing', { concurrent: false }, () => {
         });
         expect(fs.existsSync(path.join(f.globalDir, 'notes'))).toBe(false);
         const trace = installTmuxTrace(f);
-        expect((await talk(f, 'ThresholdChannel', 'first incoming threshold turn')).code).toBe(0);
+        const firstDelivery = await talk(f, 'ThresholdChannel', 'first incoming threshold turn');
+        expect(firstDelivery.code).toBe(0);
+        expect(firstDelivery.json).toMatchObject({ status: 'sent' });
         await f.waitFor(
           () => events(worker, 'prompt-hook').length === 1,
           10000,
@@ -299,7 +301,14 @@ describe('Codex native channel product routing', { concurrent: false }, () => {
         expect(context).toContain(
           `Context usage is 80% of the reported window. Re-read and update your notes using tmt notes path --identity '${current().id}' before compaction.`
         );
-        expect(context).toContain('Incoming X items:');
+        // The live queue delivers this request directly; incoming attention is
+        // not a second copy in hook context. Correlate the accepted input itself.
+        const queued = events(worker, 'queue');
+        expect(queued).toHaveLength(1);
+        expect(queued[0].content).toContain('first incoming threshold turn');
+        expect(queued[0].content).toContain(
+          `tmt reply ${firstDelivery.json!.requestId} --receipt `
+        );
         expect(Buffer.byteLength(context)).toBeLessThanOrEqual(4096);
         expect(current().notes_nudge).toBe(0);
         fs.writeFileSync(`${worker.log}.finish-turn`, '');
@@ -307,6 +316,14 @@ describe('Codex native channel product routing', { concurrent: false }, () => {
           () => events(worker, 'stop-hook').length === 1,
           10000,
           'first channel turn settled'
+        );
+        await f.waitFor(
+          () =>
+            events(worker, 'channel').some((event) =>
+              event.content?.includes('first incoming threshold turn')
+            ),
+          10000,
+          'accepted TMT input processed by the foreground'
         );
         expect((await talk(f, 'ThresholdChannel', 'second incoming threshold turn')).code).toBe(0);
         await f.waitFor(
