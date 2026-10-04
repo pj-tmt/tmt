@@ -10,10 +10,20 @@ private = { ignore = true }
 # taffy 0.7.7 omits LICENSE.md from its crate archive. This is the exact file
 # at its .cargo_vcs_info.json revision, 38c99d9452109f739a5ecebeeba423cacd3a703d:
 # https://github.com/DioxusLabs/taffy/blob/38c99d9452109f739a5ecebeeba423cacd3a703d/LICENSE.md
-# build-native-artifact.sh verifies the version and checksum, then resolves
-# this token to an absolute vendored path for cargo-about's crate-relative files.
+# build-native-artifact.sh verifies each vendored crate's version and checksum, then resolves
+# the __TMT_<CRATE>_LICENSE__ token to an absolute vendored path for cargo-about's files.
 [taffy.clarify]
 license = "MIT"
 [[taffy.clarify.files]]
 path = "__TMT_TAFFY_LICENSE__"
 checksum = "a7083ef3dd41a65eeb2162c2c091b0082e2724fb4c6ed029b363c7840d244ecd"
+
+# yrs 0.28.0 omits its license file from the crate archive, so cargo-about would fall back to the
+# SPDX MIT template with "<year> <copyright holders>". This is the exact LICENSE at its
+# .cargo_vcs_info.json revision, 23b7f5693bbf9e7d26340c521ee8647f79bdfba2:
+# https://github.com/y-crdt/y-crdt/blob/23b7f5693bbf9e7d26340c521ee8647f79bdfba2/LICENSE
+[yrs.clarify]
+license = "MIT"
+[[yrs.clarify.files]]
+path = "__TMT_YRS_LICENSE__"
+checksum = "b6d81564e9c46473907bd3c09d4d5ab0f21cfbe6ac35d46daf1bdb0423182a5b"

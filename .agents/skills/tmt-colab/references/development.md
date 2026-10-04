@@ -116,6 +116,14 @@ embedded assets; restart serve to adopt disk builds.
 - The `@tmt/colab-app` lint and format config lives in its Vite configuration
   (single quotes, trailing commas, 100 columns, import/package-key sorting off).
 
+Browser management checks are `test/management.test.ts` (real signatures,
+policy/acknowledgment verification and metadata framing), `test/mounted.test.ts`
+(tab/session fencing), `e2e/mounted.spec.ts` (parent chrome and screenshots), and
+`acceptance/management.spec.ts` (real native management with paired Chromium).
+Run app gates and the real-binary lifecycle acceptance after changing mounted
+management/Ask lifetimes. Use a seat-owned `COLAB_APP_TEST_PORT`, not the default
+4179 on a shared machine; the acceptance harness picks private free ports.
+
 Browser client (three engines):
 
 ```sh
@@ -141,11 +149,10 @@ on scoped PRs and all engines weekly or manual; `COLAB_HARNESS_ROOTS` and
 
 ## Packaging and archives
 
-Colab is a `native-release.yml` preparation product (`tag tmt-colab-v<version>`,
-prerelease, `latest=false`) but stays `release: false` in `.github/components.json`
-and `dist = false` in its Cargo package, so publication is refused until the infra
-lead activates it after a supporting CLI alpha is published and real archive
-acceptance passes. Core registers Colab with the shared installer
+Colab is a released `native-release.yml` product (`tag tmt-colab-v<version>`,
+prerelease, `latest=false`): `release: true` with `initialVersion` `0.1.0-alpha.1`
+and `requiresCliSha` in `.github/components.json`, and `dist = true` in its Cargo
+package. Core registers Colab with the shared installer
 (`EXTENSION_RELEASE_UNAVAILABLE` until an archive exists; see the registration
 commands in the [release reference](../../tmt-release/references/native-release.md#remote-and-colab-installer-registration)).
 

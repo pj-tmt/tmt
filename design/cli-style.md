@@ -139,6 +139,7 @@ tokens. Additional marks stay labelled board only. A row's leading state mark is
 | `◌`        | bound to a pane, no agent running                                                       |
 | `↻`        | leads a resume action (`↻ tmt resume <name>`), never a row's state                      |
 | `✓`        | done                                                                                    |
+| `◐`        | in review, waiting on someone else (board only)                                         |
 | `✗`        | failed or blocked                                                                       |
 | `!`        | warning                                                                                 |
 | `◆`        | waits on your decision                                                                  |

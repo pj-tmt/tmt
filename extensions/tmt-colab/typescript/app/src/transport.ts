@@ -2,6 +2,7 @@ import type { ThreadBinding } from './thread-store.js';
 import type { ThreadView } from './thread-records.js';
 import type { AskBinding, PageAsk } from './ask-panel.js';
 import type { ExportBundle } from './export.js';
+import type { ManagementPort } from './management.js';
 import type { OwnState, Projection } from './fold-protocol.js';
 export interface PageView extends Projection {
   readonly ownData?: boolean;
@@ -14,6 +15,8 @@ export interface PageSummary {
   readonly id: string;
   readonly title: string;
   readonly sharing: 'private' | 'link' | 'public';
+  readonly archived?: boolean;
+  readonly retentionDays?: number | null;
 }
 export interface PageSnapshot extends PageSummary {
   readonly source: string;
@@ -41,6 +44,7 @@ export interface SpaceHome {
 /** App data port. Mounted adapters own authentication and admission;
  * neither HTML nor the renderer receives that adapter or its capabilities. */
 export interface PageTransport {
+  readonly management?: ManagementPort;
   spaceHome(): Promise<SpaceHome>;
   page(id: string, signal?: AbortSignal): Promise<PageSnapshot>;
 }

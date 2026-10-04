@@ -7,15 +7,19 @@ import {
   createRouter,
   Link,
   Outlet,
+  useRouter,
 } from '@tanstack/react-router';
 import type { PageView, PageTransport } from './transport.js';
 import { ThreadPanel } from './thread-panel.js';
 import type { QuoteSelector } from './thread-records.js';
+import { ShareDialog } from './share-dialog.js';
 import { mountRenderer } from './renderer.js';
 import type { RenderState } from './renderer.js';
 import { text } from './strings.js';
 import { ExportPanel } from './export-panel.js';
 import { AskControl, AskPanel } from './ask-panel.js';
+
+const managementChanged = 'Management changed. Reopen the page to load its latest state.';
 
 const root = createRootRouteWithContext<{ transport: PageTransport }>()({
   component: Shell,
@@ -99,32 +103,96 @@ function Shell() {
     </>
   );
 }
+function ManageButton({ pageId, changed }: { pageId: string; changed?(): void }) {
+  const port = root.useRouteContext().transport.management;
+  const router = useRouter();
+  const [open, setOpen] = useState(false);
+  const touched = useRef(false);
+  if (!port) return null;
+  return (
+    <>
+      <button
+        onClick={(event) => {
+          if (event.isTrusted) setOpen(true);
+        }}
+      >
+        Manage page
+      </button>
+      {open && (
+        <ShareDialog
+          port={port}
+          pageId={pageId}
+          committed={() => {
+            touched.current = true;
+            changed?.();
+          }}
+          close={() => {
+            setOpen(false);
+            if (touched.current) {
+              touched.current = false;
+              void router.invalidate();
+            }
+          }}
+        />
+      )}
+    </>
+  );
+}
 function Home() {
   const space = home.useLoaderData();
+  const { transport } = root.useRouteContext();
+  const [archived, setArchived] = useState(false);
+  const pages = space.pages.filter((p) => Boolean(p.archived) === archived);
   return (
     <section className="home">
       <p className="eyebrow">{text.pages}</p>
       <h1>{space.title}</h1>
       <p className="intro">{text.intro}</p>
-      {space.pages.length ? (
+      {transport.management && (
+        <label>
+          Show archived pages
+          <input
+            type="checkbox"
+            checked={archived}
+            onChange={(e) => setArchived(e.target.checked)}
+          />
+        </label>
+      )}
+      {pages.length ? (
         <ul className="pages">
-          {space.pages.map((p) => (
+          {pages.map((p) => (
             <li key={p.id}>
-              <Link to="/pages/$pageId" params={{ pageId: p.id }}>
-                <div>
-                  <span className="page-mark">▤</span>
+              {p.archived ? (
+                <div className="archived-page">
                   <h2>{p.title}</h2>
+                  <span className="chip">Archived · writes frozen</span>
                 </div>
-                <span className="chip">{text[p.sharing]}</span>
-                <span className="open">
-                  {text.open} <span aria-hidden>↗</span>
-                </span>
-              </Link>
+              ) : (
+                <Link to="/pages/$pageId" params={{ pageId: p.id }}>
+                  <div>
+                    <span className="page-mark">▤</span>
+                    <h2>{p.title}</h2>
+                  </div>
+                  <span className="chip">{text[p.sharing]}</span>
+                  <span className="open">
+                    {text.open} <span aria-hidden>↗</span>
+                  </span>
+                </Link>
+              )}
+              {transport.management && (
+                <p>
+                  Retention: {p.retentionDays === null ? 'forever' : `${p.retentionDays} days`}.
+                  Expiry time unavailable.
+                </p>
+              )}
+              <ManageButton pageId={p.id} />
             </li>
           ))}
         </ul>
       ) : (
-        <p>{text.empty}</p>
+        <p>
+          {archived ? 'No archived pages.' : space.pages.length ? 'No active pages.' : text.empty}
+        </p>
       )}
     </section>
   );
@@ -258,6 +326,13 @@ function Page() {
         </Link>
         <h1>{view.title || snapshot.title}</h1>
         <span className="chip">{text[snapshot.sharing]}</span>
+        <ManageButton
+          pageId={snapshot.id}
+          changed={() => {
+            snapshot.binding?.close();
+            setLiveError(managementChanged);
+          }}
+        />
         <span className={`status ${state === 'ready' ? 'live' : ''}`}>
           <span aria-hidden>{state === 'ready' ? '●' : state === 'loading' ? '○' : '✗'}</span>{' '}
           {state === 'ready' ? text.loaded : state === 'loading' ? text.loading : text.blocked}
@@ -268,7 +343,7 @@ function Page() {
       </div>
       <AskControl
         key={`ask-control:${snapshot.id}`}
-        binding={snapshot.binding?.ask}
+        binding={liveError === managementChanged ? undefined : snapshot.binding?.ask}
         selection={selection}
         title={view.title || snapshot.title}
         blocked={!!liveError || state !== 'ready'}
@@ -331,8 +406,8 @@ function Page() {
           threads={view.threads ?? []}
           resolved={resolved}
           selection={selector}
-          binding={snapshot.binding?.discussion}
-          ask={snapshot.binding?.ask}
+          binding={liveError === managementChanged ? undefined : snapshot.binding?.discussion}
+          ask={liveError === managementChanged ? undefined : snapshot.binding?.ask}
           title={view.title || snapshot.title}
           blocked={!!liveError || state !== 'ready'}
         />
@@ -342,7 +417,7 @@ function Page() {
         <AskPanel
           key={`ask-panel:${snapshot.id}`}
           records={view.asks}
-          binding={snapshot.binding?.ask}
+          binding={liveError === managementChanged ? undefined : snapshot.binding?.ask}
           blocked={!!liveError}
         />
       )}

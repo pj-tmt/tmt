@@ -159,8 +159,15 @@ async function waitForRunning(fixture: E2EFixture, session: Session, name: strin
 
 /** A launched, admitted session; an enrolled one also finished its handshake. */
 async function ready(fixture: E2EFixture, session: Session, name: string): Promise<void> {
-  await waitForEvent(fixture, session, session.channel ? 'initialized-sent' : 'started');
-  await waitForRunning(fixture, session, name);
+  try {
+    await waitForEvent(fixture, session, session.channel ? 'initialized-sent' : 'started');
+    await waitForRunning(fixture, session, name);
+  } catch (cause) {
+    throw new Error(
+      `${name} did not become ready. Mock events: ${JSON.stringify(events(session))}\n${fixture.capture(40, session.pane)}`,
+      { cause }
+    );
+  }
 }
 
 async function talk(
@@ -183,6 +190,41 @@ function failureCode(result: CliResult<Record<string, unknown>>): unknown {
 async function quit(session: Session): Promise<string> {
   fs.writeFileSync(`${session.log}.quit`, '');
   return waitForFileContent(session.status, { description: 'tmt run completed' });
+}
+
+/** Keep the pane-launched foreground owned until its final storage writes finish. */
+async function withCompletedSession<T>(
+  fixture: E2EFixture,
+  session: Session,
+  callback: (session: Session) => Promise<T>
+): Promise<T> {
+  let outcome: { value: T } | { error: unknown };
+  try {
+    outcome = { value: await callback(session) };
+  } catch (error) {
+    outcome = { error };
+  }
+  try {
+    const status = await quit(session);
+    await fixture.waitFor(
+      () => channelFiles(fixture).length === 0 && leakedServers(fixture).length === 0,
+      10_000,
+      'foreground lease cleanup'
+    );
+    expect(
+      status,
+      `foreground exit before fixture deletion:\n${fixture.capture(40, session.pane)}`
+    ).toBe('0');
+  } catch (cleanupError) {
+    if ('error' in outcome)
+      throw new AggregateError(
+        [outcome.error, cleanupError],
+        'Scenario and foreground cleanup failed'
+      );
+    throw cleanupError;
+  }
+  if ('error' in outcome) throw outcome.error;
+  return outcome.value;
 }
 
 function leakedServers(fixture: E2EFixture): string[] {
@@ -338,44 +380,39 @@ describe('Claude channel delivery', { concurrent: false }, () => {
             [4, channel],
             [5, undefined],
           ] as const) {
-            const worker = launch(round, override);
-            remembered = override ?? remembered;
-            await ready(fixture, worker, name);
-            await waitForEvent(fixture, worker, 'hook-recorded');
-            const identity = await fixture.runJsonCli<{
-              resume?: { driver: string; session: string; model: string };
-            }>(['identity', 'show', name]);
-            expect(identity.code).toBe(0);
-            expect(identity.json?.resume).toMatchObject({
-              driver: 'claude',
-              session: sessionId,
-              model: 'model-a',
+            await withCompletedSession(fixture, launch(round, override), async (worker) => {
+              remembered = override ?? remembered;
+              await ready(fixture, worker, name);
+              await waitForEvent(fixture, worker, 'hook-recorded');
+              const identity = await fixture.runJsonCli<{
+                resume?: { driver: string; session: string; model: string };
+              }>(['identity', 'show', name]);
+              expect(identity.code).toBe(0);
+              expect(identity.json?.resume).toMatchObject({
+                driver: 'claude',
+                session: sessionId,
+                model: 'model-a',
+              });
+              const stored = sql(fixture, (db) =>
+                db
+                  .prepare('SELECT channel FROM identity_session_preferences WHERE identity_id = ?')
+                  .get(identityId(fixture, name))
+              ) as { channel: number };
+              expect(stored.channel).toBe(Number(remembered));
+              if (round > 0)
+                expect(named(worker, 'started')[0].args).toEqual(
+                  expect.arrayContaining(['--resume', sessionId, '--model', 'model-a'])
+                );
+              if (worker.channel) {
+                const record = enrollment(fixture).record;
+                expect(record.generation).not.toBe(generation);
+                generation = record.generation;
+              } else {
+                expect(named(worker, 'launch')).toMatchObject([{ channel: null }]);
+                expect(channelFiles(fixture)).toEqual([]);
+                expect(leakedServers(fixture)).toEqual([]);
+              }
             });
-            const stored = sql(fixture, (db) =>
-              db
-                .prepare('SELECT channel FROM identity_session_preferences WHERE identity_id = ?')
-                .get(identityId(fixture, name))
-            ) as { channel: number };
-            expect(stored.channel).toBe(Number(remembered));
-            if (round > 0)
-              expect(named(worker, 'started')[0].args).toEqual(
-                expect.arrayContaining(['--resume', sessionId, '--model', 'model-a'])
-              );
-            if (worker.channel) {
-              const record = enrollment(fixture).record;
-              expect(record.generation).not.toBe(generation);
-              generation = record.generation;
-            } else {
-              expect(named(worker, 'launch')).toMatchObject([{ channel: null }]);
-              expect(channelFiles(fixture)).toEqual([]);
-              expect(leakedServers(fixture)).toEqual([]);
-            }
-            expect(await quit(worker)).toBe('0');
-            await fixture.waitFor(
-              () => channelFiles(fixture).length === 0 && leakedServers(fixture).length === 0,
-              10_000,
-              'resume lease cleanup'
-            );
           }
         },
         { mode: 'input-log' }
@@ -383,6 +420,93 @@ describe('Claude channel delivery', { concurrent: false }, () => {
     },
     60_000
   );
+
+  it.each([true, false])(
+    'settles a channel=%s foreground before cleanup after a scenario failure',
+    async (channel) => {
+      let root = '';
+      const failure = new Error('deliberate failure while the foreground is running');
+      await expect(
+        withE2EFixture(async (fixture) => {
+          root = fixture.root;
+          const worker = start(fixture, 'FailedScenario', { channel });
+          await expect(
+            withCompletedSession(fixture, worker, async () => {
+              await ready(fixture, worker, 'FailedScenario');
+              throw failure;
+            })
+          ).rejects.toBe(failure);
+          expect(fs.readFileSync(worker.status, 'utf8')).toBe('0');
+          expect(
+            sql(fixture, (database) =>
+              database
+                .prepare('SELECT runtime_state FROM bindings WHERE identity_id = ?')
+                .get(identityId(fixture, 'FailedScenario'))
+            )
+          ).toMatchObject({ runtime_state: 'ended' });
+          throw failure;
+        })
+      ).rejects.toBe(failure);
+      expect(fs.existsSync(root), 'fixture files removed after the foreground settled').toBe(false);
+    },
+    60_000
+  );
+
+  it('waits for a mock-owned lifecycle hook before the foreground returns', async () => {
+    await withE2EFixture(async (fixture) => {
+      const gate = path.join(fixture.root, 'hook-gate');
+      fs.mkdirSync(gate);
+      const peer = path.join(fixture.wrapperDir, 'gated-hook');
+      writeExecutable(
+        peer,
+        `#!/bin/sh
+set -eu
+: > ${quote(path.join(gate, 'started'))}
+while [ ! -f ${quote(path.join(gate, 'release'))} ]; do sleep 0.01; done
+exec ${[fixture.executables.peer.executable, ...fixture.executables.peer.args].map(quote).join(' ')} "$@"
+`
+      );
+      // A native runtime-shaped parent is required by the real hook admission.
+      writeExecutable(
+        path.join(fixture.wrapperDir, 'claude'),
+        fs.readFileSync('/opt/tmt-tests/claude'),
+        0o755
+      );
+      const worker = start(fixture, 'GatedHook', {
+        channel: false,
+        env: {
+          MOCK_SESSION_ID: '66666666-6666-4666-8666-666666666666',
+          TMT_TEST_CLAUDE_MOCK: mock,
+          TMT_TEST_CLAUDE_NODE: process.execPath,
+          TMT_TEST_PEER_CLI: JSON.stringify({ executable: peer, args: [] }),
+        },
+      });
+      await withCompletedSession(fixture, worker, async () => {
+        try {
+          await ready(fixture, worker, 'GatedHook');
+          await fixture.waitFor(
+            () => fs.existsSync(path.join(gate, 'started')),
+            10_000,
+            'hook started'
+          );
+          fs.writeFileSync(`${worker.log}.quit`, '');
+          await waitForEvent(fixture, worker, 'shutdown-start');
+          expect(
+            fs.existsSync(worker.status),
+            'foreground cannot return while its hook is held'
+          ).toBe(false);
+        } finally {
+          fs.writeFileSync(path.join(gate, 'release'), '');
+        }
+      });
+      const recorded = events(worker);
+      const hook = recorded.findIndex((event) => event.event === 'hook-recorded');
+      const stopped = recorded.findIndex((event) => event.event === 'stopped');
+      expect(hook, 'real hook completed').toBeGreaterThanOrEqual(0);
+      expect(stopped, 'mock exited after its hook close').toBeGreaterThan(hook);
+      expect(named(worker, 'hook-error')).toEqual([]);
+    });
+  }, 60_000);
 
   it('names an automatic identity without changing the live channel enrollment', async () => {
     await withE2EFixture(async (fixture) => {

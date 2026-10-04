@@ -62,9 +62,14 @@ ancestor; validation, receipts and JSON retain canonical paths.
 
 Install the pinned tools into a chosen directory: cargo-dist 0.32.0 (`cargo install --locked`)
 and cargo-about 0.9.2 (`cargo install --locked --features cli`). Fetch locked dependencies
-before the offline notice step. The taffy license clarification in `rust/about.toml` resolves
-to `rust/licenses/taffy-0.7.7/LICENSE.md`; the builder fails if its bytes or the locked taffy
-version change (review the clarification on a taffy upgrade). Generate the offline config
+before the offline notice step. Crates whose archive omits a license file (taffy 0.7.7, yrs
+0.28.0) would otherwise get cargo-about's SPDX template with placeholder attribution. Each has a
+`[crate.clarify]` entry in `rust/about.toml` that resolves to a vendored file,
+`rust/licenses/<crate>-<version>/<file>` (the exact upstream file at the crate's
+`.cargo_vcs_info.json` revision). The builder's `vendored_licenses` table lists them; it fails if a
+file's bytes or the locked crate version change (review the clarification on an upgrade). To add
+a crate, vendor its file, add the clarification with its sha256 and a `__TMT_<CRATE>_LICENSE__`
+path token, and add a row to the table. Generate the offline config
 with `scripts/build-native-artifact.sh --notices-only <target> <product>` before calling
 cargo-about directly: use its `rust/target/native-notices/about.toml`, retain `--fail`
 and the archive verifier's placeholder rejection. Select the CLI explicitly with
