@@ -50,7 +50,7 @@ pub fn render(frame: &mut Frame, app: &App) {
         Constraint::Length(1),
     ])
     .areas(frame.area());
-    frame.render_widget(Paragraph::new(tabs::tab_line(app, tabs)), tabs);
+    frame.render_widget(Paragraph::new(tabs::paint(app, tabs)), tabs);
     let summary_text = app
         .view
         .as_ref()

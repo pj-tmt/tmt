@@ -6,7 +6,8 @@ import { describe, expect, it } from 'vite-plus/test';
 import { resolveCliExecutables } from '../support/cli-executable.mjs';
 import { expectJsonResult } from './cli-assertions.js';
 import { durableIdentity, durableState } from './identity-state-oracle.js';
-import { withE2EFixture, type E2EFixture } from './harness.js';
+import { requestAttempts } from './request-state-oracle.js';
+import { withE2EFixture, type E2EFixture, type MockEvent } from './harness.js';
 
 /** Puts the built squad extension and a `tmt` launcher on the fixture PATH. */
 function installSquad(fixture: E2EFixture): void {
@@ -66,6 +67,107 @@ async function squadWithMember(fixture: E2EFixture): Promise<string> {
 }
 
 describe('squad on a private tmux server', { concurrent: false }, () => {
+  it('sends a scheduled slot once, refuses a second clock and releases its lease on shutdown', async () => {
+    await withE2EFixture(
+      async (fixture) => {
+        installSquad(fixture);
+        const home = path.join(fixture.root, 'clock-home');
+        fs.mkdirSync(home);
+        fixture.tmux(['set-environment', '-g', 'HOME', home]);
+        fixture.tmux(['set-environment', '-g', 'XDG_CACHE_HOME', path.join(home, 'cache')]);
+        fixture.tmux(['set-environment', '-g', 'TMUX_TEAM_HOME', fixture.globalDir]);
+        expectJsonResult(await fixture.runJsonCli(['identity', 'create', 'Ben']));
+        const peer = await fixture.createMockPane('clock-owner');
+        expectJsonResult(await fixture.runJsonCli(['add', '--save', peer.pane, 'worker']));
+        const owner = durableIdentity(fixture, 'worker').id;
+        expectJsonResult(await squadCli(fixture, ['init', 'product', '--me', 'Ben']));
+        expectJsonResult(await squadCli(fixture, ['add', 'worker']));
+        const leasePath = path.join(fixture.globalDir, 'squad', 'cron', 'clock.json');
+        const clock = await spawnRealTmuxCli(fixture, ['squad', 'cron', 'run', '--json'], {
+          name: 'primary-clock',
+          json: false,
+        });
+        fs.writeFileSync(clock.releasePath, 'run');
+        await fixture.waitFor(() => fs.existsSync(leasePath), 5_000, 'clock lease publication');
+        const holder = JSON.parse(fs.readFileSync(leasePath, 'utf8'));
+        expect(holder.pane).toBe(clock.pane);
+        const second = await spawnRealTmuxCli(fixture, ['squad', 'cron', 'run', '--json'], {
+          name: 'second-clock',
+          json: false,
+        });
+        await releaseRealTmuxCli(fixture, second);
+        expect(readRealTmuxCli<{ error: { code: string } }>(second)).toMatchObject({
+          code: 1,
+          stdout: { error: { code: 'SQUAD_CRON_CLOCK_RUNNING' } },
+        });
+        const message = 'literal {time}\nclock reminder';
+        const added = expectJsonResult<{ job: { roomId: string } }>(
+          await squadCli(fixture, [
+            'cron',
+            'add',
+            'product',
+            'worker',
+            '--identity',
+            'Ben',
+            '--every',
+            '1m',
+            message,
+          ])
+        );
+        const scheduled = () =>
+          requestAttempts(fixture).filter((row) => row.message_text === message);
+        await fixture.waitFor(
+          () => scheduled().length === 1,
+          5_000,
+          'scheduled request acceptance'
+        );
+        const request = scheduled()[0]!;
+        expect(request).toMatchObject({
+          recipient_identity_id: owner,
+          originator_kind: 'unknown',
+          originator_identity_id: null,
+          room_id: added.job.roomId,
+          route_kind: 'inbox',
+          message_text: message,
+        });
+        // Correlate the peer's consumed wake with durable request identity, not notice paint.
+        const isScheduledWake = (event: MockEvent) =>
+          event.event === 'input' &&
+          event.pid === peer.pid &&
+          event.line?.split(/\s+/).includes(request.request_id) === true;
+        await fixture.waitForEvent(isScheduledWake, 5_000);
+        await fixture.waitFor(
+          () => scheduled()[0]?.wake_state === 'sent',
+          5_000,
+          'scheduled wake committed'
+        );
+        const busy = await squadCli(fixture, ['cron', 'tick']);
+        expect(busy.code).toBe(1);
+        expect(errorCode(busy)).toBe('SQUAD_CRON_CLOCK_RUNNING');
+        process.kill(holder.pid, 'SIGTERM');
+        await fixture.waitFor(() => fs.existsSync(clock.exitPath), 5_000, 'clock signal cleanup');
+        expect(readRealTmuxCli(clock).code).toBe(0);
+        expect(fs.existsSync(leasePath)).toBe(false);
+        expect(fixture.mockProcessIsRunning(holder.pid)).toBe(false);
+        for (let attempt = 0; attempt < 2; attempt++) {
+          expectJsonResult(await squadCli(fixture, ['cron', 'tick']));
+        }
+        expect(scheduled()).toHaveLength(1);
+        expect(fixture.events().filter(isScheduledWake)).toHaveLength(1);
+        expect(scheduled()[0]).toMatchObject({
+          request_id: request.request_id,
+          wake_state: 'sent',
+        });
+        const status = expectJsonResult<{ clock: { state: string } }>(
+          await squadCli(fixture, ['cron', 'clock'])
+        );
+        expect(status.clock.state).toBe('no clock');
+        expect(fs.existsSync(leasePath)).toBe(false);
+      },
+      { mode: 'input-log' }
+    );
+  }, 30_000);
+
   it('queues cron announcements for the right owners and reconciles retirement in isolated storage', async () => {
     await withE2EFixture(async (fixture) => {
       installSquad(fixture);
@@ -271,11 +373,12 @@ describe('squad on a private tmux server', { concurrent: false }, () => {
       const start = clientPlace(fixture);
       expect(start).toBe(`e2e/${shell.pane}`);
 
+      // A named squad opens on its own tab; an unnamed board opens on the home tab.
       fixture.tmux([
         'send-keys',
         '-t',
         shell.pane,
-        'tmt squad board --popup; echo BOARD_EXIT=$?',
+        'tmt squad board --squad product --popup; echo BOARD_EXIT=$?',
         'Enter',
       ]);
       await fixture.waitForCapture((screen) => screen.includes('auth-fix'), shell.pane);
@@ -285,7 +388,13 @@ describe('squad on a private tmux server', { concurrent: false }, () => {
 
       // The pane form: the same jump leaves the board running.
       fixture.tmux(['switch-client', '-t', shell.pane]);
-      fixture.tmux(['send-keys', '-t', shell.pane, 'clear; tmt squad board', 'Enter']);
+      fixture.tmux([
+        'send-keys',
+        '-t',
+        shell.pane,
+        'clear; tmt squad board --squad product',
+        'Enter',
+      ]);
       await fixture.waitForCapture(
         (screen) => screen.includes('auth-fix') && !screen.includes('BOARD_EXIT'),
         shell.pane

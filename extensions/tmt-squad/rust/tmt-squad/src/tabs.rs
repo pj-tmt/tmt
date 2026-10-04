@@ -106,6 +106,7 @@ mod tests {
         Tabs {
             order: order.iter().map(|key| (*key).to_owned()).collect(),
             hide: hide.iter().map(|key| (*key).to_owned()).collect(),
+            pin: Vec::new(),
             ..Tabs::default()
         }
     }
@@ -119,8 +120,13 @@ mod tests {
     fn configured_tabs_come_first_then_squads_then_built_ins_minus_hidden() {
         let squads: Vec<String> = ["product", "infra", "quiet"].map(String::from).to_vec();
         assert_eq!(
-            keys(arrange(&squads, &Tabs::default())),
-            ["product", "infra", "quiet", LEADS, ALL]
+            arrange(&squads, &Tabs::default()),
+            (
+                [ALL, LEADS, "product", "infra", "quiet"]
+                    .map(String::from)
+                    .to_vec(),
+                1
+            )
         );
         assert_eq!(
             keys(arrange(&squads, &tabs(&[ALL, LEADS, "infra", "gone"], &[]))),

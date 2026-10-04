@@ -318,7 +318,7 @@ fn team() -> &'static DocumentMut {
 
 /// `[tabs]`: see [`Config::tabs`]. Entries are tab keys: a squad name, or
 /// [`crate::board::LEADS`] for the built-in tab.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Tabs {
     pub order: Vec<String>,
     /// Tabs that come first and stay in view when the tab line scrolls.
@@ -330,6 +330,20 @@ pub struct Tabs {
     /// `[tabs.all.bind]`, over the `all` tab's own preset.
     pub all: Bindings,
     pub user: Vec<UserTab>,
+}
+
+impl Default for Tabs {
+    fn default() -> Self {
+        Self {
+            order: vec![crate::tabs::ALL.into(), crate::tabs::LEADS.into()],
+            pin: vec![crate::tabs::ALL.into()],
+            hide: Vec::new(),
+            colors: TabColors::default(),
+            leads: Bindings::new(),
+            all: Bindings::new(),
+            user: Vec::new(),
+        }
+    }
 }
 
 /// A configured member view; selection applies before section shaping.
@@ -1884,6 +1898,12 @@ impl Config {
         let table = item
             .as_table_like()
             .ok_or_else(|| invalid("`tabs` must be a table."))?;
+        // Any explicit ordering policy, including an empty array, keeps the
+        // user's existing arrangement. Hide alone still uses the new defaults.
+        if table.contains_key("order") || table.contains_key("pin") {
+            tabs.order.clear();
+            tabs.pin.clear();
+        }
         for (key, item) in table.iter() {
             match key {
                 "order" => tabs.order = tab_list(item, "tabs.order")?,
@@ -3495,6 +3515,54 @@ panes = ["rows", "notes"]
         }
         let _ = fs::remove_dir_all(path.parent().unwrap());
     }
+    #[test]
+    fn home_defaults_respect_explicit_empty_order_pin_and_hide() {
+        let path = temp("home-defaults");
+        let squads = ["product".into(), "infra".into()];
+        for (body, expected, pinned) in [
+            ("", vec!["@all", "@leads", "product", "infra"], 1),
+            (
+                "[tabs]\nhide = [\"all\"]",
+                vec!["@leads", "product", "infra"],
+                0,
+            ),
+            (
+                "[tabs]\norder = []",
+                vec!["product", "infra", "@leads", "@all"],
+                0,
+            ),
+            (
+                "[tabs]\npin = []",
+                vec!["product", "infra", "@leads", "@all"],
+                0,
+            ),
+            (
+                "[tabs]\norder = [\"infra\", \"all\"]",
+                vec!["infra", "@all", "product", "@leads"],
+                0,
+            ),
+            (
+                "[tabs]\npin = [\"infra\"]",
+                vec!["infra", "product", "@leads", "@all"],
+                1,
+            ),
+        ] {
+            fs::write(&path, body).unwrap();
+            let config = Config::read(path.clone()).unwrap();
+            assert_eq!(
+                crate::tabs::arrange(&squads, &config.tabs().unwrap()),
+                (expected.into_iter().map(String::from).collect(), pinned),
+                "{body}"
+            );
+            assert_eq!(
+                fs::read_to_string(&path).unwrap(),
+                body,
+                "reading never writes"
+            );
+        }
+        let _ = fs::remove_dir_all(path.parent().unwrap());
+    }
+
     #[test]
     fn user_tabs_validate_eagerly_and_keep_distinct_squad_keys() {
         let path = temp("user-tabs");
