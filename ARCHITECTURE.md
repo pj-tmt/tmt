@@ -993,6 +993,7 @@ reached through the external command contract as `tmt squad` and, through a
 `tmt-sq` link to the same file, `tmt sq`. It is a workspace member for the shared
 lockfile and toolchain only, and is released independently (`tmt-squad-v<version>`).
 Module-level reference: the [Squad developer skill](.agents/skills/tmt-squad-dev/SKILL.md).
+Drawing ownership and guard verification are defined in the [Squad](.agents/skills/tmt-squad-dev/SKILL.md) and [TUI](.agents/skills/tmt-tui/SKILL.md) developer skills.
 
 - **Seam.** Squad reaches core only through public `tmt --json` commands and
   `tmt api` (`TMT_EXECUTABLE`, else `tmt` on PATH), each call bounded by
