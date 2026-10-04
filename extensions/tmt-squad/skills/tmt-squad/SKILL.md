@@ -264,7 +264,7 @@ save stays open with a notice; cancel and reopen to read a changed file.
 Agents change the user's appearance only when the user requests it.
 
 When the squad tab's lead row is selected, detail shows its name with a dim `lead`
-tag, state/model/cap, task, nonempty pending as `waits on you`, and links.
+tag, state/model/cap, task, nonempty pending as `◆ waits on you`, and links.
 Missing values are omitted. With no row fields set, it shows
 `no row fields set · tmt sq set <lead> task=…`.
 The dim `notes below · replies at right` line points to the separate panes;

@@ -424,7 +424,7 @@ here reads the store or core directly.
 ## Detail and replies panes
 
 - The lead occurrence on a squad tab has compact detail: a name with dim `lead` tag;
-  acquired state/model/cap; task; `waits on you` only for nonempty pending; links;
+  acquired state/model/cap; task; `◆ waits on you` only for nonempty pending; links;
   then dim `notes below · replies at right`. Missing fields are omitted; no row
   fields yields the dim task-setting hint. `selected_is_lead` uses the displayed
   `RowOrigin::Lead`, including retained views and search, to exclude this occurrence

@@ -2000,12 +2000,16 @@ fn lead_detail_keeps_fields_separate_from_notebooks_and_replies() {
                         "sol  lead",
                         "review · sol · high",
                         "task: review the patch",
-                        "waits on you: Approve the rollout?",
+                        "◆ waits on you: Approve the rollout?",
                         "links: pr_link https://example.com/1741",
                         "notes below · replies at right",
                     ]
                 );
                 assert!(buffer[(0, 0)].modifier.contains(Modifier::BOLD));
+                assert_eq!(
+                    crate::board::glyph_guard::glyph_error(&detail_text(&buffer)[3]),
+                    None
+                );
                 assert_eq!(
                     buffer[(5, 0)].fg,
                     app.look().role(Role::Dim).fg.unwrap_or_default()

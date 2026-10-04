@@ -221,7 +221,7 @@ fn render_lead(frame: &mut Frame, app: &App, area: Rect, row: &Value) {
     }
     if let Some(pending) = text(&row["pending"]) {
         lines.push(Line::styled(
-            format!("waits on you: {pending}"),
+            format!("◆ waits on you: {pending}"),
             look.role(Role::Waiting),
         ));
     }
