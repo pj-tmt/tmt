@@ -12,9 +12,27 @@ const MAX_BYTES: u64 = 16 * 1024;
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct Door(String);
+/// What `tmt remote status --json` told us.
+#[derive(Debug, PartialEq, Eq)]
+pub enum Lookup {
+    Running(Door),
+    /// Remote answered that no door runs; it may remember the last port.
+    Stopped(Option<u64>),
+    /// No answer: missing command, failure, timeout or an unrecognized document.
+    Unknown,
+}
 impl Door {
-    /// Ask the running Remote for its door; `None` when it is not running or cannot answer.
+    /// The running door, if any.
     pub fn discover() -> Option<Self> {
+        match Self::lookup() {
+            Lookup::Running(door) => Some(door),
+            _ => None,
+        }
+    }
+    pub fn lookup() -> Lookup {
+        Self::run().map_or(Lookup::Unknown, |text| Self::interpret(&text))
+    }
+    fn run() -> Option<String> {
         let tmt = tmt_invoke::invoking_tmt().ok()?;
         let mut child = Command::new(tmt)
             .args(["remote", "status", "--json"])
@@ -39,9 +57,19 @@ impl Door {
             }
         };
         let text = text?;
-        status?.success().then(|| Self::parse(&text)).flatten()
+        status?.success().then_some(text)
     }
-    /// `{"running":true,"origin":"http://127.0.0.1:53253","path":"/r/<prefix>"}`
+    /// `{"running":false,"lastPort":53253|null}` is a stopped door; anything else unusable is unknown.
+    pub fn interpret(json: &str) -> Lookup {
+        if let Some(door) = Self::parse(json) {
+            return Lookup::Running(door);
+        }
+        match serde_json::from_str::<serde_json::Value>(json) {
+            Ok(value) if value["running"] == false => Lookup::Stopped(value["lastPort"].as_u64()),
+            _ => Lookup::Unknown,
+        }
+    }
+    /// `{"running":true,"origin":"http://127.0.0.1:53253","path":"/r/<prefix>"}`; unknown fields are ignored.
     pub fn parse(json: &str) -> Option<Self> {
         let value: serde_json::Value = serde_json::from_str(json).ok()?;
         if value["running"] != true {
@@ -70,7 +98,32 @@ impl Door {
 
 #[cfg(test)]
 mod tests {
-    use super::Door;
+    use super::{Door, Lookup};
+    #[test]
+    fn interprets_running_stopped_and_unusable_answers() {
+        let running =
+            r#"{"running":true,"origin":"http://127.0.0.1:1","path":"/r/ab","future":[1]}"#;
+        assert!(matches!(Door::interpret(running), Lookup::Running(_)));
+        assert_eq!(
+            Door::interpret(r#"{"running":false,"lastPort":53253}"#),
+            Lookup::Stopped(Some(53253))
+        );
+        assert_eq!(
+            Door::interpret(r#"{"running":false,"lastPort":null}"#),
+            Lookup::Stopped(None)
+        );
+        assert_eq!(
+            Door::interpret(r#"{"running":false}"#),
+            Lookup::Stopped(None)
+        );
+        for unusable in [
+            "",
+            r#"{"error":{"code":"REMOTE_X","message":"m"}}"#,
+            r#"{"running":true}"#,
+        ] {
+            assert_eq!(Door::interpret(unusable), Lookup::Unknown, "{unusable}");
+        }
+    }
     #[test]
     fn accepts_only_a_running_door_with_a_plain_origin_and_prefix() {
         let ok = r#"{"running":true,"origin":"http://127.0.0.1:53253","path":"/r/3e2c69f7"}"#;

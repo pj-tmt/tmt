@@ -246,10 +246,14 @@ fn reader_path(space: &str, page: &str, link: &Value, head: &AcknowledgedHead) -
     )
 }
 /// A copyable link when a Remote door is running, else the mount-relative path and how to get one.
-fn open_line(door: Option<&crate::door::Door>, relative: &str) -> String {
-    match door {
-        Some(door) => door.url(relative),
-        None => format!("{relative} (start tmt remote serve to get a full link)"),
+fn open_line(lookup: &crate::door::Lookup, relative: &str) -> String {
+    use crate::door::Lookup;
+    match lookup {
+        Lookup::Running(door) => door.url(relative),
+        Lookup::Stopped(Some(port)) => format!(
+            "{relative} (start tmt remote serve (last door port {port}) to get a full link)"
+        ),
+        _ => format!("{relative} (start tmt remote serve to get a full link)"),
     }
 }
 fn remaining(deadline: Instant) -> Result<Duration> {
@@ -467,8 +471,8 @@ pub fn create_page(root: &Path, args: &ArgMatches, source: String) -> Result<()>
         .as_str()
         .ok_or_else(|| input("Missing created page path."))?
         .to_owned();
-    let door = crate::door::Door::discover();
-    if let Some(door) = &door {
+    let lookup = crate::door::Door::lookup();
+    if let crate::door::Lookup::Running(door) = &lookup {
         result["url"] = json!(door.url(&relative));
     }
     if args.get_flag("json") {
@@ -483,7 +487,7 @@ pub fn create_page(root: &Path, args: &ArgMatches, source: String) -> Result<()>
         &[
             ("page", page_id),
             ("title", title.to_owned()),
-            ("open", open_line(door.as_ref(), &relative)),
+            ("open", open_line(&lookup, &relative)),
         ],
     )?;
     Ok(())

@@ -1085,6 +1085,17 @@ fn created_pages_print_a_copyable_full_link_only_while_a_door_runs() {
         "{text}"
     );
     assert!(!text.contains("start tmt remote serve"));
+    // A stopped door that remembers its port says so; an extra field never breaks the answer.
+    let stopped = pilot
+        .command_with_door(r#"{"running":false,"lastPort":53253,"future":1}"#)
+        .args(["page", "create", "--title", "Stopped"])
+        .output()
+        .unwrap();
+    let text = String::from_utf8(stopped.stdout).unwrap();
+    assert!(
+        text.contains("(start tmt remote serve (last door port 53253) to get a full link)"),
+        "{text}"
+    );
 }
 #[test]
 fn a_door_that_does_not_answer_in_time_falls_back_to_the_relative_path() {
