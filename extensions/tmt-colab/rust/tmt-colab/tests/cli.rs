@@ -45,40 +45,24 @@ impl Pilot {
             .map(str::to_owned)
             .unwrap_or_else(|| json!({"dataRoot":pilot.root.join("selected")}).to_string());
         let payload = format!(
-            "#!/bin/sh\nif [ \"$1\" = __fixture_ready ]; then exit 0; fi\n[ \"$#\" = 1 ] && [ \"$1\" = api ] || exit 9\ncd {} || exit 9\nprintf '%s\\n' \"$*\" >> calls\ncat > input\nprintf '%s\\n' {}\n",
+            "#!/bin/sh\n[ \"$#\" = 1 ] && [ \"$1\" = api ] || exit 9\ncd {} || exit 9\nprintf '%s\\n' \"$*\" >> calls\ncat > input\nprintf '%s\\n' {}\n",
             quote(pilot.root.to_str().unwrap()),
             quote(&response)
         );
-        fs::write(pilot.root.join("core"), payload).unwrap();
-        fs::set_permissions(pilot.root.join("core"), fs::Permissions::from_mode(0o700)).unwrap();
-        // Probe only the no-effect fixture branch, never retry the product invocation.
-        let deadline = Instant::now() + Duration::from_secs(1);
-        loop {
-            match Command::new(pilot.root.join("core"))
-                .arg("__fixture_ready")
-                .output()
-            {
-                Ok(output) => {
-                    assert!(output.status.success());
-                    break;
-                }
-                Err(e)
-                    if e.kind() == std::io::ErrorKind::ExecutableFileBusy
-                        && Instant::now() < deadline =>
-                {
-                    thread::sleep(Duration::from_millis(10))
-                }
-                Err(e) => panic!("fixture publication failed: {e}"),
-            }
-        }
+        tmt_test_support::write_executable(&pilot.root.join("core"), payload.as_bytes(), 0o700)
+            .unwrap();
         assert!(!pilot.root.join("calls").exists());
         pilot
     }
     fn command(&self) -> Command {
         let mut cmd = Command::new(BINARY);
-        cmd.env("HOME", &self.root)
+        cmd.env_clear()
+            .env("HOME", &self.root)
             .env("XDG_CONFIG_HOME", self.root.join("config"))
             .env("XDG_DATA_HOME", self.root.join("data"))
+            .env("XDG_STATE_HOME", self.root.join("state"))
+            .env("XDG_CACHE_HOME", self.root.join("cache"))
+            .env("TMPDIR", &self.root)
             .env("TMUX_TEAM_HOME", self.root.join("selected"))
             .env("TMT_EXECUTABLE", self.root.join("core"));
         cmd
@@ -491,11 +475,11 @@ fn management_confirmation_and_input_denials_have_no_state_effects() {
         "COLAB_INPUT_INVALID",
     );
     for args in [
-        vec!["retention", PAGE, "--json"],
-        vec!["archive", PAGE, "--json"],
-        vec!["delete", PAGE, "--yes", "--json"],
+        vec!["retention", PAGE, "0", "--json"],
+        vec!["archive", "not-a-page", "--json"],
+        vec!["delete", "not-a-page", "--yes", "--json"],
         vec!["share", "members", "list", PAGE, "--json"],
-        vec!["share", "history", PAGE, "shared", "--json"],
+        vec!["share", "history", PAGE, "invalid", "--json"],
     ] {
         failure(&pilot, &args, "COLAB_INPUT_INVALID");
     }
@@ -1016,4 +1000,543 @@ fn create_supports_empty_source_and_stdin_and_refuses_invalid_input_before_state
     assert!(message.contains("PAGE CREATED"));
     assert!(message.contains("Open x/colab/#space="));
     assert!(message.contains("under your Remote door address (the one tmt remote pair printed)."));
+}
+
+fn full_management_cases() -> Vec<(&'static str, Vec<String>)> {
+    use ed25519_dalek::SigningKey;
+    use tmt_colab_model::{values, wrap};
+    let sign = values::encode_binary(&SigningKey::from_bytes(&[19; 32]).verifying_key().to_bytes());
+    let enc = values::encode_binary(
+        &wrap::RecipientKey::from_seed(&[20; 32])
+            .unwrap()
+            .public_key(),
+    );
+    let member = "20000000-0000-4000-8000-000000000009";
+    vec![
+        (
+            "member.add",
+            vec![
+                "share",
+                "member",
+                "add",
+                PAGE,
+                member,
+                "viewer",
+                "--sign-key",
+                &sign,
+                "--enc-key",
+                &enc,
+            ],
+        ),
+        (
+            "member.remove",
+            vec!["share", "member", "remove", PAGE, MEMBER],
+        ),
+        (
+            "member.role",
+            vec!["share", "member", "role", PAGE, MEMBER, "viewer"],
+        ),
+        ("history.current", vec!["share", "history", PAGE, "current"]),
+        ("history.shared", vec!["share", "history", PAGE, "shared"]),
+        ("retention.days", vec!["retention", PAGE, "21"]),
+        ("retention.forever", vec!["retention", PAGE, "forever"]),
+        ("archive", vec!["archive", PAGE]),
+        ("delete", vec!["delete", PAGE]),
+    ]
+    .into_iter()
+    .map(|(name, args)| (name, args.into_iter().map(str::to_owned).collect()))
+    .collect()
+}
+fn words(args: &[String]) -> Vec<&str> {
+    args.iter().map(String::as_str).collect()
+}
+fn frozen_management(base: &[String], operation: &str, revision: &str) -> Vec<String> {
+    base.iter()
+        .map(String::as_str)
+        .chain([
+            "--yes",
+            "--operation-id",
+            operation,
+            "--expected-revision",
+            revision,
+            "--json",
+        ])
+        .map(str::to_owned)
+        .collect()
+}
+
+#[test]
+fn full_management_cli_serving_and_stopped_commits_policy_and_replays_after_restart() {
+    for serving in [false, true] {
+        for (name, base) in full_management_cases() {
+            let mut pilot = Pilot::new(None);
+            seed_page(&pilot);
+            if serving {
+                pilot.start();
+            }
+            if name == "history.shared" {
+                pilot.call(&["share", "history", PAGE, "current", "--json"]);
+            }
+            let policy = pilot.call(&["retention", PAGE, "--json"]);
+            assert_eq!(policy["page"]["retentionDays"], 30);
+            let revision = policy["membershipHead"]["revision"].as_str().unwrap();
+            let stale_revision = (revision.parse::<u64>().unwrap() - 1).to_string();
+            let stale = frozen_management(
+                &base,
+                "40000000-0000-4000-8000-000000000098",
+                &stale_revision,
+            );
+            failure(&pilot, &words(&stale), "COLAB_STALE_HEAD");
+            assert_eq!(pilot.call(&["retention", PAGE, "--json"]), policy);
+            let args = frozen_management(&base, "40000000-0000-4000-8000-000000000099", revision);
+            let committed = pilot.call(&words(&args));
+            assert_eq!(committed["expectedRevision"], revision);
+            assert_eq!(
+                pilot.call(&words(&args)),
+                committed,
+                "{name}: immediate replay"
+            );
+            if name == "delete" {
+                assert_eq!(
+                    pilot.call(&["ls", "--archived", "--json"])["pages"],
+                    json!([])
+                );
+                failure(
+                    &pilot,
+                    &["delete", PAGE, "--yes", "--json"],
+                    "COLAB_PAGE_NOT_FOUND",
+                );
+                let new = frozen_management(
+                    &base,
+                    "40000000-0000-4000-8000-000000000097",
+                    committed["membershipHead"]["revision"].as_str().unwrap(),
+                );
+                failure(&pilot, &words(&new), "COLAB_DENIED");
+                let db = rusqlite::Connection::open_with_flags(
+                    pilot.root.join("selected/colab/space.db"),
+                    rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
+                )
+                .unwrap();
+                for table in [
+                    "streams",
+                    "receipts",
+                    "checkpoints",
+                    "baselines",
+                    "wraps",
+                    "epoch_secrets",
+                ] {
+                    let count: i64 = db
+                        .query_row(
+                            &format!("SELECT count(*) FROM {table} WHERE page=?"),
+                            [PAGE],
+                            |row| row.get(0),
+                        )
+                        .unwrap();
+                    assert_eq!(count, 0, "deleted {table}");
+                }
+                assert_eq!(
+                    db.query_row("SELECT count(*) FROM pages WHERE page=?", [PAGE], |row| row
+                        .get::<_, i64>(0))
+                        .unwrap(),
+                    1
+                );
+                assert_eq!(
+                    db.query_row(
+                        "SELECT count(*) FROM owner_operations WHERE id=?",
+                        ["40000000-0000-4000-8000-000000000099"],
+                        |row| row.get::<_, i64>(0)
+                    )
+                    .unwrap(),
+                    1
+                );
+                drop(db);
+                pilot.call(&["page", "create", "--title", "Later page", "--json"]);
+            } else {
+                let detail = pilot.call(&["show", PAGE, "--json"]);
+                match name {
+                    "member.add" => assert!(detail["members"].as_array().unwrap().iter().any(
+                        |m| m["id"] == base[4] && m["role"] == "viewer" && m["revoked"] == false
+                    )),
+                    "member.remove" => assert!(
+                        detail["members"]
+                            .as_array()
+                            .unwrap()
+                            .iter()
+                            .any(|m| m["id"] == MEMBER && m["revoked"] == true)
+                    ),
+                    "member.role" => assert!(
+                        detail["members"]
+                            .as_array()
+                            .unwrap()
+                            .iter()
+                            .any(|m| m["id"] == MEMBER && m["role"] == "viewer")
+                    ),
+                    "history.current" => assert_eq!(detail["page"]["history"], "current"),
+                    "history.shared" => assert_eq!(detail["page"]["history"], "shared"),
+                    "retention.days" => assert_eq!(detail["page"]["retentionDays"], 21),
+                    "retention.forever" => assert_eq!(detail["page"]["retentionDays"], Value::Null),
+                    "archive" => {
+                        assert_eq!(detail["page"]["archived"], true);
+                        assert_eq!(detail["page"]["title"], Value::Null);
+                        assert_eq!(pilot.call(&["ls", "--json"])["pages"], json!([]));
+                        assert_eq!(
+                            pilot.call(&["ls", "--archived", "--json"])["pages"]
+                                .as_array()
+                                .unwrap()
+                                .len(),
+                            1
+                        );
+                        failure(
+                            &pilot,
+                            &["share", "history", PAGE, "shared", "--yes", "--json"],
+                            "COLAB_DENIED",
+                        );
+                    }
+                    _ => unreachable!(),
+                }
+                pilot.call(&["retention", PAGE, "42", "--json"]);
+                assert_eq!(
+                    pilot.call(&["retention", PAGE, "--json"])["page"]["retentionDays"],
+                    42
+                );
+            }
+            let later = pilot.call(&["ls", "--archived", "--json"])["membershipHead"].clone();
+            assert_ne!(later, committed["membershipHead"]);
+            if serving {
+                pilot.stop();
+            }
+            pilot.start();
+            assert_eq!(
+                pilot.call(&words(&args)),
+                committed,
+                "{name}: durable original head after restart"
+            );
+            let mut conflict = args.clone();
+            let position = conflict
+                .iter()
+                .position(|v| v == "--expected-revision")
+                .unwrap();
+            conflict[position + 1] = later["revision"].as_str().unwrap().into();
+            failure(&pilot, &words(&conflict), "COLAB_CONFLICT");
+            assert_eq!(
+                pilot.call(&["ls", "--archived", "--json"])["membershipHead"],
+                later
+            );
+            pilot.stop();
+        }
+    }
+}
+
+#[test]
+fn full_management_confirmation_input_and_retention_reads_preserve_state() {
+    for serving in [false, true] {
+        let mut pilot = Pilot::new(None);
+        seed_page(&pilot);
+        if serving {
+            pilot.start();
+        }
+        pilot.call(&["share", "member", "role", PAGE, MEMBER, "viewer", "--json"]);
+        pilot.call(&["share", "history", PAGE, "current", "--json"]);
+        let before = pilot.call(&["retention", PAGE, "--json"]);
+        let add = full_management_cases().remove(0).1;
+        let mut unconfirmed_add = add.clone();
+        unconfirmed_add.push("--json".into());
+        failure(
+            &pilot,
+            &words(&unconfirmed_add),
+            "COLAB_CONFIRMATION_REQUIRED",
+        );
+        for base in [
+            vec!["share", "member", "role", PAGE, MEMBER, "editor", "--json"],
+            vec!["share", "history", PAGE, "shared", "--json"],
+            vec!["delete", PAGE, "--json"],
+        ] {
+            failure(&pilot, &base, "COLAB_CONFIRMATION_REQUIRED");
+        }
+        for days in ["0", "-1", "01", "9007199254740992", "1.5", "Forever"] {
+            failure(
+                &pilot,
+                &["retention", PAGE, days, "--json"],
+                "COLAB_INPUT_INVALID",
+            );
+        }
+        for (flag, invalid) in [
+            ("--sign-key", "AA"),
+            ("--enc-key", "AA"),
+            ("--enc-key", "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"),
+        ] {
+            let mut args = frozen_management(
+                &add,
+                "40000000-0000-4000-8000-000000000099",
+                before["membershipHead"]["revision"].as_str().unwrap(),
+            );
+            let position = args.iter().position(|v| v == flag).unwrap();
+            args[position + 1] = invalid.into();
+            failure(&pilot, &words(&args), "COLAB_INPUT_INVALID");
+        }
+        assert_eq!(pilot.call(&["retention", PAGE, "--json"]), before);
+        let human = pilot.command().args(["retention", PAGE]).output().unwrap();
+        assert!(human.status.success());
+        assert!(String::from_utf8_lossy(&human.stdout).contains("retentionDays"));
+        assert!(
+            String::from_utf8_lossy(&human.stderr).contains("Expiry times are not available yet")
+        );
+        pilot.call(&[
+            "share", "member", "role", PAGE, MEMBER, "editor", "--yes", "--json",
+        ]);
+        pilot.call(&["share", "history", PAGE, "shared", "--yes", "--json"]);
+        for mut args in [
+            add,
+            vec!["retention".into(), PAGE.into(), "forever".into()],
+            vec!["archive".into(), PAGE.into()],
+            vec!["delete".into(), PAGE.into()],
+        ] {
+            args.push("--yes".into());
+            let human = pilot.command().args(&args).output().unwrap();
+            assert!(human.status.success(), "{human:?}");
+            assert!(human.stderr.is_empty());
+            assert!(String::from_utf8_lossy(&human.stdout).contains("operationId"));
+        }
+        if serving {
+            pilot.stop();
+        }
+    }
+    for command in [
+        vec!["share", "member", "add"],
+        vec!["share", "member", "remove"],
+        vec!["share", "member", "role"],
+        vec!["share", "history"],
+        vec!["retention"],
+        vec!["archive"],
+        vec!["delete"],
+    ] {
+        let pilot = Pilot::new(None);
+        let mut args = vec!["help"];
+        args.extend(command.iter().copied());
+        let help = pilot.command().args(&args).output().unwrap();
+        assert!(help.status.success());
+        let help = String::from_utf8(help.stdout).unwrap();
+        assert!(help.contains("tmt colab"));
+        if command == ["share", "member", "add"] {
+            assert!(help.contains("Advanced or scripted use"));
+            assert!(help.contains("Member invitation flows come with the Firestore stage"));
+        }
+        assert!(!pilot.root.join("selected").exists());
+    }
+}
+
+#[test]
+fn every_full_management_mutation_preserves_correlation_and_never_falls_back_after_ipc() {
+    use tmt_colab::keyring::Layout;
+    for (name, base) in full_management_cases() {
+        for response in [Some("DENIED"), None, Some("MALFORMED"), Some("STATUS")] {
+            let pilot = Pilot::new(None);
+            seed_page(&pilot);
+            let db = pilot.root.join("selected/colab/space.db");
+            let before = fs::read(&db).unwrap();
+            let layout = Layout::existing(&pilot.root.join("selected"))
+                .unwrap()
+                .unwrap();
+            let _lock = layout.serve_lock().unwrap();
+            let socket = layout.directory.join(tmt_colab::socket::SOCKET);
+            let listener = UnixListener::bind(&socket).unwrap();
+            fs::set_permissions(&socket, fs::Permissions::from_mode(0o600)).unwrap();
+            let server = thread::spawn(move || {
+                let (mut stream, _) = listener.accept().unwrap();
+                stream
+                    .set_read_timeout(Some(Duration::from_secs(5)))
+                    .unwrap();
+                let mut request = Vec::new();
+                stream.read_to_end(&mut request).unwrap();
+                let offset = request.windows(4).position(|w| w == b"\r\n\r\n").unwrap() + 4;
+                assert!(request.starts_with(b"POST /.tmt/colab/management HTTP/1.1"));
+                assert!(!String::from_utf8_lossy(&request[..offset]).contains("tmt-device"));
+                let request: Value = serde_json::from_slice(&request[offset..]).unwrap();
+                assert_eq!(
+                    request["operationId"],
+                    "40000000-0000-4000-8000-000000000099"
+                );
+                assert_eq!(request["expectedRevision"], "2");
+                let operation = match name {
+                    "history.current" | "history.shared" => "page.history",
+                    "retention.days" | "retention.forever" => "retention.set",
+                    "archive" => "page.archive",
+                    "delete" => "page.delete",
+                    v => v,
+                };
+                assert_eq!(request["operation"], operation);
+                if let Some(response) = response {
+                    let (status, body) = if response == "DENIED" {
+                        (403, "DENIED")
+                    } else if response == "STATUS" {
+                        (409, "DENIED")
+                    } else {
+                        (200, "{invalid")
+                    };
+                    write!(stream, "HTTP/1.1 {status} Test\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).unwrap();
+                }
+            });
+            let args = frozen_management(&base, "40000000-0000-4000-8000-000000000099", "2");
+            let error = failure(
+                &pilot,
+                &words(&args),
+                if response == Some("DENIED") {
+                    "COLAB_DENIED"
+                } else {
+                    "COLAB_OUTCOME_UNKNOWN"
+                },
+            );
+            server.join().unwrap();
+            assert_eq!(error["operationId"], "40000000-0000-4000-8000-000000000099");
+            assert_eq!(error["expectedRevision"], "2");
+            assert_eq!(
+                fs::read(&db).unwrap(),
+                before,
+                "{name}: no offline fallback"
+            );
+            fs::remove_file(socket).unwrap();
+        }
+    }
+}
+
+#[test]
+fn full_management_rejected_inputs_and_missing_confirmations_send_no_ipc() {
+    let pilot = Pilot::new(None);
+    seed_page(&pilot);
+    pilot.call(&["share", "member", "role", PAGE, MEMBER, "viewer", "--json"]);
+    pilot.call(&["share", "history", PAGE, "current", "--json"]);
+    let layout = tmt_colab::keyring::Layout::existing(&pilot.root.join("selected"))
+        .unwrap()
+        .unwrap();
+    let _lock = layout.serve_lock().unwrap();
+    let socket = layout.directory.join(tmt_colab::socket::SOCKET);
+    let listener = UnixListener::bind(&socket).unwrap();
+    listener.set_nonblocking(true).unwrap();
+    fs::set_permissions(&socket, fs::Permissions::from_mode(0o600)).unwrap();
+    let mut add = full_management_cases().remove(0).1;
+    add.push("--json".into());
+    let mut cases = vec![(add.clone(), "COLAB_CONFIRMATION_REQUIRED")];
+    for args in [
+        vec!["share", "member", "role", PAGE, MEMBER, "editor", "--json"],
+        vec!["share", "history", PAGE, "shared", "--json"],
+        vec!["delete", PAGE, "--json"],
+        vec!["retention", PAGE, "0", "--json"],
+        vec!["retention", PAGE, "9007199254740992", "--json"],
+    ] {
+        let code = if args[0] == "retention" {
+            "COLAB_INPUT_INVALID"
+        } else {
+            "COLAB_CONFIRMATION_REQUIRED"
+        };
+        cases.push((args.into_iter().map(str::to_owned).collect(), code));
+    }
+    add.push("--yes".into());
+    let key = add.iter().position(|v| v == "--enc-key").unwrap();
+    add[key + 1] = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA".into();
+    cases.push((add, "COLAB_INPUT_INVALID"));
+    for (args, code) in cases {
+        failure(&pilot, &words(&args), code);
+        assert!(
+            matches!(listener.accept(), Err(e) if e.kind() == std::io::ErrorKind::WouldBlock),
+            "refused CLI request reached IPC"
+        );
+    }
+    fs::remove_file(socket).unwrap();
+}
+
+#[test]
+fn cli_member_changes_capture_complete_verified_assignments() {
+    use ed25519_dalek::SigningKey;
+    use tmt_colab::{
+        keyring::{Keyring, Layout},
+        store::{Store, owner::Recipient},
+        transitions::{Engine, MemberAction, MemberRequest},
+    };
+    use tmt_colab_model::wrap;
+    for serving in [false, true] {
+        for action in ["role", "remove"] {
+            let mut pilot = Pilot::new(None);
+            seed_page(&pilot);
+            let second = pilot.call(&["page", "create", "--title", "Second assignment", "--json"]);
+            let second_id = second["pageId"].as_str().unwrap();
+            let target = "20000000-0000-4000-8000-000000000009";
+            let layout = Layout::existing(&pilot.root.join("selected"))
+                .unwrap()
+                .unwrap();
+            {
+                let _lock = layout.serve_lock().unwrap();
+                let key = Keyring::read(&layout).unwrap();
+                let mut store = Store::open(&layout).unwrap();
+                let mut pages = vec![PAGE.to_owned(), second_id.to_owned()];
+                pages.sort();
+                let head = store
+                    .owner_head(&key.space_id, &key.owner_public())
+                    .unwrap()
+                    .unwrap();
+                let mut engine =
+                    Engine::with_decoder_config(support::decoder_config(PathBuf::from(BINARY)))
+                        .unwrap();
+                engine
+                    .member(
+                        &mut store,
+                        &key,
+                        MemberRequest {
+                            operation_id: "40000000-0000-4000-8000-000000000099",
+                            expected_revision: head.revision,
+                            action: MemberAction::Add(Recipient {
+                                kind: "member".into(),
+                                id: target.into(),
+                                role: Some("editor".into()),
+                                signing_key: SigningKey::from_bytes(&[19; 32])
+                                    .verifying_key()
+                                    .to_bytes(),
+                                encryption_key: wrap::RecipientKey::from_seed(&[20; 32])
+                                    .unwrap()
+                                    .public_key(),
+                                pages,
+                                revoked: false,
+                            }),
+                        },
+                        1,
+                    )
+                    .unwrap();
+                store.close().unwrap();
+            }
+            if serving {
+                pilot.start();
+            }
+            let first_before = pilot.call(&["show", PAGE, "--json"]);
+            let second_before = pilot.call(&["show", second_id, "--json"]);
+            let mut args = vec!["share", "member", action, PAGE, target];
+            if action == "role" {
+                args.push("viewer");
+            }
+            args.push("--json");
+            pilot.call(&args);
+            for (id, before) in [(PAGE, first_before), (second_id, second_before)] {
+                let detail = pilot.call(&["show", id, "--json"]);
+                if action == "remove" {
+                    assert_ne!(detail["page"]["epoch"], before["page"]["epoch"]);
+                } else {
+                    // Role reduction retains read keys; the engine cuts writer sequences.
+                    assert_eq!(detail["page"]["epoch"], before["page"]["epoch"]);
+                }
+                let recipient = detail["members"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .find(|m| m["id"] == target)
+                    .unwrap();
+                assert_eq!(recipient["pages"].as_array().unwrap().len(), 2);
+                if action == "role" {
+                    assert_eq!(recipient["role"], "viewer");
+                } else {
+                    assert_eq!(recipient["revoked"], true);
+                }
+            }
+            if serving {
+                pilot.stop();
+            }
+        }
+    }
 }
