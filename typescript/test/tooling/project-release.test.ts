@@ -371,6 +371,29 @@ describe('full repository-state release sweep', () => {
       expect(writes(api)).toHaveLength(0);
     }));
 
+  it('fetches a tag published after checkout from origin, and names a tag that never resolves', () =>
+    history(({ directory, git }) => {
+      const origin = mkdtempSync(path.join(tmpdir(), 'tmt-project-release-origin-'));
+      try {
+        spawnSync('git', ['init', '--bare', '-q', origin], { timeout: 10_000 });
+        git(['remote', 'add', 'origin', origin]);
+        git(['tag', 'v5.0.0-alpha.1']);
+        // The sibling published alpha.2 after this checkout's tag fetch.
+        git(['tag', 'v5.0.0-alpha.2']);
+        git(['push', '-q', 'origin', 'HEAD:refs/heads/main', 'v5.0.0-alpha.1', 'v5.0.0-alpha.2']);
+        git(['tag', '-d', 'v5.0.0-alpha.2']);
+        const evidence = gitEvidence({ cwd: directory });
+        expect(() => evidence.validateTags(['v5.0.0-alpha.1', 'v5.0.0-alpha.2'])).not.toThrow();
+        expect(git(['tag', '--list', 'v5.0.0-alpha.2'])).toBe('v5.0.0-alpha.2');
+        expect(() => evidence.validateTags(['v5.0.0-alpha.1', 'v5.0.0-alpha.7'])).toThrow(
+          /do not resolve to a commit: v5\.0\.0-alpha\.7/
+        );
+        expect(git(['tag', '--list', 'v5.0.0-alpha.7'])).toBe('');
+      } finally {
+        rmSync(origin, { recursive: true, force: true });
+      }
+    }));
+
   it('uses ancestry across branches and includes deletion and both rename owners', () =>
     history(({ directory, git, commit }) => {
       const ancestor = git(['rev-parse', 'HEAD']);
@@ -992,5 +1015,63 @@ describe('bounded discovery and mutation safety', () => {
     expect(workflow).toContain('group: project-release-tracking');
     expect(workflow).not.toContain('contents: write');
     expect(workflow).toContain('permission-organization-projects: write');
+  });
+});
+
+describe('published tag validation with an injected git', () => {
+  type Call = { args: string[]; input?: string };
+  /** Answers each cat-file batch from `batches`, so a later check can see a fetched tag. */
+  function fakeGit(batches: string[][], fetchStatus = 0) {
+    const calls: Call[] = [];
+    const spawn = ((_: string, args: string[], options: { input?: string }) => {
+      calls.push({ args, input: options.input });
+      if (args[0] === 'rev-parse') return { status: 0, stdout: 'false\n' };
+      if (args[0] === 'fetch') return { status: fetchStatus, stdout: '' };
+      return { status: 0, stdout: `${batches.shift()!.join('\n')}\n` };
+    }) as never;
+    return { calls, evidence: gitEvidence({ cwd: '/unused', spawn }) };
+  }
+  const commit = `${'a'.repeat(40)} commit`;
+  const fetches = (calls: Call[]) => calls.filter(({ args }) => args[0] === 'fetch');
+
+  it('does not fetch when every tag resolves', () => {
+    const { calls, evidence } = fakeGit([[commit, commit]]);
+    evidence.validateTags(['v1', 'v2']);
+    expect(fetches(calls)).toHaveLength(0);
+  });
+  it('fetches exactly the missing tags once, then revalidates every tag', () => {
+    const { calls, evidence } = fakeGit([
+      [commit, 'refs/tags/v2^{commit} missing', commit],
+      [commit, commit, commit],
+    ]);
+    evidence.validateTags(['v1', 'v2', 'v3']);
+    expect(fetches(calls).map(({ args }) => args)).toEqual([
+      ['fetch', '--no-tags', '--quiet', 'origin', '+refs/tags/v2:refs/tags/v2'],
+    ]);
+    expect(calls.filter(({ args }) => args[0] === 'cat-file')).toHaveLength(2);
+  });
+  it('fails closed naming the tag that still does not resolve, without a second fetch', () => {
+    const { calls, evidence } = fakeGit([
+      [commit, 'refs/tags/v2^{commit} missing'],
+      [commit, 'refs/tags/v2^{commit} missing'],
+    ]);
+    expect(() => evidence.validateTags(['v1', 'v2'])).toThrow(
+      'Git evidence failed: published tag(s) do not resolve to a commit: v2'
+    );
+    expect(fetches(calls)).toHaveLength(1);
+  });
+  it('fails closed naming the tag when the fetch itself fails', () => {
+    const { calls, evidence } = fakeGit([[commit, 'refs/tags/v2^{commit} missing']], 128);
+    expect(() => evidence.validateTags(['v1', 'v2'])).toThrow(
+      /commit: v2 \(Git evidence failed: git fetch/
+    );
+    expect(fetches(calls)).toHaveLength(1);
+  });
+  it('never passes an option-like or malformed tag name to git fetch', () => {
+    for (const name of ['-force', 'v1:refs/heads/main', 'refs/../x', '']) {
+      const { calls, evidence } = fakeGit([[`refs/tags/${name}^{commit} missing`]]);
+      expect(() => evidence.validateTags([name])).toThrow('not fetched');
+      expect(fetches(calls)).toHaveLength(0);
+    }
   });
 });
