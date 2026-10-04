@@ -49,6 +49,7 @@ pub enum Fault {
     StaleEpoch,
     StaleCheckpoint,
     ResyncRequired,
+    OutdatedSchema(u32),
     UnsupportedSchema(u32),
     Gap,
     Conflict,
@@ -57,13 +58,41 @@ pub enum Fault {
 }
 impl std::fmt::Display for Fault {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        if let Self::UnsupportedSchema(version) = self {
-            write!(
-                f,
-                "Unsupported colab store schema {version}; database was not changed."
-            )
-        } else {
-            write!(f, "{self:?}")
+        match self {
+            Self::OutdatedSchema(_) => f.write_str("This space was saved by an older Colab."),
+            Self::UnsupportedSchema(_) => f.write_str("This space was saved by a newer Colab."),
+            _ => write!(f, "{self:?}"),
+        }
+    }
+}
+impl Fault {
+    pub fn code(&self) -> Option<&'static str> {
+        match self {
+            Self::OutdatedSchema(_) => Some("COLAB_STORE_OUTDATED"),
+            Self::UnsupportedSchema(_) => Some("COLAB_STORE_NEWER"),
+            _ => None,
+        }
+    }
+    pub fn next(&self) -> Option<&'static str> {
+        match self {
+            Self::OutdatedSchema(_) => Some("tmt colab serve"),
+            Self::UnsupportedSchema(_) => Some("tmt upgrade"),
+            _ => None,
+        }
+    }
+    pub fn hint(&self) -> Option<&'static str> {
+        match self {
+            Self::OutdatedSchema(_) => Some("Start or restart tmt colab serve to update it."),
+            Self::UnsupportedSchema(_) => Some("Run tmt upgrade, then try again."),
+            _ => None,
+        }
+    }
+    pub fn schema_versions(&self) -> Option<(u32, u32)> {
+        match self {
+            Self::OutdatedSchema(version) | Self::UnsupportedSchema(version) => {
+                Some((*version, schema::CURRENT_VERSION))
+            }
+            _ => None,
         }
     }
 }

@@ -2140,8 +2140,19 @@ correlation when captured; human failures use styled stderr. Management codes
 map explicitly to `COLAB_INVALID`, `COLAB_DENIED`, `COLAB_EXPIRED`,
 `COLAB_CONFLICT`, `COLAB_STALE_HEAD`, `COLAB_CAPACITY`, `COLAB_UNAVAILABLE`.
 CLI failures add `COLAB_INPUT_INVALID`, `COLAB_CONFIRMATION_REQUIRED`,
-`COLAB_PAGE_NOT_FOUND`, `COLAB_OUTCOME_UNKNOWN`; existing state/schema failures
-keep their codes. Success exits 0. Neither acknowledgments nor unsigned output
+`COLAB_PAGE_NOT_FOUND`, `COLAB_OUTCOME_UNKNOWN`; existing state failures keep
+their codes. An older schema with a
+known migration path returns `COLAB_STORE_OUTDATED`: "This space was saved by an
+older Colab." Its next action is "Start or restart tmt colab serve to update it."
+A schema newer than this binary returns `COLAB_STORE_NEWER`: "This space was
+saved by a newer Colab." Its next action is "Run tmt upgrade, then try again."
+Human output uses a separate styled `hint:` line for those sentences. JSON uses
+runnable commands in its top-level `next` array: `["tmt colab serve"]` for an
+older store and `["tmt upgrade"]` for a newer one. It adds numeric `storeSchema` and `supportedSchema` fields in
+`error`. The supported version is derived from the migration history. Refused
+reads leave the database unchanged; only the existing initializing/serving paths
+apply migrations, never an inspection command. Operation correlation preserves
+these recovery fields. Success exits 0. Neither acknowledgments nor unsigned output
 create browser authority; browser refresh still uses verified catchup.
 The reserved management socket's unsuccessful response body is the exact textual
 management code with its corresponding HTTP status. The CLI maps that existing

@@ -85,7 +85,13 @@ in `acceptance/ask.spec.ts`.
   existing 0600 state owned by the user, create nothing and never migrate;
   `write_existing` requires the serve lifecycle lock and exactly the current schema.
   Both existing-state paths check the version derived from `MIGRATIONS`; a future
-  schema fails closed.
+  schema fails closed with `COLAB_STORE_NEWER` and the `tmt upgrade` instruction.
+  Current-schema CLI inspection rejects an older migratable schema with
+  `COLAB_STORE_OUTDATED` and "Start or restart tmt colab serve to update it."
+  Refusal never migrates; serve applies the existing migration history. Human
+  errors omit schema numbers; JSON preserves both versions and a runnable `next`
+  command array (`tmt colab serve` or `tmt upgrade`), including through
+  operation-correlated errors. Human hint sentences stay separate.
 - Receipts are create-only: an exact retry returns the stored receipt, a conflicting
   envelope freezes its stream. Checkpoint publication prunes a shared prefix only when
   every namespace with updates there has a checkpoint at the same sequence/hash; pinned

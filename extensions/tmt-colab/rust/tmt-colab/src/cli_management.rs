@@ -28,18 +28,24 @@ pub struct ManagementFault {
     pub code: &'static str,
     pub message: String,
     pub correlation: Value,
+    pub source: Option<Box<dyn std::error::Error + Send + Sync>>,
 }
 impl std::fmt::Display for ManagementFault {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(&self.message)
     }
 }
-impl std::error::Error for ManagementFault {}
+impl std::error::Error for ManagementFault {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        self.source.as_ref().map(|error| error.as_ref() as _)
+    }
+}
 fn fail(code: &'static str, message: &str) -> Box<dyn std::error::Error + Send + Sync> {
     Box::new(ManagementFault {
         code,
         message: message.into(),
         correlation: json!({}),
+        source: None,
     })
 }
 fn input(message: &str) -> Box<dyn std::error::Error + Send + Sync> {
@@ -537,7 +543,7 @@ pub fn create_page(root: &Path, args: &ArgMatches, source: String) -> Result<()>
             }}))
     })().map_err(|error| {
         Box::new(ManagementFault {
-            code:crate::error_code(error.as_ref()),message:error.to_string(),correlation:correlation.clone(),
+            code:crate::error_code(error.as_ref()),message:error.to_string(),correlation:correlation.clone(),source:Some(error),
         }) as Box<dyn std::error::Error + Send + Sync>
     })?;
     let mut result = result;
@@ -785,12 +791,14 @@ pub fn run(command: &str, args: &ArgMatches, root: &Path, json_output: bool) -> 
                 code: f.code,
                 message: f.message.clone(),
                 correlation: correlation.clone(),
+                source: Some(e),
             }) as Box<dyn std::error::Error + Send + Sync>
         } else {
             Box::new(ManagementFault {
                 code: crate::error_code(e.as_ref()),
                 message: e.to_string(),
                 correlation: correlation.clone(),
+                source: Some(e),
             }) as Box<dyn std::error::Error + Send + Sync>
         }
     })?;

@@ -909,23 +909,153 @@ fn management_seed_admission_and_interrupted_ipc_never_fall_back_to_offline_muta
     fs::remove_file(socket).unwrap();
 }
 #[test]
-fn management_read_refuses_unsafe_or_old_state_without_migration() {
+fn management_read_refuses_unsafe_state_without_changes() {
     let pilot = Pilot::new(None);
     seed_page(&pilot);
     let directory = pilot.root.join("selected/colab");
     let db = directory.join("space.db");
-    let conn = rusqlite::Connection::open(&db).unwrap();
-    conn.pragma_update(None, "user_version", 3).unwrap();
-    drop(conn);
     let before = fs::read(&db).unwrap();
-    failure(&pilot, &["ls", "--json"], "COLAB_SCHEMA_UNSUPPORTED");
-    assert_eq!(fs::read(&db).unwrap(), before);
     let key = directory.join("owner.key");
     fs::remove_file(&key).unwrap();
     std::os::unix::fs::symlink("missing", &key).unwrap();
     let output = pilot.command().args(["ls", "--json"]).output().unwrap();
     assert!(!output.status.success());
     assert_eq!(fs::read(db).unwrap(), before);
+}
+
+#[test]
+fn schema_mismatches_name_recovery_in_human_and_json_without_changing_state() {
+    for (version, code, message, hint, command) in [
+        (
+            4,
+            "COLAB_STORE_OUTDATED",
+            "This space was saved by an older Colab.",
+            "Start or restart tmt colab serve to update it.",
+            "tmt colab serve",
+        ),
+        (
+            99,
+            "COLAB_STORE_NEWER",
+            "This space was saved by a newer Colab.",
+            "Run tmt upgrade, then try again.",
+            "tmt upgrade",
+        ),
+    ] {
+        let pilot = Pilot::new(None);
+        seed_page(&pilot);
+        let db = pilot.root.join("selected/colab/space.db");
+        let conn = rusqlite::Connection::open(&db).unwrap();
+        let supported: u32 = conn
+            .pragma_query_value(None, "user_version", |row| row.get(0))
+            .unwrap();
+        if version == 4 {
+            // Restore the schema-4 fixture used by state.rs, not just its version stamp.
+            conn.execute_batch("ALTER TABLE pages DROP COLUMN last_update_at_ms")
+                .unwrap();
+        }
+        conn.pragma_update(None, "user_version", version).unwrap();
+        drop(conn);
+        let before = fs::read(&db).unwrap();
+        for args in [
+            vec!["ls"],
+            vec!["show", PAGE],
+            vec!["page", "read", PAGE],
+            vec!["export", PAGE],
+        ] {
+            let mut json_args = args.clone();
+            json_args.push("--json");
+            let result = failure(&pilot, &json_args, code);
+            assert_eq!(result["error"]["message"], message);
+            assert_eq!(result["error"]["storeSchema"], version);
+            assert_eq!(result["error"]["supportedSchema"], supported);
+            assert_eq!(result["next"], json!([command]));
+            let output = pilot.command().args(&args).output().unwrap();
+            assert_eq!(output.status.code(), Some(1));
+            assert!(output.stdout.is_empty());
+            assert_eq!(
+                String::from_utf8(output.stderr).unwrap(),
+                format!(
+                    "error: {}\nhint: {}\n",
+                    message.trim_end_matches('.'),
+                    hint.trim_end_matches('.')
+                )
+            );
+            assert_eq!(fs::read(&db).unwrap(), before);
+        }
+        let connection = rusqlite::Connection::open(&db).unwrap();
+        assert_eq!(
+            connection
+                .pragma_query_value(None, "user_version", |row| row.get::<_, u32>(0))
+                .unwrap(),
+            version
+        );
+        assert!(!pilot.root.join("selected/colab/door.sock").exists());
+        assert!(!pilot.root.join("selected/colab/exports").exists());
+    }
+}
+
+#[test]
+fn serve_migrates_an_older_store_and_preserves_the_page() {
+    let mut pilot = Pilot::new(None);
+    seed_page(&pilot);
+    let page = pilot.call(&["page", "read", PAGE, "--json"]);
+    let db = pilot.root.join("selected/colab/space.db");
+    let conn = rusqlite::Connection::open(&db).unwrap();
+    let supported: u32 = conn
+        .pragma_query_value(None, "user_version", |row| row.get(0))
+        .unwrap();
+    conn.execute_batch("ALTER TABLE pages DROP COLUMN last_update_at_ms; PRAGMA user_version=4")
+        .unwrap();
+    drop(conn);
+    let before = fs::read(&db).unwrap();
+    failure(&pilot, &["ls", "--json"], "COLAB_STORE_OUTDATED");
+    assert_eq!(fs::read(&db).unwrap(), before);
+    pilot.start();
+    assert_eq!(pilot.call(&["page", "read", PAGE, "--json"]), page);
+    assert_eq!(pilot.call(&["ls", "--json"])["pages"][0]["pageId"], PAGE);
+    pilot.stop();
+    let conn = rusqlite::Connection::open(&db).unwrap();
+    assert_eq!(
+        conn.pragma_query_value(None, "user_version", |row| row.get::<_, u32>(0))
+            .unwrap(),
+        supported
+    );
+    assert_eq!(
+        conn.query_row("SELECT last_update_at_ms FROM pages", [], |row| row
+            .get::<_, Option<i64>>(0))
+            .unwrap(),
+        None
+    );
+    assert_eq!(pilot.call(&["page", "read", PAGE, "--json"]), page);
+}
+
+#[test]
+fn future_schema_keeps_recovery_and_correlation_and_serve_refuses_to_migrate() {
+    let pilot = Pilot::new(None);
+    seed_page(&pilot);
+    let db = pilot.root.join("selected/colab/space.db");
+    let conn = rusqlite::Connection::open(&db).unwrap();
+    let supported: u32 = conn
+        .pragma_query_value(None, "user_version", |row| row.get(0))
+        .unwrap();
+    conn.pragma_update(None, "user_version", 99).unwrap();
+    drop(conn);
+    let before = fs::read(&db).unwrap();
+    for args in [
+        vec!["page", "create", "--title", "No creation", "--json"],
+        vec!["serve", "--json"],
+    ] {
+        let result = failure(&pilot, &args, "COLAB_STORE_NEWER");
+        assert_eq!(result["error"]["storeSchema"], 99);
+        assert_eq!(result["error"]["supportedSchema"], supported);
+        assert_eq!(result["next"], json!(["tmt upgrade"]));
+        if args[0] == "page" {
+            tmt_colab_model::values::generated_id(result["operationId"].as_str().unwrap()).unwrap();
+            tmt_colab_model::values::generated_id(result["pageId"].as_str().unwrap()).unwrap();
+        }
+        assert_eq!(fs::read(&db).unwrap(), before);
+    }
+    assert!(!pilot.root.join("selected/colab/door.sock").exists());
 }
 
 #[test]
