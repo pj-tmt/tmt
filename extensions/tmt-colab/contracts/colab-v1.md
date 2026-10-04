@@ -2041,7 +2041,8 @@ The service never receives or decodes plaintext source.
 
 ## Plaintext page export (#1309)
 
-Export v1 emits exactly `page.html` and `manifest.json`. Native captures one
+Export v1 emits exactly `page.html`, `conversations.json`, `conversations.md` and
+`manifest.json` (see [Conversation export](#conversation-export-1574)). Native captures one
 owner-authenticated read snapshot through its isolated decoder; the mounted
 browser captures one admitted committed projection through its connection executor.
 HTML is the exact admitted UTF-8 source, including CR/LF, Unicode and NUL; export MUST NOT
@@ -2052,27 +2053,26 @@ claim of globally current membership.
 
 The manifest is UTF-8 JSON with these fields:
 
-| Field            | Value / meaning                                                            |
-| ---------------- | -------------------------------------------------------------------------- |
-| `format`         | `tmt-colab-page-export`                                                    |
-| `version`        | JSON integer `1`                                                           |
-| `spaceId`        | Pinned space ID                                                            |
-| `pageId`         | Exported page UUID                                                         |
-| `title`          | Exact admitted title                                                       |
-| `exportedAtMs`   | Safe-integer UTC milliseconds                                              |
-| `membershipHead` | `{revision, statementHash}`; decimal revision, lowercase hex SHA-256       |
-| `epoch`          | Current snapshot epoch as canonical positive decimal text                  |
-| `plaintext`      | `true`                                                                     |
-| `discussions`    | `not-included`                                                             |
-| `files`          | `[{name:"page.html", sizeBytes, sha256}]`; bytes and lowercase hex SHA-256 |
+| Field            | Value / meaning                                                                                                       |
+| ---------------- | --------------------------------------------------------------------------------------------------------------------- |
+| `format`         | `tmt-colab-page-export`                                                                                               |
+| `version`        | JSON integer `1`                                                                                                      |
+| `spaceId`        | Pinned space ID                                                                                                       |
+| `pageId`         | Exported page UUID                                                                                                    |
+| `title`          | Exact admitted title                                                                                                  |
+| `exportedAtMs`   | Safe-integer UTC milliseconds                                                                                         |
+| `membershipHead` | `{revision, statementHash}`; decimal revision, lowercase hex SHA-256                                                  |
+| `epoch`          | Current snapshot epoch as canonical positive decimal text                                                             |
+| `plaintext`      | `true`                                                                                                                |
+| `discussions`    | `{included:true, scope:"current-epoch", format:"tmt-colab-conversations", version:1}`                                 |
+| `files`          | `page.html`, `conversations.json`, `conversations.md` as `{name, sizeBytes, sha256}`; bytes and lowercase hex SHA-256 |
 
 The manifest MUST NOT list its own digest: that would be circular. The CLI result
-lists both files with their byte sizes and SHA-256. Export contains no roots,
+lists all four files with their byte sizes and SHA-256. Export contains no roots,
 wraps, bearer seeds, sessions or private keys. It is a readable copy, not an
 import/backup format; referenced assets, retained history and snapshots are not
-promised as portable files. Discussion export remains excluded in local v1.
-Native own-fold validation and browser discussion display do not include those
-projections in exported files.
+promised as portable files. Raw own records, earlier revisions and other epochs are
+not exported.
 
 `tmt colab export <page> [--dir <destination>] [--json]` reads existing local
 state only. It MUST NOT initialize missing state or run migrations. The
@@ -2096,7 +2096,7 @@ checked staging; preserve foreign entries and any partial output. Report the
 original canonical partial destination in the human error and JSON
 `error.partialDirectory`; if an ancestor moved, the reported path is where
 publication began, not a claim that the files remain reachable there.
-A returned success means both files were published and staging was removed;
+A returned success means all four files were published and staging was removed;
 this is not a crash-recovery guarantee.
 
 The CLI human disclosure and successful JSON `disclosure` say exactly:
@@ -2118,10 +2118,79 @@ of the same frozen bytes. A requested download is not confirmation that a file
 was saved; the user checks browser downloads. Failure exposes no new download
 request. Native create-only filesystem and permission guarantees do not apply
 to browser-managed downloads. Parent-owned Blob URLs use attachment filenames
-`page.html` and `manifest.json`, never source/title paths. Revoke each URL after
+`page.html`, `conversations.json`, `conversations.md` and `manifest.json`, never source/title paths. Revoke each URL after
 bounded download handoff and all outstanding URLs on close/navigation or blocked
 binding cleanup. The renderer receives no export handler, URL or capability.
 Archived browser export remains deferred until #1348; deletion stays denied.
+
+### Conversation export (#1574)
+
+The two companion files are frozen from the same captured snapshot as `page.html` and
+hashed in the manifest; the manifest is published last. They carry the page's authorized
+discussion for the **current epoch only**: verified threads, comments and Ask
+conversations, no raw own records and no earlier revisions. Native capture retains each
+authenticated writer's decoded `own` projection and that writer's historical signing key
+from its cut-admitted envelopes while folding; the browser reuses its committed `own`
+state and `ownSigningKey` inside the existing connection-executor capture. Both then apply
+the same rules; no new decoder, parser or Remote fetch is involved. The vector
+`vectors/export-v1.json` (generated by `vectors/export-reference.py`, an independent Python
+oracle) pins the exact bytes of both files and the manifest for native and browser tests.
+
+**Projection.** A writer without a historical key contributes nothing. A record joins only
+inside the stream that carried it: `senderDevice` must equal that writer, and `spaceId`,
+`pageId` and `epoch` must equal the capture's. A logical thread or comment is the newest
+record of consecutive revisions starting at 1; a gap, a changed thread reference or a
+resurrection after a tombstone yields nothing. Tombstones are exported (`deleted:true`,
+empty comment body, null anchor). A comment appears under the thread it references only
+when that thread was exported. An Ask is exported only when its signature verifies under
+its writer's key and its operation, sender, space and page match; its state records, in
+revision order, must follow the allowed ledger transitions with one request ID, and its
+reply must belong to an `accepted` state with the same request and agent. Any
+disagreement drops that whole Ask. An Ask with no state records is exported as `uncertain`.
+Names (`deviceName`, `agentName`) and `at` times are labels asserted by the writer; stored
+replies are writer-authenticated reports, not agent signatures.
+
+**`conversations.json`** is compact UTF-8 JSON in exactly this field order (no trailing
+newline):
+
+```text
+{format:"tmt-colab-conversations", version:1, spaceId, pageId, title, epoch,
+ membershipHead:{revision, statementHash},
+ threads:[{writer, id, revision, anchor:null|{exact,prefix,suffix}, resolved, deleted,
+           deviceName, at,
+           comments:[{writer, id, revision, deleted, body, deviceName, at}]}],
+ asks:[{writer, operationId, deviceName, agentName, agent, machine, thread, messageIds,
+        issuedAt, expiresAt, message, state, reason, requestId,
+        reply:null|{requestId, agentId, body}}]}
+```
+
+`membershipHead.statementHash` is lowercase hex, like the manifest. `at` is the stored
+decimal string; `issuedAt` and `expiresAt` are JSON integers. Threads are ordered by
+`writer + ":" + id`, comments inside a thread likewise, asks by `writer + ":" +
+operationId`, all by byte order (never a locale comparison). Bodies and messages are exact
+UTF-8, including controls. Order never depends on `at`.
+
+**`conversations.md`** is a plain reading of the same data and is deterministic: a
+`# Conversations` heading, a header list (page title, page ID, space, epoch, head), one
+line stating that names and times are writer-asserted labels, then `## Threads (n)` and
+`## Asks (n)`. For reading, threads are ordered by their `at` and comments by theirs, asks
+by `issuedAt`, each with ties broken by the `writer:id` key; the number of the thread,
+comment or ask follows that order. A time renders as `YYYY-MM-DD HH:MM:SS UTC` before
+year 10000 and as `unix ms N` after. Display text is untrusted, so: a label (page title,
+device or agent name) renders as an inline code span whose delimiter is longer than any
+backtick run inside it (padded with one space when it starts or ends with a backtick or
+space; an empty label renders `(none)`); a body, quote, message or reply renders in a
+fenced block whose fence is at least three backticks and longer than any backtick run
+inside. In both, controls other than LF and TAB (for labels, LF and TAB too), DEL, C1
+controls, U+2028/2029, U+200E/200F, U+202A-202E, U+2066-2069 and U+FEFF render as
+`\u{hex}` (lowercase, no padding), so display text cannot forge a heading, a fence or an
+attribution. The JSON keeps exact bytes; the Markdown is for reading.
+
+A bundle whose two conversation files together exceed 8 MiB fails with
+`COLAB_EXPORT_TOO_LARGE` (browser: `EXPORT_TOO_LARGE`) instead of truncating. Archived
+pages stay denied with the other export denials, because the fold has no archive-readable
+path yet (see above); deleted pages stay denied. A failed capture or publication exposes
+no download and follows the create-only rules above.
 
 ### Trusted browser space management (#1308)
 

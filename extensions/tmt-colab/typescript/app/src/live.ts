@@ -293,8 +293,16 @@ export class Live implements PageBinding {
       const a = c.admission;
       a.validatePage(this.page.sharing);
       requireValue(a.head !== null && a.root !== null);
+      const own = this.#admitted.own ?? {};
+      const signingKeys: Record<string, Uint8Array> = {};
+      for (const writer of Object.keys(own)) {
+        const key = c.objects.ownSigningKey(writer);
+        if (key) signingKeys[writer] = key;
+      }
       return {
         ...this.#admitted,
+        own,
+        signingKeys,
         spaceId: a.space,
         pageId: a.page,
         epoch: a.epoch,

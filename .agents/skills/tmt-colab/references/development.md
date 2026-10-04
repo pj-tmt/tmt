@@ -83,7 +83,8 @@ tmt colab export <page-uuid> --json          # or --dir /existing/export-parent
 Use the exact revision from `read`; a stale base returns `COLAB_STALE_BASE` (exit 1)
 and is never retried. A failed or uncertain serving IPC returns `COLAB_UNAVAILABLE`
 without an offline fallback. Export needs an existing parent, creates a new UUID
-directory with `page.html` and `manifest.json` (never replacing output), and reports
+directory with `page.html`, `conversations.json`, `conversations.md` and `manifest.json`
+(never replacing output), and reports
 `error.partialDirectory` on a failed publication.
 
 Serve and the door: the CLI suites in `tests/cli.rs` run a scripted `tmt remote ...` stand-in
