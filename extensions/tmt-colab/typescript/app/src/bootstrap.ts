@@ -11,7 +11,9 @@ import {
 import { record } from './storage.js';
 import { jsonResponse } from './registration.js';
 
-export interface PageInfo {
+import type { ExpiryInfo } from './expiry.js';
+
+export interface PageInfo extends ExpiryInfo {
   pageId: string;
   epoch: string;
   sharing: 'private' | 'link' | 'public';
@@ -54,7 +56,34 @@ export async function discover(
   requireValue(Array.isArray(value.pages) && value.pages.length <= 1000);
   let previous = '';
   for (const page of value.pages) {
-    exactKeys(page, ['pageId', 'epoch', 'sharing', 'history', 'archived']);
+    exactKeys(page, [
+      'pageId',
+      'epoch',
+      'sharing',
+      'history',
+      'archived',
+      'retentionDays',
+      'lastUpdateAtMs',
+      'expiresAtMs',
+      'warnings',
+    ]);
+    requireValue(
+      page.retentionDays === null ||
+        (Number.isSafeInteger(page.retentionDays) && Number(page.retentionDays) > 0),
+    );
+    for (const key of ['lastUpdateAtMs', 'expiresAtMs'])
+      requireValue(
+        page[key] === null || (Number.isSafeInteger(page[key]) && Number(page[key]) >= 0),
+      );
+    requireValue(
+      Array.isArray(page.warnings) &&
+        page.warnings.length <= 1 &&
+        page.warnings.every(
+          (w) =>
+            typeof w === 'string' &&
+            ['expiry-unavailable', 'expiry-out-of-range', 'expires-soon', 'expired'].includes(w),
+        ),
+    );
     requireValue(typeof page.pageId === 'string' && typeof page.epoch === 'string');
     generatedId(page.pageId);
     decimal(page.epoch);

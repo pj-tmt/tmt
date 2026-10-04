@@ -14,6 +14,7 @@ const codeTargets = [
   '../.github/workflows/ci.yml',
   '../.github/workflows/office-browser.yml',
   '../.github/components.json',
+  '../.github/release-parity.json',
   '../extensions/tmt-office/typescript/services/office/firebase.json',
   '../extensions/tmt-office/typescript/services/office/compose.yaml',
   '../extensions/tmt-office/contracts/*.json',

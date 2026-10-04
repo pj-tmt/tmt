@@ -10,7 +10,7 @@ mod replies;
 mod rows;
 mod strip;
 mod tabs;
-mod waiting;
+pub(in crate::board) mod waiting;
 
 use super::app::App;
 use ratatui::{
@@ -38,6 +38,7 @@ pub fn fit(text: &str, width: usize) -> String {
 
 pub fn render(frame: &mut Frame, app: &App) {
     let look = app.look();
+    app.input_band.set(None);
     app.hits.borrow_mut().clear();
     app.note_hits.borrow_mut().clear();
     app.link_hits.borrow_mut().clear();
@@ -45,10 +46,12 @@ pub fn render(frame: &mut Frame, app: &App) {
     app.tab_hits.borrow_mut().clear();
     app.unpicked_hit.set(None);
     app.title_hits.borrow_mut().clear();
+    app.jobs_area.set(ratatui::layout::Rect::default());
     app.scrolls.begin_frame();
-    let [tabs, summary, body, footer] = Layout::vertical([
+    let [tabs, summary, meter_status, body, footer] = Layout::vertical([
         Constraint::Length(1),
         Constraint::Length(1),
+        Constraint::Length(u16::from(header::meter_enabled(app))),
         Constraint::Min(1),
         Constraint::Length(1),
     ])
@@ -63,9 +66,16 @@ pub fn render(frame: &mut Frame, app: &App) {
             || header::summary_line(app),
             |home| super::home::summary(home, summary.width, look),
         );
-    frame.render_widget(Paragraph::new(summary_text), summary);
+    let summary_area =
+        header::meter_region(app, summary).map_or(summary, |(meter, _)| ratatui::layout::Rect {
+            width: meter.x.saturating_sub(summary.x).saturating_sub(2),
+            ..summary
+        });
+    frame.render_widget(Paragraph::new(summary_text), summary_area);
     header::render_meter(frame, app, summary);
+    header::render_meter_status(frame, app, meter_status);
     panes::render_body(frame, app, body);
+    waiting::inline_prompt(frame, app, body);
     footer::render(frame, app, footer, look);
     overlays::render(frame, app, body, look);
     waiting::prompt(frame, app, body);

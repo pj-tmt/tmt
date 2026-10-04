@@ -110,6 +110,7 @@ function expectNativeSchema(
     { version: 44, name: 'persist pane reply notice batches and one-shot worker claims' },
     { version: 45, name: 'remember runtime channel preference for exact resume' },
     { version: 46, name: 'retain bounded consumption sources and timestamped history' },
+    { version: 47, name: 'index originator results by final submission time' },
   ];
   expect(migrated.migrations.slice(8)).toEqual(additions);
   expect(migrated.tables.map(({ name }) => name)).toEqual(
@@ -433,6 +434,7 @@ function expectNativeSchema(
     'request_history_recipient',
     'request_history_recipient_room',
     'request_history_room',
+    'request_history_originator_results',
   ]) {
     expect(newAttempts.indexes.some((index) => index.name === name)).toBe(true);
   }

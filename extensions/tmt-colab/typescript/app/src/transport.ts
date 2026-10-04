@@ -11,12 +11,12 @@ export interface PageView extends Projection {
   readonly threads?: readonly ThreadView[];
   readonly askUnavailable?: boolean;
 }
-export interface PageSummary {
+import type { ExpiryInfo } from './expiry.js';
+export interface PageSummary extends Partial<ExpiryInfo> {
   readonly id: string;
   readonly title: string;
   readonly sharing: 'private' | 'link' | 'public';
   readonly archived?: boolean;
-  readonly retentionDays?: number | null;
 }
 export interface PageSnapshot extends PageSummary {
   readonly source: string;
@@ -44,6 +44,8 @@ export interface SpaceHome {
 /** App data port. Mounted adapters own authentication and admission;
  * neither HTML nor the renderer receives that adapter or its capabilities. */
 export interface PageTransport {
+  /** Display-only name from the mounted session device context. */
+  readonly backendName?: string;
   readonly management?: ManagementPort;
   spaceHome(): Promise<SpaceHome>;
   page(id: string, signal?: AbortSignal): Promise<PageSnapshot>;

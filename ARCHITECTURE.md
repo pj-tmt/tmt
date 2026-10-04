@@ -423,7 +423,8 @@ Schema 27 adds indexed keyset history over those same attempts, not chat storage
 `request::history` owns the owner-visible projection, and its service composes
 retention and the existing attention final-state interpretation. Storage reuses
 the canonical attempt/response row decoders; bounded UTF-8 previews preserve
-embedded NUL without loading full message bodies into lists. The `request_history`
+embedded NUL without loading full message bodies into lists. Schema 47 indexes an originator results view (submission-time keyset, observation snapshot without housekeeping);
+`request_text` owns control classification shared by label validation and preview/notice normalization; stored bodies stay exact. The [extension API contract](contracts/extension-api.md) owns fields and caps. The `request_history`
 adapter admits/encodes the owner API without reply proofs or pane paths. HTTP
 inspection requires the same bearer/Origin admission as dispatch. Operation lookup
 and dispatch replay share the existing immutable ledger decoder; lookup cannot
@@ -718,7 +719,9 @@ ordinary CLI: one versioned JSON request on stdin, one JSON resource or error on
 stdout. It is neither an authentication boundary nor a daemon, batch or stream.
 `tmt-adapters::api` owns envelope admission and composition; the CLI owns bounded
 stdin, publication and exit status. Protocol major 1 accepts additive operations and
-fields; incompatible changes need a new major. Human-shaped operations remain their
+fields; incompatible changes need a new major. `extensions.uses` answers an extension's optional use of another from installed
+receipts only (no network, storage or extension process); the extension checks it
+when the feature starts. Human-shaped operations remain their
 ordinary JSON commands, not duplicate API implementations. The
 [extension API contract](contracts/extension-api.md) owns operations, bounds,
 dispatch readiness and input safety, history and consumption semantics.
@@ -1077,6 +1080,11 @@ Keep a significant decision's alternatives, failure behavior and verification
 plan in its issue and reflect the delivered boundary here. A green formatter or
 checkmark is not architecture evidence.
 
+This file keeps owner maps, dependency direction and cross-cutting invariants, within
+the line budget `typescript/test/tooling/guide-budget.test.ts` enforces. Module-level
+rules belong in the owning area skill (`.agents/skills/tmt-core-runtime` for core); a
+line that only explains one module's code goes there, not here.
+
 Every change reports its architecture impact and names the affected Rust owner,
 adapter, CLI composition and tests. New policy belongs in the existing owner;
 do not add a parallel TypeScript implementation, provider inventory, config path
@@ -1116,19 +1124,22 @@ absolute `TMT_EXECUTABLE`, run by `tmt-invoke`) and owns the private
 `<dataRoot>/remote/` subtree through the
 [shared extension state layout](#shared-extension-state-layout). Core never owns a
 listener or Remote state and only registers Remote as an installable product; its
-archive embeds the pairing page, SDK and wordlist with no companions or skills, and
-publication gates belong to the [release skill](.agents/skills/tmt-release/SKILL.md).
+archive embeds its static browser pages, stylesheet, SDK and wordlist with no
+companions or skills, and publication gates belong to the
+[release skill](.agents/skills/tmt-release/SKILL.md).
 Colab has no door of its own: Remote mounts its owner-only socket under
 `/r/<prefix>/x/colab/` and keeps Host/Origin, pairing, cookie and live-grant
 admission. [`contracts/remote-channel-v1.md`](contracts/remote-channel-v1.md) owns
-the wire, pairing, session, operations and extension channel API. The door serves
-the browser SDK `remote-v1.js` (built from `remote-client`), which gives mounted
-pages `reopenSession`, `operations(session)` and `certifyKey`; its README owns
+the wire, pairing, session, operations and extension channel API. Remote owns the
+static root landing and pairing-page errors as well as the pairing ceremony;
+protocol refusals and mounted extension responses retain their own representation.
+The door serves the browser SDK `remote-v1.js` (built from `remote-client`), which
+gives mounted pages `reopenSession`, `operations(session)` and `certifyKey`; its README owns
 the caller-facing recovery rules. The
 [Remote skill](.agents/skills/tmt-remote/SKILL.md) owns module internals.
 System-wide invariants:
 
-- Unauthenticated traffic gets one generic refusal and learns no inventory.
+- Unauthenticated protocol traffic gets one generic refusal and learns no inventory.
 - Every effect rechecks the persisted grant inside its write transaction; revocation orders after an in-flight effect.
 - Uncertainty or timeout never resends and never mints a new operation ID; recovery reads core by the same ID.
 - Enrolled panes are never pasted to; core's send-time guard decides, never terminal output.
@@ -1137,13 +1148,7 @@ System-wide invariants:
 Local extensions discover a running Remote through read-only `tmt remote status --json`
 or supervise `tmt remote serve --json` and consume its bound descriptor. The
 [local CLI discovery contract](contracts/remote-channel-v1.md#local-cli-discovery)
-owns both shapes; Colab never reads Remote's private state. Live status comes only
-from serve's control socket. Stopped status holds an existing serve lease and
-opens SQLite read-only without initialization or migration, preserving one database
-opener. `tmt remote stop` sets serve's SIGTERM shutdown flag through the control
-socket and confirms lease release and socket cleanup without identifying a PID;
-stored pairings and grants survive. Remote owns persistence of the last bound door
-port and defaults to reusing it.
+owns both shapes; Colab never reads Remote's private state.
 
 ## Colab extension
 
@@ -1180,9 +1185,9 @@ Colab (`extensions/tmt-colab/`: `tmt-colab`, `tmt-colab-model`, `@tmt/colab-clie
 - **Renderer invariant.** Parent chrome allows only self-hosted scripts and styles (no
   `unsafe-inline`). Author HTML runs only in `renderer.html` inside an opaque
   `sandbox allow-scripts` frame whose own policy permits inline scripts and styles but no
-  network. Bound selections and quote-selector highlights are cosmetic untrusted
-  text; only parent controls admit discussion or sends. The bootstrap installs
-  bounded DOM resolution before author HTML and passes no application capability.
+  network. Bound selections, height/anchor-offset reports and quote-selector highlights
+  are cosmetic untrusted claims; only parent controls admit discussion or sends. The
+  bootstrap installs bounded DOM resolution before author HTML and passes no application capability.
   This contains author code; page self-navigation can still leak a request.
 - **Plaintext invariant.** Page source and export are root-local: only the isolated decoder
   child decodes Yjs, no route serves plaintext, and the browser Worker is resource

@@ -268,6 +268,12 @@ fn request_history_plans_seek_the_scope_and_cursor_without_sorting() {
             Some(room),
         ),
         (
+            HistoryScope::OriginatorResults(recipient.into()),
+            "request_history_originator_results",
+            Some(recipient),
+            None,
+        ),
+        (
             HistoryScope::Room(room.into()),
             "request_history_room",
             None,
@@ -308,7 +314,13 @@ fn request_history_plans_seek_the_scope_and_cursor_without_sorting() {
             );
             if cursor {
                 assert!(
-                    plan.iter().any(|line| line.contains("prepared_at_ms")),
+                    plan.iter().any(|line| line.contains(
+                        if matches!(scope, HistoryScope::OriginatorResults(_)) {
+                            "response_submitted_at_ms"
+                        } else {
+                            "prepared_at_ms"
+                        }
+                    )),
                     "Cursor must seek the indexed range: {plan:?}"
                 );
             }

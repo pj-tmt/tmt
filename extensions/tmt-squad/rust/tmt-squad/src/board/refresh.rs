@@ -85,6 +85,7 @@ impl Worker {
             let caller = crate::me::caller(&initial).ok().flatten();
             let mut changes =
                 Changes::new(Config::locate(&initial).ok(), provider::Cache::directory());
+            let mut places = super::cronboard::Places::new(crate::effects::tmux_socket());
             serve(
                 &pending,
                 |snapshot, generation| {
@@ -100,13 +101,14 @@ impl Worker {
                 |generation| {
                     changes.stamp(&core.cancellable(read_generation.cancellation(generation)))
                 },
-                |wanted, generation, preview_panes| {
+                |wanted, generation, preview_panes, opening| {
                     load(
                         &core.cancellable(read_generation.cancellation(generation)),
                         tmux,
                         caller.as_ref(),
                         wanted,
                         preview_panes,
+                        opening,
                         &mut kept,
                     )
                 },
@@ -118,6 +120,15 @@ impl Worker {
                             attention: job.complete(&reader),
                             cancellation: cancellation.clone(),
                         },
+                        Deferred::Cron(job) => super::BoardEvent::Cron {
+                            read: super::cronboard::fetch(
+                                &reader,
+                                *job,
+                                crate::status::now_ms() as i64,
+                                &mut places,
+                            ),
+                            cancellation: cancellation.clone(),
+                        },
                         Deferred::Notebook { identity, revision } => super::BoardEvent::Notebook {
                             cancellation: cancellation.clone(),
                             identity: identity.clone(),
@@ -127,7 +138,19 @@ impl Worker {
                                     .api("notes.read", serde_json::json!({"identityId": identity})),
                             ),
                         },
-                        Deferred::Usage(input) => {
+                        Deferred::Usage(MeterRead::Home) => {
+                            let input = reader
+                                .json(&["ls"])
+                                .ok()
+                                .filter(|listed| listed["identities"].is_array())
+                                .map(|listed| super::rate::Input::resumes(&listed))
+                                .ok_or(());
+                            super::BoardEvent::HomeUsage {
+                                cancellation: cancellation.clone(),
+                                input,
+                            }
+                        }
+                        Deferred::Usage(MeterRead::Squad(input)) => {
                             let sample = reader
                                 .json(&["ls", "--room", &input.room])
                                 .ok()
@@ -207,6 +230,8 @@ struct Reload {
 struct Loaded {
     snapshot: Snapshot,
     attention: Option<AttentionJob>,
+    /// Every tab shows the cron projection, so any readable config schedules it.
+    cron: Option<super::cronboard::Fetch>,
 }
 
 impl Loaded {
@@ -214,6 +239,7 @@ impl Loaded {
         Self {
             snapshot,
             attention: None,
+            cron: None,
         }
     }
 }
@@ -221,8 +247,15 @@ impl Loaded {
 /// The existing worker's lower-priority work, behind full reloads.
 enum Deferred {
     Attention(Box<AttentionJob>),
-    Usage(super::rate::Input),
+    Cron(Box<super::cronboard::Fetch>),
+    Usage(MeterRead),
     Notebook { identity: String, revision: u64 },
+}
+
+#[derive(Clone)]
+enum MeterRead {
+    Squad(super::rate::Input),
+    Home,
 }
 
 /// Other tabs' attention follows the shown snapshot on the same worker.
@@ -313,13 +346,13 @@ fn serve(
     check_every: Duration,
     generation: &AtomicU64,
     mut stamp: impl FnMut(u64) -> Stamp,
-    mut load: impl FnMut(Option<String>, u64, bool) -> Loaded,
+    mut load: impl FnMut(Option<String>, u64, bool, bool) -> Loaded,
     mut deferred: impl FnMut(Deferred, u64) -> bool,
 ) {
     // The squad last loaded, whether it reloads automatically, and the
     // stamp taken just before that load.
     let mut last: Option<(Reload, bool, Stamp)> = None;
-    let mut sampling: Option<(super::rate::Input, Duration, Instant)> = None;
+    let mut sampling: Option<(MeterRead, Duration, Instant)> = None;
     loop {
         let wait = sampling.as_ref().map_or(check_every, |(_, _, next)| {
             check_every.min(next.saturating_duration_since(Instant::now()))
@@ -377,7 +410,14 @@ fn serve(
         let Loaded {
             snapshot,
             attention: job,
-        } = load(wanted.squad, wanted.generation, wanted.preview_panes);
+            cron,
+        } = load(
+            wanted.squad.clone(),
+            wanted.generation,
+            wanted.preview_panes,
+            last.as_ref()
+                .is_none_or(|(previous, _, _)| previous.squad != wanted.squad),
+        );
         if generation.load(Ordering::Acquire) != wanted.generation {
             continue;
         }
@@ -403,12 +443,33 @@ fn serve(
             .filter(|rate| rate.settings.enabled)
             .map(|rate| {
                 (
-                    rate.input.clone(),
+                    MeterRead::Squad(rate.input.clone()),
                     rate.settings.every,
                     Instant::now() + rate.settings.every,
                 )
+            })
+            .or_else(|| {
+                if snapshot.squad.as_deref() != Some(ALL) {
+                    return None;
+                }
+                snapshot
+                    .view
+                    .as_ref()
+                    .ok()?
+                    .home_rate
+                    .values()
+                    .filter(|rate| rate.settings.enabled)
+                    .map(|rate| rate.settings.every)
+                    .min()
+                    .map(|every| (MeterRead::Home, every, Instant::now() + every))
             });
         if !publish(snapshot, wanted.generation) {
+            break;
+        }
+        if let Some(job) = cron
+            && generation.load(Ordering::Acquire) == wanted.generation
+            && !deferred(Deferred::Cron(Box::new(job)), wanted.generation)
+        {
             break;
         }
         if let Some(job) = job
@@ -426,6 +487,7 @@ fn load(
     caller: Option<&crate::me::Caller>,
     wanted: Option<String>,
     preview_panes: bool,
+    opening: bool,
     kept: &mut Kept,
 ) -> Loaded {
     let squads = match Squad::list(core) {
@@ -502,7 +564,7 @@ fn load(
     let view = (|| {
         let config = config.as_ref().map_err(Clone::clone)?;
         let me = crate::me::you(crate::me::current(core, config)?, caller);
-        let (view, found) = if key == LEADS {
+        let (mut view, found) = if key == LEADS {
             leads_view(core, tmux, config, &squads, &tabs, me)?
         } else if key == ALL {
             all_view(core, config, &squads, &tabs, me)?
@@ -518,9 +580,48 @@ fn load(
             result
         };
         attention = found;
+        if opening {
+            let enabled: Vec<_> = view
+                .token_rate
+                .iter()
+                .chain(view.home_rate.values())
+                .filter(|rate| rate.settings.enabled)
+                .collect();
+            let longest = enabled
+                .iter()
+                .map(|rate| rate.settings.windows[2])
+                .max_by_key(|window| window.milliseconds());
+            if let Some(longest) = longest {
+                let ids = enabled
+                    .iter()
+                    .flat_map(|rate| rate.input.resumes.keys().cloned())
+                    .collect();
+                let seeds = super::rate::history::load(core, ids, longest);
+                for rate in view
+                    .token_rate
+                    .iter_mut()
+                    .chain(view.home_rate.values_mut())
+                {
+                    if rate.settings.enabled {
+                        rate.history = Some(
+                            rate.input
+                                .resumes
+                                .keys()
+                                .map(|id| {
+                                    (id.clone(), seeds.get(id).and_then(Option::as_ref).cloned())
+                                })
+                                .collect(),
+                        );
+                    }
+                }
+            }
+        }
         Ok(view)
     })()
     .map_err(|error: crate::core::SquadError| error.to_string());
+    let cron = config.as_ref().ok().map(|config| super::cronboard::Fetch {
+        config: config.clone(),
+    });
     let job = config
         .ok()
         .zip(deferred)
@@ -542,6 +643,7 @@ fn load(
             view,
         },
         attention: job,
+        cron,
     }
 }
 
@@ -585,6 +687,7 @@ fn squad_view(
     }
     let settings = config.token_rate(&squad.name)?;
     let token_rate = settings.enabled.then(|| super::app::RateView {
+        history: None,
         settings,
         input: super::rate::Input::observed(&squad.room_id, &observation.members),
     });
@@ -624,6 +727,7 @@ fn squad_view(
     let view = View {
         home: None,
         token_rate,
+        home_rate: Default::default(),
         derived: Default::default(),
         rows,
         render: config.notes_render(&squad.name)?,
@@ -687,6 +791,7 @@ fn member_view(
     let view = View {
         ask_lead: config.ask_lead("")?,
         token_rate: None,
+        home_rate: Default::default(),
         home: None,
         derived: Default::default(),
         rows: loaded.rows,
@@ -728,11 +833,12 @@ fn all_view(
     let settings = config.tabs()?;
     // The cross-squad tabs have no squad table: the global theme alone.
     let (theme, theme_notice) = config.theme("")?;
-    let (loaded, home) = super::home::load(core, config, squads, tabs, me.as_ref())?;
+    let (loaded, home, home_rate) = super::home::load(core, config, squads, tabs, me.as_ref())?;
     let bindings = config.bindings_for_tab(ALL, false, &[])?;
     let view = View {
         ask_lead: config.ask_lead("")?,
         token_rate: None,
+        home_rate,
         home: Some(home),
         derived: Default::default(),
         rows: loaded.rows,
@@ -834,7 +940,7 @@ mod tests {
                 Duration::from_millis(10),
                 &AtomicU64::new(0),
                 |_| Stamp::cursor(read.load(Ordering::SeqCst)),
-                |wanted, _, _| {
+                |wanted, _, _, _| {
                     let _ = loaded.send(wanted.clone());
                     let mut snapshot = crate::board::app::tests::snapshot(
                         wanted.as_deref().unwrap_or("first"),
@@ -969,7 +1075,7 @@ printf '%s\n' '{{}}'
             CHECK_EVERY,
             &generation,
             |_| Stamp::cursor(0),
-            |_, _, _| Loaded::only(crate::board::app::tests::snapshot("product", json!([]))),
+            |_, _, _, _| Loaded::only(crate::board::app::tests::snapshot("product", json!([]))),
             |job, expected| {
                 let Deferred::Notebook { identity, revision } = job else {
                     panic!("other work")
@@ -996,7 +1102,7 @@ printf '%s\n' '{{}}'
             CHECK_EVERY,
             &generation,
             |_| Stamp::cursor(0),
-            |_, _, _| panic!("no load"),
+            |_, _, _, _| panic!("no load"),
             |_, _| panic!("no read"),
         );
         for (code, expected) in [
@@ -1610,7 +1716,7 @@ esac
             Duration::from_secs(1),
             &generation,
             |_| Stamp::cursor(1),
-            |squad, _, _| {
+            |squad, _, _, _| {
                 loaded.push(squad.clone());
                 if squad.as_deref() == Some("old") {
                     generation.store(1, Ordering::Release);
@@ -1640,7 +1746,7 @@ esac
     }
 
     #[test]
-    fn the_shown_snapshot_is_published_before_other_tab_attention() {
+    fn the_shown_snapshot_is_published_before_cron_and_other_tab_attention() {
         let (sender, pending) = mpsc::channel();
         sender
             .send(Work::Reload(Reload {
@@ -1655,6 +1761,10 @@ esac
             std::env::temp_dir().join(format!("squad-attention-order-{}.toml", std::process::id())),
         )
         .unwrap();
+        let cron = super::super::cronboard::Fetch {
+            config: config.clone(),
+        };
+        let mut cron = Some(cron);
         let mut config = Some(config);
         serve(
             &pending,
@@ -1665,7 +1775,7 @@ esac
             Duration::from_secs(1),
             &AtomicU64::new(0),
             |_| Stamp::cursor(1),
-            |_, _, _| Loaded {
+            |_, _, _, _| Loaded {
                 snapshot: crate::board::app::tests::snapshot("product", json!([])),
                 attention: Some(AttentionJob {
                     config: config.take().unwrap(),
@@ -1674,13 +1784,18 @@ esac
                     me: None,
                     document: json!({}),
                 }),
+                cron: cron.take(),
             },
-            |_, _| {
-                steps.borrow_mut().push("attention");
+            |job, _| {
+                steps.borrow_mut().push(match job {
+                    Deferred::Cron(_) => "cron",
+                    Deferred::Attention(_) => "attention",
+                    _ => "other",
+                });
                 true
             },
         );
-        assert_eq!(*steps.borrow(), ["shown", "attention"]);
+        assert_eq!(*steps.borrow(), ["shown", "cron", "attention"]);
     }
     #[test]
     fn squad_leads_and_all_default_to_ctrl_r_refresh_and_keep_their_override_owners() {
@@ -1726,6 +1841,64 @@ esac
         std::fs::remove_file(executable).unwrap();
     }
     #[test]
+    fn home_sampling_requires_the_open_home_tab_and_an_enabled_policy() {
+        let (sender, pending) = mpsc::channel();
+        let reload = |squad: &str| {
+            Work::Reload(Reload {
+                preview_panes: false,
+                squad: Some(squad.into()),
+                generation: 0,
+            })
+        };
+        sender.send(reload(ALL)).unwrap();
+        let published = std::cell::Cell::new(0);
+        let mut samples = 0;
+        serve(
+            &pending,
+            |_, _| {
+                let count = published.get() + 1;
+                published.set(count);
+                match count {
+                    1 => sender.send(reload("product")).unwrap(),
+                    2 => sender.send(reload(ALL)).unwrap(),
+                    _ => {}
+                }
+                true
+            },
+            Duration::from_millis(1),
+            &AtomicU64::new(0),
+            |_| Stamp::cursor(1),
+            |wanted, _, _, _| {
+                let mut snapshot =
+                    crate::board::app::tests::snapshot(wanted.as_deref().unwrap(), json!([]));
+                let view = snapshot.view.as_mut().unwrap();
+                view.refresh = None;
+                // Even a retained HOME template must not schedule HOME reads on another tab.
+                view.home_rate.insert(
+                    "product".into(),
+                    super::super::app::RateView {
+                        history: None,
+                        settings: crate::config::TokenRate {
+                            enabled: published.get() > 0,
+                            every: Duration::from_millis(2),
+                            ..Default::default()
+                        },
+                        input: super::super::rate::tests::input(100),
+                    },
+                );
+                Loaded::only(snapshot)
+            },
+            |job, _| {
+                assert_eq!(published.get(), 3);
+                assert!(matches!(job, Deferred::Usage(MeterRead::Home)));
+                samples += 1;
+                false
+            },
+        );
+        assert_eq!(samples, 1);
+    }
+
+    #[test]
     fn meter_only_sampling_uses_the_selected_roster_after_queued_full_loads() {
         let (sender, pending) = mpsc::channel();
         for name in ["old", "new"] {
@@ -1745,25 +1918,27 @@ esac
             Duration::from_millis(1),
             &AtomicU64::new(0),
             |_| Stamp::cursor(1),
-            |wanted, _, _| {
+            |wanted, _, _, _| {
                 loads.push(wanted.clone());
                 let mut snapshot =
                     crate::board::app::tests::snapshot(wanted.as_deref().unwrap(), json!([]));
                 let view = snapshot.view.as_mut().unwrap();
                 view.refresh = None;
                 view.token_rate = Some(super::super::app::RateView {
+                    history: None,
                     settings: crate::config::TokenRate {
                         enabled: true,
                         every: Duration::from_millis(2),
                         reduced_motion: true,
-                        window: crate::config::TokenWindow::Minute,
+                        window: crate::config::TokenWindow::MINUTE,
+                        windows: crate::config::TokenWindow::DEFAULTS,
                     },
                     input: super::super::rate::tests::input(100),
                 });
                 Loaded::only(snapshot)
             },
             |job, generation| {
-                let Deferred::Usage(input) = job else {
+                let Deferred::Usage(MeterRead::Squad(input)) = job else {
                     panic!("unexpected attention work")
                 };
                 assert_eq!(generation, 0);
@@ -1774,5 +1949,42 @@ esac
         );
         assert_eq!(loads, [Some("new".into())]);
         assert_eq!(samples, 1);
+    }
+    #[test]
+    fn opening_history_is_requested_once_per_entry_and_not_on_ordinary_reload() {
+        let (sender, pending) = mpsc::channel();
+        let reload = |name: &str| {
+            Work::Reload(Reload {
+                squad: Some(name.into()),
+                generation: 0,
+                preview_panes: false,
+            })
+        };
+        let mut names = ["product", "product", "infra", "product"].into_iter();
+        sender.send(reload(names.next().unwrap())).unwrap();
+        let mut openings = Vec::new();
+        serve(
+            &pending,
+            |_, _| {
+                if let Some(next) = names.next() {
+                    sender.send(reload(next)).unwrap();
+                    true
+                } else {
+                    false
+                }
+            },
+            CHECK_EVERY,
+            &AtomicU64::new(0),
+            |_| Stamp::cursor(0),
+            |wanted, _, _, opening| {
+                openings.push(opening);
+                let mut snapshot =
+                    crate::board::app::tests::snapshot(wanted.as_deref().unwrap(), json!([]));
+                snapshot.view.as_mut().unwrap().refresh = None;
+                Loaded::only(snapshot)
+            },
+            |_, _| panic!("no deferred work"),
+        );
+        assert_eq!(openings, [true, false, true, true]);
     }
 }

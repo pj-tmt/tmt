@@ -99,6 +99,7 @@ pub struct OwnerTransaction<'a> {
     space: &'a str,
     root: &'a [u8; 32],
     head: Option<statement::Head>,
+    clock: &'a super::Clock,
 }
 impl Store {
     /// Local retained head, not proof of a globally current membership view.
@@ -148,6 +149,7 @@ impl Store {
             space,
             root,
             head,
+            clock: self.clock.as_ref(),
         };
         let outcome = apply(&mut owner)?;
         if owner
@@ -187,6 +189,7 @@ impl Store {
             space,
             root,
             head: Some(head),
+            clock: self.clock.as_ref(),
         })?;
         tx.commit()?;
         Ok(outcome)
@@ -251,7 +254,7 @@ impl OwnerTransaction<'_> {
             return Err(OwnerFault::Capacity.into());
         }
         self.tx
-            .execute("INSERT INTO pages VALUES (?,'1')", [page])?;
+            .execute("INSERT INTO pages(page,epoch) VALUES (?,'1')", [page])?;
         Ok(())
     }
 
@@ -265,7 +268,7 @@ impl OwnerTransaction<'_> {
         &mut self,
         envelope: &super::Envelope<'_>,
     ) -> Result<super::Accepted> {
-        Ok(super::append_in(self.tx, envelope)?.ok_or(super::Fault::Conflict)?)
+        Ok(super::append_in(self.tx, envelope, self.clock)?.ok_or(super::Fault::Conflict)?)
     }
     pub(crate) fn save_operation(
         &mut self,

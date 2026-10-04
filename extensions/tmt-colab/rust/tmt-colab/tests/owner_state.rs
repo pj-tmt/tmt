@@ -496,7 +496,10 @@ fn schema_one_migration_preserves_all_ciphertext_and_refuses_newer_schema_untouc
             .iter()
             .map(|table| {
                 let mut s = db
-                    .prepare(&format!("SELECT * FROM {table} ORDER BY 1"))
+                    .prepare(&format!(
+                        "SELECT {} FROM {table} ORDER BY 1",
+                        if *table == "pages" { "page,epoch" } else { "*" }
+                    ))
                     .unwrap();
                 let cols = s.column_count();
                 let rows = s
@@ -515,19 +518,23 @@ fn schema_one_migration_preserves_all_ciphertext_and_refuses_newer_schema_untouc
     let reopened = Store::open(&f.layout).unwrap();
     reopened.close().unwrap();
     assert_eq!(legacy_rows(&db), before);
+    let updated: Option<i64> = db
+        .query_row("SELECT last_update_at_ms FROM pages", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(updated, None);
     assert_eq!(
         db.pragma_query_value(None, "user_version", |r| r.get::<_, u32>(0))
             .unwrap(),
-        4
+        5
     );
     assert_eq!(counts(&db), vec![0; 7]);
-    db.pragma_update(None, "user_version", 5).unwrap();
+    db.pragma_update(None, "user_version", 6).unwrap();
     let path = f.layout.directory.join("space.db");
     let bytes = fs::read(&path).unwrap();
     let error = Store::open(&f.layout).err().unwrap();
     assert!(matches!(
         error.downcast_ref::<Fault>(),
-        Some(Fault::UnsupportedSchema(5))
+        Some(Fault::UnsupportedSchema(6))
     ));
     assert_eq!(fs::read(&path).unwrap(), bytes);
     assert_eq!(legacy_rows(&db), before);

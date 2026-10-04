@@ -54,6 +54,7 @@ impl Store {
             space,
             root,
             head,
+            clock: self.clock.as_ref(),
         })
     }
     /// Caller must admit page/history access before returning these bytes remotely.

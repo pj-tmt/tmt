@@ -50,14 +50,14 @@ $ printf '%s' '{"version":1,"operation":"capabilities","input":{}}' | "$TMT_EXEC
  "changes.cursor","requests.list","requests.show","dispatch.show","dispatch.create", ...],...}
 `}</Cmd>
 
-| Operation            | Use it to                                                                                                                                          |
-| -------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
-| storage.root         | Find tmt's data directory. Keep your own files under `<dataRoot>/<your-name>/`, and never open tmt's database or settings.                         |
-| requests.list / show | Page through request history for an agent or room, and read one request with its reply. Reading never marks anything as read.                      |
-| dispatch.create      | Send work to one or more agents. You choose an `operationId` first; sending the same one again returns the original receipt and never sends twice. |
-| dispatch.show        | Recover the receipt for an `operationId` after a crash or timeout.                                                                                 |
-| rooms.write          | Create or change a room, using its current revision so concurrent edits don't overwrite each other.                                                |
-| notes.read           | Read a saved agent's notes by its ID.                                                                                                              |
+| Operation            | Use it to                                                                                                                                                                                                     |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| storage.root         | Find tmt's data directory. Keep your own files under `<dataRoot>/<your-name>/`, and never open tmt's database or settings.                                                                                    |
+| requests.list / show | Page through request history for an agent or room, or with `"view":"results"` the newest finished replies to one agent's requests, and read one request with its reply. Reading never marks anything as read. |
+| dispatch.create      | Send work to one or more agents. You choose an `operationId` first; sending the same one again returns the original receipt and never sends twice.                                                            |
+| dispatch.show        | Recover the receipt for an `operationId` after a crash or timeout.                                                                                                                                            |
+| rooms.write          | Create or change a room, using its current revision so concurrent edits don't overwrite each other.                                                                                                           |
+| notes.read           | Read a saved agent's notes by its ID.                                                                                                                                                                         |
 
 These are the main ones; `capabilities` lists every operation the installed tmt supports.
 

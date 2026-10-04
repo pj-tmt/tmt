@@ -247,6 +247,10 @@ const MIGRATIONS: &[Migration] = &[
         name: "retain bounded consumption sources and timestamped history",
         sql: include_str!("schema/046.sql"),
     },
+    Migration {
+        name: "index originator results by final submission time",
+        sql: include_str!("schema/047.sql"),
+    },
 ];
 
 pub(super) fn apply(connection: &mut Connection) -> Result<(), StorageError> {

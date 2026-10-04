@@ -116,6 +116,10 @@ pub(super) fn model(app: &App) -> KeyHelp {
                 ("Tab / Shift-Tab", "move to the next or previous section"),
                 ("Enter", "go to a member or open the selected squad"),
                 ("a", "answer a request or send the squad lead a note"),
+                (
+                    "c",
+                    "list every squad's cron jobs (also Enter on the cron line)",
+                ),
                 ("← →", "switch tabs"),
                 ("s", "switch to any tab"),
                 ("/", "search names and squads"),
@@ -185,6 +189,18 @@ pub(super) fn model(app: &App) -> KeyHelp {
             )],
         ));
     }
+    if app.jobs_focus {
+        sections.push(section(
+            "cron-jobs",
+            "cron jobs (while the jobs half has focus)",
+            &crate::board::cronboard::help_keys(),
+        ));
+    }
+    if !home && app.cron_shown() && !app.bindings().contains_key("c") {
+        sections[0]
+            .entries
+            .push(entry("cron", "c", "list every squad's cron jobs"));
+    }
     if let Some(view) = &app.view {
         sections[0].entries.push(entry(
             "reload",
@@ -196,21 +212,22 @@ pub(super) fn model(app: &App) -> KeyHelp {
         ));
     }
     if let Some(rate) = app.view.as_ref().and_then(|view| view.token_rate.as_ref()) {
+        let windows = format!(
+            "{}; tokens per window, never per-second rates",
+            rate.settings
+                .windows
+                .map(|window| window.label())
+                .join(" / ")
+        );
         let mut meter = section(
             "meter",
-            "token rate",
+            "token meter",
             &[
-                (
-                    "windows",
-                    "5s (with 5 s sampling), 1m, 30m, 1h; labels show covered span until full",
-                ),
-                (
-                    "trend",
-                    "eight bars: 5s window → 40s trend, 1m → 80s, 30m → 30m, 1h → 1h",
-                ),
+                ("windows", &windows),
+                ("trend", "eight bucket-aligned observed-token slices"),
                 (
                     "coverage",
-                    "no data hides; measured zero is 0; ≥ means a reporting member or interval is missing",
+                    "measured zero is 0; unreported members are excluded; ~ marks incomplete coverage; – and no usage reported yet mean unavailable",
                 ),
             ],
         );
@@ -218,9 +235,9 @@ pub(super) fn model(app: &App) -> KeyHelp {
             0,
             entry(
                 "sampling",
-                "tok/s",
+                "tokens",
                 format!(
-                    "completed requests observed every {} s; sampled batches, not live throughput",
+                    "completed requests observed every {} s; best effort, current session model",
                     rate.settings.every.as_secs()
                 ),
             ),
@@ -244,7 +261,36 @@ pub(super) fn model(app: &App) -> KeyHelp {
                 format!("{names}: no usage counters at last board refresh"),
             ));
         }
-        sections.push(meter);
+        let mut order = rate.settings.windows.map(|window| window.label()).to_vec();
+        order.push(order[0].clone());
+        let keys = app
+            .bindings()
+            .iter()
+            .filter(|(_, action)| action.verb == crate::action::Verb::TokenWindow)
+            .map(|(key, _)| key.as_str())
+            .collect::<Vec<_>>()
+            .join(" / ");
+        meter.entries.insert(
+            1,
+            entry(
+                "cycle",
+                if keys.is_empty() {
+                    "token-window"
+                } else {
+                    &keys
+                },
+                format!("switch window: {} (also without data)", order.join(" → ")),
+            ),
+        );
+        meter.entries.insert(
+            2,
+            entry(
+                "tok",
+                "tok",
+                "set [board] tok = \"5m/60m/24h\"; [squad.<name>.board] tok overrides it",
+            ),
+        );
+        sections.insert(0, meter);
     }
     let mut bindings = app.bindings();
     let mut entries = Vec::new();

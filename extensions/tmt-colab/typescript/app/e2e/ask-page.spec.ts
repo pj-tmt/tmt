@@ -20,6 +20,7 @@ async function mount(page: Page) {
       selected.removeAllRanges();
       selected.addRange(range);
     });
+  await page.locator('#ask-page-fixture').getByTestId('ask-toggle').click();
   await expect(page.getByRole('button', { name: 'Ask agent', exact: true })).toBeEnabled();
 }
 async function compose(page: Page) {
@@ -45,6 +46,10 @@ test('live Page selection opens a parent picker, freezes preview through sync an
   const message = await page.getByLabel('Exact message').textContent();
   expect(message).toContain('Exact selected text');
   expect(message).toContain('Explain exactly');
+  await page.getByRole('button', { name: 'Close Ask agent', exact: true }).click();
+  expect((await run(page, 'proof')).sends).toEqual([]);
+  await page.locator('#ask-page-fixture').getByTestId('ask-toggle').click();
+  expect(await page.getByLabel('Exact message').textContent()).toBe(message);
   await run(page, 'change', '<p id="selected">Changed selected text</p>');
   await expect(page.getByRole('heading', { name: 'Changed live title' })).toBeVisible();
   await expect(page.locator('#ask-page-fixture .status')).toContainText('Live preview');
@@ -63,7 +68,9 @@ test('live Page selection opens a parent picker, freezes preview through sync an
   expect(sent[0].message).toContain(
     'Link: https://example.test/x/colab/#space=' + 'a'.repeat(32) + '&path=%2Fpages%2F',
   );
-  await expect(page.getByText('No asks on this page yet.')).toBeVisible();
+  await expect(
+    page.getByRole('region', { name: 'Page asks' }).getByText('No asks on this page yet.'),
+  ).toBeVisible();
   await run(page, 'syncSent');
   const entry = page.locator(`[data-testid=ask-entry][data-operation-id="${sent[0].operationId}"]`);
   await expect(entry).toBeFocused();

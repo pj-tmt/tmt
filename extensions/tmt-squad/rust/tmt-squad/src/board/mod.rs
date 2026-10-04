@@ -4,6 +4,7 @@
 mod app;
 mod changes;
 mod composition;
+mod cronboard;
 mod derived;
 mod help;
 mod home;
@@ -96,6 +97,10 @@ pub(super) enum BoardEvent {
         room: String,
         input: Result<rate::Input, ()>,
     },
+    HomeUsage {
+        cancellation: crate::runner::Cancellation,
+        input: Result<std::collections::BTreeMap<String, serde_json::Value>, ()>,
+    },
     Notebook {
         cancellation: crate::runner::Cancellation,
         identity: String,
@@ -105,6 +110,10 @@ pub(super) enum BoardEvent {
     Attention {
         cancellation: crate::runner::Cancellation,
         attention: std::collections::BTreeMap<String, crate::attention::Attention>,
+    },
+    Cron {
+        cancellation: crate::runner::Cancellation,
+        read: Result<cronboard::Cron, String>,
     },
 }
 
@@ -193,6 +202,7 @@ fn execute(core: &Core, request: Request) -> Result<String, String> {
             .and_then(|mut config| config.set_tab_order(&keys))
             .map(|()| "Tab order saved.".to_owned())
             .map_err(|error| error.message),
+        Request::Cron(request) => cronboard::act(core, request),
         Request::Reply {
             me,
             request,
@@ -296,6 +306,15 @@ fn session(
                 }
                 Effect::None
             }
+            Ok(BoardEvent::HomeUsage {
+                cancellation,
+                input,
+            }) => {
+                if !cancellation.cancelled() {
+                    dirty |= app.sample_home(input.as_ref().map_err(|_| ()), Instant::now());
+                }
+                Effect::None
+            }
             Ok(BoardEvent::Usage {
                 cancellation,
                 room,
@@ -305,7 +324,9 @@ fn session(
                     && !app.loading()
                     && let Some(meter) = app.meter.as_mut().filter(|meter| meter.room == room)
                 {
-                    meter.sample(input.as_ref().map_err(|_| ()), Instant::now());
+                    let now = Instant::now();
+                    meter.sample(input.as_ref().map_err(|_| ()), now);
+                    app.project_usage(now);
                     dirty = true;
                 }
                 Effect::None
@@ -317,6 +338,13 @@ fn session(
                 if !cancellation.cancelled() {
                     dirty |= app.attention != attention;
                     app.attention = attention;
+                }
+                Effect::None
+            }
+            Ok(BoardEvent::Cron { cancellation, read }) => {
+                if !cancellation.cancelled() {
+                    app.cron.replace(read);
+                    dirty = true;
                 }
                 Effect::None
             }

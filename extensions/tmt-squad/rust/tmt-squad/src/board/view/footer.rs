@@ -43,8 +43,11 @@ pub(in crate::board) fn toggle_label(app: &App, action: &crate::action::Action) 
 
 /// The footer names what the most used keys do for the selected row.
 pub(super) fn hints(app: &App, width: usize) -> String {
+    if app.jobs_focus {
+        return crate::board::cronboard::jobs_hints(width);
+    }
     if app.view.as_ref().is_some_and(|view| view.home.is_some()) {
-        return crate::board::home::hints(width);
+        return crate::board::home::hints(width, app.cron_shown());
     }
     let bindings = app.bindings();
     let mut hints: Vec<String> = [
@@ -132,6 +135,9 @@ pub(super) fn hints(app: &App, width: usize) -> String {
     if !bindings.contains_key("s") {
         hints.push("s switch".into());
     }
+    if app.cron_shown() && !bindings.contains_key("c") {
+        hints.push("c cron".into());
+    }
     hints.push("q quit".into());
     if app.view.as_ref().is_some_and(|view| view.me.is_none()) {
         hints.push(crate::status::UNKNOWN_YOU.to_owned());
@@ -179,12 +185,22 @@ pub(super) fn hints(app: &App, width: usize) -> String {
 }
 
 pub(super) fn render(frame: &mut Frame, app: &App, footer: Rect, look: crate::look::Look) {
-    let mut footer_line = if let Some(input) = app
-        .input
-        .as_ref()
-        .filter(|input| !matches!(input.compose, crate::board::app::Compose::AskLead { .. }))
-    {
-        Line::from(format!("{} › {}▏", input.prompt, input.text))
+    let mut footer_line = if let Some(input) = app.input.as_ref().filter(|input| {
+        !matches!(input.compose, crate::board::app::Compose::AskLead { .. })
+            && app.input_band.get().is_none()
+    }) {
+        let mut spans = vec![Span::raw(format!("{} › {}▏", input.prompt, input.text))];
+        if let Some(hint) = input
+            .hint
+            .as_ref()
+            .filter(|hint| hint.error || input.text.is_empty())
+        {
+            spans.push(Span::styled(
+                format!("  {}", hint.text),
+                look.role(if hint.error { Role::Waiting } else { Role::Dim }),
+            ));
+        }
+        Line::from(spans)
     } else if app.searching {
         Line::from(format!("/{}▏", app.search))
     } else if let Some(notice) = &app.notice {

@@ -123,11 +123,11 @@ pub fn extend(root: Command) -> Command {
                 .value_parser(["shared", "current"]),
         ),
     );
-    root.subcommand(cmd!("ls", "List local pages", "tmt colab ls --json", "Archived pages need --archived. Local expiry is advisory and never deletes data. Expiry times are not available yet.")
+    root.subcommand(cmd!("ls", "List local pages", "tmt colab ls --json", "Archived pages need --archived. Local expiry is advisory and never deletes data. Expiry starts after the next edit for pages without recorded update time.")
         .alias("list").arg(Arg::new("archived").long("archived").action(ArgAction::SetTrue)))
-        .subcommand(cmd!("show", "Inspect one local page", "tmt colab show 10000000-0000-4000-8000-000000000001 --json", "Archived titles and discussions are unavailable. Expiry times are not available yet; local data is never automatically deleted.").arg(page()))
+        .subcommand(cmd!("show", "Inspect one local page", "tmt colab show 10000000-0000-4000-8000-000000000001 --json", "Archived titles and discussions are unavailable. Local expiry is advisory; local data is never automatically deleted.").arg(page()))
         .subcommand(share)
-        .subcommand(mutation(cmd!("retention", "Read or set local retention", "tmt colab retention 10000000-0000-4000-8000-000000000001 forever", "Omit the value to read verified policy. Days must be a positive safe integer; forever has no expiry. Local expiry is advisory and never deletes data. Expiry times are not available yet.")
+        .subcommand(mutation(cmd!("retention", "Read or set local retention", "tmt colab retention 10000000-0000-4000-8000-000000000001 forever", "Omit the value to read verified policy. Days must be a positive safe integer; forever has no expiry. Local expiry is advisory and never deletes data. Expiry starts after the next edit for pages without recorded update time.")
             .arg(page()).arg(Arg::new("days").index(2))))
         .subcommand(mutation(cmd!("archive", "Freeze page writes while keeping it readable", "tmt colab archive 10000000-0000-4000-8000-000000000001", "Archived pages remain readable. Writes and sharing changes are frozen; retention and explicit deletion remain available.").arg(page())))
         .subcommand(mutation(cmd!("delete", "Delete local page data permanently", "tmt colab delete 10000000-0000-4000-8000-000000000001 --yes", "Requires --yes. Deletes local content, receipts, checkpoints, baselines and epoch keys; keeps signed policy and operation tombstones. Previously copied content cannot be recalled. An exact retry retains operation ID and expected revision.").arg(page())))

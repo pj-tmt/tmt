@@ -44,12 +44,14 @@ test('browser and CLI export the same two-writer discussion and Ask conversation
     // Writer one comments on a selection; writer two replies.
     const body = 'Please check ``` this & <b>that</b>.\nSecond line.';
     await selectInRenderer(first, '#quote');
+    await first.getByTestId('comments-toggle').click();
     await first.getByTestId('comment-action').click();
     const panel = first.getByTestId('comments-panel');
     await panel.getByLabel('Post comment', { exact: true }).fill(body);
     await panel.getByRole('button', { name: 'Post comment', exact: true }).click();
     const t1 = first.getByTestId('comment-thread').first();
     const t2 = second.getByTestId('comment-thread').first();
+    await second.getByTestId('comments-toggle').click();
     await expect(t2).toHaveAttribute('data-anchor', 'attached');
     const messageId = (await t1.getByTestId('comment-entry').getAttribute('data-message-id'))!;
     await t2.getByRole('button', { name: 'Reply', exact: true }).click();
@@ -69,6 +71,8 @@ test('browser and CLI export the same two-writer discussion and Ask conversation
     const operationId = (await preview.getAttribute('data-operation-id'))!;
     await comment.getByTestId('ask-send').click();
     await until(() => agent.received().length === 1, 'comment Ask delivered');
+    await first.getByTestId('ask-toggle').click();
+    await second.getByTestId('ask-toggle').click();
     await expect(askEntry(second, operationId).getByTestId('ask-reply')).toBeVisible();
     await expect(askEntry(first, operationId).getByTestId('ask-reply')).toBeVisible();
 

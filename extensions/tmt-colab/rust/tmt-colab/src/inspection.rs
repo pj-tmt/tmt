@@ -9,7 +9,7 @@ use crate::{
 };
 use serde_json::{Value, json};
 use std::path::PathBuf;
-use tmt_colab_model::{payload::Payload, values};
+use tmt_colab_model::values;
 
 pub fn catalog(store: &Store, key: &Keyring) -> Result<Value> {
     store.owner_read(&key.space_id, &key.owner_public(), |tx| {
@@ -18,33 +18,6 @@ pub fn catalog(store: &Store, key: &Keyring) -> Result<Value> {
             json!({"revision":h.revision.to_string(),
             "statementHash":values::encode_binary(&h.hash)})
         });
-        let mut retained = std::collections::BTreeMap::new();
-        let mut verified_head = None;
-        for envelope in tx.log()? {
-            let verified =
-                envelope.verify_next(&key.space_id, &key.owner_public(), verified_head.as_ref())?;
-            verified_head = Some(verified.head);
-            if let Payload::RetentionSet(p) = verified.payload {
-                retained.insert(
-                    p.page_id,
-                    match p.days {
-                        tmt_colab_model::payload::Days::Forever => None,
-                        tmt_colab_model::payload::Days::Count(n) => Some(n),
-                    },
-                );
-            }
-        }
-        if verified_head.as_ref() != tx.head() {
-            return Err(OwnerFault::Invalid.into());
-        }
-        for page in catalog["pages"].as_array_mut().ok_or(OwnerFault::Invalid)? {
-            let id = page["pageId"].as_str().ok_or(OwnerFault::Invalid)?;
-            let days = retained.get(id).copied().unwrap_or(Some(30));
-            page["retentionDays"] = json!(days);
-            page["lastUpdateAtMs"] = Value::Null;
-            page["expiresAtMs"] = Value::Null;
-            page["warnings"] = json!(["expiry-unavailable"]);
-        }
         catalog
             .as_object_mut()
             .ok_or(OwnerFault::Invalid)?

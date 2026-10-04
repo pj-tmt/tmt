@@ -161,23 +161,56 @@ pub(super) fn summary_line(app: &App) -> Line<'_> {
     Line::from(spans)
 }
 
-/// Reserve a fixed band only when the complete lead/attention summary fits.
-/// The normal ratatui render/diff owns all terminal writes.
+/// Both meter rows stay reserved while enabled, so gaining/losing coverage
+/// does not move member rows or their hit identities.
+pub(super) fn meter_enabled(app: &App) -> bool {
+    !app.loading()
+        && app
+            .current
+            .as_deref()
+            .is_some_and(|tab| !crate::board::tabs::aggregate(tab))
+        && app
+            .meter
+            .as_ref()
+            .is_some_and(|meter| meter.settings.enabled)
+}
+
+pub(super) fn render_meter_status(frame: &mut Frame, app: &App, area: Rect) {
+    if meter_enabled(app)
+        && app
+            .meter
+            .as_ref()
+            .is_some_and(|meter| meter.digits().is_none())
+    {
+        let text = "no usage reported yet";
+        let width = area.width.min(text.len() as u16);
+        super::strip::paint_line(
+            frame,
+            Rect {
+                x: area.right() - width,
+                width,
+                ..area
+            },
+            Line::styled(text, app.look().role(Role::Dim)),
+            app.look(),
+        );
+    }
+}
+
+/// Reserve the current mode first; clip the lead/attention summary if needed.
+/// The normal render/diff owns all terminal writes.
 pub(super) fn meter_region(
     app: &App,
     summary: Rect,
 ) -> Option<(Rect, crate::board::meter::Layout)> {
-    if app.loading()
-        || app
-            .current
-            .as_deref()
-            .is_none_or(crate::board::tabs::aggregate)
-    {
+    if !meter_enabled(app) {
         return None;
     }
     let left = summary_line(app).width() + 2;
     let meter = app.meter.as_ref()?;
-    let layout = meter.layout(usize::from(summary.width).saturating_sub(left))?;
+    let layout = meter
+        .layout(usize::from(summary.width).saturating_sub(left))
+        .or_else(|| meter.layout(usize::from(summary.width)))?;
     let area = Rect {
         x: summary.right() - layout.width as u16,
         width: layout.width as u16,
@@ -191,7 +224,8 @@ pub(super) fn render_meter(frame: &mut Frame, app: &App, summary: Rect) {
         return;
     };
     let meter = app.meter.as_ref().expect("visible meter");
-    let mut spans = vec![Span::raw(meter.digits().expect("visible digits"))];
+    let digits = meter.digits();
+    let mut spans = vec![Span::raw(digits.as_deref().unwrap_or("–"))];
     spans.push(Span::styled(layout.unit, app.look().role(Role::Muted)));
     if let Some(label) = layout.label {
         spans.push(Span::styled(
@@ -206,8 +240,20 @@ pub(super) fn render_meter(frame: &mut Frame, app: &App, summary: Rect) {
             app.look().role(Role::Muted),
         ));
     }
-    frame.render_widget(
-        Paragraph::new(Line::from(spans)).alignment(Alignment::Right),
-        area,
-    );
+    let line = Line::from(spans);
+    if digits.is_none() {
+        let width = (line.width() as u16).min(area.width);
+        super::strip::paint_line(
+            frame,
+            Rect {
+                x: area.right() - width,
+                width,
+                ..area
+            },
+            line,
+            app.look(),
+        );
+    } else {
+        frame.render_widget(Paragraph::new(line).alignment(Alignment::Right), area);
+    }
 }

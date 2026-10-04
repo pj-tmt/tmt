@@ -129,22 +129,36 @@ pub(super) fn grid_line(
 
 /// Puts a row's age at the right edge of its first line when it fits after
 /// the cells; a narrow board drops it before any cell.
+/// The row-end label candidates, longest first: the age mark then `⏱ next`, then
+/// the age mark alone; `⏱ next` is the first to drop.
+fn row_end(age: Option<String>, next: Option<String>) -> Vec<String> {
+    match (age, next) {
+        (Some(age), Some(next)) => vec![format!("{age}  {next}"), age],
+        (Some(age), None) => vec![age],
+        (None, Some(next)) => vec![next],
+        (None, None) => vec![],
+    }
+}
+
 pub(super) fn age_mark(
     spans: &mut Vec<Span<'static>>,
-    age: &str,
+    labels: &[String],
     width: usize,
     look: crate::look::Look,
     selected: bool,
 ) {
     let used: usize = spans.iter().map(Span::width).sum();
-    let mark = age.width();
-    if used + GAP + mark <= width {
-        spans.push(Span::raw(" ".repeat(width - used - mark)));
-        spans.push(Span::styled(
-            age.to_owned(),
-            look.row_span(selected, look.role(Role::Dim), false),
-        ));
-    }
+    let Some(label) = labels
+        .iter()
+        .find(|label| used + GAP + label.width() <= width)
+    else {
+        return;
+    };
+    spans.push(Span::raw(" ".repeat(width - used - label.width())));
+    spans.push(Span::styled(
+        label.clone(),
+        look.row_span(selected, look.role(Role::Dim), false),
+    ));
 }
 pub(super) fn render_rows(frame: &mut Frame, app: &App, area: Rect) {
     let look = app.look();
@@ -161,11 +175,23 @@ pub(super) fn render_rows(frame: &mut Frame, app: &App, area: Rect) {
     let rows = &view.rows;
     let mut derived = view.derived.borrow_mut();
     let available = usize::from(area.width).saturating_sub(2);
-    if derived
-        .grid
-        .as_ref()
-        .is_none_or(|grid| grid.width != available || grid.search != app.search)
-    {
+    let now = app.cron.now_ms();
+    let next_label = |row: &Value| {
+        row["id"]
+            .as_str()
+            .and_then(|id| app.cron.member_label(id, now))
+    };
+    let next_labels: Vec<Option<String>> = app
+        .items()
+        .into_iter()
+        .filter_map(|item| match item {
+            Item::Row(row) => Some(next_label(row)),
+            Item::Header(_) => None,
+        })
+        .collect();
+    if derived.grid.as_ref().is_none_or(|grid| {
+        grid.width != available || grid.search != app.search || grid.next_labels != next_labels
+    }) {
         // Unsized columns start from their widest value on the board.
         let natural = |index: usize| {
             let field = &rows.columns[index].field;
@@ -197,29 +223,30 @@ pub(super) fn render_rows(frame: &mut Frame, app: &App, area: Rect) {
                 return;
             }
         };
-        let ages = app
-            .items()
-            .into_iter()
-            .filter_map(|item| match item {
-                Item::Row(row) => crate::staleness::label(&row["staleness"]),
-                Item::Header(_) => None,
-            })
-            .map(|age| age.width() + GAP)
-            .max();
-        let layout = match ages {
-            Some(age) => {
-                match crate::markup::Grid::compile(rows, natural, available.saturating_sub(age)) {
-                    Ok(reserved)
-                        if reserved.columns.iter().flatten().count()
-                            == layout.columns.iter().flatten().count() =>
-                    {
-                        reserved
-                    }
-                    _ => layout,
-                }
-            }
-            None => layout,
+        // The row-end label room is reserved only when no column would be hidden:
+        // first for the age mark plus `⏱ next`, then for the age mark alone.
+        let widest = |labels: &dyn Fn(&Value) -> Option<String>| {
+            app.items()
+                .into_iter()
+                .filter_map(|item| match item {
+                    Item::Row(row) => labels(row),
+                    Item::Header(_) => None,
+                })
+                .map(|label| label.width() + GAP)
+                .max()
         };
+        let age_only = |row: &Value| crate::staleness::label(&row["staleness"]);
+        let with_next = |row: &Value| row_end(age_only(row), next_label(row)).into_iter().next();
+        let shown = layout.columns.iter().flatten().count();
+        let layout = [widest(&with_next), widest(&age_only)]
+            .into_iter()
+            .flatten()
+            .find_map(|reserve| {
+                crate::markup::Grid::compile(rows, natural, available.saturating_sub(reserve))
+                    .ok()
+                    .filter(|reserved| reserved.columns.iter().flatten().count() == shown)
+            })
+            .unwrap_or(layout);
         let cells = match crate::markup::row_values(rows, tab, app.rows()) {
             Ok(cells) => cells,
             Err(error) => {
@@ -235,6 +262,7 @@ pub(super) fn render_rows(frame: &mut Frame, app: &App, area: Rect) {
         derived.grid = Some(crate::board::derived::Grid {
             width: available,
             search: app.search.clone(),
+            next_labels,
             layout,
             cells,
         });
@@ -266,6 +294,7 @@ pub(super) fn render_rows(frame: &mut Frame, app: &App, area: Rect) {
         ),
         look.role(Role::Muted),
     ))];
+    let mut input_range = None;
     let mut selected_lines = 0..0;
     let mut row_index = 0;
     // The screen lines of each row, for mouse events.
@@ -289,6 +318,7 @@ pub(super) fn render_rows(frame: &mut Frame, app: &App, area: Rect) {
                 // and says how long. This is the row's content age, not the
                 // frame still loading another squad.
                 let age = crate::staleness::label(&row["staleness"]);
+                let labels = row_end(age.clone(), next_label(row));
                 let style = if selected {
                     look.selection()
                 } else if age.is_some() {
@@ -320,8 +350,8 @@ pub(super) fn render_rows(frame: &mut Frame, app: &App, area: Rect) {
                             ),
                         )];
                         spans.extend(cells);
-                        if let Some(age) = age.as_deref().filter(|_| initial) {
-                            age_mark(&mut spans, age, usize::from(area.width), look, selected);
+                        if initial {
+                            age_mark(&mut spans, &labels, usize::from(area.width), look, selected);
                         }
                         row_lines.push((lines.len(), row_index));
                         lines.push(Line::from(spans).style(style));
@@ -345,11 +375,17 @@ pub(super) fn render_rows(frame: &mut Frame, app: &App, area: Rect) {
                             ),
                         ];
                         if let Some(age) = request_age {
-                            age_mark(&mut spans, &age, usize::from(area.width), look, selected);
+                            age_mark(&mut spans, &[age], usize::from(area.width), look, selected);
                         }
                         row_lines.push((lines.len(), row_index));
                         lines.push(Line::from(spans).style(style));
                     }
+                }
+                if app.sent.as_ref().is_some_and(|feedback| {
+                    app.row_target(row_index).as_ref() == Some(&feedback.target)
+                }) {
+                    lines.push(Line::styled("    ✓ sent", look.role(Role::Working)));
+                    row_lines.push((lines.len() - 1, row_index));
                 }
                 if let Some(text) = row["annotation"]["text"].as_str() {
                     let to = row["annotation"]["to"].as_str().unwrap_or_default();
@@ -361,6 +397,10 @@ pub(super) fn render_rows(frame: &mut Frame, app: &App, area: Rect) {
                         look.role(Role::Dim),
                     )));
                     row_lines.push((lines.len() - 1, row_index));
+                }
+                if let Some(range) = super::waiting::reserve_input(app, row_index, area, &mut lines)
+                {
+                    input_range = Some(range);
                 }
                 if selected {
                     selected_lines = start..lines.len();
@@ -388,6 +428,7 @@ pub(super) fn render_rows(frame: &mut Frame, app: &App, area: Rect) {
     let (offset, viewport) = app
         .scrolls
         .show(frame, Pane::Rows, area, lines, look.role(Role::Dim));
+    super::waiting::place_input(app, input_range, area, offset, viewport);
     app.hits.borrow_mut().extend(
         row_lines
             .into_iter()

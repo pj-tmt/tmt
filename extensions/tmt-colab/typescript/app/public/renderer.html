@@ -27,6 +27,65 @@
             requestId = '',
             stopped = false,
             timer;
+          let heightTimer,
+            height = 0,
+            innerScroll = false;
+          function measureHeight() {
+            heightTimer = undefined;
+            if (stopped || !document.body) return;
+            const body = document.body,
+              root = document.documentElement,
+              rect = body.getBoundingClientRect(),
+              margin = parseFloat(getComputedStyle(body).marginBottom) || 0;
+            // Root scrollHeight is at least the frame viewport. Ignore that floor
+            // so content can shrink; retain root overflow and body/absolute content.
+            const next = Math.max(
+              1,
+              Math.ceil(
+                Math.max(
+                  rect.bottom + scrollY + margin,
+                  rect.top + scrollY + body.scrollHeight + margin,
+                  root.scrollHeight > innerHeight + 1 ? root.scrollHeight : 0,
+                ),
+              ),
+            );
+            if (next === height) return;
+            height = next;
+            parent.postMessage({ type: 'colab.render.height', renderId, height }, '*');
+          }
+          const scheduleHeight = () => {
+            if (!stopped && heightTimer === undefined) heightTimer = setTimeout(measureHeight, 100);
+          };
+          const sizeObserver = new ResizeObserver(scheduleHeight);
+          function anchor(event) {
+            if (
+              !event.isTrusted ||
+              event.defaultPrevented ||
+              event.button !== 0 ||
+              event.metaKey ||
+              event.ctrlKey ||
+              event.shiftKey ||
+              event.altKey
+            )
+              return;
+            const link = event.target instanceof Element ? event.target.closest('a[href]') : null,
+              href = link?.getAttribute('href');
+            if (!href?.startsWith('#') || href.length > 1024) return;
+            let id;
+            try {
+              id = decodeURIComponent(href.slice(1));
+            } catch {
+              return;
+            }
+            const target = id
+              ? (document.getElementById(id) ?? document.getElementsByName(id)[0])
+              : document.body;
+            if (!target) return;
+            const top = Math.max(0, target.getBoundingClientRect().top + scrollY);
+            event.preventDefault();
+            if (innerScroll) target.scrollIntoView();
+            parent.postMessage({ type: 'colab.render.anchor', renderId, top }, '*');
+          }
           let layer;
           const sheet = document.createElement('style');
           sheet.textContent = '::highlight(colab-comments){background:#ffe18a;color:inherit}';
@@ -191,6 +250,18 @@
           port.onmessage = (event) => {
             const v = event.data;
             if (
+              v &&
+              typeof v === 'object' &&
+              !Array.isArray(v) &&
+              Object.keys(v).length === 3 &&
+              v.type === 'colab.render.layout' &&
+              v.renderId === renderId &&
+              v.mode === 'frame'
+            ) {
+              innerScroll = true;
+              return;
+            }
+            if (
               !v ||
               typeof v !== 'object' ||
               Array.isArray(v) ||
@@ -235,6 +306,7 @@
               )
             )
               schedule();
+            scheduleHeight();
           });
           addEventListener(
             'load',
@@ -248,19 +320,29 @@
               });
               parent.postMessage({ type: 'colab.render.bound', renderId }, '*');
               document.addEventListener('selectionchange', capture);
+              document.addEventListener('click', anchor, true);
+              sizeObserver.observe(document.documentElement);
+              sizeObserver.observe(document.body);
+              scheduleHeight();
             },
             { once: true },
           );
           addEventListener('resize', schedule);
+          addEventListener('resize', scheduleHeight);
           addEventListener(
             'pagehide',
             () => {
               stopped = true;
               clearTimeout(timer);
+              clearTimeout(heightTimer);
+              sizeObserver.disconnect();
               observer.disconnect();
               port.close();
               clear();
               document.removeEventListener('selectionchange', capture);
+              document.removeEventListener('click', anchor, true);
+              removeEventListener('resize', schedule);
+              removeEventListener('resize', scheduleHeight);
             },
             { once: true },
           );

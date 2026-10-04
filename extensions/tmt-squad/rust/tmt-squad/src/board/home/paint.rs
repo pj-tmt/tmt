@@ -66,7 +66,7 @@ pub(crate) fn age_label(age: &Age, now: u64) -> String {
     }
 }
 
-pub(crate) fn hints(width: usize) -> String {
+pub(crate) fn hints(width: usize, cron: bool) -> String {
     // Drop complete optional hints, preserving the two exit/help hints at 80.
     let mut optional = vec![
         "↑↓ move",
@@ -77,6 +77,9 @@ pub(crate) fn hints(width: usize) -> String {
         "s switch",
         "/ search",
     ];
+    if cron {
+        optional.insert(4, "c cron");
+    }
     loop {
         let text = optional
             .iter()
@@ -93,6 +96,33 @@ pub(crate) fn hints(width: usize) -> String {
 
 pub(crate) fn render(frame: &mut Frame, app: &App, area: Rect) {
     render_at(frame, app, area, crate::status::now_ms());
+}
+
+/// ⑤: the cron line is one selectable row; its text comes from the cron projection.
+fn cron_line(app: &App, selected: bool, width: usize) -> Line<'static> {
+    let look = app.look();
+    let line = crate::board::cronboard::home_line(
+        &app.cron,
+        app.cron.now_ms(),
+        width as u16,
+        look,
+        app.clock_place(),
+    )
+    .expect("a cron target exists only with a read or its failure");
+    let mut spans: Vec<Span<'static>> = line
+        .spans
+        .into_iter()
+        .map(|span| Span::styled(span.content, look.row_span(selected, span.style, false)))
+        .collect();
+    let used: usize = spans.iter().map(Span::width).sum();
+    spans.push(Span::raw(" ".repeat(width.saturating_sub(used))));
+    let mut line = Line::from(spans);
+    line.style = if selected {
+        look.selection().add_modifier(Modifier::BOLD)
+    } else {
+        look.role(Role::Text)
+    };
+    line
 }
 
 pub(super) fn render_at(frame: &mut Frame, app: &App, area: Rect, now: u64) {
@@ -123,6 +153,8 @@ pub(super) fn render_at(frame: &mut Frame, app: &App, area: Rect, now: u64) {
         ));
     }
     let mut starts = Vec::new();
+    let mut input_range = None;
+    let mut selected_range = 0..0;
     let mut section = "";
     if !entries
         .iter()
@@ -141,6 +173,13 @@ pub(super) fn render_at(frame: &mut Frame, app: &App, area: Rect, now: u64) {
         ));
     }
     for (index, entry) in entries.iter().enumerate() {
+        if entry.target.section == super::CRON {
+            section = super::CRON;
+            lines.push(Line::default());
+            starts.push(lines.len());
+            lines.push(cron_line(app, index == app.selected, width));
+            continue;
+        }
         if section != entry.target.section {
             section = &entry.target.section;
             let count = entries
@@ -243,19 +282,31 @@ pub(super) fn render_at(frame: &mut Frame, app: &App, area: Rect, now: u64) {
             look.role(Role::Text)
         };
         lines.push(line);
+        if app.sent.as_ref().is_some_and(|feedback| {
+            feedback.target == crate::board::app::RowTarget::Home(entry.target.clone())
+        }) {
+            lines.push(Line::styled("   ✓ sent", look.role(Role::Working)));
+        }
+        if let Some(range) =
+            crate::board::view::waiting::reserve_input(app, index, area, &mut lines)
+        {
+            input_range = Some(range);
+        }
+        if selected {
+            selected_range = starts[index]..lines.len();
+        }
     }
     if home.squads.is_empty() {
         lines.push(Line::styled("③ squads · 0", look.role(Role::Dim)));
     }
-    if app.follow
-        && let Some(start) = starts.get(app.selected)
-    {
+    if app.follow && starts.get(app.selected).is_some() {
         app.scrolls
-            .reveal_range(Pane::Rows, *start..start + 1, area, lines.len());
+            .reveal_range(Pane::Rows, selected_range, area, lines.len());
     }
     let (offset, shown) = app
         .scrolls
         .show(frame, Pane::Rows, area, &lines, look.role(Role::Dim));
+    crate::board::view::waiting::place_input(app, input_range, area, offset, shown);
     for (row, start) in starts
         .iter()
         .enumerate()

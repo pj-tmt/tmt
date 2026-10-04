@@ -1,8 +1,11 @@
 //! Home targets share the board's selection, effects, composer and scroll owner.
 
 use super::{Age, Counts, Home};
-use crate::board::app::{App, Choice, Compose, Effect, Input, Menu, MenuEntry, Request};
+use crate::board::app::{App, Effect, Request};
 use serde_json::Value;
+
+/// Section key of the one cron cursor target.
+pub const CRON: &str = "cron";
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Target {
@@ -67,16 +70,62 @@ impl Home {
     }
 }
 
+/// The cron entry has no member row; its line comes from the cron projection.
+static NO_ROW: Value = Value::Null;
+
 impl App {
+    /// Reading order: attention, then the cron line, then squads.
     pub(in crate::board) fn home_entries(&self) -> Vec<HomeEntry<'_>> {
-        self.view
+        let mut entries = self
+            .view
             .as_ref()
             .and_then(|view| {
                 view.home
                     .as_ref()
                     .map(|home| home.entries(&view.document, &self.search))
             })
-            .unwrap_or_default()
+            .unwrap_or_default();
+        if self.search.is_empty() && self.cron_shown() && !entries.is_empty() {
+            let at = entries
+                .iter()
+                .position(|entry| entry.target.section == "squads")
+                .unwrap_or(entries.len());
+            entries.insert(
+                at,
+                HomeEntry {
+                    target: Target {
+                        section: CRON.into(),
+                        squad: String::new(),
+                        member: None,
+                    },
+                    row: &NO_ROW,
+                    lead: None,
+                    age: None,
+                    counts: None,
+                    pressing: None,
+                },
+            );
+        }
+        if let Some(crate::board::app::RowFeedback {
+            target: crate::board::app::RowTarget::Home(target),
+            home: Some(feedback),
+        }) = &self.sent
+            && !entries.iter().any(|entry| &entry.target == target)
+            && crate::board::app::matches(&feedback.row, &self.search)
+        {
+            entries.insert(
+                feedback.index.min(entries.len()),
+                HomeEntry {
+                    target: target.clone(),
+                    row: &feedback.row,
+                    lead: feedback.lead.as_deref(),
+                    age: None,
+                    counts: None,
+                    pressing: None,
+                },
+            );
+        }
+        entries
     }
 
     pub(in crate::board) fn home_section(&mut self, previous: bool) {
@@ -105,7 +154,9 @@ impl App {
         let Some(entry) = entries.get(self.selected) else {
             return self.say("No home row is selected.");
         };
-        if entry.target.member.is_some() {
+        if entry.target.section == CRON {
+            self.open_cron_list(None)
+        } else if entry.target.member.is_some() {
             match entry.row["name"].as_str() {
                 Some(name) => Effect::Act(Request::Jump(name.into())),
                 None => self.say("This row has no member name."),
@@ -117,102 +168,20 @@ impl App {
     }
 
     pub(in crate::board) fn home_answer(&mut self) -> Effect {
-        let Some(sender) = self.view.as_ref().and_then(|view| view.me.clone()) else {
+        if self
+            .home_entries()
+            .get(self.selected)
+            .is_some_and(|entry| entry.target.section == CRON)
+        {
+            return self.say("Nothing to answer here; c opens the cron list.");
+        }
+        let Some(send) = self.row_send(self.selected, false) else {
             return self.say("Who is sending? Record yourself with tmt squad me <name>.");
         };
-        let entries = self.home_entries();
-        let Some(entry) = entries.get(self.selected) else {
-            return self.say("No home row is selected.");
+        let squad = match &send.target {
+            crate::board::app::RowTarget::Home(target) => target.squad.clone(),
+            _ => unreachable!("home target"),
         };
-        let send = Send {
-            target: entry.target.clone(),
-            sender,
-        };
-        let name = entry.row["name"].as_str().unwrap_or_default().to_owned();
-        let requests = entry.row["waitingOnYou"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .enumerate()
-            .filter_map(|(i, request)| {
-                Some(MenuEntry {
-                    key: (i + 1).to_string(),
-                    label: crate::board::notes::sanitize(
-                        request["preview"]
-                            .as_str()
-                            .unwrap_or("(question unavailable)"),
-                    ),
-                    choice: Choice::Reply {
-                        request: request["requestId"].as_str()?.into(),
-                        from: name.clone(),
-                    },
-                })
-            })
-            .collect::<Vec<_>>();
-        if !requests.is_empty() {
-            self.menu = Some(Menu {
-                home: Some(send),
-                link: None,
-                prefill: String::new(),
-                title: format!("answer {name}"),
-                entries: requests,
-                selected: 0,
-            });
-            return Effect::None;
-        }
-        let Some(to) = entry.lead.map(str::to_owned) else {
-            return self.say(format!(
-                "This squad has no lead; set one with tmt squad lead <name> --squad {}.",
-                entry.target.squad
-            ));
-        };
-        let squad = entry.target.squad.clone();
-        self.ask(
-            format!("note on {name} for {to}"),
-            Compose::Annotate { to, row: name },
-            squad,
-        );
-        self.input.as_mut().expect("opened composer").home = Some(send);
-        Effect::None
-    }
-}
-
-/// Opening authority, rechecked against refreshed home data before submission.
-#[derive(Clone)]
-pub struct Send {
-    pub target: Target,
-    pub sender: String,
-}
-impl Send {
-    pub fn valid(&self, app: &App, input: &Input) -> bool {
-        let Some(view) = &app.view else {
-            return false;
-        };
-        if app.loading()
-            || view.me.as_deref() != Some(&self.sender)
-            || input.squad != self.target.squad
-        {
-            return false;
-        }
-        let Some(home) = &view.home else {
-            return false;
-        };
-        home.entries(&view.document, "")
-            .iter()
-            .find(|e| e.target == self.target)
-            .is_some_and(|entry| match &input.compose {
-                Compose::Reply { request, from } => {
-                    entry.row["name"].as_str() == Some(from)
-                        && entry.row["waitingOnYou"].as_array().is_some_and(|items| {
-                            items
-                                .iter()
-                                .any(|item| item["requestId"].as_str() == Some(request))
-                        })
-                }
-                Compose::Annotate { to, row } => {
-                    entry.lead == Some(to) && entry.row["name"].as_str() == Some(row)
-                }
-                Compose::Talk { .. } | Compose::AskLead { .. } => false,
-            })
+        self.compose_row(send, crate::action::Verb::Annotate, squad)
     }
 }

@@ -4,15 +4,31 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Pair this browser</title>
+    <link rel="stylesheet" href="/sdk/pages.css" />
     <script type="module" src="/sdk/remote-v1.js"></script>
   </head>
   <body>
-    <h1>Pair this browser with tmt remote</h1>
-    <form id="pair">
-      <label>Device name <input id="name" maxlength="64" required value="Browser" /></label>
-      <button type="submit">Pair</button>
-    </form>
-    <p id="words" hidden></p>
-    <p id="status" role="status"></p>
+    <header class="masthead">
+      <span class="brand">Remote <span>tmt</span></span>
+    </header>
+    <main class="page">
+      <section class="sheet" aria-labelledby="heading">
+        <div class="sheet-body">
+          <span id="mark" class="state-mark" aria-hidden="true">○</span>
+          <p class="eyebrow">Browser pairing</p>
+          <h1 id="heading">Pair this browser with tmt remote</h1>
+          <form id="pair">
+            <label for="name">Device name</label>
+            <input id="name" maxlength="64" required value="Browser" />
+            <button type="submit">Pair</button>
+          </form>
+          <div id="comparison" hidden>
+            <p class="words-label">Words</p>
+            <p id="words"></p>
+          </div>
+          <p id="status" role="status"></p>
+        </div>
+      </section>
+    </main>
   </body>
 </html>

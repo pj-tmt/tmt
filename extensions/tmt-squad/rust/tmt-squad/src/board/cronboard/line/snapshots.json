@@ -1,0 +1,77 @@
+[
+  {
+    "scenario": "running",
+    "width": 160,
+    "line": "⑤ ⏱ 1 cron jobs · next Mon 10-05 00:30 tmt-lead merge queue sweep and check every pending review · clock: %41 · 12m · c list"
+  },
+  {
+    "scenario": "running",
+    "width": 100,
+    "line": "⑤ ⏱ 1 cron jobs · next Mon 10-05 00:30 tmt-lead merge queue sweep and c… · clock: %41 · 12m · c list"
+  },
+  {
+    "scenario": "running",
+    "width": 80,
+    "line": "⑤ ⏱ 1 jobs · next Mon 10-05 00:30 tmt-lead merge qu… · clock: %41 · 12m · c list"
+  },
+  {
+    "scenario": "no clock",
+    "width": 160,
+    "line": "⑤ ⏱ 1 cron jobs · next Mon 10-05 00:30 tmt-lead merge queue sweep and check every pending review · no clock · tmt sq cron run · c list"
+  },
+  {
+    "scenario": "no clock",
+    "width": 100,
+    "line": "⑤ ⏱ 1 cron jobs · next Mon 10-05 00:30 tmt-lead merge queue s… · no clock · tmt sq cron run · c list"
+  },
+  {
+    "scenario": "no clock",
+    "width": 80,
+    "line": "⑤ ⏱ 1 jobs · next Mon 10-05 00:30 tmt-lead · no clock · tmt sq cron run · c list"
+  },
+  {
+    "scenario": "unknown",
+    "width": 160,
+    "line": "⑤ ⏱ 1 cron jobs · next Mon 10-05 00:30 tmt-lead merge queue sweep and check every pending review · clock: unknown · c list"
+  },
+  {
+    "scenario": "unknown",
+    "width": 100,
+    "line": "⑤ ⏱ 1 cron jobs · next Mon 10-05 00:30 tmt-lead merge queue sweep and che… · clock: unknown · c list"
+  },
+  {
+    "scenario": "unknown",
+    "width": 80,
+    "line": "⑤ ⏱ 1 jobs · next Mon 10-05 00:30 tmt-lead merge queu… · clock: unknown · c list"
+  },
+  {
+    "scenario": "empty",
+    "width": 160,
+    "line": "⑤ ⏱ 0 cron jobs · no clock · tmt sq cron run · c list"
+  },
+  {
+    "scenario": "empty",
+    "width": 100,
+    "line": "⑤ ⏱ 0 cron jobs · no clock · tmt sq cron run · c list"
+  },
+  {
+    "scenario": "empty",
+    "width": 80,
+    "line": "⑤ ⏱ 0 jobs · no clock · tmt sq cron run · c list"
+  },
+  {
+    "scenario": "failed",
+    "width": 160,
+    "line": "⑤ ⏱ ✗ cron jobs unavailable: storage unreachable"
+  },
+  {
+    "scenario": "failed",
+    "width": 100,
+    "line": "⑤ ⏱ ✗ cron jobs unavailable: storage unreachable"
+  },
+  {
+    "scenario": "failed",
+    "width": 80,
+    "line": "⑤ ⏱ ✗ cron jobs unavailable: storage unreachable"
+  }
+]

@@ -42,6 +42,11 @@ cron_service` and the native `squad.test.ts` cron cases cover actor permission, 
   corroborates one slot acceptance and one causal peer wake with independent SQL,
   rejects a second clock, replays standalone ticks without another send and
   verifies signal cleanup. Run Docker lifecycle verification twice.
+- Board cron: `cargo test --locked -p tmt-squad cronboard` covers the projection, line, list and
+  controls against disposable roots (`cron_service::test_support::Fixture`); `view::tests::cron`
+  covers the split squad tab, focus transfer, scoped keys and forms; `home::tests::cron` the ⑤
+  cursor. Capture the home line, `c` list, split tab, expanded job and forms at 160/100/80 in
+  `tmt`, `tmt-light` and `NO_COLOR` with a private HOME, `TMUX_TEAM_HOME` and tmux socket.
 - Tab parity: `built_in_board_documents_equal_ls_tab_documents` and
   `user_board_and_ls_share_members_sections_bindings_and_failed_reads` require board
   views and `ls --tab` to project identical documents, including hidden squads/tabs
@@ -58,6 +63,13 @@ cron_service` and the native `squad.test.ts` cron cases cover actor permission, 
   consumed close, scoped preview/save/cancel and stale-file refusal; check clipped mouse maps
   after resize or model replacement and semantic attention styles under background and
   reverse selection (same isolated 160/100/80, dark/light/`NO_COLOR` captures as below).
+- Observed token usage checks cover per-identity window boundaries, configured
+  1m–24h retention, tab/member cleanup, no-data/zero/gap aging and current model
+  attribution. Use the shared consumption-history contract vector for seed/live
+  watermark subtraction, re-entry replacement and no-proration boundaries; verify
+  public API batching and seed-on-entry without polling on ordinary reload. App projection preserves public `ls` JSON and invalidates only
+  changed row derivations. Verify summary animation coordinates, sampled member
+  cells and disabled buffer/ANSI equality through the normal renderer.
 - UI changes: verify real private-tmux captures in `tmt`, `tmt-light` and `NO_COLOR`,
   at top and end of scroll, with isolated HOME, `TMUX_TEAM_HOME` and XDG cache, and
   the help modal at 160/100/80 columns. Meter CPU measurements (matched 60-second

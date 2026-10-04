@@ -656,7 +656,7 @@ fn serve(
         ""
     };
     let page = format!(
-        "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"><title>TMT Colab</title>{stylesheet}</head><body class=\"guidance\"><header class=\"guidance-masthead\"><span class=\"guidance-brand\">Colab <span>tmt</span></span></header><main class=\"guidance-main\"><section class=\"guidance-card\"><span class=\"guidance-mark\" aria-hidden=\"true\">○</span><p class=\"guidance-eyebrow\">{eyebrow}</p><h1>{heading}</h1>{recovery_status}<div id=\"colab-guidance\" class=\"guidance-detail\"{hidden}>{detail}</div></section></main>{script}</body></html>"
+        "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"><title>Colab</title>{stylesheet}</head><body class=\"guidance\"><header class=\"guidance-masthead\"><span class=\"guidance-brand\">Colab <span>tmt</span></span></header><main class=\"guidance-main\"><section class=\"guidance-card\"><span class=\"guidance-mark\" aria-hidden=\"true\">○</span><p class=\"guidance-eyebrow\">{eyebrow}</p><h1>{heading}</h1>{recovery_status}<div id=\"colab-guidance\" class=\"guidance-detail\"{hidden}>{detail}</div></section></main>{script}</body></html>"
     );
     if recovery {
         let _ = response_with_policy(

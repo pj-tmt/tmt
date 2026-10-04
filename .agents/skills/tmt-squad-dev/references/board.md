@@ -69,13 +69,38 @@ The waiting hint uses `Attention::of`, matching the tab's count, and effective
 bindings; narrow fitting removes the oldest-member label before the actions.
 The footer reserves `? more` as its final hint before fitting whole tail hints.
 
-`ask-lead` opens the existing input composer with the configured question.
-Enter validates the opening sender, squad and current lead, then produces the
-existing `Request::Talk`; no extra client or read path exists. Its docked prompt
-uses an opaque full-width `tmt-tui::Modal` band and admitted text strips. `board::view::strip` also
-owns the converted footer/loading/empty-detail text, leaving their callers'
-resolved styles intact. User-facing action and question settings are owned by
-the shipped Squad skill.
+`App::input` is the one composer for talk, answer, annotation and ask-lead.
+Row composers retain a `RowSend` with tab/section/squad/member occurrence and
+opening sender. Home uses its existing section/squad/member target. A single
+request opens directly; multiple requests retain the explicit picker. The
+composer keeps the chosen request, quoted preview and available note recipient;
+Tab exchanges answer/note modes without changing draft text. Submission
+revalidates the occurrence, sender, actual lead or chosen open request against
+acquired data before producing the existing public send effect. Paint and input
+acquire no additional data.
+
+The home and member painters reserve the inline band's visual lines beneath the
+complete target row. The same line stream supplies row starts, scroll reveal and
+clipped hits. `board::view::waiting` projects that reservation into a current-frame
+band spanning the body width, paints opaque `tmt-tui::Modal` chrome and admitted
+strips, and removes covered pane hits. Note headers derive recipient and subject
+from `Compose::Annotate { to, row }`, adding `about <row>` only when they differ.
+Recipient headers use Accent; the quoted question's ◆ uses Waiting. The quote truncates before the input or recipient.
+Unanchored composers, including notebook-level annotations and links to a lead
+outside member rows, retain their footer path.
+`board::view::strip` owns single-line admitted paint without raw widgets.
+
+`RowFeedback` is session-only send evidence: it appears as `✓ sent` only after
+success, follows the anchored occurrence through refresh and clears on the next
+key. A Home row removed by the answer refresh remains in that transient display
+projection until confirmation clears; it does not alter the acquired Home model,
+public row documents or request state. The next key removes the projection before
+any underlying action can use it.
+
+`ask-lead` keeps its opaque full-width docked prompt with recipient-first header
+and configured question. Enter validates the opening sender, squad and current
+lead, then produces the existing `Request::Talk`. User-facing action and question
+settings are owned by the shipped Squad skill.
 
 ## Composition and folds
 
@@ -200,12 +225,60 @@ by record when no positions were drawn.
   section/squad/member identity across refresh and search; attention precedes squads. Hits,
   paging and overflow reuse `Scrolls`. Enter jumps to a member or opens a squad; Tab traverses
   attention/squads, and `a` opens the real request picker or an annotation to the selected
-  squad's lead. The composer keeps and revalidates sender, target, lead and open request before
-  the public `tmt answer` or annotation dispatch, and questions stay inside the picker. Home
-  synthesizes no tiles, replies feed, cron data or model/token totals.
+  squad's lead. The shared composer revalidates sender, target, lead and open request before
+  public `tmt answer` or annotation dispatch; its inline band quotes the chosen question. Home
+  synthesizes no tiles, replies feed or model/token totals; its ⑤ cron line is the
+  [cron board](#cron-on-the-board).
 - New home sections add pure line builders that return lines and local
   entry/x/width/start/end placements; home translates them into the shared cursor, paging,
   reveal and clipped hits. Their acquisition and lifecycle owners stay outside paint.
+
+## Cron on the board
+
+`board::cronboard` owns every board-side cron concern; all reads and writes go through
+`cron_service`, `cron_clock::send_now` and `cron::Clock::status` (the
+[cron section](data-and-state.md#cron) owns their contracts). Squad stays an extension: nothing
+here reads the store or core directly.
+
+- **Acquisition.** The refresh worker queues one `Deferred::Cron` read after every full reload
+  (any tab, same lane and generation cancellation as attention), published as `BoardEvent::Cron`
+  into `App.cron` (`State { cron, failure }`): jobs of every active squad including hidden ones
+  (`list_jobs`, one next slot each), the clock status and the actor resolved once per read. A
+  failed refresh keeps the previous jobs next to its reason; before the first read nothing is
+  drawn. Paint and input never read it from core. `list_jobs` resolves each owner through one
+  public `references.resolve`, so a read costs one core call per job.
+- **Home ⑤.** One cursor target between attention and squads (`home::CRON`); Enter or `c` opens
+  the list. `cronboard::line` is pure: preview, then owner, step aside before the count, time,
+  clock and `c list`; below that the line compacts. The clock reads `checking…` until the second
+  read and names its holder `session:window`: the refresh worker asks tmux once per pane id
+  (`effects::pane_place`, one bounded `display-message` on the invoker's socket, cached in
+  `cronboard::Places`, failures too) and stores it on the read; outside tmux or on any failure the
+  pane id shows. `clock --json` keeps the pane id. The read's failure shows as a blocked line.
+- **`c` list.** `Overlay::CronList` routed through the shared `FocusStack` and `app::route`,
+  painted by a `picker_surface::State` list modal docked at its content height (like the
+  prompt band, so nine tenths wide from 100 columns). Row IDs are `<room uuid>/<c-id>`. Enter opens
+  the job's squad; refresh keeps the selection by identity. It closes for forms and the delete
+  confirmation and stays open for pause/resume and send.
+- **Jobs half.** On a squad tab (`document.squad.roomId`) `composition::halves` places the
+  configured composition above and the half below from one flex computation; the half takes its
+  content height up to two fifths of the body, and below 12 body lines keeps only its rule line. Its list is
+  an ordinary `tmt-list` with a per-room `ListState` (selection survives tab switches); the
+  selected job expands in place while the half has focus. Tab enters the half after the last
+  visible pane and leaves it for the first; a pointer press inside focuses it. `focused_pane()`
+  is `None` while it has focus, and `App::perform` refuses member-row actions then.
+- **Scoped keys.** While the half or the list has focus, `n e p x o d` and Enter are job keys,
+  routed through the `FocusStack` base field `cron-jobs` before board dispatch; a key the user
+  bound in `[bind]` still wins. Footer, list footer and help share one table (`cronboard::hints`); the jobs footer ends with `? more`.
+- **Controls.** Pause, resume, send and delete build a `CronRequest` with the actor from the read,
+  the job key and the viewed revision, executed on the existing `execute` path; apply revalidates
+  actor, room, owner and revision under the jobs lock, so stale, unauthorized or invalid requests
+  write nothing and are shown, never retried (the next reload shows the truth). New, edit and
+  reassign are a typed `Draft` on the input line (owner name, message, schedule text): no trim, an
+  untouched message or schedule is not submitted, and a message with control characters or over the
+  line limit is kept as stored. Owner names resolve through `identity show` at submission.
+- **Members.** A row's `⏱ <next>` joins the row-end label after the age mark and is the first to
+  drop; the grid reserves its room only when no column would hide, and the cached grid is keyed on
+  the labels. The member detail repeats it as `cron: ⏱ <time> · <id> <message>`.
 
 ## Notes pane
 

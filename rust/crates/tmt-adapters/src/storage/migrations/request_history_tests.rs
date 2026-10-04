@@ -41,9 +41,74 @@ fn request_history_indexes_commit_together_without_rewriting_requests() {
         .execute_batch("DROP TRIGGER reject_history_indexes;")
         .unwrap();
     let mut storage = Storage::open(&path).unwrap();
-    assert_eq!(storage.health().unwrap().schema_version, 46);
+    assert_eq!(storage.health().unwrap().schema_version, 47);
     assert_eq!(indexes(), 3);
     assert_eq!(oracle.query_row("SELECT message_text,room_id FROM request_attempts WHERE request_id='history-request'", [],
         |row| Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?))).unwrap(), ("old prompt".into(), None));
+    storage.close().unwrap();
+}
+
+#[test]
+fn originator_results_index_migration_rolls_back_and_preserves_existing_requests() {
+    let directory = TestDirectory::new();
+    let path = directory.path.join("schema46.db");
+    let mut old = Connection::open(&path).unwrap();
+    apply_through(&mut old, 46).unwrap();
+    old.execute_batch("INSERT INTO identities(id,name,canonical_name,created_at,updated_at,lifetime) VALUES ('old-id','Old','old','2023-11-14T22:13:20Z','2023-11-14T22:13:20Z','saved');
+        INSERT INTO request_attempts (
+            attempt_id,request_id,route_kind,recipient_identity_id,wait_active,status,
+            inject_preamble,cadence_reserved,prepared_at_ms,expires_at_ms,retention_expires_at_ms,
+            message_text,message_bytes,message_expires_at_ms,response_submitted_at_ms
+        ) VALUES ('results-attempt','results-request','inbox','old-id',0,'queued',0,0,1000,3601000,604801000,'old prompt',10,604801000,2000);
+        CREATE TRIGGER reject_results_index BEFORE INSERT ON _migrations WHEN NEW.version=47
+        BEGIN SELECT RAISE(ABORT, 'injected migration failure'); END;").unwrap();
+    let before: i64 = old
+        .query_row("SELECT value FROM change_cursor", [], |row| row.get(0))
+        .unwrap();
+    old.close().unwrap();
+    assert_eq!(
+        Storage::open(&path).err().unwrap().migration_version,
+        Some(47)
+    );
+    let oracle = Connection::open(&path).unwrap();
+    assert_eq!(
+        oracle
+            .query_row("SELECT max(version) FROM _migrations", [], |row| row
+                .get::<_, i64>(0))
+            .unwrap(),
+        46
+    );
+    assert_eq!(oracle.query_row("SELECT count(*) FROM sqlite_schema WHERE name='request_history_originator_results'", [], |row| row.get::<_, i64>(0)).unwrap(), 0);
+    oracle
+        .execute_batch("DROP TRIGGER reject_results_index")
+        .unwrap();
+    let mut storage = Storage::open(&path).unwrap();
+    assert_eq!(storage.health().unwrap().schema_version, 47);
+    assert_eq!(
+        oracle
+            .query_row("SELECT value FROM change_cursor", [], |row| row
+                .get::<_, i64>(0))
+            .unwrap(),
+        before
+    );
+    assert_eq!(oracle.query_row("SELECT message_text,response_submitted_at_ms FROM request_attempts WHERE request_id='results-request'", [],
+        |row| Ok((row.get::<_, String>(0)?,row.get::<_, i64>(1)?))).unwrap(), ("old prompt".into(),2000));
+    let columns = oracle
+        .prepare("PRAGMA index_xinfo(request_history_originator_results)")
+        .unwrap()
+        .query_map([], |row| {
+            Ok((row.get::<_, Option<String>>(2)?, row.get::<_, i64>(3)?))
+        })
+        .unwrap()
+        .collect::<rusqlite::Result<Vec<_>>>()
+        .unwrap();
+    assert_eq!(
+        &columns[..3],
+        &[
+            (Some("originator_identity_id".into()), 0),
+            (Some("response_submitted_at_ms".into()), 1),
+            (Some("request_id".into()), 1)
+        ]
+    );
     storage.close().unwrap();
 }

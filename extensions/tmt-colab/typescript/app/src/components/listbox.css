@@ -41,7 +41,7 @@
   overflow-y: auto;
   border: 2px solid var(--c-text);
   background: var(--c-sheet);
-  box-shadow: 4px 4px 0 var(--c-accent);
+  box-shadow: 4px 4px 0 var(--c-text);
 }
 .tmt-listbox-options[hidden] {
   display: none;
