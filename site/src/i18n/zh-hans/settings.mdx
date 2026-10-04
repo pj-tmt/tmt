@@ -1,6 +1,6 @@
 ---
 source: site/src/chapters/settings.mdx
-sourceRevision: c896a4de0f5eddb19ca233300d9d55d40fa1d949
+sourceRevision: 3b1ce3729ef013c49a1e9f3f2221c608f2bd83ca
 title: 设置与故障排查
 ---
 
@@ -17,11 +17,11 @@ tmt 的设置不多，每项都有默认值。本页介绍如何修改设置、�
 `tmt config show` 列出所有设置，包括 tmt 实际使用的值、值的来源和允许的取值。`set` 修改一项设置，`rm` 删除你为当前文件夹设置的覆盖值。
 
 <Cmd>{`
-$ tmt config show                                  # 值、来源和文件路径
-$ tmt config set pasteEnterDelayMs 800             # 用于当前文件夹
-$ tmt config set preambleEvery 5 --global          # 用于所有文件夹
+$ tmt config show                                 # 值、来源和文件路径
+$ tmt config set pasteEnterDelayMs 800            # 用于当前文件夹
+$ tmt config set preambleEvery 5 --global         # 用于所有文件夹
 $ tmt config set exchange.retentionDays 30 --global
-$ tmt config rm pasteEnterDelayMs                  # 删除当前文件夹的覆盖值
+$ tmt config rm pasteEnterDelayMs                 # 删除当前文件夹的覆盖值
 `}</Cmd>
 
 | 设置                               | 默认值   | 作用                                                                           | 设置位置                   |
@@ -58,13 +58,14 @@ $ tmt upgrade --unpin                # 恢复跟随渠道更新
 
 <Mdx.h3 id="shell-completion">Shell 补全</Mdx.h3>
 
-在 shell 的启动文件中添加一行，或直接在当前 shell 中运行：
+`tmt completion` 会检查 shell 的启动文件，并显示需要添加的一行。指定 `bash`、`zsh` 或 `fish`，可以检查另一种 shell。它只读取文件，无法判断当前 shell 是否已经加载了补全。
 
 <Cmd>{`
-$ source <(tmt completion bash)   # bash
-$ source <(tmt completion zsh)    # zsh，在 compinit 之后
-$ tmt completion fish | source    # fish
+$ tmt completion                 # 检查当前 shell，显示需要添加的一行
+$ tmt completion zsh             # 以相同方式检查 zsh
 `}</Cmd>
+
+请自行把那一行加入显示的文件；tmt 不会编辑 shell 的启动文件。使用 zsh 时，请将它放在补全设置完成之后，无论你使用 `compinit`，还是 oh-my-zsh 等框架。如果同一行出现两次，tmt 会提示。然后打开新的 shell。`tmt completion --json` 为脚本提供同样的检查结果。尚未设置补全时，tmt 的主帮助（`tmt --help`）也会在终端显示提醒。
 
 名称补全包含已保存和临时 identity，已保存的排在前面，且无需启动 tmux。`tmt resume` 只提供记录了会话的 identity。名称后面的补全由 `tmt run` 交给 agent 自己处理，因此 Tab 也能补全 agent 的参数；tmt 不会安装这些补全脚本。extension 会补全自己的参数，例如 `tmt sq <Tab>`。
 

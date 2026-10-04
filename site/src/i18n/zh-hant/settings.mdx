@@ -1,6 +1,6 @@
 ---
 source: site/src/chapters/settings.mdx
-sourceRevision: c896a4de0f5eddb19ca233300d9d55d40fa1d949
+sourceRevision: 3b1ce3729ef013c49a1e9f3f2221c608f2bd83ca
 title: 設定與疑難排解
 ---
 
@@ -58,13 +58,14 @@ $ tmt upgrade --unpin                # 恢復跟隨 channel
 
 <Mdx.h3 id="shell-completion">Shell 補完</Mdx.h3>
 
-在 shell 的啟動檔案裡加上一行，或直接在目前的 shell 執行：
+`tmt completion` 會檢查 shell 的啟動檔案，並顯示需要加入的那一行。指定 `bash`、`zsh` 或 `fish`，可以檢查另一種 shell。它只能讀取檔案，無法判斷目前這個 shell 是否已載入補完。
 
 <Cmd>{`
-$ source <(tmt completion bash)   # bash
-$ source <(tmt completion zsh)    # zsh，先執行 compinit
-$ tmt completion fish | source    # fish
+$ tmt completion                 # 檢查目前的 shell，顯示要加入的那一行
+$ tmt completion zsh             # 以同樣方式檢查 zsh
 `}</Cmd>
+
+請自行把那一行加入顯示的檔案；tmt 絕不編輯 shell 的啟動檔案。使用 zsh 時，請放在補完功能設定完成之後，無論你使用 `compinit` 或 oh-my-zsh 等框架。如果同一行出現兩次，tmt 會提醒你。接著開啟新的 shell。`tmt completion --json` 為腳本提供相同的檢查；尚未設定補完時，tmt 的主要說明（`tmt --help`）也會在終端機顯示提醒。
 
 名稱補完會列出已儲存與暫時的 identity，已儲存的優先，不會啟動 tmux。`tmt resume` 只會列出有記錄 session 的 identity。名稱之後，`tmt run` 會交給 agent 自己的補完機制，因此 Tab 也能補完 agent 的旗標；tmt 不會安裝那些補完腳本。擴充套件會補完自己的參數，例如 `tmt sq <Tab>`。
 
