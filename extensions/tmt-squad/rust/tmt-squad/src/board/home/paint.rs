@@ -43,20 +43,24 @@ fn counts(counts: &Counts, look: Look, words: bool) -> Vec<Span<'static>> {
     .collect()
 }
 
+/// Every section, including quiet and empty ones, reaches the same body edge.
+fn rule(title: &str, width: usize) -> String {
+    let title = format!("── {title} ");
+    let tail = width.saturating_sub(unicode_width::UnicodeWidthStr::width(title.as_str()));
+    fit(&format!("{title}{}", "─".repeat(tail)), width)
+}
+
 pub(crate) fn summary(home: &Home, width: u16, look: Look) -> Line<'static> {
     let wide = width >= 120;
-    let mut spans = vec![
-        Span::styled("① ", look.role(Role::Dim)),
-        Span::raw(if wide {
-            format!(
-                "{} squads · {} members   ",
-                home.squads.len(),
-                home.summary.members
-            )
-        } else {
-            format!("{} squads  ", home.squads.len())
-        }),
-    ];
+    let mut spans = vec![Span::raw(if wide {
+        format!(
+            "{} squads · {} members   ",
+            home.squads.len(),
+            home.summary.members
+        )
+    } else {
+        format!("{} squads  ", home.squads.len())
+    })];
     spans.extend(counts(&home.summary, look, wide));
     Line::from(spans)
 }
@@ -73,7 +77,6 @@ pub(crate) fn hints(width: usize, cron: bool) -> String {
     // Drop complete optional hints, preserving the two exit/help hints at 80.
     let mut optional = vec![
         "↑↓ move",
-        "tab section",
         "⏎ open",
         "a answer · note",
         "←→ tabs",
@@ -101,17 +104,11 @@ pub(crate) fn render(frame: &mut Frame, app: &App, area: Rect) {
     render_at(frame, app, area, crate::status::now_ms());
 }
 
-/// ⑤: the cron line is one selectable row; its text comes from the cron projection.
+/// Home: the cron line is one selectable row; its text comes from the cron projection.
 fn cron_line(app: &App, selected: bool, width: usize) -> Line<'static> {
     let look = app.look();
-    let line = crate::board::cronboard::home_line(
-        &app.cron,
-        app.cron.now_ms(),
-        width as u16,
-        look,
-        app.clock_place(),
-    )
-    .expect("a cron target exists only with a read or its failure");
+    let line = crate::board::cronboard::home_line(&app.cron, app.cron.now_ms(), width as u16, look)
+        .expect("a cron target exists only with a read or its failure");
     let mut spans: Vec<Span<'static>> = line
         .spans
         .into_iter()
@@ -173,7 +170,7 @@ pub(super) fn render_at(frame: &mut Frame, app: &App, area: Rect, now: u64) {
             "no matching members"
         };
         lines.push(Line::styled(
-            fit(&format!("── ② ◆ needs you · 0 · {quiet}"), width),
+            rule(&format!("◆ needs you · 0 · {quiet}"), width),
             look.role(Role::Dim),
         ));
     }
@@ -196,9 +193,9 @@ pub(super) fn render_at(frame: &mut Frame, app: &App, area: Rect, now: u64) {
                 .filter(|e| e.target.section == section)
                 .count();
             let (label, role) = match section {
-                "needs-you" => ("② ◆ needs you", Role::Waiting),
+                "needs-you" => ("◆ needs you", Role::Waiting),
                 "blocked" => ("✗ blocked", Role::Blocked),
-                _ => ("③ squads", Role::Muted),
+                _ => ("squads", Role::Muted),
             };
             lines.push(Line::default());
             let items = if section == "squads" {
@@ -228,10 +225,8 @@ pub(super) fn render_at(frame: &mut Frame, app: &App, area: Rect, now: u64) {
             } else {
                 format!(" · {legend}")
             };
-            let title = format!("── {label} · {count}{legend} ");
-            let tail = width.saturating_sub(unicode_width::UnicodeWidthStr::width(title.as_str()));
             lines.push(Line::styled(
-                fit(&format!("{title}{}", "─".repeat(tail)), width),
+                rule(&format!("{label} · {count}{legend}"), width),
                 look.role(role),
             ));
             if section == "squads" {
@@ -240,55 +235,47 @@ pub(super) fn render_at(frame: &mut Frame, app: &App, area: Rect, now: u64) {
                     .selected
                     .checked_sub(index)
                     .filter(|local| *local < items.len());
-                match tiles::paint(&items, area.width, look, selected) {
-                    Ok(painted) => {
-                        let selected_region = selected.and_then(|item| {
-                            painted.regions.iter().find(|region| region.item == item)
-                        });
-                        let boundary = selected_region.map(|region| region.lines.end);
-                        let mut tile_lines = painted.lines;
-                        let tail = boundary.map(|end| tile_lines.split_off(end));
-                        lines.extend(tile_lines);
-                        let before = lines.len();
-                        if selected_region.is_some() {
-                            if app.sent.as_ref().is_some_and(|feedback| {
-                                feedback.target
-                                    == crate::board::app::RowTarget::Home(
-                                        entries[app.selected].target.clone(),
-                                    )
-                            }) {
-                                lines.push(Line::styled("   ✓ sent", look.role(Role::Working)));
-                            }
-                            input_range = crate::board::view::waiting::reserve_input(
-                                app,
-                                app.selected,
-                                area,
-                                &mut lines,
-                            );
-                        }
-                        let inserted = lines.len() - before;
-                        if let Some(tail) = tail {
-                            lines.extend(tail);
-                        }
-                        for region in painted.regions {
-                            let shift = if boundary.is_some_and(|end| region.lines.start >= end) {
-                                inserted
-                            } else {
-                                0
-                            };
-                            let range = start + region.lines.start + shift
-                                ..start + region.lines.end + shift;
-                            starts.push(range.start);
-                            if index + region.item == app.selected {
-                                selected_range = range.start..range.end + inserted;
-                            }
-                            regions.push((index + region.item, range, region.x, region.width));
-                        }
+                let painted = tiles::paint(&items, area.width, look, selected);
+                let selected_region = selected
+                    .and_then(|item| painted.regions.iter().find(|region| region.item == item));
+                let boundary = selected_region.map(|region| region.lines.end);
+                let mut tile_lines = painted.lines;
+                let tail = boundary.map(|end| tile_lines.split_off(end));
+                lines.extend(tile_lines);
+                let before = lines.len();
+                if selected_region.is_some() {
+                    if app.sent.as_ref().is_some_and(|feedback| {
+                        feedback.target
+                            == crate::board::app::RowTarget::Home(
+                                entries[app.selected].target.clone(),
+                            )
+                    }) {
+                        lines.push(Line::styled("   ✓ sent", look.role(Role::Working)));
                     }
-                    Err(error) => lines.push(Line::styled(
-                        format!("tiles unavailable: {error}"),
-                        look.role(Role::Waiting),
-                    )),
+                    input_range = crate::board::view::waiting::reserve_input(
+                        app,
+                        app.selected,
+                        area,
+                        &mut lines,
+                    );
+                }
+                let inserted = lines.len() - before;
+                if let Some(tail) = tail {
+                    lines.extend(tail);
+                }
+                for region in painted.regions {
+                    let shift = if boundary.is_some_and(|end| region.lines.start >= end) {
+                        inserted
+                    } else {
+                        0
+                    };
+                    let range =
+                        start + region.lines.start + shift..start + region.lines.end + shift;
+                    starts.push(range.start);
+                    if index + region.item == app.selected {
+                        selected_range = range.start..range.end + inserted;
+                    }
+                    regions.push((index + region.item, range, region.x, region.width));
                 }
             }
         }
@@ -351,7 +338,10 @@ pub(super) fn render_at(frame: &mut Frame, app: &App, area: Rect, now: u64) {
         }
     }
     if home.squads.is_empty() {
-        lines.push(Line::styled("③ squads · 0", look.role(Role::Dim)));
+        lines.push(Line::styled(
+            rule("squads · 0", width),
+            look.role(Role::Dim),
+        ));
     }
     if app.follow && starts.get(app.selected).is_some() {
         app.scrolls

@@ -62,7 +62,7 @@ pub(super) fn tab_label(
     if attention.waiting > 0 && attention.blocked > 0 {
         spans.push(Span::styled(" ", style));
         spans.push(Span::styled(
-            format!("{}{}", Mark::Failed.symbol(), attention.blocked),
+            format!("{} {}", Mark::Failed.symbol(), attention.blocked),
             tab_attention_style(look, &colors.blocked, style),
         ));
     }
@@ -139,9 +139,7 @@ pub(super) fn tab(
     } else {
         look.role(Role::Muted)
     };
-    let mut label = tab_label(look, name, attention, colors, style);
-    label.spans.push(Span::styled(" ", style));
-    label
+    tab_label(look, name, attention, colors, style)
 }
 
 /// The home keeps its public `all` key; focus changes only its presentation.
@@ -173,7 +171,7 @@ fn home_tab(
         if count > 0 {
             spans.push(Span::styled(" ", style));
             spans.push(Span::styled(
-                format!("{}{count}", mark.symbol()),
+                format!("{} {count}", mark.symbol()),
                 tab_attention_style(look, color, style),
             ));
         }
@@ -188,7 +186,6 @@ struct Widths {
     grouped: usize,
     prefix: Option<String>,
     header: usize,
-    home: bool,
     overflow: usize,
     tier: u8,
 }
@@ -198,7 +195,6 @@ struct Placement {
     index: usize,
     grouped: bool,
     header: bool,
-    tail: bool,
 }
 
 fn group_at<'a>(widths: &'a [Widths], indices: &[usize], offset: usize) -> Option<&'a str> {
@@ -229,10 +225,6 @@ fn placements(widths: &[Widths], pins: &[usize], start: usize, end: usize) -> Ve
                         || indices[offset - 1] + 1 != index
                         || widths[indices[offset - 1]].prefix.as_deref() != Some(name)
                 }),
-                tail: widths[index].home
-                    || (group.is_some()
-                        && offset + 1 < indices.len()
-                        && group_at(widths, &indices, offset + 1).is_none()),
             }
         })
         .collect()
@@ -284,7 +276,6 @@ impl Window {
                 (if place.grouped { tab.grouped } else { tab.full })
                     + 1
                     + if place.header { tab.header } else { 0 }
-                    + if place.tail { 2 } else { 0 }
             })
             .sum::<usize>()
             + hidden_width
@@ -387,11 +378,7 @@ fn label(
             (
                 tab(look, suffix, selected, pending, attention, colors),
                 Line::from(vec![
-                    Span::styled("│ ", look.role(Role::Dim)),
-                    Span::styled(
-                        tmt_cli_style::table::escape(name),
-                        look.role(Role::Accent).add_modifier(Modifier::BOLD),
-                    ),
+                    Span::styled(tmt_cli_style::table::escape(name), look.role(Role::Dim)),
                     Span::styled(" · ", look.role(Role::Dim)),
                 ]),
             )
@@ -404,7 +391,7 @@ fn label(
         (attention.blocked, Mark::Failed),
     ] {
         if count > 0 {
-            marks.push_str(&format!("{}{count}", mark.symbol()));
+            marks.push_str(&format!(" {} {count}", mark.symbol()));
         }
     }
     Label {
@@ -423,7 +410,6 @@ fn widths(key: &str, label: &Label) -> Widths {
         grouped: label.grouped.width(),
         prefix: prefix(key).map(|(name, _)| name.to_owned()),
         header: label.header.width(),
-        home: key == tabs::ALL,
         overflow: label.name.width() + label.marks.width(),
         tier: if label.attention.waiting > 0 {
             0
@@ -478,7 +464,7 @@ fn overflow(
         ] {
             if count > 0 {
                 line.spans.push(Span::styled(
-                    format!("{}{count}", mark.symbol()),
+                    format!(" {} {count}", mark.symbol()),
                     look.named(color).add_modifier(Modifier::BOLD),
                 ));
             }
@@ -513,7 +499,7 @@ fn unpicked(app: &App, budget: usize, look: Look, colors: &TabColors) -> Line<'s
     .filter(|(count, _, _)| *count > 0)
     .map(|(count, mark, color)| {
         Span::styled(
-            format!(" {}{count}", mark.symbol()),
+            format!(" {} {count}", mark.symbol()),
             look.named(color).add_modifier(Modifier::BOLD),
         )
     })
@@ -621,7 +607,6 @@ pub(super) fn paint(app: &App, area: Rect) -> Line<'static> {
             used += label.header.width();
             spans.extend(label.header.spans.clone());
         }
-        let tail_width = if place.tail { 2 } else { 0 };
         let line = if place.grouped {
             &label.grouped
         } else {
@@ -629,7 +614,7 @@ pub(super) fn paint(app: &App, area: Rect) -> Line<'static> {
         };
         let label_width = line
             .width()
-            .min(width.saturating_sub(used + window.reserved + tail_width));
+            .min(width.saturating_sub(used + window.reserved));
         let fitted = fit_tab_label(line.clone(), label_width);
         if label_width > 0 {
             app.tab_hits.borrow_mut().push(TabHit {
@@ -643,14 +628,6 @@ pub(super) fn paint(app: &App, area: Rect) -> Line<'static> {
             if used < width {
                 spans.push(Span::raw(" "));
                 used += 1;
-            }
-            if place.tail {
-                let fitted = fit_tab_label(
-                    Line::from(Span::styled("│ ", look.role(Role::Dim))),
-                    tail_width.min(width.saturating_sub(used)),
-                );
-                used += fitted.width();
-                spans.extend(fitted.spans);
             }
         }
     }
@@ -779,7 +756,7 @@ mod tests {
             );
             for width in [160, 100, 80, 32, 160] {
                 let line = draw(&app, width, 6)[0].clone();
-                assert!(line.contains("◆2 ✗3"), "{width}: {line}");
+                assert!(line.contains("◆ 2 ✗ 3"), "{width}: {line}");
                 assert!(!line.contains("100"));
                 if width >= 80 {
                     assert!(line.contains("2 not on this board"), "{line}");
@@ -803,7 +780,7 @@ mod tests {
                 );
                 let mut terminal = Terminal::new(TestBackend::new(width, 6)).unwrap();
                 terminal.draw(|frame| render(frame, &app)).unwrap();
-                for (symbol, role) in [("◆2", Role::Waiting), ("✗3", Role::Blocked)] {
+                for (symbol, role) in [("◆ 2", Role::Waiting), ("✗ 3", Role::Blocked)] {
                     let column = line[..line.find(symbol).unwrap()].chars().count() as u16;
                     assert_eq!(
                         terminal.backend().buffer()[(column, 0)].fg,
@@ -828,8 +805,8 @@ mod tests {
             app.key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
             assert!(app.switcher.is_none());
             let line = draw(&app, 80, 6)[0].clone();
-            assert!(line.contains("1 not on this board ✗2"), "{line}");
-            assert!(!line.contains("◆2"));
+            assert!(line.contains("1 not on this board ✗ 2"), "{line}");
+            assert!(!line.contains("◆ 2"));
         }
     }
 
@@ -856,7 +833,7 @@ mod tests {
     }
 
     #[test]
-    fn tab_hits_cover_the_slot_name_and_trailing_cell_of_the_rendered_label() {
+    fn tab_hits_cover_the_slot_and_name_of_the_rendered_label() {
         use crate::board::app::Effect;
         use ratatui::crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
         for attention in [
@@ -962,13 +939,13 @@ mod tests {
             line.contains(" sq4 "),
             "the current tab stays in view: {line:?}"
         );
-        assert!(line.contains(" ›") && line.contains("sq8◆2"), "{line:?}");
+        assert!(line.contains(" ›") && line.contains("sq8 ◆ 2"), "{line:?}");
         // The left count hides a blocked tab, the right one a waiting tab.
         assert_eq!(
             buffer[(0, 0)].fg,
             app.look().role(Role::Blocked).fg.unwrap()
         );
-        let right = line[..line.find("◆2").unwrap()].chars().count() as u16;
+        let right = line[..line.find("◆ 2").unwrap()].chars().count() as u16;
         assert_eq!(
             buffer[(right, 0)].fg,
             app.look().role(Role::Waiting).fg.unwrap()
@@ -996,27 +973,30 @@ mod tests {
                 theme: tmt_cli_style::Theme::new(base),
                 depth,
             };
+            let mut differences = Vec::new();
             for (width, expected) in [
                 (
                     160,
-                    " ▚ tmt ◆3 ✗2  │   leads    mamezu  │ tmt · ◆ colab 1  ✗ core 1    infra  ◆ remote 2 ✗1    squad    design  │   docs  ✗ perf 2  +5 › tools long-running-squad …",
+                    " ▚ tmt ◆ 3 ✗ 2    leads   mamezu tmt · ◆ colab 1 ✗ core 1   infra ◆ remote 2 ✗ 1   squad   design   docs ✗ perf 2   tools   long-running-squad +3 › quiet ops …",
                 ),
                 (
                     100,
-                    " ▚ tmt ◆3 ✗2  │   leads    mamezu  │ tmt · ◆ colab 1  ✗ core 1    infra  +10 › tmt-remote◆2✗1 …",
+                    " ▚ tmt ◆ 3 ✗ 2    leads   mamezu tmt · ◆ colab 1 ✗ core 1   infra ◆ remote 2 ✗ 1 +9 › perf ✗ 2 …",
                 ),
                 (
                     80,
-                    " ▚ tmt ◆3 ✗2  │   leads    mamezu  ◆ tmt-colab 1  +12 › tmt-remote◆2✗1 …",
+                    " ▚ tmt ◆ 3 ✗ 2    leads   mamezu ◆ tmt-colab 1 +12 › tmt-remote ◆ 2 ✗ 1 …",
                 ),
             ] {
                 for (current, selected) in [(tabs::ALL, true), ("tmt-colab", false)] {
                     app.set_tab_focus_for_test(current);
                     let line = draw(&app, width, 6)[0].clone();
                     if selected {
-                        assert_eq!(line, expected, "{base:?} {depth:?} {width}");
+                        if line != expected {
+                            differences.push(format!("{width}: {line}"));
+                        }
                     } else {
-                        assert!(line.starts_with(" ▚ tmt ◆3 ✗2 "), "{line}");
+                        assert!(line.starts_with(" ▚ tmt ◆ 3 ✗ 2 "), "{line}");
                     }
                     let hits = app.tab_hits.borrow().clone();
                     assert_eq!(hits[0].tab, 0);
@@ -1056,6 +1036,7 @@ mod tests {
                     }
                 }
             }
+            assert!(differences.is_empty(), "{differences:#?}");
         }
     }
 
@@ -1185,7 +1166,7 @@ mod tests {
         let original = app.tabs.clone();
         let line = draw(&app, 160, 6)[0].clone();
         assert_eq!(line.matches("tmt ·").count(), 1, "{line}");
-        assert_eq!(line.matches('│').count(), 2, "{line}");
+        assert!(!line.contains('│'), "{line}");
         for (index, name, mark) in [
             (3, "colab", "◆"),
             (4, "core", "✗"),
@@ -1225,9 +1206,9 @@ mod tests {
         let buffer = terminal.backend().buffer();
         assert_eq!(
             buffer[(prefix, 0)].fg,
-            app.look().role(Role::Accent).fg.unwrap()
+            app.look().role(Role::Dim).fg.unwrap()
         );
-        assert!(buffer[(prefix, 0)].modifier.contains(Modifier::BOLD));
+        assert!(!buffer[(prefix, 0)].modifier.contains(Modifier::BOLD));
         assert_eq!(
             buffer[(prefix + 3, 0)].fg,
             app.look().role(Role::Dim).fg.unwrap()
@@ -1263,51 +1244,39 @@ mod tests {
     }
 
     #[test]
-    fn groups_close_only_before_visible_ungrouped_tabs() {
+    fn group_labels_use_dim_prefixes_and_one_gap_between_tab_hits() {
         let mut app = tabline_board();
         app.pinned = 0;
         app.set_tab_focus_for_test("tmt-a");
-        app.tabs = ["tmt-a", "tmt-b", "docs", "ops-a", "ops-b", "notes"]
-            .map(String::from)
-            .to_vec();
-        let line = draw(&app, 160, 6)[0].clone();
-        assert_eq!(line.matches('│').count(), 4, "{line}");
-        assert!(line.contains("b  │   docs"), "{line}");
-        assert!(line.contains("b  │   notes"), "{line}");
-        for (column, _) in line
-            .chars()
-            .enumerate()
-            .filter(|(_, symbol)| *symbol == '│')
-        {
-            assert!(
-                app.tab_hits
-                    .borrow()
-                    .iter()
-                    .all(|hit| !(hit.x..hit.x + hit.width).contains(&(column as u16)))
-            );
+        for names in [
+            vec!["tmt-a", "tmt-b", "docs", "ops-a", "ops-b", "notes"],
+            vec!["tmt-a", "tmt-b", "ops-a", "ops-b"],
+            vec!["tmt-a", "tmt-b"],
+        ] {
+            app.tabs = names.iter().map(|name| (*name).into()).collect();
+            let line = draw(&app, 160, 6)[0].clone();
+            assert!(!line.contains('│'), "{line}");
+            let hits = app.tab_hits.borrow();
+            for pair in hits.windows(2) {
+                let between: String = line
+                    .chars()
+                    .skip(usize::from(pair[0].x + pair[0].width))
+                    .take(usize::from(pair[1].x - pair[0].x - pair[0].width))
+                    .collect();
+                let expected = if app.tabs[pair[1].tab] == "ops-a" {
+                    " ops · "
+                } else {
+                    " "
+                };
+                assert_eq!(between, expected, "{line}");
+            }
         }
-        app.tabs = ["tmt-a", "tmt-b", "ops-a", "ops-b"]
-            .map(String::from)
-            .to_vec();
-        let line = draw(&app, 160, 6)[0].clone();
-        assert_eq!(
-            line.matches('│').count(),
-            2,
-            "groups share a boundary: {line}"
-        );
-        app.tabs.truncate(2);
-        let line = draw(&app, 160, 6)[0].clone();
-        assert_eq!(line.matches('│').count(), 1, "no end divider: {line}");
         app.tabs = (0..30).map(|index| format!("tmt-squad{index}")).collect();
         let first = app.tabs[0].clone();
         app.set_tab_focus_for_test(&first);
         let line = draw(&app, 80, 6)[0].clone();
         assert!(line.contains(" › "), "{line}");
-        assert_eq!(
-            line.matches('│').count(),
-            1,
-            "no divider before overflow: {line}"
-        );
+        assert!(!line.contains('│'), "{line}");
     }
 
     #[test]
@@ -1439,7 +1408,7 @@ mod tests {
         let original = app.tabs.clone();
         let line = draw(&app, 80, 6)[0].clone();
         assert!(
-            line.contains("+5 › waiting◆2✗1 other-waiting◆1 blocked✗3"),
+            line.contains("+5 › waiting ◆ 2 ✗ 1 other-waiting ◆ 1 blocked ✗ 3"),
             "{line}"
         );
         assert!(line.ends_with('…'), "{line}");
@@ -1466,7 +1435,7 @@ mod tests {
         let line: String = (0..40)
             .map(|x| buffer[(x, 0)].symbol().to_owned())
             .collect();
-        assert!(line.starts_with("◆ quiet (hidden) 1 ✗2 "), "{line:?}");
+        assert!(line.starts_with("◆ quiet (hidden) 1 ✗ 2 "), "{line:?}");
         assert!(buffer[(2, 0)].modifier.contains(Modifier::BOLD));
         assert_eq!(buffer[(2, 0)].fg, app.look().role(Role::Accent).fg.unwrap());
         assert_eq!(
@@ -1501,7 +1470,7 @@ mod tests {
         app.set_tab_focus_for_test("sq8");
         let line = draw(&app, 36, 6)[0].clone();
         assert!(
-            line.starts_with(" ▚ tmt  │ ‹ "),
+            line.starts_with(" ▚ tmt  ‹ "),
             "the pin stays first: {line:?}"
         );
         assert!(

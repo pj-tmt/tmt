@@ -734,7 +734,7 @@ fn rows_ignore_retired_notes_and_show_pending_sections_and_aligned_wide_text() {
     ]));
     let screen = draw(&app, 48, 10);
     // The tab line holds only the tabs; the summary has its own line.
-    assert_eq!(screen[0], "  product    reviews");
+    assert_eq!(screen[0], "  product   reviews");
     assert_eq!(screen[1], "lead sol · 2 members");
     assert_eq!(screen[2], "  MEMBER     STATE    TASK");
     assert_eq!(screen[3], "NEEDS ME");
@@ -1478,27 +1478,27 @@ fn selected_tabs_keep_foregrounds_and_geometry_with_selection_background() {
             };
             let selection = look.selection();
             for (attention, text) in [
-                (Attention::default(), "  product "),
+                (Attention::default(), "  product"),
                 (
                     Attention {
                         waiting: 2,
                         blocked: 0,
                     },
-                    "◆ product 2 ",
+                    "◆ product 2",
                 ),
                 (
                     Attention {
                         waiting: 0,
                         blocked: 1,
                     },
-                    "✗ product 1 ",
+                    "✗ product 1",
                 ),
                 (
                     Attention {
                         waiting: 2,
                         blocked: 1,
                     },
-                    "◆ product 2 ✗1 ",
+                    "◆ product 2 ✗ 1",
                 ),
             ] {
                 let selected = tab(
@@ -1550,7 +1550,7 @@ fn selected_tabs_keep_foregrounds_and_geometry_with_selection_background() {
                         } else if (x == 0 && attention.blocked > 0)
                             || (attention.waiting > 0
                                 && attention.blocked > 0
-                                && (12..14).contains(&x))
+                                && (12..15).contains(&x))
                         {
                             Some(Role::Blocked)
                         } else {
@@ -2287,7 +2287,7 @@ fn tabs_carry_attention_by_color_and_count_and_the_summary_has_its_own_line() {
         .map(|x| buffer[(x, 0)].symbol().to_owned())
         .collect();
     // Counts say what the color says, so no meaning is color-only.
-    assert_eq!(tabs.trim_end(), "◆ product 1 ✗1  ✗ reviews 2");
+    assert_eq!(tabs.trim_end(), "◆ product 1 ✗ 1 ✗ reviews 2");
     let column = |name: &str| tabs[..tabs.find(name).unwrap()].chars().count() as u16;
     let product = &buffer[(column("product"), 0)];
     // Waiting wins over blocked; selection is bold without moving the tab.
@@ -2349,21 +2349,21 @@ fn attention_counts_keep_shared_marks_and_tab_width_without_color() {
             &TabColors::default()
         )
         .to_string(),
-        "  product "
+        "  product"
     );
     let colors = TabColors::default();
     let plain = tab(app.look(), "product", false, false, counts, &colors);
     let selected = tab(app.look(), "product", true, false, counts, &colors);
-    assert_eq!(selected.to_string(), "◆ product 2 ✗1 ");
+    assert_eq!(selected.to_string(), "◆ product 2 ✗ 1");
     assert_eq!(selected.to_string(), plain.to_string());
-    assert_eq!(selected.width(), "◆ product 2 ✗1 ".width());
+    assert_eq!(selected.width(), "◆ product 2 ✗ 1".width());
     assert_eq!(selected.style.fg, None);
-    assert!(draw(&app, 60, 8)[0].contains("◆ product 2 ✗1"));
+    assert!(draw(&app, 60, 8)[0].contains("◆ product 2 ✗ 1"));
     app.switcher = Some(Switcher::new("product".into()));
     assert!(
         draw(&app, 60, 8)
             .iter()
-            .any(|line| line.contains("◆ product 2 ✗1"))
+            .any(|line| line.contains("◆ product 2 ✗ 1"))
     );
 }
 
@@ -2459,7 +2459,7 @@ fn the_leads_tab_is_labelled_leads_and_counts_squad_leads() {
         view: Ok(view),
     });
     let screen = draw(&app, 60, 6);
-    assert_eq!(screen[0], "  product    leads");
+    assert_eq!(screen[0], "  product   leads");
     assert_eq!(screen[1], "2 squad leads");
     assert_eq!(screen[2], "  SQUAD          LEAD           STATE      TASK");
     assert_eq!(screen[3], "  product        sol            working    plan");
@@ -2494,7 +2494,7 @@ fn tabs_move_with_shift_arrows_or_a_drag_and_the_order_is_saved() {
 
     // Drag: press on the first tab (showing it), release over the last.
     let screen = draw(&app, 60, 6);
-    assert_eq!(screen[0], "  reviews    leads    product");
+    assert_eq!(screen[0], "  reviews   leads   product");
     let mouse = |kind, column| MouseEvent {
         kind,
         column,
@@ -2621,7 +2621,7 @@ fn switching_squads_never_moves_a_tab_or_blanks_the_frame() {
     assert_eq!(app.current.as_deref(), Some("reviews"));
     // Selection is a style, so the tab text is the same either way.
     assert_eq!(before[0], during[0], "selection never changes label width");
-    assert_eq!(before[0].trim_end(), "  product    reviews");
+    assert_eq!(before[0].trim_end(), "  product   reviews");
     assert!(
         during[1].contains("loading"),
         "a slow switch shows a spinner"

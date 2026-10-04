@@ -50,7 +50,7 @@ painter directly.
   visibility; JSON keeps every field value and original column/line metadata and emits
   `hidden_columns` only when nonempty.
 - The immutable view owns disposable derivations keyed by effective pane width, grid search
-  and the clock-derived row labels (`row_paint::Extra`: `⏱ next`, oldest request age): the
+  and the clock-derived row labels (`row_paint::Extra`: `cron next`, oldest request age): the
   cache keeps the paint scene built from admitted projected row cells and geometry,
   markdown wrapping caches styled lines by the active look so theme previews repaint them,
   and replacing the view invalidates them. Selection-only frames change styles without
@@ -246,30 +246,40 @@ by record when no positions were drawn.
   `ls --tab all` stay unchanged.
 - The home painter uses the summary band and a flat body, bypassing ordinary pane composition
   for the shown immutable home view. `home::tiles` returns pure lines and local item/line/x/width
-  regions from one admitted Taffy grid: three columns from 150 cells, two from 100, and compact
-  rows below 100 or with at least ten visible squads (two compact columns from 150). Filtered
-  reading order is row-major. Each tile shows squad attention, lead/model/window totals/share
-  and exclusive non-lead urgency marks/member count; compact rows retain the last two lead
-  windows. Whole-roster summary and attention semantics stay unchanged. Unknown member states
-  count without inventing a mark; `attention::waits_on_you` owns waiting precedence.
+  regions in one full-width column, with one compact table row per squad at every
+  width. Filtered reading order is top-to-bottom. Section rules reach the body's right
+  edge; names, models, marks and member counts use bounded content columns, with the
+  count right-aligned inside the table rather than at the terminal edge. Each row shows
+  squad attention, lead/model and exclusive non-lead urgency marks/member count,
+  followed by admitted token totals/share.
+  Whole-roster summary and attention semantics stay unchanged. Unknown/custom member
+  states appear as `N other`, without inventing a state mark; `attention::waits_on_you`
+  owns waiting precedence. Registered state marks retain a trailing space.
 - Runtime `App::home_usage` owns observations, model attribution and the configured longest-window
   share; tiles only format them. Missing and measured zero remain distinct; partial readings
-  and shares carry `~`. Disabled sampling returns no HOME usage projection, so that squad's
-  tile has no token cells. Only sampling squads contribute to the ③ token legend; with none
-  enabled the legend is absent. Uniform window labels appear once in ③; mixed configurations use a
+  and shares carry `~`. A sampling lead with no observed totals has one dim `–` in the first token
+  column. Disabled sampling returns no HOME usage projection, so that squad's
+  tile has no token cells. Observed data admits each token/share column across the table; without
+  rendered observations the squads token legend is absent. Below 100 cells only the
+  last two windows are eligible; wider tables also admit the first window and share.
+  Uniform window labels appear once in the squads heading; mixed configurations use a
   “windows vary” legend and label each tile's totals and displayed share with its actual window.
 - HOME retains public session models independently of token sampling: one bounded `tmt ls --json`
   read seeds the existing per-squad observed input on refresh, and the shared meter receipt
   refreshes those models when sampling is active. `App::home_lead_model` projects the acquired
   lead's model even for a disabled squad. A failed model read appears in the retained HOME failed-read notice
-  without changing public aggregate JSON. Unknown models can disappear when sampling is off.
+  without changing public aggregate JSON. Without a session-model observation, the model cell is omitted.
+  `source::model_name` owns the best-effort, component-based family mapping shared by
+  session-model columns, the meter projection and HOME; unfamiliar names pass through
+  to the shared width fitter. Model acquisition keeps the original session name.
 - Home keeps one `App.selected` cursor reconciled by section/squad/member identity across
-  refresh and search; attention precedes ⑤ cron, then squads. Home translates tile regions into
-  global ordinals, complete selected-range reveal and viewport-clipped continuation hits through
-  one `Scrolls` pass. Selection covers every padded tile row; gaps and headings have no hit.
-  Inline composers and sent feedback insert beneath the complete selected tile's grid row,
+  refresh and search; attention precedes cron, then squads. Home translates tile regions into
+  global ordinals, complete selected-row reveal and viewport-clipped hits through
+  one `Scrolls` pass. Selection covers every padded table row; gaps and headings have no hit.
+  Inline composers and sent feedback insert beneath the selected table row,
   shifting subsequent tile regions together. Ordinary panes retain their existing owners.
-  Enter jumps to a member or opens a squad; Tab traverses attention/cron/squads, and `a` opens
+  Enter jumps to a member or opens a squad; Up/Down traverses all rows and Tab uses
+  the shared board pane-focus action, with no HOME section-jump special case. `a` opens
   the real request picker or an annotation to the selected squad's lead. The shared composer
   revalidates sender, target, lead and open request before public `tmt answer` or annotation
   dispatch; its inline band quotes the chosen question. Tiles show no member names, task/PR
@@ -292,15 +302,15 @@ here reads the store or core directly.
   failed refresh keeps the previous jobs next to its reason; before the first read nothing is
   drawn. Paint and input never read it from core. `list_jobs` resolves each owner through one
   public `references.resolve`, so a read costs one core call per job.
-- **Home ⑤.** One cursor target between attention and squads (`home::CRON`); Enter or `c` opens
-  the list. `cronboard::line` is pure: preview, then owner, step aside before the count, time,
-  clock and `c list`; below that the line compacts. The clock reads `checking…` until the second
-  read and names its holder `session:window`: the refresh worker asks tmux once per pane id
-  (`effects::pane_place`, one bounded `display-message` on the invoker's socket, cached in
-  `cronboard::Places`, failures too) and stores it on the read; outside tmux or on any failure the
-  pane id shows. Its lease age uses `tmt-cli-style::value::relative_time`, like the clock
-  command (`6s ago` or `just now`); narrow lines drop the whole age. `clock --json` keeps
-  the pane id. The read's failure shows as a blocked line.
+- **Home.** One cursor target between attention and squads (`home::CRON`); Enter or `c`
+  opens the list. `cronboard::line` is pure: count, earliest active time, owner, clock on/off/checking and `c list`, with
+  the owner stepping aside first on narrow lines. Prompts, paths and clock locations
+  stay in the jobs UI. A failed refresh retains the previous summary
+  with its reason; the read's initial failure shows as a blocked line. The jobs UI's
+  clock holder uses `session:window`: the refresh worker asks tmux once per pane id
+  (`effects::pane_place`, bounded on the invoker's socket, cached including failures
+  in `cronboard::Places`), otherwise the pane id shows. Clock lease age uses
+  `tmt-cli-style::value::relative_time`; `clock --json` keeps the pane id.
 - **`c` list.** `Overlay::CronList` routed through the shared `FocusStack` and `app::route`,
   painted by a `picker_surface::State` list modal docked at its content height (like the
   prompt band, so nine tenths wide from the `md` breakpoint; its width comes from `Modal::areas`). Row IDs are `<room uuid>/<c-id>`. Enter opens
@@ -323,9 +333,9 @@ here reads the store or core directly.
   reassign are a typed `Draft` on the input line (owner name, message, schedule text): no trim, an
   untouched message or schedule is not submitted, and a message with control characters or over the
   line limit is kept as stored. Owner names resolve through `identity show` at submission.
-- **Members.** A row's `⏱ <next>` joins the row-end label after the age mark and is the first to
+- **Members.** A row's `cron <next>` joins the row-end label after the age mark and is the first to
   drop; the grid reserves its room only when no column would hide, and the cached grid is keyed on
-  the labels. The member detail repeats it as `cron: ⏱ <time> · <id> <message>`.
+  the labels. The member detail repeats it as `cron: <time> · <id> <message>`.
 
 ## Notes pane
 
