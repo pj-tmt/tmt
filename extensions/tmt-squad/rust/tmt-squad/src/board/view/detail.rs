@@ -41,6 +41,10 @@ pub(super) fn render_detail(frame: &mut Frame, app: &App, area: Rect) {
         );
         return;
     };
+    if app.selected_is_lead() {
+        render_lead(frame, app, area, row);
+        return;
+    }
     let text = |value: &Value| value.as_str().unwrap_or("–").to_owned();
     let mut lines = vec![Line::from(Span::styled(
         text(&row["name"]),
@@ -184,4 +188,69 @@ pub(super) fn render_detail(frame: &mut Frame, app: &App, area: Rect) {
         );
     }
     app.scrolls.show(frame, Pane::Detail, area, lines, look);
+}
+
+/// Lead context stays in its row; its notebook and finals have their own panes.
+fn render_lead(frame: &mut Frame, app: &App, area: Rect, row: &Value) {
+    let look = app.look();
+    let text = |value: &Value| {
+        value
+            .as_str()
+            .filter(|value| !value.is_empty())
+            .map(tmt_cli_style::table::escape)
+    };
+    let name = text(&row["name"]).unwrap_or_default();
+    let heading = Line::from(vec![
+        Span::styled(name.clone(), Style::new().add_modifier(Modifier::BOLD)),
+        Span::styled("  lead", look.role(Role::Dim)),
+    ]);
+    let mut lines = Vec::new();
+    let status: Vec<_> = [
+        &row["state"],
+        &row["fields"]["model"],
+        &row["fields"]["cap"],
+    ]
+    .into_iter()
+    .filter_map(text)
+    .collect();
+    if !status.is_empty() {
+        lines.push(Line::from(status.join(" · ")));
+    }
+    if let Some(task) = text(&row["fields"]["task"]) {
+        lines.push(Line::from(format!("task: {task}")));
+    }
+    if let Some(pending) = text(&row["pending"]) {
+        lines.push(Line::styled(
+            format!("waits on you: {pending}"),
+            look.role(Role::Waiting),
+        ));
+    }
+    let links: Vec<_> = row["fields"]
+        .as_object()
+        .into_iter()
+        .flatten()
+        .filter(|(key, _)| key.as_str() == "link" || key.ends_with("_link"))
+        .filter_map(|(key, value)| text(value).map(|value| format!("{key} {value}")))
+        .collect();
+    if !links.is_empty() {
+        lines.push(Line::from(format!("links: {}", links.join("  "))));
+    }
+    if lines.is_empty() {
+        lines.push(Line::styled(
+            format!("no row fields set · tmt sq set {name} task=…"),
+            look.role(Role::Dim),
+        ));
+    }
+    lines.push(Line::styled(
+        "notes below · replies at right",
+        look.role(Role::Dim),
+    ));
+    let mut wrapped = vec![heading];
+    wrapped.extend(lines.into_iter().flat_map(|line| {
+        let style = line.style;
+        wrap(&line.to_string(), usize::from(area.width))
+            .into_iter()
+            .map(move |part| Line::styled(part, style))
+    }));
+    app.scrolls.show(frame, Pane::Detail, area, wrapped, look);
 }

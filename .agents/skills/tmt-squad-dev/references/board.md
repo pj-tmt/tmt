@@ -73,7 +73,8 @@ painter directly.
   keeps the rule; a squad without a lead has no lead row and no rule. `display_rows::each_row` is the
   one visitor that also reaches the lead for projections (waiting, staleness, usage, state colors).
   The rule is never selectable, `RowOrigin::Lead` has no section bindings, and a tab switch's cursor
-  start (index 0) is the lead. The lead row's cells and detail are the ordinary row's; `RowPaint::lead_tag` adds a dim
+  start (index 0) is the lead. The lead's detail is described below; its cells use the ordinary
+  row scene. `RowPaint::lead_tag` adds a dim
   `lead` two cells after the name inside the member cell (never a row-end label), so it reserves no
   width on other rows and is cut before the name, entirely below two cells.
   Public documents keep the lead outside `sections`.
@@ -422,6 +423,13 @@ here reads the store or core directly.
 
 ## Detail and replies panes
 
+- The lead occurrence on a squad tab has compact detail: a name with dim `lead` tag;
+  acquired state/model/cap; task; `waits on you` only for nonempty pending; links;
+  then dim `notes below · replies at right`. Missing fields are omitted; no row
+  fields yields the dim task-setting hint. `selected_is_lead` uses the displayed
+  `RowOrigin::Lead`, including retained views and search, to exclude this occurrence
+  from both detail notebook acquisition and painting. Lead notes and final replies
+  keep their separate panes; ordinary member detail retains its notebook.
 - The detail pane appends full projected `row.fields` values for board columns not already shown
   by its header, task, activity or links, in column order, escaped and wrapped without grid
   fitting, source lookups or provider calls. It then appends the selected member's saved-identity

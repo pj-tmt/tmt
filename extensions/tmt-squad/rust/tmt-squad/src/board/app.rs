@@ -3239,6 +3239,7 @@ impl App {
     pub(super) fn notebook_identity(&self) -> Option<String> {
         let board = self.effective_board()?;
         if self.loading()
+            || self.selected_is_lead()
             || !self.scrolls.visible(Pane::Detail)
             || !board.panes.contains(&Pane::Detail)
             || self.collapsed_panes().contains(&Pane::Detail)
@@ -3254,6 +3255,13 @@ impl App {
 
     pub fn selected_row(&self) -> Option<&Value> {
         self.rows().get(self.selected).map(|(_, row)| *row)
+    }
+
+    /// The displayed lead occurrence owns no detail notebook acquisition.
+    pub(super) fn selected_is_lead(&self) -> bool {
+        self.rows()
+            .get(self.selected)
+            .is_some_and(|(origin, _)| *origin == RowOrigin::Lead)
     }
 }
 
