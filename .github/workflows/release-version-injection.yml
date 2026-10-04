@@ -99,30 +99,6 @@ jobs:
           cargo build --offline --locked -p tmt-release-tool --bin release-version --manifest-path rust/Cargo.toml
           cargo test --offline --locked -p tmt-release-tool --bin release-version --manifest-path rust/Cargo.toml
           (cd typescript && pnpm exec vp test run --config vitest.config.ts test/tooling/release-cut.test.ts test/tooling/release-version-injection.test.ts)
-      - name: Measure helper parse time, debug versus release (temporary, #1646)
-        if: runner.os == 'macOS' && matrix.product == 'cli'
-        env:
-          RUSTUP_TOOLCHAIN: 1.97.0
-        run: |
-          set -euo pipefail
-          cargo fetch --locked --manifest-path rust/Cargo.toml
-          cargo build --offline --locked -p tmt-release-tool --bin release-version --manifest-path rust/Cargo.toml
-          cargo build --offline --locked --release -p tmt-release-tool --bin release-version --manifest-path rust/Cargo.toml --target-dir "$RUNNER_TEMP/release-target"
-          node -e '
-            const { spawnSync } = require("node:child_process");
-            const fs = require("node:fs");
-            const lock = fs.readFileSync("rust/Cargo.lock", "utf8");
-            for (const [name, bin] of [["debug", process.env.CARGO_TARGET_DIR + "/debug/release-version"], ["release", process.env.RUNNER_TEMP + "/release-target/release/release-version"]]) {
-              const times = [];
-              for (let i = 0; i < 8; i++) {
-                const start = process.hrtime.bigint();
-                const result = spawnSync(bin, ["parse"], { input: lock, encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
-                if (result.status !== 0) throw new Error(name + " parse failed: " + result.stderr);
-                times.push(Number(process.hrtime.bigint() - start) / 1e6);
-              }
-              console.log(name + " parse of Cargo.lock (" + lock.length + " bytes), ms per run: " + times.map((t) => t.toFixed(1)).join(" "));
-            }
-          '
       - name: Exercise the production injection and stale-lock gate
         id: version
         uses: ./.github/actions/inject-release-version
