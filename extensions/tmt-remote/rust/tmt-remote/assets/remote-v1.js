@@ -738,21 +738,32 @@ var DESCRIPTOR_FIELDS = [
 	"address",
 	"serverChallenge"
 ];
-/** Parse `<door>/pair/<descriptor>#<code>`. The page removes the fragment before calling this. */
-function parseLink(link) {
+function pairingUrl(link) {
 	const url = new URL(link);
-	const encoded = /^\/pair\/([A-Za-z0-9_-]+)$/.exec(url.pathname)?.[1];
-	requireValue(encoded !== void 0 && url.search === "", "pairing link");
-	const descriptor = JSON.parse(strictUtf8.decode(decode(encoded)));
+	requireValue(url.protocol === "http:" && url.hostname === "127.0.0.1" && url.pathname === "/pair" && url.search === "" && url.username === "" && url.password === "" && /^[A-Z2-7]{26}$/.test(url.hash.slice(1)), "pairing link");
+	pairingCode(url.hash.slice(1));
+	return url;
+}
+/** Parse a short link and validate the separately obtained public offer descriptor. */
+function parseLink(link, value) {
+	const url = pairingUrl(link);
+	requireValue(value !== null && typeof value === "object" && !Array.isArray(value), "pairing descriptor");
+	const descriptor = value;
 	requireValue(Object.keys(descriptor).length === DESCRIPTOR_FIELDS.length && DESCRIPTOR_FIELDS.every((field) => typeof descriptor[field] === "string") && descriptor.profile === "local-v1" && descriptor.binding === "loopback-http" && [
 		"machineId",
 		"windowId",
 		"offerId"
-	].every((id) => UUID.test(descriptor[id])) && HEX16.test(descriptor.serverChallenge) && descriptor.address.startsWith(`${url.origin}/r/`), "pairing descriptor");
+	].every((id) => UUID.test(descriptor[id])) && HEX16.test(descriptor.serverChallenge) && descriptor.address.startsWith(`${url.origin}/r/`) && /^[a-z2-7]{16}$/.test(descriptor.address.slice(`${url.origin}/r/`.length)), "pairing descriptor");
 	return {
 		descriptor,
 		code: pairingCode(url.hash.slice(1))
 	};
+}
+/** Fetch only the public offer; the code never enters a request URL or body here. */
+async function resolveLink(link, network = fetch) {
+	const response = await network(`${pairingUrl(link).origin}/sdk/pair-offer`, { cache: "no-store" });
+	requireValue(response.status === 200, "pairing offer");
+	return parseLink(link, await response.json());
 }
 /**
 * Submit one enrollment candidate and retry it exactly while the owner has
@@ -942,7 +953,11 @@ async function reopenSession() {
 	const { record, key } = await paired();
 	const current = await door();
 	if (current.machineId !== record.paired.machineId) throw new Error("Paired with another machine.");
-	return openSession(record.paired, key, current.windowId);
+	if (!current.address.startsWith(`${location.origin}/r/`) || !/^[a-z2-7]{16}$/.test(current.address.slice(`${location.origin}/r/`.length))) throw new Error("The door advertised an invalid address.");
+	return openSession({
+		...record.paired,
+		address: current.address
+	}, key, current.windowId);
 }
 /**
 * Certify a key of the calling page's own extension. The extension comes from
@@ -974,20 +989,22 @@ function showState(status, state, text) {
 		blocked: "✗"
 	}[state];
 }
-/** The pairing page. The fragment holding the code is removed before anything else runs. */
-function pairingPage() {
-	const link = location.href;
-	history.replaceState(null, "", location.pathname);
+/** Called by the fragment-erasing bootstrap after the page DOM is ready. */
+async function pairingPage(link) {
+	if (document.readyState === "loading") await new Promise((resolve) => document.addEventListener("DOMContentLoaded", () => resolve(), { once: true }));
 	const status = element("status");
 	const form = element("pair");
+	const button = form.querySelector("button");
+	button.disabled = true;
 	let parsed;
 	try {
-		parsed = parseLink(link);
+		parsed = await resolveLink(link);
 	} catch {
 		form.hidden = true;
-		showState(status, "blocked", "This pairing link is incomplete. Copy the whole link from tmt remote pair.");
+		showState(status, "blocked", "This pairing link is unavailable. Run tmt remote pair again for a new link.");
 		return;
 	}
+	button.disabled = false;
 	form.addEventListener("submit", (event) => {
 		event.preventDefault();
 		form.hidden = true;
@@ -1020,6 +1037,5 @@ async function ceremony({ descriptor, code }, name, status) {
 	await openSession(result, key, descriptor.windowId);
 	showState(status, "paired", "This browser is paired. You can close this page.");
 }
-if (document.documentElement.dataset.tmtPage === "pair") pairingPage();
 //#endregion
-export { ClientError, RefusalError, certifyKey, operations, reopenSession };
+export { ClientError, RefusalError, certifyKey, operations, pairingPage, reopenSession };

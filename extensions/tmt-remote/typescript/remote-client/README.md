@@ -20,8 +20,14 @@ This private module implements the device side of
   increasing response sequences. Agent listing includes presence and optional
   core-published `delivery` unchanged; it never infers readiness.
 - `src/browser.ts`: the browser entry the door serves as `/sdk/remote-v1.js`. It
-  runs the pairing page and gives mounted extension pages `reopenSession`,
+  exposes `pairingPage(link)` for the fragment-erasing `/sdk/pair.js` bootstrap and gives mounted extension pages `reopenSession`,
   `operations`, `ClientError`, `RefusalError` and `certifyKey`, whose extension comes from `/sdk/mount`.
+
+`parseLink(link, descriptor)` validates `http://127.0.0.1:PORT/pair#CODE` with a
+separately obtained public descriptor. `resolveLink(link, fetch?)` fetches the current
+same-origin `/sdk/pair-offer` descriptor and validates both. Neither sends the code;
+the pairing page's synchronous bootstrap captures and removes the fragment before
+loading the SDK. One offer exists at a time; replaced or ended offers require a new link.
 
 ```ts
 // Use Colab's existing session; constructing the helper opens nothing.
@@ -94,7 +100,10 @@ result. `pnpm test:browser` uses `vp exec playwright test` to run the Playwright
 
 Network access goes through an injected fetch. The caller persists the device
 key's opaque `CryptoKey` (the browser page uses IndexedDB structured clone); the
-private key is never exported. Byte construction and signatures establish no
+private key is never exported. Browser `reopenSession` adopts the current same-origin
+route path after verifying the machine identity, so schema 6's one-time prefix replacement
+retains pairing. Other SDK callers must discover and adopt the current address explicitly;
+old path links and cookies stop working. Byte construction and signatures establish no
 authority: live grants, timestamps and replay are checked by remote.
 
 Production uses TextEncoder and native WebCrypto; no Node imports or third-party

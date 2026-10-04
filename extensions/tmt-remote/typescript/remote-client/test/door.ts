@@ -39,7 +39,7 @@ export class Door {
     machineId: crypto.randomUUID(),
     windowId: crypto.randomUUID(),
     offerId: crypto.randomUUID(),
-    address: `${ORIGIN}/r/${'a'.repeat(32)}`,
+    address: `${ORIGIN}/r/${'a'.repeat(16)}`,
     serverChallenge: randomBytes(16).toString('hex'),
   };
   clientId = crypto.randomUUID();
@@ -48,7 +48,7 @@ export class Door {
     {};
   link(): string {
     const symbols = base32(this.code);
-    return `${ORIGIN}/pair/${b64(Buffer.from(JSON.stringify(this.descriptor)))}#${symbols}`;
+    return `${ORIGIN}/pair#${symbols}`;
   }
   fetch = (async (url: string, init: RequestInit): Promise<Response> => {
     const body = JSON.parse(init.body as string) as Record<string, string>;
@@ -320,7 +320,7 @@ export function base32(code: Uint8Array): string {
 export async function paired(door: Door) {
   const key = await DeviceKey.generate();
   door.devicePublic = key.publicKey();
-  const { descriptor, code } = parseLink(door.link());
+  const { descriptor, code } = parseLink(door.link(), door.descriptor);
   const result = await pair({
     descriptor,
     code,

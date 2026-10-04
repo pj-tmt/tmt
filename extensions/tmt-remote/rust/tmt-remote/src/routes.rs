@@ -36,11 +36,9 @@ struct Attempts {
 }
 impl Routes {
     /// `input_limit` is the core-advertised decoded input bound; `prefix` is the
-    /// machine's stable `/r/<32 lowercase hex>` route prefix.
+    /// machine's stable `/r/<16 lowercase base32>` route prefix.
     pub fn new(input_limit: usize, prefix: String) -> Result<Self, RemoteError> {
-        let prefix_valid = prefix.strip_prefix("/r/").is_some_and(|hex| {
-            hex.len() == 32 && hex.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
-        });
+        let prefix_valid = canonical::route_prefix(&prefix);
         if input_limit == 0 || input_limit > limits::CORE_INPUT_BYTES || !prefix_valid {
             return Err(RemoteError::new(
                 "REMOTE_INPUT_INVALID",

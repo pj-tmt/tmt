@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { verify } from 'node:crypto';
-import { Door, paired, raw, publicKeyObject, ORIGIN, b64, base32 } from './door.js';
+import { Door, paired, raw, publicKeyObject, ORIGIN, base32 } from './door.js';
 import { test } from 'vite-plus/test';
 import vectors from './vectors.json' with { type: 'json' };
 import signatures from '../../../rust/tmt-remote/tests/fixtures/webcrypto-vectors.json' with { type: 'json' };
@@ -10,7 +10,7 @@ import {
   pairingCode,
   type ExtCert,
 } from '../src/canonical-bytes.js';
-import { DeviceKey, certify, openSession, parseLink } from '../src/device.js';
+import { DeviceKey, certify, openSession, parseLink, resolveLink } from '../src/device.js';
 
 test('pairing retries a pending candidate and accepts only a proven receipt', async () => {
   const door = new Door();
@@ -113,23 +113,54 @@ for (const vector of vectors.extCerts) {
   });
 }
 
-test('pairing links carry a strict descriptor and the code only in the fragment', () => {
+test('short pairing links validate the separately obtained descriptor and fragment code', () => {
   const door = new Door();
-  const { descriptor, code } = parseLink(door.link());
+  const { descriptor, code } = parseLink(door.link(), door.descriptor);
   assert.deepEqual(descriptor, door.descriptor);
   assert.deepEqual(code, pairingCode(base32(door.code)));
-  const encode = (value: object): string => b64(Buffer.from(JSON.stringify(value)));
   const fragment = `#${base32(door.code)}`;
-  for (const [label, link] of [
-    ['query', `${ORIGIN}/pair/${encode(door.descriptor)}?x=1${fragment}`],
-    ['extra field', `${ORIGIN}/pair/${encode({ ...door.descriptor, extra: 1 })}${fragment}`],
-    [
-      'other origin address',
-      `${ORIGIN}/pair/${encode({ ...door.descriptor, address: 'http://127.0.0.1:1/r/x' })}${fragment}`,
-    ],
-    ['no code', `${ORIGIN}/pair/${encode(door.descriptor)}`],
-    ['other path', `${ORIGIN}/x/pair/${encode(door.descriptor)}${fragment}`],
+  for (const link of [
+    `${ORIGIN}/pair?x=1${fragment}`,
+    `${ORIGIN}/pair`,
+    `${ORIGIN}/pair/old${fragment}`,
   ]) {
-    assert.throws(() => parseLink(link!), label);
+    assert.throws(() => parseLink(link, door.descriptor));
   }
+  for (const value of [
+    null,
+    [],
+    { ...door.descriptor, extra: 1 },
+    { ...door.descriptor, address: 'http://127.0.0.1:1/r/x' },
+  ]) {
+    assert.throws(() => parseLink(door.link(), value));
+  }
+});
+
+test('offer lookup sends no code and refuses unavailable or invalid offers', async () => {
+  const door = new Door();
+  const requests: string[] = [];
+  const network = (async (url: string, init: RequestInit) => {
+    requests.push(url);
+    assert.deepEqual(init, { cache: 'no-store' });
+    return new Response(JSON.stringify(door.descriptor));
+  }) as typeof fetch;
+  assert.deepEqual(
+    await resolveLink(door.link(), network),
+    parseLink(door.link(), door.descriptor),
+  );
+  assert.deepEqual(requests, [`${ORIGIN}/sdk/pair-offer`]);
+  for (const invalid of [
+    `${ORIGIN}/pair#BAD`,
+    `http://localhost:43210/pair#${base32(door.code)}`,
+    `${ORIGIN}/pair/old#${base32(door.code)}`,
+  ]) {
+    await assert.rejects(resolveLink(invalid, network));
+  }
+  assert.equal(requests.length, 1, 'invalid links never fetch');
+  await assert.rejects(
+    resolveLink(door.link(), (async () => new Response('{}', { status: 404 })) as typeof fetch),
+  );
+  await assert.rejects(
+    resolveLink(door.link(), (async () => new Response('{"extra":1}')) as typeof fetch),
+  );
 });

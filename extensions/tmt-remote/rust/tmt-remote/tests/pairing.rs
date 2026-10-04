@@ -30,14 +30,11 @@ fn confirmed_pairing_issues_one_grant_and_a_verifiable_receipt() {
         descriptor,
         link,
     } = open(&h);
-    // The link carries the descriptor in its path and the code only in its fragment.
+    // The short link carries only the 128-bit code, in its fragment.
     let (path, fragment) = link.split_once('#').unwrap();
-    assert!(path.starts_with(&format!("{}/pair/", h.origin)));
+    assert_eq!(path, format!("{}/pair", h.origin));
+    assert_eq!(fragment.len(), 26);
     assert_eq!(canonical::pairing_code(fragment).unwrap(), code);
-    let encoded = path.rsplit('/').next().unwrap();
-    let shown: Value =
-        serde_json::from_slice(&canonical::base64url_decode(encoded).unwrap()).unwrap();
-    assert_eq!(shown, descriptor);
     assert_eq!(descriptor["address"], format!("{}{}", h.origin, h.prefix));
     assert_eq!(descriptor["serverChallenge"].as_str().unwrap().len(), 32);
     let device = Device::browser(&h, 7);

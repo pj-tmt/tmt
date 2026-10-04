@@ -227,7 +227,16 @@ const BASE32: &[u8; 32] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
 /// The 16-byte pairing code as 26 uppercase RFC 4648 base32 characters,
 /// grouped by four with hyphens for copy/paste.
 pub fn pairing_code_text(code: &[u8; 16]) -> String {
-    let mut text = String::with_capacity(32);
+    base32_text(code)
+        .as_bytes()
+        .chunks(4)
+        .map(|group| std::str::from_utf8(group).expect("ASCII"))
+        .collect::<Vec<_>>()
+        .join("-")
+}
+/// Unpadded RFC 4648 base32, shared by pairing-code presentation and route entropy.
+pub(crate) fn base32_text(code: &[u8]) -> String {
+    let mut text = String::with_capacity(code.len().saturating_mul(8).div_ceil(5));
     let (mut buffer, mut bits) = (0u32, 0);
     for byte in code {
         buffer = (buffer << 8) | u32::from(*byte);
@@ -237,12 +246,19 @@ pub fn pairing_code_text(code: &[u8; 16]) -> String {
             text.push(BASE32[((buffer >> bits) & 31) as usize] as char);
         }
     }
-    text.push(BASE32[((buffer << (5 - bits)) & 31) as usize] as char);
-    text.as_bytes()
-        .chunks(4)
-        .map(|group| std::str::from_utf8(group).expect("ASCII"))
-        .collect::<Vec<_>>()
-        .join("-")
+    if bits > 0 {
+        text.push(BASE32[((buffer << (5 - bits)) & 31) as usize] as char);
+    }
+    text
+}
+/// The current machine route prefix: 80 random bits in 16 lowercase base32 symbols.
+pub fn route_prefix(value: &str) -> bool {
+    value.strip_prefix("/r/").is_some_and(|symbols| {
+        symbols.len() == 16
+            && symbols
+                .bytes()
+                .all(|b| matches!(b, b'a'..=b'z' | b'2'..=b'7'))
+    })
 }
 /// Decode after removing ASCII spaces and hyphens only; any other character,
 /// a wrong length or nonzero unused bits refuses.

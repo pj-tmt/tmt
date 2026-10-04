@@ -321,7 +321,7 @@ fn machine_identity_and_route_prefix_survive_restart_and_one_serve_per_root() {
     terminate(first);
     let (restarted, after) = serve(&pilot);
     assert_eq!(prefix(&after), prefix(&before));
-    assert_eq!(prefix(&before).len(), 32);
+    assert_eq!(prefix(&before).len(), 16);
     assert_eq!(after["machineId"], before["machineId"]);
     assert_eq!(before["machineId"].as_str().unwrap().len(), 36);
     assert_eq!(
@@ -1055,56 +1055,101 @@ fn default_port_and_exact_live_status_survive_restart_without_status_mutations()
     }
 }
 #[test]
-fn busy_remembered_port_moves_with_one_notice_and_a_standalone_human_url() {
+fn busy_remembered_port_refuses_without_changing_origin_and_recovers_after_freeing_it() {
     for human in [false, true] {
         let mut pilot = Pilot::new();
         let first: Value = serde_json::from_str(&start_door(&mut pilot, &[], false)).unwrap();
-        let (old_origin, _, old_port) = address_parts(first["address"].as_str().unwrap());
+        let (_, _, port) = address_parts(first["address"].as_str().unwrap());
         terminate(pilot.child.take().unwrap());
-        let occupied = TcpListener::bind(("127.0.0.1", old_port)).unwrap();
-        let started = start_door(&mut pilot, &[], human);
-        let address = if human {
-            let lines: Vec<_> = started.lines().collect();
-            assert_eq!(lines.len(), 2);
-            assert_eq!(
-                lines[0],
-                "warning: Door ready; pair a device with tmt remote pair"
-            );
-            lines[1].to_owned()
+        let occupied = TcpListener::bind(("127.0.0.1", port)).unwrap();
+        let mut command = pilot.command();
+        command.arg("serve");
+        if !human {
+            command.arg("--json");
+        }
+        let failed = command.output().unwrap();
+        assert!(!failed.status.success());
+        let message = if human {
+            assert!(failed.stdout.is_empty());
+            String::from_utf8(failed.stderr).unwrap()
         } else {
-            serde_json::from_str::<Value>(&started).unwrap()["address"]
-                .as_str()
-                .unwrap()
-                .to_owned()
+            assert!(failed.stderr.is_empty());
+            let answer: Value = serde_json::from_slice(&failed.stdout).unwrap();
+            assert_eq!(answer["error"]["code"], "REMOTE_PORT_BUSY");
+            answer["error"]["message"].as_str().unwrap().to_owned()
         };
-        let (new_origin, path, new_port) = address_parts(&address);
-        assert_ne!(new_port, old_port);
+        assert!(message.contains(&format!("port {port}")));
+        assert!(message.contains("Stop the process using that port"));
+        assert!(message.contains("--port <n>") && message.contains("--port 0"));
+        assert!(!pilot.root.join("state/remote/control.sock").exists());
         assert_eq!(
             status_json(&pilot),
-            serde_json::json!({"running":true,"origin":new_origin,"path":path})
-        );
-        let notice = fs::read_to_string(pilot.root.join("serve.stderr")).unwrap();
-        assert_eq!(notice.lines().count(), 1);
-        assert!(
-            notice.contains(&format!("Door moved from {old_origin} to {new_origin}")),
-            "{notice}"
-        );
-        assert!(notice.contains("browsers must re-pair"));
-        assert!(notice.contains(&format!("tmt remote serve --port {old_port}")));
-        terminate(pilot.child.take().unwrap());
-        assert_eq!(
-            status_json(&pilot),
-            serde_json::json!({"running":false,"lastPort":new_port})
+            serde_json::json!({"running":false,"lastPort":port})
         );
         drop(occupied);
         let next: Value = serde_json::from_str(&start_door(&mut pilot, &[], false)).unwrap();
-        assert_eq!(next["address"], address);
-        assert!(
-            fs::read(pilot.root.join("serve.stderr"))
-                .unwrap()
-                .is_empty()
-        );
+        assert_eq!(next["address"], first["address"]);
         terminate(pilot.child.take().unwrap());
+    }
+}
+#[test]
+fn remote_settings_are_private_persistent_and_do_not_open_remote_storage() {
+    let pilot = Pilot::new();
+    for (args, expected) in [
+        (
+            vec!["settings", "--json"],
+            serde_json::json!({"open":true,"source":"default"}),
+        ),
+        (
+            vec!["settings", "open", "off", "--json"],
+            serde_json::json!({"open":false,"source":"settings.json"}),
+        ),
+        (
+            vec!["settings", "--json"],
+            serde_json::json!({"open":false,"source":"settings.json"}),
+        ),
+        (
+            vec!["settings", "open", "on", "--json"],
+            serde_json::json!({"open":true,"source":"settings.json"}),
+        ),
+    ] {
+        let answer = pilot.command().args(args).output().unwrap();
+        assert!(answer.status.success(), "{:?}", answer);
+        assert_eq!(
+            serde_json::from_slice::<Value>(&answer.stdout).unwrap(),
+            expected
+        );
+    }
+    let remote = pilot.root.join("state/remote");
+    assert_eq!(
+        fs::metadata(remote.join("settings.json"))
+            .unwrap()
+            .permissions()
+            .mode()
+            & 0o777,
+        0o600
+    );
+    assert!(!remote.join("remote.db").exists() && !remote.join("machine.key").exists());
+    let mut names = fs::read_dir(&remote)
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name())
+        .collect::<Vec<_>>();
+    names.sort();
+    assert_eq!(names, vec!["settings.json", "settings.lock"]);
+    for args in [
+        vec!["pair", "--open", "--no-open"],
+        vec!["settings", "open"],
+        vec!["settings", "unknown", "off"],
+    ] {
+        assert!(
+            !pilot
+                .command()
+                .args(args)
+                .output()
+                .unwrap()
+                .status
+                .success()
+        );
     }
 }
 #[test]
@@ -1200,13 +1245,13 @@ fn status_and_stop_refuse_unsafe_state_and_unresponsive_or_malformed_control() {
         ),
         (
             Some(
-                "{\"running\":true,\"origin\":\"http://127.0.0.1:12345/\",\"path\":\"/r/0123456789abcdef0123456789abcdef\"}\n",
+                "{\"running\":true,\"origin\":\"http://127.0.0.1:12345/\",\"path\":\"/r/k7qxm4tz2pbwn6rh\"}\n",
             ),
             "REMOTE_IO",
         ),
         (
             Some(
-                "{\"running\":true,\"origin\":\"http://127.0.0.1:12345\",\"path\":\"/r/0123456789abcdef0123456789abcdef\",\"devices\":[]}\n",
+                "{\"running\":true,\"origin\":\"http://127.0.0.1:12345\",\"path\":\"/r/k7qxm4tz2pbwn6rh\",\"devices\":[]}\n",
             ),
             "REMOTE_IO",
         ),

@@ -4,6 +4,9 @@
 use crate::{error::RemoteError, state::Serving};
 use rusqlite::{Connection, OpenFlags, OptionalExtension, TransactionBehavior};
 
+/// First schema containing the remembered door port.
+const PORT_SCHEMA: usize = 5;
+
 pub(crate) fn database(error: impl std::fmt::Display) -> RemoteError {
     RemoteError::new(
         "REMOTE_STATE_UNAVAILABLE",
@@ -19,7 +22,7 @@ pub struct Store {
 pub struct Machine {
     /// Canonical lowercase UUIDv4.
     pub id: String,
-    /// `/r/<32 lowercase hex>`.
+    /// `/r/<16 lowercase base32>`.
     pub route_prefix: String,
 }
 impl Store {
@@ -74,7 +77,7 @@ impl Store {
         )
         .map_err(database)?;
         let count = migration_count(&connection)?;
-        if count < MIGRATIONS.len() {
+        if count < PORT_SCHEMA {
             return Ok(None);
         }
         read_port(&connection)
@@ -100,7 +103,7 @@ impl Store {
             Err(rusqlite::Error::QueryReturnedNoRows) => {
                 let machine = Machine {
                     id: uuid_v4()?,
-                    route_prefix: format!("/r/{}", crate::state::hex(&random::<16>()?)),
+                    route_prefix: new_route_prefix()?,
                 };
                 transaction
                     .execute(
@@ -114,10 +117,7 @@ impl Store {
         };
         transaction.commit().map_err(database)?;
         // A tampered row fails closed instead of widening the route grammar.
-        let prefix_valid = machine.route_prefix.strip_prefix("/r/").is_some_and(|h| {
-            h.len() == 32 && h.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
-        });
-        if !prefix_valid || !uuid_shape(&machine.id) {
+        if !crate::canonical::route_prefix(&machine.route_prefix) || !uuid_shape(&machine.id) {
             return Err(database("invalid machine identity"));
         }
         Ok(machine)
@@ -125,7 +125,7 @@ impl Store {
 }
 /// Ordered schema history in the core `_migrations` shape. Append only; a
 /// recorded name must match, and a newer database than this build refuses.
-const MIGRATIONS: [(&str, &str); 5] = [
+const MIGRATIONS: [(&str, &str); 6] = [
     (
         "machine",
         "CREATE TABLE machine(
@@ -186,6 +186,7 @@ const MIGRATIONS: [(&str, &str); 5] = [
              singleton INTEGER PRIMARY KEY CHECK(singleton = 1),
              port INTEGER NOT NULL CHECK(port BETWEEN 1 AND 65535))",
     ),
+    ("short_route_prefix", ""),
 ];
 fn read_port(connection: &Connection) -> Result<Option<u16>, RemoteError> {
     let port: Option<i64> = connection
@@ -525,6 +526,30 @@ fn migrate(connection: &mut Connection) -> Result<(), RemoteError> {
             .transaction_with_behavior(TransactionBehavior::Immediate)
             .map_err(database)?;
         transaction.execute_batch(sql).map_err(database)?;
+        if *name == "short_route_prefix" {
+            let old: Option<(String, String)> = transaction
+                .query_row(
+                    "SELECT machine_id, route_prefix FROM machine WHERE singleton=1",
+                    [],
+                    |row| Ok((row.get(0)?, row.get(1)?)),
+                )
+                .optional()
+                .map_err(database)?;
+            if let Some((id, prefix)) = old {
+                let legacy = prefix.strip_prefix("/r/").is_some_and(|hex| {
+                    hex.len() == 32 && hex.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
+                });
+                if !uuid_shape(&id) || !legacy {
+                    return Err(database("invalid legacy machine identity"));
+                }
+                transaction
+                    .execute(
+                        "UPDATE machine SET route_prefix=?1 WHERE singleton=1",
+                        [new_route_prefix()?],
+                    )
+                    .map_err(database)?;
+            }
+        }
         transaction
             .execute(
                 "INSERT INTO _migrations (version, name, applied_at) VALUES (?1, ?2, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))",
@@ -556,6 +581,12 @@ fn migration_count(connection: &Connection) -> Result<usize, RemoteError> {
         }
     }
     Ok(applied.len())
+}
+fn new_route_prefix() -> Result<String, RemoteError> {
+    Ok(format!(
+        "/r/{}",
+        crate::canonical::base32_text(&random::<10>()?).to_ascii_lowercase()
+    ))
 }
 fn random<const N: usize>() -> Result<[u8; N], RemoteError> {
     let mut bytes = [0; N];

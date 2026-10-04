@@ -160,6 +160,28 @@ impl Pairing {
             changed: Condvar::new(),
         }
     }
+    /// Public current-offer data only; no code, device inventory or authority.
+    pub fn descriptor(&self, address: &str) -> Option<Value> {
+        let mut slot = self.lock();
+        self.expire_locked(&mut slot);
+        let offer = slot.as_ref()?;
+        if matches!(offer.phase, Phase::Confirmed { .. }) {
+            return None;
+        }
+        Some(self.descriptor_values(&offer.id, &offer.challenge, address))
+    }
+    /// Snapshot for the control client that opened this exact offer, even if replaced.
+    pub fn offered_descriptor(&self, offered: &Offered, address: &str) -> Value {
+        self.descriptor_values(&offered.offer_id, &offered.server_challenge, address)
+    }
+    fn descriptor_values(&self, id: &str, challenge: &[u8; 16], address: &str) -> Value {
+        json!({
+            "profile": "local-v1", "binding": "loopback-http",
+            "machineId": self.machine_id, "windowId": self.window_id,
+            "offerId": id, "address": address,
+            "serverChallenge": crate::state::hex(challenge),
+        })
+    }
     pub fn machine_id(&self) -> &str {
         &self.machine_id
     }

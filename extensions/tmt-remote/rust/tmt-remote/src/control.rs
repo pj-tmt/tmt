@@ -265,23 +265,11 @@ fn session(
         }
     };
     let offer_id = offered.offer_id.clone();
-    let descriptor = json!({
-        "profile": "local-v1",
-        "binding": "loopback-http",
-        "machineId": pairing.machine_id(),
-        "windowId": pairing.window_id(),
-        "offerId": offered.offer_id,
-        "address": format!("{}{}", door.origin, door.prefix),
-        "serverChallenge": hex(&offered.server_challenge),
-    });
+    let descriptor =
+        pairing.offered_descriptor(&offered, &format!("{}{}", door.origin, door.prefix));
     let code = canonical::pairing_code_text(&offered.code);
     // The code travels only in the link's fragment, never in its path.
-    let link = format!(
-        "{}/pair/{}#{}",
-        door.origin,
-        canonical::base64url(descriptor.to_string().as_bytes()),
-        code.replace('-', "")
-    );
+    let link = format!("{}/pair#{}", door.origin, code.replace('-', ""));
     let opened = json!({
         "event": "offer",
         "link": link,
@@ -393,9 +381,6 @@ fn write_line(stream: &mut UnixStream, value: &Value) -> io::Result<()> {
     }
     Ok(())
 }
-fn hex(bytes: &[u8]) -> String {
-    bytes.iter().map(|b| format!("{b:02x}")).collect()
-}
 /// Client side, used by `tmt remote pair`: connect to a running serve.
 pub fn connect(remote_directory: &Path) -> Result<UnixStream, RemoteError> {
     let path = socket_path(remote_directory)?;
@@ -444,15 +429,7 @@ pub fn status(remote_directory: &Path) -> Result<Option<Value>, RemoteError> {
         .and_then(|port| port.parse::<u16>().ok())
         .filter(|port| *port != 0);
     let origin_valid = port.is_some_and(|port| origin == format!("http://127.0.0.1:{port}"));
-    let path_valid = answer["path"]
-        .as_str()
-        .and_then(|path| path.strip_prefix("/r/"))
-        .is_some_and(|prefix| {
-            prefix.len() == 32
-                && prefix
-                    .bytes()
-                    .all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
-        });
+    let path_valid = answer["path"].as_str().is_some_and(canonical::route_prefix);
     if answer.as_object().is_none_or(|fields| fields.len() != 3)
         || answer["running"] != true
         || !origin_valid

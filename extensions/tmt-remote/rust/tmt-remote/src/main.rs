@@ -17,11 +17,13 @@ use tmt_remote::{
     error::RemoteError,
     http::{Door, Handler},
     mount::Mounts,
+    open,
     operations::Operations,
     pages::Pages,
     pairing::{Pairing, Timing},
     routes::Routes,
     session::{self, DoorSessions},
+    settings,
     site::Site,
     state::{Layout, MachineKey},
     store::{Store, uuid_v4},
@@ -62,10 +64,20 @@ const PAIR: CommandSpec = CommandSpec {
     summary: "Authorize one device on the running remote",
     examples: &[Example {
         command: "tmt remote pair",
-        note: "Print a pairing link and code, then confirm the device here",
+        note: "Open the pairing link in your browser, then confirm the device here",
     }],
     outputs: OutputModes::HumanAndJson,
     details: "The device opens the link or enters the code. Compare the four words on both sides, then confirm once.\nThe grant reaches all agents, sends directly and does not expire; revoke it to end it.\n--json streams one event per line and reads confirm or refuse from stdin.",
+};
+const SETTINGS: CommandSpec = CommandSpec {
+    name: "settings",
+    summary: "Show or change Remote browser settings",
+    examples: &[Example {
+        command: "tmt remote settings open off",
+        note: "Print pairing links without opening the browser",
+    }],
+    outputs: OutputModes::HumanAndJson,
+    details: "Browser opening defaults to on. Settings are stored only in Remote's data directory.",
 };
 const DEVICES: CommandSpec = CommandSpec {
     name: "devices",
@@ -115,7 +127,7 @@ const SERVE: CommandSpec = CommandSpec {
         note: "Print the bound descriptor for local testing",
     }],
     outputs: OutputModes::HumanAndJson,
-    details: "Runs in the foreground until Ctrl-C or SIGTERM; there is no default deadline.\nSigned direct sends reach core; held sends wait for local approval.\nMounts colab under <prefix>/x/colab/ while its owner-only socket exists.\nWithout --port, reuse the last bound port; if busy, move to a free port. --port 0 selects a random unused port.",
+    details: "Runs in the foreground until Ctrl-C or SIGTERM; there is no default deadline.\nSigned direct sends reach core; held sends wait for local approval.\nMounts colab under <prefix>/x/colab/ while its owner-only socket exists.\nWithout --port, reuse the last bound port; if busy, refuse until freed or explicitly overridden. --port 0 selects a random unused port.",
 };
 const APPROVE: CommandSpec = CommandSpec {
     name: "approve",
@@ -153,7 +165,33 @@ fn grammar() -> Command {
         )
         .subcommand(tmt_cli_style::command(&STOP))
         .subcommand(tmt_cli_style::command(&STATUS))
-        .subcommand(tmt_cli_style::command(&PAIR))
+        .subcommand(
+            tmt_cli_style::command(&PAIR)
+                .arg(
+                    Arg::new("open")
+                        .long("open")
+                        .action(ArgAction::SetTrue)
+                        .conflicts_with("no-open")
+                        .help(
+                            "Open the browser when the environment permits, overriding the setting",
+                        ),
+                )
+                .arg(
+                    Arg::new("no-open")
+                        .long("no-open")
+                        .action(ArgAction::SetTrue)
+                        .help("Print the pairing link without opening the browser"),
+                ),
+        )
+        .subcommand(
+            tmt_cli_style::command(&SETTINGS)
+                .arg(Arg::new("key").value_parser(["open"]).requires("value"))
+                .arg(
+                    Arg::new("value")
+                        .value_parser(["on", "off"])
+                        .requires("key"),
+                ),
+        )
         .subcommand(tmt_cli_style::command(&APPROVE).arg(Arg::new("operation-id").required(true)))
         .subcommand(tmt_cli_style::command(&CANCEL).arg(Arg::new("operation-id").required(true)))
         .subcommand(
@@ -186,13 +224,16 @@ fn run(matches: &clap::ArgMatches) -> Result<(), RemoteError> {
         return approval_command(name, arguments);
     }
     if name == "pair" {
-        return pair(arguments.get_flag("json"));
+        return pair(arguments.get_flag("json"), open::Flag::of(arguments));
     }
     if name == "status" {
         return status(arguments.get_flag("json"));
     }
     if name == "stop" {
         return stop_command(arguments.get_flag("json"));
+    }
+    if name == "settings" {
+        return settings_command(arguments);
     }
     if name == "devices" {
         return devices(arguments);
@@ -239,13 +280,13 @@ fn run(matches: &clap::ArgMatches) -> Result<(), RemoteError> {
         let requested = serve.get_one::<u16>("port").copied();
         let remembered = store.remembered_port()?;
         let selected = requested.or(remembered).unwrap_or(0);
-        let (door, moved_from) = match Door::bind(selected) {
-            Ok(door) => (door, None),
-            Err(error) if requested.is_none() && error.code == "REMOTE_PORT_BUSY" => {
-                (Door::bind(0)?, Some(selected))
-            }
-            Err(error) => return Err(error),
-        };
+        let door = Door::bind(selected).map_err(|error| {
+            if requested.is_none() && remembered.is_some() && error.code == "REMOTE_PORT_BUSY" {
+                RemoteError::new("REMOTE_PORT_BUSY", &format!(
+                    "Remembered Remote port {selected} is busy. Stop the process using that port to keep browser pairing, or choose a new origin with tmt remote serve --port <n> or tmt remote serve --port 0."
+                ))
+            } else { error }
+        })?;
         let bound_port = door.socket_addr()?.port();
         let store = Arc::new(Mutex::new(store));
         // Each run is a new window; grants survive it, sessions do not.
@@ -285,7 +326,7 @@ fn run(matches: &clap::ArgMatches) -> Result<(), RemoteError> {
         ));
         let control = Control::start(
             &serving,
-            pairing,
+            Arc::clone(&pairing),
             Arc::clone(&devices),
             control::Door {
                 origin: door.origin.clone(),
@@ -302,31 +343,21 @@ fn run(matches: &clap::ArgMatches) -> Result<(), RemoteError> {
                 &machine.route_prefix,
                 sessions,
             )),
-            pages: Some(Pages::new(
-                &door.origin,
-                machine.id.clone(),
-                window_id.clone(),
-                &machine.route_prefix,
-            )),
+            pages: Some(
+                Pages::new(
+                    &door.origin,
+                    machine.id.clone(),
+                    window_id.clone(),
+                    &machine.route_prefix,
+                )
+                .with_pairing(pairing),
+            ),
         });
         let events = devices.start_events(Arc::clone(&site.mounts))?;
         store
             .lock()
             .expect("store lock")
             .remember_port(bound_port)?;
-        if let Some(old_port) = moved_from {
-            let mut diagnostic = tmt_cli_style::stream::stderr();
-            let terminal = diagnostic.terminal();
-            tmt_cli_style::message::warning(
-                &mut diagnostic,
-                terminal,
-                &format!(
-                    "Door moved from http://127.0.0.1:{old_port} to {}; browsers must re-pair, or free the old port and use tmt remote serve --port {old_port}",
-                    door.origin
-                ),
-                None,
-            )?;
-        }
         let json_output = serve.get_flag("json");
         let mut output = tmt_cli_style::stream::stdout(json_output);
         if json_output {
@@ -567,7 +598,7 @@ fn approval_command(action: &str, arguments: &clap::ArgMatches) -> Result<(), Re
 }
 /// `tmt remote pair`: open the single offer on the running serve and relay
 /// the owner's one confirmation. State is reached only through serve.
-fn pair(json_output: bool) -> Result<(), RemoteError> {
+fn pair(json_output: bool, flag: open::Flag) -> Result<(), RemoteError> {
     let interaction = Interaction::detect(json_output);
     if !json_output && interaction.prompt() != Mode::Interactive {
         return Err(RemoteError::new(
@@ -578,6 +609,7 @@ fn pair(json_output: bool) -> Result<(), RemoteError> {
     let stop = AtomicBool::new(false);
     let root = CoreClient::discover()?.storage_root(&stop)?;
     let root = std::fs::canonicalize(&root).map_err(|_| not_running())?;
+    let loaded = settings::read_or_default(&root);
     let mut stream = control::connect(&root.join("remote"))?;
     stream.write_all(b"{\"op\":\"pair\"}\n")?;
     let mut events = BufReader::new(stream.try_clone()?);
@@ -615,6 +647,33 @@ fn pair(json_output: bool) -> Result<(), RemoteError> {
                     ],
                 )?;
                 output.flush()?;
+                warn_settings(&loaded)?;
+                match open::open_link(
+                    event["link"].as_str().unwrap_or(""),
+                    flag,
+                    loaded.open(),
+                    json_output,
+                ) {
+                    open::Outcome::Opened => {
+                        tmt_cli_style::message::success(
+                            &mut output,
+                            terminal,
+                            "Opened in your browser",
+                        )?;
+                        output.flush()?;
+                    }
+                    open::Outcome::Failed(why) => {
+                        let mut diagnostic = tmt_cli_style::stream::stderr();
+                        let terminal = diagnostic.terminal();
+                        tmt_cli_style::message::warning(
+                            &mut diagnostic,
+                            terminal,
+                            &format!("Could not open the browser ({why}); use the link above"),
+                            None,
+                        )?;
+                    }
+                    open::Outcome::Skipped | open::Outcome::NoOpener => {}
+                }
             }
             Some("candidate") => {
                 if !json_output {
@@ -681,6 +740,43 @@ fn pair(json_output: bool) -> Result<(), RemoteError> {
         tmt_cli_style::message::success(&mut output, terminal, "Paired the device")?;
     }
     paired
+}
+fn warn_settings(loaded: &settings::RemoteSettings) -> Result<(), RemoteError> {
+    if loaded.malformed {
+        let mut output = tmt_cli_style::stream::stderr();
+        let terminal = output.terminal();
+        tmt_cli_style::message::warning(&mut output, terminal, settings::UNREADABLE, None)?;
+    }
+    Ok(())
+}
+fn settings_command(arguments: &clap::ArgMatches) -> Result<(), RemoteError> {
+    let root = discovery_root()?;
+    let loaded = match arguments.get_one::<String>("value") {
+        Some(value) => settings::set_open(&root, value == "on")?,
+        None => settings::read_or_default(&root),
+    };
+    let json_output = arguments.get_flag("json");
+    let mut output = tmt_cli_style::stream::stdout(json_output);
+    if json_output {
+        writeln!(output, "{}", loaded.json())?;
+    } else {
+        let terminal = output.terminal();
+        tmt_cli_style::detail::write(
+            &mut output,
+            terminal,
+            "REMOTE SETTINGS",
+            &[(
+                "open",
+                format!(
+                    "{} ({})",
+                    if loaded.open() { "on" } else { "off" },
+                    loaded.source()
+                ),
+            )],
+        )?;
+        warn_settings(&loaded)?;
+    }
+    Ok(())
 }
 /// `tmt remote devices [revoke|rename ...]`, through the running serve or,
 /// when none runs, directly under the serve lock.

@@ -47,10 +47,17 @@ are named in `src/limits.rs`.
 Local extensions attach through `tmt remote status --json` or supervise a foreground
 `tmt remote serve --json`; the exact public documents belong to the
 [channel contract](../../../contracts/remote-channel-v1.md#local-cli-discovery).
-Serve remembers the bound port in Remote schema 5 (`door_port`) and reuses it when
-`--port` is omitted. Only a busy remembered port falls back; explicit `--port 0`
-uses an unused port and explicit nonzero busy ports refuse. The move notice goes to
-stderr, while the human full door URL occupies its own stdout line.
+Serve remembers the bound port since Remote schema 5 (`door_port`) and reuses it when
+`--port` is omitted. A busy remembered port refuses with `REMOTE_PORT_BUSY` and explicit recovery choices;
+`--port 0` uses an unused port and explicit nonzero busy ports refuse. The human
+full door URL occupies its own stdout line.
+
+Schema 6 (`short_route_prefix`) regenerates an existing machine's non-credential route prefix
+once as 16 lowercase base32 symbols (80 random bits), preserving its ID, key, origin-bound
+grants and port.
+The shared canonical validator admits that format in store, routing and live status.
+The schema-5 fixture proves migration persistence and rollback; stopped status still
+reads the schema-5 port without migrating. Browser reopen adopts the current path.
 
 Status resolves core's public `storage.root` once, then uses the running control
 socket. With an absent or stale socket, it admits an existing private layout and takes
@@ -78,7 +85,7 @@ CARGO_BUILD_JOBS=2 cargo test --offline --locked -p tmt-extension-state
 ```
 
 CLI cases assert exact status shapes, unchanged stopped-state bytes/mtimes/files,
-same-origin restarts, occupied-port fallback and notice, explicit port choices,
+same-origin restarts, occupied-port refusal and recovery, explicit port choices,
 standalone human URLs, control stop and repeated idle stop, real paired-grant
 survival across stop/serve, and listener/socket/child cleanup. State cases cover
 non-creating reads, legacy schema without migration, damaged remembered ports,
@@ -102,7 +109,22 @@ Synced publication tests prove filesystem behavior, not power-loss recovery. A n
 workspace path also needs the tracked-file layout, generated release configuration
 and CI-scope checks.
 
+## Browser opening and settings
+
+Remote's `open` owner mirrors Colab's platform opener without a Colab dependency.
+`pair --open` overrides the saved setting and terminal, CI and SSH/display checks;
+only `--no-open`, JSON and a missing platform opener suppress an explicit open.
+`settings` owns the private `settings.json` / `settings.lock` under Remote's
+existing layout, independent of the database/serve lease. Missing settings use the default;
+malformed settings use it with a human warning. Setters serialize through the bounded lock.
+
 ## Browser pages
+
+The short `/pair#CODE` link loads only `/sdk/pair.js` first, which erases the
+fragment before loading the SDK. `Pages` obtains `/sdk/pair-offer` from `Pairing`'s
+current offer, sharing the descriptor with the control event; it exposes no code.
+Old descriptor-path links refuse. Browser tests check stripping before the SDK
+request, secret-free request URLs, owner confirmation and retained device behavior.
 
 The embedded same-origin stylesheet projects the shared design tokens with system
 font fallbacks and light/dark scheme preference under the contract-defined CSP.
