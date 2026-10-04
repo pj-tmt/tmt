@@ -151,3 +151,28 @@ fn history_opens_immediately_and_home_live_extension_matches_named_totals() {
     assert_eq!(named.label().as_deref(), Some("5m"));
     assert_eq!(named.digits().as_deref(), Some("~30"));
 }
+
+#[test]
+fn uncovered_known_seed_displays_approximate_tokens_for_members_and_home() {
+    use super::super::rate::tests::{fixture_seeds, historical_input, history_fixture};
+    let fixture = history_fixture();
+    let mut seeds = fixture_seeds(&fixture);
+    for bucket in &mut seeds.get_mut("a").unwrap().as_mut().unwrap().buckets {
+        bucket.covered_ms = 0;
+        bucket.complete = false;
+        bucket.gap = true;
+    }
+    let input = historical_input(&fixture, false);
+    let now = Instant::now();
+    let mut meter = Meter::new(TokenRate::default(), &input, now);
+    meter.origin_ms = 22_500;
+    meter.seed(&input, &seeds, now, true);
+    assert_eq!(meter.digits().as_deref(), Some("~21"));
+    for index in 0..3 {
+        let member = meter.member("a", index, now).unwrap();
+        assert_eq!(member.tokens, 21);
+        assert!(member.partial);
+        assert_eq!(meter.total(index, now), Some(member));
+    }
+    assert!(meter.sparkline().contains('█'));
+}

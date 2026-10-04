@@ -18,6 +18,7 @@ async function wire(
   reset?: { source: string; invalid?: 'commitment' | 'source' | 'descriptor' | 'oldEpoch' },
   compacted?: { invalid?: 'prefix' | 'n' | 'namespace' | 'body' | 'gap' | 'ownBody' | 'ownTail' },
   statementTransfer?: 'valid' | 'hash',
+  pageTitle = 'Live fixture',
   largeTail = false,
 ) {
   const epoch = reset ? '2' : '1';
@@ -170,7 +171,7 @@ async function wire(
   });
   const doc = new Y.Doc();
   doc.getText('html').insert(0, reset?.source ?? '<h1>Live fixture</h1>');
-  doc.getMap('meta').set('title', 'Live fixture');
+  doc.getMap('meta').set('title', pageTitle);
   let baseline: Record<string, string> | null = null;
   let baselineEnvelope: c.Envelope | null = null;
   let advance: c.statement.Envelope | null = null;
@@ -207,7 +208,7 @@ async function wire(
               c.frame(c.text('tmt-colab-baseline-v1'), c.text('1'), c.text(reset.source), update),
             ),
       ),
-      title: 'Live fixture',
+      title: pageTitle,
       objectEnvelopeHash: c.encodeBinary(await baselineEnvelope.hash()),
       membershipRevision: '3',
     };
@@ -883,7 +884,7 @@ test('paired guidance reopens once, reloads into the owner app and clears its re
     owner ? route.continue() : route.fulfill({ contentType: 'text/html', body: privateGuidance }),
   );
   await page.goto(mount);
-  await page.getByRole('link', { name: new RegExp(v.page) }).click();
+  await page.locator(`[data-page-id="${v.page}"] a`).click();
   await expect(
     page.frameLocator('iframe').getByRole('heading', { name: 'Live fixture' }),
   ).toBeVisible();
@@ -900,11 +901,11 @@ test('authenticated tail past write limits opens and renders exact source', asyn
   test.setTimeout(90_000);
   const heading = '<h1>Live fixture</h1>';
   const source = heading + ('é' + 'x'.repeat(1598)).repeat(205);
-  const f = await wire(context, undefined, undefined, undefined, true);
+  const f = await wire(context, undefined, undefined, undefined, undefined, true);
   expect(f.entries).toHaveLength(206);
   expect(f.tailBytes).toBeGreaterThan(256 * 1024);
   await page.goto(mount);
-  await page.getByRole('link', { name: new RegExp(v.page) }).click();
+  await page.locator(`[data-page-id="${v.page}"] a`).click();
   await expect(
     page.frameLocator('iframe').getByRole('heading', { name: 'Live fixture' }),
   ).toBeVisible();
@@ -955,7 +956,7 @@ test('a disconnected active tab explicitly reconnects and reloads without backgr
     return route.fulfill({ json: {} });
   });
   await page.goto(mount);
-  await page.getByRole('link', { name: new RegExp(v.page) }).click();
+  await page.locator(`[data-page-id="${v.page}"] a`).click();
   const heading = page.frameLocator('iframe').getByRole('heading', { name: 'Live fixture' });
   await expect(heading).toBeVisible();
   f.stopSync();
@@ -1047,7 +1048,7 @@ result:async()=>({state:'replied',requestId:'${requestId}',message:${JSON.string
     }
   });
   await page.goto(mount);
-  await page.getByRole('link', { name: new RegExp(v.page) }).click();
+  await page.locator(`[data-page-id="${v.page}"] a`).click();
   const heading = page.frameLocator('iframe').getByRole('heading', { name: 'Live fixture' });
   await expect(heading).toBeVisible();
   const renderId = (await page.locator('iframe').getAttribute('data-render-id'))!;
@@ -1125,7 +1126,7 @@ test('same-device tabs explicitly take over one durable stream without reopen pi
   const reopens = (tab: typeof page) =>
     tab.evaluate(() => Number(sessionStorage.getItem('test:reopens') ?? 0));
   await page.goto(mount);
-  await page.getByRole('link', { name: new RegExp(v.page) }).click();
+  await page.locator(`[data-page-id="${v.page}"] a`).click();
   await expect(
     page.frameLocator('iframe').getByRole('heading', { name: 'Live fixture' }),
   ).toBeVisible();
@@ -1142,7 +1143,7 @@ test('same-device tabs explicitly take over one durable stream without reopen pi
   await page.getByRole('button', { name: 'Save source' }).click();
   await expect(page.frameLocator('iframe').getByRole('heading', { name: 'First' })).toBeVisible();
   await other.goto(mount);
-  await other.getByRole('link', { name: new RegExp(v.page) }).click();
+  await other.locator(`[data-page-id="${v.page}"] a`).click();
   await expect(page.getByTestId('colab-inactive')).toContainText('Colab is open in another tab.');
   await expect(page.locator('iframe')).toHaveCount(0);
   await expect(other.frameLocator('iframe').getByRole('heading', { name: 'First' })).toBeVisible();
@@ -1234,7 +1235,7 @@ test('chunked epoch baseline survives explicit tab takeover, edits and reload', 
   const other = await context.newPage();
   for (const tab of [page, other]) {
     await tab.goto(mount);
-    await tab.getByRole('link', { name: new RegExp(v.page) }).click();
+    await tab.locator(`[data-page-id="${v.page}"] a`).click();
     await expect(
       tab.frameLocator('iframe').getByRole('heading', { name: 'Reset baseline' }),
     ).toBeVisible();
@@ -1266,7 +1267,7 @@ for (const invalid of ['commitment', 'source', 'descriptor', 'oldEpoch'] as cons
   }) => {
     await wire(context, { source: '<h1>Never publish</h1>', invalid });
     await page.goto(mount);
-    await page.getByRole('link', { name: new RegExp(v.page) }).click();
+    await page.locator(`[data-page-id="${v.page}"] a`).click();
     await expect(page.getByRole('alert')).toBeVisible();
     await expect(page.locator('iframe')).toHaveCount(0);
     await expect(page.getByRole('button', { name: 'Export page' })).toHaveCount(0);
@@ -1287,7 +1288,7 @@ test('paired checkpoints precede an authenticated interleaved tail, preserve edi
 }) => {
   const f = await wire(context, undefined, {});
   await page.goto(mount);
-  await page.getByRole('link', { name: new RegExp(v.page) }).click();
+  await page.locator(`[data-page-id="${v.page}"] a`).click();
   await expect(page.getByRole('heading', { name: 'Checkpoint', exact: true })).toBeVisible();
   await expect(page.getByTestId('comments-panel')).toContainText('No comments yet.');
   await expect(page.getByTestId('comment-entry')).toHaveCount(0);
@@ -1340,7 +1341,7 @@ for (const invalid of ['prefix', 'n', 'namespace', 'body', 'gap', 'ownBody', 'ow
   }) => {
     await wire(context, undefined, { invalid });
     await page.goto(mount);
-    await page.getByRole('link', { name: new RegExp(v.page) }).click();
+    await page.locator(`[data-page-id="${v.page}"] a`).click();
     await expect(page.getByRole('alert')).toBeVisible();
     await expect(page.locator('iframe')).toHaveCount(0);
   });
@@ -1370,7 +1371,7 @@ test('baseline finishes before a signed large statement; exact owner log survive
   const source = '<h1>Statement fixture</h1>' + 'x'.repeat(40_000),
     f = await wire(context, { source }, undefined, 'valid');
   await page.goto(mount);
-  await page.getByRole('link', { name: new RegExp(v.page) }).click();
+  await page.locator(`[data-page-id="${v.page}"] a`).click();
   await expect(
     page.frameLocator('iframe').getByRole('heading', { name: 'Statement fixture' }),
   ).toBeVisible();
@@ -1394,7 +1395,7 @@ test('tampered statement reference blocks home metadata and preserves the verifi
 }) => {
   const f = await wire(context, undefined, undefined, 'hash');
   await page.goto(mount);
-  await expect(page.getByRole('link', { name: new RegExp(v.page) })).toHaveCount(0);
+  await expect(page.locator(`[data-page-id="${v.page}"] a`)).toHaveCount(0);
   await expect(page.getByRole('alert')).toBeVisible();
   await expect(page.locator('iframe')).toHaveCount(0);
   const log = await persistedLog(page);
@@ -1470,7 +1471,7 @@ test('parent export downloads exact frozen baseline files, ignores drafts and re
   let requested = 0;
   page.on('download', () => requested++);
   await page.goto(mount);
-  await page.getByRole('link', { name: new RegExp(v.page) }).click();
+  await page.locator(`[data-page-id="${v.page}"] a`).click();
   await expect(
     page.frameLocator('iframe').getByRole('heading', { name: 'Exact export' }),
   ).toBeVisible();
@@ -1584,7 +1585,7 @@ test('failed export preparation requests no files and closing clears pending pre
 }) => {
   await wire(context);
   await page.goto(mount);
-  await page.getByRole('link', { name: new RegExp(v.page) }).click();
+  await page.locator(`[data-page-id="${v.page}"] a`).click();
   await expect(page.getByRole('heading', { name: 'Live fixture', exact: true })).toBeVisible();
   let downloads = 0;
   page.on('download', () => downloads++);
@@ -1630,4 +1631,65 @@ test('failed export preparation requests no files and closing clears pending pre
   await expect(panel.getByRole('button', { name: 'Download page.html' })).toBeEnabled();
   await panel.getByRole('button', { name: 'Close export' }).click();
   await page.getByRole('link', { name: 'Space home' }).click();
+});
+
+test('accepted fold titles persist as encrypted display hints for home, dialog and the parent tab', async ({
+  page,
+  context,
+}) => {
+  const title = '<img src=x onerror="window.titleInjected=true"> Personal notes';
+  await wire(context, undefined, undefined, undefined, title);
+  await page.goto(mount);
+  const row = () => page.locator(`[data-page-id="${v.page}"]`);
+  await expect(row().getByRole('heading')).toHaveText('Untitled, not opened in this browser yet');
+  await expect(row().getByText(`Page ID: ${v.page}`, { exact: true })).toBeHidden();
+  await row().locator('a').click();
+  await expect(page.getByRole('heading', { name: title, exact: true })).toBeVisible();
+  await expect(page).toHaveTitle(`${title} · Colab`);
+  await page.getByRole('button', { name: 'Manage page', exact: true }).click();
+  const dialog = page.getByRole('dialog');
+  await expect(dialog.getByRole('heading', { name: title, exact: true })).toBeVisible();
+  await expect(dialog.getByText(`Page ID: ${v.page}`, { exact: true })).toBeHidden();
+  await dialog.getByText('Details', { exact: true }).click();
+  await expect(dialog.getByText(`Page ID: ${v.page}`, { exact: true })).toBeVisible();
+  await dialog.getByRole('button', { name: 'Close', exact: true }).click();
+  await page.getByRole('link', { name: 'Space home', exact: true }).click();
+  await expect(row().getByRole('heading')).toHaveText(title);
+  await expect(page).toHaveTitle('Colab');
+  await page.reload();
+  await expect(row().getByRole('heading')).toHaveText(title);
+  await expect(page.locator('.home img')).toHaveCount(0);
+  const persisted = await page.evaluate(
+    async ({ space, device, pageId }) => {
+      const path = '/src/storage.ts';
+      const { record } = await import(path);
+      const key = await record(`title-key:${device}`);
+      const value = await record(`title:${space}:${device}:${pageId}`);
+      return {
+        extractable: key.extractable,
+        value,
+        injected: (window as unknown as { titleInjected?: boolean }).titleInjected,
+      };
+    },
+    { space: v.space, device: v.device, pageId: v.page },
+  );
+  expect(persisted.extractable).toBe(false);
+  expect(Object.keys(persisted.value).sort()).toEqual(['ciphertext', 'nonce']);
+  expect(JSON.stringify(persisted.value)).not.toContain(title);
+  expect(persisted.injected).toBeUndefined();
+  // Corrupt hints cannot turn a readable owner page into a failed home.
+  await page.evaluate(
+    async ({ space, device, pageId }) => {
+      const path = '/src/storage.ts';
+      const { record } = await import(path);
+      await record(`title:${space}:${device}:${pageId}`, { nonce: 'AA', ciphertext: 'AA' });
+    },
+    { space: v.space, device: v.device, pageId: v.page },
+  );
+  await page.reload();
+  await expect(row().getByRole('heading')).toHaveText('Untitled, not opened in this browser yet');
+  await row().locator('a').click();
+  await expect(page.getByRole('heading', { name: title, exact: true })).toBeVisible();
+  await page.getByRole('link', { name: 'Space home', exact: true }).click();
+  await expect(row().getByRole('heading')).toHaveText(title);
 });

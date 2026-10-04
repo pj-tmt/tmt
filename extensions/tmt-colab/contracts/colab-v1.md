@@ -2348,6 +2348,31 @@ bounded download handoff and all outstanding URLs on close/navigation or blocked
 binding cleanup. The renderer receives no export handler, URL or capability.
 Archived browser export remains deferred until #1348; deletion stays denied.
 
+### Browser page title hints (#1564)
+
+The paired owner browser uses accepted Live folds as its only title source. Home
+rows and the share/manage dialog show the last known title; the current page also
+updates the parent tab title. UUIDs remain routing identities and appear under
+Details. Without a usable title, chrome shows “Untitled, not opened in this browser
+yet”. Opening the page replaces a stale or missing hint with its verified folded
+title. Home never opens content or a decoder just to obtain labels.
+
+These are browser-local display hints, not membership, policy or access evidence.
+The Colab keyring owns a non-extractable AES-GCM-256 key per device in its existing
+IndexedDB store. Title records contain only a fresh 12-byte nonce and ciphertext;
+AAD is the JSON array `["tmt-colab-title-cache-v1", space, device, page]`. Record
+lookup is likewise scoped to space/device/page. The title shares the existing
+fold projection bound. Cached title plaintext and this local key never enter discovery,
+routes, logs, the renderer, or the decoder Worker. No native schema, title endpoint,
+Remote certification or network protocol is added.
+
+Cache absence, corruption, scope mismatch or storage failure falls back to the
+unopened label without denying page reading or management. Only publication of an
+accepted Live fold may update the cache, through the current mounted registration
+and tab lifetime. Reload can read the persisted encrypted hint; a different paired
+device or browser profile has its own cache. Leaving a page restores the home tab
+label. Local samples retain their existing source and title behavior.
+
 ### Conversation export (#1574)
 
 The two companion files are frozen from the same captured snapshot as `page.html` and
