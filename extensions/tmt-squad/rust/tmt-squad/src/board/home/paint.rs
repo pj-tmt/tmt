@@ -303,8 +303,6 @@ pub(super) fn render_at(frame: &mut Frame, app: &App, area: Rect, now: u64) {
     let mut selected_range = 0..0;
     let receipt_now = std::time::Instant::now();
     let mut section = "";
-    let mut previous_lead_has_exchange = false;
-    let chrome = super::leads::Chrome::new(area.width, look);
     if !entries
         .iter()
         .any(|entry| entry.target.section == "needs-you")
@@ -383,87 +381,59 @@ pub(super) fn render_at(frame: &mut Frame, app: &App, area: Rect, now: u64) {
             continue;
         }
         if entry.target.section == super::LEADS {
-            let lead = app
-                .home_leads
-                .leads
+            section = super::LEADS;
+            let count = entries[index..]
                 .iter()
-                .find(|lead| {
-                    lead.squad == entry.target.squad
-                        && entry.target.member.as_deref() == Some(lead.id())
+                .take_while(|next| next.target.section == super::LEADS)
+                .count();
+            handled = index + count;
+            let group = &entries[index..handled];
+            let leads = group
+                .iter()
+                .map(|entry| {
+                    app.home_leads
+                        .leads
+                        .iter()
+                        .find(|lead| {
+                            lead.squad == entry.target.squad
+                                && entry.target.member.as_deref() == Some(lead.id())
+                        })
+                        .expect("a lead target retains its deferred projection")
                 })
-                .expect("a lead target retains its deferred projection");
-            if section != super::LEADS {
-                section = super::LEADS;
-                lines.push(Line::default());
-                lines.push(Line::styled(
-                    rule(
-                        &format!(
-                            "leads · latest from each · t {} replies",
-                            if view.home_replies { "hides" } else { "shows" }
-                        ),
-                        width,
-                    ),
-                    look.role(Role::Muted),
-                ));
-                lines.push(chrome.top.clone());
-            } else if view.home_replies && previous_lead_has_exchange && lead.exchange.is_some() {
-                lines.push(chrome.wrap(Line::default(), look, false));
-            }
-            let selected = index == app.selected;
-            let start = lines.len();
-            starts.push(start);
-            lines.push(chrome.wrap(
-                super::leads::heading(lead, area.width, look, selected, now),
+                .collect::<Vec<_>>();
+            let block = super::leads::paint(
+                app,
                 look,
-                selected,
-            ));
-            let reading = app.input.as_ref().is_some_and(|input| {
-                matches!(input.compose, crate::board::app::Compose::ReadLead { .. })
-                    && input.row_send.as_ref().is_some_and(|send| {
-                        send.target == crate::board::app::RowTarget::Home(entry.target.clone())
-                    })
-            });
-            previous_lead_has_exchange = lead.exchange.is_some();
-            if view.home_replies && lead.exchange.is_some() && !reading {
-                lines.push(chrome.wrap(super::leads::preview(lead, area.width, look), look, false));
-            }
-            regions.push((
-                index,
-                start..lines.len(),
-                1.min(area.width),
-                area.width.saturating_sub(2),
-            ));
-            if app.sent.as_ref().is_some_and(|feedback| {
-                feedback.target == crate::board::app::RowTarget::Home(entry.target.clone())
-            }) {
-                lines.push(chrome.wrap(
-                    Line::styled("  ✓ sent", look.role(Role::Working)),
-                    look,
-                    false,
+                area,
+                now,
+                &super::leads::Section {
+                    first: index,
+                    entries: group,
+                    leads: &leads,
+                    replies: view.home_replies,
+                },
+            );
+            let base = lines.len();
+            lines.extend(block.lines);
+            for lead in block.leads {
+                starts.push(base + lead.start);
+                regions.push((
+                    lead.index,
+                    base + lead.hit.start..base + lead.hit.end,
+                    1.min(area.width),
+                    area.width.saturating_sub(2),
                 ));
-            }
-            let inner = Rect {
-                x: area.x.saturating_add(1),
-                width: area.width.saturating_sub(2),
-                ..area
-            };
-            if let Some(range) =
-                crate::board::view::waiting::reserve_input(app, index, inner, &mut lines)
-            {
-                for line in &mut lines[range.clone()] {
-                    *line = chrome.wrap(Line::default(), look, false);
+                if lead.index == app.selected {
+                    selected_range = base + lead.start..base + lead.end;
                 }
-                input_range = Some(range);
-                input_area = inner;
-            }
-            if selected {
-                selected_range = start..lines.len();
-            }
-            if entries
-                .get(index + 1)
-                .is_none_or(|next| next.target.section != super::LEADS)
-            {
-                lines.push(chrome.bottom.clone());
+                if let Some(range) = lead.reserve {
+                    input_range = Some(base + range.start..base + range.end);
+                    input_area = Rect {
+                        x: area.x.saturating_add(1),
+                        width: area.width.saturating_sub(2),
+                        ..area
+                    };
+                }
             }
             continue;
         }
