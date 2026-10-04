@@ -28,9 +28,12 @@ pub(in crate::board) enum Input {
     Job(char, Option<String>),
 }
 
+/// What the compiled template depends on: columns, modal width and height.
+type Shape = (Columns, u16, u16);
+
 pub(in crate::board) struct List {
     surface: RefCell<picker_surface::State>,
-    template: RefCell<Option<(Columns, Template<()>)>>,
+    template: RefCell<Option<(Shape, Template<()>)>>,
 }
 
 fn list_rows(state: &State) -> Vec<ListRow> {
@@ -66,18 +69,37 @@ impl List {
             .map(str::to_owned)
     }
 
-    pub fn render(&self, state: &State, now_ms: i64, frame: &mut Frame, look: Look, body: Rect) {
-        let columns = Columns::for_width(true, body.width.saturating_sub(4));
-        let mut template = self.template.borrow_mut();
-        if template.as_ref().is_none_or(|(old, _)| *old != columns) {
-            *template = Some((columns, modal(columns)));
-        }
+    pub fn render(
+        &self,
+        state: &State,
+        now_ms: i64,
+        place: Option<&str>,
+        frame: &mut Frame,
+        look: Look,
+        body: Rect,
+    ) {
+        // A docked modal is a full-width sheet below 100 columns, else nine tenths.
+        let width = if body.width < 100 {
+            body.width
+        } else {
+            (u32::from(body.width) * 9 / 10) as u16
+        };
+        let inside = width.saturating_sub(4);
+        let columns = Columns::for_width(true, inside);
         let jobs: Vec<_> = state.cron.iter().flat_map(|cron| &cron.jobs).collect();
+        // Content height: border 2, one line per job (one for the
+        // empty note), position, status and footer lines; the modal caps it.
+        let height = (jobs.len().max(1) as u16 + 5).min(body.height);
+        let shape = (columns, width, height);
+        let mut template = self.template.borrow_mut();
+        if template.as_ref().is_none_or(|(old, _)| *old != shape) {
+            *template = Some((shape, modal(columns, width, height)));
+        }
         let mut status = match &state.cron {
             Some(cron) => format!(
                 "{} jobs · {}",
                 jobs.len(),
-                clock(&cron.clock, now_ms, false).0
+                clock(&cron.clock, now_ms, false, state.clock_note(place)).0
             ),
             None => "no jobs read".into(),
         };
@@ -88,10 +110,10 @@ impl List {
             "rows": project(&jobs, None, now_ms),
             "query": "",
             "status": status,
-            "footer": super::hints::overlay(usize::from(body.width.saturating_sub(4))),
+            "footer": super::hints::overlay(usize::from(inside)),
             "notes": [],
             // The cached scene is keyed by value, and the template depends on width.
-            "columns": format!("{columns:?}"),
+            "columns": format!("{columns:?}/{height}"),
         });
         let (_, template) = template.as_ref().expect("compiled");
         self.surface

@@ -224,21 +224,24 @@ here reads the store or core directly.
   public `references.resolve`, so a read costs one core call per job.
 - **Home ⑤.** One cursor target between attention and squads (`home::CRON`); Enter or `c` opens
   the list. `cronboard::line` is pure: preview, then owner, step aside before the count, time,
-  clock and `c list`; below that the line compacts. The read's failure shows as a blocked line.
+  clock and `c list`; below that the line compacts. The clock reads `checking…` until the second
+  read and names its holder `session:window` from the member row whose pane id matches
+  (`App::clock_place`), else the pane id; `clock --json` keeps the pane id. The read's failure shows as a blocked line.
 - **`c` list.** `Overlay::CronList` routed through the shared `FocusStack` and `app::route`,
-  painted by a `picker_surface::State` list modal. Row IDs are `<room uuid>/<c-id>`. Enter opens
+  painted by a `picker_surface::State` list modal docked at its content height (like the
+  prompt band, so nine tenths wide from 100 columns). Row IDs are `<room uuid>/<c-id>`. Enter opens
   the job's squad; refresh keeps the selection by identity. It closes for forms and the delete
   confirmation and stays open for pause/resume and send.
 - **Jobs half.** On a squad tab (`document.squad.roomId`) `composition::halves` places the
   configured composition above and the half below from one flex computation; the half takes its
-  content height up to half the body, and below 12 body lines keeps only its rule line. Its list is
+  content height up to two fifths of the body, and below 12 body lines keeps only its rule line. Its list is
   an ordinary `tmt-list` with a per-room `ListState` (selection survives tab switches); the
   selected job expands in place while the half has focus. Tab enters the half after the last
   visible pane and leaves it for the first; a pointer press inside focuses it. `focused_pane()`
   is `None` while it has focus, and `App::perform` refuses member-row actions then.
 - **Scoped keys.** While the half or the list has focus, `n e p x o d` and Enter are job keys,
   routed through the `FocusStack` base field `cron-jobs` before board dispatch; a key the user
-  bound in `[bind]` still wins. Footer, list footer and help share one table (`cronboard::hints`).
+  bound in `[bind]` still wins. Footer, list footer and help share one table (`cronboard::hints`); the jobs footer ends with `? more`.
 - **Controls.** Pause, resume, send and delete build a `CronRequest` with the actor from the read,
   the job key and the viewed revision, executed on the existing `execute` path; apply revalidates
   actor, room, owner and revision under the jobs lock, so stale, unauthorized or invalid requests
@@ -248,7 +251,7 @@ here reads the store or core directly.
   line limit is kept as stored. Owner names resolve through `identity show` at submission.
 - **Members.** A row's `⏱ <next>` joins the row-end label after the age mark and is the first to
   drop; the grid reserves its room only when no column would hide, and the cached grid is keyed on
-  the labels.
+  the labels. The member detail repeats it as `cron: ⏱ <time> · <id> <message>`.
 
 ## Notes pane
 

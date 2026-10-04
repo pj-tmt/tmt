@@ -123,7 +123,7 @@
       "● c0   someone          job for u1                                                                                       every 30m              Mon 10-05 00:30",
       "message  job for u1",
       "next     Mon 10-05 00:00 · Mon 10-05 00:30 · Mon 10-05 01:00   tz Asia/Tokyo",
-      "⏎ owner  n new  e edit  p pause  x send  o reassign  d delete  tab members  c all squads  ? more  q quit"
+      "⏎ owner  n new  e edit  p pause  x send  o reassign  d delete  tab members  c all squads  q quit  ? more"
     ],
     "hits": "[Hit { y: 3, x: 0, width: 160, row: 0 }, Hit { y: 4, x: 0, width: 160, row: 1 }, Hit { y: 5, x: 0, width: 160, row: 2 }]"
   },
@@ -155,7 +155,7 @@
       "● c0   someone          job for u1                           every 30m              Mon 10-05 00:30",
       "message  job for u1",
       "next     Mon 10-05 00:00 · Mon 10-05 00:30 · Mon 10-05 01:00   tz Asia/Tokyo",
-      "⏎ owner  n new  e edit  p pause  x send  o reassign  d delete  tab members  ? more  q quit"
+      "⏎ owner  n new  e edit  p pause  x send  o reassign  d delete  tab members  q quit  ? more"
     ],
     "hits": "[Hit { y: 3, x: 0, width: 100, row: 0 }, Hit { y: 4, x: 0, width: 100, row: 1 }, Hit { y: 5, x: 0, width: 100, row: 2 }]"
   },
@@ -187,7 +187,7 @@
       "● c0   someone          job for u1       every 30m              Mon 10-05 00:30",
       "message  job for u1",
       "next     Mon 10-05 00:00 · Mon 10-05 00:30 · Mon 10-05 01:00   tz Asia/Tokyo",
-      "⏎ owner  n new  e edit  p pause  x send  o reassign  d delete  ? more  q quit"
+      "⏎ owner  n new  e edit  p pause  x send  o reassign  d delete  q quit  ? more"
     ],
     "hits": "[Hit { y: 3, x: 0, width: 80, row: 0 }, Hit { y: 4, x: 0, width: 80, row: 1 }, Hit { y: 5, x: 0, width: 80, row: 2 }]"
   }

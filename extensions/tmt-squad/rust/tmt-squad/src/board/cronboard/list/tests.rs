@@ -17,6 +17,7 @@ fn jobs() -> State {
     State {
         cron: Some(cron(vec![a, b], ClockStatus::NoClock)),
         failure: None,
+        reads: 2,
     }
 }
 
@@ -24,7 +25,7 @@ fn paint(list: &List, state: &State, width: u16, height: u16) -> Vec<String> {
     let mut screen = Terminal::new(TestBackend::new(width, height)).unwrap();
     screen
         .draw(|frame| {
-            list.render(state, NOW, frame, Look::default(), frame.area());
+            list.render(state, NOW, None, frame, Look::default(), frame.area());
         })
         .unwrap();
     let buffer = screen.backend().buffer();
@@ -50,10 +51,17 @@ fn the_list_shows_every_squad_clock_and_keys_inside_its_box_at_each_width() {
     for width in [160, 100, 80] {
         let screen = paint(&list, &state, width, 12);
         let text = screen.join("\n");
+        // Two jobs: border 2 + rows 2 + position, status and footer = 7 lines,
+        // docked at the bottom with the body above left to the base.
+        let top = screen
+            .iter()
+            .position(|line| line.trim_start().starts_with('┌'))
+            .unwrap_or_default();
         assert!(
-            screen[0].starts_with('┌') && screen[0].contains("cron · all squads"),
+            screen[top].contains("cron · all squads") && screen.len() - top == 7,
             "{text}"
         );
+        assert!(screen[..top].iter().all(String::is_empty), "{text}");
         assert!(text.contains("alpha") && text.contains("beta"), "{text}");
         assert!(text.contains("2 jobs · no clock"), "{text}");
         assert!(
@@ -62,10 +70,35 @@ fn the_list_shows_every_squad_clock_and_keys_inside_its_box_at_each_width() {
         );
         assert_eq!(
             text.contains("merge queue sweep"),
-            width >= 100,
+            // The docked sheet is nine tenths wide from 100 columns; the preview
+            // needs what the fixed tracks leave.
+            width >= 110,
             "{width}\n{text}"
         );
     }
+}
+
+#[test]
+fn the_box_grows_with_the_jobs_and_never_passes_the_body() {
+    let few = jobs();
+    let list = List::open(&few, None);
+    let height = |state: &State, rows: u16| {
+        paint(&list, state, 100, rows)
+            .iter()
+            .filter(|line| !line.is_empty())
+            .count()
+    };
+    assert_eq!(height(&few, 30), 7);
+    let mut many = jobs();
+    let cron = many.cron.as_mut().unwrap();
+    for index in 0..8 {
+        let mut job = view("tmt-ops", "more", None);
+        job.job.room_id = format!("room-{index}");
+        cron.jobs.push(job);
+    }
+    assert_eq!(height(&many, 30), 15);
+    // The modal never takes more than four fifths of a short body.
+    assert!(height(&many, 10) <= 8, "{}", height(&many, 10));
 }
 
 #[test]
@@ -115,6 +148,7 @@ fn an_empty_or_failed_read_says_so() {
     let empty = State {
         cron: Some(cron(vec![], ClockStatus::Unknown)),
         failure: Some("storage unreachable".into()),
+        reads: 2,
     };
     let list = List::open(&empty, None);
     let text = paint(&list, &empty, 120, 8).join("\n");
@@ -135,6 +169,7 @@ fn snapshots() -> serde_json::Value {
             State {
                 cron: Some(cron(vec![], ClockStatus::Unknown)),
                 failure: Some("storage unreachable".into()),
+                reads: 2,
             },
         ),
     ] {

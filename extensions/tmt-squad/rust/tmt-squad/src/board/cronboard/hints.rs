@@ -28,8 +28,8 @@ fn fit(parts: Vec<String>, separator: &str, tail: &[&str], width: usize) -> Stri
         }
         if parts.is_empty() {
             // Below the always-kept hints themselves: `? more` alone, then clipped.
-            let first = tail.first().copied().unwrap_or_default();
-            return crate::board::view::fit(first, width.min(first.width()));
+            let last = tail.last().copied().unwrap_or_default();
+            return crate::board::view::fit(last, width.min(last.width()));
         }
         parts.pop();
     }
@@ -42,7 +42,7 @@ pub(in crate::board) fn jobs(width: usize) -> String {
         .map(|(key, word, _)| format!("{key} {word}"))
         .collect();
     parts.extend(["tab members".into(), "c all squads".into()]);
-    fit(parts, "  ", &["? more", "q quit"], width)
+    fit(parts, "  ", &["q quit", "? more"], width)
 }
 
 /// The `c` list's inside footer.
@@ -73,10 +73,11 @@ mod tests {
         for width in 20..120 {
             let text = jobs(width);
             assert!(text.width() <= width, "{width}: {text}");
-            assert!(text.ends_with("? more  q quit"), "{width}: {text}");
+            assert!(text.ends_with("q quit  ? more"), "{width}: {text}");
         }
-        assert_eq!(jobs(40), "⏎ owner  n new  e edit  ? more  q quit");
-        assert_eq!(jobs(14), "? more  q quit");
+        assert_eq!(jobs(40), "⏎ owner  n new  e edit  q quit  ? more");
+        assert_eq!(jobs(14), "q quit  ? more");
+        assert_eq!(jobs(8), "? more");
         assert!(jobs(5).width() <= 5);
         let wide = overlay(100);
         assert!(

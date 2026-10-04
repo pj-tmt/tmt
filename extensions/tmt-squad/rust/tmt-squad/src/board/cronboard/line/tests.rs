@@ -52,11 +52,12 @@ fn state(cron: Cron) -> State {
     State {
         cron: Some(cron),
         failure: None,
+        reads: 2,
     }
 }
 
 fn text(state: &State, width: u16) -> String {
-    line(state, NOW, width, Look::default())
+    line(state, NOW, width, Look::default(), None)
         .unwrap()
         .to_string()
 }
@@ -67,7 +68,7 @@ fn home_line_keeps_count_time_clock_and_key_at_supported_widths() {
         for clock in [running(), ClockStatus::NoClock, ClockStatus::Unknown] {
             let jobs = vec![view("tmt-lead", "merge queue sweep", Some(NOW + 3_600_000))];
             let state = state(cron(jobs, clock));
-            let rendered = line(&state, NOW, width, Look::default()).unwrap();
+            let rendered = line(&state, NOW, width, Look::default(), None).unwrap();
             let shown = rendered.to_string();
             assert!(rendered.width() <= usize::from(width), "{width}: {shown}");
             assert!(shown.starts_with("⑤ ⏱ 1 "), "{shown}");
@@ -119,13 +120,18 @@ fn failures_are_distinct_from_empty_and_keep_the_previous_jobs() {
     let failed = State {
         cron: None,
         failure: Some("storage unreachable\nsecond".into()),
+        reads: 2,
     };
     let shown = text(&failed, 160);
     assert_eq!(shown, "⑤ ⏱ ✗ cron jobs unavailable: storage unreachable");
-    assert_eq!(line(&State::default(), NOW, 160, Look::default()), None);
+    assert_eq!(
+        line(&State::default(), NOW, 160, Look::default(), None),
+        None
+    );
     let stale = State {
         cron: Some(cron(vec![view("a", "m", None)], running())),
         failure: Some("boom".into()),
+        reads: 2,
     };
     assert!(text(&stale, 160).contains("1 cron jobs ! stale"));
 }
@@ -157,7 +163,7 @@ fn every_width_stays_inside_the_available_cells() {
     )];
     let state = state(cron(jobs, ClockStatus::NoClock));
     for width in 0..=160 {
-        let rendered = line(&state, NOW, width, Look::default()).unwrap();
+        let rendered = line(&state, NOW, width, Look::default(), None).unwrap();
         assert!(rendered.width() <= usize::from(width), "width {width}");
     }
 }
@@ -211,6 +217,7 @@ fn snapshots() -> serde_json::Value {
             State {
                 cron: None,
                 failure: Some("storage unreachable".into()),
+                reads: 2,
             },
         ),
     ] {

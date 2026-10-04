@@ -45,6 +45,8 @@ pub struct Cron {
 pub struct State {
     pub cron: Option<Cron>,
     pub failure: Option<String>,
+    /// Successful reads so far; the first one may precede the board's own clock.
+    pub reads: u32,
 }
 
 impl State {
@@ -53,6 +55,7 @@ impl State {
             Ok(cron) => {
                 self.cron = Some(cron);
                 self.failure = None;
+                self.reads = self.reads.saturating_add(1);
             }
             Err(message) => self.failure = Some(message),
         }
@@ -86,6 +89,24 @@ impl Cron {
 }
 
 impl State {
+    pub fn clock_note<'a>(&self, place: Option<&'a str>) -> line::ClockNote<'a> {
+        line::ClockNote {
+            checking: self.reads <= 1,
+            place,
+        }
+    }
+
+    /// The member's next job for the detail pane: when, which job, what it says.
+    pub fn member_detail(&self, member_id: &str, now_ms: i64) -> Option<String> {
+        let (at, view) = self.cron.as_ref()?.next_of(member_id)?;
+        Some(format!(
+            "{} · {} {}",
+            line::time(at, now_ms, &line::zone(view))?,
+            view.job.id(),
+            line::first_line(&view.job.message)
+        ))
+    }
+
     /// The instant the shown text is relative to.
     pub fn now_ms(&self) -> i64 {
         self.cron.as_ref().map_or(0, |cron| cron.read_ms)
@@ -118,6 +139,7 @@ mod tests {
         let state = State {
             cron: Some(cron(vec![late, soon, paused], ClockStatus::NoClock)),
             failure: None,
+            reads: 2,
         };
         assert_eq!(
             state.member_label("u1", NOW).as_deref(),

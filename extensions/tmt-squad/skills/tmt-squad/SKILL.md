@@ -303,12 +303,14 @@ switcher, and `/` searches. Home has no r/R reply shortcut or numeric navigation
 
 The home tab shows one line, `⑤ ⏱ N cron jobs · next <time> <owner> <what> · <clock> · c list`:
 the job count, the earliest active slot, and whether a clock runs (`no clock` means
-due slots are not sent). Tab reaches it like any section. Enter on it, or `c` anywhere,
+due slots are not sent; `clock: checking…` is the first read). A running clock shows where it
+runs as `session:window` when a member row sits in that pane, else the pane id. Tab reaches it like any section. Enter on it, or `c` anywhere,
 lists every squad's jobs, hidden squads included; Enter opens the job's squad and Esc closes.
 
-A squad tab is split in two: members above, that squad's jobs below. Tab moves into the
+A squad tab is split in two: members above, that squad's jobs below (as tall as its jobs, at
+most two fifths of the body). The `c` list is as tall as its jobs too. Tab moves into the
 jobs after the last pane and back to the first. Members who own an active job show
-`⏱ <next>` at the row end (the first thing to drop when narrow). The selected job expands in
+`⏱ <next>` at the row end (the first thing to drop when narrow) and in their detail. The selected job expands in
 place with its full message, its next three runs and its time zone.
 
 While the jobs (or the `c` list) have focus these keys are job keys, and `?` lists them:

@@ -13,13 +13,29 @@ pub(super) fn first_line(text: &str) -> String {
     sanitize(text).lines().next().unwrap_or("").to_owned()
 }
 
+/// What the clock text needs beyond the status: whether the first read is still
+/// settling, and where the holder's pane is, when a loaded member row says.
+#[derive(Clone, Copy, Default)]
+pub(in crate::board) struct ClockNote<'a> {
+    pub checking: bool,
+    pub place: Option<&'a str>,
+}
+
 /// The clock segment; `short` drops the hint and the lease age.
-pub(super) fn clock(status: &ClockStatus, now_ms: i64, short: bool) -> (String, Role) {
+pub(in crate::board) fn clock(
+    status: &ClockStatus,
+    now_ms: i64,
+    short: bool,
+    note: ClockNote<'_>,
+) -> (String, Role) {
     match status {
+        // The board's own clock takes the lease just after the first read.
+        ClockStatus::NoClock if note.checking => ("clock: checking…".into(), Role::Dim),
         ClockStatus::Running(holder) => {
-            let place = holder
-                .pane
-                .clone()
+            let place = note
+                .place
+                .map(str::to_owned)
+                .or_else(|| holder.pane.clone())
                 .unwrap_or_else(|| format!("pid {}", holder.pid));
             let text = if short {
                 format!("clock: {place}")
@@ -98,6 +114,7 @@ pub(in crate::board) fn line(
     now_ms: i64,
     width: u16,
     look: Look,
+    place: Option<&str>,
 ) -> Option<Line<'static>> {
     let width = usize::from(width);
     let Some(cron) = &state.cron else {
@@ -108,10 +125,25 @@ pub(in crate::board) fn line(
             look.role(Role::Blocked),
         ));
     };
-    Some(summary(cron, state.failure.is_some(), now_ms, width, look))
+    let note = state.clock_note(place);
+    Some(summary(
+        cron,
+        state.failure.is_some(),
+        now_ms,
+        width,
+        look,
+        note,
+    ))
 }
 
-fn summary(cron: &Cron, stale: bool, now_ms: i64, width: usize, look: Look) -> Line<'static> {
+fn summary(
+    cron: &Cron,
+    stale: bool,
+    now_ms: i64,
+    width: usize,
+    look: Look,
+    note: ClockNote<'_>,
+) -> Line<'static> {
     let count = format!(
         "{} {}",
         cron.jobs.len(),
@@ -134,11 +166,11 @@ fn summary(cron: &Cron, stale: bool, now_ms: i64, width: usize, look: Look) -> L
     }
     let tail = " · c list";
     let used = |parts: &[(String, Role)]| parts.iter().map(|(text, _)| text.width()).sum::<usize>();
-    let (mut clock, clock_role) = clock(&cron.clock, now_ms, false);
+    let (mut clock, clock_role) = clock(&cron.clock, now_ms, false, note);
     let sep = " · ";
     let room = width.saturating_sub(used(&parts) + sep.width() + tail.width());
     if clock.width() > room {
-        clock = clock_text_for(&cron.clock, now_ms, room);
+        clock = clock_text_for(&cron.clock, now_ms, room, note);
     }
     if let Some((_, view)) = next
         && let Some(_) = next_time(view, now_ms)
@@ -166,7 +198,7 @@ fn summary(cron: &Cron, stale: bool, now_ms: i64, width: usize, look: Look) -> L
         let compact = format!(
             "⑤ ⏱ {} · {}",
             cron.jobs.len(),
-            clock_text_for(&cron.clock, now_ms, width)
+            clock_text_for(&cron.clock, now_ms, width, note)
         );
         return Line::styled(
             fit(&compact, width.min(compact.width())),
@@ -182,12 +214,12 @@ fn summary(cron: &Cron, stale: bool, now_ms: i64, width: usize, look: Look) -> L
 }
 
 /// The longest clock wording that fits `room`, ending in an ellipsis when cut.
-fn clock_text_for(status: &ClockStatus, now_ms: i64, room: usize) -> String {
-    let (full, _) = clock(status, now_ms, false);
+fn clock_text_for(status: &ClockStatus, now_ms: i64, room: usize, note: ClockNote<'_>) -> String {
+    let (full, _) = clock(status, now_ms, false, note);
     if full.width() <= room {
         return full;
     }
-    let (short, _) = clock(status, now_ms, true);
+    let (short, _) = clock(status, now_ms, true, note);
     fit(&short, room.min(short.width()))
 }
 

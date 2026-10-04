@@ -30,8 +30,11 @@ fn squad_tab() -> App {
     let mut jobs = jobs.to_vec();
     // Distinct job ids come from the store; the fixture reuses one, so move the room.
     jobs[1].job.room_id = "room".into();
+    let jobs = vec![jobs.remove(0)];
+    // The first read may precede the board's own clock; a second one is settled.
     app.cron
-        .replace(Ok(test_cron(vec![jobs.remove(0)], ClockStatus::NoClock)));
+        .replace(Ok(test_cron(jobs.clone(), ClockStatus::NoClock)));
+    app.cron.replace(Ok(test_cron(jobs, ClockStatus::NoClock)));
     app
 }
 
@@ -55,6 +58,98 @@ fn members_sit_above_the_squads_jobs_with_the_clock_on_the_rule() {
         assert!(screen[rule + 1].contains("every 30m"), "{text}");
         assert!(screen[rule + 1].contains("someone"), "{text}");
     }
+}
+
+fn running_in(pane: &str) -> ClockStatus {
+    ClockStatus::Running(tmt_squad::cron::Holder {
+        pane: Some(pane.into()),
+        pid: 7,
+        since_ms: TEST_NOW - 60_000,
+        expires_ms: TEST_NOW + 5_000,
+    })
+}
+
+fn rule_of(app: &App) -> String {
+    draw(app, 120, 30)
+        .into_iter()
+        .find(|line| line.starts_with("── ⏱ cron"))
+        .expect("the rule line")
+}
+
+#[test]
+fn the_half_is_content_sized_and_capped_at_two_fifths_of_the_body() {
+    let mut app = squad_tab();
+    let below = |app: &App, height: u16| {
+        let screen = draw(app, 120, height);
+        let rule = screen
+            .iter()
+            .position(|l| l.starts_with("── ⏱ cron"))
+            .unwrap();
+        // The footer is the last line; the half is everything between.
+        screen.len() - 1 - rule
+    };
+    // One job: the rule, the job and the three-line minimum, not half the body.
+    assert_eq!(below(&app, 40), 3);
+    // Focus expands the selected job in place: rule, row, message and next runs,
+    // still within two fifths of the body.
+    press(&mut app, KeyCode::Tab);
+    assert_eq!(below(&app, 40), 4);
+    let capped = below(&app, 20);
+    assert!((3..=7).contains(&capped), "{capped}");
+}
+
+#[test]
+fn the_clock_reads_checking_until_a_second_read_and_the_holder_shows_its_window() {
+    let mut app = board(members());
+    app.view.as_mut().unwrap().document["squad"]["roomId"] = json!("room");
+    app.cron
+        .replace(Ok(test_cron(Vec::new(), ClockStatus::NoClock)));
+    assert!(
+        rule_of(&app).contains("clock: checking…"),
+        "{}",
+        rule_of(&app)
+    );
+    app.cron
+        .replace(Ok(test_cron(Vec::new(), ClockStatus::NoClock)));
+    let settled = rule_of(&app);
+    assert!(
+        settled.contains("no clock") && !settled.contains("checking"),
+        "{settled}"
+    );
+    // A holder pane that is a member row shows session:window, not the pane id.
+    let mut rows = members();
+    rows[0]["rows"][0]["pane"] = json!({"id": "%7", "target": "team:agents.2", "cwd": "/"});
+    let mut app = board(rows);
+    app.view.as_mut().unwrap().document["squad"]["roomId"] = json!("room");
+    app.cron
+        .replace(Ok(test_cron(Vec::new(), running_in("%7"))));
+    let rule = rule_of(&app);
+    assert!(
+        rule.contains("clock: team:agents ·") && !rule.contains("%7"),
+        "{rule}"
+    );
+    // Unresolved: the pane id.
+    app.cron
+        .replace(Ok(test_cron(Vec::new(), running_in("%9"))));
+    assert!(rule_of(&app).contains("clock: %9"), "{}", rule_of(&app));
+}
+
+#[test]
+fn the_member_detail_shows_the_next_run_too() {
+    let mut app = squad_tab();
+    let first = detail_text(&detail_buffer(&app, 80, 12)).join("\n");
+    assert!(
+        first.contains("cron: ⏱") && first.contains("job for u1"),
+        "{first}"
+    );
+    // A member without an active job has no cron line.
+    press(&mut app, KeyCode::Char('j'));
+    press(&mut app, KeyCode::Char('j'));
+    let carol = detail_text(&detail_buffer(&app, 80, 12)).join("\n");
+    assert!(
+        carol.contains("carol") && !carol.contains("cron:"),
+        "{carol}"
+    );
 }
 
 #[test]
@@ -449,12 +544,12 @@ mod controls {
         let footer = screen.last().unwrap();
         assert!(footer.starts_with("⏎ owner  n new  e edit"), "{footer}");
         assert!(
-            footer.contains("? more") && footer.ends_with("q quit"),
+            footer.contains("q quit") && footer.ends_with("? more"),
             "{footer}"
         );
         let narrow = draw(&app, 40, 24);
         assert!(
-            narrow.last().unwrap().ends_with("q quit"),
+            narrow.last().unwrap().ends_with("? more"),
             "{:?}",
             narrow.last()
         );

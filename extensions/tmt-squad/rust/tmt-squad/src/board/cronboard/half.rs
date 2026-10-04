@@ -65,7 +65,8 @@ pub(in crate::board) fn wanted(app: &App, body: Rect) -> Option<u16> {
         0
     };
     let want = 1 + jobs.max(1) + detail;
-    Some((want.min(usize::from(body.height / 2))).max(3) as u16)
+    // Content height, at most two fifths of the body, never fewer than three lines.
+    Some(want.min(usize::from(body.height) * 2 / 5).max(3) as u16)
 }
 
 fn rule(app: &App, width: usize, jobs: usize, look: Look, now_ms: i64) -> Line<'static> {
@@ -93,7 +94,13 @@ fn rule(app: &App, width: usize, jobs: usize, look: Look, now_ms: i64) -> Line<'
         left.push(Span::styled(note, look.role(Role::Waiting)));
     }
     let right = app.cron.cron.as_ref().map(|cron| {
-        let (text, role) = clock(&cron.clock, now_ms, false);
+        let place = app.clock_place();
+        let (text, role) = clock(
+            &cron.clock,
+            now_ms,
+            false,
+            app.cron.clock_note(place.as_deref()),
+        );
         (format!(" {text} "), role)
     });
     let used = |spans: &[Span]| spans.iter().map(Span::width).sum::<usize>();
