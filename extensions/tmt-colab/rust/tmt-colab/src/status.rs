@@ -131,6 +131,7 @@ impl Status<'_> {
             "next": next,
             "opened": self.opened,
             "warning": self.access.warning().map(|(what, _)| what),
+            "memoryLimit": tmt_colab::decoder::memory_limit(),
         })
     }
     /// Detail rows in reading order: facts first, then the next step.

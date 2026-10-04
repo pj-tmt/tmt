@@ -1,7 +1,14 @@
 import { expect, test, type Page } from '@playwright/test';
 
-async function mount(page: Page, source: string, reader: boolean) {
+async function mount(page: Page, source: string, reader: boolean, readerOnly = false) {
   await page.goto('/');
+  // The shipped reader bundle never loads the owner stylesheet; drop it so the reader rules stand alone.
+  if (readerOnly)
+    await page.evaluate(() =>
+      document
+        .querySelectorAll('style[data-vite-dev-id$="/src/style.css"]')
+        .forEach((n) => n.remove()),
+    );
   await page.evaluate(() => {
     const firstHeight = new Promise<void>((resolve) => {
       const receive = (event: MessageEvent) => {
@@ -185,3 +192,18 @@ test('layout claims are bound to the current frame/render and bounded even when 
   });
   expect(mutations).toBeLessThanOrEqual(3);
 });
+
+for (const reader of [false, true]) {
+  for (const colorScheme of ['light', 'dark'] as const) {
+    test(`${reader ? 'reader' : 'owner'}: a page without its own background is one white canvas in ${colorScheme}`, async ({
+      page,
+    }) => {
+      await page.emulateMedia({ colorScheme });
+      await mount(page, '<p>Unstyled</p>', reader, reader);
+      const frame = page.locator('iframe');
+      await expect(frame).toHaveCSS('background-color', 'rgb(255, 255, 255)');
+      await expect(frame).toHaveCSS('color-scheme', 'light');
+      await expect(page.locator('.frame-host')).toHaveCSS('background-color', 'rgb(255, 255, 255)');
+    });
+  }
+}

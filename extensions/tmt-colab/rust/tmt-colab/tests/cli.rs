@@ -1271,7 +1271,7 @@ fn human_output_is_readable_and_the_decoder_note_is_not_repeated_per_command() {
     assert!(group.contains("page create"), "{group}");
 }
 #[test]
-fn serve_names_the_link_only_when_a_door_runs_and_reports_the_decoder_once() {
+fn serve_names_the_link_only_when_a_door_runs_and_never_prints_the_decoder_note() {
     for door in [false, true] {
         let pilot = Pilot::new(None);
         let mut cmd = if door {
@@ -1288,7 +1288,6 @@ fn serve_names_the_link_only_when_a_door_runs_and_reports_the_decoder_once() {
         let mut reader = BufReader::new(child.stdout.take().unwrap());
         let mut text = String::new();
         let deadline = Instant::now() + Duration::from_secs(5);
-        // The last row every platform prints for an empty space; the `decoder` row is macOS-only.
         let wanted = "create";
         while !text.contains(wanted) && Instant::now() < deadline {
             let mut line = String::new();
@@ -1299,6 +1298,7 @@ fn serve_names_the_link_only_when_a_door_runs_and_reports_the_decoder_once() {
         }
         kill(Pid::from_raw(child.id() as i32), Signal::SIGTERM).unwrap();
         child.wait().unwrap();
+        assert!(!text.contains("decoder"), "{text}");
         if door {
             assert!(text.contains("http://127.0.0.1:53253"), "{text}");
         } else {
@@ -2063,6 +2063,8 @@ fn serve_starts_a_door_without_a_port_and_stops_it_with_ctrl_c() {
     let ready = serving.ready();
     assert_eq!(ready["door"], "started");
     assert_eq!(ready["url"], PAGE_LINK);
+    // The decoder note lives in JSON only.
+    assert!(ready["memoryLimit"].as_str().unwrap().contains("limit"));
     // Pairing could not be read: not claimed either way, and the step stays on offer.
     assert!(ready["paired"].is_null());
     assert_eq!(

@@ -1097,8 +1097,7 @@ readable. The write limit rises when the browser limits are aligned with the nat
 Linux sets and verifies its address-space limit before reading child input;
 failure rejects the job. On macOS and platforms without enforced memory limits,
 run with deadline/output containment and report `memory limit unavailable`: in JSON
-page receipts (`memoryLimit`) and once at `serve` startup. One-shot human page output does
-not repeat it.
+page receipts and in `serve --json` (`memoryLimit`). Human output never repeats it.
 
 These are pinned v1 defaults; tuning MUST preserve cryptographic ceilings and
 bounded admission. Enforce bounds before allocating/decoding, not only after
