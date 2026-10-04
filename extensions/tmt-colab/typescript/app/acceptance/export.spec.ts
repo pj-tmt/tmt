@@ -3,7 +3,14 @@ import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { pairBrowser, startDoor } from './harness/browser.js';
-import { askEntry, createPage, freePort, openPage, run, selectInRenderer } from './harness/ask.js';
+import {
+  annotationInput,
+  createPage,
+  freePort,
+  openPage,
+  run,
+  selectInRenderer,
+} from './harness/ask.js';
 import { until } from './harness/process.js';
 import { disposeActiveWorlds, withWorld } from './harness/with-world.js';
 
@@ -41,40 +48,38 @@ test('browser and CLI export the same two-writer discussion and Ask conversation
     const first = await openPage(door, a, created);
     const second = await openPage(door, b, created);
 
-    // Writer one comments on a selection; writer two replies.
-    const body = 'Please check ``` this & <b>that</b>.\nSecond line.';
+    // Each writer explicitly sends one turn in the same anchored conversation.
+    const body = '@' + agent.name + ' Please check ``` this & <b>that</b>.\nSecond line.';
+    const follow = `@${agent.name} A reply from the second device.`;
     await selectInRenderer(first, '#quote');
-    await first.getByTestId('comments-toggle').click();
-    await first.getByTestId('comment-action').click();
-    const panel = first.getByTestId('comments-panel');
-    await panel.getByLabel('Post comment', { exact: true }).fill(body);
-    await panel.getByRole('button', { name: 'Post comment', exact: true }).click();
+    await first.getByTestId('selection-ask').click();
+    const opening = await annotationInput(first.locator('.annotation-new'), agent.name);
+    await opening.fill(body);
+    await opening.press('Enter');
+    await until(() => agent.received().length === 1, 'opening annotation delivered');
     const t1 = first.getByTestId('comment-thread').first();
-    const t2 = second.getByTestId('comment-thread').first();
-    await second.getByTestId('comments-toggle').click();
-    await expect(t2).toHaveAttribute('data-anchor', 'attached');
+    await expect(t1.getByTestId('ask-reply')).toBeVisible();
+    const operationId = (await t1.getByTestId('ask-entry').getAttribute('data-operation-id'))!;
     const messageId = (await t1.getByTestId('comment-entry').getAttribute('data-message-id'))!;
-    await t2.getByRole('button', { name: 'Reply', exact: true }).click();
-    await t2.getByLabel('Post reply', { exact: true }).fill('A reply from the second device.');
-    await t2.getByRole('button', { name: 'Post reply', exact: true }).click();
+    await second.getByTestId('comments-toggle').click();
+    await second.getByTestId('annotation-row').click();
+    const t2 = second.getByTestId('comment-thread').first();
+    await expect(t2).toHaveAttribute('data-anchor', 'attached');
+    await expect(
+      t2
+        .locator(`[data-testid=ask-entry][data-operation-id="${operationId}"]`)
+        .getByTestId('ask-reply'),
+    ).toBeVisible();
+    const reply = await annotationInput(t2, agent.name);
+    await reply.fill(follow);
+    await reply.press('Enter');
+    await until(() => agent.received().length === 2, 'follow-up annotation delivered');
     await expect(t1.getByTestId('comment-entry')).toHaveCount(2);
-
-    // Writer one asks the agent about the comment; the recipient pane replies.
-    const comment = t1.locator(`[data-message-id="${messageId}"]`);
-    await comment.getByTestId('comment-ask-action').click();
-    await comment
-      .locator(`[data-testid=ask-agent-option][data-agent-id="${agent.id}"] input`)
-      .check();
-    await comment.getByRole('button', { name: 'Ask agent — preview', exact: true }).click();
-    const preview = comment.getByTestId('ask-preview');
-    await expect(preview).toBeVisible();
-    const operationId = (await preview.getAttribute('data-operation-id'))!;
-    await comment.getByTestId('ask-send').click();
-    await until(() => agent.received().length === 1, 'comment Ask delivered');
-    await first.getByTestId('ask-toggle').click();
-    await second.getByTestId('ask-toggle').click();
-    await expect(askEntry(second, operationId).getByTestId('ask-reply')).toBeVisible();
-    await expect(askEntry(first, operationId).getByTestId('ask-reply')).toBeVisible();
+    await expect(t1.getByTestId('ask-reply')).toHaveCount(2);
+    await expect(t2.getByTestId('ask-reply')).toHaveCount(2);
+    expect(world.coreCalls().filter((call) => call.operation === 'dispatch.create')).toHaveLength(
+      2,
+    );
 
     // Both surfaces export the same authorized view.
     const browser = await browserExport(first);
@@ -106,14 +111,16 @@ test('browser and CLI export the same two-writer discussion and Ask conversation
       const [thread] = conversations.threads;
       expect(thread.anchor.exact).toContain('exact quote');
       expect(thread.comments.map((c: { body: string }) => c.body).sort()).toEqual(
-        [body, 'A reply from the second device.'].sort(),
+        [body, follow].sort(),
       );
       expect(new Set(thread.comments.map((c: { writer: string }) => c.writer)).size).toBe(2);
       expect(new Set(thread.comments.map((c: { deviceName: string }) => c.deviceName))).toEqual(
         new Set(['export-author', 'export-replier']),
       );
-      expect(conversations.asks).toHaveLength(1);
-      const [ask] = conversations.asks;
+      expect(conversations.asks).toHaveLength(2);
+      const ask = conversations.asks.find(
+        (value: { operationId: string }) => value.operationId === operationId,
+      );
       expect(ask).toMatchObject({
         operationId,
         state: 'accepted',
@@ -125,7 +132,7 @@ test('browser and CLI export the same two-writer discussion and Ask conversation
       expect(reading).toContain(ask.reply.body);
       expect(reading).toContain('Second line.');
       // The body's backtick run cannot end its fence.
-      expect(reading).toContain('````\nPlease check ``` this');
+      expect(reading).toContain('````\n@' + agent.name + ' Please check ``` this');
     } finally {
       rmSync(directory, { recursive: true, force: true });
     }

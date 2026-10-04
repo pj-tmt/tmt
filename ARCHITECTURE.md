@@ -1162,7 +1162,9 @@ Colab (`extensions/tmt-colab/`: `tmt-colab`, `tmt-colab-model`, `@tmt/colab-clie
 - **Dependency direction.** `tmt-colab` depends on `tmt-colab-model` (pure codecs and fixed
   crypto), the `tmt-extension-state` leaf, `tmt-invoke` and `tmt-cli-style`; the browser
   depends on Remote's served SDK (`/sdk/remote-v1.js`). Never `tmt-core`, `tmt-adapters`,
-  `tmt-remote` or Office; core is reached only through `$TMT_EXECUTABLE api`. The
+  `tmt-remote` or Office; core is reached through `$TMT_EXECUTABLE api` and the fixed,
+  bounded `identity show --json` command at CLI page create/write. Its optional caller
+  name is publisher-asserted display/default metadata, never identity or authority. The
   architecture guard enforces the dependency set, that only `tmt-colab` consumes the model,
   and that only `decoder/child.rs` imports `yrs`.
 - **Seams.** With Remote: the mount socket, `tmt-device-context`, the device-events callback
@@ -1182,9 +1184,10 @@ Colab (`extensions/tmt-colab/`: `tmt-colab`, `tmt-colab-model`, `@tmt/colab-clie
 - **Renderer invariant.** Parent chrome allows only self-hosted scripts and styles (no
   `unsafe-inline`). Author HTML runs only in `renderer.html` inside an opaque
   `sandbox allow-scripts` frame whose own policy permits inline scripts and styles but no
-  network. Bound selections, height/anchor-offset reports and quote-selector highlights
-  are cosmetic untrusted claims; only parent controls admit discussion or sends. The
-  bootstrap installs bounded DOM resolution before author HTML and passes no application capability.
+  network. Bound selections/rectangles, height/anchor-offset reports, quote-selector
+  highlights and known-thread marker clicks are cosmetic untrusted claims; only parent
+  controls admit discussion or sends. The bootstrap installs bounded DOM resolution before
+  author HTML and passes no application capability.
   This contains author code; page self-navigation can still leak a request.
 - **Plaintext invariant.** Page source and export are root-local: only the isolated decoder
   child decodes Yjs, no route serves plaintext, and the browser Worker is resource

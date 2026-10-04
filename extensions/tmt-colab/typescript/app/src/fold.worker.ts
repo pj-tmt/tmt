@@ -87,11 +87,15 @@ function project(doc: Y.Doc, complete = true) {
         (part: { insert: unknown; attributes?: unknown }) =>
           typeof part.insert !== 'string' || part.attributes,
       ) ||
-    [...meta.keys()].some((key) => key !== 'title') ||
+    [...meta.keys()].some((key) => key !== 'title' && key !== 'publisherAgent') ||
     (meta.has('title') && typeof meta.get('title') !== 'string')
   )
     throw new Error('Rejected content roots or unresolved dependencies');
-  const projection = { source: html.toString(), title: (meta.get('title') ?? '') as string };
+  const projection = {
+    source: html.toString(),
+    title: (meta.get('title') ?? '') as string,
+    ...(meta.has('publisherAgent') ? { publisherAgent: meta.get('publisherAgent') as string } : {}),
+  };
   validateProjection(projection);
   return projection;
 }

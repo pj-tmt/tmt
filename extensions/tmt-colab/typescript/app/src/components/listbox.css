@@ -75,3 +75,11 @@
   background: var(--c-paper);
   cursor: default;
 }
+
+.tmt-listbox-input .tmt-listbox-label {
+  display: none;
+}
+.tmt-listbox-input .tmt-listbox-options {
+  top: auto;
+  bottom: calc(100% + 2px);
+}

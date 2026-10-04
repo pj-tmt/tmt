@@ -46,7 +46,14 @@ async function mount(page: Page, source: string) {
         onAnchors: (resolved: string[]) => {
           host.dataset.resolved = JSON.stringify(resolved);
         },
-        onSelection: (text: string, selector: unknown) => {
+        onOpenThread: (id: string) => {
+          host.dataset.opened = id;
+        },
+        onAnnotate: () => {
+          host.dataset.annotates = String(Number(host.dataset.annotates ?? '0') + 1);
+        },
+        onSelection: (text: string, selector: unknown, rectangle: unknown) => {
+          host.dataset.rectangle = JSON.stringify(rectangle);
           host.dataset.selector = JSON.stringify(selector);
           host.dataset.selection = text;
           host.dataset.selections = JSON.stringify([
@@ -395,8 +402,23 @@ test('selection admits bounded text from the current frame, rejects foreign and 
       { type: 'colab.render.selection', renderId, text: 'unknown', unexpected: true },
       '*',
     );
-    // The parent receives all three messages in order; valid final text proves
-    // the channel remains live after both rejected inputs.
+    for (const rect of [
+      { x: 0, y: 0, width: -1, height: 1 },
+      { x: Infinity, y: 0, width: 1, height: 1 },
+      { x: 0, y: 1000001, width: 1, height: 1 },
+      { x: 0, y: 0, width: 1, height: 1, send: true },
+    ])
+      parent.postMessage(
+        {
+          type: 'colab.render.selection',
+          renderId,
+          text: 'bad rectangle',
+          selector: { exact: 'bad rectangle', prefix: '', suffix: '' },
+          rect,
+        },
+        '*',
+      );
+    // Valid final text proves the channel remains live after rejected inputs.
     parent.postMessage({ type: 'colab.render.selection', renderId, text: 'barrier' }, '*');
   }, captured.renderId);
   await expect(page.locator('#probe')).toHaveAttribute('data-selection', 'barrier');
@@ -505,7 +527,7 @@ test('hidden text is excluded; repeated or over-budget quotes detach and fallbac
   });
   await highlight('Visible 🌍');
   await expect(page.locator('#probe')).toHaveAttribute('data-resolved', JSON.stringify([id]));
-  await expect(frame.locator('[data-colab-highlight]')).toHaveCount(1);
+  await expect(frame.locator('[data-colab-highlight]:not([data-colab-markers])')).toHaveCount(1);
   await expect(frame.locator('#quote')).toHaveText('Visible hidden poison🌍');
   await frame.locator('#many').evaluate((node) => {
     node.textContent = 'x'.repeat(256 * 1024 + 1);
@@ -565,14 +587,103 @@ test('anchor results accept only the current request and requested unique IDs; c
       { ...current, resolved: ['foreign'] },
       { ...current, resolved: ['expected', 'expected'] },
       { ...current, extra: true },
+      { ...current, positions: [{ id: 'foreign', top: 2 }] },
+      { ...current, positions: [{ id: 'expected', top: Infinity }] },
     ]) {
       emit(data);
       rejected.push(resolved());
     }
     emit(current);
-    return { rejected, positive: resolved() };
+    const open = {
+      type: 'colab.render.open-thread',
+      renderId: current.renderId,
+      requestId: current.requestId,
+      id: 'expected',
+    };
+    for (const forged of [
+      { ...open, id: 'foreign' },
+      { ...open, renderId: 'old' },
+      { ...open, requestId: stale.requestId },
+      { ...open, send: true },
+    ])
+      emit(forged);
+    const openedBefore = document.getElementById('probe')!.dataset.opened;
+    emit(open);
+    return {
+      rejected,
+      positive: resolved(),
+      openedBefore,
+      opened: document.getElementById('probe')!.dataset.opened,
+    };
   });
-  expect(result).toEqual({ rejected: ['[]', '[]', '[]', '[]', '[]'], positive: '["expected"]' });
+  expect(result).toEqual({
+    rejected: ['[]', '[]', '[]', '[]', '[]', '[]', '[]'],
+    positive: '["expected"]',
+    openedBefore: undefined,
+    opened: 'expected',
+  });
   await expect(page.getByTestId('comment-thread')).toHaveCount(0);
   await expect(page.getByTestId('ask-preview')).toHaveCount(0);
+});
+
+test('range markers keep counts and first-line labels, follow document resize and scroll the window to their anchor', async ({
+  page,
+}) => {
+  await page.goto('/');
+  await mount(
+    page,
+    '<style>body{margin:20px;position:relative}.space{height:1800px}</style><div id="space" class="space"></div><p id="quote">Anchored line</p><div class="space"></div>',
+  );
+  await expect(page.locator('#probe')).toHaveAttribute('data-state', 'ready');
+  await page.evaluate(() => {
+    const handle = (
+      window as unknown as { probe: { handle: { highlight(value: unknown[]): void } } }
+    ).probe.handle;
+    handle.highlight(
+      ['first', 'second'].map((id) => ({
+        id,
+        label: 'First message line',
+        selector: { exact: 'Anchored line', prefix: '', suffix: '' },
+      })),
+    );
+  });
+  const frame = page.frameLocator('#probe iframe');
+  const marker = frame.locator('[data-colab-thread]');
+  await expect(marker).toHaveCount(1);
+  await expect(marker).toHaveText('2');
+  await expect(marker).toHaveAttribute('title', 'First message line');
+  const alignment = await frame.locator('#quote').evaluate((node) => {
+    const range = node.ownerDocument.createRange();
+    range.selectNodeContents(node);
+    return Math.abs(
+      node.ownerDocument.querySelector('[data-colab-thread]')!.getBoundingClientRect().top -
+        range.getBoundingClientRect().top,
+    );
+  });
+  expect(alignment).toBeLessThanOrEqual(5);
+  const initial = await marker.evaluate((node) => parseFloat((node as HTMLElement).style.top));
+  await frame.locator('#space').evaluate((node: HTMLElement) => {
+    node.style.height = '2200px';
+  });
+  await expect
+    .poll(() => marker.evaluate((node) => parseFloat((node as HTMLElement).style.top)))
+    .toBeGreaterThan(initial + 390);
+  await page.evaluate(() =>
+    (
+      window as unknown as { probe: { handle: { scrollAnchor(id: string): void } } }
+    ).probe.handle.scrollAnchor('first'),
+  );
+  await expect.poll(() => page.evaluate(() => window.scrollY)).toBeGreaterThan(2100);
+  expect(
+    await frame.locator('html').evaluate((node) => node.ownerDocument.defaultView!.scrollY),
+  ).toBe(0);
+  await marker.click();
+  await expect(page.locator('#probe')).toHaveAttribute('data-opened', 'first');
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(marker).toHaveCount(1);
+  await frame.locator('#quote').evaluate((node) => {
+    node.textContent = 'Changed source';
+  });
+  await expect(marker).toHaveCount(0);
+  await expect(page.locator('#probe')).toHaveAttribute('data-resolved', '[]');
 });

@@ -1,4 +1,13 @@
-import { useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
+import {
+  useEffect,
+  useId,
+  useRef,
+  useState,
+  type KeyboardEvent,
+  type ReactNode,
+  type HTMLAttributes,
+  type Ref,
+} from 'react';
 import './listbox.css';
 
 export interface ListboxOption<Value extends string> {
@@ -22,6 +31,7 @@ export function Listbox<Value extends string>({
   onChange,
   renderOption,
   disabled = false,
+  inputTrigger,
 }: {
   label: string;
   options: readonly ListboxOption<Value>[];
@@ -29,12 +39,20 @@ export function Listbox<Value extends string>({
   onChange(value: Value): void;
   renderOption?(option: ListboxOption<Value>): ReactNode;
   disabled?: boolean;
+  /** Text input owns its value; this same listbox owns option navigation. */
+  inputTrigger?: {
+    open: boolean;
+    onOpenChange(open: boolean): void;
+    render(props: HTMLAttributes<HTMLElement> & { ref: Ref<HTMLElement> }): ReactNode;
+  };
 }) {
   const id = useId();
   const root = useRef<HTMLDivElement>(null);
-  const trigger = useRef<HTMLButtonElement>(null);
+  const trigger = useRef<HTMLElement>(null);
   const list = useRef<HTMLDivElement>(null);
-  const [open, setOpen] = useState(false);
+  const [buttonOpen, setButtonOpen] = useState(false);
+  const open = inputTrigger?.open ?? buttonOpen;
+  const setOpen = inputTrigger?.onOpenChange ?? setButtonOpen;
   const [activeValue, setActiveValue] = useState<Value | null>(null);
   const selected = options.find((option) => option.value === value);
   const selectedIndex = options.findIndex((option) => option.value === value && !option.disabled);
@@ -55,7 +73,7 @@ export function Listbox<Value extends string>({
     };
     document.addEventListener('pointerdown', closeOutside);
     return () => document.removeEventListener('pointerdown', closeOutside);
-  }, [open]);
+  }, [open, setOpen]);
 
   useEffect(() => {
     if (!open || focusIndex < 0) return;
@@ -80,11 +98,21 @@ export function Listbox<Value extends string>({
   function choose(option: ListboxOption<Value>) {
     if (option.disabled) return;
     setOpen(false);
-    if (option.value !== value) onChange(option.value);
+    if (inputTrigger || option.value !== value) onChange(option.value);
     trigger.current?.focus();
   }
 
-  function onKeyDown(event: KeyboardEvent<HTMLButtonElement>) {
+  function onKeyDown(event: KeyboardEvent<HTMLElement>) {
+    if (
+      inputTrigger &&
+      (!open || event.key === ' ' || event.shiftKey || event.nativeEvent.isComposing)
+    )
+      return;
+    if (
+      inputTrigger &&
+      ['ArrowDown', 'ArrowUp', 'Home', 'End', 'Enter', 'Escape'].includes(event.key)
+    )
+      event.stopPropagation();
     switch (event.key) {
       case 'ArrowDown':
       case 'ArrowUp':
@@ -118,30 +146,49 @@ export function Listbox<Value extends string>({
   }
 
   return (
-    <div className="tmt-listbox" ref={root}>
+    <div className={`tmt-listbox${inputTrigger ? ' tmt-listbox-input' : ''}`} ref={root}>
       <span className="tmt-listbox-label" id={labelId}>
         {label}
       </span>
-      <button
-        ref={trigger}
-        type="button"
-        className="tmt-listbox-trigger"
-        role="combobox"
-        id={`${id}-trigger`}
-        aria-labelledby={`${labelId} ${valueId}`}
-        aria-haspopup="listbox"
-        aria-controls={listId}
-        aria-expanded={open}
-        aria-activedescendant={open && focusIndex >= 0 ? `${id}-option-${focusIndex}` : undefined}
-        disabled={disabled || firstIndex < 0}
-        onClick={() => (open ? setOpen(false) : openList())}
-        onKeyDown={onKeyDown}
-      >
-        <span id={valueId}>{selected?.label ?? 'Choose an option'}</span>
-        <span className="tmt-listbox-chevron" aria-hidden="true">
-          ▾
-        </span>
-      </button>
+      {inputTrigger ? (
+        inputTrigger.render({
+          ref: (node) => {
+            trigger.current = node;
+          },
+          role: 'combobox',
+          'aria-label': label,
+          'aria-autocomplete': 'list',
+          'aria-haspopup': 'listbox',
+          'aria-controls': listId,
+          'aria-expanded': open,
+          'aria-activedescendant':
+            open && focusIndex >= 0 ? `${id}-option-${focusIndex}` : undefined,
+          onKeyDown,
+        })
+      ) : (
+        <button
+          ref={(node) => {
+            trigger.current = node;
+          }}
+          type="button"
+          className="tmt-listbox-trigger"
+          role="combobox"
+          id={`${id}-trigger`}
+          aria-labelledby={`${labelId} ${valueId}`}
+          aria-haspopup="listbox"
+          aria-controls={listId}
+          aria-expanded={open}
+          aria-activedescendant={open && focusIndex >= 0 ? `${id}-option-${focusIndex}` : undefined}
+          disabled={disabled || firstIndex < 0}
+          onClick={() => (open ? setOpen(false) : openList())}
+          onKeyDown={onKeyDown}
+        >
+          <span id={valueId}>{selected?.label ?? 'Choose an option'}</span>
+          <span className="tmt-listbox-chevron" aria-hidden="true">
+            ▾
+          </span>
+        </button>
+      )}
       <div
         ref={list}
         className="tmt-listbox-options"
@@ -162,7 +209,12 @@ export function Listbox<Value extends string>({
             disabled={option.disabled}
             tabIndex={-1}
             onPointerMove={() => setActiveValue(option.value)}
-            onClick={() => choose(option)}
+            onPointerDown={(event) => {
+              if (inputTrigger) event.preventDefault();
+            }}
+            onClick={(event) => {
+              if (event.isTrusted) choose(option);
+            }}
           >
             {renderOption ? renderOption(option) : option.label}
           </button>

@@ -256,3 +256,58 @@ it('formats comment and Ask timestamps with the same relative labels', () => {
   expect(relativeTime(1791072000000, 1791072000000)).toBe('Just now');
   expect(relativeTime(1791072000000, 1791072300000)).toBe('5 minutes ago');
 });
+
+it('freezes prior user turns and verified replies, excludes later arrivals and refuses stale conversation records', async () => {
+  const { captureConversation, conversationForAsk } = await import('../src/thread-store.js');
+  const f = storeFixture();
+  const first = await f.store.create('@agent First question', fixture.thread.anchor);
+  const read = () => readThreads(f.own, fixture.scope, () => new Uint8Array(32));
+  const reply = {
+    thread: first.thread.id,
+    messageIds: [first.message.id],
+    writer: a,
+    operationId: crypto.randomUUID(),
+    reply: 'First answer',
+    agentName: 'agent',
+    agent: crypto.randomUUID(),
+    machine: crypto.randomUUID(),
+    message: 'Frozen question',
+    deviceName: 'Browser',
+    issuedAt: 1791072000000,
+    state: 'accepted',
+    canTrack: true,
+  } satisfies import('../src/ask-panel.js').PageAsk;
+  const frozen = captureConversation(read()[0], [reply]);
+  const second = await f.store.reply(first.thread, '@agent Follow-up');
+  const context = { ...second, conversation: frozen };
+  const exact = conversationForAsk(read(), context, [reply]);
+  expect(exact).toMatchObject({
+    thread: first.thread.id,
+    messageIds: [second.message.id],
+    quote: fixture.thread.anchor.exact,
+  });
+  expect(exact.comment).toBe(
+    'Earlier conversation (quoted data):\nUser (Browser):\n@agent First question\n\nAgent (agent):\nFirst answer\n\nCurrent user turn:\n@agent Follow-up',
+  );
+  expect(() =>
+    conversationForAsk(read(), context, [{ ...reply, reply: 'Changed reply after Send' }]),
+  ).toThrow();
+  expect(() =>
+    conversationForAsk(read(), context, [{ ...reply, agentName: 'Changed display name' }]),
+  ).toThrow();
+  await f.store.reply(first.thread, 'A later arrival');
+  expect(conversationForAsk(read(), context, [reply])).toEqual(exact);
+  await f.store.edit(first.message, '1', 'Changed after Send');
+  expect(() => conversationForAsk(read(), context, [reply])).toThrow();
+});
+
+it('refuses a follow-up if its captured anchor revision changed before publication', async () => {
+  const f = storeFixture();
+  const created = await f.store.create('Opening turn', fixture.thread.anchor);
+  await f.store.updateThread(created.thread, '1', {
+    anchor: { exact: 'Moved quote', prefix: '', suffix: '' },
+  });
+  const before = structuredClone(f.own);
+  await expect(f.store.reply(created.thread, 'Follow-up', '1')).rejects.toThrow();
+  expect(f.own).toEqual(before);
+});

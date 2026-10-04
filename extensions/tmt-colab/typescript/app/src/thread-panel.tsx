@@ -1,9 +1,10 @@
 import { useEffect, useId, useState } from 'react';
-import { AskControl, type AskBinding } from './ask-panel.js';
+import { AskPanel, type AskBinding, type PageAsk } from './ask-panel.js';
 import type { ThreadBinding } from './thread-store.js';
-import type { CommentView, QuoteSelector, ThreadView } from './thread-records.js';
+import type { CommentView, QuoteSelector, ThreadView, DiscussionRef } from './thread-records.js';
 import { text } from './strings.js';
 import { relativeTime } from './display-time.js';
+import { AnnotationInput } from './annotation-input.js';
 
 function Composer({
   label,
@@ -75,14 +76,14 @@ function Comment({
   thread,
   binding,
   ask,
-  title,
+  asks,
   blocked,
 }: {
   comment: CommentView;
   thread: ThreadView;
   binding?: ThreadBinding;
   ask?: AskBinding;
-  title: string;
+  asks: readonly PageAsk[];
   blocked: boolean;
 }) {
   const editId = useId();
@@ -186,21 +187,14 @@ function Comment({
           )}
         </>
       )}
-      <AskControl
-        originUnavailable={thread.deleted || comment.deleted}
+      <AskPanel
+        inline
+        records={asks.filter(
+          (record) =>
+            record.thread === thread.threadId && record.messageIds?.includes(comment.messageId),
+        )}
         binding={ask}
-        selection={thread.anchor?.exact ?? ''}
-        title={title}
         blocked={blocked || busy}
-        origin={{
-          body: comment.body,
-          context: {
-            thread: thread.ref,
-            message: comment.ref,
-            threadRevision: thread.revision,
-            messageRevision: comment.revision,
-          },
-        }}
       />
       {error && <p role="alert">{text.commentFailed}</p>}
     </article>
@@ -214,6 +208,9 @@ function Thread({
   binding,
   ask,
   title,
+  asks,
+  publisher,
+  close,
   blocked,
 }: {
   thread: ThreadView;
@@ -222,10 +219,12 @@ function Thread({
   binding?: ThreadBinding;
   ask?: AskBinding;
   title: string;
+  asks: readonly PageAsk[];
+  publisher?: string;
+  close(): void;
   blocked: boolean;
 }) {
-  const [replying, setReplying] = useState(false),
-    [busy, setBusy] = useState(false),
+  const [busy, setBusy] = useState(false),
     [error, setError] = useState(false);
   const owned = binding?.deviceId === thread.ref.writer;
   const [reattach, setReattach] = useState<QuoteSelector | null>(null);
@@ -271,20 +270,12 @@ function Thread({
           thread={thread}
           binding={binding}
           ask={ask}
-          title={title}
+          asks={asks}
           blocked={blocked || busy}
         />
       ))}
       {binding && !thread.deleted && (
         <div className="comment-actions">
-          <button
-            disabled={blocked || busy || replying}
-            onClick={(event) => {
-              if (event.isTrusted) setReplying(true);
-            }}
-          >
-            {text.commentReply}
-          </button>
           {owned && (
             <>
               <button
@@ -342,12 +333,18 @@ function Thread({
           </div>
         </section>
       )}
-      {replying && !thread.deleted && binding && (
-        <Composer
-          label={text.commentPostReply}
-          submit={(body) => binding.reply(thread.ref, body)}
-          cancel={() => setReplying(false)}
+      {!thread.deleted && binding && (
+        <AnnotationInput
+          binding={ask}
+          discussion={binding}
+          anchor={thread.anchor}
+          thread={thread}
+          asks={asks}
+          title={title}
+          publisher={publisher}
           blocked={blocked || busy}
+          cancel={close}
+          committed={() => {}}
         />
       )}
       {error && <p role="alert">{text.commentFailed}</p>}
@@ -362,8 +359,14 @@ export function ThreadPanel({
   selection,
   binding,
   ask,
+  asks,
   title,
+  publisher,
   blocked,
+  active,
+  select,
+  annotation,
+  cancelAnnotation,
 }: {
   hideHeader?: boolean;
   threads: readonly ThreadView[];
@@ -371,59 +374,122 @@ export function ThreadPanel({
   selection: QuoteSelector | null;
   binding?: ThreadBinding;
   ask?: AskBinding;
+  asks: readonly PageAsk[];
   title: string;
+  publisher?: string;
   blocked: boolean;
+  active: string | null;
+  select(ref: DiscussionRef | null): void;
+  annotation?: QuoteSelector;
+  cancelAnnotation(): void;
 }) {
-  const [compose, setCompose] = useState<{ anchor: QuoteSelector | null } | null>(null);
+  const [compose, setCompose] = useState(false);
+  const [now, setNow] = useState(0);
+  useEffect(() => setNow(Date.now()), [threads, asks]);
   return (
     <aside className="comments-panel" aria-label={text.comments} data-testid="comments-panel">
       {!hideHeader && (
         <header>
           <h2>{text.comments}</h2>
-          <span>{threads.filter((v) => !v.deleted).length}</span>
+          <span>{threads.filter((value) => !value.deleted).length}</span>
         </header>
       )}
-      <div className="comment-actions">
-        <button
-          data-testid="comment-action"
-          disabled={!binding || blocked || !!compose || !selection}
-          onClick={(event) => {
-            if (event.isTrusted && selection) setCompose({ anchor: structuredClone(selection) });
-          }}
-        >
-          {text.commentSelection}
-        </button>
-        <button
-          disabled={!binding || blocked || !!compose}
-          onClick={(event) => {
-            if (event.isTrusted) setCompose({ anchor: null });
-          }}
-        >
-          {text.commentPage}
-        </button>
-      </div>
+      <button
+        className="comment-page-action"
+        disabled={!binding || blocked || compose}
+        onClick={(event) => {
+          if (event.isTrusted) setCompose(true);
+        }}
+      >
+        {text.commentPage}
+      </button>
       {compose && binding && (
         <Composer
           label={text.commentPost}
-          quote={compose.anchor?.exact}
-          submit={(body) => binding.create(body, compose.anchor)}
-          cancel={() => setCompose(null)}
+          submit={async (body) => {
+            const context = await binding.create(body, null);
+            select(context.thread);
+          }}
+          cancel={() => setCompose(false)}
           blocked={blocked}
         />
       )}
+      {annotation && (
+        <section className="annotation-new">
+          <blockquote>{annotation.exact}</blockquote>
+          <AnnotationInput
+            key={JSON.stringify(annotation)}
+            binding={ask}
+            discussion={binding}
+            anchor={annotation}
+            asks={asks}
+            title={title}
+            publisher={publisher}
+            blocked={blocked}
+            cancel={cancelAnnotation}
+            committed={(ref) => {
+              cancelAnnotation();
+              select(ref);
+            }}
+          />
+        </section>
+      )}
       {!threads.length && <p className="comment-status">{text.commentEmpty}</p>}
-      {threads.map((thread) => (
-        <Thread
-          key={`${thread.ref.writer}:${thread.threadId}`}
-          thread={thread}
-          attached={resolved.includes(`${thread.ref.writer}:${thread.threadId}`)}
-          selection={selection}
-          binding={binding}
-          ask={ask}
-          title={title}
-          blocked={blocked}
-        />
-      ))}
+      <div className="annotation-list">
+        {threads.map((thread) => {
+          const id = `${thread.ref.writer}:${thread.threadId}`;
+          const participants = [
+            ...new Set([
+              ...thread.comments
+                .filter((value) => !value.deleted)
+                .map((value) => value.deviceName || text.commentDevice),
+              ...asks
+                .filter((value) => value.thread === thread.threadId)
+                .map((value) => value.agentName),
+            ]),
+          ];
+          const at = Number(thread.comments.at(-1)?.at ?? thread.at);
+          return (
+            <section className="annotation-list-item" key={id}>
+              <button
+                className="annotation-row"
+                data-testid="annotation-row"
+                data-thread-id={thread.threadId}
+                aria-expanded={active === id}
+                onClick={(event) => {
+                  if (event.isTrusted) select(thread.ref);
+                }}
+              >
+                <strong>
+                  {thread.deleted ? text.threadDeleted : (thread.anchor?.exact ?? 'Page comments')}
+                </strong>
+                <span>
+                  {participants.join(', ')} ·{' '}
+                  <time dateTime={new Date(at).toISOString()}>{relativeTime(at, now)}</time>
+                </span>
+                <span>
+                  {thread.resolved ? text.threadResolved : text.threadOpen}
+                  {thread.anchor && !resolved.includes(id) ? ` · ${text.commentDetached}` : ''}
+                </span>
+              </button>
+              {active === id && (
+                <Thread
+                  thread={thread}
+                  attached={resolved.includes(id)}
+                  selection={selection}
+                  binding={binding}
+                  ask={ask}
+                  asks={asks}
+                  title={title}
+                  publisher={publisher}
+                  close={() => select(null)}
+                  blocked={blocked}
+                />
+              )}
+            </section>
+          );
+        })}
+      </div>
     </aside>
   );
 }

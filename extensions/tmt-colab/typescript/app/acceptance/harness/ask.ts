@@ -80,6 +80,17 @@ export async function selectInRenderer(page: Page, selector: string): Promise<vo
   await expect(page.getByTestId('ask-action')).toBeEnabled();
 }
 
+/** Choose an annotation recipient through the shared parent input listbox. */
+export async function annotationInput(container: Locator, agent: string) {
+  const input = container.getByRole('combobox', { name: 'Message to agent', exact: true });
+  await input.fill('@');
+  await container
+    .getByRole('option')
+    .filter({ hasText: `@${agent} ·` })
+    .click();
+  return input;
+}
+
 export interface PreviewedAsk {
   operationId: string;
   /** Exact text of the preview: the Remote device-name line plus the transport message. */
@@ -95,7 +106,8 @@ export async function previewAsk(
   if ((await page.getByTestId('ask-toggle').getAttribute('aria-expanded')) === 'false')
     await page.getByTestId('ask-toggle').click();
   await page.getByTestId('ask-action').click();
-  await page.locator(`[data-testid=ask-agent-option][data-agent-id="${agentId}"] input`).check();
+  await page.getByRole('combobox', { name: /Choose an agent/ }).click();
+  await page.locator(`[data-testid=ask-agent-option][data-agent-id="${agentId}"]`).click();
   await page.getByLabel('Question or instruction').fill(question);
   await page.getByRole('button', { name: 'Ask agent — preview', exact: true }).click();
   const preview = page.getByTestId('ask-preview');

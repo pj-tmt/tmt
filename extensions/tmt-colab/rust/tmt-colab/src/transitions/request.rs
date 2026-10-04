@@ -46,6 +46,7 @@ pub enum OwnerAction<'a> {
         page: &'a str,
         title: &'a str,
         source: &'a str,
+        publisher_agent: Option<&'a str>,
     },
     EpochAdvance {
         page: &'a str,
@@ -182,6 +183,7 @@ impl Engine {
                 page,
                 title,
                 source,
+                publisher_agent,
             } => self.create_page(
                 store,
                 key,
@@ -190,6 +192,7 @@ impl Engine {
                     page,
                     title,
                     source,
+                    publisher_agent,
                 },
                 now,
             )?,

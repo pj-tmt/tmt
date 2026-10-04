@@ -11,19 +11,26 @@ owns record fields, limits, revision semantics and trust boundaries.
   creation batches the opening comment with its thread through
   `Writer.submitOwnRecords`; foreign replies remain in the replying stream.
   `commentForAsk` rechecks origin IDs/revisions before freezing an Ask.
+  `captureConversation` captures prior comment/reply references on explicit Send;
+  `conversationForAsk` revalidates that frozen set against admitted records, excluding
+  later arrivals and refusing edited/deleted context.
 - `fold.worker.ts` prepares immutable bounded own batches without committing;
   `writer.ts` keeps the existing lifetime lock, shared sequence and durable exact
   ciphertext retry. `Live` publishes discussion from its committed own view.
 - Native `threads.rs` validates typed record grammar after isolated Yjs decoding.
   It has no DOM, signatures, publication or dispatch responsibility.
 - `thread-panel.tsx` owns muted author/time labels with device-ID tooltips, plain-text
-  parent controls, draft retention and explicit reattach confirmation. `AskControl`
-  captures comment context on opening and retains a prepared excerpt through
-  subsequent edits or tombstones.
+  parent controls, one all-annotations list, expanded conversation and explicit
+  reattach confirmation. `annotation-input.tsx` owns one plain @ input with Enter
+  Send, Shift+Enter newline, Escape cancellation and exact-byte disclosure. It
+  extends the same `components/listbox.tsx` used by Manage and the agent list;
+  UI capture/default labels grant no routing authority.
 - `public/renderer.html` installs bounded selection capture and cosmetic quote
-  resolution before author HTML; `renderer.ts` binds narrow requests/results to
+  resolution, highlights and count-bearing margin markers before author HTML; `renderer.ts` binds narrow requests/results to
   the current render and request. CSS Highlights and pointer-inert overlays grant
-  no source truth or application capability. Ports/observers clear on teardown.
+  no source truth or application capability. Known-thread marker messages open
+  only parent views. Selection rectangles and anchor offsets are bounded cosmetic
+  claims; normal anchor navigation scrolls the window. Ports/observers clear on teardown.
 
 Verification: `test/thread-records.test.ts` and native `tests/discussion.rs`
 consume `contracts/vectors/discussion-v1.json`. `test/own-fold.test.ts` checks

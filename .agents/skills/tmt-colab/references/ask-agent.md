@@ -89,9 +89,13 @@ modules in `extensions/tmt-colab/typescript/app/src` and `rust/tmt-colab/src/ask
   cut-admitted own envelope (revoked history stays inert and grants no authority). Slow
   verification keeps one active and the latest pending snapshot, so source edit and export
   keep reading the committed document.
-- **UI.** The parent (`ask-panel.tsx`, `ask-preview.tsx`) owns the picker, preview and Send
-  (`event.isTrusted`); test IDs: `ask-action`, `ask-agent-picker`, `ask-agent-option`
-  (`data-agent-id`), `ask-agents-unavailable`, `ask-preview` (`data-operation-id`),
+- **UI.** `annotation-input.tsx` uses the same Ask binding for direct explicit Enter
+  sends; it freezes the current text and captured conversation references without a
+  confirmation screen, with exact bytes behind a disclosure. `thread-panel.tsx`
+  renders verified replies inline; held/recheck/uncertainty keep the existing ledger.
+  The standalone parent (`ask-panel.tsx`, `ask-preview.tsx`) owns the agent list, preview and Send
+  (`event.isTrusted`); test IDs: `ask-action`, `ask-agent-option`
+  (`data-agent-id` in the shared styled listbox), `ask-agents-unavailable`, `ask-preview` (`data-operation-id`),
   `ask-preview-text`, `ask-send`, `ask-panel`, `ask-entry` (`data-operation-id`,
   `data-writer`), `ask-state` (`data-state`), `ask-reply` (`data-empty`) and
   `ask-reply-attribution`. Entries show the publisher labels, with routing UUIDs under

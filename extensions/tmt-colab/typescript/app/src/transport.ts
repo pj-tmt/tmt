@@ -19,6 +19,7 @@ export interface PageSummary {
   readonly retentionDays?: number | null;
 }
 export interface PageSnapshot extends PageSummary {
+  readonly publisherAgent?: string;
   readonly source: string;
   readonly binding?: PageBinding;
   readonly ownData?: boolean;

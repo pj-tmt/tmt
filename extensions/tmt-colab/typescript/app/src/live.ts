@@ -1,4 +1,4 @@
-import { ThreadStore, commentForAsk } from './thread-store.js';
+import { ThreadStore, commentForAsk, conversationForAsk } from './thread-store.js';
 import { readThreads } from './thread-records.js';
 import { LiveAsk, pageAsks } from './live-ask.js';
 import { requireValue } from '@tmt/colab-client';
@@ -86,19 +86,21 @@ export class Live implements PageBinding {
           key: registration.keys.sign,
           publicKey: registration.keys.signPublic,
           own: () => this.#admitted.own ?? {},
-          commentContext: (context) =>
-            commentForAsk(
-              readThreads(
-                this.#admitted.own ?? {},
-                {
-                  spaceId: bootstrap.space,
-                  pageId: page.pageId,
-                  epoch: page.epoch,
-                },
-                (writer) => this.#connection?.objects.ownSigningKey(writer),
-              ),
-              context,
-            ),
+          commentContext: async (context) => {
+            const connection = this.#connection;
+            if (!connection) throw new Error('Discussion connection unavailable');
+            const own = this.#admitted.own ?? {};
+            const threads = readThreads(
+              own,
+              { spaceId: bootstrap.space, pageId: page.pageId, epoch: page.epoch },
+              (writer) => connection.objects.ownSigningKey(writer),
+            );
+            if (!context.conversation) return commentForAsk(threads, context);
+            const asks = await pageAsks(own, connection.admission, (writer) =>
+              connection.objects.ownSigningKey(writer),
+            );
+            return conversationForAsk(threads, context, asks);
+          },
           publish: (root, key, value) => this.#writer.submitOwn(root, key, value),
           connection: () => this.#current,
           observe: () => this.#observe(),

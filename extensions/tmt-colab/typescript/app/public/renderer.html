@@ -56,7 +56,11 @@
           const scheduleHeight = () => {
             if (!stopped && heightTimer === undefined) heightTimer = setTimeout(measureHeight, 100);
           };
-          const sizeObserver = new ResizeObserver(scheduleHeight);
+          const sizeObserver = new ResizeObserver(() => {
+            scheduleHeight();
+            schedule();
+            capture();
+          });
           function anchor(event) {
             if (
               !event.isTrusted ||
@@ -86,9 +90,11 @@
             if (innerScroll) target.scrollIntoView();
             parent.postMessage({ type: 'colab.render.anchor', renderId, top }, '*');
           }
-          let layer;
+          let layer, markers;
+          const anchorRanges = new Map();
           const sheet = document.createElement('style');
-          sheet.textContent = '::highlight(colab-comments){background:#ffe18a;color:inherit}';
+          sheet.textContent =
+            '::highlight(colab-comments){background:#ffe18a55;color:inherit;text-decoration:underline}';
           document.head.append(sheet);
           function collect() {
             const deadline = performance.now() + 20;
@@ -133,9 +139,11 @@
             }
             return { points, spans, units, text: points.join('') };
           }
+          let selected = JSON.stringify({ selector: null, rect: null });
           function capture() {
             if (stopped) return;
-            let selector = null;
+            let selector = null,
+              rect = null;
             try {
               const selection = getSelection();
               if (selection?.rangeCount === 1 && !selection.isCollapsed) {
@@ -163,12 +171,25 @@
                     suffix: map.points.slice(end, end + 32).join(''),
                   };
                 if (!validQuote(selector)) selector = null;
+                if (selector) {
+                  const box = range.getBoundingClientRect();
+                  rect = { x: box.x, y: box.y, width: box.width, height: box.height };
+                }
               }
             } catch {
               selector = null;
             }
+            const next = JSON.stringify({ selector, rect });
+            if (next === selected) return;
+            selected = next;
             parent.postMessage(
-              { type: 'colab.render.selection', renderId, text: selector?.exact ?? '', selector },
+              {
+                type: 'colab.render.selection',
+                renderId,
+                text: selector?.exact ?? '',
+                selector,
+                rect,
+              },
               '*',
             );
           }
@@ -178,12 +199,16 @@
             } catch {}
             layer?.remove();
             layer = undefined;
+            markers?.remove();
+            markers = undefined;
+            anchorRanges.clear();
           }
           function resolve() {
             if (stopped || !requestId) return;
             clear();
             const resolved = [],
-              ranges = [];
+              ranges = [],
+              positions = [];
             try {
               const map = collect(),
                 deadline = performance.now() + 20;
@@ -219,6 +244,9 @@
                 range.setEnd(b.node, b.end);
                 ranges.push(range);
                 resolved.push(item.id);
+                anchorRanges.set(item.id, range);
+                const top = Math.max(0, range.getBoundingClientRect().top + scrollY);
+                if (Number.isFinite(top) && top <= 1000000) positions.push({ id: item.id, top });
               }
               if (ranges.length && typeof Highlight === 'function' && CSS.highlights) {
                 CSS.highlights.set('colab-comments', new Highlight(...ranges));
@@ -237,11 +265,56 @@
                   }
                 document.body.append(layer);
               }
+              if (positions.length) {
+                markers = document.createElement('div');
+                markers.dataset.colabHighlight = '';
+                markers.dataset.colabMarkers = '';
+                markers.style.cssText =
+                  'position:absolute;top:0;left:0;width:100%;pointer-events:none;z-index:2147483647';
+                document.body.append(markers);
+                const origin = markers.getBoundingClientRect().top + scrollY;
+                const lines = new Map();
+                for (const position of positions) {
+                  const line = Math.round(position.top / 8) * 8;
+                  const group = lines.get(line) ?? [];
+                  group.push(position.id);
+                  lines.set(line, group);
+                }
+                for (const [top, ids] of lines) {
+                  const marker = document.createElement('button');
+                  marker.type = 'button';
+                  marker.dataset.colabThread = ids[0];
+                  marker.textContent = ids.length > 1 ? String(ids.length) : '▪';
+                  marker.title =
+                    batch.find((item) => item.id === ids[0])?.label ??
+                    batch.find((item) => item.id === ids[0])?.selector.exact.slice(0, 80) ??
+                    'Annotation';
+                  marker.setAttribute('aria-label', 'Open annotation: ' + marker.title);
+                  marker.style.cssText = `position:absolute;right:8px;top:${top - origin}px;width:20px;height:20px;padding:0;border:1px solid #625327;border-radius:0;background:#ffe18a;color:#392e12;font:12px/18px sans-serif;pointer-events:auto;cursor:pointer`;
+                  marker.addEventListener('click', (event) => {
+                    if (event.isTrusted)
+                      port.postMessage({
+                        type: 'colab.render.open-thread',
+                        renderId,
+                        requestId,
+                        id: ids[0],
+                      });
+                  });
+                  markers.append(marker);
+                }
+              }
             } catch {
+              positions.length = 0;
               resolved.length = 0;
               clear();
             }
-            port.postMessage({ type: 'colab.render.anchors', renderId, requestId, resolved });
+            port.postMessage({
+              type: 'colab.render.anchors',
+              renderId,
+              requestId,
+              resolved,
+              positions,
+            });
           }
           const schedule = () => {
             clearTimeout(timer);
@@ -259,6 +332,21 @@
               v.mode === 'frame'
             ) {
               innerScroll = true;
+              return;
+            }
+            if (
+              v &&
+              typeof v === 'object' &&
+              !Array.isArray(v) &&
+              Object.keys(v).length === 4 &&
+              v.type === 'colab.render.scroll-thread' &&
+              v.renderId === renderId &&
+              v.requestId === requestId &&
+              typeof v.id === 'string' &&
+              anchorRanges.has(v.id)
+            ) {
+              if (innerScroll)
+                anchorRanges.get(v.id).startContainer.parentElement?.scrollIntoView();
               return;
             }
             if (
@@ -281,7 +369,10 @@
                   item &&
                   typeof item === 'object' &&
                   !Array.isArray(item) &&
-                  Object.keys(item).length === 2 &&
+                  [2, 3].includes(Object.keys(item).length) &&
+                  Object.keys(item).every((key) => ['id', 'selector', 'label'].includes(key)) &&
+                  (item.label === undefined ||
+                    (typeof item.label === 'string' && utf8.encode(item.label).length <= 128)) &&
                   typeof item.id === 'string' &&
                   item.id.length <= 73 &&
                   validQuote(item.selector),
@@ -297,6 +388,7 @@
               mutations.some(
                 (m) =>
                   !layer?.contains(m.target) &&
+                  !markers?.contains(m.target) &&
                   !(
                     m.type === 'childList' &&
                     [...m.addedNodes, ...m.removedNodes].every(
@@ -327,6 +419,21 @@
             },
             { once: true },
           );
+          const annotate = (event) => {
+            if (
+              event.isTrusted &&
+              event.altKey &&
+              event.key === 'Enter' &&
+              !getSelection()?.isCollapsed
+            ) {
+              event.preventDefault();
+              capture();
+              parent.postMessage({ type: 'colab.render.annotate', renderId }, '*');
+            }
+          };
+          document.addEventListener('keydown', annotate);
+          addEventListener('resize', capture);
+          addEventListener('scroll', capture, { passive: true });
           addEventListener('resize', schedule);
           addEventListener('resize', scheduleHeight);
           addEventListener(
@@ -341,6 +448,9 @@
               clear();
               document.removeEventListener('selectionchange', capture);
               document.removeEventListener('click', anchor, true);
+              document.removeEventListener('keydown', annotate);
+              removeEventListener('resize', capture);
+              removeEventListener('scroll', capture);
               removeEventListener('resize', schedule);
               removeEventListener('resize', scheduleHeight);
             },

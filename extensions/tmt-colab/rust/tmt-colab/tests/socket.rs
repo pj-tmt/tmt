@@ -2456,8 +2456,32 @@ fn root_local_page_write_broadcasts_chain_chunks_and_replays_without_fanout() {
     ))
     .unwrap();
     let source = "source 🐈\r\n".repeat(6000);
-    let prepared = page::prepare(&store, &key, PAGE, &source, None, &mut decoder, now()).unwrap();
-    let base = page::prepare(&store, &key, PAGE, "stale", None, &mut decoder, now()).unwrap();
+    let prepared = page::prepare(
+        &store,
+        &key,
+        PAGE,
+        tmt_colab::decoder::ContentEdit {
+            source: &source,
+            publisher_agent: None,
+        },
+        None,
+        &mut decoder,
+        now(),
+    )
+    .unwrap();
+    let base = page::prepare(
+        &store,
+        &key,
+        PAGE,
+        tmt_colab::decoder::ContentEdit {
+            source: "stale",
+            publisher_agent: None,
+        },
+        None,
+        &mut decoder,
+        now(),
+    )
+    .unwrap();
     store.close().unwrap();
     let body = serde_json::to_string(&prepared).unwrap();
     assert!(body.len() > limits::HTTP_BODY_BYTES);

@@ -13,15 +13,76 @@ import {
 } from '@tanstack/react-router';
 import type { PageView, PageTransport } from './transport.js';
 import { ThreadPanel } from './thread-panel.js';
-import type { QuoteSelector } from './thread-records.js';
+import type { QuoteSelector, DiscussionRef } from './thread-records.js';
 import { ShareDialog } from './share-dialog.js';
 import { mountRenderer } from './renderer.js';
-import type { RenderState } from './renderer.js';
+import type { RenderState, SelectionRect } from './renderer.js';
 import { text } from './strings.js';
 import { ExportPanel } from './export-panel.js';
 import { PageDrawer } from './page-drawer.js';
 import { AskControl, AskPanel } from './ask-panel.js';
 
+function SelectionBubble({
+  host,
+  rectangle,
+  inset,
+  open,
+}: {
+  host: HTMLDivElement | null;
+  rectangle: SelectionRect | null;
+  inset: number;
+  open(): void;
+}) {
+  const [position, setPosition] = useState<{ left: number; top: number } | null>(null);
+  useEffect(() => {
+    const place = () => {
+      const frame = host?.querySelector('iframe')?.getBoundingClientRect();
+      if (!frame || !rectangle) {
+        setPosition(null);
+        return;
+      }
+      const top = frame.top + Math.max(0, Math.min(frame.height, rectangle.y)),
+        bottom = frame.top + Math.max(0, Math.min(frame.height, rectangle.y + rectangle.height));
+      if (bottom < inset || top > innerHeight) {
+        setPosition(null);
+        return;
+      }
+      setPosition({
+        left: Math.max(
+          8,
+          Math.min(
+            innerWidth - 72,
+            frame.right - 72,
+            frame.left + Math.max(0, Math.min(frame.width, rectangle.x)),
+          ),
+        ),
+        top: Math.max(inset + 4, Math.min(innerHeight - 44, bottom + 6)),
+      });
+    };
+    place();
+    window.addEventListener('scroll', place, { passive: true });
+    window.addEventListener('resize', place);
+    return () => {
+      window.removeEventListener('scroll', place);
+      window.removeEventListener('resize', place);
+    };
+  }, [host, rectangle, inset]);
+  return (
+    position && (
+      <button
+        className="selection-ask"
+        style={position}
+        data-testid="selection-ask"
+        onPointerDown={(event) => event.preventDefault()}
+        onClick={(event) => {
+          if (event.isTrusted) open();
+        }}
+      >
+        Ask
+      </button>
+    )
+  );
+}
 const managementChanged = 'Management changed. Reopen the page to load its latest state.';
 
 const root = createRootRouteWithContext<{ transport: PageTransport }>()({
@@ -248,6 +309,7 @@ function Page() {
   const [view, setView] = useState<PageView>({
     source: snapshot.source,
     title: snapshot.title,
+    publisherAgent: snapshot.publisherAgent,
     ownData: snapshot.ownData ?? false,
     own: snapshot.own,
     asks: snapshot.asks,
@@ -267,6 +329,7 @@ function Page() {
     setView({
       source: snapshot.source,
       title: snapshot.title,
+      publisherAgent: snapshot.publisherAgent,
       ownData: snapshot.ownData ?? false,
       own: snapshot.own,
       asks: snapshot.asks,
@@ -318,6 +381,35 @@ function Page() {
   }
   const [selection, setSelection] = useState('');
   const [selector, setSelector] = useState<QuoteSelector | null>(null);
+  const currentSelector = useRef<QuoteSelector | null>(null);
+  const [rectangle, setRectangle] = useState<SelectionRect | null>(null);
+  const [annotation, setAnnotation] = useState<QuoteSelector>();
+  const [activeThread, setActiveThread] = useState<string | null>(null);
+  useEffect(() => {
+    setAnnotation(undefined);
+    setActiveThread(null);
+    setPanel(null);
+  }, [snapshot.id]);
+  function annotate() {
+    if (!currentSelector.current) return;
+    setAnnotation(structuredClone(currentSelector.current));
+    setActiveThread(null);
+    setRectangle(null);
+    setPanel('comments');
+    setMenu(false);
+  }
+  function openThread(ref: DiscussionRef | null) {
+    if (!ref) {
+      setActiveThread(null);
+      return;
+    }
+    const id = `${ref.writer}:${ref.id}`;
+    setAnnotation(undefined);
+    setActiveThread(id);
+    setPanel('comments');
+    setMenu(false);
+    renderer.current?.scrollAnchor(id);
+  }
   const [resolved, setResolved] = useState<string[]>([]);
   const renderer = useRef<Awaited<ReturnType<typeof mountRenderer>> | null>(null);
   const [state, setState] = useState<RenderState | 'loading'>('loading');
@@ -331,17 +423,28 @@ function Page() {
     setState('loading');
     setSelection('');
     setSelector(null);
+    currentSelector.current = null;
+    setRectangle(null);
     setResolved([]);
     void mountRenderer(host.current!, view.source, {
       signal: controller.signal,
       onState: setState,
       viewportInset: () =>
         (toolbar.current?.offsetHeight ?? 56) + (toolbar.current?.getBoundingClientRect().top ?? 0),
-      onSelection: (value, quote) => {
+      onSelection: (value, quote, rect) => {
         setSelection(value);
         setSelector(quote ?? null);
+        currentSelector.current = quote ?? null;
+        setRectangle(rect ?? null);
       },
       onAnchors: setResolved,
+      onAnnotate: annotate,
+      onOpenThread: (id) => {
+        const thread = latest.current.threads?.find(
+          (value) => `${value.ref.writer}:${value.threadId}` === id && !value.deleted,
+        );
+        if (thread) openThread(thread.ref);
+      },
     })
       .then((handle) => {
         if (controller.signal.aborted) handle.destroy();
@@ -360,7 +463,21 @@ function Page() {
     renderer.current?.highlight(
       (view.threads ?? []).flatMap((thread) =>
         !thread.deleted && thread.anchor
-          ? [{ id: `${thread.ref.writer}:${thread.threadId}`, selector: thread.anchor }]
+          ? [
+              {
+                id: `${thread.ref.writer}:${thread.threadId}`,
+                selector: thread.anchor,
+                label: Array.from(
+                  (
+                    thread.comments.find(
+                      (value) => !value.deleted && value.ref.writer === thread.ref.writer,
+                    ) ?? thread.comments.find((value) => !value.deleted)
+                  )?.body.split('\n')[0] ?? thread.anchor.exact,
+                )
+                  .slice(0, 32)
+                  .join(''),
+              },
+            ]
           : [],
       ),
     );
@@ -506,6 +623,14 @@ function Page() {
           )}
         </div>
       </div>
+      {snapshot.binding?.discussion && snapshot.binding?.ask && !liveError && state === 'ready' && (
+        <SelectionBubble
+          host={host.current}
+          rectangle={rectangle}
+          inset={toolbar.current?.offsetHeight ?? 56}
+          open={annotate}
+        />
+      )}
       <PageDrawer
         open={panel === 'source'}
         title={text.source}
@@ -552,6 +677,12 @@ function Page() {
           binding={liveError === managementChanged ? undefined : snapshot.binding?.discussion}
           ask={liveError === managementChanged ? undefined : snapshot.binding?.ask}
           title={view.title || snapshot.title}
+          publisher={view.publisherAgent}
+          asks={view.asks ?? []}
+          active={activeThread}
+          select={openThread}
+          annotation={annotation}
+          cancelAnnotation={() => setAnnotation(undefined)}
           blocked={!!liveError || state !== 'ready'}
         />
       </PageDrawer>
