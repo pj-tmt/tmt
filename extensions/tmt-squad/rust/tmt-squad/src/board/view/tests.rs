@@ -824,10 +824,11 @@ fn drawn_rows_are_clickable_and_the_menu_and_help_show_bindings() {
 }
 
 #[test]
-fn help_groups_view_lead_and_theme_bindings() {
+fn help_groups_view_and_theme_bindings_and_lists_no_default_jump_lead() {
     let mut app = board(json!([]));
     app.view.as_mut().unwrap().bindings = crate::action::preset(true, &[]);
     let help = help_lines(&app);
+    assert!(help.iter().all(|line| !line.contains("lead's pane")));
     assert!(
         help.iter()
             .any(|line| line == "double-click  go to the member's pane")
@@ -837,12 +838,18 @@ fn help_groups_view_lead_and_theme_bindings() {
         .position(|line| line == "l  pick a pane layout")
         .unwrap();
     assert_eq!(
-        &help[at..at + 3],
-        [
-            "l  pick a pane layout",
-            "L  go to the lead's pane",
-            "T  pick a theme"
-        ]
+        &help[at..at + 2],
+        ["l  pick a pane layout", "T  pick a theme",]
+    );
+    // A user who binds it still sees it described.
+    app.view.as_mut().unwrap().bindings.insert(
+        "L".into(),
+        crate::action::Action::parse("jump lead").unwrap(),
+    );
+    assert!(
+        help_lines(&app)
+            .iter()
+            .any(|line| line == "L  go to the lead's pane")
     );
 }
 

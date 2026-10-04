@@ -390,8 +390,6 @@ pub fn preset(tmux: bool, panes: &[crate::config::Pane]) -> Bindings {
         ("l", "view"),
     ]
     .into_iter()
-    // Only a host that can show a pane can jump to the lead.
-    .chain(tmux.then_some(("L", "jump lead")))
     .chain(detail.map(|action| ("d", action)))
     .map(|(event, line)| {
         (
@@ -602,9 +600,12 @@ mod tests {
     #[test]
     fn presets_differ_only_where_the_host_cannot_jump() {
         let (tmux, plain) = (preset(true, &[]), preset(false, &[]));
-        assert_eq!(tmux["L"].verb, Verb::Jump);
-        assert_eq!(tmux["L"].args[0].literal(), Some("lead"));
-        assert!(!plain.contains_key("L"), "a plain terminal cannot jump");
+        // `jump lead` stays an action users can bind; no preset binds it.
+        assert!(!tmux.contains_key("L") && !plain.contains_key("L"));
+        assert_eq!(
+            Action::parse("jump lead").unwrap().args[0].literal(),
+            Some("lead")
+        );
         assert_eq!(Action::parse("jump").unwrap().args.len(), 0);
         assert_eq!(
             Action::parse("jump member").unwrap_err(),

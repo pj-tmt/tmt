@@ -3689,33 +3689,40 @@ pub(crate) mod tests {
         assert_eq!(app.notice.as_deref(), Some("Nothing sent."));
     }
 
-    /// `L` (`jump lead`) goes to the squad's lead on its own tab, and to the
+    /// A bound `jump lead` goes to the squad's lead on its own tab, and to the
     /// selected row's squad's lead on the leads and all tabs; without one it
     /// says why and nothing runs.
     #[test]
     fn jump_lead_goes_to_the_lead_of_the_tab_or_the_selected_row_s_squad() {
         let lead = |app: &mut App| press(app, KeyCode::Char('L'));
+        // No preset binds `jump lead`; a user binding does.
+        let bound = |mut snapshot: Snapshot| {
+            let view = snapshot.view.as_mut().unwrap();
+            view.bindings
+                .insert("L".into(), Action::parse("jump lead").unwrap());
+            snapshot
+        };
         let mut app = App::new(Some("product".into()));
         let mut own = snapshot(
             "product",
             json!([{"title": null, "rows": [row("rin", "x")]}]),
         );
         own.view.as_mut().unwrap().document["squad"]["lead"] = json!({"name": "sol"});
-        app.apply(own);
+        app.apply(bound(own));
         assert_eq!(lead(&mut app), Effect::Act(Request::Jump("sol".into())));
 
         // An empty squad still has its lead.
         let mut app = App::new(Some("product".into()));
         let mut empty = snapshot("product", json!([{"title": null, "rows": []}]));
         empty.view.as_mut().unwrap().document["squad"]["lead"] = json!({"name": "sol"});
-        app.apply(empty);
+        app.apply(bound(empty));
         assert_eq!(lead(&mut app), Effect::Act(Request::Jump("sol".into())));
 
         let mut app = App::new(Some("product".into()));
-        app.apply(snapshot(
+        app.apply(bound(snapshot(
             "product",
             json!([{"title": null, "rows": [row("rin", "x")]}]),
-        ));
+        )));
         assert_eq!(lead(&mut app), Effect::None);
         assert_eq!(
             app.notice.as_deref(),
@@ -3724,13 +3731,13 @@ pub(crate) mod tests {
 
         // The all tab: a row per squad, with its lead as a field.
         let mut app = App::new(Some(crate::board::ALL.into()));
-        app.apply(snapshot(
+        app.apply(bound(snapshot(
             crate::board::ALL,
             json!([{"title": null, "rows": [
                 {"name": "product", "squad": "product", "fields": {"lead": "sol"}},
                 {"name": "quiet", "squad": "quiet", "fields": {"lead": null}},
             ]}]),
-        ));
+        )));
         assert_eq!(lead(&mut app), Effect::Act(Request::Jump("sol".into())));
         press(&mut app, KeyCode::Down);
         assert_eq!(lead(&mut app), Effect::None);
@@ -3752,13 +3759,13 @@ pub(crate) mod tests {
 
         // The leads tab: the selected row is the lead.
         let mut app = App::new(Some(crate::board::LEADS.into()));
-        app.apply(snapshot(
+        app.apply(bound(snapshot(
             crate::board::LEADS,
             json!([{"title": null, "rows": [
                 {"name": "sol", "squad": "product", "fields": {}},
                 {"name": "rin", "squad": "infra", "fields": {}},
             ]}]),
-        ));
+        )));
         press(&mut app, KeyCode::Down);
         assert_eq!(lead(&mut app), Effect::Act(Request::Jump("rin".into())));
     }

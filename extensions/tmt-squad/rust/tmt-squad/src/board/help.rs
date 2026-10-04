@@ -293,10 +293,10 @@ pub(super) fn model(app: &App) -> KeyHelp {
     }
     let mut bindings = app.bindings();
     let mut entries = Vec::new();
-    for key in ["l", "L", "T"].into_iter().map(str::to_owned).chain(
+    for key in ["l", "T"].into_iter().map(str::to_owned).chain(
         bindings
             .keys()
-            .filter(|key| !matches!(key.as_str(), "l" | "L" | "T"))
+            .filter(|key| !matches!(key.as_str(), "l" | "T"))
             .cloned()
             .collect::<Vec<_>>(),
     ) {
