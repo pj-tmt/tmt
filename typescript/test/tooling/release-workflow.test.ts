@@ -620,11 +620,21 @@ describe('shared prepare pipeline and release rehearsal', () => {
       'uses: ./.github/workflows/native-release-prepare.yml'
     );
     expect(job(bundle, 'prepare')).toContain('tag: ${{ inputs.tag }}');
-    const call = job(rehearsal, 'prepare');
-    expect(call).toContain('uses: ./.github/workflows/native-release-prepare.yml');
-    expect(call).toContain('sha: ${{ github.event.pull_request.head.sha || github.sha }}');
-    // No tag: the rehearsal never names, allocates or attaches to a draft.
-    expect(call).not.toContain('tag:');
+    const ci = read('.github/workflows/ci.yml');
+    for (const [name, call, sha] of [
+      ['nightly', job(rehearsal, 'prepare'), 'sha: ${{ github.sha }}'],
+      [
+        'pull request',
+        job(ci, 'release-rehearsal'),
+        'sha: ${{ github.event.pull_request.head.sha }}',
+      ],
+    ]) {
+      expect(call, name).toContain('uses: ./.github/workflows/native-release-prepare.yml');
+      expect(call, name).toContain(sha);
+      // No tag: a rehearsal never names, allocates or attaches to a draft.
+      expect(call, name).not.toContain('tag:');
+      expect(call, name).toContain('contents: read');
+    }
   });
   it('has no privileges, secrets or publication path in the rehearsal workflow', () => {
     expect(rehearsal).toMatch(/^permissions:\n {2}contents: read$/m);
@@ -633,11 +643,52 @@ describe('shared prepare pipeline and release rehearsal', () => {
       /secrets\.|environment:|gh release|workflow_run|repository_dispatch/
     );
     expect(rehearsal).not.toMatch(/native-release\.yml|native-release-bundle\.yml#|release\.yml/);
-    expect([...jobs(rehearsal).keys()]).toEqual(['prepare']);
+    expect([...jobs(rehearsal).keys()]).toEqual(['plan', 'prepare']);
     expect(rehearsal).not.toContain('merge_group');
+    expect(rehearsal).not.toContain('pull_request');
+    expect(rehearsal).toMatch(
+      /^on:\n {2}schedule:\n {4}- cron: '[^']+'\n {2}workflow_dispatch:\n/m
+    );
+    // Nightly drift detection covers every active product, not a selection.
+    expect(job(rehearsal, 'plan')).toContain('release-rehearsal.mjs all');
+    expect(job(rehearsal, 'prepare')).toContain(
+      'product: ${{ fromJSON(needs.plan.outputs.products) }}'
+    );
   });
   it('writes the Rust cache from main only, so a rehearsal restores without saving', () => {
     expect(job(prepare, 'build')).toContain("save-if: ${{ github.ref == 'refs/heads/main' }}");
+  });
+});
+
+describe('pull-request release rehearsal in ci.yml', () => {
+  const ci = read('.github/workflows/ci.yml');
+  it('rehearses selected products on pull requests only, never in the merge group', () => {
+    const select = ci
+      .split('      - name: Select the release rehearsal products\n')[1]
+      .split('\n\n')[0];
+    expect(select).toContain("if: github.event_name == 'pull_request'");
+    expect(select).toContain('release-rehearsal.mjs select "$BASE_SHA" "$HEAD_SHA"');
+    expect(select).not.toContain('merge_group');
+    const rehearse = job(ci, 'release-rehearsal');
+    expect(rehearse).toContain(
+      "if: needs.changes.outputs.verify == 'true' && needs.changes.outputs.release_rehearsal == 'true'"
+    );
+    expect(rehearse).toContain(
+      'product: ${{ fromJSON(needs.changes.outputs.release_rehearsal_products) }}'
+    );
+    // Outputs default to "no rehearsal" for every event that skips the selection step.
+    expect(ci).toContain(
+      "release_rehearsal: ${{ steps.rehearsal.outputs.release_rehearsal || 'false' }}"
+    );
+    expect(ci).toContain("|| '[]' }}");
+  });
+  it('fails the aggregate native gate for a selected rehearsal that is missing, failed or skipped', () => {
+    const gate = job(ci, 'native-install-gate');
+    expect(gate).toMatch(/^ {8}release-rehearsal,$/m);
+    const step = gate.split('      - name: Require the selected release rehearsal\n')[1];
+    expect(step).toContain('REHEARSAL_SELECTED: ${{ needs.changes.outputs.release_rehearsal }}');
+    expect(step).toContain('REHEARSAL_RESULT: ${{ needs.release-rehearsal.result }}');
+    expect(step).toContain('ci-scope.mjs gate "$REHEARSAL_SELECTED" "$REHEARSAL_RESULT"');
   });
 });
 
