@@ -303,3 +303,114 @@ fn record_home_snapshots() {
     )
     .unwrap();
 }
+
+fn tile_board() -> App {
+    let names = ["a", "b", "c", "d", "e"];
+    board(&names.map(|name| {
+        (
+            name,
+            document(
+                name,
+                row(&format!("L{name}"), &format!("lead-{name}"), "working"),
+                vec![row(&format!("W{name}"), "worker", "idle")],
+            ),
+        )
+    }))
+}
+
+fn tile_frame(app: &App, area: Rect) -> ratatui::buffer::Buffer {
+    app.hits.borrow_mut().clear();
+    app.scrolls.begin_frame();
+    let mut terminal =
+        Terminal::new(TestBackend::new(area.right() + 1, area.bottom() + 1)).unwrap();
+    terminal
+        .draw(|frame| paint::render_at(frame, app, area, 100))
+        .unwrap();
+    terminal.backend().buffer().clone()
+}
+
+#[test]
+fn tile_continuations_click_the_same_stable_squad_and_gaps_have_no_hits() {
+    use ratatui::crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
+    for width in [160, 100, 80] {
+        let mut app = tile_board();
+        let area = Rect::new(2, 1, width, 24);
+        tile_frame(&app, area);
+        let hits = app.hits.borrow().clone();
+        let height = if width < 100 { 1 } else { 3 };
+        for row in 0..5 {
+            let tiles = hits.iter().filter(|hit| hit.row == row).collect::<Vec<_>>();
+            assert_eq!(tiles.len(), height);
+            assert!(tiles.windows(2).all(|pair| pair[1].y == pair[0].y + 1));
+        }
+        for hit in &hits {
+            assert!((area.x..area.right()).contains(&hit.x));
+            assert!(hit.x + hit.width <= area.right());
+            assert!((area.y..area.bottom()).contains(&hit.y));
+        }
+        if width >= 100 {
+            let left = hits.iter().find(|hit| hit.row == 0).unwrap();
+            assert!(!hits.iter().any(|hit| hit.y == left.y
+                && (hit.x..hit.x + hit.width).contains(&(left.x + left.width))));
+        }
+        let continuation = hits.iter().rfind(|hit| hit.row == 4).unwrap();
+        assert_eq!(
+            app.mouse(
+                MouseEvent {
+                    kind: MouseEventKind::Down(MouseButton::Left),
+                    column: continuation.x + 1,
+                    row: continuation.y,
+                    modifiers: KeyModifiers::NONE
+                },
+                std::time::Instant::now()
+            ),
+            Effect::None
+        );
+        assert_eq!(app.selected, 4);
+        assert_eq!(app.home_target.as_ref().unwrap().squad, "e");
+        assert!(app.home_target.as_ref().unwrap().member.is_none());
+        assert_eq!(press(&mut app, Enter), Effect::Load("e".into()));
+    }
+}
+
+#[test]
+fn full_tile_reveal_and_clipped_continuation_hits_share_the_scroll_viewport() {
+    use crate::{board::scroll::Step, config::Pane};
+    let mut app = tile_board();
+    app.select(4);
+    let target = app.home_target.clone();
+    for width in [160, 100, 80, 160] {
+        let area = Rect::new(3, 2, width, 5);
+        tile_frame(&app, area);
+        let selected = app
+            .hits
+            .borrow()
+            .iter()
+            .filter(|hit| hit.row == 4)
+            .copied()
+            .collect::<Vec<_>>();
+        assert_eq!(selected.len(), if width < 100 { 1 } else { 3 });
+        assert!(
+            selected
+                .iter()
+                .all(|hit| hit.y >= area.y && hit.y < area.bottom() - 1)
+        );
+        assert_eq!(app.home_target, target);
+    }
+    // A viewport shorter than a tile clips hits to visible continuations.
+    app.follow = false;
+    let area = Rect::new(3, 2, 100, 3);
+    tile_frame(&app, area);
+    app.scrolls.scroll(Pane::Rows, Step::Bottom);
+    tile_frame(&app, area);
+    let hits = app.hits.borrow().clone();
+    assert_eq!(hits.iter().filter(|hit| hit.row == 4).count(), 2);
+    assert!(hits.iter().all(|hit| hit.y < area.bottom() - 1));
+    assert_eq!(app.selected, 4);
+    app.follow = true;
+    tile_frame(&app, Rect::new(3, 2, 100, 5));
+    assert_eq!(
+        app.hits.borrow().iter().filter(|hit| hit.row == 4).count(),
+        3
+    );
+}

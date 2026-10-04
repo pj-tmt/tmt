@@ -1608,34 +1608,8 @@ lead name in `App::lead`: the document's `squad.lead` on a squad tab, the
 selected row on the leads tab, and the selected entry's lead on home; it then
 takes the ordinary jump request, so the popup closes and `back` returns.
 
-`board::home` retains a board-only summary, shared-filter attention sections and
-compact squad-line model as typed `View.home: Option<home::Home>`; other views
-carry no home data.
-It reuses `tab_view` acquisition and the user-tab section pipeline. Its optional
-observed ages come from the existing staleness observer: the home tab starts
-one for every squad before its roster read and records afterward, writing its
-observation cache under the held per-squad lock when enabled and available.
-It respects the reminders policy without extra core commands. Request ages
-use shared-inbox timestamps; pending-only rows have no age. The source aggregate
-document and `ls --tab all` JSON/text remain unchanged. The home painter uses
-the existing summary band and a flat body, bypassing
-ordinary pane composition for the shown immutable home view. It keeps one
-`App.selected` cursor, reconciled by section/squad/member identity across refresh
-and search. Attention precedes squads; future replies and cron targets insert
-between them. Hits, paging and overflow reuse `Scrolls`. Enter jumps to a
-member or opens a squad; Tab traverses attention/squads, and `a` opens the real
-request picker or an annotation to the selected squad’s lead. The composer
-retains and revalidates sender, target, lead and open request before public
-`tmt answer` or annotation dispatch. Questions stay inside the picker. No
-tiles, replies feed, cron data or model/token totals are synthesized.
-
-Planned section ownership after #1292: `tmt-tiles-oai` owns the ③ tiles
-painter/controller strip (#1293); `tmt-cronboard-oai` owns the ⑤ summary strip
-(#1319). Tiles return pure lines and local entry/x/width/start/end placements;
-home translates them into the shared cursor, paging, reveal and clipped hits.
-Cron supplies a pure one-line summary and an explicit stable clock-key target,
-not a squad target. Both reuse `App.selected` and `Scrolls`; their acquisition
-and list/lifecycle owners stay outside paint, with shared hunks coordinated.
+The [Squad board reference](.agents/skills/tmt-squad-dev/references/board.md#home)
+owns the Home model, tiles and shared cursor/scroll contract.
 
 HOME usage templates are separate typed `View.home_rate` data. While HOME is
 open and at least one squad enables token sampling, the existing meter worker

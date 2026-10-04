@@ -123,7 +123,8 @@ fn empty_and_quiet_home_keep_only_current_sections_and_squad_order() {
     );
     assert_eq!(home.squads[1].squad, "hidden");
     assert_eq!(home.squads[0].lead.as_ref().unwrap()["name"], "lead");
-    assert_eq!(home.squads[0].pressing.as_ref().unwrap()["name"], "worker");
+    assert_eq!(home.squads[0].members.members, 1);
+    assert_eq!(home.squads[0].members.review, 1);
     assert!(home.sections.iter().all(|section| section.rows.is_empty()));
 }
 
@@ -181,7 +182,9 @@ fn shared_sections_deduplicate_within_a_squad_and_keep_cross_squad_memberships()
             since_ms: 30
         })
     );
-    assert_eq!(home.squads[0].pressing.as_ref().unwrap()["id"], "A");
+    assert_eq!(home.squads[0].members.members, 2);
+    assert_eq!(home.squads[0].members.waiting, 1);
+    assert_eq!(home.squads[0].members.blocked, 1);
 }
 
 #[test]
@@ -334,3 +337,52 @@ fn failed_roster_and_inbox_are_reported_and_recovery_replaces_the_partial_model(
 }
 
 mod interaction;
+
+#[test]
+fn tile_members_exclude_the_lead_and_choose_one_urgent_mark_per_membership() {
+    let fixture = Fixture::new("");
+    let mut lead = row("L", "lead", "blocked");
+    lead["pending"] = json!("lead decision");
+    let mut waiting = row("W", "waiting", "blocked");
+    waiting["waitingOnYou"] = json!([{"requestId":"q"}]);
+    let acquired = fixture.acquired(&[(
+        "a",
+        document(
+            "a",
+            lead,
+            vec![
+                waiting,
+                row("B", "blocked", "blocked"),
+                row("R", "review", "review"),
+                row("A", "active", "working"),
+                row("I", "idle", "idle"),
+                row("C", "custom", "investigating"),
+            ],
+        ),
+    )]);
+    let home = model(&["a".into()], &acquired, 100);
+    assert_eq!(
+        home.squads[0].members,
+        Counts {
+            members: 6,
+            waiting: 1,
+            blocked: 1,
+            review: 1,
+            working: 1,
+            idle: 1,
+        }
+    );
+    assert_eq!(home.summary.members, 7);
+    assert_eq!(home.summary.waiting, 2);
+    assert_eq!(
+        home.summary.blocked, 3,
+        "whole-roster summary keeps its public attention semantics"
+    );
+    let acquired = fixture.acquired(&[(
+        "a",
+        document("a", Value::Null, vec![row("W", "worker", "idle")]),
+    )]);
+    let home = model(&["a".into()], &acquired, 100);
+    assert_eq!(home.squads[0].members.members, 1);
+    assert_eq!(home.squads[0].members.idle, 1);
+}
