@@ -215,6 +215,12 @@ footer {
   background: var(--c-sheet);
   box-shadow: 6px 6px 0 var(--c-waiting);
 }
+.guidance-mark {
+  display: block;
+  margin-bottom: 12px;
+  color: var(--c-waiting);
+  font: 700 30px/1 var(--f-mono);
+}
 .guidance-eyebrow {
   margin: 0 0 8px;
   color: var(--c-muted);
@@ -230,13 +236,21 @@ footer {
 .guidance-status {
   margin: 0;
 }
-.guidance-status[hidden] {
+.guidance-detail[hidden] {
   display: none;
 }
-.guidance-status span {
-  color: var(--c-waiting);
-  font-family: var(--f-mono);
-  font-weight: 700;
+.guidance-detail p {
+  margin: 0 0 12px;
+}
+.guidance-detail p:last-child {
+  margin-bottom: 0;
+}
+.guidance-command code {
+  display: inline-block;
+  border: 1px solid var(--c-rule);
+  padding: 7px 10px;
+  background: var(--c-paper);
+  font: 13px var(--f-mono);
 }
 @media (max-width: 600px) {
   .masthead {

@@ -247,6 +247,8 @@ for (let run = 1; run <= 2; run++) {
       const privatePage = await fetch(server.origin + mount);
       const privateHtml = await privatePage.text();
       expect(privateHtml).toContain('This colab space is private');
+      expect(privateHtml).toContain('<h1>Pair this browser first</h1>');
+      expect(privateHtml).toContain('<code>tmt remote pair</code>');
       expect(privateHtml).toContain('<link rel="stylesheet" href="./assets/reader.css">');
       expect(privateHtml).toContain('<main class="guidance-main">');
       expect(privatePage.headers.get('content-security-policy')).toContain("style-src 'self'");
@@ -257,6 +259,9 @@ for (let run = 1; run <= 2; run++) {
       await context.clearCookies();
       await page.goto(server.origin + mount);
       await expect(page.locator('#colab-guidance')).toBeVisible();
+      await expect(page.getByRole('heading', { name: 'Pair this browser first' })).toBeVisible();
+      await expect(page.locator('.guidance-mark')).toHaveText('○');
+      await expect(page.locator('.guidance-command code')).toHaveText('tmt remote pair');
       expect(
         await page
           .locator('.guidance-card')

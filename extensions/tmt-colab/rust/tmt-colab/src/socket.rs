@@ -589,14 +589,22 @@ fn serve(
         let _ = response(&mut socket, 404, b"NOT FOUND", false);
         return;
     }
-    let text = match &request.owner {
-        Some(name) => format!(
-            "Colab space {} is running. You are signed in as {}. {}.",
-            escape(&browser.space_id),
-            escape(name),
-            assets::BUILD_HINT
+    let (eyebrow, heading, detail) = match &request.owner {
+        Some(name) => (
+            "Signed-in space",
+            "Colab is running",
+            format!(
+                "<p>Colab space {} is running. You are signed in as {}. {}.</p>",
+                escape(&browser.space_id),
+                escape(name),
+                assets::BUILD_HINT
+            ),
         ),
-        None => "This colab space is private. Open it from a browser paired with tmt remote pair, or use a share link.".into(),
+        None => (
+            "Private space",
+            "Pair this browser first",
+            "<p>This colab space is private. Pair this browser with</p><p class=\"guidance-command\"><code>tmt remote pair</code></p><p>or open a share link.</p>".into(),
+        ),
     };
     let recovery = request.owner.is_none()
         && browser
@@ -612,13 +620,8 @@ fn serve(
     } else {
         ""
     };
-    let eyebrow = if request.owner.is_some() {
-        "Signed-in space"
-    } else {
-        "Private space"
-    };
     let recovery_status = if recovery {
-        "<p id=\"colab-recovery-status\" class=\"guidance-status\" role=\"status\"><span aria-hidden=\"true\">○</span> Opening your paired browser…</p>"
+        "<p id=\"colab-recovery-status\" class=\"guidance-status\" role=\"status\">Opening your paired browser…</p>"
     } else {
         ""
     };
@@ -629,7 +632,7 @@ fn serve(
         ""
     };
     let page = format!(
-        "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"><title>TMT Colab</title>{stylesheet}</head><body class=\"guidance\"><header class=\"guidance-masthead\"><span class=\"guidance-brand\">TMT Colab <span>tmt</span></span></header><main class=\"guidance-main\"><section class=\"guidance-card\"><p class=\"guidance-eyebrow\">{eyebrow}</p><h1>TMT Colab</h1>{recovery_status}<p id=\"colab-guidance\" class=\"guidance-status\"{hidden}><span aria-hidden=\"true\">○</span> {text}</p></section></main>{script}</body></html>"
+        "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"><title>TMT Colab</title>{stylesheet}</head><body class=\"guidance\"><header class=\"guidance-masthead\"><span class=\"guidance-brand\">Colab <span>tmt</span></span></header><main class=\"guidance-main\"><section class=\"guidance-card\"><span class=\"guidance-mark\" aria-hidden=\"true\">○</span><p class=\"guidance-eyebrow\">{eyebrow}</p><h1>{heading}</h1>{recovery_status}<div id=\"colab-guidance\" class=\"guidance-detail\"{hidden}>{detail}</div></section></main>{script}</body></html>"
     );
     if recovery {
         let _ = response_with_policy(
