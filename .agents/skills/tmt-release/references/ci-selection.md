@@ -100,15 +100,19 @@ infra. Its whole-job entries inventory every executable step in `native-release.
 `release.yml` and their local reusable workflows. Publication-policy and incident
 entries name narrower checks; `coverage: policy` means regression tests, not live
 publication or actual-archive proof. `releaseOnly` gives the reason a stage has no
-equivalent pre-merge execution. `followUp: 1581` marks an unresolved rehearsal gap,
-not a permanent exemption or shipped coverage.
+equivalent pre-merge execution: live draft, publication or release state that no pull
+request can reach. A `releaseOnly` entry cannot carry a `followUp`; a gap is closed with a
+counterpart or a concrete reason, never marked open.
 
 A `preMerge` counterpart names a job in `ci.yml` selected by a ci-scope output; a selector
 with its own module (the release rehearsal's `release-rehearsal.mjs`) names it as `selection.source`,
-and the guard requires that file to emit the output. The rehearsed prepare stages (`build`,
-`assemble`, `verify` and the bundle's `prepare` call) and the packaging incidents map to
-`release-rehearsal`. Incident rows (#1534, #1541, #1542, #1550, #1593, #1604, #1616, #1646,
-#1661) name the release step that caught the failure and a counterpart or a concrete
+and the guard requires that file to emit the output. A job that runs on every verification
+event uses `selection.kind: "always"` with the `step` that proves the incident (for example
+`code-quality`'s PR title check); the guard rejects an `if` that depends on a path selection and a
+step the job does not have. The rehearsed prepare stages (`build`,
+`assemble`, `verify`, the upgrade proof stages, `gates-dry` and the bundle's `prepare` call) and the
+packaging incidents map to `release-rehearsal`. Incident rows (#1534, #1541, #1542, #1550, #1593,
+#1604, #1616, #1643, #1646, #1661, #1680) name the release step that caught the failure and a counterpart or a concrete
 release-only reason; adding an incident also extends the guard's incident list and tests.
 
 For a release workflow change, review its coverage and update the recorded step
@@ -126,8 +130,7 @@ Run `node typescript/scripts/release-parity.mjs check` and, from `typescript/`,
 `corepack pnpm exec vp test run --config vitest.config.ts
 test/tooling/release-parity.test.ts test/tooling/release-workflow.test.ts`.
 `Code quality` runs the cheap parity guard for PRs and merge groups, including
-prose-only changes. Actual rehearsal remains separately tracked in #1581; the
-manifest must describe existing coverage until that pipeline lands.
+prose-only changes. The manifest records existing coverage only.
 
 From `typescript/`, run the selection and workflow guards for a selection change:
 
