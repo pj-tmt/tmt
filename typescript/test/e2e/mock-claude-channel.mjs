@@ -38,8 +38,20 @@ const log = (event) =>
   fs.appendFileSync(logPath, `${JSON.stringify({ ...event, pid: process.pid })}\n`);
 const handshake = process.env.MOCK_HANDSHAKE ?? 'complete';
 const { peer } = resolveCliExecutables();
+const peerCompletions = new Set();
+
+// A mock-owned hook/reply can write fixture state after its caller disappears.
+// Retain close receipts until graceful shutdown has settled every peer.
+function execPeer(args, callback) {
+  const child = execFile(peer.executable, [...peer.args, ...args], { env: process.env }, callback);
+  const closed = new Promise((resolve) => child.once('close', resolve));
+  peerCompletions.add(closed);
+  void closed.then(() => peerCompletions.delete(closed));
+  return child;
+}
 
 let server;
+let serverClosed;
 const configIndex = args.indexOf('--mcp-config');
 if (configIndex >= 0) {
   const flagIndex = args.indexOf('--dangerously-load-development-channels');
@@ -53,6 +65,7 @@ if (configIndex >= 0) {
   });
   server = spawn(command, serverArgs, { stdio: ['pipe', 'pipe', 'inherit'], env: process.env });
   server.on('exit', (code, signal) => log({ event: 'server-exit', code, signal }));
+  serverClosed = new Promise((resolve) => server.once('close', resolve));
   const send = (message) => server.stdin.write(`${JSON.stringify(message)}\n`);
   const announce = () => {
     send({ jsonrpc: '2.0', method: 'notifications/initialized' });
@@ -73,19 +86,8 @@ if (configIndex >= 0) {
       log({ event: 'channel', content });
       const reply = /tmt reply (\S+) --receipt (\S+) --message <text>/.exec(content);
       if (process.env.MOCK_AUTOREPLY === '1' && reply) {
-        execFile(
-          peer.executable,
-          [
-            ...peer.args,
-            'reply',
-            reply[1],
-            '--receipt',
-            reply[2],
-            '--message',
-            'channel-ok',
-            '--json',
-          ],
-          { env: process.env },
+        execPeer(
+          ['reply', reply[1], '--receipt', reply[2], '--message', 'channel-ok', '--json'],
           (error) => log({ event: 'reply', ok: error === null })
         );
       }
@@ -155,14 +157,22 @@ readline
   .createInterface({ input: process.stdin })
   .on('line', (line) => log({ event: 'paste', line }));
 
-setInterval(() => {
+const control = setInterval(() => {
   if (fs.existsSync(`${logPath}.kill-server`)) {
     fs.rmSync(`${logPath}.kill-server`);
     server?.kill('SIGKILL');
   }
   if (fs.existsSync(`${logPath}.quit`)) {
+    clearInterval(control);
+    log({ event: 'shutdown-start' });
     server?.stdin.end();
-    process.exit(0);
+    // No new channel callbacks can start peers after the server's streams close.
+    void Promise.resolve(serverClosed)
+      .then(() => Promise.all(peerCompletions))
+      .then(() => {
+        log({ event: 'stopped' });
+        process.exit(process.exitCode ?? 0);
+      });
   }
 }, 50);
 log({ event: 'started', args });
@@ -189,18 +199,13 @@ if (process.env.MOCK_SESSION_ID) {
       model: 'model-a',
     };
     await new Promise((resolve, reject) => {
-      const child = execFile(
-        peer.executable,
-        [...peer.args, '__hook', 'claude'],
-        { env: process.env },
-        (error, stdout, stderr) => {
-          if (error || stderr) reject(error ?? new Error(stderr));
-          else {
-            log({ event: 'hook-recorded', stdout });
-            resolve();
-          }
+      const child = execPeer(['__hook', 'claude'], (error, stdout, stderr) => {
+        if (error || stderr) reject(error ?? new Error(stderr));
+        else {
+          log({ event: 'hook-recorded', stdout });
+          resolve();
         }
-      );
+      });
       child.stdin.end(JSON.stringify(payload));
     });
   };
