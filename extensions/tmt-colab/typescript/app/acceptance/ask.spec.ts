@@ -79,7 +79,9 @@ test.describe('Ask agent real-binary acceptance (#1110)', () => {
       expect(s.recipient.received()).toHaveLength(1);
       // The text starts with Remote's stable device-name line and names the page itself.
       expect(draft.delivered().startsWith(`[remote: ${askerName}]\n`)).toBe(true);
-      expect(draft.delivered()).toContain(`\nLink: ${s.askerPage.url()}\n`);
+      expect(draft.delivered()).toContain(
+        `\nLink: ${s.door.origin}/p/${s.page.pageId.slice(0, 8)}\n`,
+      );
       expect(dispatches(world)).toHaveLength(1);
       // The real `tmt reply` shows up on the asker's page, attributed to the agent,
       // and in a second paired viewer.
