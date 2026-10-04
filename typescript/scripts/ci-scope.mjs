@@ -258,7 +258,6 @@ export function selectNativeNotices(paths) {
     'typescript/scripts/native-release-policy.mjs',
     'typescript/scripts/packed-command.mjs',
     'typescript/scripts/ci-scope.mjs',
-    'typescript/pnpm-lock.yaml',
   ]);
   return (
     paths.length === 0 ||

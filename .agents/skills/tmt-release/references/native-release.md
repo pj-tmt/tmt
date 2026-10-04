@@ -61,7 +61,7 @@ ancestor; validation, receipts and JSON retain canonical paths.
 ## Building and verifying archives
 
 PR and merge-group CI checks dependency notices when the locked dependencies, clarification,
-license inputs or notice machinery change. `Code quality` requires the selected notice job.
+license inputs or notice machinery change. `Native package matrix` requires the selected notice job.
 `node typescript/scripts/verify-native-notices.mjs` runs the builder's `--rust-notices-only` mode
 for every active native product in `components.json` and every target in `dist-workspace.toml`,
 then applies the archive verifier's empty/placeholder rejection. It needs Python 3.11+, pinned

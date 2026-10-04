@@ -56,7 +56,6 @@ describe('native dependency notices selection', () => {
     'typescript/scripts/verify-native-notices.mjs',
     'typescript/scripts/native-artifact-policy.mjs',
     'typescript/scripts/packed-command.mjs',
-    'typescript/pnpm-lock.yaml',
   ])('selects notice generation for %s', (file) => {
     expect(selectNativeNotices([file])).toBe(true);
   });
@@ -71,6 +70,7 @@ describe('native dependency notices selection', () => {
     'typescript/scripts/verify-native-notices.mjs.backup',
     'site/src/chapters/start.mdx',
     'DEVELOPMENT.md',
+    'typescript/pnpm-lock.yaml',
   ])('does not select unrelated or prefix-similar %s', (file) => {
     expect(selectNativeNotices([file])).toBe(false);
   });
@@ -79,7 +79,7 @@ describe('native dependency notices selection', () => {
     expect(selectNativeNotices([])).toBe(true);
   });
 
-  it('routes the selected job result into required Code quality without publication permissions', () => {
+  it('routes the selected job result into the native gate without delaying Code quality', () => {
     const ci = readFileSync(new URL('../../../.github/workflows/ci.yml', import.meta.url), 'utf8');
     const job = (name: string) => {
       const block = ci.split(`\n  ${name}:\n`)[1];
@@ -87,11 +87,14 @@ describe('native dependency notices selection', () => {
       return block.split(/\n {2}[a-z0-9-]+:\n/)[0];
     };
     const quality = job('code-quality');
+    const native = job('native-install-gate');
     const notices = job('native-notices');
-    expect(quality).toContain('needs: [changes, office, native-notices]');
-    expect(quality).toContain('NOTICES_SELECTED: ${{ needs.changes.outputs.native_notices }}');
-    expect(quality).toContain('NOTICES_RESULT: ${{ needs.native-notices.result }}');
-    expect(quality).toContain('gate "$NOTICES_SELECTED" "$NOTICES_RESULT"');
+    expect(quality).toContain('needs: [changes, office]');
+    expect(quality).not.toContain('native-notices');
+    expect(native).toMatch(/needs:[\s\S]*native-notices,/);
+    expect(native).toContain('NOTICES_SELECTED: ${{ needs.changes.outputs.native_notices }}');
+    expect(native).toContain('NOTICES_RESULT: ${{ needs.native-notices.result }}');
+    expect(native).toContain('gate "$NOTICES_SELECTED" "$NOTICES_RESULT"');
     expect(notices).toContain(
       "needs.changes.outputs.verify == 'true' && needs.changes.outputs.native_notices == 'true'"
     );
@@ -1905,7 +1908,7 @@ describe('required CI gate', () => {
     expect(office).toContain('docker build --target browser-tests-base');
     expect(office).not.toContain('office-browser');
     expect(office).not.toContain('native-office-browser');
-    expect(codeQuality).toContain('needs: [changes, office, native-notices]');
+    expect(codeQuality).toContain('needs: [changes, office]');
     expect(codeQuality).toContain('OFFICE_RESULT: ${{ needs.office.result }}');
     expect(codeQuality).toContain('gate "$OFFICE_SELECTED" "$OFFICE_RESULT"');
     expect(native).toContain('native-rust');

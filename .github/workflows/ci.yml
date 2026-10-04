@@ -98,7 +98,7 @@ jobs:
     name: Code quality
     env:
       RUSTUP_TOOLCHAIN: 1.97.0
-    needs: [changes, office, native-notices]
+    needs: [changes, office]
     if: ${{ always() && needs.changes.outputs.verify != 'false' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -137,11 +137,6 @@ jobs:
           OFFICE_SELECTED: ${{ needs.changes.outputs.office }}
           OFFICE_RESULT: ${{ needs.office.result }}
         run: node typescript/scripts/ci-scope.mjs gate "$OFFICE_SELECTED" "$OFFICE_RESULT"
-      - name: Require selected dependency notices verification
-        env:
-          NOTICES_SELECTED: ${{ needs.changes.outputs.native_notices }}
-          NOTICES_RESULT: ${{ needs.native-notices.result }}
-        run: node typescript/scripts/ci-scope.mjs gate "$NOTICES_SELECTED" "$NOTICES_RESULT"
       - name: Install locked byte-codec tools
         working-directory: typescript
         run: pnpm --filter @tmt/remote-client install --frozen-lockfile --ignore-scripts
@@ -870,6 +865,7 @@ jobs:
     needs:
       [
         changes,
+        native-notices,
         native-rust,
         unit-tests,
         docker-e2e-shard-1,
@@ -901,3 +897,8 @@ jobs:
           MACOS_SELECTED: ${{ needs.changes.outputs.macos }}
         run: |
           node typescript/scripts/ci-scope.mjs gate-native "$MACOS_SELECTED" "$NATIVE_SCOPE" "$CONTRACT_RESULT" "$UNIT_RESULT" "$SHARD_1_RESULT" "$SHARD_2_RESULT" "$BUILD_RESULT" "$MATRIX_RESULT" "$MACOS_BUILD_RESULT" "$MACOS_MATRIX_RESULT"
+      - name: Require selected dependency notices verification
+        env:
+          NOTICES_SELECTED: ${{ needs.changes.outputs.native_notices }}
+          NOTICES_RESULT: ${{ needs.native-notices.result }}
+        run: node typescript/scripts/ci-scope.mjs gate "$NOTICES_SELECTED" "$NOTICES_RESULT"
