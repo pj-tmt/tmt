@@ -68,7 +68,9 @@ test('live Page selection opens a parent picker, freezes preview through sync an
   expect(sent[0].message).toContain(
     'Link: https://example.test/x/colab/#space=' + 'a'.repeat(32) + '&path=%2Fpages%2F',
   );
-  await expect(page.getByText('No asks on this page yet.')).toBeVisible();
+  await expect(
+    page.getByRole('region', { name: 'Page asks' }).getByText('No asks on this page yet.'),
+  ).toBeVisible();
   await run(page, 'syncSent');
   const entry = page.locator(`[data-testid=ask-entry][data-operation-id="${sent[0].operationId}"]`);
   await expect(entry).toBeFocused();

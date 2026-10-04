@@ -16,6 +16,7 @@ export function ReaderApp({ state }: { state: ReaderState }) {
   const title = state.kind === 'ready' ? state.view.title : '';
   const [render, setRender] = useState<RenderState | 'loading'>('loading');
   const host = useRef<HTMLDivElement>(null);
+  const bar = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (source === null) return;
     const controller = new AbortController();
@@ -23,6 +24,8 @@ export function ReaderApp({ state }: { state: ReaderState }) {
     void mountRenderer(host.current!, source, {
       signal: controller.signal,
       onState: setRender,
+      viewportInset: () =>
+        (bar.current?.offsetHeight ?? 56) + (bar.current?.getBoundingClientRect().top ?? 0),
     }).catch(() => {
       if (!controller.signal.aborted) setRender('failed');
     });
@@ -30,21 +33,18 @@ export function ReaderApp({ state }: { state: ReaderState }) {
   }, [source]);
   return (
     <>
-      {state.kind !== 'ready' && (
-        <header className="masthead">
-          <span className="brand">
-            {text.product}
-            <span>tmt</span>
-          </span>
-          <span className="local">{text.readerOnly}</span>
-        </header>
-      )}
-      <main className={state.kind === 'ready' ? 'page-main' : undefined}>
+      <header className="masthead">
+        <span className="brand">
+          {text.product}
+          <span>tmt</span>
+        </span>
+        <span className="local">{text.readerOnly}</span>
+      </header>
+      <main>
         {state.kind === 'ready' ? (
           <section className="page">
-            <div className="page-bar">
-              <h1 title={title}>{title}</h1>
-              <span className="page-backend">local</span>
+            <div className="page-bar" ref={bar}>
+              <h1>{title}</h1>
               <span className="chip">{text.readerOnly}</span>
               <span className={`status ${render === 'ready' ? 'live' : ''}`}>
                 <span aria-hidden>
@@ -59,6 +59,9 @@ export function ReaderApp({ state }: { state: ReaderState }) {
             </div>
             <div className="workspace">
               <div className="canvas">
+                <div className="boundary">
+                  <span>{text.boundary}</span>
+                </div>
                 <div className="frame-host" ref={host} />
                 {(render === 'navigation' || render === 'failed') && (
                   <div className="notice" role="alert">
@@ -69,6 +72,7 @@ export function ReaderApp({ state }: { state: ReaderState }) {
                 )}
               </div>
             </div>
+            <p className="isolation-note">{text.warning}</p>
           </section>
         ) : (
           <section className="notice" role={state.kind === 'opening' ? 'status' : 'alert'}>
@@ -85,7 +89,7 @@ export function ReaderApp({ state }: { state: ReaderState }) {
           </section>
         )}
       </main>
-      {state.kind !== 'ready' && <footer>{text.readerNote}</footer>}
+      <footer>{text.readerNote}</footer>
     </>
   );
 }

@@ -37,30 +37,62 @@ for (const width of [1440, 390])
       await expect(page.locator('.canvas')).toHaveCSS('box-shadow', 'none');
       const rect = await frame.boundingBox();
       expect(rect?.x).toBe(0);
-      expect(rect?.width).toBe(width);
+      const contentWidth = await page.evaluate(() => document.documentElement.clientWidth);
+      expect(rect?.width).toBe(contentWidth);
       expect(rect?.y).toBe(56);
-      expect(rect?.height).toBe(844);
+      expect(rect?.height).toBeGreaterThanOrEqual(844);
+      await expect(frame).toHaveAttribute('scrolling', 'no');
+      await expect(frame).toHaveAttribute('data-scroll-mode', 'window');
       expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(width);
       await expect(bar).toHaveCSS('flex-wrap', 'nowrap');
       await page.screenshot({ path: `/tmp/1586-${width}-${theme}-short.png` });
+      if (width === 390) {
+        await expect(
+          page.getByRole('heading', { name: 'Release notes', exact: true }),
+        ).toBeVisible();
+        await page.getByRole('button', { name: 'More page actions' }).click();
+        await expect(page.locator('.page-menu-meta')).toContainText('local · Studio Mac');
+        await expect(page.locator('.page-menu-meta')).toContainText('Private');
+        await expect(
+          page.getByRole('button', { name: 'Change color theme' }).locator('.theme-label'),
+        ).toHaveText(`Theme: ${theme}`);
+        await page.screenshot({ path: `/tmp/1586-${width}-${theme}-menu.png` });
+        await page.keyboard.press('Escape');
+      }
       await mount(page, true);
-      await page
-        .frameLocator('iframe')
-        .locator('body')
-        .evaluate((node) => node.ownerDocument.defaultView!.scrollTo(0, node.scrollHeight / 2));
+      await expect.poll(async () => (await frame.boundingBox())?.height ?? 0).toBeGreaterThan(1500);
+      await expect
+        .poll(() =>
+          page
+            .frameLocator('iframe')
+            .locator('html')
+            .evaluate(
+              (node) => node.scrollHeight <= node.ownerDocument.defaultView!.innerHeight + 1,
+            ),
+        )
+        .toBe(true);
+      await page.screenshot({ path: `/tmp/1586-${width}-${theme}-long-top.png` });
+      await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight / 2));
+      expect(await page.evaluate(() => window.scrollY)).toBeGreaterThan(500);
       expect(
         await page
           .frameLocator('iframe')
-          .locator('body')
+          .locator('html')
           .evaluate((node) => node.ownerDocument.defaultView!.scrollY),
-      ).toBeGreaterThan(500);
+      ).toBe(0);
       expect((await bar.boundingBox())?.y).toBe(0);
       await page.screenshot({ path: `/tmp/1586-${width}-${theme}-middle.png` });
-      await expect(page.locator('.page-backend')).toHaveText('local · Studio Mac');
+      await page.screenshot({ path: `/tmp/1586-${width}-${theme}-long-scrolled.png` });
+      const beforePanel = await frame.boundingBox(),
+        scrollBeforePanel = await page.evaluate(() => window.scrollY);
+      await expect(page.locator('.page-bar > .page-backend')).toHaveText('local · Studio Mac');
       if (width === 390) await page.getByRole('button', { name: 'More page actions' }).click();
       await page.getByTestId('comments-toggle').click();
       const comments = page.locator('.page-drawer[data-panel=comments]');
       await expect(comments).toBeVisible();
+      expect((await frame.boundingBox())?.width).toBe(beforePanel?.width);
+      expect((await frame.boundingBox())?.height).toBe(beforePanel?.height);
+      expect(await page.evaluate(() => window.scrollY)).toBe(scrollBeforePanel);
       if (width === 390) {
         expect((await comments.boundingBox())?.width).toBe(390);
         expect((await comments.boundingBox())?.y).toBe(0);
@@ -80,7 +112,6 @@ for (const width of [1440, 390])
       await expect(asks).not.toBeVisible();
       if (width === 390) {
         await page.getByRole('button', { name: 'More page actions' }).click();
-        await page.screenshot({ path: `/tmp/1586-${width}-${theme}-menu.png` });
       }
       await page.getByRole('button', { name: 'Source', exact: true }).click();
       const editor = page.locator('.page-drawer[data-panel=source]');
@@ -91,6 +122,8 @@ for (const width of [1440, 390])
       await expect(editor).not.toBeVisible();
       if (width === 390)
         await expect(page.getByRole('button', { name: 'More page actions' })).toBeFocused();
-      expect((await frame.boundingBox())?.width).toBe(width);
+      expect((await frame.boundingBox())?.width).toBe(
+        await page.evaluate(() => document.documentElement.clientWidth),
+      );
     });
   }

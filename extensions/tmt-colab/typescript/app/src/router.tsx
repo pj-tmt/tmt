@@ -85,7 +85,7 @@ export function AppHeader({ linked = true }: { linked?: boolean }) {
     </header>
   );
 }
-function ThemeButton() {
+function ThemeButton({ menuLabel = false }: { menuLabel?: boolean }) {
   const [dark, setDark] = useState(() =>
     document.documentElement.dataset.theme
       ? document.documentElement.dataset.theme === 'dark'
@@ -96,7 +96,10 @@ function ThemeButton() {
   }, [dark]);
   return (
     <button className="theme" aria-label={text.theme} onClick={() => setDark(!dark)}>
-      {dark ? '◐' : '◑'}
+      <span className="theme-symbol" aria-hidden>
+        {dark ? '◐' : '◑'}
+      </span>
+      {menuLabel && <span className="theme-label">Theme: {dark ? 'dark' : 'light'}</span>}
     </button>
   );
 }
@@ -215,6 +218,8 @@ function Home() {
 function Page() {
   const { transport } = root.useRouteContext();
   const snapshot = page.useLoaderData();
+  const backendName = transport.backendName?.trim();
+  const backendLabel = backendName ? `local · ${backendName}` : 'local';
   const [panel, setPanel] = useState<'source' | 'comments' | 'ask' | 'export' | null>(null);
   const [menu, setMenu] = useState(false);
   const toolbar = useRef<HTMLElement>(null);
@@ -330,6 +335,8 @@ function Page() {
     void mountRenderer(host.current!, view.source, {
       signal: controller.signal,
       onState: setState,
+      viewportInset: () =>
+        (toolbar.current?.offsetHeight ?? 56) + (toolbar.current?.getBoundingClientRect().top ?? 0),
       onSelection: (value, quote) => {
         setSelection(value);
         setSelector(quote ?? null);
@@ -363,18 +370,16 @@ function Page() {
       <header className="page-bar" ref={toolbar} data-menu-open={menu}>
         <Link className="back" to="/" aria-label={text.home} title={text.product}>
           <span aria-hidden>←</span>
-          <span className="page-brand">{text.product}</span>
+          <span className="page-brand">
+            {text.product}
+            <span className="page-tmt">tmt</span>
+          </span>
         </Link>
         <h1 title={view.title || snapshot.title}>{view.title || snapshot.title}</h1>
-        <span
-          className="page-backend"
-          title={
-            transport.backendName?.trim() ? `local · ${transport.backendName.trim()}` : 'local'
-          }
-        >
-          {transport.backendName?.trim() ? `local · ${transport.backendName.trim()}` : 'local'}
+        <span className="page-backend" title={backendLabel}>
+          {backendLabel}
         </span>
-        <span className="chip">{text[snapshot.sharing]}</span>
+        <span className="chip page-sharing">{text[snapshot.sharing]}</span>
         <span
           className={`status ${state === 'ready' ? 'live' : ''}`}
           title={
@@ -409,6 +414,17 @@ function Page() {
               setMenu(false);
           }}
         >
+          <button
+            className="page-menu-close"
+            aria-label="Close page actions"
+            onClick={() => setMenu(false)}
+          >
+            ×
+          </button>
+          <div className="page-menu-meta">
+            <span title={backendLabel}>{backendLabel}</span>
+            <span>{text[snapshot.sharing]}</span>
+          </div>
           <button
             data-testid="ask-toggle"
             aria-label="Agent conversations"
@@ -454,9 +470,14 @@ function Page() {
               setLiveError(managementChanged);
             }}
           />
-          <ThemeButton />
+          <ThemeButton menuLabel />
           <details className="page-information">
-            <summary aria-label="Page information">ⓘ</summary>
+            <summary aria-label="Page information">
+              <span className="info-symbol" aria-hidden>
+                ⓘ
+              </span>
+              <span className="info-label">Page information</span>
+            </summary>
             <p>{text.warning}</p>
           </details>
         </div>

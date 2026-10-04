@@ -37,10 +37,32 @@ test('two paired writers retain discussion, anchors and frozen comment Ask throu
     const a = await pairBrowser(world, 'discussion-author');
     const b = await pairBrowser(world, 'discussion-replier');
     const html =
-      '<h1>Shared review</h1><p id="quote">An &amp; <em>🌍 exact quote</em> for review.</p><p id="next">Another selection.</p>';
+      '<h1>Shared review</h1><p id="quote">An &amp; <em>🌍 exact quote</em> for review.</p><p id="next">Another selection.</p><div style="height:2400px">Long-page scroll proof</div>';
     const created = createPage(world, 'Shared review', html);
     const first = await openPage(door, a, created);
     const second = await openPage(door, b, created);
+    // The real owner app's CSP also permits trusted content-driven frame sizing.
+    await expect
+      .poll(async () => (await first.locator('iframe').boundingBox())?.height ?? 0)
+      .toBeGreaterThan(2400);
+    await expect(first.locator('iframe')).toHaveAttribute('scrolling', 'no');
+    for (const width of [1440, 390]) {
+      await first.setViewportSize({ width, height: 900 });
+      await first.evaluate(() => window.scrollTo(0, 0));
+      await first.screenshot({ path: `/tmp/1586-native-${width}-light-long-top.png` });
+      await first.evaluate(() => window.scrollTo(0, 1200));
+      expect(await first.evaluate(() => window.scrollY)).toBeGreaterThan(1000);
+      expect(
+        await first
+          .frameLocator('iframe')
+          .locator('html')
+          .evaluate((node) => node.ownerDocument.defaultView!.scrollY),
+      ).toBe(0);
+      expect((await first.locator('.page-bar').boundingBox())?.y).toBe(0);
+      await first.screenshot({ path: `/tmp/1586-native-${width}-light-long-scrolled.png` });
+    }
+    await first.setViewportSize({ width: 1280, height: 900 });
+    await first.evaluate(() => window.scrollTo(0, 0));
     await second.getByTestId('comments-toggle').click();
     await selectInRenderer(first, '#quote');
     await post(first, '<script>plain discussion</script>\nPlease explain this.', true);
@@ -106,11 +128,13 @@ test('two paired writers retain discussion, anchors and frozen comment Ask throu
 
     // New source surrounding a unique quote keeps attachment; changing it detaches.
     await first.getByRole('button', { name: 'Source', exact: true }).click();
-    await first.getByLabel('Source', { exact: true }).fill('<p>Inserted above.</p>' + html);
+    await first
+      .getByRole('textbox', { name: 'Source', exact: true })
+      .fill('<p>Inserted above.</p>' + html);
     await first.getByRole('button', { name: 'Save source', exact: true }).click();
     await expect(t1).toHaveAttribute('data-anchor', 'attached');
     await first
-      .getByLabel('Source', { exact: true })
+      .getByRole('textbox', { name: 'Source', exact: true })
       .fill(html.replace('exact quote', 'changed quote'));
     await first.getByRole('button', { name: 'Save source', exact: true }).click();
     await expect(t1).toHaveAttribute('data-anchor', 'detached');

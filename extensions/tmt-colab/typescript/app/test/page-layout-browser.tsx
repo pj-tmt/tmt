@@ -3,6 +3,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { RouterProvider } from '@tanstack/react-router';
 import { createAppRouter } from '../src/router.js';
 import { localTransport } from '../src/transport.js';
+import { ReaderApp } from '../src/reader-app.js';
 let root: Root | undefined;
 export function mount(source: string) {
   root?.unmount();
@@ -21,4 +22,17 @@ export function mount(source: string) {
     <RouterProvider router={createAppRouter({ ...transport, backendName: 'Studio Mac' })} />,
   );
   location.hash = '/pages/layout';
+}
+
+export function mountReader(source: string) {
+  root?.unmount();
+  document.getElementById('root')!.hidden = true;
+  let host = document.getElementById('layout-fixture');
+  if (!host) {
+    host = document.createElement('div');
+    host.id = 'layout-fixture';
+    document.body.append(host);
+  }
+  root = createRoot(host);
+  root.render(<ReaderApp state={{ kind: 'ready', view: { title: 'Reader notes', source } }} />);
 }
