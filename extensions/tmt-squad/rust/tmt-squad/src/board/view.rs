@@ -43,6 +43,7 @@ pub fn render(frame: &mut Frame, app: &App) {
     app.link_hits.borrow_mut().clear();
     app.row_starts.borrow_mut().clear();
     app.tab_hits.borrow_mut().clear();
+    app.unpicked_hit.set(None);
     app.title_hits.borrow_mut().clear();
     app.scrolls.begin_frame();
     let [tabs, summary, body, footer] = Layout::vertical([

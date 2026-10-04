@@ -314,6 +314,50 @@ o = "run touch ${marker}"
     });
   });
 
+  it('validates board picks without writing config or changing ls tab resolution', async () => {
+    await withSandbox(async (sandbox) => {
+      installSquad(sandbox);
+      for (const name of ['product', 'infra', 'quiet']) {
+        expect((await squad(sandbox, ['init', name])).status).toBe(0);
+      }
+      const config = path.join(sandbox.globalDir, 'squad.toml');
+      const source =
+        '[tabs]\npin = ["tab:product"]\nhide = ["quiet"]\n[tabs.product]\nfilter = "squad = infra"\n[tabs.needs-me]\nfilter = "squad = product"\n';
+      writeFileSync(config, source);
+      const before = observe(sandbox);
+      const listed = await squad(sandbox, ['ls', '--squad', 'product']);
+      for (const names of ['all', 'product,infra', 'leads,@tab:needs-me', 'needs-me', 'quiet']) {
+        const board = await squad(sandbox, ['board', '--tabs', names]);
+        expect(board.status).toBe(0);
+      }
+      expect(
+        (await squad(sandbox, ['board', '--squad', 'product', '--tabs', 'product'])).body
+      ).toEqual(listed.body);
+      for (const names of ['missing', '', 'product,', 'all,product']) {
+        const invalid = await squad(sandbox, ['board', '--tabs', names]);
+        expect(invalid.status).not.toBe(0);
+        expect(invalid.body.error.code).toBe('USAGE_ERROR');
+        for (const name of ['product', 'infra', '@tab:needs-me', 'all', 'leads']) {
+          expect(invalid.body.error.message).toContain(name);
+        }
+      }
+      const excluded = await squad(sandbox, [
+        'board',
+        '--squad',
+        'product',
+        '--tabs',
+        '@tab:product',
+      ]);
+      expect(excluded.status).not.toBe(0);
+      expect(excluded.body.error.code).toBe('USAGE_ERROR');
+      expect((await squad(sandbox, ['ls', '--tab', '@tab:needs-me'])).status).not.toBe(0);
+      expect((await squad(sandbox, ['ls', '--tab', 'needs-me'])).status).toBe(0);
+      expect((await squad(sandbox, ['ls', '--tabs', 'product'])).status).not.toBe(0);
+      expect(readFileSync(config, 'utf8')).toBe(source);
+      expect(observe(sandbox)).toEqual(before);
+    });
+  });
+
   it('lists built-in tabs with their board rows, including hidden and empty squads', async () => {
     await withSandbox(async (sandbox) => {
       installSquad(sandbox);

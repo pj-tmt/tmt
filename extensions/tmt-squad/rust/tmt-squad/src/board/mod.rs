@@ -10,6 +10,7 @@ mod home;
 mod markdown;
 mod meter;
 pub(crate) mod notes;
+mod pick;
 mod picker_surface;
 mod rate;
 mod refresh;
@@ -275,8 +276,10 @@ fn session(
                     requested = Some(None);
                     app.apply(*snapshot);
                     dirty = true;
+                    app.reconcile_pick_current()
+                } else {
+                    Effect::None
                 }
-                Effect::None
             }
             Ok(BoardEvent::Notebook {
                 cancellation,
@@ -496,17 +499,60 @@ fn session(
     }
 }
 
-/// Returns the signal that ended the board, if any.
-/// `popup` closes the board after a successful jump, as a tmux popup should.
+/// Resolve the initial board selection before terminal admission. Reads only public Squad/core ports.
+pub(super) fn selection(
+    core: &Core,
+    config: &Config,
+    input: Option<&str>,
+    initial: Option<&str>,
+) -> Result<(pick::Picks, Option<String>), SquadError> {
+    if input.is_none() {
+        return Ok((pick::Picks::default(), initial.map(str::to_owned)));
+    }
+    let names = crate::squad::Squad::list(core)?
+        .into_iter()
+        .map(|squad| squad.name)
+        .collect::<Vec<_>>();
+    let settings = config.tabs()?;
+    let (arranged, _) = tabs::arrange(&names, &settings);
+    let mut inventory = arranged.clone();
+    for key in names
+        .into_iter()
+        .chain([ALL.to_owned(), LEADS.to_owned()])
+        .chain(settings.user.iter().map(|tab| tabs::user_key(&tab.name)))
+    {
+        if !inventory.contains(&key) {
+            inventory.push(key);
+        }
+    }
+    let picks = pick::Picks::parse(input, &inventory)?;
+    if let Some(initial) = initial
+        && !picks.contains(initial)
+    {
+        return Err(SquadError::new(
+            "USAGE_ERROR",
+            format!("Initial squad '{initial}' is not in --tabs."),
+        ));
+    }
+    let chosen = initial
+        .map(str::to_owned)
+        .or_else(|| arranged.iter().find(|key| picks.contains(key)).cloned())
+        .or_else(|| inventory.iter().find(|key| picks.contains(key)).cloned());
+    Ok((picks, chosen))
+}
+
+/// Returns the signal that ended the board; a popup closes after a successful jump.
 pub fn run(
     core: Core,
     squad: Option<String>,
+    picks: Option<String>,
     popup: bool,
     interaction: tmt_cli_style::Interaction,
 ) -> Result<Option<i32>, SquadError> {
     terminal::restore_before_panic_reports();
     let stop = terminal::stop_requested().map_err(failed)?;
     let config = Config::load(&core)?;
+    let (picks, squad) = selection(&core, &config, picks.as_deref(), squad.as_deref())?;
     composition::admit().map_err(|message| SquadError::new("SQUAD_LAYOUT_INVALID", message))?;
     let requested = config.theme(squad.as_deref().unwrap_or(""))?.0.base;
     let value = std::env::var("COLORFGBG").ok();
@@ -531,6 +577,7 @@ pub fn run(
     );
     worker.request(squad.clone(), false, false);
     let mut app = App::new(squad);
+    app.picks = picks;
     app.popup = popup;
     let mut screen = Terminal::new(CrosstermBackend::new(io::stdout())).map_err(failed)?;
     let mut clock = crate::cron_clock::ClockWorker::spawn(core.clone(), config, false);
