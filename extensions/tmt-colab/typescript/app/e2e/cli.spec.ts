@@ -266,7 +266,7 @@ test('CLI writes reach a live native browser, preserve title and refuse a stale 
   try {
     await keys(context, server.fixture);
     await page.goto(server.origin + mount);
-    await page.getByRole('link', { name: new RegExp(server.fixture.pageId) }).click();
+    await page.locator(`[data-page-id="${server.fixture.pageId}"] a`).click();
     await expect(page.getByRole('heading', { name: 'CLI page', exact: true })).toBeVisible();
     await expect(
       page.frameLocator('iframe').getByRole('heading', { name: 'Before CLI' }),

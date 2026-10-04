@@ -141,3 +141,20 @@ in `acceptance/ask.spec.ts`.
   verification. A dropped/DENIED target socket never erases the acknowledgment.
 - Expiry stays unavailable until native durable update timestamps exist. The link
   artifact is a transient ID/seed, not a new reader URL/import grammar.
+
+## Browser title hints
+
+- `title-cache.ts` owns optional encrypted title records scoped to space/device/page.
+  `keyring.ts::titleKey` owns their local non-extractable AES-GCM key, without changing
+  Remote-certified device keys. The existing IndexedDB record helper owns durable writes.
+- `Live#publishViews` passes accepted folded titles and their exact admission
+  registration to `mounted.ts`. Mounted tab ownership/current registration fences
+  the best-effort cache write. Rejected folds and replaced sessions cannot supply hints.
+- Home reads hints only after verified discovery/policy. `router.tsx` and
+  `share-dialog.tsx` use them as display labels, with UUIDs under Details and the
+  explicit unopened fallback; the parent tab title follows the live page. A later
+  fold replaces stale hints. Missing/corrupt cache data never authorizes or denies access.
+- The cache adds no plaintext server field, native schema or Worker/renderer capability.
+  Crypto/scope tests live in `test/title-cache.test.ts`; real IndexedDB reload and
+  safe rendering are covered in `e2e/live.spec.ts`, and native page-create title
+  propagation/profile isolation in `acceptance/titles.spec.ts`.
