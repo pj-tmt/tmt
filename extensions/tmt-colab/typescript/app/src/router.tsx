@@ -198,10 +198,14 @@ function ShortPageChoice() {
   const { pages, prefix } = shortPage.useLoaderData();
   const deleted = pages.length === 1 && pages[0].deleted;
   return (
-    <section className="notice short-page-choice">
-      <h1>{deleted ? 'This page was deleted' : 'Choose a page'}</h1>
+    <NoticeCard
+      state={deleted ? 'blocked' : 'inactive'}
+      eyebrow={text.pages}
+      title={deleted ? 'This page was deleted' : 'Choose a page'}
+      testId="short-page-choice"
+    >
       {!deleted && <p>More than one page matches {prefix}. Choose the page you want to open.</p>}
-      <ul>
+      <ul className="short-page-options">
         {pages.map((page) => (
           <li key={page.id}>
             {page.deleted ? (
@@ -221,7 +225,7 @@ function ShortPageChoice() {
           </li>
         ))}
       </ul>
-    </section>
+    </NoticeCard>
   );
 }
 
@@ -279,7 +283,17 @@ function Shell() {
   const isPage = pathname.startsWith('/pages/');
   return (
     <>
-      {!isPage && <AppHeader title={pathname === '/' ? text.pages : text.error} />}
+      {!isPage && (
+        <AppHeader
+          title={
+            pathname.startsWith('/short/')
+              ? 'Open a page'
+              : pathname === '/'
+                ? text.pages
+                : text.error
+          }
+        />
+      )}
       <main className={isPage ? 'page-main' : undefined}>
         <Outlet />
       </main>

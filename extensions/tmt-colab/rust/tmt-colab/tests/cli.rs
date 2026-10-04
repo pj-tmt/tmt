@@ -2851,6 +2851,23 @@ fn page_commands_print_the_link_and_the_pairing_step_or_the_reason_there_is_none
     }
     // The listing's footer is set off from the rows at the list indent, not tucked under the last page.
     let listing = human(Some(DOOR), &["ls"]);
+    let row = listing
+        .lines()
+        .find(|line| line.contains(&page[..8]))
+        .unwrap();
+    assert!(row.trim_start().starts_with("Notes"), "{listing}");
+    assert!(
+        row.find("Notes").unwrap() < row.find(&page[..8]).unwrap(),
+        "{row}"
+    );
+    assert!(
+        row.find(&page[..8]).unwrap() < row.find("private").unwrap(),
+        "{row}"
+    );
+    assert!(
+        !listing.contains(page),
+        "human ls uses eight-character IDs: {listing}"
+    );
     assert!(
         listing.contains(
             "\n\n  pair this browser once: tmt remote pair\n  Expiry never deletes your local copy."
@@ -2858,6 +2875,10 @@ fn page_commands_print_the_link_and_the_pairing_step_or_the_reason_there_is_none
         "{listing}"
     );
     let shown = human(Some(DOOR), &["show", page]);
+    assert!(
+        shown.contains(page),
+        "show retains the full page ID: {shown}"
+    );
     assert!(!shown.contains("not-available"), "{shown}");
     assert!(
         shown.contains("audience") && shown.contains("history"),
@@ -2895,6 +2916,14 @@ fn page_commands_print_the_link_and_the_pairing_step_or_the_reason_there_is_none
     assert_eq!(listed["pages"][0]["link"], long_link);
     assert_eq!(listed["pages"][0]["shortLink"], full);
     assert_eq!(listed["paired"], false);
+    let untitled = pilot.call(&["page", "create", "--title", "", "--json"]);
+    let untitled_id = untitled["pageId"].as_str().unwrap();
+    let listing = human(None, &["ls"]);
+    let row = listing
+        .lines()
+        .find(|line| line.contains(&untitled_id[..8]))
+        .unwrap();
+    assert!(row.trim_start().starts_with("Untitled page"), "{listing}");
 }
 #[test]
 fn unreadable_settings_never_fail_a_committed_page_create_or_a_ready_serve() {

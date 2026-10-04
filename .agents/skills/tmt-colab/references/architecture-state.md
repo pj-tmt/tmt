@@ -202,9 +202,12 @@ in `acceptance/ask.spec.ts`.
 - `router.tsx` resolves the `/short/$prefix` chooser from its existing admitted transport;
   one live match canonicalizes to the full page route, deleted matches show disabled untitled
   rows or the deleted-page view, multiple matches show plain links and none
-  use the unavailable-page view. `bootstrap.ts` preserves only the strict alias target on pinning.
+  use the unavailable-page view. The chooser and deleted view reuse `ColabHeader` through
+  `AppHeader` and the shared `NoticeCard`; only their list rows own additional styling.
+  `bootstrap.ts` preserves only the strict alias target on pinning.
 - `Reach`/`Status` keep full JSON links and add `shortLink`; human output and auto-open use the
-  Remote root alias. Ask composition captures the catalog prefix in `Live`, preserving full
+  Remote root alias. Human `ls` puts the page title first, with an eight-character display ID;
+  JSON and `show` retain full IDs. Ask composition captures the catalog prefix in `Live`, preserving full
   signed scope, legacy source-link admission and unchanged reader links. See the contract for
   Remote's root-redirect dependency and exact URL/JSON shapes.
 

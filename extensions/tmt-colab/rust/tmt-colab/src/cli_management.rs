@@ -1072,17 +1072,28 @@ fn output_with(value: &Value, json_output: bool, extra: &[(&str, String)]) -> Re
             .max()
             .unwrap_or(0);
         for page in pages {
-            let mut rows = Table::new(&[Column::Fixed, Column::Fixed, Column::Name]);
+            let mut rows = Table::new(&[Column::Name, Column::Fixed, Column::Fixed]);
             rows.row([
-                Cell::from(page["pageId"].as_str().unwrap_or("")),
-                Cell::from(format!("{:<width$}", audience(page))),
                 match (page["title"].as_str(), page["error"]["code"].as_str()) {
-                    (Some(title), _) => Cell::from(title),
+                    (Some(title), _) => Cell::from(if title.trim().is_empty() {
+                        "Untitled page"
+                    } else {
+                        title
+                    }),
                     // The page is intact but too big to open; the code stays in --json and on stderr.
                     (None, Some("COLAB_CAPACITY")) => Cell::styled("too large to open", Token::Dim),
                     (None, Some(code)) => Cell::from(format!("unavailable ({code})")),
                     (None, None) => Cell::from("title unavailable"),
                 },
+                Cell::from(
+                    page["pageId"]
+                        .as_str()
+                        .unwrap_or("")
+                        .chars()
+                        .take(8)
+                        .collect::<String>(),
+                ),
+                Cell::from(format!("{:<width$}", audience(page))),
             ]);
             rows.write(&mut out, terminal)?;
             if let Some(text) = page["linkText"].as_str() {

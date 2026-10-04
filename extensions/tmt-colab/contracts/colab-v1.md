@@ -1857,8 +1857,10 @@ as `serve` follows (`pair this browser once: tmt remote pair`, or `if this brows
 
 `--json` results that name a page carry `path` (relative), `link` (full, `null` without a
 door), `shortLink` (short owner link, `null` without a door), `paired` (`true|false|null`) and `next` (`["tmt remote pair"]` or `[]`). `ls` carries
-`path`, `link` and `shortLink` on each page and `paired`/`next` once; its human form puts each link on its
-own indented line under the row. `show` prints rows of words (`title`, `link`, `pair`, `page`,
+`path`, `link` and `shortLink` on each page and `paired`/`next` once; its human rows lead with
+the title (`Untitled page` when empty), then eight display characters of the page ID and the
+audience/history. Each link is on its own indented line under the row. `show` retains the full
+page ID and prints rows of words (`title`, `link`, `pair`, `page`,
 `sharing`, `history`, `retention`, `membership`, `members`, `links`; `–` for none), never an
 embedded JSON object. `page create` keeps `url`'s role under the name `link`.
 

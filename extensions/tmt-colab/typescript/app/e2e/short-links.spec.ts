@@ -1,6 +1,22 @@
-import { expect, test } from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
 import { mkdir } from 'node:fs/promises';
 const fixture = '/test/short-links-browser.tsx';
+async function capture(page: Page, state: 'chooser' | 'deleted') {
+  const directory = process.env.COLAB_SHORT_LINK_CAPTURE_DIR;
+  if (!directory) return;
+  await mkdir(directory, { recursive: true });
+  for (const theme of ['light', 'dark']) {
+    await page.evaluate((theme) => (document.documentElement.dataset.theme = theme), theme);
+    for (const width of [1440, 390]) {
+      await page.setViewportSize({ width, height: 900 });
+      expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(width);
+      await page.screenshot({
+        path: `${directory}/${state}-${width}-${theme}.png`,
+        fullPage: true,
+      });
+    }
+  }
+}
 test('an old short link opens a chooser after a new page collides and never guesses a page', async ({
   page,
 }) => {
@@ -11,21 +27,9 @@ test('an old short link opens a chooser after a new page collides and never gues
   await expect(page.getByRole('link', { name: /Later proposal/ })).toBeVisible();
   await expect(page.locator('iframe')).toHaveCount(0);
   await expect(page.locator('#short-fixture header')).toHaveCount(1);
-  const directory = process.env.COLAB_SHORT_LINK_CAPTURE_DIR;
-  if (directory) {
-    await mkdir(directory, { recursive: true });
-    for (const theme of ['light', 'dark']) {
-      await page.evaluate((theme) => (document.documentElement.dataset.theme = theme), theme);
-      for (const width of [1440, 390]) {
-        await page.setViewportSize({ width, height: 900 });
-        expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(width);
-        await page.screenshot({
-          path: `${directory}/chooser-${width}-${theme}.png`,
-          fullPage: true,
-        });
-      }
-    }
-  }
+  await expect(page.locator('#short-fixture .colab-header .colab-mark')).toHaveText('tmt');
+  await expect(page.getByTestId('short-page-choice')).toHaveAttribute('role', 'status');
+  await capture(page, 'chooser');
   await page.getByRole('link', { name: /Original proposal/ }).click();
   await expect(
     page.frameLocator('iframe').getByRole('heading', { name: 'Original content' }),
@@ -54,6 +58,12 @@ test('deleting the original page reserves old prefixes and never exposes its tit
   await expect(page.getByRole('heading', { name: 'This page was deleted' })).toBeVisible();
   await expect(page.getByText('Original proposal')).toHaveCount(0);
   await expect(page.locator('[aria-disabled="true"]')).toContainText('Deleted page');
+  await expect(page.getByTestId('short-page-choice')).toHaveAttribute('role', 'alert');
+  await expect(
+    page.getByTestId('short-page-choice').locator('.notice-mark svg.lucide-x'),
+  ).toBeVisible();
+  await expect(page.locator('#short-fixture .colab-header')).toHaveCount(1);
+  await capture(page, 'deleted');
   await page.evaluate(async (path) => (await import(path)).mount('12345678', true, true), fixture);
   await expect(page.getByRole('heading', { name: 'Choose a page' })).toBeVisible();
   await expect(page.getByRole('link', { name: /Original proposal/ })).toHaveCount(0);
