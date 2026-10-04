@@ -31,7 +31,10 @@ const PAGE_HTML = '<h1>Ask acceptance</h1><p id="quote">Exact selected sentence 
 
 /** Recover the paired session after a Remote restart through the page's own Reconnect. */
 async function reconnect(page: Page) {
-  await page.getByRole('button', { name: 'Reconnect', exact: true }).click();
+  await Promise.all([
+    page.waitForEvent('load', { timeout: 60_000 }),
+    page.getByRole('button', { name: 'Reconnect', exact: true }).click(),
+  ]);
   await expect(page.getByTestId('ask-toggle')).toBeVisible({ timeout: 60_000 });
   if ((await page.getByTestId('ask-toggle').getAttribute('aria-expanded')) === 'false')
     await page.getByTestId('ask-toggle').click();
