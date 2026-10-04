@@ -25,6 +25,7 @@ use tmt_cli_style::{Role, mark::Mark};
 use unicode_width::UnicodeWidthStr;
 
 mod cron;
+mod frame_timing;
 mod help;
 mod menu;
 mod meter;

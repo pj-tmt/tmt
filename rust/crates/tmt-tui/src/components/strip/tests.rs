@@ -100,3 +100,120 @@ fn a_wide_grapheme_continuation_cell_carries_its_span_style() {
         "cells after the text are untouched"
     );
 }
+
+/// Small deterministic generator: the differential test must not depend on a crate or the clock.
+struct Lcg(u64);
+impl Lcg {
+    fn next(&mut self, below: usize) -> usize {
+        self.0 = self
+            .0
+            .wrapping_mul(6364136223846793005)
+            .wrapping_add(1442695040888963407);
+        ((self.0 >> 33) as usize) % below
+    }
+}
+
+fn random_style(random: &mut Lcg) -> Style {
+    let colors = [
+        Color::Red,
+        Color::Rgb(1, 2, 3),
+        Color::Indexed(9),
+        Color::Reset,
+    ];
+    let mut style = Style::new();
+    if random.next(2) == 0 {
+        style = style.fg(colors[random.next(colors.len())]);
+    }
+    if random.next(3) == 0 {
+        style = style.bg(colors[random.next(colors.len())]);
+    }
+    if random.next(3) == 0 {
+        style = style.add_modifier(Modifier::BOLD | Modifier::UNDERLINED);
+    }
+    if random.next(5) == 0 {
+        style = style.remove_modifier(Modifier::BOLD);
+    }
+    style
+}
+
+fn random_line(random: &mut Lcg) -> Line<'static> {
+    const PIECES: [&str; 17] = [
+        "a",
+        "bc",
+        "def ghi",
+        "世界",
+        "世",
+        "e\u{301}",
+        "\u{200b}",
+        "\x1b[31m",
+        "\t",
+        "a\nb",
+        "👨‍👩‍👧",
+        "…",
+        " ",
+        "",
+        "\u{7f}",
+        "ｱ",
+        "x\u{0}y",
+    ];
+    let spans = (0..random.next(7))
+        .map(|_| {
+            let text: String = (0..1 + random.next(4))
+                .map(|_| PIECES[random.next(PIECES.len())])
+                .collect();
+            Span::styled(text, random_style(random))
+        })
+        .collect::<Vec<_>>();
+    Line::from(spans).style(random_style(random))
+}
+
+/// A buffer that already holds styled text, so the fill and `reset` are observable.
+fn occupied(bounds: Rect) -> Buffer {
+    let mut buffer = Buffer::empty(bounds);
+    for y in bounds.top()..bounds.bottom() {
+        for x in bounds.left()..bounds.right() {
+            let cell = &mut buffer[(x, y)];
+            cell.set_symbol(if (x + y) % 2 == 0 { "#" } else { "世" });
+            cell.set_style(Style::new().fg(Color::Blue).add_modifier(Modifier::ITALIC));
+        }
+    }
+    buffer
+}
+
+#[test]
+fn direct_painting_equals_the_layout_pipeline_cell_for_cell() {
+    let theme = Theme::default();
+    let mut random = Lcg(0x5eed);
+    for case in 0..6000 {
+        // The buffer need not start at the origin: an area can begin above or left of it.
+        let bounds = Rect::new(
+            random.next(3) as u16,
+            random.next(3) as u16,
+            1 + random.next(24) as u16,
+            1 + random.next(3) as u16,
+        );
+        // Areas reach past every buffer edge and may have no width or height.
+        let area = Rect::new(
+            random.next(12) as u16,
+            random.next(4) as u16,
+            random.next(26) as u16,
+            random.next(4) as u16,
+        );
+        let line = random_line(&mut random);
+        for depth in [Depth::TrueColor, Depth::None] {
+            let mut expected = occupied(bounds);
+            let mut actual = occupied(bounds);
+            if case % 2 == 0 {
+                reference::paint_left(&mut expected, area, line.clone(), &theme, depth);
+                paint_left(&mut actual, area, line.clone(), &theme, depth);
+            } else {
+                reference::paint_right(&mut expected, area, line.clone(), &theme, depth);
+                paint_right(&mut actual, area, line.clone(), &theme, depth);
+            }
+            assert_eq!(
+                actual, expected,
+                "case {case}: {line:?} in {area:?} on {bounds:?}"
+            );
+        }
+    }
+}
