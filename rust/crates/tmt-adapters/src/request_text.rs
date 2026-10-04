@@ -1,4 +1,4 @@
-//! Pure normalization shared by request previews and reply notice presentation.
+//! Display-control policy shared by label validation and request presentation.
 
 /// Normalize line endings (including Unicode separators) to LF and other
 /// display controls to spaces. Callers choose a single line or frame multiline text as data.
