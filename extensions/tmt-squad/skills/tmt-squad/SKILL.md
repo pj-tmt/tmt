@@ -364,13 +364,15 @@ age; blocked ages say `observed` to identify the task/state observation. Questio
 appear in the inline composer after `a`. Quiet needs-you takes one line, and empty
 blocked disappears. Public `tmt sq ls --tab all --json` and text retain the aggregate document.
 
-Leads show the latest exchange with you, newest first, in one full-width square
+Leads show the latest exchange with you in one full-width square
 box. Each header has a bold name, its squad from 100 columns, and an event age
 at the right. The second line previews the message: ◆ means the lead asks you,
 … means you asked and no reply has been submitted, and ✓ means the lead replied.
 Reply wording does not change that mark. A lead with no exchange has a blank mark
-and `–` age, with just one line and no blank separator around it. Partial, expired
-or unavailable reads remain explicit.
+and `–` age, with just one line. Leads marked ◆ come first, oldest ask first.
+Other exchanges follow, newest first. Undated exchanges follow dated exchanges
+within each group. Leads with no exchange follow a blank line, ordered by name.
+Partial, expired or unavailable reads remain explicit.
 
 `t` hides previews and the blank separators between leads, and saves the global
 `board.home_replies` choice (default `true`). `e` on a lead expands its complete

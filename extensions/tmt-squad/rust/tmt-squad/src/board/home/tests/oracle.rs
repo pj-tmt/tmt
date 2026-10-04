@@ -148,9 +148,9 @@ fn oracle_leads_follow_production_exchange_order() {
             .map(|lead| lead.name())
             .collect::<Vec<_>>(),
         [
+            "lead-a",
             "lead-g",
             "lead-b",
-            "lead-a",
             "lead-delta-with-a-long-name",
             "lead-e"
         ]

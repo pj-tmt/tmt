@@ -31,8 +31,10 @@
   distinct current lead UUID (50 items each). Other tabs schedule no exchange reads.
   Inbox questions reuse the acquired `waitingOnYou` projection; acknowledged finals
   remain results. Ordering uses submission time for replies and preparation time for
-  asks, newest first with stable lead UUID/squad ties. Exchanges without a valid
-  event time follow dated exchanges; leads without any exchange follow that group
+  asks. The selected `Kind::Question` is also HOME's ◆ mark source: those questions
+  come first, oldest first. Other exchanges follow, newest first. Undated exchanges
+  follow dated ones within each group; both use stable lead UUID/squad ties.
+  Leads without any exchange follow both groups
   in name/squad/UUID order. Read, reconcile and replacement share this ordering.
   Truncated pages and read failures remain
   explicit evidence; no room scan or unbounded pagination fills gaps. Observations
