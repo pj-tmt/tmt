@@ -30,6 +30,7 @@ export class Live implements PageBinding {
   readonly discussion: ThreadStore;
   #remote: RemoteClient | null = null;
   #observation: AbortController | null = null;
+  #refreshOlderAsks = true;
   #views = Promise.resolve();
   #processingViews = false;
   #pendingView: { value: PageView; admission: Admission } | null = null;
@@ -76,6 +77,7 @@ export class Live implements PageBinding {
     if (signal?.aborted) this.close();
   }
   #replaceAsk(remote: RemoteClient | null) {
+    this.#refreshOlderAsks = true;
     this.#remote = remote;
     this.ask?.close();
     const { bootstrap, page, registration } = this;
@@ -122,7 +124,10 @@ export class Live implements PageBinding {
   #visibility = () => {
     if (document.visibilityState === 'hidden') {
       this.#observation?.abort();
-    } else this.#observe();
+    } else {
+      this.#refreshOlderAsks = true;
+      this.#observe();
+    }
   };
   #observe() {
     if (
@@ -136,10 +141,12 @@ export class Live implements PageBinding {
     )
       return;
     const controller = new AbortController();
+    const refreshOlder = this.#refreshOlderAsks;
+    this.#refreshOlderAsks = false;
     this.#observation = controller;
     this.#projection = { ...this.#projection, askUnavailable: false };
     void this.ask
-      .observe(controller.signal)
+      .observe(controller.signal, refreshOlder)
       .catch(() => {
         if (!controller.signal.aborted && !this.#closed) {
           this.#projection = { ...this.#projection, askUnavailable: true };

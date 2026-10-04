@@ -53,12 +53,15 @@ modules in `extensions/tmt-colab/typescript/app/src` and `rust/tmt-colab/src/ask
   an interrupted `dispatching` ask becomes `uncertain` (`OBSERVATION_INTERRUPTED`) first, and
   a missing operation stays `uncertain` and can be abandoned. A refused read is an ephemeral
   `ReadRefusedError`, never a ledger state; the observer keeps backing off, while a
-  session-ending refusal stops it. `observe` runs while the page is visible, backs off from 2 s up to 30 s, stops
-  after two hours and never sends on reload or reconnect. `abandon` applies only to
+  session-ending refusal stops it. `observe` makes one sequential activation pass
+  over the 256 newest unresolved owned asks on page open and visible-again, including
+  old intents. Continued visible polling backs off from 2 s up to 30 s and stops
+  at the two-hour operation horizon; failed older reads are not retried.
+  It never sends on reload or reconnect. `abandon` applies only to
   `uncertain`, records `MAY_HAVE_BEEN_DELIVERED` and cancels nothing. On a Session fault
   an adopted send ends `uncertain` (a typed sequence failure too) and an `accepted` ask's
-  records stay unchanged; a pre-admission `REMOTE_SESSION_ENDED` refusal stays `refused`. The
-  controller then calls `sessionEnded` once, after publication, refuses further work and
+  records stay unchanged; a pre-admission `REMOTE_SESSION_ENDED` refusal stays `refused`.
+  The controller then calls `sessionEnded` once, after publication, refuses further work and
   stops observing.
 - **`writer.ts` and the fold Worker.** `Writer.submitOwn` is generic over the own roots
   (`threads`, `intents`, `messages`, `replies`) and imports nothing from Ask. It has the

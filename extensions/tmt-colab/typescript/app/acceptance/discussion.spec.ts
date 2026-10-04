@@ -1,5 +1,7 @@
 import { expect, test, type Locator, type Page } from '@playwright/test';
 import { text } from '../src/strings.js';
+import { mkdirSync, writeFileSync } from 'node:fs';
+import path from 'node:path';
 import { pairBrowser, restartColab, startDoor } from './harness/browser.js';
 import {
   annotationInput as inputFor,
@@ -28,6 +30,64 @@ async function comments(page: Page) {
 }
 
 test.afterEach(disposeActiveWorlds);
+test('a same-request annotation reply submitted while observation is paused is recovered without another send', async () => {
+  await withWorld(async (world) => {
+    const door = await startDoor(world, await freePort());
+    const agent = await world.startAgent('late-annotation-agent', { gated: true });
+    const browser = await pairBrowser(world, 'late-annotation-author');
+    const created = createPage(
+      world,
+      'Delayed annotation',
+      '<p id="quote">Quoted passage.</p>',
+      agent.pane,
+    );
+    const page = await openPage(door, browser, created);
+    await selectInRenderer(page, '#quote');
+    await page.getByTestId('selection-ask').click();
+    const input = page.getByRole('combobox', { name: 'Message to agent', exact: true });
+    await expect(input).toHaveValue(`@${agent.name} `);
+    await input.fill(`@${agent.name} Explain this passage.`);
+    await input.press('Enter');
+    await until(() => agent.received().length === 1, 'annotation delivery');
+    await expect(page.getByTestId('ask-state')).toHaveAttribute('data-state', 'accepted');
+    const requestId = agent.received()[0].requestId as string;
+    // Drive the observer's visibility input, leaving Remote and its signed clock untouched.
+    await page.evaluate(() => {
+      Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'hidden' });
+      document.dispatchEvent(new Event('visibilitychange'));
+    });
+    writeFileSync(path.join(agent.gate, `${requestId}.release`), '');
+    await until(
+      () => agent.rows().some((row) => row.event === 'replied' && row.requestId === requestId),
+      'same-request durable reply',
+    );
+    await page.evaluate(() => {
+      Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' });
+      document.dispatchEvent(new Event('visibilitychange'));
+    });
+    const expected = agent.rows().find((row) => row.event === 'replied')!.body as string;
+    await expect(page.getByTestId('ask-reply')).toHaveText(expected);
+    await page.reload();
+    await comments(page);
+    await page.getByTestId('annotation-row').filter({ hasText: 'Quoted passage.' }).click();
+    await expect(page.getByTestId('ask-reply')).toHaveText(expected);
+    expect(agent.received()).toHaveLength(1);
+    expect(world.coreCalls().filter((call) => call.operation === 'dispatch.create')).toHaveLength(
+      1,
+    );
+    const directory = process.env.COLAB_1699_CAPTURE_DIR;
+    if (directory) {
+      mkdirSync(directory, { recursive: true });
+      for (const theme of ['light', 'dark']) {
+        await page.evaluate((theme) => (document.documentElement.dataset.theme = theme), theme);
+        for (const width of [1440, 390]) {
+          await page.setViewportSize({ width, height: 900 });
+          await page.screenshot({ path: `${directory}/native-reply-${width}-${theme}.png` });
+        }
+      }
+    }
+  });
+});
 test('paired writers retain anchored annotation conversations, direct exact sends and one window scroll through restart', async () => {
   await withWorld(async (world) => {
     const door = await startDoor(world, await freePort());

@@ -161,11 +161,11 @@ export class LiveAsk implements AskBinding {
     await this.#admit();
     await controller.abandon(operationId);
   }
-  async observe(signal: AbortSignal): Promise<void> {
+  async observe(signal: AbortSignal, refreshOlder = false): Promise<void> {
     requireValue(!this.#closed);
     const controller = this.#controller;
     signal.throwIfAborted();
-    await controller.observe(signal);
+    await controller.observe(signal, refreshOlder);
   }
   close(): void {
     this.#closed = true;

@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { mkdirSync } from 'node:fs';
 const fixture = '/test/annotation-browser.tsx';
 async function run(page: Page, method: string, argument?: string) {
   return page.evaluate(
@@ -13,6 +14,55 @@ async function mount(page: Page, mode = 'held') {
   await expect(input).toHaveValue('@Deterministic agent ');
   return input;
 }
+test('an accepted annotation stops saying awaiting at the observation deadline without another send', async ({
+  page,
+}) => {
+  const input = await mount(page, 'accepted');
+  await page.clock.install();
+  await input.fill('@Deterministic agent Explain this.');
+  await input.press('Enter');
+  await expect(page.getByTestId('ask-state')).toHaveAttribute('data-state', 'accepted');
+  await expect(page.getByTestId('ask-state')).toHaveText('Accepted; awaiting the agent’s reply.');
+  const before = await run(page, 'proof');
+  expect(before.sends).toHaveLength(1);
+  await page.clock.fastForward(2 * 60 * 60 * 1000 + 1);
+  await expect(page.getByTestId('ask-state')).toHaveText('… no reply yet');
+  await expect(page.getByTestId('ask-state')).toHaveAttribute('data-state', 'accepted');
+  await expect(page.getByRole('button', { name: 'Re-check delivery', exact: true })).toBeEnabled();
+  expect(await run(page, 'proof')).toEqual(before);
+  const directory = process.env.COLAB_1699_CAPTURE_DIR;
+  if (directory) {
+    mkdirSync(directory, { recursive: true });
+    for (const theme of ['light', 'dark']) {
+      await page.evaluate((theme) => (document.documentElement.dataset.theme = theme), theme);
+      for (const width of [1440, 390]) {
+        await page.setViewportSize({ width, height: 900 });
+        await page.screenshot({ path: `${directory}/timeout-${width}-${theme}.png` });
+      }
+    }
+  }
+});
+test('each accepted annotation reaches its own deadline while the conversation stays mounted', async ({
+  page,
+}) => {
+  const input = await mount(page, 'accepted');
+  await page.clock.install();
+  await input.fill('@Deterministic agent First question.');
+  await input.press('Enter');
+  await expect(page.getByTestId('ask-state')).toHaveCount(1);
+  await page.clock.fastForward(60 * 60 * 1000);
+  await input.fill('@Deterministic agent Second question.');
+  await input.press('Enter');
+  const status = page.getByTestId('ask-state');
+  await expect(status).toHaveCount(2);
+  const before = await run(page, 'proof');
+  expect(before.preparations).toBe(2);
+  await page.clock.fastForward(60 * 60 * 1000 + 1);
+  await expect(status).toHaveText(['… no reply yet', 'Accepted; awaiting the agent’s reply.']);
+  await page.clock.fastForward(60 * 60 * 1000);
+  await expect(status).toHaveText(['… no reply yet', '… no reply yet']);
+  expect(await run(page, 'proof')).toEqual(before);
+});
 test('the shared input listbox consumes recipient Enter; explicit message Enter sends once and held stays inline', async ({
   page,
 }) => {

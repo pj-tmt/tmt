@@ -74,19 +74,24 @@ export function AskPanel({
 }) {
   const [now, setNow] = useState(0);
   useEffect(() => {
-    const timestamp = Date.now();
-    setNow(timestamp);
     const deadlines = records
       .filter(
         (record) =>
           record.state === 'accepted' && record.reply === undefined && !record.resultUnavailable,
       )
-      .map((record) => record.issuedAt + ASK_OBSERVATION_MS)
-      .filter((deadline) => deadline > timestamp);
-    if (!deadlines.length) return;
-    const timer = setTimeout(() => setNow(Date.now()), Math.min(...deadlines) - timestamp);
+      .map((record) => record.issuedAt + ASK_OBSERVATION_MS);
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const update = () => {
+      const timestamp = Date.now();
+      setNow(timestamp);
+      const future = deadlines.filter((deadline) => deadline > timestamp);
+      // Historical intent times can exceed the browser's signed 32-bit timer delay.
+      if (future.length)
+        timer = setTimeout(update, Math.min(2_147_483_647, Math.min(...future) - timestamp));
+    };
+    update();
     return () => clearTimeout(timer);
-  }, [records, chat]);
+  }, [records]);
   const [pending, setPending] = useState<Set<string>>(new Set());
   const [errors, setErrors] = useState<Map<string, string>>(new Map());
   const busy = useRef(new Set<string>());
