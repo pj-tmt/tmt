@@ -99,6 +99,11 @@ Synced publication tests prove filesystem behavior, not power-loss recovery. A n
 workspace path also needs the tracked-file layout, generated release configuration
 and CI-scope checks.
 
+## Browser pages
+
+The embedded same-origin stylesheet projects the shared design tokens with system
+font fallbacks and light/dark scheme preference under the contract-defined CSP.
+
 ## Embedded client and crypto fixtures
 
 The door embeds `extensions/tmt-remote/rust/tmt-remote/assets/remote-v1.js`, built

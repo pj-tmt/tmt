@@ -1123,19 +1123,17 @@ absolute `TMT_EXECUTABLE`, run by `tmt-invoke`) and owns the private
 `<dataRoot>/remote/` subtree through the
 [shared extension state layout](#shared-extension-state-layout). Core never owns a
 listener or Remote state and only registers Remote as an installable product; its
-archive embeds its static browser pages, stylesheet, SDK and wordlist with no companions or skills, and
-publication gates belong to the [release skill](.agents/skills/tmt-release/SKILL.md).
+archive embeds its static browser pages, stylesheet, SDK and wordlist with no
+companions or skills, and publication gates belong to the
+[release skill](.agents/skills/tmt-release/SKILL.md).
 Colab has no door of its own: Remote mounts its owner-only socket under
 `/r/<prefix>/x/colab/` and keeps Host/Origin, pairing, cookie and live-grant
 admission. [`contracts/remote-channel-v1.md`](contracts/remote-channel-v1.md) owns
 the wire, pairing, session, operations and extension channel API. Remote owns the
 static root landing and pairing-page errors as well as the pairing ceremony;
 protocol refusals and mounted extension responses retain their own representation.
-The embedded same-origin stylesheet projects the shared design tokens with system
-font fallbacks and light/dark scheme preference under the contract-defined CSP.
-The door serves
-the browser SDK `remote-v1.js` (built from `remote-client`), which gives mounted
-pages `reopenSession`, `operations(session)` and `certifyKey`; its README owns
+The door serves the browser SDK `remote-v1.js` (built from `remote-client`), which
+gives mounted pages `reopenSession`, `operations(session)` and `certifyKey`; its README owns
 the caller-facing recovery rules. The
 [Remote skill](.agents/skills/tmt-remote/SKILL.md) owns module internals.
 System-wide invariants:
