@@ -215,7 +215,7 @@ impl Action {
             Verb::Tab => "open the selected squad".into(),
             Verb::Talk => "send the member a message".into(),
             Verb::AskLead => "ask the lead what waits on you".into(),
-            Verb::Reply => "answer the member's request".into(),
+            Verb::Reply => "answer the member's request, or note its pending decision".into(),
             Verb::Annotate if target == Some("member") => "send the member a note".into(),
             Verb::Annotate => "send the lead a note".into(),
         }

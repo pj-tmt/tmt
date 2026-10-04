@@ -1933,8 +1933,9 @@ impl App {
     }
 
     /// One composer for row answers and notes; several requests still need a choice.
-    pub(super) fn compose_row(&mut self, send: RowSend, verb: Verb, squad: String) -> Effect {
+    pub(super) fn compose_row(&mut self, mut send: RowSend, verb: Verb, squad: String) -> Effect {
         let row = self.target_row(&send.target).expect("opening row exists");
+        let pending = row["pending"].as_str().is_some_and(|text| !text.is_empty());
         let open: Vec<MenuEntry> = row["waitingOnYou"]
             .as_array()
             .into_iter()
@@ -1974,6 +1975,17 @@ impl App {
             Verb::Talk => Compose::Talk {
                 to: send.name.clone(),
             },
+            // A decision owed without a request to answer: write the member a
+            // note. Opening sends, clears and acknowledges nothing.
+            Verb::Reply if pending => {
+                let note = Compose::Annotate {
+                    to: send.name.clone(),
+                    row: send.name.clone(),
+                };
+                send.note = Some(note.clone());
+                send.note_member = true;
+                note
+            }
             Verb::Reply => return self.say(format!("{} is not waiting on you.", send.name)),
             _ => match send.note.clone() {
                 Some(note) => note,
@@ -4777,6 +4789,55 @@ mod lead_row_tests {
         assert_eq!(shape(&app), ["sol", "-- members · 0"]);
         app.search = "bob".into();
         assert_eq!(shape(&app), ["-- members · 1", "bob"]);
+    }
+
+    #[test]
+    fn r_answers_a_request_else_notes_a_pending_only_member_else_says_so() {
+        let mut app = board(&["amy", "bob", "cai"]);
+        let view = app.view.as_mut().unwrap();
+        view.document["sections"][0]["rows"][0]["pending"] = json!("pick a database");
+        view.document["sections"][0]["rows"][0]["waitingOnYou"] =
+            json!([{"requestId": "q1", "preview": "ship it?"}]);
+        view.document["sections"][0]["rows"][1]["pending"] = json!("review the plan");
+        app.select(1);
+        // A real request wins over the pending text.
+        press(&mut app, KeyCode::Char('r'));
+        assert!(matches!(
+            app.input.as_ref().unwrap().compose,
+            Compose::Reply { ref request, .. } if request == "q1"
+        ));
+        press(&mut app, KeyCode::Esc);
+        // Pending alone opens a note to that member; nothing is sent by opening,
+        // cancelling or an empty Enter.
+        app.select(2);
+        assert_eq!(press(&mut app, KeyCode::Char('r')), Effect::None);
+        assert_eq!(app.input.as_ref().unwrap().header(), "✎ note → bob");
+        assert_eq!(press(&mut app, KeyCode::Esc), Effect::None);
+        assert!(app.input.is_none());
+        press(&mut app, KeyCode::Char('r'));
+        assert_eq!(press(&mut app, KeyCode::Enter), Effect::None);
+        assert_eq!(app.notice.as_deref(), Some("Nothing sent."));
+        press(&mut app, KeyCode::Char('r'));
+        for character in "go ahead".chars() {
+            press(&mut app, KeyCode::Char(character));
+        }
+        assert_eq!(
+            press(&mut app, KeyCode::Enter),
+            Effect::Act(Request::Annotate {
+                me: "Ben".into(),
+                squad: "product".into(),
+                to: "bob".into(),
+                row: "bob".into(),
+                text: "go ahead".into()
+            })
+        );
+        // The pending text stays: nothing acknowledged or cleared it.
+        assert_eq!(app.rows()[2].1["pending"], "review the plan");
+        // Neither a request nor pending text: the notice, and no composer.
+        app.select(3);
+        press(&mut app, KeyCode::Char('r'));
+        assert_eq!(app.notice.as_deref(), Some("cai is not waiting on you."));
+        assert!(app.input.is_none());
     }
 
     #[test]
