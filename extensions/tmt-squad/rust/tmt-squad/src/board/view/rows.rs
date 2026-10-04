@@ -294,6 +294,7 @@ pub(super) fn render_rows(frame: &mut Frame, app: &App, area: Rect) {
         ),
         look.role(Role::Muted),
     ))];
+    let mut input_range = None;
     let mut selected_lines = 0..0;
     let mut row_index = 0;
     // The screen lines of each row, for mouse events.
@@ -380,6 +381,12 @@ pub(super) fn render_rows(frame: &mut Frame, app: &App, area: Rect) {
                         lines.push(Line::from(spans).style(style));
                     }
                 }
+                if app.sent.as_ref().is_some_and(|feedback| {
+                    app.row_target(row_index).as_ref() == Some(&feedback.target)
+                }) {
+                    lines.push(Line::styled("    ✓ sent", look.role(Role::Working)));
+                    row_lines.push((lines.len() - 1, row_index));
+                }
                 if let Some(text) = row["annotation"]["text"].as_str() {
                     let to = row["annotation"]["to"].as_str().unwrap_or_default();
                     lines.push(Line::from(Span::styled(
@@ -390,6 +397,10 @@ pub(super) fn render_rows(frame: &mut Frame, app: &App, area: Rect) {
                         look.role(Role::Dim),
                     )));
                     row_lines.push((lines.len() - 1, row_index));
+                }
+                if let Some(range) = super::waiting::reserve_input(app, row_index, area, &mut lines)
+                {
+                    input_range = Some(range);
                 }
                 if selected {
                     selected_lines = start..lines.len();
@@ -417,6 +428,7 @@ pub(super) fn render_rows(frame: &mut Frame, app: &App, area: Rect) {
     let (offset, viewport) = app
         .scrolls
         .show(frame, Pane::Rows, area, lines, look.role(Role::Dim));
+    super::waiting::place_input(app, input_range, area, offset, viewport);
     app.hits.borrow_mut().extend(
         row_lines
             .into_iter()

@@ -185,11 +185,10 @@ pub(super) fn hints(app: &App, width: usize) -> String {
 }
 
 pub(super) fn render(frame: &mut Frame, app: &App, footer: Rect, look: crate::look::Look) {
-    let mut footer_line = if let Some(input) = app
-        .input
-        .as_ref()
-        .filter(|input| !matches!(input.compose, crate::board::app::Compose::AskLead { .. }))
-    {
+    let mut footer_line = if let Some(input) = app.input.as_ref().filter(|input| {
+        !matches!(input.compose, crate::board::app::Compose::AskLead { .. })
+            && app.input_band.get().is_none()
+    }) {
         let mut spans = vec![Span::raw(format!("{} › {}▏", input.prompt, input.text))];
         if let Some(hint) = input
             .hint

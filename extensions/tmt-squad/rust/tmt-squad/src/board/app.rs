@@ -201,7 +201,7 @@ pub struct LinkSend {
 
 /// The row's action menu, or the choice among a member's open requests.
 pub struct Menu {
-    pub(super) home: Option<super::home::Send>,
+    pub(super) row_send: Option<RowSend>,
     pub link: Option<LinkSend>,
     pub prefill: String,
     pub title: String,
@@ -231,9 +231,87 @@ pub enum Compose {
     Cron,
 }
 
+/// A row occurrence, independent of its position after refresh or sorting.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(super) enum RowTarget {
+    Home(super::home::Target),
+    Member {
+        tab: String,
+        section: usize,
+        squad: String,
+        id: String,
+    },
+    /// A notebook link may address the squad lead outside the member rows.
+    Lead {
+        tab: String,
+        squad: String,
+        id: String,
+    },
+}
+
+#[derive(Clone)]
+pub(super) struct RowSend {
+    pub target: RowTarget,
+    pub sender: String,
+    pub name: String,
+    pub note: Option<Compose>,
+    pub note_member: bool,
+}
+
+/// A successful send keeps its Home row visible through the ensuing refresh,
+/// until the next key clears the confirmation. This is display evidence only.
+pub(super) struct RowFeedback {
+    pub target: RowTarget,
+    pub home: Option<HomeFeedback>,
+}
+
+pub(super) struct HomeFeedback {
+    pub row: Value,
+    pub lead: Option<String>,
+    pub index: usize,
+}
+
+impl RowSend {
+    fn valid(&self, app: &App, input: &Input) -> bool {
+        if app.loading()
+            || app.view.as_ref().and_then(|view| view.me.as_ref()) != Some(&self.sender)
+        {
+            return false;
+        }
+        let squad = match &self.target {
+            RowTarget::Home(target) => &target.squad,
+            RowTarget::Member { squad, .. } | RowTarget::Lead { squad, .. } => squad,
+        };
+        let Some(row) = app.target_row(&self.target) else {
+            return false;
+        };
+        if squad != &input.squad || row["name"].as_str() != Some(&self.name) {
+            return false;
+        }
+        match &input.compose {
+            Compose::Talk { to } => to == &self.name,
+            Compose::Reply { request, from } => {
+                from == &self.name
+                    && row["waitingOnYou"].as_array().is_some_and(|items| {
+                        items
+                            .iter()
+                            .any(|item| item["requestId"].as_str() == Some(request))
+                    })
+            }
+            Compose::Annotate { to, .. } => {
+                self.note.as_ref() == Some(&input.compose)
+                    && (self.note_member || app.note_recipient(&self.target).as_ref() == Some(to))
+            }
+            Compose::AskLead { .. } | Compose::Cron => false,
+        }
+    }
+}
+
 /// The one-line composer: Enter sends, Esc cancels, empty sends nothing.
 pub struct Input {
-    pub(super) home: Option<super::home::Send>,
+    pub(super) row_send: Option<RowSend>,
+    pub(super) alternative: Option<Compose>,
+    pub(super) quote: Option<String>,
     pub link: Option<LinkSend>,
     pub prompt: String,
     pub text: String,
@@ -248,6 +326,18 @@ pub struct Input {
 pub struct Hint {
     pub text: String,
     pub error: bool,
+}
+
+impl Input {
+    pub(super) fn header(&self) -> String {
+        match &self.compose {
+            Compose::Talk { to } => format!("→ {to} ({})", self.squad),
+            Compose::Reply { from, .. } => format!("→ {from} ({})", self.squad),
+            Compose::Annotate { to, .. } => format!("✎ note → {to}"),
+            Compose::AskLead { to, .. } => format!("→ lead {to}"),
+            Compose::Cron => self.prompt.clone(),
+        }
+    }
 }
 
 /// Longest text the composer accepts, in characters.
@@ -381,6 +471,11 @@ pub struct App {
     pub(super) theme_picker: Option<super::theme_picker::Picker>,
     pub(super) settings: Option<super::settings::Overlay>,
     pub input: Option<Input>,
+    /// Last successful row send; cleared on the next user action.
+    pub(super) sent: Option<RowFeedback>,
+    pending_send: Option<RowFeedback>,
+    /// Current-frame inline band, reserved by the row painter.
+    pub(super) input_band: std::cell::Cell<Option<ratatui::layout::Rect>>,
     /// Index of the focused pane (split) or visible tab (tabs).
     pub focus: usize,
     /// Every pane's scroll position, from one owner.
@@ -517,6 +612,21 @@ impl App {
     }
 
     fn clamp(&mut self) {
+        let anchor = self
+            .input
+            .as_ref()
+            .and_then(|input| input.row_send.as_ref())
+            .map(|send| &send.target)
+            .or(self.sent.as_ref().map(|feedback| &feedback.target));
+        if let Some(target) = anchor
+            && let Some(index) = (0..self.rows().len())
+                .find(|&index| self.row_target(index).as_ref() == Some(target))
+        {
+            self.selected = index;
+            if let RowTarget::Home(target) = target {
+                self.home_target = Some(target.clone());
+            }
+        }
         if self.view.as_ref().is_some_and(|view| view.home.is_some()) {
             let entries = self.home_entries();
             let index = self
@@ -1362,7 +1472,7 @@ impl App {
                     .collect();
                 entries.sort_by_key(|entry| entry.key.chars().count() > 1);
                 self.menu = Some(Menu {
-                    home: None,
+                    row_send: None,
                     link: None,
                     prefill: String::new(),
                     title: row["name"].as_str().unwrap_or_default().to_owned(),
@@ -1449,7 +1559,7 @@ impl App {
         let text = view.ask_lead.clone();
         let squad = self.current.clone().unwrap();
         self.ask(
-            format!("ask lead {to}"),
+            format!("→ lead {to}"),
             Compose::AskLead { to, sender },
             squad,
         );
@@ -1459,7 +1569,9 @@ impl App {
 
     pub(super) fn ask(&mut self, prompt: String, compose: Compose, squad: String) -> Effect {
         self.input = Some(Input {
-            home: None,
+            row_send: None,
+            alternative: None,
+            quote: None,
             link: None,
             prompt,
             text: String::new(),
@@ -1470,78 +1582,189 @@ impl App {
         Effect::None
     }
 
-    /// Opens the composer for talk, annotate or reply. Reply needs an open
-    /// request from the member; with several, the user picks one.
-    fn compose(&mut self, action: &Action, row: &Value) -> Effect {
-        let Some(view) = &self.view else {
-            return Effect::None;
-        };
-        if view.me.is_none() {
-            return self.say(
-                "Who is sending? Record yourself with tmt squad me <name>, or open the board from your named pane.",
-            );
+    /// Stable occurrence used by composer placement, validation and feedback.
+    pub(super) fn row_target(&self, index: usize) -> Option<RowTarget> {
+        if self.view.as_ref()?.home.is_some() {
+            return self
+                .home_entries()
+                .get(index)
+                .map(|entry| RowTarget::Home(entry.target.clone()));
         }
-        let name = row["name"].as_str().unwrap_or_default().to_owned();
-        // A leads-tab row carries its own squad; a squad tab's rows are its own.
+        let (section, row) = *self.rows().get(index)?;
+        let tab = self.shown_tab()?.to_owned();
+        Some(RowTarget::Member {
+            squad: row["squad"].as_str().unwrap_or(&tab).to_owned(),
+            tab,
+            section,
+            id: row["id"].as_str()?.to_owned(),
+        })
+    }
+
+    fn target_row(&self, target: &RowTarget) -> Option<&Value> {
+        match target {
+            RowTarget::Home(target) => self
+                .home_entries()
+                .into_iter()
+                .find(|entry| &entry.target == target)
+                .map(|entry| entry.row),
+            RowTarget::Member {
+                tab,
+                section,
+                squad,
+                id,
+            } if self.shown_tab() == Some(tab) => self
+                .rows()
+                .into_iter()
+                .find(|(slot, row)| {
+                    *slot == *section
+                        && row["id"].as_str() == Some(id)
+                        && row["squad"].as_str().unwrap_or(tab) == squad
+                })
+                .map(|(_, row)| row),
+            RowTarget::Lead { tab, id, .. } if self.shown_tab() == Some(tab) => {
+                let lead = &self.view.as_ref()?.document["squad"]["lead"];
+                (lead["id"].as_str() == Some(id)).then_some(lead)
+            }
+            _ => None,
+        }
+    }
+
+    fn note_recipient(&self, target: &RowTarget) -> Option<String> {
+        match target {
+            RowTarget::Home(target) => self
+                .home_entries()
+                .into_iter()
+                .find(|entry| &entry.target == target)
+                .and_then(|entry| entry.lead.map(str::to_owned)),
+            RowTarget::Member { tab, .. } if tab == super::LEADS => {
+                self.target_row(target)?["name"].as_str().map(str::to_owned)
+            }
+            RowTarget::Member { tab, .. } | RowTarget::Lead { tab, .. }
+                if !super::tabs::aggregate(tab) =>
+            {
+                self.view.as_ref()?.document["squad"]["lead"]["name"]
+                    .as_str()
+                    .map(str::to_owned)
+            }
+            _ => None,
+        }
+    }
+
+    pub(super) fn row_send(&self, index: usize, member_note: bool) -> Option<RowSend> {
+        let target = self.row_target(index)?;
+        self.send_target(target, member_note)
+    }
+
+    fn send_target(&self, target: RowTarget, member_note: bool) -> Option<RowSend> {
+        let sender = self.view.as_ref()?.me.clone()?;
+        let name = self.target_row(&target)?["name"].as_str()?.to_owned();
+        let to = if member_note {
+            Some(name.clone())
+        } else {
+            self.note_recipient(&target)
+        };
+        Some(RowSend {
+            target,
+            sender,
+            name: name.clone(),
+            note_member: member_note,
+            note: to.map(|to| Compose::Annotate { to, row: name }),
+        })
+    }
+
+    /// One composer for row answers and notes; several requests still need a choice.
+    pub(super) fn compose_row(&mut self, send: RowSend, verb: Verb, squad: String) -> Effect {
+        let row = self.target_row(&send.target).expect("opening row exists");
+        let open: Vec<MenuEntry> = row["waitingOnYou"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .enumerate()
+            .filter_map(|(index, item)| {
+                Some(MenuEntry {
+                    key: (index + 1).to_string(),
+                    label: super::notes::sanitize(
+                        item["preview"].as_str().unwrap_or("(question unavailable)"),
+                    ),
+                    choice: Choice::Reply {
+                        request: item["requestId"].as_str()?.to_owned(),
+                        from: send.name.clone(),
+                    },
+                })
+            })
+            .collect();
+        if verb != Verb::Talk && !(verb == Verb::Annotate && send.note_member) && !open.is_empty() {
+            if open.len() > 1 {
+                self.menu = Some(Menu {
+                    row_send: Some(send.clone()),
+                    link: None,
+                    prefill: String::new(),
+                    title: format!("answer {}", send.name),
+                    entries: open,
+                    selected: 0,
+                });
+                return Effect::None;
+            }
+            let effect = self.choose(open[0].choice.clone());
+            self.attach_row(send, squad);
+            return effect;
+        }
+        let compose = match verb {
+            Verb::Talk => Compose::Talk {
+                to: send.name.clone(),
+            },
+            Verb::Reply => return self.say(format!("{} is not waiting on you.", send.name)),
+            _ => match send.note.clone() {
+                Some(note) => note,
+                None => return self.say(format!("This squad has no lead; set one with tmt squad lead <name> --squad {squad}, or use annotate member.")),
+            },
+        };
+        let effect = self.ask(String::new(), compose, squad.clone());
+        self.attach_row(send, squad);
+        effect
+    }
+
+    fn compose(&mut self, action: &Action, row: &Value) -> Effect {
+        if self
+            .view
+            .as_ref()
+            .and_then(|view| view.me.as_ref())
+            .is_none()
+        {
+            return self.say("Who is sending? Record yourself with tmt squad me <name>, or open the board from your named pane.");
+        }
+        let rows = self.rows();
+        let index = rows
+            .get(self.selected)
+            .filter(|(_, candidate)| *candidate == row)
+            .map(|_| self.selected)
+            .or_else(|| rows.iter().position(|(_, candidate)| *candidate == row));
+        let target = index.and_then(|index| self.row_target(index)).or_else(|| {
+            let view = self.view.as_ref()?;
+            (row == &view.document["squad"]["lead"])
+                .then(|| {
+                    Some(RowTarget::Lead {
+                        tab: self.shown_tab()?.to_owned(),
+                        squad: self.current.clone()?,
+                        id: row["id"].as_str()?.to_owned(),
+                    })
+                })
+                .flatten()
+        });
+        let Some(send) = target.and_then(|target| {
+            self.send_target(
+                target,
+                action.args.first().and_then(|arg| arg.literal()) == Some("member"),
+            )
+        }) else {
+            return self.say("This row has no stable member target.");
+        };
         let squad = row["squad"]
             .as_str()
             .map(str::to_owned)
             .or_else(|| self.current.clone())
             .unwrap_or_default();
-        match action.verb {
-            Verb::Talk => self.ask(format!("talk {name}"), Compose::Talk { to: name }, squad),
-            Verb::Annotate if self.current.as_deref().is_some_and(super::tabs::aggregate) => {
-                self.say("Annotate from the squad's own tab.")
-            }
-            Verb::Annotate => {
-                let to = if action.args[0].literal() == Some("member") {
-                    name.clone()
-                } else {
-                    match view.document["squad"]["lead"]["name"].as_str() {
-                        Some(lead) => lead.to_owned(),
-                        None => return self.say(format!("This squad has no lead; set one with tmt squad lead <name> --squad {squad}, or use annotate member.")),
-                    }
-                };
-                self.ask(
-                    format!("note on {name} for {to}"),
-                    Compose::Annotate { to, row: name },
-                    squad,
-                )
-            }
-            _ => {
-                let open: Vec<MenuEntry> = row["waitingOnYou"]
-                    .as_array()
-                    .into_iter()
-                    .flatten()
-                    .enumerate()
-                    .filter_map(|(index, item)| {
-                        Some(MenuEntry {
-                            key: (index + 1).to_string(),
-                            label: item["preview"].as_str().unwrap_or_default().to_owned(),
-                            choice: Choice::Reply {
-                                request: item["requestId"].as_str()?.to_owned(),
-                                from: name.clone(),
-                            },
-                        })
-                    })
-                    .collect();
-                match open.as_slice() {
-                    [] => self.say(format!("{name} is not waiting on you.")),
-                    [only] => self.choose(only.choice.clone()),
-                    _ => {
-                        self.menu = Some(Menu {
-                            home: None,
-                            link: None,
-                            prefill: String::new(),
-                            title: format!("reply to {name}"),
-                            entries: open,
-                            selected: 0,
-                        });
-                        Effect::None
-                    }
-                }
-            }
-        }
+        self.compose_row(send, action.verb, squad)
     }
 
     fn choose(&mut self, choice: Choice) -> Effect {
@@ -1549,15 +1772,37 @@ impl App {
             Choice::Action(action) => self.perform(&action),
             Choice::Cron(request) => Effect::Act(Request::Cron(request)),
             Choice::Dismiss => Effect::None,
-            Choice::Reply { request, from } => {
-                let squad = self.current.clone().unwrap_or_default();
-                self.ask(
-                    format!("reply {from}"),
-                    Compose::Reply { request, from },
-                    squad,
-                )
-            }
+            Choice::Reply { request, from } => self.ask(
+                format!("→ {from}"),
+                Compose::Reply { request, from },
+                self.current.clone().unwrap_or_default(),
+            ),
         }
+    }
+
+    fn attach_row(&mut self, send: RowSend, squad: String) {
+        let quote = self.input.as_ref().and_then(|input| match &input.compose {
+            Compose::Reply { request, .. } => self.target_row(&send.target)?["waitingOnYou"]
+                .as_array()?
+                .iter()
+                .find(|item| item["requestId"].as_str() == Some(request))
+                .map(|item| {
+                    super::notes::sanitize(
+                        item["preview"].as_str().unwrap_or("(question unavailable)"),
+                    )
+                }),
+            _ => None,
+        });
+        if let Some(input) = &mut self.input {
+            input.squad = squad;
+            input.alternative = matches!(input.compose, Compose::Reply { .. })
+                .then(|| send.note.clone())
+                .flatten();
+            input.quote = quote;
+            input.row_send = Some(send);
+            input.prompt = input.header();
+        }
+        self.follow = true;
     }
 
     fn annotate_note(&mut self) -> Effect {
@@ -1795,6 +2040,13 @@ impl App {
                 }
                 return self.say("Nothing sent.");
             }
+            KeyCode::Tab => {
+                if let Some(alternative) = input.alternative.take() {
+                    input.alternative = Some(std::mem::replace(&mut input.compose, alternative));
+                    input.prompt = input.header();
+                }
+                return Effect::None;
+            }
             KeyCode::Enter => {}
             KeyCode::Backspace => {
                 input.text.pop();
@@ -1817,11 +2069,11 @@ impl App {
         }
         let text = input.text.trim().to_owned();
         if input
-            .home
+            .row_send
             .as_ref()
             .is_some_and(|send| !send.valid(self, &input))
         {
-            return self.say("The home target, lead or request changed; nothing sent.");
+            return self.say("The row target, sender, lead or request changed; nothing sent.");
         }
         if let Compose::AskLead { to, sender } = &input.compose
             && (self.loading()
@@ -1861,6 +2113,25 @@ impl App {
         if text.is_empty() {
             return self.say("Nothing sent.");
         }
+        self.pending_send = input.row_send.map(|send| {
+            let home = matches!(&send.target, RowTarget::Home(target) if target.member.is_some())
+                .then(|| {
+                    self.home_entries()
+                        .iter()
+                        .enumerate()
+                        .find(|(_, entry)| RowTarget::Home(entry.target.clone()) == send.target)
+                        .map(|(index, entry)| HomeFeedback {
+                            row: entry.row.clone(),
+                            lead: entry.lead.map(str::to_owned),
+                            index,
+                        })
+                })
+                .flatten();
+            RowFeedback {
+                target: send.target,
+                home,
+            }
+        });
         Effect::Act(match input.compose {
             Compose::Talk { to } | Compose::AskLead { to, .. } => Request::Talk {
                 me,
@@ -1887,6 +2158,7 @@ impl App {
 
     /// Shows how a request ended.
     pub fn finished(&mut self, outcome: Result<String, String>) {
+        self.sent = self.pending_send.take().filter(|_| outcome.is_ok());
         self.notice = Some(outcome.unwrap_or_else(|error| error));
     }
 
@@ -1922,16 +2194,19 @@ impl App {
         };
         let prefill = menu.prefill.clone();
         let link = menu.link.clone();
-        let home = menu.home.clone();
+        let row_send = menu.row_send.clone();
         self.menu = None;
         let effect = chosen.map_or(Effect::None, |choice| self.choose(choice));
         if let Some(input) = &mut self.input {
             input.text = prefill;
             input.link = link;
-            if let Some(home) = home {
-                input.squad = home.target.squad.clone();
-                input.home = Some(home);
-            }
+        }
+        if let Some(send) = row_send {
+            let squad = match &send.target {
+                RowTarget::Home(target) => target.squad.clone(),
+                RowTarget::Member { squad, .. } | RowTarget::Lead { squad, .. } => squad.clone(),
+            };
+            self.attach_row(send, squad);
         }
         effect
     }
@@ -2066,6 +2341,9 @@ impl App {
             return effect;
         }
         self.notice = None;
+        if self.sent.take().is_some() {
+            self.clamp();
+        }
         if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('c') {
             return Effect::Quit;
         }
@@ -2910,7 +3188,7 @@ pub(crate) mod tests {
     }
 
     fn row(name: &str, task: &str) -> Value {
-        json!({"name": name, "fields": {"task": task}})
+        json!({"id": name, "name": name, "fields": {"task": task}})
     }
 
     fn names(app: &App) -> Vec<&str> {
@@ -3045,7 +3323,7 @@ pub(crate) mod tests {
     }
 
     fn member(name: &str, fields: Value) -> Value {
-        json!({"name": name, "state": "working", "fields": fields})
+        json!({"id": name, "name": name, "state": "working", "fields": fields})
     }
 
     pub(super) fn crew(
@@ -3079,7 +3357,7 @@ pub(crate) mod tests {
         app.view.as_mut().unwrap().me = Some("Ben".into());
         app.view.as_mut().unwrap().document["squad"]["lead"] = json!({"name": "sol"});
         assert_eq!(press(&mut app, KeyCode::Char('A')), Effect::None);
-        assert_eq!(app.input.as_ref().unwrap().prompt, "ask lead sol");
+        assert_eq!(app.input.as_ref().unwrap().prompt, "→ lead sol");
         assert_eq!(
             app.input.as_ref().unwrap().text,
             crate::config::DEFAULT_ASK_LEAD
@@ -3241,11 +3519,10 @@ pub(crate) mod tests {
             "sent in the lead's own squad room, not a tab's"
         );
         press(&mut app, KeyCode::Char('a'));
-        assert!(app.input.is_none());
-        assert_eq!(
-            app.notice.as_deref(),
-            Some("Annotate from the squad's own tab.")
-        );
+        assert_eq!(app.input.as_ref().unwrap().header(), "✎ note → rin");
+        typed(&mut app, "check the queue");
+        assert!(matches!(press(&mut app, KeyCode::Enter),
+            Effect::Act(Request::Annotate { squad, to, .. }) if squad == "infra" && to == "rin"));
         // ← → walk every tab, the built-in one included.
         assert_eq!(
             press(&mut app, KeyCode::Right),
@@ -3358,7 +3635,7 @@ pub(crate) mod tests {
                 json!([{"requestId": "q9", "preview": "ok to merge?"}]);
         }
         press(&mut app, KeyCode::Char('t'));
-        assert_eq!(app.input.as_ref().unwrap().prompt, "talk auth-fix");
+        assert_eq!(app.input.as_ref().unwrap().prompt, "→ auth-fix (product)");
         typed(&mut app, "q j -rf; $(x)");
         assert!(app.input.is_some(), "q and j are text while composing");
         assert_eq!(
@@ -3382,10 +3659,10 @@ pub(crate) mod tests {
         assert!(app.input.is_none() && app.notice.as_deref() == Some("Nothing sent."));
 
         press(&mut app, KeyCode::Char('a'));
-        assert_eq!(
-            app.input.as_ref().unwrap().prompt,
-            "note on auth-fix for sol"
-        );
+        assert_eq!(app.menu.as_ref().unwrap().entries.len(), 2);
+        press(&mut app, KeyCode::Char('1'));
+        press(&mut app, KeyCode::Tab);
+        assert_eq!(app.input.as_ref().unwrap().prompt, "✎ note → sol");
         typed(&mut app, "split the job");
         assert_eq!(
             press(&mut app, KeyCode::Enter),
@@ -3401,10 +3678,10 @@ pub(crate) mod tests {
         // Two open requests: the user picks; the newest is never assumed.
         press(&mut app, KeyCode::Char('r'));
         let menu = app.menu.as_ref().expect("picker");
-        assert_eq!(menu.title, "reply to auth-fix");
+        assert_eq!(menu.title, "answer auth-fix");
         assert_eq!(menu.entries.len(), 2);
         press(&mut app, KeyCode::Char('2'));
-        assert_eq!(app.input.as_ref().unwrap().prompt, "reply auth-fix");
+        assert_eq!(app.input.as_ref().unwrap().prompt, "→ auth-fix (product)");
         typed(&mut app, "postgres");
         assert_eq!(
             press(&mut app, KeyCode::Enter),
@@ -3439,6 +3716,136 @@ pub(crate) mod tests {
             )
         );
         assert!(app.input.is_none());
+    }
+
+    #[test]
+    fn row_composer_switches_modes_preserves_draft_and_marks_only_success() {
+        let mut app = crew(crate::action::preset(true, &[]), vec![]);
+        let view = app.view.as_mut().unwrap();
+        view.me = Some("Ben".into());
+        view.document["squad"]["lead"] = json!({"name":"sol"});
+        view.document["sections"][0]["rows"][0]["waitingOnYou"] =
+            json!([{"requestId":"q", "preview":"Ship tonight?"}]);
+        press(&mut app, KeyCode::Char('a'));
+        assert!(app.menu.is_none(), "a single request opens in place");
+        assert_eq!(app.input.as_ref().unwrap().header(), "→ auth-fix (product)");
+        assert_eq!(
+            app.input.as_ref().unwrap().quote.as_deref(),
+            Some("Ship tonight?")
+        );
+        typed(&mut app, "draft");
+        press(&mut app, KeyCode::Tab);
+        assert_eq!(app.input.as_ref().unwrap().header(), "✎ note → sol");
+        assert_eq!(app.input.as_ref().unwrap().text, "draft");
+        press(&mut app, KeyCode::Tab);
+        assert!(
+            matches!(app.input.as_ref().unwrap().compose, Compose::Reply { ref request, .. } if request == "q")
+        );
+        let target = app.row_target(0).unwrap();
+        assert!(
+            matches!(press(&mut app, KeyCode::Enter), Effect::Act(Request::Reply { ref text, .. }) if text == "draft")
+        );
+        assert!(app.sent.is_none(), "dispatch intent is not send success");
+        app.finished(Err("delivery uncertain".into()));
+        assert!(app.sent.is_none());
+        press(&mut app, KeyCode::Char('a'));
+        typed(&mut app, "approved");
+        press(&mut app, KeyCode::Enter);
+        app.finished(Ok("Replied".into()));
+        assert_eq!(
+            app.sent.as_ref().map(|feedback| &feedback.target),
+            Some(&target)
+        );
+        assert_eq!(app.selected, 0);
+        press(&mut app, KeyCode::Char('x'));
+        assert!(
+            app.sent.is_none(),
+            "the next key clears the row confirmation"
+        );
+    }
+
+    #[test]
+    fn composer_anchors_the_selected_occurrence_and_explicit_member_notes_stay_notes() {
+        let mut app = crew(crate::action::preset(true, &[]), vec![]);
+        let view = app.view.as_mut().unwrap();
+        view.me = Some("Ben".into());
+        view.document["squad"]["lead"] = json!({"name":"sol"});
+        let mut duplicate = member("auth-fix", json!({}));
+        duplicate["waitingOnYou"] = json!([{"requestId":"q", "preview":"Choose?"}]);
+        view.document["sections"] = json!([
+            {"rows":[duplicate.clone()]}, {"rows":[duplicate]}
+        ]);
+        app.selected = 1;
+        press(&mut app, KeyCode::Char('a'));
+        assert_eq!(
+            app.input
+                .as_ref()
+                .unwrap()
+                .row_send
+                .as_ref()
+                .unwrap()
+                .target,
+            app.row_target(1).unwrap()
+        );
+        press(&mut app, KeyCode::Esc);
+        let note = Action::parse("annotate member").unwrap();
+        app.perform(&note);
+        assert_eq!(app.input.as_ref().unwrap().header(), "✎ note → auth-fix");
+        typed(&mut app, "context");
+        assert!(
+            matches!(press(&mut app, KeyCode::Enter), Effect::Act(Request::Annotate { ref to, ref row, .. }) if to == "auth-fix" && row == "auth-fix")
+        );
+    }
+
+    #[test]
+    fn row_composer_follows_identity_on_refresh_and_refuses_changed_authority() {
+        for change in ["reorder", "sender", "lead", "request", "identity", "tab"] {
+            let mut app = crew(crate::action::preset(true, &[]), vec![]);
+            let view = app.view.as_mut().unwrap();
+            view.me = Some("Ben".into());
+            view.document["squad"]["lead"] = json!({"name":"sol"});
+            view.document["sections"][0]["rows"][0]["waitingOnYou"] =
+                json!([{"requestId":"q", "preview":"Choose?"}]);
+            press(&mut app, KeyCode::Char('a'));
+            typed(&mut app, "yes");
+            if change == "lead" {
+                press(&mut app, KeyCode::Tab);
+            }
+            match change {
+                "reorder" => app.view.as_mut().unwrap().document["sections"][0]["rows"]
+                    .as_array_mut()
+                    .unwrap()
+                    .insert(0, member("before", json!({}))),
+                "sender" => app.view.as_mut().unwrap().me = Some("other".into()),
+                "lead" => {
+                    app.view.as_mut().unwrap().document["squad"]["lead"]["name"] = json!("other")
+                }
+                "request" => {
+                    app.view.as_mut().unwrap().document["sections"][0]["rows"][0]["waitingOnYou"] =
+                        json!([])
+                }
+                "identity" => {
+                    app.view.as_mut().unwrap().document["sections"][0]["rows"][0]["id"] =
+                        json!("replacement")
+                }
+                _ => app.current = Some("infra".into()),
+            }
+            app.clamp();
+            let effect = press(&mut app, KeyCode::Enter);
+            if change == "reorder" {
+                assert_eq!(app.selected, 1);
+                assert!(
+                    matches!(effect, Effect::Act(Request::Reply { ref request, ref from, .. }) if request == "q" && from == "auth-fix")
+                );
+            } else {
+                assert_eq!(effect, Effect::None, "{change}");
+                assert!(
+                    app.notice.as_ref().unwrap().contains("nothing sent"),
+                    "{change}"
+                );
+                assert!(app.sent.is_none());
+            }
+        }
     }
 
     #[test]
@@ -3481,7 +3888,9 @@ pub(crate) mod tests {
                 },
             ] {
                 app.input = Some(Input {
-                    home: None,
+                    row_send: None,
+                    alternative: None,
+                    quote: None,
                     link: None,
                     prompt: "message".into(),
                     text: "draft".into(),
@@ -4007,7 +4416,9 @@ mod token_window_tests {
             },
         ] {
             app.input = Some(Input {
-                home: None,
+                row_send: None,
+                alternative: None,
+                quote: None,
                 link: None,
                 prompt: "message".into(),
                 text: String::new(),
@@ -4114,6 +4525,25 @@ mod link_tests {
             })
         );
     }
+    #[test]
+    fn notebook_send_to_a_lead_outside_member_rows_keeps_its_validation() {
+        for changed in [false, true] {
+            let mut app = app("tmt:talk/Lead?text=hello");
+            app.view.as_mut().unwrap().document["squad"]["lead"] =
+                json!({"id":"lead-id", "name":"Lead"});
+            assert_eq!(app.activate_link(), Effect::None);
+            assert_eq!(app.input.as_ref().unwrap().header(), "→ Lead (product)");
+            if changed {
+                app.view.as_mut().unwrap().document["squad"]["lead"]["id"] = json!("replacement");
+                assert_eq!(enter(&mut app), Effect::None);
+            } else {
+                assert!(
+                    matches!(enter(&mut app), Effect::Act(Request::Talk { ref to, .. }) if to == "Lead")
+                );
+            }
+        }
+    }
+
     #[test]
     fn answer_picker_is_prefilled_and_revalidates_current_open_requests() {
         let mut app = app("tmt:answer/auth-fix?text=answer");

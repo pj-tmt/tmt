@@ -88,10 +88,10 @@ fn waiting_rows_detail_and_ask_prompt_fit_each_width_and_theme() {
             let prompt = draw(&app, width, 24);
             let title = prompt
                 .iter()
-                .find(|line| line.contains("ask lead sol"))
+                .find(|line| line.contains("→ lead sol"))
                 .unwrap();
-            assert!(title.starts_with("┌ ask lead sol"));
-            assert!(title.ends_with('┐'), "opaque prompt spans the whole band");
+            assert!(title.starts_with("│ → lead sol"));
+            assert!(title.ends_with('│'), "opaque prompt spans the whole band");
             assert_eq!(title.width(), usize::from(width));
             assert!(
                 prompt
@@ -3480,4 +3480,96 @@ fn help_lines(app: &App) -> Vec<String> {
         .flat_map(|section| section.entries)
         .map(|entry| format!("{}  {}", entry.keys, entry.description))
         .collect()
+}
+
+#[test]
+fn inline_middle_row_band_moves_rows_masks_panes_and_fits_every_theme() {
+    for width in [160, 100, 80] {
+        for (base, depth) in [
+            ("tmt", tmt_cli_style::Depth::TrueColor),
+            ("tmt-light", tmt_cli_style::Depth::TrueColor),
+            ("tmt", tmt_cli_style::Depth::None),
+        ] {
+            for tab in ["product", crate::board::LEADS] {
+                let rows = (0..5).map(|i| json!({"id":format!("id-{i}"), "name":format!("member-{i}"), "squad":"product",
+                    "state":"working", "fields":{"task":"row remains visible"},
+                    "waitingOnYou":[{"requestId":format!("q-{i}"), "preview":"A long waiting question that must truncate before the recipient or input disappears. ".repeat(8)}]})).collect::<Vec<_>>();
+                let mut snapshot =
+                    crate::board::app::tests::snapshot(tab, json!([{"title":null, "rows":rows}]));
+                let view = snapshot.view.as_mut().unwrap();
+                view.me = Some("Ben".into());
+                view.document["squad"]["lead"] = json!({"name":"sol"});
+                view.look = crate::look::Look {
+                    theme: tmt_cli_style::Theme::new(
+                        tmt_cli_style::theme::Base::parse(base).unwrap(),
+                    ),
+                    depth,
+                };
+                view.board = split(
+                    Direction::LeftRight,
+                    vec![Pane::Rows, Pane::Notes],
+                    vec![55, 45],
+                );
+                view.notes = Notes::Text("neighbor pane fragment\n".repeat(25));
+                let mut app = App::new(Some(tab.into()));
+                app.apply(snapshot);
+                app.select(2);
+                let before = draw(&app, width, 30);
+                let old_after = before
+                    .iter()
+                    .position(|line| line.contains("member-3"))
+                    .unwrap();
+                app.key(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE));
+                app.input.as_mut().unwrap().text = "x".repeat(30);
+                let mut terminal = Terminal::new(TestBackend::new(width, 30)).unwrap();
+                terminal.draw(|frame| render(frame, &app)).unwrap();
+                let buffer = terminal.backend().buffer();
+                let screen = draw(&app, width, 30);
+                let band = app.input_band.get().expect("inline band");
+                let header = &screen[usize::from(band.y + 1)];
+                assert!(
+                    header.contains("→ member-2 (product)"),
+                    "{base}/{width}/{tab}: {header}"
+                );
+                assert_eq!(band.height, 6);
+                assert!(screen[usize::from(band.y + 3)].contains(&format!("{}▏", "x".repeat(30))));
+                assert!(screen[usize::from(band.y + 2)].contains("◆ “A long waiting"));
+                assert!(screen[usize::from(band.y + 2)].contains('…'));
+                assert!(screen[usize::from(band.y + 4)].contains("Enter send · Esc cancel"));
+                assert!(screen[usize::from(band.y)].starts_with('┌'));
+                assert!(screen[usize::from(band.y)].ends_with('┐'));
+                assert_eq!(screen[usize::from(band.y)].width(), usize::from(width));
+                for y in band.y..band.bottom() {
+                    assert!(!screen[usize::from(y)].contains("neighbor pane fragment"));
+                    assert!(!app.hits.borrow().iter().any(|hit| hit.y == y));
+                    assert!(!app.note_hits.borrow().iter().any(|(area, _)| area.y == y));
+                }
+                assert_eq!(
+                    screen
+                        .iter()
+                        .position(|line| line.contains("member-3"))
+                        .unwrap(),
+                    old_after + 6
+                );
+                let accent = app.look().role(Role::Accent);
+                assert_eq!(buffer[(2, band.y + 1)].fg, accent.fg.unwrap_or_default());
+                let waiting = app.look().role(Role::Waiting);
+                assert_eq!(buffer[(2, band.y + 2)].fg, waiting.fg.unwrap_or_default());
+                app.key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+                let note = draw(&app, width, 30);
+                assert!(note.iter().any(|line| line.contains(if tab == "product" {
+                    "✎ note → sol"
+                } else {
+                    "✎ note → member-2"
+                })));
+                assert_eq!(app.input_band.get().unwrap().height, 5);
+                app.key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+                assert_eq!(
+                    &draw(&app, width, 30)[..29],
+                    &before[..29],
+                    "cancel restores the body"
+                );
+            }
+        }
+    }
 }
