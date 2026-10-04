@@ -69,7 +69,7 @@ fn grammar() -> Command {
             note: "Create a private UUID-named export directory",
         }],
         outputs: OutputModes::HumanAndJson,
-        details: "This creates an unencrypted copy of the page. Anyone with these files can read it.\nCreates page.html and manifest.json in a new UUID subdirectory of --dir (default: current directory). The parent must exist; aliases resolve to a canonical path. Created entries cannot be symlinks; parent traversal and overwrite are refused. Discussions are not included. Archived or deleted pages cannot be exported yet.",
+        details: "This creates an unencrypted copy of the page. Anyone with these files can read it.\nCreates page.html, conversations.json, conversations.md and manifest.json in a new UUID subdirectory of --dir (default: current directory). The parent must exist; aliases resolve to a canonical path. Created entries cannot be symlinks; parent traversal and overwrite are refused. The conversations files hold the page's verified threads, comments and Ask conversations for the current epoch (names and times are labels). Archived or deleted pages cannot be exported yet.",
     };
     const PAGE: CommandSpec = CommandSpec {
         name: "page",
@@ -329,8 +329,19 @@ fn export(root: &std::path::Path, args: &clap::ArgMatches) -> Result<()> {
             "PAGE EXPORTED",
             &[
                 ("directory", published.directory.display().to_string()),
-                ("files", "page.html, manifest.json".into()),
-                ("discussions", "not included".into()),
+                (
+                    "files",
+                    published
+                        .files
+                        .iter()
+                        .map(|file| file.name)
+                        .collect::<Vec<_>>()
+                        .join(", "),
+                ),
+                (
+                    "discussions",
+                    "included for the current epoch (conversations.json, conversations.md)".into(),
+                ),
             ],
         )?;
     }

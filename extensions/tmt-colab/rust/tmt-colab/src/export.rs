@@ -14,6 +14,11 @@ use std::{
 };
 use tmt_colab_model::{crypto, values};
 
+pub mod conversations;
+
+/// One export's conversations never exceed this many bytes (both files together).
+pub const CONVERSATIONS_BYTES: usize = 8 * 1024 * 1024;
+
 pub const DISCLOSURE: &str =
     "This creates an unencrypted copy of the page. Anyone with these files can read it.";
 
@@ -21,6 +26,7 @@ pub const DISCLOSURE: &str =
 pub enum Fault {
     Inactive,
     MissingState,
+    TooLarge,
     Publication {
         partial_directory: Option<PathBuf>,
         reason: String,
@@ -31,6 +37,7 @@ impl Fault {
         match self {
             Self::Inactive => "COLAB_EXPORT_INACTIVE",
             Self::MissingState => "COLAB_EXPORT_STATE_MISSING",
+            Self::TooLarge => "COLAB_EXPORT_TOO_LARGE",
             Self::Publication { .. } => "COLAB_EXPORT_FAILED",
         }
     }
@@ -48,6 +55,7 @@ impl std::fmt::Display for Fault {
         match self {
             Self::Inactive => f.write_str("archived or deleted pages cannot be exported yet"),
             Self::MissingState => f.write_str("No existing Colab state to export."),
+            Self::TooLarge => f.write_str("The page conversations are too large to export."),
             Self::Publication {
                 partial_directory,
                 reason,
@@ -94,8 +102,15 @@ struct Manifest<'a> {
     membership_head: MembershipHead,
     epoch: String,
     plaintext: bool,
-    discussions: &'static str,
+    discussions: Discussions,
     files: &'a [FileInfo],
+}
+#[derive(Serialize)]
+struct Discussions {
+    included: bool,
+    scope: &'static str,
+    format: &'static str,
+    version: u8,
 }
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -105,8 +120,8 @@ struct MembershipHead {
 }
 /// Immutable byte bundle: no roots, wraps, sessions or renderer markup.
 pub struct Bundle {
-    html: Vec<u8>,
-    manifest: Vec<u8>,
+    /// Every file's bytes in `files` order; the manifest is last.
+    contents: Vec<Vec<u8>>,
     files: Vec<FileInfo>,
 }
 impl Bundle {
@@ -134,7 +149,30 @@ impl Bundle {
         })?;
         let view = snapshot.materialize(key, page, decoder)?;
         let html = view.source.into_bytes();
-        let mut files = vec![FileInfo::new("page.html", &html)];
+        let conversations = conversations::Conversations::project(
+            conversations::Capture {
+                space_id: &key.space_id,
+                page_id: page,
+                title: &view.title,
+                epoch: &snapshot.epoch.to_string(),
+                head: conversations::Head {
+                    revision: snapshot.authority.head.revision.to_string(),
+                    statement_hash: hex(&snapshot.authority.head.hash),
+                },
+            },
+            &view.own,
+            &view.signing_keys,
+        );
+        let json = conversations.json();
+        let markdown = conversations.markdown().into_bytes();
+        if json.len() + markdown.len() > CONVERSATIONS_BYTES {
+            return Err(Box::new(Fault::TooLarge));
+        }
+        let mut files = vec![
+            FileInfo::new("page.html", &html),
+            FileInfo::new("conversations.json", &json),
+            FileInfo::new("conversations.md", &markdown),
+        ];
         let manifest = serde_json::to_vec(&Manifest {
             format: "tmt-colab-page-export",
             version: 1,
@@ -148,13 +186,17 @@ impl Bundle {
             },
             epoch: snapshot.epoch.to_string(),
             plaintext: true,
-            discussions: "not-included",
+            discussions: Discussions {
+                included: true,
+                scope: "current-epoch",
+                format: conversations::FORMAT,
+                version: 1,
+            },
             files: &files,
         })?;
         files.push(FileInfo::new("manifest.json", &manifest));
         Ok(Self {
-            html,
-            manifest,
+            contents: vec![html, json, markdown, manifest],
             files,
         })
     }
@@ -200,11 +242,7 @@ impl Bundle {
         let mut stage = Staging::new(&parent, &stage_name)?;
         let mut partial_directory = None;
         let result = (|| -> Result<()> {
-            for (info, bytes) in self
-                .files
-                .iter()
-                .zip([self.html.as_slice(), self.manifest.as_slice()])
-            {
+            for (info, bytes) in self.files.iter().zip(&self.contents) {
                 let file = File::from(openat(
                     &stage.file,
                     info.name,
@@ -233,12 +271,7 @@ impl Bundle {
             let output = child_directory(&parent, id)?;
             output.set_permissions(std::fs::Permissions::from_mode(0o700))?;
             check_directory(&output)?;
-            for (index, (info, bytes)) in self
-                .files
-                .iter()
-                .zip([self.html.as_slice(), self.manifest.as_slice()])
-                .enumerate()
-            {
+            for (index, (info, bytes)) in self.files.iter().zip(&self.contents).enumerate() {
                 check_destination(&path, &parent)?;
                 same_entry(&parent, id, &output)?;
                 stage.check()?;
