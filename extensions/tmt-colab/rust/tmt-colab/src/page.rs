@@ -38,10 +38,18 @@ impl Fault {
 }
 impl std::fmt::Display for Fault {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        use crate::store::owner::size;
         f.write_str(match self {
             Self::StaleBase => "Page changed since the editing base; read it again before writing.",
             Self::Invalid => "Invalid page source or input.",
-            Self::Capacity => "Page source, update or decoder capacity exceeded.",
+            Self::Capacity => {
+                return write!(
+                    f,
+                    "The page source is larger than the {} one page's source can be, or one change is larger than the {} one change can be. Nothing was written.",
+                    size(crate::decoder::BASELINE_BYTES),
+                    size(crate::decoder::UPDATE_BYTES)
+                );
+            }
             Self::Missing => "Existing Colab state is required.",
             Self::Inactive => "Archived or deleted pages cannot be written.",
             Self::Denied => {

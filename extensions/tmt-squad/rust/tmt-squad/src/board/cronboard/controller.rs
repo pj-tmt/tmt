@@ -9,7 +9,7 @@ use ratatui::crossterm::event::{
 use tmt_tui::components::ListEvent;
 
 impl App {
-    /// The ⑤ line and `c` need a read, or at least its failure to show.
+    /// The home cron line and `c` need a read, or at least its failure to show.
     pub(in crate::board) fn cron_shown(&self) -> bool {
         self.cron.cron.is_some() || self.cron.failure.is_some()
     }

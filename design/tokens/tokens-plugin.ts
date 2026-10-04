@@ -22,10 +22,14 @@ export function designTokens(): {
   const fonts = Object.entries(tokens.font)
     .map(([name, value]) => `--f-${name}:${value.stack};`)
     .join("");
+  const header = Object.entries(tokens.colab.header)
+    .map(([name, value]) => `--colab-header-${name}:${value};`)
+    .join("");
   const css =
-    `:root{color-scheme:light;${vars("light")}${terminal}${fonts}}` +
+    `:root{color-scheme:light;${vars("light")}${terminal}${fonts}${header}}` +
     `@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){color-scheme:dark;${vars("dark")}}}` +
-    `:root[data-theme="dark"]{color-scheme:dark;${vars("dark")}}`;
+    `:root[data-theme="dark"]{color-scheme:dark;${vars("dark")}}` +
+    `@media (max-width:${tokens.colab.header["compact-max-width"]}){:root{--colab-header-height:${tokens.colab.header["compact-height"]};}}`;
   return {
     name: "tmt-design-tokens",
     resolveId: (source: string) => (source === id ? resolved : undefined),

@@ -51,8 +51,12 @@ tracked-file guard. Handbook language exceptions belong to
 [AGENTS](AGENTS.md#repository-content-language) and the allowlist.
 
 Shared visual tokens have one owner, `design/tokens/tokens.json`, maintained by
-the design lead. Its Vite projection and Rust CLI theme tests consume the same
-source. Release procedures belong to the
+the design lead. Its Vite projection, Rust CLI theme tests and native Colab guidance consume the same
+source. Colab projects its header metrics into React and static native CSS from these tokens.
+Native Colab embeds the token JSON and the app header/reader/state-card stylesheets at compile time;
+Docker build stages preserve those source paths, and their CI rules retain native checks.
+The private design-tokens component attributes token changes to Colab through `releaseConsumers`.
+Release procedures belong to the
 [release skill](.agents/skills/tmt-release/SKILL.md), including the archive's
 product-neutral `rust/archive/NATIVE-INSTALL.md`.
 
@@ -781,6 +785,10 @@ falls back to a working directory, active pane or sole identity.
   and driver-state persistence; core stores driver state without parsing it.
   Provider end leaves stored readiness Unknown pending a fresh start; only conclusive
   process loss ends the runtime incarnation.
+- Presence reads acquire host evidence outside the database writer lock and
+  recheck their captured records before reconciliation. Changed records never
+  authorize retirement or detachment; unchanged records retain conclusive stale
+  binding cleanup.
 - Provider hooks supply observation only: they never create bindings or move
   identities, they run under a bounded supervised worker that always exits zero,
   and provider configuration changes only through consented `tmt setup`.

@@ -34,6 +34,7 @@ describe('release rehearsal selection', () => {
     '.github/workflows/native-release-prepare.yml',
     '.github/workflows/native-release-bundle.yml',
     '.github/workflows/native-release-upgrade.yml',
+    '.github/workflows/native-release-upgrade-prove.yml',
     '.github/workflows/release-rehearsal.yml',
     '.github/actions/inject-release-version/action.yml',
     '.github/actions/setup-tooling/action.yml',
@@ -41,6 +42,10 @@ describe('release rehearsal selection', () => {
     'scripts/run-native-verification.sh',
     'typescript/scripts/verify-native-notices.mjs',
     'typescript/scripts/release-version-injection.mjs',
+    'typescript/scripts/release-upgrade.mjs',
+    'typescript/scripts/publication-gates.mjs',
+    'typescript/scripts/verify-native-installation.mjs',
+    'typescript/scripts/verify-native-extension-upgrade.mjs',
     'rust/crates/tmt-core/Cargo.toml',
   ])('rehearses every active product for the shared release input %s', (changed) => {
     expect(select(changed)).toEqual(all);

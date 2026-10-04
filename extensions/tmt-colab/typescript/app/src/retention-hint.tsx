@@ -1,3 +1,4 @@
+import { Clock } from 'lucide-react';
 import { expiryText, localTime, type ExpiryInfo } from './expiry.js';
 
 /** A page fact in trusted chrome; never an access or deletion decision. */
@@ -10,7 +11,7 @@ export function RetentionHint({ page }: { page: Partial<ExpiryInfo> }) {
     >
       {warning && (
         <span className="retention-mark" aria-hidden="true">
-          ◷
+          <Clock aria-hidden />
         </span>
       )}
       {expiryText(page)}

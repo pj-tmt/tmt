@@ -1,4 +1,17 @@
 import { validPagePrefix } from './short-links.js';
+import {
+  FileText,
+  ArrowUpRight,
+  Circle,
+  LoaderCircle,
+  Ellipsis,
+  Info,
+  Moon,
+  Sun,
+  X,
+} from 'lucide-react';
+import { ColabHeader } from './colab-header.js';
+import { NoticeCard } from './notice-card.js';
 import { RetentionHint } from './retention-hint.js';
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
@@ -110,17 +123,37 @@ const managementChanged = 'Management changed. Reopen the page to load its lates
 const root = createRootRouteWithContext<{ transport: PageTransport }>()({
   component: Shell,
   errorComponent: ({ error }) => (
-    <section className="notice">
-      <h1>{text.error}</h1>
-      <p role="alert">{error instanceof Error ? error.message : text.blocked}</p>
-      <Link to="/">{text.retry}</Link>
-    </section>
+    <>
+      <AppHeader title={text.error} />
+      <main>
+        <NoticeCard
+          state="blocked"
+          eyebrow={text.product}
+          title={text.error}
+          actions={
+            <Link className="notice-action" to="/">
+              {text.retry}
+            </Link>
+          }
+        >
+          <p>{error instanceof Error ? error.message : text.blocked}</p>
+        </NoticeCard>
+      </main>
+    </>
   ),
   notFoundComponent: () => (
-    <section className="notice">
-      <h1>{text.error}</h1>
-      <Link to="/">{text.retry}</Link>
-    </section>
+    <>
+      <NoticeCard
+        state="blocked"
+        eyebrow={text.product}
+        title={text.error}
+        actions={
+          <Link className="notice-action" to="/">
+            {text.retry}
+          </Link>
+        }
+      />
+    </>
   ),
 });
 const home = createRoute({
@@ -200,27 +233,27 @@ const blocked = createRoute({
   },
 });
 
-export function AppHeader({ linked = true }: { linked?: boolean }) {
-  const brand = (
-    <>
-      {text.product}
-      <span>tmt</span>
-    </>
-  );
+export function AppHeader({
+  linked = true,
+  title = text.pages,
+}: {
+  linked?: boolean;
+  title?: string;
+}) {
   return (
-    <header className="masthead">
-      {linked ? (
-        <Link className="brand" to="/">
-          {brand}
-        </Link>
-      ) : (
-        <span className="brand">{brand}</span>
-      )}
-      <span className="local">
-        {location.pathname.startsWith('/r/') ? text.mounted : text.local}
-      </span>
-      <ThemeButton />
-    </header>
+    <ColabHeader
+      title={title}
+      home={
+        linked
+          ? (brand) => (
+              <Link className="colab-brand" to="/" aria-label={text.home}>
+                {brand}
+              </Link>
+            )
+          : undefined
+      }
+      actions={<ThemeButton />}
+    />
   );
 }
 function ThemeButton({ menuLabel = false }: { menuLabel?: boolean }) {
@@ -235,19 +268,18 @@ function ThemeButton({ menuLabel = false }: { menuLabel?: boolean }) {
   return (
     <button className="theme" aria-label={text.theme} onClick={() => setDark(!dark)}>
       <span className="theme-symbol" aria-hidden>
-        {dark ? '◐' : '◑'}
+        {dark ? <Moon aria-hidden /> : <Sun aria-hidden />}
       </span>
       {menuLabel && <span className="theme-label">Theme: {dark ? 'dark' : 'light'}</span>}
     </button>
   );
 }
 function Shell() {
-  const isPage = useRouterState({
-    select: (state) => state.location.pathname.startsWith('/pages/'),
-  });
+  const pathname = useRouterState({ select: (state) => state.location.pathname });
+  const isPage = pathname.startsWith('/pages/');
   return (
     <>
-      {!isPage && <AppHeader />}
+      {!isPage && <AppHeader title={pathname === '/' ? text.pages : text.error} />}
       <main className={isPage ? 'page-main' : undefined}>
         <Outlet />
       </main>
@@ -318,45 +350,52 @@ function Home() {
       <h1>{space.title}</h1>
       <p className="intro">{text.intro}</p>
       {transport.management && (
-        <label>
-          Show archived pages
-          <input
-            type="checkbox"
-            checked={archived}
-            onChange={(e) => setArchived(e.target.checked)}
-          />
-        </label>
+        <button
+          type="button"
+          className="archive-toggle"
+          aria-pressed={archived}
+          onClick={(event) => {
+            if (event.isTrusted) setArchived(!archived);
+          }}
+        >
+          <span className="toggle-box" aria-hidden="true" />
+          Show archived
+        </button>
       )}
       {pages.length ? (
         <ul className="pages">
           {pages.map((p) => (
-            <li key={p.id} data-page-id={p.id}>
+            <li key={p.id} data-page-id={p.id} className="page-card">
               {p.archived ? (
                 <div className="archived-page">
-                  <h2>{p.title}</h2>
+                  <FileText className="page-mark" aria-hidden />
+                  <h2>{p.title.trim() || text.unknownPageTitle}</h2>
+                  <span className="page-id">{p.id.slice(0, 8)}</span>
                   <span className="chip">Archived · writes frozen</span>
                   {transport.management && <RetentionHint page={p} />}
                 </div>
               ) : (
-                <Link to="/pages/$pageId" params={{ pageId: p.id }}>
-                  <div>
-                    <span className="page-mark">▤</span>
-                    <h2>{p.title}</h2>
-                  </div>
+                <Link className="page-card-link" to="/pages/$pageId" params={{ pageId: p.id }}>
+                  <FileText className="page-mark" aria-hidden />
+                  <h2>{p.title.trim() || text.unknownPageTitle}</h2>
+                  <span className="page-id">{p.id.slice(0, 8)}</span>
                   <span className="chip">{text[p.sharing]}</span>
                   {transport.management && <RetentionHint page={p} />}
                   <span className="open">
-                    {text.open} <span aria-hidden>↗</span>
+                    {text.open}
+                    <ArrowUpRight aria-hidden />
                   </span>
                 </Link>
               )}
               {transport.management && (
-                <details>
-                  <summary>Details</summary>
-                  <p className="management-id">Page ID: {p.id}</p>
-                </details>
+                <div className="page-card-actions">
+                  <details>
+                    <summary>Details</summary>
+                    <p className="management-id">Page ID: {p.id}</p>
+                  </details>
+                  <ManageButton pageId={p.id} title={p.title} />
+                </div>
               )}
-              <ManageButton pageId={p.id} title={p.title} />
             </li>
           ))}
         </ul>
@@ -486,7 +525,16 @@ function Page() {
   const [annotation, setAnnotation] = useState<{
     selector: QuoteSelector;
     rectangle: SelectionRect;
+    /** Text kept from an earlier close of this selection. */
+    restored?: string;
   }>();
+  const annotationRef = useRef(annotation);
+  annotationRef.current = annotation;
+  const popover = useRef<HTMLElement>(null);
+  // An unsent draft lives in memory for this page only: never stored, never sent to the frame.
+  const drafts = useRef(new Map<string, string>());
+  const annotationDraft = useRef('');
+  const annotationBusy = useRef(false);
   const [activeThread, setActiveThread] = useState<string | null>(null);
   useEffect(() => {
     setAnnotation(undefined);
@@ -499,22 +547,57 @@ function Page() {
     setAnnotation({
       selector: structuredClone(currentSelector.current),
       rectangle: { ...currentRectangle.current },
+      restored: drafts.current.get(JSON.stringify(currentSelector.current)),
     });
     setActiveThread(null);
     setRectangle(null);
     setPanel(null);
     setMenu(false);
   }
-  function cancelAnnotation() {
+  /** True once something beyond the prefilled `@agent` has been typed. */
+  const typed = () =>
+    annotationDraft.current.trim() !== '' && !/^@\S*\s*$/.test(annotationDraft.current);
+  /** Closes without losing typed text: it comes back when the same selection is annotated again. */
+  function closeAnnotation(focusPage: boolean) {
+    // A send in flight is not interrupted by the ×, Escape, an outside press or a cleared selection.
+    if (!annotation || annotationBusy.current) return;
+    const key = JSON.stringify(annotation.selector);
+    if (typed()) drafts.current.set(key, annotationDraft.current);
+    else drafts.current.delete(key);
+    annotationDraft.current = '';
     setAnnotation(undefined);
     setRectangle(currentRectangle.current);
+    if (focusPage) queueMicrotask(() => host.current?.querySelector('iframe')?.focus());
   }
+  const closeRef = useRef(closeAnnotation);
+  closeRef.current = closeAnnotation;
+  const selectionCleared = useRef<() => void>(() => {});
+  selectionCleared.current = () => {
+    // A page click that clears the selection never hides a typed draft.
+    if (annotation && !typed()) closeAnnotation(false);
+  };
+  useEffect(() => {
+    if (!annotation) return;
+    const outside = (event: PointerEvent) => {
+      const target = event.target;
+      if (
+        target instanceof Element &&
+        !popover.current?.contains(target) &&
+        !target.closest('[role="listbox"]')
+      )
+        closeRef.current(false);
+    };
+    document.addEventListener('pointerdown', outside, true);
+    return () => document.removeEventListener('pointerdown', outside, true);
+  }, [annotation]);
   function openThread(ref: DiscussionRef | null) {
     if (!ref) {
       setActiveThread(null);
       return;
     }
     const id = `${ref.writer}:${ref.id}`;
+    if (annotationRef.current)
+      drafts.current.delete(JSON.stringify(annotationRef.current.selector));
     setAnnotation(undefined);
     setActiveThread(id);
     setPanel('comments');
@@ -542,12 +625,13 @@ function Page() {
       signal: controller.signal,
       onState: setState,
       viewportInset: () =>
-        (toolbar.current?.offsetHeight ?? 56) + (toolbar.current?.getBoundingClientRect().top ?? 0),
+        (toolbar.current?.offsetHeight ?? 0) + (toolbar.current?.getBoundingClientRect().top ?? 0),
       onSelection: (_value, quote, rect) => {
         setSelector(quote ?? null);
         currentSelector.current = quote ?? null;
         currentRectangle.current = rect ?? null;
         setRectangle(rect ?? null);
+        if (!quote) selectionCleared.current();
       },
       onAnchors: setResolved,
       onAnnotate: annotate,
@@ -587,128 +671,143 @@ function Page() {
   }, [state, view.threads]);
   return (
     <section className="page">
-      <header className="page-bar" ref={toolbar} data-menu-open={menu}>
-        <Link className="back" to="/" aria-label={text.home} title={text.product}>
-          <span aria-hidden>←</span>
-          <span className="page-brand">
-            {text.product}
-            <span className="page-tmt">tmt</span>
-          </span>
-        </Link>
-        <h1 title={view.title || snapshot.title}>{view.title || snapshot.title}</h1>
-        <span className="page-backend" title={backendLabel}>
-          {backendLabel}
-        </span>
-        <span className="chip page-sharing">{text[snapshot.sharing]}</span>
-        <span
-          className={`status ${state === 'ready' ? 'live' : ''}`}
-          title={
-            state === 'ready' ? text.loaded : state === 'loading' ? text.loading : text.blocked
-          }
-        >
-          <span aria-hidden>{state === 'ready' ? '●' : state === 'loading' ? '○' : '✗'}</span>
-          <span className="status-label">
-            {state === 'ready' ? text.loaded : state === 'loading' ? text.loading : text.blocked}
-          </span>
-        </span>
-        <button
-          className="page-overflow-toggle"
-          aria-label="More page actions"
-          aria-expanded={menu}
-          onClick={(event) => {
-            if (event.isTrusted) setMenu(!menu);
-          }}
-        >
-          •••
-        </button>
-        <div
-          className="page-secondary"
-          role="group"
-          aria-label="Page actions"
-          onClick={(event) => {
-            if (
-              event.isTrusted &&
-              event.target instanceof Element &&
-              event.target.closest('button')
-            )
-              setMenu(false);
-          }}
-        >
-          <button
-            className="page-menu-close"
-            aria-label="Close page actions"
-            onClick={() => setMenu(false)}
-          >
-            ×
-          </button>
-          <div className="page-menu-meta">
-            <span title={backendLabel}>{backendLabel}</span>
-            <span>{text[snapshot.sharing]}</span>
-          </div>
-          <button
-            data-testid="chat-toggle"
-            aria-label="Chat"
-            aria-expanded={panel === 'chat'}
-            onClick={(event) => {
-              if (event.isTrusted) toggle('chat');
-            }}
-          >
-            Chat
-          </button>
-          <button
-            data-testid="comments-toggle"
-            aria-expanded={panel === 'comments'}
-            onClick={(event) => {
-              if (event.isTrusted) toggle('comments');
-            }}
-          >
-            {text.comments}
-          </button>
-          <button
-            aria-pressed={panel === 'source'}
-            onClick={(event) => {
-              if (event.isTrusted) toggle('source');
-            }}
-          >
-            {text.source}
-          </button>
-          <ExportPanel
-            key={`export:${snapshot.id}`}
-            binding={snapshot.binding}
-            blocked={!!liveError}
-            drawer
-            opened={panel === 'export'}
-            changeOpen={(open) => {
-              setMenu(false);
-              setPanel(open ? 'export' : null);
-            }}
-          />
-          <ManageButton
-            pageId={snapshot.id}
-            title={view.title || snapshot.title}
-            changed={() => {
-              snapshot.binding?.close();
-              setLiveError(managementChanged);
-            }}
-          />
-          <ThemeButton menuLabel />
-          <details className="page-information">
-            <summary aria-label="Page information">
-              <span className="info-symbol" aria-hidden>
-                ⓘ
+      <ColabHeader
+        headerRef={toolbar}
+        menuOpen={menu}
+        title={view.title || snapshot.title || text.unknownPageTitle}
+        home={(brand) => (
+          <Link className="colab-brand" to="/" aria-label={text.home}>
+            {brand}
+          </Link>
+        )}
+        actions={
+          <>
+            <span className="page-backend" title={backendLabel}>
+              {backendLabel}
+            </span>
+            <span className="chip page-sharing">{text[snapshot.sharing]}</span>
+            <span
+              className={`status ${state === 'ready' ? 'live' : ''}`}
+              title={
+                state === 'ready' ? text.loaded : state === 'loading' ? text.loading : text.blocked
+              }
+            >
+              <span aria-hidden>
+                {state === 'failed' || state === 'navigation' ? (
+                  <X aria-hidden />
+                ) : state === 'loading' ? (
+                  <LoaderCircle aria-hidden />
+                ) : (
+                  <Circle fill="currentColor" aria-hidden />
+                )}
               </span>
-              <span className="info-label">Page information</span>
-            </summary>
-            <p>{text.warning}</p>
-          </details>
-        </div>
-      </header>
+              <span className="status-label">
+                {state === 'ready'
+                  ? text.loaded
+                  : state === 'loading'
+                    ? text.loading
+                    : text.blocked}
+              </span>
+            </span>
+            <button
+              className="page-overflow-toggle"
+              aria-label="More page actions"
+              aria-expanded={menu}
+              onClick={(event) => {
+                if (event.isTrusted) setMenu(!menu);
+              }}
+            >
+              <Ellipsis aria-hidden />
+            </button>
+            <div
+              className="page-secondary"
+              role="group"
+              aria-label="Page actions"
+              onClick={(event) => {
+                if (
+                  event.isTrusted &&
+                  event.target instanceof Element &&
+                  event.target.closest('button')
+                )
+                  setMenu(false);
+              }}
+            >
+              <button
+                className="page-menu-close"
+                aria-label="Close page actions"
+                onClick={() => setMenu(false)}
+              >
+                <X aria-hidden />
+              </button>
+              <div className="page-menu-meta">
+                <span title={backendLabel}>{backendLabel}</span>
+                <span>{text[snapshot.sharing]}</span>
+              </div>
+              <button
+                data-testid="chat-toggle"
+                aria-label="Chat"
+                aria-expanded={panel === 'chat'}
+                onClick={(event) => {
+                  if (event.isTrusted) toggle('chat');
+                }}
+              >
+                Chat
+              </button>
+              <button
+                data-testid="comments-toggle"
+                aria-expanded={panel === 'comments'}
+                onClick={(event) => {
+                  if (event.isTrusted) toggle('comments');
+                }}
+              >
+                {text.comments}
+              </button>
+              <button
+                aria-pressed={panel === 'source'}
+                onClick={(event) => {
+                  if (event.isTrusted) toggle('source');
+                }}
+              >
+                {text.source}
+              </button>
+              <ExportPanel
+                key={`export:${snapshot.id}`}
+                binding={snapshot.binding}
+                blocked={!!liveError}
+                drawer
+                opened={panel === 'export'}
+                changeOpen={(open) => {
+                  setMenu(false);
+                  setPanel(open ? 'export' : null);
+                }}
+              />
+              <ManageButton
+                pageId={snapshot.id}
+                title={view.title || snapshot.title}
+                changed={() => {
+                  snapshot.binding?.close();
+                  setLiveError(managementChanged);
+                }}
+              />
+              <ThemeButton menuLabel />
+              <details className="page-information">
+                <summary aria-label="Page information">
+                  <span className="info-symbol" aria-hidden>
+                    <Info aria-hidden />
+                  </span>
+                  <span className="info-label">Page information</span>
+                </summary>
+                <p>{text.warning}</p>
+              </details>
+            </div>
+          </>
+        }
+      />
       <div className="workspace">
         <div className="canvas">
           <div className="frame-host" ref={host} />
           {(state === 'navigation' || state === 'failed') && (
-            <div className="notice" role="alert">
-              <h2>{text.blocked}</h2>
+            <NoticeCard state="blocked" eyebrow={text.product} title={text.blocked}>
               <p>{liveError ?? (state === 'navigation' ? text.navigation : text.failed)}</p>
               <p>{text.limit}</p>
               {liveError === 'Sync disconnected' && snapshot.binding?.reconnect && (
@@ -723,7 +822,7 @@ function Page() {
                 </button>
               )}
               {reconnectFailed && <p>{text.reconnectFailed}</p>}
-            </div>
+            </NoticeCard>
           )}
         </div>
       </div>
@@ -731,12 +830,34 @@ function Page() {
         <SelectionAnnotation
           host={host.current}
           rectangle={annotation?.rectangle ?? rectangle}
-          inset={toolbar.current?.offsetHeight ?? 56}
+          inset={toolbar.current?.offsetHeight ?? 0}
           open={annotate}
         >
           {annotation && (
-            <section className="annotation-new" role="dialog" aria-label="Annotate selection">
+            <section
+              className="annotation-new"
+              role="dialog"
+              aria-label="Annotate selection"
+              ref={popover}
+              onKeyDown={(event) => {
+                if (event.key === 'Escape' && !event.defaultPrevented) {
+                  event.preventDefault();
+                  closeAnnotation(true);
+                }
+              }}
+            >
+              <button
+                type="button"
+                className="annotation-close"
+                aria-label="Close annotation"
+                onClick={(event) => {
+                  if (event.isTrusted) closeAnnotation(true);
+                }}
+              >
+                ×
+              </button>
               <blockquote>{annotation.selector.exact}</blockquote>
+              {annotation.restored !== undefined && <p className="annotation-hint">Draft kept</p>}
               <AnnotationInput
                 key={JSON.stringify(annotation.selector)}
                 binding={snapshot.binding.ask}
@@ -746,7 +867,14 @@ function Page() {
                 title={view.title || snapshot.title}
                 publisher={view.publisherAgent}
                 blocked={!!liveError || state !== 'ready'}
-                cancel={cancelAnnotation}
+                initialValue={annotation.restored}
+                onDraft={(value) => {
+                  annotationDraft.current = value;
+                }}
+                onBusy={(busy) => {
+                  annotationBusy.current = busy;
+                }}
+                cancel={() => closeAnnotation(true)}
                 committed={openThread}
               />
             </section>

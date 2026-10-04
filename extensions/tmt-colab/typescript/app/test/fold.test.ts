@@ -1,5 +1,6 @@
 import { expect, it, vi } from 'vite-plus/test';
 import { Fold } from '../src/fold.js';
+import { WRITE_TAIL_BYTES } from '../src/fold-protocol.js';
 
 it('terminates a stalled decoder and rejects further use without publishing output', async () => {
   vi.useFakeTimers();
@@ -26,7 +27,7 @@ it('gives a checkpoint the read bound while keeping the write tail budget unchan
   const worker = { postMessage: vi.fn(), terminate: vi.fn(), onerror: null, onmessage: null };
   const fold = new Fold(worker as unknown as Worker);
   await expect(
-    fold.run({ type: 'check', updates: [new Uint8Array(256 * 1024 + 1)] }),
+    fold.run({ type: 'check', updates: [new Uint8Array(WRITE_TAIL_BYTES + 1)] }),
   ).rejects.toThrow('capacity');
   await expect(
     fold.run({ type: 'checkpoint', update: new Uint8Array(24 * 1024 * 1024 + 1) }),
@@ -90,7 +91,7 @@ it('bounds aggregate content and own input before posting to the Worker', async 
   await expect(
     fold.run({
       type: 'check',
-      updates: [new Uint8Array(256 * 1024)],
+      updates: [new Uint8Array(WRITE_TAIL_BYTES)],
       own: [{ writer: '00000000-0000-4000-8000-000000000001', update: new Uint8Array([0, 0]) }],
     }),
   ).rejects.toThrow('capacity');

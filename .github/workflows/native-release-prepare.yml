@@ -25,6 +25,11 @@ on:
         required: false
         default: ''
         type: string
+      upgrade:
+        description: Also prove the upgrade from the last published release with this run's verified bundle (rehearsals only)
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -155,6 +160,8 @@ jobs:
     needs: build
     runs-on: ubuntu-24.04
     timeout-minutes: 15
+    outputs:
+      tag: ${{ steps.version.outputs.tag }}
     env:
       RUSTUP_TOOLCHAIN: 1.97.0
       CARGO_TARGET_DIR: ${{ github.workspace }}/release-source/rust/target
@@ -366,3 +373,106 @@ jobs:
           tag: ${{ inputs.tag }}
           source-root: release-source
           phase: verify
+
+  # The rehearsal's upgrade proof. Candidate files come from this run's verified bundle, never a
+  # GitHub release, so this fetch is read-only and cannot see or touch draft state; the write-token
+  # fetch of `native-release-upgrade.yml` is not called from here.
+  upgrade-fetch:
+    name: Stage the ${{ inputs.product }} candidate for the upgrade proof
+    needs: [assemble, verify]
+    if: inputs.upgrade
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    outputs:
+      outcome: ${{ steps.assess.outputs.outcome }}
+      reason: ${{ steps.assess.outputs.reason }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.23.2
+      - uses: actions/download-artifact@v4
+        with:
+          name: native-release-${{ inputs.product }}-bundle-${{ inputs.tag || 'main' }}
+          path: ${{ runner.temp }}/candidate
+      - name: Stage the candidate with the published releases it upgrades from
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PRODUCT: ${{ inputs.product }}
+          CANDIDATE_TAG: ${{ needs.assemble.outputs.tag }}
+        run: |
+          node typescript/scripts/release-upgrade.mjs fetch --product "$PRODUCT" --tag "$CANDIDATE_TAG" \
+            --directory "$RUNNER_TEMP/upgrade-assets" --candidate-directory "$RUNNER_TEMP/candidate"
+      - name: Assess whether the proof can run at that commit
+        id: assess
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_SHA: ${{ inputs.sha || github.sha }}
+        run: |
+          node typescript/scripts/release-upgrade.mjs assess --directory "$RUNNER_TEMP/upgrade-assets" --sha "$RELEASE_SHA"
+      - name: Hand the assets to the proof
+        uses: actions/upload-artifact@v4
+        with:
+          name: upgrade-assets-${{ needs.assemble.outputs.tag }}
+          path: ${{ runner.temp }}/upgrade-assets
+          if-no-files-found: error
+          retention-days: 1
+
+  upgrade:
+    name: Upgrade proof of the ${{ inputs.product }} candidate
+    needs: [assemble, upgrade-fetch]
+    if: ${{ !cancelled() && needs.upgrade-fetch.result == 'success' }}
+    permissions:
+      contents: read
+    uses: ./.github/workflows/native-release-upgrade-prove.yml
+    with:
+      product: ${{ inputs.product }}
+      tag: ${{ needs.assemble.outputs.tag }}
+      sha: ${{ inputs.sha || github.sha }}
+      outcome: ${{ needs.upgrade-fetch.outputs.outcome }}
+      fetch-reason: ${{ needs.upgrade-fetch.outputs.reason }}
+
+  # The rehearsal's dry run of the publication gates that need no draft (channel, immutability,
+  # monotonic, migration; commit only on main): the candidate's synthetic alpha tag and source
+  # commit go through the same checks `native-release-bundle.yml` runs on a draft. It reads
+  # published releases and git history, records no hold and publishes nothing.
+  gates-dry:
+    name: Publication gates (dry) for the ${{ inputs.product }} candidate
+    needs: assemble
+    if: inputs.upgrade
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: ./.github/actions/setup-tooling
+      - name: Install reviewed publication-gate dependencies
+        working-directory: typescript
+        run: pnpm install --frozen-lockfile --ignore-scripts
+      - name: Install the pinned metadata toolchain
+        run: rustup toolchain install 1.97.0 --profile minimal
+      - name: Restore dependency cache for locked source acquisition
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: rust
+          shared-key: native-rust
+          save-if: false
+      - name: Evaluate the gates for the candidate without a draft
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PRODUCT: ${{ inputs.product }}
+          CANDIDATE_TAG: ${{ needs.assemble.outputs.tag }}
+          CANDIDATE_SHA: ${{ inputs.sha || github.sha }}
+          ON_MAIN: ${{ github.ref == 'refs/heads/main' }}
+        run: |
+          args=(--product "$PRODUCT" --tag "$CANDIDATE_TAG" --sha "$CANDIDATE_SHA")
+          if [ "$ON_MAIN" = true ]; then args+=(--on-main); fi
+          node typescript/scripts/publication-gates.mjs dry "${args[@]}"

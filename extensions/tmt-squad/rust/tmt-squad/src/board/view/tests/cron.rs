@@ -50,7 +50,7 @@ fn members_sit_above_the_squads_jobs_with_the_clock_on_the_rule() {
         let text = screen.join("\n");
         let rule = screen
             .iter()
-            .position(|l| l.starts_with("── ⏱ cron · 1"))
+            .position(|l| l.starts_with("── cron · 1"))
             .expect(&text);
         assert!(screen[..rule].iter().any(|l| l.contains("alpha")), "{text}");
         assert!(screen[..rule].iter().any(|l| l.contains("carol")), "{text}");
@@ -72,7 +72,7 @@ fn running_in(pane: &str) -> ClockStatus {
 fn rule_of(app: &App) -> String {
     draw(app, 120, 30)
         .into_iter()
-        .find(|line| line.starts_with("── ⏱ cron"))
+        .find(|line| line.starts_with("── cron"))
         .expect("the rule line")
 }
 
@@ -83,7 +83,7 @@ fn the_half_is_content_sized_and_capped_at_two_fifths_of_the_body() {
         let screen = draw(app, 120, height);
         let rule = screen
             .iter()
-            .position(|l| l.starts_with("── ⏱ cron"))
+            .position(|l| l.starts_with("── cron"))
             .unwrap();
         // The footer is the last line; the half is everything between.
         screen.len() - 1 - rule
@@ -136,7 +136,7 @@ fn the_member_detail_shows_the_next_run_too() {
     let mut app = squad_tab();
     let first = detail_text(&detail_buffer(&app, 80, 12)).join("\n");
     assert!(
-        first.contains("cron: ⏱") && first.contains("job for u1"),
+        first.contains("cron:") && first.contains("job for u1"),
         "{first}"
     );
     // A member without an active job has no cron line.
@@ -156,14 +156,14 @@ fn a_member_with_an_active_job_shows_its_next_run_and_the_label_drops_first() {
     let alpha = wide.iter().find(|l| l.contains("alpha")).unwrap();
     // The label's clock text depends on the real date; its exact form is
     // covered where time is injected (`cronboard::tests`).
-    let label = alpha.split_once("⏱ ").expect(alpha).1;
+    let label = alpha.split_once("cron ").expect(alpha).1;
     assert!(label.contains(':') && alpha.ends_with(label), "{alpha}");
     let carol = wide.iter().find(|l| l.contains("carol")).unwrap();
-    assert!(!carol.contains('⏱'), "{carol}");
+    assert!(!carol.contains("cron "), "{carol}");
     // Too narrow for the label: it goes, the row's columns stay.
     let narrow = draw(&app, 30, 24);
     let alpha = narrow.iter().find(|l| l.contains("alpha")).unwrap();
-    assert!(!alpha.contains('⏱'), "{alpha}");
+    assert!(!alpha.contains("cron "), "{alpha}");
 }
 
 #[test]
@@ -236,14 +236,14 @@ fn a_user_binding_wins_over_the_scoped_c_key_and_other_tabs_have_no_half() {
         .as_object_mut()
         .unwrap()
         .remove("roomId");
-    assert!(!draw(&leads, 100, 24).join("\n").contains("⏱ cron"));
+    assert!(!draw(&leads, 100, 24).join("\n").contains("── cron"));
 }
 
 #[test]
 fn a_short_body_keeps_the_rule_only_and_a_pointer_press_focuses_the_half() {
     let app = squad_tab();
     let short = draw(&app, 100, 11);
-    assert!(short.iter().any(|l| l.starts_with("── ⏱ cron · 1")));
+    assert!(short.iter().any(|l| l.starts_with("── cron · 1")));
     assert!(!short.join("\n").contains("every 30m"));
     let mut app = squad_tab();
     let screen = draw(&app, 100, 24);
@@ -275,10 +275,7 @@ fn a_failed_read_without_data_says_so_in_the_half() {
     app.view.as_mut().unwrap().document["squad"]["roomId"] = json!("room");
     app.cron.replace(Err("storage unreachable".into()));
     let text = draw(&app, 100, 24).join("\n");
-    assert!(
-        text.contains("⏱ cron · 0 · ✗ storage unreachable"),
-        "{text}"
-    );
+    assert!(text.contains("cron · 0 · ✗ storage unreachable"), "{text}");
     assert!(text.contains("(jobs unavailable)"), "{text}");
 }
 

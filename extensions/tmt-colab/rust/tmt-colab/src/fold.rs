@@ -391,10 +391,11 @@ impl Snapshot {
                     "it has {} changes, the most one page can hold",
                     count(self.objects.len())
                 ))
-            } else if tail >= crate::decoder::UPDATE_BYTES {
+            } else if tail >= crate::decoder::WRITE_TAIL_BYTES {
                 Some(format!(
-                    "its changes add up to {}, the most one page can hold",
-                    size(tail)
+                    "its changes add up to {}; one page holds at most {}",
+                    size(tail),
+                    size(crate::decoder::WRITE_TAIL_BYTES)
                 ))
             } else if baseline.len() > crate::decoder::BASELINE_BYTES {
                 Some(format!(
@@ -461,7 +462,24 @@ impl Snapshot {
             updates: &refs,
         };
         let folded = if let Some(edit) = edit {
-            decoder.prepare(batch, edit, None)?
+            decoder
+                .prepare(batch, edit, None)
+                .map_err(|fault| match fault {
+                    // A source bigger than one update can carry replaces more than one update holds.
+                    DecodeFault::Rejected
+                        if edit.source.len() > crate::decoder::UPDATE_BYTES - 1024 =>
+                    {
+                        OwnerFault::too_large_to_edit(
+                            page,
+                            format!(
+                                "this edit changes more than the {} one change can carry; make it in smaller steps",
+                                size(crate::decoder::UPDATE_BYTES)
+                            ),
+                        )
+                        .into()
+                    }
+                    other => Box::<dyn std::error::Error + Send + Sync>::from(other),
+                })?
         } else {
             decoder
                 .decode(batch, Role::Editor, None)
@@ -484,13 +502,13 @@ impl Snapshot {
                     other => Box::<dyn std::error::Error + Send + Sync>::from(other),
                 })?
         };
-        if edit.is_some() && tail + folded.merged.len() > crate::decoder::UPDATE_BYTES {
+        if edit.is_some() && tail + folded.merged.len() > crate::decoder::WRITE_TAIL_BYTES {
             return Err(OwnerFault::too_large_to_edit(
                 page,
                 format!(
                     "this edit would take its changes to {}, more than the {} one page can hold",
                     size(tail + folded.merged.len()),
-                    size(crate::decoder::UPDATE_BYTES)
+                    size(crate::decoder::WRITE_TAIL_BYTES)
                 ),
             )
             .into());

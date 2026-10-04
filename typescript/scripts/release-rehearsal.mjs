@@ -25,6 +25,7 @@ const SHARED_INPUTS = new Set([
   '.github/workflows/native-release-bundle.yml',
   '.github/workflows/native-release-prepare.yml',
   '.github/workflows/native-release-upgrade.yml',
+  '.github/workflows/native-release-upgrade-prove.yml',
   '.github/workflows/release-rehearsal.yml',
 ]);
 const SHARED_PATTERNS = [
@@ -32,7 +33,7 @@ const SHARED_PATTERNS = [
   /^rust\/(?:crates\/)?[^/]+\/Cargo\.toml$/,
   /^\.github\/actions\/(?:inject-release-version|setup-tooling|apt-install|warm-xcrun)\//,
   /^scripts\/(?:build-native-artifact|native-cargo|native-bootstrap|run-native-verification|retry-command)\.sh$/,
-  /^typescript\/scripts\/(?:native-artifact-policy|native-bootstrap|native-release-policy|generate-native-bootstrap|release-policy|release-version-injection|release-versions|verify-native-(?:artifact|bootstrap|notices)|verify-colab-app-entries|packed-command|cargo-workspace)\.mjs$/,
+  /^typescript\/scripts\/(?:native-artifact-policy|native-bootstrap|native-release-policy|generate-native-bootstrap|release-policy|release-version-injection|release-versions|verify-native-(?:artifact|bootstrap|notices|installation|extension-upgrade|driver-upgrade)|release-upgrade|publication-gates|verify-colab-app-entries|packed-command|cargo-workspace)\.mjs$/,
 ];
 // Extension manifests belong to one product, so component attribution picks the products.
 const PRODUCT_MANIFEST = /^extensions\/(?:.*\/)?Cargo\.toml$/;

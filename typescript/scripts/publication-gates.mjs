@@ -11,6 +11,10 @@
 // which run, and the draft is neither built again nor published until the owner publishes it by
 // hand or releases the hold by dispatch, which skips only the gate named in the marker (never
 // `channel`: a release that is not an alpha is published by hand, with the owner's explicit OK).
+//   node publication-gates.mjs dry --product P --tag SYNTHETIC_TAG --sha SHA [--on-main]
+//        evaluates the early gates for a rehearsal's candidate without a draft: it reads published
+//        releases and git history only, records no hold and publishes nothing. `commit` runs only
+//        with --on-main (a pull request's merge commit is not on main yet).
 //   node publication-gates.mjs early --product P --tag TAG [--release-hold]
 //   node publication-gates.mjs finish --product P --tag TAG --upgrade-result R --upgrade-outcome O \
 //        [--upgrade-reason TEXT] [--skip GATE]
@@ -250,8 +254,8 @@ export function runGates({ order, checks, skip = '' }) {
 }
 
 /** Markdown for the run summary. */
-export function renderGateSummary({ tag, results, held }) {
-  const lines = [`### Publication gates for \`${tag}\``, ''];
+export function renderGateSummary({ tag, results, held, dry = false }) {
+  const lines = [`### Publication gates${dry ? ' (dry run)' : ''} for \`${tag}\``, ''];
   for (const { gate, ok, skipped, reason } of results) {
     lines.push(
       `- ${skipped ? 'skipped' : ok ? 'passed' : 'FAILED'} \`${gate}\`${reason ? `: ${reason}` : ''}`
@@ -259,9 +263,13 @@ export function renderGateSummary({ tag, results, held }) {
   }
   lines.push(
     '',
-    held
-      ? `**Held** at \`${held.gate}\`: ${held.reason}. It carries \`${HOLD_ASSET}\` until it is published by hand or the hold is released by dispatch.`
-      : 'Every gate passed. The next job publishes the release.'
+    dry
+      ? held
+        ? `**Would hold** at \`${held.gate}\`: ${held.reason}. Nothing was recorded.`
+        : 'Every gate passed; nothing was recorded or published.'
+      : held
+        ? `**Held** at \`${held.gate}\`: ${held.reason}. It carries \`${HOLD_ASSET}\` until it is published by hand or the hold is released by dispatch.`
+        : 'Every gate passed. The next job publishes the release.'
   );
   return `${lines.join('\n')}\n`;
 }
@@ -414,6 +422,8 @@ function main(argv, environment) {
       'upgrade-outcome': { type: 'string', default: '' },
       'upgrade-reason': { type: 'string', default: '' },
       skip: { type: 'string', default: '' },
+      sha: { type: 'string', default: '' },
+      'on-main': { type: 'boolean', default: false },
     },
   });
   for (const name of ['product', 'tag']) {
@@ -421,6 +431,23 @@ function main(argv, environment) {
   }
   const repository = environment.GITHUB_REPOSITORY;
   if (!repository) throw new Error('GITHUB_REPOSITORY is not set.');
+  if (command === 'dry') {
+    if (!values.sha) throw new Error('--sha is required.');
+    const { held, results } = runGates({
+      order: values['on-main'] ? EARLY_GATES : EARLY_GATES.filter((gate) => gate !== 'commit'),
+      checks: earlyChecks({
+        product: values.product,
+        tag: values.tag,
+        release: { target_commitish: values.sha },
+        releases: ghApi({ repository }).listReleases(),
+        repository,
+      }),
+    });
+    report(environment, renderGateSummary({ tag: values.tag, results, held, dry: true }));
+    if (held)
+      throw new Error(`The rehearsal would hold ${values.tag} at ${held.gate}: ${held.reason}`);
+    return;
+  }
   const runUrl = `${environment.GITHUB_SERVER_URL ?? 'https://github.com'}/${repository}/actions/runs/${environment.GITHUB_RUN_ID ?? ''}`;
   const api = ghApi({ repository });
   const releases = api.listReleases();
@@ -520,7 +547,7 @@ function main(argv, environment) {
     );
     output(environment, { held: held?.gate ?? '' });
   } else {
-    throw new Error('Usage: publication-gates.mjs early|finish --product P --tag TAG ...');
+    throw new Error('Usage: publication-gates.mjs dry|early|finish --product P --tag TAG ...');
   }
 }
 

@@ -217,7 +217,7 @@ impl Meter {
     }
 
     pub fn model(&self, id: &str) -> Option<&str> {
-        self.rate.model(id)
+        self.rate.model(id).map(crate::source::model_name)
     }
 
     pub fn excluded<'a>(&self, input: &'a Input) -> Vec<&'a str> {

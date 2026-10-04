@@ -34,7 +34,7 @@ on:
         value: ${{ jobs.fetch.outputs.outcome }}
       reason:
         description: Why the proof could not run, or why a host failed it (the first error its log shows), worded for the owner; empty when it ran and passed or was not needed
-        value: ${{ jobs.conclude.outputs.reason }}
+        value: ${{ jobs.prove.outputs.reason }}
   workflow_dispatch:
     inputs:
       product:
@@ -63,9 +63,9 @@ permissions:
 
 # Two kinds of job. `fetch` holds the write token that can see draft assets, so it checks out this
 # repository's default ref and never runs the release's code: it downloads and digest-checks the
-# assets and hands them over as a run artifact. `prove` normally runs release-commit scripts;
-# a rerun uses this main run's scripts with a separate release-source data checkout. Both
-# paths are read-only with no token in the environment.
+# assets and hands them over as a run artifact. The proof stages (`native-release-upgrade-prove.yml`)
+# normally run release-commit scripts; a rerun uses this main run's scripts with a separate
+# release-source data checkout. Both paths are read-only with no token in the environment.
 jobs:
   fetch:
     name: Fetch the assets of ${{ inputs.tag }}
@@ -124,188 +124,19 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
-  prove:
-    name: Upgrade ${{ inputs.product }} to ${{ inputs.tag }} (${{ matrix.target }})
-    needs: fetch
-    if: needs.fetch.outputs.outcome == 'proved'
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - target: aarch64-apple-darwin
-            runner: macos-15
-          - target: x86_64-apple-darwin
-            runner: macos-15
-          - target: aarch64-unknown-linux-musl
-            runner: ubuntu-24.04-arm
-          - target: x86_64-unknown-linux-musl
-            runner: ubuntu-24.04
-    runs-on: ${{ matrix.runner }}
-    timeout-minutes: 10
-    permissions:
-      contents: read
-    env:
-      RUSTUP_TOOLCHAIN: 1.97.0
-      CARGO_TARGET_DIR: ${{ github.workspace }}/release-source/rust/target
-    defaults:
-      run:
-        working-directory: release-source
-    steps:
-      # Main owns injection; ordinary proof uses cut tooling, while rerun uses repaired main tooling.
-      - uses: actions/checkout@v4
-        with:
-          persist-credentials: false
-          ref: ${{ github.sha }}
-      # Candidate data and Rust adapter acceptance stay at the release commit on reruns.
-      - uses: actions/checkout@v4
-        with:
-          persist-credentials: false
-          ref: ${{ needs.fetch.outputs.sha }}
-          path: release-source
-      - name: Require candidate Rosetta tooling
-        if: ${{ matrix.target == 'x86_64-apple-darwin' && !inputs.current-tooling }}
-        run: |
-          if [ ! -x scripts/run-native-verification.sh ]; then
-            echo '::error::candidate predates #547 Rosetta tooling; the owner reruns with native-release rerun=<tag>'
-            exit 1
-          fi
-      - name: Set up Node.js and pnpm
-        uses: ./.github/actions/setup-tooling
-        with:
-          architecture: ${{ matrix.target == 'x86_64-apple-darwin' && 'x64' || '' }}
-      - name: Install verification dependencies
-        working-directory: typescript
-        run: pnpm install --frozen-lockfile --ignore-scripts
-      - name: Install release-cut proof dependencies
-        if: ${{ !inputs.current-tooling }}
-        working-directory: release-source/typescript
-        run: pnpm install --frozen-lockfile --ignore-scripts
-      - name: Warm the macOS toolchain lookup
-        if: runner.os == 'macOS'
-        uses: ./.github/actions/warm-xcrun
-      - name: Install Rust for version-only resolution and adapter acceptance
-        run: rustup toolchain install 1.97.0 --profile minimal
-      - name: Restore Rust dependencies for version-only resolution and adapter acceptance
-        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
-        env:
-          CARGO_PROFILE_DEV_DEBUG: 0
-          CARGO_INCREMENTAL: 0
-        with:
-          workspaces: release-source/rust
-          shared-key: native-rust
-          save-if: false
-      - name: Inject the reviewed draft version for upgrade proof and #575 acceptance
-        uses: ./.github/actions/inject-release-version
-        with:
-          product: ${{ inputs.product }}
-          tag: ${{ inputs.tag }}
-          source-root: release-source
-      - uses: actions/download-artifact@v4
-        with:
-          name: upgrade-assets-${{ inputs.tag }}
-          path: ${{ runner.temp }}/upgrade
-      - name: Prove last-published and declared-floor installation and bootstrap recovery
-        env:
-          PRODUCT: ${{ inputs.product }}
-          RELEASE_TAG: ${{ inputs.tag }}
-          TARGET: ${{ matrix.target }}
-          CURRENT_TOOLING: ${{ inputs.current-tooling }}
-        run: |
-          verification="$PWD/scripts/run-native-verification.sh"
-          if [ "$CURRENT_TOOLING" = true ]; then verification="$GITHUB_WORKSPACE/scripts/run-native-verification.sh"; fi
-          "$verification" "$TARGET" <<'VERIFY'
-          started=$SECONDS
-          # The log is kept so the conclusion can name the first error; pipefail keeps the exit status.
-          set -o pipefail
-          set --
-          tooling=.
-          skill=skills/tmux-team/SKILL.md
-          if [ "$CURRENT_TOOLING" = true ]; then
-            tooling="$GITHUB_WORKSPACE"
-            set -- --source-root "$GITHUB_WORKSPACE/release-source"
-            skill="$GITHUB_WORKSPACE/release-source/skills/tmux-team/SKILL.md"
-          fi
-          node "$tooling/typescript/scripts/release-upgrade.mjs" prove --product "$PRODUCT" --tag "$RELEASE_TAG" \
-            --target "$TARGET" --directory "$RUNNER_TEMP/upgrade" --skill "$skill" "$@" \
-            2>&1 | tee "$RUNNER_TEMP/upgrade-proof.log"
-          # Handoff-capable candidate source requires its exact protocol-1 probe before either source runs.
-          # Source/bootstrap durations and the separately injected adapter proof stay in this log.
-          echo "Verified $TARGET in $((SECONDS - started)) s." | tee -a "$GITHUB_STEP_SUMMARY"
-          VERIFY
-      - name: Prove the real-archive CLI upgrade adapter
-        if: inputs.product == 'cli'
-        env:
-          RELEASE_TAG: ${{ inputs.tag }}
-          TARGET: ${{ matrix.target }}
-          CURRENT_TOOLING: ${{ inputs.current-tooling }}
-        run: |
-          verification="$PWD/scripts/run-native-verification.sh"
-          if [ "$CURRENT_TOOLING" = true ]; then verification="$GITHUB_WORKSPACE/scripts/run-native-verification.sh"; fi
-          "$verification" "$TARGET" <<'VERIFY'
-          set -o pipefail
-          set --
-          tooling=.
-          if [ "$CURRENT_TOOLING" = true ]; then
-            tooling="$GITHUB_WORKSPACE"
-            set -- --source-root "$GITHUB_WORKSPACE/release-source"
-          fi
-          node "$tooling/typescript/scripts/release-upgrade.mjs" acceptance --product cli --tag "$RELEASE_TAG" \
-            --target "$TARGET" --directory "$RUNNER_TEMP/upgrade" "$@" \
-            2>&1 | tee -a "$RUNNER_TEMP/upgrade-proof.log"
-          VERIFY
-      - name: Recheck version-only source after runtime proof and adapter acceptance
-        uses: ./.github/actions/inject-release-version
-        with:
-          product: ${{ inputs.product }}
-          tag: ${{ inputs.tag }}
-          source-root: release-source
-          phase: verify
-      - name: Keep the log of a failed proof
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: upgrade-proof-log-${{ matrix.target }}
-          path: ${{ runner.temp }}/upgrade-proof.log
-          if-no-files-found: ignore
-          retention-days: 1
-
   # A release that cannot be proved must not look proved to whoever runs this by hand. The
   # publication run reads the outcome and the reason from the outputs, whatever this job says.
-  conclude:
-    name: Conclude the upgrade proof of ${{ inputs.tag }}
-    needs: [fetch, prove]
+  prove:
+    name: Prove and conclude the upgrade of ${{ inputs.tag }}
+    needs: fetch
     if: ${{ !cancelled() && needs.fetch.result == 'success' }}
-    runs-on: ubuntu-24.04
-    timeout-minutes: 5
     permissions:
       contents: read
-    outputs:
-      # A host's failure is named by the first error in its log; otherwise the reason the proof
-      # could not run, which is empty when it ran and passed.
-      reason: ${{ steps.failure.outputs.reason || needs.fetch.outputs.reason }}
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          persist-credentials: false
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22.23.2
-      # The logs were written by the release commit's own scripts; this job runs this
-      # repository's code and reads them as data, so what it outputs is one bounded line.
-      - uses: actions/download-artifact@v4
-        if: needs.prove.result == 'failure'
-        continue-on-error: true
-        with:
-          pattern: upgrade-proof-log-*
-          path: ${{ runner.temp }}/upgrade-logs
-      - name: Name why the proof failed
-        id: failure
-        if: needs.prove.result == 'failure'
-        run: node typescript/scripts/release-upgrade.mjs reason --directory "$RUNNER_TEMP/upgrade-logs"
-      - name: Fail a release the proof cannot run for
-        if: needs.fetch.outputs.outcome == 'predates'
-        env:
-          REASON: ${{ needs.fetch.outputs.reason }}
-        run: |
-          echo "$REASON" >&2
-          exit 1
+    uses: ./.github/workflows/native-release-upgrade-prove.yml
+    with:
+      product: ${{ inputs.product }}
+      tag: ${{ inputs.tag }}
+      sha: ${{ needs.fetch.outputs.sha }}
+      outcome: ${{ needs.fetch.outputs.outcome }}
+      fetch-reason: ${{ needs.fetch.outputs.reason }}
+      current-tooling: ${{ inputs.current-tooling }}

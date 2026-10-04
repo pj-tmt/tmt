@@ -1,3 +1,4 @@
+import { Check } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { DISCLOSURE, Downloads, EXPORT_FILES, type ExportFile } from './export.js';
 import type { PageBinding } from './transport.js';
@@ -83,7 +84,7 @@ export function ExportPanel({
             }}
           >
             {text.download} {name}
-            {requested.includes(name) ? ' ✓' : ''}
+            {requested.includes(name) && <Check aria-hidden />}
           </button>
         ))}
         <button onClick={() => setOpen(false)}>{text.exportClose}</button>

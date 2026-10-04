@@ -5,6 +5,188 @@ use std::{
     sync::atomic::{AtomicU64, Ordering},
 };
 
+/// These are structural typography, not decorative/state symbols. Each
+/// exception stays explicit so adding a new decoration cannot widen the guard.
+const STRUCTURAL_GLYPHS: &[(&str, &str)] = &[
+    (
+        "─│┌┐└┘├┤┬┴┼",
+        "single-line rules and square overlay borders",
+    ),
+    ("·", "separates adjacent labels without implying a state"),
+    ("…", "shared text fitter's truncation indicator"),
+    ("–", "unavailable evidence; distinct from measured zero"),
+    (
+        "↑↓←→",
+        "navigation keys, scroll direction and annotation targets",
+    ),
+];
+
+fn registered_marks() -> std::collections::BTreeSet<char> {
+    let tokens: Value = serde_json::from_str(include_str!(
+        "../../../../../../../design/tokens/tokens.json"
+    ))
+    .unwrap();
+    tokens["mark"]
+        .as_object()
+        .unwrap()
+        .keys()
+        .flat_map(|key| key.chars().filter(|c| !c.is_whitespace()))
+        .collect()
+}
+
+/// Call only with board-owned labels or ASCII fixture inputs. Names, tasks and
+/// notebooks are dynamic text and deliberately do not go through this guard.
+fn glyph_error(text: &str) -> Option<String> {
+    use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
+    let marks = registered_marks();
+    let states = tmt_cli_style::mark::Mark::ALL
+        .into_iter()
+        .flat_map(|mark| mark.symbol().chars())
+        .chain(['◐', '✎'])
+        .collect::<std::collections::BTreeSet<_>>();
+    let mut chars = text.chars().peekable();
+    let mut previous: Option<char> = None;
+    while let Some(character) = chars.next() {
+        let structural = STRUCTURAL_GLYPHS.iter().any(|(glyphs, reason)| {
+            assert!(!reason.is_empty());
+            glyphs.contains(character)
+        });
+        let ambiguous = character.width() != character.width_cjk();
+        // Presentation sequences catch text-default emoji such as the stopwatch;
+        // wide glyphs also reject default emoji in these fixed English labels.
+        let emoji = matches!(character, '\u{fe0f}' | '\u{20e3}')
+            || !character.is_ascii()
+                && (character.width() == Some(2)
+                    || format!("{character}\u{fe0f}").width() > character.width().unwrap_or(0));
+        if (emoji || ambiguous) && !structural && !marks.contains(&character) {
+            return Some(format!("unregistered decorative glyph {character:?}"));
+        }
+        if states.contains(&character)
+            && !character.is_ascii()
+            && previous.is_some_and(|previous| !previous.is_whitespace())
+        {
+            return Some(format!("state mark {character:?} needs a leading space"));
+        }
+        if states.contains(&character) && chars.peek() != Some(&' ') {
+            return Some(format!("state mark {character:?} needs a trailing space"));
+        }
+        previous = Some(character);
+    }
+    None
+}
+
+#[test]
+fn glyph_guard_rejects_unregistered_ambiguous_and_emoji_decorations_and_unspaced_states() {
+    for bad in [
+        "① squads",
+        "② needs you",
+        "③ squads",
+        "⑤ cron",
+        "⏱ cron",
+        "😀 cron",
+        "1️⃣ cron",
+        "◐0",
+        "◆✗",
+        "↻lead",
+        "tab✗ 1",
+    ] {
+        assert!(glyph_error(bad).is_some(), "negative control {bad:?}");
+    }
+    for mark in tmt_cli_style::mark::Mark::ALL {
+        assert_eq!(glyph_error(&format!("{} state", mark.symbol())), None);
+    }
+    for good in [
+        "── squads · 0 ──",
+        "↑ move ↓ · next… –",
+        "◆ 0 ✗ 1 ◐ 2 ● 3 ○ 4",
+        "2 other",
+    ] {
+        assert_eq!(glyph_error(good), None, "positive control {good:?}");
+    }
+}
+
+#[test]
+fn authored_home_and_cron_labels_use_only_registered_spaced_marks_and_structural_typography() {
+    use crate::board::home::tiles::{self, TileItem};
+    for width in [80, 100, 113, 160, 200] {
+        let counts = Counts {
+            members: 6,
+            waiting: 1,
+            blocked: 1,
+            review: 1,
+            working: 1,
+            idle: 1,
+        };
+        let squad = SquadLine {
+            squad: "squad".into(),
+            lead: Some(json!({"name":"lead"})),
+            counts: Counts::default(),
+            members: counts,
+        };
+        let item = TileItem {
+            squad: &squad,
+            members: &squad.members,
+            lead_model: Some("claude-opus-4-7"),
+            usage: None,
+        };
+        for line in tiles::paint(&[item], width, crate::look::Look::default(), None).lines {
+            assert_eq!(glyph_error(&line.to_string()), None);
+        }
+        let mut app = interaction::board(&[(
+            "squad",
+            document(
+                "squad",
+                row("L", "lead", "review"),
+                vec![row("W", "worker", "idle")],
+            ),
+        )]);
+        let summary = paint::summary(
+            app.view.as_ref().unwrap().home.as_ref().unwrap(),
+            width,
+            app.look(),
+        );
+        assert_eq!(glyph_error(&summary.to_string()), None);
+        app.tabs = std::iter::once(ALL.to_owned())
+            .chain((0..30).map(|index| format!("squad-{index}")))
+            .collect();
+        app.attention = app
+            .tabs
+            .iter()
+            .map(|name| {
+                (
+                    name.clone(),
+                    crate::attention::Attention {
+                        blocked: 1,
+                        ..Default::default()
+                    },
+                )
+            })
+            .collect();
+        let mut terminal =
+            ratatui::Terminal::new(ratatui::backend::TestBackend::new(width, 30)).unwrap();
+        terminal
+            .draw(|frame| crate::board::view::render(frame, &app))
+            .unwrap();
+        for y in 0..30 {
+            let line: String = (0..width)
+                .map(|x| terminal.backend().buffer()[(x, y)].symbol())
+                .collect();
+            assert_eq!(glyph_error(&line), None, "width {width}, row {y}: {line}");
+        }
+        let state = crate::board::cronboard::State {
+            cron: Some(crate::board::cronboard::test_cron(
+                Vec::new(),
+                tmt_squad::cron::ClockStatus::NoClock,
+            )),
+            failure: None,
+            reads: 2,
+        };
+        let line =
+            crate::board::cronboard::home_line(&state, state.now_ms(), width, app.look()).unwrap();
+        assert_eq!(glyph_error(&line.to_string()), None);
+    }
+}
+
 struct Fixture {
     root: PathBuf,
     config: Config,

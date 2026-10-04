@@ -127,7 +127,7 @@ test('native sharing and lifecycle verification preserve Ask, page recovery and 
     // Navigate explicitly: the archived page has no editing route.
     await dialog.getByRole('button', { name: 'Close', exact: true }).click();
     await page.goto(`${door.address}/x/colab/`);
-    await page.getByLabel('Show archived pages').check();
+    await page.getByRole('button', { name: 'Show archived', exact: true }).click();
     const row = page.locator('ul.pages li').filter({ hasText: first.pageId });
     await expect(row).toContainText('Archived');
     await row.getByRole('button', { name: 'Manage page' }).click();
@@ -138,7 +138,7 @@ test('native sharing and lifecycle verification preserve Ask, page recovery and 
     await dialog.getByRole('button', { name: 'Confirm delete page' }).click();
     await expect(dialog.getByRole('status')).toContainText('Deletion verified');
     await dialog.getByRole('button', { name: 'Close', exact: true }).click();
-    await page.getByLabel('Show archived pages').uncheck();
+    await page.getByRole('button', { name: 'Show archived', exact: true }).click();
     await page
       .locator('ul.pages li')
       .filter({ hasText: second.pageId })

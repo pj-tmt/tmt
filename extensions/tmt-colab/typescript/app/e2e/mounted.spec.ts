@@ -659,7 +659,11 @@ test('trusted home manages retention, archive and verified or awaiting deletion'
   await dialog.getByRole('button', { name: 'Close', exact: true }).click();
   await expect(row(pageId)).toHaveCount(0);
   await expect(row(other)).toBeVisible();
-  await page.getByLabel('Show archived pages').check();
+  await page.getByRole('button', { name: 'Show archived', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Show archived', exact: true })).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  );
   await expect(row(pageId)).toContainText('Archived');
   await expect(row(pageId).locator('.archived-page .retention-hint')).toHaveText('kept forever');
   await expect(row(pageId).getByRole('link')).toHaveCount(0);
@@ -694,7 +698,11 @@ test('trusted home manages retention, archive and verified or awaiting deletion'
   await expect(dialog.getByRole('button', { name: 'Manage another change' })).toHaveCount(0);
   await dialog.getByRole('button', { name: 'Close', exact: true }).click();
   await expect(page.getByText('No archived pages.', { exact: true })).toBeVisible();
-  await page.getByLabel('Show archived pages').uncheck();
+  await page.getByRole('button', { name: 'Show archived', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Show archived', exact: true })).toHaveAttribute(
+    'aria-pressed',
+    'false',
+  );
   await row(other).getByRole('button', { name: 'Manage page' }).click();
   await dialog.getByRole('button', { name: 'Delete page', exact: true }).click();
   await dialog.getByRole('button', { name: 'Confirm delete page' }).click();
@@ -753,9 +761,9 @@ test.describe('relative retention evidence', () => {
     await page.goto(mount);
     const row = page.locator('.pages li').filter({ hasText: pageId });
     const hint = row.locator('.retention-hint');
-    await expect(row.getByRole('link').locator('.retention-hint')).toHaveText('◷expires in 6 days');
+    await expect(hint).toHaveText('expires in 6 days');
     await expect(hint).toHaveAttribute('title', 'Sat 10-10 21:34');
-    await expect(hint.locator('.retention-mark')).toHaveText('◷');
+    await expect(hint.locator('.retention-mark .lucide-clock')).toHaveClass(/lucide-clock/);
     await expect(hint).toHaveCSS(
       'color',
       await page.locator('body').evaluate((node) => getComputedStyle(node).color),
@@ -773,7 +781,7 @@ test.describe('relative retention evidence', () => {
           fullPage: true,
         });
         await row.getByRole('button', { name: 'Manage page' }).click();
-        await expect(dialog.locator('.retention-hint')).toHaveText('◷expires in 6 days');
+        await expect(dialog.locator('.retention-hint')).toHaveText('expires in 6 days');
         await expect(dialog.locator('.retention-hint')).toHaveAttribute('title', 'Sat 10-10 21:34');
         await dialog.getByText('Details', { exact: true }).click();
         await expect(dialog).toContainText('Last edit: Thu 09-10 21:34');
@@ -794,7 +802,7 @@ test.describe('relative retention evidence', () => {
     now = expires + 2 * 86400000;
     await page.clock.setFixedTime(now);
     await page.reload();
-    await expect(hint).toHaveText('◷expired 2 days ago');
+    await expect(hint).toHaveText('expired 2 days ago');
     await expect(row.getByRole('link')).toBeVisible();
     await row.getByRole('button', { name: 'Manage page' }).click();
     await expect(dialog.locator('.retention-hint')).toContainText('expired 2 days ago');
@@ -805,7 +813,7 @@ test.describe('relative retention evidence', () => {
     await page.clock.setFixedTime(now);
     await page.reload();
     await expect(hint).toHaveText('expires in 10 days');
-    await expect(hint.locator('.retention-mark')).toHaveCount(0);
+    await expect(hint.locator('.retention-mark .lucide-clock')).toHaveCount(0);
     await expect(hint).toHaveCSS(
       'color',
       await page.locator('.intro').evaluate((node) => getComputedStyle(node).color),

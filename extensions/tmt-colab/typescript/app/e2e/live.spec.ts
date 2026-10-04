@@ -1634,7 +1634,7 @@ test('accepted fold titles persist as encrypted display hints for home, dialog a
   await wire(context, undefined, undefined, undefined, title);
   await page.goto(mount);
   const row = () => page.locator(`[data-page-id="${v.page}"]`);
-  await expect(row().getByRole('heading')).toHaveText('Untitled, not opened in this browser yet');
+  await expect(row().getByRole('heading')).toHaveText('Untitled page');
   await expect(row().getByText(`Page ID: ${v.page}`, { exact: true })).toBeHidden();
   await row().locator('a').click();
   await expect(page.getByRole('heading', { name: title, exact: true })).toBeVisible();
@@ -1680,7 +1680,7 @@ test('accepted fold titles persist as encrypted display hints for home, dialog a
     { space: v.space, device: v.device, pageId: v.page },
   );
   await page.reload();
-  await expect(row().getByRole('heading')).toHaveText('Untitled, not opened in this browser yet');
+  await expect(row().getByRole('heading')).toHaveText('Untitled page');
   await row().locator('a').click();
   await expect(page.getByRole('heading', { name: title, exact: true })).toBeVisible();
   await page.getByRole('link', { name: 'Space home', exact: true }).click();

@@ -1,12 +1,28 @@
 # Page chrome (#1586)
 
-`router.tsx` owns one fixed page bar and the active Source, Comments, Chat or
-Export overlay. At narrow widths the actions move into an overflow menu. A plain
-`local · <name>` label uses the mounted session's existing device-context name
-(display only), or `local` when no name is known; mobile places it and sharing
-metadata inside the menu. Toolbar actions and menu rows are flat, and the theme
-menu row labels its current value. The read-only reader uses the same sizing/anchor
-mechanism without publication controls; its separate presentation is reader-owned.
+`colab-header.tsx` owns the shared fixed, one-row header for the page list,
+owner page, router errors, mounted lifecycle notices and reader states. Screens
+supply their title and actions; `colab-header.css` owns geometry, brand/title
+hierarchy and flat actions. Header dimensions and typography come from
+`design/tokens/tokens.json`, including the shared compact viewport rule. Lucide
+icons use currentColor, square caps and miter joins.
+
+`notice-card.tsx` owns state-card markup for router errors, mounted lifecycle and
+reader notices. Its stylesheet also styles native guidance: centered square cards,
+mark plus word, shared type, and hard shadows in the state's color. Recovery actions
+stay inside the card; inactive/ended use muted, opening uses waiting, failures use blocked.
+
+Native pairing/build guidance stays static. `chrome.rs` projects the same tokens
+and includes the header, reader and state-card CSS; `/assets/chrome.css` serves those immutable
+bytes even without an app build. `socket.rs` uses matching header slots and keeps
+the parent CSP free of inline style/script exemptions.
+
+`router.tsx` retains the active Source, Comments, Chat or Export overlay. At narrow
+widths the page actions move into an overflow menu. The existing display-only
+`local · <name>` label and sharing metadata move inside that menu on mobile.
+Page-list cards show their name (or `Untitled page`), a short mono ID and the
+shared expiry hint; Details and Manage stay inside the card. Full IDs remain in
+Details. Neither titles nor retention hints grant access.
 
 The browser window scrolls the author page. `renderer.ts` initially sizes the
 opaque iframe to the remaining viewport, disables its scrollbar, then uses the
@@ -34,6 +50,10 @@ revokes download Blob URLs. Manage also portals outside the menu. Safety details
 remain available from Page information and blocked views; visibility never
 substitutes for writer admission.
 
+`e2e/chrome.spec.ts` compares header and state-card dimensions, font metrics, state colors and window-scroll
+containment across every screen at 1440/390 in light/dark, including responses
+from the native no-app socket fixture. Short-screen midpoint checks add an inert
+scroll probe; their top captures show the natural notice layout.
 `e2e/layout.spec.ts` covers window-scrolled 1440/390 light/dark short/long captures,
 one-row/menu layout, overlays that preserve page geometry, and focus/Escape.
 `e2e/renderer-scroll.spec.ts` covers owner and reader resizing, local anchors,

@@ -249,6 +249,17 @@ describe('CI area selection', () => {
     });
   });
 
+  it.each(['colab-header.css', 'reader-style.css', 'notice-card.css'])(
+    'retains full native verification for embedded Colab %s',
+    (name) => {
+      const file = `extensions/tmt-colab/typescript/app/src/${name}`;
+      expect(explainCiSelection([file])[0].rule).toBe('colab-native-chrome');
+      expect(selectCiAreas([file])).toEqual({ native: true, office: false, nativeOffice: false });
+      expect(selectNativeScope([file])).toBe('full');
+      expect(explainCiSelection([`${file}.backup`])[0].rule).toBe('unmapped');
+    }
+  );
+
   it.each([
     'rust/Cargo.toml',
     'rust/Cargo.lock',

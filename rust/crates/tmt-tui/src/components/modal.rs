@@ -5,7 +5,7 @@ use ratatui::{
     text::Line,
     widgets::{Block, Borders, Clear, Widget},
 };
-use tmt_cli_style::{Depth, Role, Theme, table::escape, theme::screen};
+use tmt_cli_style::{Depth, Role, Theme, breakpoint, table::escape, theme::screen};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Placement {
@@ -47,7 +47,8 @@ impl Modal {
         let outer = if self.placement == Placement::Body {
             body
         } else {
-            let width = if body.width < 100 {
+            // Below the md step a centered or docked modal is a full-width sheet.
+            let width = if body.width < breakpoint::MD.cells {
                 body.width
             } else {
                 demand[0].min((u32::from(body.width) * 9 / 10) as u16)
@@ -121,3 +122,6 @@ impl Modal {
         border.render(area, buffer);
     }
 }
+
+#[cfg(test)]
+mod tests;

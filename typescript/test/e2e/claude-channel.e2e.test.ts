@@ -49,7 +49,13 @@ function launcher(fixture: E2EFixture): string {
 function start(
   fixture: E2EFixture,
   name: string,
-  options: { channel: boolean; env?: Record<string, string>; pane?: string; unnamed?: boolean }
+  options: {
+    channel: boolean;
+    env?: Record<string, string>;
+    pane?: string;
+    unnamed?: boolean;
+    resume?: string;
+  }
 ): Session {
   const pane = options.pane ?? fixture.createShellPane(`claude-${name}`).pane;
   const log = path.join(fixture.root, `${name}.log`);
@@ -73,6 +79,7 @@ function start(
     ...(options.channel ? ['--channel'] : []),
     '-s',
     ...(options.unnamed ? ['claude'] : [name, launcher(fixture)]),
+    ...(options.resume === undefined ? [] : ['--resume', options.resume]),
   ]
     .map(quote)
     .join(' ');
@@ -515,6 +522,123 @@ describe('Claude channel delivery', { concurrent: false }, () => {
     },
     60_000
   );
+
+  it('admits a resumed channel session while whoami is observing its pane', async () => {
+    await withE2EFixture(async (fixture) => {
+      const gate = path.join(fixture.root, 'resume-reader');
+      fs.mkdirSync(gate);
+      const entered = path.join(gate, 'entered');
+      const release = path.join(gate, 'release');
+      execFileSync('mkfifo', [entered, release]);
+      const readerBin = path.join(gate, 'bin');
+      fs.mkdirSync(readerBin);
+      // The reader pauses specifically in its host snapshot. FIFOs establish
+      // the ordering; neither the hook nor the scenario waits a fixed duration.
+      writeExecutable(
+        path.join(readerBin, 'tmux'),
+        `#!${process.execPath}
+const fs = require('node:fs');
+const cp = require('node:child_process');
+const args = process.argv.slice(2);
+if (args.includes('list-panes')) {
+  fs.writeFileSync(${JSON.stringify(entered)}, 'entered');
+  fs.readFileSync(${JSON.stringify(release)});
+}
+const result = cp.spawnSync(${JSON.stringify(path.join(fixture.wrapperDir, 'tmux'))}, args, { stdio: 'inherit' });
+process.exit(result.status ?? 1);
+`
+      );
+      const peer = path.join(gate, 'hook');
+      writeExecutable(
+        peer,
+        `#!${process.execPath}
+const fs = require('node:fs');
+const cp = require('node:child_process');
+const input = fs.readFileSync(0);
+const cli = ${JSON.stringify(fixture.executables.peer)};
+const reader = cp.spawn(cli.executable, [...cli.args, 'whoami', '--json'], {
+  env: { ...process.env, PATH: ${JSON.stringify(readerBin)} + ':' + process.env.PATH },
+  stdio: ['ignore', 'pipe', 'pipe']
+});
+let readerOutput = '';
+let readerError = '';
+reader.stdout.on('data', data => { readerOutput += data; });
+reader.stderr.on('data', data => { readerError += data; });
+const readerDone = new Promise(resolve => reader.once('close', resolve));
+const ready = fs.readFileSync(${JSON.stringify(entered)}, 'utf8');
+if (ready !== 'entered') throw new Error('reader snapshot did not enter');
+const hook = cp.spawn(cli.executable, [...cli.args, ...process.argv.slice(2)], { stdio: ['pipe', 'inherit', 'inherit'] });
+hook.stdin.end(input);
+hook.once('close', async code => {
+  try {
+    const descriptor = fs.openSync(${JSON.stringify(release)}, fs.constants.O_WRONLY | fs.constants.O_NONBLOCK);
+    fs.writeSync(descriptor, 'release');
+    fs.closeSync(descriptor);
+  } catch (error) {
+    process.stderr.write('held reader did not survive hook admission: ' + error.message);
+  }
+  const readerCode = await readerDone;
+  fs.writeFileSync(${JSON.stringify(path.join(gate, 'reader.json'))}, JSON.stringify({ code: readerCode, stdout: readerOutput, stderr: readerError }));
+  if (readerCode !== 0) process.stderr.write('held reader failed: ' + readerError);
+  process.exit(code === 0 && readerCode === 0 ? 0 : 1);
+});
+`
+      );
+      writeExecutable(
+        path.join(fixture.wrapperDir, 'claude'),
+        fs.readFileSync('/opt/tmt-tests/claude'),
+        0o755
+      );
+      const session = '77777777-7777-4777-8777-777777777777';
+      const worker = start(fixture, 'ConcurrentResume', {
+        channel: true,
+        resume: session,
+        env: {
+          MOCK_SESSION_ID: session,
+          TMT_TEST_CLAUDE_MOCK: mock,
+          TMT_TEST_CLAUDE_NODE: process.execPath,
+          TMT_TEST_PEER_CLI: JSON.stringify({ executable: peer, args: [] }),
+        },
+      });
+      await withCompletedSession(fixture, worker, async () => {
+        // Do not call ready()/whoami here: the peer owns the one held reader.
+        await waitForEvent(fixture, worker, 'hook-recorded');
+        const recorded = named(worker, 'hook-recorded')[0];
+        expect(JSON.parse(String(recorded.stdout)).hookSpecificOutput.additionalContext).toContain(
+          'TMT identity: "ConcurrentResume" (saved)'
+        );
+        expect(named(worker, 'hook-error')).toEqual([]);
+        const reader = JSON.parse(fs.readFileSync(path.join(gate, 'reader.json'), 'utf8'));
+        expect(reader).toMatchObject({ code: 0, stderr: '' });
+        expect(JSON.parse(reader.stdout)).toMatchObject({
+          id: identityId(fixture, 'ConcurrentResume'),
+          sessionState: 'running',
+        });
+        expect(
+          sql(fixture, (database) =>
+            database
+              .prepare(
+                'SELECT runtime_state, last_transition, observed_provider_session_id FROM bindings WHERE identity_id = ?'
+              )
+              .get(identityId(fixture, 'ConcurrentResume'))
+          )
+        ).toEqual({
+          runtime_state: 'running',
+          last_transition: 'resumed',
+          observed_provider_session_id: session,
+        });
+        expect(
+          sql(fixture, (database) =>
+            database
+              .prepare(
+                'SELECT provider_session_id FROM identity_session_preferences WHERE identity_id = ?'
+              )
+              .get(identityId(fixture, 'ConcurrentResume'))
+          )
+        ).toEqual({ provider_session_id: session });
+      });
+    });
+  }, 60_000);
 
   it('waits for a mock-owned lifecycle hook before the foreground returns', async () => {
     await withE2EFixture(async (fixture) => {

@@ -17,8 +17,8 @@ const prepare = '.github/workflows/native-release-prepare.yml';
 describe('release gate parity inventory', () => {
   it('covers both release entry points and every local reusable workflow with current evidence', () => {
     expect(checkReleaseParity(manifest(), { read })).toEqual({
-      workflows: 6,
-      jobs: 22,
+      workflows: 7,
+      jobs: 26,
       publicationGates: 6,
     });
     expect(Object.keys(releaseInventory(read))).toContain('native-release-upgrade.yml');
@@ -48,10 +48,12 @@ describe('release gate parity inventory', () => {
   });
 
   it('rejects a new gate in an existing job without relying on its exit status', () => {
-    const readChanged = changed(
-      prepare,
-      (source) =>
-        `${source.trimEnd()}\n      - name: Verify new contract\n        run: node scripts/new-gate.mjs\n`
+    // Insert after the verify job, before the rehearsal's upgrade jobs.
+    const readChanged = changed(prepare, (source) =>
+      source.replace(
+        "\n  # The rehearsal's upgrade proof.",
+        "\n      - name: Verify new contract\n        run: node scripts/new-gate.mjs\n\n  # The rehearsal's upgrade proof."
+      )
     );
     expect(() => checkReleaseParity(manifest(), { read: readChanged })).toThrow(
       'verify: executable step inventory changed'
@@ -195,6 +197,26 @@ describe('release gate parity inventory', () => {
       ['native-release-prepare.yml', 'verify'],
     ])
       expect(value.workflows[file][job].preMerge, `${file}:${job}`).toEqual([rehearsal]);
+    // The rehearsal's own upgrade jobs and the shared proof stages are rehearsed, not release-only.
+    for (const [file, job] of [
+      ['native-release-prepare.yml', 'upgrade-fetch'],
+      ['native-release-prepare.yml', 'upgrade'],
+      ['native-release-prepare.yml', 'gates-dry'],
+      ['native-release-upgrade-prove.yml', 'prove'],
+      ['native-release-upgrade-prove.yml', 'conclude'],
+      ['native-release-upgrade.yml', 'prove'],
+    ])
+      expect(value.workflows[file][job].preMerge, `${file}:${job}`).toEqual([rehearsal]);
+    // Only live draft state stays release-only, with a concrete reason and no open follow-up.
+    for (const [file, job] of [
+      ['native-release-upgrade.yml', 'fetch'],
+      ['native-release-bundle.yml', 'upgrade'],
+      ['native-release-bundle.yml', 'gates'],
+      ['release.yml', 'cut'],
+    ]) {
+      expect(value.workflows[file][job].releaseOnly.length, `${file}:${job}`).toBeGreaterThan(40);
+      expect(value.workflows[file][job].followUp, `${file}:${job}`).toBeUndefined();
+    }
     for (const issue of ['1534', '1541', '1604', '1616', '1646', '1680'])
       expect(value.incidents[issue].preMerge, issue).toEqual([rehearsal]);
     expect(value.incidents['1680'].release).toEqual({
@@ -207,6 +229,41 @@ describe('release gate parity inventory', () => {
       'release-rehearsal',
     ]);
     expect(value.incidents['1542'].preMerge[0].coverage).toBe('policy');
+  });
+
+  it('maps the dry publication gates and the always-run title check, and leaves no follow-up open', () => {
+    const value = manifest();
+    const rehearsal = value.incidents['1604'].preMerge[0];
+    for (const gate of ['channel', 'immutability', 'monotonic', 'migration'])
+      expect(value.publicationGates[gate].preMerge, gate).toContainEqual(rehearsal);
+    expect(value.incidents['1542'].preMerge).toContainEqual(rehearsal);
+    expect(value.incidents['1643'].preMerge).toEqual([
+      {
+        workflow: 'ci.yml',
+        job: 'code-quality',
+        selection: { kind: 'always', step: 'name:Check conventional PR titles' },
+        coverage: 'runtime',
+      },
+    ]);
+    expect(JSON.stringify(value)).not.toContain('followUp');
+  });
+
+  it('rejects an open follow-up, and an always-run counterpart that is selected by path or has no such step', () => {
+    const open = manifest();
+    open.workflows['release.yml'].cut.followUp = 1581;
+    expect(() => checkReleaseParity(open, { read })).toThrow('cannot keep a follow-up');
+
+    const missingStep = manifest();
+    missingStep.incidents['1643'].preMerge[0].selection.step = 'name:No such step';
+    expect(() => checkReleaseParity(missingStep, { read })).toThrow('needs a real step');
+
+    const selected = changed('.github/workflows/ci.yml', (text) =>
+      text.replace(
+        "if: ${{ always() && needs.changes.outputs.verify != 'false' }}\n    runs-on: ubuntu-latest\n    timeout-minutes: 10\n    permissions:\n      contents: read\n      pull-requests: read",
+        "if: ${{ always() && needs.changes.outputs.native == 'true' }}\n    runs-on: ubuntu-latest\n    timeout-minutes: 10\n    permissions:\n      contents: read\n      pull-requests: read"
+      )
+    );
+    expect(() => checkReleaseParity(manifest(), { read: selected })).toThrow();
   });
 
   it('keeps live-state races release-only with a concrete reason and no rehearsal claim', () => {

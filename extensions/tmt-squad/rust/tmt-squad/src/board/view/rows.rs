@@ -41,7 +41,7 @@ fn prepare(
     let layout = crate::markup::Grid::compile(rows, natural, available)
         .map_err(|error| format!("Row layout: {error}"))?;
     // The row-end label room is reserved only when no column would be hidden:
-    // first for the age mark plus `⏱ next`, then for the age mark alone.
+    // first for the age mark plus `cron next`, then for the age mark alone.
     let ages: Vec<_> = app
         .items()
         .into_iter()

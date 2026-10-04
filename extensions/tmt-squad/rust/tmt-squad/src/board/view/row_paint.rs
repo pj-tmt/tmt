@@ -25,7 +25,7 @@ pub(in crate::board) const GAP: usize = 1;
 /// cache key, so a changed label rebuilds the scene.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub(in crate::board) struct Extra {
-    /// `⏱ next` for the member's cron job.
+    /// `cron next` for the member's cron job.
     pub next: Option<String>,
     /// Age of the oldest request waiting on the user.
     pub request_age: Option<String>,
@@ -35,8 +35,8 @@ pub(in crate::board) struct Extra {
     pub reserve: usize,
 }
 
-/// The row-end label candidates, longest first: the age mark then `⏱ next`, then
-/// the age mark alone; `⏱ next` is the first to drop.
+/// The row-end label candidates, longest first: the age mark then `cron next`, then
+/// the age mark alone; `cron next` is the first to drop.
 pub(in crate::board) fn row_end(age: Option<String>, next: Option<String>) -> Vec<String> {
     match (age, next) {
         (Some(age), Some(next)) => vec![format!("{age}  {next}"), age],

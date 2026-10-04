@@ -229,7 +229,8 @@ The installation verifier checks old/new versions with no runtime `PATH`, pinned
 explicit `--unpin` advancement, retained executable, no-op, downgrade rejection, exact skill,
 unchanged SQLite bytes and migration of state the previous release wrote. The
 `native-release-upgrade.yml` proof (also `workflow_dispatch` from `main` for any draft or
-published tag) does this on four hosts; extension and driver releases use
+published tag) does this on four hosts through the shared proof stages in
+`native-release-upgrade-prove.yml`; extension and driver releases use
 `verify-native-extension-upgrade.mjs` and `verify-native-driver-upgrade.mjs`. The first
 release of a product has nothing to upgrade from and says so; a commit that predates the
 scripts fails the proof with that message and is proven by hand.
@@ -306,17 +307,36 @@ candidate execution are exercised by the candidate adapter. Public downloads and
 `tmt upgrade` remain the separate post-publication smoke.
 
 Keep each prove job's ten-minute timeout, read-only dependency cache and per-source
-bootstrap/adapter plus compile durations. For tooling changes, use a PR-only,
-read-only/no-secrets four-host rehearsal against a pinned real main source and
-actual cargo-dist archives; remove temporary rehearsal machinery before readiness.
-Do not dispatch a publishing workflow to obtain proof.
+bootstrap/adapter plus compile durations. Do not dispatch a publishing workflow to obtain proof.
+
+**Rehearsal upgrade proof.** The release rehearsal (`ci.yml` on selected pull requests and the
+nightly `release-rehearsal.yml`, never the merge group) passes `upgrade: true` to
+`native-release-prepare.yml`. Its read-only `upgrade-fetch` job stages the candidate from the
+verified bundle of the same run (`release-upgrade.mjs fetch --candidate-directory`): the manifest's
+announcement tag is the synthetic tag, and every archive must match both its cargo-dist `.sha256`
+file and the staged digest, so the candidate never vouches for itself. The previous release, declared
+floor and driving CLI still come from published releases only, and a synthetic candidate must be
+newer than the newest published release or the fetch fails. The same proof stages
+(`native-release-upgrade-prove.yml`) then run on the four hosts, including the CLI adapter
+acceptance. The write-token `fetch` of `native-release-upgrade.yml` is called only by the publication
+bundle on main, so a pull request can only reach the local fetch; the publication path's upgrade
+job keeps its jobs and outputs (`release-workflow.test.ts` evaluates the conditions).
+
+**Rehearsal publication gates.** The same rehearsal runs `gates-dry` in the prepare workflow:
+`publication-gates.mjs dry --product P --tag <synthetic tag> --sha <candidate> [--on-main]` evaluates
+`channel`, `immutability`, `monotonic` and `migration` for the candidate from published releases and
+git history, plus `commit` on main (the nightly run; a pull request's merge commit is not on main
+yet). It records no hold and writes nothing, and a gate that would hold fails the job with the gate
+named. Only the draft-bound evidence (the allocated draft, its hold marker and the proof's result in
+`finish`) stays release-only. The live `release.yml` `cut` job also stays release-only: it needs a
+token that sees drafts.
 
 Focused checks from the repository root:
 
 ```sh
 (cd typescript && corepack pnpm exec vp test run --config vitest.config.ts test/tooling/release-upgrade.test.ts test/tooling/native-upgrade-proof.test.ts test/tooling/native-release-policy.test.ts test/tooling/native-bootstrap.test.ts test/tooling/intel-verification.test.ts test/tooling/xcrun-warmup.test.ts test/tooling/release-workflow.test.ts test/tooling/repository-layout.test.ts)
 (cd typescript && corepack pnpm check:tooling)
-actionlint .github/workflows/native-release-upgrade.yml
+actionlint .github/workflows/native-release-upgrade.yml .github/workflows/native-release-upgrade-prove.yml .github/workflows/native-release-prepare.yml
 ```
 
 ## Curl bootstrap

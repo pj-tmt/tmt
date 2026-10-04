@@ -1,4 +1,5 @@
 import { createPortal } from 'react-dom';
+import { X } from 'lucide-react';
 import { useEffect, useId, useRef, type ReactNode } from 'react';
 
 /** Parent chrome only. Closed drawers stay mounted to retain drafts and frozen attempts. */
@@ -63,7 +64,7 @@ export function PageDrawer({
             if (event.isTrusted) close();
           }}
         >
-          ×
+          <X aria-hidden />
         </button>
       </header>
       <div className="drawer-body">{children}</div>

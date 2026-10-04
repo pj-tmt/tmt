@@ -149,7 +149,9 @@ impl ColumnSource {
             Origin::Cwd => text(&seen["cwd"]),
             Origin::Target => text(&seen["target"]),
             Origin::SessionDriver => text(&seen["resume"]["driver"]),
-            Origin::SessionModel => text(&seen["resume"]["model"]),
+            Origin::SessionModel => seen["resume"]["model"]
+                .as_str()
+                .map(|name| model_name(name).into()),
             Origin::ObservedWindow(_) => None,
             Origin::UsageTokens => usage["tokens"].as_u64().map(Value::from),
             Origin::UsageRemaining => {
@@ -173,6 +175,20 @@ impl ColumnSource {
         let shown = render_value(&raw, format, now_ms)?;
         (!shown.is_empty()).then_some(shown)
     }
+}
+
+/// Best-effort family labels shared by member columns and the home dashboard.
+/// Match complete name components so an unrelated name such as `solar` survives.
+pub(crate) fn model_name(name: &str) -> &str {
+    const FAMILIES: &[&str] = &["opus", "sonnet", "haiku", "fable", "sol", "astra", "luna"];
+    name.split(|character: char| !character.is_ascii_alphanumeric())
+        .find_map(|component| {
+            FAMILIES
+                .iter()
+                .copied()
+                .find(|family| component.eq_ignore_ascii_case(family))
+        })
+        .unwrap_or(name)
 }
 
 /// A number, whether core sent one or the value is numeric text.
@@ -243,6 +259,30 @@ mod tests {
     use super::*;
     use serde_json::json;
     use std::collections::BTreeMap;
+
+    #[test]
+    fn model_families_match_complete_components_and_unknown_names_pass_through() {
+        for (name, expected) in [
+            ("claude-opus-4-7", "opus"),
+            ("claude-sonnet-4-5", "sonnet"),
+            ("claude-haiku-4", "haiku"),
+            ("CLAUDE-FABLE-5", "fable"),
+            ("gpt-6.1-sol", "sol"),
+            ("gpt-6-astra", "astra"),
+            ("gpt-5.6-luna", "luna"),
+            ("opus", "opus"),
+            ("solar-model", "solar-model"),
+            ("unknown-long-model", "unknown-long-model"),
+            ("", ""),
+        ] {
+            assert_eq!(model_name(name), expected, "{name}");
+            let member = member(serde_json::json!({"resume": {"model": name}}));
+            assert_eq!(
+                bind("session.model").value(&member, Format::Text, 0),
+                (!name.is_empty()).then(|| expected.to_owned())
+            );
+        }
+    }
 
     fn field(name: &str) -> bool {
         name == "state" || name == "pr_link"

@@ -257,9 +257,19 @@ describe('native artifact policy', () => {
           ).toBe('usage\n');
         });
         // The declared component requires its tree; the CLI may not carry an extension tree.
-        await expect(
-          createArchiveFixture(sandbox, { product, skills, declareSkills: false })
-        ).rejects.toThrow('Manifest must describe exactly the native runtime files');
+        // A published archive may predate the declaration (an upgrade proof's previous release):
+        // it is read against its own manifest. The archive under release may not.
+        const predating = await createArchiveFixture(sandbox, {
+          product,
+          skills,
+          declareSkills: false,
+        });
+        expect(predating.metadata).not.toHaveProperty('skills');
+        expect(() =>
+          selectNativeArtifact(predating.manifestFile, predating.archiveFile, TARGET, product, {
+            release: true,
+          })
+        ).toThrow('Manifest must describe exactly the native runtime files');
         const cli = await createArchiveFixture(sandbox, { skills });
         await expect(
           withNativeArtifact(cli.archiveFile, cli.metadata, () => undefined)

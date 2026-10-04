@@ -70,14 +70,47 @@ fn one_cursor_moves_across_rows_and_sections_and_enter_goes_in() {
     assert_eq!(app.home_target.as_ref().unwrap().section, "squads");
     assert_eq!(press(&mut app, Enter), Effect::Load("a".into()));
     let mut app = board(&[("a", waiting())]);
-    press(&mut app, Tab);
-    assert_eq!(app.home_target.as_ref().unwrap().section, "squads");
-    press(&mut app, Tab);
-    assert_eq!(app.home_target.as_ref().unwrap().section, "needs-you");
-    press(&mut app, BackTab);
-    assert_eq!(app.home_target.as_ref().unwrap().section, "squads");
-    press(&mut app, BackTab);
-    assert_eq!(app.home_target.as_ref().unwrap().section, "needs-you");
+    let selected = app.home_target.clone();
+    for key in [Tab, Tab, BackTab, BackTab] {
+        assert_eq!(press(&mut app, key), Effect::None);
+        assert_eq!(
+            app.home_target, selected,
+            "Tab uses board focus, not row navigation"
+        );
+    }
+    assert!(!paint::hints(200, true).contains("tab section"));
+    let navigation = crate::board::help::model(&app).sections.remove(0);
+    assert!(
+        navigation
+            .entries
+            .iter()
+            .all(|entry| !entry.description.contains("previous section"))
+    );
+    assert!(
+        navigation
+            .entries
+            .iter()
+            .any(|entry| entry.keys == "↑↓ / j k" && entry.description.contains("cron"))
+    );
+    press(&mut app, Down);
+    assert_eq!(app.home_target.as_ref().unwrap().section, "blocked");
+    press(&mut app, Up);
+    assert_eq!(app.home_target, selected);
+    assert_eq!(
+        press(&mut app, Enter),
+        Effect::Act(Request::Jump("worker".into()))
+    );
+
+    app.view
+        .as_mut()
+        .unwrap()
+        .bindings
+        .insert("tab".into(), Action::parse("refresh").unwrap());
+    assert_eq!(
+        press(&mut app, Tab),
+        Effect::Refresh,
+        "explicit board binding still wins"
+    );
     for key in [Char('r'), Char('R'), Char('1')] {
         assert_eq!(press(&mut app, key), Effect::None);
         assert!(app.input.is_none());
@@ -189,7 +222,7 @@ fn pending_and_squad_notes_use_the_actual_lead_and_refuse_changes() {
         })
     );
     let mut app = board(&[("a", doc)]);
-    keys(&mut app, &[Tab, Char('a')]);
+    keys(&mut app, &[End, Char('a')]);
     app.view.as_mut().unwrap().home.as_mut().unwrap().squads[0].lead =
         Some(row("NL", "new-lead", "working"));
     press(&mut app, Char('x'));
@@ -423,14 +456,14 @@ fn tile_frame(app: &App, area: Rect) -> ratatui::buffer::Buffer {
 }
 
 #[test]
-fn tile_continuations_click_the_same_stable_squad_and_gaps_have_no_hits() {
+fn table_rows_click_the_same_stable_squad_at_every_width() {
     use ratatui::crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
     for width in [160, 100, 80] {
         let mut app = tile_board();
         let area = Rect::new(2, 1, width, 24);
         tile_frame(&app, area);
         let hits = app.hits.borrow().clone();
-        let height = if width < 100 { 1 } else { 3 };
+        let height = 1;
         for row in 0..5 {
             let tiles = hits.iter().filter(|hit| hit.row == row).collect::<Vec<_>>();
             assert_eq!(tiles.len(), height);
@@ -467,7 +500,7 @@ fn tile_continuations_click_the_same_stable_squad_and_gaps_have_no_hits() {
 }
 
 #[test]
-fn full_tile_reveal_and_clipped_continuation_hits_share_the_scroll_viewport() {
+fn table_row_reveal_and_hits_share_the_scroll_viewport() {
     use crate::{board::scroll::Step, config::Pane};
     let mut app = tile_board();
     app.select(4);
@@ -482,7 +515,7 @@ fn full_tile_reveal_and_clipped_continuation_hits_share_the_scroll_viewport() {
             .filter(|hit| hit.row == 4)
             .copied()
             .collect::<Vec<_>>();
-        assert_eq!(selected.len(), if width < 100 { 1 } else { 3 });
+        assert_eq!(selected.len(), 1);
         assert!(
             selected
                 .iter()
@@ -490,26 +523,26 @@ fn full_tile_reveal_and_clipped_continuation_hits_share_the_scroll_viewport() {
         );
         assert_eq!(app.home_target, target);
     }
-    // A viewport shorter than a tile clips hits to visible continuations.
+    // A short viewport keeps one clipped row hit with a stable target.
     app.follow = false;
     let area = Rect::new(3, 2, 100, 3);
     tile_frame(&app, area);
     app.scrolls.scroll(Pane::Rows, Step::Bottom);
     tile_frame(&app, area);
     let hits = app.hits.borrow().clone();
-    assert_eq!(hits.iter().filter(|hit| hit.row == 4).count(), 2);
+    assert_eq!(hits.iter().filter(|hit| hit.row == 4).count(), 1);
     assert!(hits.iter().all(|hit| hit.y < area.bottom() - 1));
     assert_eq!(app.selected, 4);
     app.follow = true;
     tile_frame(&app, Rect::new(3, 2, 100, 5));
     assert_eq!(
         app.hits.borrow().iter().filter(|hit| hit.row == 4).count(),
-        3
+        1
     );
 }
 
 #[test]
-fn tile_note_band_shifts_later_grid_rows_without_changing_hits_or_selection() {
+fn table_note_band_shifts_later_rows_without_changing_hits_or_selection() {
     for width in [160, 100, 80] {
         for (base, depth) in [
             ("tmt", tmt_cli_style::Depth::TrueColor),
@@ -524,7 +557,7 @@ fn tile_note_band_shifts_later_grid_rows_without_changing_hits_or_selection() {
             app.select(4);
             let target = app.home_target.clone();
             press(&mut app, Char('a'));
-            let mut terminal = Terminal::new(TestBackend::new(width, 30)).unwrap();
+            let mut terminal = Terminal::new(TestBackend::new(width, 40)).unwrap();
             terminal
                 .draw(|frame| crate::board::view::render(frame, &app))
                 .unwrap();
@@ -534,14 +567,14 @@ fn tile_note_band_shifts_later_grid_rows_without_changing_hits_or_selection() {
                 .expect("note beneath the selected tile");
             let hits = app.hits.borrow().clone();
             let selected = hits.iter().filter(|hit| hit.row == 4).collect::<Vec<_>>();
-            assert_eq!(selected.len(), if width < 100 { 1 } else { 3 });
+            assert_eq!(selected.len(), 1);
             assert_eq!(selected.last().unwrap().y + 1, band.y);
             assert!(
                 !hits
                     .iter()
                     .any(|hit| (band.y..band.bottom()).contains(&hit.y))
             );
-            let next_grid_row = if width >= 100 { 6 } else { 5 };
+            let next_grid_row = 5;
             assert!(hits.iter().any(|hit| hit.row == next_grid_row));
             assert!(
                 hits.iter()

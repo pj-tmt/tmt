@@ -54,7 +54,7 @@ test('a page at the browser tail limit refuses another write, stays readable eve
     }
     expect(refusal).toContain('COLAB_CAPACITY');
     expect(refusal).toContain(created.pageId);
-    expect(refusal).toContain('it has 200 changes, the most one page can hold.');
+    expect(refusal).toContain('is full: it has 200 changes');
     expect(refusal).toContain('Nothing was deleted.');
     expect(refusal).toContain('tmt colab export');
 
