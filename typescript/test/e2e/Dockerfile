@@ -8,7 +8,9 @@ COPY extensions/tmt-office/skills/ ../extensions/tmt-office/skills/
 # The squad extension: built for its E2E scenarios.
 COPY extensions/tmt-squad/ ../extensions/tmt-squad/
 COPY extensions/tmt-remote/rust/ ../extensions/tmt-remote/rust/
-COPY extensions/tmt-colab/ ../extensions/tmt-colab/
+COPY extensions/tmt-colab/rust/ ../extensions/tmt-colab/rust/
+COPY extensions/tmt-colab/contracts/ ../extensions/tmt-colab/contracts/
+COPY extensions/tmt-colab/skills/ ../extensions/tmt-colab/skills/
 COPY contracts/ ../contracts/
 ARG TMT_NATIVE_PROFILE=dev
 # Every cargo command below reads this; `pnpm test:e2e` forwards a host value.
