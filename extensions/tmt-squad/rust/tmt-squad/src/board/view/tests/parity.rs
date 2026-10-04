@@ -44,6 +44,8 @@ fn baseline() -> Value {
     let mut fixtures = Vec::new();
     for layout in [Layout::Crew, Layout::PrQueue, Layout::Minimal, Layout::Team] {
         let mut app = preset_board();
+        // The baseline's document: a lead that is only a name.
+        app.view.as_mut().unwrap().document["squad"]["lead"] = json!({"name": "sol"});
         assert_eq!(config.layout(layout.as_str()).unwrap(), layout);
         let view = app.view.as_mut().unwrap();
         view.rows = config.rows(layout.as_str()).unwrap();

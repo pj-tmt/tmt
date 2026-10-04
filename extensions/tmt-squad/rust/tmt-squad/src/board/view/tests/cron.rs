@@ -16,6 +16,7 @@ fn squad_tab() -> App {
     let mut app = board(members());
     let document = &mut app.view.as_mut().unwrap().document;
     document["squad"]["roomId"] = json!("room");
+    document["squad"]["lead"] = json!({"name": "sol"});
     let jobs = ["u1", "u3"].map(|owner| {
         let mut job = test_view(
             "someone",
@@ -35,6 +36,8 @@ fn squad_tab() -> App {
     app.cron
         .replace(Ok(test_cron(jobs.clone(), ClockStatus::NoClock)));
     app.cron.replace(Ok(test_cron(jobs, ClockStatus::NoClock)));
+    // The cursor starts on the lead; these cases are about the members.
+    app.select(1);
     app
 }
 
@@ -212,7 +215,7 @@ fn scoped_keys_navigate_jobs_and_never_act_on_a_member_row() {
             app.notice
         );
     }
-    assert_eq!(app.selected, 0, "the member selection never moved");
+    assert_eq!(app.selected, 1, "the member selection never moved");
 }
 
 #[test]

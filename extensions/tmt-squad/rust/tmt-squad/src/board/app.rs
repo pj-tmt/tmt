@@ -5226,6 +5226,18 @@ mod token_window_tests {
             app.usage_document, projected,
             "same receipt does not change display"
         );
+        // The lead is an ordinary row of the display: it gets the same columns.
+        app.view.as_mut().unwrap().document["squad"]["lead"] =
+            serde_json::json!({"id": "a", "name": "boss", "fields": {}});
+        app.project_usage(time);
+        let lead = app.rows()[0].1;
+        assert_eq!(lead["name"], "boss");
+        assert_eq!(lead["fields"]["tok_1"], "150");
+        assert_eq!(lead["fields"]["model"], "new");
+        assert!(app.view.as_ref().unwrap().document["squad"]["lead"]["fields"]["tok_1"].is_null());
+        app.view.as_mut().unwrap().document["squad"]["lead"] = Value::Null;
+        app.project_usage(time);
+        assert_eq!(app.usage_document, projected);
         app.go("uncached".into());
         app.project_usage(time);
         assert_eq!(
