@@ -31,7 +31,12 @@
   distinct current lead UUID (50 items each). Other tabs schedule no exchange reads.
   Inbox questions reuse the acquired `waitingOnYou` projection; acknowledged finals
   remain results. Ordering uses submission time for replies and preparation time for
-  asks, with stable name/squad/UUID ties. Truncated pages and read failures remain
+  asks. The selected `Kind::Question` is also HOME's ◆ mark source: those questions
+  come first, oldest first. Other exchanges follow, newest first. Undated exchanges
+  follow dated ones within each group; both use stable lead UUID/squad ties.
+  Leads without any exchange follow both groups
+  in name/squad/UUID order. Read, reconcile and replacement share this ordering.
+  Truncated pages and read failures remain
   explicit evidence; no room scan or unbounded pagination fills gaps. Observations
   belong to the user's UUID and current lead occurrence, and share the refresh
   generation's cancellation. Preview text is sanitized separately from retained bodies.

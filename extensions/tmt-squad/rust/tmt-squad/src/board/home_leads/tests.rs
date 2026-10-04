@@ -29,6 +29,167 @@ fn fetch(leads: Vec<Lead>) -> Fetch {
     }
 }
 
+fn occurrences(leads: &[Lead]) -> Vec<(&str, &str)> {
+    leads
+        .iter()
+        .map(|lead| (lead.id(), lead.squad.as_str()))
+        .collect()
+}
+
+#[test]
+fn questions_precede_newer_exchanges_and_the_longest_wait_comes_first() {
+    let mut oldest = lead("z", "oldest-question");
+    oldest.row["waitingOnYou"] =
+        json!([{"requestId":"oldest","preparedAtMs":10,"preview":"oldest ask"}]);
+    let mut newer = lead("a", "newer-question");
+    newer.row["waitingOnYou"] =
+        json!([{"requestId":"newer","preparedAtMs":30,"preview":"newer ask"}]);
+    let mut pending = lead("p", "undated-question");
+    pending.row["pending"] = json!("undated ask");
+    // The HOME mark follows the selected exchange, not every decision in the
+    // source row: a newer reply can be selected over an older incoming ask.
+    let mut replied = lead("r", "reply");
+    replied.row["waitingOnYou"] =
+        json!([{"requestId":"older","preparedAtMs":20,"preview":"older ask"}]);
+    let read = fetch(vec![
+        lead("b", "asked"),
+        newer,
+        replied,
+        pending,
+        oldest,
+        lead("e", "empty"),
+    ])
+    .read(
+        |input| {
+            Ok(if input["view"] == "results" {
+                json!({"items":[reply("reply", "r", 80, Some("newer reply"))]})
+            } else {
+                json!({"items":[ask("asked", "b", 90)]})
+            })
+        },
+        100,
+    );
+    assert_eq!(
+        occurrences(&read.leads),
+        [
+            ("z", "oldest-question"),
+            ("a", "newer-question"),
+            ("p", "undated-question"),
+            ("b", "asked"),
+            ("r", "reply"),
+            ("e", "empty")
+        ]
+    );
+    assert_eq!(read.leads[4].exchange.as_ref().unwrap().kind, Kind::Reply);
+    assert!(crate::attention::waits_on_you(&read.leads[4].row));
+}
+
+#[test]
+fn exchanges_sort_before_empty_leads_through_read_reconcile_and_replace() {
+    let mut question = lead("z", "dated-question");
+    question.row["waitingOnYou"] =
+        json!([{"requestId":"question","preparedAtMs":50,"preview":"question"}]);
+    let mut pending = lead("d", "pending");
+    pending.row["pending"] = json!("decision without a request timestamp");
+    let input = vec![
+        lead("a", "empty"),
+        pending,
+        lead("e", "future"),
+        lead("c", "missing"),
+        lead("x", "dated-ask"),
+        lead("y", "dated-reply"),
+        question,
+        lead("b", "empty"),
+    ];
+    let read = fetch(input).read(|input| {
+        let mut missing = ask("missing", "c", 1);
+        missing["preparedAtMs"] = Value::Null;
+        Ok(if input["view"] == "results" {
+            json!({"items":[reply("reply", "y", 40, Some("answer")), reply("future", "e", 120, Some("future"))]})
+        } else {
+            json!({"items":[ask("ask", "x", 30), missing]})
+        })
+    }, 100);
+    let expected = [
+        ("z", "dated-question"),
+        ("d", "pending"),
+        ("y", "dated-reply"),
+        ("x", "dated-ask"),
+        ("c", "missing"),
+        ("e", "future"),
+        ("a", "empty"),
+        ("b", "empty"),
+    ];
+    assert_eq!(occurrences(&read.leads), expected);
+    assert!([1, 4, 5].into_iter().all(|index| {
+        read.leads[index]
+            .exchange
+            .as_ref()
+            .unwrap()
+            .since_ms
+            .is_none()
+    }));
+
+    let mut retained = read.leads.clone();
+    retained.reverse();
+    let home = super::super::home::Home {
+        windows: crate::config::TokenWindow::DEFAULTS,
+        summary: Default::default(),
+        sections: vec![],
+        squads: retained
+            .iter()
+            .map(|lead| super::super::home::SquadLine {
+                squad: lead.squad.clone(),
+                lead: Some(lead.row.clone()),
+                counts: Default::default(),
+                members: Default::default(),
+            })
+            .collect(),
+        failures: vec![],
+        incomplete: false,
+    };
+    let mut state = State {
+        sender: Some("me".into()),
+        leads: retained,
+        ..Default::default()
+    };
+    state.reconcile(&home, Some("me"));
+    assert_eq!(occurrences(&state.leads), expected);
+    let mut shuffled = read;
+    shuffled.leads.reverse();
+    state.replace(shuffled);
+    assert_eq!(occurrences(&state.leads), expected);
+}
+
+#[test]
+fn equal_exchange_times_use_identity_ties_and_empty_leads_use_names() {
+    let mut rows = vec![
+        lead("b", "same"),
+        lead("a", "z-squad"),
+        lead("a", "a-squad"),
+        lead("c", "empty"),
+        lead("d", "empty"),
+    ];
+    rows[0].row["name"] = json!("aaa");
+    rows[1].row["name"] = json!("zzz");
+    rows[2].row["name"] = json!("zzz");
+    rows[3].row["name"] = json!("zzz");
+    rows[4].row["name"] = json!("aaa");
+    let read = fetch(rows).read(|input| Ok(if input["view"] == "results" {
+        json!({"items":[reply("reply-a", "a", 40, Some("answer")), reply("reply-b", "b", 40, Some("answer"))]})
+    } else { json!({"items":[]}) }), 100);
+    assert_eq!(
+        occurrences(&read.leads),
+        [
+            ("a", "a-squad"),
+            ("a", "z-squad"),
+            ("b", "same"),
+            ("d", "empty"),
+            ("c", "empty")
+        ]
+    );
+}
+
 #[test]
 fn late_acknowledged_reply_and_newer_question_use_event_times_not_request_order() {
     let mut one = lead("a", "squad");

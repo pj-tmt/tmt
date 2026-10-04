@@ -127,12 +127,34 @@ fn rich() -> App {
             });
         }
     }
+    // Injected observations must pass through the same ordering as a refresh.
+    app.home_leads
+        .reconcile(view.home.as_ref().unwrap(), view.me_id.as_deref());
     let mut job = test_view("lead-a", "merge queue sweep", Some(TEST_NOW + 3_600_000));
     job.job.squad = "alpha".into();
     app.cron
         .replace(Ok(test_cron(vec![job], ClockStatus::NoClock)));
     app.select(0);
     app
+}
+
+#[test]
+fn oracle_leads_follow_production_exchange_order() {
+    let app = rich();
+    assert_eq!(
+        app.home_leads
+            .leads
+            .iter()
+            .map(|lead| lead.name())
+            .collect::<Vec<_>>(),
+        [
+            "lead-a",
+            "lead-g",
+            "lead-b",
+            "lead-delta-with-a-long-name",
+            "lead-e"
+        ]
+    );
 }
 
 fn select(app: &mut App, section: &str, squad: &str) {

@@ -287,14 +287,30 @@ fn page(value: Value) -> Result<(Vec<Value>, bool), SquadError> {
 }
 
 fn sort(leads: &mut [Lead]) {
-    leads.sort_by(|a, b| {
-        b.exchange
-            .as_ref()
-            .and_then(|e| e.since_ms)
-            .cmp(&a.exchange.as_ref().and_then(|e| e.since_ms))
-            .then_with(|| a.name().cmp(b.name()))
-            .then_with(|| a.squad.cmp(&b.squad))
+    leads.sort_by(|a, b| match (&a.exchange, &b.exchange) {
+        (Some(a_exchange), Some(b_exchange)) => {
+            // Question is also the HOME heading's ◆ source. The row attention
+            // predicate may still be true when the selected exchange is a reply.
+            match (a_exchange.kind, b_exchange.kind) {
+                (Kind::Question, Kind::Question) => {
+                    // Longest waits first; missing times cannot establish age.
+                    (a_exchange.since_ms.is_none(), a_exchange.since_ms)
+                        .cmp(&(b_exchange.since_ms.is_none(), b_exchange.since_ms))
+                }
+                (Kind::Question, _) => std::cmp::Ordering::Less,
+                (_, Kind::Question) => std::cmp::Ordering::Greater,
+                _ => b_exchange.since_ms.cmp(&a_exchange.since_ms),
+            }
             .then_with(|| a.id().cmp(b.id()))
+            .then_with(|| a.squad.cmp(&b.squad))
+        }
+        (Some(_), None) => std::cmp::Ordering::Less,
+        (None, Some(_)) => std::cmp::Ordering::Greater,
+        (None, None) => a
+            .name()
+            .cmp(b.name())
+            .then_with(|| a.squad.cmp(&b.squad))
+            .then_with(|| a.id().cmp(b.id())),
     });
 }
 
