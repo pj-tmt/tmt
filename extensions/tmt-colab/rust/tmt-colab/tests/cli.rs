@@ -2253,7 +2253,7 @@ fn stop_leaves_an_attached_door_running_and_says_so() {
     let text = String::from_utf8(out.stdout).unwrap();
     assert!(text.contains("Colab stopped"), "{text}");
     assert!(
-        text.contains("Remote is still running (started outside Colab)"),
+        text.contains("Remote is still running; stop it with tmt remote stop"),
         "{text}"
     );
     assert!(
@@ -2518,6 +2518,7 @@ fn page_commands_print_the_link_and_the_pairing_step_or_the_reason_there_is_none
         "{listing}"
     );
     let shown = human(Some(DOOR), &["show", page]);
+    assert!(!shown.contains("not-available"), "{shown}");
     assert!(
         shown.contains("audience") && shown.contains("history"),
         "{shown}"

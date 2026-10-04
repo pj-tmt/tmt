@@ -1765,8 +1765,7 @@ door `serve` started (never an attached one). Pairings, grants and data are unto
 The command then waits up to 10 seconds for the serve lock to release. Output: when nothing
 runs (including no state at all) it succeeds with `Colab is not running`, JSON
 `{state:"not-running",door:null}`; after a stop `Colab stopped` (`, and the Remote door it
-started` for a started door) and, for an attached door, `Remote is still running (started
-outside Colab)`; JSON `{state:"stopped",door}`. A refused or unanswered request is
+started` for a started door) and, for an attached door, `Remote is still running; stop it with tmt remote stop`; JSON `{state:"stopped",door}`. A refused or unanswered request is
 `COLAB_UNAVAILABLE`; a request accepted but a serve still running after the wait is
 `COLAB_OUTCOME_UNKNOWN`; both exit 1 and are never retried. A `stop` sent while `serve` is still
 waiting (at most 15 seconds) for a starting door is not answered until the wait ends.

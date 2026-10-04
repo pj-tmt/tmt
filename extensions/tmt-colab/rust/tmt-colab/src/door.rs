@@ -132,9 +132,8 @@ impl Door {
     /// The use-time line when no Remote door can be reached (#1575's wording).
     pub const INSTALL_HINT: &str =
         "Browser access needs the Remote extension: tmt extension install remote --yes";
-    /// What `tmt colab stop` says about a door it did not start. Names no Remote command until
-    /// `tmt remote stop` ships (#1571); then it becomes "... (stop it with tmt remote stop)".
-    pub const ATTACHED_STOP_NOTE: &str = "Remote is still running (started outside Colab)";
+    /// What `tmt colab stop` says about a door it did not start: Remote's own command stops it.
+    pub const ATTACHED_STOP_NOTE: &str = "Remote is still running; stop it with tmt remote stop";
     /// What a human is told for a mount-relative path: the full link while a door runs, else the
     /// path and why there is no full link. Never a manual `tmt remote serve`: `tmt colab serve`
     /// starts the door itself.
