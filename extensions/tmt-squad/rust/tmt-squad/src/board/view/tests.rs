@@ -286,6 +286,49 @@ fn footer_shows_only_the_row_actions_the_selected_row_allows() {
     assert!(hints(&app, usize::MAX).contains("⏎ menu"));
 }
 
+#[test]
+fn footer_hints_follow_rebound_keys_and_show_one_hint_per_action() {
+    use crate::action::Action;
+    let mut app = paned(
+        split(Direction::LeftRight, vec![Pane::Rows], vec![100]),
+        Notes::NotShown,
+    );
+    app.select(1);
+    let default = hints(&app, usize::MAX);
+    let view = app.view.as_mut().unwrap();
+    // Rebinding talk moves its hint to the new key and keeps its rank.
+    view.bindings.remove("t");
+    view.bindings
+        .insert("m".into(), Action::parse("talk").unwrap());
+    let rebound = hints(&app, usize::MAX);
+    assert_eq!(rebound, default.replace("t talk", "m talk"), "{rebound}");
+    // An unbound action has no hint.
+    let view = app.view.as_mut().unwrap();
+    view.bindings.remove("m");
+    let unbound = hints(&app, usize::MAX);
+    assert_eq!(unbound, default.replace("t talk  ", ""), "{unbound}");
+    // A second key for one action adds no hint, and Enter stays the shown key.
+    let view = app.view.as_mut().unwrap();
+    view.bindings
+        .insert("J".into(), Action::parse("jump").unwrap());
+    view.bindings
+        .insert("x".into(), Action::parse("copy {name}").unwrap());
+    let text = hints(&app, usize::MAX);
+    let shown = shown_hints(&text);
+    assert_eq!(
+        shown.iter().filter(|hint| hint.ends_with(" jump")).count(),
+        1
+    );
+    assert!(shown.contains(&"⏎ jump"), "{shown:?}");
+    // A different action text is its own hint: `copy` with another template.
+    assert!(shown.iter().any(|hint| hint.ends_with(" copy")));
+    // Rebound unlisted verbs (`run`, `notes`) never reach the footer.
+    let view = app.view.as_mut().unwrap();
+    view.bindings
+        .insert("R".into(), Action::parse("run true").unwrap());
+    assert!(!hints(&app, usize::MAX).contains("R run"));
+}
+
 /// Rows read from a squad config snippet, as `squad.toml` would give them.
 fn rows_from(text: &str) -> Rows {
     let config: toml_edit::DocumentMut = text.parse().unwrap();
@@ -3751,7 +3794,9 @@ fn footer_hints_are_conditional_and_effective_bindings_remain_visible() {
         .unwrap()
         .bindings
         .insert("d".into(), crate::action::Action::parse("refresh").unwrap());
-    assert!(hints(&app, usize::MAX).contains("d refresh"));
+    // One hint per action: `refresh` stays on its first key, `ctrl-r`.
+    let shown = hints(&app, usize::MAX);
+    assert!(shown.contains("ctrl-r refresh") && !shown.contains("d refresh"));
     assert!(
         help_lines(&app)
             .iter()

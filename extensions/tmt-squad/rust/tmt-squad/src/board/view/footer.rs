@@ -42,16 +42,27 @@ pub(in crate::board) fn toggle_label(app: &App, action: &crate::action::Action) 
     ))
 }
 
-/// The word a hint shows for a verb: its name, except where the name is an
-/// internal spelling (`next-pane`).
-fn hint_word(verb: crate::action::Verb) -> &'static str {
+/// The word a hint shows for an action: its verb name, except where the name
+/// is an internal spelling (`next-pane`) or the target matters.
+fn hint_word(action: &crate::action::Action) -> &'static str {
     use crate::action::Verb;
-    match verb {
+    let lead = action.args.first().and_then(|arg| arg.literal()) == Some("lead");
+    match action.verb {
         Verb::NextPane => "pane",
         Verb::PickTab => "tabs",
         Verb::TokenWindow => "window",
         Verb::AskLead => "ask lead",
+        Verb::Jump if lead => "jump lead",
         verb => verb.name(),
+    }
+}
+
+/// The key a hint shows for an event.
+fn key_label(event: &str) -> &str {
+    match event {
+        "enter" => "⏎",
+        "backspace" => "⌫",
+        other => other,
     }
 }
 
@@ -59,16 +70,18 @@ fn hint_word(verb: crate::action::Verb) -> &'static str {
 /// a row action needs a row, and `reply` and `open` need something to act on.
 fn row_allows(app: &App, action: &crate::action::Action) -> bool {
     use crate::action::Verb;
-    let acts_on_row = matches!(
-        action.verb,
-        Verb::Jump
-            | Verb::Talk
-            | Verb::Annotate
-            | Verb::Reply
-            | Verb::Open
-            | Verb::Copy
-            | Verb::Run
-    );
+    let lead = action.args.first().and_then(|arg| arg.literal()) == Some("lead");
+    let acts_on_row = !(action.verb == Verb::Jump && lead)
+        && matches!(
+            action.verb,
+            Verb::Jump
+                | Verb::Talk
+                | Verb::Annotate
+                | Verb::Reply
+                | Verb::Open
+                | Verb::Copy
+                | Verb::Run
+        );
     if !acts_on_row {
         return true;
     }
@@ -97,58 +110,51 @@ pub(super) fn hints(app: &App, width: usize) -> String {
         return crate::board::home::hints(width, app.cron_shown());
     }
     let bindings = app.bindings();
-    // The effective action of an event, as `key word`; unbound events, a
-    // disabled meter and actions the selected row does not allow show nothing.
-    let bound = |event: &str, label: &str| -> Option<String> {
-        let action = bindings.get(event)?;
-        if (event == "w" || action.verb == crate::action::Verb::TokenWindow)
+    // One hint per action the effective bindings give the footer, ranked by
+    // `Action::footer_rank`; its key is the first one bound to it. A disabled
+    // meter and a row action the selected row does not allow show nothing.
+    let mut ranked: Vec<(u8, String)> = Vec::new();
+    let mut seen = std::collections::BTreeSet::new();
+    // `enter` first, so a second key for the same action never replaces it.
+    let mut events: Vec<_> = bindings.iter().collect();
+    events.sort_by_key(|(event, _)| event.as_str() != "enter");
+    for (event, action) in events {
+        let Some(rank) = action.footer_rank() else {
+            continue;
+        };
+        if matches!(event.as_str(), "click" | "double-click") || seen.contains(&action.text) {
+            continue;
+        }
+        if action.verb == crate::action::Verb::TokenWindow
             && !app
                 .meter
                 .as_ref()
                 .is_some_and(|meter| meter.settings.enabled)
         {
-            return None;
+            continue;
         }
         if !row_allows(app, action) {
-            return None;
+            continue;
         }
-        if event == "d" && action.verb == crate::action::Verb::Toggle {
-            return toggle_label(app, action).map(|label| format!("d {label}"));
-        }
-        Some(format!("{label} {}", hint_word(action.verb)))
-    };
-    let mut hints: Vec<String> = Vec::new();
-    if let Some((key, action)) = bindings.iter().find(|(key, action)| {
-        !matches!(key.as_str(), "click" | "double-click")
-            && action.verb == crate::action::Verb::AskLead
-    }) {
-        hints.push(format!("{key} {}", hint_word(action.verb)));
+        let word = if action.verb == crate::action::Verb::Toggle {
+            match toggle_label(app, action) {
+                Some(label) => label,
+                None => continue,
+            }
+        } else {
+            hint_word(action).to_owned()
+        };
+        seen.insert(&action.text);
+        ranked.push((rank, format!("{} {word}", key_label(event))));
     }
-    // `r` only shows on a row that waits on you, so it ranks with the decision.
-    hints.extend(bound("enter", "⏎"));
-    hints.extend(bound("r", "r"));
-    hints.extend(bound("backspace", "⌫"));
-    hints.push("/ search".into());
-    hints.extend(
-        [("t", "t"), ("a", "a"), ("o", "o"), ("y", "y")]
-            .into_iter()
-            .filter_map(|(event, label)| bound(event, label)),
-    );
-    // Row actions end here; the oldest-waiting label may take space only if
-    // they all still fit.
-    let row_actions = hints.len();
-    hints.extend(
-        [
-            ("d", "d"),
-            ("tab", "tab"),
-            ("ctrl-r", "ctrl-r"),
-            ("l", "l"),
-            ("T", "T"),
-            ("w", "w"),
-        ]
-        .into_iter()
-        .filter_map(|(event, label)| bound(event, label)),
-    );
+    ranked.push((crate::action::FOOTER_SEARCH_RANK, "/ search".into()));
+    ranked.sort_by_key(|(rank, _)| *rank);
+    // The oldest-waiting label may take space only if every row action still fits.
+    let row_actions = ranked
+        .iter()
+        .filter(|(rank, _)| *rank <= crate::action::FOOTER_ROW_ACTIONS_END)
+        .count();
+    let mut hints: Vec<String> = ranked.into_iter().map(|(_, hint)| hint).collect();
     hints.push("←→ tab".into());
     if !bindings.contains_key("s") {
         hints.push("s switch".into());

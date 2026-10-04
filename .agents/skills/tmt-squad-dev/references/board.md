@@ -102,16 +102,20 @@ its own row hit. `time_marks` includes request ages so they advance without read
 The waiting hint uses `Attention::of`, matching the tab's count, and effective
 bindings; narrow fitting removes the oldest-member label before the actions.
 
-The squad-tab footer (`board::view::footer::hints`) lists hints highest priority first: the
-waiting summary, `ask lead`, `⏎`, `r`, `⌫ back`, `/ search`, `t`, `a`, `o`, `y`, then the layout,
-refresh, view, theme and meter keys, `←→ tab`, `s`, `c` and the unknown-`me` line. It reserves
-`q quit` and `? more` first (`? more` alone below both, nothing below it) and drops whole
-hints from the end, never clipping one. A key shows the effective action bound to its event;
+The squad-tab footer (`board::view::footer::hints`) derives one hint per action from the
+effective bindings (the first key bound to it, `enter` first), ranked by `Action::footer_rank`,
+which is separate from `Action::order` (the menu's order) because the footer puts navigation and
+the decision first: waiting summary, `ask lead`, `⏎`, `r`, `⌫ back`, the board's `/ search`,
+`t`, `a`, `o`, `y`, then fold, pane, refresh, view, theme and meter, then `←→ tab`, `s`, `c` and
+the unknown-`me` line. Its match is exhaustive, so a new verb must choose a rank or `None`
+(`notes`, `settings`, `run` and `pick-tab` are never listed). A rebound key moves its hint; an
+unbound action has none. The footer reserves `q quit` and `? more` first (`? more` alone below
+both, nothing below it) and drops whole hints from the end, never clipping one.
 `row_allows` hides a row action the selected row cannot take (no row, `r` without a decision,
 `o` without a link, `copy` with an unfillable template). The word is the verb name, except
-`hint_word` for internal spellings (`next-pane` reads `pane`). The oldest-member label may
-take space only if the whole row-action group still fits. Home and the cron footers keep
-their own fitting and the same reserved tail.
+`hint_word` for internal spellings (`next-pane` reads `pane`). The oldest-member label may take
+space only if every hint through `FOOTER_ROW_ACTIONS_END` still fits. Home and the cron footers
+keep their own fitting and the same reserved tail.
 
 `r` (`Verb::Reply`) answers a real open request (a chooser for several). With none and a non-empty
 `pending`, `compose_row` opens the annotation composer addressed to that member (`note_member`, so

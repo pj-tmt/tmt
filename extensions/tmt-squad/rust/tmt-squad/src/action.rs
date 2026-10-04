@@ -151,6 +151,12 @@ fn tokens(text: &str) -> Result<Vec<String>, String> {
     Ok(out)
 }
 
+/// The board's own `/ search` hint sits between `back` and `talk`.
+pub const FOOTER_SEARCH_RANK: u8 = 4;
+/// The last footer rank of a row action; the oldest-waiting label may take
+/// space only if every hint up to here still fits.
+pub const FOOTER_ROW_ACTIONS_END: u8 = 8;
+
 impl Action {
     /// Where the action sits in a list of choices, by what people do: the
     /// selected row's actions first, then the board's. It orders the action menu,
@@ -178,6 +184,35 @@ impl Action {
             Verb::Back => 18,
             Verb::Menu | Verb::NextPane | Verb::TokenWindow => 19,
         }
+    }
+
+    /// Where the action sits in the base footer when width runs short: lowest
+    /// first, `None` for actions the footer never lists. Unlike `order`, which
+    /// orders the action menu by what people do with the row, the footer ranks
+    /// navigation and the decision first. The match is exhaustive so a new verb
+    /// must choose.
+    pub fn footer_rank(&self) -> Option<u8> {
+        let lead = self.args.first().and_then(Template::literal) == Some("lead");
+        Some(match self.verb {
+            Verb::AskLead => 0,
+            Verb::Jump if !lead => 1,
+            Verb::Menu | Verb::Tab => 1,
+            Verb::Reply => 2,
+            Verb::Back => 3,
+            // FOOTER_SEARCH_RANK (4) is the board's own `/ search`.
+            Verb::Talk => 5,
+            Verb::Annotate => 6,
+            Verb::Open => 7,
+            Verb::Copy => FOOTER_ROW_ACTIONS_END,
+            Verb::Toggle => 9,
+            Verb::NextPane => 10,
+            Verb::Refresh => 11,
+            Verb::View => 12,
+            Verb::Theme => 13,
+            Verb::TokenWindow => 14,
+            Verb::Jump => 15,
+            Verb::Notes | Verb::PickTab | Verb::Settings | Verb::Run => return None,
+        })
     }
 
     /// Plain-language binding wording shared by help and settings. Describing an
