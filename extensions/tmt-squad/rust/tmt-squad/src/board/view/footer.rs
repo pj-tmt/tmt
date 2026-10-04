@@ -11,18 +11,22 @@ use tmt_cli_style::Role;
 use tmt_tui::components::strip;
 use unicode_width::UnicodeWidthStr;
 
-/// One state label for the effective toggle in footer and help.
-pub(in crate::board) fn toggle_label(app: &App, action: &crate::action::Action) -> Option<String> {
-    let board = app.effective_board()?;
-    if board.mode != BoardMode::Split {
-        return None;
-    }
-    let panes: Vec<_> = action
+/// The panes the effective toggle folds, when the board is split and shows any.
+fn toggle_panes(app: &App, action: &crate::action::Action) -> Vec<Pane> {
+    let Some(board) = app.effective_board().filter(|b| b.mode == BoardMode::Split) else {
+        return Vec::new();
+    };
+    action
         .args
         .iter()
         .filter_map(|arg| arg.literal().and_then(Pane::parse))
         .filter(|pane| board.panes.contains(pane))
-        .collect();
+        .collect()
+}
+
+/// One state label for the effective toggle in help.
+pub(in crate::board) fn toggle_label(app: &App, action: &crate::action::Action) -> Option<String> {
+    let panes = toggle_panes(app, action);
     if panes.is_empty() {
         return None;
     }
@@ -42,6 +46,23 @@ pub(in crate::board) fn toggle_label(app: &App, action: &crate::action::Action) 
     ))
 }
 
+/// The footer's word for the toggle: detail and replies together are the side
+/// panel; no state glyph, whose width terminals disagree on.
+fn toggle_word(app: &App, action: &crate::action::Action) -> Option<String> {
+    let panes = toggle_panes(app, action);
+    match panes.as_slice() {
+        [] => None,
+        [Pane::Detail, Pane::Replies] | [Pane::Replies, Pane::Detail] => Some("side panel".into()),
+        panes => Some(
+            panes
+                .iter()
+                .map(|pane| pane.title())
+                .collect::<Vec<_>>()
+                .join("+"),
+        ),
+    }
+}
+
 /// The word a hint shows for an action: its verb name, except where the name
 /// is an internal spelling (`next-pane`) or the target matters.
 fn hint_word(action: &crate::action::Action) -> &'static str {
@@ -53,6 +74,11 @@ fn hint_word(action: &crate::action::Action) -> &'static str {
         Verb::TokenWindow => "window",
         Verb::AskLead => "ask lead",
         Verb::Jump if lead => "jump lead",
+        // Home's key line words `a` the same way; the board has no annotations.
+        Verb::Annotate if action.args.first().and_then(|arg| arg.literal()) == Some("member") => {
+            "note member"
+        }
+        Verb::Annotate => "answer · note",
         verb => verb.name(),
     }
 }
@@ -137,7 +163,7 @@ pub(super) fn hints(app: &App, width: usize) -> String {
             continue;
         }
         let word = if action.verb == crate::action::Verb::Toggle {
-            match toggle_label(app, action) {
+            match toggle_word(app, action) {
                 Some(label) => label,
                 None => continue,
             }

@@ -205,11 +205,11 @@ fn footer_orders_hints_by_priority_and_always_keeps_quit_and_more() {
     let full = hints(&app, usize::MAX);
     let order = [
         "⏎ jump",
+        "t talk",
         "r reply",
         "⌫ back",
+        "a answer · note",
         "/ search",
-        "t talk",
-        "a annotate",
         "o open",
         "y copy",
         "tab pane",
@@ -235,11 +235,12 @@ fn footer_orders_hints_by_priority_and_always_keeps_quit_and_more() {
         let kept = shown_hints(&shown);
         assert_eq!(kept, whole[..kept.len()], "{width}: {shown}");
     }
-    // The decisive keys survive an 80-cell footer.
+    // Talking, replying and going back survive an 80-cell footer.
     let narrow = hints(&app, 80);
-    for hint in ["⏎ jump", "r reply", "⌫ back", "/ search"] {
-        assert!(narrow.contains(hint), "{narrow}");
-    }
+    assert!(
+        narrow.ends_with("⏎ jump  t talk  r reply  ⌫ back  q quit  ? more"),
+        "{narrow}"
+    );
 }
 
 #[test]
@@ -252,7 +253,7 @@ fn footer_shows_only_the_row_actions_the_selected_row_allows() {
     app.select(0);
     assert_eq!(app.selected_row().unwrap()["name"], "sol");
     let lead = hints(&app, usize::MAX);
-    for hint in ["⏎ jump", "t talk", "a annotate"] {
+    for hint in ["⏎ jump", "t talk", "a answer · note"] {
         assert!(lead.contains(hint), "{lead}");
     }
     for hint in ["r reply", "o open"] {
@@ -276,7 +277,14 @@ fn footer_shows_only_the_row_actions_the_selected_row_allows() {
     let mut empty = App::new(Some("product".into()));
     empty.apply(crate::board::app::tests::snapshot("product", json!([])));
     let text = hints(&empty, usize::MAX);
-    for hint in ["⏎", "t talk", "r reply", "a annotate", "o open", "y copy"] {
+    for hint in [
+        "⏎",
+        "t talk",
+        "r reply",
+        "answer · note",
+        "o open",
+        "y copy",
+    ] {
         assert!(!text.contains(hint), "{text}");
     }
     assert!(text.contains("/ search") && text.ends_with("q quit  ? more"));
@@ -284,6 +292,38 @@ fn footer_shows_only_the_row_actions_the_selected_row_allows() {
     let view = app.view.as_mut().unwrap();
     view.bindings = crate::action::preset(false, &view.board.panes);
     assert!(hints(&app, usize::MAX).contains("⏎ menu"));
+}
+
+#[test]
+fn footer_labels_use_only_registered_spaced_marks_and_structural_typography() {
+    use crate::board::glyph_guard::glyph_error;
+    for panes in [
+        vec![Pane::Rows],
+        vec![Pane::Rows, Pane::Detail],
+        vec![Pane::Rows, Pane::Replies],
+        vec![Pane::Rows, Pane::Detail, Pane::Replies, Pane::Notes],
+    ] {
+        for tmux in [true, false] {
+            let mut app = paned(
+                split(Direction::LeftRight, panes.clone(), vec![]),
+                Notes::NotShown,
+            );
+            let view = app.view.as_mut().unwrap();
+            view.bindings = crate::action::preset(tmux, &view.board.panes);
+            for folded in [false, true] {
+                if folded && panes.len() > 1 {
+                    app.key(KeyEvent::new(KeyCode::Char('d'), KeyModifiers::NONE));
+                }
+                for selected in [0, 1] {
+                    app.select(selected);
+                    for width in [usize::MAX, 160, 100, 80, 48] {
+                        let shown = hints(&app, width);
+                        assert_eq!(glyph_error(&shown), None, "{width}: {shown}");
+                    }
+                }
+            }
+        }
+    }
 }
 
 #[test]
@@ -3734,6 +3774,12 @@ fn toggle_footer_and_help_show_current_state_and_drop_the_whole_hint() {
             assert!(!help_lines(&app).iter().any(|line| line.starts_with("d ")));
             continue;
         }
+        // The footer's word has no state glyph; help keeps the state.
+        let word = if targets.len() == 2 {
+            "side panel".to_owned()
+        } else {
+            targets[0].title().to_owned()
+        };
         let label = targets
             .iter()
             .map(|pane| pane.title())
@@ -3744,16 +3790,19 @@ fn toggle_footer_and_help_show_current_state_and_drop_the_whole_hint() {
                 app.key(KeyEvent::new(KeyCode::Char('d'), KeyModifiers::NONE));
             }
             let state = if folded { "▸" } else { "▾" };
-            let hint = format!("d {label} {state}");
+            let hint = format!("d {word}");
             let full = hints(&app, usize::MAX);
             assert!(full.contains(&hint), "{full}");
+            assert!(!full.contains('▾') && !full.contains('▸'), "{full}");
             let description = app.bindings()["d"].description();
             assert!(help_lines(&app).contains(&format!("d  {description} (▾ open, ▸ folded)")));
+            assert_eq!(
+                crate::board::view::toggle_label(&app, &app.bindings()["d"]),
+                Some(format!("{label} {state}")),
+                "help keeps the state"
+            );
             for width in 0..160 {
                 let shown = hints(&app, width);
-                if shown.contains(&format!("d {label}")) {
-                    assert!(shown.contains(&hint), "{width}: {shown}");
-                }
                 assert!(!shown.contains('…'));
                 assert!(shown.width() <= width);
                 assert!(shown.is_empty() || !shown.ends_with(" ·"));
@@ -3761,9 +3810,11 @@ fn toggle_footer_and_help_show_current_state_and_drop_the_whole_hint() {
         }
         if targets.len() == 2 {
             fold(&mut app, Pane::Detail);
-            assert!(
-                hints(&app, usize::MAX).contains("d detail+replies ▾"),
-                "mixed state uses open mark"
+            assert!(hints(&app, usize::MAX).contains("d side panel"));
+            assert_eq!(
+                crate::board::view::toggle_label(&app, &app.bindings()["d"]).as_deref(),
+                Some("detail+replies ▾"),
+                "mixed state uses the open mark in help"
             );
         }
     }
@@ -3783,10 +3834,10 @@ fn footer_hints_are_conditional_and_effective_bindings_remain_visible() {
     );
     let view = app.view.as_mut().unwrap();
     view.bindings = crate::action::preset(true, &view.board.panes);
-    assert!(hints(&app, usize::MAX).contains("d detail ▾"));
+    assert!(hints(&app, usize::MAX).contains("d detail"));
     assert!(draw(&app, 48, 12)[11].contains("A ask lead"));
     assert!(
-        !draw(&app, 48, 12)[11].contains("d detail ▾"),
+        !draw(&app, 48, 12)[11].contains("d detail"),
         "decision actions take priority when narrow"
     );
     app.view

@@ -151,8 +151,8 @@ fn tokens(text: &str) -> Result<Vec<String>, String> {
     Ok(out)
 }
 
-/// The board's own `/ search` hint sits between `back` and `talk`.
-pub const FOOTER_SEARCH_RANK: u8 = 4;
+/// The board's own `/ search` hint sits right after `back`.
+pub const FOOTER_SEARCH_RANK: u8 = 6;
 /// The last footer rank of a row action; the oldest-waiting label may take
 /// space only if every hint up to here still fits.
 pub const FOOTER_ROW_ACTIONS_END: u8 = 8;
@@ -197,11 +197,11 @@ impl Action {
             Verb::AskLead => 0,
             Verb::Jump if !lead => 1,
             Verb::Menu | Verb::Tab => 1,
-            Verb::Reply => 2,
-            Verb::Back => 3,
-            // FOOTER_SEARCH_RANK (4) is the board's own `/ search`.
-            Verb::Talk => 5,
-            Verb::Annotate => 6,
+            Verb::Talk => 2,
+            Verb::Reply => 3,
+            Verb::Back => 4,
+            Verb::Annotate => 5,
+            // FOOTER_SEARCH_RANK (6) is the board's own `/ search`.
             Verb::Open => 7,
             Verb::Copy => FOOTER_ROW_ACTIONS_END,
             Verb::Toggle => 9,
