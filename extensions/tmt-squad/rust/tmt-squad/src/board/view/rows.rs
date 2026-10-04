@@ -2,10 +2,8 @@
 //! shared painter. Cells, ages and hits are built by `row_paint`.
 
 use super::row_paint::{Extra, GAP, RowPaint, row_end};
-use crate::board::{
-    app::{App, Item},
-    derived,
-};
+use crate::board::{app::App, derived};
+use crate::display_rows::Item;
 use crate::{config::Pane, rows::Rows};
 use ratatui::{Frame, layout::Rect, text::Line};
 use tmt_cli_style::Role;
@@ -28,8 +26,8 @@ fn prepare(
         app.items()
             .into_iter()
             .filter_map(|item| match item {
-                Item::Row(row) => crate::markup::value(row, field),
-                Item::Header(_) => None,
+                Item::Row(_, row) => crate::markup::value(row, field),
+                Item::Header(_) | Item::Rule(_) => None,
             })
             // Content demand is unwrapped; measured width is a capped upper bound.
             .map(|value| tmt_cli_style::table::escape(value).width())
@@ -46,8 +44,8 @@ fn prepare(
         .items()
         .into_iter()
         .filter_map(|item| match item {
-            Item::Row(row) => Some(crate::staleness::label(&row["staleness"])),
-            Item::Header(_) => None,
+            Item::Row(_, row) => Some(crate::staleness::label(&row["staleness"])),
+            Item::Header(_) | Item::Rule(_) => None,
         })
         .collect();
     let widest = |label: &dyn Fn(&Option<String>, &Extra) -> Option<String>| {
@@ -124,10 +122,12 @@ pub(super) fn render_rows(frame: &mut Frame, app: &App, area: Rect) {
     let extras: Vec<Extra> = app
         .items()
         .into_iter()
-        .filter(|item| matches!(item, Item::Row(_)))
+        .filter(|item| matches!(item, Item::Row(..)))
         .enumerate()
         .map(|(index, item)| {
-            let Item::Row(row) = item else { unreachable!() };
+            let Item::Row(_, row) = item else {
+                unreachable!()
+            };
             Extra {
                 next: row["id"]
                     .as_str()

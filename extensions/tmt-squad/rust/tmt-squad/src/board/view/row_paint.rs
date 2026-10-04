@@ -1,7 +1,8 @@
 //! The rows pane scene: admitted cells and solved boxes, painted by `tmt-tui`.
 //! `App` owns selection and actions, `Scrolls` the position; this adapter turns
 //! them into buffer cells and clipped row hits.
-use crate::board::app::{Hit, Item};
+use crate::board::app::Hit;
+use crate::display_rows::Item;
 use crate::{look::Look, markup, rows::Rows};
 use ratatui::{
     buffer::Buffer,
@@ -199,7 +200,22 @@ impl RowPaint {
                     y += 1;
                     continue;
                 }
-                Item::Row(row) => row,
+                Item::Rule(rule) => {
+                    let title = format!("── {} ", rule.label());
+                    let tail = width.saturating_sub(title.width());
+                    let line = format!("{title}{}", "─".repeat(tail));
+                    let shown = line.width().min(width);
+                    scene.label(
+                        Some(line),
+                        (0, y, shown, 1),
+                        Some(Role::Dim),
+                        TextFlow::Clip,
+                        None,
+                    );
+                    y += 1;
+                    continue;
+                }
+                Item::Row(_, row) => row,
             };
             y = scene.row(rows, layout, &cells[at], row, &extras[at], at, y, width);
             at += 1;
