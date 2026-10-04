@@ -282,10 +282,14 @@ fn run(matches: &clap::ArgMatches) -> Result<(), RemoteError> {
         let selected = requested.or(remembered).unwrap_or(0);
         let door = Door::bind(selected).map_err(|error| {
             if requested.is_none() && remembered.is_some() && error.code == "REMOTE_PORT_BUSY" {
-                RemoteError::new("REMOTE_PORT_BUSY", &format!(
-                    "Remembered Remote port {selected} is busy. Stop the process using that port to keep browser pairing, or choose a new origin with tmt remote serve --port <n> or tmt remote serve --port 0."
-                ))
-            } else { error }
+                RemoteError::new(
+                    "REMOTE_PORT_BUSY",
+                    &format!("Remote's port {selected} is in use"),
+                )
+                .with_hint("stop what is using it to keep this browser paired, or run tmt remote serve --port <n> and pair again")
+            } else {
+                error
+            }
         })?;
         let bound_port = door.socket_addr()?.port();
         let store = Arc::new(Mutex::new(store));
@@ -636,43 +640,27 @@ fn pair(json_output: bool, flag: open::Flag) -> Result<(), RemoteError> {
         match event["event"].as_str() {
             Some("offer") if !json_output => {
                 let terminal = output.terminal();
-                tmt_cli_style::detail::write(
-                    &mut output,
-                    terminal,
-                    "PAIR A DEVICE",
-                    &[
-                        ("link", event["link"].as_str().unwrap_or("").into()),
-                        ("code", event["code"].as_str().unwrap_or("").into()),
-                        ("expires", "in 10 minutes".into()),
-                    ],
-                )?;
+                let link = event["link"].as_str().unwrap_or("");
+                // Opened first, so the result is a row of the same block as the link.
+                let opened = open::open_link(link, flag, loaded.open(), json_output);
+                let mut rows = vec![
+                    ("link", link.to_owned()),
+                    ("code", event["code"].as_str().unwrap_or("").into()),
+                    ("expires", "in 10 minutes".into()),
+                ];
+                rows.extend(open::row(&opened));
+                tmt_cli_style::detail::write(&mut output, terminal, "PAIR A DEVICE", &rows)?;
                 output.flush()?;
                 warn_settings(&loaded)?;
-                match open::open_link(
-                    event["link"].as_str().unwrap_or(""),
-                    flag,
-                    loaded.open(),
-                    json_output,
-                ) {
-                    open::Outcome::Opened => {
-                        tmt_cli_style::message::success(
-                            &mut output,
-                            terminal,
-                            "Opened in your browser",
-                        )?;
-                        output.flush()?;
-                    }
-                    open::Outcome::Failed(why) => {
-                        let mut diagnostic = tmt_cli_style::stream::stderr();
-                        let terminal = diagnostic.terminal();
-                        tmt_cli_style::message::warning(
-                            &mut diagnostic,
-                            terminal,
-                            &format!("Could not open the browser ({why}); use the link above"),
-                            None,
-                        )?;
-                    }
-                    open::Outcome::Skipped | open::Outcome::NoOpener => {}
+                if let open::Outcome::Failed(why) = opened {
+                    let mut diagnostic = tmt_cli_style::stream::stderr();
+                    let terminal = diagnostic.terminal();
+                    tmt_cli_style::message::warning(
+                        &mut diagnostic,
+                        terminal,
+                        &format!("Could not open the browser ({why}); use the link above"),
+                        None,
+                    )?;
                 }
             }
             Some("candidate") => {
@@ -935,12 +923,17 @@ fn main() -> ExitCode {
                 let _ = writeln!(
                     tmt_cli_style::stream::stdout(true),
                     "{}",
-                    json!({"error":{"code":error.code,"message":error.message}})
+                    json!({"error":{"code":error.code,"message":error.json_message()}})
                 );
             } else {
                 let mut output = tmt_cli_style::stream::stderr();
                 let terminal = output.terminal();
-                let _ = tmt_cli_style::message::error(&mut output, terminal, &error.message, None);
+                let _ = tmt_cli_style::message::error(
+                    &mut output,
+                    terminal,
+                    &error.message,
+                    error.hint.as_deref(),
+                );
             }
             ExitCode::FAILURE
         }

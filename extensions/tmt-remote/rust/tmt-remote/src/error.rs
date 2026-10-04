@@ -4,12 +4,26 @@ use std::{fmt, io};
 pub struct RemoteError {
     pub code: String,
     pub message: String,
+    /// The next step, when there is one. Human output prints it as its own `hint:` line.
+    pub hint: Option<String>,
 }
 impl RemoteError {
     pub fn new(code: &str, message: &str) -> Self {
         Self {
             code: code.into(),
             message: message.into(),
+            hint: None,
+        }
+    }
+    pub fn with_hint(mut self, hint: &str) -> Self {
+        self.hint = Some(hint.into());
+        self
+    }
+    /// The one-string `message` of JSON output, which has no hint field.
+    pub fn json_message(&self) -> String {
+        match &self.hint {
+            Some(hint) => format!("{}: {hint}", self.message),
+            None => self.message.clone(),
         }
     }
 }

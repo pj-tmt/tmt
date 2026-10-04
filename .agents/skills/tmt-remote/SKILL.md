@@ -48,8 +48,9 @@ Local extensions attach through `tmt remote status --json` or supervise a foregr
 `tmt remote serve --json`; the exact public documents belong to the
 [channel contract](../../../contracts/remote-channel-v1.md#local-cli-discovery).
 Serve remembers the bound port since Remote schema 5 (`door_port`) and reuses it when
-`--port` is omitted. A busy remembered port refuses with `REMOTE_PORT_BUSY` and explicit recovery choices;
-`--port 0` uses an unused port and explicit nonzero busy ports refuse. The human
+`--port` is omitted. A busy remembered port refuses with `REMOTE_PORT_BUSY`, printed as an `error:` line plus a
+`hint:` line (JSON joins them into one `message`); `--port 0` uses an unused port and explicit
+nonzero busy ports refuse. The human
 full door URL occupies its own stdout line.
 
 Schema 6 (`short_route_prefix`) regenerates an existing machine's non-credential route prefix
@@ -127,7 +128,11 @@ Old descriptor-path links refuse. Browser tests check stripping before the SDK
 request, secret-free request URLs, owner confirmation and retained device behavior.
 
 The embedded same-origin stylesheet projects the shared design tokens with system
-font fallbacks and light/dark scheme preference under the contract-defined CSP.
+font fallbacks and light/dark scheme preference under the contract-defined CSP. Every
+page opens with Colab's header (mark, product, page title; the `header` token group), as
+static CSS: `tests/pages.rs` fails when its metrics drift from `design/tokens/tokens.json`,
+and `pairing.spec.ts` compares the rendered header with those tokens at 1440 and 390,
+in both schemes. The card heading is the page's `h2`; the header title is its only `h1`.
 
 ## Embedded client and crypto fixtures
 
