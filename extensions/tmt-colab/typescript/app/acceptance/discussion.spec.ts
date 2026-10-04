@@ -87,6 +87,7 @@ test('paired writers retain anchored annotation conversations, direct exact send
         const popover = first.getByRole('dialog', { name: 'Annotate selection' });
         const prefilled = popover.getByRole('combobox', { name: 'Message to agent' });
         await expect(prefilled).toHaveValue(`@${agent.name} `);
+        await expect(prefilled).toBeFocused();
         expect(await prefilled.evaluate((node: HTMLTextAreaElement) => node.selectionStart)).toBe(
           agent.name.length + 2,
         );
@@ -101,6 +102,7 @@ test('paired writers retain anchored annotation conversations, direct exact send
         await prefilled.press('Escape');
         await prefilled.press('Escape');
         await expect(popover).toHaveCount(0);
+        await expect(first.getByTestId('selection-ask')).toBeVisible();
         expect(agent.received()).toHaveLength(0);
       }
     }

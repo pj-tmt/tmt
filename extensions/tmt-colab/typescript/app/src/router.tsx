@@ -423,6 +423,10 @@ function Page() {
     setPanel(null);
     setMenu(false);
   }
+  function cancelAnnotation() {
+    setAnnotation(undefined);
+    setRectangle(currentRectangle.current);
+  }
   function openThread(ref: DiscussionRef | null) {
     if (!ref) {
       setActiveThread(null);
@@ -670,7 +674,7 @@ function Page() {
                 title={view.title || snapshot.title}
                 publisher={view.publisherAgent}
                 blocked={!!liveError || state !== 'ready'}
-                cancel={() => setAnnotation(undefined)}
+                cancel={cancelAnnotation}
                 committed={openThread}
               />
             </section>
