@@ -5,6 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { gunzipSync } from 'node:zlib';
 import * as tar from 'tar';
+import { shipsSkills } from './component-skills.mjs';
 
 const executables = {
   cli: 'tmt',
@@ -104,7 +105,7 @@ export function selectNativeArtifact(
   const version = releases[0].app_version;
   assert(typeof version === 'string' && version.length > 0, 'Manifest requires a version');
   // cargo-dist declares an included directory as one asset named after it.
-  const declared = product === 'squad' ? [skillsRoot] : [];
+  const declared = shipsSkills(product) ? [skillsRoot] : [];
   const assets = artifact.assets.map((asset) => asset.path);
   // The companions this archive declares, in their one order.
   const carried = companionFiles(product).filter((companion) => assets.includes(companion));

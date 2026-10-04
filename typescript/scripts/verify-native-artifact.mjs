@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
+import { shipsSkills } from './component-skills.mjs';
 import { selectNativeArtifact, withNativeArtifact } from './native-artifact-policy.mjs';
 import { assertNativeTarget, verifyNativeRuntime } from './native-runtime-proof.mjs';
 
@@ -28,7 +29,7 @@ for (const name of [
   'notices',
   'license',
   ...(values.product === 'cli' ? ['skill'] : []),
-  ...(values.product === 'squad' ? ['skills'] : []),
+  ...(shipsSkills(values.product) ? ['skills'] : []),
   ...(values.product === 'colab' ? ['app-dir'] : []),
 ]) {
   assert(values[name], `--${name} is required`);
@@ -109,7 +110,7 @@ await withNativeArtifact(values.archive, metadata, async (artifactRoot) => {
     fs.readFileSync(values.license),
     'Native archive license differs from the selected source'
   );
-  if (values.product === 'squad') {
+  if (shipsSkills(values.product)) {
     // The archived skills are exactly the reviewed sources, byte for byte.
     assert.deepEqual(
       tree(path.join(artifactRoot, 'skills')),
