@@ -38,8 +38,6 @@ pub(super) fn render_detail(frame: &mut Frame, app: &App, area: Rect) {
             frame.buffer_mut(),
             area,
             Line::from(Span::styled("(no row selected)", look.role(Role::Dim))),
-            &look.theme,
-            look.depth,
         );
         return;
     };

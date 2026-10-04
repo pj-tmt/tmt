@@ -177,8 +177,6 @@ impl Scrolls {
                             ..body
                         },
                         decorate(offset + index, line),
-                        &look.theme,
-                        look.depth,
                     );
                 }
             },
@@ -231,8 +229,6 @@ impl Scrolls {
                 frame.buffer_mut(),
                 indicator,
                 Line::styled(parts.join("  "), look.role(Role::Dim)),
-                &look.theme,
-                look.depth,
             );
         }
         (offset, viewport)

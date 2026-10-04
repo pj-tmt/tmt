@@ -193,8 +193,6 @@ pub(super) fn render_meter_status(frame: &mut Frame, app: &App, area: Rect) {
                 ..area
             },
             Line::styled(text, look.role(Role::Dim)),
-            &look.theme,
-            look.depth,
         );
     }
 }
@@ -251,10 +249,8 @@ pub(super) fn render_meter(frame: &mut Frame, app: &App, summary: Rect) {
                 ..area
             },
             line,
-            &look.theme,
-            look.depth,
         );
     } else {
-        strip::paint_right(frame.buffer_mut(), area, line, &look.theme, look.depth);
+        strip::paint_right(frame.buffer_mut(), area, line);
     }
 }

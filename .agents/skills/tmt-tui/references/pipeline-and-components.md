@@ -77,7 +77,7 @@ Maintained module reference. Commands and admitted spellings are in [development
   one text cell per span, so each span is clipped to the room left, filled with
   its style and fitted by `text::fit_line`. The caller supplies the resolved span
   styles, so it owns no role or selection policy and takes no Theme or Depth
-  decision (the parameters remain for callers). Control characters are shown
+  decision. Control characters are shown
   escaped, and the continuation cell of a wide grapheme carries its span's style.
   A strip test keeps the former layout pipeline as an oracle and compares buffers
   cell for cell over generated lines, areas and buffer origins. `Outline` is the square

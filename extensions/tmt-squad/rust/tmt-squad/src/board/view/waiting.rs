@@ -65,8 +65,6 @@ pub(super) fn prompt(
             look.role(tmt_cli_style::Role::Accent)
                 .add_modifier(ratatui::style::Modifier::BOLD),
         ),
-        &look.theme,
-        look.depth,
     );
     let content = Rect {
         y: areas.content.y + 1,
@@ -88,8 +86,6 @@ pub(super) fn prompt(
                 ..content
             },
             Line::styled(line.as_str(), look.role(tmt_cli_style::Role::Text)),
-            &look.theme,
-            look.depth,
         );
     }
     strip::paint_left(
@@ -99,8 +95,6 @@ pub(super) fn prompt(
             "Enter send · Esc cancel",
             look.role(tmt_cli_style::Role::Muted),
         ),
-        &look.theme,
-        look.depth,
     );
 }
 
@@ -195,8 +189,6 @@ pub(super) fn inline_prompt(
             look.role(Role::Accent)
                 .add_modifier(ratatui::style::Modifier::BOLD),
         ),
-        &look.theme,
-        look.depth,
     );
     if matches!(input.compose, crate::board::app::Compose::Reply { .. }) && areas.content.height > 1
     {
@@ -222,8 +214,6 @@ pub(super) fn inline_prompt(
                     look.role(Role::Muted),
                 ),
             ]),
-            &look.theme,
-            look.depth,
         );
     }
     // Fit the tail so the cursor remains visible even for a long draft.
@@ -239,8 +229,6 @@ pub(super) fn inline_prompt(
             text.last().map(String::as_str).unwrap_or("▏"),
             look.role(Role::Text),
         ),
-        &look.theme,
-        look.depth,
     );
     let hint = if input.alternative.is_some() {
         "Enter send · Esc cancel · Tab answer/note"
@@ -251,8 +239,6 @@ pub(super) fn inline_prompt(
         frame.buffer_mut(),
         areas.footer,
         Line::styled(hint, look.role(Role::Muted)),
-        &look.theme,
-        look.depth,
     );
     let covered = |area: &Rect| !area.intersection(band).is_empty();
     app.hits

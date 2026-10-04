@@ -104,13 +104,7 @@ pub(super) fn render_rows(frame: &mut Frame, app: &App, area: Rect) {
         } else {
             "Loading…"
         };
-        strip::paint_left(
-            frame.buffer_mut(),
-            area,
-            Line::from(message),
-            &look.theme,
-            look.depth,
-        );
+        strip::paint_left(frame.buffer_mut(), area, Line::from(message));
         return;
     };
     let Some(tab) = app.shown_tab() else { return };
@@ -151,8 +145,6 @@ pub(super) fn render_rows(frame: &mut Frame, app: &App, area: Rect) {
                     frame.buffer_mut(),
                     area,
                     Line::styled(message, look.role(Role::Muted)),
-                    &look.theme,
-                    look.depth,
                 );
                 return;
             }

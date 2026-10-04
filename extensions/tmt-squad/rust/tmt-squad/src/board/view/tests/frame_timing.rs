@@ -90,13 +90,7 @@ fn render_replica(frame: &mut Frame, app: &App, lap: &mut Lap) {
     ])
     .areas(frame.area());
     lap.mark("frame state reset");
-    strip::paint_left(
-        frame.buffer_mut(),
-        tabs,
-        tabs::paint(app, tabs),
-        &look.theme,
-        look.depth,
-    );
+    strip::paint_left(frame.buffer_mut(), tabs, tabs::paint(app, tabs));
     lap.mark("tab line strip");
     let summary_text = app
         .view
@@ -111,13 +105,7 @@ fn render_replica(frame: &mut Frame, app: &App, lap: &mut Lap) {
         width: meter.x.saturating_sub(summary.x).saturating_sub(2),
         ..summary
     });
-    strip::paint_left(
-        frame.buffer_mut(),
-        summary_area,
-        summary_text,
-        &look.theme,
-        look.depth,
-    );
+    strip::paint_left(frame.buffer_mut(), summary_area, summary_text);
     lap.mark("summary strip");
     header::render_meter(frame, app, summary);
     header::render_meter_status(frame, app, meter_status);
@@ -507,7 +495,7 @@ fn print_strip_microbench(app: &App) {
         let mut buffer = Buffer::empty(Rect::new(0, 0, WIDTH, 1));
         let samples = time(|| {
             for _ in 0..100 {
-                strip::paint_left(&mut buffer, area, line.clone(), &look.theme, look.depth);
+                strip::paint_left(&mut buffer, area, line.clone());
             }
         });
         println!(
@@ -523,7 +511,7 @@ fn print_strip_microbench(app: &App) {
     let spans = line.spans.len();
     let samples = time(|| {
         for _ in 0..100 {
-            strip::paint_left(&mut buffer, area, line.clone(), &look.theme, look.depth);
+            strip::paint_left(&mut buffer, area, line.clone());
         }
     });
     println!(

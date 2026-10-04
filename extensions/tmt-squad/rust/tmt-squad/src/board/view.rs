@@ -71,13 +71,7 @@ pub(in crate::board) fn render_frame(
         Constraint::Length(1),
     ])
     .areas(frame.area());
-    strip::paint_left(
-        frame.buffer_mut(),
-        tabs,
-        tabs::paint(app, tabs),
-        &look.theme,
-        look.depth,
-    );
+    strip::paint_left(frame.buffer_mut(), tabs, tabs::paint(app, tabs));
     let summary_text = app
         .view
         .as_ref()
@@ -92,23 +86,11 @@ pub(in crate::board) fn render_frame(
             width: meter.x.saturating_sub(summary.x).saturating_sub(2),
             ..summary
         });
-    strip::paint_left(
-        frame.buffer_mut(),
-        summary_area,
-        summary_text,
-        &look.theme,
-        look.depth,
-    );
+    strip::paint_left(frame.buffer_mut(), summary_area, summary_text);
     header::render_meter(frame, app, summary);
     header::render_meter_status(frame, app, meter_status);
     if let Some(line) = home_usage {
-        strip::paint_left(
-            frame.buffer_mut(),
-            meter_status,
-            line,
-            &look.theme,
-            look.depth,
-        );
+        strip::paint_left(frame.buffer_mut(), meter_status, line);
     }
     panes::render_body(frame, app, body);
     waiting::inline_prompt(frame, app, body);
