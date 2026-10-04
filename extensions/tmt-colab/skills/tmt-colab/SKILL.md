@@ -132,8 +132,9 @@ exact request using the incoming command supplied by the wake notice, for exampl
 tmt x show REQUEST --incoming --identity YOUR_IDENTITY --json
 ```
 
-The page ID is in the link's `page` fragment field. If the requested work needs
-the page, read it through `tmt colab page read`; retain its revision for changes.
+Annotation and Chat links use `#space=SPACE&path=%2Fpages%2FPAGE`. Decode the `path`
+fragment value; the page ID follows `/pages/`. If the requested work needs the
+page, read it through `tmt colab page read`; retain its revision for changes.
 Do the authorized work, then submit one reply with the receipt from `x show`:
 
 ```sh
