@@ -1540,7 +1540,10 @@ Session returns exactly `{deviceId, publicKey, grantRevision, name}`; revision
 is decimal text. It works before Colab extension-key registration and forwards
 no credential. Pages returns exactly `{spaceId, ownerKey, revision, pages}`;
 `pages` is sorted by page ID, at most 1,000 entries, each exactly
-`{pageId, epoch, sharing, history, archived}`. Local creation/epoch records own
+`{pageId, epoch, sharing, history, archived, retentionDays, lastUpdateAtMs,
+expiresAtMs, warnings}`. These time/expiry hints use the same verified projection
+as `ls/show`, defined in [Local management CLI](#local-management-cli-1307).
+Local creation/epoch records own
 existence; sharing/history/archive/delete derive from verified owner statements.
 Absent sharing/history mean private/shared. Deleted pages are excluded. Titles
 are encrypted content and never returned here. `revision:"0"` means no owner log
@@ -1825,9 +1828,10 @@ Cloud expiry is 30 days after last page update by default, with a per-page
 positive day count or forever override. Each write sets expiry; checkpoints and
 referenced blobs needed for the live page MUST last at least as long as the page.
 The owning device's compaction or owner's cleanup refreshes them within seven
-days of expiry. Readers treat expired-but-present data as gone. Warnings begin
-seven days ahead in the browser and `ls/show`. Local data is never automatically
-deleted.
+days of expiry. Cloud readers treat expired-but-present data as gone. Local
+expiry is advisory: warnings begin seven days ahead in the browser and `ls/show`,
+and expired local pages remain readable and writable unless signed archive/delete
+policy forbids it. Local data is never automatically deleted.
 
 Firestore Rules deny expired reads; owner browser/CLI cleanup removes expired
 pages. Optional Blaze TTL is eventual physical cleanup, not timely revocation.
@@ -2006,18 +2010,36 @@ Page lists return `{spaceId, membershipHead, pages}`; an uninitialized list has 
 space/head and empty pages. Show returns `{spaceId, membershipHead, page, members,
 links, discussions:"not-available"}`. Page fields are `pageId, title, epoch,
 sharing, history, archived, retentionDays, lastUpdateAtMs, expiresAtMs, warnings`.
-IDs, epochs and revisions retain canonical full values; times would be UTC
+IDs, epochs and revisions retain canonical full values; times are UTC
 milliseconds. Policy derives from verified owner statements; titles require the
 authenticated fold and isolated decoder. Archived titles are null with
 `title-unavailable` because the fold refuses archived pages. Members/links expose
 ID, role, page assignments and revocation, never secret material.
 
-Until durable last-update evidence is available, both timestamp fields are null
-and warnings contain `expiry-unavailable`; human output states this plainly.
-No file time, read time or fabricated zero establishes expiry. Retention defaults
-to 30 days; forever is null. Local policy never automatically deletes or denies
-access. Discussion summaries in management listings remain deferred; the
-page view projects verified discussion separately.
+Schema 5 adds nullable, nonnegative safe-integer `pages.last_update_at_ms`. The
+server clock is sampled only when a new admitted content envelope is appended,
+including initial creation and browser/local writes, in the receipt transaction.
+The stored time never decreases for a page. Exact replay, failed/rolled-back
+updates, own/discussion/Ask updates, reads, checkpoints and policy/epoch changes
+never refresh it. Schema-4 migration preserves content and receipts and leaves
+legacy times null without backfill. No client envelope time, file time, read time
+or fabricated zero establishes expiry. The next admitted content edit starts
+evidence for a legacy page.
+
+Retention defaults to 30 days; forever is null. Finite `expiresAtMs` is
+`lastUpdateAtMs + retentionDays * 86400000`, using checked arithmetic bounded to
+safe integers. A legacy unknown finite expiry is null with `expiry-unavailable`
+("Expiry starts after the next edit"); an unrepresentable finite expiry is null
+with `expiry-out-of-range`. Forever has no expiry or expiry warning, even with
+unknown last-update time. At most one expiry warning is emitted: `expires-soon`
+when expiry is in the future and at most seven days away; `expired` at or after
+expiry. Otherwise warnings are empty, apart from a separate `title-unavailable`
+CLI hint. Human output shows the actual UTC date and advisory status.
+
+One verified owner-log projection supplies these hints to CLI and `/api/pages`.
+Discovery metadata never grants signed policy or write authority. Local expiry
+never automatically deletes or denies access. Discussion summaries in management
+listings remain deferred; the page view projects verified discussion separately.
 
 Failures exit 1. JSON is `{error:{code,message}}` with operation/revision/link
 correlation when captured; human failures use styled stderr. Management codes
@@ -2314,9 +2336,14 @@ assignments derive from the contiguous verified owner log, never discovery label
 Metadata catchup reuses bounded frame/chunk assembly and owner-log admission,
 then closes before content decoding. Baseline ciphertext can be consumed as part
 of wire framing but is never decrypted or materialized for management. A failed
-preview does not remove home management access. Retention defaults to 30 days;
-durable last-update/expiry evidence remains unavailable, so chrome says so and
-never invents expiry warnings. Local expiry never automatically deletes data.
+preview does not remove home management access. Retention defaults to 30 days.
+Chrome presents the native durable last-update/expiry display hints as relative
+retention time, with the absolute local date on hover. The hint stays inside the
+page card under its status badge. The seven-day warning and advisory expired state
+add a waiting mark and body text color; ordinary hints use dim text. The copy names
+retention and says the local copy stays; legacy unknown times say "Expiry starts
+after the next edit". The collapsed Details line includes the local last-edit date.
+Local expiry never automatically deletes data or ends access.
 
 Confirmation discloses shared/current history scope, the 64-epoch limit, editors'
 script power, renderer self-navigation limits and separate Remote device/agent

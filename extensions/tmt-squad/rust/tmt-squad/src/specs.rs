@@ -266,3 +266,11 @@ pub const SKILL_SHOW: &CommandSpec = spec!(
         "Print the skill; redirect it into an agent's skill directory" => "tmt squad skill show",
     ]
 );
+
+/// Offline files are checked against the built-in schema; the board never loads them.
+pub const LAYOUT: &CommandSpec = spec!("layout", "Check markup authoring files offline",
+    ["Check an authoring file" => "tmt squad layout validate board.xml"]);
+pub const LAYOUT_VALIDATE: &CommandSpec = spec!("validate", "Validate XML, styles and declared Squad bindings",
+    details = "Offline authoring check only. The board does not load this file. No core or config discovery.",
+    ["Check an authoring file" => "tmt squad layout validate board.xml",
+     "Get the validation result as JSON" => "tmt squad layout validate board.xml --json"]);

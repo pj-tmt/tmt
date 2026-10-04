@@ -172,7 +172,9 @@ toolchain, then read the map and offline Cargo graph at that cut. Recheck the
 complete catalog immediately before each component mutation; incomplete metadata
 or history fails closed. First releases need a map-owned reviewed bootstrap boundary and
 seed. Cut, injection and Project evidence share native policy's component-to-product mapping. Notes link exactly the releasable first-parent commits in the published
-ancestor range through the shared component attribution; parser/renderer pins
+ancestor range through the shared component attribution (a non-conventional subject on a
+released component is releasable under `Other changes`; see
+[PR titles](native-release.md#conventional-pr-titles)); parser/renderer pins
 are developer dependencies, not runtime owners.
 
 `cargo-workspace.mjs::readCargoWorkspace(root, {runner})` owns offline locked

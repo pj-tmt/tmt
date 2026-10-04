@@ -157,6 +157,9 @@ export async function mountedTransport(
               sharing: policy.sharing,
               archived: policy.archived,
               retentionDays: policy.retentionDays,
+              lastUpdateAtMs: policy.lastUpdateAtMs,
+              expiresAtMs: policy.expiresAtMs,
+              warnings: policy.warnings,
             };
           }),
         };

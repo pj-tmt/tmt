@@ -23,6 +23,27 @@ const nodes = (node) => [node, ...(node.children ?? []).flatMap(nodes)];
 const content = (message, node) =>
   message.slice(node.position.start.offset, node.position.end.offset);
 
+const OTHER_TYPE = 'other';
+// The pinned preset's default types (conventional-changelog-conventionalcommits 6.1.0), restated
+// because passing `types` replaces them; the visible "Other changes" group sorts last.
+const PRESET_TYPES = [
+  { type: 'feat', section: 'Features' },
+  { type: 'feature', section: 'Features' },
+  { type: 'fix', section: 'Bug Fixes' },
+  { type: 'perf', section: 'Performance Improvements' },
+  { type: 'revert', section: 'Reverts' },
+  { type: 'docs', section: 'Documentation', hidden: true },
+  { type: 'style', section: 'Styles', hidden: true },
+  { type: 'chore', section: 'Miscellaneous Chores', hidden: true },
+  { type: 'refactor', section: 'Code Refactoring', hidden: true },
+  { type: 'test', section: 'Tests', hidden: true },
+  { type: 'build', section: 'Build System', hidden: true },
+  { type: 'ci', section: 'Continuous Integration', hidden: true },
+];
+const OTHER_CHANGES = { type: OTHER_TYPE, section: 'Other changes' };
+// Matches pr-title-check's syntax: a capitalized or untyped subject is not conventional.
+const LOWERCASE_TYPE = /^[a-z][a-z0-9-]*$/;
+
 /** AST-backed conventional parsing, including nested messages; no release-please API. */
 export function parseReleaseCommits(commits) {
   const parsed = [];
@@ -37,17 +58,41 @@ export function parseReleaseCommits(commits) {
       messages.push(part.slice(0, end));
       messages[0] += part.slice(end + 'END_NESTED_COMMIT'.length);
     }
-    const parse = (message) => {
+    // Fail safe: a top-level subject that is not conventional is never dropped silently. Only its
+    // header is kept, and attribution has already limited it to a released component's paths.
+    const keepOther = (message) => {
+      const header = message.trim().split(/\r?\n/, 1)[0].trim();
+      if (!header) return;
+      parsed.push({
+        hash: commit.sha,
+        header,
+        subject: header,
+        type: OTHER_TYPE,
+        scope: null,
+        notes: [],
+        references: [],
+        body: '',
+        footer: '',
+        merge: null,
+        revert: null,
+        mentions: [],
+      });
+    };
+    const parse = (message, top = false) => {
       let ast;
       try {
         ast = parser.parser(message.trim());
       } catch {
-        return;
+        return top && keepOther(message);
       }
       message = message.trim();
       const summary = ast.children.find((node) => node.type === 'summary');
       const fields = summary.children;
-      if (!fields.some((node) => node.type === 'separator' && node.value === ':')) return;
+      if (
+        !fields.some((node) => node.type === 'separator' && node.value === ':') ||
+        (top && !LOWERCASE_TYPE.test(fields.find((node) => node.type === 'type')?.value ?? ''))
+      )
+        return top && keepOther(message);
       const subject = fields.find((node) => node.type === 'text')?.value;
       const notes = [];
       const references = [];
@@ -97,30 +142,30 @@ export function parseReleaseCommits(commits) {
         mentions: [],
       });
     };
-    for (const message of messages) parse(message);
+    parse(messages[0], true);
+    for (const message of messages.slice(1)) parse(message);
   }
   return parsed;
 }
 
+/** Names of released components a path changes: owned or closure roots plus declared private-leaf consumers. */
+export function releasedComponentNamesOfPath(path, map, workspace) {
+  const names = new Set(
+    releasedComponentsForPath(path, map, workspace).map((component) => component.name)
+  );
+  const owner = map.components.find((component) => component.name === ownerOf(path, map));
+  for (const consumer of owner?.releaseConsumers ?? []) names.add(consumer);
+  return names;
+}
+
 /** Ownership is the component map's responsibility, including private-leaf consumers. */
 export function attributeCutCommits(commits, map, product, workspace) {
-  const byName = new Map(map.components.map((c) => [c.name, c]));
   const componentName = componentOfProduct(map, product).name;
-  const selected = new Map();
-  for (const commit of commits) {
-    if (
-      commit.files.some((path) => {
-        const owner = ownerOf(path, map);
-        return (
-          releasedComponentsForPath(path, map, workspace).some(
-            (component) => component.name === componentName
-          ) || byName.get(owner)?.releaseConsumers.includes(componentName)
-        );
-      })
+  return commits.filter((commit) =>
+    commit.files.some((path) =>
+      releasedComponentNamesOfPath(path, map, workspace).has(componentName)
     )
-      selected.set(commit.sha, commit);
-  }
-  return [...selected.values()];
+  );
 }
 
 export function nextAlphaVersion(version) {
@@ -138,7 +183,7 @@ export function nextAlphaVersion(version) {
 
 export async function renderCutNotes({ commits, repository, version, previousTag, tag, date }) {
   const [owner, repo] = repository.split('/');
-  const preset = await presetFactory({});
+  const preset = await presetFactory({ types: [...PRESET_TYPES, OTHER_CHANGES] });
   preset.writerOpts.commitPartial = preset.writerOpts.commitPartial.replace(
     /,\s*closes/g,
     ', refs'

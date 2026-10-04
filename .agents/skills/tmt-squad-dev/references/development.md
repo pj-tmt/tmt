@@ -47,6 +47,13 @@ cron_service` and the native `squad.test.ts` cron cases cover actor permission, 
   covers the split squad tab, focus transfer, scoped keys and forms; `home::tests::cron` the ⑤
   cursor. Capture the home line, `c` list, split tab, expanded job and forms at 160/100/80 in
   `tmt`, `tmt-light` and `NO_COLOR` with a private HOME, `TMUX_TEAM_HOME` and tmux socket.
+- Row paint: `cargo test --locked -p tmt-squad board::view` covers painted cells and hits. A
+  scene change keeps the frozen parity capture and compares the old and new renderers on
+  literal buffers, styles and hits (themes, depths, widths, selection, stale, waiting, `⏱`,
+  annotation) before the old one goes.
+- Layout validation: `cargo test --locked -p tmt-squad layout` and the native `squad.test.ts`
+  offline case cover invalid core/config inputs, located errors, the size bound and the
+  human/JSON exit codes.
 - Tab parity: `built_in_board_documents_equal_ls_tab_documents` and
   `user_board_and_ls_share_members_sections_bindings_and_failed_reads` require board
   views and `ls --tab` to project identical documents, including hidden squads/tabs

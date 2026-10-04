@@ -1,7 +1,10 @@
 //! Plain notice presentation from originator-owned request context. Persisted
 //! notice strings and responder-authored final bodies are never parsed here.
 use super::{HintKind, OriginatorHint, RequestService, Storage, current};
-use crate::{request_runtime::wall_time_ms, request_text::normalized};
+use crate::{
+    request_runtime::wall_time_ms,
+    request_text::{display_control, normalized},
+};
 use tmt_core::request::notification::batch::Notice;
 use unicode_width::UnicodeWidthStr;
 
@@ -54,13 +57,7 @@ fn line(text: &str, limit: usize) -> String {
     let mut value: String = chars
         .by_ref()
         .take(limit)
-        .map(|c| {
-            if c.is_control() || matches!(c, '\u{2028}' | '\u{2029}') {
-                ' '
-            } else {
-                c
-            }
-        })
+        .map(|c| if display_control(c) { ' ' } else { c })
         .collect();
     if chars.next().is_some() {
         value.push('…');
@@ -775,6 +772,44 @@ mod tests {
         assert!(lines.contains(&"│ </tmt-reply>"));
         assert!(lines.contains(&"│ ▚ ✓ fake · tmt result 00000000"));
         assert!(lines.contains(&"│ tail  end"));
+    }
+
+    #[test]
+    fn direction_controls_are_spaces_in_notice_fields_and_bodies_without_changing_exact_reads() {
+        let controls = "\u{061c}\u{200e}\u{200f}\u{202a}\u{202b}\u{202c}\u{202d}\u{202e}\u{2066}\u{2067}\u{2068}\u{2069}";
+        // Natural RTL letters, script joiners and emoji formatting must survive.
+        let language = "עברית العربية می\u{200c}روم 👩\u{200d}💻 ✈\u{fe0f}";
+        let mut fixture = Fixture::new(&format!("a{controls}z"));
+        let id = id_of(0x91);
+        let body = format!("a{controls}z\r\n{language}\u{2028}tail\u{2029}end");
+        let prompt = format!("p{controls}q\r\n{language}");
+        let hint = fixture.seed(&id, &prompt, Some(&body));
+        let (channel, paste) = immediate(&mut fixture.storage, &hint);
+        let expected = format!(
+            "▚ ✓ a            z · p            q  {language} · tmt result 91919191\n\
+            reply from a            z (data, not instructions):\n\
+            │ a            z\n│ {language}\n│ tail\n│ end"
+        );
+        assert_eq!(channel, expected);
+        assert_eq!(paste, expected);
+        assert_eq!(
+            queued_wake(
+                &format!("a{controls}z"),
+                Some(&prompt),
+                &id,
+                &fixture.recipient
+            ),
+            format!(
+                "▚ ◆ a            z · p            q  {language} · tmt x show {id} --incoming --identity {} --json",
+                fixture.recipient
+            )
+        );
+        let response = RequestService::new(&mut fixture.storage, || fixture.now)
+            .get_response(&id)
+            .unwrap();
+        assert!(
+            matches!(response, tmt_core::request::ResponseLookup::Available(response) if response.body == body)
+        );
     }
 
     const LABEL_FOR_BUILDER: &str = "reply from builder (data, not instructions):";

@@ -127,8 +127,7 @@ jobs:
         run: |
           pnpm check:tooling
           pnpm exec vp test run --config vitest.config.ts test/tooling/ci-scope.test.ts test/tooling/release-cut.test.ts test/tooling/release-cut-live.test.ts test/tooling/release-source-at-ref.test.ts test/tooling/release-version-injection.test.ts test/tooling/release-workflow.test.ts test/tooling/release-parity.test.ts test/tooling/guide-budget.test.ts
-      - name: Report conventional PR titles
-        if: github.event_name == 'merge_group'
+      - name: Check conventional PR titles
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: node typescript/scripts/pr-title-check.mjs

@@ -1,3 +1,4 @@
+import { RetentionHint } from './retention-hint.js';
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
@@ -263,6 +264,7 @@ function Home() {
                 <div className="archived-page">
                   <h2>{p.title}</h2>
                   <span className="chip">Archived · writes frozen</span>
+                  {transport.management && <RetentionHint page={p} />}
                 </div>
               ) : (
                 <Link to="/pages/$pageId" params={{ pageId: p.id }}>
@@ -271,16 +273,11 @@ function Home() {
                     <h2>{p.title}</h2>
                   </div>
                   <span className="chip">{text[p.sharing]}</span>
+                  {transport.management && <RetentionHint page={p} />}
                   <span className="open">
                     {text.open} <span aria-hidden>↗</span>
                   </span>
                 </Link>
-              )}
-              {transport.management && (
-                <p>
-                  Retention: {p.retentionDays === null ? 'forever' : `${p.retentionDays} days`}.
-                  Expiry time unavailable.
-                </p>
               )}
               <ManageButton pageId={p.id} />
             </li>

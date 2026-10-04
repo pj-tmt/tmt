@@ -24,10 +24,6 @@ fn suffix(text: &str, width: usize) -> &str {
     }
     text
 }
-/// Fit an already escaped visual line; never split a grapheme.
-pub(crate) fn fit(text: &str, width: usize, middle: bool, ellipsis: bool) -> String {
-    fit_escaped(text, width, middle, ellipsis, Align::Left)
-}
 fn fit_escaped(text: &str, width: usize, middle: bool, ellipsis: bool, align: Align) -> String {
     if text.width() <= width {
         let padding = width - text.width();

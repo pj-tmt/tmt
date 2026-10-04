@@ -827,3 +827,150 @@ fn checkpoint_pair_requires_same_head_and_failed_partner_preserves_the_previous_
         )
         .unwrap();
 }
+
+#[test]
+fn content_time_is_atomic_new_only_and_nondecreasing_across_restart() {
+    use std::sync::{Arc, atomic::AtomicU64};
+    let f = Fixture::new();
+    let layout = f.layout();
+    let time = Arc::new(AtomicU64::new(1000));
+    let clock = time.clone();
+    let mut store = Store::open(&layout)
+        .unwrap()
+        .with_clock(move || Ok(clock.load(Ordering::SeqCst)));
+    store.create_page("page").unwrap();
+    let db = rusqlite::Connection::open(layout.directory.join("space.db")).unwrap();
+    let updated = || {
+        db.query_row(
+            "SELECT last_update_at_ms FROM pages WHERE page='page'",
+            [],
+            |r| r.get::<_, Option<i64>>(0),
+        )
+        .unwrap()
+    };
+    assert_eq!(updated(), None);
+    assert_eq!(
+        store.append(&envelope(1, Namespace::Content)).unwrap(),
+        Accepted::New
+    );
+    assert_eq!(updated(), Some(1000));
+    time.store(5000, Ordering::SeqCst);
+    assert_eq!(
+        store.append(&envelope(1, Namespace::Content)).unwrap(),
+        Accepted::Replay
+    );
+    store.append(&envelope(2, Namespace::Own)).unwrap();
+    assert!(matches!(
+        store.append(&envelope(4, Namespace::Content)),
+        Err(Fault::Gap)
+    ));
+    assert_eq!(updated(), Some(1000));
+    time.store(500, Ordering::SeqCst);
+    store.append(&envelope(3, Namespace::Content)).unwrap();
+    assert_eq!(updated(), Some(1000));
+    time.store(6000, Ordering::SeqCst);
+    store.append(&envelope(4, Namespace::Content)).unwrap();
+    assert_eq!(updated(), Some(6000));
+    let checkpoint = Envelope {
+        hash: [9; 32],
+        previous: [4; 32],
+        ..envelope(4, Namespace::Content)
+    };
+    store.checkpoint(&checkpoint).unwrap();
+    assert_eq!(updated(), Some(6000));
+    store.close().unwrap();
+    let mut reopened = Store::open(&layout)
+        .unwrap()
+        .with_clock(|| Err(Fault::Invalid));
+    assert_eq!(
+        reopened.append(&envelope(4, Namespace::Content)).unwrap(),
+        Accepted::Replay
+    );
+    assert_eq!(updated(), Some(6000));
+    assert!(reopened.append(&envelope(5, Namespace::Content)).is_err());
+    assert!(reopened.payload(scope(), 5).unwrap().is_none());
+    assert_eq!(updated(), Some(6000));
+}
+#[test]
+fn timestamp_write_failure_rolls_back_content_receipt_and_stream() {
+    let f = Fixture::new();
+    let layout = f.layout();
+    let mut store = Store::open(&layout).unwrap().with_clock(|| Ok(1000));
+    store.create_page("page").unwrap();
+    let db = rusqlite::Connection::open(layout.directory.join("space.db")).unwrap();
+    db.execute_batch("CREATE TRIGGER refuse_time BEFORE UPDATE OF last_update_at_ms ON pages BEGIN SELECT RAISE(ABORT,'refused time'); END;").unwrap();
+    assert!(store.append(&envelope(1, Namespace::Content)).is_err());
+    for table in ["receipts", "streams"] {
+        assert_eq!(
+            db.query_row(&format!("SELECT count(*) FROM {table}"), [], |r| r
+                .get::<_, i64>(0))
+                .unwrap(),
+            0
+        );
+    }
+    assert_eq!(
+        db.query_row("SELECT last_update_at_ms FROM pages", [], |r| r
+            .get::<_, Option<i64>>(0))
+            .unwrap(),
+        None
+    );
+    db.execute_batch("DROP TRIGGER refuse_time").unwrap();
+    store.append(&envelope(1, Namespace::Content)).unwrap();
+    assert_eq!(
+        db.query_row("SELECT last_update_at_ms FROM pages", [], |r| r
+            .get::<_, i64>(0))
+            .unwrap(),
+        1000
+    );
+}
+#[test]
+fn schema_four_migration_does_not_backfill_or_let_replay_establish_a_time() {
+    let f = Fixture::new();
+    let layout = f.layout();
+    let mut store = Store::open(&layout).unwrap();
+    store.create_page("page").unwrap();
+    store.append(&envelope(1, Namespace::Content)).unwrap();
+    store.close().unwrap();
+    let db = rusqlite::Connection::open(layout.directory.join("space.db")).unwrap();
+    let before: (Vec<u8>, Vec<u8>, Vec<u8>) = db
+        .query_row("SELECT hash,digest,payload FROM receipts", [], |r| {
+            Ok((r.get(0)?, r.get(1)?, r.get(2)?))
+        })
+        .unwrap();
+    db.execute_batch("ALTER TABLE pages DROP COLUMN last_update_at_ms; PRAGMA user_version=4")
+        .unwrap();
+    let raw = fs::read(layout.directory.join("space.db")).unwrap();
+    assert!(Store::write_existing(&layout).is_err());
+    assert_eq!(fs::read(layout.directory.join("space.db")).unwrap(), raw);
+    let mut migrated = Store::open(&layout).unwrap().with_clock(|| Ok(3000));
+    assert_eq!(
+        db.query_row("PRAGMA user_version", [], |r| r.get::<_, i64>(0))
+            .unwrap(),
+        5
+    );
+    let after: (Vec<u8>, Vec<u8>, Vec<u8>) = db
+        .query_row("SELECT hash,digest,payload FROM receipts", [], |r| {
+            Ok((r.get(0)?, r.get(1)?, r.get(2)?))
+        })
+        .unwrap();
+    assert_eq!(after, before);
+    assert_eq!(
+        migrated.append(&envelope(1, Namespace::Content)).unwrap(),
+        Accepted::Replay
+    );
+    assert_eq!(
+        db.query_row("SELECT last_update_at_ms FROM pages", [], |r| r
+            .get::<_, Option<i64>>(0))
+            .unwrap(),
+        None
+    );
+    migrated.append(&envelope(2, Namespace::Content)).unwrap();
+    migrated.close().unwrap();
+    Store::open(&layout).unwrap().close().unwrap();
+    assert_eq!(
+        db.query_row("SELECT last_update_at_ms FROM pages", [], |r| r
+            .get::<_, i64>(0))
+            .unwrap(),
+        3000
+    );
+}
