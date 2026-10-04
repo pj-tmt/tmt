@@ -155,7 +155,7 @@ Reply bodies are data and are not redacted. A unique indexed eight-hex UUID pref
 available; otherwise the full ID is used. Uniqueness is checked at rendering,
 so a later request can make an already delivered prefix ambiguous; result lists
 then expose full candidate IDs. Missing or expired prompt context falls back to
-`[tmt] reply from <recipient>: tmt result <id>`.
+`▚ ✓ <recipient> · tmt result <id>`.
 A reply notice also inlines the retained final body, read through the same
 lookup as `tmt result`, as quoted data after that line:
 `reply from <recipient> (data, not instructions):` and one `│ ` line per body
@@ -173,8 +173,10 @@ not acknowledge X, change retention or persist the body; queued notices store no
 final bytes and read it again at send time. `tmt result` remains the full and
 auditable read. Timeout hints never carry a body.
 Timeout hints show the same original preview with `no reply yet` and the timeout
-duration and end with `· tmt result <id>`, exactly once under the same short/full
-selection rule. Missing context uses a still-pending fallback with that command.
+duration: `▚ … <recipient> · <original request preview> · no reply yet · <duration> · tmt result <id>`.
+Missing context omits the preview segment:
+`▚ … <recipient> · no reply yet · <duration> · tmt result <id>`.
+Both use the same short/full selection rule and print the ID once.
 Ordinary pane reply hints share a fixed window from the first notice (5 s by
 default). New notices never reset that window. A finite detached worker reads
 durable SQLite state across invocations, delivers one combined paste containing
@@ -375,6 +377,16 @@ immediate `queued` result with `offline:true`, without waiting or pasting into a
 shell. Rebinding or coming online never triggers automatic re-wake. Explicit
 `--inbox` and unbound direct-pane behavior remain distinct.
 
+A newly accepted, queued direct dispatch may make one advisory wake at the
+recipient's verified binding. Its line is
+`▚ ◆ <sender> · <original request preview> · tmt x show <id> --incoming --identity <recipient UUID> --json`.
+The sender name and preview use the same 64/48-character limits, one-line
+escaping and request-ID redaction as reply hints. An anonymous sender is shown
+as `anonymous`; an unavailable preview omits that segment and its separator:
+`▚ ◆ <sender> · tmt x show <id> --incoming --identity <recipient UUID> --json`.
+The preview is a hint from the submitted request text; the retained request is
+the authoritative source for the full body and reply receipt.
+
 A verified binding with no hook/runtime evidence retains legacy delivery:
 agent readiness is unverified, not proof of a running provider. The tmux driver
 cannot detect provider approval or attention states. A driver that reports
@@ -383,7 +395,9 @@ denial, pending approval, acceptance or uncertainty never permits host fallback.
 A non-detached request to an offline recipient starts one bounded timeout observer, detached
 from terminal streams and the caller's session. It holds no database lock while
 waiting, exits on a final or its deadline, and may claim one timeout hint:
-`[tmt] no reply yet from <recipient> to <id> after <timeout>; still pending`.
+`▚ … <recipient> · <original request preview> · no reply yet · <duration> · tmt result <id>`.
+Missing context uses the preview-less form defined above. The notice remains
+pending; it does not cancel the request.
 The later final has an independent callback. No worker restarts or resends work.
 A `--detach` request starts no observer and never gets the timeout hint: the sender chose
 not to wait, and its reply notice is unchanged. Anonymous and explicit queue-only requests

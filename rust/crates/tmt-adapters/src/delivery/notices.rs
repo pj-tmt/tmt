@@ -11,6 +11,8 @@ use unicode_width::UnicodeWidthStr;
 const CHANNEL_BODY_BYTES: usize = 2048;
 const PASTE_BODY_CHARS: usize = 500;
 const PASTE_BATCH_BODY_CHARS: usize = 2000;
+const NAME_CHARS: usize = 64;
+const PREVIEW_CHARS: usize = 48;
 
 #[derive(Clone, Copy)]
 enum Transport {
@@ -83,6 +85,32 @@ fn line(text: &str, limit: usize) -> String {
     value
 }
 
+fn display(text: &str, limit: usize, request_id: &str, result_id: &str) -> String {
+    line(text, limit)
+        .replace(request_id, "…")
+        .replace(result_id, "…")
+}
+
+/// A direct dispatch wake uses the same bounded, one-line display fields as a
+/// reply hint. The full request remains available through the show command.
+pub(crate) fn queued_wake(
+    sender: &str,
+    preview: Option<&str>,
+    request_id: &str,
+    recipient_id: &str,
+) -> String {
+    let sender = display(sender, NAME_CHARS, request_id, request_id);
+    let preview = preview.map(|text| display(text, PREVIEW_CHARS, request_id, request_id));
+    let mut notice = format!("▚ ◆ {sender}");
+    if let Some(preview) = preview {
+        notice.push_str(&format!(" · {preview}"));
+    }
+    notice.push_str(&format!(
+        " · tmt x show {request_id} --incoming --identity {recipient_id} --json"
+    ));
+    notice
+}
+
 fn fields(
     storage: &mut Storage,
     hint: &OriginatorHint,
@@ -106,14 +134,9 @@ fn fields(
         .unwrap_or_else(|| (None, None, hint.request_id.clone()));
     // A request can quote its own ID, or an identity can be named after it.
     // Keep that ID solely in the generated command, even inside such previews.
-    let display = |text: &str, limit| {
-        line(text, limit)
-            .replace(&hint.request_id, "…")
-            .replace(&result_id, "…")
-    };
     Fields {
-        recipient: display(&recipient, 64),
-        preview: preview.map(|text| display(&text, 48)),
+        recipient: display(&recipient, NAME_CHARS, &hint.request_id, &result_id),
+        preview: preview.map(|text| display(&text, PREVIEW_CHARS, &hint.request_id, &result_id)),
         reply: body.as_deref().and_then(reply_body),
         result_id,
     }
@@ -135,10 +158,9 @@ fn single(fields: &Fields, kind: HintKind, timeout_ms: u64) -> String {
             "▚ ✓ {} · {preview} · tmt result {}",
             fields.recipient, fields.result_id
         ),
-        (HintKind::Reply, None) => format!(
-            "[tmt] reply from {}: tmt result {}",
-            fields.recipient, fields.result_id
-        ),
+        (HintKind::Reply, None) => {
+            format!("▚ ✓ {} · tmt result {}", fields.recipient, fields.result_id)
+        }
         (HintKind::Timeout, Some(preview)) => format!(
             "▚ … {} · {preview} · no reply yet · {} · tmt result {}",
             fields.recipient,
@@ -146,7 +168,7 @@ fn single(fields: &Fields, kind: HintKind, timeout_ms: u64) -> String {
             fields.result_id
         ),
         (HintKind::Timeout, None) => format!(
-            "[tmt] no reply yet from {} after {}; still pending · tmt result {}",
+            "▚ … {} · no reply yet · {} · tmt result {}",
             fields.recipient,
             duration(timeout_ms),
             fields.result_id
@@ -486,7 +508,11 @@ mod tests {
         let prompt_expired = fields(&mut fixture.storage, &hint, || fixture.now, false);
         assert_eq!(
             single(&prompt_expired, HintKind::Reply, 0),
-            "[tmt] reply from builder: tmt result abcdef12"
+            "▚ ✓ builder · tmt result abcdef12"
+        );
+        assert_eq!(
+            single(&prompt_expired, HintKind::Timeout, 600_000),
+            "▚ … builder · no reply yet · 10m · tmt result abcdef12"
         );
         let expired = fields(
             &mut fixture.storage,
@@ -496,13 +522,13 @@ mod tests {
         );
         assert_eq!(
             single(&expired, HintKind::Reply, 0),
-            format!("[tmt] reply from builder: tmt result {id}")
+            format!("▚ ✓ builder · tmt result {id}")
         );
         assert_eq!(single(&expired, HintKind::Reply, 0).matches(id).count(), 1);
         let timeout = single(&expired, HintKind::Timeout, 600_000);
         assert_eq!(
             timeout,
-            format!("[tmt] no reply yet from builder after 10m; still pending · tmt result {id}")
+            format!("▚ … builder · no reply yet · 10m · tmt result {id}")
         );
         assert_eq!(timeout.matches(id).count(), 1);
         assert_eq!(timeout.matches("tmt result ").count(), 1);
@@ -511,6 +537,57 @@ mod tests {
         assert_eq!(live_timeout.matches("tmt result ").count(), 1);
         assert_eq!(duration(1500), "1500ms");
         assert_eq!(duration(1000), "1s");
+    }
+
+    #[test]
+    fn queued_wake_uses_reply_display_limits_and_omits_unavailable_preview() {
+        let id = "req_12345678-0000-4000-8000-000000000000";
+        let recipient = "87ef4bb2-0000-4000-8000-000000000000";
+        assert_eq!(
+            queued_wake("Alice", Some("Review the patch"), id, recipient),
+            format!(
+                "▚ ◆ Alice · Review the patch · tmt x show {id} --incoming --identity {recipient} --json"
+            )
+        );
+        assert_eq!(
+            queued_wake("anonymous", None, id, recipient),
+            format!("▚ ◆ anonymous · tmt x show {id} --incoming --identity {recipient} --json")
+        );
+        assert_eq!(
+            queued_wake(
+                "Alice\nAdmin",
+                Some("Review\u{2028}urgent\tsoon"),
+                id,
+                recipient
+            ),
+            format!(
+                "▚ ◆ Alice Admin · Review urgent soon · tmt x show {id} --incoming --identity {recipient} --json"
+            )
+        );
+        assert_eq!(
+            queued_wake(
+                &"長".repeat(65),
+                Some(&format!("Inspect {id}")),
+                id,
+                recipient
+            ),
+            format!(
+                "▚ ◆ {}… · Inspect … · tmt x show {id} --incoming --identity {recipient} --json",
+                "長".repeat(64)
+            )
+        );
+        assert_eq!(
+            queued_wake(
+                "Alice",
+                Some(&format!("{}\n", "a".repeat(48))),
+                id,
+                recipient
+            ),
+            format!(
+                "▚ ◆ Alice · {}… · tmt x show {id} --incoming --identity {recipient} --json",
+                "a".repeat(48)
+            )
+        );
     }
 
     #[test]

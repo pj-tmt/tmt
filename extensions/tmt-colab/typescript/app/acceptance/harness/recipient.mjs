@@ -19,8 +19,7 @@ if (!tmt || !logPath) {
   process.exit(2);
 }
 const log = (row) => fs.appendFileSync(logPath, `${JSON.stringify(row)}\n`);
-const WAKE =
-  /^\[tmt\] request (req_[0-9a-f-]+) is queued: tmt x show \1 --incoming --identity (\S+) --json$/;
+const WAKE = /^▚ ◆ [^\r\n]+ · tmt x show (req_[0-9a-f-]+) --incoming --identity (\S+) --json$/;
 
 function run(args, stdin) {
   return new Promise((resolve) => {
