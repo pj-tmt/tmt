@@ -69,7 +69,7 @@ pub enum MemoryLimit {
     #[serde(rename = "memory limit unavailable")]
     Unavailable,
 }
-fn memory_limit() -> MemoryLimit {
+pub fn memory_limit() -> MemoryLimit {
     if cfg!(target_os = "linux") {
         MemoryLimit::Enforced
     } else {
@@ -479,8 +479,10 @@ fn validate_projection(namespace: Namespace, value: &Value) -> Result<(), Decode
             {
                 return Err(DecodeFault::InvalidOutput);
             }
-            for root in ["intents", "messages", "replies"] {
+            for root in ["threads", "intents", "messages", "replies"] {
                 for (key, value) in roots[root].as_object().ok_or(DecodeFault::InvalidOutput)? {
+                    crate::threads::validate_record(root, key, value)
+                        .map_err(|_| DecodeFault::InvalidOutput)?;
                     crate::ask::validate_record(root, key, value)
                         .map_err(|_| DecodeFault::InvalidOutput)?;
                 }

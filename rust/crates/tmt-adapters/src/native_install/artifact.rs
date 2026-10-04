@@ -224,6 +224,8 @@ fn metadata(product: Product, manifest: &Value, name: &str, target: &str) -> io:
 struct Inventory {
     skills: bool,
     companions: Vec<String>,
+    /// Optional plain files the manifest declares (`Product::optional_files`).
+    optional: Vec<String>,
 }
 
 fn inventory_bytes(product: Product, bytes: &[u8], name: &str) -> io::Result<Inventory> {
@@ -256,12 +258,23 @@ fn inventory_bytes(product: Product, bytes: &[u8], name: &str) -> io::Result<Inv
         .filter(|path| product.companions().contains(path))
         .map(|path| (*path).to_owned())
         .collect();
-    if companions.windows(2).any(|pair| pair[0] == pair[1]) {
+    let optional: Vec<String> = inventory
+        .iter()
+        .filter(|path| product.optional_files().contains(path))
+        .map(|path| (*path).to_owned())
+        .collect();
+    if companions.windows(2).any(|pair| pair[0] == pair[1])
+        || optional.windows(2).any(|pair| pair[0] == pair[1])
+    {
         return Err(invalid("Unexpected native archive asset inventory."));
     }
     let mut required: Vec<&str> = inventory
         .into_iter()
-        .filter(|path| *path != skills_tree::ROOT && !product.companions().contains(path))
+        .filter(|path| {
+            *path != skills_tree::ROOT
+                && !product.companions().contains(path)
+                && !product.optional_files().contains(path)
+        })
         .collect();
     let mut expected = product.files();
     expected.sort_unstable();
@@ -269,7 +282,11 @@ fn inventory_bytes(product: Product, bytes: &[u8], name: &str) -> io::Result<Inv
     if required != expected {
         return Err(invalid("Unexpected native archive asset inventory."));
     }
-    Ok(Inventory { skills, companions })
+    Ok(Inventory {
+        skills,
+        companions,
+        optional,
+    })
 }
 
 /// Transport-verified bytes are not an installable Artifact: only the candidate
@@ -320,9 +337,14 @@ fn decode(
     inventory: Option<Inventory>,
 ) -> io::Result<Decoded> {
     let strict = inventory.is_some();
-    let Inventory { skills, companions } = inventory.unwrap_or(Inventory {
+    let Inventory {
+        skills,
+        companions,
+        optional,
+    } = inventory.unwrap_or(Inventory {
         skills: false,
         companions: Vec::new(),
+        optional: Vec::new(),
     });
     let mut expanded = Vec::new();
     MultiGzDecoder::new(compressed)
@@ -385,6 +407,7 @@ fn decode(
                 !strict
                     || product.files().contains(name)
                     || companions.iter().any(|companion| companion == name)
+                    || optional.iter().any(|file| file == name)
                     || in_tree
             })
             .ok_or_else(|| invalid("Unexpected native archive path."))?;
@@ -396,6 +419,7 @@ fn decode(
             || entry.size() == 0
             || ((name == product.executable() || (strict && product.companions().contains(&name)))
                 && mode & 0o111 == 0)
+            || (optional.iter().any(|file| file == name) && mode & 0o111 != 0)
             || (in_tree && !skills_tree::file_fits(entry.size()))
         {
             return Err(invalid(
@@ -423,7 +447,8 @@ fn decode(
             .files()
             .iter()
             .any(|file| !files.contains_key(*file))
-            || companions.iter().any(|file| !files.contains_key(file)))
+            || companions.iter().any(|file| !files.contains_key(file))
+            || optional.iter().any(|file| !files.contains_key(file)))
     {
         return Err(invalid("Native archive is missing required files."));
     }
@@ -436,6 +461,9 @@ fn decode(
         return Err(invalid(
             "Native archive is missing its installer executable.",
         ));
+    }
+    if strict && let Some(bytes) = files.get(super::uses::FILE) {
+        super::uses::parse(product, bytes)?;
     }
     for name in files.keys() {
         if directories.contains(&format!("{root}/{name}"))

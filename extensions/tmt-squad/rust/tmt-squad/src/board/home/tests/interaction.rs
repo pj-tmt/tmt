@@ -12,10 +12,10 @@ use ratatui::{
     widgets::Paragraph,
 };
 
-fn press(app: &mut App, key: KeyCode) -> Effect {
+pub(super) fn press(app: &mut App, key: KeyCode) -> Effect {
     app.key(KeyEvent::new(key, KeyModifiers::NONE))
 }
-fn board(documents: &[(&str, Value)]) -> App {
+pub(super) fn board(documents: &[(&str, Value)]) -> App {
     let fixture = Fixture::new("");
     let acquired = fixture.acquired(documents);
     let mut order = documents
@@ -38,11 +38,11 @@ fn board(documents: &[(&str, Value)]) -> App {
     app.apply(snapshot);
     app
 }
-fn keys(app: &mut App, codes: &[KeyCode]) -> Effect {
+pub(super) fn keys(app: &mut App, codes: &[KeyCode]) -> Effect {
     codes.iter().fold(Effect::None, |_, code| press(app, *code))
 }
 
-fn waiting() -> Value {
+pub(super) fn waiting() -> Value {
     let mut member = row("W", "worker", "blocked");
     member["waitingOnYou"] = json!([{"requestId":"q1","preparedAtMs":20,"preview":"private question one"},{"requestId":"q2","preparedAtMs":30,"preview":"private question two"}]);
     document("a", row("L", "lead-a", "working"), vec![member])
@@ -254,7 +254,7 @@ fn snapshots() -> Value {
                     );
                     paint::render_at(frame, &app, Rect::new(0, 1, width, 22), 100);
                     frame.render_widget(
-                        Paragraph::new(paint::hints(width as usize)),
+                        Paragraph::new(paint::hints(width as usize, false)),
                         Rect::new(0, 23, width, 1),
                     );
                 })

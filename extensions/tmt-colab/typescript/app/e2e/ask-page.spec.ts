@@ -56,9 +56,18 @@ test('live Page selection opens a parent picker, freezes preview through sync an
   );
   expect((await run(page, 'proof')).sends).toEqual([]);
   await page.getByRole('button', { name: 'Send', exact: true }).click();
-  await expect(page.locator('.ask-preview [role=status]')).toContainText('Accepted');
-  expect((await run(page, 'proof')).sends).toHaveLength(1);
+  // An accepted Send closes the preview; the page's own ask entry takes the focus once admitted.
+  await expect(page.getByTestId('ask-preview')).toHaveCount(0);
+  const sent = (await run(page, 'proof')).sends;
+  expect(sent).toHaveLength(1);
+  expect(sent[0].message).toContain(
+    'Link: https://example.test/x/colab/#space=' + 'a'.repeat(32) + '&path=%2Fpages%2F',
+  );
   await expect(page.getByText('No asks on this page yet.')).toBeVisible();
+  await run(page, 'syncSent');
+  const entry = page.locator(`[data-testid=ask-entry][data-operation-id="${sent[0].operationId}"]`);
+  await expect(entry).toBeFocused();
+  await expect(entry).toBeInViewport();
   await run(page, 'syncRecords');
   await expect(
     page.getByRole('region', { name: 'Page asks' }).getByText('<script>inert ask</script>'),

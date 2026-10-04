@@ -21,6 +21,7 @@ pub struct Intent {
     pub space: String,
     pub page: String,
     pub thread: String,
+    pub message_ids: Vec<String>,
     pub machine: String,
     pub agent: String,
     pub operation_id: String,
@@ -74,7 +75,7 @@ impl SignedAsk {
                 .map_err(|_| Invalid)?,
         ) as usize;
         let ids = framing::fields(&f[5][4..], count, 10_240)?;
-        let ids: Vec<_> = ids.iter().map(|v| utf8(v)).collect::<Result<_>>()?;
+        let ids: Vec<&str> = ids.iter().map(|v| utf8(v)).collect::<Result<_>>()?;
         require(framing::id_list(&ids, false)? == f[5])?;
         let message = values::binary(&self.final_bytes, MESSAGE_BYTES)?;
         require(f[9] == Sha256::digest(&message).as_slice())?;
@@ -82,6 +83,7 @@ impl SignedAsk {
             space: at(2)?.into(),
             page: at(3)?.into(),
             thread: at(4)?.into(),
+            message_ids: ids.iter().map(|id| (*id).into()).collect(),
             machine: at(6)?.into(),
             agent: at(7)?.into(),
             operation_id: at(8)?.into(),

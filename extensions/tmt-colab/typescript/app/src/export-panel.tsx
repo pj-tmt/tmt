@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { DISCLOSURE, Downloads, type ExportFile } from './export.js';
+import { DISCLOSURE, Downloads, EXPORT_FILES, type ExportFile } from './export.js';
 import type { PageBinding } from './transport.js';
 import { text } from './strings.js';
 
@@ -64,14 +64,14 @@ export function ExportPanel({ binding, blocked }: { binding?: PageBinding; block
               ? text.exportPreparing
               : state === 'failed'
                 ? text.exportFailed
-                : requested.length === 1
-                  ? text.exportPartial
-                  : requested.length === 2
-                    ? text.exportRequested
+                : requested.length === EXPORT_FILES.length
+                  ? text.exportRequested
+                  : requested.length > 0
+                    ? text.exportPartial
                     : text.exportReady}
           </p>
           <div className="export-actions">
-            {(['page.html', 'manifest.json'] as const).map((name) => (
+            {EXPORT_FILES.map((name) => (
               <button
                 key={name}
                 disabled={blocked || state !== 'ready'}

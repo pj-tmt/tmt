@@ -77,6 +77,56 @@ impl Layout {
             .map(|shared| Self { shared })
             .map_err(state_error)
     }
+    /// Lookup only; status must never initialize Remote state.
+    pub fn existing(data_root: &Path) -> Result<Option<Self>, RemoteError> {
+        tmt_extension_state::Layout::existing(data_root, "remote", &FILES)
+            .map(|layout| layout.map(|shared| Self { shared }))
+            .map_err(state_error)
+    }
+    pub fn read_file(&self, name: &str) -> Result<Option<File>, RemoteError> {
+        match self.shared.read_file(name) {
+            Ok(file) => Ok(Some(file)),
+            Err(StateError::ReadOpen(error)) if error.kind() == std::io::ErrorKind::NotFound => {
+                Ok(None)
+            }
+            Err(error) => Err(state_error(error)),
+        }
+    }
+    /// Take an existing lease without creating a lock file. A missing lease
+    /// beside a database is damaged state, not evidence that serve stopped.
+    pub fn existing_serve_lock(&self) -> Result<Option<Serving>, RemoteError> {
+        match self.read_file("serve.lock")? {
+            Some(lock) => self.lock_file(lock).map(Some),
+            None if self.read_file("remote.db")?.is_none() => Ok(None),
+            None => Err(RemoteError::new(
+                "REMOTE_STATE_UNAVAILABLE",
+                "Remote database has no lifecycle lock.",
+            )),
+        }
+    }
+    /// Confirm the original foreground has released its lease without opening
+    /// state for writing or identifying/signalling any process. A concurrent
+    /// successor can keep this busy; never stop it to satisfy this wait.
+    pub fn wait_for_release(
+        &self,
+        deadline: std::time::Instant,
+    ) -> Result<Option<Serving>, RemoteError> {
+        loop {
+            match self.existing_serve_lock() {
+                Ok(lease) => return Ok(lease),
+                Err(error) if error.code == "REMOTE_ALREADY_SERVING" => {}
+                Err(error) => return Err(error),
+            }
+            let remaining = deadline.saturating_duration_since(std::time::Instant::now());
+            if remaining.is_zero() {
+                return Err(RemoteError::new(
+                    "REMOTE_STOP_TIMEOUT",
+                    "Shutdown was requested, but Remote did not release its lifecycle lease within the stop deadline.",
+                ));
+            }
+            std::thread::sleep(remaining.min(std::time::Duration::from_millis(50)));
+        }
+    }
     pub fn file(&self, name: &str) -> Result<File, RemoteError> {
         self.shared.file(name).map_err(state_error)
     }
@@ -84,7 +134,9 @@ impl Layout {
     /// The returned [`Serving`] is the only way to open remote state, so a
     /// second process cannot open the database while serve runs.
     pub fn serve_lock(&self) -> Result<Serving, RemoteError> {
-        let lock = self.file("serve.lock")?;
+        self.lock_file(self.file("serve.lock")?)
+    }
+    fn lock_file(&self, lock: File) -> Result<Serving, RemoteError> {
         lock.try_lock().map_err(|error| match error {
             std::fs::TryLockError::WouldBlock => {
                 RemoteError::new("REMOTE_ALREADY_SERVING", "Remote is already serving.")

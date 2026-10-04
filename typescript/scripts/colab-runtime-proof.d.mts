@@ -7,3 +7,5 @@ export function verifyColabApp(options: {
   notices: string;
   tmtExecutable?: string;
 }): Promise<void>;
+export function appEntries(text?: string): { html: string[]; text: string[] };
+export function expectedFiles(directory: string): Map<string, Buffer>;

@@ -15,6 +15,7 @@ pub enum Verb {
     Notes,
     Refresh,
     TokenWindow,
+    PickTab,
     Theme,
     Settings,
     View,
@@ -26,6 +27,7 @@ pub enum Verb {
     /// Opens the tab of the row's squad (the `all` tab's Enter).
     Tab,
     Talk,
+    AskLead,
     Reply,
     Annotate,
 }
@@ -40,6 +42,7 @@ impl Verb {
             "notes" => Self::Notes,
             "refresh" => Self::Refresh,
             "token-window" => Self::TokenWindow,
+            "pick-tab" => Self::PickTab,
             "theme" => Self::Theme,
             "settings" => Self::Settings,
             "view" => Self::View,
@@ -49,10 +52,27 @@ impl Verb {
             "menu" => Self::Menu,
             "tab" => Self::Tab,
             "talk" => Self::Talk,
+            "ask-lead" => Self::AskLead,
             "reply" => Self::Reply,
             "annotate" => Self::Annotate,
             _ => return None,
         })
+    }
+
+    /// Verbs that resolve against the selected member row.
+    pub fn acts_on_member(self) -> bool {
+        matches!(
+            self,
+            Self::Jump
+                | Self::Open
+                | Self::Copy
+                | Self::Run
+                | Self::Menu
+                | Self::Tab
+                | Self::Talk
+                | Self::Reply
+                | Self::Annotate
+        )
     }
 
     pub fn name(self) -> &'static str {
@@ -64,6 +84,7 @@ impl Verb {
             Self::Notes => "notes",
             Self::Refresh => "refresh",
             Self::TokenWindow => "token-window",
+            Self::PickTab => "pick-tab",
             Self::Theme => "theme",
             Self::Settings => "settings",
             Self::View => "view",
@@ -73,6 +94,7 @@ impl Verb {
             Self::Menu => "menu",
             Self::Tab => "tab",
             Self::Talk => "talk",
+            Self::AskLead => "ask-lead",
             Self::Reply => "reply",
             Self::Annotate => "annotate",
         }
@@ -143,6 +165,7 @@ impl Action {
             Verb::Notes => "show the lead's notes".into(),
             Verb::Refresh => "refresh the board now".into(),
             Verb::TokenWindow => "switch the token time window".into(),
+            Verb::PickTab => "include or exclude a tab on this board".into(),
             Verb::Theme => "pick a theme".into(),
             Verb::Settings => "show settings".into(),
             Verb::View => "pick a pane layout".into(),
@@ -163,6 +186,7 @@ impl Action {
             Verb::Menu => "show actions for this row".into(),
             Verb::Tab => "open the selected squad".into(),
             Verb::Talk => "send the member a message".into(),
+            Verb::AskLead => "ask the lead what waits on you".into(),
             Verb::Reply => "answer the member's request".into(),
             Verb::Annotate if target == Some("member") => "send the member a note".into(),
             Verb::Annotate => "send the lead a note".into(),
@@ -326,6 +350,7 @@ pub fn preset(tmux: bool, panes: &[crate::config::Pane]) -> Bindings {
         ("t", "talk"),
         ("r", "reply"),
         ("a", "annotate lead"),
+        ("A", "ask-lead"),
         ("o", "open"),
         ("y", "copy"),
         ("n", "notes"),

@@ -25,10 +25,12 @@ export interface RemoteSdk {
 }
 export interface Registration {
   remoteSession?: unknown;
+  deviceName?: string;
   deviceId: string;
   keys: DeviceKeys;
   chain: certificate.Chain;
-  issuer: statement.Envelope;
+  /** Absent for a read-only link device, which has no member issuer to verify. */
+  issuer?: statement.Envelope;
 }
 export async function remoteSdk(): Promise<RemoteSdk> {
   const path = '/sdk/remote-v1.js';
@@ -110,11 +112,11 @@ export async function register(mount: URL, sdk: RemoteSdk): Promise<Registration
       equal(c.signingKey, keys.signPublic) &&
       equal(c.encryptionKey, keys.enc.publicKey()),
   );
-  return { deviceId, keys, chain, issuer, remoteSession };
+  return { deviceId, keys, chain, issuer, remoteSession, deviceName: session.name };
 }
 /** Call only with the root bound to the selected space, before trusting registration. */
 export async function verifyRegistration(value: Registration, space: string, owner: Uint8Array) {
-  requireValue((await deriveSpaceId(owner)) === space);
+  requireValue((await deriveSpaceId(owner)) === space && value.issuer !== undefined);
   const verified = await value.issuer.verifyNext(space, owner, null),
     c = value.chain.certificate();
   requireValue(

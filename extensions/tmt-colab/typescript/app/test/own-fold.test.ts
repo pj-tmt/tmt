@@ -133,9 +133,7 @@ it('prepares immutable own records without publishing until the durable append i
   const prepared = await run({
     type: 'prepare-own',
     writer: a,
-    root: 'messages',
-    key: `${a}:1`,
-    value,
+    records: [{ root: 'messages', key: `${a}:1`, value }],
   });
   expect(prepared.own[a].messages[`${a}:1`]).toEqual(value);
   expect((await run({ type: 'apply', updates: [] })).own).toEqual({});
@@ -149,10 +147,77 @@ it('prepares immutable own records without publishing until the durable append i
     run({
       type: 'prepare-own',
       writer: a,
-      root: 'messages',
-      key: `${a}:1`,
-      value: { ...value, state: 'accepted' },
+      records: [{ root: 'messages', key: `${a}:1`, value: { ...value, state: 'accepted' } }],
     }),
   ).rejects.toThrow();
   expect((await run({ type: 'apply', updates: [] })).own).toEqual(admitted.own);
+});
+
+it('thread creation prepares one atomic typed batch; malformed and conflicting candidates preserve committed state', async () => {
+  const fixture = JSON.parse(
+    readFileSync(new URL('../../../contracts/vectors/discussion-v1.json', import.meta.url), 'utf8'),
+  );
+  const run = await worker();
+  const records = [
+    { root: 'threads' as const, key: `${fixture.thread.threadId}:1`, value: fixture.thread },
+    {
+      root: 'messages' as const,
+      key: `${fixture.comment.messageId}:1`,
+      value: { ...fixture.comment, senderDevice: fixture.thread.senderDevice },
+    },
+  ];
+  const draft = await run({ type: 'prepare-own', writer: fixture.thread.senderDevice, records });
+  expect((await run({ type: 'apply', updates: [] })).own).toEqual({});
+  const committed = await run({
+    type: 'apply',
+    updates: [],
+    own: [{ writer: fixture.thread.senderDevice, update: draft.update }],
+  });
+  expect(Object.keys(committed.own[fixture.thread.senderDevice].threads)).toHaveLength(1);
+  expect(Object.keys(committed.own[fixture.thread.senderDevice].messages)).toHaveLength(1);
+  await expect(
+    run({
+      type: 'prepare-own',
+      writer: fixture.thread.senderDevice,
+      records: [records[0], { ...records[1], value: { ...records[1].value, body: 'conflicting' } }],
+    }),
+  ).rejects.toThrow();
+  await expect(
+    run({
+      type: 'prepare-own',
+      writer: fixture.thread.senderDevice,
+      records: [{ ...records[0], root: 'replies' }],
+    }),
+  ).rejects.toThrow();
+  expect((await run({ type: 'apply', updates: [] })).own).toEqual(committed.own);
+});
+
+it('admitted discussion updates cannot overwrite or remove existing immutable keys', async () => {
+  const fixture = JSON.parse(
+    readFileSync(new URL('../../../contracts/vectors/discussion-v1.json', import.meta.url), 'utf8'),
+  );
+  for (const remove of [false, true]) {
+    const run = await worker(),
+      doc = new Y.Doc(),
+      key = `${fixture.thread.threadId}:1`;
+    doc.getMap('threads').set(key, fixture.thread);
+    const first = Y.encodeStateAsUpdate(doc),
+      vector = Y.encodeStateVector(doc);
+    const before = await run({
+      type: 'apply',
+      updates: [],
+      own: [{ writer: fixture.thread.senderDevice, update: first }],
+    });
+    if (remove) doc.getMap('threads').delete(key);
+    else doc.getMap('threads').set(key, { ...fixture.thread, resolved: true });
+    await expect(
+      run({
+        type: 'apply',
+        updates: [],
+        own: [{ writer: fixture.thread.senderDevice, update: Y.encodeStateAsUpdate(doc, vector) }],
+      }),
+    ).rejects.toThrow();
+    expect((await run({ type: 'apply', updates: [] })).own).toEqual(before.own);
+    doc.destroy();
+  }
 });

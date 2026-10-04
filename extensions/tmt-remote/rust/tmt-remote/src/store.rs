@@ -47,6 +47,38 @@ impl Store {
         migrate(&mut connection)?;
         Ok(Self { connection })
     }
+    pub fn remembered_port(&self) -> Result<Option<u16>, RemoteError> {
+        read_port(&self.connection)
+    }
+    /// Persist only an actual bound port; the foreground lease serializes writers.
+    pub fn remember_port(&self, port: u16) -> Result<(), RemoteError> {
+        if port == 0 {
+            return Err(database("cannot remember an unbound port"));
+        }
+        self.connection.execute(
+            "INSERT INTO door_port VALUES (1, ?1) ON CONFLICT(singleton) DO UPDATE SET port=excluded.port",
+            [port],
+        ).map_err(database)?;
+        Ok(())
+    }
+    /// Read stopped state under the existing lease, without initialization,
+    /// migrations, journal changes or a second opener beside a live serve.
+    pub fn stopped_port(serving: &Serving) -> Result<Option<u16>, RemoteError> {
+        let layout = serving.layout();
+        let Some(_file) = layout.read_file("remote.db")? else {
+            return Ok(None);
+        };
+        let connection = Connection::open_with_flags(
+            layout.directory.join("remote.db"),
+            OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NOFOLLOW,
+        )
+        .map_err(database)?;
+        let count = migration_count(&connection)?;
+        if count < MIGRATIONS.len() {
+            return Ok(None);
+        }
+        read_port(&connection)
+    }
     /// The machine identity, created on first use inside one transaction.
     pub fn machine(&mut self) -> Result<Machine, RemoteError> {
         let transaction = self
@@ -93,7 +125,7 @@ impl Store {
 }
 /// Ordered schema history in the core `_migrations` shape. Append only; a
 /// recorded name must match, and a newer database than this build refuses.
-const MIGRATIONS: [(&str, &str); 4] = [
+const MIGRATIONS: [(&str, &str); 5] = [
     (
         "machine",
         "CREATE TABLE machine(
@@ -148,7 +180,30 @@ const MIGRATIONS: [(&str, &str); 4] = [
             client_id TEXT NOT NULL,envelope_id TEXT NOT NULL,operation TEXT NOT NULL,operation_id TEXT,resources_json TEXT NOT NULL,
             digest BLOB NOT NULL,grant_revision INTEGER NOT NULL,decision TEXT NOT NULL,code TEXT NOT NULL);",
     ),
+    (
+        "door_port",
+        "CREATE TABLE door_port(
+             singleton INTEGER PRIMARY KEY CHECK(singleton = 1),
+             port INTEGER NOT NULL CHECK(port BETWEEN 1 AND 65535))",
+    ),
 ];
+fn read_port(connection: &Connection) -> Result<Option<u16>, RemoteError> {
+    let port: Option<i64> = connection
+        .query_row(
+            "SELECT port FROM door_port WHERE singleton = 1",
+            [],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(database)?;
+    port.map(|port| {
+        u16::try_from(port)
+            .ok()
+            .filter(|port| *port != 0)
+            .ok_or_else(|| database("invalid remembered door port"))
+    })
+    .transpose()
+}
 /// Default scopes, sorted bytewise.
 pub const DEFAULT_SCOPES: [&str; 5] = [
     "agents.read",
@@ -464,6 +519,23 @@ fn migrate(connection: &mut Connection) -> Result<(), RemoteError> {
             "CREATE TABLE IF NOT EXISTS _migrations (version INTEGER PRIMARY KEY, name TEXT NOT NULL, applied_at TEXT NOT NULL)",
         )
         .map_err(database)?;
+    let applied = migration_count(connection)?;
+    for (index, (name, sql)) in MIGRATIONS.iter().enumerate().skip(applied) {
+        let transaction = connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(database)?;
+        transaction.execute_batch(sql).map_err(database)?;
+        transaction
+            .execute(
+                "INSERT INTO _migrations (version, name, applied_at) VALUES (?1, ?2, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))",
+                rusqlite::params![index as i64 + 1, name],
+            )
+            .map_err(database)?;
+        transaction.commit().map_err(database)?;
+    }
+    Ok(())
+}
+fn migration_count(connection: &Connection) -> Result<usize, RemoteError> {
     let applied: Vec<(i64, String)> = connection
         .prepare("SELECT version, name FROM _migrations ORDER BY version")
         .and_then(|mut query| {
@@ -483,20 +555,7 @@ fn migrate(connection: &mut Connection) -> Result<(), RemoteError> {
             return Err(database("unexpected migration history"));
         }
     }
-    for (index, (name, sql)) in MIGRATIONS.iter().enumerate().skip(applied.len()) {
-        let transaction = connection
-            .transaction_with_behavior(TransactionBehavior::Immediate)
-            .map_err(database)?;
-        transaction.execute_batch(sql).map_err(database)?;
-        transaction
-            .execute(
-                "INSERT INTO _migrations (version, name, applied_at) VALUES (?1, ?2, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))",
-                rusqlite::params![index as i64 + 1, name],
-            )
-            .map_err(database)?;
-        transaction.commit().map_err(database)?;
-    }
-    Ok(())
+    Ok(applied.len())
 }
 fn random<const N: usize>() -> Result<[u8; N], RemoteError> {
     let mut bytes = [0; N];

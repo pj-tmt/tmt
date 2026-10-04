@@ -32,3 +32,6 @@ pub const CORE_CALL: Duration = Duration::from_secs(15);
 /// A dispatch fence can perform receipt lookup and creation, each with a one-second
 /// cleanup budget. Authority writes wait beyond both calls with eight seconds' margin.
 pub const AUTHORITY_WAIT: Duration = Duration::from_secs(40);
+
+/// Bounded graceful-stop confirmation after the control acknowledgment.
+pub const STOP_WAIT: Duration = Duration::from_secs(40);

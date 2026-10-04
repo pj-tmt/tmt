@@ -85,6 +85,7 @@ impl Worker {
             let caller = crate::me::caller(&initial).ok().flatten();
             let mut changes =
                 Changes::new(Config::locate(&initial).ok(), provider::Cache::directory());
+            let mut places = super::cronboard::Places::new(crate::effects::tmux_socket());
             serve(
                 &pending,
                 |snapshot, generation| {
@@ -116,6 +117,15 @@ impl Worker {
                     let event = match job {
                         Deferred::Attention(job) => super::BoardEvent::Attention {
                             attention: job.complete(&reader),
+                            cancellation: cancellation.clone(),
+                        },
+                        Deferred::Cron(job) => super::BoardEvent::Cron {
+                            read: super::cronboard::fetch(
+                                &reader,
+                                *job,
+                                crate::status::now_ms() as i64,
+                                &mut places,
+                            ),
                             cancellation: cancellation.clone(),
                         },
                         Deferred::Notebook { identity, revision } => super::BoardEvent::Notebook {
@@ -207,6 +217,8 @@ struct Reload {
 struct Loaded {
     snapshot: Snapshot,
     attention: Option<AttentionJob>,
+    /// Every tab shows the cron projection, so any readable config schedules it.
+    cron: Option<super::cronboard::Fetch>,
 }
 
 impl Loaded {
@@ -214,6 +226,7 @@ impl Loaded {
         Self {
             snapshot,
             attention: None,
+            cron: None,
         }
     }
 }
@@ -221,6 +234,7 @@ impl Loaded {
 /// The existing worker's lower-priority work, behind full reloads.
 enum Deferred {
     Attention(Box<AttentionJob>),
+    Cron(Box<super::cronboard::Fetch>),
     Usage(super::rate::Input),
     Notebook { identity: String, revision: u64 },
 }
@@ -377,6 +391,7 @@ fn serve(
         let Loaded {
             snapshot,
             attention: job,
+            cron,
         } = load(wanted.squad, wanted.generation, wanted.preview_panes);
         if generation.load(Ordering::Acquire) != wanted.generation {
             continue;
@@ -409,6 +424,12 @@ fn serve(
                 )
             });
         if !publish(snapshot, wanted.generation) {
+            break;
+        }
+        if let Some(job) = cron
+            && generation.load(Ordering::Acquire) == wanted.generation
+            && !deferred(Deferred::Cron(Box::new(job)), wanted.generation)
+        {
             break;
         }
         if let Some(job) = job
@@ -521,6 +542,9 @@ fn load(
         Ok(view)
     })()
     .map_err(|error: crate::core::SquadError| error.to_string());
+    let cron = config.as_ref().ok().map(|config| super::cronboard::Fetch {
+        config: config.clone(),
+    });
     let job = config
         .ok()
         .zip(deferred)
@@ -542,6 +566,7 @@ fn load(
             view,
         },
         attention: job,
+        cron,
     }
 }
 
@@ -627,6 +652,7 @@ fn squad_view(
         derived: Default::default(),
         rows,
         render: config.notes_render(&squad.name)?,
+        ask_lead: config.ask_lead(&squad.name)?,
         bindings: config.bindings_for_tab(&squad.name, tmux, &board.panes)?,
         section_bindings: sections.into_iter().map(|section| section.bind).collect(),
         configured_bindings: config.configured_bindings()?,
@@ -684,6 +710,7 @@ fn member_view(
             .collect()
     });
     let view = View {
+        ask_lead: config.ask_lead("")?,
         token_rate: None,
         home: None,
         derived: Default::default(),
@@ -729,6 +756,7 @@ fn all_view(
     let (loaded, home) = super::home::load(core, config, squads, tabs, me.as_ref())?;
     let bindings = config.bindings_for_tab(ALL, false, &[])?;
     let view = View {
+        ask_lead: config.ask_lead("")?,
         token_rate: None,
         home: Some(home),
         derived: Default::default(),
@@ -1637,7 +1665,7 @@ esac
     }
 
     #[test]
-    fn the_shown_snapshot_is_published_before_other_tab_attention() {
+    fn the_shown_snapshot_is_published_before_cron_and_other_tab_attention() {
         let (sender, pending) = mpsc::channel();
         sender
             .send(Work::Reload(Reload {
@@ -1652,6 +1680,10 @@ esac
             std::env::temp_dir().join(format!("squad-attention-order-{}.toml", std::process::id())),
         )
         .unwrap();
+        let cron = super::super::cronboard::Fetch {
+            config: config.clone(),
+        };
+        let mut cron = Some(cron);
         let mut config = Some(config);
         serve(
             &pending,
@@ -1671,13 +1703,18 @@ esac
                     me: None,
                     document: json!({}),
                 }),
+                cron: cron.take(),
             },
-            |_, _| {
-                steps.borrow_mut().push("attention");
+            |job, _| {
+                steps.borrow_mut().push(match job {
+                    Deferred::Cron(_) => "cron",
+                    Deferred::Attention(_) => "attention",
+                    _ => "other",
+                });
                 true
             },
         );
-        assert_eq!(*steps.borrow(), ["shown", "attention"]);
+        assert_eq!(*steps.borrow(), ["shown", "cron", "attention"]);
     }
     #[test]
     fn squad_leads_and_all_default_to_ctrl_r_refresh_and_keep_their_override_owners() {

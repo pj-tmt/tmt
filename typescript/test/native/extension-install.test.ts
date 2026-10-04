@@ -309,18 +309,27 @@ describe('tmt extension install surface', () => {
       const tamperedPath = path.join(release, 'LICENSE');
       writeFileSync(tamperedPath, 'user edits\n');
       const before = readFileSync(tamperedPath);
+      const quotedPrefix = `'${realpathSync(prefix).replace(/'/g, "'\\''")}'`;
+      const repairCommand = `tmt extension install squad --repair --yes --prefix ${quotedPrefix}`;
+      // Listing keeps going and reports the damaged entry with the same exact repair.
+      const listed = await cli(['extension', 'list', '--prefix', prefix]);
+      expect(listed.status).toBe(0);
+      const squadRow = (
+        parseWholeStdout(listed) as {
+          extensions: { name: string; status?: string; hint?: string }[];
+        }
+      ).extensions.find((entry) => entry.name === 'squad');
+      expect(squadRow?.status).toBe('repairRequired');
+      expect(squadRow?.hint).toContain(repairCommand);
+      expect(squadRow?.hint?.match(/tmt extension/g)).toHaveLength(1);
       for (const args of [
-        ['extension', 'list', '--prefix', prefix],
         ['extension', 'install', 'squad', '--yes', '--prefix', prefix],
         ['extension', 'upgrade', 'squad', '--yes', '--prefix', prefix],
       ]) {
         const error = expectError(await cli(args), 'EXTENSION_REPAIR_REQUIRED').error as {
           message: string;
         };
-        const quotedPrefix = `'${realpathSync(prefix).replace(/'/g, "'\\''")}'`;
-        expect(error.message).toContain(
-          `Repair this release with: tmt extension install squad --repair --yes --prefix ${quotedPrefix}`
-        );
+        expect(error.message).toContain(`Repair this release with: ${repairCommand}`);
         expect(error.message.match(/tmt extension/g)).toHaveLength(1);
         expect(error.message).not.toContain('Inspect with:');
         expect(readFileSync(tamperedPath).equals(before)).toBe(true);
@@ -328,15 +337,20 @@ describe('tmt extension install surface', () => {
       const outside = path.join(sandbox.root, 'outside');
       writeFileSync(outside, 'outside sentinel');
       symlinkSync(outside, path.join(release, 'foreign-link'));
-      for (const args of [
-        ['extension', 'list', '--prefix', prefix],
-        ['extension', 'install', 'squad', '--repair', '--yes', '--prefix', prefix],
-      ]) {
-        const error = expectError(await cli(args), 'EXTENSION_INSTALLATION_INVALID').error as {
-          message: string;
-        };
-        expect(error.message).not.toContain('--repair');
-      }
+      const unsafe = await cli(['extension', 'list', '--prefix', prefix]);
+      expect(unsafe.status).toBe(0);
+      const unsafeRow = (
+        parseWholeStdout(unsafe) as {
+          extensions: { name: string; status?: string; hint?: string; detail?: string }[];
+        }
+      ).extensions.find((entry) => entry.name === 'squad');
+      expect(unsafeRow?.status).toBe('invalid');
+      expect(`${unsafeRow?.hint} ${unsafeRow?.detail}`).not.toContain('--repair');
+      const error = expectError(
+        await cli(['extension', 'install', 'squad', '--repair', '--yes', '--prefix', prefix]),
+        'EXTENSION_INSTALLATION_INVALID'
+      ).error as { message: string };
+      expect(error.message).not.toContain('--repair');
       expect(readFileSync(outside, 'utf8')).toBe('outside sentinel');
       expect(readFileSync(tamperedPath).equals(before)).toBe(true);
       expect(readFileSync(receiptPath).equals(healthyReceipt)).toBe(true);
@@ -372,16 +386,28 @@ describe('tmt extension install surface', () => {
       writeFileSync(path.join(old, 'LICENSE'), 'user edits');
       writeFileSync(path.join(old, 'foreign.txt'), 'keep foreign content');
       const repair = ['extension', 'install', 'squad', '--repair', '--yes', '--prefix', prefix];
-      for (const args of [['extension', 'list', '--prefix', prefix], repair]) {
-        const result = await cli(args);
-        expect(result.status).toBe(1);
-        const error = expectError(result, 'EXTENSION_REPAIR_REQUIRED').error as { message: string };
-        expect(error.message).toContain(
-          "--archive '<original-archive>' --manifest '<matching-manifest>'"
-        );
-        expect(error.message.match(/tmt extension/g)).toHaveLength(1);
-        expect(realpathSync(current)).toBe(old);
-      }
+      // Listing reports the damaged entry with its exact repair instead of failing as a whole.
+      const listed = await cli(['extension', 'list', '--prefix', prefix]);
+      expect(listed.status).toBe(0);
+      const row = (
+        parseWholeStdout(listed) as {
+          extensions: { name: string; status?: string; path?: string; hint?: string }[];
+        }
+      ).extensions.find((entry) => entry.name === 'squad');
+      expect(row).toMatchObject({ status: 'repairRequired' });
+      expect(row?.path).toBe(path.join(prefix, 'bin/tmt-squad'));
+      expect(row?.hint).toContain(
+        "--archive '<original-archive>' --manifest '<matching-manifest>'"
+      );
+      expect(row?.hint?.match(/tmt extension/g)).toHaveLength(1);
+      const refused = await cli(repair);
+      expect(refused.status).toBe(1);
+      const error = expectError(refused, 'EXTENSION_REPAIR_REQUIRED').error as { message: string };
+      expect(error.message).toContain(
+        "--archive '<original-archive>' --manifest '<matching-manifest>'"
+      );
+      expect(error.message.match(/tmt extension/g)).toHaveLength(1);
+      expect(realpathSync(current)).toBe(old);
       expectError(
         await cli(['extension', 'install', 'squad', '--repair', '--prefix', prefix, ...inputs]),
         'EXTENSION_CONSENT_REQUIRED'
@@ -410,6 +436,114 @@ describe('tmt extension install surface', () => {
       expect(realpathSync(current)).toBe(active);
     });
   }, 60_000);
+
+  it('declares optional uses, lists them, answers extensions.uses and warns before removing what they use', async () => {
+    await withSandbox(async (sandbox) => {
+      const cli = (args: string[]) =>
+        runCli(sandbox, [...args, '--json'], { deadlineMs: INSTALL_PROCESS_BUDGET_MS });
+      const uses = JSON.stringify({
+        version: 1,
+        uses: [
+          {
+            feature: 'browser-access',
+            label: 'Browser access',
+            extension: 'remote',
+            requires: '>=0.1.0-alpha.1',
+          },
+        ],
+      });
+      const install = async (product: 'colab' | 'remote', version: string, declared?: string) => {
+        const artifact = await createArtifact(
+          sandbox,
+          version,
+          new Uint8Array(),
+          product,
+          undefined,
+          {},
+          undefined,
+          declared
+        );
+        const result = await cli([
+          'extension',
+          'install',
+          product,
+          '--yes',
+          '--channel',
+          'alpha',
+          '--archive',
+          artifact.archive,
+          '--manifest',
+          artifact.manifest,
+        ]);
+        expect(result.status, result.stdout + result.stderr).toBe(0);
+      };
+      type UseRow = { available: boolean; reason: string | null; installed: string | null };
+      const listed = async (): Promise<UseRow> => {
+        const rows = parseWholeStdout(await cli(['extension', 'ls'])).extensions as {
+          name: string;
+          uses?: UseRow[];
+        }[];
+        return rows.find((row) => row.name === 'colab')!.uses![0];
+      };
+      const answer = async (extension: string) =>
+        JSON.parse(
+          (
+            await runCli(sandbox, ['api'], {
+              stdin: JSON.stringify({
+                version: 1,
+                operation: 'extensions.uses',
+                input: { extension, feature: 'browser-access' },
+              }),
+            })
+          ).stdout
+        );
+
+      await install('colab', '0.1.0-alpha.1', uses);
+      expect(await listed()).toMatchObject({
+        feature: 'browser-access',
+        extension: 'remote',
+        requires: '>=0.1.0-alpha.1',
+        available: false,
+        reason: 'missing',
+        installed: null,
+      });
+      expect(await answer('colab')).toMatchObject({
+        available: false,
+        reason: 'missing',
+        hint: 'Browser access needs the Remote extension: tmt extension install remote --yes',
+      });
+      const text = await runCli(sandbox, ['extension', 'ls']);
+      expect(text.stdout).toContain('tmt extension install remote --yes');
+      // The default prefix needs no --prefix in a printed command.
+      expect(text.stdout).not.toContain('--prefix');
+
+      await install('remote', '0.1.0-alpha.0');
+      expect(await listed()).toMatchObject({ available: false, reason: 'tooOld' });
+      expect((await answer('colab')).hint).toContain('tmt extension upgrade remote --yes');
+
+      await install('remote', '0.1.0-alpha.2');
+      expect(await listed()).toMatchObject({
+        available: true,
+        reason: null,
+        installed: '0.1.0-alpha.2',
+      });
+      expect(await answer('colab')).toMatchObject({ available: true, reason: null, hint: '' });
+      expect((await answer('remote')).error.code).toBe('EXTENSION_USE_UNDECLARED');
+
+      // Removal warns about what stops working and still needs consent.
+      const refused = await cli(['extension', 'rm', 'remote']);
+      const message = (
+        expectError(refused, 'EXTENSION_CONSENT_REQUIRED').error as { message: string }
+      ).message;
+      expect(message).toContain("colab's Browser access");
+      const removed = await cli(['extension', 'rm', 'remote', '--yes']);
+      expect(removed.status).toBe(0);
+      expect(parseWholeStdout(removed)).toMatchObject({
+        affects: [{ extension: 'colab', feature: 'browser-access', label: 'Browser access' }],
+      });
+      expect(await listed()).toMatchObject({ available: false, reason: 'missing' });
+    });
+  }, 120_000);
 
   it('offers bundled skills, refreshes them by name on update, and uninstall removes every owned skill', async () => {
     await withSandbox(async (sandbox) => {

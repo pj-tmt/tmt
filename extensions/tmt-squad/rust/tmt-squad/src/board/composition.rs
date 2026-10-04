@@ -234,6 +234,26 @@ fn tabs(focused: Pane) -> Result<Node, String> {
     Ok(root)
 }
 
+/// A squad tab's two halves: the configured composition above and the jobs
+/// half below at `lower` lines, from the same flex computation as the panes.
+pub(super) fn halves(area: Rect, lower: u16) -> Result<(Rect, Rect), String> {
+    let scaffold = Scaffold::read()?;
+    let mut upper = scaffold.slot.clone();
+    upper.id = Some(vec!["members".into()]);
+    upper.style.basis = Extent::Cells(0);
+    upper.style.grow = 1;
+    let mut below = scaffold.slot;
+    below.id = Some(vec!["jobs".into()]);
+    below.style.basis = Extent::Cells(lower);
+    let mut root = scaffold.root;
+    root.children = vec![upper, below];
+    let mut slots = slots(&root, area)?.into_iter().map(|(_, rect)| rect);
+    match (slots.next(), slots.next()) {
+        (Some(upper), Some(below)) => Ok((upper, below)),
+        _ => Err("the jobs half needs two slots".into()),
+    }
+}
+
 pub(super) fn admit() -> Result<(), String> {
     Scaffold::read().map(|_| ())
 }

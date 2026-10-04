@@ -1,5 +1,32 @@
 /** English chrome catalog; page content and fixture text are not UI strings. */
 export const text = {
+  comments: 'Comments',
+  commentSelection: 'Comment on selection',
+  commentPage: 'Comment on page',
+  commentPost: 'Post comment',
+  commentReply: 'Reply',
+  commentPostReply: 'Post reply',
+  commentEmpty: 'No comments yet. Select text to start a thread, or comment on the page.',
+  commentDevice: 'Commenting device',
+  commentEdited: 'edited',
+  commentDeleted: 'Comment deleted',
+  commentEdit: 'Edit',
+  commentEditBody: 'Edit comment',
+  commentSave: 'Save comment',
+  commentDelete: 'Delete comment',
+  commentCancel: 'Cancel',
+  commentFailed:
+    'Could not save this change. Your draft is kept. Reconnect and review the latest discussion.',
+  commentAnchored: 'Attached',
+  commentDetached: 'Detached',
+  commentReattach: 'Reattach to selection',
+  commentConfirmReattach: 'Confirm reattach',
+  threadOpen: 'Open thread',
+  threadResolved: 'Resolved thread',
+  threadDeleted: 'Deleted thread',
+  threadResolve: 'Resolve',
+  threadReopen: 'Reopen',
+  threadDelete: 'Delete thread',
   reconnect: 'Reconnect',
   reconnectFailed:
     'Could not reconnect. Open this page from a paired browser, or pair with tmt remote pair.',
@@ -80,13 +107,14 @@ export const text = {
   export: 'Export page',
   download: 'Download',
   exportUnavailable: 'Export requires a verified paired page.',
-  exportDiscussions: 'Discussions are not included.',
+  exportDiscussions:
+    'Includes the comments and Ask conversations visible on this page, as of this copy.',
   exportPreparing: 'Preparing an exact copy of the verified page…',
   exportFailed:
     'Could not prepare or request this download. Already requested files may have downloaded.',
-  exportReady: 'Download both files. This copy stays fixed while the live page changes.',
-  exportPartial: 'One file requested. Download the other file to complete this copy.',
-  exportRequested: 'Both downloads requested. Check your browser downloads for the saved files.',
+  exportReady: 'Download the files. This copy stays fixed while the live page changes.',
+  exportPartial: 'Some files requested. Download the others to complete this copy.',
+  exportRequested: 'All downloads requested. Check your browser downloads for the saved files.',
   exportClose: 'Close export',
   product: 'Colab',
   local: 'Local preview',
@@ -101,8 +129,6 @@ export const text = {
   saving: 'Saving…',
   editFailed:
     'The edit was not saved. Reopen the page to review the latest source before trying again.',
-  ownNotDisplayed:
-    'This page contains authenticated own data. Comments and activity are not displayed yet.',
   reload: 'Reload',
   pages: 'Pages',
   home: 'Space home',
@@ -128,4 +154,12 @@ export const text = {
   warning:
     'Page scripts run inside an isolated frame. A page can navigate its own frame; complete exfiltration prevention is not guaranteed.',
   adapter: 'This preview uses local sample pages. It is not connected to a remote space.',
+  readerOnly: 'Read-only',
+  readerOpening: 'Opening shared page…',
+  readerEnded: 'Access ended',
+  readerEndedNote: 'This link no longer gives access to the page. Ask the owner for a new link.',
+  readerInvalid: 'This link is incomplete or malformed. Open the full link again.',
+  readerFailed: 'Could not open this page. Open the full link again.',
+  readerNote:
+    'You are reading a shared page. You cannot edit it or ask agents. Anyone who holds this link and can reach this address can read the page.',
 } as const;

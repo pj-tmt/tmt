@@ -1,4 +1,5 @@
-import { expect, test, type Page, type BrowserContext } from '@playwright/test';
+import { expect, test, type Page, type BrowserContext, type Locator } from '@playwright/test';
+import { mkdir } from 'node:fs/promises';
 import * as c from '@tmt/colab-client';
 
 const mount = '/r/abcd/x/colab/';
@@ -6,6 +7,24 @@ const device = '00000000-0000-4000-8000-000000000100';
 const member = '00000000-0000-4000-8000-000000000101';
 const pageId = '00000000-0000-4000-8000-000000000102';
 const json = (v: unknown) => c.text(JSON.stringify(v));
+async function choose(dialog: Locator, label: string, option: string) {
+  await dialog.getByRole('combobox', { name: new RegExp(`^${label}`) }).click();
+  await dialog.getByRole('listbox', { name: label }).getByRole('option', { name: option }).click();
+}
+async function captureListbox(page: Page, name: string) {
+  const directory = process.env.COLAB_LISTBOX_CAPTURE_DIR;
+  if (!directory) return;
+  await mkdir(directory, { recursive: true });
+  for (const theme of ['light', 'dark'] as const) {
+    await page.evaluate((value) => (document.documentElement.dataset.theme = value), theme);
+    for (const width of [1440, 390]) {
+      await page.setViewportSize({ width, height: 900 });
+      await page.screenshot({ path: `${directory}/${name}-${theme}-${width}.png`, fullPage: true });
+    }
+  }
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.evaluate(() => (document.documentElement.dataset.theme = 'light'));
+}
 async function fixture(page: Page | BrowserContext, tamper = false, empty = false) {
   const owner = (await crypto.subtle.generateKey('Ed25519', false, [
     'sign',
@@ -394,7 +413,41 @@ test('trusted sharing confirms narrowing, retries frozen bytes and exposes a new
   await page.goto(mount);
   await page.getByRole('button', { name: 'Manage page' }).click();
   const dialog = page.getByRole('dialog');
-  await expect(dialog.getByLabel('Audience')).toBeVisible();
+  const audience = dialog.getByRole('combobox', { name: /^Audience/ });
+  await expect(audience).toBeVisible();
+  await expect(dialog.locator('select')).toHaveCount(0);
+  await audience.click();
+  const menu = dialog.getByRole('listbox', { name: 'Audience' });
+  await expect(menu).toBeVisible();
+  await expect(menu.getByRole('option')).toHaveCount(3);
+  await captureListbox(page, 'open-list');
+  await audience.press('End');
+  await expect(menu.getByRole('option', { name: 'Public (loopback only)' })).toHaveAttribute(
+    'data-active',
+    'true',
+  );
+  await captureListbox(page, 'keyboard-focus');
+  await audience.press('ArrowUp');
+  await expect(menu.getByRole('option', { name: 'Link' })).toHaveAttribute('data-active', 'true');
+  await audience.press('Home');
+  await expect(menu.getByRole('option', { name: 'Private' })).toHaveAttribute(
+    'data-active',
+    'true',
+  );
+  await audience.press('Escape');
+  await expect(menu).toBeHidden();
+  await audience.click();
+  await dialog.getByRole('heading', { name: 'Sharing' }).click();
+  await expect(menu).toBeHidden();
+  const history = dialog.getByRole('combobox', { name: /^History mode/ });
+  await history.click();
+  await expect(dialog.getByRole('listbox', { name: 'History mode' })).toBeVisible();
+  await history.press('Escape');
+  const memberRole = dialog.getByRole('combobox', { name: /^New member or link role/ });
+  await choose(dialog, 'New member or link role', 'editor');
+  await expect(memberRole).toContainText('editor');
+  await captureListbox(page, 'selected');
+  await choose(dialog, 'New member or link role', 'viewer');
   await expect(dialog.getByText('Active', { exact: true })).toBeVisible();
   const revision = dialog.getByText('Verified revision 2', { exact: true });
   await expect(revision).toBeHidden();
@@ -410,11 +463,15 @@ test('trusted sharing confirms narrowing, retries frozen bytes and exposes a new
     }, theme);
     await page.screenshot({ path: testInfo.outputPath(`share-${theme}.png`) });
   }
-  await dialog.getByLabel('Audience').selectOption('link');
+  await audience.press('ArrowDown');
+  await audience.press('ArrowDown');
+  await expect(menu.getByRole('option', { name: 'Link' })).toHaveAttribute('data-active', 'true');
+  await expect(audience).toHaveAttribute('aria-activedescendant', /-option-1$/);
+  await audience.press('Enter');
   await dialog.getByRole('button', { name: 'Confirm make link' }).click();
   await expect(dialog.getByRole('alert')).toContainText('unavailable');
   await dialog.getByRole('button', { name: 'Refresh and review' }).click();
-  await dialog.getByLabel('Audience').selectOption('link');
+  await choose(dialog, 'Audience', 'Link');
   await dialog.getByRole('button', { name: 'Confirm make link' }).click();
   await expect(dialog.getByRole('alert')).toContainText('Result unknown');
   await dialog.getByRole('button', { name: 'Retry exact request' }).click();
@@ -428,7 +485,7 @@ test('trusted sharing confirms narrowing, retries frozen bytes and exposes a new
     'Opening shared links in this browser app is not available yet',
   );
   await dialog.getByRole('button', { name: 'Manage another change' }).click();
-  await dialog.getByLabel('Audience').selectOption('private');
+  await choose(dialog, 'Audience', 'Private');
   await expect(dialog).toContainText('links are revoked and affected pages rotate');
   await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
   await page.setViewportSize({ width: 390, height: 844 });

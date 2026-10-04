@@ -4,6 +4,9 @@ use super::{Age, Counts, Home};
 use crate::board::app::{App, Choice, Compose, Effect, Input, Menu, MenuEntry, Request};
 use serde_json::Value;
 
+/// Section key of the one cron cursor target.
+pub const CRON: &str = "cron";
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Target {
     pub section: String,
@@ -67,16 +70,43 @@ impl Home {
     }
 }
 
+/// The cron entry has no member row; its line comes from the cron projection.
+static NO_ROW: Value = Value::Null;
+
 impl App {
+    /// Reading order: attention, then the cron line, then squads.
     pub(in crate::board) fn home_entries(&self) -> Vec<HomeEntry<'_>> {
-        self.view
+        let mut entries = self
+            .view
             .as_ref()
             .and_then(|view| {
                 view.home
                     .as_ref()
                     .map(|home| home.entries(&view.document, &self.search))
             })
-            .unwrap_or_default()
+            .unwrap_or_default();
+        if self.search.is_empty() && self.cron_shown() && !entries.is_empty() {
+            let at = entries
+                .iter()
+                .position(|entry| entry.target.section == "squads")
+                .unwrap_or(entries.len());
+            entries.insert(
+                at,
+                HomeEntry {
+                    target: Target {
+                        section: CRON.into(),
+                        squad: String::new(),
+                        member: None,
+                    },
+                    row: &NO_ROW,
+                    lead: None,
+                    age: None,
+                    counts: None,
+                    pressing: None,
+                },
+            );
+        }
+        entries
     }
 
     pub(in crate::board) fn home_section(&mut self, previous: bool) {
@@ -105,7 +135,9 @@ impl App {
         let Some(entry) = entries.get(self.selected) else {
             return self.say("No home row is selected.");
         };
-        if entry.target.member.is_some() {
+        if entry.target.section == CRON {
+            self.open_cron_list(None)
+        } else if entry.target.member.is_some() {
             match entry.row["name"].as_str() {
                 Some(name) => Effect::Act(Request::Jump(name.into())),
                 None => self.say("This row has no member name."),
@@ -124,6 +156,9 @@ impl App {
         let Some(entry) = entries.get(self.selected) else {
             return self.say("No home row is selected.");
         };
+        if entry.target.section == CRON {
+            return self.say("Nothing to answer here; c opens the cron list.");
+        }
         let send = Send {
             target: entry.target.clone(),
             sender,
@@ -212,7 +247,7 @@ impl Send {
                 Compose::Annotate { to, row } => {
                     entry.lead == Some(to) && entry.row["name"].as_str() == Some(row)
                 }
-                Compose::Talk { .. } => false,
+                Compose::Talk { .. } | Compose::AskLead { .. } | Compose::Cron => false,
             })
     }
 }

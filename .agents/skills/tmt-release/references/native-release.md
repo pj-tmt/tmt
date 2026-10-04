@@ -61,6 +61,16 @@ ancestor; validation, receipts and JSON retain canonical paths.
 
 ## Building and verifying archives
 
+PR and merge-group CI checks dependency notices when the locked dependencies, clarification,
+license inputs or notice machinery change. `Native package matrix` requires the selected notice job.
+`node typescript/scripts/verify-native-notices.mjs` runs the builder's `--rust-notices-only` mode
+for every active native product in `components.json` and every target in `dist-workspace.toml`,
+then applies the archive verifier's empty/placeholder rejection. It needs Python 3.11+, pinned
+cargo-about and fetched locked crates. This mode skips frontend installation/builds and checks
+only cargo-about inventories; the ordinary notice/archive modes retain combined frontend notices.
+Inventories, diagnostics and timings remain under `rust/target/native-notices/verified/` and
+are uploaded as CI evidence. This performs no native compilation and proves notices only.
+
 Install the pinned tools into a chosen directory: cargo-dist 0.32.0 (`cargo install --locked`)
 and cargo-about 0.9.2 (`cargo install --locked --features cli`). Fetch locked dependencies
 before the offline notice step. Crates whose archive omits a license file (taffy 0.7.7, yrs
@@ -358,7 +368,13 @@ release evidence; TUI requires only Squad evidence.
 
 Leave open issues, PR items, other repositories and project membership unchanged.
 Recompute both owned fields, correcting stale terminal states and historical text. Complete
-discovery and the dry-run plan precede bounded batched mutations and one Project readback.
+discovery and the dry-run plan precede bounded batched mutations and a Project readback.
+Each mismatching issue reports expected and observed `Status` and `Released in` fields in
+the log and step summary. A mismatch triggers one correction planned from that fresh
+readback against the sweep's frozen delivery/publication evidence, with request budget
+reserved before correction writes. A second mismatching readback fails the gate; there
+is no polling or transport retry. Reopened, missing or newly epic issues fail before
+correction writes. Dry runs do not write, read back or retry.
 Correct false terminal status before replacing evidence; write valid release evidence before
 promoting to `Released`. Partial writes converge on the next authoritative full sweep,
 including recovery from built-in close/merge workflow writes. Runs serialize project-wide

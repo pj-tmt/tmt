@@ -1,3 +1,4 @@
+import { validateSelector, type QuoteSelector } from './thread-records.js';
 import { text } from './strings.js';
 
 /** Exact HTML source byte limit, owned by colab-v1 Resource bounds. */
@@ -32,9 +33,14 @@ export async function mountRenderer(
   options: {
     signal: AbortSignal;
     onState(state: RenderState): void;
-    onSelection?(text: string): void;
+    onSelection?(text: string, selector?: QuoteSelector | null): void;
+    onAnchors?(resolved: string[]): void;
   },
-): Promise<{ readonly snapshot: RenderSnapshot; destroy(): void }> {
+): Promise<{
+  readonly snapshot: RenderSnapshot;
+  highlight(anchors: { id: string; selector: QuoteSelector }[]): void;
+  destroy(): void;
+}> {
   const snapshot = await captureRender(source);
   options.signal.throwIfAborted();
   const frame = document.createElement('iframe');
@@ -47,6 +53,8 @@ export async function mountRenderer(
     loads = 0,
     ready = false;
   const channel = new MessageChannel();
+  let requestId = '';
+  let anchors: { id: string; selector: QuoteSelector }[] = [];
   const destroy = () => {
     if (stopped) return;
     stopped = true;
@@ -57,7 +65,8 @@ export async function mountRenderer(
     channel.port1.close();
     channel.port2.close();
     frame.remove();
-    options.onSelection?.('');
+    options.onSelection?.('', null);
+    options.onAnchors?.([]);
   };
   const stop = (state: RenderState) => {
     destroy();
@@ -70,15 +79,27 @@ export async function mountRenderer(
     const value = data as Record<string, unknown>;
     if (
       ready &&
-      Object.keys(value).length === 3 &&
+      (Object.keys(value).length === 3 ||
+        (Object.keys(value).length === 4 && Object.hasOwn(value, 'selector'))) &&
+      Object.keys(value).every((key) => ['type', 'renderId', 'text', 'selector'].includes(key)) &&
       value.type === 'colab.render.selection' &&
       value.renderId === snapshot.renderId &&
       typeof value.text === 'string' &&
       value.text.length <= MAX_SELECTION_BYTES &&
       new TextEncoder().encode(value.text).length <= MAX_SELECTION_BYTES
     ) {
-      // Text is untrusted: only a later parent click can create a preview.
-      options.onSelection?.(value.text);
+      // Frame claims are untrusted, including claims from the bootstrap.
+      let selector: QuoteSelector | null = null;
+      if (Object.hasOwn(value, 'selector') && value.selector !== null) {
+        try {
+          validateSelector(value.selector);
+          if (value.selector.exact !== value.text) return;
+          selector = structuredClone(value.selector);
+        } catch {
+          return;
+        }
+      }
+      options.onSelection?.(value.text, selector);
       return;
     }
     if (
@@ -92,8 +113,52 @@ export async function mountRenderer(
     ready = true;
     options.onState('ready');
   };
-  // No port inbound commands are implemented in this slice; unknown traffic has no effects.
-  channel.port1.onmessage = () => {};
+  channel.port1.onmessage = (event: MessageEvent<unknown>) => {
+    if (stopped || !ready) return;
+    const value = event.data as Record<string, unknown> | null;
+    if (
+      !value ||
+      typeof value !== 'object' ||
+      Array.isArray(value) ||
+      Object.keys(value).length !== 4 ||
+      value.type !== 'colab.render.anchors' ||
+      value.renderId !== snapshot.renderId ||
+      value.requestId !== requestId ||
+      !Array.isArray(value.resolved) ||
+      value.resolved.length > anchors.length
+    )
+      return;
+    const ids = new Set(anchors.map((v) => v.id));
+    if (
+      value.resolved.some((id) => typeof id !== 'string' || !ids.has(id)) ||
+      new Set(value.resolved).size !== value.resolved.length
+    )
+      return;
+    options.onAnchors?.([...value.resolved] as string[]);
+  };
+  const highlight = (input: { id: string; selector: QuoteSelector }[]) => {
+    if (stopped) return;
+    const next = structuredClone(input);
+    if (next.length > 1000 || next.some((v) => typeof v.id !== 'string' || v.id.length > 73))
+      return;
+    for (const item of next) validateSelector(item.selector);
+    requestId = crypto.randomUUID();
+    const message = {
+      type: 'colab.render.highlight',
+      renderId: snapshot.renderId,
+      requestId,
+      anchors: next,
+    };
+    if (new TextEncoder().encode(JSON.stringify(message)).length > 256 * 1024) {
+      anchors = [];
+      options.onAnchors?.([]);
+      channel.port1.postMessage({ ...message, anchors: [] });
+      return;
+    }
+    anchors = next;
+    options.onAnchors?.([]);
+    channel.port1.postMessage(message);
+  };
   const deadline = setTimeout(() => stop('failed'), 5000);
   window.addEventListener('message', bound);
   options.signal.addEventListener('abort', destroy, { once: true });
@@ -116,5 +181,5 @@ export async function mountRenderer(
   };
   frame.src = new URL('./renderer.html', document.baseURI).href;
   host.replaceChildren(frame);
-  return { snapshot, destroy };
+  return { snapshot, highlight, destroy };
 }

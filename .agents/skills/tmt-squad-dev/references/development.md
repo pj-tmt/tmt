@@ -33,6 +33,20 @@ cron_service` and the native `squad.test.ts` cron cases cover actor permission, 
   room/revision refusal, exact messages, post-commit announcement recipients, hook
   registration rollback and obsolete/replayed retirement references; the private-tmux
   `squad.e2e.test.ts` cron case reads committed announcement and hook state independently.
+- Cron clock: `cargo test --locked -p tmt-squad --lib cron` covers lease competition,
+  stale takeover, ownership-checked release, slot windows and operation IDs;
+  `cargo test --locked -p tmt-squad cron_clock` covers fresh service admission,
+  anonymous dispatch, same-ID receipt recovery and cancelled/joined children.
+  Native `squad.test.ts` checks read-only status, explicit manual actors, exact
+  paused sends and JSON/help. The private-tmux `squad.e2e.test.ts` clock case
+  corroborates one slot acceptance and one causal peer wake with independent SQL,
+  rejects a second clock, replays standalone ticks without another send and
+  verifies signal cleanup. Run Docker lifecycle verification twice.
+- Board cron: `cargo test --locked -p tmt-squad cronboard` covers the projection, line, list and
+  controls against disposable roots (`cron_service::test_support::Fixture`); `view::tests::cron`
+  covers the split squad tab, focus transfer, scoped keys and forms; `home::tests::cron` the ⑤
+  cursor. Capture the home line, `c` list, split tab, expanded job and forms at 160/100/80 in
+  `tmt`, `tmt-light` and `NO_COLOR` with a private HOME, `TMUX_TEAM_HOME` and tmux socket.
 - Tab parity: `built_in_board_documents_equal_ls_tab_documents` and
   `user_board_and_ls_share_members_sections_bindings_and_failed_reads` require board
   views and `ls --tab` to project identical documents, including hidden squads/tabs

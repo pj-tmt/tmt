@@ -5,7 +5,7 @@ use super::{
     overlays::render_switcher,
     replies::reply_lines,
     rows::{GAP, grid_line},
-    tabs::{pane_tab, tab, tab_window},
+    tabs::{pane_tab, tab},
 };
 use crate::board::app::Switcher;
 use crate::{
@@ -23,6 +23,7 @@ use serde_json::Value;
 use tmt_cli_style::{Role, mark::Mark};
 use unicode_width::UnicodeWidthStr;
 
+mod cron;
 mod help;
 mod meter;
 mod parity;
@@ -38,17 +39,133 @@ use std::collections::BTreeMap;
 use unicode_width::UnicodeWidthChar;
 
 #[test]
+fn waiting_rows_detail_and_ask_prompt_fit_each_width_and_theme() {
+    for width in [160, 100, 80] {
+        for (base, depth) in [
+            ("tmt", tmt_cli_style::Depth::TrueColor),
+            ("tmt-light", tmt_cli_style::Depth::TrueColor),
+            ("tmt", tmt_cli_style::Depth::None),
+        ] {
+            let now = crate::status::now_ms();
+            let question =
+                "Ship #412 tonight or wait for CI? Token rotation is risky if CI is red.";
+            let mut app = board(json!([{"title": null, "rows": [
+                row("auth-fix", "blocked", "rotate tokens", json!({"waitingOnYou": [{"requestId": "q", "preview": question, "preparedAtMs": now - 720000}]})),
+                row("docs-request", "working", "handbook", json!({"pending": "Keep the glossary?", "waitingOnYou": [{"requestId": "docs-q", "preview": "fallback", "preparedAtMs": now - 720000}]})),
+                row("docs", "working", "copy", json!({"pending": "Choose the tone?"})),
+            ]}]));
+            let view = app.view.as_mut().unwrap();
+            view.look = crate::look::Look {
+                theme: tmt_cli_style::Theme::new(tmt_cli_style::theme::Base::parse(base).unwrap()),
+                depth,
+            };
+            view.me = Some("Ben".into());
+            let screen = draw(&app, width, 24);
+            let asks = screen
+                .iter()
+                .find(|line| line.contains("Ship #412"))
+                .unwrap();
+            assert!(asks.contains("12m"), "{base}/{width}: {asks}");
+            let pending = screen
+                .iter()
+                .find(|line| line.contains("Keep the glossary?"))
+                .unwrap();
+            assert_eq!(pending.find("12m"), asks.find("12m"), "request ages align");
+            let pending_only = screen
+                .iter()
+                .find(|line| line.contains("Choose the tone?"))
+                .unwrap();
+            assert!(!pending_only.contains("12m"), "pending-only has no age");
+            assert!(screen.last().unwrap().contains("◆ 3 waiting"));
+            assert!(screen.last().unwrap().contains("A ask lead"));
+            assert!(
+                app.hits
+                    .borrow()
+                    .iter()
+                    .any(|hit| hit.row == 0 && screen[usize::from(hit.y)].contains("Ship #412"))
+            );
+            app.perform(&crate::action::Action::parse("ask-lead").unwrap());
+            let prompt = draw(&app, width, 24);
+            let title = prompt
+                .iter()
+                .find(|line| line.contains("ask lead sol"))
+                .unwrap();
+            assert!(title.starts_with("┌ ask lead sol"));
+            assert!(title.ends_with('┐'), "opaque prompt spans the whole band");
+            assert_eq!(title.width(), usize::from(width));
+            assert!(
+                prompt
+                    .iter()
+                    .any(|line| line.contains("Enter send · Esc cancel"))
+            );
+            assert!(
+                prompt
+                    .iter()
+                    .any(|line| line.contains("List what waits on me"))
+            );
+            app.input = None;
+            let mut terminal = Terminal::new(TestBackend::new(width, 24)).unwrap();
+            terminal
+                .draw(|frame| render_detail(frame, &app, frame.area()))
+                .unwrap();
+            let detail = terminal
+                .backend()
+                .buffer()
+                .content
+                .iter()
+                .map(|cell| cell.symbol())
+                .collect::<String>();
+            assert!(
+                detail.contains(question),
+                "full available preview in detail"
+            );
+        }
+    }
+}
+
+#[test]
+fn waiting_hint_uses_rebound_key_and_drops_oldest_before_actions() {
+    let now = crate::status::now_ms();
+    let mut app = board(
+        json!([{"title": null, "rows": [row("auth-fix", "working", "", json!({"pending": "approve", "waitingOnYou": [{"preparedAtMs": now - 720000, "preview": "fallback"}]}))]}]),
+    );
+    app.view.as_mut().unwrap().bindings.remove("A");
+    app.view.as_mut().unwrap().bindings.insert(
+        "z".into(),
+        crate::action::Action::parse("ask-lead").unwrap(),
+    );
+    assert!(hints(&app, 160).contains("oldest auth-fix 12m"));
+    assert!(hints(&app, 50).contains("z ask lead"));
+    assert!(!hints(&app, 50).contains("oldest"));
+    assert!(!hints(&app, 80).contains("oldest"));
+    assert!(hints(&app, 100).contains("ctrl-r refresh"));
+    assert!(!hints(&app, 50).contains("A ask lead"));
+    assert_eq!(
+        super::waiting::text(app.selected_row().unwrap()),
+        Some("approve")
+    );
+}
+
+#[test]
 fn footer_omits_whole_hints_instead_of_clipping_words() {
     let mut app = App::new(Some("product".into()));
     app.apply(crate::board::app::tests::snapshot("product", json!([])));
     let full = hints(&app, usize::MAX);
     assert!(full.contains("T theme"));
-    for width in [0, 1, 20, 40, 108, 112] {
+    for width in [0, 1, 6, 20, 40, 80, 100, 108, 112, 120, 160] {
         let shown = hints(&app, width);
         assert!(shown.width() <= width);
-        assert!(full.starts_with(&shown));
+        if width >= "? more".width() {
+            assert!(
+                shown.ends_with("? more"),
+                "help stays discoverable: {width}"
+            );
+        }
         assert!(
-            shown.is_empty() || full == shown || full[shown.len()..].starts_with("  "),
+            shown
+                .split("  ")
+                .filter(|hint| !hint.is_empty())
+                .all(|hint| full.split("  ").any(|whole| whole == hint)),
             "partial hint at {width}: {shown}"
         );
     }
@@ -68,7 +185,7 @@ fn columns() -> Rows {
     )
 }
 
-fn draw(app: &App, width: u16, height: u16) -> Vec<String> {
+pub(super) fn draw(app: &App, width: u16, height: u16) -> Vec<String> {
     let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
     terminal.draw(|frame| render(frame, app)).unwrap();
     let buffer = terminal.backend().buffer().clone();
@@ -90,7 +207,7 @@ fn draw(app: &App, width: u16, height: u16) -> Vec<String> {
         .collect()
 }
 
-fn board(sections: Value) -> App {
+pub(super) fn board(sections: Value) -> App {
     let mut app = App::new(Some("product".into()));
     app.apply(Snapshot {
             squad_keys: Vec::new(),
@@ -100,6 +217,7 @@ fn board(sections: Value) -> App {
             attention: Default::default(),
             squad: Some("product".into()),
             view: Ok(View {
+                ask_lead: crate::config::DEFAULT_ASK_LEAD.into(),
                 token_rate: None,
                 home: None,
             derived: Default::default(),
@@ -413,13 +531,14 @@ fn default_team_is_readable_at_80_120_and_200_columns() {
 #[test]
 fn preset_columns_draw_exactly_as_before_at_every_width() {
     let app = preset_board();
-    let golden: [(u16, [&str; 7]); 4] = [
+    let golden: [(u16, [&str; 8]); 4] = [
         (
             48,
             [
                 "  MEMBER         STATE      TASK    PR",
                 "NEEDS ME",
                 "◆ auth-fix       blocked    rotate… https://git…",
+                "    approve",
                 "EVERYONE",
                 "  文件-sweep-lo… working    整理安… –",
                 "  perf           –          –       –",
@@ -432,6 +551,7 @@ fn preset_columns_draw_exactly_as_before_at_every_width() {
                 "  MEMBER         STATE      TASK                PR",
                 "NEEDS ME",
                 "◆ auth-fix       blocked    rotate session tok… https://git…",
+                "    approve",
                 "EVERYONE",
                 "  文件-sweep-lo… working    整理安装指南和常见… –",
                 "  perf           –          –                   –",
@@ -444,6 +564,7 @@ fn preset_columns_draw_exactly_as_before_at_every_width() {
                 "  MEMBER         STATE      TASK                                    PR",
                 "NEEDS ME",
                 "◆ auth-fix       blocked    rotate session tokens without logging … https://git…",
+                "    approve",
                 "EVERYONE",
                 "  文件-sweep-lo… working    整理安装指南和常见问题                  –",
                 "  perf           –          –                                       –",
@@ -456,6 +577,7 @@ fn preset_columns_draw_exactly_as_before_at_every_width() {
                 "  MEMBER         STATE      TASK                                                                            PR",
                 "NEEDS ME",
                 "◆ auth-fix       blocked    rotate session tokens without logging everyone out                              https://git…",
+                "    approve",
                 "EVERYONE",
                 "  文件-sweep-lo… working    整理安装指南和常见问题                                                          –",
                 "  perf           –          –                                                                               –",
@@ -464,7 +586,7 @@ fn preset_columns_draw_exactly_as_before_at_every_width() {
         ),
     ];
     for (width, lines) in golden {
-        assert_eq!(draw(&app, width, 11)[2..9], lines, "at {width} columns");
+        assert_eq!(draw(&app, width, 12)[2..10], lines, "at {width} columns");
     }
 }
 
@@ -609,10 +731,11 @@ fn rows_ignore_retired_notes_and_show_pending_sections_and_aligned_wide_text() {
     assert_eq!(screen[2], "  MEMBER     STATE    TASK");
     assert_eq!(screen[3], "NEEDS ME");
     assert_eq!(screen[4], "◆ auth-fix   blocked  rotate session tokens");
-    assert_eq!(screen[5], "EVERYONE");
-    assert_eq!(screen[6], "  文件-sweep working  整理安装指南");
+    assert_eq!(screen[5], "    approve");
+    assert_eq!(screen[6], "EVERYONE");
+    assert_eq!(screen[7], "  文件-sweep working  整理安装指南");
     assert!(screen.iter().all(|line| !line.contains("needs a call")));
-    assert!(screen[9].starts_with("⏎ jump"));
+    assert!(screen[9].starts_with("◆ 1 waiting"));
 }
 
 #[test]
@@ -772,6 +895,7 @@ fn paned(board: crate::config::Board, notes: Notes) -> App {
             attention: Default::default(),
             squad: Some("product".into()),
             view: Ok(View {
+                ask_lead: crate::config::DEFAULT_ASK_LEAD.into(),
                 token_rate: None,
                 home: None,
             derived: Default::default(),
@@ -1531,6 +1655,7 @@ fn detail_ignores_retired_notes_and_represented_fields_do_not_repeat() {
         [
             "worker",
             "waiting on you: approve",
+            "r reply · ⏎ jump",
             "active · working · crew:2.0 · /work",
             "task: rotate tokens",
             "activity: testing",
@@ -2088,80 +2213,6 @@ fn attention_counts_keep_shared_marks_and_tab_width_without_color() {
 }
 
 #[test]
-fn tab_hits_cover_the_slot_name_and_trailing_cell_of_the_rendered_label() {
-    use crate::board::app::Effect;
-    use ratatui::crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
-    for attention in [
-        Attention::default(),
-        Attention {
-            waiting: 1,
-            blocked: 2,
-        },
-    ] {
-        for offset in [0, 2, 14] {
-            let mut app = board(json!([{"title": null, "rows": []}]));
-            app.attention.insert("reviews".into(), attention);
-            draw(&app, 80, 8);
-            let hit = app.tab_hits.borrow()[1];
-            let label = tab(
-                app.look(),
-                "reviews",
-                false,
-                attention,
-                &TabColors::default(),
-            );
-            assert_eq!(usize::from(hit.width), label.width());
-            let x = hit.x + offset.min(hit.width - 1);
-            assert_eq!(
-                app.mouse(
-                    MouseEvent {
-                        kind: MouseEventKind::Down(MouseButton::Left),
-                        column: x,
-                        row: hit.y,
-                        modifiers: KeyModifiers::NONE,
-                    },
-                    std::time::Instant::now()
-                ),
-                Effect::Load("reviews".into())
-            );
-            assert_eq!(app.current.as_deref(), Some("reviews"));
-        }
-    }
-}
-
-#[test]
-fn default_attention_color_does_not_inherit_the_selected_name_foreground() {
-    let look = crate::look::Look::default();
-    let label = tab(
-        look,
-        "product",
-        true,
-        Attention {
-            waiting: 1,
-            blocked: 1,
-        },
-        &TabColors {
-            waiting: "default".into(),
-            blocked: "default".into(),
-        },
-    );
-    for rendered in [label.clone(), Line::from(label.spans)] {
-        let width = rendered.width() as u16;
-        let mut terminal = Terminal::new(TestBackend::new(width, 1)).unwrap();
-        terminal
-            .draw(|frame| frame.render_widget(Paragraph::new(rendered), frame.area()))
-            .unwrap();
-        let buffer = terminal.backend().buffer();
-        assert_eq!(buffer[(0, 0)].fg, Style::new().fg.unwrap_or_default());
-        assert_eq!(buffer[(12, 0)].fg, Style::new().fg.unwrap_or_default());
-        assert_eq!(buffer[(2, 0)].fg, look.role(Role::Accent).fg.unwrap());
-        for x in 0..width {
-            assert_eq!(buffer[(x, 0)].bg, look.selection().bg.unwrap());
-        }
-    }
-}
-
-#[test]
 fn switcher_fitting_keeps_mark_styles_alignment_and_its_selected_row() {
     for name in ["product", "wide-界界界界界界", "literal…name"] {
         for width in [1, 2, 8, 12, 40, 80, 160] {
@@ -2328,111 +2379,6 @@ fn tabs_move_with_shift_arrows_or_a_drag_and_the_order_is_saved() {
 }
 
 #[test]
-fn many_tabs_scroll_to_keep_the_current_one_and_count_the_rest() {
-    // Every tab is 8 columns with its gap; 40 columns hold four, or three
-    // beside one count.
-    let widths = [8u16; 10];
-    assert_eq!(tab_window(&[8, 8], Some(1), 0, 40), (0, 2), "all fit");
-    assert_eq!(tab_window(&widths, Some(0), 0, 40), (0, 4));
-    assert_eq!(tab_window(&widths, Some(3), 0, 40), (0, 4));
-    // Moving right scrolls only as far as needed, then left keeps it.
-    let (start, end) = tab_window(&widths, Some(4), 0, 40);
-    assert!(start > 0 && (start..end).contains(&4), "{start}..{end}");
-    assert_eq!(tab_window(&widths, Some(4), start, 40), (start, end));
-    assert_eq!(tab_window(&widths, Some(9), start, 40).1, 10);
-    assert_eq!(tab_window(&widths, Some(2), 5, 40).0, 2);
-    // A tab wider than the line still shows.
-    assert_eq!(tab_window(&[80, 8], Some(0), 0, 40), (0, 1));
-
-    let names: Vec<String> = (0..9).map(|n| format!("sq{n}")).collect();
-    let mut app = board(json!([{"title": null, "rows": []}]));
-    app.tabs = names.clone();
-    app.current = Some("sq7".into());
-    app.attention.insert(
-        "sq1".into(),
-        Attention {
-            waiting: 0,
-            blocked: 1,
-        },
-    );
-    app.attention.insert(
-        "sq8".into(),
-        Attention {
-            waiting: 2,
-            blocked: 0,
-        },
-    );
-    let mut terminal = Terminal::new(TestBackend::new(32, 6)).unwrap();
-    terminal.draw(|frame| render(frame, &app)).unwrap();
-    let buffer = terminal.backend().buffer().clone();
-    let line: String = (0..32)
-        .map(|x| buffer[(x, 0)].symbol().to_owned())
-        .collect();
-    assert!(line.starts_with("‹ "), "{line:?}");
-    assert!(
-        line.contains(" sq7 "),
-        "the current tab stays in view: {line:?}"
-    );
-    assert!(line.trim_end().ends_with("1 ›"), "{line:?}");
-    // The left count hides a blocked tab, the right one a waiting tab.
-    assert_eq!(
-        buffer[(0, 0)].fg,
-        app.look().role(Role::Blocked).fg.unwrap()
-    );
-    let right = line.trim_end().chars().count() as u16 - 1;
-    assert_eq!(
-        buffer[(right, 0)].fg,
-        app.look().role(Role::Waiting).fg.unwrap()
-    );
-    // Only shown tabs can be clicked, at their drawn places.
-    let hits = app.tab_hits.borrow().clone();
-    assert!(hits.iter().all(|hit| hit.tab >= app.tab_start.get()));
-    let seven = hits.iter().find(|hit| hit.tab == 7).unwrap();
-    let at = line[..line.find("  sq7").unwrap()].chars().count() as u16;
-    assert_eq!(seven.x, at);
-}
-
-#[test]
-fn a_hidden_squad_being_shown_leads_the_tab_line_selected() {
-    let mut app = board(json!([{"title": null, "rows": []}]));
-    app.tabs = (0..9).map(|n| format!("sq{n}")).collect();
-    app.hidden = vec!["quiet".into()];
-    app.current = Some("quiet".into());
-    app.attention.insert(
-        "quiet".into(),
-        Attention {
-            waiting: 1,
-            blocked: 2,
-        },
-    );
-    let mut terminal = Terminal::new(TestBackend::new(40, 6)).unwrap();
-    terminal.draw(|frame| render(frame, &app)).unwrap();
-    let buffer = terminal.backend().buffer().clone();
-    let line: String = (0..40)
-        .map(|x| buffer[(x, 0)].symbol().to_owned())
-        .collect();
-    assert!(line.starts_with("◆ quiet (hidden) 1 ✗2 "), "{line:?}");
-    assert!(buffer[(2, 0)].modifier.contains(Modifier::BOLD));
-    assert_eq!(buffer[(2, 0)].fg, app.look().role(Role::Accent).fg.unwrap());
-    assert_eq!(
-        buffer[(0, 0)].fg,
-        app.look().role(Role::Waiting).fg.unwrap()
-    );
-    assert_eq!(
-        buffer[(19, 0)].fg,
-        app.look().role(Role::Blocked).fg.unwrap()
-    );
-    assert!(line.trim_end().ends_with(" ›"), "{line:?}");
-    // It is not one of the tabs, so it cannot be clicked or dragged, and
-    // the tabs after it are hit where they are drawn.
-    let hits = app.tab_hits.borrow().clone();
-    let first = hits.iter().find(|hit| hit.tab == 0).unwrap();
-    let at = line[..line.find("  sq0").unwrap()].chars().count() as u16;
-    assert_eq!(first.x, at, "{line:?}");
-    assert!(hits.iter().all(|hit| hit.x >= at));
-}
-
-#[test]
 fn the_switcher_filters_every_tab_and_opens_the_chosen_one() {
     use crate::board::app::Effect;
     let mut app = board(json!([{"title": null, "rows": []}]));
@@ -2478,9 +2424,9 @@ fn the_switcher_filters_every_tab_and_opens_the_chosen_one() {
         listed,
         [
             "› qt▏",
-            "quiet (hidden)",
+            "[x]   quiet (hidden)",
             "1–1 of 1",
-            "↑↓ choose · Enter opens · Esc closes"
+            "Space pick/unpick · Enter opens · Esc closes"
         ],
         "{screen:#?}"
     );
@@ -2498,46 +2444,6 @@ fn the_switcher_filters_every_tab_and_opens_the_chosen_one() {
         crate::action::parse_bindings([("s", Some("refresh"))].into_iter(), "bind").unwrap();
     assert_eq!(press(&mut app, KeyCode::Char('s')), Effect::Refresh);
     assert!(app.switcher.is_none());
-}
-
-#[test]
-fn pinned_tabs_stay_in_view_and_keep_their_pin_order() {
-    use crate::board::app::Effect;
-    let mut app = board(json!([{"title": null, "rows": []}]));
-    app.tabs = std::iter::once(crate::board::ALL.to_owned())
-        .chain((0..9).map(|n| format!("sq{n}")))
-        .collect();
-    app.pinned = 1;
-    app.current = Some("sq8".into());
-    let line = draw(&app, 36, 6)[0].clone();
-    assert!(
-        line.starts_with("  all  ‹ 6 "),
-        "the pin stays first: {line:?}"
-    );
-    assert!(
-        line.ends_with(" sq8"),
-        "the current tab is in view: {line:?}"
-    );
-    let hits = app.tab_hits.borrow().clone();
-    assert_eq!(hits[0].tab, 0);
-    assert_eq!(hits[0].x, 0);
-    // A pin neither moves nor is passed; the other tabs move among
-    // themselves. (A saved `order` could not reorder the pins.)
-    let shift = |code| KeyEvent::new(code, KeyModifiers::SHIFT);
-    let refused = Some("Pinned tabs keep the order in [tabs] pin.");
-    app.current = Some("sq0".into());
-    assert_eq!(app.key(shift(KeyCode::Left)), Effect::None);
-    assert_eq!(app.notice.as_deref(), refused);
-    app.pinned = 2;
-    app.current = Some(crate::board::ALL.into());
-    app.notice = None;
-    assert_eq!(app.key(shift(KeyCode::Right)), Effect::None);
-    assert_eq!(app.notice.as_deref(), refused);
-    assert_eq!(app.tabs[..2], [crate::board::ALL, "sq0"]);
-    app.pinned = 1;
-    app.current = Some("sq0".into());
-    assert!(matches!(app.key(shift(KeyCode::Right)), Effect::Act(_)));
-    assert_eq!(app.tabs[..3], [crate::board::ALL, "sq1", "sq0"]);
 }
 
 #[test]
@@ -2559,7 +2465,7 @@ fn switching_squads_never_moves_a_tab_or_blanks_the_frame() {
     }
     assert_eq!(app.current.as_deref(), Some("reviews"));
     // Selection is a style, so the tab text is the same either way.
-    assert!(during[0].starts_with("  product    reviews "), "{during:?}");
+    assert_eq!(before[0], during[0], "selection never changes label width");
     assert_eq!(before[0].trim_end(), "  product    reviews");
     assert!(
         during[1].contains("loading"),
@@ -3503,7 +3409,8 @@ fn toggle_footer_and_help_show_current_state_and_drop_the_whole_hint() {
                     assert!(shown.contains(&hint), "{width}: {shown}");
                 }
                 assert!(!shown.contains('…'));
-                assert!(shown.is_empty() || shown == full || full[shown.len()..].starts_with("  "));
+                assert!(shown.width() <= width);
+                assert!(shown.is_empty() || !shown.ends_with(" ·"));
             }
         }
         if targets.len() == 2 {
@@ -3531,7 +3438,11 @@ fn footer_hints_are_conditional_and_effective_bindings_remain_visible() {
     let view = app.view.as_mut().unwrap();
     view.bindings = crate::action::preset(true, &view.board.panes);
     assert!(hints(&app, usize::MAX).contains("d detail ▾"));
-    assert!(draw(&app, 48, 12)[11].contains("d detail ▾"));
+    assert!(draw(&app, 48, 12)[11].contains("A ask lead"));
+    assert!(
+        !draw(&app, 48, 12)[11].contains("d detail ▾"),
+        "decision actions take priority when narrow"
+    );
     app.view
         .as_mut()
         .unwrap()

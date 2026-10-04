@@ -21,6 +21,23 @@ pub const POLICY: &str = "default-src 'none'; script-src 'self'; style-src 'self
 /// The renderer is opaque even when opened directly rather than in an iframe.
 pub const RENDERER_POLICY: &str = "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; connect-src 'none'; form-action 'none'; base-uri 'none'; object-src 'none'; frame-src 'none'; font-src 'none'; media-src 'none'; worker-src 'none'; manifest-src 'none'; sandbox allow-scripts";
 
+/// Public static bytes an unpaired browser may fetch: the read-only reader entry (served at
+/// `/read`, which keeps the entry's relative `./assets/` references under the mount), the files it
+/// loads, the opaque renderer and the guidance script. Owner app files stay owner-only. The names
+/// are fixed by the `reader` and `recovery` build modes, so this allowlist is exact.
+pub const READER_ROUTE: &str = "/read";
+pub fn anonymous_file(path: &str) -> Option<&'static str> {
+    Some(match path {
+        READER_ROUTE => "/reader.html",
+        "/renderer.html" => "/renderer.html",
+        "/assets/reader.js" => "/assets/reader.js",
+        "/assets/reader.css" => "/assets/reader.css",
+        "/assets/reader-fold.js" => "/assets/reader-fold.js",
+        "/assets/recovery.js" => "/assets/recovery.js",
+        _ => return None,
+    })
+}
+
 #[derive(Debug)]
 pub struct AssetFault(String);
 impl std::fmt::Display for AssetFault {

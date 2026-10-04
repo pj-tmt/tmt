@@ -68,6 +68,7 @@ fn execute() -> Result<(), DecodeFault> {
             doc.get_or_insert_map(*name);
         }
     }
+    let mut discussion = std::collections::BTreeMap::new();
     for bytes in std::iter::once(&baseline)
         .filter(|v| !v.is_empty())
         .chain(updates.iter())
@@ -76,6 +77,16 @@ fn execute() -> Result<(), DecodeFault> {
         doc.transact_mut()
             .apply_update(update)
             .map_err(|_| DecodeFault::Rejected)?;
+        if wire.namespace == Namespace::Own {
+            let next = discussion_records(&doc)?;
+            if discussion
+                .iter()
+                .any(|(key, value)| next.get(key) != Some(value))
+            {
+                return Err(DecodeFault::Rejected);
+            }
+            discussion = next;
+        }
     }
     let before = project(&doc, wire.namespace)?;
     // Edit only the admitted structs. The delta never reattributes foreign content.
@@ -133,6 +144,31 @@ fn execute() -> Result<(), DecodeFault> {
     };
     write_reply(&reply)
 }
+// Capture only materialized typed records, allowing existing checkpoint steps
+// with pending dependencies. A later update cannot replace or remove a record.
+fn discussion_records(
+    doc: &Doc,
+) -> Result<std::collections::BTreeMap<(String, String), Value>, DecodeFault> {
+    let txn = doc.transact();
+    let mut records = std::collections::BTreeMap::new();
+    for root in ["threads", "messages"] {
+        let map = Root::<MapRef>::new(root)
+            .get(&txn)
+            .ok_or(DecodeFault::Rejected)?;
+        for (key, value) in map.iter(&txn) {
+            if let Out::Any(Any::Map(fields)) = value
+                && matches!(fields.get("kind"), Some(Any::String(kind)) if kind.as_ref() == "thread" || kind.as_ref() == "comment")
+            {
+                records.insert(
+                    (root.into(), key.into()),
+                    serde_json::to_value(Any::Map(fields)).map_err(|_| DecodeFault::Rejected)?,
+                );
+            }
+        }
+    }
+    Ok(records)
+}
+
 fn write_reply(reply: &impl Serialize) -> Result<(), DecodeFault> {
     let output = serde_json::to_vec(reply).map_err(|_| DecodeFault::InvalidOutput)?;
     if output.len() > STREAM_BYTES {

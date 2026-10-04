@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vp dev --host 127.0.0.1",
-    "build": "tsc --noEmit && vp build && vp build --mode recovery",
+    "build": "tsc --noEmit && vp build && vp build --mode recovery && vp build --mode reader",
     "check": "tsc --noEmit && vp lint --config vite.config.ts --deny-warnings --react-plugin src test e2e acceptance *.ts && vp fmt --config vite.config.ts --check .",
     "test": "vp test run --config vitest.config.ts",
     "test:browser": "vp exec playwright test",

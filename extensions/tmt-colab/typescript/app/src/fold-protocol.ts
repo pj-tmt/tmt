@@ -1,3 +1,4 @@
+import { validateDiscussionRecord } from './thread-records.js';
 import { exactKeys, generatedId, requireValue, text } from '@tmt/colab-client';
 /** Plaintext-only decoder protocol. No CryptoKeys or transport capabilities. */
 export const SOURCE_BYTES = 2 * 1024 * 1024;
@@ -12,9 +13,7 @@ export type FoldCommand =
   | {
       type: 'prepare-own';
       writer: string;
-      root: OwnRoot;
-      key: string;
-      value: JsonValue;
+      records: OwnRecord[];
     }
   | {
       type: 'baseline';
@@ -23,6 +22,11 @@ export type FoldCommand =
       sourceDigest: Uint8Array;
       commitment: Uint8Array;
     };
+export interface OwnRecord {
+  root: OwnRoot;
+  key: string;
+  value: JsonValue;
+}
 export interface Projection {
   source: string;
   title: string;
@@ -81,6 +85,18 @@ export function validateOwn(value: unknown): asserts value is OwnState {
     for (const map of Object.values(roots))
       requireValue(map !== null && typeof map === 'object' && !Array.isArray(map));
     const projection = roots as unknown as OwnProjection;
+    for (const [root, map] of Object.entries(projection)) {
+      for (const [key, record] of Object.entries(map)) {
+        if (
+          record &&
+          typeof record === 'object' &&
+          !Array.isArray(record) &&
+          ((record as Record<string, unknown>).kind === 'thread' ||
+            (record as Record<string, unknown>).kind === 'comment')
+        )
+          validateDiscussionRecord(root, key, record);
+      }
+    }
     threads += Object.keys(projection.threads).length;
     for (const message of Object.values(projection.messages)) {
       if (message !== null && typeof message === 'object' && Object.hasOwn(message, 'body')) {

@@ -2,8 +2,10 @@ import { afterEach, expect, it, vi } from 'vite-plus/test';
 import type { Connection } from '../src/connection.js';
 import type { Admission } from '../src/admission.js';
 import type { OwnState } from '../src/fold-protocol.js';
+import { decodeAsk } from '../src/ask-records.js';
+import type { CommentContext } from '../src/thread-store.js';
 import { LiveAsk, pageAsks } from '../src/live-ask.js';
-import { destination, id, RemoteDouble } from './ask-fixtures.js';
+import { destination, id, pageLink, RemoteDouble } from './ask-fixtures.js';
 const records = new Map<string, unknown>();
 vi.mock('../src/storage.js', () => ({
   record: async (key: string, ...values: unknown[]) => {
@@ -15,7 +17,14 @@ afterEach(() => {
   records.clear();
   vi.unstubAllGlobals();
 });
-async function fixture() {
+async function fixture(
+  commentContext?: (context: CommentContext) => {
+    thread: string;
+    messageIds: string[];
+    quote: string;
+    comment: string;
+  },
+) {
   vi.stubGlobal('navigator', {
     locks: { request: async (_key: string, action: () => unknown) => action() },
   });
@@ -61,6 +70,7 @@ async function fixture() {
     publicKey,
     remote,
     own: () => own,
+    commentContext,
     async publish(root, key, value) {
       own[id(4)] ??= { threads: {}, messages: {}, intents: {}, replies: {} };
       own[id(4)][root][key] = structuredClone(value);
@@ -74,7 +84,7 @@ async function fixture() {
     quote: 'Original quote',
     comment: 'Original question',
     title: 'Original page',
-    url: 'https://example.test/page#private',
+    url: pageLink(),
     destination: destination(),
   };
   return {
@@ -117,7 +127,7 @@ it('captures parent inputs before asynchronous admission and only explicit Send 
   expect(attempt.preview.view.deliveredMessage).toContain('[remote: ');
   expect(attempt.preview.view.message).toContain('Original quote');
   expect(attempt.preview.view.message).toContain('Original page');
-  expect(attempt.preview.view.message).not.toContain('#private');
+  expect(attempt.preview.view.message).toContain(`Link: ${pageLink()}\n`);
   expect(f.remote.sends).toEqual([]);
   expect(f.own).toEqual({});
   const one = attempt.send(),
@@ -184,5 +194,43 @@ it('a lost current grant context before adoption shows failed and leaves no inte
   expect((await attempt.send()).state).toBe('failed');
   expect(f.remote.sends).toEqual([]);
   expect(f.own).toEqual({});
+  f.ask.close();
+});
+
+it('comment Ask freezes verified IDs and body rather than caller substitutes, without dispatch before Send', async () => {
+  const context = {
+    thread: { writer: id(8), id: id(9) },
+    message: { writer: id(10), id: id(11) },
+    threadRevision: '1',
+    messageRevision: '1',
+  };
+  let current = true;
+  const f = await fixture((selected) => {
+    expect(selected).toEqual(context);
+    if (!current) throw new Error('stale comment');
+    return {
+      thread: id(9),
+      messageIds: [id(11)],
+      quote: 'Verified quote',
+      comment: 'Verified body',
+    };
+  });
+  f.input.destination = (await f.ask.destinations())[0];
+  const attempt = await f.ask.prepare({
+    ...f.input,
+    quote: 'substituted',
+    comment: 'substituted',
+    context,
+  });
+  expect(f.remote.sends).toHaveLength(0);
+  expect(attempt.preview.view.message).toContain('Verified quote');
+  expect(attempt.preview.view.message).toContain('Verified body');
+  expect(attempt.preview.view.message).not.toContain('substituted');
+  current = false;
+  await expect(f.ask.prepare({ ...f.input, context })).rejects.toThrow('stale comment');
+  await attempt.send();
+  const record = Object.values(f.own[id(4)].intents)[0] as { signed: unknown };
+  expect(decodeAsk(record.signed)).toMatchObject({ thread: id(9), messageIds: [id(11)] });
+  expect(f.remote.sends).toHaveLength(1);
   f.ask.close();
 });
