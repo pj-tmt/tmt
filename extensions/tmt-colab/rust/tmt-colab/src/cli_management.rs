@@ -151,7 +151,7 @@ fn principal<'a>(detail: &'a Value, kind: &str, id: &str) -> Result<&'a Value> {
         .ok_or_else(|| {
             fail(
                 "COLAB_PAGE_NOT_FOUND",
-                "Link has no assignment on this page.",
+                "Principal has no assignment on this page.",
             )
         })
 }
@@ -178,6 +178,52 @@ fn selection(
                         json!({"pageId":id,"mode":mode}),
                         rank(mode) > rank(page["sharing"].as_str().unwrap_or("private")),
                     )
+                }
+                "history" => {
+                    let mode = text(selected, "mode");
+                    (
+                        "page.history",
+                        json!({"pageId":id,"mode":mode}),
+                        mode == "shared" && page["history"] == "current",
+                    )
+                }
+                "member" => {
+                    let (action, selected) = selected.subcommand().expect("required member action");
+                    let member = uuid(text(selected, "member"))?;
+                    match action {
+                        "add" => {
+                            let payload = json!({"memberId":member,"role":text(selected,"role"),
+                                "signKey":text(selected,"sign-key"),"encKey":text(selected,"enc-key"),"pages":[id]});
+                            tmt_colab_model::payload::decode("member.add", &serde_json::to_vec(&payload)?)
+                                .map_err(|_| input("Expected canonical member ID, role and valid Ed25519/X25519 public keys."))?;
+                            if values::binary(text(selected, "enc-key"), 32)?
+                                .iter()
+                                .all(|v| *v == 0)
+                            {
+                                return Err(input("Encryption public key cannot be all zero."));
+                            }
+                            ("member.add", payload, true)
+                        }
+                        "remove" | "role" => {
+                            let old = principal(detail, "members", &member)?;
+                            let mut payload = json!({"memberId":member,"pages":old["pages"]});
+                            if action == "remove" {
+                                ("member.remove", payload, false)
+                            } else {
+                                let role = text(selected, "role");
+                                let rank = |v: &str| match v {
+                                    "editor" => 2,
+                                    "commenter" => 1,
+                                    _ => 0,
+                                };
+                                let widening =
+                                    rank(role) > rank(old["role"].as_str().unwrap_or("viewer"));
+                                payload["role"] = json!(role);
+                                ("member.role", payload, widening)
+                            }
+                        }
+                        _ => return Err(input("Unsupported member action.")),
+                    }
                 }
                 "link" => {
                     let (action, selected) = selected.subcommand().expect("required link action");
@@ -219,6 +265,24 @@ fn selection(
                 _ => return Err(input("Unsupported sharing action.")),
             }
         }
+        "retention" => {
+            let Some(days) = args.get_one::<String>("days") else {
+                return Ok(None);
+            };
+            let days = if days == "forever" {
+                Value::Null
+            } else {
+                let count = values::decimal(days, false).map_err(|_| {
+                    input("Expected a positive canonical safe-integer day count or forever.")
+                })?;
+                values::time(count)
+                    .map_err(|_| input("Day count exceeds the safe-integer bound."))?;
+                json!(count)
+            };
+            ("retention.set", json!({"pageId":id,"days":days}), false)
+        }
+        "archive" => ("page.archive", json!({"pageId":id}), false),
+        "delete" => ("page.delete", json!({"pageId":id}), true),
         _ => return Err(input("Unsupported management command.")),
     }))
 }
@@ -334,11 +398,29 @@ fn ipc(layout: &Layout, body: &[u8]) -> Result<Vec<u8>> {
         ));
     }
     if parsed.code != Some(200) {
-        let value: Value = serde_json::from_slice(&exchange[offset..])
-            .map_err(|_| fail("COLAB_OUTCOME_UNKNOWN", "Unrecognized management reply."))?;
-        return Err(management_error(
-            value["code"].as_str().unwrap_or("UNAVAILABLE"),
-        ));
+        // The management socket's error body is the exact textual Code, not JSON.
+        let code = match &exchange[offset..] {
+            b"INVALID" => management::Code::Invalid,
+            b"DENIED" => management::Code::Denied,
+            b"EXPIRED" => management::Code::Expired,
+            b"CONFLICT" => management::Code::Conflict,
+            b"STALE_HEAD" => management::Code::StaleHead,
+            b"CAPACITY" => management::Code::Capacity,
+            b"UNAVAILABLE" => management::Code::Unavailable,
+            _ => {
+                return Err(fail(
+                    "COLAB_OUTCOME_UNKNOWN",
+                    "Unrecognized management reply.",
+                ));
+            }
+        };
+        if parsed.code != Some(management::status(code)) {
+            return Err(fail(
+                "COLAB_OUTCOME_UNKNOWN",
+                "Mismatched management reply status.",
+            ));
+        }
+        return Err(management_error(code.text()));
     }
     Ok(exchange[offset..].to_vec())
 }
@@ -530,12 +612,26 @@ pub fn run(command: &str, args: &ArgMatches, root: &Path, json_output: bool) -> 
         page_args = next;
     }
     let id = uuid(text(page_args, "page"))?;
-    let mut page = catalog["pages"]
+    let selected_page = catalog["pages"]
         .as_array()
         .and_then(|rows| rows.iter().find(|p| p["pageId"] == id))
-        .cloned()
-        .ok_or_else(|| fail("COLAB_PAGE_NOT_FOUND", "Local page is not available."))?;
-    let detail = inspection::detail(&store, &key, &page)?;
+        .cloned();
+    // Deletion removes the visible catalog row, not its operation receipt. Only
+    // an explicit frozen retry may reach the engine without a current page view.
+    let delete_retry = command == "delete"
+        && args.get_one::<String>("operation-id").is_some()
+        && args.get_one::<String>("expected-revision").is_some();
+    let (mut page, detail) = match selected_page {
+        Some(page) => {
+            let detail = inspection::detail(&store, &key, &page)?;
+            (page, detail)
+        }
+        None if delete_retry => (
+            json!({"pageId":id}),
+            json!({"membershipHead":catalog["membershipHead"]}),
+        ),
+        None => return Err(fail("COLAB_PAGE_NOT_FOUND", "Local page is not available.")),
+    };
     if catalog["membershipHead"] != detail["membershipHead"] {
         return Err(management_error("STALE_HEAD"));
     }
@@ -549,6 +645,14 @@ pub fn run(command: &str, args: &ArgMatches, root: &Path, json_output: bool) -> 
         return output(&detail, json_output);
     }
     let Some((operation, payload, widening)) = selection(command, args, &page, &detail)? else {
+        if command == "retention" {
+            return output(
+                &json!({"membershipHead":detail["membershipHead"],"page":{
+                "pageId":id,"retentionDays":page["retentionDays"],"lastUpdateAtMs":page["lastUpdateAtMs"],
+                "expiresAtMs":page["expiresAtMs"],"warnings":page["warnings"]}}),
+                json_output,
+            );
+        }
         return output(
             &json!({"membershipHead":detail["membershipHead"],"links":detail["links"]}),
             json_output,
@@ -557,7 +661,7 @@ pub fn run(command: &str, args: &ArgMatches, root: &Path, json_output: bool) -> 
     if widening && !args.get_flag("yes") {
         return Err(fail(
             "COLAB_CONFIRMATION_REQUIRED",
-            "Requires --yes after reviewing sharing disclosure in help. Copied plaintext and previously public history cannot be recalled.",
+            "Requires --yes after reviewing this command's disclosure in help. Deletion is permanent; copied plaintext and previously public history cannot be recalled.",
         ));
     }
     let operation_id = args
@@ -734,17 +838,26 @@ fn human_fields(value: &Value) -> Result<Vec<(String, String)>> {
                 if let Some(title) = v["title"].as_str() {
                     fields.push(("title".to_owned(), title.to_owned()));
                 }
-                fields.push((
-                    "audience".to_owned(),
-                    format!(
-                        "{} · {} history",
-                        v["sharing"].as_str().unwrap_or("private"),
-                        v["history"].as_str().unwrap_or("shared")
-                    ),
-                ));
-                fields.push(("epoch".to_owned(), text(&v["epoch"])));
-                if let Some(days) = v["retentionDays"].as_u64() {
-                    fields.push(("retention".to_owned(), format!("{days} days")));
+                if let (Some(sharing), Some(history)) =
+                    (v["sharing"].as_str(), v["history"].as_str())
+                {
+                    fields.push((
+                        "audience".to_owned(),
+                        format!("{sharing} · {history} history"),
+                    ));
+                }
+                if let Some(epoch) = v["epoch"].as_str() {
+                    fields.push(("epoch".to_owned(), epoch.to_owned()));
+                }
+                if let Some(days) = v.get("retentionDays") {
+                    fields.push((
+                        "retention".to_owned(),
+                        if days.is_null() {
+                            "forever".to_owned()
+                        } else {
+                            format!("{} days", text(days))
+                        },
+                    ));
                 }
                 if let Some(updated) = v["lastUpdateAtMs"].as_u64() {
                     fields.push(("last edit".to_owned(), utc_time(updated)));
@@ -772,6 +885,9 @@ fn human_fields(value: &Value) -> Result<Vec<(String, String)>> {
                 "reader link".to_owned(),
                 crate::door::Door::hint(&crate::door::Lookup::Unknown, &text(v)),
             )),
+            "operationId" => fields.push(("operation".to_owned(), text(v))),
+            "expectedRevision" => fields.push(("expected revision".to_owned(), text(v))),
+            "linkId" => fields.push(("link".to_owned(), text(v))),
             "members" => fields.push(("members".to_owned(), principals(v))),
             "links" => fields.push(("links".to_owned(), principals(v))),
             _ => fields.push((key.clone(), text(v))),

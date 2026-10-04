@@ -1897,22 +1897,45 @@ share link list <page>
 share link add <page> [--seed-file <file|->] [--link-id <uuid>]
 share link reset <page> <link> [--seed-file <file|->] [--link-id <uuid>]
 share link remove <page> <link>
+share member add <page> <member> <viewer|commenter|editor> --sign-key <key> --enc-key <key>
+share member remove <page> <member>
+share member role <page> <member> <viewer|commenter|editor>
+share history <page> <shared|current>
+retention <page> [<days>|forever]
+archive <page>
+delete <page> --yes
 ```
 
-All commands support human output and one `--json` document. Top-level `ls`
+All commands support human output and one `--json` document. Human retention
+reads show a day count or forever and omit policy fields absent from that view.
+Mutation summaries use readable operation, expected revision and membership labels;
+JSON field names and values stay unchanged. Top-level `ls`
 and `share link ls` have hidden `list` aliases, following the shared CLI style.
 Audience widening and link addition/Reset MUST require explicit `--yes`; absent
-confirmation sends and writes nothing. A seed is canonical base64url seed32 from an
-owned regular 0600 file or bounded stdin (`--seed-file`, for scripts and exact retries),
-never argv. Without `--seed-file`, `link add` and `link reset` generate a fresh seed from
-the OS RNG. The seed is persisted nowhere and appears in output only inside the
-[reader link](#read-only-reader-link-1545) fragment (`readerPath`) that a successful add or
-reset prints once; `ls`, `remove` and every other output never carry it. After an uncertain
-outcome, retry with the same `--link-id` and `--seed-file`; a generated seed is not
-recoverable, so the fallback is Reset.
+confirmation sends and writes nothing. The full management commands (#1572)
+also require `--yes` for member addition, role widening, history widening and
+every deletion. Role reductions, member removal, archive and retention changes
+are explicit commands without an additional confirmation. A seed is canonical
+base64url seed32 from an owned regular 0600 file or bounded stdin (`--seed-file`,
+for scripts and exact retries), never argv. Without `--seed-file`, `link add` and
+`link reset` generate a fresh seed from the OS RNG. The seed is persisted nowhere
+and appears in output only inside the [reader link](#read-only-reader-link-1545)
+fragment (`readerPath`) that a successful add or reset prints once; `ls`, `remove`
+and every other output never carry it. After an uncertain outcome, retry with the
+same `--link-id` and `--seed-file`; a generated seed is not recoverable, so the
+fallback is Reset.
 Links created or reset by this v1 CLI always have the viewer role. Removal/Reset
-capture complete verified assignments. Member, history, retention, archive and
-delete commands are deferred beyond v1.
+capture complete verified assignments, as do member removal and role changes.
+Member addition assigns only the initiating page. Its raw Ed25519/X25519 public
+keys and canonical member UUID are caller-supplied; this is advanced or scripted
+use. Member invitation flows come with the Firestore stage. Editors can change
+page scripts for every viewer; member access never grants agent access.
+
+Retention without a value reads verified policy without folding content. Day
+counts are canonical positive safe integers; `forever` means null. Archive freezes
+writes while leaving the page readable; retention and explicit deletion remain
+available. Deletion removes local content, receipts, checkpoints, baselines, wraps
+and epoch keys, retaining page, signed-policy and owner-operation tombstones.
 
 Mutations accept `--operation-id` and `--expected-revision`; generated/default
 values are captured once. Success is `{operationId, expectedRevision,
@@ -1920,8 +1943,14 @@ membershipHead:{revision, statementHash}}`; link creation/Reset also returns the
 nonsecret replacement `linkId`. An explicit retry MUST retain the same IDs,
 revision, selections and caller-held seed. Unknown IPC outcomes MUST retain this
 nonsecret correlation, never regenerate a request or claim no effect.
+An explicit delete retry with both operation ID and expected revision MUST still
+reach the existing receipt after the page disappears from the visible catalog.
+The owner engine returns the original committed head; a changed frozen request
+conflicts and an unsaved request cannot revive the deleted page.
 
 Link listings return `{membershipHead, links}`.
+Retention reads return `{membershipHead, page:{pageId, retentionDays,
+lastUpdateAtMs, expiresAtMs, warnings}}`.
 Page lists return `{spaceId, membershipHead, pages}`; an uninitialized list has null
 space/head and empty pages. Show returns `{spaceId, membershipHead, page, members,
 links, discussions:"not-available"}`. Page fields are `pageId, title, epoch,
@@ -1965,6 +1994,10 @@ CLI failures add `COLAB_INPUT_INVALID`, `COLAB_CONFIRMATION_REQUIRED`,
 `COLAB_PAGE_NOT_FOUND`, `COLAB_OUTCOME_UNKNOWN`; existing state/schema failures
 keep their codes. Success exits 0. Neither acknowledgments nor unsigned output
 create browser authority; browser refresh still uses verified catchup.
+The reserved management socket's unsuccessful response body is the exact textual
+management code with its corresponding HTTP status. The CLI maps that existing
+wire directly; malformed, mismatched or interrupted replies are unknown outcomes,
+with captured correlation and no offline fallback.
 
 ## Root-local page creation
 

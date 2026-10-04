@@ -429,6 +429,86 @@ mod cleanup_policy_tests {
     use super::*;
 
     #[test]
+    fn ready_child_exit_and_expired_wait_both_reap_the_owned_process() {
+        use crate::test_support::TestDirectory;
+        use nix::{
+            sys::{signal::kill, stat::Mode, wait::waitpid},
+            unistd::mkfifo,
+        };
+        use std::{fs, mem::ManuallyDrop};
+
+        // Retain evidence on any failed lifecycle assertion; delete only after
+        // both owned processes and their groups have been confirmed absent.
+        let directory = ManuallyDrop::new(TestDirectory::new());
+        eprintln!("owned ready-child fixture: {}", directory.path.display());
+        let release = directory.path.join("release");
+        mkfifo(&release, Mode::S_IRUSR | Mode::S_IWUSR).unwrap();
+        for mode in ["finish", "blocked"] {
+            let ready = directory.path.join(format!("{mode}.ready"));
+            let marker = directory.path.join(format!("{mode}.finished"));
+            let args = [
+                "-i".into(),
+                {
+                    let mut home = OsString::from("HOME=");
+                    home.push(&directory.path);
+                    home
+                },
+                "/bin/sh".into(),
+                "-c".into(),
+                "printf '%s\\n' \"$$\" > \"$1\"; if [ \"$2\" = blocked ]; then read -r release < \"$3\"; fi; printf finished > \"$4\"".into(),
+                "owned-probe".into(),
+                ready.clone().into_os_string(),
+                mode.into(),
+                release.clone().into_os_string(),
+                marker.clone().into_os_string(),
+            ];
+            let deadline = Instant::now() + Duration::from_secs(5);
+            let mut running = UnixCommandRunner
+                .start(CommandRequest {
+                    program: OsStr::new("/usr/bin/env"),
+                    args: &args,
+                    input: &[],
+                    deadline,
+                    max_output_bytes: 128,
+                })
+                .unwrap();
+            let pid = Pid::from_raw(i32::try_from(running.job.pid()).unwrap());
+            loop {
+                match fs::read_to_string(&ready) {
+                    Ok(value) if !value.is_empty() => {
+                        assert_eq!(value, format!("{pid}\n"));
+                        break;
+                    }
+                    Ok(_) => {}
+                    Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+                    Err(error) => panic!("read owned probe readiness: {error}"),
+                }
+                assert!(Instant::now() < deadline, "owned probe was not ready");
+                std::thread::sleep(Duration::from_millis(10));
+            }
+            if mode == "blocked" {
+                // Readiness is independent of scheduling. Expiring the private
+                // handle now exercises real timeout cleanup of a known live child.
+                assert_eq!(kill(pid, None), Ok(()));
+                running.deadline = Instant::now();
+                let error = running.wait().unwrap_err();
+                assert_eq!(error.kind, CommandFailure::Timeout);
+                assert!(!error.cleanup_failed());
+                assert!(!marker.exists());
+            } else {
+                let output = running.wait().unwrap();
+                assert!(output.stdout.is_empty());
+                assert!(output.stderr.is_empty());
+                assert_eq!(fs::read_to_string(marker).unwrap(), "finished");
+            }
+            assert_eq!(kill(pid, None), Err(Errno::ESRCH));
+            assert_eq!(killpg(pid, None), Err(Errno::ESRCH));
+            assert_eq!(waitpid(pid, None), Err(Errno::ECHILD));
+        }
+        drop(ManuallyDrop::into_inner(directory));
+    }
+
+    #[test]
     fn supervised_probes_stay_in_the_supervisors_group() {
         let args = ["-c".into(), "ps -o pgid= -p $$".into()];
         let request = || CommandRequest {

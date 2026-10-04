@@ -29,7 +29,7 @@ function tomlCommand(args, source) {
   const result = spawnSync(TOOL, args, {
     input: source,
     encoding: 'utf8',
-    timeout: 10_000,
+    timeout: 60_000,
     maxBuffer: 64 * 1024 * 1024,
   });
   if (result.error) throw result.error;

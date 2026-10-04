@@ -137,9 +137,15 @@ in `acceptance/ask.spec.ts`.
 - `management.rs` holds strict DTOs and device-signature admission and adapts to the
   engine; it never writes authority tables or chooses baselines, cuts, wraps or epoch
   keys. The CLI (`cli_grammar.rs`, `cli_management.rs`, `inspection.rs`) is root-local:
-  `ls`, `show`, `share mode` and `share link`. It uses the private socket IPC when `serve`
+  `ls`, `show`, `share mode/link/member/history`, `retention`, `archive` and `delete`.
+  `cli_management::selection` adapts public CLI inputs to strict existing DTOs;
+  member removal/role changes capture complete verified assignments, and deletion requires `--yes`.
+  Explicit frozen delete retries bypass only the missing catalog view so the engine
+  can replay the retained receipt. Retention reads use verified policy without a decoder.
+  It uses the private socket IPC when `serve`
   holds the lifecycle lock and the offline path otherwise; an uncertain IPC reply never
-  falls back to a second writer (`cli_management.rs`, `page/ipc.rs`).
+  falls back to a second writer (`cli_management.rs`, `page/ipc.rs`). Management errors
+  are exact plain codes/statuses; malformed or mismatched replies remain uncertain.
 - `readers::Sessions` keeps at most 64 ephemeral challenges, tickets and active readers
   (`CAP`), with a one-minute challenge and ten-minute session. Readers are page- and
   epoch-scoped and never owner devices or writers (`readers.rs`).

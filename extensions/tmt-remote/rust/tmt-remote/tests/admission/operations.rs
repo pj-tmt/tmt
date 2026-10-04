@@ -155,6 +155,7 @@ fn control(owner: &OwnerDoor, operations: Arc<Operations>) -> Control {
             prefix: "/r/test".into(),
         },
         Some(approval),
+        Arc::new(AtomicBool::new(false)),
     )
     .unwrap()
 }

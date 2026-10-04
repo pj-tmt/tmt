@@ -376,6 +376,7 @@ fn stopping_serve_cancels_a_pending_offer() {
                 prefix: h.prefix.clone(),
             },
             None,
+            Arc::clone(&h.stop),
         )
         .unwrap(),
     );

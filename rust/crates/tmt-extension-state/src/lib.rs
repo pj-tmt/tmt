@@ -116,9 +116,14 @@ impl Layout {
         Ok(file)
     }
 
+    /// Open an admitted private file for reading, without creating it.
+    pub fn read_file(&self, name: &str) -> Result<File, Error> {
+        read_file(&self.path(name)?)
+    }
+
     /// Read at most the caller's admission bound, without creating a missing file.
     pub fn read(&self, name: &str, limit: u64) -> Result<Vec<u8>, Error> {
-        let file = read_file(&self.path(name)?)?;
+        let file = self.read_file(name)?;
         let mut bytes = Vec::new();
         file.take(limit).read_to_end(&mut bytes)?;
         Ok(bytes)
@@ -130,7 +135,7 @@ impl Layout {
 
     /// Probe an existing lock without creating it or retaining a successful lock.
     pub fn running(&self, name: &str) -> Result<bool, Error> {
-        let file = match read_file(&self.path(name)?) {
+        let file = match self.read_file(name) {
             Ok(file) => file,
             Err(Error::ReadOpen(error)) if error.kind() == io::ErrorKind::NotFound => {
                 return Ok(false);

@@ -31,10 +31,13 @@ impl Fixture {
         tmt_test_support::write_executable(
             &fixture.root.join("bin/tmux"),
             br##"#!/bin/sh
-printf '%s\n' "$*" >> "$TMT_TEST_TMUX_LOG"
 [ "$*" = 'display-message -p -t 10.3 #{pane_id}' ] || exit 99
+if [ "$TMT_TEST_RESOLUTION_MODE" = timeout ]; then
+  echo $$ > "$TMT_TEST_TMUX_PID"
+  exec /bin/sleep 10
+fi
+printf '%s\n' "$*" >> "$TMT_TEST_TMUX_LOG"
 case "$TMT_TEST_RESOLUTION_MODE" in
-  timeout) echo $$ > "$TMT_TEST_TMUX_PID"; exec /bin/sleep 10 ;;
   missing) echo "can't find window: 10" >&2; exit 1 ;;
   denied) printf 'error connecting to %s (Permission denied)\n' "$TMT_TEST_DENIED_SOCKET" >&2; exit 1 ;;
   unconfirmed) printf 'error connecting to %s (Permission denied)\n' "$TMT_TEST_MISSING_SOCKET" >&2; exit 1 ;;
@@ -50,6 +53,12 @@ exit 98
     fn run(&mut self, args: &[&str], mode: &str) -> std::process::Output {
         let log = self.root.join("tmux.log");
         fs::write(&log, "").unwrap();
+        let pid = self.root.join("tmux.pid");
+        match fs::remove_file(&pid) {
+            Ok(()) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => panic!("clear previous mock PID: {error}"),
+        }
         let mut command = support::command(&self.root, args);
         command
             .env("PATH", self.root.join("bin"))
@@ -57,18 +66,13 @@ exit 98
             .env("TMT_TEST_DENIED_SOCKET", self.root.join("private.sock"))
             .env("TMT_TEST_MISSING_SOCKET", self.root.join("missing.sock"))
             .env("TMT_TEST_TMUX_LOG", &log)
-            .env("TMT_TEST_TMUX_PID", self.root.join("tmux.pid"))
+            .env("TMT_TEST_TMUX_PID", pid)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
         self.child = Some(command.spawn().unwrap());
-        let output = support::wait(&mut self.child, Duration::from_secs(5))
+        support::wait(&mut self.child, Duration::from_secs(5))
             .wait_with_output()
-            .unwrap();
-        assert_eq!(
-            fs::read_to_string(log).unwrap(),
-            "display-message -p -t 10.3 #{pane_id}\n"
-        );
-        output
+            .unwrap()
     }
 }
 
@@ -80,7 +84,7 @@ impl Drop for Fixture {
 }
 
 #[test]
-fn timed_out_resolution_is_unavailable_for_check_and_add() {
+fn explicit_resolution_preserves_completed_and_expired_lookups() {
     let mut fixture = Fixture::new();
     for args in [
         &["check", "10.3", "--json"][..],
@@ -98,10 +102,34 @@ fn timed_out_resolution_is_unavailable_for_check_and_add() {
                 continue;
             }
             let output = fixture.run(args, mode);
-            assert_eq!(output.status.code(), Some(status), "{mode}: {output:?}");
             assert!(output.stderr.is_empty(), "{output:?}");
             let document: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
-            assert_eq!(document["error"]["code"], code);
+            let log = fs::read_to_string(fixture.root.join("tmux.log")).unwrap();
+            let timed_out = document["error"]["code"] == "RECONCILIATION_FAILED";
+            if timed_out {
+                // The production deadline includes startup: an unscheduled mock
+                // need not have logged yet. Only the documented timeout is valid.
+                assert_eq!(output.status.code(), Some(1), "{mode}: {output:?}");
+                assert_eq!(
+                    document,
+                    serde_json::json!({"error": {
+                        "code": "RECONCILIATION_FAILED",
+                        "message": "Could not execute tmux operation (ETIMEDOUT)."
+                    }}),
+                );
+                assert!(
+                    log.is_empty() || log == "display-message -p -t 10.3 #{pane_id}\n",
+                    "unexpected timeout invocation: {log:?}",
+                );
+            } else {
+                assert_eq!(output.status.code(), Some(status), "{mode}: {output:?}");
+                assert_eq!(document["error"]["code"], code);
+                assert_eq!(log, "display-message -p -t 10.3 #{pane_id}\n");
+            }
+            if mode == "timeout" {
+                assert!(timed_out, "held mock did not time out: {output:?}");
+                assert!(log.is_empty(), "held mock wrote its completion log");
+            }
             let database = rusqlite::Connection::open_with_flags(
                 support::state_dir(&fixture.root).join("tmux-team.db"),
                 rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
@@ -116,21 +144,22 @@ fn timed_out_resolution_is_unavailable_for_check_and_add() {
                 assert_eq!(rows, 0, "{mode} resolution changed {table}");
             }
             if mode == "timeout" {
-                assert!(
-                    String::from_utf8(output.stdout)
-                        .unwrap()
-                        .contains("ETIMEDOUT")
-                );
-                let pid = fs::read_to_string(fixture.root.join("tmux.pid"))
-                    .unwrap()
-                    .trim()
-                    .parse::<i32>()
-                    .unwrap();
-                assert_eq!(
-                    kill(Pid::from_raw(pid), None),
-                    Err(Errno::ESRCH),
-                    "timed-out tmux was not reaped"
-                );
+                match fs::read_to_string(fixture.root.join("tmux.pid")) {
+                    // Opening the file can precede the shell's PID write.
+                    Ok(pid) if pid.is_empty() => {}
+                    Ok(pid) => {
+                        let pid = pid.trim().parse::<i32>().unwrap();
+                        assert_eq!(
+                            kill(Pid::from_raw(pid), None),
+                            Err(Errno::ESRCH),
+                            "timed-out tmux was not reaped"
+                        );
+                    }
+                    // The mock may expire before executing its first write.
+                    // Ready-child reaping is proved at the process boundary.
+                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                    Err(error) => panic!("read owned mock PID: {error}"),
+                }
             }
         }
     }
