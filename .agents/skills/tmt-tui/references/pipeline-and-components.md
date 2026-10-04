@@ -56,6 +56,11 @@ Maintained module reference. Commands and admitted spellings are in [development
   pipeline, so generated templates obey the same depth/node limits. Component IDs
   are static scoped IDs outside repeats. One list or table is supported per scroll
   surface.
+- Modal sheets: a `Center` or `Docked` modal is a full-width sheet below the `md`
+  breakpoint and nine tenths of the body from it (never wider than its authored
+  demand). Breakpoint names and cell values come from `design/tokens/tokens.json`
+  through `tmt-cli-style::breakpoint`; callers ask the modal for its width instead of
+  repeating the rule.
 - Key help measures one display-cell label column across all sections and stacks
   descriptions when fewer than 20 cells remain. Heading and spacing properties let
   a caller choose bold headings and one blank line between sections.

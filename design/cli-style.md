@@ -334,6 +334,13 @@ User bindings can change a key; help and footers always show the effective key.
   member names, never as IDs. When the description column would be narrower than 20 cells, each key goes on its own line with its description indented below it; no key is ever cut.
 - At very small widths the footer keeps `? more` first, then `q quit`, then the rest by priority. `?` closes help; other overlays ignore it unless they list it.
 
+### Width steps
+
+A view that changes with the terminal width names one of three steps, never a
+number: `sm` (80 cells), `md` (100) and `lg` (140). They live in
+`design/tokens/tokens.json`; add a new step there, never a number in a view. A
+step is a lower bound, so a width exactly at the step takes it.
+
 ### Overlays
 
 - An overlay is a box with square corners and a single-line `dim` border. Its
@@ -342,7 +349,7 @@ User bindings can change a key; help and footers always show the effective key.
 - Nothing from the base shows through: the overlay clears its area first.
 - Content is inset one cell from the left and right borders. The key line, a
   status line and the scroll position (`1–23 of 74`, `muted`) share that inset.
-- Size: help and other reference overlays fill the whole body between the tab line and the footer, which stay as they are. Small overlays (pickers, confirmations) are as wide as their content, at most 90% of the view and 80% of its height, centered. Below 100 columns every overlay takes the full body width.
+- Size: help and other reference overlays fill the whole body between the tab line and the footer, which stay as they are. Small overlays (pickers, confirmations) are as wide as their content, at most 90% of the view and 80% of its height, centered. Below the `md` step every overlay takes the full body width.
   Content that does not fit scrolls; the overlay never grows past the view.
 - A prompt is a short overlay docked above the footer, so the board stays
   visible as a live preview of the value being typed.

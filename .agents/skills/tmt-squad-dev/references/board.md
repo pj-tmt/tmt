@@ -303,7 +303,7 @@ here reads the store or core directly.
   the pane id. The read's failure shows as a blocked line.
 - **`c` list.** `Overlay::CronList` routed through the shared `FocusStack` and `app::route`,
   painted by a `picker_surface::State` list modal docked at its content height (like the
-  prompt band, so nine tenths wide from 100 columns). Row IDs are `<room uuid>/<c-id>`. Enter opens
+  prompt band, so nine tenths wide from the `md` breakpoint; its width comes from `Modal::areas`). Row IDs are `<room uuid>/<c-id>`. Enter opens
   the job's squad; refresh keeps the selection by identity. It closes for forms and the delete
   confirmation and stays open for pause/resume and send.
 - **Jobs half.** On a squad tab (`document.squad.roomId`) `composition::halves` places the
