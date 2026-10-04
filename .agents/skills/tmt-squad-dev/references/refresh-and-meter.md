@@ -93,7 +93,7 @@ cost or text volume. `board::rate` owns evidence, `board::meter` presentation an
   step aside before PR, then model, then the active window. `Rows.select_window`
   reorders those ranks; App applies it and invalidates the grid immediately on
   selection, even when usage values are unchanged. Model width follows content
-  up to 14 cells; paint has no meter-specific fitting branch.
+  up to 8 cells; paint has no meter-specific fitting branch.
 - HOME: separate typed `View.home_rate` templates supply each squad roster. While
   HOME is open and any squad enables observation, one global public `ls --json`
   per sampling cycle is indexed once and joined into the same retained meters.
