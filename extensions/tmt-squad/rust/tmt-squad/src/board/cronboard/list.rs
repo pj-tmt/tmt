@@ -16,7 +16,9 @@ use ratatui::{
 };
 use serde_json::json;
 use std::cell::RefCell;
-use tmt_tui::components::{ListRow, PickerEvent, PickerField, PickerInput, surface::Template};
+use tmt_tui::components::{
+    ListRow, Modal, PickerEvent, PickerField, PickerInput, Placement, surface::Template,
+};
 
 pub(in crate::board) enum Input {
     /// Consumed by the list without an effect (a move, a boundary press).
@@ -78,12 +80,14 @@ impl List {
         look: Look,
         body: Rect,
     ) {
-        // A docked modal is a full-width sheet below 100 columns, else nine tenths.
-        let width = if body.width < 100 {
-            body.width
-        } else {
-            (u32::from(body.width) * 9 / 10) as u16
-        };
+        // The modal owns its sheet width; ask it rather than repeating its rule.
+        let width = Modal {
+            title: String::new(),
+            placement: Placement::Docked,
+        }
+        .areas(body, [body.width, body.height], true, true)
+        .outer
+        .width;
         let inside = width.saturating_sub(4);
         let columns = Columns::for_width(true, inside);
         let jobs: Vec<_> = state.cron.iter().flat_map(|cron| &cron.jobs).collect();
