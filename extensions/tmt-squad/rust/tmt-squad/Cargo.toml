@@ -29,7 +29,7 @@ sha2.workspace = true
 toml_edit.workspace = true
 ratatui.workspace = true
 pulldown-cmark.workspace = true
-unicode-width.workspace = true
+unicode-width = { workspace = true, features = ["cjk"] }
 tmt-invoke.workspace = true
 tmt-tui.workspace = true
 tmt-cli-style = { workspace = true, features = ["ratatui"] }
@@ -41,7 +41,6 @@ signal-hook.workspace = true
 
 [dev-dependencies]
 tmt-test-support.workspace = true
-unicode-width = { workspace = true, features = ["cjk"] }
 
 [lints]
 workspace = true

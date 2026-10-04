@@ -41,7 +41,6 @@ fn glyph_error(text: &str) -> Option<String> {
     let marks = registered_marks();
     let states = tmt_cli_style::mark::Mark::ALL
         .into_iter()
-        .filter(|mark| !matches!(mark, tmt_cli_style::mark::Mark::Resumable))
         .flat_map(|mark| mark.symbol().chars())
         .chain(['◐', '✎'])
         .collect::<std::collections::BTreeSet<_>>();
@@ -58,7 +57,7 @@ fn glyph_error(text: &str) -> Option<String> {
             || !character.is_ascii()
                 && (character.width() == Some(2)
                     || format!("{character}\u{fe0f}").width() > character.width().unwrap_or(0));
-        if emoji || (ambiguous && !structural && !marks.contains(&character)) {
+        if (emoji || ambiguous) && !structural && !marks.contains(&character) {
             return Some(format!("unregistered decorative glyph {character:?}"));
         }
         if states.contains(&character) && chars.peek() != Some(&' ') {
@@ -80,8 +79,12 @@ fn glyph_guard_rejects_unregistered_ambiguous_and_emoji_decorations_and_unspaced
         "1️⃣ cron",
         "◐0",
         "◆✗",
+        "↻lead",
     ] {
         assert!(glyph_error(bad).is_some(), "negative control {bad:?}");
+    }
+    for mark in tmt_cli_style::mark::Mark::ALL {
+        assert_eq!(glyph_error(&format!("{} state", mark.symbol())), None);
     }
     for good in [
         "── squads · 0 ──",
