@@ -60,6 +60,7 @@ export function parseComponentMap(text) {
   const components = Object.entries(map.components ?? {}).map(([name, component]) => ({
     name,
     package: component.package,
+    skills: component.skills,
     release: component.release,
     releaseStatus: component.releaseStatus,
     bootstrapSha: component.bootstrapSha,
@@ -108,6 +109,11 @@ export function parseComponentMap(text) {
           `Component ${component.name} initialVersion needs a package, bootstrapSha and canonical bounded alpha version.`
         );
     }
+    if (
+      component.skills !== undefined &&
+      (typeof component.skills !== 'boolean' || (component.skills && !component.package))
+    )
+      throw new Error(`Component ${component.name} skills must be boolean and needs a package.`);
     if (component.release !== undefined && typeof component.release !== 'boolean')
       throw new Error(`Component ${component.name} release must be boolean.`);
     if (

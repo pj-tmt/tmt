@@ -33,7 +33,8 @@ keeps that Node unchanged.
 
 Every native product archive carries its executable, `LICENSE`, `NATIVE-INSTALL.md`
 and `THIRD-PARTY-NOTICES.txt`. The CLI may also carry optional companion executables;
-Squad additionally carries its skills tree. The installer enforces inventory in
+A component declaring `skills: true` in `.github/components.json` (today Squad) additionally carries its
+skills tree. The installer enforces inventory in
 `tmt-core`'s `native_install/product.rs`: adding, renaming or dropping an entry
 changes the installer contract and needs upgrade proof.
 
@@ -105,7 +106,9 @@ explicit 15 s subprocess budget for debug archive hashing.
 
 ### Squad archives
 
-A Squad archive adds `skills/` copied from `extensions/tmt-squad/skills/` through the
+A skills product's archive (`skills: true` in `.github/components.json`; the archive policy, the
+verifier and `component-skills.test.ts` read that one field) adds `skills/` copied from
+`extensions/<name>/skills/` through the
 package's cargo-dist `include` (a package list replaces the workspace list, so it repeats
 the shared files); the installer inventories it from the checksum-verified archive.
 
