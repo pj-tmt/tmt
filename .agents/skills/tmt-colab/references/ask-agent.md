@@ -12,10 +12,12 @@ modules in `extensions/tmt-colab/typescript/app/src` and `rust/tmt-colab/src/ask
 - **`ask-intent.ts` (`FrozenAsk`).** Built from an `AdmittedSelection` (the trusted parent's
   admitted page/source selection; a renderer message or claimed name never is one) and a
   caller-verified `AskDestination`. It freezes the transport message
-  (`Page:`, `Link:` without fragment, `Quote:`, `Comment:`; http(s) URL without
-  credentials) and the preview-only `deliveredMessage`, which prepends Remote's
+  (`Page:`, `Link:`, `Quote:`, `Comment:`; http(s) URL without credentials) and the preview-only `deliveredMessage`, which prepends Remote's
   `[remote: <deviceName>]` line. Only the unprefixed `finalBytes` are digested, signed and
-  sent. `signed` frames the 15-field `tmt-colab-send-v1` input (default validity one hour,
+  sent. `Link:` is the page's own mounted URL with the canonical `#space=&path=` fragment built
+  from the selection; any other fragment, a query or a `/read` path is refused, never stripped. After an
+  accepted, held or uncertain Send `AskPreview` calls `sent`, so the control closes and `revealAsk`
+  focuses the matching Page asks entry. `signed` frames the 15-field `tmt-colab-send-v1` input (default validity one hour,
   at most 24); `escapedPreview` shows control and format characters without replacing bytes.
 - **`ask-remote.ts`.** `RemoteClient` port and `createRemoteClient`, which wraps the exact
   verified registration Session in the served SDK's `operations` helper. It never reopens
