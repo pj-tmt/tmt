@@ -91,10 +91,9 @@ never maps tags through those parents.
 For authorized local proof, follow the shared-host build/disk rules and use one
 Cargo target. Build `tmt-release-tool` first; Node finds its `release-version`
 binary at that target's `debug/` (or default `rust/target/debug/`).
-The TOML helper has the same 60-second process bound as the module's other
-commands, allowing a cold Rosetta launch while preserving timeout, signal and
-nonzero-exit failures. The four-host Intel upgrade rehearsal covers that startup
-class; focused injection tests verify the bound and unchanged source on failure.
+The TOML helper uses the module's 60-second process bound to allow cold Rosetta
+startup; timeout, signal and nonzero-exit failures still fail the source gate.
+Include cold helper startup when rehearsing the Intel-host upgrade proof.
 Run
 `release-version-injection.mjs prepare <checkout> <snapshot-outside-checkout>
 <product> <tag>`; an empty tag selects the shared non-publishing preparation version. When
