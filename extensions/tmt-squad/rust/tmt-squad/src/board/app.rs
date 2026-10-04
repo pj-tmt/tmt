@@ -3,6 +3,7 @@
 //! and actions leave as fully resolved requests.
 
 use super::scroll::{Scrolls, Step, WHEEL_LINES};
+use crate::display_rows::{Item, RowOrigin};
 use crate::links::Kind;
 use crate::{
     action::{Action, Bindings, Verb},
@@ -189,11 +190,6 @@ pub enum Effect {
     SaveView,
     CancelView,
     Act(Request),
-}
-
-pub enum Item<'a> {
-    Header(&'a str),
-    Row(&'a Value),
 }
 
 /// What a menu entry does: run a binding, or reply to one open request.
@@ -594,8 +590,8 @@ impl App {
         }
     }
 
-    /// Section index and row for every row matching the search.
-    pub(super) fn rows(&self) -> Vec<(usize, &Value)> {
+    /// RowOrigin and row for every displayed row matching the search, in board order.
+    pub(super) fn rows(&self) -> Vec<(RowOrigin, &Value)> {
         let Some(view) = &self.view else {
             return Vec::new();
         };
@@ -603,47 +599,28 @@ impl App {
             return self
                 .home_entries()
                 .into_iter()
-                .map(|entry| (0, entry.row))
+                .map(|entry| (RowOrigin::Section(0), entry.row))
                 .collect();
         }
-        self.usage_document.as_ref().unwrap_or(&view.document)["sections"]
-            .as_array()
+        self.items()
             .into_iter()
-            .flatten()
-            .enumerate()
-            .flat_map(|(index, section)| {
-                section["rows"]
-                    .as_array()
-                    .into_iter()
-                    .flatten()
-                    .map(move |row| (index, row))
+            .filter_map(|item| match item {
+                Item::Row(slot, row) => Some((slot, row)),
+                _ => None,
             })
-            .filter(|(_, row)| matches(row, &self.search))
             .collect()
     }
 
-    /// Section headers and the rows matching the search, in board order. The
-    /// single default section has no header.
+    /// The lead, the members rule, section headers and the rows matching the
+    /// search, in board order. The single default section has no header.
     pub fn items(&self) -> Vec<Item<'_>> {
-        let mut items = Vec::new();
         let Some(view) = &self.view else {
-            return items;
+            return Vec::new();
         };
-        for section in self.usage_document.as_ref().unwrap_or(&view.document)["sections"]
-            .as_array()
-            .into_iter()
-            .flatten()
-        {
-            if let Some(title) = section["title"].as_str() {
-                items.push(Item::Header(title));
-            }
-            for row in section["rows"].as_array().into_iter().flatten() {
-                if matches(row, &self.search) {
-                    items.push(Item::Row(row));
-                }
-            }
-        }
-        items
+        crate::display_rows::project(
+            self.usage_document.as_ref().unwrap_or(&view.document),
+            |row| matches(row, &self.search),
+        )
     }
 
     /// Replace only the board display projection. Sampling never changes public ls JSON.
@@ -670,38 +647,33 @@ impl App {
             view.derived.borrow_mut().grid = None;
         }
         let mut document = view.document.clone();
-        for section in document["sections"].as_array_mut().into_iter().flatten() {
-            for row in section["rows"].as_array_mut().into_iter().flatten() {
-                if let Some(id) = row["id"].as_str().map(str::to_owned) {
-                    for column in &view.rows.columns {
-                        let Some(source) = &column.from else { continue };
-                        if let Some(index) = source.window() {
-                            let reading = meter.member(&id, index, now);
-                            let value = reading
-                                .and_then(|r| {
-                                    crate::source::render_value(
-                                        &serde_json::json!(r.tokens.to_string()),
-                                        column.format,
-                                        0,
-                                    )
-                                    .map(|value| {
-                                        format!("{}{value}", if r.partial { "~" } else { "" })
-                                    })
-                                })
-                                .unwrap_or_else(|| "–".into());
-                            row["fields"][&column.field] = value.into();
-                            if let Some(token) =
-                                reading.and_then(|r| column.threshold(r.tokens as f64))
-                            {
-                                row["colors"][&column.field] = token.into();
-                            }
-                        } else if source.path == "session.model" {
-                            row["fields"][&column.field] = meter.model(&id).unwrap_or("–").into();
+        crate::display_rows::each_row(&mut document, |row| {
+            if let Some(id) = row["id"].as_str().map(str::to_owned) {
+                for column in &view.rows.columns {
+                    let Some(source) = &column.from else { continue };
+                    if let Some(index) = source.window() {
+                        let reading = meter.member(&id, index, now);
+                        let value = reading
+                            .and_then(|r| {
+                                crate::source::render_value(
+                                    &serde_json::json!(r.tokens.to_string()),
+                                    column.format,
+                                    0,
+                                )
+                                .map(|value| format!("{}{value}", if r.partial { "~" } else { "" }))
+                            })
+                            .unwrap_or_else(|| "–".into());
+                        row["fields"][&column.field] = value.into();
+                        if let Some(token) = reading.and_then(|r| column.threshold(r.tokens as f64))
+                        {
+                            row["colors"][&column.field] = token.into();
                         }
+                    } else if source.path == "session.model" {
+                        row["fields"][&column.field] = meter.model(&id).unwrap_or("–").into();
                     }
                 }
             }
-        }
+        });
         if self.usage_document.as_ref() != Some(&document) {
             view.derived.borrow_mut().grid = None;
             self.usage_document = Some(document);
@@ -1361,24 +1333,18 @@ impl App {
                 let states = config
                     .states(key, config.layout(key).unwrap())
                     .expect("validated settings draft");
-                for section in view.document["sections"]
-                    .as_array_mut()
-                    .into_iter()
-                    .flatten()
-                {
-                    for row in section["rows"].as_array_mut().into_iter().flatten() {
-                        let color = states.color(row["state"].as_str()).map(str::to_owned);
-                        if let Some(colors) = row["colors"].as_object_mut() {
-                            colors.remove("state");
-                        }
-                        if let Some(color) = color {
-                            if !row["colors"].is_object() {
-                                row["colors"] = serde_json::json!({});
-                            }
-                            row["colors"]["state"] = color.into();
-                        }
+                crate::display_rows::each_row(&mut view.document, |row| {
+                    let color = states.color(row["state"].as_str()).map(str::to_owned);
+                    if let Some(colors) = row["colors"].as_object_mut() {
+                        colors.remove("state");
                     }
-                }
+                    if let Some(color) = color {
+                        if !row["colors"].is_object() {
+                            row["colors"] = serde_json::json!({});
+                        }
+                        row["colors"]["state"] = color.into();
+                    }
+                });
                 if let Some(snapshot) = &overlay.staleness {
                     snapshot.apply_preview(
                         &mut view.document,
@@ -1604,7 +1570,9 @@ impl App {
     }
 
     pub(super) fn selected_section(&self) -> Option<usize> {
-        self.rows().get(self.selected).map(|(index, _)| *index)
+        self.rows()
+            .get(self.selected)
+            .and_then(|(slot, _)| slot.section())
     }
 
     /// The selected row's section overrides its tab/global/host bindings.
@@ -1615,7 +1583,7 @@ impl App {
         let section = self
             .rows()
             .get(self.selected)
-            .and_then(|(index, _)| view.section_bindings.get(*index));
+            .and_then(|(slot, _)| view.section_bindings.get(slot.section()?));
         let enabled = view
             .token_rate
             .as_ref()
@@ -1877,13 +1845,18 @@ impl App {
                 .get(index)
                 .map(|entry| RowTarget::Home(entry.target.clone()));
         }
-        let (section, row) = *self.rows().get(index)?;
+        let (slot, row) = *self.rows().get(index)?;
         let tab = self.shown_tab()?.to_owned();
-        Some(RowTarget::Member {
-            squad: row["squad"].as_str().unwrap_or(&tab).to_owned(),
-            tab,
-            section,
-            id: row["id"].as_str()?.to_owned(),
+        let squad = row["squad"].as_str().unwrap_or(&tab).to_owned();
+        let id = row["id"].as_str()?.to_owned();
+        Some(match slot {
+            RowOrigin::Lead => RowTarget::Lead { tab, squad, id },
+            RowOrigin::Section(section) => RowTarget::Member {
+                squad,
+                tab,
+                section,
+                id,
+            },
         })
     }
 
@@ -1903,7 +1876,7 @@ impl App {
                 .rows()
                 .into_iter()
                 .find(|(slot, row)| {
-                    *slot == *section
+                    *slot == RowOrigin::Section(*section)
                         && row["id"].as_str() == Some(id)
                         && row["squad"].as_str().unwrap_or(tab) == squad
                 })
@@ -1960,8 +1933,9 @@ impl App {
     }
 
     /// One composer for row answers and notes; several requests still need a choice.
-    pub(super) fn compose_row(&mut self, send: RowSend, verb: Verb, squad: String) -> Effect {
+    pub(super) fn compose_row(&mut self, mut send: RowSend, verb: Verb, squad: String) -> Effect {
         let row = self.target_row(&send.target).expect("opening row exists");
+        let pending = row["pending"].as_str().is_some_and(|text| !text.is_empty());
         let open: Vec<MenuEntry> = row["waitingOnYou"]
             .as_array()
             .into_iter()
@@ -2001,6 +1975,17 @@ impl App {
             Verb::Talk => Compose::Talk {
                 to: send.name.clone(),
             },
+            // A decision owed without a request to answer: write the member a
+            // note. Opening sends, clears and acknowledges nothing.
+            Verb::Reply if pending => {
+                let note = Compose::Annotate {
+                    to: send.name.clone(),
+                    row: send.name.clone(),
+                };
+                send.note = Some(note.clone());
+                send.note_member = true;
+                note
+            }
             Verb::Reply => return self.say(format!("{} is not waiting on you.", send.name)),
             _ => match send.note.clone() {
                 Some(note) => note,
@@ -2159,7 +2144,7 @@ impl App {
         let event = event_name(key)?;
         self.rows()
             .get(self.selected)
-            .and_then(|(index, _)| view.section_bindings.get(*index))
+            .and_then(|(slot, _)| view.section_bindings.get(slot.section()?))
             .and_then(|bindings| bindings.get(&event))
             .or_else(|| view.configured_bindings.get(&event))
             .cloned()
@@ -3477,9 +3462,10 @@ pub(crate) mod tests {
     fn names(app: &App) -> Vec<&str> {
         app.items()
             .iter()
-            .map(|item| match item {
-                Item::Header(title) => *title,
-                Item::Row(row) => row["name"].as_str().unwrap(),
+            .filter_map(|item| match item {
+                Item::Section(title) => *title,
+                Item::Rule(_) => Some("--"),
+                Item::Row(_, row) => row["name"].as_str(),
             })
             .collect()
     }
@@ -3703,33 +3689,40 @@ pub(crate) mod tests {
         assert_eq!(app.notice.as_deref(), Some("Nothing sent."));
     }
 
-    /// `L` (`jump lead`) goes to the squad's lead on its own tab, and to the
+    /// A bound `jump lead` goes to the squad's lead on its own tab, and to the
     /// selected row's squad's lead on the leads and all tabs; without one it
     /// says why and nothing runs.
     #[test]
     fn jump_lead_goes_to_the_lead_of_the_tab_or_the_selected_row_s_squad() {
         let lead = |app: &mut App| press(app, KeyCode::Char('L'));
+        // No preset binds `jump lead`; a user binding does.
+        let bound = |mut snapshot: Snapshot| {
+            let view = snapshot.view.as_mut().unwrap();
+            view.bindings
+                .insert("L".into(), Action::parse("jump lead").unwrap());
+            snapshot
+        };
         let mut app = App::new(Some("product".into()));
         let mut own = snapshot(
             "product",
             json!([{"title": null, "rows": [row("rin", "x")]}]),
         );
         own.view.as_mut().unwrap().document["squad"]["lead"] = json!({"name": "sol"});
-        app.apply(own);
+        app.apply(bound(own));
         assert_eq!(lead(&mut app), Effect::Act(Request::Jump("sol".into())));
 
         // An empty squad still has its lead.
         let mut app = App::new(Some("product".into()));
         let mut empty = snapshot("product", json!([{"title": null, "rows": []}]));
         empty.view.as_mut().unwrap().document["squad"]["lead"] = json!({"name": "sol"});
-        app.apply(empty);
+        app.apply(bound(empty));
         assert_eq!(lead(&mut app), Effect::Act(Request::Jump("sol".into())));
 
         let mut app = App::new(Some("product".into()));
-        app.apply(snapshot(
+        app.apply(bound(snapshot(
             "product",
             json!([{"title": null, "rows": [row("rin", "x")]}]),
-        ));
+        )));
         assert_eq!(lead(&mut app), Effect::None);
         assert_eq!(
             app.notice.as_deref(),
@@ -3738,13 +3731,13 @@ pub(crate) mod tests {
 
         // The all tab: a row per squad, with its lead as a field.
         let mut app = App::new(Some(crate::board::ALL.into()));
-        app.apply(snapshot(
+        app.apply(bound(snapshot(
             crate::board::ALL,
             json!([{"title": null, "rows": [
                 {"name": "product", "squad": "product", "fields": {"lead": "sol"}},
                 {"name": "quiet", "squad": "quiet", "fields": {"lead": null}},
             ]}]),
-        ));
+        )));
         assert_eq!(lead(&mut app), Effect::Act(Request::Jump("sol".into())));
         press(&mut app, KeyCode::Down);
         assert_eq!(lead(&mut app), Effect::None);
@@ -3766,13 +3759,13 @@ pub(crate) mod tests {
 
         // The leads tab: the selected row is the lead.
         let mut app = App::new(Some(crate::board::LEADS.into()));
-        app.apply(snapshot(
+        app.apply(bound(snapshot(
             crate::board::LEADS,
             json!([{"title": null, "rows": [
                 {"name": "sol", "squad": "product", "fields": {}},
                 {"name": "rin", "squad": "infra", "fields": {}},
             ]}]),
-        ));
+        )));
         press(&mut app, KeyCode::Down);
         assert_eq!(lead(&mut app), Effect::Act(Request::Jump("rin".into())));
     }
@@ -3930,6 +3923,8 @@ pub(crate) mod tests {
             view.document["sections"][1]["rows"][0]["waitingOnYou"] =
                 json!([{"requestId": "q9", "preview": "ok to merge?"}]);
         }
+        // The cursor starts on the lead; these cases act on the first member.
+        app.select(1);
         press(&mut app, KeyCode::Char('t'));
         assert_eq!(app.input.as_ref().unwrap().prompt, "→ auth-fix (product)");
         typed(&mut app, "q j -rf; $(x)");
@@ -4005,6 +4000,7 @@ pub(crate) mod tests {
         // Nothing open, or no lead to annotate for, is a notice.
         app.view.as_mut().unwrap().document["sections"][1]["rows"][0]["waitingOnYou"] = json!([]);
         app.view.as_mut().unwrap().document["squad"]["lead"] = Value::Null;
+        app.clamp();
         press(&mut app, KeyCode::Char('r'));
         assert_eq!(app.notice.as_deref(), Some("docs is not waiting on you."));
         press(&mut app, KeyCode::Char('a'));
@@ -4025,6 +4021,7 @@ pub(crate) mod tests {
         view.document["squad"]["lead"] = json!({"name":"sol"});
         view.document["sections"][0]["rows"][0]["waitingOnYou"] =
             json!([{"requestId":"q", "preview":"Ship tonight?"}]);
+        app.select(1);
         press(&mut app, KeyCode::Char('a'));
         assert!(app.menu.is_none(), "a single request opens in place");
         assert_eq!(app.input.as_ref().unwrap().header(), "→ auth-fix (product)");
@@ -4043,7 +4040,7 @@ pub(crate) mod tests {
         assert!(
             matches!(app.input.as_ref().unwrap().compose, Compose::Reply { ref request, .. } if request == "q")
         );
-        let target = app.row_target(0).unwrap();
+        let target = app.row_target(1).unwrap();
         assert!(
             matches!(press(&mut app, KeyCode::Enter), Effect::Act(Request::Reply { ref text, .. }) if text == "draft")
         );
@@ -4058,7 +4055,7 @@ pub(crate) mod tests {
             app.sent.as_ref().map(|feedback| &feedback.target),
             Some(&target)
         );
-        assert_eq!(app.selected, 0);
+        assert_eq!(app.selected, 1);
         press(&mut app, KeyCode::Char('x'));
         assert!(
             app.sent.is_none(),
@@ -4108,6 +4105,7 @@ pub(crate) mod tests {
             view.document["squad"]["lead"] = json!({"name":"sol"});
             view.document["sections"][0]["rows"][0]["waitingOnYou"] =
                 json!([{"requestId":"q", "preview":"Choose?"}]);
+            app.select(1);
             press(&mut app, KeyCode::Char('a'));
             typed(&mut app, "yes");
             if change == "lead" {
@@ -4135,7 +4133,7 @@ pub(crate) mod tests {
             app.clamp();
             let effect = press(&mut app, KeyCode::Enter);
             if change == "reorder" {
-                assert_eq!(app.selected, 1);
+                assert_eq!(app.selected, 2);
                 assert!(
                     matches!(effect, Effect::Act(Request::Reply { ref request, ref from, .. }) if request == "q" && from == "auth-fix")
                 );
@@ -4710,6 +4708,173 @@ pub(crate) mod tests {
 }
 
 #[cfg(test)]
+mod lead_row_tests {
+    use super::tests::snapshot;
+    use super::*;
+    use serde_json::json;
+
+    fn press(app: &mut App, code: KeyCode) -> Effect {
+        app.key(KeyEvent::new(code, KeyModifiers::NONE))
+    }
+
+    fn lead() -> Value {
+        json!({"id": "L", "name": "sol", "fields": {"task": "coordinate"}})
+    }
+
+    fn member(name: &str) -> Value {
+        json!({"id": name, "name": name, "fields": {"task": "work"}})
+    }
+
+    /// `product` with a lead and the named members, as a loaded board.
+    fn board(members: &[&str]) -> App {
+        let mut app = App::new(Some("product".into()));
+        let rows: Vec<_> = members.iter().map(|name| member(name)).collect();
+        let mut loaded = snapshot("product", json!([{"title": null, "rows": rows}]));
+        let view = loaded.view.as_mut().unwrap();
+        view.document["squad"]["lead"] = lead();
+        view.bindings = crate::action::preset(true, &[]);
+        view.configured_bindings = view.bindings.clone();
+        view.me = Some("Ben".into());
+        app.apply(loaded);
+        app
+    }
+
+    fn shape(app: &App) -> Vec<String> {
+        app.items()
+            .iter()
+            .filter_map(|item| match item {
+                Item::Section(title) => title.map(|title| format!("# {title}")),
+                Item::Rule(rule) => Some(format!("-- {}", rule.label())),
+                Item::Row(_, row) => Some(row["name"].as_str().unwrap().to_owned()),
+            })
+            .collect()
+    }
+
+    #[test]
+    fn the_lead_is_the_first_row_and_the_cursor_starts_on_it() {
+        let mut app = board(&["amy", "bob"]);
+        assert_eq!(shape(&app), ["sol", "-- members · 2", "amy", "bob"]);
+        assert_eq!(app.selected_row().unwrap()["name"], "sol");
+        // The rule is not a row: one step goes from the lead to the first member.
+        press(&mut app, KeyCode::Down);
+        assert_eq!(app.selected_row().unwrap()["name"], "amy");
+        press(&mut app, KeyCode::Up);
+        assert_eq!(app.selected_row().unwrap()["name"], "sol");
+    }
+
+    #[test]
+    fn showing_another_squad_puts_the_cursor_on_its_lead() {
+        let mut app = board(&["amy", "bob"]);
+        press(&mut app, KeyCode::Down);
+        press(&mut app, KeyCode::Down);
+        assert_eq!(app.selected_row().unwrap()["name"], "bob");
+        app.current = Some("infra".into());
+        let mut other = snapshot("infra", json!([{"title": null, "rows": [member("cai")]}]));
+        other.view.as_mut().unwrap().document["squad"]["lead"] =
+            json!({"id": "M", "name": "mia", "fields": {}});
+        app.apply(other);
+        assert_eq!(app.selected_row().unwrap()["name"], "mia");
+    }
+
+    #[test]
+    fn a_lead_with_no_members_and_a_squad_without_a_lead() {
+        let app = board(&[]);
+        assert_eq!(shape(&app), ["sol", "-- members · 0 · none yet"]);
+        let mut app = App::new(Some("product".into()));
+        app.apply(snapshot(
+            "product",
+            json!([{"title": null, "rows": [member("amy")]}]),
+        ));
+        assert_eq!(shape(&app), ["amy"]);
+        assert_eq!(app.selected_row().unwrap()["name"], "amy");
+    }
+
+    #[test]
+    fn search_matches_the_lead_and_keeps_the_rule() {
+        let mut app = board(&["amy", "bob"]);
+        app.search = "sol".into();
+        assert_eq!(shape(&app), ["sol", "-- members · 0"]);
+        app.search = "bob".into();
+        assert_eq!(shape(&app), ["-- members · 1", "bob"]);
+    }
+
+    #[test]
+    fn r_answers_a_request_else_notes_a_pending_only_member_else_says_so() {
+        let mut app = board(&["amy", "bob", "cai"]);
+        let view = app.view.as_mut().unwrap();
+        view.document["sections"][0]["rows"][0]["pending"] = json!("pick a database");
+        view.document["sections"][0]["rows"][0]["waitingOnYou"] =
+            json!([{"requestId": "q1", "preview": "ship it?"}]);
+        view.document["sections"][0]["rows"][1]["pending"] = json!("review the plan");
+        app.select(1);
+        // A real request wins over the pending text.
+        press(&mut app, KeyCode::Char('r'));
+        assert!(matches!(
+            app.input.as_ref().unwrap().compose,
+            Compose::Reply { ref request, .. } if request == "q1"
+        ));
+        press(&mut app, KeyCode::Esc);
+        // Pending alone opens a note to that member; nothing is sent by opening,
+        // cancelling or an empty Enter.
+        app.select(2);
+        assert_eq!(press(&mut app, KeyCode::Char('r')), Effect::None);
+        assert_eq!(app.input.as_ref().unwrap().header(), "✎ note → bob");
+        assert_eq!(press(&mut app, KeyCode::Esc), Effect::None);
+        assert!(app.input.is_none());
+        press(&mut app, KeyCode::Char('r'));
+        assert_eq!(press(&mut app, KeyCode::Enter), Effect::None);
+        assert_eq!(app.notice.as_deref(), Some("Nothing sent."));
+        press(&mut app, KeyCode::Char('r'));
+        for character in "go ahead".chars() {
+            press(&mut app, KeyCode::Char(character));
+        }
+        assert_eq!(
+            press(&mut app, KeyCode::Enter),
+            Effect::Act(Request::Annotate {
+                me: "Ben".into(),
+                squad: "product".into(),
+                to: "bob".into(),
+                row: "bob".into(),
+                text: "go ahead".into()
+            })
+        );
+        // The pending text stays: nothing acknowledged or cleared it.
+        assert_eq!(app.rows()[2].1["pending"], "review the plan");
+        // Neither a request nor pending text: the notice, and no composer.
+        app.select(3);
+        press(&mut app, KeyCode::Char('r'));
+        assert_eq!(app.notice.as_deref(), Some("cai is not waiting on you."));
+        assert!(app.input.is_none());
+    }
+
+    #[test]
+    fn the_lead_row_takes_the_ordinary_row_actions() {
+        let mut app = board(&["amy"]);
+        assert_eq!(
+            press(&mut app, KeyCode::Enter),
+            Effect::Act(Request::Jump("sol".into()))
+        );
+        press(&mut app, KeyCode::Char('t'));
+        assert_eq!(app.input.as_ref().unwrap().prompt, "→ sol (product)");
+        for character in "hello".chars() {
+            press(&mut app, KeyCode::Char(character));
+        }
+        assert_eq!(
+            press(&mut app, KeyCode::Enter),
+            Effect::Act(Request::Talk {
+                me: "Ben".into(),
+                squad: "product".into(),
+                to: "sol".into(),
+                text: "hello".into()
+            })
+        );
+        // The lead's occurrence is the lead's own, so a member row never shares it.
+        assert!(matches!(app.row_target(0), Some(RowTarget::Lead { .. })));
+        assert!(matches!(app.row_target(1), Some(RowTarget::Member { .. })));
+    }
+}
+
+#[cfg(test)]
 mod token_window_tests {
     use super::tests::{bind, crew};
     use super::*;
@@ -5061,6 +5226,18 @@ mod token_window_tests {
             app.usage_document, projected,
             "same receipt does not change display"
         );
+        // The lead is an ordinary row of the display: it gets the same columns.
+        app.view.as_mut().unwrap().document["squad"]["lead"] =
+            serde_json::json!({"id": "a", "name": "boss", "fields": {}});
+        app.project_usage(time);
+        let lead = app.rows()[0].1;
+        assert_eq!(lead["name"], "boss");
+        assert_eq!(lead["fields"]["tok_1"], "150");
+        assert_eq!(lead["fields"]["model"], "new");
+        assert!(app.view.as_ref().unwrap().document["squad"]["lead"]["fields"]["tok_1"].is_null());
+        app.view.as_mut().unwrap().document["squad"]["lead"] = Value::Null;
+        app.project_usage(time);
+        assert_eq!(app.usage_document, projected);
         app.go("uncached".into());
         app.project_usage(time);
         assert_eq!(

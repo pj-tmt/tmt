@@ -215,7 +215,7 @@ impl Action {
             Verb::Tab => "open the selected squad".into(),
             Verb::Talk => "send the member a message".into(),
             Verb::AskLead => "ask the lead what waits on you".into(),
-            Verb::Reply => "answer the member's request".into(),
+            Verb::Reply => "answer the member's request, or note its pending decision".into(),
             Verb::Annotate if target == Some("member") => "send the member a note".into(),
             Verb::Annotate => "send the lead a note".into(),
         }
@@ -390,8 +390,6 @@ pub fn preset(tmux: bool, panes: &[crate::config::Pane]) -> Bindings {
         ("l", "view"),
     ]
     .into_iter()
-    // Only a host that can show a pane can jump to the lead.
-    .chain(tmux.then_some(("L", "jump lead")))
     .chain(detail.map(|action| ("d", action)))
     .map(|(event, line)| {
         (
@@ -602,9 +600,12 @@ mod tests {
     #[test]
     fn presets_differ_only_where_the_host_cannot_jump() {
         let (tmux, plain) = (preset(true, &[]), preset(false, &[]));
-        assert_eq!(tmux["L"].verb, Verb::Jump);
-        assert_eq!(tmux["L"].args[0].literal(), Some("lead"));
-        assert!(!plain.contains_key("L"), "a plain terminal cannot jump");
+        // `jump lead` stays an action users can bind; no preset binds it.
+        assert!(!tmux.contains_key("L") && !plain.contains_key("L"));
+        assert_eq!(
+            Action::parse("jump lead").unwrap().args[0].literal(),
+            Some("lead")
+        );
         assert_eq!(Action::parse("jump").unwrap().args.len(), 0);
         assert_eq!(
             Action::parse("jump member").unwrap_err(),

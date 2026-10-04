@@ -13,6 +13,7 @@ mod core;
 pub(crate) mod cron_clock;
 mod cron_command;
 pub mod cron_service;
+mod display_rows;
 mod effects;
 mod filter;
 mod hook_protocol;

@@ -148,25 +148,11 @@ fn waiting(inbox: &Window) -> BTreeMap<String, Vec<Value>> {
     found
 }
 
-/// Visits the lead and every section row; a member can appear in several
-/// user sections, and each copy gets the same values.
-fn each_row(document: &mut Value, mut visit: impl FnMut(&mut Value)) {
-    let lead = &mut document["squad"]["lead"];
-    if lead.is_object() {
-        visit(lead);
-    }
-    for section in document["sections"].as_array_mut().into_iter().flatten() {
-        for row in section["rows"].as_array_mut().into_iter().flatten() {
-            visit(row);
-        }
-    }
-}
-
 /// Adds `annotation` and `waitingOnYou` to every row of a status document,
 /// and `olderRequestsNotShown` when a window was cut off.
 pub fn apply(document: &mut Value, squad: &str, me: &str, room: &Window, inbox: &Window) {
     let mut names = BTreeMap::new();
-    each_row(document, |row| {
+    crate::display_rows::each_row(document, |row| {
         if let (Some(id), Some(name)) = (row["id"].as_str(), row["name"].as_str()) {
             names.insert(id.to_owned(), name.to_owned());
         }
@@ -184,7 +170,7 @@ pub fn apply(document: &mut Value, squad: &str, me: &str, room: &Window, inbox: 
         document["squad"]["noteAnnotations"] = json!(notes);
     }
     let waiting = waiting(inbox);
-    each_row(document, |row| {
+    crate::display_rows::each_row(document, |row| {
         let name = row["name"].as_str().unwrap_or_default().to_owned();
         let id = row["id"].as_str().unwrap_or_default().to_owned();
         row["annotation"] = annotations.get(&name).cloned().unwrap_or(Value::Null);

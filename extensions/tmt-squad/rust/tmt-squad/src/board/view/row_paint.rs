@@ -1,7 +1,8 @@
 //! The rows pane scene: admitted cells and solved boxes, painted by `tmt-tui`.
 //! `App` owns selection and actions, `Scrolls` the position; this adapter turns
 //! them into buffer cells and clipped row hits.
-use crate::board::app::{Hit, Item};
+use crate::board::app::Hit;
+use crate::display_rows::Item;
 use crate::{look::Look, markup, rows::Rows};
 use ratatui::{
     buffer::Buffer,
@@ -25,6 +26,8 @@ pub(in crate::board) const GAP: usize = 1;
 /// cache key, so a changed label rebuilds the scene.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub(in crate::board) struct Extra {
+    /// The squad's lead row: its name cell carries a dim `lead` tag.
+    pub lead: bool,
     /// `cron next` for the member's cron job.
     pub next: Option<String>,
     /// Age of the oldest request waiting on the user.
@@ -190,7 +193,8 @@ impl RowPaint {
         let mut at = 0;
         for item in items {
             let row = match item {
-                Item::Header(title) => {
+                Item::Section(None) => continue,
+                Item::Section(Some(title)) => {
                     let title = title.to_uppercase();
                     let shown = title.width().min(width);
                     let index =
@@ -199,7 +203,22 @@ impl RowPaint {
                     y += 1;
                     continue;
                 }
-                Item::Row(row) => row,
+                Item::Rule(rule) => {
+                    let title = format!("── {} ", rule.label());
+                    let tail = width.saturating_sub(title.width());
+                    let line = format!("{title}{}", "─".repeat(tail));
+                    let shown = line.width().min(width);
+                    scene.label(
+                        Some(line),
+                        (0, y, shown, 1),
+                        Some(Role::Dim),
+                        TextFlow::Clip,
+                        None,
+                    );
+                    y += 1;
+                    continue;
+                }
+                Item::Row(_, row) => row,
             };
             y = scene.row(rows, layout, &cells[at], row, &extras[at], at, y, width);
             at += 1;
@@ -328,6 +347,10 @@ impl RowPaint {
                 part.emphasize = !nothing
                     && (matches!(cell.field.as_deref(), Some("state" | "pending"))
                         || role.is_some_and(|role| matches!(role, Role::Waiting | Role::Blocked)));
+                if extra.lead && first && cell.field.as_deref() == Some("member") {
+                    let name = self.parts[index].node.text.clone().unwrap_or_default();
+                    self.lead_tag(&name, &box_width, column, x, y, root);
+                }
                 x += box_width.visible + GAP;
             }
             if !first && !shown_any {
@@ -428,6 +451,37 @@ impl RowPaint {
         }
         self.ends.push(y);
         y
+    }
+
+    /// The dim `lead` tag two cells after the name, inside the name cell: it
+    /// reserves no width on other rows and is the first to be cut when the cell
+    /// is narrow, so the name keeps its room.
+    fn lead_tag(
+        &mut self,
+        name: &str,
+        cell: &markup::BoxWidth,
+        column: &crate::rows::Column,
+        x: usize,
+        y: usize,
+        root: usize,
+    ) {
+        let shown = tmt_tui::text::fit_lines(name, cell.text, markup::flow(column), column.align)
+            .into_iter()
+            .next()
+            .map_or(0, |line| line.trim_end().width());
+        let from = shown + 2;
+        let room = cell.visible.saturating_sub(from).min("lead".len());
+        // A lone ellipsis says nothing: below two cells the tag is cut entirely.
+        if room < 2 {
+            return;
+        }
+        self.label(
+            Some("lead".into()),
+            (x + from, y, room, 1),
+            Some(Role::Dim),
+            TextFlow::Truncate,
+            Some(root),
+        );
     }
 
     /// Right-align the first label that fits after `used` cells of the line.

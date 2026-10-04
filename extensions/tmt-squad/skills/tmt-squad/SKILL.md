@@ -109,7 +109,8 @@ cell).
 - `sections`: always a list. Unless the user defined sections, it holds exactly
   one section with `title: null` containing every member except the lead. With
   user sections, members that match none follow in a final `title: null`
-  section.
+  section. The lead is shown first by the board and text `ls` only (below);
+  the JSON never moves it into `sections`, and member counts exclude it.
 - `squad.noteAnnotations` is optional: open notebook-line requests from the
   recorded user to the current lead, as `{requestId, line, quote}` with a
   zero-based source `line` and bounded sanitized `quote`. It is absent when
@@ -157,6 +158,16 @@ about that row for you to act on. Answer it with `tmt reply` as usual; the
 user's board shows it as ✎ until you do. Never edit the user's notes for it.
 
 ## Board appearance
+
+On a squad tab the lead is the first row, in the same columns as the members, with a
+dim `lead` after its name (cut first when the name cell is narrow), followed by
+the dim rule `── members · N ───` (`── members · 0 · none yet ──` for a squad
+with no member; the numbers exclude the lead). The rule is not a row: ↑/↓ step from
+the lead straight to the first member. Opening a squad tab puts the cursor on
+the lead, so Enter, `t`, `a` and the other row keys reach it. Search matches
+the lead like any row. A squad without a lead keeps its member rows as they
+are. Text `ls` lists the lead first in its own `LEAD` section before `MEMBERS`;
+`--json` is unchanged.
 
 The home tab is the `▚ tmt` accent block, with ◆ waiting and ✗ blocked
 counts inside. Its command/config name remains `all`. With neither `tabs.order`
@@ -293,7 +304,10 @@ that member. When the row itself receives the note, the header is simply
 `✎ note → docs-sweep`. The chosen waiting question is quoted above the answer input.
 Several open requests require an explicit
 choice before composing. `r` still opens the answer path on member/leads rows;
-`t` still composes a direct message. Explicit member-note bindings retain that
+on a row that waits only on a `pending` decision, with no open request to
+answer, it opens a note to that member instead (nothing is sent, cleared or
+acknowledged until you press Enter on a non-empty note, and the pending text
+stays until its owner clears it). `t` still composes a direct message. Explicit member-note bindings retain that
 recipient.
 
 Inside the band, Enter sends and Esc cancels; Tab switches answer/note when
@@ -500,7 +514,9 @@ this-squad preview works, but scoped save is refused with a manual-removal hint.
 An all-boards choice saves while this squad keeps its custom layout; the picker
 names that masking setting.
 A failed or stale save stays open; cancel and reopen to read the changed file.
-`l` (view), `L` (jump lead on a tmux host) and `T` (theme) appear together in help.
+`l` (view) and `T` (theme) appear together in help. No preset binds `jump lead`:
+the lead is the first row of its tab. Bind it yourself (`[bind] L = "jump lead"`)
+to go to the lead's pane from any row.
 Agents change views only when requested.
 
 ## Fold board panes

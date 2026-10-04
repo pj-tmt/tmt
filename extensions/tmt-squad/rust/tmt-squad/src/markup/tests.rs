@@ -1,5 +1,6 @@
 //! Literal app-adapter cases; no fixture regeneration or provider acquisition.
 use super::*;
+use crate::display_rows::RowOrigin;
 use serde_json::json;
 use tmt_cli_style::grid::Align;
 use tmt_tui::{geometry::Space, style::TextFlow, text};
@@ -17,7 +18,16 @@ fn projected_values_and_scoped_identities_survive_filtering_and_reordering() {
     );
     let a = json!({"id":"member-a", "name":"文件", "squad":"product", "fields":{"tokens":"487k"}});
     let b = json!({"id":"member-b", "name":"rin", "squad":"product", "fields":{"tokens":"?"},"failed":["tokens"]});
-    let acquired = row_values(&rows, "@custom", vec![(0, &a), (0, &b), (1, &a)]).unwrap();
+    let acquired = row_values(
+        &rows,
+        "@custom",
+        vec![
+            (RowOrigin::Section(0), &a),
+            (RowOrigin::Section(0), &b),
+            (RowOrigin::Section(1), &a),
+        ],
+    )
+    .unwrap();
     assert_eq!(
         acquired[0].children[0].children[1].text.as_deref(),
         Some("487k")
@@ -38,32 +48,46 @@ fn projected_values_and_scoped_identities_survive_filtering_and_reordering() {
             "column-1"
         ]
     );
-    let filtered = row_values(&rows, "@custom", vec![(1, &a), (0, &a)]).unwrap();
+    let filtered = row_values(
+        &rows,
+        "@custom",
+        vec![(RowOrigin::Section(1), &a), (RowOrigin::Section(0), &a)],
+    )
+    .unwrap();
     assert_eq!(filtered[0].id, acquired[2].id);
     assert_eq!(filtered[1].id, acquired[0].id);
     let mut other = a.clone();
     other["squad"] = json!("infra");
-    let shared = row_values(&rows, "@custom", vec![(0, &a), (0, &other)]).unwrap();
+    let shared = row_values(
+        &rows,
+        "@custom",
+        vec![(RowOrigin::Section(0), &a), (RowOrigin::Section(0), &other)],
+    )
+    .unwrap();
     assert_ne!(shared[0].id, shared[1].id);
     assert!(
-        row_values(&rows, "@custom", vec![(0, &a), (0, &a)])
-            .unwrap_err()
-            .contains("duplicate")
+        row_values(
+            &rows,
+            "@custom",
+            vec![(RowOrigin::Section(0), &a), (RowOrigin::Section(0), &a)]
+        )
+        .unwrap_err()
+        .contains("duplicate")
     );
     let mut malformed = a.clone();
     malformed["id"] = json!("42");
-    assert!(row_values(&rows, "@custom", vec![(0, &malformed)]).is_err());
+    assert!(row_values(&rows, "@custom", vec![(RowOrigin::Section(0), &malformed)]).is_err());
     other["squad"] = json!("7");
-    let numeric_scope = row_values(&rows, "42", vec![(0, &other)]).unwrap();
+    let numeric_scope = row_values(&rows, "42", vec![(RowOrigin::Section(0), &other)]).unwrap();
     assert_eq!(
         &numeric_scope[0].id.as_ref().unwrap()[..3],
         &["tab:42", "section-0", "squad:7"]
     );
     other.as_object_mut().unwrap().remove("squad");
-    let named = row_values(&rows, "42", vec![(0, &other)]).unwrap();
+    let named = row_values(&rows, "42", vec![(RowOrigin::Section(0), &other)]).unwrap();
     assert_eq!(named[0].id.as_ref().unwrap()[2], "squad:42");
     let bare = json!({"name":"all", "fields":{}});
-    let plain = row_values(&rows, "@all", vec![(0, &bare)]).unwrap();
+    let plain = row_values(&rows, "@all", vec![(RowOrigin::Section(0), &bare)]).unwrap();
     assert!(plain[0].id.is_none() && plain[0].row_id.is_none());
     assert!(plain[0].children[0].children[1].text.is_none());
 }
@@ -193,10 +217,10 @@ fn logical_text_budget_wraps_before_cut_and_preserves_grapheme_alignment() {
 fn declarative_tokens_reach_admitted_cells_without_changing_values_or_geometry() {
     let mut rows = configured("{name='task',width=12,overflow='wrap',max_lines=2}");
     let row = json!({"id":"member-a","fields":{"task":"alpha beta gamma"}});
-    let plain = row_values(&rows, "product", vec![(0, &row)]).unwrap();
+    let plain = row_values(&rows, "product", vec![(RowOrigin::Section(0), &row)]).unwrap();
     let grid = Grid::compile(&rows, |_| 16, 12).unwrap();
     rows.lines[0][0].token = Some(tmt_cli_style::Role::Waiting);
-    let styled = row_values(&rows, "product", vec![(0, &row)]).unwrap();
+    let styled = row_values(&rows, "product", vec![(RowOrigin::Section(0), &row)]).unwrap();
     let plain = &plain[0].children[0].children[0];
     let styled = &styled[0].children[0].children[0];
     assert_eq!(styled.style.token, Some(tmt_cli_style::Role::Waiting));
@@ -212,7 +236,7 @@ fn declarative_tokens_reach_admitted_cells_without_changing_values_or_geometry()
     );
     let mut anonymous = row.clone();
     anonymous.as_object_mut().unwrap().remove("id");
-    let node = row_values(&rows, "product", vec![(0, &anonymous)]).unwrap();
+    let node = row_values(&rows, "product", vec![(RowOrigin::Section(0), &anonymous)]).unwrap();
     assert_eq!(
         node[0].children[0].children[0].style.token,
         styled.style.token

@@ -57,6 +57,7 @@ fn waiting_rows_detail_and_ask_prompt_fit_each_width_and_theme() {
                 row("docs-request", "working", "handbook", json!({"pending": "Keep the glossary?", "waitingOnYou": [{"requestId": "docs-q", "preview": "fallback", "preparedAtMs": now - 720000}]})),
                 row("docs", "working", "copy", json!({"pending": "Choose the tone?"})),
             ]}]));
+            lead_sol(&mut app);
             let view = app.view.as_mut().unwrap();
             view.look = crate::look::Look {
                 theme: tmt_cli_style::Theme::new(tmt_cli_style::theme::Base::parse(base).unwrap()),
@@ -85,7 +86,7 @@ fn waiting_rows_detail_and_ask_prompt_fit_each_width_and_theme() {
                 app.hits
                     .borrow()
                     .iter()
-                    .any(|hit| hit.row == 0 && screen[usize::from(hit.y)].contains("Ship #412"))
+                    .any(|hit| hit.row == 1 && screen[usize::from(hit.y)].contains("Ship #412"))
             );
             app.perform(&crate::action::Action::parse("ask-lead").unwrap());
             let prompt = draw(&app, width, 24);
@@ -116,6 +117,7 @@ fn waiting_rows_detail_and_ask_prompt_fit_each_width_and_theme() {
                     .any(|line| line.contains("List what waits on me"))
             );
             app.input = None;
+            app.select(1);
             let mut terminal = Terminal::new(TestBackend::new(width, 24)).unwrap();
             terminal
                 .draw(|frame| render_detail(frame, &app, frame.area()))
@@ -222,43 +224,49 @@ pub(super) fn draw(app: &App, width: u16, height: u16) -> Vec<String> {
 pub(super) fn board(sections: Value) -> App {
     let mut app = App::new(Some("product".into()));
     app.apply(Snapshot {
-            squad_keys: Vec::new(),
-            tabs: vec!["product".into(), "reviews".into()],
-            hidden: Vec::new(),
-            pinned: 0,
-            attention: Default::default(),
-            squad: Some("product".into()),
-            view: Ok(View {
-                ask_lead: crate::config::DEFAULT_ASK_LEAD.into(),
-                token_rate: None,
-                home_rate: Default::default(),
-                home: None,
+        squad_keys: Vec::new(),
+        tabs: vec!["product".into(), "reviews".into()],
+        hidden: Vec::new(),
+        pinned: 0,
+        attention: Default::default(),
+        squad: Some("product".into()),
+        view: Ok(View {
+            ask_lead: crate::config::DEFAULT_ASK_LEAD.into(),
+            token_rate: None,
+            home_rate: Default::default(),
+            home: None,
             derived: Default::default(),
-                document: json!({"squad": {"name": "product", "lead": {"name": "sol"}}, "sections": sections}),
-                rows: columns(),
-                refresh: Some(crate::config::DEFAULT_REFRESH),
-                board: crate::config::Board::simple(
-                    crate::config::BoardMode::Split,
-                    crate::config::Direction::LeftRight,
-                    vec![crate::config::Pane::Rows],
-                    &[100],
-                ),
+            document: json!({"squad": {"name": "product", "lead": null}, "sections": sections}),
+            rows: columns(),
+            refresh: Some(crate::config::DEFAULT_REFRESH),
+            board: crate::config::Board::simple(
+                crate::config::BoardMode::Split,
+                crate::config::Direction::LeftRight,
+                vec![crate::config::Pane::Rows],
+                &[100],
+            ),
             notes: crate::board::app::Notes::NotShown,
-                render: crate::config::NotesRender::Markdown,
-                bindings: crate::action::preset(true, &[]),
-                section_bindings: Vec::new(),
-                configured_bindings: Default::default(),
-                opener: None,
-                clipboard: None,
-                links: Default::default(),
-                tab_colors: Default::default(),
-                look: Default::default(),
-                theme_notice: None,
-                me: None,
-                replies: Vec::new(),
-            }),
-        });
+            render: crate::config::NotesRender::Markdown,
+            bindings: crate::action::preset(true, &[]),
+            section_bindings: Vec::new(),
+            configured_bindings: Default::default(),
+            opener: None,
+            clipboard: None,
+            links: Default::default(),
+            tab_colors: Default::default(),
+            look: Default::default(),
+            theme_notice: None,
+            me: None,
+            replies: Vec::new(),
+        }),
+    });
     app
+}
+
+/// The fixture squad has no lead; this one has `sol`, shown as the first row.
+pub(super) fn lead_sol(app: &mut App) {
+    let lead = row("sol", "working", "coordinate", json!({"id": "LEAD"}));
+    app.view.as_mut().unwrap().document["squad"]["lead"] = lead;
 }
 
 fn row(name: &str, state: &str, task: &str, extra: Value) -> Value {
@@ -728,27 +736,55 @@ fn middle_truncation_keeps_both_ends_of_a_link() {
 
 #[test]
 fn rows_ignore_retired_notes_and_show_pending_sections_and_aligned_wide_text() {
-    let app = board(json!([
+    let mut app = board(json!([
         {"title": "Needs me", "rows": [row("auth-fix", "blocked", "rotate session tokens", json!({"pending": "approve", "note": "needs a call"}))]},
         {"title": "Everyone", "rows": [row("文件-sweep", "working", "整理安装指南", json!({}))]}
     ]));
-    let screen = draw(&app, 48, 10);
+    lead_sol(&mut app);
+    let screen = draw(&app, 48, 12);
     // The tab line holds only the tabs; the summary has its own line.
     assert_eq!(screen[0], "  product   reviews");
     assert_eq!(screen[1], "lead sol · 2 members");
     assert_eq!(screen[2], "  MEMBER     STATE    TASK");
-    assert_eq!(screen[3], "NEEDS ME");
-    assert_eq!(screen[4], "◆ auth-fix   blocked  rotate session tokens");
-    assert_eq!(screen[5], "    approve");
-    assert_eq!(screen[6], "EVERYONE");
-    assert_eq!(screen[7], "  文件-sweep working  整理安装指南");
+    // The lead is the first row; the rule names what follows.
+    assert_eq!(screen[3], "  sol  lead  working  coordinate");
+    assert_eq!(screen[4], format!("── members · 2 {}", "─".repeat(33)));
+    assert_eq!(screen[5], "NEEDS ME");
+    assert_eq!(screen[6], "◆ auth-fix   blocked  rotate session tokens");
+    assert_eq!(screen[7], "    approve");
+    assert_eq!(screen[8], "EVERYONE");
+    assert_eq!(screen[9], "  文件-sweep working  整理安装指南");
     assert!(screen.iter().all(|line| !line.contains("needs a call")));
-    assert!(screen[9].starts_with("◆ 1 waiting"));
+    assert!(screen[11].starts_with("◆ 1 waiting"));
+}
+
+#[test]
+fn the_lead_tag_sits_in_the_name_cell_and_is_the_first_thing_cut() {
+    let draw_lead = |member_width: usize| {
+        let mut app =
+            board(json!([{"title": null, "rows": [row("docs", "working", "guide", json!({}))]}]));
+        lead_sol(&mut app);
+        app.view.as_mut().unwrap().rows = rows_from(&format!(
+            "[p.rows]\ncolumns = [{{ name = \"member\", width = {member_width} }}, {{ name = \"state\", width = 8 }}]\n"
+        ));
+        draw(&app, 40, 8)
+    };
+    // Room for the tag: it follows the name by two cells; other rows are unchanged.
+    let screen = draw_lead(10);
+    assert_eq!(screen[3], "  sol  lead  working");
+    assert_eq!(screen[5], "  docs       working");
+    // Narrow cell: the tag shrinks (ellipsis) before the name does, then goes.
+    assert_eq!(draw_lead(8)[3], "  sol  le… working");
+    assert_eq!(draw_lead(7)[3], "  sol  l… working");
+    assert_eq!(draw_lead(6)[3], "  sol    working");
+    assert_eq!(draw_lead(3)[3], "  sol working");
 }
 
 #[test]
 fn a_squad_of_one_has_one_member() {
-    let app = board(json!([{"title": null, "rows": [row("docs", "working", "guide", json!({}))]}]));
+    let mut app =
+        board(json!([{"title": null, "rows": [row("docs", "working", "guide", json!({}))]}]));
+    lead_sol(&mut app);
     assert_eq!(draw(&app, 48, 5)[1], "lead sol · 1 member");
 }
 
@@ -810,10 +846,11 @@ fn drawn_rows_are_clickable_and_the_menu_and_help_show_bindings() {
 }
 
 #[test]
-fn help_groups_view_lead_and_theme_bindings() {
+fn help_groups_view_and_theme_bindings_and_lists_no_default_jump_lead() {
     let mut app = board(json!([]));
     app.view.as_mut().unwrap().bindings = crate::action::preset(true, &[]);
     let help = help_lines(&app);
+    assert!(help.iter().all(|line| !line.contains("lead's pane")));
     assert!(
         help.iter()
             .any(|line| line == "double-click  go to the member's pane")
@@ -823,12 +860,18 @@ fn help_groups_view_lead_and_theme_bindings() {
         .position(|line| line == "l  pick a pane layout")
         .unwrap();
     assert_eq!(
-        &help[at..at + 3],
-        [
-            "l  pick a pane layout",
-            "L  go to the lead's pane",
-            "T  pick a theme"
-        ]
+        &help[at..at + 2],
+        ["l  pick a pane layout", "T  pick a theme",]
+    );
+    // A user who binds it still sees it described.
+    app.view.as_mut().unwrap().bindings.insert(
+        "L".into(),
+        crate::action::Action::parse("jump lead").unwrap(),
+    );
+    assert!(
+        help_lines(&app)
+            .iter()
+            .any(|line| line == "L  go to the lead's pane")
     );
 }
 
@@ -909,7 +952,7 @@ fn paned(board: crate::config::Board, notes: Notes) -> App {
                 home_rate: Default::default(),
                 home: None,
             derived: Default::default(),
-                document: json!({"squad": {"name": "product", "lead": {"name": "sol"}}, "sections": [
+                document: json!({"squad": {"name": "product", "lead": {"id": "LEAD", "name": "sol", "fields": {}}}, "sections": [
                     {"title": null, "rows": [row("auth-fix", "blocked", "rotate tokens", json!({
                         "pending": "approve the plan", "note": "needs a call", "presence": "active", "state": "blocked",
                         "pane": {"target": "crew:2.0", "cwd": "/w/app-3"}
@@ -1717,6 +1760,8 @@ fn nested_splits_draw_rows_beside_detail_over_notes() {
         },
     };
     let mut app = paned(board, Notes::Text("## Now\n- tokens".into()));
+    // The cursor starts on the lead; the member is the next row.
+    app.key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
     let screen = draw(&app, 100, 23);
     // Rows take 60 of 100 columns; detail sits over notes in the rest.
     let right = |line: &str| line.chars().skip(60).collect::<String>();
@@ -1929,7 +1974,7 @@ fn split_panes_follow_direction_and_sizes() {
     );
     assert!(screen.iter().any(|line| line.contains("◆ auth-fix")));
 
-    let app = paned(
+    let mut app = paned(
         split(
             Direction::TopBottom,
             vec![Pane::Rows, Pane::Detail],
@@ -1937,6 +1982,8 @@ fn split_panes_follow_direction_and_sizes() {
         ),
         Notes::NotShown,
     );
+    // The cursor starts on the lead; the member is the next row.
+    app.key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
     let screen = draw(&app, 70, 23);
     let detail_row = screen
         .iter()
@@ -2264,6 +2311,7 @@ fn tabs_carry_attention_by_color_and_count_and_the_summary_has_its_own_line() {
     let mut app = board(json!([{"title": null, "rows": [
         row("auth-fix", "blocked", "rotate", json!({"pending": "approve"})),
     ]}]));
+    lead_sol(&mut app);
     app.attention = BTreeMap::from([
         (
             "product".into(),
@@ -3653,7 +3701,9 @@ fn inline_middle_row_band_moves_rows_masks_panes_and_fits_every_theme() {
                     crate::board::app::tests::snapshot(tab, json!([{"title":null, "rows":rows}]));
                 let view = snapshot.view.as_mut().unwrap();
                 view.me = Some("Ben".into());
-                view.document["squad"]["lead"] = json!({"name":"sol"});
+                if tab == "product" {
+                    view.document["squad"]["lead"] = json!({"id": "LEAD", "name": "sol"});
+                }
                 view.look = crate::look::Look {
                     theme: tmt_cli_style::Theme::new(
                         tmt_cli_style::theme::Base::parse(base).unwrap(),
@@ -3668,7 +3718,8 @@ fn inline_middle_row_band_moves_rows_masks_panes_and_fits_every_theme() {
                 view.notes = Notes::Text("neighbor pane fragment\n".repeat(25));
                 let mut app = App::new(Some(tab.into()));
                 app.apply(snapshot);
-                app.select(2);
+                // The product tab's cursor row 0 is the lead.
+                app.select(if tab == "product" { 3 } else { 2 });
                 let before = draw(&app, width, 30);
                 let old_after = before
                     .iter()
