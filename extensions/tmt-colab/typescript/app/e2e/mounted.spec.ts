@@ -395,6 +395,12 @@ test('trusted sharing confirms narrowing, retries frozen bytes and exposes a new
   await page.getByRole('button', { name: 'Manage page' }).click();
   const dialog = page.getByRole('dialog');
   await expect(dialog.getByLabel('Audience')).toBeVisible();
+  await expect(dialog.getByText('Active', { exact: true })).toBeVisible();
+  const revision = dialog.getByText('Verified revision 2', { exact: true });
+  await expect(revision).toBeHidden();
+  await dialog.getByText('Details', { exact: true }).click();
+  await expect(revision).toBeVisible();
+  await dialog.getByText('Details', { exact: true }).click();
   await expect(dialog).toContainText('64 most recent epochs');
   await expect(dialog).toContainText('Editors can change');
   expect(await page.locator('iframe').count()).toBe(0);
@@ -537,7 +543,7 @@ test('trusted home manages retention, archive and verified or awaiting deletion'
   await dialog.getByRole('button', { name: 'Manage another change' }).click();
   await expect(dialog.getByLabel('Retention days')).toHaveValue('14');
   await dialog.getByLabel('Keep forever').check();
-  await expect(dialog.getByLabel('Retention days')).toBeDisabled();
+  await expect(dialog.getByLabel('Retention days')).toHaveCount(0);
   await dialog.getByRole('button', { name: 'Set retention', exact: true }).click();
   await dialog.getByRole('button', { name: 'Confirm set retention' }).click();
   await expect(dialog.getByRole('status')).toContainText('Change verified');

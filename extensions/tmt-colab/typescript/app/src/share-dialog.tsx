@@ -266,10 +266,11 @@ export function ShareDialog({
       )}
       {phase === 'ready' && view && (
         <>
-          <p>
-            Latest verified revision {view.revision}.{' '}
-            {view.page.archived ? 'Archived: readable, writes frozen.' : 'Active page.'}
-          </p>
+          <p>{view.page.archived ? 'Archived: readable, writes frozen' : 'Active'}</p>
+          <details>
+            <summary>Details</summary>
+            <p>Verified revision {view.revision}</p>
+          </details>
           <section aria-label="Page lifecycle">
             <h3>Retention and lifecycle</h3>
             <p>
@@ -295,27 +296,28 @@ export function ShareDialog({
                 );
               }}
             >
-              <label>
-                Keep forever
+              <label className="checkbox-label">
                 <input
                   type="checkbox"
                   checked={forever}
                   onChange={(e) => setForever(e.target.checked)}
                 />
+                Keep forever
               </label>
-              <label>
-                Retention days
-                <input
-                  name="days"
-                  type="number"
-                  min="1"
-                  max={Number.MAX_SAFE_INTEGER}
-                  step="1"
-                  required
-                  disabled={forever}
-                  defaultValue={view.page.retentionDays ?? 30}
-                />
-              </label>
+              {!forever && (
+                <label>
+                  Retention days
+                  <input
+                    name="days"
+                    type="number"
+                    min="1"
+                    max={Number.MAX_SAFE_INTEGER}
+                    step="1"
+                    required
+                    defaultValue={view.page.retentionDays ?? 30}
+                  />
+                </label>
+              )}
               <button>Set retention</button>
             </form>
             <button

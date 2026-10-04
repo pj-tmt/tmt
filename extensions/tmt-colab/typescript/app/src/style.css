@@ -491,7 +491,12 @@ footer {
 .archived-page {
   overflow-wrap: anywhere;
 }
+.management-dialog .checkbox-label {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+}
 .management-dialog input[type='checkbox'] {
   width: auto;
-  align-self: flex-start;
+  margin: 0;
 }
