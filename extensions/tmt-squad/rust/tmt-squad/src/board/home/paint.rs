@@ -214,6 +214,7 @@ pub(super) fn render_at(frame: &mut Frame, app: &App, area: Rect, now: u64) {
                         TileItem {
                             squad,
                             members: &squad.members,
+                            lead_model: app.home_lead_model(&squad.squad),
                             usage: app.home_usage(&squad.squad, receipt_now),
                         }
                     })
@@ -221,10 +222,11 @@ pub(super) fn render_at(frame: &mut Frame, app: &App, area: Rect, now: u64) {
             } else {
                 Vec::new()
             };
-            let legend = if items.is_empty() {
-                String::new()
+            let legend = tiles::legend(&items, area.width);
+            let legend = if legend.is_empty() {
+                legend
             } else {
-                format!(" · {}", tiles::legend(&items, area.width))
+                format!(" · {legend}")
             };
             let title = format!("── {label} · {count}{legend} ");
             let tail = width.saturating_sub(unicode_width::UnicodeWidthStr::width(title.as_str()));

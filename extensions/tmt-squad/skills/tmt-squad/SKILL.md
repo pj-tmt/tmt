@@ -318,7 +318,10 @@ windows. Selection covers the whole tile, including padding and continuation row
 
 Tiles use the board's observed usage (see below). Missing values show `–`, measured
 zero shows `0`, and partial totals/share carry `~`; a zero squad total has no share.
-The ③ heading names shared windows once. Mixed `tok` settings label each tile's
+When a squad's token sampling is off, its tile hides token cells. If every squad
+has sampling off, the ③ heading hides the token legend too. Only sampling squads
+contribute windows to that legend. Known lead models remain visible with sampling
+off; unknown models may disappear. The ③ heading names shared windows once. Mixed `tok` settings label each tile's
 actual windows. Attention rows show only member, squad and available relative age;
 blocked ages say `observed` to identify the task/state observation. Questions appear
 in the inline composer after `a`. Quiet needs-you takes one line, and empty blocked

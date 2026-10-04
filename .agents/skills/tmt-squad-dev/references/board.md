@@ -249,8 +249,15 @@ by record when no positions were drawn.
   count without inventing a mark; `attention::waits_on_you` owns waiting precedence.
 - Runtime `App::home_usage` owns observations, model attribution and the configured longest-window
   share; tiles only format them. Missing and measured zero remain distinct; partial readings
-  and shares carry `~`. Uniform window labels appear once in ③; mixed configurations use a
+  and shares carry `~`. Disabled sampling returns no HOME usage projection, so that squad's
+  tile has no token cells. Only sampling squads contribute to the ③ token legend; with none
+  enabled the legend is absent. Uniform window labels appear once in ③; mixed configurations use a
   “windows vary” legend and label each tile's totals and displayed share with its actual window.
+- HOME retains public session models independently of token sampling: one bounded `tmt ls --json`
+  read seeds the existing per-squad observed input on refresh, and the shared meter receipt
+  refreshes those models when sampling is active. `App::home_lead_model` projects the acquired
+  lead's model even for a disabled squad. A failed model read appears in the retained HOME failed-read notice
+  without changing public aggregate JSON. Unknown models can disappear when sampling is off.
 - Home keeps one `App.selected` cursor reconciled by section/squad/member identity across
   refresh and search; attention precedes ⑤ cron, then squads. Home translates tile regions into
   global ordinals, complete selected-range reveal and viewport-clipped continuation hits through

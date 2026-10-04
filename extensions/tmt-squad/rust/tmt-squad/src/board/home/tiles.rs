@@ -14,6 +14,8 @@ pub(super) struct TileItem<'a> {
     pub squad: &'a SquadLine,
     /// Exclusive non-lead state counts, projected from acquired memberships.
     pub members: &'a Counts,
+    /// Public session observation, available even when token sampling is off.
+    pub lead_model: Option<&'a str>,
     /// Already sampled runtime windows; this section only formats observations.
     pub usage: Option<HomeUsage<'a>>,
 }
@@ -194,10 +196,20 @@ fn lead<'a>(item: &'a TileItem<'_>) -> &'a str {
         .unwrap_or("no lead")
 }
 
+fn model<'a>(item: &'a TileItem<'_>) -> Option<&'a str> {
+    item.usage
+        .as_ref()
+        .and_then(|usage| usage.lead_model)
+        .or(item.lead_model)
+}
+
 fn mixed_windows(items: &[TileItem<'_>]) -> bool {
-    items
-        .first()
-        .is_some_and(|first| items.iter().any(|item| item.windows() != first.windows()))
+    let mut windows = items
+        .iter()
+        .filter_map(|item| item.usage.as_ref().map(|usage| usage.windows));
+    windows
+        .next()
+        .is_some_and(|first| windows.any(|windows| windows != first))
 }
 
 /// The home painter owns the section heading; column names appear there once.
@@ -205,9 +217,12 @@ pub(super) fn legend(items: &[TileItem<'_>], width: u16) -> String {
     if mixed_windows(items) {
         return "lead tokens · windows vary".into();
     }
-    let windows = items
-        .first()
-        .map_or(TokenWindow::DEFAULTS, TileItem::windows);
+    let Some(windows) = items
+        .iter()
+        .find_map(|item| item.usage.as_ref().map(|usage| usage.windows))
+    else {
+        return String::new();
+    };
     let labels = windows[usize::from(width < 150 || compact(width, items.len()))..]
         .iter()
         .map(|window| window.label())
@@ -274,6 +289,23 @@ fn lead_line(
     selected: bool,
     look: Look,
 ) -> Line<'static> {
+    if item.usage.is_none() {
+        let model_width = item.lead_model.map_or(0, |_| width.min(8));
+        return Line::from(vec![
+            span(
+                fit(lead(item), width - model_width),
+                Role::Text,
+                selected,
+                look,
+            ),
+            span(
+                fit(item.lead_model.unwrap_or_default(), model_width),
+                Role::Muted,
+                selected,
+                look,
+            ),
+        ]);
+    }
     let token_width: u16 = if mixed { 9 } else { 6 };
     let share_width: u16 = if mixed { 10 } else { 6 };
     let first = usize::from(!all_windows);
@@ -283,13 +315,7 @@ fn lead_line(
     let mut spans = vec![
         span(fit(lead(item), name_width), Role::Text, selected, look),
         span(
-            fit(
-                item.usage
-                    .as_ref()
-                    .and_then(|usage| usage.lead_model)
-                    .unwrap_or("–"),
-                model_width,
-            ),
+            fit(model(item).unwrap_or("–"), model_width),
             Role::Muted,
             selected,
             look,
@@ -356,7 +382,9 @@ fn compact_line(
     };
     let badge_width = width.min(3);
     let room = width - badge_width;
-    let values = if mixed {
+    let values = if item.usage.is_none() {
+        Vec::new()
+    } else if mixed {
         vec![
             format!("{}:{}", item.windows()[1].label(), tokens(item, 1)),
             format!("{}:{}", item.windows()[2].label(), tokens(item, 2)),
@@ -365,8 +393,16 @@ fn compact_line(
     } else {
         vec![tokens(item, 1), tokens(item, 2)]
     };
-    let value_width = if mixed { 28 } else { 13 }.min(room / 2);
-    let room = room - value_width;
+    let value_width = if values.is_empty() {
+        0
+    } else if mixed {
+        28
+    } else {
+        13
+    }
+    .min(room / 2);
+    let model_width = model(item).map_or(0, |_| 8.min(room - value_width));
+    let room = room - value_width - model_width;
     let name_width = (room / 3).min(18);
     let lead_width = (room / 3).min(20);
     let mut spans = vec![
@@ -378,6 +414,12 @@ fn compact_line(
             look,
         ),
         span(fit(lead(item), lead_width), Role::Text, selected, look),
+        span(
+            fit(model(item).unwrap_or_default(), model_width),
+            Role::Muted,
+            selected,
+            look,
+        ),
     ];
     spans.extend(member_line(item.members, room - name_width - lead_width, selected, look).spans);
     let prefix = value_width.min(1);

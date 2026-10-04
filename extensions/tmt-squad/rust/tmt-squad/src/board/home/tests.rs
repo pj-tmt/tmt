@@ -35,12 +35,16 @@ impl Fixture {
         acquired
     }
     fn install_core(&self) {
+        if !self.root.join("listed").exists() {
+            fs::write(self.root.join("listed"), r#"{"identities":[]}"#).unwrap();
+        }
         crate::test_support::write_ready_executable(
             self.core.executable(),
             &format!(
                 r#"#!/bin/sh
 printf '%s\n' "$*" >> '{root}/calls'
 case "$1" in
+  ls) cat '{root}/listed'; test ! -f '{root}/models-fail' ;;
   inbox) cat '{root}/inbox'; test ! -f '{root}/inbox-fail' ;;
   api)
     input=$(cat)
@@ -230,7 +234,7 @@ fn roster(name: &str) -> Value {
 
 #[test]
 fn home_acquisition_reuses_public_reads_and_preserves_all_json_and_text() {
-    let f = Fixture::new("");
+    let f = Fixture::new("[board.token_rate]\nenabled = false\n");
     fs::write(
         f.root.join("inbox"),
         json!({"items":[{
@@ -243,6 +247,7 @@ fn home_acquisition_reuses_public_reads_and_preserves_all_json_and_text() {
     for name in ["a", "b"] {
         fs::write(f.root.join(name), roster(name).to_string()).unwrap();
     }
+    fs::write(f.root.join("listed"), json!({"identities":[{"id":"id-a","resume":{"model":"known-model"}},{"id":"outside","resume":{"model":"outside-model"}}]}).to_string()).unwrap();
     f.install_core();
     let squads = squads();
     let order = vec!["b".into(), "a".into()];
@@ -254,7 +259,12 @@ fn home_acquisition_reuses_public_reads_and_preserves_all_json_and_text() {
     let calls = fs::read_to_string(f.root.join("calls")).unwrap();
     assert_eq!(
         calls.lines().collect::<Vec<_>>(),
-        ["inbox --identity me-id --limit 200 --json", "api", "api"]
+        [
+            "ls --json",
+            "inbox --identity me-id --limit 200 --json",
+            "api",
+            "api"
+        ]
     );
     let inputs = fs::read_to_string(f.root.join("inputs")).unwrap();
     for input in inputs.lines() {
@@ -269,10 +279,13 @@ fn home_acquisition_reuses_public_reads_and_preserves_all_json_and_text() {
             [&format!("id-{name}")]
         );
     }
+    assert_eq!(rates["a"].input.resumes["id-a"]["model"], "known-model");
+    assert!(!rates["a"].settings.enabled);
+    assert!(rates["b"].input.resumes["id-b"].is_null());
     assert!(
         rates
             .values()
-            .all(|rate| rate.input.resumes.values().all(Value::is_null))
+            .all(|rate| !rate.input.resumes.contains_key("outside"))
     );
     let public = tab_view::load(&f.core, &f.config, &squads, &order, Some(&me), ALL).unwrap();
     assert_eq!(
@@ -297,6 +310,34 @@ fn home_acquisition_reuses_public_reads_and_preserves_all_json_and_text() {
     );
     assert_eq!(home.sections[1].rows[0].member["name"], "worker-a");
     assert!(home.sections[1].rows.iter().all(|row| row.age.is_none()));
+}
+
+#[test]
+fn failed_model_read_is_home_only_and_recovers_without_inventing_usage() {
+    let f = Fixture::new("[board.token_rate]\nenabled = false\n");
+    fs::write(f.root.join("inbox"), r#"{"items":[],"more":false}"#).unwrap();
+    for name in ["a", "b"] {
+        fs::write(f.root.join(name), roster(name).to_string()).unwrap();
+    }
+    fs::write(f.root.join("models-fail"), "").unwrap();
+    f.install_core();
+    let (public, home, rates) = load(&f.core, &f.config, &squads(), &[], None).unwrap();
+    assert!(public.document.get("partial").is_none());
+    assert!(
+        !home.incomplete,
+        "model failure does not invent truncated requests"
+    );
+    assert_eq!(home.failures.len(), 1);
+    assert_eq!(home.failures[0]["source"], "models");
+    assert!(
+        rates
+            .values()
+            .all(|rate| rate.input.resumes.values().all(Value::is_null))
+    );
+    fs::remove_file(f.root.join("models-fail")).unwrap();
+    let (recovered, home, _) = load(&f.core, &f.config, &squads(), &[], None).unwrap();
+    assert!(!home.incomplete && home.failures.is_empty());
+    assert_eq!(public.document, recovered.document);
 }
 
 #[test]

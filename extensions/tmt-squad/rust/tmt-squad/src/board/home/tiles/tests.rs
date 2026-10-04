@@ -110,6 +110,7 @@ fn members_are_urgency_sorted_and_private_row_values_never_appear() {
     let item = TileItem {
         squad: &squad,
         members: &counts,
+        lead_model: None,
         usage: None,
     };
     for width in [160, 100, 80] {
@@ -141,6 +142,7 @@ fn selection_covers_the_whole_block_but_leaves_gaps_and_neighbours_alone() {
         .map(|squad| TileItem {
             squad,
             members: &counts,
+            lead_model: None,
             usage: None,
         })
         .collect::<Vec<_>>();
@@ -193,6 +195,7 @@ fn escaped_unicode_and_missing_lead_fit_even_tiny_widths() {
     let item = TileItem {
         squad: &squad,
         members: &counts,
+        lead_model: None,
         usage: None,
     };
     assert!(
@@ -208,6 +211,7 @@ fn escaped_unicode_and_missing_lead_fit_even_tiny_widths() {
     let item = TileItem {
         squad: &squad,
         members: &counts,
+        lead_model: None,
         usage: None,
     };
     for width in 1..=160 {
@@ -267,6 +271,7 @@ fn runtime_observations_keep_missing_zero_partial_model_and_supplied_share_disti
     let item = TileItem {
         squad: &squad,
         members: &counts,
+        lead_model: None,
         usage: Some(usage),
     };
     let painted = paint(std::slice::from_ref(&item), 160, Look::default(), None).unwrap();
@@ -276,11 +281,87 @@ fn runtime_observations_keep_missing_zero_partial_model_and_supplied_share_disti
     let missing = TileItem {
         squad: &squad,
         members: &counts,
-        usage: None,
+        lead_model: None,
+        usage: Some(HomeUsage {
+            lead_model: None,
+            windows: TokenWindow::DEFAULTS,
+            lead: [None; 3],
+            squad: [None; 3],
+            share: None,
+        }),
     };
     let missing = paint(&[missing], 160, Look::default(), None).unwrap();
     assert_eq!(text(&missing.lines)[1].matches('–').count(), 5);
     assert!(!text(&missing.lines)[1].contains('0'));
+}
+
+#[test]
+fn disabled_sampling_hides_cells_and_only_sampled_squads_define_the_legend() {
+    let squads = [squad("off"), squad("on"), squad("other")];
+    let counts = members();
+    let mut items = vec![TileItem {
+        squad: &squads[0],
+        members: &counts,
+        lead_model: None,
+        usage: None,
+    }];
+    for width in [160, 100, 80] {
+        assert_eq!(legend(&items, width), "");
+        let output = text(&paint(&items, width, Look::default(), None).unwrap().lines).join("\n");
+        assert!(output.contains("lead") && output.contains("6 members"));
+        assert!(
+            !output.contains('–'),
+            "disabled sampling invents no missing cells: {output}"
+        );
+    }
+    items[0].lead_model = Some("off-model");
+    for width in [160, 100, 80] {
+        let output = text(&paint(&items, width, Look::default(), None).unwrap().lines).join("\n");
+        assert!(
+            output.contains("off-mod"),
+            "known model survives sampling off: {output}"
+        );
+        assert!(!output.contains('–'));
+    }
+    let windows = [
+        TokenWindow::FIVE_MINUTES,
+        TokenWindow::HOUR,
+        TokenWindow::parse("24h").unwrap(),
+    ];
+    items.push(TileItem {
+        squad: &squads[1],
+        members: &counts,
+        lead_model: None,
+        usage: Some(usage(windows)),
+    });
+    for width in [160, 100, 80] {
+        assert!(legend(&items, width).contains("24h"));
+        assert!(!legend(&items, width).contains("vary"));
+        let output = paint(&items, width, Look::default(), None).unwrap();
+        let off = &output.regions[0];
+        for line in &output.lines[off.lines.clone()] {
+            let mut terminal = Terminal::new(TestBackend::new(width, 1)).unwrap();
+            terminal
+                .draw(|frame| frame.render_widget(Paragraph::new(line.clone()), frame.area()))
+                .unwrap();
+            let cells = &terminal.backend().buffer().content;
+            let off_text = cells[usize::from(off.x)..usize::from(off.x + off.width)]
+                .iter()
+                .map(|cell| cell.symbol())
+                .collect::<String>();
+            assert!(
+                !off_text.contains('–') && !off_text.contains("3k"),
+                "{off_text}"
+            );
+        }
+    }
+    items.push(TileItem {
+        squad: &squads[2],
+        members: &counts,
+        lead_model: None,
+        usage: Some(usage(TokenWindow::DEFAULTS)),
+    });
+    assert_eq!(legend(&items, 160), "lead tokens · windows vary");
 }
 
 #[test]
@@ -295,6 +376,7 @@ fn uniform_labels_appear_once_and_narrow_rows_retain_the_last_two_windows() {
     let item = TileItem {
         squad: &squad,
         members: &counts,
+        lead_model: None,
         usage: Some(usage(windows)),
     };
     for width in [160, 100, 80] {
@@ -325,11 +407,13 @@ fn mixed_windows_label_each_observation_and_share_without_reordering_tiles() {
         TileItem {
             squad: &squads[0],
             members: &counts,
+            lead_model: None,
             usage: Some(usage(TokenWindow::DEFAULTS)),
         },
         TileItem {
             squad: &squads[1],
             members: &counts,
+            lead_model: None,
             usage: Some(usage([
                 TokenWindow::FIVE_MINUTES,
                 TokenWindow::HOUR,
@@ -373,6 +457,7 @@ fn oversized_compact_totals_cannot_hide_the_next_window() {
     let item = TileItem {
         squad: &squad,
         members: &counts,
+        lead_model: None,
         usage: Some(usage),
     };
     let painted = paint(&[item], 80, Look::default(), None).unwrap();

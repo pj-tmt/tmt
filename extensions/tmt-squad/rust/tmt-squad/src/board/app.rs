@@ -707,10 +707,30 @@ impl App {
         }
     }
 
+    /// Session model display does not require token sampling or a usable counter.
+    pub(super) fn home_lead_model(&self, squad: &str) -> Option<&str> {
+        let view = self.view.as_ref()?;
+        let id = view
+            .home
+            .as_ref()?
+            .squads
+            .iter()
+            .find(|line| line.squad == squad)?
+            .lead
+            .as_ref()?["id"]
+            .as_str()?;
+        view.home_rate.get(squad)?.input.resumes.get(id)?["model"]
+            .as_str()
+            .filter(|model| !model.is_empty())
+    }
+
     pub(super) fn home_usage(&self, squad: &str, now: Instant) -> Option<HomeUsage<'_>> {
         let view = self.view.as_ref()?;
         let home = view.home.as_ref()?;
-        let rate = view.home_rate.get(squad)?;
+        let rate = view
+            .home_rate
+            .get(squad)
+            .filter(|rate| rate.settings.enabled)?;
         let meter = self
             .meters
             .get(squad)
@@ -719,11 +739,7 @@ impl App {
                     .as_ref()
                     .filter(|_| self.current.as_deref() == Some(squad))
             })
-            .filter(|meter| {
-                rate.settings.enabled
-                    && meter.room == rate.input.room
-                    && meter.settings == rate.settings
-            });
+            .filter(|meter| meter.room == rate.input.room && meter.settings == rate.settings);
         let id = home
             .squads
             .iter()
@@ -760,11 +776,14 @@ impl App {
         if self.loading() || self.current.as_deref() != Some(super::ALL) {
             return false;
         }
-        let Some(view) = self.view.as_ref().filter(|view| view.home.is_some()) else {
+        let Some(view) = self.view.as_mut().filter(|view| view.home.is_some()) else {
             return false;
         };
         let mut sampled = false;
-        for (name, rate) in &view.home_rate {
+        for (name, rate) in &mut view.home_rate {
+            if let Ok(rows) = resumes {
+                rate.input = rate.input.joined(rows);
+            }
             if let Some(meter) = self
                 .meters
                 .get_mut(name)
@@ -4718,7 +4737,32 @@ mod token_window_tests {
             .settings
             .enabled = false;
         assert!(!app.sample_home(Ok(&receipt), time + Duration::from_secs(10)));
-        assert_eq!(app.home_usage("product", time).unwrap().squad, [None; 3]);
+        assert!(app.home_usage("product", time).is_none());
+    }
+
+    #[test]
+    fn home_model_remains_known_when_sampling_is_off_without_inventing_usage() {
+        let now = Instant::now();
+        let mut app = home(now);
+        let public = app.view.as_ref().unwrap().document.clone();
+        let rate = app
+            .view
+            .as_mut()
+            .unwrap()
+            .home_rate
+            .get_mut("product")
+            .unwrap();
+        rate.settings.enabled = false;
+        rate.input.resumes.get_mut("a").unwrap()["model"] = serde_json::json!("off-model");
+        assert_eq!(app.home_lead_model("product"), Some("off-model"));
+        assert!(app.home_usage("product", now).is_none());
+        let mut receipt = super::super::rate::tests::input(200).resumes;
+        receipt.get_mut("a").unwrap()["model"] = serde_json::json!("new-model");
+        assert!(!app.sample_home(Ok(&receipt), now + Duration::from_secs(10)));
+        assert_eq!(app.home_lead_model("product"), Some("new-model"));
+        assert!(app.home_usage("product", now).is_none());
+        assert_eq!(app.view.as_ref().unwrap().document, public);
+        assert!(app.home_lead_model("unknown").is_none());
     }
 
     #[test]

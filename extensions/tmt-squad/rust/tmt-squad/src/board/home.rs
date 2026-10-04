@@ -87,8 +87,19 @@ pub fn load(
 > {
     let settings = config.tabs()?;
     let squads = squads.iter().collect::<Vec<_>>();
-    let acquired = tab_view::home_sources(core, config, &squads, me);
+    // Models are public session observations, independent of token sampling.
+    let listed = core.json(&["ls"]);
+    let mut acquired = tab_view::home_sources(core, config, &squads, me);
     let public = tab_view::document(config, &settings, order, ALL, &acquired)?;
+    let resumes = match listed {
+        Ok(listed) => super::rate::Input::resumes(&listed),
+        Err(error) => {
+            let mut failure = error.to_json();
+            failure["source"] = json!("models");
+            acquired.failures.push(failure);
+            Default::default()
+        }
+    };
     let inputs = squads
         .iter()
         .filter(|squad| acquired.documents.contains_key(&squad.name))
@@ -103,7 +114,12 @@ pub fn load(
                         names: Default::default(),
                         resumes: acquired
                             .member_ids(&squad.name)
-                            .map(|id| (id.to_owned(), Value::Null))
+                            .map(|id| {
+                                (
+                                    id.to_owned(),
+                                    resumes.get(id).cloned().unwrap_or(Value::Null),
+                                )
+                            })
                             .collect(),
                     },
                 },
