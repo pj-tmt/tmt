@@ -8,6 +8,7 @@ use ratatui::{
     text::{Line, Span},
 };
 use tmt_cli_style::Role;
+use tmt_tui::components::strip;
 use unicode_width::UnicodeWidthStr;
 
 /// One state label for the effective toggle in footer and help.
@@ -230,5 +231,11 @@ pub(super) fn render(frame: &mut Frame, app: &App, footer: Rect, look: crate::lo
             span.style = look.role(Role::Dim);
         }
     }
-    super::strip::paint_line(frame, footer, footer_line, look);
+    strip::paint_left(
+        frame.buffer_mut(),
+        footer,
+        footer_line,
+        &look.theme,
+        look.depth,
+    );
 }

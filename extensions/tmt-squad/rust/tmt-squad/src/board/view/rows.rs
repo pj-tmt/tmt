@@ -9,6 +9,7 @@ use crate::board::{
 use crate::{config::Pane, rows::Rows};
 use ratatui::{Frame, layout::Rect, text::Line};
 use tmt_cli_style::Role;
+use tmt_tui::components::strip;
 use unicode_width::UnicodeWidthStr;
 
 /// Layout, admitted cells and the paint scene for one width, search and set of
@@ -105,7 +106,13 @@ pub(super) fn render_rows(frame: &mut Frame, app: &App, area: Rect) {
         } else {
             "Loading…"
         };
-        super::strip::paint_line(frame, area, Line::from(message), look);
+        strip::paint_left(
+            frame.buffer_mut(),
+            area,
+            Line::from(message),
+            &look.theme,
+            look.depth,
+        );
         return;
     };
     let Some(tab) = app.shown_tab() else { return };
@@ -139,11 +146,12 @@ pub(super) fn render_rows(frame: &mut Frame, app: &App, area: Rect) {
         match prepare(app, rows, tab, area, extras) {
             Ok(grid) => derived.grid = Some(grid),
             Err(message) => {
-                super::strip::paint_line(
-                    frame,
+                strip::paint_left(
+                    frame.buffer_mut(),
                     area,
                     Line::styled(message, look.role(Role::Muted)),
-                    look,
+                    &look.theme,
+                    look.depth,
                 );
                 return;
             }

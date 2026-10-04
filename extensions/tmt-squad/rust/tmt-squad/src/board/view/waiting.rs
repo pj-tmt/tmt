@@ -1,5 +1,6 @@
 //! Decision presentation from the acquired row, without additional reads.
 use serde_json::Value;
+use tmt_tui::components::strip;
 
 pub(super) fn oldest(row: &Value) -> Option<&Value> {
     row["waitingOnYou"]
@@ -53,8 +54,8 @@ pub(super) fn prompt(
     };
     let areas = modal.areas(band, demand, true, false);
     modal.paint(areas, frame.buffer_mut(), &look.theme, look.depth);
-    super::strip::paint_line(
-        frame,
+    strip::paint_left(
+        frame.buffer_mut(),
         Rect {
             height: 1,
             ..areas.content
@@ -64,7 +65,8 @@ pub(super) fn prompt(
             look.role(tmt_cli_style::Role::Accent)
                 .add_modifier(ratatui::style::Modifier::BOLD),
         ),
-        look,
+        &look.theme,
+        look.depth,
     );
     let content = Rect {
         y: areas.content.y + 1,
@@ -78,25 +80,27 @@ pub(super) fn prompt(
     );
     let skip = lines.len().saturating_sub(usize::from(content.height));
     for (index, line) in lines.iter().skip(skip).enumerate() {
-        super::strip::paint_line(
-            frame,
+        strip::paint_left(
+            frame.buffer_mut(),
             Rect {
                 y: content.y + index as u16,
                 height: 1,
                 ..content
             },
             Line::styled(line.as_str(), look.role(tmt_cli_style::Role::Text)),
-            look,
+            &look.theme,
+            look.depth,
         );
     }
-    super::strip::paint_line(
-        frame,
+    strip::paint_left(
+        frame.buffer_mut(),
         areas.footer,
         Line::styled(
             "Enter send · Esc cancel",
             look.role(tmt_cli_style::Role::Muted),
         ),
-        look,
+        &look.theme,
+        look.depth,
     );
 }
 
@@ -180,8 +184,8 @@ pub(super) fn inline_prompt(
     };
     let areas = modal.areas(band, [band.width, band.height], true, false);
     modal.paint(areas, frame.buffer_mut(), &look.theme, look.depth);
-    super::strip::paint_line(
-        frame,
+    strip::paint_left(
+        frame.buffer_mut(),
         Rect {
             height: 1,
             ..areas.content
@@ -191,7 +195,8 @@ pub(super) fn inline_prompt(
             look.role(Role::Accent)
                 .add_modifier(ratatui::style::Modifier::BOLD),
         ),
-        look,
+        &look.theme,
+        look.depth,
     );
     if matches!(input.compose, crate::board::app::Compose::Reply { .. }) && areas.content.height > 1
     {
@@ -199,8 +204,8 @@ pub(super) fn inline_prompt(
             "“{}”",
             input.quote.as_deref().unwrap_or("question unavailable")
         );
-        super::strip::paint_line(
-            frame,
+        strip::paint_left(
+            frame.buffer_mut(),
             Rect {
                 y: areas.content.y + 1,
                 height: 1,
@@ -217,7 +222,8 @@ pub(super) fn inline_prompt(
                     look.role(Role::Muted),
                 ),
             ]),
-            look,
+            &look.theme,
+            look.depth,
         );
     }
     // Fit the tail so the cursor remains visible even for a long draft.
@@ -226,25 +232,27 @@ pub(super) fn inline_prompt(
         areas.position.width,
         tmt_tui::style::TextFlow::Wrap,
     );
-    super::strip::paint_line(
-        frame,
+    strip::paint_left(
+        frame.buffer_mut(),
         areas.position,
         Line::styled(
             text.last().map(String::as_str).unwrap_or("▏"),
             look.role(Role::Text),
         ),
-        look,
+        &look.theme,
+        look.depth,
     );
     let hint = if input.alternative.is_some() {
         "Enter send · Esc cancel · Tab answer/note"
     } else {
         "Enter send · Esc cancel"
     };
-    super::strip::paint_line(
-        frame,
+    strip::paint_left(
+        frame.buffer_mut(),
         areas.footer,
         Line::styled(hint, look.role(Role::Muted)),
-        look,
+        &look.theme,
+        look.depth,
     );
     let covered = |area: &Rect| !area.intersection(band).is_empty();
     app.hits

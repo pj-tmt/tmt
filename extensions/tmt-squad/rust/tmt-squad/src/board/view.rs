@@ -9,7 +9,6 @@ mod panes;
 mod replies;
 pub(in crate::board) mod row_paint;
 mod rows;
-mod strip;
 mod tabs;
 pub(in crate::board) mod waiting;
 
