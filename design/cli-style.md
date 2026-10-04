@@ -144,8 +144,8 @@ tokens. Additional marks stay labelled board only. A row's leading state mark is
 | `◆`        | waits on your decision                                                                  |
 | `▾`        | an open foldable pane in a toggle hint (board only)                                     |
 | `▸`        | folded Squad board pane (board only)                                                    |
-| `≥`        | lower bound from missing member token coverage (board only)                             |
-| `▁▂▃▄▅▆▇█` | completed-request trend: ▁ measured zero, ▂–█ relative rate, blank no data (board only) |
+| `~`        | approximate observed token total from incomplete coverage (board only)                  |
+| `▁▂▃▄▅▆▇█` | completed-request trend: ▁ measured zero, ▂–█ relative totals, blank no data (board only) |
 
 ## Lists
 

@@ -43,7 +43,7 @@ impl Meter {
             room: input.room.clone(),
             origin: now,
             sampled: now,
-            rate: Rate::default(),
+            rate: Rate::new(settings.windows[2]),
             reading: None,
             displayed: 0.0,
             animation: None,
@@ -67,9 +67,12 @@ impl Meter {
     pub fn resume(&mut self, window: TokenWindow, now: Instant) {
         let ms = self.milliseconds(now);
         self.rate.failed(ms, self.settings.every.as_millis() as u64);
-        self.window = window.available(self.settings.every);
+        self.window = window.available(self.settings.windows);
         self.reading = self.rate.reading(ms, self.window);
-        self.displayed = self.reading.map(|reading| reading.rate).unwrap_or(0.0);
+        self.displayed = self
+            .reading
+            .map(|reading| reading.tokens as f64)
+            .unwrap_or(0.0);
         self.animation = None;
         self.trend = self.rate.trend(ms, self.window);
     }
@@ -93,8 +96,8 @@ impl Meter {
         }
         self.sampled = now;
         let reading = self.rate.reading(ms, self.window);
-        if let Some(rate) = reading.map(|reading| reading.rate) {
-            if self.reading.map(|reading| reading.rate) != Some(rate) {
+        if let Some(rate) = reading.map(|reading| reading.tokens as f64) {
+            if self.reading.map(|reading| reading.tokens as f64) != Some(rate) {
                 if self.settings.reduced_motion || self.displayed == rate {
                     self.displayed = rate;
                     self.animation = None;
@@ -148,37 +151,40 @@ impl Meter {
         )?;
         Some(format!(
             "{}{number}",
-            if reading.partial { "≥" } else { "" }
+            if reading.partial { "~" } else { "" }
         ))
     }
 
     /// Window selection belongs to App; this cache settles immediately on switches.
     pub fn select(&mut self, window: TokenWindow, now: Instant) {
-        let window = window.available(self.settings.every);
+        let window = window.available(self.settings.windows);
         if self.window == window {
             return;
         }
         self.window = window;
         let ms = self.milliseconds(now);
         self.reading = self.rate.reading(ms, window);
-        self.displayed = self.reading.map(|reading| reading.rate).unwrap_or(0.0);
+        self.displayed = self
+            .reading
+            .map(|reading| reading.tokens as f64)
+            .unwrap_or(0.0);
         self.animation = None;
         self.trend = self.rate.trend(ms, window);
     }
 
     pub fn label(&self) -> Option<String> {
-        let seconds = self.reading?.span / 1000;
-        Some(if self.reading?.span == self.window.milliseconds() {
-            self.window.label().into()
-        } else if seconds >= 60 {
-            format!("{}m", seconds / 60)
-        } else {
-            format!("{seconds}s")
-        })
+        self.reading?;
+        Some(self.window.label())
     }
-    pub fn full_default(&self) -> bool {
-        self.window == TokenWindow::Minute
-            && self.reading.is_some_and(|reading| reading.span == 60_000)
+
+    /// Board-only display fields; callers preserve the public status document.
+    pub fn member(&self, id: &str, index: usize, now: Instant) -> Option<Reading> {
+        self.rate
+            .member(id, self.milliseconds(now), self.settings.windows[index])
+    }
+
+    pub fn model(&self, id: &str) -> Option<&str> {
+        self.rate.model(id)
     }
 
     pub fn excluded<'a>(&self, input: &'a Input) -> Vec<&'a str> {
@@ -203,29 +209,25 @@ impl Meter {
             .collect()
     }
 
-    /// Step aside without dropping covered-span/non-default qualifications.
+    /// Step aside without dropping the window label.
     pub fn layout(&self, available: usize) -> Option<Layout> {
         if !self.settings.enabled || self.digits()?.chars().count() > NUMBER_WIDTH {
             return None;
         }
         let label = self.label()?;
-        let make = |spark: bool, show_label: bool, short: bool| Layout {
-            label: show_label.then(|| label.clone()),
+        let make = |spark: bool, short: bool| Layout {
+            label: Some(label.clone()),
             spark,
-            unit: if short { "/s" } else { " tok/s" },
+            unit: if short { "" } else { " tok" },
             width: NUMBER_WIDTH
-                + if show_label { 4 } else { 0 }
-                + if short { 2 } else { 6 }
+                + label.len()
+                + 1
+                + if short { 0 } else { 4 }
                 + if spark { 9 } else { 0 },
         };
-        [
-            make(true, true, false),
-            make(false, true, false),
-            make(false, !self.full_default(), false),
-            make(false, !self.full_default(), true),
-        ]
-        .into_iter()
-        .find(|layout| layout.width <= available)
+        [make(true, false), make(false, false), make(false, true)]
+            .into_iter()
+            .find(|layout| layout.width <= available)
     }
 }
 

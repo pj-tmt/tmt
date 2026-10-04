@@ -34,48 +34,53 @@ fn no_data_warmup_and_measured_zero_are_distinct() {
     let mut absent = input(100);
     absent.resumes.insert("a".into(), Value::Null);
     rate.sample(&absent, 0);
-    assert_eq!(rate.reading(0, TokenWindow::Minute), None);
+    assert_eq!(rate.reading(0, TokenWindow::MINUTE), None);
     rate.sample(&input(100), 5_000);
-    assert_eq!(rate.reading(5_000, TokenWindow::Five), None);
+    assert_eq!(rate.reading(5_000, TokenWindow::MINUTE), None);
     rate.sample(&input(100), 10_000);
-    assert_eq!(rate.reading(10_000, TokenWindow::Minute), None);
-    assert_eq!(rate.reading(10_000, TokenWindow::Five).unwrap().rate, 0.0);
+    assert_eq!(rate.reading(10_000, TokenWindow::MINUTE), None);
     rate.sample(&input(100), 15_000);
-    let zero = rate.reading(15_000, TokenWindow::Minute).unwrap();
-    assert_eq!(zero.rate, 0.0);
-    assert!(!zero.partial);
+    let zero = rate.reading(15_000, TokenWindow::MINUTE).unwrap();
+    assert_eq!(zero.tokens, 0);
+    assert!(zero.partial, "window exceeds observed uptime");
     assert_eq!(zero.span, 10_000);
 }
 
 #[test]
-fn four_windows_count_cached_input_once_and_average_covered_span() {
+fn windows_count_cached_input_once_without_dividing_by_covered_span() {
     let mut rate = Rate::default();
     rate.sample(&input(100), 0);
     rate.sample(&input(200), 10_000);
     for window in [
-        TokenWindow::Minute,
-        TokenWindow::HalfHour,
-        TokenWindow::Hour,
+        TokenWindow::MINUTE,
+        TokenWindow::FIVE_MINUTES,
+        TokenWindow::HOUR,
     ] {
         let reading = rate.reading(10_000, window).unwrap();
-        assert_eq!(reading.rate, 15.0);
+        assert_eq!(reading.tokens, 150);
         assert_eq!(reading.span, 10_000);
-        assert!(!reading.partial);
+        assert!(reading.partial);
     }
-    assert_eq!(rate.reading(10_000, TokenWindow::Five).unwrap().rate, 30.0);
     rate.sample(&input(300), 60_000);
-    assert_eq!(rate.reading(60_000, TokenWindow::Minute).unwrap().rate, 5.0);
-    rate.sample(&input(300), 70_000);
-    assert_eq!(rate.reading(70_000, TokenWindow::Minute).unwrap().rate, 2.5);
     assert_eq!(
-        rate.reading(70_000, TokenWindow::HalfHour).unwrap().rate,
-        300.0 / 70.0
+        rate.reading(60_000, TokenWindow::MINUTE).unwrap().tokens,
+        300
     );
-    assert_eq!(rate.reading(70_000, TokenWindow::Five).unwrap().rate, 0.0);
+    rate.sample(&input(300), 70_000);
+    assert_eq!(
+        rate.reading(70_000, TokenWindow::MINUTE).unwrap().tokens,
+        150
+    );
+    assert_eq!(
+        rate.reading(70_000, TokenWindow::FIVE_MINUTES)
+            .unwrap()
+            .tokens,
+        300
+    );
 }
 
 #[test]
-fn never_reporting_members_are_excluded_but_lost_reporters_remain_partial() {
+fn unreported_members_are_excluded_and_totals_disclose_incomplete_coverage() {
     let mut rate = Rate::default();
     let mut sample = input(100);
     sample.resumes.insert("never".into(), Value::Null);
@@ -83,31 +88,35 @@ fn never_reporting_members_are_excluded_but_lost_reporters_remain_partial() {
     sample = input(200);
     sample.resumes.insert("never".into(), Value::Null);
     rate.sample(&sample, 10_000);
-    assert!(!rate.reading(10_000, TokenWindow::Minute).unwrap().partial);
+    assert!(rate.reading(10_000, TokenWindow::MINUTE).unwrap().partial);
     assert!(!rate.reporter("never"));
     let mut missing = sample.clone();
     missing.resumes.insert("a".into(), Value::Null);
     rate.sample(&missing, 15_000);
-    assert!(rate.reading(15_000, TokenWindow::Minute).unwrap().partial);
+    assert!(rate.reading(15_000, TokenWindow::MINUTE).unwrap().partial);
     rate.sample(&input(300), 20_000);
     rate.sample(&input(400), 25_000);
     assert!(
-        rate.reading(25_000, TokenWindow::Minute).unwrap().partial,
+        rate.reading(25_000, TokenWindow::MINUTE).unwrap().partial,
         "recovery cannot erase historic gaps"
     );
     rate.sample(&input(400), 80_000);
-    assert!(!rate.reading(80_000, TokenWindow::Minute).unwrap().partial);
-    assert!(rate.reading(80_000, TokenWindow::HalfHour).unwrap().partial);
-    rate.sample(&input(400), 1_820_000);
+    assert!(!rate.reading(80_000, TokenWindow::MINUTE).unwrap().partial);
     assert!(
-        !rate
-            .reading(1_820_000, TokenWindow::HalfHour)
+        rate.reading(80_000, TokenWindow::FIVE_MINUTES)
             .unwrap()
             .partial
     );
-    assert!(rate.reading(1_820_000, TokenWindow::Hour).unwrap().partial);
+    rate.sample(&input(400), 1_820_000);
+    assert!(
+        !rate
+            .reading(1_820_000, TokenWindow::FIVE_MINUTES)
+            .unwrap()
+            .partial
+    );
+    assert!(rate.reading(1_820_000, TokenWindow::HOUR).unwrap().partial);
     rate.sample(&input(400), 3_620_000);
-    assert!(!rate.reading(3_620_000, TokenWindow::Hour).unwrap().partial);
+    assert!(!rate.reading(3_620_000, TokenWindow::HOUR).unwrap().partial);
 }
 
 #[test]
@@ -145,14 +154,15 @@ fn resets_invalid_order_and_gap_recovery_never_invent_tokens() {
         }
         rate.sample(&changed, 15_000);
         assert_eq!(
-            rate.buckets
+            rate.members["a"]
+                .buckets
                 .iter()
                 .map(|bucket| bucket.tokens)
                 .sum::<u128>(),
             150,
             "{kind}"
         );
-        assert!(rate.reading(15_000, TokenWindow::Minute).unwrap().partial);
+        assert!(rate.reading(15_000, TokenWindow::MINUTE).unwrap().partial);
         let mut recovery = input(400);
         let value = recovery.resumes.get_mut("a").unwrap();
         if kind == "session" {
@@ -164,7 +174,8 @@ fn resets_invalid_order_and_gap_recovery_never_invent_tokens() {
         rate.sample(&recovery, 20_000);
         if matches!(kind, "gap" | "incomplete" | "invalid" | "old" | "equal") {
             assert_eq!(
-                rate.buckets
+                rate.members["a"]
+                    .buckets
                     .iter()
                     .map(|bucket| bucket.tokens)
                     .sum::<u128>(),
@@ -179,21 +190,22 @@ fn resets_invalid_order_and_gap_recovery_never_invent_tokens() {
 fn failed_reads_grace_rebaseline_and_keep_gap_evidence() {
     let mut rate = Rate::default();
     rate.sample(&input(100), 0);
-    rate.sample(&input(200), 10_000);
-    rate.failed(15_000, 5_000);
-    assert!(!rate.reading(15_000, TokenWindow::Minute).unwrap().partial);
-    rate.failed(20_000, 5_000);
-    assert!(rate.reading(20_000, TokenWindow::Minute).unwrap().partial);
-    rate.sample(&input(1_000), 25_000);
-    rate.sample(&input(1_100), 30_000);
+    rate.sample(&input(200), 60_000);
+    rate.failed(65_000, 5_000);
+    assert!(!rate.reading(65_000, TokenWindow::MINUTE).unwrap().partial);
+    rate.failed(70_000, 5_000);
+    assert!(rate.reading(70_000, TokenWindow::MINUTE).unwrap().partial);
+    rate.sample(&input(1_000), 75_000);
+    rate.sample(&input(1_100), 80_000);
     assert_eq!(
-        rate.buckets
+        rate.members["a"]
+            .buckets
             .iter()
             .map(|bucket| bucket.tokens)
             .sum::<u128>(),
         300
     );
-    assert!(rate.reading(30_000, TokenWindow::Minute).unwrap().partial);
+    assert!(rate.reading(80_000, TokenWindow::MINUTE).unwrap().partial);
 }
 
 #[test]
@@ -208,16 +220,16 @@ fn one_hour_ring_is_bounded_under_churn_and_long_pauses() {
         }
         rate.sample(&sample, step * 5_000);
     }
-    assert_eq!(rate.buckets.len(), 720);
+    assert_eq!(rate.members["a"].buckets.len(), 720);
     assert!(rate.members.len() <= 2);
     assert_eq!(
-        rate.reading(10_000_000, TokenWindow::Hour).unwrap().span,
+        rate.reading(10_000_000, TokenWindow::HOUR).unwrap().span,
         3_600_000
     );
     rate.sample(&input(2_100), 50_000_000);
     assert_eq!(
-        rate.reading(50_000_000, TokenWindow::Hour).unwrap().rate,
-        0.0
+        rate.reading(50_000_000, TokenWindow::HOUR).unwrap().tokens,
+        0
     );
 }
 
@@ -225,16 +237,15 @@ fn one_hour_ring_is_bounded_under_churn_and_long_pauses() {
 fn trend_distinguishes_no_evidence_zero_and_nonzero() {
     let mut rate = Rate::default();
     rate.sample(&input(100), 0);
-    assert_eq!(rate.trend(0, TokenWindow::Five), [None; 8]);
+    assert_eq!(rate.trend(0, TokenWindow::MINUTE), [None; 8]);
     rate.sample(&input(100), 5_000);
-    assert_eq!(rate.trend(5_000, TokenWindow::Five)[7], Some(0.0));
+    assert_eq!(rate.trend(5_000, TokenWindow::MINUTE)[7], Some(0.0));
     rate.sample(&input(200), 10_000);
-    assert_eq!(rate.trend(10_000, TokenWindow::Five)[7], Some(30.0));
-    assert_eq!(rate.trend(10_000, TokenWindow::Minute)[7], Some(15.0));
+    assert_eq!(rate.trend(10_000, TokenWindow::MINUTE)[7], Some(150.0));
 }
 
 #[test]
-fn recorded_public_projection_fixture_matches_expected_rates() {
+fn recorded_public_projection_fixture_preserves_observed_counter_deltas() {
     let records: Value =
         serde_json::from_str(include_str!("fixtures/completed-requests.json")).unwrap();
     let roster = Input {
@@ -253,9 +264,15 @@ fn recorded_public_projection_fixture_matches_expected_rates() {
         let sample = roster.listed(&record["document"]);
         let now = record["receiptMs"].as_u64().unwrap();
         rate.sample(&sample, now);
-        let actual = rate.reading(now, TokenWindow::Minute);
-        assert_eq!(actual.map(|reading| reading.rate), record["rate"].as_f64());
-        assert!(actual.is_none_or(|reading| !reading.partial));
+        let actual = rate.reading(now, TokenWindow::MINUTE);
+        assert_eq!(
+            actual.map(|reading| reading.tokens),
+            record["tokens"].as_u64().map(u128::from)
+        );
+        assert_eq!(
+            actual.map(|r| r.partial),
+            (now >= 10_000).then_some(now < 60_000)
+        );
     }
 }
 
@@ -268,7 +285,63 @@ fn partial_member_zero_is_data_not_absence() {
     let mut next = input(100);
     next.resumes.insert("b".into(), Value::Null);
     rate.sample(&next, 10_000);
-    let reading = rate.reading(10_000, TokenWindow::Minute).unwrap();
-    assert_eq!(reading.rate, 0.0);
+    let reading = rate.reading(10_000, TokenWindow::MINUTE).unwrap();
+    assert_eq!(reading.tokens, 0);
     assert!(reading.partial);
+}
+
+#[test]
+fn member_windows_models_and_removal_share_one_bounded_history() {
+    let mut rate = Rate::new(TokenWindow::parse("24h").unwrap());
+    let mut first = input(100);
+    first.resumes.get_mut("a").unwrap()["model"] = json!("old");
+    first.resumes.insert("b".into(), first.resumes["a"].clone());
+    first.resumes.insert("never".into(), Value::Null);
+    rate.sample(&first, 0);
+    let mut next = input(200);
+    next.resumes.get_mut("a").unwrap()["model"] = json!("new");
+    next.resumes
+        .insert("b".into(), input(300).resumes["a"].clone());
+    next.resumes.insert("never".into(), Value::Null);
+    rate.sample(&next, 60_000);
+    assert_eq!(
+        rate.member("a", 60_000, TokenWindow::MINUTE)
+            .unwrap()
+            .tokens,
+        150
+    );
+    assert_eq!(
+        rate.member("b", 60_000, TokenWindow::MINUTE)
+            .unwrap()
+            .tokens,
+        300
+    );
+    assert_eq!(
+        rate.reading(60_000, TokenWindow::MINUTE).unwrap().tokens,
+        450
+    );
+    assert!(rate.reading(60_000, TokenWindow::MINUTE).unwrap().partial);
+    assert_eq!(rate.model("a"), Some("new")); // Retained tokens use current model.
+    assert!(rate.member("never", 60_000, TokenWindow::MINUTE).is_none());
+    rate.sample(&next, 120_000);
+    assert_eq!(
+        rate.member("a", 120_000, TokenWindow::MINUTE)
+            .unwrap()
+            .tokens,
+        0
+    );
+    assert_eq!(
+        rate.member("a", 120_000, TokenWindow::FIVE_MINUTES)
+            .unwrap()
+            .tokens,
+        150
+    );
+    assert_eq!(rate.members["a"].buckets.len(), 17_280);
+    next.resumes.remove("b");
+    rate.sample(&next, 125_000);
+    assert!(rate.member("b", 125_000, TokenWindow::HOUR).is_none());
+    assert_eq!(
+        rate.reading(125_000, TokenWindow::HOUR).unwrap().tokens,
+        150
+    );
 }

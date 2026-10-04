@@ -302,6 +302,7 @@ pub struct App {
     pub(super) notebooks: RefCell<super::notes::Notebooks>,
     pub(super) meter: Option<super::meter::Meter>,
     meters: BTreeMap<String, super::meter::Meter>,
+    usage_document: Option<Value>,
     pub(super) token_window: crate::config::TokenWindow,
     pub(super) excluded_counters: Vec<String>,
     window_changed: bool,
@@ -427,7 +428,7 @@ impl App {
                 .map(|entry| (0, entry.row))
                 .collect();
         }
-        view.document["sections"]
+        self.usage_document.as_ref().unwrap_or(&view.document)["sections"]
             .as_array()
             .into_iter()
             .flatten()
@@ -450,7 +451,11 @@ impl App {
         let Some(view) = &self.view else {
             return items;
         };
-        for section in view.document["sections"].as_array().into_iter().flatten() {
+        for section in self.usage_document.as_ref().unwrap_or(&view.document)["sections"]
+            .as_array()
+            .into_iter()
+            .flatten()
+        {
             if let Some(title) = section["title"].as_str() {
                 items.push(Item::Header(title));
             }
@@ -461,6 +466,58 @@ impl App {
             }
         }
         items
+    }
+
+    /// Replace only the board display projection. Sampling never changes public ls JSON.
+    pub(super) fn project_usage(&mut self, now: Instant) {
+        let Some(view) = &self.view else {
+            self.usage_document = None;
+            return;
+        };
+        if self.loading() {
+            return;
+        } // Keep the retained view's values while switching.
+        let Some(meter) = self.meter.as_ref().filter(|m| m.settings.enabled) else {
+            self.usage_document = None;
+            return;
+        };
+        let mut document = view.document.clone();
+        for section in document["sections"].as_array_mut().into_iter().flatten() {
+            for row in section["rows"].as_array_mut().into_iter().flatten() {
+                if let Some(id) = row["id"].as_str().map(str::to_owned) {
+                    for column in &view.rows.columns {
+                        let Some(source) = &column.from else { continue };
+                        if let Some(index) = source.window() {
+                            let reading = meter.member(&id, index, now);
+                            let value = reading
+                                .and_then(|r| {
+                                    crate::source::render_value(
+                                        &serde_json::json!(r.tokens.to_string()),
+                                        column.format,
+                                        0,
+                                    )
+                                    .map(|value| {
+                                        format!("{}{value}", if r.partial { "~" } else { "" })
+                                    })
+                                })
+                                .unwrap_or_else(|| "–".into());
+                            row["fields"][&column.field] = value.into();
+                            if let Some(token) =
+                                reading.and_then(|r| column.threshold(r.tokens as f64))
+                            {
+                                row["colors"][&column.field] = token.into();
+                            }
+                        } else if source.path == "session.model" {
+                            row["fields"][&column.field] = meter.model(&id).unwrap_or("–").into();
+                        }
+                    }
+                }
+            }
+        }
+        if self.usage_document.as_ref() != Some(&document) {
+            view.derived.borrow_mut().grid = None;
+            self.usage_document = Some(document);
+        }
     }
 
     fn clamp(&mut self) {
@@ -558,7 +615,7 @@ impl App {
                         if !self.window_changed {
                             self.token_window = rate.settings.window;
                         }
-                        self.token_window = self.token_window.available(rate.settings.every);
+                        self.token_window = self.token_window.available(rate.settings.windows);
                         if let Some(meter) = self.meter.as_mut().filter(|meter| {
                             meter.room == rate.input.room && meter.settings == rate.settings
                         }) {
@@ -599,6 +656,7 @@ impl App {
                     overlay.staleness =
                         Some(crate::staleness::Snapshot::for_preview(&view.document));
                 }
+                self.usage_document = None;
                 let previous = self.view.replace(view);
                 let previous_squad = std::mem::replace(&mut self.shown, self.current.clone());
                 // A result that arrived for it meanwhile is newer: keep that.
@@ -625,6 +683,7 @@ impl App {
                 self.error = Some(error);
             }
         }
+        self.project_usage(Instant::now());
         self.prune_views();
         if self
             .settings
@@ -717,6 +776,8 @@ impl App {
             if let (Some(previous), Some(name)) = (previous, self.shown.replace(next.clone())) {
                 self.cache.insert(name, previous);
             }
+            self.usage_document = None;
+            self.project_usage(Instant::now());
             self.shown_changed();
         }
         Effect::Load(next)
@@ -1092,7 +1153,7 @@ impl App {
             }
             Verb::TokenWindow => {
                 if let Some(meter) = self.meter.as_mut() {
-                    self.token_window = self.token_window.next(meter.settings.every);
+                    self.token_window = self.token_window.next(meter.settings.windows);
                     self.window_changed = true;
                     meter.select(self.token_window, Instant::now());
                 }
@@ -3459,11 +3520,11 @@ mod token_window_tests {
         let mut app = app();
         let key = KeyEvent::new(KeyCode::Char('w'), KeyModifiers::NONE);
         assert_eq!(app.key(key), Effect::None);
-        assert_eq!(app.token_window, TokenWindow::HalfHour);
+        assert_eq!(app.token_window, TokenWindow::FIVE_MINUTES);
         app.searching = true;
         assert_eq!(app.key(key), Effect::None);
         assert_eq!(app.search, "w");
-        assert_eq!(app.token_window, TokenWindow::HalfHour);
+        assert_eq!(app.token_window, TokenWindow::FIVE_MINUTES);
         app.searching = false;
         for compose in [
             Compose::Talk { to: "a".into() },
@@ -3486,7 +3547,7 @@ mod token_window_tests {
             });
             app.key(key);
             assert_eq!(app.input.as_ref().unwrap().text, "w");
-            assert_eq!(app.token_window, TokenWindow::HalfHour);
+            assert_eq!(app.token_window, TokenWindow::FIVE_MINUTES);
         }
         app.input = None;
         app.search.clear();
@@ -3496,12 +3557,12 @@ mod token_window_tests {
             .bindings
             .extend(bind(&[("w", "refresh"), ("v", "token-window")]));
         assert_eq!(app.key(key), Effect::Refresh);
-        assert_eq!(app.token_window, TokenWindow::HalfHour);
+        assert_eq!(app.token_window, TokenWindow::FIVE_MINUTES);
         app.key(KeyEvent::new(KeyCode::Char('v'), KeyModifiers::NONE));
-        assert_eq!(app.token_window, TokenWindow::Hour);
+        assert_eq!(app.token_window, TokenWindow::HOUR);
         app.view.as_mut().unwrap().section_bindings = vec![bind(&[("w", "token-window")])];
         app.key(key);
-        assert_eq!(app.token_window, TokenWindow::Five);
+        assert_eq!(app.token_window, TokenWindow::MINUTE);
     }
     #[test]
     fn tab_rings_are_reused_and_pruned_against_configured_tabs() {
@@ -3519,6 +3580,63 @@ mod token_window_tests {
         snapshot.hidden.clear();
         app.apply(snapshot);
         assert!(app.meters.is_empty());
+    }
+    #[test]
+    fn usage_projection_updates_duplicate_rows_without_mutating_public_document() {
+        let now = Instant::now();
+        let rows = serde_json::json!([{"title": null, "rows": [
+            {"id":"a", "name":"member", "fields": {"task":"keep"}},
+            {"id":"a", "name":"member", "fields": {"task":"keep"}},
+            {"id":"never", "name":"unreported", "fields": {}}
+        ]}]);
+        let mut app = App::new(Some("product".into()));
+        app.apply(super::tests::snapshot("product", rows));
+        app.view.as_mut().unwrap().rows = crate::config::Config::read(
+            std::env::temp_dir().join(format!("usage-projection-{}.toml", std::process::id())),
+        )
+        .unwrap()
+        .rows("product")
+        .unwrap();
+        let public = app.view.as_ref().unwrap().document.clone();
+        let mut first = super::super::rate::tests::input(100);
+        first.resumes.get_mut("a").unwrap()["model"] = serde_json::json!("old");
+        first.resumes.insert("never".into(), Value::Null);
+        app.meter = Some(super::super::meter::Meter::new(
+            TokenRate {
+                enabled: true,
+                ..Default::default()
+            },
+            &first,
+            now,
+        ));
+        app.project_usage(now);
+        assert_eq!(app.rows()[0].1["fields"]["tok_1"], "–");
+        let mut next = super::super::rate::tests::input(200);
+        next.resumes.get_mut("a").unwrap()["model"] = serde_json::json!("new");
+        next.resumes.insert("never".into(), Value::Null);
+        let time = now + Duration::from_secs(60);
+        app.meter.as_mut().unwrap().sample(Ok(&next), time);
+        app.project_usage(time);
+        for (_, row) in app.rows().into_iter().take(2) {
+            assert_eq!(row["fields"]["tok_1"], "150");
+            assert_eq!(row["fields"]["tok_2"], "~150");
+            assert_eq!(row["fields"]["model"], "new");
+            assert_eq!(row["fields"]["task"], "keep");
+        }
+        assert_eq!(app.rows()[2].1["fields"]["tok_3"], "–");
+        assert_eq!(app.view.as_ref().unwrap().document, public);
+        let projected = app.usage_document.clone();
+        app.project_usage(time);
+        assert_eq!(
+            app.usage_document, projected,
+            "same receipt does not change display"
+        );
+        app.go("uncached".into());
+        app.project_usage(time);
+        assert_eq!(
+            app.usage_document, projected,
+            "loading preserves painted owner"
+        );
     }
 }
 

@@ -58,55 +58,53 @@ impl Default for Reminders {
     }
 }
 
-/// Completed-request meter policy; independent of the ordinary board reload.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum TokenWindow {
-    Five,
-    #[default]
-    Minute,
-    HalfHour,
-    Hour,
+/// A board observation window, never persisted usage history.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TokenWindow(u64);
+
+impl Default for TokenWindow {
+    fn default() -> Self {
+        Self::MINUTE
+    }
 }
 
 impl TokenWindow {
+    pub const MINUTE: Self = Self(60_000);
+    pub const FIVE_MINUTES: Self = Self(300_000);
+    pub const HOUR: Self = Self(3_600_000);
+    pub const DEFAULTS: [Self; 3] = [Self::MINUTE, Self::FIVE_MINUTES, Self::HOUR];
+
     pub fn parse(value: &str) -> Option<Self> {
-        match value {
-            "5s" => Some(Self::Five),
-            "1m" => Some(Self::Minute),
-            "30m" => Some(Self::HalfHour),
-            "1h" => Some(Self::Hour),
-            _ => None,
+        let (number, scale) = value
+            .strip_suffix('m')
+            .map(|n| (n, 60_000))
+            .or_else(|| value.strip_suffix('h').map(|n| (n, 3_600_000)))?;
+        if number.is_empty() || !number.bytes().all(|b| b.is_ascii_digit()) {
+            return None;
         }
+        let milliseconds = number.parse::<u64>().ok()?.checked_mul(scale)?;
+        (60_000..=86_400_000)
+            .contains(&milliseconds)
+            .then_some(Self(milliseconds))
     }
     pub fn milliseconds(self) -> u64 {
-        match self {
-            Self::Five => 5_000,
-            Self::Minute => 60_000,
-            Self::HalfHour => 1_800_000,
-            Self::Hour => 3_600_000,
-        }
+        self.0
     }
-    pub fn available(self, every: Duration) -> Self {
-        if self == Self::Five && every != Duration::from_secs(5) {
-            Self::Minute
-        } else {
+    pub fn available(self, windows: [Self; 3]) -> Self {
+        if windows.contains(&self) {
             self
+        } else {
+            windows[0]
         }
     }
-    pub fn next(self, every: Duration) -> Self {
-        match self {
-            Self::Five => Self::Minute,
-            Self::Minute => Self::HalfHour,
-            Self::HalfHour => Self::Hour,
-            Self::Hour => Self::Five.available(every),
-        }
+    pub fn next(self, windows: [Self; 3]) -> Self {
+        windows[(windows.iter().position(|w| *w == self).unwrap_or(2) + 1) % 3]
     }
-    pub fn label(self) -> &'static str {
-        match self {
-            Self::Five => "5s",
-            Self::Minute => "1m",
-            Self::HalfHour => "30m",
-            Self::Hour => "1h",
+    pub fn label(self) -> String {
+        if self.0 > 3_600_000 && self.0.is_multiple_of(3_600_000) {
+            format!("{}h", self.0 / 3_600_000)
+        } else {
+            format!("{}m", self.0 / 60_000)
         }
     }
 }
@@ -117,6 +115,7 @@ pub struct TokenRate {
     pub every: Duration,
     pub reduced_motion: bool,
     pub window: TokenWindow,
+    pub windows: [TokenWindow; 3],
 }
 
 impl Default for TokenRate {
@@ -125,7 +124,8 @@ impl Default for TokenRate {
             enabled: false,
             every: Duration::from_secs(5),
             reduced_motion: false,
-            window: TokenWindow::Minute,
+            window: TokenWindow::MINUTE,
+            windows: TokenWindow::DEFAULTS,
         }
     }
 }
@@ -299,10 +299,13 @@ columns = [
     { name = "member", width = "22%", min = 12, max = 24 },
     { name = "state", width = "14%", min = 9, max = 10 },
     { name = "task", grow = 1, min = 18 },
-    { name = "pr", width = "24%", min = 12, max = 28, priority = 2 },
-    { name = "model", from = "session.model", width = "16%", min = 18, max = 18, priority = 3 },
+    { name = "pr", width = "24%", min = 12, max = 28, priority = 6 },
+    { name = "model", from = "session.model", max = 14, priority = 2 },
+    { name = "tok_1", from = "usage.w1", format = "tokens", width = 7, min = 5, align = "right", priority = 3 },
+    { name = "tok_2", from = "usage.w2", format = "tokens", width = 7, min = 5, align = "right", priority = 4 },
+    { name = "tok_3", from = "usage.w3", format = "tokens", width = 7, min = 5, align = "right", priority = 5 },
 ]
-lines = [["member", "state", "task", "pr", "model"], ["", "", { field = "pending", span = 3, token = "waiting" }]]
+lines = [["member", "state", "task", "pr", "model", "tok_1", "tok_2", "tok_3"], ["", "", { field = "pending", span = 6, token = "waiting" }]]
 [team.fields.pr]
 preset = "github-pr"
 every = "60s"
@@ -310,6 +313,26 @@ every = "60s"
 enabled = true
 stale_after = "30m"
 "#;
+
+const CREW: &str = r#"
+[crew.rows]
+columns = [
+    { name = "member", width = 14 },
+    { name = "state", width = 10 },
+    { name = "task", grow = 1 },
+    { name = "pr_link", title = "PR", width = 12, priority = 6 },
+    { name = "model", from = "session.model", max = 14, priority = 2 },
+    { name = "tok_1", from = "usage.w1", format = "tokens", width = 7, min = 5, align = "right", priority = 3 },
+    { name = "tok_2", from = "usage.w2", format = "tokens", width = 7, min = 5, align = "right", priority = 4 },
+    { name = "tok_3", from = "usage.w3", format = "tokens", width = 7, min = 5, align = "right", priority = 5 },
+]
+lines = [["member", "state", "task", "pr_link", "model", "tok_1", "tok_2", "tok_3"]]
+"#;
+
+fn crew() -> &'static DocumentMut {
+    static PRESET: std::sync::OnceLock<DocumentMut> = std::sync::OnceLock::new();
+    PRESET.get_or_init(|| CREW.parse().expect("the crew preset is valid TOML"))
+}
 
 fn team() -> &'static DocumentMut {
     static PRESET: std::sync::OnceLock<DocumentMut> = std::sync::OnceLock::new();
@@ -1081,20 +1104,25 @@ impl Config {
             .transpose()
     }
 
-    /// Team's defaults enter the ordinary row/provider/reminder readers.
+    /// Team and crew defaults enter the ordinary row/provider/reminder readers.
     /// Whole row grids are replaced; provider fields and reminder keys override
     /// their matching defaults. No other layout's settings are changed.
     fn preset_settings(&self, squad: &str) -> Result<Option<Table>, SquadError> {
         let own = self.squad_table(squad)?;
-        if self.layout(squad)? != Layout::Team {
+        let preset = match self.layout(squad)? {
+            Layout::Team => team()["team"].as_table(),
+            Layout::Crew => crew()["crew"].as_table(),
+            _ => None,
+        };
+        let Some(preset) = preset else {
             return Ok(own.map(|table| {
                 table
                     .iter()
                     .map(|(key, value)| (key, value.clone()))
                     .collect()
             }));
-        }
-        let mut settings = team()["team"].as_table().expect("team table").clone();
+        };
+        let mut settings = preset.clone();
         // Board::preset owns the pane layout, not this settings projection.
         settings.remove("board");
         if let Some(own) = own {
@@ -1105,7 +1133,10 @@ impl Config {
                 if matches!(key, "fields" | "reminders")
                     && let Some(overrides) = item.as_table_like()
                 {
-                    let defaults = settings[key].as_table_mut().expect("preset table");
+                    let Some(defaults) = settings.get_mut(key).and_then(Item::as_table_mut) else {
+                        settings.insert(key, item.clone());
+                        continue;
+                    };
                     for (name, value) in overrides.iter() {
                         defaults.insert(name, value.clone());
                     }
@@ -1376,11 +1407,12 @@ impl Config {
         self.rows_setting(squad).map(|resolved| resolved.0)
     }
     fn read_rows(&self, squad: &str) -> Result<crate::rows::Rows, SquadError> {
-        crate::rows::read(
+        crate::rows::read_with_windows(
             self.preset_settings(squad)?
                 .as_ref()
                 .map(|table| table as &dyn TableLike),
             squad,
+            self.token_windows(squad)?.0,
         )
     }
 
@@ -1636,6 +1668,7 @@ impl Config {
                 "collapsed",
                 "fold_below",
                 "token_rate",
+                "tok",
                 "view",
                 "hidden_columns",
             ]
@@ -1804,6 +1837,40 @@ impl Config {
         self.refresh_setting(squad).map(|resolved| resolved.0)
     }
 
+    /// Validate both layers, including a masked global value; source is for settings inspection.
+    pub fn token_windows(&self, squad: &str) -> Result<([TokenWindow; 3], String), SquadError> {
+        let mut result = (TokenWindow::DEFAULTS, "default".to_owned());
+        for (item, place) in [
+            (
+                self.document
+                    .get("board")
+                    .and_then(Item::as_table_like)
+                    .and_then(|t| t.get("tok")),
+                "board.tok".to_owned(),
+            ),
+            (
+                self.squad_table(squad)?
+                    .and_then(|t| t.get("board"))
+                    .and_then(Item::as_table_like)
+                    .and_then(|t| t.get("tok")),
+                format!("squad.{squad}.board.tok"),
+            ),
+        ] {
+            let Some(item) = item else { continue };
+            let windows: Option<[TokenWindow; 3]> = item.as_str().and_then(|text| {
+                text.split('/')
+                    .map(TokenWindow::parse)
+                    .collect::<Option<Vec<_>>>()?
+                    .try_into()
+                    .ok()
+            });
+            let windows = windows.filter(|w| w[0].0 < w[1].0 && w[1].0 < w[2].0)
+                .ok_or_else(|| invalid(format!("`{place}` needs three distinct ascending whole m/h durations from 1m through 24h (for example 1m/5m/60m).")))?;
+            result = (windows, place);
+        }
+        Ok(result)
+    }
+
     /// Preset, then global, then per-squad keys; no implicit second team path.
     pub fn token_rate(&self, squad: &str) -> Result<TokenRate, SquadError> {
         let mut settings = TokenRate::default();
@@ -1843,7 +1910,7 @@ impl Config {
                     "window" => {
                         settings.window =
                             item.as_str().and_then(TokenWindow::parse).ok_or_else(|| {
-                                invalid(format!("`{place}.window` must be 5s, 1m, 30m or 1h."))
+                                invalid(format!("`{place}.window` must be a whole m/h duration from 1m through 24h."))
                             })?;
                     }
                     "every" => {
@@ -1863,7 +1930,8 @@ impl Config {
                 }
             }
         }
-        settings.window = settings.window.available(settings.every);
+        settings.windows = self.token_windows(squad)?.0;
+        settings.window = settings.window.available(settings.windows);
         Ok(settings)
     }
 
@@ -2978,7 +3046,9 @@ sort = ["state", "-name"]
                 .iter()
                 .map(|c| c.field.as_str())
                 .collect::<Vec<_>>(),
-            ["member", "state", "task", "pr", "model"]
+            [
+                "member", "state", "task", "pr", "model", "tok_1", "tok_2", "tok_3"
+            ]
         );
         let columns = config.rows("product").unwrap().columns;
         assert_eq!(
@@ -3115,10 +3185,14 @@ sort = ["state", "-name"]
         };
         let default = read("");
         assert_eq!(default.layout("x").unwrap(), Layout::Team);
-        let previous_rows = read("[squad.x]\nlayout = \"crew\"\n").rows("x").unwrap();
+        let previous_rows = crate::rows::Rows::preset();
         for layout in ["crew", "pr-queue", "minimal"] {
             let config = read(&format!("[squad.x]\nlayout = \"{layout}\"\n"));
-            assert_eq!(config.rows("x").unwrap(), previous_rows);
+            if layout == "crew" {
+                assert_eq!(config.rows("x").unwrap().columns.len(), 8);
+            } else {
+                assert_eq!(config.rows("x").unwrap(), previous_rows);
+            }
             assert!(config.providers("x").unwrap().is_empty());
             assert_eq!(config.reminders("x").unwrap(), Reminders::default());
         }
@@ -3148,7 +3222,9 @@ sort = ["state", "-name"]
         let rows = config.rows("x").unwrap();
         assert_eq!(
             rows.fields(),
-            ["member", "state", "task", "pr", "model", "pending"]
+            [
+                "member", "state", "task", "pr", "model", "tok_1", "tok_2", "tok_3", "pending"
+            ]
         );
         assert_eq!(rows.columns[4].from.as_ref().unwrap().path, "session.model");
         assert!(
@@ -3156,7 +3232,7 @@ sort = ["state", "-name"]
             "model uses the existing presence projection"
         );
         assert_eq!(rows.lines[1][2].field.as_deref(), Some("pending"));
-        assert_eq!(rows.lines[1][2].span, 3);
+        assert_eq!(rows.lines[1][2].span, 6);
         assert_eq!(rows.lines[1][2].token, Some(tmt_cli_style::Role::Waiting));
         assert_eq!(config.providers("x").unwrap()[0].name, "pr");
         assert_eq!(
@@ -3730,16 +3806,14 @@ filter = "not pending"
         assert!(config.enabled && config.reduced_motion);
         assert_eq!(config.every, Duration::from_secs(5));
         assert_eq!(
-            read("[board.token_rate]\nwindow='5s'\nevery='10s'", "p")
+            read("[board.token_rate]\nwindow='1m'\nevery='10s'", "p")
                 .unwrap()
                 .window,
-            TokenWindow::Minute
+            TokenWindow::MINUTE
         );
         assert_eq!(
-            read("[board.token_rate]\nwindow='30m'", "p")
-                .unwrap()
-                .window,
-            TokenWindow::HalfHour
+            read("[board.token_rate]\nwindow='5m'", "p").unwrap().window,
+            TokenWindow::FIVE_MINUTES
         );
         for value in ["off", "4s", "11s"] {
             assert!(read(&format!("[board.token_rate]\nevery='{value}'"), "p").is_err());
@@ -3747,10 +3821,65 @@ filter = "not pending"
         for setting in [
             "enabled=1",
             "reduced_motion='yes'",
-            "window='2m'",
+            "window='5s'",
             "every=5",
         ] {
             assert!(read(&format!("[squad.p.board.token_rate]\n{setting}"), "p").is_err());
         }
+    }
+    #[test]
+    fn tok_windows_validate_masked_layers_and_report_the_source() {
+        let path = temp("tok-windows");
+        for text in [
+            "1m/1m/60m",
+            "5m/1m/60m",
+            "1m/5m",
+            "0m/5m/60m",
+            "1m/5m/25h",
+            "1s/5m/60m",
+            "1m/5m/60m/24h",
+            "1m /5m/60m",
+        ] {
+            fs::write(
+                &path,
+                format!("[board]\ntok='{text}'\n[squad.p.board]\ntok='1m/5m/60m'\n"),
+            )
+            .unwrap();
+            let config = Config::read(path.clone()).unwrap();
+            assert!(
+                config
+                    .token_windows("p")
+                    .unwrap_err()
+                    .message
+                    .contains("board.tok"),
+                "{text}"
+            );
+        }
+        fs::write(
+            &path,
+            "[board]\ntok='5m/60m/24h'\n[squad.p.board]\ntok='1m/5m/60m'\n[squad.p.rows]\ncolumns=[{name='observed',from='usage.w1',title='OBSERVED'}]\nlines=[['observed']]\n",
+        )
+        .unwrap();
+        let config = Config::read(path.clone()).unwrap();
+        let (windows, source) = config.token_windows("other").unwrap();
+        assert_eq!(
+            windows.map(|w| w.milliseconds()),
+            [300_000, 3_600_000, 86_400_000]
+        );
+        assert_eq!(source, "board.tok");
+        assert_eq!(
+            config.rows("other").unwrap().columns[5..]
+                .iter()
+                .map(|column| column.title.as_str())
+                .collect::<Vec<_>>(),
+            ["5m", "60m", "24h"]
+        );
+        assert_eq!(
+            config.token_windows("p").unwrap(),
+            (TokenWindow::DEFAULTS, "squad.p.board.tok".into())
+        );
+        assert_eq!(config.token_rate("other").unwrap().window, windows[0]);
+        assert_eq!(config.rows("p").unwrap().columns[0].title, "OBSERVED");
+        fs::remove_file(path).unwrap();
     }
 }

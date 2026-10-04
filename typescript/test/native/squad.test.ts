@@ -137,6 +137,7 @@ async function readyContextFixture(sandbox: Sandbox, file: string, payload: stri
 const squadVersion = workspaceVersion('tmt-squad');
 
 describe('squad extension', () => {
+  const crewFields = ['member', 'state', 'task', 'pr_link', 'model', 'tok_1', 'tok_2', 'tok_3'];
   it('config show reports effective sources without writing or executing configured commands', async () => {
     await withSandbox(async (sandbox) => {
       installSquad(sandbox);
@@ -401,12 +402,9 @@ o = "run touch ${marker}"
         const listed = await squad(sandbox, ['ls', '--squad', 'product']);
         expect(listed.status).toBe(0);
         expect(listed.body.squad.layout).toBe('crew');
-        expect(listed.body.columns.map((column: { field: string }) => column.field)).toEqual([
-          'member',
-          'state',
-          'task',
-          'pr_link',
-        ]);
+        expect(listed.body.columns.map((column: { field: string }) => column.field)).toEqual(
+          crewFields
+        );
       }
     });
   });
@@ -451,14 +449,18 @@ o = "run touch ${marker}"
         'task',
         'pr',
         'model',
+        'tok_1',
+        'tok_2',
+        'tok_3',
       ]);
       expect(listed.body.columns[4].from).toBe('session.model');
       expect(listed.body.lines[1]).toEqual([
         { field: null, span: 1 },
         { field: null, span: 1 },
-        { field: 'pending', span: 3, token: 'waiting' },
+        { field: 'pending', span: 6, token: 'waiting' },
       ]);
       const rows = listed.body.sections[0].rows;
+      expect(rows[0].fields).not.toHaveProperty('tok_1');
       expect(rows.map((row: { name: string }) => row.name)).toEqual(['unlinked', 'linked']);
       expect(rows[0]).toMatchObject({
         state: 'working',
@@ -473,12 +475,9 @@ o = "run touch ${marker}"
       expect(observe(sandbox)).toEqual(metadata);
       writeFileSync(toml, 'me = "Ben"\n[squad.product]\nlayout = "crew"\n');
       const crew = await squad(sandbox, ['ls', '--squad', 'product']);
-      expect(crew.body.columns.map((column: { field: string }) => column.field)).toEqual([
-        'member',
-        'state',
-        'task',
-        'pr_link',
-      ]);
+      expect(crew.body.columns.map((column: { field: string }) => column.field)).toEqual(
+        crewFields
+      );
       expect(crew.body.sections[0].rows[0].staleness.state).toBe('disabled');
     });
   });
@@ -1874,19 +1873,12 @@ o = "run touch ${marker}"
         'you',
       ]);
       expect(json.body.squads[0]).toEqual({ ...one.body, you: undefined });
-      expect(one.body.columns.map((column: { field: string }) => column.field)).toEqual([
-        'member',
-        'state',
-        'task',
-        'pr_link',
-      ]);
+      expect(one.body.columns.map((column: { field: string }) => column.field)).toEqual(crewFields);
       // The preset's grid: fixed widths, a growing task, and a link that
       // steps aside first on a narrow board; one line per row.
       expect(one.body.columns[2]).toMatchObject({ field: 'task', width: null, grow: 1 });
-      expect(one.body.columns[3]).toMatchObject({ field: 'pr_link', width: 12, priority: 1 });
-      expect(one.body.lines).toEqual([
-        ['member', 'state', 'task', 'pr_link'].map((field) => ({ field, span: 1 })),
-      ]);
+      expect(one.body.columns[3]).toMatchObject({ field: 'pr_link', width: 12, priority: 6 });
+      expect(one.body.lines).toEqual([crewFields.map((field) => ({ field, span: 1 }))]);
       for (const args of [
         ['sq', 'status', '--json'],
         ['sq', '--json'],

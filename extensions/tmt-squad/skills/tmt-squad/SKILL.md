@@ -519,54 +519,67 @@ states and key bindings. Bindings and actions are the user's. Never edit them
 silently. If a change would help, propose the exact lines and let the user
 apply them.
 
-## Completed-request token rate
+## Observed token usage
 
-The selected named squad's summary shows **tokens of completed requests observed
-by this board**, averaged over 5s, 1m, 30m or 1h. Input and output count once;
-cached input is already included in input, and normalized reasoning in output.
-Mixed providers sum provider-reported token units, not cost or interchangeable
-text volume. Counters update at request completion and are observed every 5–10 s;
-these are sampled batches, not in-flight generation throughput.
+The selected named squad shows tokens from completed requests observed by this
+board, in **1m / 5m / 60m windows**. The default member grid adds the current
+session model and those three totals, declared in the TEAM/crew preset rows.
+Custom grids opt in with `from = "usage.w1"`, `"usage.w2"`, or `"usage.w3"` on a
+column. Default headers follow `tok`; an explicit `title` stays as configured.
+One-shot `tmt sq ls` has no window history. JSON keeps column descriptors without
+usage values; text omits columns whose source is board-only.
+On narrow default member grids, PR steps aside first, then the longest, middle
+and shortest configured windows, and finally MODEL. MODEL follows its content
+up to 14 cells and truncates longer names.
 
-Team (the default board) enables the meter; crew, pr-queue and minimal keep it off.
-The all/leads tabs omit it. `w` cycles available windows through the bindable
-`token-window` action; default is 1m. The 5s heartbeat is offered only with exactly
-5 s sampling: usually zero between completions, then a sampled batch spike.
-Until a window is full, its label shows the covered span (for example `12m`), and
-the number averages that span. No earlier history is loaded or persisted.
+Input and output count once; cached input is already included in input, and
+normalized reasoning in output. Mixed providers sum reported token units, not
+cost or interchangeable text volume. Model attribution is best effort: a
+mid-session model change attributes retained observations to the current model.
+Counters update at request completion and are observed every 5–10 seconds,
+not while a model writes. No money, earlier history or usage persistence is added.
 
-True absence hides the window/meter; there are no placeholders. Longer windows
-remain hidden until usable observations span at least 10 s. A genuinely measured
-zero shows `0`. Never-reporting members are excluded and listed in `?` help;
-`≥N`/`≥0` means a reporting member or interval is missing, and remains until that
-gap ages out of the selected window. Resets, new sessions, compaction gaps and
-failed reads rebaseline without inventing tokens. Returning to a tab preserves
-its bounded history but does not treat the cached view as a fresh observation.
+Team enables observation; crew, pr-queue and minimal keep it off by default.
+The all/leads tabs omit this named-squad meter. `w` cycles the summary's windows
+through the bindable `token-window` action; member columns show all three at once.
+The label always names the configured window; the number is a total, never a
+per-second rate. Configure exactly three distinct ascending whole `m`/`h`
+durations, from 1m through 24h:
 
 ```toml
+[board]
+tok = "1m/5m/60m" # for example, "5m/60m/24h"
+
 [board.token_rate]
 enabled = false
 every = "5s" # 5s through 10s; independent of board.refresh
-window = "1m" # 5s, 1m, 30m, 1h; 5s falls back to 1m unless every = "5s"
+window = "1m" # initial summary window; falls back to the first configured window
 reduced_motion = true
+
+[squad.checkout.board]
+tok = "5m/60m/24h" # overrides the global windows
 
 [squad.checkout.board.token_rate]
 enabled = true # individual keys override global policy and layout preset
 
 [bind]
-w = "token-window" # may be rebound through normal global/section bindings
+w = "token-window"
 ```
 
-Digits count with cubic ease-out for at most 600 ms; reduced motion and window
-switches show the exact value immediately. Idle values do not animate. Eight
-sparkline bars derive from 5 s buckets: their trend spans are 40s/80s/30m/1h for
-the four windows, respectively. Blank means no evidence; ▁ means measured zero;
-▂ through █ scale nonzero values against the eight-bar maximum. Narrow boards
-drop the sparkline, then only a full default-1m label, shorten `tok/s` to `/s`,
-then hide the meter before cutting lead/attention text. The number, unit, label
-and trend form one contiguous right-aligned group; empty trend slices retain
-their positions. Covered-span and other
-window labels always remain while the meter is visible.
+`—` means no usable observed interval for that member; a baseline alone is not
+measured zero. The summary hides until a member has usable observations spanning
+at least 10 seconds. A measured zero shows `0`. `~` marks a window longer than
+observed coverage or with missing evidence. Unreported members are excluded from
+totals and make the total approximate; `?` lists never-reporting members.
+Resets, new sessions, invalid counters, gaps and failed reads rebaseline without
+inventing tokens. Returning to a tab retains bounded history but never bridges
+its unobserved interval. Changing the observation policy starts fresh history.
+
+Digits count with cubic ease-out for at most 600 ms; reduced motion and summary
+window switches show the exact value immediately. Eight bucket-aligned bars show
+observed totals by slice: blank is no evidence, ▁ is measured zero and ▂–█ scale
+nonzero values. Narrow boards drop the trend, shorten the unit, then hide the
+summary meter before cutting lead/attention text. The window label remains.
 
 ## Columns and row lines
 

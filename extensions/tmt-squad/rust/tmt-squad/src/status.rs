@@ -361,6 +361,14 @@ fn squad_text(document: &Value, terminal: Terminal, output: &mut Vec<u8>) {
             if let Some(field) = cell["field"].as_str()
                 && visible
                 && !fields.contains(&field)
+                && !document["columns"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .find(|column| column["field"] == field)
+                    .and_then(|column| column["from"].as_str())
+                    .and_then(|path| crate::source::ColumnSource::parse(path, |_| true, |_| true))
+                    .is_some_and(|source| source.board_only())
             {
                 fields.push(field);
             }
@@ -1081,6 +1089,39 @@ columns = [{ name = "member", width = "20%" },
         );
         assert!(rendered.contains("test-model"));
         assert_eq!(before["sections"], document["sections"]);
+    }
+
+    #[test]
+    fn ls_omits_board_only_values_and_text_columns_by_source_kind() {
+        let config: toml_edit::DocumentMut = "[p.rows]\ncolumns=[{name='member'}, {name='observed',from='usage.w1',width=7}]\nlines=[['member','observed']]".parse().unwrap();
+        let rows = crate::rows::read(config["p"].as_table_like(), "p").unwrap();
+        let mut document = document(
+            &Squad {
+                name: "p".into(),
+                room_id: "R".into(),
+            },
+            Layout::Crew,
+            &states(Layout::Crew),
+            &[],
+            &rows,
+            vec![member(
+                "worker",
+                &[("pending", "approve"), ("observed", "42")],
+            )],
+        );
+        let metadata = rows.value();
+        document["columns"] = metadata["columns"].clone();
+        document["lines"] = metadata["lines"].clone();
+        assert_eq!(document["columns"][1]["from"], "usage.w1");
+        assert!(document["sections"][0]["rows"][0]["fields"]["observed"].is_null());
+        let mut control = document.clone();
+        control["columns"].as_array_mut().unwrap().truncate(1);
+        control["lines"][0].as_array_mut().unwrap().truncate(1);
+        document["sections"][0]["rows"][0]["fields"]["observed"] = json!("999");
+        assert_eq!(
+            text(&document, Terminal::PLAIN),
+            text(&control, Terminal::PLAIN)
+        );
     }
 
     #[test]

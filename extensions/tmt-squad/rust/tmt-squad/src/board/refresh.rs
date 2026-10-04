@@ -1753,7 +1753,8 @@ esac
                         enabled: true,
                         every: Duration::from_millis(2),
                         reduced_motion: true,
-                        window: crate::config::TokenWindow::Minute,
+                        window: crate::config::TokenWindow::MINUTE,
+                        windows: crate::config::TokenWindow::DEFAULTS,
                     },
                     input: super::super::rate::tests::input(100),
                 });
