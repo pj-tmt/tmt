@@ -581,6 +581,21 @@ pub fn create_page(root: &Path, args: &ArgMatches, source: String) -> Result<()>
     }
     Ok(())
 }
+/// Names a page's title, or, when that page cannot be opened, records why on that page alone so
+/// the other pages stay listed and shown (#1627).
+fn title_or_error(store: &Store, key: &Keyring, page: &mut Value) -> Result<()> {
+    if let Err(error) = inspection::title(store, key, page, std::env::current_exe()?) {
+        page["title"] = Value::Null;
+        page["error"] = json!({
+            "code": crate::error_code(error.as_ref()),
+            "message": error.to_string(),
+        });
+        if let Some(warnings) = page["warnings"].as_array_mut() {
+            warnings.push(json!("page-unavailable"));
+        }
+    }
+    Ok(())
+}
 pub fn run(command: &str, args: &ArgMatches, root: &Path, json_output: bool) -> Result<()> {
     let layout = Layout::existing(root)?;
     let Some(layout) = layout else {
@@ -618,7 +633,7 @@ pub fn run(command: &str, args: &ArgMatches, root: &Path, json_output: bool) -> 
             .ok_or_else(|| input("Invalid local page catalog."))?;
         pages.retain(|p| args.get_flag("archived") || p["archived"] != true);
         for page in pages {
-            inspection::title(&store, &key, page, std::env::current_exe()?)?;
+            title_or_error(&store, &key, page)?;
         }
         if catalog["membershipHead"] != inspection::catalog(&store, &key)?["membershipHead"] {
             return Err(management_error("STALE_HEAD"));
@@ -675,7 +690,7 @@ pub fn run(command: &str, args: &ArgMatches, root: &Path, json_output: bool) -> 
         return Err(management_error("STALE_HEAD"));
     }
     if command == "show" {
-        inspection::title(&store, &key, &mut page, std::env::current_exe()?)?;
+        title_or_error(&store, &key, &mut page)?;
         if catalog["membershipHead"] != inspection::catalog(&store, &key)?["membershipHead"] {
             return Err(management_error("STALE_HEAD"));
         }
@@ -935,6 +950,9 @@ fn human_fields(value: &Value) -> Result<Vec<(String, String)>> {
                 if v["archived"] == true {
                     fields.push(("archived".to_owned(), "yes".to_owned()));
                 }
+                if let Some(message) = v["error"]["message"].as_str() {
+                    fields.push(("unavailable".to_owned(), message.to_owned()));
+                }
             }
             "membershipHead" if v.is_object() => {
                 let hash = v["statementHash"].as_str().unwrap_or_default();
@@ -1006,7 +1024,13 @@ fn output_with(value: &Value, json_output: bool, extra: &[(&str, String)]) -> Re
             rows.row([
                 Cell::from(page["pageId"].as_str().unwrap_or("")),
                 Cell::from(format!("{:<width$}", audience(page))),
-                Cell::from(page["title"].as_str().unwrap_or("title unavailable")),
+                Cell::from(
+                    match (page["title"].as_str(), page["error"]["code"].as_str()) {
+                        (Some(title), _) => title.to_owned(),
+                        (None, Some(code)) => format!("unavailable ({code})"),
+                        (None, None) => "title unavailable".to_owned(),
+                    },
+                ),
             ]);
             rows.write(&mut out, terminal)?;
             if let Some(text) = page["linkText"].as_str() {
@@ -1033,6 +1057,14 @@ fn output_with(value: &Value, json_output: bool, extra: &[(&str, String)]) -> Re
         )?;
         for page in pages {
             warn_expiry(page)?;
+        }
+        // Each unavailable page explains itself; the others above are unaffected.
+        for page in pages {
+            if let Some(message) = page["error"]["message"].as_str() {
+                let mut stderr = tmt_cli_style::stream::stderr();
+                let terminal = stderr.terminal();
+                tmt_cli_style::message::warning(&mut stderr, terminal, message, None)?;
+            }
         }
     } else {
         let mut fields = human_fields(value)?;
