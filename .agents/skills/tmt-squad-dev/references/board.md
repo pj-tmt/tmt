@@ -32,8 +32,9 @@ painter directly.
 - `markup::Grid` compiles the covered tracks and configured spans through `tmt-tui`
   admission and one Taffy grid computation. Squad resolves configured CSS clamp bases and
   selects priority tracks before sizing (priority hiding is Squad's, not Taffy's); growing
-  tracks default their minimum to `rows::NARROWEST`. The grid keeps geometry's logical text
-  widths and clips for fitting. There is no arithmetic span solver or scalar
+  tracks default their minimum to `rows::NARROWEST`. A capped natural track keeps its
+  content width within its bounds; only a growing track expands to its cap. The grid keeps
+  geometry's logical text widths and clips for fitting. There is no arithmetic span solver or scalar
   `grid::fit/fit_lines` in the board.
 - `rows::ListSizing` picks the text-list sizing policy once from the shown columns: without
   percent/overflow it keeps legacy list sizing and complete piped values. Opt-in text lists
@@ -205,7 +206,7 @@ by record when no positions were drawn.
   while explicit names and switcher toggles retain canonical keys. Startup resolves only board
   inventory before terminal admission; `ls --tab` is unchanged. `App` retains full arranged and
   hidden inventories for caches, ordering and switcher selection; navigation and paint filter
-  them without rewriting config. Opening an excluded tab admits it. Removing the current pick
+  them without rewriting config. Opening an unpicked tab picks it. Removing the current pick
   requests the next picked tab or home through the ordinary cached/uncached load path. Refresh
   prunes removed keys but preserves picks during a failed empty inventory read.
 - `view::tabs` measures the folded unpicked-squad segment first, then applies the existing
@@ -216,7 +217,8 @@ by record when no positions were drawn.
 - The switcher adapter consumes the named `pick-tab` action before shared picker text handling
   in both query/list fields. Default Space is local to this adapter; explicit bindings replace
   it and a non-pick Space binding takes precedence. The shared picker stays unchanged. Pick
-  markers and the effective key appear in its markup/footer and board help.
+  markers and the effective key appear in its markup/footer and board help; user-facing
+  descriptions consistently use pick/unpick.
 - `App` keeps the view of each visited squad. A switch shows a cached view at once; otherwise it
   keeps the current frame (marked stale, so row actions refuse) until the new snapshot swaps in
   whole. An uncached switch lasting at least `SPINNER_DELAY` (100 ms) shows a spinner in the
@@ -293,7 +295,9 @@ here reads the store or core directly.
   read and names its holder `session:window`: the refresh worker asks tmux once per pane id
   (`effects::pane_place`, one bounded `display-message` on the invoker's socket, cached in
   `cronboard::Places`, failures too) and stores it on the read; outside tmux or on any failure the
-  pane id shows. `clock --json` keeps the pane id. The read's failure shows as a blocked line.
+  pane id shows. Its lease age uses `tmt-cli-style::value::relative_time`, like the clock
+  command (`6s ago` or `just now`); narrow lines drop the whole age. `clock --json` keeps
+  the pane id. The read's failure shows as a blocked line.
 - **`c` list.** `Overlay::CronList` routed through the shared `FocusStack` and `app::route`,
   painted by a `picker_surface::State` list modal docked at its content height (like the
   prompt band, so nine tenths wide from 100 columns). Row IDs are `<room uuid>/<c-id>`. Enter opens

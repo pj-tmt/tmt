@@ -103,7 +103,7 @@ fn css_clamp_caps_win_over_weight_and_uncovered_values_reserve_no_width() {
     let rows = configured("{name='a',max=12},{name='b',min=4,grow=1}");
     assert_eq!(
         Grid::compile(&rows, |_| 6, 30).unwrap().columns,
-        [Some(12), Some(17)]
+        [Some(6), Some(23)]
     );
 }
 
@@ -136,6 +136,26 @@ fn priority_precedes_geometry_and_only_mandatory_overflow_can_cut() {
     assert_eq!(
         Grid::compile(&model, |_| 0, 70).unwrap().columns,
         [Some(15), Some(9), Some(27), Some(16), None]
+    );
+}
+
+#[test]
+fn a_capped_natural_track_keeps_short_content_and_bounds_long_content() {
+    let rows = configured("{name='model',max=8},{name='task',min=20,grow=1}");
+    for (natural, expected) in [(5, 5), (6, 6), (14, 8)] {
+        let grid = Grid::compile(&rows, |_| natural, 40).unwrap();
+        assert_eq!(grid.columns, [Some(expected), Some(39 - expected)]);
+    }
+    let bounded = configured("{name='model',min=5,max=8},{name='task',min=20,grow=1}");
+    for (natural, expected) in [(0, 5), (6, 6), (14, 8)] {
+        let grid = Grid::compile(&bounded, |_| natural, 40).unwrap();
+        assert_eq!(grid.columns, [Some(expected), Some(39 - expected)]);
+    }
+    let growing = configured("{name='model',max=8,grow=1},{name='task',min=20,grow=1}");
+    assert_eq!(
+        Grid::compile(&growing, |_| 5, 40).unwrap().columns,
+        [Some(8), Some(31)],
+        "an explicitly growing capped track still reaches its cap"
     );
 }
 

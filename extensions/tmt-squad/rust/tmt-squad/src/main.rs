@@ -1059,13 +1059,9 @@ fn main() -> ExitCode {
     }
     let matches = match request(&bare_is_board(argv)) {
         Ok(Request::Run(matches)) => matches,
-        Ok(Request::Help(command)) => {
-            let mut out = tmt_cli_style::stream::stdout(json);
-            let text = tmt_cli_style::help_text(&command, out.terminal());
-            return match out.write_all(text.as_bytes()).and_then(|()| out.flush()) {
-                Ok(()) => ExitCode::SUCCESS,
-                Err(_) => ExitCode::FAILURE,
-            };
+        Ok(Request::Help(mut command)) => return print_help(&command.render_help(), json),
+        Err(error) if error.kind() == ErrorKind::DisplayHelp => {
+            return print_help(&error.render(), json);
         }
         Err(error) if json && error.use_stderr() => {
             let failure = SquadError::new("USAGE_ERROR", error.kind().to_string());
@@ -1168,6 +1164,19 @@ fn removed(command: &str) -> Option<SquadError> {
         "; use ",
         replacement,
     ))
+}
+
+/// Both help routes use the shared rendered-clap formatter before core discovery.
+fn print_help(help: &clap::builder::StyledStr, json: bool) -> ExitCode {
+    let mut stdout = tmt_cli_style::stream::stdout(json);
+    let text = tmt_cli_style::rendered_help(help, stdout.terminal());
+    match stdout
+        .write_all(text.as_bytes())
+        .and_then(|()| stdout.flush())
+    {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(_) => ExitCode::FAILURE,
+    }
 }
 
 /// `--json`: one document and a newline, unstyled.
@@ -1380,9 +1389,14 @@ mod tests {
     }
 
     fn help_of(line: &str) -> String {
+        help_for_terminal(line, Terminal::PLAIN)
+    }
+
+    fn help_for_terminal(line: &str, terminal: Terminal) -> String {
         match request(&argv(line)) {
-            Ok(Request::Help(command)) => {
-                tmt_cli_style::help_text(&command, tmt_cli_style::Terminal::PLAIN)
+            Ok(Request::Help(command)) => tmt_cli_style::help_text(&command, terminal),
+            Err(error) if error.kind() == ErrorKind::DisplayHelp => {
+                tmt_cli_style::rendered_help(&error.render(), terminal)
             }
             Err(error) => error.to_string(),
             Ok(Request::Run(_)) => panic!("{line:?} is not a help request"),
@@ -1410,6 +1424,54 @@ mod tests {
                 panic!("{line:?} did not fail");
             };
             assert_eq!(error.kind(), ErrorKind::InvalidSubcommand, "{line}");
+        }
+    }
+
+    #[test]
+    fn clap_and_routed_help_share_terminal_wrapping_and_unchanged_pipe_bytes() {
+        use unicode_width::UnicodeWidthStr;
+        for path in ["", "cron", "cron clock", "hotkeys install"] {
+            let short = format!("{path} -h");
+            let long = format!("{path} --help");
+            let routed = format!("help {path}");
+            let Err(error) = request(&argv(&long)) else {
+                panic!("{long:?} did not return clap help");
+            };
+            let original = error.to_string();
+            assert_eq!(help_of(&short), original);
+            assert_eq!(help_of(&long), original);
+            assert_eq!(help_of(&routed), original);
+            for color in [false, true] {
+                let terminal = Terminal {
+                    color,
+                    width: Some(80),
+                    theme: None,
+                };
+                let text = help_for_terminal(&long, terminal);
+                assert_eq!(help_for_terminal(&short, terminal), text);
+                assert_eq!(help_for_terminal(&routed, terminal), text);
+                if color {
+                    continue;
+                }
+                assert!(
+                    text.split("Examples:")
+                        .next()
+                        .unwrap()
+                        .lines()
+                        .all(|line| line.width() <= 80)
+                );
+                assert_eq!(
+                    text.split_whitespace().collect::<Vec<_>>(),
+                    original.split_whitespace().collect::<Vec<_>>()
+                );
+                assert_eq!(
+                    tmt_cli_style::examples(&text),
+                    tmt_cli_style::examples(&original)
+                );
+                if path == "cron" {
+                    assert_ne!(text, original);
+                }
+            }
         }
     }
 

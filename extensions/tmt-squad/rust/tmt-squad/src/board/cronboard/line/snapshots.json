@@ -2,17 +2,17 @@
   {
     "scenario": "running",
     "width": 160,
-    "line": "⑤ ⏱ 1 cron jobs · next Mon 10-05 00:30 tmt-lead merge queue sweep and check every pending review · clock: %41 · 12m · c list"
+    "line": "⑤ ⏱ 1 cron jobs · next Mon 10-05 00:30 tmt-lead merge queue sweep and check every pending review · clock: %41 · 12m ago · c list"
   },
   {
     "scenario": "running",
     "width": 100,
-    "line": "⑤ ⏱ 1 cron jobs · next Mon 10-05 00:30 tmt-lead merge queue sweep and c… · clock: %41 · 12m · c list"
+    "line": "⑤ ⏱ 1 cron jobs · next Mon 10-05 00:30 tmt-lead merge queue sweep a… · clock: %41 · 12m ago · c list"
   },
   {
     "scenario": "running",
     "width": 80,
-    "line": "⑤ ⏱ 1 jobs · next Mon 10-05 00:30 tmt-lead merge qu… · clock: %41 · 12m · c list"
+    "line": "⑤ ⏱ 1 jobs · next Mon 10-05 00:30 tmt-lead merg… · clock: %41 · 12m ago · c list"
   },
   {
     "scenario": "no clock",

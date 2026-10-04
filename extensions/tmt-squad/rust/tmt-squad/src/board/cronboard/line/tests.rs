@@ -84,6 +84,37 @@ fn text(state: &State, width: u16) -> String {
 }
 
 #[test]
+fn running_clock_age_matches_command_wording_and_steps_aside_whole() {
+    let status = ClockStatus::Running(Holder {
+        pane: Some("%41".into()),
+        pid: 7,
+        since_ms: NOW,
+        expires_ms: NOW + 5_000,
+    });
+    for (elapsed, age) in [
+        (-1, "just now"),
+        (0, "just now"),
+        (6_000, "6s ago"),
+        (60_000, "1m ago"),
+        (3_600_000, "1h ago"),
+        (86_400_000, "1d ago"),
+    ] {
+        let now = NOW + elapsed;
+        let full = format!("clock: %41 · {age}");
+        assert_eq!(clock(&status, now, false, ClockNote::default()).0, full);
+        assert_eq!(
+            clock_text_for(&status, now, full.width(), ClockNote::default()),
+            full
+        );
+        assert_eq!(
+            clock_text_for(&status, now, full.width() - 1, ClockNote::default()),
+            "clock: %41",
+            "the complete age yields before any word is cut"
+        );
+    }
+}
+
+#[test]
 fn home_line_keeps_count_time_clock_and_key_at_supported_widths() {
     for width in [160, 100, 80] {
         for clock in [running(), ClockStatus::NoClock, ClockStatus::Unknown] {

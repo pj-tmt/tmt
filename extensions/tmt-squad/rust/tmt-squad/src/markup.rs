@@ -307,10 +307,12 @@ impl Grid {
             .collect();
         let bases: Vec<_> = rows.columns[..count]
             .iter()
-            .map(|c| {
+            .enumerate()
+            .map(|(i, c)| {
                 let width = match c.width {
                     Some(Basis::Cells(n)) => Some(n),
                     Some(Basis::Percent(p)) => Some(available * usize::from(p) / 100),
+                    None if c.grow == 0 && c.max.is_some() => Some(natural[i]),
                     None => c
                         .min
                         .map(usize::from)
@@ -374,7 +376,7 @@ impl Grid {
             .map(|i| {
                 let c = &rows.columns[i];
                 let max = match (c.width, c.grow, c.max) {
-                    (Some(_), 0, _) | (_, 0, None) => bases[i],
+                    (_, 0, _) => bases[i],
                     (_, _, Some(max)) => Breadth::Cells(match bases[i] {
                         Breadth::Cells(min) => max.max(min),
                         _ => max,
