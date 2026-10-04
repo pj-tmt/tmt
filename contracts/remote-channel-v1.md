@@ -60,8 +60,10 @@ deploy](#backends-and-deploy) before use. Browsers do not isolate cookies by por
 another local user's listener on `127.0.0.1` could receive the door session cookie when the owner's
 browser requests it at a matching path. The cookie is scoped to the mount space under the machine's
 unpredictable 80-bit route prefix (#1094, shortened in #1687), so such a listener must already know
-the prefix; the prefix narrows this exposure and remains impractical to guess through online door
-probes; it is still not a credential. That cookie grants extension page and relay access only, until
+the prefix. Local processes can read it directly from `POST /sdk/mount` or an active
+`GET /sdk/pair-offer`, so it narrows only listeners that never query the door, not a local attacker
+that does. Cross-origin web pages cannot read these Origin-gated responses or a redirect's
+`Location`; the prefix is still not a credential. That cookie grants extension page and relay access only, until
 stop, revocation or idle expiry, never an operation or pairing action; state-changing operations
 still need a fresh device signature.
 
@@ -712,7 +714,8 @@ admission, framing and connection/body limits; the extension owns its responses,
 policy and headers. All mounted extensions share one browser origin and therefore one browser trust
 domain; mounting is limited to owner-installed extensions, and untrusted content renders only in
 sandboxed opaque-origin frames. There is no mount space at the door root: `/x/` answers 404 without
-a redirect, which would reveal the prefix. Page URLs contain the prefix, so a mounted reply keeps
+a redirect; the explicit Colab short alias below is the only root redirect into the mount space.
+Page URLs contain the prefix, so a mounted reply keeps
 the door's `Referrer-Policy: no-referrer` unless it narrows it to `same-origin`; any other policy is
 dropped. The door is loopback-only; other machines reach it only through cloud backends. Upgraded
 WebSocket tunnels do not use the door's edge connections, so open pages cannot starve remote
@@ -1074,6 +1077,14 @@ envelopes. No unauthenticated GET inventory.
 | `POST /ack`       | One signed ack control; no core attention mutation.                                                    |
 | `POST /pair`      | Enrollment fields/proofs for an already machine-opened local offer; no client-created offer.           |
 
+`GET /p/<id>` at the door root accepts exactly 4–64 ASCII characters from `[0-9A-Za-z_-]`
+and returns `302` with the same-origin `Location: /r/<prefix>/x/colab/p/<id>`,
+`Cache-Control: no-store` and `Referrer-Policy: no-referrer`. It permits navigation without Origin
+or the door's exact Origin; a cross-origin Origin receives the generic HTML 403. Other alias
+shapes or methods receive the generic HTML 404 after door framing admission. The alias reads no
+cookie, sets no cookie and grants no authority; the session cookie remains scoped to
+`Path=/r/<prefix>/x/`. Colab owns short-ID resolution inside its mount.
+
 Browser assets live at the door root, disjoint from the route prefix, under the same Host, path and
 framing rules. `GET /pair` serves the pairing page with `default-src 'none'; script-src 'self';
 style-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`.
@@ -1097,7 +1108,7 @@ mount. None of these routes reads the door cookie or grants authority.
 Route action and envelope kind/operation must agree. Body is one UTF-8 JSON document, Content-Type
 application/json, one Content-Length, no transfer encoding, at most one request/connection;
 Connection: close. Header/body acquisition times out within five seconds; pairing max 16 KiB,
-headers max 8 KiB. All routes listed above are suffixes of the remote route prefix. Envelope
+headers max 8 KiB. The four POST message-layer routes in the table are suffixes of the remote route prefix. Envelope
 payload bounds come from core capabilities plus a fixed 8 KiB metadata budget; base64 wire bound is
 exactly `4 * ceil(decodedLimit / 3) + 8192`. Subscribe bounds include at most 50
 metadata/notification entries; full core bodies use a separate bounded result request, never an

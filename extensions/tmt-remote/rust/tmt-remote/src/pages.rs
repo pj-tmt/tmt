@@ -1,8 +1,7 @@
-//! Static landing and pairing pages, page refusals and their stylesheet, outside
-//! the route prefix. The pairing page
-//! at `/pair`, the device SDK module at `/sdk/remote-v1.js`, and
-//! `/sdk/mount`, which tells a page this run's identity and which mounted
-//! extension its path belongs to. None of them carries authority.
+//! Static landing and pairing pages, the Colab short alias, page refusals and
+//! their stylesheet, outside the route prefix. `/sdk/mount` tells a page this
+//! run's identity and which mounted extension its path belongs to. None of these
+//! routes carries authority.
 use crate::{
     http::{Head, Reply, Request},
     mount::Mounts,
@@ -47,11 +46,19 @@ impl Pages {
         self
     }
     pub fn serves(path: &str) -> bool {
-        path == "/" || path == "/pair" || path.starts_with("/pair/") || path.starts_with("/sdk/")
+        path == "/"
+            || path == "/pair"
+            || path.starts_with("/pair/")
+            || short_page_route(path)
+            || path.starts_with("/sdk/")
     }
     pub fn admit(&self, head: &Head<'_>) -> Result<usize, Reply> {
         if head.upgrade {
-            return Err(Reply::empty(404));
+            return Err(if short_page_route(head.path) {
+                page_refusal(head.path, 404)
+            } else {
+                Reply::empty(404)
+            });
         }
         match (head.method, head.path) {
             ("GET", path)
@@ -62,13 +69,16 @@ impl Pages {
                         | "/sdk/pair-offer"
                         | "/sdk/remote-v1.js"
                         | "/sdk/pages.css"
-                ) || path.starts_with("/pair/") =>
+                ) || path.starts_with("/pair/")
+                    || short_page_route(path) =>
             {
                 // Navigation omits Origin; a cross-origin load is refused.
                 if head.origin.is_some_and(|o| o != self.origin) {
                     return Err(page_refusal(path, 403));
                 }
-                if path.starts_with("/pair/") {
+                if path.starts_with("/pair/")
+                    || (short_page_route(path) && short_page_id(path).is_none())
+                {
                     return Err(page_refusal(path, 404));
                 }
                 Ok(0)
@@ -82,10 +92,20 @@ impl Pages {
                 }
                 Ok(MOUNT_BODY_BYTES)
             }
+            (_, path) if short_page_route(path) => Err(page_refusal(path, 404)),
             _ => Err(Reply::empty(404)),
         }
     }
     pub fn handle(&self, request: &Request, mounts: &Mounts) -> Reply {
+        if let Some(id) = short_page_id(&request.path) {
+            // `address` is the origin followed by this run's route prefix.
+            let prefix = &self.address[self.origin.len()..];
+            let mut reply = Reply::empty(302);
+            reply
+                .headers
+                .push(("location".into(), format!("{prefix}/x/colab/p/{id}")));
+            return reply;
+        }
         match request.path.as_str() {
             "/sdk/remote-v1.js" => {
                 // The path names the SDK interface version, not a build, so it
@@ -136,6 +156,17 @@ impl Pages {
         reply
     }
 }
+fn short_page_route(path: &str) -> bool {
+    path == "/p" || path.starts_with("/p/")
+}
+fn short_page_id(path: &str) -> Option<&str> {
+    let id = path.strip_prefix("/p/")?;
+    ((4..=64).contains(&id.len())
+        && id
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-')))
+    .then_some(id)
+}
 fn asset(content_type: &str, body: &str, policy: Option<&str>) -> Reply {
     let mut reply = Reply::empty(200);
     reply.headers = vec![("content-type".into(), content_type.into())];
@@ -150,7 +181,7 @@ fn asset(content_type: &str, body: &str, policy: Option<&str>) -> Reply {
 
 /// Only browser page routes receive HTML. SDK and protocol refusals stay JSON.
 fn page_refusal(path: &str, status: u16) -> Reply {
-    if path != "/" && path != "/pair" && !path.starts_with("/pair/") {
+    if path != "/" && path != "/pair" && !path.starts_with("/pair/") && !short_page_route(path) {
         return Reply::empty(status);
     }
     let mut reply = asset("text/html; charset=utf-8", ERROR, Some(PAGE_POLICY));
