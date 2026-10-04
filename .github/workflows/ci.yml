@@ -168,6 +168,8 @@ jobs:
           pnpm --filter @tmt/colab-app --fail-if-no-match check
           pnpm --filter @tmt/colab-app --fail-if-no-match test
           pnpm --filter @tmt/colab-app --fail-if-no-match build
+          # The archive proof's app inventory, run on the real build so it cannot first fail at release.
+          node scripts/verify-colab-app-entries.mjs ../extensions/tmt-colab/typescript/app/dist
 
   native-notices:
     name: Native dependency notices

@@ -1,0 +1,9 @@
+# The top-level files of the Colab browser app, declared once. The native server's inventory
+# (src/app_inventory.rs) and the packaging proof (typescript/scripts/colab-runtime-proof.mjs)
+# both read this file; flat generated files live under assets/ and are not listed.
+# `html` entries are required, served as HTML and may reference only listed assets.
+# `text` entries are optional, plain-text files.
+html index.html
+html renderer.html
+html reader.html
+text THIRD-PARTY-NOTICES.txt

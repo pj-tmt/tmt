@@ -171,6 +171,12 @@ sh -n scripts/build-native-artifact.sh && sh -n scripts/native-cargo.sh
 actionlint .github/workflows/native-release.yml .github/workflows/native-release-bundle.yml .github/workflows/native-release-smoke.yml .github/workflows/native-release-upgrade.yml
 ```
 
+The app's top-level files are declared once in
+`extensions/tmt-colab/rust/tmt-colab/app-entries.txt`: the native inventory compiles it in and
+the archive proof (`colab-runtime-proof.mjs`) reads it. Adding a top-level file means editing that
+file; the Colab app CI job runs `node typescript/scripts/verify-colab-app-entries.mjs` on the real
+build so a mismatch fails the pull request, not the release.
+
 The fixture binary comes from `rust/target/debug/examples/colab-runtime-fixture` or an
 absolute `TMT_TEST_COLAB_FIXTURE`; tests select defects by `--fixture-variant` and
 never compile during execution. Only the Colab verifier loads its app proof;
