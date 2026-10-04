@@ -10,7 +10,6 @@
       "── leads · latest from each · t hides replies ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
       "┌──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐",
       "│   lead-a                     a                                                                                                                             – │",
-      "│  –                                                                                                                                                           │",
       "└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘",
       "→ all leads  A to write · @ to pick",
       "",
@@ -26,9 +25,10 @@
       "",
       "",
       "",
+      "",
       "↑↓ move  ⏎ open  a answer · note  A ask lead  e expand  t replies  / search  ←→ tabs  s switch  ? more  q quit"
     ],
-    "hits": "[Hit { y: 6, x: 1, width: 158, row: 0 }, Hit { y: 7, x: 1, width: 158, row: 0 }, Hit { y: 9, x: 0, width: 160, row: 1 }, Hit { y: 12, x: 0, width: 160, row: 2 }]"
+    "hits": "[Hit { y: 6, x: 1, width: 158, row: 0 }, Hit { y: 8, x: 0, width: 160, row: 1 }, Hit { y: 11, x: 0, width: 160, row: 2 }]"
   },
   {
     "scenario": "quiet",
@@ -41,7 +41,6 @@
       "── leads · latest from each · t hides replies ──────────────────────────────────────────────────────",
       "┌──────────────────────────────────────────────────────────────────────────────────────────────────┐",
       "│   lead-a                     a                                                                 – │",
-      "│  –                                                                                               │",
       "└──────────────────────────────────────────────────────────────────────────────────────────────────┘",
       "→ all leads  A to write · @ to pick",
       "",
@@ -57,9 +56,10 @@
       "",
       "",
       "",
+      "",
       "↑↓ move  ⏎ open  a answer · note  A ask lead  e expand  t replies  / search  ←→ tabs  ? more  q quit"
     ],
-    "hits": "[Hit { y: 6, x: 1, width: 98, row: 0 }, Hit { y: 7, x: 1, width: 98, row: 0 }, Hit { y: 9, x: 0, width: 100, row: 1 }, Hit { y: 12, x: 0, width: 100, row: 2 }]"
+    "hits": "[Hit { y: 6, x: 1, width: 98, row: 0 }, Hit { y: 8, x: 0, width: 100, row: 1 }, Hit { y: 11, x: 0, width: 100, row: 2 }]"
   },
   {
     "scenario": "quiet",
@@ -72,7 +72,6 @@
       "── leads · latest from each · t hides replies ──────────────────────────────────",
       "┌──────────────────────────────────────────────────────────────────────────────┐",
       "│   lead-a                                                                   – │",
-      "│  –                                                                           │",
       "└──────────────────────────────────────────────────────────────────────────────┘",
       "→ all leads  A to write · @ to pick",
       "",
@@ -88,9 +87,10 @@
       "",
       "",
       "",
+      "",
       "↑↓ move  ⏎ open  a answer · note  A ask  e expand  t replies  ? more  q quit"
     ],
-    "hits": "[Hit { y: 6, x: 1, width: 78, row: 0 }, Hit { y: 7, x: 1, width: 78, row: 0 }, Hit { y: 9, x: 0, width: 80, row: 1 }, Hit { y: 12, x: 0, width: 80, row: 2 }]"
+    "hits": "[Hit { y: 6, x: 1, width: 78, row: 0 }, Hit { y: 8, x: 0, width: 80, row: 1 }, Hit { y: 11, x: 0, width: 80, row: 2 }]"
   },
   {
     "scenario": "waiting",
@@ -108,7 +108,6 @@
       "── leads · latest from each · t hides replies ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
       "┌──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐",
       "│   lead-a                     a                                                                                                                             – │",
-      "│  –                                                                                                                                                           │",
       "└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘",
       "→ all leads  A to write · @ to pick",
       "",
@@ -119,9 +118,10 @@
       "",
       "",
       "",
+      "",
       "↑↓ move  ⏎ open  a answer · note  A ask lead  e expand  t replies  / search  ←→ tabs  s switch  ? more  q quit"
     ],
-    "hits": "[Hit { y: 4, x: 0, width: 160, row: 0 }, Hit { y: 7, x: 0, width: 160, row: 1 }, Hit { y: 11, x: 1, width: 158, row: 2 }, Hit { y: 12, x: 1, width: 158, row: 2 }, Hit { y: 14, x: 0, width: 160, row: 3 }, Hit { y: 17, x: 0, width: 160, row: 4 }]"
+    "hits": "[Hit { y: 4, x: 0, width: 160, row: 0 }, Hit { y: 7, x: 0, width: 160, row: 1 }, Hit { y: 11, x: 1, width: 158, row: 2 }, Hit { y: 13, x: 0, width: 160, row: 3 }, Hit { y: 16, x: 0, width: 160, row: 4 }]"
   },
   {
     "scenario": "waiting",
@@ -139,7 +139,6 @@
       "── leads · latest from each · t hides replies ──────────────────────────────────────────────────────",
       "┌──────────────────────────────────────────────────────────────────────────────────────────────────┐",
       "│   lead-a                     a                                                                 – │",
-      "│  –                                                                                               │",
       "└──────────────────────────────────────────────────────────────────────────────────────────────────┘",
       "→ all leads  A to write · @ to pick",
       "",
@@ -150,9 +149,10 @@
       "",
       "",
       "",
+      "",
       "↑↓ move  ⏎ open  a answer · note  A ask lead  e expand  t replies  / search  ←→ tabs  ? more  q quit"
     ],
-    "hits": "[Hit { y: 4, x: 0, width: 100, row: 0 }, Hit { y: 7, x: 0, width: 100, row: 1 }, Hit { y: 11, x: 1, width: 98, row: 2 }, Hit { y: 12, x: 1, width: 98, row: 2 }, Hit { y: 14, x: 0, width: 100, row: 3 }, Hit { y: 17, x: 0, width: 100, row: 4 }]"
+    "hits": "[Hit { y: 4, x: 0, width: 100, row: 0 }, Hit { y: 7, x: 0, width: 100, row: 1 }, Hit { y: 11, x: 1, width: 98, row: 2 }, Hit { y: 13, x: 0, width: 100, row: 3 }, Hit { y: 16, x: 0, width: 100, row: 4 }]"
   },
   {
     "scenario": "waiting",
@@ -170,7 +170,6 @@
       "── leads · latest from each · t hides replies ──────────────────────────────────",
       "┌──────────────────────────────────────────────────────────────────────────────┐",
       "│   lead-a                                                                   – │",
-      "│  –                                                                           │",
       "└──────────────────────────────────────────────────────────────────────────────┘",
       "→ all leads  A to write · @ to pick",
       "",
@@ -181,9 +180,10 @@
       "",
       "",
       "",
+      "",
       "↑↓ move  ⏎ open  a answer · note  A ask  e expand  t replies  ? more  q quit"
     ],
-    "hits": "[Hit { y: 4, x: 0, width: 80, row: 0 }, Hit { y: 7, x: 0, width: 80, row: 1 }, Hit { y: 11, x: 1, width: 78, row: 2 }, Hit { y: 12, x: 1, width: 78, row: 2 }, Hit { y: 14, x: 0, width: 80, row: 3 }, Hit { y: 17, x: 0, width: 80, row: 4 }]"
+    "hits": "[Hit { y: 4, x: 0, width: 80, row: 0 }, Hit { y: 7, x: 0, width: 80, row: 1 }, Hit { y: 11, x: 1, width: 78, row: 2 }, Hit { y: 13, x: 0, width: 80, row: 3 }, Hit { y: 16, x: 0, width: 80, row: 4 }]"
   },
   {
     "scenario": "blocked",
@@ -199,7 +199,6 @@
       "── leads · latest from each · t hides replies ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
       "┌──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐",
       "│   lead-a                     a                                                                                                                             – │",
-      "│  –                                                                                                                                                           │",
       "└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘",
       "→ all leads  A to write · @ to pick",
       "",
@@ -212,9 +211,10 @@
       "",
       "",
       "",
+      "",
       "↑↓ move  ⏎ open  a answer · note  A ask lead  e expand  t replies  / search  ←→ tabs  s switch  ? more  q quit"
     ],
-    "hits": "[Hit { y: 5, x: 0, width: 160, row: 0 }, Hit { y: 9, x: 1, width: 158, row: 1 }, Hit { y: 10, x: 1, width: 158, row: 1 }, Hit { y: 12, x: 0, width: 160, row: 2 }, Hit { y: 15, x: 0, width: 160, row: 3 }]"
+    "hits": "[Hit { y: 5, x: 0, width: 160, row: 0 }, Hit { y: 9, x: 1, width: 158, row: 1 }, Hit { y: 11, x: 0, width: 160, row: 2 }, Hit { y: 14, x: 0, width: 160, row: 3 }]"
   },
   {
     "scenario": "blocked",
@@ -230,7 +230,6 @@
       "── leads · latest from each · t hides replies ──────────────────────────────────────────────────────",
       "┌──────────────────────────────────────────────────────────────────────────────────────────────────┐",
       "│   lead-a                     a                                                                 – │",
-      "│  –                                                                                               │",
       "└──────────────────────────────────────────────────────────────────────────────────────────────────┘",
       "→ all leads  A to write · @ to pick",
       "",
@@ -243,9 +242,10 @@
       "",
       "",
       "",
+      "",
       "↑↓ move  ⏎ open  a answer · note  A ask lead  e expand  t replies  / search  ←→ tabs  ? more  q quit"
     ],
-    "hits": "[Hit { y: 5, x: 0, width: 100, row: 0 }, Hit { y: 9, x: 1, width: 98, row: 1 }, Hit { y: 10, x: 1, width: 98, row: 1 }, Hit { y: 12, x: 0, width: 100, row: 2 }, Hit { y: 15, x: 0, width: 100, row: 3 }]"
+    "hits": "[Hit { y: 5, x: 0, width: 100, row: 0 }, Hit { y: 9, x: 1, width: 98, row: 1 }, Hit { y: 11, x: 0, width: 100, row: 2 }, Hit { y: 14, x: 0, width: 100, row: 3 }]"
   },
   {
     "scenario": "blocked",
@@ -261,7 +261,6 @@
       "── leads · latest from each · t hides replies ──────────────────────────────────",
       "┌──────────────────────────────────────────────────────────────────────────────┐",
       "│   lead-a                                                                   – │",
-      "│  –                                                                           │",
       "└──────────────────────────────────────────────────────────────────────────────┘",
       "→ all leads  A to write · @ to pick",
       "",
@@ -274,101 +273,102 @@
       "",
       "",
       "",
+      "",
       "↑↓ move  ⏎ open  a answer · note  A ask  e expand  t replies  ? more  q quit"
     ],
-    "hits": "[Hit { y: 5, x: 0, width: 80, row: 0 }, Hit { y: 9, x: 1, width: 78, row: 1 }, Hit { y: 10, x: 1, width: 78, row: 1 }, Hit { y: 12, x: 0, width: 80, row: 2 }, Hit { y: 15, x: 0, width: 80, row: 3 }]"
+    "hits": "[Hit { y: 5, x: 0, width: 80, row: 0 }, Hit { y: 9, x: 1, width: 78, row: 1 }, Hit { y: 11, x: 0, width: 80, row: 2 }, Hit { y: 14, x: 0, width: 80, row: 3 }]"
   },
   {
     "scenario": "many-squads",
     "width": 160,
     "lines": [
       "14 squads · 14 members   ◆ 0 waiting on you  ✗ 0 blocked  ◐ 0 review  ● 14 working  ○ 0 idle",
-      "│  –                                                                                                                                                           │",
-      "│                                                                                                                                                              │",
+      "── leads · latest from each · t hides replies ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
+      "┌──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐",
+      "│   lead-0                     squad-00                                                                                                                      – │",
+      "│   lead-1                     squad-01                                                                                                                      – │",
+      "│   lead-10                    squad-10                                                                                                                      – │",
+      "│   lead-11                    squad-11                                                                                                                      – │",
+      "│   lead-12                    squad-12                                                                                                                      – │",
+      "│   lead-13                    squad-13                                                                                                                      – │",
+      "│   lead-2                     squad-02                                                                                                                      – │",
+      "│   lead-3                     squad-03                                                                                                                      – │",
+      "│   lead-4                     squad-04                                                                                                                      – │",
       "│   lead-5                     squad-05                                                                                                                      – │",
-      "│  –                                                                                                                                                           │",
-      "│                                                                                                                                                              │",
       "│   lead-6                     squad-06                                                                                                                      – │",
-      "│  –                                                                                                                                                           │",
-      "│                                                                                                                                                              │",
       "│   lead-7                     squad-07                                                                                                                      – │",
-      "│  –                                                                                                                                                           │",
-      "│                                                                                                                                                              │",
       "│   lead-8                     squad-08                                                                                                                      – │",
-      "│  –                                                                                                                                                           │",
-      "│                                                                                                                                                              │",
       "│   lead-9                     squad-09                                                                                                                      – │",
-      "│  –                                                                                                                                                           │",
       "└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘",
       "→ all leads  A to write · @ to pick",
       "",
       "── squads · 14 ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
       "   squad-00 lead-0   0 members",
-      "                                                                                                                                                 ↑ 30  13 more ↓",
+      "                                                                                                                                                  ↑ 3  13 more ↓",
       "↑↓ move  ⏎ open  a answer · note  A ask lead  e expand  t replies  / search  ←→ tabs  s switch  ? more  q quit"
     ],
-    "hits": "[Hit { y: 1, x: 1, width: 158, row: 8 }, Hit { y: 3, x: 1, width: 158, row: 9 }, Hit { y: 4, x: 1, width: 158, row: 9 }, Hit { y: 6, x: 1, width: 158, row: 10 }, Hit { y: 7, x: 1, width: 158, row: 10 }, Hit { y: 9, x: 1, width: 158, row: 11 }, Hit { y: 10, x: 1, width: 158, row: 11 }, Hit { y: 12, x: 1, width: 158, row: 12 }, Hit { y: 13, x: 1, width: 158, row: 12 }, Hit { y: 15, x: 1, width: 158, row: 13 }, Hit { y: 16, x: 1, width: 158, row: 13 }, Hit { y: 18, x: 0, width: 160, row: 14 }, Hit { y: 21, x: 0, width: 160, row: 15 }]"
+    "hits": "[Hit { y: 3, x: 1, width: 158, row: 0 }, Hit { y: 4, x: 1, width: 158, row: 1 }, Hit { y: 5, x: 1, width: 158, row: 2 }, Hit { y: 6, x: 1, width: 158, row: 3 }, Hit { y: 7, x: 1, width: 158, row: 4 }, Hit { y: 8, x: 1, width: 158, row: 5 }, Hit { y: 9, x: 1, width: 158, row: 6 }, Hit { y: 10, x: 1, width: 158, row: 7 }, Hit { y: 11, x: 1, width: 158, row: 8 }, Hit { y: 12, x: 1, width: 158, row: 9 }, Hit { y: 13, x: 1, width: 158, row: 10 }, Hit { y: 14, x: 1, width: 158, row: 11 }, Hit { y: 15, x: 1, width: 158, row: 12 }, Hit { y: 16, x: 1, width: 158, row: 13 }, Hit { y: 18, x: 0, width: 160, row: 14 }, Hit { y: 21, x: 0, width: 160, row: 15 }]"
   },
   {
     "scenario": "many-squads",
     "width": 100,
     "lines": [
       "14 squads  ◆ 0  ✗ 0  ◐ 0  ● 14  ○ 0",
-      "│  –                                                                                               │",
-      "│                                                                                                  │",
+      "── leads · latest from each · t hides replies ──────────────────────────────────────────────────────",
+      "┌──────────────────────────────────────────────────────────────────────────────────────────────────┐",
+      "│   lead-0                     squad-00                                                          – │",
+      "│   lead-1                     squad-01                                                          – │",
+      "│   lead-10                    squad-10                                                          – │",
+      "│   lead-11                    squad-11                                                          – │",
+      "│   lead-12                    squad-12                                                          – │",
+      "│   lead-13                    squad-13                                                          – │",
+      "│   lead-2                     squad-02                                                          – │",
+      "│   lead-3                     squad-03                                                          – │",
+      "│   lead-4                     squad-04                                                          – │",
       "│   lead-5                     squad-05                                                          – │",
-      "│  –                                                                                               │",
-      "│                                                                                                  │",
       "│   lead-6                     squad-06                                                          – │",
-      "│  –                                                                                               │",
-      "│                                                                                                  │",
       "│   lead-7                     squad-07                                                          – │",
-      "│  –                                                                                               │",
-      "│                                                                                                  │",
       "│   lead-8                     squad-08                                                          – │",
-      "│  –                                                                                               │",
-      "│                                                                                                  │",
       "│   lead-9                     squad-09                                                          – │",
-      "│  –                                                                                               │",
       "└──────────────────────────────────────────────────────────────────────────────────────────────────┘",
       "→ all leads  A to write · @ to pick",
       "",
       "── squads · 14 ─────────────────────────────────────────────────────────────────────────────────────",
       "   squad-00 lead-0   0 members",
-      "                                                                                     ↑ 30  13 more ↓",
+      "                                                                                      ↑ 3  13 more ↓",
       "↑↓ move  ⏎ open  a answer · note  A ask lead  e expand  t replies  / search  ←→ tabs  ? more  q quit"
     ],
-    "hits": "[Hit { y: 1, x: 1, width: 98, row: 8 }, Hit { y: 3, x: 1, width: 98, row: 9 }, Hit { y: 4, x: 1, width: 98, row: 9 }, Hit { y: 6, x: 1, width: 98, row: 10 }, Hit { y: 7, x: 1, width: 98, row: 10 }, Hit { y: 9, x: 1, width: 98, row: 11 }, Hit { y: 10, x: 1, width: 98, row: 11 }, Hit { y: 12, x: 1, width: 98, row: 12 }, Hit { y: 13, x: 1, width: 98, row: 12 }, Hit { y: 15, x: 1, width: 98, row: 13 }, Hit { y: 16, x: 1, width: 98, row: 13 }, Hit { y: 18, x: 0, width: 100, row: 14 }, Hit { y: 21, x: 0, width: 100, row: 15 }]"
+    "hits": "[Hit { y: 3, x: 1, width: 98, row: 0 }, Hit { y: 4, x: 1, width: 98, row: 1 }, Hit { y: 5, x: 1, width: 98, row: 2 }, Hit { y: 6, x: 1, width: 98, row: 3 }, Hit { y: 7, x: 1, width: 98, row: 4 }, Hit { y: 8, x: 1, width: 98, row: 5 }, Hit { y: 9, x: 1, width: 98, row: 6 }, Hit { y: 10, x: 1, width: 98, row: 7 }, Hit { y: 11, x: 1, width: 98, row: 8 }, Hit { y: 12, x: 1, width: 98, row: 9 }, Hit { y: 13, x: 1, width: 98, row: 10 }, Hit { y: 14, x: 1, width: 98, row: 11 }, Hit { y: 15, x: 1, width: 98, row: 12 }, Hit { y: 16, x: 1, width: 98, row: 13 }, Hit { y: 18, x: 0, width: 100, row: 14 }, Hit { y: 21, x: 0, width: 100, row: 15 }]"
   },
   {
     "scenario": "many-squads",
     "width": 80,
     "lines": [
       "14 squads  ◆ 0  ✗ 0  ◐ 0  ● 14  ○ 0",
-      "│  –                                                                           │",
-      "│                                                                              │",
+      "── leads · latest from each · t hides replies ──────────────────────────────────",
+      "┌──────────────────────────────────────────────────────────────────────────────┐",
+      "│   lead-0                                                                   – │",
+      "│   lead-1                                                                   – │",
+      "│   lead-10                                                                  – │",
+      "│   lead-11                                                                  – │",
+      "│   lead-12                                                                  – │",
+      "│   lead-13                                                                  – │",
+      "│   lead-2                                                                   – │",
+      "│   lead-3                                                                   – │",
+      "│   lead-4                                                                   – │",
       "│   lead-5                                                                   – │",
-      "│  –                                                                           │",
-      "│                                                                              │",
       "│   lead-6                                                                   – │",
-      "│  –                                                                           │",
-      "│                                                                              │",
       "│   lead-7                                                                   – │",
-      "│  –                                                                           │",
-      "│                                                                              │",
       "│   lead-8                                                                   – │",
-      "│  –                                                                           │",
-      "│                                                                              │",
       "│   lead-9                                                                   – │",
-      "│  –                                                                           │",
       "└──────────────────────────────────────────────────────────────────────────────┘",
       "→ all leads  A to write · @ to pick",
       "",
       "── squads · 14 ─────────────────────────────────────────────────────────────────",
       "   squad-00 lead-0   0 members",
-      "                                                                 ↑ 30  13 more ↓",
+      "                                                                  ↑ 3  13 more ↓",
       "↑↓ move  ⏎ open  a answer · note  A ask  e expand  t replies  ? more  q quit"
     ],
-    "hits": "[Hit { y: 1, x: 1, width: 78, row: 8 }, Hit { y: 3, x: 1, width: 78, row: 9 }, Hit { y: 4, x: 1, width: 78, row: 9 }, Hit { y: 6, x: 1, width: 78, row: 10 }, Hit { y: 7, x: 1, width: 78, row: 10 }, Hit { y: 9, x: 1, width: 78, row: 11 }, Hit { y: 10, x: 1, width: 78, row: 11 }, Hit { y: 12, x: 1, width: 78, row: 12 }, Hit { y: 13, x: 1, width: 78, row: 12 }, Hit { y: 15, x: 1, width: 78, row: 13 }, Hit { y: 16, x: 1, width: 78, row: 13 }, Hit { y: 18, x: 0, width: 80, row: 14 }, Hit { y: 21, x: 0, width: 80, row: 15 }]"
+    "hits": "[Hit { y: 3, x: 1, width: 78, row: 0 }, Hit { y: 4, x: 1, width: 78, row: 1 }, Hit { y: 5, x: 1, width: 78, row: 2 }, Hit { y: 6, x: 1, width: 78, row: 3 }, Hit { y: 7, x: 1, width: 78, row: 4 }, Hit { y: 8, x: 1, width: 78, row: 5 }, Hit { y: 9, x: 1, width: 78, row: 6 }, Hit { y: 10, x: 1, width: 78, row: 7 }, Hit { y: 11, x: 1, width: 78, row: 8 }, Hit { y: 12, x: 1, width: 78, row: 9 }, Hit { y: 13, x: 1, width: 78, row: 10 }, Hit { y: 14, x: 1, width: 78, row: 11 }, Hit { y: 15, x: 1, width: 78, row: 12 }, Hit { y: 16, x: 1, width: 78, row: 13 }, Hit { y: 18, x: 0, width: 80, row: 14 }, Hit { y: 21, x: 0, width: 80, row: 15 }]"
   }
 ]
