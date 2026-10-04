@@ -5,7 +5,7 @@ import { createServer, request, type Server } from 'node:http';
 import { type AddressInfo } from 'node:net';
 import { createInterface } from 'node:readline';
 import { fileURLToPath } from 'node:url';
-import { expect, test } from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
 import { writeExecutable } from '../../../../../typescript/test/support/executable-fixture.mjs';
 
 const checkout = fileURLToPath(new URL('../dist/', import.meta.url));
@@ -140,6 +140,19 @@ console.log(JSON.stringify({dataRoot: ${JSON.stringify(root)}}));`,
   }
 }
 
+async function captureDesign(page: Page, name: string) {
+  const directory = process.env.COLAB_DESIGN_CAPTURE_DIR;
+  if (!directory) return;
+  await mkdir(directory, { recursive: true });
+  for (const theme of ['light', 'dark'] as const) {
+    await page.emulateMedia({ colorScheme: theme });
+    for (const width of [1440, 390]) {
+      await page.setViewportSize({ width, height: 900 });
+      await page.screenshot({ path: `${directory}/${name}-${theme}-${width}.png`, fullPage: true });
+    }
+  }
+}
+
 for (let run = 1; run <= 2; run++) {
   test(`built app through the real socket: nested mount, CSP, bytes and cleanup (${run})`, async ({
     page,
@@ -232,7 +245,11 @@ for (let run = 1; run <= 2; run++) {
         await readFile(app + '/assets/recovery.js'),
       );
       const privatePage = await fetch(server.origin + mount);
-      expect(await privatePage.text()).toContain('This colab space is private');
+      const privateHtml = await privatePage.text();
+      expect(privateHtml).toContain('This colab space is private');
+      expect(privateHtml).toContain('<link rel="stylesheet" href="./assets/reader.css">');
+      expect(privateHtml).toContain('<main class="guidance-main">');
+      expect(privatePage.headers.get('content-security-policy')).toContain("style-src 'self'");
 
       // The compiled public entry really executes under native private-guidance
       // CSP. This door has no SDK/key: failure reveals guidance, and reload
@@ -240,6 +257,13 @@ for (let run = 1; run <= 2; run++) {
       await context.clearCookies();
       await page.goto(server.origin + mount);
       await expect(page.locator('#colab-guidance')).toBeVisible();
+      expect(
+        await page
+          .locator('.guidance-card')
+          .evaluate((element) => getComputedStyle(element).boxShadow),
+      ).not.toBe('none');
+      expect(requests).toContain(server.origin + mount + 'assets/reader.css');
+      if (run === 1) await captureDesign(page, 'guidance');
       const recoverySdkRequests = requests.filter(
         (url) => new URL(url).pathname === '/sdk/remote-v1.js',
       ).length;
@@ -369,6 +393,7 @@ test('public reader entry: exact static bytes, link fragment removed, and no acc
     // A malformed link explains itself, and its fragment leaves the address bar first.
     await page.goto(server.origin + mount + 'read#v=1&seed=not-a-seed');
     await expect(page.getByRole('alert')).toContainText('incomplete or malformed');
+    await expect(page.getByRole('alert').locator('.notice-mark')).toHaveText('✗');
     expect(await page.evaluate(() => location.hash)).toBe('');
     // A well-formed link for a space this server does not hold has no grant: access ended.
     const seed = Buffer.alloc(32, 7).toString('base64url');
@@ -385,6 +410,8 @@ test('public reader entry: exact static bytes, link fragment removed, and no acc
     await page.goto('about:blank'); // A hash-only change would not reload the entry.
     await page.goto(server.origin + mount + 'read#' + link);
     await expect(page.getByRole('heading', { name: 'Access ended' })).toBeVisible();
+    await expect(page.getByRole('alert').locator('.notice-mark')).toHaveText('✗');
+    await captureDesign(page, 'reader-access-ended');
     expect(await page.evaluate(() => location.hash)).toBe('');
     // The seed is in no request, and the reader stored nothing in the browser.
     expect(requests.filter((r) => r.url.includes(seed) || (r.body ?? '').includes(seed))).toEqual(

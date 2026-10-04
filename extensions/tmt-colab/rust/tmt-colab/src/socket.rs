@@ -603,15 +603,34 @@ fn serve(
             .app
             .as_ref()
             .is_some_and(|app| app.find("/assets/recovery.js").is_some());
-    let page = if recovery {
-        format!(
-            "<!doctype html><html lang=\"en\"><meta charset=\"utf-8\"><title>TMT Colab</title><h1>TMT Colab</h1><p id=\"colab-recovery-status\">Opening your paired browser…</p><p id=\"colab-guidance\" hidden>{text}</p><script type=\"module\" src=\"./assets/recovery.js\"></script></html>"
-        )
+    let stylesheet = if browser
+        .app
+        .as_ref()
+        .is_some_and(|app| app.find("/assets/reader.css").is_some())
+    {
+        "<link rel=\"stylesheet\" href=\"./assets/reader.css\">"
     } else {
-        format!(
-            "<!doctype html><html lang=\"en\"><meta charset=\"utf-8\"><title>TMT Colab</title><h1>TMT Colab</h1><p>{text}</p></html>"
-        )
+        ""
     };
+    let eyebrow = if request.owner.is_some() {
+        "Signed-in space"
+    } else {
+        "Private space"
+    };
+    let recovery_status = if recovery {
+        "<p id=\"colab-recovery-status\" class=\"guidance-status\" role=\"status\"><span aria-hidden=\"true\">○</span> Opening your paired browser…</p>"
+    } else {
+        ""
+    };
+    let hidden = if recovery { " hidden" } else { "" };
+    let script = if recovery {
+        "<script type=\"module\" src=\"./assets/recovery.js\"></script>"
+    } else {
+        ""
+    };
+    let page = format!(
+        "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"><title>TMT Colab</title>{stylesheet}</head><body class=\"guidance\"><header class=\"guidance-masthead\"><span class=\"guidance-brand\">TMT Colab <span>tmt</span></span></header><main class=\"guidance-main\"><section class=\"guidance-card\"><p class=\"guidance-eyebrow\">{eyebrow}</p><h1>TMT Colab</h1>{recovery_status}<p id=\"colab-guidance\" class=\"guidance-status\"{hidden}><span aria-hidden=\"true\">○</span> {text}</p></section></main>{script}</body></html>"
+    );
     if recovery {
         let _ = response_with_policy(
             &mut socket,

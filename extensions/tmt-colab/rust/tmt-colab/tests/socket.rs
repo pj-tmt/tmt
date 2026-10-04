@@ -185,6 +185,8 @@ fn pages_follow_the_forwarded_owner_context_within_the_door_bounds() {
     let private = server.request(&Running::get("/", ""));
     assert!(private.starts_with("HTTP/1.1 200"));
     assert!(private.contains("This colab space is private. Open it from a browser paired with tmt remote pair, or use a share link."));
+    assert!(private.contains("<main class=\"guidance-main\">"));
+    assert!(!private.contains("./assets/reader.css"));
     assert!(private.contains("Referrer-Policy: no-referrer"));
     assert!(private.contains("Content-Security-Policy: default-src 'none'"));
     let owner_header = owner(DEVICE);
@@ -1655,7 +1657,12 @@ fn owner_static_assets_have_exact_bytes_types_and_no_filesystem_path_resolution(
     }
     let guidance = server.request(&Running::get("/", ""));
     assert!(guidance.contains("This colab space is private"));
-    assert!(guidance.contains("id=\"colab-guidance\" hidden"));
+    assert!(guidance.contains("<link rel=\"stylesheet\" href=\"./assets/reader.css\">"));
+    assert!(guidance.contains("<main class=\"guidance-main\">"));
+    assert!(
+        guidance.contains("id=\"colab-recovery-status\" class=\"guidance-status\" role=\"status\"")
+    );
+    assert!(guidance.contains("id=\"colab-guidance\" class=\"guidance-status\" hidden"));
     assert!(guidance.contains("<script type=\"module\" src=\"./assets/recovery.js\"></script>"));
     assert!(guidance.contains(&format!("Content-Security-Policy: {POLICY}\r\n")));
     assert!(!guidance.contains("unsafe-inline"));
