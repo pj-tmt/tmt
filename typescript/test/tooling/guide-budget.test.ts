@@ -7,11 +7,15 @@ import { describe, expect, it } from 'vite-plus/test';
 // maps). Raise a budget only with an issue that explains what moved into the guide.
 const BUDGETS = {
   'DEVELOPMENT.md': 600,
-  'ARCHITECTURE.md': 1500,
+  'ARCHITECTURE.md': 1250,
 } as const;
 
 export function lineCount(text: string): number {
   return text.endsWith('\n') ? text.split('\n').length - 1 : text.split('\n').length;
+}
+
+export function withinBudget(text: string, budget: number): boolean {
+  return lineCount(text) <= budget;
 }
 
 describe('shared guide budgets', () => {
@@ -24,14 +28,14 @@ describe('shared guide budgets', () => {
   for (const [guide, budget] of Object.entries(BUDGETS)) {
     it(`keeps ${guide} within its ${budget}-line budget`, () => {
       const text = readFileSync(new URL(`../../../${guide}`, import.meta.url), 'utf8');
-      expect(lineCount(text)).toBeLessThanOrEqual(budget);
+      expect(withinBudget(text, budget)).toBe(true);
     });
   }
 
-  it('fails when a guide grows past its budget', () => {
+  it('rejects a guide one line over its budget and accepts one at it', () => {
     for (const budget of Object.values(BUDGETS)) {
-      const grown = `${'line\n'.repeat(budget)}one more\n`;
-      expect(lineCount(grown)).toBeGreaterThan(budget);
+      expect(withinBudget(`${'line\n'.repeat(budget)}`, budget)).toBe(true);
+      expect(withinBudget(`${'line\n'.repeat(budget + 1)}`, budget)).toBe(false);
     }
   });
 });
