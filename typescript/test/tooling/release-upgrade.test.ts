@@ -17,6 +17,7 @@ import {
   failureCause,
   fetchUpgrade,
   ghAssetDownloader,
+  localCandidate,
   proveStaged,
   proveArchiveAcceptance,
   releaseCommit,
@@ -317,6 +318,166 @@ describe('fetchUpgrade and proveStaged', () => {
       readFileSync(path.join(directory, TARGET, 'previous', `tmt-cli-${TARGET}.tar.gz`), 'utf8')
     ).toBe(`v5.0.0-alpha.8:tmt-cli-${TARGET}.tar.gz`);
     expect(JSON.parse(readFileSync(path.join(directory, 'plan.json'), 'utf8'))).toEqual(plan);
+  });
+
+  describe('a rehearsal candidate staged from the verified local bundle', () => {
+    const SYNTHETIC = 'v5.0.0-alpha.999999';
+    /** A bundle directory as the prepare run's assemble job uploads it. */
+    function bundle(
+      product: string,
+      tag: string,
+      { announce = tag, install = false }: { announce?: string; install?: boolean } = {}
+    ) {
+      const directory = mkdtempSync(path.join(root, 'bundle-'));
+      writeFileSync(
+        path.join(directory, 'dist-manifest.json'),
+        JSON.stringify({ announcement_tag: announce })
+      );
+      for (const target of TARGETS) {
+        const name = `${prefixOf(product)}-${target}.tar.gz`;
+        const text = `${tag}:${name}`;
+        writeFileSync(path.join(directory, name), text);
+        writeFileSync(
+          path.join(directory, `${name}.sha256`),
+          `${digestOf(text).slice('sha256:'.length)} *${name}\n`
+        );
+      }
+      if (install) writeFileSync(path.join(directory, 'install.sh'), 'bootstrap');
+      return directory;
+    }
+    const stageLocal = (
+      product: string,
+      tag: string,
+      input: { directory?: string; releases?: DraftRelease[] } = {}
+    ) => {
+      const directory = mkdtempSync(path.join(root, 'local-'));
+      const downloads: string[] = [];
+      const plan = fetchUpgrade({
+        releases: input.releases ?? releases,
+        download: (asset, file) => {
+          downloads.push(asset.name);
+          download(asset, file);
+        },
+        product,
+        tag,
+        directory,
+        local: localCandidate({
+          directory: input.directory ?? bundle(product, tag),
+          product,
+          tag,
+        }),
+      });
+      return { plan, directory, downloads };
+    };
+
+    it('stages the local candidate beside the published previous release in the draft plan shape', () => {
+      const published = [
+        release('v5.0.0-alpha.36', { targets: TARGETS }),
+        release('v5.0.0-alpha.45', { targets: TARGETS }),
+      ];
+      const { plan, directory, downloads } = stageLocal('cli', SYNTHETIC, {
+        releases: published,
+        directory: bundle('cli', SYNTHETIC, { install: true }),
+      });
+      expect(plan.previous).toBe('v5.0.0-alpha.45');
+      // Only published releases are downloaded; the candidate is copied from the bundle.
+      expect(downloads).toHaveLength(4 * TARGETS.length);
+      expect(new Set(downloads)).toEqual(
+        new Set(['dist-manifest.json', ...TARGETS.map((target) => `tmt-cli-${target}.tar.gz`)])
+      );
+      // The same file set a draft candidate stages: candidate, previous, declared floor and bootstrap.
+      expect(Object.keys(plan.files).sort()).toEqual(
+        TARGETS.flatMap((target) => [
+          ...['candidate', 'previous', 'floor'].flatMap((kind) => [
+            `${target}/${kind}/dist-manifest.json`,
+            `${target}/${kind}/tmt-cli-${target}.tar.gz`,
+          ]),
+          `${target}/candidate/install.sh`,
+        ]).sort()
+      );
+      expect(plan.files[`${TARGET}/candidate/tmt-cli-${TARGET}.tar.gz`]).toBe(
+        digestOf(`${SYNTHETIC}:tmt-cli-${TARGET}.tar.gz`)
+      );
+      expect(
+        readFileSync(path.join(directory, TARGET, 'candidate', `tmt-cli-${TARGET}.tar.gz`), 'utf8')
+      ).toBe(`${SYNTHETIC}:tmt-cli-${TARGET}.tar.gz`);
+      // The proof consumes it exactly like a fetched draft.
+      const { result, calls } = prove(directory, {
+        product: 'cli',
+        tag: SYNTHETIC,
+        skill: 'SKILL.md',
+      });
+      expect(result.previous).toBe('v5.0.0-alpha.45');
+      expect(value(calls[0].args, '--archive')).toBe(
+        path.join(directory, TARGET, 'candidate', `tmt-cli-${TARGET}.tar.gz`)
+      );
+    });
+
+    it('stages an extension candidate with the newest published CLI as its driver', () => {
+      const { plan } = stageLocal('office', 'tmt-office-v0.1.0-alpha.999999');
+      expect(plan.previous).toBe('tmt-office-v0.1.0-alpha.3');
+      expect(plan.driver).toBe('v5.0.0-alpha.8');
+    });
+
+    it('stages the candidate bootstrap that the declared support floor needs', () => {
+      const entries = [
+        release('v5.0.0-alpha.36', { targets: TARGETS }),
+        release('v5.0.0-alpha.45', { targets: TARGETS }),
+      ];
+      const { plan } = stageLocal('cli', SYNTHETIC, {
+        releases: entries,
+        directory: bundle('cli', SYNTHETIC, { install: true }),
+      });
+      expect(plan.floor).toBe('v5.0.0-alpha.36');
+      expect(plan.files[`${TARGET}/candidate/install.sh`]).toBe(digestOf('bootstrap'));
+    });
+
+    it('reports a first product release as nothing to upgrade from', () => {
+      const { plan, downloads } = stageLocal('squad', 'tmt-squad-v0.1.0-alpha.999999', {
+        releases: [],
+      });
+      expect(plan.previous).toBeNull();
+      expect(downloads).toEqual([]);
+    });
+
+    it('refuses a synthetic candidate that is not newer than the newest published release', () => {
+      const newer = [...releases, release('v5.0.1', { targets: TARGETS })];
+      expect(() => stageLocal('cli', SYNTHETIC, { releases: newer })).toThrow(
+        `The synthetic candidate ${SYNTHETIC} is not newer than the published v5.0.1.`
+      );
+      const same = [...releases, release(SYNTHETIC, { targets: TARGETS })];
+      expect(() => stageLocal('cli', SYNTHETIC, { releases: same })).toThrow('not newer');
+    });
+
+    it('rejects a bundle with a missing manifest, another tag, no archive or a bad digest', () => {
+      const missing = bundle('cli', SYNTHETIC);
+      rmSync(path.join(missing, 'dist-manifest.json'));
+      expect(() => localCandidate({ directory: missing, product: 'cli', tag: SYNTHETIC })).toThrow(
+        'has no dist-manifest.json'
+      );
+      expect(() =>
+        localCandidate({
+          directory: bundle('cli', SYNTHETIC, { announce: 'v5.0.0-alpha.1' }),
+          product: 'cli',
+          tag: SYNTHETIC,
+        })
+      ).toThrow('announces v5.0.0-alpha.1');
+      expect(() =>
+        localCandidate({ directory: bundle('cli', SYNTHETIC), product: 'squad', tag: SYNTHETIC })
+      ).toThrow('has no squad archive');
+      const corrupted = bundle('cli', SYNTHETIC);
+      writeFileSync(path.join(corrupted, `tmt-cli-${TARGET}.tar.gz`), 'tampered');
+      expect(() =>
+        localCandidate({ directory: corrupted, product: 'cli', tag: SYNTHETIC })
+      ).toThrow(
+        `tmt-cli-${TARGET}.tar.gz does not match its recorded tmt-cli-${TARGET}.tar.gz.sha256`
+      );
+      const unrecorded = bundle('cli', SYNTHETIC);
+      rmSync(path.join(unrecorded, `tmt-cli-${TARGET}.tar.gz.sha256`));
+      expect(() =>
+        localCandidate({ directory: unrecorded, product: 'cli', tag: SYNTHETIC })
+      ).toThrow('does not match its recorded');
+    });
   });
 
   it('stages both the declared CLI floor and last published source with the candidate bootstrap', () => {

@@ -72,8 +72,7 @@
       "upgrade": {
         "steps": ["uses:./.github/workflows/native-release-upgrade.yml"],
         "sha256": "b6ca7271302c4756fc0be8568041b3d9b5a1d95c671c334108d2d5cc8219e96f",
-        "releaseOnly": "The called upgrade workflow currently requires a GitHub draft or published candidate tag. Locally staged rehearsal candidate inputs are deferred to #1581 rehearsal.",
-        "followUp": 1581
+        "releaseOnly": "Calls the upgrade workflow for the real draft after the publication gates, whose write-token fetch needs live draft state. Its proof stages run before merge in the rehearsal (native-release-upgrade-prove.yml), including the CLI adapter acceptance."
       },
       "finish": {
         "steps": [
@@ -161,7 +160,7 @@
           "name:Recheck version-only source after this stage",
           "uses:actions/upload-artifact@v4"
         ],
-        "sha256": "1b7a985d2a077634142ab562526fd5cd819e0c21114a352e292e36762bd090c4",
+        "sha256": "2ea7f89b34262a58221fd6250a1b274b49fdbcc2ab35c6d238346fc627b78826",
         "preMerge": [
           {
             "workflow": "ci.yml",
@@ -205,6 +204,47 @@
             "coverage": "runtime"
           }
         ]
+      },
+      "upgrade-fetch": {
+        "steps": [
+          "uses:actions/checkout@v4",
+          "uses:actions/setup-node@v4",
+          "uses:actions/download-artifact@v4",
+          "name:Stage the candidate with the published releases it upgrades from",
+          "id:assess",
+          "name:Hand the assets to the proof"
+        ],
+        "sha256": "803e73d52214737fae5fd2aaa98cdc2b33b1a7723e20468bea07be5675ebb5ca",
+        "preMerge": [
+          {
+            "workflow": "ci.yml",
+            "job": "release-rehearsal",
+            "selection": {
+              "kind": "ci-scope",
+              "output": "release_rehearsal",
+              "value": "true",
+              "source": "typescript/scripts/release-rehearsal.mjs"
+            },
+            "coverage": "runtime"
+          }
+        ]
+      },
+      "upgrade": {
+        "steps": ["uses:./.github/workflows/native-release-upgrade-prove.yml"],
+        "sha256": "1ce6ec4608d87b59cae6619e322b95b706bfd3a506e9a5041fd7f3ea0224e251",
+        "preMerge": [
+          {
+            "workflow": "ci.yml",
+            "job": "release-rehearsal",
+            "selection": {
+              "kind": "ci-scope",
+              "output": "release_rehearsal",
+              "value": "true",
+              "source": "typescript/scripts/release-rehearsal.mjs"
+            },
+            "coverage": "runtime"
+          }
+        ]
       }
     },
     "native-release-upgrade.yml": {
@@ -218,9 +258,27 @@
           "name:Hand the assets to the proof"
         ],
         "sha256": "f4679c63e310b93657d1e41b46acf7d30a36fbfdfe660f0100fd66b2df4dad13",
-        "releaseOnly": "The current fetch path reads an actual draft/published candidate and stages digest-checked previous releases. A read-only local candidate artifact adapter is deferred to #1581 rehearsal.",
-        "followUp": 1581
+        "releaseOnly": "The write-token fetch reads live draft and published release state and the asset digests GitHub recorded, which cannot exist before publication. The rehearsal stages its candidate from the verified local bundle through the same release-upgrade.mjs staging path (the prepare workflow's upgrade-fetch job)."
       },
+      "prove": {
+        "steps": ["uses:./.github/workflows/native-release-upgrade-prove.yml"],
+        "sha256": "0089ff050ffbef90286d45cd9082bbab097b10136c6af8070584b5f4ac590c76",
+        "preMerge": [
+          {
+            "workflow": "ci.yml",
+            "job": "release-rehearsal",
+            "selection": {
+              "kind": "ci-scope",
+              "output": "release_rehearsal",
+              "value": "true",
+              "source": "typescript/scripts/release-rehearsal.mjs"
+            },
+            "coverage": "runtime"
+          }
+        ]
+      }
+    },
+    "native-release-upgrade-prove.yml": {
       "prove": {
         "steps": [
           "uses:actions/checkout@v4",
@@ -239,9 +297,20 @@
           "name:Recheck version-only source after runtime proof and adapter acceptance",
           "name:Keep the log of a failed proof"
         ],
-        "sha256": "edf58fe39c38c8c1f16373022968b155c7d75c4fa01f033621c8def1b5f99e83",
-        "releaseOnly": "Native process fixtures test installer behavior, but no persistent selected PR job runs this four-host actual release-archive/support-floor and CLI adapter proof. This is deferred to #1581 rehearsal.",
-        "followUp": 1581
+        "sha256": "2da118aa2e1e310017232c4e73252b7678c8b147d9d2506e0249fdb9b0820f9d",
+        "preMerge": [
+          {
+            "workflow": "ci.yml",
+            "job": "release-rehearsal",
+            "selection": {
+              "kind": "ci-scope",
+              "output": "release_rehearsal",
+              "value": "true",
+              "source": "typescript/scripts/release-rehearsal.mjs"
+            },
+            "coverage": "runtime"
+          }
+        ]
       },
       "conclude": {
         "steps": [
@@ -251,9 +320,20 @@
           "id:failure",
           "name:Fail a release the proof cannot run for"
         ],
-        "sha256": "f6cb4134ab0d3f4309e5ddb471fd3187d02bfec2e5e7f6493281fd3e7261587b",
-        "releaseOnly": "This job must reflect the actual matching-host upgrade results and reject unavailable proof; a pre-merge equivalent depends on the #1581 rehearsal upgrade path.",
-        "followUp": 1581
+        "sha256": "7bbaa4e2a850f183fd29b7948d3626c10cb526c08c13a64a08402be19ea203ad",
+        "preMerge": [
+          {
+            "workflow": "ci.yml",
+            "job": "release-rehearsal",
+            "selection": {
+              "kind": "ci-scope",
+              "output": "release_rehearsal",
+              "value": "true",
+              "source": "typescript/scripts/release-rehearsal.mjs"
+            },
+            "coverage": "runtime"
+          }
+        ]
       }
     },
     "native-release-smoke.yml": {

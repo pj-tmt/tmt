@@ -130,7 +130,7 @@ describe('release version gate workflow boundaries', () => {
       'native-release-prepare.yml:assemble',
       'native-release-prepare.yml:build',
       'native-release-prepare.yml:verify',
-      'native-release-upgrade.yml:prove',
+      'native-release-upgrade-prove.yml:prove',
       'release-version-injection.yml:injection',
     ]);
     expect(read('.github/actions/setup-tooling/action.yml')).toContain('default: 22.23.2');
@@ -514,6 +514,7 @@ describe('live main release cuts (release.yml)', () => {
 
 describe('release upgrade proof (native-release-upgrade.yml)', () => {
   const upgrade = read('.github/workflows/native-release-upgrade.yml');
+  const proveWf = read('.github/workflows/native-release-upgrade-prove.yml');
   const targets = (workflow: string) =>
     [...workflow.matchAll(/- target: (\S+)\n\s+runner: (\S+)/g)].map(([, target, runner]) => [
       target,
@@ -530,13 +531,13 @@ describe('release upgrade proof (native-release-upgrade.yml)', () => {
     expect(upgrade).toMatch(/type: choice\n {8}options:\n {10}- cli\n {10}- office\n {10}- squad/);
     // The publication run reads the outcome and the reason, whatever the run's own result is.
     expect(upgrade).toMatch(
-      /^ {4}outputs:\n {6}outcome:\n(?: {8}[^\n]*\n)* {8}value: \$\{\{ jobs\.fetch\.outputs\.outcome \}\}\n {6}reason:\n(?: {8}[^\n]*\n)* {8}value: \$\{\{ jobs\.conclude\.outputs\.reason \}\}\n/m
+      /^ {4}outputs:\n {6}outcome:\n(?: {8}[^\n]*\n)* {8}value: \$\{\{ jobs\.fetch\.outputs\.outcome \}\}\n {6}reason:\n(?: {8}[^\n]*\n)* {8}value: \$\{\{ jobs\.prove\.outputs\.reason \}\}\n/m
     );
   });
 
   it('proves on the same four hosts as the bundle verification', () => {
-    expect(targets(upgrade)).toHaveLength(4);
-    expect(targets(upgrade)).toEqual(targets(prepare));
+    expect(targets(proveWf)).toHaveLength(4);
+    expect(targets(proveWf)).toEqual(targets(prepare));
   });
 
   it('only reads releases: write access is for seeing draft assets, and nothing is written', () => {
@@ -544,23 +545,27 @@ describe('release upgrade proof (native-release-upgrade.yml)', () => {
     expect(upgrade.match(/^ {6}contents: write$/gm)).toHaveLength(1);
     expect(job(upgrade, 'fetch')).toMatch(/^ {6}contents: write$/m);
     expect(job(upgrade, 'prove')).toMatch(/^ {4}permissions:\n {6}contents: read\n/m);
-    expect(upgrade).not.toMatch(/actions: write|pull-requests:|id-token:|packages:/);
-    expect(upgrade).not.toMatch(
-      /gh release (create|edit|upload|delete)|draft=false|--method|gh workflow run/
-    );
+    // The proof stages hold no write permission at all.
+    expect(proveWf).toMatch(/^permissions:\n {2}contents: read$/m);
+    expect(proveWf).not.toMatch(/: write$/m);
+    for (const text of [upgrade, proveWf]) {
+      expect(text).not.toMatch(/actions: write|pull-requests:|id-token:|packages:/);
+      expect(text).not.toMatch(
+        /gh release (create|edit|upload|delete)|draft=false|--method|gh workflow run/
+      );
+    }
   });
 
   it("fetches with the write token on main's code and proves the release's code read-only", () => {
     const fetch = job(upgrade, 'fetch');
-    const prove = job(upgrade, 'prove');
+    const prove = job(proveWf, 'prove');
     // The job that holds the write token runs this repository's main, never the release commit.
     expect(fetch).toContain("if: github.ref == 'refs/heads/main'");
     expect(fetch).not.toMatch(/^ {10}ref:/m);
     expect(fetch).toContain('release-upgrade.mjs fetch --product "$PRODUCT" --tag "$RELEASE_TAG"');
     expect(fetch).not.toContain('pnpm');
     // The job that runs the release commit's scripts has no token at all.
-    expect(prove).toContain('needs: fetch');
-    expect(prove).toContain('ref: ${{ needs.fetch.outputs.sha }}');
+    expect(prove).toContain('ref: ${{ inputs.sha }}');
     expect(prove).not.toMatch(/GH_TOKEN|github\.token|secrets\./);
     expect(prove).not.toMatch(/gh api|gh release/);
     // They meet in one run artifact.
@@ -572,8 +577,8 @@ describe('release upgrade proof (native-release-upgrade.yml)', () => {
   });
 
   it('names why a host failed from its log, as data, without a flag the release commit may lack', () => {
-    const prove = job(upgrade, 'prove');
-    const conclude = job(upgrade, 'conclude');
+    const prove = job(proveWf, 'prove');
+    const conclude = job(proveWf, 'conclude');
     // The release commit's own script runs the proof: only the flags every commit has reach it, and
     // the log is kept by the step around it.
     const call =
@@ -592,13 +597,13 @@ describe('release upgrade proof (native-release-upgrade.yml)', () => {
       'release-upgrade.mjs reason --directory "$RUNNER_TEMP/upgrade-logs"'
     );
     expect(conclude).toContain(
-      'reason: ${{ steps.failure.outputs.reason || needs.fetch.outputs.reason }}'
+      'reason: ${{ steps.failure.outputs.reason || inputs.fetch-reason }}'
     );
   });
 
   it('runs the proof from the commit of the release, and says when that commit predates it', () => {
     const fetch = job(upgrade, 'fetch');
-    const prove = job(upgrade, 'prove');
+    const prove = job(proveWf, 'prove');
     for (const script of PROOF_FILES) {
       expect(read(`typescript/scripts/${script}`), script).not.toBe('');
     }
@@ -614,12 +619,14 @@ describe('release upgrade proof (native-release-upgrade.yml)', () => {
     // Whether the release's commit has the scripts is decided in fetch, without a checkout, and
     // the proof only runs when it does; a release that cannot be proved fails `conclude`.
     expect(fetch).toContain('release-upgrade.mjs assess --directory "$RUNNER_TEMP/upgrade-assets"');
-    expect(prove).toContain("if: needs.fetch.outputs.outcome == 'proved'");
+    expect(prove).toContain("if: inputs.outcome == 'proved'");
     expect(prove).not.toContain('it predates');
-    const conclude = job(upgrade, 'conclude');
-    expect(conclude).toContain("if: needs.fetch.outputs.outcome == 'predates'");
+    const conclude = job(proveWf, 'conclude');
+    expect(conclude).toContain("if: inputs.outcome == 'predates'");
     expect(conclude).toContain('exit 1');
-    expect(conclude).toContain("if: ${{ !cancelled() && needs.fetch.result == 'success' }}");
+    expect(job(upgrade, 'prove')).toContain(
+      "if: ${{ !cancelled() && needs.fetch.result == 'success' }}"
+    );
     expect(prove).toContain('release-upgrade.mjs" prove --product "$PRODUCT" --tag "$RELEASE_TAG"');
     expect(prove).toContain('skill=skills/tmux-team/SKILL.md');
     expect(prove).toContain('--skill "$skill"');
@@ -629,7 +636,7 @@ describe('release upgrade proof (native-release-upgrade.yml)', () => {
   });
 
   it('requires CLI adapter acceptance after the existing proof on every host, with bounded compilation and read-only caching', () => {
-    const prove = job(upgrade, 'prove');
+    const prove = job(proveWf, 'prove');
     expect(prove).toContain('timeout-minutes: 10');
     expect(prove).toMatch(/name: Install Rust for version-only resolution and adapter acceptance/);
     expect(prove).toMatch(
@@ -666,7 +673,13 @@ describe('shared prepare pipeline and release rehearsal', () => {
     expect(prepare).not.toMatch(
       /secrets\.|environment:|gh release|release-publish|release-draft-assets/
     );
-    expect([...jobs(prepare).keys()]).toEqual(['build', 'assemble', 'verify']);
+    expect([...jobs(prepare).keys()]).toEqual([
+      'build',
+      'assemble',
+      'verify',
+      'upgrade-fetch',
+      'upgrade',
+    ]);
   });
   it('lets both the draft pipeline and the rehearsal call it with an exact source commit', () => {
     expect(job(bundle, 'prepare')).toContain(
@@ -710,6 +723,115 @@ describe('shared prepare pipeline and release rehearsal', () => {
   });
   it('writes the Rust cache from main only, so a rehearsal restores without saving', () => {
     expect(job(prepare, 'build')).toContain("save-if: ${{ github.ref == 'refs/heads/main' }}");
+  });
+});
+
+describe('rehearsal upgrade proof and the publishing upgrade call', () => {
+  const upgradeWf = read('.github/workflows/native-release-upgrade.yml');
+  const proveWf = read('.github/workflows/native-release-upgrade-prove.yml');
+  const ci = read('.github/workflows/ci.yml');
+  const rehearsal = read('.github/workflows/release-rehearsal.yml');
+
+  it('lets a pull request reach only the read-only local fetch, never the write-token fetch', () => {
+    // The write-token fetch lives in native-release-upgrade.yml, called only by the publication bundle.
+    const callers = readdirSync(path.join(repository, '.github/workflows')).filter((file) =>
+      read(`.github/workflows/${file}`).includes(
+        'uses: ./.github/workflows/native-release-upgrade.yml'
+      )
+    );
+    expect(callers).toEqual(['native-release-bundle.yml']);
+    expect(job(upgradeWf, 'fetch')).toContain("if: github.ref == 'refs/heads/main'");
+    expect(job(upgradeWf, 'fetch')).toMatch(/^ {6}contents: write$/m);
+    // Everything a pull request can call (prepare, the proof stages) holds no write permission.
+    for (const [name, text] of [
+      ['prepare', prepare],
+      ['proof stages', proveWf],
+    ]) {
+      expect(text, name).not.toMatch(/: write$/m);
+      expect(text, name).not.toContain('uses: ./.github/workflows/native-release-upgrade.yml');
+    }
+    const local = job(prepare, 'upgrade-fetch');
+    expect(local).toContain('if: inputs.upgrade');
+    expect(local).toMatch(/^ {4}permissions:\n {6}contents: read\n/m);
+    expect(local).toContain('--candidate-directory "$RUNNER_TEMP/candidate"');
+    expect(local).toContain(
+      "native-release-${{ inputs.product }}-bundle-${{ inputs.tag || 'main' }}"
+    );
+    expect(local).not.toMatch(/secrets\./);
+    expect(job(prepare, 'upgrade')).toContain(
+      'uses: ./.github/workflows/native-release-upgrade-prove.yml'
+    );
+  });
+
+  it('enables the upgrade proof only for rehearsal callers, never the publication path', () => {
+    expect(job(ci, 'release-rehearsal')).toContain('upgrade: true');
+    expect(job(rehearsal, 'prepare')).toContain('upgrade: true');
+    expect(job(bundle, 'prepare')).not.toContain('upgrade');
+    expect(run).not.toContain('upgrade: true');
+    expect(prepare).toMatch(
+      /upgrade:\n {8}description: [^\n]+\n {8}required: false\n {8}default: false\n {8}type: boolean/
+    );
+    // The rehearsal's tag is the synthetic announcement tag of its own assembled manifest.
+    expect(job(prepare, 'assemble')).toContain('tag: ${{ steps.version.outputs.tag }}');
+    expect(job(prepare, 'upgrade')).toContain('tag: ${{ needs.assemble.outputs.tag }}');
+  });
+
+  // The publication path's upgrade call after moving prove and conclude into the shared stages:
+  // evaluate the real expressions against the pre-#1666 behavior for every outcome.
+  const evaluate = (expression: string, context: Record<string, unknown>) =>
+    new Function(
+      'ctx',
+      `const cancelled = () => ctx.cancelled; return (${expression
+        .replace(/^\$\{\{\s*|\s*\}\}$/g, '')
+        .replace(
+          /\bneeds\.([\w-]+)\.(result|outputs\.\w+)/g,
+          (_, name, path) => `ctx.needs['${name}'].${path}`
+        )
+        .replace(/\binputs\.([\w-]+)/g, "ctx.inputs['$1']")}) `
+    )({ cancelled: false, ...context });
+  const ifOf = (text: string) => /^ {4}if: (.+)$/m.exec(text)?.[1] ?? '';
+
+  it('keeps the same jobs running and the same outputs consumed on the publication path', () => {
+    const call = ifOf(job(upgradeWf, 'prove'));
+    const proveIf = ifOf(job(proveWf, 'prove'));
+    const concludeIf = ifOf(job(proveWf, 'conclude'));
+    for (const fetchResult of ['success', 'failure', 'skipped', 'cancelled']) {
+      for (const cancelled of [false, true]) {
+        for (const outcome of ['proved', 'nothing', 'predates']) {
+          const needs = { fetch: { result: fetchResult, outputs: { outcome } } };
+          const callRuns = evaluate(call, { cancelled, needs });
+          // Before: prove ran when fetch succeeded and proved; conclude ran unless cancelled after a
+          // successful fetch. After: the call runs under the old conclude condition, and the stages
+          // apply the old prove condition to the outcome handed over.
+          const oldConclude = !cancelled && fetchResult === 'success';
+          expect(callRuns, `${fetchResult}/${cancelled}/${outcome}`).toBe(oldConclude);
+          if (!callRuns) continue;
+          const inputs = { outcome };
+          expect(evaluate(proveIf, { inputs })).toBe(outcome === 'proved');
+          // Before and after, a prove failure or skip never stops conclude from running.
+          expect(evaluate(concludeIf, { cancelled, inputs })).toBe(!cancelled);
+        }
+      }
+    }
+    // Every value the stages consume is the one fetch produced, and the old consumers are gone.
+    const withBlock = job(upgradeWf, 'prove');
+    for (const [key, value] of [
+      ['sha', 'needs.fetch.outputs.sha'],
+      ['outcome', 'needs.fetch.outputs.outcome'],
+      ['fetch-reason', 'needs.fetch.outputs.reason'],
+      ['current-tooling', 'inputs.current-tooling'],
+      ['product', 'inputs.product'],
+      ['tag', 'inputs.tag'],
+    ])
+      expect(withBlock).toContain(`${key}: \${{ ${value} }}`);
+    expect(upgradeWf).toMatch(/value: \$\{\{ jobs\.fetch\.outputs\.outcome \}\}/);
+    expect(upgradeWf).toMatch(/value: \$\{\{ jobs\.prove\.outputs\.reason \}\}/);
+    expect([...jobs(upgradeWf).keys()]).toEqual(['fetch', 'prove']);
+    expect([...jobs(proveWf).keys()]).toEqual(['prove', 'conclude']);
+    // The stages choose their reason exactly as conclude did: a host failure first, else fetch's.
+    expect(job(proveWf, 'conclude')).toContain(
+      'reason: ${{ steps.failure.outputs.reason || inputs.fetch-reason }}'
+    );
   });
 });
 
@@ -892,7 +1014,9 @@ describe('public install smoke (native-release-smoke.yml)', () => {
 
   it('installs on the same four hosts as the upgrade proof', () => {
     expect(targets(smokeWorkflow)).toHaveLength(4);
-    expect(targets(smokeWorkflow)).toEqual(targets(upgrade));
+    expect(targets(smokeWorkflow)).toEqual(
+      targets(read('.github/workflows/native-release-upgrade-prove.yml'))
+    );
   });
 
   it('authenticates only the shared acquisition step while keeping install permissions read-only', () => {
@@ -1065,7 +1189,8 @@ describe('held release rerun workflow boundary', () => {
     expect(job(upgrade, 'fetch')).toContain(
       'inputs.current-tooling && github.sha || steps.sha.outputs.sha'
     );
-    const prove = job(upgrade, 'prove');
+    expect(job(upgrade, 'prove')).toContain('current-tooling: ${{ inputs.current-tooling }}');
+    const prove = job(read('.github/workflows/native-release-upgrade-prove.yml'), 'prove');
     expect(prove).toContain('ref: ${{ github.sha }}');
     expect(prove).toContain('path: release-source');
     expect(prove).toContain('set -- --source-root "$GITHUB_WORKSPACE/release-source"');
