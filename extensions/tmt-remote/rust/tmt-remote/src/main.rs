@@ -648,20 +648,31 @@ fn pair(json_output: bool, flag: open::Flag) -> Result<(), RemoteError> {
                 )?;
                 output.flush()?;
                 warn_settings(&loaded)?;
-                if let open::Outcome::Failed(why) = open::open_link(
+                match open::open_link(
                     event["link"].as_str().unwrap_or(""),
                     flag,
                     loaded.open(),
                     json_output,
                 ) {
-                    let mut diagnostic = tmt_cli_style::stream::stderr();
-                    let terminal = diagnostic.terminal();
-                    tmt_cli_style::message::warning(
-                        &mut diagnostic,
-                        terminal,
-                        &format!("Could not open the browser ({why}); use the link above"),
-                        None,
-                    )?;
+                    open::Outcome::Opened => {
+                        tmt_cli_style::message::success(
+                            &mut output,
+                            terminal,
+                            "Opened in your browser",
+                        )?;
+                        output.flush()?;
+                    }
+                    open::Outcome::Failed(why) => {
+                        let mut diagnostic = tmt_cli_style::stream::stderr();
+                        let terminal = diagnostic.terminal();
+                        tmt_cli_style::message::warning(
+                            &mut diagnostic,
+                            terminal,
+                            &format!("Could not open the browser ({why}); use the link above"),
+                            None,
+                        )?;
+                    }
+                    open::Outcome::Skipped | open::Outcome::NoOpener => {}
                 }
             }
             Some("candidate") => {

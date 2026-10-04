@@ -4,6 +4,9 @@
 use crate::{error::RemoteError, state::Serving};
 use rusqlite::{Connection, OpenFlags, OptionalExtension, TransactionBehavior};
 
+/// First schema containing the remembered door port.
+const PORT_SCHEMA: usize = 5;
+
 pub(crate) fn database(error: impl std::fmt::Display) -> RemoteError {
     RemoteError::new(
         "REMOTE_STATE_UNAVAILABLE",
@@ -74,7 +77,7 @@ impl Store {
         )
         .map_err(database)?;
         let count = migration_count(&connection)?;
-        if count < 5 {
+        if count < PORT_SCHEMA {
             return Ok(None);
         }
         read_port(&connection)

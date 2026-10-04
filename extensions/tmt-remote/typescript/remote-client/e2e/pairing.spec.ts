@@ -434,7 +434,7 @@ test('browser pages use local tokens in both schemes and fit desktop and mobile'
         const inspect = async (state: 'landing' | 'pairing' | 'confirmation' | 'error') => {
           await expect(page.locator('.brand')).toHaveText('Remote tmt');
           await expect(page.locator('.state-mark')).toHaveText(
-            { landing: '○', pairing: '○', confirmation: '◆', error: '✗' }[state]!,
+            { landing: '○', pairing: '◆', confirmation: '◆', error: '✗' }[state]!,
           );
           const look = await page.evaluate(() => {
             const sheet = document.querySelector('.sheet')!;
@@ -488,6 +488,9 @@ test('browser pages use local tokens in both schemes and fit desktop and mobile'
         await page.goto(offer.link as string);
         await expect(page.locator('#pair')).toBeVisible();
         await inspect('pairing');
+        expect(await page.locator('#mark').evaluate((mark) => getComputedStyle(mark).color)).toBe(
+          colorScheme === 'light' ? 'rgb(150, 80, 39)' : 'rgb(255, 158, 100)',
+        );
         // Keyboard-only submission exercises the visible focus and form behavior.
         await page.locator('#name').focus();
         await page.keyboard.press('Tab');

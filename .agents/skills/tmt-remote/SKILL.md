@@ -52,8 +52,9 @@ Serve remembers the bound port since Remote schema 5 (`door_port`) and reuses it
 `--port 0` uses an unused port and explicit nonzero busy ports refuse. The human
 full door URL occupies its own stdout line.
 
-Schema 6 (`short_route_prefix`) regenerates an existing machine's route prefix once as
-16 lowercase base32 symbols (80 random bits), preserving its ID, key, grants and port.
+Schema 6 (`short_route_prefix`) regenerates an existing machine's non-credential route prefix
+once as 16 lowercase base32 symbols (80 random bits), preserving its ID, key, origin-bound
+grants and port.
 The shared canonical validator admits that format in store, routing and live status.
 The schema-5 fixture proves migration persistence and rollback; stopped status still
 reads the schema-5 port without migrating. Browser reopen adopts the current path.
@@ -111,8 +112,9 @@ and CI-scope checks.
 ## Browser opening and settings
 
 Remote's `open` owner mirrors Colab's platform opener without a Colab dependency.
-`pair --open` overrides only the saved setting; JSON, no TTY, CI and display guards
-always win. `settings` owns the private `settings.json` / `settings.lock` under Remote's
+`pair --open` overrides the saved setting and terminal, CI and SSH/display checks;
+only `--no-open`, JSON and a missing platform opener suppress an explicit open.
+`settings` owns the private `settings.json` / `settings.lock` under Remote's
 existing layout, independent of the database/serve lease. Missing settings use the default;
 malformed settings use it with a human warning. Setters serialize through the bounded lock.
 

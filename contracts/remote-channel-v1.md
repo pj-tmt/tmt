@@ -59,10 +59,11 @@ operation content; cloud bindings need the encryption profile in [Backends and
 deploy](#backends-and-deploy) before use. Browsers do not isolate cookies by port on loopback:
 another local user's listener on `127.0.0.1` could receive the door session cookie when the owner's
 browser requests it at a matching path. The cookie is scoped to the mount space under the machine's
-unpredictable 80-bit route prefix (#1094, shortened in #1687), so such a listener must already know the prefix; the
-prefix narrows this exposure and remains impractical to guess through online door probes; it is still not a credential. That cookie grants extension page and
-relay access only, until stop, revocation or idle expiry, never an operation or pairing action;
-state-changing operations still need a fresh device signature.
+unpredictable 80-bit route prefix (#1094, shortened in #1687), so such a listener must already know
+the prefix; the prefix narrows this exposure and remains impractical to guess through online door
+probes; it is still not a credential. That cookie grants extension page and relay access only, until
+stop, revocation or idle expiry, never an operation or pairing action; state-changing operations
+still need a fresh device signature.
 
 ## Bytes, IDs and the fixed M1 suite
 
@@ -292,10 +293,11 @@ server challenge (32 lowercase hex characters). No private key is included in a 
 web-page DOM or log.
 
 The command always prints the link. Browser opening defaults to on and uses Remote's own
-`settings.json` `open` boolean (`tmt remote settings open on|off`). `--open` overrides the setting;
-`--no-open` suppresses opening. JSON, no stdout TTY, CI, SSH without a display, Linux without a
-display (except WSL), and a missing platform opener always suppress opening. Opener failures warn
-without ending pairing. Owner confirmation still requires an interactive terminal or `--json`.
+`settings.json` `open` boolean (`tmt remote settings open on|off`). `--open` overrides the setting
+and terminal, CI and SSH/display checks. Only `--no-open`, `--json` and a missing platform opener
+suppress an explicit open. Without `--open`, no stdout TTY, CI, SSH without a display and Linux
+without a display (except WSL) suppress opening. Opener failures warn without ending pairing.
+Owner confirmation still requires an interactive terminal or `--json`.
 
 The code is **16 random bytes**, displayed as 26 uppercase RFC 4648 base32 characters grouped for
 **copy/paste**, one use, ten-minute expiry. Decode after removing ASCII spaces/hyphens only,
@@ -367,22 +369,23 @@ may remove scopes at pairing. Future core capabilities do not silently become re
 a new scope needs a revision of this contract.
 
 The shipped `tmt remote serve` runs in the foreground until Ctrl-C, SIGTERM or `tmt remote stop`,
-with no default idle or hard deadline. Without `--port`, it reuses its last successfully bound IPv4-loopback port;
-on first use it selects an unused port. If the remembered port is busy, serve refuses with
-`REMOTE_PORT_BUSY`, names the port, tells the owner to stop the process using it to retain browser
-pairing, and offers `--port <n>` / `--port 0` to choose a new origin explicitly. `--port 0` explicitly selects a random unused
-port; an explicit nonzero busy port refuses without fallback. The actual bound port is remembered
-for the next run, including after an explicit selection. Human startup output puts the
-full door URL on its own line with no trailing punctuation. Remote schema 6 replaces each existing 32-hex-character prefix once with 16 lowercase RFC 4648
+with no default idle or hard deadline. Without `--port`, it reuses its last successfully bound
+IPv4-loopback port; on first use it selects an unused port. If the remembered port is busy, serve
+refuses with `REMOTE_PORT_BUSY`, names the port, tells the owner to stop the process using it to
+retain browser pairing, and offers `--port <n>` / `--port 0` to choose a new origin explicitly.
+`--port 0` explicitly selects a random unused port; an explicit nonzero busy port refuses without
+fallback. The actual bound port is remembered for the next run, including after an explicit
+selection. Human startup output puts the full door URL on its own line with no trailing punctuation.
+Remote schema 6 replaces each existing 32-hex-character prefix once with 16 lowercase RFC 4648
 base32 characters (`a-z2-7`, 80 random bits), then keeps it stable. Old links and cookie paths stop
-working. Machine IDs, keys, origin-bound pairings, grants and the remembered port survive;
-browsers reopen their sessions under the current path without pairing again. An
-origin change requires browser pairing at the new origin. Neither address nor route prefix is a
-credential. Shutdown closes the door and cancels pending pairing and held operations. Revoke disables a
-device before acknowledgment. No request/effect not yet fenced may succeed afterward. Already
-committed core work is not undone; report it accurately. Restart issues a new window and session
-namespace; grants survive. Unconfirmed held work is cancelled; dispatching/uncertain work recovers
-its original operation, never becomes falsely unsent.
+working. Machine IDs, keys, origin-bound pairings, grants and the remembered port survive; browsers
+reopen their sessions under the current path without pairing again. An origin change requires
+browser pairing at the new origin. Neither address nor route prefix is a credential. Shutdown closes
+the door and cancels pending pairing and held operations. Revoke disables a device before
+acknowledgment. No request/effect not yet fenced may succeed afterward. Already committed core work
+is not undone; report it accurately. Restart issues a new window and session namespace; grants
+survive. Unconfirmed held work is cancelled; dispatching/uncertain work recovers its original
+operation, never becomes falsely unsent.
 
 ### Local CLI discovery
 
@@ -393,12 +396,12 @@ access. `origin` and `path` have no trailing slash; mounted Colab URLs are
 
 `tmt remote status --json` is read-only. It emits exactly one of these documents and exits 0:
 
-```json
-{ "running": true, "origin": "http://127.0.0.1:<port>", "path": "/r/k7qxm4tz2pbwn6rh" }
+```text
+{"running":true,"origin":"http://127.0.0.1:<port>","path":"/r/k7qxm4tz2pbwn6rh"}
 ```
 
-```json
-{ "running": false, "lastPort": 49152 }
+```text
+{"running":false,"lastPort":49152}
 ```
 
 `lastPort` is the remembered nonzero integer port, or `null` if none has been recorded. It is
@@ -424,26 +427,18 @@ make shutdown unconfirmed; stop does not send another request to shut down that 
 A supervising extension can start `tmt remote serve --json` as its child. Serve emits one readiness
 line on stdout after binding the door and control socket and recording the bound port:
 
-```json
-{
-  "profile": "local-v1",
-  "binding": "loopback-http",
-  "state": "ready",
-  "address": "http://127.0.0.1:<port>/r/k7qxm4tz2pbwn6rh",
-  "machineId": "<uuid>",
-  "windowId": "<uuid>",
-  "startupCoreCalls": 2
-}
+```text
+{"profile":"local-v1","binding":"loopback-http","state":"ready","address":"http://127.0.0.1:<port>/r/k7qxm4tz2pbwn6rh","machineId":"<uuid>","windowId":"<uuid>","startupCoreCalls":2}
 ```
 
 The stable fields a supervisor reads are `state:"ready"` and `address`. This descriptor has no
 separate `origin` or `path` fields: `address` is their concatenation, with no trailing slash.
 `machineId` is the stable machine UUID and `windowId` is the UUID for this serve run. The other
-fields identify the local profile, binding and two startup core calls. A startup failure emits
-the standard error document and exits nonzero, including when the remembered port is busy. Serve remains in the foreground. The supervisor stops only the
-child it started; attaching through status does not give it ownership of an existing serve.
-Pairing remains explicit through `tmt remote pair`, and the existing owner-only mount socket and
-grant rules apply to both attach and supervised-start use.
+fields identify the local profile, binding and two startup core calls. A startup failure emits the
+standard error document and exits nonzero, including when the remembered port is busy. Serve remains
+in the foreground. The supervisor stops only the child it started; attaching through status does not
+give it ownership of an existing serve. Pairing remains explicit through `tmt remote pair`, and the
+existing owner-only mount socket and grant rules apply to both attach and supervised-start use.
 
 ## Operations
 
@@ -1080,23 +1075,22 @@ envelopes. No unauthenticated GET inventory.
 | `POST /pair`      | Enrollment fields/proofs for an already machine-opened local offer; no client-created offer.           |
 
 Browser assets live at the door root, disjoint from the route prefix, under the same Host, path and
-framing rules. `GET /pair` serves the pairing page with
-`default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none';
-frame-ancestors 'none'`. `GET /sdk/pair.js` serves the synchronous fragment-erasing bootstrap,
-which then loads the SDK. `GET /sdk/pair-offer` returns only the current unconfirmed offer's
-`{profile, binding, machineId, windowId, offerId, address, serverChallenge}` descriptor with
-`no-store`; absent, expired, cancelled or confirmed offers return the generic JSON 404. Cross-origin
-loads refuse. The code remains exclusively in the captured fragment. Old `/pair/<descriptor>`
-paths refuse; no compatibility route remains. `GET /` serves a static pairing landing
-page; malformed pairing-page paths receive generic HTML errors with their refusal status. These
-pages load only the embedded same-origin `GET /sdk/pages.css` stylesheet, using the shared design
-tokens and system font fallbacks without network fonts. Protocol refusals below `/r/` remain JSON.
-`GET /sdk/remote-v1.js` serves the device
-SDK as `text/javascript; charset=utf-8` with `nosniff`; the path names the SDK interface version,
-not a build, so it is not cached across upgrades. `POST /sdk/mount` takes exactly `{path}` from a
-page on the door's own origin and answers `{machineId, windowId, address, extension, mount}`: this
-run's identity and the mounted extension that contains `path` in the door's own mount mapping, or
-null. It scopes honest use, such as which extension a page certifies keys for, and is not a security
+framing rules. `GET /pair` serves the pairing page with `default-src 'none'; script-src 'self';
+style-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`.
+`GET /sdk/pair.js` serves the synchronous fragment-erasing bootstrap, which then loads the SDK.
+`GET /sdk/pair-offer` returns only the current unconfirmed offer's
+`{profile, binding, machineId, windowId, offerId, address, serverChallenge}` descriptor with `no-store`; absent, expired, cancelled
+or confirmed offers return the generic JSON 404. Cross-origin loads refuse. The code remains
+exclusively in the captured fragment. Old `/pair/<descriptor>` paths refuse; no compatibility route
+remains. `GET /` serves a static pairing landing page; malformed pairing-page paths receive generic
+HTML errors with their refusal status. These pages load only the embedded same-origin
+`GET /sdk/pages.css` stylesheet, using the shared design tokens and system font fallbacks without network
+fonts. Protocol refusals below `/r/` remain JSON. `GET /sdk/remote-v1.js` serves the device SDK as
+`text/javascript; charset=utf-8` with `nosniff`; the path names the SDK interface version, not a
+build, so it is not cached across upgrades. `POST /sdk/mount` takes exactly `{path}` from a page on
+the door's own origin and answers `{machineId, windowId, address, extension, mount}`: this run's
+identity and the mounted extension that contains `path` in the door's own mount mapping, or null. It
+scopes honest use, such as which extension a page certifies keys for, and is not a security
 boundary: mounted extensions share one browser trust domain and only owner-installed extensions
 mount. None of these routes reads the door cookie or grants authority.
 

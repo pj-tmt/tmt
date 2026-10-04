@@ -59,7 +59,8 @@ pub enum Decision {
     Skip(&'static str),
 }
 
-/// `--open` overrides the setting only. JSON and environment guards always win.
+/// `--no-open` and `--json` always win. `--open` overrides the setting and the terminal, CI and
+/// SSH/display checks; it never overrides a missing opener (checked at launch).
 pub fn decide(flag: Flag, setting: bool, json: bool, env: &Env) -> Decision {
     if flag == Flag::NoOpen {
         return Decision::Skip("--no-open");
@@ -67,7 +68,10 @@ pub fn decide(flag: Flag, setting: bool, json: bool, env: &Env) -> Decision {
     if json {
         return Decision::Skip("--json");
     }
-    if !setting && flag != Flag::Open {
+    if flag == Flag::Open {
+        return Decision::Open;
+    }
+    if !setting {
         return Decision::Skip("the open setting is off");
     }
     if !env.terminal {
@@ -172,10 +176,10 @@ mod tests {
         }
     }
     #[test]
-    fn json_and_environment_guards_always_win() {
+    fn json_and_no_open_always_skip_and_open_overrides_everything_else() {
         let bad = env(false, true, true, true, false);
-        assert_eq!(decide(Flag::Open, true, false, &bad), Skip("no terminal"));
-        assert_eq!(decide(Flag::Open, false, false, &bad), Skip("no terminal"));
+        assert_eq!(decide(Flag::Open, true, false, &bad), Open);
+        assert_eq!(decide(Flag::Open, false, false, &bad), Open);
         assert_eq!(decide(Flag::Open, true, true, &bad), Skip("--json"));
         let good = env(true, false, false, false, true);
         assert_eq!(decide(Flag::NoOpen, true, false, &good), Skip("--no-open"));
@@ -204,16 +208,13 @@ mod tests {
             ..env(true, false, false, false, true)
         };
         assert_eq!(decide(Flag::Unset, true, false, &ci), Skip("CI"));
-        assert_eq!(decide(Flag::Open, true, false, &ci), Skip("CI"));
+        assert_eq!(decide(Flag::Open, true, false, &ci), Open);
         let ssh = env(true, false, true, false, false);
         assert_eq!(
             decide(Flag::Unset, true, false, &ssh),
             Skip("ssh without a display")
         );
-        assert_eq!(
-            decide(Flag::Open, true, false, &ssh),
-            Skip("ssh without a display")
-        );
+        assert_eq!(decide(Flag::Open, true, false, &ssh), Open);
         let forwarded = Env {
             display: true,
             ..ssh
@@ -224,6 +225,7 @@ mod tests {
             decide(Flag::Unset, true, false, &no_display),
             Skip("no display")
         );
+        assert_eq!(decide(Flag::Open, true, false, &no_display), Open);
         let wsl = Env {
             wsl: true,
             ..no_display
