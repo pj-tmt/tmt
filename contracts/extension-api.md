@@ -420,7 +420,9 @@ release. At most 4 KiB of UTF-8 JSON:
 ```
 
 - `version` is `1`. `uses` has at most 8 entries. Unknown keys and duplicate `feature` values are rejected.
-- `feature` matches `[a-z][a-z0-9-]{0,31}`. `label` is 1 to 48 printable characters.
+- `feature` matches `[a-z][a-z0-9-]{0,31}`. `label` is 1 to 48 printable characters: no control,
+  bidirectional-override or line-separator characters, so it is safe on one terminal line (the same rule
+  as notice display fields).
 - `extension` names an installable official extension other than the declaring one.
 - `requires` is an exact minimum, `>=X.Y.Z` or `>=X.Y.Z-pre`, at most 64 bytes, compared with semantic
   versioning precedence (a prerelease sorts below its release). No other operator or range exists.
@@ -431,13 +433,13 @@ Core never interprets a feature; `label` and `feature` are display and lookup da
 no network, application storage or extension process, and never installs or changes anything. `extension`
 is the caller's own name and `feature` one it declared. The result:
 
-| Field                                       | Meaning                                                                                                                                                                                                                                                             |
-| ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `feature`, `label`, `extension`, `requires` | The declaration, as written.                                                                                                                                                                                                                                        |
-| `available`                                 | `true` when the named extension is installed, verified and at least `requires`.                                                                                                                                                                                     |
-| `installed`                                 | The installed version of the named extension, or `null`.                                                                                                                                                                                                            |
-| `reason`                                    | `null` when available, else `missing`, `tooOld` or `damaged` (installed but failing verification).                                                                                                                                                                  |
-| `hint`                                      | One actionable line, empty when available: `<label> needs the <Extension> extension: tmt extension install <extension> --yes`; for `tooOld`, `... tmt extension upgrade <extension> --yes`; for `damaged`, a pointer to `tmt extension ls`, which names the repair. |
+| Field                                       | Meaning                                                                                                                                                                                                                                                                                                                                |
+| ------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `feature`, `label`, `extension`, `requires` | The declaration, as written.                                                                                                                                                                                                                                                                                                           |
+| `available`                                 | `true` when the named extension is installed, verified and at least `requires`.                                                                                                                                                                                                                                                        |
+| `installed`                                 | The installed version of the named extension, or `null`.                                                                                                                                                                                                                                                                               |
+| `reason`                                    | `null` when available, else `missing`, `tooOld` or `damaged` (installed but failing verification).                                                                                                                                                                                                                                     |
+| `hint`                                      | One actionable line, empty when available: `<label> needs the <Extension> extension: tmt extension install <extension> --yes`; for `tooOld`, `... tmt extension upgrade <extension> --yes`; for `damaged`, a pointer to `tmt extension ls`, which lists the damaged entry with its path and the exact repair (it does not fail on it). |
 
 A caller shows `hint` as its failure and keeps the rest of its features working. Errors are
 `API_INPUT_INVALID` (a non-canonical name) and `EXTENSION_USE_UNDECLARED` (the caller has no managed
@@ -445,6 +447,14 @@ installation, or declares no such feature); a caller treats an error as "cannot 
 with its message. The operation resolves the default installation prefix, the one `tmt extension` uses
 without `--prefix`; an installation under another prefix is not visible to it. Same-user bookkeeping like
 `skills.install`: the API cannot prove which extension is calling.
+
+**Older core.** A core without `extensions.uses` does not list it in `capabilities`, and an unknown
+operation is an error. A caller reads `capabilities` first (or treats the error the same way): the use
+counts as "cannot check", and its message is to update tmt (`tmt upgrade --channel alpha --yes`). A release
+that carries `TMT-USES.json` also needs a CLI that accepts the file: an older installer rejects an unknown
+archive path, so the CLI release that supports it must publish before any extension release that carries it
+(the same rule as skills trees). A caller checks a use when the feature starts (for example once at server
+start) rather than on every request.
 
 **Visibility and removal.** `tmt extension ls` lists each installed extension's `uses` (`feature`, `label`,
 `extension`, `requires`, `available`, `installed`, `reason`) and prints one dim line per use. `tmt extension rm`
