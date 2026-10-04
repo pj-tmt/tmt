@@ -166,7 +166,7 @@ export function AskPanel({
               ? record.reply !== undefined
                 ? '✓ replied'
                 : timedOut
-                  ? '! timed out'
+                  ? '… no reply yet'
                   : ['dispatching', 'accepted'].includes(record.state) && !record.resultUnavailable
                     ? '… waiting'
                     : record.state === 'held'

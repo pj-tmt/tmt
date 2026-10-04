@@ -83,6 +83,7 @@ test('page-visible device Chat threads send exact bytes once, preserve drafts, k
     await expect(input).toHaveValue(`@${agent.name} `);
     await expect(panel.locator('.annotation-compose details')).not.toHaveAttribute('open', '');
     await expect(panel).toContainText('Visible to everyone with page access.');
+    await expect(panel.getByRole('button', { name: 'Delete thread', exact: true })).toHaveCount(0);
     expect(await first.locator('iframe').boundingBox()).toEqual(before);
     const opening = `@${agent.name} <script>private Chat turn</script> Explain this page.`;
     await input.fill(opening);
@@ -199,6 +200,7 @@ test('page-visible device Chat threads send exact bytes once, preserve drafts, k
     expect(traffic.join('')).not.toContain('Follow up with the earlier answer');
     await first.getByTestId('comments-toggle').click();
     await expect(first.getByTestId('annotation-row')).toHaveCount(0);
+    await expect(first.getByRole('button', { name: 'Delete thread', exact: true })).toHaveCount(0);
     await first.getByRole('button', { name: '+ Comment on page', exact: true }).click();
     await first.getByLabel('Post comment', { exact: true }).fill('Ordinary page comment');
     await first.getByRole('button', { name: 'Post comment', exact: true }).click();

@@ -1469,7 +1469,9 @@ thread and opening comment atomically under the existing writer lock; a duplicat
 creation refuses. Subsequent turns reply to that thread through the existing writer.
 There is no new store, record kind or field. Ordinary Comments excludes designated
 Chat threads; Chat shows every device's page-visible Chat history, while each input
-continues only its asking device's thread. Existing unthreaded Ask records remain
+continues only its asking device's thread. Chat offers deletion of individual messages,
+not its designated thread, so deleting a message does not prevent further turns.
+Existing unthreaded Ask records remain
 readable in Chat. The same captured-context validation and byte limits apply.
 
 Verified agent replies join only to their originating comment IDs. Pending, replied,

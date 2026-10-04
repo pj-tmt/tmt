@@ -347,3 +347,22 @@ it('Chat creates one atomic null-anchor thread per writer and page, survives pro
     readThreads(f.own, { ...fixture.scope, pageId: crypto.randomUUID() }, () => new Uint8Array(32)),
   ).toEqual([]);
 });
+
+it('deleting a Chat message preserves its designated thread and permits a new turn', async () => {
+  const f = storeFixture();
+  const origin = await f.store.createChat('@agent Hello');
+  await f.store.deleteComment(origin.message, '1');
+  const next = await f.store.reply(origin.thread, '@agent Continue', '1');
+  expect(next.thread).toEqual(origin.thread);
+  const chats = readThreads(f.own, fixture.scope, () => new Uint8Array(32)).filter(isChatThread);
+  expect(chats).toHaveLength(1);
+  expect(chats[0]).toMatchObject({ deleted: false, revision: '1' });
+  expect(chats[0].comments).toEqual([
+    expect.objectContaining({ messageId: origin.message.id, deleted: true }),
+    expect.objectContaining({
+      messageId: next.message.id,
+      deleted: false,
+      body: '@agent Continue',
+    }),
+  ]);
+});
