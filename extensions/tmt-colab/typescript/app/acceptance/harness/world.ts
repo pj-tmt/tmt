@@ -303,7 +303,11 @@ export class AcceptanceWorld {
   }
 
   // Deterministic barrier on one dispatch.create (see core-barrier.mjs).
-  armBarrier(operationId: string, phase: 'before' | 'after'): void {
+  /** Direct sends generate IDs on Enter, so a test may park the next dispatch instead. */
+  armNextBarrier(phase: 'before' | 'after'): void {
+    this.armBarrier(null, phase);
+  }
+  armBarrier(operationId: string | null, phase: 'before' | 'after'): void {
     for (const file of ['entered.json', 'release'])
       fs.rmSync(path.join(this.barrierDirectory, file), { force: true });
     fs.writeFileSync(

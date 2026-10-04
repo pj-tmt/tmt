@@ -300,7 +300,7 @@ columns = [
     { name = "state", width = "14%", min = 9, max = 10 },
     { name = "task", grow = 1, min = 20 },
     { name = "pr", width = "24%", min = 12, max = 28, priority = 6 },
-    { name = "model", from = "session.model", max = 14, priority = 2 },
+    { name = "model", from = "session.model", max = 8, priority = 2 },
     { name = "tok_1", from = "usage.w1", format = "tokens", width = 7, min = 5, align = "right", priority = 1 },
     { name = "tok_2", from = "usage.w2", format = "tokens", width = 7, min = 5, align = "right", priority = 8 },
     { name = "tok_3", from = "usage.w3", format = "tokens", width = 7, min = 5, align = "right", priority = 9 },
@@ -321,7 +321,7 @@ columns = [
     { name = "state", width = 10 },
     { name = "task", grow = 1, min = 20 },
     { name = "pr_link", title = "PR", width = 12, priority = 6 },
-    { name = "model", from = "session.model", max = 14, priority = 2 },
+    { name = "model", from = "session.model", max = 8, priority = 2 },
     { name = "tok_1", from = "usage.w1", format = "tokens", width = 7, min = 5, align = "right", priority = 1 },
     { name = "tok_2", from = "usage.w2", format = "tokens", width = 7, min = 5, align = "right", priority = 8 },
     { name = "tok_3", from = "usage.w3", format = "tokens", width = 7, min = 5, align = "right", priority = 9 },
@@ -4007,6 +4007,47 @@ filter = "not pending"
                     } else {
                         assert!(grid.columns[4].is_some());
                         assert!(grid.columns[5..].iter().all(Option::is_none));
+                    }
+                }
+            }
+        }
+        fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn sampled_preset_model_tracks_follow_content_and_keep_pr_at_120_columns() {
+        use unicode_width::UnicodeWidthStr;
+        let path = temp("model-track-sizing");
+        for layout in ["crew", "team"] {
+            fs::write(
+                &path,
+                format!("[squad.p]\nlayout='{layout}'\n[squad.p.board.token_rate]\nenabled=true\n"),
+            )
+            .unwrap();
+            let config = Config::read(path.clone()).unwrap();
+            let mut rows = config.rows("p").unwrap();
+            for selected in 0..3 {
+                rows.select_window(selected);
+                for model in ["", "sol", "gpt-6.1-sol", "日本語モデル"] {
+                    let natural = |i: usize| {
+                        let column = &rows.columns[i];
+                        column.title.width().max(if column.field == "model" {
+                            model.width()
+                        } else {
+                            12
+                        })
+                    };
+                    // A full-width 120-cell rows pane reserves two cells for row marks.
+                    let grid = crate::markup::Grid::compile(&rows, natural, 118).unwrap();
+                    assert_eq!(grid.columns[4], Some(model.width().clamp(5, 8)));
+                    assert!(grid.columns[3].is_some(), "{layout}: {:?}", grid.columns);
+                    assert!(grid.columns[5 + selected].is_some());
+                    assert!(grid.columns[2].unwrap() >= 20);
+                    for available in [98, 78] {
+                        let grid = crate::markup::Grid::compile(&rows, natural, available).unwrap();
+                        assert!(grid.columns[4].is_none_or(|width| width <= 8));
+                        assert!(grid.columns[5 + selected].is_some());
+                        assert!(grid.columns[2].unwrap() >= 20);
                     }
                 }
             }

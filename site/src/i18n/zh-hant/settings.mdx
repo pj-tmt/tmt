@@ -1,6 +1,6 @@
 ---
 source: site/src/chapters/settings.mdx
-sourceRevision: 02bce181de70733848240e8fc7ab016894774958
+sourceRevision: ab133ca5788ed088a74e52f31f26436570feb2f0
 title: 設定與疑難排解
 ---
 
@@ -30,7 +30,7 @@ $ tmt config rm pasteEnterDelayMs                 # 移除目前資料夾的覆�
 | `preambleEvery`                    | `3`      | 每隔幾次請求附帶 preamble；`0` 表示停用                                                                                  | `config set`，兩種範圍皆可 |
 | `pasteEnterDelayMs`                | `500`    | 貼上訊息到按 Enter 之間等待的毫秒數；`0` 表示不等待                                                                      | `config set`，兩種範圍皆可 |
 | `exchange.retentionDays`           | `90`     | 新請求與回覆保留的天數，範圍為 1 到 3650                                                                                 | `config set --global`      |
-| `ui.paneBadge`                     | `off`    | [窗格徽章](/drivers/tmux#the-pane-badge)                                                                                 | `config set --global`      |
+| `ui.paneBadge`                     | `on`     | [窗格徽章](/drivers/tmux#the-pane-badge)                                                                                 | `config set --global`      |
 | `notes.compactionReminder`         | `true`   | 已儲存的 Claude 或 Codex agent 壓縮對話後，提醒它重讀並更新[筆記](/working#notes-roles-and-preambles)；`true` 或 `false` | `config set --global`      |
 | `notifications.replyBatchWindowMs` | `5000`   | 回覆通知合併為一次貼上前等待的毫秒數，最多 60000；`0` 表示逐則送出                                                       | `config set --global`      |
 | `notifications.typingQuietMs`      | `2000`   | 停止輸入幾毫秒後才貼上合併的回覆通知，最多 30000；`0` 表示不等待                                                         | `config set --global`      |

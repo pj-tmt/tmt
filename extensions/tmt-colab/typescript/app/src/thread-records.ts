@@ -173,3 +173,8 @@ export function readThreads(
   for (const comment of comments) threads.get(refKey(comment.thread))?.comments.push(comment);
   return [...threads.values()].sort((a, b) => refKey(a.ref).localeCompare(refKey(b.ref)));
 }
+
+/** Chat is a designated writer-owned page thread, not a separate record kind. */
+export function isChatThread(thread: ThreadView) {
+  return thread.threadId === thread.ref.writer && thread.anchor === null;
+}

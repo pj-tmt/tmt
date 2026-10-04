@@ -138,6 +138,7 @@ impl App {
                         },
                     ],
                     selected: 0,
+                    surface: Default::default(),
                 });
                 Effect::None
             }

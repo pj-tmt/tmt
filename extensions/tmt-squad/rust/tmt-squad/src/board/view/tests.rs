@@ -14,6 +14,7 @@ use crate::{
     requests::{BODIES, age},
     rows::Rows,
 };
+use ratatui::widgets::Paragraph;
 use ratatui::{
     layout::Rect,
     style::{Modifier, Style},
@@ -25,6 +26,7 @@ use unicode_width::UnicodeWidthStr;
 
 mod cron;
 mod help;
+mod menu;
 mod meter;
 mod parity;
 use super::*;
@@ -795,11 +797,12 @@ fn drawn_rows_are_clickable_and_the_menu_and_help_show_bindings() {
     );
     app.help = false;
     app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
-    let screen = draw(&app, 60, 16);
+    let screen = draw(&app, 60, 24);
+    assert!(screen.iter().any(|line| line.contains("┌ docs ")));
     assert!(
         screen
             .iter()
-            .any(|line| line.contains("docs · Enter runs, Esc closes"))
+            .any(|line| line.contains("Enter runs · Esc closes"))
     );
     assert!(screen.iter().any(|line| line.contains("backspace back")));
     assert!(draw(&App::new(None), 60, 4)[3].starts_with("/ search"));

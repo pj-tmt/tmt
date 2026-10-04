@@ -67,7 +67,7 @@ contracts and focused cases are described in [discussion.md](discussion.md).
 `ask.spec.ts` holds the Ask cases: direct send with exact bytes and a second viewer, browser
 reload, Remote restart after the core accepted, Remote restart before dispatch, Colab restart,
 device revocation and two tabs of one browser (one active tab, "Use here" takes it back). They
-drive the real Ask UI (`selectInRenderer`, `previewAsk`, `send`, `askEntry`, `askState`) and run against the built binaries. A restarted Remote keeps sessions and door cookies in memory, so the page
+drive direct Chat (`composeChat`, `sendChat`, `askEntry`, `askState`) and run against the built binaries. A restarted Remote keeps sessions and door cookies in memory, so the page
 shows "Sync disconnected" and the restart cases recover through its own Reconnect button
 (`reconnect(page)`: the SDK reopens the paired session once, then the page reloads). The
 restored ask is observed read-only under its original operation ID: accepted, or uncertain
@@ -75,7 +75,7 @@ with abandon recorded as `MAY_HAVE_BEEN_DELIVERED`, never a second dispatch. An 
 stays "dispatching" until the SDK deadline, so a case reconnects instead of waiting for it.
 The held case waits for a Remote-provided hold fixture, with held behavior covered by unit
 tests. Enable a case by making its body pass, never with
-a stand-in. Assert the recipient's text equals the previewed text, including the
+a stand-in. Assert the recipient's text equals the disclosed bytes captured on Enter, including the
 `[remote: <device>]` line, and that no delivery state is shown (presence only).
 
 `withWorld` always disposes, and `test.afterEach(disposeActiveWorlds)` does too after a test
@@ -97,3 +97,10 @@ writers' comments, the accepted Ask and the stored reply.
 `tabs.spec.ts` pins a Remote contract the Ask design depends on: Remote keeps one session per
 device, so a newer `session.open` ends the older session and its tunnels. Two tabs of one paired
 browser are one device, so v1 allows one active tab with explicit takeover.
+
+`chat.spec.ts` (#1645) covers one null-anchor thread per asking device, two paired
+viewers, page-visible history, Comments exclusion, exact follow-up context, retained
+drafts, current-app-dir native CSP privacy and 1440/390 light/dark captures. Its
+reload/restart checks count actual recipient rows and core dispatches, never terminal
+echo. The restart suite can arm the next dispatch before Enter generates its ID,
+then verifies that the parked operation matches the admitted Ask record.

@@ -6,6 +6,7 @@ import { relativeTime } from '../src/display-time.js';
 import { ThreadStore, commentForAsk } from '../src/thread-store.js';
 import {
   discussionKey,
+  isChatThread,
   readThreads,
   validateDiscussionRecord,
   type ThreadRecord,
@@ -310,4 +311,58 @@ it('refuses a follow-up if its captured anchor revision changed before publicati
   const before = structuredClone(f.own);
   await expect(f.store.reply(created.thread, 'Follow-up', '1')).rejects.toThrow();
   expect(f.own).toEqual(before);
+});
+
+it('Chat creates one atomic null-anchor thread per writer and page, survives projection reads and refuses duplicate creation', async () => {
+  const f = storeFixture();
+  const origin = await f.store.createChat('@agent Hello');
+  expect(origin.thread).toEqual({ writer: a, id: a });
+  let threads = readThreads(f.own, fixture.scope, () => new Uint8Array(32));
+  expect(threads[0]).toMatchObject({ anchor: null, comments: [{ body: '@agent Hello' }] });
+  expect(threads.filter(isChatThread)).toHaveLength(1);
+  const duplicate = await Promise.allSettled([
+    f.store.createChat('Duplicate'),
+    f.store.createChat('Duplicate again'),
+  ]);
+  expect(duplicate.every((outcome) => outcome.status === 'rejected')).toBe(true);
+  expect(f.batches).toHaveLength(1);
+  await f.store.reply(origin.thread, 'Follow-up', '1');
+  await f.store.create('Page-level comment', null);
+  f.device(b);
+  await f.store.createChat('Other browser');
+  threads = readThreads(f.own, fixture.scope, () => new Uint8Array(32));
+  expect(
+    threads
+      .filter(isChatThread)
+      .map((thread) => thread.ref.writer)
+      .sort(),
+  ).toEqual([a, b].sort());
+  expect(threads.filter((thread) => !isChatThread(thread))).toHaveLength(1);
+  expect(
+    threads
+      .find((thread) => thread.ref.writer === a && isChatThread(thread))!
+      .comments.map((comment) => comment.body),
+  ).toEqual(['@agent Hello', 'Follow-up']);
+  expect(
+    readThreads(f.own, { ...fixture.scope, pageId: crypto.randomUUID() }, () => new Uint8Array(32)),
+  ).toEqual([]);
+});
+
+it('deleting a Chat message preserves its designated thread and permits a new turn', async () => {
+  const f = storeFixture();
+  const origin = await f.store.createChat('@agent Hello');
+  await f.store.deleteComment(origin.message, '1');
+  const next = await f.store.reply(origin.thread, '@agent Continue', '1');
+  expect(next.thread).toEqual(origin.thread);
+  const chats = readThreads(f.own, fixture.scope, () => new Uint8Array(32)).filter(isChatThread);
+  expect(chats).toHaveLength(1);
+  expect(chats[0]).toMatchObject({ deleted: false, revision: '1' });
+  expect(chats[0].comments).toEqual([
+    expect.objectContaining({ messageId: origin.message.id, deleted: true }),
+    expect.objectContaining({
+      messageId: next.message.id,
+      deleted: false,
+      body: '@agent Continue',
+    }),
+  ]);
 });

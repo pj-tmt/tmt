@@ -233,6 +233,7 @@ pub struct Menu {
     pub title: String,
     pub entries: Vec<MenuEntry>,
     pub selected: usize,
+    pub(super) surface: RefCell<Option<super::menu_surface::MenuSurface>>,
 }
 
 /// Where composed text goes.
@@ -1712,7 +1713,11 @@ impl App {
                         choice: Choice::Action(action),
                     })
                     .collect();
-                entries.sort_by_key(|entry| entry.key.chars().count() > 1);
+                // Stable: bindings of one verb keep their key order.
+                entries.sort_by_key(|entry| match &entry.choice {
+                    Choice::Action(action) => action.order(),
+                    _ => u8::MAX,
+                });
                 self.menu = Some(Menu {
                     row_send: None,
                     link: None,
@@ -1720,6 +1725,7 @@ impl App {
                     title: row["name"].as_str().unwrap_or_default().to_owned(),
                     entries,
                     selected: 0,
+                    surface: Default::default(),
                 });
                 return Effect::None;
             }
@@ -1944,6 +1950,7 @@ impl App {
                     title: format!("answer {}", send.name),
                     entries: open,
                     selected: 0,
+                    surface: Default::default(),
                 });
                 return Effect::None;
             }
@@ -4216,6 +4223,37 @@ pub(crate) mod tests {
         assert_eq!(
             app.notice.as_deref(),
             Some("open: pr_link is empty for this row.")
+        );
+    }
+
+    #[test]
+    fn the_menu_lists_the_rows_actions_first_then_the_boards_and_user_keys_follow_their_verb() {
+        let mut bindings = crate::action::preset(false, &[]);
+        bindings.insert(
+            "x".into(),
+            crate::action::Action::parse("reply").expect("reply"),
+        );
+        let mut app = crew(bindings, Vec::new());
+        press(&mut app, KeyCode::Enter);
+        let menu = app.menu.as_ref().expect("menu");
+        let order: Vec<&str> = menu.entries.iter().map(|e| e.key.as_str()).collect();
+        assert_eq!(
+            order,
+            [
+                "r",
+                "x",
+                "t",
+                "a",
+                "o",
+                "y",
+                "n",
+                "A",
+                "l",
+                "T",
+                ",",
+                "ctrl-r",
+                "backspace"
+            ]
         );
     }
 

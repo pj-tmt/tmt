@@ -1,6 +1,6 @@
 # Page chrome (#1586)
 
-`router.tsx` owns one fixed page bar and the active Source, Comments, Ask or
+`router.tsx` owns one fixed page bar and the active Source, Comments, Chat or
 Export overlay. At narrow widths the actions move into an overflow menu. A plain
 `local · <name>` label uses the mounted session's existing device-context name
 (display only), or `local` when no name is known; mobile places it and sharing
@@ -28,7 +28,7 @@ chrome. The sandbox attributes, source limits and CSP remain unchanged.
 the right with a hard shadow; mobile uses a full-screen native modal sheet. Neither
 changes renderer width or content layout. The panel body scrolls independently.
 Close/Escape restores focus, and media listeners/dialogs clean up on close or
-unmount. Closed Source, Comments and Ask panels retain drafts and frozen attempts;
+unmount. Chat initializes on first opening; closed Source, Comments and Chat panels retain drafts and admitted history;
 closing never dispatches, abandons or retries. Export closes its preparation and
 revokes download Blob URLs. Manage also portals outside the menu. Safety details
 remain available from Page information and blocked views; visibility never

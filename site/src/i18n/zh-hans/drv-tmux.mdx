@@ -1,6 +1,6 @@
 ---
 source: site/src/chapters/drv-tmux.mdx
-sourceRevision: bce18dac6f51c59c018cbae56d5003216618c559
+sourceRevision: db04c606ab4d2a6b32414ee0211452088a2f7511
 title: tmux：agent 运行的地方
 ---
 
@@ -33,7 +33,7 @@ import { Badge, BadgeBorders, DriverCard } from "../../components/samples";
     [
       "设置",
       <>
-        无需设置。运行 <code>tmt config set ui.paneBadge on --global</code> 可开启徽标。
+        无需设置。徽标默认开启；运行 <code>tmt config set ui.paneBadge off --global</code> 可关闭。
       </>,
     ],
   ]}
@@ -45,11 +45,11 @@ import { Badge, BadgeBorders, DriverCard } from "../../components/samples";
 
 <Mdx.h3 id="the-pane-badge">窗格徽标</Mdx.h3>
 
-开启一次后，每个已命名的窗格都会获得一个小标签，你可以将它放在自己的窗格边框中：
+每个已命名的窗格都会获得一个小标签，你可以将它放在自己的窗格边框中。它默认开启：
 
 <BadgeBorders />
 
-<Cmd>{`$ tmt config set ui.paneBadge on --global`}</Cmd>
+<Cmd>{`$ tmt config set ui.paneBadge off --global   # 关闭`}</Cmd>
 
 然后在自己的 `pane-border-format` 中，将以下片段添加到你想显示它的位置：
 

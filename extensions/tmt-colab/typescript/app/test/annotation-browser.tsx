@@ -35,6 +35,9 @@ export function mount(mode: 'held' | 'throw' | 'prepare-failure' | 'multi' = 'he
         messageRevision: '1',
       };
     },
+    async createChat() {
+      throw new Error('Not used');
+    },
     async reply() {
       throw new Error('Not used');
     },

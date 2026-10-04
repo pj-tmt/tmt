@@ -8,7 +8,6 @@ use crate::board::app::App;
 use crate::board::app::TitleHit;
 use crate::board::notes::sanitize;
 use crate::config::{BoardMode, Pane};
-use ratatui::widgets::{Block, Borders, Paragraph};
 use ratatui::{
     Frame,
     layout::Rect,
@@ -16,6 +15,7 @@ use ratatui::{
     text::{Line, Span},
 };
 use tmt_cli_style::Role;
+use tmt_tui::components::{Outline, strip};
 
 /// Split mode tiles the configured panes; tabs mode shows the focused pane
 /// under a tab bar. The focused pane's border is highlighted.
@@ -70,15 +70,15 @@ fn render_members(frame: &mut Frame, app: &App, area: Rect) {
         } else {
             look.role(Role::Dim)
         };
-        Block::new()
-            .borders(Borders::ALL)
-            .border_style(style)
-            .title_style(if Some(pane) == focused && board.panes.len() > 1 {
+        Outline {
+            title,
+            border: style,
+            title_style: if Some(pane) == focused && board.panes.len() > 1 {
                 look.role(Role::Accent).add_modifier(Modifier::BOLD)
             } else {
                 look.role(Role::Muted)
-            })
-            .title(title)
+            },
+        }
     };
     let placement = crate::board::composition::layout(
         &mut view.derived.borrow_mut().composition,
@@ -90,7 +90,19 @@ fn render_members(frame: &mut Frame, app: &App, area: Rect) {
     let slots = match placement {
         Ok(slots) => slots,
         Err(error) => {
-            frame.render_widget(Paragraph::new(error).style(look.role(Role::Dim)), area);
+            for (offset, line) in error.lines().take(usize::from(area.height)).enumerate() {
+                strip::paint_left(
+                    frame.buffer_mut(),
+                    Rect {
+                        y: area.y + offset as u16,
+                        height: 1,
+                        ..area
+                    },
+                    Line::styled(line, look.role(Role::Dim)),
+                    &look.theme,
+                    look.depth,
+                );
+            }
             return;
         }
     };
@@ -108,10 +120,16 @@ fn render_members(frame: &mut Frame, app: &App, area: Rect) {
                 spans.push(pane_tab(look, pane.title(), *pane == focused));
                 spans.push(Span::raw(" "));
             }
-            frame.render_widget(Paragraph::new(Line::from(spans)), bar);
-            let block = pane_block(focused);
-            let inner = block.inner(rest);
-            frame.render_widget(block, rest);
+            strip::paint_left(
+                frame.buffer_mut(),
+                bar,
+                Line::from(spans),
+                &look.theme,
+                look.depth,
+            );
+            let outline = pane_block(focused);
+            let inner = outline.inner(rest);
+            outline.paint(rest, frame.buffer_mut());
             render_pane(frame, app, focused, inner);
         }
     }
@@ -122,7 +140,7 @@ fn render_split(
     frame: &mut Frame,
     app: &App,
     slots: &[(Vec<String>, Rect)],
-    pane_block: &dyn Fn(Pane) -> Block<'static>,
+    pane_block: &dyn Fn(Pane) -> Outline<'static>,
 ) {
     let collapsed = app.collapsed_panes();
     for (id, area) in slots {
@@ -149,14 +167,18 @@ fn render_split(
                     text.push_str(&format!(" · {age}"));
                 }
             }
-            frame.render_widget(
-                Paragraph::new(Line::styled(text, app.look().role(Role::Muted))),
+            let look = app.look();
+            strip::paint_left(
+                frame.buffer_mut(),
                 title,
+                Line::styled(text, look.role(Role::Muted)),
+                &look.theme,
+                look.depth,
             );
         } else {
-            let block = pane_block(pane);
-            let inner = block.inner(area);
-            frame.render_widget(block, area);
+            let outline = pane_block(pane);
+            let inner = outline.inner(area);
+            outline.paint(area, frame.buffer_mut());
             if !inner.is_empty() {
                 render_pane(frame, app, pane, inner);
             }

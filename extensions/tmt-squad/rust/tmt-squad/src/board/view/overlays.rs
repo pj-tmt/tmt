@@ -1,14 +1,11 @@
 //! Overlay dispatch and existing action-menu/switcher paint.
 
-use super::fit;
 use crate::board::app::{App, Switcher};
 use crate::config::TabColors;
-use ratatui::widgets::{Block, Borders, Clear, Paragraph};
 use ratatui::{
     Frame,
     layout::Rect,
     style::{Modifier, Style},
-    text::Line,
 };
 use tmt_cli_style::mark::Mark;
 
@@ -17,39 +14,12 @@ pub(super) fn render(frame: &mut Frame, app: &App, body: Rect, look: crate::look
         crate::board::help::render(frame, app, body);
     }
     if let Some(menu) = &app.menu {
-        let height = (menu.entries.len() as u16 + 2).min(body.height);
-        let width = body.width.min(48);
-        let area = Rect {
-            x: body.x + (body.width - width) / 2,
-            y: body.y + (body.height - height) / 2,
-            width,
-            height,
-        };
-        let lines: Vec<Line> = menu
-            .entries
-            .iter()
-            .enumerate()
-            .map(|(index, entry)| {
-                let line = Line::from(fit(
-                    &format!(" {:<9} {}", entry.key, entry.label),
-                    usize::from(width.saturating_sub(2)),
-                ));
-                if index == menu.selected {
-                    line.style(Style::new().add_modifier(Modifier::REVERSED))
-                } else {
-                    line
-                }
+        menu.surface
+            .borrow_mut()
+            .get_or_insert_with(|| {
+                crate::board::menu_surface::MenuSurface::new(&menu.title, &menu.entries)
             })
-            .collect();
-        frame.render_widget(Clear, area);
-        frame.render_widget(
-            Paragraph::new(lines).block(
-                Block::new()
-                    .borders(Borders::ALL)
-                    .title(format!(" {} · Enter runs, Esc closes ", menu.title)),
-            ),
-            area,
-        );
+            .render(&menu.entries, menu.selected, frame, look, body);
     }
     if let Some(switcher) = &app.switcher {
         render_switcher(frame, app, switcher, body);

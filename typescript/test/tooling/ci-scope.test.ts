@@ -555,6 +555,7 @@ describe('component map', () => {
     // them: they check inputs that Squad-only changes can also change.
     const alwaysRun = [
       'typescript/test/tooling/ci-scope.test.ts',
+      'typescript/test/tooling/component-skills.test.ts',
       'typescript/test/tooling/release-cut.test.ts',
       'typescript/test/tooling/release-cut-live.test.ts',
       'typescript/test/tooling/release-version-injection.test.ts',

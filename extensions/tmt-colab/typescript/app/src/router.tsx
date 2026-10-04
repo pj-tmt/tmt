@@ -22,7 +22,8 @@ import type { RenderState, SelectionRect } from './renderer.js';
 import { text } from './strings.js';
 import { ExportPanel } from './export-panel.js';
 import { PageDrawer } from './page-drawer.js';
-import { AskControl, AskPanel } from './ask-panel.js';
+import { ChatPanel } from './chat-panel.js';
+import { isChatThread } from './thread-records.js';
 
 function SelectionAnnotation({
   host,
@@ -315,8 +316,9 @@ function Page() {
   const snapshot = page.useLoaderData();
   const backendName = transport.backendName?.trim();
   const backendLabel = backendName ? `local · ${backendName}` : 'local';
-  const [panel, setPanel] = useState<'source' | 'comments' | 'ask' | 'export' | null>(null);
+  const [panel, setPanel] = useState<'source' | 'comments' | 'chat' | 'export' | null>(null);
   const [menu, setMenu] = useState(false);
+  const [chatOpened, setChatOpened] = useState(false);
   const toolbar = useRef<HTMLElement>(null);
   useEffect(() => {
     if (!menu) return;
@@ -338,6 +340,7 @@ function Page() {
   }, [menu]);
   const toggle = (value: typeof panel) => {
     setMenu(false);
+    if (value === 'chat') setChatOpened(true);
     setPanel((previous) => (previous === value ? null : value));
   };
   const [view, setView] = useState<PageView>({
@@ -419,7 +422,6 @@ function Page() {
       setReconnectFailed(true);
     }
   }
-  const [selection, setSelection] = useState('');
   const [selector, setSelector] = useState<QuoteSelector | null>(null);
   const currentSelector = useRef<QuoteSelector | null>(null);
   const [rectangle, setRectangle] = useState<SelectionRect | null>(null);
@@ -433,6 +435,7 @@ function Page() {
     setAnnotation(undefined);
     setActiveThread(null);
     setPanel(null);
+    setChatOpened(false);
   }, [snapshot.id]);
   function annotate() {
     if (!currentSelector.current || !currentRectangle.current) return;
@@ -472,7 +475,6 @@ function Page() {
       return () => controller.abort();
     }
     setState('loading');
-    setSelection('');
     setSelector(null);
     currentSelector.current = null;
     currentRectangle.current = null;
@@ -484,8 +486,7 @@ function Page() {
       onState: setState,
       viewportInset: () =>
         (toolbar.current?.offsetHeight ?? 56) + (toolbar.current?.getBoundingClientRect().top ?? 0),
-      onSelection: (value, quote, rect) => {
-        setSelection(value);
+      onSelection: (_value, quote, rect) => {
         setSelector(quote ?? null);
         currentSelector.current = quote ?? null;
         currentRectangle.current = rect ?? null;
@@ -588,14 +589,14 @@ function Page() {
             <span>{text[snapshot.sharing]}</span>
           </div>
           <button
-            data-testid="ask-toggle"
-            aria-label="Agent conversations"
-            aria-expanded={panel === 'ask'}
+            data-testid="chat-toggle"
+            aria-label="Chat"
+            aria-expanded={panel === 'chat'}
             onClick={(event) => {
-              if (event.isTrusted) toggle('ask');
+              if (event.isTrusted) toggle('chat');
             }}
           >
-            {text.askShort}
+            Chat
           </button>
           <button
             data-testid="comments-toggle"
@@ -735,7 +736,7 @@ function Page() {
         <ThreadPanel
           hideHeader
           key={`discussion:${snapshot.id}`}
-          threads={view.threads ?? []}
+          threads={(view.threads ?? []).filter((thread) => !isChatThread(thread))}
           resolved={resolved}
           selection={selector}
           binding={liveError === managementChanged ? undefined : snapshot.binding?.discussion}
@@ -748,21 +749,21 @@ function Page() {
           blocked={!!liveError || state !== 'ready'}
         />
       </PageDrawer>
-      <PageDrawer open={panel === 'ask'} title={text.ask} kind="ask" close={() => setPanel(null)}>
-        <AskControl
-          key={`ask-control:${snapshot.id}`}
-          binding={liveError === managementChanged ? undefined : snapshot.binding?.ask}
-          selection={selection}
-          title={view.title || snapshot.title}
-          blocked={!!liveError || state !== 'ready'}
-        />
+      <PageDrawer open={panel === 'chat'} title="Chat" kind="chat" close={() => setPanel(null)}>
         {view.askUnavailable && <p role="status">{text.askObservationUnavailable}</p>}
-        <AskPanel
-          key={`ask-panel:${snapshot.id}`}
-          records={view.asks ?? []}
-          binding={liveError === managementChanged ? undefined : snapshot.binding?.ask}
-          blocked={!!liveError}
-        />
+        {chatOpened && (
+          <ChatPanel
+            key={`chat:${snapshot.id}`}
+            threads={view.threads ?? []}
+            asks={view.asks ?? []}
+            binding={liveError === managementChanged ? undefined : snapshot.binding?.ask}
+            discussion={liveError === managementChanged ? undefined : snapshot.binding?.discussion}
+            title={view.title || snapshot.title}
+            publisher={view.publisherAgent}
+            blocked={!!liveError || state !== 'ready'}
+            close={() => setPanel(null)}
+          />
+        )}
       </PageDrawer>
     </section>
   );

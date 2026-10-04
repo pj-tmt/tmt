@@ -73,7 +73,7 @@ describe('macOS toolchain warm-up before the native runtime proof', () => {
 
   it.each([
     '.github/workflows/ci.yml',
-    '.github/workflows/native-release-bundle.yml',
+    '.github/workflows/native-release-prepare.yml',
     '.github/workflows/native-release-smoke.yml',
     '.github/workflows/public-install-smoke-pr.yml',
     '.github/workflows/native-intel.yml',

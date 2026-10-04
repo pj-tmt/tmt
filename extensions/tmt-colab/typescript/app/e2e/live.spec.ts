@@ -1030,29 +1030,37 @@ result:async()=>({state:'replied',requestId:'${requestId}',message:${JSON.string
     getSelection()!.removeAllRanges();
     getSelection()!.addRange(range);
   });
-  await page.getByTestId('ask-toggle').click();
-  await page.getByTestId('ask-action').click();
-  await page.getByRole('combobox', { name: /Choose an agent/ }).click();
-  await page.getByTestId('ask-agent-option').click();
-  await page.getByRole('button', { name: 'Ask agent — preview', exact: true }).click();
-  deliveredMessage = await page.getByTestId('ask-preview-text').textContent();
-  await page.getByTestId('ask-send').click();
+  await page.getByTestId('chat-toggle').click();
+  const input = page.getByTestId('chat-panel').getByRole('combobox', { name: 'Message to agent' });
+  await input.fill('@');
+  await page.getByRole('option').click();
+  await input.fill('@Wire agent Explain this page.');
+  await page
+    .getByTestId('chat-panel')
+    .getByText('Show exactly what is sent', { exact: true })
+    .click();
+  deliveredMessage = await page
+    .getByTestId('chat-panel')
+    .getByTestId('annotation-exact-bytes')
+    .textContent();
+  await input.press('Enter');
   await expect(page.getByTestId('ask-reply')).toHaveText(reply);
   expect(sends).toBe(1);
   await expect(page.getByTestId('ask-entry')).toHaveAttribute('data-operation-id', operationId!);
   await expect(page.getByTestId('ask-state')).toHaveAttribute('data-state', 'accepted');
-  await expect(page.getByTestId('ask-reply-attribution')).toContainText('Reply from Wire agent');
+  await expect(page.getByTestId('ask-reply-attribution')).toContainText('Wire agent');
   await expect(page.getByTestId('ask-panel').locator('script')).toHaveCount(0);
   await expect(heading).toHaveText('Live fixture');
   await f.settled();
-  expect(f.entries.map((row) => row.seq)).toEqual(['1', '2', '3', '4', '5']);
+  expect(f.entries.map((row) => row.seq)).toEqual(['1', '2', '3', '4', '5', '6']);
   await page.reload();
+  await page.getByTestId('chat-toggle').click();
   await expect(page.getByTestId('ask-reply')).toHaveText(reply);
   await expect(page.getByTestId('ask-entry')).toHaveAttribute('data-operation-id', operationId!);
   await expect(heading).toHaveText('Live fixture');
   await f.settled();
   expect(sends).toBe(1);
-  expect(f.entries).toHaveLength(5);
+  expect(f.entries).toHaveLength(6);
   await page.getByRole('link', { name: 'Space home' }).click();
   await expect.poll(() => f.connections).toBe(0);
 });

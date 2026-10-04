@@ -152,6 +152,34 @@ fn tokens(text: &str) -> Result<Vec<String>, String> {
 }
 
 impl Action {
+    /// Where the action sits in a list of choices, by what people do: the
+    /// selected row's actions first, then the board's. It orders the action menu,
+    /// not help, whose sections follow the configured bindings.
+    pub fn order(&self) -> u8 {
+        let lead = self.args.first().and_then(Template::literal) == Some("lead");
+        match self.verb {
+            Verb::Reply => 0,
+            Verb::Talk => 1,
+            Verb::Annotate => 2,
+            Verb::Jump if !lead => 3,
+            Verb::Open => 4,
+            Verb::Copy => 5,
+            Verb::Notes => 6,
+            Verb::Run => 7,
+            Verb::Tab => 8,
+            Verb::AskLead => 10,
+            Verb::Jump => 11,
+            Verb::View => 12,
+            Verb::Theme => 13,
+            Verb::Settings => 14,
+            Verb::Refresh => 15,
+            Verb::PickTab => 16,
+            Verb::Toggle => 17,
+            Verb::Back => 18,
+            Verb::Menu | Verb::NextPane | Verb::TokenWindow => 19,
+        }
+    }
+
     /// Plain-language binding wording shared by help and settings. Describing an
     /// action never fills templates, resolves a member or executes a program.
     pub fn description(&self) -> String {
@@ -165,7 +193,7 @@ impl Action {
             Verb::Notes => "show the lead's notes".into(),
             Verb::Refresh => "refresh the board now".into(),
             Verb::TokenWindow => "switch the token time window".into(),
-            Verb::PickTab => "include or exclude a tab on this board".into(),
+            Verb::PickTab => "pick or unpick a tab on this board".into(),
             Verb::Theme => "pick a theme".into(),
             Verb::Settings => "show settings".into(),
             Verb::View => "pick a pane layout".into(),
@@ -426,6 +454,7 @@ mod tests {
             }
         }
         for (configured, description) in [
+            ("pick-tab", "pick or unpick a tab on this board"),
             ("jump", "go to the member's pane"),
             ("jump lead", "go to the lead's pane"),
             ("annotate member", "send the member a note"),
@@ -560,6 +589,14 @@ mod tests {
             assert_eq!(bindings["ctrl-r"].verb, Verb::Refresh);
             assert!(!bindings.contains_key("f5"));
         }
+    }
+
+    #[test]
+    fn choices_order_the_rows_actions_before_the_boards() {
+        let rank = |line: &str| Action::parse(line).expect(line).order();
+        assert!(rank("jump") < rank("open") && rank("notes") < rank("ask-lead"));
+        assert!(rank("jump lead") > rank("copy") && rank("jump lead") < rank("back"));
+        assert!(rank("reply") < rank("talk") && rank("theme") < rank("settings"));
     }
 
     #[test]

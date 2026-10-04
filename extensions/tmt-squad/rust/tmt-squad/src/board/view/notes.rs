@@ -136,53 +136,48 @@ pub(super) fn render_notes(frame: &mut Frame, app: &App, area: Rect) {
             }
         }
     }
-    let (offset, viewport) = app.scrolls.show_with(
-        frame,
-        Pane::Notes,
-        area,
-        lines,
-        look.role(Role::Dim),
-        |at, line| {
-            let mut line = line.clone();
-            let mut cell = 0;
-            for span in &mut line.spans {
-                let end = cell + span.width();
-                if notes.hits.iter().any(|hit| {
-                    hit.line == at
-                        && Some(hit.link) == selected_link
-                        && hit.start < end
-                        && hit.end > cell
-                }) {
-                    span.style = look
-                        .row_span(true, span.style, false)
-                        .add_modifier(Modifier::BOLD);
-                }
-                cell = end;
-            }
-            let is_selected = sources.get(at).copied() == selected && selected.is_some();
-            if is_selected {
-                line.style = look.selection();
+    let (offset, viewport) =
+        app.scrolls
+            .show_with(frame, Pane::Notes, area, lines, look, |at, line| {
+                let mut line = line.clone();
+                let mut cell = 0;
                 for span in &mut line.spans {
-                    span.style = look.row_span(true, span.style, false);
+                    let end = cell + span.width();
+                    if notes.hits.iter().any(|hit| {
+                        hit.line == at
+                            && Some(hit.link) == selected_link
+                            && hit.start < end
+                            && hit.end > cell
+                    }) {
+                        span.style = look
+                            .row_span(true, span.style, false)
+                            .add_modifier(Modifier::BOLD);
+                    }
+                    cell = end;
                 }
-            }
-            line.spans.insert(
-                0,
-                Span::styled(
-                    if marked.contains(&at) { "✎ " } else { "  " },
-                    look.row_span(is_selected, look.role(Role::Muted), false),
-                ),
-            );
-            if is_selected {
-                let rest = usize::from(area.width).saturating_sub(line.width());
-                line.spans.push(Span::styled(
-                    " ".repeat(rest),
-                    look.row_span(true, Style::default(), false),
-                ));
-            }
-            line
-        },
-    );
+                let is_selected = sources.get(at).copied() == selected && selected.is_some();
+                if is_selected {
+                    line.style = look.selection();
+                    for span in &mut line.spans {
+                        span.style = look.row_span(true, span.style, false);
+                    }
+                }
+                line.spans.insert(
+                    0,
+                    Span::styled(
+                        if marked.contains(&at) { "✎ " } else { "  " },
+                        look.row_span(is_selected, look.role(Role::Muted), false),
+                    ),
+                );
+                if is_selected {
+                    let rest = usize::from(area.width).saturating_sub(line.width());
+                    line.spans.push(Span::styled(
+                        " ".repeat(rest),
+                        look.row_span(true, Style::default(), false),
+                    ));
+                }
+                line
+            });
     app.link_hits.borrow_mut().extend(
         notes
             .hits

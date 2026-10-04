@@ -28,8 +28,9 @@ async function mount(page: Page, source: string, reader: boolean) {
     },
     { source, reader },
   );
-  if (reader) await expect(page.getByRole('status')).toHaveText('● Live');
-  else await expect(page.locator('.page-bar .status')).toContainText('Live preview');
+  await expect(page.locator(reader ? '.reader-bar .status' : '.page-bar .status')).toContainText(
+    reader ? 'Live' : 'Live preview',
+  );
   await page.evaluate(() => (window as unknown as { firstHeight: Promise<void> }).firstHeight);
 }
 const html = `<style>body{margin:0}main{padding:24px}.space{height:2200px}.tail{height:1000px}</style>

@@ -2,8 +2,18 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { readFileSync, writeFileSync, lstatSync, readlinkSync } from 'node:fs';
-import { relative, resolve } from 'node:path';
+import {
+  closeSync,
+  lstatSync,
+  mkdtempSync,
+  openSync,
+  readFileSync,
+  readlinkSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseComponentMap } from './ci-scope.mjs';
 import { componentOfProduct, releasePolicy } from './native-release-policy.mjs';
@@ -27,13 +37,27 @@ const TOOL = resolve(
 // The private Rust release tool owns TOML parsing and formatting-preserving edits.
 function tomlCommand(args, source) {
   const started = Date.now();
-  const result = spawnSync(TOOL, args, {
-    input: source,
-    encoding: 'utf8',
-    timeout: 60_000,
-    maxBuffer: 64 * 1024 * 1024,
-  });
-  // Every call is timed so a runner stall (#1646) names the call and its input size.
+  // Stdin is a file descriptor, not a pipe write: on macOS runners the pipe transfer of an input
+  // above the 64 KiB pipe buffer (the full Cargo.lock) intermittently stalled for the whole
+  // 60s bound while smaller inputs took milliseconds (#1646).
+  const directory = mkdtempSync(join(tmpdir(), 'tmt-toml-input-'));
+  let fd;
+  let result;
+  try {
+    const file = join(directory, 'input.toml');
+    writeFileSync(file, source ?? '', { mode: 0o600 });
+    fd = openSync(file, 'r');
+    result = spawnSync(TOOL, args, {
+      stdio: [fd, 'pipe', 'pipe'],
+      encoding: 'utf8',
+      timeout: 60_000,
+      maxBuffer: 64 * 1024 * 1024,
+    });
+  } finally {
+    if (fd !== undefined) closeSync(fd);
+    rmSync(directory, { recursive: true, force: true });
+  }
+  // Every call is timed so a runner stall names the call and its input size.
   const outcome = result.error ? `failed (${result.error.code ?? result.error.message})` : 'ok';
   process.stderr.write(
     `release-version ${args[0]}: ${Buffer.byteLength(source ?? '')} input bytes, ${Date.now() - started}ms, ${outcome}\n`

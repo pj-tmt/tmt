@@ -1,0 +1,103 @@
+import { useEffect, useRef, type ReactNode } from 'react';
+import { AnnotationInput } from './annotation-input.js';
+import { AskPanel, type AskBinding, type PageAsk } from './ask-panel.js';
+import { DiscussionComment } from './thread-panel.js';
+import { isChatThread, type ThreadView } from './thread-records.js';
+import type { ThreadBinding } from './thread-store.js';
+
+/** All chat history is page-visible; only this device's designated thread receives its next turn. */
+export function ChatPanel({
+  threads,
+  asks,
+  binding,
+  discussion,
+  publisher,
+  title,
+  blocked,
+  close,
+}: {
+  threads: readonly ThreadView[];
+  asks: readonly PageAsk[];
+  binding?: AskBinding;
+  discussion?: ThreadBinding;
+  publisher?: string;
+  title: string;
+  blocked: boolean;
+  close(): void;
+}) {
+  const history = useRef<HTMLDivElement>(null);
+  const chats = threads.filter(isChatThread);
+  const own = chats.find((thread) => thread.ref.writer === discussion?.deviceId);
+  const legacy = asks.filter((ask) => !ask.thread);
+  useEffect(() => {
+    const node = history.current;
+    if (node) node.scrollTop = node.scrollHeight;
+  }, [threads, asks]);
+  return (
+    <section className="chat-panel" data-testid="chat-panel" aria-label="Page chat">
+      <p className="chat-visibility">Visible to everyone with page access.</p>
+      <div className="chat-messages" ref={history}>
+        {!chats.length && !legacy.length && (
+          <p className="isolation-note">Talk with an agent about this page.</p>
+        )}
+        {chats.map((thread) => (
+          <section
+            key={`${thread.ref.writer}:${thread.threadId}`}
+            data-testid="chat-thread"
+            data-thread-id={thread.threadId}
+            data-writer={thread.ref.writer}
+          >
+            {thread.comments.map((comment) => {
+              const records = asks.filter(
+                (record) =>
+                  record.thread === thread.threadId &&
+                  record.messageIds?.includes(comment.messageId),
+              );
+              const user = (status?: ReactNode, delivery?: ReactNode) => (
+                <DiscussionComment
+                  comment={comment}
+                  thread={thread}
+                  binding={discussion}
+                  asks={asks}
+                  blocked={blocked}
+                  chat
+                  status={status}
+                  delivery={delivery}
+                />
+              );
+              return records.length ? (
+                <AskPanel
+                  key={`${comment.ref.writer}:${comment.messageId}`}
+                  inline
+                  chat
+                  records={records}
+                  binding={binding}
+                  blocked={blocked}
+                  renderUser={(_record, status, delivery) => user(status, delivery)}
+                />
+              ) : (
+                <div key={`${comment.ref.writer}:${comment.messageId}`}>{user()}</div>
+              );
+            })}
+          </section>
+        ))}
+        {legacy.length > 0 && (
+          <AskPanel records={legacy} binding={binding} blocked={blocked} chat />
+        )}
+      </div>
+      <AnnotationInput
+        chat
+        binding={binding}
+        discussion={discussion}
+        anchor={null}
+        thread={own}
+        asks={asks}
+        title={title}
+        publisher={publisher}
+        blocked={blocked || !!own?.deleted}
+        cancel={close}
+        committed={() => {}}
+      />
+    </section>
+  );
+}

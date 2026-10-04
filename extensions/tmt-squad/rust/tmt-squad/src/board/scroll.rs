@@ -3,9 +3,11 @@
 //! an overflow indicator. Panes hand their lines to [`Scrolls::show`]; none
 //! keeps a scroll position of its own.
 
-use crate::config::Pane;
-use ratatui::{Frame, layout::Rect, style::Style, text::Line, widgets::Paragraph};
+use crate::{config::Pane, look::Look};
+use ratatui::{Frame, layout::Rect, text::Line};
 use std::{cell::RefCell, collections::BTreeMap};
+use tmt_cli_style::Role;
+use tmt_tui::components::strip;
 
 /// Lines one wheel notch moves.
 pub const WHEEL_LINES: usize = 3;
@@ -141,9 +143,9 @@ impl Scrolls {
         pane: Pane,
         area: Rect,
         lines: impl AsRef<[Line<'a>]>,
-        dim: Style,
+        look: Look,
     ) -> (usize, usize) {
-        self.show_with(frame, pane, area, lines.as_ref(), dim, |_, line| {
+        self.show_with(frame, pane, area, lines.as_ref(), look, |_, line| {
             line.clone()
         })
     }
@@ -155,7 +157,7 @@ impl Scrolls {
         pane: Pane,
         area: Rect,
         lines: &[Line<'a>],
-        dim: Style,
+        look: Look,
         mut decorate: impl FnMut(usize, &Line<'a>) -> Line<'a>,
     ) -> (usize, usize) {
         self.show_paint(
@@ -163,18 +165,22 @@ impl Scrolls {
             pane,
             area,
             lines.len(),
-            dim,
+            look,
             |frame, body, offset| {
-                frame.render_widget(
-                    Paragraph::new(
-                        lines[offset..(offset + usize::from(body.height)).min(lines.len())]
-                            .iter()
-                            .enumerate()
-                            .map(|(index, line)| decorate(offset + index, line))
-                            .collect::<Vec<_>>(),
-                    ),
-                    body,
-                );
+                let shown = &lines[offset..(offset + usize::from(body.height)).min(lines.len())];
+                for (index, line) in shown.iter().enumerate() {
+                    strip::paint_left(
+                        frame.buffer_mut(),
+                        Rect {
+                            y: body.y + index as u16,
+                            height: 1,
+                            ..body
+                        },
+                        decorate(offset + index, line),
+                        &look.theme,
+                        look.depth,
+                    );
+                }
             },
         )
     }
@@ -187,7 +193,7 @@ impl Scrolls {
         pane: Pane,
         area: Rect,
         content: usize,
-        dim: Style,
+        look: Look,
         paint: impl FnOnce(&mut Frame, Rect, usize),
     ) -> (usize, usize) {
         let viewport = Self::viewport(area, content);
@@ -221,9 +227,12 @@ impl Scrolls {
                 height: 1,
                 ..area
             };
-            frame.render_widget(
-                Paragraph::new(Line::styled(parts.join("  "), dim)).right_aligned(),
+            strip::paint_right(
+                frame.buffer_mut(),
                 indicator,
+                Line::styled(parts.join("  "), look.role(Role::Dim)),
+                &look.theme,
+                look.depth,
             );
         }
         (offset, viewport)

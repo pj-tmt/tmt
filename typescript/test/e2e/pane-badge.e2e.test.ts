@@ -95,9 +95,26 @@ describe('non-invasive pane badge presentation', { concurrent: false }, () => {
     });
   });
 
-  it('preserves titles and shared window layout with the default-off badge', async () => {
+  it('publishes the label by default without changing titles or shared window layout', async () => {
     await withE2EFixture(async (fixture) => {
       configureUserAppearance(fixture);
+      fixture.tmux(['new-session', '-d', '-t', 'e2e', '-s', 'grouped']);
+      const before = appearance(fixture);
+      expectJsonResult(await fixture.runJsonCli(['name', 'alice']));
+      expect(badge(fixture)).toBe('alice (tmt)');
+      expect(appearance(fixture)).toEqual(before);
+      expectJsonResult(await fixture.runJsonCli(['unbind']));
+      expect(badge(fixture)).toBe('');
+      expect(appearance(fixture)).toEqual(before);
+    });
+  });
+
+  it('preserves titles and shared window layout with the badge turned off', async () => {
+    await withE2EFixture(async (fixture) => {
+      configureUserAppearance(fixture);
+      expectJsonResult(
+        await fixture.runJsonCli(['config', 'set', 'ui.paneBadge', 'off', '--global'])
+      );
       fixture.tmux(['new-session', '-d', '-t', 'e2e', '-s', 'grouped']);
       const before = appearance(fixture);
       expectJsonResult(await fixture.runJsonCli(['name', 'alice']));

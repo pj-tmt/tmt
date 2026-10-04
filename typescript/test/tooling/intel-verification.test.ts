@@ -270,7 +270,7 @@ describe('Intel workflow coverage', () => {
   });
 
   it('moves all ordinary Intel rows to arm64 with an x64 Node and a whole-step execution preference', () => {
-    for (const name of ['ci.yml', 'native-release-bundle.yml', 'native-release-upgrade.yml']) {
+    for (const name of ['ci.yml', 'native-release-prepare.yml', 'native-release-upgrade.yml']) {
       const workflow = read(`.github/workflows/${name}`);
       expect(workflow, name).not.toContain('macos-15-intel');
       expect(workflow, name).toMatch(
@@ -313,7 +313,7 @@ describe('Intel workflow coverage', () => {
   });
 
   it('fails closed for candidate checkouts without Rosetta tooling and names the owner remedy', () => {
-    for (const name of ['native-release-bundle.yml', 'native-release-upgrade.yml']) {
+    for (const name of ['native-release-prepare.yml', 'native-release-upgrade.yml']) {
       const workflow = read(`.github/workflows/${name}`);
       const guard = workflow.indexOf('      - name: Require candidate Rosetta tooling');
       expect(guard).toBeGreaterThan(0);

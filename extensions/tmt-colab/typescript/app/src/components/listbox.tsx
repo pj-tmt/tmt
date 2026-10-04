@@ -290,7 +290,9 @@ export function Listbox<Value extends string>({
           </span>
         </button>
       )}
-      {inputTrigger ? createPortal(optionList, document.body) : optionList}
+      {inputTrigger
+        ? createPortal(optionList, trigger.current?.closest('dialog') ?? document.body)
+        : optionList}
     </div>
   );
 }
