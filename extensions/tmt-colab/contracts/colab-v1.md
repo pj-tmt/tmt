@@ -2202,6 +2202,7 @@ accepted Live fold may update the cache, through the current mounted registratio
 and tab lifetime. Reload can read the persisted encrypted hint; a different paired
 device or browser profile has its own cache. Leaving a page restores the home tab
 label. Local samples retain their existing source and title behavior.
+
 ### Conversation export (#1574)
 
 The two companion files are frozen from the same captured snapshot as `page.html` and
@@ -2270,7 +2271,6 @@ A bundle whose two conversation files together exceed 8 MiB fails with
 pages stay denied with the other export denials, because the fold has no archive-readable
 path yet (see above); deleted pages stay denied. A failed capture or publication exposes
 no download and follows the create-only rules above.
-
 
 ### Trusted browser space management (#1308)
 
