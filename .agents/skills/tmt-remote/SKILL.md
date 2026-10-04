@@ -41,6 +41,38 @@ for the bound descriptor). Direct invocation requires an absolute `TMT_EXECUTABL
 it never searches for another core. Ctrl-C/SIGTERM closes listeners, sockets and
 workers. Limits are named in `src/limits.rs`.
 
+## Door discovery and restart checks
+
+Local extensions attach through `tmt remote status --json` or supervise a foreground
+`tmt remote serve --json`; the exact public documents belong to the
+[channel contract](../../../contracts/remote-channel-v1.md#local-cli-discovery).
+Serve remembers the bound port in Remote schema 5 (`door_port`) and reuses it when
+`--port` is omitted. Only a busy remembered port falls back; explicit `--port 0`
+uses an unused port and explicit nonzero busy ports refuse. The move notice goes to
+stderr, while the human full door URL occupies its own stdout line.
+
+Status resolves core's public `storage.root` once, then uses the running control
+socket. With an absent or stale socket, it admits an existing private layout and takes
+an existing serve lease before opening SQLite read-only. It never calls
+`Store::open`, creates files, migrates old schemas or reads the machine key.
+Pre-schema-5 state reports no remembered port. Unsafe files, malformed/silent
+control replies and a held lease without reachable serve return errors.
+
+Verify from `rust/` using disposable HOME/XDG and task-owned children:
+
+```bash
+CARGO_BUILD_JOBS=2 cargo test --offline --locked -p tmt-remote --test cli
+CARGO_BUILD_JOBS=2 cargo test --offline --locked -p tmt-remote --test cli
+CARGO_BUILD_JOBS=2 cargo test --offline --locked -p tmt-remote --test state
+CARGO_BUILD_JOBS=2 cargo test --offline --locked -p tmt-extension-state
+```
+
+CLI cases assert exact status shapes, unchanged stopped-state bytes/mtimes/files,
+same-origin restarts, occupied-port fallback and notice, explicit port choices,
+standalone human URLs, and listener/socket/child cleanup. State cases cover
+non-creating reads, legacy schema without migration, and damaged remembered ports.
+Readiness is the serve output event; no real account, model or core database is used.
+
 ## Shared extension state
 
 [The state leaf](../../../ARCHITECTURE.md#shared-extension-state-layout) is

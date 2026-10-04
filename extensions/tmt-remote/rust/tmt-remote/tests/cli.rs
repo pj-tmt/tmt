@@ -2,7 +2,7 @@ use serde_json::Value;
 use std::{
     fs,
     io::{BufRead, BufReader, Read, Write},
-    net::TcpStream,
+    net::{TcpListener, TcpStream},
     os::unix::{
         fs::PermissionsExt,
         net::{UnixListener, UnixStream},
@@ -50,7 +50,12 @@ impl Pilot {
     }
     fn command(&self) -> Command {
         let mut cmd = Command::new(BINARY);
-        cmd.env("HOME", &self.root)
+        cmd.env_clear()
+            .env("PATH", "/usr/bin:/bin")
+            .env("TMPDIR", &self.root)
+            .env("XDG_STATE_HOME", self.root.join("xdg-state"))
+            .env("XDG_CACHE_HOME", self.root.join("cache"))
+            .env("HOME", &self.root)
             .env("XDG_CONFIG_HOME", self.root.join("config"))
             .env("XDG_DATA_HOME", self.root.join("data"))
             .env("TMT_EXECUTABLE", self.root.join("core"));
@@ -283,7 +288,11 @@ fn terminate(mut child: Child) {
             assert!(status.success());
             return;
         }
-        assert!(Instant::now() < deadline, "foreground process leaked");
+        if Instant::now() >= deadline {
+            let _ = child.kill();
+            child.wait().unwrap();
+            panic!("foreground process leaked");
+        }
         std::thread::sleep(Duration::from_millis(10));
     }
 }
@@ -806,4 +815,351 @@ fn device_events_follow_cli_rename_and_replay_an_offline_revoke_on_restart() {
         assert!(!root.join("remote/control.sock").exists());
         drop(callback);
     }
+}
+
+/// Keep each started child in the fixture before reading readiness, including
+/// on assertion failure. Readiness is an output event, not a fixed delay.
+fn start_door(pilot: &mut Pilot, options: &[&str], human: bool) -> String {
+    let mut command = pilot.command();
+    command.arg("serve").args(options);
+    if !human {
+        command.arg("--json");
+    }
+    pilot.child = Some(
+        command
+            .stdout(Stdio::piped())
+            .stderr(fs::File::create(pilot.root.join("serve.stderr")).unwrap())
+            .spawn()
+            .unwrap(),
+    );
+    let pipe = pilot.child.as_mut().unwrap().stdout.take().unwrap();
+    let (sender, receiver) = mpsc::channel();
+    let reader = std::thread::spawn(move || {
+        let mut pipe = BufReader::new(pipe);
+        let mut output = String::new();
+        for _ in 0..if human { 2 } else { 1 } {
+            pipe.read_line(&mut output).unwrap();
+        }
+        let _ = sender.send(output);
+    });
+    let result = receiver.recv_timeout(STARTUP);
+    if result.is_err() {
+        let child = pilot.child.as_mut().unwrap();
+        let _ = child.kill();
+        child.wait().unwrap();
+    }
+    reader.join().unwrap();
+    result.unwrap()
+}
+fn status_json(pilot: &Pilot) -> Value {
+    let result = pilot.command().args(["status", "--json"]).output().unwrap();
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stdout)
+    );
+    assert!(result.stderr.is_empty());
+    serde_json::from_slice(&result.stdout).unwrap()
+}
+fn address_parts(address: &str) -> (&str, &str, u16) {
+    let split = address.find("/r/").unwrap();
+    let (origin, path) = address.split_at(split);
+    let port = origin
+        .strip_prefix("http://127.0.0.1:")
+        .unwrap()
+        .parse()
+        .unwrap();
+    (origin, path, port)
+}
+fn stopped_files(pilot: &Pilot) -> Vec<(std::ffi::OsString, Vec<u8>, std::time::SystemTime)> {
+    let mut files: Vec<_> = fs::read_dir(pilot.root.join("state/remote"))
+        .unwrap()
+        .map(|entry| {
+            let entry = entry.unwrap();
+            (
+                entry.file_name(),
+                fs::read(entry.path()).unwrap(),
+                entry.metadata().unwrap().modified().unwrap(),
+            )
+        })
+        .collect();
+    files.sort_by(|left, right| left.0.cmp(&right.0));
+    files
+}
+#[test]
+fn status_does_not_create_remote_state_and_help_needs_no_core() {
+    let pilot = Pilot::new();
+    let help = pilot.command().args(["status", "--help"]).output().unwrap();
+    assert!(help.status.success());
+    assert!(!pilot.root.join("calls").exists());
+    assert_eq!(
+        status_json(&pilot),
+        serde_json::json!({"running":false,"lastPort":null})
+    );
+    assert!(!pilot.root.join("state").exists());
+    assert_eq!(
+        fs::read_to_string(pilot.root.join("calls")).unwrap(),
+        "api\n"
+    );
+    let missing = pilot
+        .command()
+        .env_remove("TMT_EXECUTABLE")
+        .args(["status", "--json"])
+        .output()
+        .unwrap();
+    assert!(!missing.status.success());
+    assert_eq!(
+        serde_json::from_slice::<Value>(&missing.stdout).unwrap()["error"]["code"],
+        "REMOTE_CORE_UNAVAILABLE"
+    );
+    executable_fixture::write_executable(&pilot.root.join("core"),
+        "printf '%s' '{\"error\":{\"code\":\"STORAGE_NOT_WRITABLE\",\"message\":\"fixture root unavailable\"}}'\nexit 1\n").unwrap();
+    let failed = pilot.command().args(["status", "--json"]).output().unwrap();
+    assert!(!failed.status.success());
+    assert_eq!(
+        serde_json::from_slice::<Value>(&failed.stdout).unwrap()["error"]["code"],
+        "REMOTE_CORE_UNAVAILABLE"
+    );
+    assert!(!pilot.root.join("state").exists());
+}
+#[test]
+fn default_port_and_exact_live_status_survive_restart_without_status_mutations() {
+    for _ in 0..2 {
+        let mut pilot = Pilot::new();
+        let first: Value = serde_json::from_str(&start_door(&mut pilot, &[], false)).unwrap();
+        let address = first["address"].as_str().unwrap();
+        let (origin, path, port) = address_parts(address);
+        let database = fs::read(pilot.root.join("state/remote/remote.db")).unwrap();
+        assert_eq!(
+            status_json(&pilot),
+            serde_json::json!({"running":true,"origin":origin,"path":path})
+        );
+        assert_eq!(
+            fs::read(pilot.root.join("state/remote/remote.db")).unwrap(),
+            database
+        );
+        terminate(pilot.child.take().unwrap());
+        let files = stopped_files(&pilot);
+        assert_eq!(
+            status_json(&pilot),
+            serde_json::json!({"running":false,"lastPort":port})
+        );
+        assert_eq!(
+            stopped_files(&pilot),
+            files,
+            "status changed state bytes, mtimes or inventory"
+        );
+        let restarted: Value = serde_json::from_str(&start_door(&mut pilot, &[], false)).unwrap();
+        assert_eq!(restarted["address"], first["address"]);
+        assert_eq!(restarted["machineId"], first["machineId"]);
+        assert_ne!(restarted["windowId"], first["windowId"]);
+        terminate(pilot.child.take().unwrap());
+        assert!(TcpStream::connect(format!("127.0.0.1:{port}")).is_err());
+        assert!(!pilot.root.join("state/remote/control.sock").exists());
+    }
+}
+#[test]
+fn busy_remembered_port_moves_with_one_notice_and_a_standalone_human_url() {
+    for human in [false, true] {
+        let mut pilot = Pilot::new();
+        let first: Value = serde_json::from_str(&start_door(&mut pilot, &[], false)).unwrap();
+        let (old_origin, _, old_port) = address_parts(first["address"].as_str().unwrap());
+        terminate(pilot.child.take().unwrap());
+        let occupied = TcpListener::bind(("127.0.0.1", old_port)).unwrap();
+        let started = start_door(&mut pilot, &[], human);
+        let address = if human {
+            let lines: Vec<_> = started.lines().collect();
+            assert_eq!(lines.len(), 2);
+            assert_eq!(
+                lines[0],
+                "warning: Door ready; pair a device with tmt remote pair"
+            );
+            lines[1].to_owned()
+        } else {
+            serde_json::from_str::<Value>(&started).unwrap()["address"]
+                .as_str()
+                .unwrap()
+                .to_owned()
+        };
+        let (new_origin, path, new_port) = address_parts(&address);
+        assert_ne!(new_port, old_port);
+        assert_eq!(
+            status_json(&pilot),
+            serde_json::json!({"running":true,"origin":new_origin,"path":path})
+        );
+        let notice = fs::read_to_string(pilot.root.join("serve.stderr")).unwrap();
+        assert_eq!(notice.lines().count(), 1);
+        assert!(
+            notice.contains(&format!("Door moved from {old_origin} to {new_origin}")),
+            "{notice}"
+        );
+        assert!(notice.contains("browsers must re-pair"));
+        assert!(notice.contains(&format!("tmt remote serve --port {old_port}")));
+        terminate(pilot.child.take().unwrap());
+        assert_eq!(
+            status_json(&pilot),
+            serde_json::json!({"running":false,"lastPort":new_port})
+        );
+        drop(occupied);
+        let next: Value = serde_json::from_str(&start_door(&mut pilot, &[], false)).unwrap();
+        assert_eq!(next["address"], address);
+        assert!(
+            fs::read(pilot.root.join("serve.stderr"))
+                .unwrap()
+                .is_empty()
+        );
+        terminate(pilot.child.take().unwrap());
+    }
+}
+#[test]
+fn explicit_zero_ignores_the_remembered_port_and_explicit_busy_does_not_fallback() {
+    let mut pilot = Pilot::new();
+    let first: Value = serde_json::from_str(&start_door(&mut pilot, &[], false)).unwrap();
+    let (_, _, port) = address_parts(first["address"].as_str().unwrap());
+    terminate(pilot.child.take().unwrap());
+    let occupied = TcpListener::bind(("127.0.0.1", port)).unwrap();
+    let failed = pilot
+        .command()
+        .args(["serve", "--port", &port.to_string(), "--json"])
+        .output()
+        .unwrap();
+    assert!(!failed.status.success());
+    assert_eq!(
+        serde_json::from_slice::<Value>(&failed.stdout).unwrap()["error"]["code"],
+        "REMOTE_PORT_BUSY"
+    );
+    assert_eq!(
+        status_json(&pilot),
+        serde_json::json!({"running":false,"lastPort":port})
+    );
+    let random: Value =
+        serde_json::from_str(&start_door(&mut pilot, &["--port", "0"], false)).unwrap();
+    let (_, _, random_port) = address_parts(random["address"].as_str().unwrap());
+    assert_ne!(random_port, port);
+    assert!(
+        fs::read(pilot.root.join("serve.stderr"))
+            .unwrap()
+            .is_empty(),
+        "explicit 0 must not attempt remembered port"
+    );
+    terminate(pilot.child.take().unwrap());
+    drop(occupied);
+    let fixed: Value = serde_json::from_str(&start_door(
+        &mut pilot,
+        &["--port", &port.to_string()],
+        false,
+    ))
+    .unwrap();
+    assert_eq!(address_parts(fixed["address"].as_str().unwrap()).2, port);
+    terminate(pilot.child.take().unwrap());
+    assert_eq!(
+        status_json(&pilot),
+        serde_json::json!({"running":false,"lastPort":port})
+    );
+}
+#[test]
+fn status_refuses_unsafe_state_missing_lease_and_unresponsive_or_malformed_control() {
+    use std::os::unix::fs::symlink;
+    let mut pilot = Pilot::new();
+    start_door(&mut pilot, &[], false);
+    terminate(pilot.child.take().unwrap());
+    let directory = pilot.root.join("state/remote");
+    let refuse = |expected: &str| {
+        let result = pilot.command().args(["status", "--json"]).output().unwrap();
+        assert!(!result.status.success());
+        let error: Value = serde_json::from_slice(&result.stdout).unwrap();
+        assert_eq!(error.as_object().unwrap().len(), 1);
+        assert_eq!(error["error"]["code"], expected);
+        assert!(error["error"]["message"].is_string());
+    };
+    fs::set_permissions(&directory, fs::Permissions::from_mode(0o755)).unwrap();
+    refuse("REMOTE_STATE_UNSAFE");
+    fs::set_permissions(&directory, fs::Permissions::from_mode(0o700)).unwrap();
+    fs::rename(directory.join("remote.db"), directory.join("original.db")).unwrap();
+    symlink(directory.join("original.db"), directory.join("remote.db")).unwrap();
+    refuse("REMOTE_STATE_UNSAFE");
+    fs::remove_file(directory.join("remote.db")).unwrap();
+    fs::rename(directory.join("original.db"), directory.join("remote.db")).unwrap();
+    fs::remove_file(directory.join("serve.lock")).unwrap();
+    refuse("REMOTE_STATE_UNAVAILABLE");
+    let layout = tmt_remote::state::Layout::open(&pilot.root.join("state")).unwrap();
+    let held = layout.serve_lock().unwrap();
+    refuse("REMOTE_ALREADY_SERVING");
+    drop(held);
+    fs::write(directory.join("control.sock"), b"not a socket").unwrap();
+    refuse("REMOTE_STATE_UNSAFE");
+    fs::remove_file(directory.join("control.sock")).unwrap();
+    for (reply, expected) in [
+        (Some("{}\n"), "REMOTE_IO"),
+        (Some("{\"running\":false,\"lastPort\":null}\n"), "REMOTE_IO"),
+        (
+            Some("{\"error\":{\"code\":\"REMOTE_NOT_RUNNING\",\"message\":\"reported error\"}}\n"),
+            "REMOTE_NOT_RUNNING",
+        ),
+        (
+            Some(
+                "{\"running\":true,\"origin\":\"http://127.0.0.1:12345/\",\"path\":\"/r/0123456789abcdef0123456789abcdef\"}\n",
+            ),
+            "REMOTE_IO",
+        ),
+        (
+            Some(
+                "{\"running\":true,\"origin\":\"http://127.0.0.1:12345\",\"path\":\"/r/0123456789abcdef0123456789abcdef\",\"devices\":[]}\n",
+            ),
+            "REMOTE_IO",
+        ),
+        (None, "REMOTE_IO"),
+    ] {
+        let listener = UnixListener::bind(directory.join("control.sock")).unwrap();
+        fs::set_permissions(
+            directory.join("control.sock"),
+            fs::Permissions::from_mode(0o600),
+        )
+        .unwrap();
+        let (finish, finished) = mpsc::channel();
+        let peer = std::thread::spawn(move || {
+            use std::os::fd::AsFd;
+            let mut events = [nix::poll::PollFd::new(
+                listener.as_fd(),
+                nix::poll::PollFlags::POLLIN,
+            )];
+            assert!(
+                nix::poll::poll(&mut events, 15_000u16).unwrap() > 0,
+                "status never connected"
+            );
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut request = String::new();
+            BufReader::new(stream.try_clone().unwrap())
+                .read_line(&mut request)
+                .unwrap();
+            assert_eq!(request, "{\"op\":\"status\"}\n");
+            if let Some(reply) = reply {
+                stream.write_all(reply.as_bytes()).unwrap();
+            } else {
+                let _ = finished.recv_timeout(Duration::from_secs(15));
+            }
+        });
+        let before = Instant::now();
+        let result = pilot.command().args(["status", "--json"]).output().unwrap();
+        let elapsed = before.elapsed();
+        let _ = finish.send(());
+        peer.join().unwrap();
+        fs::remove_file(directory.join("control.sock")).unwrap();
+        assert!(elapsed < Duration::from_secs(10));
+        assert!(!result.status.success());
+        let error: Value = serde_json::from_slice(&result.stdout).unwrap();
+        assert_eq!(error.as_object().unwrap().len(), 1);
+        assert_eq!(error["error"]["code"], expected);
+    }
+    assert!(!status_json(&pilot)["running"].as_bool().unwrap());
+    // An owned stale socket does not claim a live door.
+    let listener = UnixListener::bind(directory.join("control.sock")).unwrap();
+    fs::set_permissions(
+        directory.join("control.sock"),
+        fs::Permissions::from_mode(0o600),
+    )
+    .unwrap();
+    drop(listener);
+    assert!(!status_json(&pilot)["running"].as_bool().unwrap());
+    fs::remove_file(directory.join("control.sock")).unwrap();
 }

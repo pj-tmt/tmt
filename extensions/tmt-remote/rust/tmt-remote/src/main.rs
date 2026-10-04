@@ -36,6 +36,17 @@ const ROOT: CommandSpec = CommandSpec {
     outputs: OutputModes::Human,
     details: "Paired devices dispatch through the public core API. Held sends require local approval. Core never listens.",
 };
+const STATUS: CommandSpec = CommandSpec {
+    name: "status",
+    summary: "Inspect the running door address without changing Remote state",
+    examples: &[Example {
+        command: "tmt remote status --json",
+        note: "Discover the live origin and route path, or the last port when stopped",
+    }],
+    outputs: OutputModes::HumanAndJson,
+    details: "Read-only; does not start the door or pair a device. Live addresses come from serve.
+Stopped status reports only the remembered port, which is not a live address.",
+};
 const PAIR: CommandSpec = CommandSpec {
     name: "pair",
     summary: "Authorize one device on the running remote",
@@ -94,7 +105,7 @@ const SERVE: CommandSpec = CommandSpec {
         note: "Print the bound descriptor for local testing",
     }],
     outputs: OutputModes::HumanAndJson,
-    details: "Runs in the foreground until Ctrl-C or SIGTERM; there is no default deadline.\nSigned direct sends reach core; held sends wait for local approval.\nMounts colab under <prefix>/x/colab/ while its owner-only socket exists.",
+    details: "Runs in the foreground until Ctrl-C or SIGTERM; there is no default deadline.\nSigned direct sends reach core; held sends wait for local approval.\nMounts colab under <prefix>/x/colab/ while its owner-only socket exists.\nWithout --port, reuse the last bound port; if busy, move to a free port. --port 0 selects a random unused port.",
 };
 const APPROVE: CommandSpec = CommandSpec {
     name: "approve",
@@ -126,11 +137,11 @@ fn grammar() -> Command {
             tmt_cli_style::command(&SERVE).arg(
                 Arg::new("port")
                     .long("port")
-                    .default_value("0")
                     .value_parser(clap::value_parser!(u16))
-                    .help("Loopback port; 0 selects an unused port"),
+                    .help("Loopback port; omitted reuses the last port, 0 selects an unused port"),
             ),
         )
+        .subcommand(tmt_cli_style::command(&STATUS))
         .subcommand(tmt_cli_style::command(&PAIR))
         .subcommand(tmt_cli_style::command(&APPROVE).arg(Arg::new("operation-id").required(true)))
         .subcommand(tmt_cli_style::command(&CANCEL).arg(Arg::new("operation-id").required(true)))
@@ -165,6 +176,9 @@ fn run(matches: &clap::ArgMatches) -> Result<(), RemoteError> {
     }
     if name == "pair" {
         return pair(arguments.get_flag("json"));
+    }
+    if name == "status" {
+        return status(arguments.get_flag("json"));
     }
     if name == "devices" {
         return devices(arguments);
@@ -208,8 +222,18 @@ fn run(matches: &clap::ArgMatches) -> Result<(), RemoteError> {
         let machine_key = MachineKey::open(&layout)?;
         let mut store = Store::open(&serving)?;
         let machine = store.machine()?;
+        let requested = serve.get_one::<u16>("port").copied();
+        let remembered = store.remembered_port()?;
+        let selected = requested.or(remembered).unwrap_or(0);
+        let (door, moved_from) = match Door::bind(selected) {
+            Ok(door) => (door, None),
+            Err(error) if requested.is_none() && error.code == "REMOTE_PORT_BUSY" => {
+                (Door::bind(0)?, Some(selected))
+            }
+            Err(error) => return Err(error),
+        };
+        let bound_port = door.socket_addr()?.port();
         let store = Arc::new(Mutex::new(store));
-        let door = Door::bind(*serve.get_one::<u16>("port").unwrap())?;
         // Each run is a new window; grants survive it, sessions do not.
         let window_id = uuid_v4()?;
         let pairing = Arc::new(Pairing::new(
@@ -241,7 +265,10 @@ fn run(matches: &clap::ArgMatches) -> Result<(), RemoteError> {
             operations,
         ));
         approval.cancel_pending()?;
-        let devices = Arc::new(Devices::new(store, Some(Arc::clone(&sessions))));
+        let devices = Arc::new(Devices::new(
+            Arc::clone(&store),
+            Some(Arc::clone(&sessions)),
+        ));
         let control = Control::start(
             &serving,
             pairing,
@@ -268,6 +295,23 @@ fn run(matches: &clap::ArgMatches) -> Result<(), RemoteError> {
             )),
         });
         let events = devices.start_events(Arc::clone(&site.mounts))?;
+        store
+            .lock()
+            .expect("store lock")
+            .remember_port(bound_port)?;
+        if let Some(old_port) = moved_from {
+            let mut diagnostic = tmt_cli_style::stream::stderr();
+            let terminal = diagnostic.terminal();
+            tmt_cli_style::message::warning(
+                &mut diagnostic,
+                terminal,
+                &format!(
+                    "Door moved from http://127.0.0.1:{old_port} to {}; browsers must re-pair, or free the old port and use tmt remote serve --port {old_port}",
+                    door.origin
+                ),
+                None,
+            )?;
+        }
         let json_output = serve.get_flag("json");
         let mut output = tmt_cli_style::stream::stdout(json_output);
         if json_output {
@@ -281,9 +325,10 @@ fn run(matches: &clap::ArgMatches) -> Result<(), RemoteError> {
             tmt_cli_style::message::warning(
                 &mut output,
                 terminal,
-                &format!("Door bound at {address}; pair a device with tmt remote pair"),
+                "Door ready; pair a device with tmt remote pair",
                 None,
             )?;
+            writeln!(output, "{address}")?;
         }
         output.flush()?;
         drop(output);
@@ -298,6 +343,58 @@ fn run(matches: &clap::ArgMatches) -> Result<(), RemoteError> {
         signal_hook::low_level::unregister(id);
     }
     result
+}
+/// Public discovery for local extensions. Only the control socket supplies
+/// live values; stopped reads hold the same lease as every database opener.
+fn status(json_output: bool) -> Result<(), RemoteError> {
+    let root = CoreClient::discover()?
+        .storage_root(&AtomicBool::new(false))
+        .map_err(|error| {
+            if error.code.starts_with("REMOTE_") {
+                error
+            } else {
+                RemoteError::new(
+                    "REMOTE_CORE_UNAVAILABLE",
+                    &format!("Core storage.root failed: {error}"),
+                )
+            }
+        })?;
+    let answer = match Layout::existing(&root)? {
+        None => json!({"running":false,"lastPort":null}),
+        Some(layout) => match control::status(&layout.directory) {
+            Ok(Some(answer)) => answer,
+            Ok(None) => {
+                let last_port = match layout.existing_serve_lock()? {
+                    Some(serving) => Store::stopped_port(&serving)?,
+                    None => None,
+                };
+                json!({"running":false,"lastPort":last_port})
+            }
+            Err(error) => return Err(error),
+        },
+    };
+    let mut output = tmt_cli_style::stream::stdout(json_output);
+    if json_output {
+        writeln!(output, "{answer}")?;
+    } else {
+        let terminal = output.terminal();
+        if answer["running"] == true {
+            tmt_cli_style::message::success(&mut output, terminal, "Remote is running")?;
+            writeln!(
+                output,
+                "{}{}",
+                answer["origin"].as_str().unwrap(),
+                answer["path"].as_str().unwrap()
+            )?;
+        } else {
+            let detail = answer["lastPort"]
+                .as_u64()
+                .map(|port| format!("Remote is not running; last bound port {port}"))
+                .unwrap_or_else(|| "Remote is not running".into());
+            tmt_cli_style::message::warning(&mut output, terminal, &detail, None)?;
+        }
+    }
+    Ok(())
 }
 fn approval_command(action: &str, arguments: &clap::ArgMatches) -> Result<(), RemoteError> {
     let json_output = arguments.get_flag("json");

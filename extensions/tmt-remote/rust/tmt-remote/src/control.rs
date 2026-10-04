@@ -14,7 +14,7 @@ use std::{
     fs,
     io::{self, Read, Write},
     os::{
-        fd::AsFd,
+        fd::{AsFd, AsRawFd},
         unix::{
             fs::{FileTypeExt, MetadataExt, PermissionsExt},
             net::{UnixListener, UnixStream},
@@ -148,7 +148,7 @@ fn accept_loop(
         pairing.shutdown();
     });
 }
-/// Serve one local client: `pair`, `devices`, `revoke` or `rename`.
+/// Serve one owner-only control request.
 fn session(
     mut stream: UnixStream,
     stop: &AtomicBool,
@@ -201,6 +201,9 @@ fn session(
     }
     let answer =
         match request.get("op").and_then(Value::as_str) {
+            Some("status") if request == json!({"op":"status"}) => Some(Ok(json!({
+                "running":true, "origin":door.origin, "path":door.prefix,
+            }))),
             Some("pair") => None,
             Some("devices") => Some(devices.list().map(
                 |grants| json!({"devices": grants.iter().map(device_json).collect::<Vec<_>>()}),
@@ -348,6 +351,9 @@ fn poll_line(stream: &mut UnixStream, buffer: &mut Vec<u8>) -> io::Result<Option
         }
     }
     if let Some(end) = buffer.iter().position(|b| *b == b'\n') {
+        if end > LINE_BYTES {
+            return Err(io::ErrorKind::InvalidData.into());
+        }
         let line: Vec<u8> = buffer.drain(..=end).collect();
         return crate::wire::strict_json(&line[..end])
             .map(Some)
@@ -380,14 +386,28 @@ fn hex(bytes: &[u8]) -> String {
 }
 /// Client side, used by `tmt remote pair`: connect to a running serve.
 pub fn connect(remote_directory: &Path) -> Result<UnixStream, RemoteError> {
+    let path = socket_path(remote_directory)?;
+    UnixStream::connect(&path).map_err(connect_error)
+}
+fn connect_error(error: io::Error) -> RemoteError {
+    if matches!(
+        error.kind(),
+        io::ErrorKind::NotFound | io::ErrorKind::ConnectionRefused
+    ) {
+        not_running()
+    } else {
+        io_error(error)
+    }
+}
+fn not_running() -> RemoteError {
+    RemoteError::new(
+        "REMOTE_NOT_RUNNING",
+        "Remote is not running; start it with tmt remote serve.",
+    )
+}
+fn socket_path(remote_directory: &Path) -> Result<PathBuf, RemoteError> {
     let path = remote_directory.join(SOCKET);
-    let not_running = || {
-        RemoteError::new(
-            "REMOTE_NOT_RUNNING",
-            "Remote is not running; start it with tmt remote serve.",
-        )
-    };
-    let metadata = fs::symlink_metadata(&path).map_err(|_| not_running())?;
+    let metadata = fs::symlink_metadata(&path).map_err(connect_error)?;
     if !metadata.file_type().is_socket()
         || metadata.uid() != nix::unistd::getuid().as_raw()
         || metadata.mode() & 0o077 != 0
@@ -397,5 +417,97 @@ pub fn connect(remote_directory: &Path) -> Result<UnixStream, RemoteError> {
             "control.sock is not this user's owner-only socket.",
         ));
     }
-    UnixStream::connect(&path).map_err(|_| not_running())
+    Ok(path)
+}
+
+/// Bounded read-only discovery. The live address comes from this run, never
+/// from remembered state. Malformed or silent peers cannot become stopped status.
+pub fn status(remote_directory: &Path) -> Result<Option<Value>, RemoteError> {
+    use nix::sys::socket::{AddressFamily, SockFlag, SockType, UnixAddr, connect, socket};
+    let path = match socket_path(remote_directory) {
+        Ok(path) => path,
+        Err(error) if error.code == "REMOTE_NOT_RUNNING" => return Ok(None),
+        Err(error) => return Err(error),
+    };
+    let fd = socket(
+        AddressFamily::Unix,
+        SockType::Stream,
+        SockFlag::empty(),
+        None,
+    )
+    .map_err(io_error)?;
+    nix::fcntl::fcntl(
+        &fd,
+        nix::fcntl::FcntlArg::F_SETFD(nix::fcntl::FdFlag::FD_CLOEXEC),
+    )
+    .map_err(io_error)?;
+    let mut stream = UnixStream::from(fd);
+    stream.set_nonblocking(true).map_err(io_error)?;
+    let address = UnixAddr::new(&path).map_err(io_error)?;
+    match connect(stream.as_raw_fd(), &address) {
+        Ok(()) => {}
+        Err(nix::errno::Errno::EINPROGRESS) => {
+            let mut events = [PollFd::new(stream.as_fd(), PollFlags::POLLOUT)];
+            if poll(&mut events, REQUEST_WAIT.as_millis() as u16).map_err(io_error)? == 0 {
+                return Err(io_error("status connection timed out"));
+            }
+            if let Some(error) = stream.take_error().map_err(io_error)? {
+                return status_connect_error(error);
+            }
+        }
+        Err(error) => return status_connect_error(error.into()),
+    }
+    write_line(&mut stream, &json!({"op":"status"})).map_err(io_error)?;
+    let answer = read_line(
+        &mut stream,
+        &mut Vec::new(),
+        &AtomicBool::new(false),
+        Instant::now() + REQUEST_WAIT,
+    )
+    .ok_or_else(|| io_error("missing or invalid status reply"))?;
+    if let Some(error) = answer.get("error") {
+        if let (Some(code), Some(message)) = (error["code"].as_str(), error["message"].as_str())
+            && code.starts_with("REMOTE_")
+            && answer.as_object().is_some_and(|fields| fields.len() == 1)
+            && error.as_object().is_some_and(|fields| fields.len() == 2)
+        {
+            return Err(RemoteError::new(code, message));
+        }
+        return Err(io_error("invalid status error document"));
+    }
+    let origin = answer["origin"].as_str().unwrap_or("");
+    let port = origin
+        .strip_prefix("http://127.0.0.1:")
+        .and_then(|port| port.parse::<u16>().ok())
+        .filter(|port| *port != 0);
+    let origin_valid = port.is_some_and(|port| origin == format!("http://127.0.0.1:{port}"));
+    let path_valid = answer["path"]
+        .as_str()
+        .and_then(|path| path.strip_prefix("/r/"))
+        .is_some_and(|prefix| {
+            prefix.len() == 32
+                && prefix
+                    .bytes()
+                    .all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
+        });
+    if answer.as_object().is_none_or(|fields| fields.len() != 3)
+        || answer["running"] != true
+        || !origin_valid
+        || !path_valid
+    {
+        return Err(io_error("invalid live status descriptor"));
+    }
+    Ok(Some(answer))
+}
+/// Absence is a transport observation, distinct from a connected peer's
+/// error document (including a peer reporting REMOTE_NOT_RUNNING).
+fn status_connect_error(error: io::Error) -> Result<Option<Value>, RemoteError> {
+    if matches!(
+        error.kind(),
+        io::ErrorKind::NotFound | io::ErrorKind::ConnectionRefused
+    ) {
+        Ok(None)
+    } else {
+        Err(io_error(error))
+    }
 }

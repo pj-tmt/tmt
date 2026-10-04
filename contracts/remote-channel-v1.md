@@ -357,14 +357,61 @@ Default scopes are `agents.read`, `status.read`, `check.read`, `talk` and `resul
 may remove scopes at pairing. Future core capabilities do not silently become remotely callable;
 a new scope needs a revision of this contract.
 
-`tmt remote start` runs until `tmt remote stop`, with no default idle or hard deadline; the owner
-may pass a run limit. Its background lifecycle follows Office's start/stop/status shape. The door
-address and route prefix are stable across restarts and are not credentials. Stop disables the
-door before acknowledgment and cancels pending pairing and held operations. Revoke disables a
+The shipped `tmt remote serve` runs in the foreground until Ctrl-C or SIGTERM, with no default
+idle or hard deadline. Without `--port`, it reuses its last successfully bound IPv4-loopback port;
+on first use it selects an unused port. If the remembered port is busy, it selects another unused
+port and prints one notice naming the old and new origins and telling browsers to re-pair or free
+the old port and use `tmt remote serve --port <old>`. `--port 0` explicitly selects a random unused
+port; an explicit nonzero busy port refuses without fallback. The actual bound port is remembered
+for the next run, including after an explicit selection or fallback. Human startup output puts the
+full door URL on its own line with no trailing punctuation. The route prefix remains stable; an
+origin change requires browser pairing at the new origin. Neither address nor route prefix is a
+credential. Shutdown closes the door and cancels pending pairing and held operations. Revoke disables a
 device before acknowledgment. No request/effect not yet fenced may succeed afterward. Already
 committed core work is not undone; report it accurately. Restart issues a new window and session
 namespace; grants survive. Unconfirmed held work is cancelled; dispatching/uncertain work recovers
 its original operation, never becomes falsely unsent.
+
+### Local CLI discovery
+
+Local extensions such as Colab discover or supervise Remote through these public CLI JSON
+interfaces, never by reading Remote's private state. Discovery does not pair devices or grant
+access. `origin` and `path` have no trailing slash; mounted Colab URLs are
+`origin + path + "/x/colab/…"`.
+
+`tmt remote status --json` is read-only. It emits exactly one of these documents and exits 0:
+
+```json
+{"running":true,"origin":"http://127.0.0.1:<port>","path":"/r/<prefix>"}
+```
+
+```json
+{"running":false,"lastPort":49152}
+```
+
+`lastPort` is the remembered nonzero integer port, or `null` if none has been recorded. It is
+advisory, not a live address. Live `origin` and `path` come only from the running serve through its
+owner-only control socket. Stopped inspection creates nothing and does not initialize or migrate
+state. Unsafe or unreadable state, an unavailable lifecycle lease, and failure to reach or read a
+live serve return the standard `{"error":{"code":"REMOTE_…","message":"…"}}` document with a
+nonzero exit. Status contains no other fields, secrets, cookies or device inventory.
+
+A supervising extension can start `tmt remote serve --json` as its child. Serve emits one readiness
+line on stdout after binding the door and control socket and recording the bound port:
+
+```json
+{"profile":"local-v1","binding":"loopback-http","state":"ready","address":"http://127.0.0.1:<port>/r/<prefix>","machineId":"<uuid>","windowId":"<uuid>","startupCoreCalls":2}
+```
+
+The stable fields a supervisor reads are `state:"ready"` and `address`. This descriptor has no
+separate `origin` or `path` fields: `address` is their concatenation, with no trailing slash.
+`machineId` is the stable machine UUID and `windowId` is the UUID for this serve run. The other
+fields identify the local profile, binding and two startup core calls. A startup failure emits
+the standard error document and exits nonzero; a busy-port fallback notice goes to stderr without
+mixing prose into JSON stdout. Serve remains in the foreground. The supervisor stops only the
+child it started; attaching through status does not give it ownership of an existing serve.
+Pairing remains explicit through `tmt remote pair`, and the existing owner-only mount socket and
+grant rules apply to both attach and supervised-start use.
 
 ## Operations
 
