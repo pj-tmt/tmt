@@ -1397,7 +1397,7 @@ fn serve_attaches_to_a_running_door_and_says_what_to_do_next() {
     let pilot = Pilot::new(None);
     pilot.devices(r#"{"devices":[]}"#);
     let mut serving = Serving::start(&pilot, pilot.remote_core(Some(DOOR), Serve::Fail), &[]);
-    let text = Serving::wait_for(&serving.out, "Pair this browser");
+    let text = Serving::wait_for(&serving.out, "create one:");
     // Whole values in the existing LOCAL SPACE layout: state first, then the next steps.
     for wanted in [
         "LOCAL SPACE",
@@ -1405,10 +1405,15 @@ fn serve_attaches_to_a_running_door_and_says_what_to_do_next() {
         "attached · http://127.0.0.1:53253",
         "no",
         "create one: tmt colab page create --title <title>",
-        "Pair this browser once: tmt remote pair",
+        "pair this browser once: tmt remote pair",
     ] {
         assert!(text.contains(wanted), "{wanted:?} missing in {text}");
     }
+    // The link opens only once a browser is paired, so the pairing step comes before it.
+    assert!(
+        text.find("pair   ").unwrap() < text.find("open   ").unwrap(),
+        "{text}"
+    );
     serving.stop(Signal::SIGTERM);
     assert!(!pilot.root.join("serve.calls").exists());
 }
@@ -1553,7 +1558,7 @@ fn a_paired_space_with_a_page_prints_its_link_and_no_pairing_step() {
     // The human form drops the pairing row too.
     let mut serving = Serving::start(&pilot, pilot.remote_core(Some(DOOR), Serve::Fail), &[]);
     let text = Serving::wait_for(&serving.out, "yes (1 device)");
-    assert!(!text.contains("Pair this browser"), "{text}");
+    assert!(!text.contains("pair this browser"), "{text}");
     assert!(text.contains(&format!("%2Fpages%2F{page}")), "{text}");
     serving.stop(Signal::SIGTERM);
 }
@@ -1670,4 +1675,26 @@ fn a_forwarded_browser_request_cannot_stop_serve() {
     assert!(post("GET", "").starts_with("HTTP/1.1 400"));
     assert!(serving.running());
     serving.stop(Signal::SIGTERM);
+}
+#[test]
+fn without_a_door_the_page_text_gives_the_reason_and_never_a_manual_remote_command() {
+    for (core, reason) in [
+        (None, "Browser access needs the Remote extension"),
+        (Some(STOPPED), "browser access unavailable: see warning"),
+    ] {
+        let pilot = Pilot::new(None);
+        pilot.call(&["page", "create", "--title", "First", "--json"]);
+        let mut serving = Serving::start(&pilot, pilot.remote_core(core, Serve::Fail), &[]);
+        let text = Serving::wait_for(&serving.out, "open");
+        let open = text
+            .lines()
+            .find(|l| l.trim_start().starts_with("open"))
+            .unwrap();
+        assert!(
+            open.contains("x/colab/#space=") && open.contains(reason),
+            "{open}"
+        );
+        assert!(!text.contains("tmt remote serve"), "{text}");
+        serving.stop(Signal::SIGTERM);
+    }
 }

@@ -1713,8 +1713,10 @@ first page's full link, or its relative path without a door), `next` (commands s
 needed: `tmt remote pair` unless paired, `tmt colab page create --title <title>` when there
 is no page) and `warning`. Human output is the `LOCAL SPACE` detail view with the same
 facts and the next step: `door`, `paired`, `open` (the page link or `create one: ...`) and
-`pair` (`Pair this browser once: tmt remote pair`, or `If this browser is new: ...` when
-pairing is unknown).
+`pair` (`pair this browser once: tmt remote pair`, or `if this browser is new: ...` when
+pairing is unknown), shown before `open` because the link needs a paired browser. Without a
+door, `open` shows the relative path and the reason (the install line, or `browser access
+unavailable: see warning`), never a command that `serve` replaces.
 
 ### `tmt colab stop` (#1594)
 
