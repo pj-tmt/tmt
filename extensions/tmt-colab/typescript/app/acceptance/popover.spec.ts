@@ -108,5 +108,35 @@ test('the annotation popover closes by its × , Escape anywhere in it, an outsid
     await expect(popover.getByText('Draft kept', { exact: true })).toHaveCount(0);
     await close.click();
     expect(agent.received()).toHaveLength(0);
+
+    // A send in flight is not interrupted by the ×, Escape or an outside press.
+    await selectInRenderer(page, '#quote');
+    await page.getByTestId('selection-ask').click();
+    await expect(popover.getByText('Draft kept', { exact: true })).toBeVisible();
+    // Agents are loaded once the list offers them; only then hold the send.
+    await input.fill('@');
+    await page
+      .getByRole('option')
+      .filter({ hasText: `@${agent.name} ·` })
+      .click();
+    let release = () => {};
+    const held = new Promise<void>((resolve) => (release = resolve));
+    await page.route('**/append', async (route) => {
+      await held;
+      await route.continue();
+    });
+    await input.fill(`@${agent.name} Hold this send.`);
+    await input.press('Enter');
+    await expect(input).toBeDisabled();
+    await close.click();
+    await close.focus();
+    await page.keyboard.press('Escape');
+    await page.locator('.page-bar').click({ position: { x: 4, y: 4 } });
+    await clearSelection(page);
+    await page.waitForTimeout(300);
+    await expect(popover).toBeVisible();
+    release();
+    await expect.poll(() => agent.received().length).toBe(1);
+    await expect(popover).toHaveCount(0);
   });
 });

@@ -438,6 +438,7 @@ function Page() {
   // An unsent draft lives in memory for this page only: never stored, never sent to the frame.
   const drafts = useRef(new Map<string, string>());
   const annotationDraft = useRef('');
+  const annotationBusy = useRef(false);
   const [activeThread, setActiveThread] = useState<string | null>(null);
   useEffect(() => {
     setAnnotation(undefined);
@@ -462,7 +463,8 @@ function Page() {
     annotationDraft.current.trim() !== '' && !/^@\S*\s*$/.test(annotationDraft.current);
   /** Closes without losing typed text: it comes back when the same selection is annotated again. */
   function closeAnnotation(focusPage: boolean) {
-    if (!annotation) return;
+    // A send in flight is not interrupted by the ×, Escape, an outside press or a cleared selection.
+    if (!annotation || annotationBusy.current) return;
     const key = JSON.stringify(annotation.selector);
     if (typed()) drafts.current.set(key, annotationDraft.current);
     else drafts.current.delete(key);
@@ -757,6 +759,9 @@ function Page() {
                 initialValue={annotation.restored}
                 onDraft={(value) => {
                   annotationDraft.current = value;
+                }}
+                onBusy={(busy) => {
+                  annotationBusy.current = busy;
                 }}
                 cancel={() => closeAnnotation(true)}
                 committed={openThread}

@@ -50,6 +50,7 @@ export function AnnotationInput({
   replier,
   initialValue,
   onDraft,
+  onBusy,
   blocked,
   cancel,
   committed,
@@ -68,6 +69,8 @@ export function AnnotationInput({
   initialValue?: string;
   /** Reports every value, so the owner can keep an unsent draft. */
   onDraft?(value: string): void;
+  /** Reports a send in flight, which nothing outside may interrupt. */
+  onBusy?(busy: boolean): void;
   blocked: boolean;
   cancel(): void;
   committed(ref: DiscussionRef): void;
@@ -109,6 +112,7 @@ export function AnnotationInput({
     };
   }, [binding, publisher, replier, chat]);
   useEffect(() => onDraft?.(value), [value]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => onBusy?.(busy), [busy]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (!dirty.current && inputElement.current) {
       inputElement.current.setSelectionRange(value.length, value.length);
@@ -259,7 +263,7 @@ export function AnnotationInput({
         }}
       />
       <p className="annotation-hint">
-        {busy ? 'Sending…' : 'Enter sends · Shift+Enter adds a line · Esc cancels'}
+        {busy ? 'Sending…' : 'Enter sends · Shift+Enter adds a line · Esc closes'}
       </p>
       {error && <p role="alert">{error}</p>}
       {recorded && (chat || !thread) && (
