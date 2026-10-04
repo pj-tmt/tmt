@@ -440,6 +440,7 @@ pub(super) fn board(sections: Value) -> App {
             look: Default::default(),
             theme_notice: None,
             me: None,
+            me_id: None,
             replies: Vec::new(),
         }),
     });
@@ -1156,6 +1157,7 @@ fn paned(board: crate::config::Board, notes: Notes) -> App {
                 look: Default::default(),
                 theme_notice: None,
                 me: None,
+                me_id: None,
                 replies: Vec::new(),
             }),
         });

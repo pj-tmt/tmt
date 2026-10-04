@@ -116,6 +116,10 @@ impl Worker {
                     let cancellation = read_generation.cancellation(generation);
                     let reader = core.cancellable(cancellation.clone());
                     let event = match job {
+                        Deferred::HomeLeads(job) => super::BoardEvent::HomeLeads {
+                            read: job.complete(&reader),
+                            cancellation: cancellation.clone(),
+                        },
                         Deferred::Attention(job) => super::BoardEvent::Attention {
                             attention: job.complete(&reader),
                             cancellation: cancellation.clone(),
@@ -230,6 +234,7 @@ struct Reload {
 struct Loaded {
     snapshot: Snapshot,
     attention: Option<AttentionJob>,
+    home_leads: Option<super::home_leads::Fetch>,
     /// Every tab shows the cron projection, so any readable config schedules it.
     cron: Option<super::cronboard::Fetch>,
 }
@@ -239,6 +244,7 @@ impl Loaded {
         Self {
             snapshot,
             attention: None,
+            home_leads: None,
             cron: None,
         }
     }
@@ -246,6 +252,7 @@ impl Loaded {
 
 /// The existing worker's lower-priority work, behind full reloads.
 enum Deferred {
+    HomeLeads(super::home_leads::Fetch),
     Attention(Box<AttentionJob>),
     Cron(Box<super::cronboard::Fetch>),
     Usage(MeterRead),
@@ -411,6 +418,7 @@ fn serve(
             snapshot,
             attention: job,
             cron,
+            home_leads,
         } = load(
             wanted.squad.clone(),
             wanted.generation,
@@ -464,6 +472,12 @@ fn serve(
                     .map(|every| (MeterRead::Home, every, Instant::now() + every))
             });
         if !publish(snapshot, wanted.generation) {
+            break;
+        }
+        if let Some(job) = home_leads
+            && generation.load(Ordering::Acquire) == wanted.generation
+            && !deferred(Deferred::HomeLeads(job), wanted.generation)
+        {
             break;
         }
         if let Some(job) = cron
@@ -561,24 +575,30 @@ fn load(
     };
     let mut attention = BTreeMap::new();
     let mut deferred = None;
+    let mut home_leads = None;
     let view = (|| {
         let config = config.as_ref().map_err(Clone::clone)?;
         let me = crate::me::you(crate::me::current(core, config)?, caller);
         let (mut view, found) = if key == LEADS {
-            leads_view(core, tmux, config, &squads, &tabs, me)?
+            leads_view(core, tmux, config, &squads, &tabs, me.clone())?
         } else if key == ALL {
-            all_view(core, config, &squads, &tabs, me)?
+            all_view(core, config, &squads, &tabs, me.clone())?
         } else if tabs::user_name(&key).is_some() {
-            member_view(core, tmux, config, &squads, &tabs, me, &key)?
+            member_view(core, tmux, config, &squads, &tabs, me.clone(), &key)?
         } else {
             let squad = squads
                 .iter()
                 .find(|squad| squad.name == key)
                 .expect("chosen from the listed squads");
             let result = squad_view(core, tmux, config, squad, me.clone(), preview_panes, kept)?;
-            deferred = Some((me, result.0.document.clone()));
+            deferred = Some((me.clone(), result.0.document.clone()));
             result
         };
+        if key == ALL
+            && let Some(home) = &view.home
+        {
+            home_leads = Some(super::home_leads::Fetch::new(home, me));
+        }
         attention = found;
         if opening {
             let enabled: Vec<_> = view
@@ -643,6 +663,7 @@ fn load(
             view,
         },
         attention: job,
+        home_leads,
         cron,
     }
 }
@@ -741,6 +762,7 @@ fn squad_view(
         tab_colors: config.tabs()?.colors,
         look: crate::look::Look::new(theme),
         theme_notice,
+        me_id: me.as_ref().map(|me| me.id.clone()),
         me: me.map(|me| me.name),
         replies,
         refresh: config.refresh(&squad.name)?,
@@ -805,6 +827,7 @@ fn member_view(
         tab_colors: settings.colors,
         look: crate::look::Look::new(theme),
         theme_notice,
+        me_id: me.as_ref().map(|me| me.id.clone()),
         me: me.map(|me| me.name),
         replies: Vec::new(),
         refresh: config.refresh(key)?,
@@ -852,6 +875,7 @@ fn all_view(
         tab_colors: settings.colors,
         look: crate::look::Look::new(theme),
         theme_notice,
+        me_id: me.as_ref().map(|me| me.id.clone()),
         me: me.map(|me| me.name),
         replies: Vec::new(),
         refresh: config.refresh(ALL)?,
@@ -1746,6 +1770,63 @@ esac
     }
 
     #[test]
+    fn home_exchange_reads_follow_snapshot_and_cancel_before_a_new_tab() {
+        for cancel in [false, true] {
+            let (sender, pending) = mpsc::channel();
+            sender
+                .send(Work::Reload(Reload {
+                    preview_panes: false,
+                    squad: Some(ALL.into()),
+                    generation: 0,
+                }))
+                .unwrap();
+            drop(sender);
+            let generation = AtomicU64::new(0);
+            let steps = std::cell::RefCell::new(Vec::new());
+            serve(
+                &pending,
+                |_, _| {
+                    steps.borrow_mut().push("shown");
+                    if cancel {
+                        generation.store(1, Ordering::Release);
+                    }
+                    true
+                },
+                CHECK_EVERY,
+                &generation,
+                |_| Stamp::cursor(0),
+                |_, _, _, _| {
+                    let home = super::super::home::Home {
+                        windows: crate::config::TokenWindow::DEFAULTS,
+                        summary: Default::default(),
+                        sections: vec![],
+                        squads: vec![],
+                        failures: vec![],
+                        incomplete: false,
+                    };
+                    let mut loaded =
+                        Loaded::only(crate::board::app::tests::snapshot(ALL, json!([])));
+                    loaded.home_leads = Some(super::super::home_leads::Fetch::new(&home, None));
+                    loaded
+                },
+                |job, _| {
+                    assert!(matches!(job, Deferred::HomeLeads(_)));
+                    steps.borrow_mut().push("exchanges");
+                    true
+                },
+            );
+            assert_eq!(
+                *steps.borrow(),
+                if cancel {
+                    vec!["shown"]
+                } else {
+                    vec!["shown", "exchanges"]
+                }
+            );
+        }
+    }
+
+    #[test]
     fn the_shown_snapshot_is_published_before_cron_and_other_tab_attention() {
         let (sender, pending) = mpsc::channel();
         sender
@@ -1785,6 +1866,7 @@ esac
                     document: json!({}),
                 }),
                 cron: cron.take(),
+                home_leads: None,
             },
             |job, _| {
                 steps.borrow_mut().push(match job {

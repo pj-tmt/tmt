@@ -26,6 +26,15 @@
   Previous tab attention stays visible until that generation's update arrives, and a newer switch
   preempts this lower-priority work. The cross-squad leads/all views read the rosters needed for
   their own rows before publication.
+- HOME exchanges: after publishing HOME, `board::home_leads` reads one bounded
+  `requests.list` originator results page and one bounded recipient-history page per
+  distinct current lead UUID (50 items each). Other tabs schedule no exchange reads.
+  Inbox questions reuse the acquired `waitingOnYou` projection; acknowledged finals
+  remain results. Ordering uses submission time for replies and preparation time for
+  asks, with stable name/squad/UUID ties. Truncated pages and read failures remain
+  explicit evidence; no room scan or unbounded pagination fills gaps. Observations
+  belong to the user's UUID and current lead occurrence, and share the refresh
+  generation's cancellation. Preview text is sanitized separately from retained bodies.
 - Priorities: full loads outrank selection jobs (detail notebook) and usage-only reads.
 
 ## Token window meter

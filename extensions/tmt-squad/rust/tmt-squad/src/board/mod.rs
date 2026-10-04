@@ -10,6 +10,7 @@ mod derived;
 mod glyph_guard;
 mod help;
 mod home;
+mod home_leads;
 mod markdown;
 mod menu_surface;
 mod meter;
@@ -99,6 +100,10 @@ pub(super) enum BoardEvent {
         cancellation: crate::runner::Cancellation,
         room: String,
         input: Result<rate::Input, ()>,
+    },
+    HomeLeads {
+        cancellation: crate::runner::Cancellation,
+        read: home_leads::Read,
     },
     HomeUsage {
         cancellation: crate::runner::Cancellation,
@@ -305,6 +310,16 @@ fn session(
                     && app.notebook_identity().as_deref() == Some(identity.as_str())
                 {
                     app.notebooks.borrow_mut().keep(identity, notes);
+                    dirty = true;
+                }
+                Effect::None
+            }
+            Ok(BoardEvent::HomeLeads { cancellation, read }) => {
+                if !cancellation.cancelled()
+                    && !app.loading()
+                    && app.current.as_deref() == Some(ALL)
+                {
+                    app.apply_home_leads(read);
                     dirty = true;
                 }
                 Effect::None

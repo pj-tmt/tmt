@@ -119,6 +119,7 @@ pub struct View {
     pub tab_colors: crate::config::TabColors,
     /// The user's saved identity, the sender of talk, reply and annotate.
     pub me: Option<String>,
+    pub me_id: Option<String>,
     /// Finals to the user's squad requests, newest first (replies pane).
     pub replies: Vec<Value>,
     /// The squad's theme at the terminal's depth: every color the board draws.
@@ -497,6 +498,7 @@ pub struct App {
     pub(super) note_hits: RefCell<Vec<(ratatui::layout::Rect, usize)>>,
     pub(super) notebooks: RefCell<super::notes::Notebooks>,
     pub(super) cron: super::cronboard::State,
+    pub(super) home_leads: super::home_leads::State,
     /// The cron form being filled in on the input line, if any.
     pub(super) cron_draft: Option<super::cronboard::Draft>,
     /// The squad tab's jobs half has focus (Tab moves in after the last pane).
@@ -1007,6 +1009,11 @@ impl App {
         self.view.is_some() && self.shown != self.current
     }
 
+    pub(super) fn apply_home_leads(&mut self, read: super::home_leads::Read) {
+        self.home_leads.replace(read);
+        self.clamp();
+    }
+
     /// Swaps in a loaded squad in one step. A result for a squad the user
     /// already left is kept for switching back, never shown.
     pub fn apply(&mut self, snapshot: Snapshot) {
@@ -1073,7 +1080,8 @@ impl App {
         match snapshot.view {
             Ok(mut view) => {
                 let now = Instant::now();
-                if view.home.is_some() {
+                if let Some(home) = &view.home {
+                    self.home_leads.reconcile(home, view.me_id.as_deref());
                     for (name, meter) in &mut self.meters {
                         if view
                             .home_rate
@@ -3484,6 +3492,7 @@ pub(crate) mod tests {
             look: Default::default(),
             theme_notice: None,
             me: None,
+            me_id: None,
             replies: Vec::new(),
         }
     }
