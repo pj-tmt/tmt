@@ -48,3 +48,4 @@ jobs:
     with:
       product: ${{ matrix.product }}
       sha: ${{ github.sha }}
+      upgrade: true

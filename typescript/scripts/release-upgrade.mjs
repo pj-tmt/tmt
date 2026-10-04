@@ -11,6 +11,7 @@
 //          the product over one target's staged files; it never reaches GitHub
 //   node release-upgrade.mjs resolve --tag TAG      the commit of the release
 //   node release-upgrade.mjs fetch --product cli|office|squad --tag TAG --directory DIR
+//        [--candidate-directory BUNDLE]   stage a rehearsal's verified bundle as the candidate
 //   node release-upgrade.mjs assess --directory DIR --sha SHA   proved, nothing or predates
 //   node release-upgrade.mjs prove --product P --tag TAG --target T --directory DIR [--skill S]
 //   node release-upgrade.mjs acceptance --product cli --tag TAG --target T --directory DIR
@@ -22,6 +23,7 @@ import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import {
   appendFileSync,
+  copyFileSync,
   existsSync,
   mkdirSync,
   readdirSync,
@@ -122,14 +124,63 @@ export function stageRelease({ download, release, product, target, directory }) 
 }
 
 /**
+ * The candidate of a rehearsal: the verified bundle a prepare run assembled, read from `directory`
+ * as a pseudo-release so the one staging path checks it like a downloaded release. Its tag is the
+ * synthetic announcement tag of the assembled manifest. Every archive must match both the
+ * `.sha256` file cargo-dist wrote beside it and the digest computed here, so the staged digest is
+ * never just the candidate vouching for itself.
+ */
+export function localCandidate({ directory, product, tag }) {
+  const manifestFile = path.join(directory, MANIFEST);
+  if (!existsSync(manifestFile)) throw new Error(`The candidate bundle has no ${MANIFEST}.`);
+  const announced = JSON.parse(readFileSync(manifestFile, 'utf8')).announcement_tag;
+  if (announced !== tag)
+    throw new Error(`The candidate bundle announces ${announced}, not ${tag}.`);
+  const names = readdirSync(directory).sort();
+  const prefix = `${archivePrefix(product)}-`;
+  const archives = names.filter((name) => name.startsWith(prefix) && name.endsWith('.tar.gz'));
+  if (archives.length === 0) throw new Error(`The candidate bundle has no ${product} archive.`);
+  const assets = [MANIFEST, ...archives, ...names.filter((name) => name === 'install.sh')].map(
+    (name) => {
+      const file = path.join(directory, name);
+      const digest = sha256(file);
+      if (name.endsWith('.tar.gz')) {
+        const recorded = path.join(directory, `${name}.sha256`);
+        const expected = existsSync(recorded)
+          ? readFileSync(recorded, 'utf8').trim().split(/\s+/)[0]
+          : '';
+        if (`sha256:${expected}` !== digest)
+          throw new Error(`${name} does not match its recorded ${name}.sha256.`);
+      }
+      return { name, digest, file };
+    }
+  );
+  return {
+    release: { tag_name: tag, draft: true, assets },
+    download: (asset, file) => copyFileSync(asset.file, file),
+  };
+}
+
+/**
  * The fetch step. Stages, for every target of the candidate, the candidate, the previous release
  * and, for an extension or driver, the newest published CLI under `directory/<target>/<kind>`, and writes
  * `plan.json` with the tags and the digests. A product with no earlier published release stages
  * nothing: there is nothing to upgrade from.
  */
-export function fetchUpgrade({ releases, download, product, tag, directory }) {
-  const candidate = releases.find((release) => release.tag_name === tag);
+export function fetchUpgrade({ releases, download, product, tag, directory, local }) {
+  const candidate = local ? local.release : releases.find((release) => release.tag_name === tag);
   if (!candidate) throw new Error(`There is no release ${tag}.`);
+  if (local) {
+    // A synthetic candidate must out-rank everything published, or "previous" would be wrong.
+    const [newest] = publishedReleases(releases, product);
+    if (
+      newest &&
+      compareVersions(versionOfTag(tag, product), versionOfTag(newest.tag_name, product)) <= 0
+    )
+      throw new Error(
+        `The synthetic candidate ${tag} is not newer than the published ${newest.tag_name}.`
+      );
+  }
   const previous = selectPrevious({ releases, product, candidateTag: tag });
   const floor = selectSupportFloor({ releases, product, candidateTag: tag });
   const plan = {
@@ -152,9 +203,9 @@ export function fetchUpgrade({ releases, download, product, tag, directory }) {
       plan.driver = driverRelease.tag_name;
     }
     for (const target of targets) {
-      const stage = (release, kind, releaseProduct) => {
+      const stage = (release, kind, releaseProduct, source = download) => {
         const { digests } = stageRelease({
-          download,
+          download: source,
           release,
           product: releaseProduct,
           target,
@@ -164,7 +215,7 @@ export function fetchUpgrade({ releases, download, product, tag, directory }) {
           plan.files[path.posix.join(target, kind, name)] = digest;
         }
       };
-      stage(candidate, 'candidate', product);
+      stage(candidate, 'candidate', product, local?.download);
       stage(previous, 'previous', product);
       if (floor && floor.tag_name !== previous.tag_name) stage(floor, 'floor', product);
       if (floor) {
@@ -174,7 +225,7 @@ export function fetchUpgrade({ releases, download, product, tag, directory }) {
           throw new Error(`Release ${tag} must have exactly one digest-checked install.sh.`);
         const name = path.posix.join(target, 'candidate', 'install.sh');
         const file = path.join(directory, name);
-        download(asset, file);
+        (local?.download ?? download)(asset, file);
         if (sha256(file) !== asset.digest)
           throw new Error(`install.sh of ${tag} does not match its recorded digest.`);
         plan.files[name] = asset.digest;
@@ -529,6 +580,7 @@ function main(argv, environment) {
       target: { type: 'string' },
       directory: { type: 'string' },
       sha: { type: 'string' },
+      'candidate-directory': { type: 'string' },
       'source-root': { type: 'string' },
       skill: { type: 'string', default: 'skills/tmux-team/SKILL.md' },
     },
@@ -640,6 +692,14 @@ function main(argv, environment) {
       product: values.product,
       tag: values.tag,
       directory: values.directory,
+      // A rehearsal stages the verified bundle of its own run instead of a GitHub release.
+      local: values['candidate-directory']
+        ? localCandidate({
+            directory: path.resolve(values['candidate-directory']),
+            product: values.product,
+            tag: values.tag,
+          })
+        : undefined,
     });
     report(
       plan.previous

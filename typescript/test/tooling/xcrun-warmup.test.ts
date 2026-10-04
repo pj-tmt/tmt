@@ -101,7 +101,7 @@ describe('macOS toolchain warm-up before the native runtime proof', () => {
   });
 
   it('warms the matching-host driver proof before its release-upgrade orchestrator', () => {
-    const workflow = read('.github/workflows/native-release-upgrade.yml');
+    const workflow = read('.github/workflows/native-release-upgrade-prove.yml');
     const prove = jobs(workflow).get('prove')!;
     expect(runsOnMacOs(workflow, prove)).toBe(true);
     const list = steps(workflow, prove);

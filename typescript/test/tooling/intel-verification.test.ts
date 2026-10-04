@@ -182,7 +182,7 @@ describe('Intel workflow coverage', () => {
   it.each(['false', 'true'])(
     'retains upgrade and adapter arguments with current tooling=%s',
     (current) => {
-      const workflow = read('.github/workflows/native-release-upgrade.yml');
+      const workflow = read('.github/workflows/native-release-upgrade-prove.yml');
       const root = mkdtempSync(path.join(os.tmpdir(), 'intel-upgrade-arguments-'));
       try {
         const record = path.join(root, 'arguments');
@@ -270,7 +270,11 @@ describe('Intel workflow coverage', () => {
   });
 
   it('moves all ordinary Intel rows to arm64 with an x64 Node and a whole-step execution preference', () => {
-    for (const name of ['ci.yml', 'native-release-prepare.yml', 'native-release-upgrade.yml']) {
+    for (const name of [
+      'ci.yml',
+      'native-release-prepare.yml',
+      'native-release-upgrade-prove.yml',
+    ]) {
       const workflow = read(`.github/workflows/${name}`);
       expect(workflow, name).not.toContain('macos-15-intel');
       expect(workflow, name).toMatch(
@@ -302,7 +306,7 @@ describe('Intel workflow coverage', () => {
         'uses: ./.github/actions/public-install-smoke'
       );
     }
-    const upgrade = read('.github/workflows/native-release-upgrade.yml');
+    const upgrade = read('.github/workflows/native-release-upgrade-prove.yml');
     const acceptance = upgrade.split('      - name: Prove the real-archive CLI upgrade adapter')[1];
     expect(acceptance).toContain('verification="$PWD/scripts/run-native-verification.sh"');
     expect(acceptance).toContain(
@@ -313,13 +317,13 @@ describe('Intel workflow coverage', () => {
   });
 
   it('fails closed for candidate checkouts without Rosetta tooling and names the owner remedy', () => {
-    for (const name of ['native-release-prepare.yml', 'native-release-upgrade.yml']) {
+    for (const name of ['native-release-prepare.yml', 'native-release-upgrade-prove.yml']) {
       const workflow = read(`.github/workflows/${name}`);
       const guard = workflow.indexOf('      - name: Require candidate Rosetta tooling');
       expect(guard).toBeGreaterThan(0);
       expect(guard).toBeLessThan(workflow.indexOf('      - name: Set up Node.js and pnpm', guard));
       expect(workflow).toContain(
-        name === 'native-release-upgrade.yml'
+        name === 'native-release-upgrade-prove.yml'
           ? "if: ${{ matrix.target == 'x86_64-apple-darwin' && !inputs.current-tooling }}"
           : "if: matrix.target == 'x86_64-apple-darwin'"
       );

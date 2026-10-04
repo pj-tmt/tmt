@@ -31,12 +31,23 @@ export interface UpgradePlan {
   driver: string | null;
   files: Record<string, string>;
 }
+export interface LocalCandidate {
+  release: DraftRelease;
+  download: (asset: DraftAsset, file: string) => void;
+}
+export function localCandidate(input: {
+  directory: string;
+  product: string;
+  tag: string;
+}): LocalCandidate;
 export function fetchUpgrade(input: {
   releases: readonly DraftRelease[];
   download: (asset: DraftAsset, file: string) => void;
   product: string;
   tag: string;
   directory: string;
+  /** A rehearsal's verified local bundle replaces the candidate release. */
+  local?: LocalCandidate;
 }): UpgradePlan;
 export function proveStaged(input: {
   directory: string;

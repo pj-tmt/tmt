@@ -17,8 +17,8 @@ const prepare = '.github/workflows/native-release-prepare.yml';
 describe('release gate parity inventory', () => {
   it('covers both release entry points and every local reusable workflow with current evidence', () => {
     expect(checkReleaseParity(manifest(), { read })).toEqual({
-      workflows: 6,
-      jobs: 22,
+      workflows: 7,
+      jobs: 25,
       publicationGates: 6,
     });
     expect(Object.keys(releaseInventory(read))).toContain('native-release-upgrade.yml');
@@ -48,10 +48,12 @@ describe('release gate parity inventory', () => {
   });
 
   it('rejects a new gate in an existing job without relying on its exit status', () => {
-    const readChanged = changed(
-      prepare,
-      (source) =>
-        `${source.trimEnd()}\n      - name: Verify new contract\n        run: node scripts/new-gate.mjs\n`
+    // Insert after the verify job, before the rehearsal's upgrade jobs.
+    const readChanged = changed(prepare, (source) =>
+      source.replace(
+        "\n  # The rehearsal's upgrade proof.",
+        "\n      - name: Verify new contract\n        run: node scripts/new-gate.mjs\n\n  # The rehearsal's upgrade proof."
+      )
     );
     expect(() => checkReleaseParity(manifest(), { read: readChanged })).toThrow(
       'verify: executable step inventory changed'
@@ -195,6 +197,23 @@ describe('release gate parity inventory', () => {
       ['native-release-prepare.yml', 'verify'],
     ])
       expect(value.workflows[file][job].preMerge, `${file}:${job}`).toEqual([rehearsal]);
+    // The rehearsal's own upgrade jobs and the shared proof stages are rehearsed, not release-only.
+    for (const [file, job] of [
+      ['native-release-prepare.yml', 'upgrade-fetch'],
+      ['native-release-prepare.yml', 'upgrade'],
+      ['native-release-upgrade-prove.yml', 'prove'],
+      ['native-release-upgrade-prove.yml', 'conclude'],
+      ['native-release-upgrade.yml', 'prove'],
+    ])
+      expect(value.workflows[file][job].preMerge, `${file}:${job}`).toEqual([rehearsal]);
+    // Only live draft state stays release-only, with a concrete reason and no open follow-up.
+    for (const [file, job] of [
+      ['native-release-upgrade.yml', 'fetch'],
+      ['native-release-bundle.yml', 'upgrade'],
+    ]) {
+      expect(value.workflows[file][job].releaseOnly.length, `${file}:${job}`).toBeGreaterThan(40);
+      expect(value.workflows[file][job].followUp, `${file}:${job}`).toBeUndefined();
+    }
     for (const issue of ['1534', '1541', '1604', '1616', '1646', '1680'])
       expect(value.incidents[issue].preMerge, issue).toEqual([rehearsal]);
     expect(value.incidents['1680'].release).toEqual({
