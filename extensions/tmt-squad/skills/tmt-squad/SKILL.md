@@ -691,10 +691,12 @@ on the next tab entry.
 Digits count with cubic ease-out for at most 600 ms; reduced motion and summary
 window switches show the exact value immediately. Eight bucket-aligned bars show
 observed totals by slice: blank is no evidence, ▁ is measured zero and ▂–█ scale
-nonzero values. Narrow boards drop the trend, shorten the unit, then hide the
-summary meter before cutting lead/attention text. The window label remains.
-Without a covered reading the summary meter hides. Selecting a window posts its
-label in the board notice, including with no data or when the summary cannot fit.
+nonzero values. Narrow boards drop the trend, then shorten the unit. The active
+window label stays next to the meter values; lead/attention text clips if needed.
+Only a terminal too narrow for the compact meter hides it. Without a
+covered reading it shows `–` and a dim `no usage reported yet` line. `w` still
+switches the label immediately and posts the window in the board notice. `?`
+explains the totals, best-effort coverage, switch order and `tok` configuration.
 Whole-hour labels use `h`, so 60m displays as `1h`.
 
 ## Columns and row lines

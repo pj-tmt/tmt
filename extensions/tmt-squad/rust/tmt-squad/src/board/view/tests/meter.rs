@@ -69,7 +69,7 @@ fn with_meter(now: Instant, reduced: bool) -> App {
 }
 
 #[test]
-fn unavailable_meter_hides_zero_is_numeric_and_w_reports_selection() {
+fn unavailable_meter_shows_mode_and_hint_zero_is_numeric_and_w_reports_selection() {
     use crate::config::{TokenRate, TokenWindow};
     for windows in [
         TokenWindow::DEFAULTS,
@@ -101,11 +101,11 @@ fn unavailable_meter_hides_zero_is_numeric_and_w_reports_selection() {
             for window in windows {
                 terminal.draw(|frame| render(frame, &app)).unwrap();
                 let text = summary(&terminal);
-                assert!(meter_region(&app, Rect::new(0, 1, width, 1)).is_none());
                 assert!(
-                    !text.contains("consumption") && !text.contains(" tok"),
+                    text.contains(&format!("– tok {}", window.label())),
                     "{text}"
                 );
+                assert!(draw(&app, width, 24)[2].contains("no usage reported yet"));
                 assert_eq!(app.token_window, window);
                 app.key(KeyEvent::new(KeyCode::Char('w'), KeyModifiers::NONE));
                 assert!(
@@ -189,13 +189,11 @@ fn sample_and_animation_emit_only_meter_cells_in_normal_render() {
                 !terminal.backend().emitted.is_empty(),
                 "sample must emit cells"
             );
-            assert!(
-                terminal
-                    .backend()
-                    .emitted
-                    .iter()
-                    .all(|(x, y)| area.contains(Position::new(*x, *y)))
-            );
+            assert!(terminal.backend().emitted.iter().all(|(x, y)| {
+                area.contains(Position::new(*x, *y))
+                    || Rect::new(width.saturating_sub(21), 2, width.min(21), 1)
+                        .contains(Position::new(*x, *y))
+            }));
             let mut total = terminal.backend().emitted.len();
             for elapsed in [250, 500, 600] {
                 app.meter
@@ -252,7 +250,7 @@ fn sample_and_animation_emit_only_meter_cells_in_normal_render() {
 }
 
 #[test]
-fn narrow_drops_spark_then_meter_and_hidden_ticks_emit_nothing() {
+fn narrow_drops_spark_preserves_mode_and_clips_summary_before_hiding() {
     let now = Instant::now();
     let mut app = with_meter(now, false);
     app.meter
@@ -271,6 +269,10 @@ fn narrow_drops_spark_then_meter_and_hidden_ticks_emit_nothing() {
         .collect::<String>();
     assert!(summary.ends_with("0 1m"), "{summary}");
     let width = (left + 10 - 1) as u16;
+    assert!(meter_region(&app, Rect::new(0, 1, width, 1)).is_some());
+    let narrow = draw(&app, width, 24);
+    assert!(narrow[1].contains("tok 1m"), "{}", narrow[1]);
+    let width = 9;
     assert!(meter_region(&app, Rect::new(0, 1, width, 1)).is_none());
     let mut terminal = Terminal::new(Recording {
         inner: TestBackend::new(width, 24),
@@ -336,6 +338,16 @@ fn window_hint_is_conditional_whole_and_help_discloses_semantics() {
     let help = help_lines(&app).join("\n");
     assert!(help.contains("eight bucket-aligned observed-token slices"));
     assert!(help.contains("measured zero is 0"));
+    assert!(
+        crate::board::help::model(&app)
+            .sections
+            .iter()
+            .any(|section| section.title == "token meter")
+    );
+    assert!(help.contains("1m → 5m → 1h → 1m"));
+    assert!(help.contains("also without data"));
+    assert!(help.contains("unreported members are excluded"));
+    assert!(help.contains("tok =") && help.contains("5m/60m/24h"));
     app.meter.as_mut().unwrap().settings.enabled = false;
     app.view.as_mut().unwrap().token_rate = None;
     assert!(!hints(&app, 200).contains("w window"));

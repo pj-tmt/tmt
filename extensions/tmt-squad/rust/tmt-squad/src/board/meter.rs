@@ -244,19 +244,25 @@ impl Meter {
 
     /// Step aside without dropping the window label.
     pub fn layout(&self, available: usize) -> Option<Layout> {
-        if !self.settings.enabled || self.digits()?.chars().count() > NUMBER_WIDTH {
+        if !self.settings.enabled
+            || self
+                .digits()
+                .is_some_and(|digits| digits.chars().count() > NUMBER_WIDTH)
+        {
             return None;
         }
         let label = self.label()?;
+        let covered = self.reading.is_some();
+        let number_width = if covered { NUMBER_WIDTH } else { 1 };
         let make = |spark: bool, short: bool| Layout {
             label: Some(label.clone()),
-            spark,
+            spark: spark && covered,
             unit: if short { "" } else { " tok" },
-            width: NUMBER_WIDTH
+            width: number_width
                 + label.len()
                 + 1
                 + if short { 0 } else { 4 }
-                + if spark { 9 } else { 0 },
+                + if spark && covered { 9 } else { 0 },
         };
         [make(true, false), make(false, false), make(false, true)]
             .into_iter()

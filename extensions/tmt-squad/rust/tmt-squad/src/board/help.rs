@@ -213,7 +213,7 @@ pub(super) fn model(app: &App) -> KeyHelp {
     }
     if let Some(rate) = app.view.as_ref().and_then(|view| view.token_rate.as_ref()) {
         let windows = format!(
-            "{}; observed totals, no persisted history",
+            "{}; tokens per window, never per-second rates",
             rate.settings
                 .windows
                 .map(|window| window.label())
@@ -221,13 +221,13 @@ pub(super) fn model(app: &App) -> KeyHelp {
         );
         let mut meter = section(
             "meter",
-            "tokens",
+            "token meter",
             &[
                 ("windows", &windows),
                 ("trend", "eight bucket-aligned observed-token slices"),
                 (
                     "coverage",
-                    "no data hides the meter; measured zero is 0; – is unreported; ~ is incomplete window/coverage",
+                    "measured zero is 0; unreported members are excluded; ~ marks incomplete coverage; – and no usage reported yet mean unavailable",
                 ),
             ],
         );
@@ -261,7 +261,36 @@ pub(super) fn model(app: &App) -> KeyHelp {
                 format!("{names}: no usage counters at last board refresh"),
             ));
         }
-        sections.push(meter);
+        let mut order = rate.settings.windows.map(|window| window.label()).to_vec();
+        order.push(order[0].clone());
+        let keys = app
+            .bindings()
+            .iter()
+            .filter(|(_, action)| action.verb == crate::action::Verb::TokenWindow)
+            .map(|(key, _)| key.as_str())
+            .collect::<Vec<_>>()
+            .join(" / ");
+        meter.entries.insert(
+            1,
+            entry(
+                "cycle",
+                if keys.is_empty() {
+                    "token-window"
+                } else {
+                    &keys
+                },
+                format!("switch window: {} (also without data)", order.join(" → ")),
+            ),
+        );
+        meter.entries.insert(
+            2,
+            entry(
+                "tok",
+                "tok",
+                "set [board] tok = \"5m/60m/24h\"; [squad.<name>.board] tok overrides it",
+            ),
+        );
+        sections.insert(0, meter);
     }
     let mut bindings = app.bindings();
     let mut entries = Vec::new();

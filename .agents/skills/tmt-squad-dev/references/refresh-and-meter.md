@@ -72,8 +72,9 @@ cost or text volume. `board::rate` owns evidence, `board::meter` presentation an
 - Coverage: any covered reading stays numeric, including measured zero. Partial
   coverage, windows longer than available evidence and unreported members prefix
   the known total with `~`. Unreported identities contribute no tokens. A baseline
-  alone is not measured zero; no covered interval hides the summary and member
-  cells show `–`. Built-in all/leads tabs omit the named-squad summary meter.
+  alone is not measured zero. Without coverage, the meter retains its active
+  window label and `–`, plus one dim `no usage reported yet` line; member cells
+  also show `–`. Built-in all/leads tabs omit the named-squad summary meter.
 - Window selection: bindable `token-window` (`w` in both host presets, outside text
   inputs) cycles configured windows and posts the label in the existing board
   notice, including without data or when the summary cannot fit. Whole hours use
@@ -102,7 +103,12 @@ cost or text volume. `board::rate` owns evidence, `board::meter` presentation an
   settle immediately. Eight bucket-aligned bars derive from the same rings: blank
   means no evidence, ▁ measured zero, and ▂–█ nonzero. A right-aligned
   number/unit/window/trend group uses a seven-cell maximum number region. It
-  drops the trend, shortens the unit, then hides before cutting lead/attention
-  text, preserving the selected label. The normal cached renderer and ratatui
+  drops the trend, then shortens the unit. It preserves the selected label by
+  clipping lead/attention text when necessary; it hides only when the terminal
+  cannot fit the compact meter itself. Its status row stays reserved while enabled
+  so coverage transitions do not move member rows. The new unavailable-state
+  text uses the admitted `tmt-tui` strip painter. Help explains completed-request
+  window totals, best-effort/excluded/partial semantics, effective switch keys and
+  cycle order, and the global/per-squad `tok` setting. The normal cached renderer and ratatui
   diff own output; meter-only ticks stay in the meter band. No parallel paint,
   worker, core dependency, provider-file read or Squad persistence is introduced.
