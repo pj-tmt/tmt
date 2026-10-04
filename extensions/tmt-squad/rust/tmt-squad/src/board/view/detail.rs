@@ -111,7 +111,7 @@ pub(super) fn render_detail(frame: &mut Frame, app: &App, area: Rect) {
         .as_str()
         .and_then(|id| app.cron.member_detail(id, app.cron.now_ms()))
     {
-        lines.push(Line::from(format!("cron: ⏱ {next}")));
+        lines.push(Line::from(format!("cron: {next}")));
     }
     let links: Vec<String> = row["fields"]
         .as_object()

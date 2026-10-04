@@ -29,6 +29,62 @@ fn members() -> Counts {
     }
 }
 
+#[test]
+fn other_members_keep_the_marks_row_informative_without_inventing_a_state() {
+    let counts = Counts {
+        members: 2,
+        ..Default::default()
+    };
+    let line = member_line(&counts, 100, false, Look::default()).to_string();
+    assert!(line.contains("2 other · 2 members"), "{line}");
+    assert!(!line.contains('◌'));
+    let mixed = Counts {
+        working: 1,
+        ..counts
+    };
+    let line = member_line(&mixed, 100, false, Look::default()).to_string();
+    assert!(
+        line.starts_with("● ") && line.contains("1 other · 2 members"),
+        "{line}"
+    );
+}
+
+#[test]
+fn large_partial_token_values_keep_a_guaranteed_gap_and_short_models() {
+    let squad = squad("remote");
+    let counts = members();
+    let mut usage = usage(TokenWindow::DEFAULTS);
+    usage.lead_model = Some("claude-opus-4-7");
+    usage.lead = [3_000, 3_700_000, 12_400_000].map(|tokens| {
+        Some(crate::board::rate::Reading {
+            tokens,
+            partial: true,
+            span: 60_000,
+        })
+    });
+    let item = TileItem {
+        squad: &squad,
+        members: &counts,
+        lead_model: None,
+        usage: Some(usage),
+    };
+    for width in [80, 100, 113, 160, 200] {
+        let painted = paint(std::slice::from_ref(&item), width, Look::default(), None);
+        let output = text(&painted.lines).join("\n");
+        assert!(
+            output.contains("opus") && !output.contains("claude"),
+            "{output}"
+        );
+        assert!(output.contains("~3.7M ~12.4M"), "{output}");
+        assert!(
+            painted
+                .lines
+                .iter()
+                .all(|line| line.width() == usize::from(width))
+        );
+    }
+}
+
 fn text(lines: &[Line<'_>]) -> Vec<String> {
     lines
         .iter()
@@ -44,63 +100,37 @@ fn text(lines: &[Line<'_>]) -> Vec<String> {
 #[test]
 fn responsive_regions_share_row_starts_and_keep_reading_order() {
     let names = ["a", "b", "c", "d", "e"];
-    for (width, expected) in [
-        (
-            160,
-            vec![
-                (0, 0, 52),
-                (0, 54, 52),
-                (0, 108, 52),
-                (4, 0, 52),
-                (4, 54, 52),
-            ],
-        ),
-        (
-            100,
-            vec![(0, 0, 49), (0, 51, 49), (4, 0, 49), (4, 51, 49), (8, 0, 49)],
-        ),
-        (
-            80,
-            vec![(0, 0, 80), (1, 0, 80), (2, 0, 80), (3, 0, 80), (4, 0, 80)],
-        ),
-    ] {
-        let regions = placement(width, &names).unwrap();
-        assert_eq!(
+    for width in [80, 99, 100, 113, 160, 169, 170, 200] {
+        let regions = placement(width, names.len());
+        let height = if width < 100 { 1 } else { 3 };
+        let step = if width < 100 { 1 } else { 4 };
+        for (index, region) in regions.iter().enumerate() {
+            assert_eq!(region.item, index);
+            assert_eq!(region.x, 0);
+            assert_eq!(region.width, width);
+            assert_eq!(region.lines, index * step..index * step + height);
+        }
+    }
+}
+
+#[test]
+fn squad_count_never_reintroduces_multiple_columns_or_compact_wide_tiles() {
+    for width in [80, 100, 113, 160, 200] {
+        let regions = placement(width, 14);
+        assert_eq!(regions.len(), 14);
+        assert!(
             regions
                 .iter()
-                .map(|(r, _)| (r.lines.start, r.x, r.width))
-                .collect::<Vec<_>>(),
-            expected
-        );
-        assert_eq!(
-            regions.iter().map(|(r, _)| r.item).collect::<Vec<_>>(),
-            [0, 1, 2, 3, 4]
+                .all(|region| region.x == 0 && region.width == width)
         );
         assert!(
             regions
                 .iter()
-                .all(|(r, _)| r.lines.len() == if width < 100 { 1 } else { 3 })
+                .all(|region| region.lines.len() == if width < 100 { 1 } else { 3 })
         );
     }
-    let at_160 = placement(160, &names).unwrap();
-    placement(80, &names).unwrap();
-    assert_eq!(placement(160, &names).unwrap(), at_160);
-}
-
-#[test]
-fn exact_width_and_many_squad_boundaries_choose_the_required_form() {
-    let names = ["a"; 10];
-    assert_eq!(placement(149, &names[..9]).unwrap()[1].0.lines.start, 0);
-    assert_eq!(placement(150, &names[..9]).unwrap()[2].0.lines.start, 0);
-    assert_eq!(placement(99, &names[..9]).unwrap()[1].0.lines.start, 1);
-    for width in [100, 149, 150, 160] {
-        let regions = placement(width, &names).unwrap();
-        assert!(regions.iter().all(|(r, _)| r.lines.len() == 1));
-        assert_eq!(regions[1].0.lines.start, usize::from(width < 150));
-        assert_eq!(regions[2].0.lines.start, if width < 150 { 2 } else { 1 });
-    }
-    assert!(placement(0, &names).unwrap().is_empty());
-    assert!(placement(160, &[]).unwrap().is_empty());
+    assert!(placement(0, 10).is_empty());
+    assert!(placement(160, 0).is_empty());
 }
 
 #[test]
@@ -114,9 +144,9 @@ fn members_are_urgency_sorted_and_private_row_values_never_appear() {
         usage: None,
     };
     for width in [160, 100, 80] {
-        let painted = paint(std::slice::from_ref(&item), width, Look::default(), None).unwrap();
+        let painted = paint(std::slice::from_ref(&item), width, Look::default(), None);
         let output = text(&painted.lines).join("\n");
-        assert!(output.contains("◆✗✗◐●○"));
+        assert!(output.contains("◆ ✗ ✗ ◐ ● ○ "));
         assert!(output.contains("6 members"));
         assert!(!output.contains("private"));
         assert!(
@@ -126,7 +156,7 @@ fn members_are_urgency_sorted_and_private_row_values_never_appear() {
                 .all(|line| line.width() <= usize::from(width))
         );
         if width >= 100 {
-            assert!(output.contains("◆1 ✗2"));
+            assert!(output.contains("◆ 1 ✗ 2"));
         }
     }
 }
@@ -157,7 +187,7 @@ fn selection_covers_the_whole_block_but_leaves_gaps_and_neighbours_alone() {
         };
         for (width, count) in [(160, 3), (100, 3), (80, 3), (160, 10)] {
             let items = &items[..count];
-            let painted = paint(items, width, look, Some(1)).unwrap();
+            let painted = paint(items, width, look, Some(1));
             let selected = &painted.regions[1];
             let height = painted.lines.len() as u16 + 1;
             let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
@@ -180,7 +210,7 @@ fn selection_covers_the_whole_block_but_leaves_gaps_and_neighbours_alone() {
                 }
             }
             assert_eq!(
-                text(&paint(items, width, look, None).unwrap().lines),
+                text(&paint(items, width, look, None).lines),
                 text(&painted.lines)
             );
         }
@@ -199,13 +229,9 @@ fn escaped_unicode_and_missing_lead_fit_even_tiny_widths() {
         usage: None,
     };
     assert!(
-        text(
-            &paint(std::slice::from_ref(&item), 100, Look::default(), None)
-                .unwrap()
-                .lines
-        )
-        .join("")
-        .contains("no lead")
+        text(&paint(std::slice::from_ref(&item), 100, Look::default(), None).lines)
+            .join("")
+            .contains("no lead")
     );
     squad.squad.push('\n');
     let item = TileItem {
@@ -215,7 +241,7 @@ fn escaped_unicode_and_missing_lead_fit_even_tiny_widths() {
         usage: None,
     };
     for width in 1..=160 {
-        let painted = paint(std::slice::from_ref(&item), width, Look::default(), Some(0)).unwrap();
+        let painted = paint(std::slice::from_ref(&item), width, Look::default(), Some(0));
         assert!(
             painted
                 .lines
@@ -274,10 +300,10 @@ fn runtime_observations_keep_missing_zero_partial_model_and_supplied_share_disti
         lead_model: None,
         usage: Some(usage),
     };
-    let painted = paint(std::slice::from_ref(&item), 160, Look::default(), None).unwrap();
+    let painted = paint(std::slice::from_ref(&item), 160, Look::default(), None);
     let line = text(&painted.lines)[1].clone();
     assert!(line.contains("gpt"));
-    assert!(line.contains("     0     –   ~8k  ~38%"), "{line}");
+    assert!(line.contains("      0      –    ~8k   ~38%"), "{line}");
     let missing = TileItem {
         squad: &squad,
         members: &counts,
@@ -290,9 +316,13 @@ fn runtime_observations_keep_missing_zero_partial_model_and_supplied_share_disti
             share: None,
         }),
     };
-    let missing = paint(&[missing], 160, Look::default(), None).unwrap();
-    assert_eq!(text(&missing.lines)[1].matches('–').count(), 5);
-    assert!(!text(&missing.lines)[1].contains('0'));
+    for width in [80, 100, 113, 160, 200] {
+        let missing = paint(std::slice::from_ref(&missing), width, Look::default(), None);
+        let lines = text(&missing.lines);
+        let lead_line = &lines[usize::from(width >= 100)];
+        assert_eq!(lead_line.matches('–').count(), 1, "{width}: {lead_line}");
+        assert!(!lead_line.contains('0'));
+    }
 }
 
 #[test]
@@ -307,7 +337,7 @@ fn disabled_sampling_hides_cells_and_only_sampled_squads_define_the_legend() {
     }];
     for width in [160, 100, 80] {
         assert_eq!(legend(&items, width), "");
-        let output = text(&paint(&items, width, Look::default(), None).unwrap().lines).join("\n");
+        let output = text(&paint(&items, width, Look::default(), None).lines).join("\n");
         assert!(output.contains("lead") && output.contains("6 members"));
         assert!(
             !output.contains('–'),
@@ -316,7 +346,7 @@ fn disabled_sampling_hides_cells_and_only_sampled_squads_define_the_legend() {
     }
     items[0].lead_model = Some("off-model");
     for width in [160, 100, 80] {
-        let output = text(&paint(&items, width, Look::default(), None).unwrap().lines).join("\n");
+        let output = text(&paint(&items, width, Look::default(), None).lines).join("\n");
         assert!(
             output.contains("off-mod"),
             "known model survives sampling off: {output}"
@@ -337,7 +367,7 @@ fn disabled_sampling_hides_cells_and_only_sampled_squads_define_the_legend() {
     for width in [160, 100, 80] {
         assert!(legend(&items, width).contains("24h"));
         assert!(!legend(&items, width).contains("vary"));
-        let output = paint(&items, width, Look::default(), None).unwrap();
+        let output = paint(&items, width, Look::default(), None);
         let off = &output.regions[0];
         for line in &output.lines[off.lines.clone()] {
             let mut terminal = Terminal::new(TestBackend::new(width, 1)).unwrap();
@@ -386,14 +416,14 @@ fn uniform_labels_appear_once_and_narrow_rows_retain_the_last_two_windows() {
             label,
             match width {
                 160 => "lead tokens · 5m · 1h · 24h · share (24h)",
-                100 => "lead tokens · 1h · 24h · share (24h)",
+                100 => "lead tokens · 5m · 1h · 24h · share (24h)",
                 _ => "lead tokens · 1h · 24h",
             }
         );
-        let painted = text(&paint(items, width, Look::default(), None).unwrap().lines).join("\n");
+        let painted = text(&paint(items, width, Look::default(), None).lines).join("\n");
         assert!(painted.contains("2k"));
         assert!(painted.contains("3k"));
-        assert_eq!(painted.contains("1k"), width == 160);
+        assert_eq!(painted.contains("1k"), width >= 100);
         assert!(!painted.contains("1h"));
         assert!(!painted.contains("24h"));
     }
@@ -423,7 +453,7 @@ fn mixed_windows_label_each_observation_and_share_without_reordering_tiles() {
     ];
     for width in [160, 100, 80] {
         assert_eq!(legend(&items, width), "lead tokens · windows vary");
-        let painted = paint(&items, width, Look::default(), None).unwrap();
+        let painted = paint(&items, width, Look::default(), None);
         let output = text(&painted.lines).join("\n");
         assert!(output.contains("5m:2k"), "{output}");
         assert!(output.contains("1h:3k"), "{output}");
@@ -460,7 +490,7 @@ fn oversized_compact_totals_cannot_hide_the_next_window() {
         lead_model: None,
         usage: Some(usage),
     };
-    let painted = paint(&[item], 80, Look::default(), None).unwrap();
+    let painted = paint(&[item], 80, Look::default(), None);
     let output = text(&painted.lines).join("");
     assert!(output.ends_with("    3k"), "{output}");
     assert!(output.contains('…'));

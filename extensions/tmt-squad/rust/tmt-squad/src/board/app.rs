@@ -1653,10 +1653,6 @@ impl App {
                     return self.home_enter();
                 }
                 Verb::Annotate => return self.home_answer(),
-                Verb::NextPane => {
-                    self.home_section(false);
-                    return Effect::None;
-                }
                 _ => {}
             }
         }
@@ -2672,12 +2668,6 @@ impl App {
                 _ => {}
             }
             self.clamp();
-            return Effect::None;
-        }
-        if self.view.as_ref().is_some_and(|view| view.home.is_some())
-            && key.code == KeyCode::BackTab
-        {
-            self.home_section(true);
             return Effect::None;
         }
         if self.focused_pane().is_none()

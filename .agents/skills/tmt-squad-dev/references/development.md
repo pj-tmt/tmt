@@ -49,12 +49,12 @@ cron_service` and the native `squad.test.ts` cron cases cover actor permission, 
   verifies signal cleanup. Run Docker lifecycle verification twice.
 - Board cron: `cargo test --locked -p tmt-squad cronboard` covers the projection, line, list and
   controls against disposable roots (`cron_service::test_support::Fixture`); `view::tests::cron`
-  covers the split squad tab, focus transfer, scoped keys and forms; `home::tests::cron` the ⑤
+  covers the split squad tab, focus transfer, scoped keys and forms; `home::tests::cron` the home
   cursor. Capture the home line, `c` list, split tab, expanded job and forms at 160/100/80 in
   `tmt`, `tmt-light` and `NO_COLOR` with a private HOME, `TMUX_TEAM_HOME` and tmux socket.
 - Row paint: `cargo test --locked -p tmt-squad board::view` covers painted cells and hits. A
   scene change keeps the frozen parity capture and compares the old and new renderers on
-  literal buffers, styles and hits (themes, depths, widths, selection, stale, waiting, `⏱`,
+  literal buffers, styles and hits (themes, depths, widths, selection, stale, waiting, cron labels,
   annotation) before the old one goes.
 - Frame cost: the `#[ignore]` harness `board/view/tests/frame_timing.rs` times one 160x50 frame
   of crew rows, team rows and home (meter on) through `Terminal::draw`, split by the phases of
@@ -71,11 +71,16 @@ cron_service` and the native `squad.test.ts` cron cases cover actor permission, 
   and partial-read recovery. `board::home::tests` checks the retained board model
   against that aggregate. Use an isolated `XDG_CACHE_HOME` when testing board
   observation.
-- Home tile checks cover literal 160/100/80 geometry, exclusive non-lead marks/counts,
+- Home tile checks cover literal 200/160/113/100/80 single-column geometry, exclusive non-lead marks/counts,
   missing/zero/partial observations, configured and mixed window labels, full selection
   in `tmt`, `tmt-light` and `NO_COLOR`, continuation clicks, complete selected-range
   reveal, clipped hits and resize without target drift. Capture quiet/waiting/blocked/many
-  squads with isolated state; frozen board/list parity remains unchanged.
+  squads with isolated state. The board glyph guard reads registered marks from
+  `design/tokens/tokens.json`, rejects Ambiguous and emoji-presentation decorations,
+  and requires trailing spaces on state marks. Structural exceptions have explicit
+  reasons in the guard; dynamic names, tasks and notebooks are outside its scope.
+  Decode cell/style/hit differences from current main parity before requesting approval
+  for any fixture regeneration; an approved regeneration has its own attributed commit.
 - Settings editor changes: cover live preview, focus and age-evidence restoration on cancel,
   invalid input, read-only command entries and stale-file refusal (native edits verify shared
   staleness after reload, including the disabled no-publication path); capture normal and

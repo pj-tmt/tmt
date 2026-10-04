@@ -112,8 +112,7 @@ pub(super) fn model(app: &App) -> KeyHelp {
             "navigation",
             "navigation",
             &[
-                ("↑↓ / j k", "move through attention rows, then squads"),
-                ("Tab / Shift-Tab", "move to the next or previous section"),
+                ("↑↓ / j k", "move through attention rows, cron and squads"),
                 ("Enter", "go to a member or open the selected squad"),
                 ("a", "answer a request or send the squad lead a note"),
                 (

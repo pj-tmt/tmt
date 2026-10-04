@@ -1,7 +1,7 @@
-//! The home tab's ⑤ cron line and the text shared with job rows. Pure: it formats
+//! The home tab's cron line and the text shared with job rows. Pure: it formats
 //! the projection it is given and never reads core, the store or the clock.
 
-use super::{Cron, State};
+use super::State;
 use crate::{board::notes::sanitize, board::view::fit, cron_service::JobView, look::Look};
 use ratatui::text::{Line, Span};
 use tmt_cli_style::Role;
@@ -110,120 +110,73 @@ pub(super) fn next_time(view: &JobView, now_ms: i64) -> Option<String> {
     time(*view.next_ms.first()?, now_ms, &zone(view))
 }
 
-/// `⑤ ⏱ N cron jobs · next <time> <owner> <what> · <clock> · c list`. The preview
-/// steps aside first, then the owner; count, time, clock and the key stay.
+/// Home keeps count, next time, owner, clock state and the list key; job text
+/// and clock locations remain behind `c`. A stale/failure projection stays explicit.
 pub(in crate::board) fn line(
     state: &State,
     now_ms: i64,
     width: u16,
     look: Look,
-    place: Option<&str>,
 ) -> Option<Line<'static>> {
     let width = usize::from(width);
     let Some(cron) = &state.cron else {
-        let reason = first_line(state.failure.as_deref()?);
-        let text = format!("⑤ ⏱ ✗ cron jobs unavailable: {reason}");
+        let text = format!(
+            "cron · ✗ jobs unavailable: {}",
+            first_line(state.failure.as_deref()?)
+        );
         return Some(Line::styled(
             fit(&text, width.min(text.width())),
             look.role(Role::Blocked),
         ));
     };
-    let note = state.clock_note(place);
-    Some(summary(
-        cron,
-        state.failure.is_some(),
-        now_ms,
-        width,
-        look,
-        note,
-    ))
-}
-
-fn summary(
-    cron: &Cron,
-    stale: bool,
-    now_ms: i64,
-    width: usize,
-    look: Look,
-    note: ClockNote<'_>,
-) -> Line<'static> {
+    let (clock, clock_role) = match &cron.clock {
+        ClockStatus::Running(_) => ("clock on", Role::Dim),
+        ClockStatus::NoClock if state.reads <= 1 => ("clock checking", Role::Dim),
+        ClockStatus::NoClock => ("clock off", Role::Blocked),
+        ClockStatus::Unknown => ("clock checking", Role::Waiting),
+    };
     let count = format!(
-        "{} {}",
+        "cron · {} job{}",
         cron.jobs.len(),
-        if width >= 100 { "cron jobs" } else { "jobs" }
+        if cron.jobs.len() == 1 { "" } else { "s" }
     );
-    let mut parts = vec![
-        ("⑤ ".to_owned(), Role::Dim),
-        ("⏱ ".to_owned(), Role::Accent),
-        (count, Role::Text),
-    ];
-    if stale {
-        parts.push((" ! stale".into(), Role::Waiting));
+    let tail = format!(" · {clock} · c list");
+    let mut spans = vec![Span::styled(count.clone(), look.role(Role::Text))];
+    if state.failure.is_some() {
+        spans.push(Span::styled(" · ! stale", look.role(Role::Waiting)));
     }
-    let next = cron.next();
-    if let Some((_, view)) = next
+    if let Some((_, view)) = cron.next()
         && let Some(time) = next_time(view, now_ms)
     {
-        parts.push((" · next ".into(), Role::Dim));
-        parts.push((time, Role::Text));
-    }
-    let tail = " · c list";
-    let used = |parts: &[(String, Role)]| parts.iter().map(|(text, _)| text.width()).sum::<usize>();
-    let (mut clock, clock_role) = clock(&cron.clock, now_ms, false, note);
-    let sep = " · ";
-    let room = width.saturating_sub(used(&parts) + sep.width() + tail.width());
-    if clock.width() > room {
-        clock = clock_text_for(&cron.clock, now_ms, room, note);
-    }
-    if let Some((_, view)) = next
-        && let Some(_) = next_time(view, now_ms)
-    {
-        let owner = first_line(view.owner_name.as_deref().unwrap_or("no owner"));
-        let room = width.saturating_sub(used(&parts) + sep.width() + clock.width() + tail.width());
-        if owner.width() < room {
-            parts.push((format!(" {owner}"), Role::Text));
-            let what = first_line(&view.job.message);
-            let room = room.saturating_sub(owner.width() + 1);
-            if !what.is_empty() && room >= 5 {
-                parts.push((
-                    format!(" {}", fit(&what, (room - 1).min(what.width()))),
-                    Role::Muted,
+        let next = format!(" · next {time}");
+        let used: usize = spans.iter().map(Span::width).sum();
+        if used + next.width() + tail.width() <= width {
+            spans.push(Span::styled(next, look.role(Role::Text)));
+            let owner = first_line(view.owner_name.as_deref().unwrap_or("no owner"));
+            let used: usize = spans.iter().map(Span::width).sum();
+            let room = width.saturating_sub(used + tail.width() + 1);
+            if room > 0 {
+                spans.push(Span::styled(
+                    format!(" {}", fit(&owner, room.min(owner.width()))),
+                    look.role(Role::Text),
                 ));
             }
         }
     }
-    parts.push((sep.into(), Role::Dim));
-    parts.push((clock, clock_role));
-    parts.push((" · ".into(), Role::Dim));
-    parts.push(("c list".into(), Role::Muted));
-    if used(&parts) > width {
-        // Too narrow for the structure: count and clock, fitted as one run.
-        let compact = format!(
-            "⑤ ⏱ {} · {}",
-            cron.jobs.len(),
-            clock_text_for(&cron.clock, now_ms, width, note)
-        );
-        return Line::styled(
-            fit(&compact, width.min(compact.width())),
+    spans.extend([
+        Span::styled(" · ", look.role(Role::Dim)),
+        Span::styled(clock, look.role(clock_role)),
+        Span::styled(" · c list", look.role(Role::Muted)),
+    ]);
+    let line = Line::from(spans);
+    if line.width() <= width {
+        Some(line)
+    } else {
+        Some(Line::styled(
+            fit(&format!("{count}{tail}"), width),
             look.role(clock_role),
-        );
+        ))
     }
-    Line::from(
-        parts
-            .into_iter()
-            .map(|(text, role)| Span::styled(text, look.role(role)))
-            .collect::<Vec<_>>(),
-    )
-}
-
-/// The longest clock wording that fits `room`, ending in an ellipsis when cut.
-fn clock_text_for(status: &ClockStatus, now_ms: i64, room: usize, note: ClockNote<'_>) -> String {
-    let (full, _) = clock(status, now_ms, false, note);
-    if full.width() <= room {
-        return full;
-    }
-    let (short, _) = clock(status, now_ms, true, note);
-    fit(&short, room.min(short.width()))
 }
 
 #[cfg(test)]

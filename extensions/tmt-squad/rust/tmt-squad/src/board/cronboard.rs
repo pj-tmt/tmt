@@ -118,12 +118,12 @@ impl State {
         self.cron.as_ref().map_or(0, |cron| cron.read_ms)
     }
 
-    /// A member row's `⏱ <next>` label; none without an active job, so the
+    /// A member row's `cron <next>` label; none without an active job, so the
     /// label's presence is the job's.
     pub fn member_label(&self, member_id: &str, now_ms: i64) -> Option<String> {
         let (at, view) = self.cron.as_ref()?.next_of(member_id)?;
         Some(format!(
-            "⏱ {}",
+            "cron {}",
             line::short_time(at, now_ms, &line::zone(view))?
         ))
     }
@@ -149,7 +149,7 @@ mod tests {
         };
         assert_eq!(
             state.member_label("u1", NOW).as_deref(),
-            Some("⏱ Mon 00:00")
+            Some("cron Mon 00:00")
         );
         assert_eq!(
             state.member_label("u2", NOW),

@@ -70,14 +70,47 @@ fn one_cursor_moves_across_rows_and_sections_and_enter_goes_in() {
     assert_eq!(app.home_target.as_ref().unwrap().section, "squads");
     assert_eq!(press(&mut app, Enter), Effect::Load("a".into()));
     let mut app = board(&[("a", waiting())]);
-    press(&mut app, Tab);
-    assert_eq!(app.home_target.as_ref().unwrap().section, "squads");
-    press(&mut app, Tab);
-    assert_eq!(app.home_target.as_ref().unwrap().section, "needs-you");
-    press(&mut app, BackTab);
-    assert_eq!(app.home_target.as_ref().unwrap().section, "squads");
-    press(&mut app, BackTab);
-    assert_eq!(app.home_target.as_ref().unwrap().section, "needs-you");
+    let selected = app.home_target.clone();
+    for key in [Tab, Tab, BackTab, BackTab] {
+        assert_eq!(press(&mut app, key), Effect::None);
+        assert_eq!(
+            app.home_target, selected,
+            "Tab uses board focus, not row navigation"
+        );
+    }
+    assert!(!paint::hints(200, true).contains("tab section"));
+    let navigation = crate::board::help::model(&app).sections.remove(0);
+    assert!(
+        navigation
+            .entries
+            .iter()
+            .all(|entry| !entry.description.contains("previous section"))
+    );
+    assert!(
+        navigation
+            .entries
+            .iter()
+            .any(|entry| entry.keys == "↑↓ / j k" && entry.description.contains("cron"))
+    );
+    press(&mut app, Down);
+    assert_eq!(app.home_target.as_ref().unwrap().section, "blocked");
+    press(&mut app, Up);
+    assert_eq!(app.home_target, selected);
+    assert_eq!(
+        press(&mut app, Enter),
+        Effect::Act(Request::Jump("worker".into()))
+    );
+
+    app.view
+        .as_mut()
+        .unwrap()
+        .bindings
+        .insert("tab".into(), Action::parse("refresh").unwrap());
+    assert_eq!(
+        press(&mut app, Tab),
+        Effect::Refresh,
+        "explicit board binding still wins"
+    );
     for key in [Char('r'), Char('R'), Char('1')] {
         assert_eq!(press(&mut app, key), Effect::None);
         assert!(app.input.is_none());
@@ -189,7 +222,7 @@ fn pending_and_squad_notes_use_the_actual_lead_and_refuse_changes() {
         })
     );
     let mut app = board(&[("a", doc)]);
-    keys(&mut app, &[Tab, Char('a')]);
+    keys(&mut app, &[End, Char('a')]);
     app.view.as_mut().unwrap().home.as_mut().unwrap().squads[0].lead =
         Some(row("NL", "new-lead", "working"));
     press(&mut app, Char('x'));
@@ -524,7 +557,7 @@ fn tile_note_band_shifts_later_grid_rows_without_changing_hits_or_selection() {
             app.select(4);
             let target = app.home_target.clone();
             press(&mut app, Char('a'));
-            let mut terminal = Terminal::new(TestBackend::new(width, 30)).unwrap();
+            let mut terminal = Terminal::new(TestBackend::new(width, 40)).unwrap();
             terminal
                 .draw(|frame| crate::board::view::render(frame, &app))
                 .unwrap();
@@ -541,7 +574,7 @@ fn tile_note_band_shifts_later_grid_rows_without_changing_hits_or_selection() {
                     .iter()
                     .any(|hit| (band.y..band.bottom()).contains(&hit.y))
             );
-            let next_grid_row = if width >= 100 { 6 } else { 5 };
+            let next_grid_row = 5;
             assert!(hits.iter().any(|hit| hit.row == next_grid_row));
             assert!(
                 hits.iter()

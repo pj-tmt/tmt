@@ -118,27 +118,6 @@ impl App {
         entries
     }
 
-    pub(in crate::board) fn home_section(&mut self, previous: bool) {
-        let entries = self.home_entries();
-        let mut sections = Vec::new();
-        for (index, entry) in entries.iter().enumerate() {
-            let key = match entry.target.section.as_str() {
-                "needs-you" | "blocked" => "attention",
-                other => other,
-            };
-            if sections.last().is_none_or(|(last, _)| *last != key) {
-                sections.push((key, index));
-            }
-        }
-        if !sections.is_empty() {
-            let current = sections
-                .partition_point(|(_, start)| *start <= self.selected)
-                .saturating_sub(1);
-            let next = (current + if previous { sections.len() - 1 } else { 1 }) % sections.len();
-            self.select(sections[next].1);
-        }
-    }
-
     pub(in crate::board) fn home_enter(&mut self) -> Effect {
         let entries = self.home_entries();
         let Some(entry) = entries.get(self.selected) else {

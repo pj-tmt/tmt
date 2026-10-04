@@ -41,6 +41,7 @@ signal-hook.workspace = true
 
 [dev-dependencies]
 tmt-test-support.workspace = true
+unicode-width = { workspace = true, features = ["cjk"] }
 
 [lints]
 workspace = true

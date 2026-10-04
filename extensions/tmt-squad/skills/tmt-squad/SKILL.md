@@ -306,29 +306,31 @@ send shows its error and does not show `✓ sent` or retry automatically.
 
 ## Home dashboard
 
-The built-in `all` board shows ① counts, ② needs-you members and a blocked subgroup,
-then ⑤ cron and ③ squads. Circled numbers label sections; they are not keys.
-At 150 columns and wider squads use three tile columns, at 100–149 two, and below
-100 one compact line per squad. Ten or more visible squads use compact lines,
-in two columns from 150. A tile shows squad attention, lead/model/token windows
-and the lead's share of the longest window, followed by non-lead member marks
-in urgency order (◆ ✗ ◐ ● ○) and a member count. A member contributes one mark;
-unknown/custom states count without a mark. Compact lines keep the last two lead
-windows. Selection covers the whole tile, including padding and continuation rows.
+The built-in `all` board shows counts, needs-you members and a blocked subgroup,
+then cron and squads. Squads occupy one full-width column at every width. Below
+100 columns each squad uses one compact row; wider tiles have three rows even
+with many squads. A tile shows squad attention, lead/model/token windows and the
+lead's share of the longest window, followed by non-lead member marks in urgency
+order (◆ ✗ ◐ ● ○) and a member count. Each mark has a trailing space. Members
+with unknown/custom states appear as `N other`. Compact rows keep the last two
+lead windows. Selection covers the whole tile, including padding and continuation rows.
 
 Tiles use the board's observed usage (see below). Missing values show `–`, measured
 zero shows `0`, and partial totals/share carry `~`; a zero squad total has no share.
-When a squad's token sampling is off, its tile hides token cells. If every squad
-has sampling off, the ③ heading hides the token legend too. Only sampling squads
-contribute windows to that legend. Known lead models remain visible with sampling
-off; unknown models may disappear. The ③ heading names shared windows once. Mixed `tok` settings label each tile's
-actual windows. Attention rows show only member, squad and available relative age;
-blocked ages say `observed` to identify the task/state observation. Questions appear
-in the inline composer after `a`. Quiet needs-you takes one line, and empty blocked
-disappears. Public `tmt sq ls --tab all --json` and text retain the aggregate document.
+A lead with no observed totals shows one dim `–`. When a squad's token sampling
+is off, its tile hides token cells. If every squad has sampling off, the squads
+heading hides the token legend too. Only sampling squads contribute windows to
+that legend. Observed lead models remain visible with sampling off; without a model
+observation, the model cell is omitted. Home and crew use the same short family names, such as `opus`,
+`sonnet` and `sol`; unfamiliar names truncate to the available column width.
+The squads heading names shared windows once. Mixed `tok` settings label each
+tile's actual windows. Attention rows show only member, squad and available relative
+age; blocked ages say `observed` to identify the task/state observation. Questions
+appear in the inline composer after `a`. Quiet needs-you takes one line, and empty
+blocked disappears. Public `tmt sq ls --tab all --json` and text retain the aggregate document.
 
-One cursor spans attention rows, cron and squads. Arrows or j/k move it; Tab and
-Shift-Tab traverse sections. Open on the first decision, otherwise the first
+One cursor spans attention rows, cron and squads. Arrows or j/k move it; Tab
+keeps its board-wide pane-focus behavior and does not jump between home sections. Open on the first decision, otherwise the first
 squad. Enter jumps to the member or opens the squad. `a` answers an open request
 through public `tmt answer`, otherwise annotates for that squad's actual lead.
 The composer refuses changed targets/requests/leads and missing sender/lead;
@@ -337,16 +339,18 @@ switcher, and `/` searches. Home has no r/R reply shortcut or numeric navigation
 
 ## Cron on the board
 
-The home tab shows one line, `⑤ ⏱ N cron jobs · next <time> <owner> <what> · <clock> · c list`:
-the job count, the earliest active slot, and whether a clock runs (`no clock` means
-due slots are not sent; `clock: checking…` is the first read). A running clock shows where it
-runs as `session:window` (from tmux, when the board runs inside tmux), else the pane id. Tab reaches it like any section. Enter on it, or `c` anywhere,
-lists every squad's jobs, hidden squads included; Enter opens the job's squad and Esc closes.
+The home tab shows one line, `cron · N jobs · next <time> <owner> · clock on/off/checking · c list`: the job count
+and earliest active slot. It omits the job prompt, clock location and paths. Up/Down
+reaches it like any row. Enter on it, or `c` anywhere, lists every squad's
+jobs, hidden squads included; Enter opens the job's squad and Esc closes. The
+job list retains full prompts and clock status (`no clock` means due slots are
+not sent; `clock: checking…` is the first read). A running clock identifies its
+holder as `session:window` inside tmux when available, otherwise by pane id.
 
 A squad tab is split in two: members above, that squad's jobs below (as tall as its jobs, at
 most two fifths of the body). The `c` list is as tall as its jobs too. Tab moves into the
 jobs after the last pane and back to the first. Members who own an active job show
-`⏱ <next>` at the row end (the first thing to drop when narrow) and in their detail. The selected job expands in
+`cron <next>` at the row end (the first thing to drop when narrow) and in their detail. The selected job expands in
 place with its full message, its next three runs and its time zone.
 
 While the jobs (or the `c` list) have focus these keys are job keys, and `?` lists them:
