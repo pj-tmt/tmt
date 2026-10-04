@@ -1,4 +1,4 @@
-import { expect, test, chromium, type Browser } from '@playwright/test';
+import { expect, test, chromium, type Browser, type Page } from '@playwright/test';
 import { spawn, execFileSync, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { createPublicKey, verify } from 'node:crypto';
 import { extCertSigningBytes } from '../src/canonical-bytes.js';
@@ -23,6 +23,30 @@ const { header: headerTokens } = JSON.parse(
     'utf8',
   ),
 ) as { header: Record<string, string> };
+
+// The state colors (design tokens `waiting`, `blocked`, `working`) of the mark and the sheet's
+// hard shadow, as in Colab's notice card.
+const STATE_COLORS = {
+  light: { waiting: 'rgb(150, 80, 39)', blocked: 'rgb(182, 44, 59)', working: 'rgb(79, 106, 51)' },
+  dark: {
+    waiting: 'rgb(255, 158, 100)',
+    blocked: 'rgb(247, 118, 142)',
+    working: 'rgb(158, 206, 106)',
+  },
+};
+async function expectStateColor(
+  page: Page,
+  scheme: 'light' | 'dark',
+  state: 'waiting' | 'blocked' | 'working',
+) {
+  const color = await page.evaluate(() => ({
+    mark: getComputedStyle(document.querySelector('.state-mark')!).color,
+    shadow: /^rgb\([^)]*\)/.exec(
+      getComputedStyle(document.querySelector('.sheet')!).boxShadow,
+    )?.[0],
+  }));
+  expect(color).toEqual({ mark: STATE_COLORS[scheme][state], shadow: STATE_COLORS[scheme][state] });
+}
 
 const BINARY =
   process.env.TMT_REMOTE_BINARY ??
@@ -153,6 +177,7 @@ test('a browser pairs, gets a door session and certifies only its own extension'
     'This browser is paired. You can close this page.',
   );
   await expect(page.locator('#mark')).toHaveText('✓');
+  await expectStateColor(page, 'light', 'working');
   expect(requested.some((url) => url.includes(code))).toBe(false);
 
   const cookies = await context.cookies(mounts);
@@ -501,6 +526,7 @@ test('browser pages use local tokens in both schemes and fit desktop and mobile'
             inline: 0,
           });
           expect(look.shadow).toContain('6px 6px 0px 0px');
+          await expectStateColor(page, colorScheme, state === 'error' ? 'blocked' : 'waiting');
           // Colab's header, from the same tokens: mark, product, then the page title.
           const header = look.header;
           expect(header).toMatchObject({
@@ -588,6 +614,7 @@ test('browser pages use local tokens in both schemes and fit desktop and mobile'
           'Pairing did not complete. Run tmt remote pair again for a new link.',
         );
         await expect(page.locator('#mark')).toHaveText('✗');
+        await expectStateColor(page, colorScheme, 'blocked');
         expect((await page.goto(`${origin}/pair/abc`))?.status()).toBe(404);
         await page.goto(`${origin}/pair#BAD`);
         await expect(page.locator('#status')).toHaveAttribute('data-state', 'blocked');
