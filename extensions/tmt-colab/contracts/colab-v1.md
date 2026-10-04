@@ -2109,7 +2109,7 @@ evidence for a legacy page.
 Retention defaults to 30 days; forever is null. Finite `expiresAtMs` is
 `lastUpdateAtMs + retentionDays * 86400000`, using checked arithmetic bounded to
 safe integers. A legacy unknown finite expiry is null with `expiry-unavailable`
-("Expiry starts after the next edit"); an unrepresentable finite expiry is null
+("expiry starts after the next edit"); an unrepresentable finite expiry is null
 with `expiry-out-of-range`. Forever has no expiry or expiry warning, even with
 unknown last-update time. At most one expiry warning is emitted: `expires-soon`
 when expiry is in the future and at most seven days away; `expired` at or after
@@ -2455,9 +2455,10 @@ preview does not remove home management access. Retention defaults to 30 days.
 Chrome presents the native durable last-update/expiry display hints as relative
 retention time, with the absolute local date on hover. The hint stays inside the
 page card under its status badge. The seven-day warning and the expired state
-add a waiting mark and body text color; ordinary hints use dim text. The copy names
-retention and says the local copy stays; legacy unknown times say "Expiry starts
-after the next edit". The collapsed Details line includes the local last-edit date.
+add a waiting mark and body text color; ordinary hints use dim text. The copy is the
+CLI's lowercase wording (`expires in 6 days`, `expired 2 days ago`, `kept forever`,
+`expiry starts after the next edit`, `expiry beyond the supported range`); the
+local-copy note is separate (the dialog's retention form and the CLI footer). The collapsed Details line includes the local last-edit date.
 Local expiry never automatically deletes data or ends access.
 
 Confirmation discloses shared/current history scope, the 64-epoch limit, editors'

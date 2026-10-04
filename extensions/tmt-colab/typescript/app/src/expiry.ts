@@ -22,10 +22,9 @@ export function localTime(value: number | null): string {
   return `${part('weekday')} ${part('month')}-${part('day')} ${part('hour')}:${part('minute')}`;
 }
 export function expiryText(page: Partial<ExpiryInfo>, now = Date.now()): string {
-  if (page.retentionDays === null) return 'Kept forever.';
-  if (page.warnings?.includes('expiry-out-of-range'))
-    return 'Retention date is beyond the supported range.';
-  if (page.expiresAtMs == null) return 'Expiry starts after the next edit.';
+  if (page.retentionDays === null) return 'kept forever';
+  if (page.warnings?.includes('expiry-out-of-range')) return 'expiry beyond the supported range';
+  if (page.expiresAtMs == null) return 'expiry starts after the next edit';
   const remaining = page.expiresAtMs - now;
   const duration = Math.abs(remaining);
   const days = Math.floor(duration / 86400000);
@@ -36,6 +35,5 @@ export function expiryText(page: Partial<ExpiryInfo>, now = Date.now()): string 
       : hours >= 1
         ? `${hours} h`
         : 'less than an hour';
-  const relative = remaining > 0 ? `ends in ${interval}` : `ended ${interval} ago`;
-  return `Retention ${relative} · your local copy stays`;
+  return remaining > 0 ? `expires in ${interval}` : `expired ${interval} ago`;
 }
