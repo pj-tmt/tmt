@@ -125,3 +125,46 @@ fn an_empty_or_failed_read_says_so() {
     );
     assert!(matches!(list.input(&key(KeyCode::Enter)), Input::None));
 }
+
+fn snapshots() -> serde_json::Value {
+    let mut frames = Vec::new();
+    for (scenario, state) in [
+        ("two squads", jobs()),
+        (
+            "empty",
+            State {
+                cron: Some(cron(vec![], ClockStatus::Unknown)),
+                failure: Some("storage unreachable".into()),
+            },
+        ),
+    ] {
+        for width in [160u16, 100, 80] {
+            let list = List::open(&state, None);
+            frames.push(serde_json::json!({
+                "scenario": scenario, "width": width, "lines": paint(&list, &state, width, 9),
+            }));
+        }
+    }
+    serde_json::json!(frames)
+}
+
+#[test]
+fn list_snapshots_at_each_width() {
+    assert_eq!(
+        snapshots(),
+        serde_json::from_str::<serde_json::Value>(include_str!("snapshots.json")).unwrap()
+    );
+}
+
+#[test]
+#[ignore = "explicit initial captures of the new c list; frozen parity is separate"]
+fn record_list_snapshots() {
+    std::fs::write(
+        concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/board/cronboard/list/snapshots.json"
+        ),
+        serde_json::to_string_pretty(&snapshots()).unwrap() + "\n",
+    )
+    .unwrap();
+}

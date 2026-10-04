@@ -487,3 +487,43 @@ mod controls {
         assert!(app.cron_list.is_none() && app.input.is_some());
     }
 }
+
+fn snapshots() -> Value {
+    let mut frames = Vec::new();
+    for (scenario, focused) in [("members above jobs", false), ("jobs focused", true)] {
+        for (width, height) in [(160u16, 24u16), (100, 24), (80, 24)] {
+            let mut app = squad_tab();
+            draw(&app, width, height);
+            if focused {
+                press(&mut app, KeyCode::Tab);
+            }
+            frames.push(json!({
+                "scenario": scenario, "width": width, "height": height,
+                "lines": draw(&app, width, height),
+                "hits": format!("{:?}", app.hits.borrow()),
+            }));
+        }
+    }
+    json!(frames)
+}
+
+#[test]
+fn split_squad_tab_snapshots_at_each_width() {
+    assert_eq!(
+        snapshots(),
+        serde_json::from_str::<Value>(include_str!("cron_snapshots.json")).unwrap()
+    );
+}
+
+#[test]
+#[ignore = "explicit initial captures of the split squad tab; frozen parity is separate"]
+fn record_split_squad_tab_snapshots() {
+    std::fs::write(
+        concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/board/view/tests/cron_snapshots.json"
+        ),
+        serde_json::to_string_pretty(&snapshots()).unwrap() + "\n",
+    )
+    .unwrap();
+}

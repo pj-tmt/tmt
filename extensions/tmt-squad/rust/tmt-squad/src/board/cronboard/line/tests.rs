@@ -187,3 +187,59 @@ fn instants_use_the_stored_zone_and_show_the_date_when_not_today() {
     assert_eq!(time(next, NOW, "no-such-zone"), None);
     assert_eq!(time(i64::MAX, NOW, "UTC"), None);
 }
+
+fn snapshots() -> serde_json::Value {
+    let job = view(
+        "tmt-lead",
+        "merge queue sweep and check every pending review",
+        Some(NOW + 3_600_000),
+    );
+    let mut frames = Vec::new();
+    for (scenario, state) in [
+        ("running", self::state(cron(vec![job.clone()], running()))),
+        (
+            "no clock",
+            self::state(cron(vec![job.clone()], ClockStatus::NoClock)),
+        ),
+        (
+            "unknown",
+            self::state(cron(vec![job], ClockStatus::Unknown)),
+        ),
+        ("empty", self::state(cron(vec![], ClockStatus::NoClock))),
+        (
+            "failed",
+            State {
+                cron: None,
+                failure: Some("storage unreachable".into()),
+            },
+        ),
+    ] {
+        for width in [160u16, 100, 80] {
+            frames.push(serde_json::json!({
+                "scenario": scenario, "width": width, "line": text(&state, width),
+            }));
+        }
+    }
+    serde_json::json!(frames)
+}
+
+#[test]
+fn home_line_snapshots_at_each_width() {
+    assert_eq!(
+        snapshots(),
+        serde_json::from_str::<serde_json::Value>(include_str!("snapshots.json")).unwrap()
+    );
+}
+
+#[test]
+#[ignore = "explicit initial captures of the new ⑤ line; frozen parity is separate"]
+fn record_home_line_snapshots() {
+    std::fs::write(
+        concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/board/cronboard/line/snapshots.json"
+        ),
+        serde_json::to_string_pretty(&snapshots()).unwrap() + "\n",
+    )
+    .unwrap();
+}
