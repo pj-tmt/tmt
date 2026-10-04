@@ -66,8 +66,8 @@ pub fn each_row(document: &mut Value, mut visit: impl FnMut(&mut Value)) {
 }
 
 pub enum Item<'a> {
-    /// An authored section title.
-    Header(&'a str),
+    /// An authored section starts, with its title when it has one.
+    Section(Option<&'a str>),
     Rule(Rule),
     Row(Slot, &'a Value),
 }
@@ -97,9 +97,7 @@ pub fn project<'a>(document: &'a Value, keep: impl Fn(&Value) -> bool) -> Vec<It
             .map(Vec::as_slice)
             .unwrap_or_default();
         members += rows.len();
-        if let Some(title) = section["title"].as_str() {
-            items.push(Item::Header(title));
-        }
+        items.push(Item::Section(section["title"].as_str()));
         for row in rows.iter().filter(|row| keep(row)) {
             match row["id"].as_str() {
                 Some(id) => {
@@ -134,10 +132,10 @@ mod tests {
     fn shape(items: &[Item<'_>]) -> Vec<String> {
         items
             .iter()
-            .map(|item| match item {
-                Item::Header(title) => format!("# {title}"),
-                Item::Rule(rule) => format!("-- {}", rule.label()),
-                Item::Row(slot, row) => format!("{slot:?} {}", row["name"].as_str().unwrap()),
+            .filter_map(|item| match item {
+                Item::Section(title) => title.map(|title| format!("# {title}")),
+                Item::Rule(rule) => Some(format!("-- {}", rule.label())),
+                Item::Row(slot, row) => Some(format!("{slot:?} {}", row["name"].as_str().unwrap())),
             })
             .collect()
     }

@@ -191,7 +191,8 @@ impl RowPaint {
         let mut at = 0;
         for item in items {
             let row = match item {
-                Item::Header(title) => {
+                Item::Section(None) => continue,
+                Item::Section(Some(title)) => {
                     let title = title.to_uppercase();
                     let shown = title.width().min(width);
                     let index =

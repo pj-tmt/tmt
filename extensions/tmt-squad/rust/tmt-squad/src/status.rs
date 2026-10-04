@@ -3,6 +3,7 @@
 
 use crate::{
     config::{Layout, Rank, Section, SortKey, States},
+    display_rows::{Item, Slot},
     filter::Row,
     rows::{Column as RowColumn, ListSizing, Rows},
     squad::{Member, Squad},
@@ -378,14 +379,25 @@ fn squad_text(document: &Value, terminal: Terminal, output: &mut Vec<u8>) {
     if fields.is_empty() && hidden.is_none() {
         fields = vec!["member", "state"];
     }
-    let sections: Vec<_> = document["sections"]
-        .as_array()
-        .into_iter()
-        .flatten()
-        .collect();
-    let rows: Vec<_> = sections
+    // The lead first, then the sections, in the board's display order; the
+    // shared list heading of the members section is the rule between them.
+    let mut groups: Vec<(&str, Option<usize>, Vec<&Value>)> = Vec::new();
+    for item in crate::display_rows::project(document, |_| true) {
+        match item {
+            Item::Row(Slot::Lead, row) => groups.push(("lead", None, vec![row])),
+            Item::Rule(_) => {}
+            Item::Section(title) => groups.push((title.unwrap_or("members"), Some(0), Vec::new())),
+            Item::Row(Slot::Section(_), row) => {
+                if let Some(group) = groups.last_mut() {
+                    group.2.push(row);
+                    group.1 = Some(group.2.len());
+                }
+            }
+        }
+    }
+    let rows: Vec<_> = groups
         .iter()
-        .flat_map(|section| section["rows"].as_array().into_iter().flatten())
+        .flat_map(|group| group.2.iter().copied())
         .collect();
     let stale_column = rows.iter().any(|row| row["staleness"]["state"] == "stale");
     let mut columns: Vec<_> = fields
@@ -467,13 +479,9 @@ fn squad_text(document: &Value, terminal: Terminal, output: &mut Vec<u8>) {
             (shown, layout)
         }
     };
-    let built: Vec<(String, usize, Table)> = sections
+    let built: Vec<(String, Option<usize>, Table)> = groups
         .iter()
-        .map(|section| {
-            let rows = section["rows"]
-                .as_array()
-                .map(Vec::as_slice)
-                .unwrap_or_default();
+        .map(|(title, count, rows)| {
             let mut table = Table::new(&layout);
             for row in rows {
                 let mark = mark(row);
@@ -517,11 +525,7 @@ fn squad_text(document: &Value, terminal: Terminal, output: &mut Vec<u8>) {
                     table.row(cells);
                 }
             }
-            (
-                section["title"].as_str().unwrap_or("members").to_owned(),
-                rows.len(),
-                table,
-            )
+            ((*title).to_owned(), *count, table)
         })
         .collect();
     let older = (document["olderRequestsNotShown"] == true).then_some("older requests not shown");
@@ -531,7 +535,7 @@ fn squad_text(document: &Value, terminal: Terminal, output: &mut Vec<u8>) {
         .enumerate()
         .map(|(index, (title, count, table))| ListSection {
             title,
-            count: Some(*count),
+            count: *count,
             rows: table.clone(),
             note: if table.is_empty() {
                 Some("(no members)")
@@ -871,6 +875,8 @@ sort = ["state"]
         assert_eq!(
             text(&crew, Terminal::PLAIN),
             "squad product · lead sol · layout crew\n\n\
+             LEAD\n\
+             \x20 ◆  sol  -        waiting on you: lead items stay in the header\n\n\
              MEMBERS 4\n\
              \x20 ◆  bob  blocked  waiting on you: approve the plan\n\
              \x20 ○  zed  working\n\

@@ -3450,10 +3450,10 @@ pub(crate) mod tests {
     fn names(app: &App) -> Vec<&str> {
         app.items()
             .iter()
-            .map(|item| match item {
-                Item::Header(title) => *title,
-                Item::Rule(_) => "--",
-                Item::Row(_, row) => row["name"].as_str().unwrap(),
+            .filter_map(|item| match item {
+                Item::Section(title) => *title,
+                Item::Rule(_) => Some("--"),
+                Item::Row(_, row) => row["name"].as_str(),
             })
             .collect()
     }
@@ -4723,10 +4723,10 @@ mod lead_row_tests {
     fn shape(app: &App) -> Vec<String> {
         app.items()
             .iter()
-            .map(|item| match item {
-                Item::Header(title) => format!("# {title}"),
-                Item::Rule(rule) => format!("-- {}", rule.label()),
-                Item::Row(_, row) => row["name"].as_str().unwrap().to_owned(),
+            .filter_map(|item| match item {
+                Item::Section(title) => title.map(|title| format!("# {title}")),
+                Item::Rule(rule) => Some(format!("-- {}", rule.label())),
+                Item::Row(_, row) => Some(row["name"].as_str().unwrap().to_owned()),
             })
             .collect()
     }

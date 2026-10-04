@@ -27,7 +27,7 @@ fn prepare(
             .into_iter()
             .filter_map(|item| match item {
                 Item::Row(_, row) => crate::markup::value(row, field),
-                Item::Header(_) | Item::Rule(_) => None,
+                Item::Section(_) | Item::Rule(_) => None,
             })
             // Content demand is unwrapped; measured width is a capped upper bound.
             .map(|value| tmt_cli_style::table::escape(value).width())
@@ -45,7 +45,7 @@ fn prepare(
         .into_iter()
         .filter_map(|item| match item {
             Item::Row(_, row) => Some(crate::staleness::label(&row["staleness"])),
-            Item::Header(_) | Item::Rule(_) => None,
+            Item::Section(_) | Item::Rule(_) => None,
         })
         .collect();
     let widest = |label: &dyn Fn(&Option<String>, &Extra) -> Option<String>| {
