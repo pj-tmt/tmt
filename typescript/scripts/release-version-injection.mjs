@@ -20,18 +20,24 @@ const hash = (root, file) =>
     )
     .digest('hex');
 const read = (root, file) => readFileSync(resolve(root, file), 'utf8');
-export const TOOL = resolve(
+const TOOL = resolve(
   process.env.CARGO_TARGET_DIR ?? fileURLToPath(new URL('../../rust/target', import.meta.url)),
   'debug/release-version'
 );
 // The private Rust release tool owns TOML parsing and formatting-preserving edits.
 function tomlCommand(args, source) {
+  const started = Date.now();
   const result = spawnSync(TOOL, args, {
     input: source,
     encoding: 'utf8',
     timeout: 60_000,
     maxBuffer: 64 * 1024 * 1024,
   });
+  // Every call is timed so a runner stall (#1646) names the call and its input size.
+  const outcome = result.error ? `failed (${result.error.code ?? result.error.message})` : 'ok';
+  process.stderr.write(
+    `release-version ${args[0]}: ${Buffer.byteLength(source ?? '')} input bytes, ${Date.now() - started}ms, ${outcome}\n`
+  );
   if (result.error) throw result.error;
   if (result.status !== 0 || result.signal)
     throw new Error(`Rust TOML helper failed: ${result.stderr}`);

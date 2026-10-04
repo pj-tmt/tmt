@@ -50,5 +50,3 @@ export function verifyDistManifests(
   plan: { announcement_tag: string; releases: { app_name: string; app_version: string }[] },
   build: { announcement_tag: string; releases: { app_name: string; app_version: string }[] }
 ): void;
-/** Path of the private release-version helper in the job's Cargo target directory. */
-export const TOOL: string;
