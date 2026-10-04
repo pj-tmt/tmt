@@ -1,51 +1,19 @@
 //! One home painter; ordinary pane geometry and scalar rows keep their owners.
 
 use super::{
-    Age, AgeSource, Counts, Home,
+    Age, AgeSource,
     tiles::{self, TileItem},
 };
 use crate::{
     board::{
-        app::{App, Hit, HomeHeaderUsage, UsageShare},
+        app::{App, Hit},
         view::fit,
     },
     config::Pane,
-    look::Look,
 };
-use ratatui::{
-    Frame,
-    layout::Rect,
-    text::{Line, Span},
-};
+use ratatui::{Frame, layout::Rect, text::Line};
 use std::ops::Range;
-use tmt_cli_style::{
-    Role,
-    breakpoint::{LG, MD},
-    table::escape,
-};
-
-fn counts(counts: &Counts, look: Look, words: bool) -> Vec<Span<'static>> {
-    [
-        ("◆", counts.waiting, Role::Waiting, "waiting on you"),
-        ("✗", counts.blocked, Role::Blocked, "blocked"),
-        ("◐", counts.review, Role::Review, "review"),
-        ("●", counts.working, Role::Working, "working"),
-        ("○", counts.idle, Role::Dim, "idle"),
-    ]
-    .into_iter()
-    .map(|(mark, count, role, label)| {
-        let suffix = if words {
-            format!(" {label}")
-        } else {
-            String::new()
-        };
-        Span::styled(
-            format!("{mark} {count}{suffix}  "),
-            look.role(if count == 0 { Role::Dim } else { role }),
-        )
-    })
-    .collect()
-}
+use tmt_cli_style::Role;
 
 /// Every section, including quiet and empty ones, reaches the same body edge.
 pub(super) fn rule(title: &str, width: usize) -> String {
@@ -54,174 +22,13 @@ pub(super) fn rule(title: &str, width: usize) -> String {
     fit(&format!("{title}{}", "─".repeat(tail)), width)
 }
 
-pub(crate) fn summary(home: &Home, width: u16, look: Look) -> Line<'static> {
-    let wide = width >= 120;
-    let mut spans = vec![Span::raw(if wide {
-        format!(
-            "{} squads · {} members   ",
-            home.squads.len(),
-            home.summary.members
-        )
-    } else {
-        format!("{} squads  ", home.squads.len())
-    })];
-    spans.extend(counts(&home.summary, look, wide));
-    Line::from(spans)
-}
-
-fn percent(share: &UsageShare) -> String {
-    format!(
-        "{}{:.0}%",
-        if share.partial { "~" } else { "" },
-        share.fraction * 100.0
-    )
-}
-
-/// Formats only the accepted meter projection; no acquisition or share arithmetic.
-pub(crate) fn usage(usage: &HomeHeaderUsage<'_>, width: u16, look: Look) -> Option<Line<'static>> {
-    if width < MD.cells || usage.totals.iter().all(Option::is_none) {
-        return None;
-    }
-    let wide = width >= LG.cells;
-    let width = usize::from(width);
-    let windows = (usize::from(!wide)..3)
-        .map(|index| {
-            let number = usage.totals[index].map_or_else(
-                || "–".into(),
-                |reading| {
-                    let number = crate::source::tokens(reading.tokens as f64);
-                    format!("{}{number}", if reading.partial { "~" } else { "" })
-                },
-            );
-            format!("{} {number}", usage.windows[index].label())
-        })
-        .collect::<Vec<_>>()
-        .join(" · ");
-    let windows = format!("tok {windows}");
-    let unreported = wide.then(|| {
-        format!(
-            "{} {} without data",
-            usage.unreported,
-            if usage.unreported == 1 {
-                "member"
-            } else {
-                "members"
-            }
-        )
-    });
-    let reserved = unreported.as_ref().map_or(0, |text| text.len() + 3);
-    let mut member_width = 18;
-    let top = loop {
-        let top = usage.top.as_ref().map_or_else(
-            || format!("share {}: –", usage.windows[2].label()),
-            |top| {
-                format!(
-                    "share {}: {} {}",
-                    usage.windows[2].label(),
-                    fit(&escape(top.member), member_width).trim_end(),
-                    percent(&top.share)
-                )
-            },
-        );
-        let used = unicode_width::UnicodeWidthStr::width(windows.as_str())
-            + unicode_width::UnicodeWidthStr::width(top.as_str())
-            + 3
-            + reserved
-            + if wide {
-                unicode_width::UnicodeWidthStr::width(" · models –")
-            } else {
-                0
-            };
-        if used <= width || member_width == 1 {
-            break top;
-        }
-        member_width -= 1;
-    };
-    let mut spans = vec![
-        Span::styled(windows, look.role(Role::Text)),
-        Span::styled(" · ", look.role(Role::Dim)),
-        Span::styled(
-            top,
-            look.role(if usage.top.is_some() {
-                Role::Accent
-            } else {
-                Role::Dim
-            }),
-        ),
-    ];
-    if let Some(unreported) = unreported {
-        let used: usize = spans.iter().map(Span::width).sum();
-        let available = width.saturating_sub(used + reserved + 3);
-        let mut models = String::from("models ");
-        for model in &usage.models {
-            let one = format!(
-                "{} {}",
-                fit(
-                    &escape(model.model.map(crate::source::model_name).unwrap_or("–")),
-                    12
-                )
-                .trim_end(),
-                percent(&model.share)
-            );
-            let separator = if models == "models " { "" } else { ", " };
-            let next = format!("{models}{separator}{one}");
-            if unicode_width::UnicodeWidthStr::width(next.as_str()) > available {
-                break;
-            }
-            models = next;
-        }
-        if models == "models " {
-            models.push('–');
-        }
-        if unicode_width::UnicodeWidthStr::width(models.as_str()) <= available {
-            spans.push(Span::styled(" · ", look.role(Role::Dim)));
-            spans.push(Span::styled(models, look.role(Role::Text)));
-        }
-        spans.push(Span::styled(" · ", look.role(Role::Dim)));
-        spans.push(Span::styled(unreported, look.role(Role::Dim)));
-    }
-    Some(Line::from(spans))
-}
+pub(crate) use super::bar::{hints, summary, usage};
 
 pub(crate) fn age_label(age: &Age, now: u64) -> String {
     let age_text = tmt_cli_style::value::relative_time(now.saturating_sub(age.since_ms));
     match age.source {
         AgeSource::Request => age_text,
         AgeSource::Observed => format!("observed {age_text}"),
-    }
-}
-
-pub(crate) fn hints(width: usize, cron: bool) -> String {
-    // Drop complete optional hints, preserving the two exit/help hints at 80.
-    let mut optional = vec![
-        "↑↓ move",
-        "⏎ open",
-        "a answer · note",
-        if width < usize::from(MD.cells) {
-            "A ask"
-        } else {
-            "A ask lead"
-        },
-        "e expand",
-        "t replies",
-        "/ search",
-        "←→ tabs",
-        "s switch",
-    ];
-    if cron {
-        optional.push("c cron");
-    }
-    loop {
-        let text = optional
-            .iter()
-            .copied()
-            .chain(["? more", "q quit"])
-            .collect::<Vec<_>>()
-            .join("  ");
-        if unicode_width::UnicodeWidthStr::width(text.as_str()) <= width || optional.is_empty() {
-            return text;
-        }
-        optional.pop();
     }
 }
 
