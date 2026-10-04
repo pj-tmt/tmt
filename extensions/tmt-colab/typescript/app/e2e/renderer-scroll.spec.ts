@@ -24,11 +24,12 @@ async function mount(page: Page, source: string, reader: boolean) {
     async ({ source, reader }) => {
       const path = '/test/page-layout-browser.tsx';
       const fixture = await import(path);
-      fixture[reader ? 'mountReader' : 'mount'](source);
+      await fixture[reader ? 'mountReader' : 'mount'](source);
     },
     { source, reader },
   );
-  await expect(page.locator('.page-bar .status')).toContainText('Live preview');
+  if (reader) await expect(page.getByRole('status')).toHaveText('● Live');
+  else await expect(page.locator('.page-bar .status')).toContainText('Live preview');
   await page.evaluate(() => (window as unknown as { firstHeight: Promise<void> }).firstHeight);
 }
 const html = `<style>body{margin:0}main{padding:24px}.space{height:2200px}.tail{height:1000px}</style>
