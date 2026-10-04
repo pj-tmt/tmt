@@ -303,5 +303,7 @@ mod paint;
 pub(super) use controller::{ALL_LEADS, CRON, LEADS, Target};
 pub(super) use paint::{age_label, hints, render, summary, usage};
 
+mod attention;
 mod leads;
+mod scene;
 mod tiles;

@@ -549,3 +549,13 @@ fn record_home_oracle() {
     )
     .unwrap();
 }
+
+#[test]
+#[ignore = "writes the current captures to $HOME_ORACLE_OUT, for diffing against oracle.json"]
+fn dump_home_oracle() {
+    fs::write(
+        std::env::var("HOME_ORACLE_OUT").expect("HOME_ORACLE_OUT"),
+        serde_json::to_string_pretty(&captures()).unwrap() + "\n",
+    )
+    .unwrap();
+}
