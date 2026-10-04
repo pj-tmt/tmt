@@ -167,6 +167,8 @@ fn grammar() -> Command {
         .subcommand(
             build(specs::BOARD)
                 .arg(squad_option())
+                .arg(Arg::new("tabs").long("tabs").value_name("NAMES")
+                    .help("The tabs this board shows (names as on the tab line); comma-separated, all for the default set"))
                 .arg(
                     Arg::new("popup")
                         .long("popup")
@@ -853,6 +855,11 @@ fn run(
         {
             return ls_tab_document(&core, &mut config, tab);
         }
+        if command == "board"
+            && let Some(picks) = text("tabs")
+        {
+            board::selection(&core, &config, Some(picks), text("squad"))?;
+        }
         return ls_document(&core, &mut config, text("squad"), refresh_fields);
     }
     if command == "jump" && matches.get_flag("lead") {
@@ -1079,7 +1086,10 @@ fn main() -> ExitCode {
     if command == "board" && interaction.view() == Mode::Interactive {
         let squad = sub.get_one::<String>("squad").cloned();
         let popup = sub.get_flag("popup");
-        return match Core::discover().and_then(|core| board::run(core, squad, popup, interaction)) {
+        let picks = sub.get_one::<String>("tabs").cloned();
+        return match Core::discover()
+            .and_then(|core| board::run(core, squad, picks, popup, interaction))
+        {
             Ok(signal) => ExitCode::from(board::exit_status(signal)),
             Err(failure) => {
                 report(&failure);
@@ -1323,6 +1333,10 @@ mod tests {
         assert_eq!(
             complete(&words("-- status --")),
             ["--help", "--json", "--refresh-fields", "--squad", "--tab"]
+        );
+        assert_eq!(
+            complete(&words("-- board --")),
+            ["--help", "--json", "--popup", "--squad", "--tabs"]
         );
         assert_eq!(complete(&words("-- skill s")), ["show"]);
         assert_eq!(

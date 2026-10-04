@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import type { payload } from '@tmt/colab-client';
+import { Listbox, type ListboxOption } from './components/listbox.js';
 import {
   ManagementError,
   newLink,
@@ -22,6 +23,20 @@ const errors: Record<string, string> = {
   UNKNOWN:
     'Result unknown: the request may have committed. Retry only these exact bytes before expiry.',
 };
+const audienceOptions: readonly ListboxOption<ManagementView['page']['sharing']>[] = [
+  { value: 'private', label: 'Private' },
+  { value: 'link', label: 'Link' },
+  { value: 'public', label: 'Public (loopback only)' },
+];
+const historyOptions: readonly ListboxOption<payload.HistoryMode>[] = [
+  { value: 'shared', label: 'Shared' },
+  { value: 'current', label: 'Current' },
+];
+const roleOptions: readonly ListboxOption<payload.Role>[] = [
+  { value: 'viewer', label: 'viewer' },
+  { value: 'commenter', label: 'commenter' },
+  { value: 'editor', label: 'editor' },
+];
 export function ShareDialog({
   port,
   pageId,
@@ -348,50 +363,40 @@ export function ShareDialog({
           </section>
           <section>
             <h3>Sharing</h3>
-            <label>
-              Audience
-              <select
-                value={view.page.sharing}
-                onChange={(e) => {
-                  const mode = e.target.value as ManagementView['page']['sharing'];
-                  const narrowing =
-                    (view.page.sharing === 'link' && mode === 'private') ||
-                    (view.page.sharing === 'public' && mode !== 'public');
-                  review(
-                    { operation: 'page.share', value: { pageId, mode } },
-                    `Make ${mode}`,
-                    mode === 'public'
-                      ? `Public is loopback-only. Publishing this page publishes ${view.page.history === 'shared' ? 'its shared history, including deleted text, snapshots, comments and agent replies' : 'the new current epoch and everything protected by its key thereafter'}. Previously public content cannot be made private again.`
-                      : narrowing
-                        ? `Existing links are revoked and affected pages rotate to fresh epochs: ${[...new Set([pageId, ...view.links.flatMap((link) => link.pages)])].sort().join(', ')}. Previously public content cannot be made private again. Link sharing needs a new link identity.`
-                        : 'Link mode does not reactivate old links. Create a new link explicitly.',
-                  );
-                }}
-              >
-                <option value="private">Private</option>
-                <option value="link">Link</option>
-                <option value="public">Public (loopback only)</option>
-              </select>
-            </label>
-            <label>
-              History mode
-              <select
-                value={view.page.history}
-                onChange={(e) =>
-                  review(
-                    {
-                      operation: 'page.history',
-                      value: { pageId, mode: e.target.value as payload.HistoryMode },
-                    },
-                    'Change history',
-                    'This applies to later joins. Already-held keys cannot be recalled.',
-                  )
-                }
-              >
-                <option value="shared">Shared</option>
-                <option value="current">Current</option>
-              </select>
-            </label>
+            <Listbox
+              label="Audience"
+              options={audienceOptions}
+              value={view.page.sharing}
+              onChange={(mode) => {
+                const narrowing =
+                  (view.page.sharing === 'link' && mode === 'private') ||
+                  (view.page.sharing === 'public' && mode !== 'public');
+                review(
+                  { operation: 'page.share', value: { pageId, mode } },
+                  `Make ${mode}`,
+                  mode === 'public'
+                    ? `Public is loopback-only. Publishing this page publishes ${view.page.history === 'shared' ? 'its shared history, including deleted text, snapshots, comments and agent replies' : 'the new current epoch and everything protected by its key thereafter'}. Previously public content cannot be made private again.`
+                    : narrowing
+                      ? `Existing links are revoked and affected pages rotate to fresh epochs: ${[...new Set([pageId, ...view.links.flatMap((link) => link.pages)])].sort().join(', ')}. Previously public content cannot be made private again. Link sharing needs a new link identity.`
+                      : 'Link mode does not reactivate old links. Create a new link explicitly.',
+                );
+              }}
+            />
+            <Listbox
+              label="History mode"
+              options={historyOptions}
+              value={view.page.history}
+              onChange={(mode) =>
+                review(
+                  {
+                    operation: 'page.history',
+                    value: { pageId, mode },
+                  },
+                  'Change history',
+                  'This applies to later joins. Already-held keys cannot be recalled.',
+                )
+              }
+            />
             <p>
               {view.page.history === 'shared'
                 ? 'Anyone with this link can read the shared history, including deleted text, snapshots, comments and agent replies. Only the 64 most recent epochs are shared; older history is not shared.'
@@ -423,30 +428,25 @@ export function ShareDialog({
                 </span>
                 {m.id !== view.ownerMember && (
                   <>
-                    <label>
-                      Member role
-                      <select
-                        value={m.role}
-                        onChange={(e) =>
-                          review(
-                            {
-                              operation: 'member.role',
-                              value: {
-                                memberId: m.id,
-                                pages: m.pages,
-                                role: e.target.value as payload.Role,
-                              },
+                    <Listbox
+                      label="Member role"
+                      options={roleOptions}
+                      value={m.role}
+                      onChange={(role) =>
+                        review(
+                          {
+                            operation: 'member.role',
+                            value: {
+                              memberId: m.id,
+                              pages: m.pages,
+                              role,
                             },
-                            'Change member role',
-                            `Affected pages: ${m.pages.join(', ')}`,
-                          )
-                        }
-                      >
-                        <option>viewer</option>
-                        <option>commenter</option>
-                        <option>editor</option>
-                      </select>
-                    </label>
+                          },
+                          'Change member role',
+                          `Affected pages: ${m.pages.join(', ')}`,
+                        )
+                      }
+                    />
                     <button
                       onClick={() =>
                         review(
@@ -487,14 +487,12 @@ export function ShareDialog({
                   <input required value={value} onChange={(e) => change(e.target.value)} />
                 </label>
               ))}
-              <label>
-                New member or link role
-                <select value={role} onChange={(e) => setRole(e.target.value as payload.Role)}>
-                  <option>viewer</option>
-                  <option>commenter</option>
-                  <option>editor</option>
-                </select>
-              </label>
+              <Listbox<payload.Role>
+                label="New member or link role"
+                options={roleOptions}
+                value={role}
+                onChange={setRole}
+              />
               <button>Add member</button>
             </form>
             <button

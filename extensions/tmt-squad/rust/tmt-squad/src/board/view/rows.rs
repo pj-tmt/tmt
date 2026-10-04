@@ -3,7 +3,6 @@
 use super::fit;
 use crate::board::app::{App, Hit, Item};
 use crate::{config::Pane, rows::Rows};
-use ratatui::widgets::Paragraph;
 use ratatui::{
     Frame,
     layout::Rect,
@@ -44,7 +43,12 @@ pub(super) fn grid_line(
             continue;
         };
         let width = box_width.visible;
-        let value = admitted.text.as_deref();
+        let pending = cell.field.as_deref() == Some("pending");
+        let value = if pending {
+            super::waiting::text(row)
+        } else {
+            admitted.text.as_deref()
+        };
         shown_any |= value.is_some_and(|value| !value.is_empty());
         let text = match (value, &cell.field, first) {
             (Some(value), _, _) => value,
@@ -79,11 +83,19 @@ pub(super) fn grid_line(
             && (matches!(cell.field.as_deref(), Some("state" | "pending"))
                 || role.is_some_and(|role| matches!(role, Role::Waiting | Role::Blocked)));
         let style = look.row_span(selected, style, emphasize);
-        fitted.push((
-            crate::markup::fitted(text, box_width, admitted.style.text_flow, column.align),
-            style,
-            width,
-        ));
+        let values = if pending && !first {
+            let age = super::waiting::age(row, crate::status::now_ms());
+            let age_width = age.as_deref().map_or(0, |age| age.width() + GAP);
+            let text_width = width.saturating_sub(age_width);
+            let question = fit(text, text_width);
+            vec![match age {
+                Some(age) => format!("{question} {age}"),
+                None => question,
+            }]
+        } else {
+            crate::markup::fitted(text, box_width, admitted.style.text_flow, column.align)
+        };
+        fitted.push((values, style, width));
     }
     if !first && !shown_any {
         return None;
@@ -117,22 +129,36 @@ pub(super) fn grid_line(
 
 /// Puts a row's age at the right edge of its first line when it fits after
 /// the cells; a narrow board drops it before any cell.
+/// The row-end label candidates, longest first: the age mark then `⏱ next`, then
+/// the age mark alone; `⏱ next` is the first to drop.
+fn row_end(age: Option<String>, next: Option<String>) -> Vec<String> {
+    match (age, next) {
+        (Some(age), Some(next)) => vec![format!("{age}  {next}"), age],
+        (Some(age), None) => vec![age],
+        (None, Some(next)) => vec![next],
+        (None, None) => vec![],
+    }
+}
+
 pub(super) fn age_mark(
     spans: &mut Vec<Span<'static>>,
-    age: &str,
+    labels: &[String],
     width: usize,
     look: crate::look::Look,
     selected: bool,
 ) {
     let used: usize = spans.iter().map(Span::width).sum();
-    let mark = age.width();
-    if used + GAP + mark <= width {
-        spans.push(Span::raw(" ".repeat(width - used - mark)));
-        spans.push(Span::styled(
-            age.to_owned(),
-            look.row_span(selected, look.role(Role::Dim), false),
-        ));
-    }
+    let Some(label) = labels
+        .iter()
+        .find(|label| used + GAP + label.width() <= width)
+    else {
+        return;
+    };
+    spans.push(Span::raw(" ".repeat(width - used - label.width())));
+    spans.push(Span::styled(
+        label.clone(),
+        look.row_span(selected, look.role(Role::Dim), false),
+    ));
 }
 pub(super) fn render_rows(frame: &mut Frame, app: &App, area: Rect) {
     let look = app.look();
@@ -142,18 +168,30 @@ pub(super) fn render_rows(frame: &mut Frame, app: &App, area: Rect) {
         } else {
             "Loading…"
         };
-        frame.render_widget(Paragraph::new(message), area);
+        super::strip::paint_line(frame, area, Line::from(message), look);
         return;
     };
     let Some(tab) = app.shown_tab() else { return };
     let rows = &view.rows;
     let mut derived = view.derived.borrow_mut();
     let available = usize::from(area.width).saturating_sub(2);
-    if derived
-        .grid
-        .as_ref()
-        .is_none_or(|grid| grid.width != available || grid.search != app.search)
-    {
+    let now = app.cron.now_ms();
+    let next_label = |row: &Value| {
+        row["id"]
+            .as_str()
+            .and_then(|id| app.cron.member_label(id, now))
+    };
+    let next_labels: Vec<Option<String>> = app
+        .items()
+        .into_iter()
+        .filter_map(|item| match item {
+            Item::Row(row) => Some(next_label(row)),
+            Item::Header(_) => None,
+        })
+        .collect();
+    if derived.grid.as_ref().is_none_or(|grid| {
+        grid.width != available || grid.search != app.search || grid.next_labels != next_labels
+    }) {
         // Unsized columns start from their widest value on the board.
         let natural = |index: usize| {
             let field = &rows.columns[index].field;
@@ -176,43 +214,55 @@ pub(super) fn render_rows(frame: &mut Frame, app: &App, area: Rect) {
         let layout = match crate::markup::Grid::compile(rows, natural, available) {
             Ok(layout) => layout,
             Err(error) => {
-                frame.render_widget(Paragraph::new(format!("Row layout: {error}")), area);
+                super::strip::paint_line(
+                    frame,
+                    area,
+                    Line::from(format!("Row layout: {error}")),
+                    look,
+                );
                 return;
             }
         };
-        let ages = app
-            .items()
-            .into_iter()
-            .filter_map(|item| match item {
-                Item::Row(row) => crate::staleness::label(&row["staleness"]),
-                Item::Header(_) => None,
-            })
-            .map(|age| age.width() + GAP)
-            .max();
-        let layout = match ages {
-            Some(age) => {
-                match crate::markup::Grid::compile(rows, natural, available.saturating_sub(age)) {
-                    Ok(reserved)
-                        if reserved.columns.iter().flatten().count()
-                            == layout.columns.iter().flatten().count() =>
-                    {
-                        reserved
-                    }
-                    _ => layout,
-                }
-            }
-            None => layout,
+        // The row-end label room is reserved only when no column would be hidden:
+        // first for the age mark plus `⏱ next`, then for the age mark alone.
+        let widest = |labels: &dyn Fn(&Value) -> Option<String>| {
+            app.items()
+                .into_iter()
+                .filter_map(|item| match item {
+                    Item::Row(row) => labels(row),
+                    Item::Header(_) => None,
+                })
+                .map(|label| label.width() + GAP)
+                .max()
         };
+        let age_only = |row: &Value| crate::staleness::label(&row["staleness"]);
+        let with_next = |row: &Value| row_end(age_only(row), next_label(row)).into_iter().next();
+        let shown = layout.columns.iter().flatten().count();
+        let layout = [widest(&with_next), widest(&age_only)]
+            .into_iter()
+            .flatten()
+            .find_map(|reserve| {
+                crate::markup::Grid::compile(rows, natural, available.saturating_sub(reserve))
+                    .ok()
+                    .filter(|reserved| reserved.columns.iter().flatten().count() == shown)
+            })
+            .unwrap_or(layout);
         let cells = match crate::markup::row_values(rows, tab, app.rows()) {
             Ok(cells) => cells,
             Err(error) => {
-                frame.render_widget(Paragraph::new(format!("Row values: {error}")), area);
+                super::strip::paint_line(
+                    frame,
+                    area,
+                    Line::from(format!("Row values: {error}")),
+                    look,
+                );
                 return;
             }
         };
         derived.grid = Some(crate::board::derived::Grid {
             width: available,
             search: app.search.clone(),
+            next_labels,
             layout,
             cells,
         });
@@ -258,7 +308,7 @@ pub(super) fn render_rows(frame: &mut Frame, app: &App, area: Rect) {
                 let selected = row_index == app.selected;
                 let start = lines.len();
                 app.row_starts.borrow_mut().push(start);
-                let marker = if row["pending"].is_string() {
+                let marker = if crate::attention::waits_on_you(row) {
                     "◆ "
                 } else {
                     "  "
@@ -267,6 +317,7 @@ pub(super) fn render_rows(frame: &mut Frame, app: &App, area: Rect) {
                 // and says how long. This is the row's content age, not the
                 // frame still loading another squad.
                 let age = crate::staleness::label(&row["staleness"]);
+                let labels = row_end(age.clone(), next_label(row));
                 let style = if selected {
                     look.selection()
                 } else if age.is_some() {
@@ -294,12 +345,36 @@ pub(super) fn render_rows(frame: &mut Frame, app: &App, area: Rect) {
                             look.row_span(
                                 selected,
                                 Style::new(),
-                                initial && row["pending"].is_string(),
+                                initial && crate::attention::waits_on_you(row),
                             ),
                         )];
                         spans.extend(cells);
-                        if let Some(age) = age.as_deref().filter(|_| initial) {
-                            age_mark(&mut spans, age, usize::from(area.width), look, selected);
+                        if initial {
+                            age_mark(&mut spans, &labels, usize::from(area.width), look, selected);
+                        }
+                        row_lines.push((lines.len(), row_index));
+                        lines.push(Line::from(spans).style(style));
+                    }
+                    if first
+                        && !rows
+                            .lines
+                            .iter()
+                            .flatten()
+                            .any(|cell| cell.field.as_deref() == Some("pending"))
+                        && let Some(question) = super::waiting::text(row)
+                    {
+                        let request_age = super::waiting::age(row, crate::status::now_ms());
+                        let age_width = request_age.as_deref().map_or(0, |age| age.width() + GAP);
+                        let width = usize::from(area.width).saturating_sub(4 + age_width);
+                        let mut spans = vec![
+                            Span::raw("    "),
+                            Span::styled(
+                                fit(question, width),
+                                look.row_span(selected, look.role(Role::Waiting), true),
+                            ),
+                        ];
+                        if let Some(age) = request_age {
+                            age_mark(&mut spans, &[age], usize::from(area.width), look, selected);
                         }
                         row_lines.push((lines.len(), row_index));
                         lines.push(Line::from(spans).style(style));

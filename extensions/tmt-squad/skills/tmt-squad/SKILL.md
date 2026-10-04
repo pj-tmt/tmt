@@ -170,6 +170,27 @@ interrupt groups. Grouping changes display only: each squad keeps its own mark
 slot, count, selection, click and drag target. The prefix is not clickable.
 The `s` switcher retains full names, including hidden tabs.
 
+`tmt sq board --tabs product,infra,needs-me` picks the tabs this board shows,
+using names from the tab line. Squad names take precedence over user-tab labels;
+use `@tab:NAME` for an unambiguous user tab. `leads` selects leads; omit `--tabs`
+or use `--tabs all` for the default set. Unknown names produce a usage error
+listing valid names. `--squad NAME` must be among the picks when both flags are
+given. This resolver is board-only; `ls --tab` keeps its own names.
+
+In the switcher, Space includes or excludes the highlighted tab. `[x]` marks
+included tabs and `[ ]` excluded tabs. Enter opens a tab and includes it on this
+board; opening a squad from home does the same. Excluding the current tab opens
+the next included tab, or home if none remain. The named action `pick-tab` is
+rebindable, for example `[bind] p = "pick-tab"`; that binding replaces Space
+and opens the switcher from the board. A different action bound to Space takes
+precedence.
+
+Unpicked squads share one `N not on this board` segment, dim when quiet and
+lit with ◆ waiting and ✗ blocked counts when they need attention. Click it to
+open a switcher limited to those squads. Picks belong to this board process,
+survive refresh and resizing, and never write `squad.toml`. `tabs.hide` remains
+global: hidden tabs stay out of the tab line even when opened or picked.
+
 The line keeps the current tab visible. Left overflow shows `‹ N`; right
 overflow names hidden tabs as `+N › remote◆2 docs …`, waiting first, then
 blocked, then quiet, retaining arrangement order within each tier. Names remain
@@ -238,6 +259,30 @@ PgUp/PgDn and Home/End, or use the wheel over the pane. The scroll marks show
 remaining content. Older replies without a loaded body retain `tmt result <id>`
 hints; reading and scrolling acknowledge nothing.
 
+Rows that wait on you show a single decision line: `pending` when set,
+otherwise the oldest unanswered request preview. Text ends in `…` when it does
+not fit; detail retains the full available text and the effective reply/jump
+keys. Request age comes from the inbox timestamp; pending-only rows have no
+request age. The hint uses the tab's member count and drops its oldest-member
+label first when space is short.
+
+Press `A` (`ask-lead`, rebindable) on a squad tab to open `ask lead <name>`.
+The prompt starts with "List what waits on me: one line each with who, the
+decision, your suggestion and what happens if I wait." Edit before Enter sends;
+Esc cancels. Missing or changed lead/sender/squad refuses without sending.
+It uses ordinary detached `tmt talk`; replies and ▚ notices follow the normal
+request path.
+
+Set the question with `[board] ask_lead`, overridden by
+`[squad.<name>.board] ask_lead`. It must be a nonempty single line of at most
+4000 characters. The settings editor and `tmt sq config set board.ask_lead`
+use the same validation and concurrent-edit refusal as other board settings.
+
+```sh
+tmt sq config set board.ask_lead "What needs my decision?"
+tmt sq config set board.ask_lead "Summarize our pending decisions." --squad product
+```
+
 ## Home dashboard
 
 The built-in `all` board shows ① counts, ② needs you/blocked members and ③ one
@@ -253,6 +298,32 @@ through public `tmt answer`, otherwise annotates for that squad's actual lead.
 The composer refuses changed targets/requests/leads and missing sender/lead;
 Esc cancels and empty text sends nothing. Left/right switch tabs, `s` opens the
 switcher, and `/` searches. Home has no r/R reply shortcut or numeric navigation.
+
+## Cron on the board
+
+The home tab shows one line, `⑤ ⏱ N cron jobs · next <time> <owner> <what> · <clock> · c list`:
+the job count, the earliest active slot, and whether a clock runs (`no clock` means
+due slots are not sent; `clock: checking…` is the first read). A running clock shows where it
+runs as `session:window` (from tmux, when the board runs inside tmux), else the pane id. Tab reaches it like any section. Enter on it, or `c` anywhere,
+lists every squad's jobs, hidden squads included; Enter opens the job's squad and Esc closes.
+
+A squad tab is split in two: members above, that squad's jobs below (as tall as its jobs, at
+most two fifths of the body). The `c` list is as tall as its jobs too. Tab moves into the
+jobs after the last pane and back to the first. Members who own an active job show
+`⏱ <next>` at the row end (the first thing to drop when narrow) and in their detail. The selected job expands in
+place with its full message, its next three runs and its time zone.
+
+While the jobs (or the `c` list) have focus these keys are job keys, and `?` lists them:
+Enter go to the owner (open the squad, in the list), `n` new, `e` edit, `p` pause or resume,
+`x` send now, `o` reassign and `d` delete (after a confirmation). A key you bound in `[bind]`
+keeps its binding. New, edit and reassign use the input line one step at a time: owner
+(member name), message, then schedule (`every 3h from 09:00`, `daily 09:00`, `weekdays 09:00`,
+`mon,thu 10:00` or five cron fields); Esc cancels and nothing is written. The message is sent as
+typed, and an edit leaves untouched fields as stored; a message with several lines is kept and
+only its owner and schedule can be changed there (use `tmt sq cron edit --message`). Changes
+use the same permission and revision checks as the commands: only the recorded user or the
+squad's lead can change jobs, and a job that changed since you looked is refused, not
+overwritten. Failures are shown and never retried. `x` sends once, like `tmt sq cron send`.
 
 ## Manage recurring jobs
 
@@ -299,7 +370,7 @@ user/lead actor. It can send a paused job with a current owner and changes no
 schedule. Each explicit send is a separate action. Output confirms acceptance,
 not delivery or completion; Squad stores no run results. If acceptance is
 uncertain, retain the reported operation ID and recover it with `dispatch.show`
-through `tmt api` before deciding on another action. Board cron controls are
+through `tmt api` before deciding on another action. Board cron controls (above) are
 separate from the clock lifecycle.
 
 ## Inspect board settings
@@ -322,8 +393,8 @@ settings supported by `config set`; the board uses the same validation and write
 Use `tmt sq config set KEY VALUE [--squad NAME]` for validated edits. Squad scope
 is required for `layout`, `board.panes`, `board.direction`, `board.sizes`,
 `board.hidden_columns`, `notes.render`, `states.STATE.color`, `reminders.enabled`
-and `reminders.stale_after`. `board.refresh`
-uses the squad layer with `--squad`, otherwise the global Squad board layer.
+and `reminders.stale_after`. `board.refresh` and `board.ask_lead`
+use the squad layer with `--squad`, otherwise the global Squad board layer.
 `tabs.order` and `tabs.hide` always edit global Squad tab policy. Arrays use JSON;
 other values are unquoted scalar arguments. Examples:
 

@@ -44,6 +44,14 @@ Each is `(cd rust && cargo test --offline --locked -p tmt-colab <selector>)`:
 
 - Management subcommands precede operands: `tmt colab share link list <page>`,
   `tmt colab share mode <page> link --yes`.
+- Full management includes `share member add/remove/role`, `share history`,
+  `retention <page> [<days>|forever]`, `archive <page>` and `delete <page> --yes`.
+  Member add is advanced/scripted raw-public-key use; invitation flows come with
+  the Firestore stage. Widening and deletion require `--yes`. Explicit retries keep
+  the operation ID, revision and selections, including after deletion.
+- `--bin tmt-colab --test cli -- --test-threads=1` covers serving/stopped mutations,
+  complete member assignments, confirmations/input refusal before IPC, original-head
+  replay across restart, stale/conflicting requests and denied/uncertain socket replies.
 - Tests that start the decoder use the shared `tests/support` test-only decoder
   configuration (60 s invocation, 30 s FIFO readiness); production keeps the
   two-second deadline and all caps. The decoder-timeout cases keep two seconds and
@@ -69,8 +77,10 @@ PATH="$PWD/rust/target/debug:$PATH" tmt colab serve --json
 from `tmt api storage.root` (no path guess or Colab root variable), and direct
 invocation needs an absolute `TMT_EXECUTABLE`. A stale socket is replaced; any other
 file at the path refuses with `COLAB_STATE_UNSAFE`, and a too-deep root with
-`COLAB_SOCKET_PATH_TOO_LONG`. Browsers reach Colab through `tmt remote serve` at
-`/r/<prefix>/x/colab/`. Page source and export:
+`COLAB_SOCKET_PATH_TOO_LONG`. Browsers reach Colab at
+`/r/<prefix>/x/colab/` through the Remote door, which `serve` attaches to or starts itself
+(see the [colab-v1 contract](../../../../extensions/tmt-colab/contracts/colab-v1.md#serve-and-the-remote-door-1584)).
+Page source and export:
 
 ```bash
 tmt colab page read <page-uuid> --json
@@ -81,8 +91,17 @@ tmt colab export <page-uuid> --json          # or --dir /existing/export-parent
 Use the exact revision from `read`; a stale base returns `COLAB_STALE_BASE` (exit 1)
 and is never retried. A failed or uncertain serving IPC returns `COLAB_UNAVAILABLE`
 without an offline fallback. Export needs an existing parent, creates a new UUID
-directory with `page.html` and `manifest.json` (never replacing output), and reports
+directory with `page.html`, `conversations.json`, `conversations.md` and `manifest.json`
+(never replacing output), and reports
 `error.partialDirectory` on a failed publication.
+
+Serve and the door: the CLI suites in `tests/cli.rs` run a scripted `tmt remote ...` stand-in
+(`Pilot::remote_core`: attach, start, not installed, door that dies, a wrapper that leaves a
+grandchild, Ctrl-C while starting; `tmt colab stop` with started, attached and no serve, and a
+forwarded-context refusal) with a private HOME and no real Remote. The real-binary case
+is `acceptance/one-command.spec.ts` (needs `tmt`, `tmt-remote` and `tmt-colab` built; see
+[acceptance.md](acceptance.md)); it links the extensions onto the world's PATH so the real core
+resolves `tmt remote`.
 
 ## App and browser client
 

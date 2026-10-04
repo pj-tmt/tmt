@@ -2,11 +2,13 @@
 mod app_inventory;
 pub mod ask;
 pub mod assets;
+pub mod control;
 pub mod core;
 pub mod decoder;
 pub mod export;
 pub mod fold;
 pub mod inspection;
+mod ipc;
 pub mod keyring;
 pub mod limits;
 pub mod management;

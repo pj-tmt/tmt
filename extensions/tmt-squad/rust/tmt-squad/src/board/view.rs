@@ -8,7 +8,9 @@ mod overlays;
 mod panes;
 mod replies;
 mod rows;
+mod strip;
 mod tabs;
+mod waiting;
 
 use super::app::App;
 use ratatui::{
@@ -41,7 +43,9 @@ pub fn render(frame: &mut Frame, app: &App) {
     app.link_hits.borrow_mut().clear();
     app.row_starts.borrow_mut().clear();
     app.tab_hits.borrow_mut().clear();
+    app.unpicked_hit.set(None);
     app.title_hits.borrow_mut().clear();
+    app.jobs_area.set(ratatui::layout::Rect::default());
     app.scrolls.begin_frame();
     let [tabs, summary, body, footer] = Layout::vertical([
         Constraint::Length(1),
@@ -65,6 +69,7 @@ pub fn render(frame: &mut Frame, app: &App) {
     panes::render_body(frame, app, body);
     footer::render(frame, app, footer, look);
     overlays::render(frame, app, body, look);
+    waiting::prompt(frame, app, body);
 }
 
 #[cfg(test)]

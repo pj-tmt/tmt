@@ -477,33 +477,80 @@ fn overflow(
     fit_tab_label(line, room)
 }
 
+/// The fold consumes existing attention projections; it never reacquires or reclassifies rows.
+fn unpicked(app: &App, budget: usize, look: Look, colors: &TabColors) -> Line<'static> {
+    let keys = app.unpicked_squads();
+    if keys.is_empty() || budget == 0 {
+        return Line::default();
+    }
+    let attention = keys.iter().filter_map(|key| app.attention.get(*key)).fold(
+        Attention::default(),
+        |sum, one| Attention {
+            waiting: sum.waiting + one.waiting,
+            blocked: sum.blocked + one.blocked,
+        },
+    );
+    let marks: Vec<_> = [
+        (attention.waiting, Mark::Decision, &colors.waiting),
+        (attention.blocked, Mark::Failed, &colors.blocked),
+    ]
+    .into_iter()
+    .filter(|(count, _, _)| *count > 0)
+    .map(|(count, mark, color)| {
+        Span::styled(
+            format!(" {}{count}", mark.symbol()),
+            look.named(color).add_modifier(Modifier::BOLD),
+        )
+    })
+    .collect();
+    let marks_width = marks.iter().map(Span::width).sum::<usize>();
+    let text = format!("{} not on this board", keys.len());
+    let text = fit(
+        &text,
+        text.width().min(budget.saturating_sub(3 + marks_width)),
+    );
+    let mut spans = vec![
+        Span::styled(" │ ", look.role(Role::Dim)),
+        Span::styled(text, attention_style(attention, look, colors)),
+    ];
+    spans.extend(marks);
+    let line = Line::from(spans);
+    let fitted_width = line.width().min(budget);
+    fit_tab_label(line, fitted_width)
+}
+
 /// Prepare labels, admit a pure window, then paint its spans and exact hit cells.
 pub(super) fn paint(app: &App, area: Rect) -> Line<'static> {
     let look = app.look();
     let default = TabColors::default();
     let colors = app.view.as_ref().map_or(&default, |view| &view.tab_colors);
+    let indices = app.picked_indices();
+    let keys: Vec<_> = indices.iter().map(|&index| &app.tabs[index]).collect();
     let position = app
         .current
         .as_ref()
-        .and_then(|key| app.tabs.iter().position(|tab| tab == key));
-    let pinned = app.pinned.min(app.tabs.len());
-    let width = usize::from(area.width);
-    let labels: Vec<_> = app
-        .tabs
+        .and_then(|key| keys.iter().position(|tab| *tab == key));
+    let pinned = indices
+        .iter()
+        .take_while(|&&index| index < app.pinned)
+        .count();
+    let fold = unpicked(app, usize::from(area.width) / 2, look, colors);
+    let fold_width = fold.width();
+    let width = usize::from(area.width).saturating_sub(fold_width);
+    let labels: Vec<_> = keys
         .iter()
         .enumerate()
         .map(|(index, key)| {
             label(
                 key,
                 position == Some(index),
-                app.attention.get(key).copied().unwrap_or_default(),
+                app.attention.get(*key).copied().unwrap_or_default(),
                 look,
                 colors,
             )
         })
         .collect();
-    let widths: Vec<_> = app
-        .tabs
+    let widths: Vec<_> = keys
         .iter()
         .zip(&labels)
         .map(|(key, label)| widths(key, label))
@@ -576,7 +623,7 @@ pub(super) fn paint(app: &App, area: Rect) -> Line<'static> {
                 y: area.y,
                 x: area.x.saturating_add(used as u16),
                 width: label_width as u16,
-                tab: place.index,
+                tab: indices[place.index],
             });
             spans.extend(fitted.spans);
             used += label_width;
@@ -600,7 +647,18 @@ pub(super) fn paint(app: &App, area: Rect) -> Line<'static> {
         spans.push(Span::styled(fitted, left_style));
     }
     if !window.hidden.is_empty() && used < width {
-        spans.extend(overflow(&labels, &window.hidden, width - used, look, colors).spans);
+        let overflow = overflow(&labels, &window.hidden, width - used, look, colors);
+        used += overflow.width();
+        spans.extend(overflow.spans);
+    }
+    if fold_width > 0 {
+        app.unpicked_hit.set(Some(Rect::new(
+            area.x.saturating_add(used as u16),
+            area.y,
+            fold_width as u16,
+            1,
+        )));
+        spans.extend(fold.spans);
     }
     Line::from(spans)
 }
@@ -653,6 +711,135 @@ mod tests {
                 .insert(name.into(), Attention { waiting, blocked });
         }
         app
+    }
+
+    #[test]
+    fn picks_regroup_visible_tabs_preserve_canonical_hits_and_separate_fold_attention() {
+        for (base, depth) in [
+            (tmt_cli_style::Base::Tmt, tmt_cli_style::Depth::TrueColor),
+            (
+                tmt_cli_style::Base::TmtLight,
+                tmt_cli_style::Depth::TrueColor,
+            ),
+            (tmt_cli_style::Base::Tmt, tmt_cli_style::Depth::None),
+        ] {
+            let mut app = tabline_board();
+            app.view.as_mut().unwrap().look = Look {
+                theme: tmt_cli_style::Theme::new(base),
+                depth,
+            };
+            app.tabs = [
+                tabs::ALL,
+                tabs::LEADS,
+                "tmt-a",
+                "tmt-gap",
+                "tmt-b",
+                "docs",
+                "@tab:view",
+            ]
+            .map(String::from)
+            .to_vec();
+            app.hidden = vec!["global-hidden".into()];
+            app.picks =
+                crate::board::pick::Picks::parse(Some("@all,leads,tmt-a,tmt-b"), &app.switchable())
+                    .unwrap();
+            app.attention.insert(
+                "tmt-gap".into(),
+                Attention {
+                    waiting: 2,
+                    blocked: 1,
+                },
+            );
+            app.attention.insert(
+                "docs".into(),
+                Attention {
+                    waiting: 0,
+                    blocked: 2,
+                },
+            );
+            app.attention.insert(
+                "global-hidden".into(),
+                Attention {
+                    waiting: 100,
+                    blocked: 100,
+                },
+            );
+            for width in [160, 100, 80, 32, 160] {
+                let line = draw(&app, width, 6)[0].clone();
+                assert!(line.contains("◆2 ✗3"), "{width}: {line}");
+                assert!(!line.contains("100"));
+                if width >= 80 {
+                    assert!(line.contains("2 not on this board"), "{line}");
+                    assert!(line.contains("tmt ·") && !line.contains("tmt-gap"));
+                    assert_eq!(
+                        app.tab_hits
+                            .borrow()
+                            .iter()
+                            .map(|hit| hit.tab)
+                            .collect::<Vec<_>>(),
+                        [0, 1, 2, 4]
+                    );
+                }
+                let rect = app.unpicked_hit.get().unwrap();
+                assert!(rect.x + rect.width <= width);
+                assert!(
+                    app.tab_hits
+                        .borrow()
+                        .iter()
+                        .all(|hit| hit.x + hit.width <= rect.x)
+                );
+                let mut terminal = Terminal::new(TestBackend::new(width, 6)).unwrap();
+                terminal.draw(|frame| render(frame, &app)).unwrap();
+                for (symbol, role) in [("◆2", Role::Waiting), ("✗3", Role::Blocked)] {
+                    let column = line[..line.find(symbol).unwrap()].chars().count() as u16;
+                    assert_eq!(
+                        terminal.backend().buffer()[(column, 0)].fg,
+                        app.look().role(role).fg.unwrap_or_default()
+                    );
+                }
+            }
+            let rect = app.unpicked_hit.get().unwrap();
+            app.mouse(
+                MouseEvent {
+                    kind: MouseEventKind::Down(MouseButton::Left),
+                    column: rect.x,
+                    row: rect.y,
+                    modifiers: KeyModifiers::NONE,
+                },
+                std::time::Instant::now(),
+            );
+            assert_eq!(app.switcher_keys(), ["tmt-gap", "docs"]);
+            app.key(KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE));
+            assert!(app.picks.contains("tmt-gap"));
+            assert_eq!(app.switcher_keys(), ["docs"]);
+            app.key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+            assert!(app.switcher.is_none());
+            let line = draw(&app, 80, 6)[0].clone();
+            assert!(line.contains("1 not on this board ✗2"), "{line}");
+            assert!(!line.contains("◆2"));
+        }
+    }
+
+    #[test]
+    fn quiet_fold_is_dim_and_omitted_aggregate_tabs_do_not_count_as_squads() {
+        let mut app = tabline_board();
+        app.tabs = [tabs::ALL, "product", "quiet", "@tab:view"]
+            .map(String::from)
+            .to_vec();
+        app.picks = crate::board::pick::Picks::parse(Some("product"), &app.switchable()).unwrap();
+        app.current = Some("product".into());
+        app.attention.clear();
+        let line = draw(&app, 80, 6)[0].clone();
+        assert!(line.contains("1 not on this board"), "{line}");
+        assert!(!line.contains("◆") && !line.contains("✗"));
+        let mut terminal = Terminal::new(TestBackend::new(80, 6)).unwrap();
+        terminal.draw(|frame| render(frame, &app)).unwrap();
+        let column = line[..line.find("1 not").unwrap()].chars().count() as u16;
+        assert_eq!(
+            terminal.backend().buffer()[(column, 0)].fg,
+            app.look().role(Role::Dim).fg.unwrap_or_default()
+        );
+        assert_eq!(app.tab_hits.borrow()[0].tab, 1);
     }
 
     #[test]

@@ -718,7 +718,9 @@ ordinary CLI: one versioned JSON request on stdin, one JSON resource or error on
 stdout. It is neither an authentication boundary nor a daemon, batch or stream.
 `tmt-adapters::api` owns envelope admission and composition; the CLI owns bounded
 stdin, publication and exit status. Protocol major 1 accepts additive operations and
-fields; incompatible changes need a new major. Human-shaped operations remain their
+fields; incompatible changes need a new major. `extensions.uses` answers an extension's optional use of another from installed
+receipts only (no network, storage or extension process); the extension checks it
+when the feature starts. Human-shaped operations remain their
 ordinary JSON commands, not duplicate API implementations. The
 [extension API contract](contracts/extension-api.md) owns operations, bounds,
 dispatch readiness and input safety, history and consumption semantics.
@@ -1077,6 +1079,11 @@ Keep a significant decision's alternatives, failure behavior and verification
 plan in its issue and reflect the delivered boundary here. A green formatter or
 checkmark is not architecture evidence.
 
+This file keeps owner maps, dependency direction and cross-cutting invariants, within
+the line budget `typescript/test/tooling/guide-budget.test.ts` enforces. Module-level
+rules belong in the owning area skill (`.agents/skills/tmt-core-runtime` for core); a
+line that only explains one module's code goes there, not here.
+
 Every change reports its architecture impact and names the affected Rust owner,
 adapter, CLI composition and tests. New policy belongs in the existing owner;
 do not add a parallel TypeScript implementation, provider inventory, config path
@@ -1134,6 +1141,17 @@ System-wide invariants:
 - Enrolled panes are never pasted to; core's send-time guard decides, never terminal output.
 - The serve lease is inherited by invocation children, so restart cannot overlap an orphaned effect.
 
+Local extensions discover a running Remote through read-only `tmt remote status --json`
+or supervise `tmt remote serve --json` and consume its bound descriptor. The
+[local CLI discovery contract](contracts/remote-channel-v1.md#local-cli-discovery)
+owns both shapes; Colab never reads Remote's private state. Live status comes only
+from serve's control socket. Stopped status holds an existing serve lease and
+opens SQLite read-only without initialization or migration, preserving one database
+opener. `tmt remote stop` sets serve's SIGTERM shutdown flag through the control
+socket and confirms lease release and socket cleanup without identifying a PID;
+stored pairings and grants survive. Remote owns persistence of the last bound door
+port and defaults to reusing it.
+
 ## Colab extension
 
 Colab (`extensions/tmt-colab/`: `tmt-colab`, `tmt-colab-model`, `@tmt/colab-client`,
@@ -1159,6 +1177,13 @@ Colab (`extensions/tmt-colab/`: `tmt-colab`, `tmt-colab-model`, `@tmt/colab-clie
   tab claim; all other app assets stay owner-gated. With core: `Product::Colab` registers
   the executable with the installer, and the app is served from `serve --app-dir`, else
   bytes embedded from `TMT_COLAB_APP_DIR`, else the checkout's Vite output.
+  One `tmt colab serve` is enough for a browser: it attaches to a running door through
+  `tmt remote status --json`, else starts `tmt remote serve --json` as a supervised child
+  in its own process group, reading pairing from `tmt remote devices --json`. This optional
+  edge (Colab → Remote) uses the public CLI only: no Remote state files and no crate
+  dependency. Colab stops only a door it started, with its whole group, after closing its own
+  socket. `tmt colab stop` reaches the serving process
+  through a root-local route on that same owner-only socket (no signals, no new surface).
 - **Renderer invariant.** Parent chrome allows only self-hosted scripts and styles (no
   `unsafe-inline`). Author HTML runs only in `renderer.html` inside an opaque
   `sandbox allow-scripts` frame whose own policy permits inline scripts and styles but no

@@ -1,17 +1,337 @@
 {
-  "provenance": "Independent Python standard-library UTF-8, hashlib SHA-256 and compact JSON oracle. Unicode and control characters are intentional exact-byte fixture data. Shared by native and browser tests; exportedAtMs is injected.",
+  "provenance": "Independent Python stdlib (UTF-8, hashlib SHA-256, compact JSON) with cryptography Ed25519 over public RFC 8032 fixture seeds; export-reference.py. Unicode, control and bidi characters are intentional exact-byte data. Shared by native and browser tests; exportedAtMs is injected.",
   "input": {
-    "spaceId": "uqvpga22vglwpngpg7jd7zpk5vzjtoud",
-    "pageId": "00000000-0000-4000-8000-000000000002",
-    "source": "﻿<!doctype html>\r\n<p>λ 😀\u0000 & exact</p>\r\n<script>parent.postMessage({type:\"export\"},\"*\")</script>",
-    "title": "Exact \"title\" \\ / λ\u0000\n\t",
+    "spaceId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "pageId": "00000000-0000-4000-8000-000000000001",
+    "source": "\ufeff<!doctype html>\r\n<p>\u03bb \ud83d\ude00\u0000 & exact</p>\r\n<script>parent.postMessage({type:\"export\"},\"*\")</script>",
+    "title": "Exact \"title\" \\ / \u03bb\u0000\n\t",
     "exportedAtMs": 1700000000123,
     "membershipHead": {
       "revision": "9007199254740993",
       "statementHash": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"
     },
-    "epoch": "9007199254740995"
+    "epoch": "9007199254740995",
+    "own": {
+      "00000000-0000-4000-8000-000000000004": {
+        "threads": {
+          "00000000-0000-4000-8000-000000000002:1": {
+            "version": 1,
+            "kind": "thread",
+            "spaceId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "pageId": "00000000-0000-4000-8000-000000000001",
+            "epoch": "9007199254740995",
+            "senderDevice": "00000000-0000-4000-8000-000000000004",
+            "revision": "1",
+            "deleted": false,
+            "deviceName": "Ben's `laptop`",
+            "at": "1791003800000",
+            "threadId": "00000000-0000-4000-8000-000000000002",
+            "anchor": {
+              "exact": "Keep ``` fences & <b>exact</b>\n\ud83d\ude00",
+              "prefix": "before ",
+              "suffix": " after"
+            },
+            "resolved": false
+          },
+          "00000000-0000-4000-8000-000000000002:2": {
+            "version": 1,
+            "kind": "thread",
+            "spaceId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "pageId": "00000000-0000-4000-8000-000000000001",
+            "epoch": "9007199254740995",
+            "senderDevice": "00000000-0000-4000-8000-000000000004",
+            "revision": "2",
+            "deleted": false,
+            "deviceName": "Ben's `laptop`",
+            "at": "1791003900000",
+            "threadId": "00000000-0000-4000-8000-000000000002",
+            "anchor": {
+              "exact": "Keep ``` fences & <b>exact</b>\n\ud83d\ude00",
+              "prefix": "before ",
+              "suffix": " after"
+            },
+            "resolved": true
+          }
+        },
+        "messages": {
+          "00000000-0000-4000-8000-000000000003:1": {
+            "version": 1,
+            "kind": "comment",
+            "spaceId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "pageId": "00000000-0000-4000-8000-000000000001",
+            "epoch": "9007199254740995",
+            "senderDevice": "00000000-0000-4000-8000-000000000004",
+            "revision": "1",
+            "deleted": false,
+            "deviceName": "Ben's `laptop`",
+            "at": "1791003800000",
+            "messageId": "00000000-0000-4000-8000-000000000003",
+            "thread": {
+              "writer": "00000000-0000-4000-8000-000000000004",
+              "id": "00000000-0000-4000-8000-000000000002"
+            },
+            "body": "first draft"
+          },
+          "00000000-0000-4000-8000-000000000003:2": {
+            "version": 1,
+            "kind": "comment",
+            "spaceId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "pageId": "00000000-0000-4000-8000-000000000001",
+            "epoch": "9007199254740995",
+            "senderDevice": "00000000-0000-4000-8000-000000000004",
+            "revision": "2",
+            "deleted": false,
+            "deviceName": "Ben's `laptop`",
+            "at": "1791003850000",
+            "messageId": "00000000-0000-4000-8000-000000000003",
+            "thread": {
+              "writer": "00000000-0000-4000-8000-000000000004",
+              "id": "00000000-0000-4000-8000-000000000002"
+            },
+            "body": "Keep ! and caf\u00e9 exact\r\n```not a fence```\n````\u202e\u0000 end"
+          },
+          "00000000-0000-4000-8000-000000000009:1": {
+            "version": 1,
+            "kind": "ask-state",
+            "operationId": "00000000-0000-4000-8000-000000000009",
+            "revision": "1",
+            "state": "dispatching",
+            "requestId": null,
+            "reason": null
+          },
+          "00000000-0000-4000-8000-000000000009:2": {
+            "version": 1,
+            "kind": "ask-state",
+            "operationId": "00000000-0000-4000-8000-000000000009",
+            "revision": "2",
+            "state": "accepted",
+            "requestId": "req_00000000-0000-4000-8000-000000000010",
+            "reason": null
+          }
+        },
+        "intents": {
+          "00000000-0000-4000-8000-000000000009": {
+            "version": 1,
+            "kind": "ask",
+            "signed": {
+              "operationId": "00000000-0000-4000-8000-000000000009",
+              "senderDevice": "00000000-0000-4000-8000-000000000004",
+              "input": "AAAAEXRtdC1jb2xhYi1zZW5kLXYxAAAAATEAAAAgYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWEAAAAkMDAwMDAwMDAtMDAwMC00MDAwLTgwMDAtMDAwMDAwMDAwMDAxAAAAJDAwMDAwMDAwLTAwMDAtNDAwMC04MDAwLTAwMDAwMDAwMDAwMgAAACwAAAABAAAAJDAwMDAwMDAwLTAwMDAtNDAwMC04MDAwLTAwMDAwMDAwMDAwMwAAACQwMDAwMDAwMC0wMDAwLTQwMDAtODAwMC0wMDAwMDAwMDAwMDUAAAAkMDAwMDAwMDAtMDAwMC00MDAwLTgwMDAtMDAwMDAwMDAwMDA2AAAAJDAwMDAwMDAwLTAwMDAtNDAwMC04MDAwLTAwMDAwMDAwMDAwOQAAACA9URFljw3Hh0_JZHhQrCbd0PXTs_VBquYWcJZF8Fi8iwAAACQwMDAwMDAwMC0wMDAwLTQwMDAtODAwMC0wMDAwMDAwMDAwMDQAAAABMQAAAARub25lAAAADTE3OTEwMDQwMDAwMDAAAAANMTc5MTAwNzYwMDAwMA",
+              "signature": "z5r4XyCTXbWXwhjfi5U1vl0yvBzdPklsJ1aSdLANxj_S8nojyeDECoCAma_LQtWumU-Vruk4gYlqSE3ScmuuDA",
+              "finalBytes": "UGFnZTogU2hhcmVkIHBhZ2UKTGluazogaHR0cHM6Ly9leGFtcGxlLnRlc3QveC9jb2xhYi8jc3BhY2U9YWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWEmcGF0aD0lMkZwYWdlcyUyRjAwMDAwMDAwLTAwMDAtNDAwMC04MDAwLTAwMDAwMDAwMDAwMQoKUXVvdGU6CjxzY3JpcHQ-dW50cnVzdGVkKCk8L3NjcmlwdD4NCvCfmIAA4oCuCgpDb21tZW50OgpLZWVwICEgYW5kIGNhZsOpIGV4YWN0"
+            },
+            "agentName": "Reviewer `bot`",
+            "deviceName": "Ben's `laptop`"
+          }
+        },
+        "replies": {
+          "00000000-0000-4000-8000-000000000009": {
+            "version": 1,
+            "kind": "ask-reply",
+            "operationId": "00000000-0000-4000-8000-000000000009",
+            "requestId": "req_00000000-0000-4000-8000-000000000010",
+            "agentId": "00000000-0000-4000-8000-000000000006",
+            "body": "Done \u2705\n````\nnested\n````"
+          }
+        }
+      },
+      "00000000-0000-4000-8000-000000000014": {
+        "threads": {
+          "00000000-0000-4000-8000-000000000017:1": {
+            "version": 1,
+            "kind": "thread",
+            "spaceId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "pageId": "00000000-0000-4000-8000-000000000001",
+            "epoch": "9007199254740995",
+            "senderDevice": "00000000-0000-4000-8000-000000000014",
+            "revision": "1",
+            "deleted": false,
+            "deviceName": "Dev\nphone",
+            "at": "1791003870000",
+            "threadId": "00000000-0000-4000-8000-000000000017",
+            "anchor": null,
+            "resolved": false
+          },
+          "00000000-0000-4000-8000-000000000018:1": {
+            "version": 1,
+            "kind": "thread",
+            "spaceId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "pageId": "00000000-0000-4000-8000-000000000001",
+            "epoch": "9007199254740995",
+            "senderDevice": "00000000-0000-4000-8000-000000000014",
+            "revision": "1",
+            "deleted": false,
+            "deviceName": "Dev\nphone",
+            "at": "1791003890000",
+            "threadId": "00000000-0000-4000-8000-000000000018",
+            "anchor": null,
+            "resolved": false
+          },
+          "00000000-0000-4000-8000-000000000018:2": {
+            "version": 1,
+            "kind": "thread",
+            "spaceId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "pageId": "00000000-0000-4000-8000-000000000001",
+            "epoch": "9007199254740995",
+            "senderDevice": "00000000-0000-4000-8000-000000000014",
+            "revision": "2",
+            "deleted": true,
+            "deviceName": "Dev\nphone",
+            "at": "1791003895000",
+            "threadId": "00000000-0000-4000-8000-000000000018",
+            "anchor": null,
+            "resolved": false
+          },
+          "00000000-0000-4000-8000-000000000030:1": {
+            "version": 1,
+            "kind": "thread",
+            "spaceId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "pageId": "00000000-0000-4000-8000-000000000099",
+            "epoch": "9007199254740995",
+            "senderDevice": "00000000-0000-4000-8000-000000000014",
+            "revision": "1",
+            "deleted": false,
+            "deviceName": "Dev\nphone",
+            "at": "1791003900000",
+            "threadId": "00000000-0000-4000-8000-000000000030",
+            "anchor": null,
+            "resolved": false
+          }
+        },
+        "messages": {
+          "00000000-0000-4000-8000-000000000016:1": {
+            "version": 1,
+            "kind": "comment",
+            "spaceId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "pageId": "00000000-0000-4000-8000-000000000001",
+            "epoch": "9007199254740995",
+            "senderDevice": "00000000-0000-4000-8000-000000000014",
+            "revision": "1",
+            "deleted": false,
+            "deviceName": "Dev\nphone",
+            "at": "1791003860000",
+            "messageId": "00000000-0000-4000-8000-000000000016",
+            "thread": {
+              "writer": "00000000-0000-4000-8000-000000000004",
+              "id": "00000000-0000-4000-8000-000000000002"
+            },
+            "body": "Agreed \u2014 \u2705"
+          },
+          "00000000-0000-4000-8000-000000000020:1": {
+            "version": 1,
+            "kind": "comment",
+            "spaceId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "pageId": "00000000-0000-4000-8000-000000000001",
+            "epoch": "9007199254740995",
+            "senderDevice": "00000000-0000-4000-8000-000000000014",
+            "revision": "1",
+            "deleted": false,
+            "deviceName": "Dev\nphone",
+            "at": "8640000000000000",
+            "messageId": "00000000-0000-4000-8000-000000000020",
+            "thread": {
+              "writer": "00000000-0000-4000-8000-000000000004",
+              "id": "00000000-0000-4000-8000-000000000002"
+            },
+            "body": "From the far future"
+          },
+          "00000000-0000-4000-8000-000000000021:1": {
+            "version": 1,
+            "kind": "comment",
+            "spaceId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "pageId": "00000000-0000-4000-8000-000000000001",
+            "epoch": "9007199254740995",
+            "senderDevice": "00000000-0000-4000-8000-000000000014",
+            "revision": "1",
+            "deleted": false,
+            "deviceName": "Dev\nphone",
+            "at": "1791003870000",
+            "messageId": "00000000-0000-4000-8000-000000000021",
+            "thread": {
+              "writer": "00000000-0000-4000-8000-000000000014",
+              "id": "00000000-0000-4000-8000-000000000017"
+            },
+            "body": "to be removed"
+          },
+          "00000000-0000-4000-8000-000000000021:2": {
+            "version": 1,
+            "kind": "comment",
+            "spaceId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "pageId": "00000000-0000-4000-8000-000000000001",
+            "epoch": "9007199254740995",
+            "senderDevice": "00000000-0000-4000-8000-000000000014",
+            "revision": "2",
+            "deleted": true,
+            "deviceName": "Dev\nphone",
+            "at": "1791003880000",
+            "messageId": "00000000-0000-4000-8000-000000000021",
+            "thread": {
+              "writer": "00000000-0000-4000-8000-000000000014",
+              "id": "00000000-0000-4000-8000-000000000017"
+            },
+            "body": ""
+          }
+        },
+        "intents": {
+          "00000000-0000-4000-8000-000000000019": {
+            "version": 1,
+            "kind": "ask",
+            "signed": {
+              "operationId": "00000000-0000-4000-8000-000000000019",
+              "senderDevice": "00000000-0000-4000-8000-000000000014",
+              "input": "AAAAEXRtdC1jb2xhYi1zZW5kLXYxAAAAATEAAAAgYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWEAAAAkMDAwMDAwMDAtMDAwMC00MDAwLTgwMDAtMDAwMDAwMDAwMDAxAAAAJDAwMDAwMDAwLTAwMDAtNDAwMC04MDAwLTAwMDAwMDAwMDAwMgAAAFQAAAACAAAAJDAwMDAwMDAwLTAwMDAtNDAwMC04MDAwLTAwMDAwMDAwMDAwMwAAACQwMDAwMDAwMC0wMDAwLTQwMDAtODAwMC0wMDAwMDAwMDAwMTYAAAAkMDAwMDAwMDAtMDAwMC00MDAwLTgwMDAtMDAwMDAwMDAwMDA1AAAAJDAwMDAwMDAwLTAwMDAtNDAwMC04MDAwLTAwMDAwMDAwMDAwNgAAACQwMDAwMDAwMC0wMDAwLTQwMDAtODAwMC0wMDAwMDAwMDAwMTkAAAAg7Y8V-m3aiTwH-z8_478VcOJd-k9EvW50pe5UwdytXf4AAAAkMDAwMDAwMDAtMDAwMC00MDAwLTgwMDAtMDAwMDAwMDAwMDE0AAAAATEAAAAEbm9uZQAAAA0xNzkxMDA0MTAwMDAwAAAADTE3OTEwMDc3MDAwMDA",
+              "signature": "vRL4oH0dRcHCnMq7lmWtxhLIaVvTKKN4IH7CcSBuD-RrEwMFslnq0RiFEK1lzulkfpu8-2UKn8N7JPd6iRsMBQ",
+              "finalBytes": "U2Vjb25kIHF1ZXN0aW9u"
+            },
+            "agentName": "",
+            "deviceName": ""
+          },
+          "00000000-0000-4000-8000-000000000022": {
+            "version": 1,
+            "kind": "ask",
+            "signed": {
+              "operationId": "00000000-0000-4000-8000-000000000022",
+              "senderDevice": "00000000-0000-4000-8000-000000000014",
+              "input": "AAAAEXRtdC1jb2xhYi1zZW5kLXYxAAAAATEAAAAgYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWEAAAAkMDAwMDAwMDAtMDAwMC00MDAwLTgwMDAtMDAwMDAwMDAwMDAxAAAAJDAwMDAwMDAwLTAwMDAtNDAwMC04MDAwLTAwMDAwMDAwMDAwMgAAACwAAAABAAAAJDAwMDAwMDAwLTAwMDAtNDAwMC04MDAwLTAwMDAwMDAwMDAwMwAAACQwMDAwMDAwMC0wMDAwLTQwMDAtODAwMC0wMDAwMDAwMDAwMDUAAAAkMDAwMDAwMDAtMDAwMC00MDAwLTgwMDAtMDAwMDAwMDAwMDA2AAAAJDAwMDAwMDAwLTAwMDAtNDAwMC04MDAwLTAwMDAwMDAwMDAyMgAAACDM3TUWirR0-ldkpSbPuDYhNR4jaCxQdbLhjVa935aqMAAAACQwMDAwMDAwMC0wMDAwLTQwMDAtODAwMC0wMDAwMDAwMDAwMTQAAAABMQAAAARub25lAAAADTE3OTEwMDQyMDAwMDAAAAANMTc5MTAwNzgwMDAwMA",
+              "signature": "IgrEGwCGvJfz305t8Oz1QMUgjo6HF1IZjMbLFIoKj6y6e51qCqbPyg74I0E_95DS31EnZtMyAv4eO-BpKMScAg",
+              "finalBytes": "Zm9yZ2Vk"
+            },
+            "agentName": "x",
+            "deviceName": "y"
+          }
+        },
+        "replies": {}
+      },
+      "00000000-0000-4000-8000-000000000015": {
+        "threads": {
+          "00000000-0000-4000-8000-000000000031:1": {
+            "version": 1,
+            "kind": "thread",
+            "spaceId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "pageId": "00000000-0000-4000-8000-000000000001",
+            "epoch": "9007199254740995",
+            "senderDevice": "00000000-0000-4000-8000-000000000015",
+            "revision": "1",
+            "deleted": false,
+            "deviceName": "Stranger",
+            "at": "1791003900000",
+            "threadId": "00000000-0000-4000-8000-000000000031",
+            "anchor": null,
+            "resolved": false
+          }
+        },
+        "messages": {},
+        "intents": {},
+        "replies": {}
+      }
+    },
+    "signingKeys": {
+      "00000000-0000-4000-8000-000000000004": "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a",
+      "00000000-0000-4000-8000-000000000014": "3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c"
+    }
   },
-  "manifestUtf8": "{\"format\":\"tmt-colab-page-export\",\"version\":1,\"spaceId\":\"uqvpga22vglwpngpg7jd7zpk5vzjtoud\",\"pageId\":\"00000000-0000-4000-8000-000000000002\",\"title\":\"Exact \\\"title\\\" \\\\ / λ\\u0000\\n\\t\",\"exportedAtMs\":1700000000123,\"membershipHead\":{\"revision\":\"9007199254740993\",\"statementHash\":\"000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f\"},\"epoch\":\"9007199254740995\",\"plaintext\":true,\"discussions\":\"not-included\",\"files\":[{\"name\":\"page.html\",\"sizeBytes\":101,\"sha256\":\"a19f047132105eeb376bc37dbdb2d41b72a6c21e7e8f6d433630e7d6c37711e7\"}]}",
-  "manifestSha256": "d1f7c8536b43cdeb08b8e81a5168c00655577cb3b567a707d685b7598a79366d"
+  "conversationsJson": "{\"format\":\"tmt-colab-conversations\",\"version\":1,\"spaceId\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"pageId\":\"00000000-0000-4000-8000-000000000001\",\"title\":\"Exact \\\"title\\\" \\\\ / \u03bb\\u0000\\n\\t\",\"epoch\":\"9007199254740995\",\"membershipHead\":{\"revision\":\"9007199254740993\",\"statementHash\":\"000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f\"},\"threads\":[{\"writer\":\"00000000-0000-4000-8000-000000000004\",\"id\":\"00000000-0000-4000-8000-000000000002\",\"revision\":\"2\",\"anchor\":{\"exact\":\"Keep ``` fences & <b>exact</b>\\n\ud83d\ude00\",\"prefix\":\"before \",\"suffix\":\" after\"},\"resolved\":true,\"deleted\":false,\"deviceName\":\"Ben's `laptop`\",\"at\":\"1791003900000\",\"comments\":[{\"writer\":\"00000000-0000-4000-8000-000000000004\",\"id\":\"00000000-0000-4000-8000-000000000003\",\"revision\":\"2\",\"deleted\":false,\"body\":\"Keep ! and caf\u00e9 exact\\r\\n```not a fence```\\n````\u202e\\u0000 end\",\"deviceName\":\"Ben's `laptop`\",\"at\":\"1791003850000\"},{\"writer\":\"00000000-0000-4000-8000-000000000014\",\"id\":\"00000000-0000-4000-8000-000000000016\",\"revision\":\"1\",\"deleted\":false,\"body\":\"Agreed \u2014 \u2705\",\"deviceName\":\"Dev\\nphone\",\"at\":\"1791003860000\"},{\"writer\":\"00000000-0000-4000-8000-000000000014\",\"id\":\"00000000-0000-4000-8000-000000000020\",\"revision\":\"1\",\"deleted\":false,\"body\":\"From the far future\",\"deviceName\":\"Dev\\nphone\",\"at\":\"8640000000000000\"}]},{\"writer\":\"00000000-0000-4000-8000-000000000014\",\"id\":\"00000000-0000-4000-8000-000000000017\",\"revision\":\"1\",\"anchor\":null,\"resolved\":false,\"deleted\":false,\"deviceName\":\"Dev\\nphone\",\"at\":\"1791003870000\",\"comments\":[{\"writer\":\"00000000-0000-4000-8000-000000000014\",\"id\":\"00000000-0000-4000-8000-000000000021\",\"revision\":\"2\",\"deleted\":true,\"body\":\"\",\"deviceName\":\"Dev\\nphone\",\"at\":\"1791003880000\"}]},{\"writer\":\"00000000-0000-4000-8000-000000000014\",\"id\":\"00000000-0000-4000-8000-000000000018\",\"revision\":\"2\",\"anchor\":null,\"resolved\":false,\"deleted\":true,\"deviceName\":\"Dev\\nphone\",\"at\":\"1791003895000\",\"comments\":[]}],\"asks\":[{\"writer\":\"00000000-0000-4000-8000-000000000004\",\"operationId\":\"00000000-0000-4000-8000-000000000009\",\"deviceName\":\"Ben's `laptop`\",\"agentName\":\"Reviewer `bot`\",\"agent\":\"00000000-0000-4000-8000-000000000006\",\"machine\":\"00000000-0000-4000-8000-000000000005\",\"thread\":\"00000000-0000-4000-8000-000000000002\",\"messageIds\":[\"00000000-0000-4000-8000-000000000003\"],\"issuedAt\":1791004000000,\"expiresAt\":1791007600000,\"message\":\"Page: Shared page\\nLink: https://example.test/x/colab/#space=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa&path=%2Fpages%2F00000000-0000-4000-8000-000000000001\\n\\nQuote:\\n<script>untrusted()</script>\\r\\n\ud83d\ude00\\u0000\u202e\\n\\nComment:\\nKeep ! and caf\u00e9 exact\",\"state\":\"accepted\",\"reason\":null,\"requestId\":\"req_00000000-0000-4000-8000-000000000010\",\"reply\":{\"requestId\":\"req_00000000-0000-4000-8000-000000000010\",\"agentId\":\"00000000-0000-4000-8000-000000000006\",\"body\":\"Done \u2705\\n````\\nnested\\n````\"}},{\"writer\":\"00000000-0000-4000-8000-000000000014\",\"operationId\":\"00000000-0000-4000-8000-000000000019\",\"deviceName\":\"\",\"agentName\":\"\",\"agent\":\"00000000-0000-4000-8000-000000000006\",\"machine\":\"00000000-0000-4000-8000-000000000005\",\"thread\":\"00000000-0000-4000-8000-000000000002\",\"messageIds\":[\"00000000-0000-4000-8000-000000000003\",\"00000000-0000-4000-8000-000000000016\"],\"issuedAt\":1791004100000,\"expiresAt\":1791007700000,\"message\":\"Second question\",\"state\":\"uncertain\",\"reason\":null,\"requestId\":null,\"reply\":null}]}",
+  "conversationsMarkdown": "# Conversations\n\n- Page: `Exact \"title\" \\ / \u03bb\\u{0}\\u{a}\\u{9}`\n- Page ID: 00000000-0000-4000-8000-000000000001\n- Space: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n- Epoch: 9007199254740995\n- Membership head: revision 9007199254740993, 000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f\n\nNames and times are labels asserted by each writer. They are not verified identities or clocks.\n\n## Threads (3)\n\n### Thread 1\n\n- Thread ID: 00000000-0000-4000-8000-000000000014:00000000-0000-4000-8000-000000000017\n- Status: open\n- Started by: `Dev\\u{a}phone` at 2026-10-03 05:04:30 UTC\n\nQuoted text: none\n\n#### Comment 1\n\n- Comment ID: 00000000-0000-4000-8000-000000000014:00000000-0000-4000-8000-000000000021\n- By: `Dev\\u{a}phone` at 2026-10-03 05:04:40 UTC (writer 00000000-0000-4000-8000-000000000014)\n- Revision: 2\n\nDeleted.\n\n### Thread 2\n\n- Thread ID: 00000000-0000-4000-8000-000000000014:00000000-0000-4000-8000-000000000018\n- Status: deleted\n- Started by: `Dev\\u{a}phone` at 2026-10-03 05:04:55 UTC\n\nQuoted text: none\n\n### Thread 3\n\n- Thread ID: 00000000-0000-4000-8000-000000000004:00000000-0000-4000-8000-000000000002\n- Status: resolved\n- Started by: `` Ben's `laptop` `` at 2026-10-03 05:05:00 UTC\n\nQuoted text:\n\n````\nKeep ``` fences & <b>exact</b>\n\ud83d\ude00\n````\n\n#### Comment 1\n\n- Comment ID: 00000000-0000-4000-8000-000000000004:00000000-0000-4000-8000-000000000003\n- By: `` Ben's `laptop` `` at 2026-10-03 05:04:10 UTC (writer 00000000-0000-4000-8000-000000000004)\n- Revision: 2\n\n`````\nKeep ! and caf\u00e9 exact\\u{d}\n```not a fence```\n````\\u{202e}\\u{0} end\n`````\n\n#### Comment 2\n\n- Comment ID: 00000000-0000-4000-8000-000000000014:00000000-0000-4000-8000-000000000016\n- By: `Dev\\u{a}phone` at 2026-10-03 05:04:20 UTC (writer 00000000-0000-4000-8000-000000000014)\n- Revision: 1\n\n```\nAgreed \u2014 \u2705\n```\n\n#### Comment 3\n\n- Comment ID: 00000000-0000-4000-8000-000000000014:00000000-0000-4000-8000-000000000020\n- By: `Dev\\u{a}phone` at unix ms 8640000000000000 (writer 00000000-0000-4000-8000-000000000014)\n- Revision: 1\n\n```\nFrom the far future\n```\n\n## Asks (2)\n\n### Ask 1\n\n- Operation ID: 00000000-0000-4000-8000-000000000009\n- Asked by: `` Ben's `laptop` `` at 2026-10-03 05:06:40 UTC (writer 00000000-0000-4000-8000-000000000004)\n- Agent: `` Reviewer `bot` `` (00000000-0000-4000-8000-000000000006) on machine 00000000-0000-4000-8000-000000000005\n- Thread: 00000000-0000-4000-8000-000000000002\n- State: accepted\n- Request ID: req_00000000-0000-4000-8000-000000000010\n\nMessage sent:\n\n```\nPage: Shared page\nLink: https://example.test/x/colab/#space=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa&path=%2Fpages%2F00000000-0000-4000-8000-000000000001\n\nQuote:\n<script>untrusted()</script>\\u{d}\n\ud83d\ude00\\u{0}\\u{202e}\n\nComment:\nKeep ! and caf\u00e9 exact\n```\n\nReply:\n\n`````\nDone \u2705\n````\nnested\n````\n`````\n\n### Ask 2\n\n- Operation ID: 00000000-0000-4000-8000-000000000019\n- Asked by: (none) at 2026-10-03 05:08:20 UTC (writer 00000000-0000-4000-8000-000000000014)\n- Agent: (none) (00000000-0000-4000-8000-000000000006) on machine 00000000-0000-4000-8000-000000000005\n- Thread: 00000000-0000-4000-8000-000000000002\n- State: uncertain\n- Request ID: none\n\nMessage sent:\n\n```\nSecond question\n```\n\nNo reply recorded.\n",
+  "manifestUtf8": "{\"format\":\"tmt-colab-page-export\",\"version\":1,\"spaceId\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"pageId\":\"00000000-0000-4000-8000-000000000001\",\"title\":\"Exact \\\"title\\\" \\\\ / \u03bb\\u0000\\n\\t\",\"exportedAtMs\":1700000000123,\"membershipHead\":{\"revision\":\"9007199254740993\",\"statementHash\":\"000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f\"},\"epoch\":\"9007199254740995\",\"plaintext\":true,\"discussions\":{\"included\":true,\"scope\":\"current-epoch\",\"format\":\"tmt-colab-conversations\",\"version\":1},\"files\":[{\"name\":\"page.html\",\"sizeBytes\":101,\"sha256\":\"a19f047132105eeb376bc37dbdb2d41b72a6c21e7e8f6d433630e7d6c37711e7\"},{\"name\":\"conversations.json\",\"sizeBytes\":3343,\"sha256\":\"c58eadb7d41c3bbac290d8915953966b3c4e101e77ee80982a26ccf518d4ab07\"},{\"name\":\"conversations.md\",\"sizeBytes\":3178,\"sha256\":\"de40ea18e5a8019915b8980862dd0c8692698041e57f7c7135ab7dbffcdf95c1\"}]}",
+  "manifestSha256": "b73e46d546ad11796db9c4161f3046e4341f2fea3b482a5d804fc14116145cb8"
 }

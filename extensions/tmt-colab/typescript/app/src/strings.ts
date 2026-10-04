@@ -108,13 +108,14 @@ export const text = {
   export: 'Export page',
   download: 'Download',
   exportUnavailable: 'Export requires a verified paired page.',
-  exportDiscussions: 'Discussions are not included.',
+  exportDiscussions:
+    'Includes the comments and Ask conversations visible on this page, as of this copy.',
   exportPreparing: 'Preparing an exact copy of the verified page…',
   exportFailed:
     'Could not prepare or request this download. Already requested files may have downloaded.',
-  exportReady: 'Download both files. This copy stays fixed while the live page changes.',
-  exportPartial: 'One file requested. Download the other file to complete this copy.',
-  exportRequested: 'Both downloads requested. Check your browser downloads for the saved files.',
+  exportReady: 'Download the files. This copy stays fixed while the live page changes.',
+  exportPartial: 'Some files requested. Download the others to complete this copy.',
+  exportRequested: 'All downloads requested. Check your browser downloads for the saved files.',
   exportClose: 'Close export',
   product: 'Colab',
   local: 'Local preview',

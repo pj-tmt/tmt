@@ -19,6 +19,8 @@ mod companion_archive_tests;
 mod skills_release_tests;
 #[path = "squad_product_tests.rs"]
 mod squad_product_tests;
+#[path = "uses_tests.rs"]
+mod uses_tests;
 
 enum Entry {
     File {

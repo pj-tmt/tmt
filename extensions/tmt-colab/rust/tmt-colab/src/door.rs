@@ -6,8 +6,38 @@ use tmt_invoke::Request;
 const TIMEOUT: Duration = Duration::from_secs(3);
 const MAX_BYTES: usize = 16 * 1024;
 
+/// One bounded call of Remote's public CLI through the invoking core: its deadline, output cap and
+/// process cleanup belong to `tmt_invoke`. A missing command, failure, deadline or cap is no answer.
+fn remote_json(words: &[&str]) -> Option<String> {
+    let executable = tmt_invoke::invoking_tmt().ok()?;
+    let args: Vec<_> = std::iter::once("remote")
+        .chain(words.iter().copied())
+        .map(Into::into)
+        .collect();
+    let output = tmt_invoke::invoke(
+        Request {
+            program: &executable,
+            args: &args,
+            input: &[],
+            deadline: Instant::now() + TIMEOUT,
+            max_stream_bytes: MAX_BYTES,
+            launch: Default::default(),
+        },
+        None,
+    )
+    .ok()?;
+    output
+        .status
+        .success()
+        .then(|| String::from_utf8(output.stdout).ok())?
+}
+
 #[derive(Debug, PartialEq, Eq)]
-pub struct Door(String);
+pub struct Door {
+    origin: String,
+    /// `/r/<prefix>`.
+    path: String,
+}
 /// What `tmt remote status --json` told us.
 #[derive(Debug, PartialEq, Eq)]
 pub enum Lookup {
@@ -17,38 +47,34 @@ pub enum Lookup {
     /// No answer: missing command, failure, timeout or an unrecognized document.
     Unknown,
 }
-impl Door {
-    /// The running door, if any.
-    pub fn discover() -> Option<Self> {
-        match Self::lookup() {
-            Lookup::Running(door) => Some(door),
-            _ => None,
+/// Whether any device is paired with the door, from `tmt remote devices --json`.
+#[derive(Debug, PartialEq, Eq)]
+pub enum Pairing {
+    /// This many devices are paired and not revoked.
+    Paired(usize),
+    Unpaired,
+    /// No usable answer: a missing command, a failure, a timeout or an unrecognized document.
+    Unknown,
+}
+impl Pairing {
+    /// `{"devices":[{"revoked":false,...},...]}`: revoked devices no longer count.
+    pub fn lookup() -> Self {
+        remote_json(&["devices", "--json"]).map_or(Self::Unknown, |text| Self::interpret(&text))
+    }
+    pub fn interpret(json: &str) -> Self {
+        let value: serde_json::Value = serde_json::from_str(json).unwrap_or_default();
+        let Some(devices) = value["devices"].as_array() else {
+            return Self::Unknown;
+        };
+        match devices.iter().filter(|d| d["revoked"] != true).count() {
+            0 => Self::Unpaired,
+            n => Self::Paired(n),
         }
     }
+}
+impl Door {
     pub fn lookup() -> Lookup {
-        Self::run().map_or(Lookup::Unknown, |text| Self::interpret(&text))
-    }
-    /// One bounded call of the public CLI: its deadline, output cap and process cleanup belong
-    /// to `tmt_invoke`. A missing command, failure, deadline or cap is no answer.
-    fn run() -> Option<String> {
-        let executable = tmt_invoke::invoking_tmt().ok()?;
-        let args = ["remote".into(), "status".into(), "--json".into()];
-        let output = tmt_invoke::invoke(
-            Request {
-                program: &executable,
-                args: &args,
-                input: &[],
-                deadline: Instant::now() + TIMEOUT,
-                max_stream_bytes: MAX_BYTES,
-                launch: Default::default(),
-            },
-            None,
-        )
-        .ok()?;
-        output
-            .status
-            .success()
-            .then(|| String::from_utf8(output.stdout).ok())?
+        remote_json(&["status", "--json"]).map_or(Lookup::Unknown, |text| Self::interpret(&text))
     }
     /// `{"running":false,"lastPort":53253|null}` is a stopped door; anything else unusable is unknown.
     pub fn interpret(json: &str) -> Lookup {
@@ -66,8 +92,19 @@ impl Door {
         if value["running"] != true {
             return None;
         }
-        let origin = value["origin"].as_str()?;
-        let path = value["path"].as_str()?;
+        Self::from_parts(value["origin"].as_str()?, value["path"].as_str()?)
+    }
+    /// The first line of `tmt remote serve --json`: `{"state":"ready","address":"<origin>/r/<prefix>",...}`.
+    pub fn from_descriptor(json: &str) -> Option<Self> {
+        let value: serde_json::Value = serde_json::from_str(json).ok()?;
+        if value["state"] != "ready" {
+            return None;
+        }
+        let address = value["address"].as_str()?;
+        let at = address.find("/r/")?;
+        Self::from_parts(&address[..at], &address[at..])
+    }
+    fn from_parts(origin: &str, path: &str) -> Option<Self> {
         let authority = origin
             .strip_prefix("http://")
             .or_else(|| origin.strip_prefix("https://"))?;
@@ -79,8 +116,17 @@ impl Door {
             && prefix
                 .chars()
                 .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit()))
-        .then(|| Self(format!("{origin}{path}")))
+        .then(|| Self {
+            origin: origin.into(),
+            path: path.into(),
+        })
     }
+    /// The use-time line when no Remote door can be reached (#1575's wording).
+    pub const INSTALL_HINT: &str =
+        "Browser access needs the Remote extension: tmt extension install remote --yes";
+    /// What `tmt colab stop` says about a door it did not start. Names no Remote command until
+    /// `tmt remote stop` ships (#1571); then it becomes "... (stop it with tmt remote stop)".
+    pub const ATTACHED_STOP_NOTE: &str = "Remote is still running (started outside Colab)";
     /// What a human is told beside a mount-relative path when no door runs: how to get a full link.
     pub fn hint(lookup: &Lookup, relative: &str) -> String {
         match lookup {
@@ -91,9 +137,13 @@ impl Door {
             _ => format!("{relative} (start tmt remote serve to get a full link)"),
         }
     }
+    /// `http://127.0.0.1:<port>`, the loopback authority a browser opens.
+    pub fn origin(&self) -> &str {
+        &self.origin
+    }
     /// A copyable link for a mount-relative path such as `x/colab/#space=...`.
     pub fn url(&self, relative: &str) -> String {
-        format!("{}/{}", self.0, relative)
+        format!("{}{}/{}", self.origin, self.path, relative)
     }
 }
 
@@ -167,6 +217,40 @@ mod tests {
             r#"{"running":true,"origin":"http://127.0.0.1:1","path":"/r/AB"}"#,
         ] {
             assert_eq!(Door::parse(bad), None, "{bad}");
+        }
+    }
+    #[test]
+    fn reads_the_address_of_a_ready_serve_descriptor() {
+        let ready = r#"{"profile":"local-v1","state":"ready","address":"http://127.0.0.1:53253/r/3e2c69f7","machineId":"m"}"#;
+        assert_eq!(
+            Door::from_descriptor(ready).unwrap().url("x/colab/"),
+            "http://127.0.0.1:53253/r/3e2c69f7/x/colab/"
+        );
+        for bad in [
+            "",
+            "{}",
+            r#"{"state":"starting","address":"http://127.0.0.1:1/r/ab"}"#,
+            r#"{"state":"ready","address":"http://127.0.0.1:1"}"#,
+            r#"{"state":"ready","address":"http://127.0.0.1:1/x/ab"}"#,
+            r#"{"state":"ready","address":"http://127.0.0.1:1/r/A"}"#,
+        ] {
+            assert_eq!(Door::from_descriptor(bad), None, "{bad}");
+        }
+    }
+    #[test]
+    fn counts_only_devices_that_are_not_revoked() {
+        use super::Pairing;
+        assert_eq!(
+            Pairing::interpret(r#"{"devices":[{"revoked":false},{"revoked":true},{"name":"x"}]}"#),
+            Pairing::Paired(2)
+        );
+        assert_eq!(
+            Pairing::interpret(r#"{"devices":[{"revoked":true}]}"#),
+            Pairing::Unpaired
+        );
+        assert_eq!(Pairing::interpret(r#"{"devices":[]}"#), Pairing::Unpaired);
+        for unusable in ["", "{}", r#"{"devices":null}"#, r#"{"error":{}}"#] {
+            assert_eq!(Pairing::interpret(unusable), Pairing::Unknown, "{unusable}");
         }
     }
 }

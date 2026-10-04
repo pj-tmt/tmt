@@ -1,0 +1,77 @@
+.tmt-listbox {
+  position: relative;
+  width: 100%;
+  margin: 12px 0;
+}
+.tmt-listbox-label {
+  display: block;
+  margin-bottom: 4px;
+}
+.tmt-listbox .tmt-listbox-trigger {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0;
+  border: 1px solid var(--c-text);
+  padding: 8px;
+  background: var(--c-sheet);
+  color: var(--c-text);
+  box-shadow: none;
+  text-align: left;
+}
+.tmt-listbox-trigger:hover,
+.tmt-listbox-trigger[aria-expanded='true'] {
+  color: var(--c-text);
+  border-color: var(--c-accent);
+}
+.tmt-listbox-chevron {
+  flex: none;
+  color: var(--c-muted);
+  font: 16px/1 var(--f-mono);
+}
+.tmt-listbox-options {
+  position: absolute;
+  z-index: 30;
+  top: calc(100% + 2px);
+  left: 0;
+  width: 100%;
+  max-height: min(248px, 45vh);
+  overflow-y: auto;
+  border: 2px solid var(--c-text);
+  background: var(--c-sheet);
+  box-shadow: 4px 4px 0 var(--c-accent);
+}
+.tmt-listbox-options[hidden] {
+  display: none;
+}
+.tmt-listbox .tmt-listbox-option {
+  display: block;
+  width: 100%;
+  margin: 0;
+  border: 0;
+  border-bottom: 1px solid var(--c-rule);
+  padding: 9px 10px;
+  background: var(--c-sheet);
+  color: var(--c-text);
+  box-shadow: none;
+  text-align: left;
+}
+.tmt-listbox-option:last-child {
+  border-bottom: 0;
+}
+.tmt-listbox-option:hover,
+.tmt-listbox-option[data-active='true'] {
+  color: var(--c-text);
+  background: var(--c-accent-soft);
+}
+.tmt-listbox-option[aria-selected='true']::before {
+  content: '✓ ';
+  color: var(--c-accent);
+}
+.tmt-listbox-option:disabled {
+  color: var(--c-muted);
+  background: var(--c-paper);
+  cursor: default;
+}

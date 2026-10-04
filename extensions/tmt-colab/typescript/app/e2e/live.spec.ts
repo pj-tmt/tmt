@@ -1411,12 +1411,26 @@ test('parent export downloads exact frozen baseline files, ignores drafts and re
   }
   const html = await download('page.html');
   expect(html).toEqual(Buffer.from(source, 'utf8'));
-  await expect(panel.getByRole('status')).toContainText('One file requested');
+  await expect(panel.getByRole('status')).toContainText('Some files requested');
   // A separately admitted content update must not replace the frozen download.
   await f.contentUpdate('<h1>New live page</h1>');
   await expect(
     page.frameLocator('iframe').getByRole('heading', { name: 'New live page' }),
   ).toBeVisible();
+  const conversationsBytes = await download('conversations.json');
+  const conversations = JSON.parse(conversationsBytes.toString('utf8'));
+  expect(conversations).toMatchObject({
+    format: 'tmt-colab-conversations',
+    version: 1,
+    spaceId: v.space,
+    pageId: v.page,
+    title: 'Live fixture',
+    epoch: '2',
+    threads: [],
+    asks: [],
+  });
+  const readingBytes = await download('conversations.md');
+  expect(readingBytes.toString('utf8')).toContain('No threads.');
   const manifestBytes = await download('manifest.json');
   const manifest = JSON.parse(manifestBytes.toString('utf8'));
   expect(manifest.exportedAtMs).toBeGreaterThanOrEqual(before);
@@ -1432,17 +1446,20 @@ test('parent export downloads exact frozen baseline files, ignores drafts and re
       membershipHead: { revision: '3', statementHash: Buffer.from(f.head.hash).toString('hex') },
       epoch: '2',
       plaintext: true,
-      discussions: 'not-included',
-      files: [
-        {
-          name: 'page.html',
-          sizeBytes: html.length,
-          sha256: createHash('sha256').update(html).digest('hex'),
-        },
-      ],
+      discussions: {
+        included: true,
+        scope: 'current-epoch',
+        format: 'tmt-colab-conversations',
+        version: 1,
+      },
+      files: [html, conversationsBytes, readingBytes].map((bytes, index) => ({
+        name: ['page.html', 'conversations.json', 'conversations.md'][index],
+        sizeBytes: bytes.length,
+        sha256: createHash('sha256').update(bytes).digest('hex'),
+      })),
     }),
   );
-  await expect(panel.getByRole('status')).toContainText('Both downloads requested');
+  await expect(panel.getByRole('status')).toContainText('All downloads requested');
   expect(await download('page.html')).toEqual(html);
   expect(await download('manifest.json')).toEqual(manifestBytes);
   const urlCount = () =>

@@ -1,5 +1,7 @@
-import { afterEach, describe, expect, it } from 'vite-plus/test';
+import { afterEach, describe, expect, it, vi } from 'vite-plus/test';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import childProcess from 'node:child_process';
+import { syncBuiltinESMExports } from 'node:module';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { syntheticAlphaVersion } from '../../scripts/release-versions.mjs';
@@ -14,6 +16,8 @@ import {
 
 const roots: string[] = [];
 afterEach(() => {
+  vi.restoreAllMocks();
+  syncBuiltinESMExports();
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
 
@@ -113,6 +117,41 @@ function fixture(product = 'cli') {
 }
 
 describe('mechanical version injection', () => {
+  it('gives the TOML helper a bounded 60 seconds for cold Rosetta startup', () => {
+    const f = fixture();
+    const spawn = vi.spyOn(childProcess, 'spawnSync');
+    syncBuiltinESMExports();
+    injectVersion(f.root, f.snapshot);
+    expect(spawn).toHaveBeenCalledWith(
+      expect.stringMatching(/\/debug\/release-version$/),
+      ['edit', f.snapshot.section, f.snapshot.oldVersion, f.snapshot.version],
+      expect.objectContaining({ input: f.snapshot.source, timeout: 60_000 })
+    );
+    expect(readFileSync(join(f.root, f.snapshot.manifest), 'utf8')).toBe(
+      f.snapshot.source.replace(f.snapshot.oldVersion, f.snapshot.version)
+    );
+  });
+  it.each(['timeout', 'exit', 'signal'])(
+    'keeps the source unchanged and fails loudly on TOML helper %s',
+    (failure) => {
+      const f = fixture();
+      const error = Object.assign(new Error('TOML helper timed out'), { code: 'ETIMEDOUT' });
+      vi.spyOn(childProcess, 'spawnSync').mockReturnValueOnce({
+        pid: 0,
+        output: [],
+        stdout: '',
+        stderr: 'helper rejected the edit',
+        status: failure === 'exit' ? 1 : null,
+        signal: failure === 'signal' ? 'SIGTERM' : null,
+        ...(failure === 'timeout' ? { error } : {}),
+      });
+      syncBuiltinESMExports();
+      expect(() => injectVersion(f.root, f.snapshot)).toThrow(
+        failure === 'timeout' ? error : 'Rust TOML helper failed: helper rejected the edit'
+      );
+      expect(readFileSync(join(f.root, f.snapshot.manifest), 'utf8')).toBe(f.snapshot.source);
+    }
+  );
   it.each(['cli', 'squad', 'remote', 'colab'])(
     'injects a synthetic alpha for tagless %s preparation through the unchanged source gate',
     (product) => {

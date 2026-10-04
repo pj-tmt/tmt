@@ -46,7 +46,9 @@ export function ReaderApp({ state }: { state: ReaderState }) {
             <div className="page-bar" ref={bar}>
               <h1>{title}</h1>
               <span className="chip">{text.readerOnly}</span>
-              <span className={`status ${render === 'ready' ? 'live' : ''}`}>
+              <span
+                className={`status ${render === 'ready' ? 'live' : render === 'loading' ? 'waiting' : 'blocked'}`}
+              >
                 <span aria-hidden>
                   {render === 'ready' ? '●' : render === 'loading' ? '○' : '✗'}
                 </span>{' '}
@@ -64,7 +66,10 @@ export function ReaderApp({ state }: { state: ReaderState }) {
                 </div>
                 <div className="frame-host" ref={host} />
                 {(render === 'navigation' || render === 'failed') && (
-                  <div className="notice" role="alert">
+                  <div className="notice blocked" role="alert">
+                    <span className="notice-mark" aria-hidden>
+                      ✗
+                    </span>
                     <h2>{text.blocked}</h2>
                     <p>{render === 'navigation' ? text.navigation : text.failed}</p>
                     <p>{text.limit}</p>
@@ -75,7 +80,14 @@ export function ReaderApp({ state }: { state: ReaderState }) {
             <p className="isolation-note">{text.warning}</p>
           </section>
         ) : (
-          <section className="notice" role={state.kind === 'opening' ? 'status' : 'alert'}>
+          <section
+            className={`notice ${state.kind === 'opening' ? 'waiting' : 'blocked'}`}
+            role={state.kind === 'opening' ? 'status' : 'alert'}
+          >
+            <span className="notice-mark" aria-hidden>
+              {state.kind === 'opening' ? '○' : '✗'}
+            </span>
+            <p className="notice-eyebrow">{text.readerOnly}</p>
             <h1>
               {state.kind === 'opening'
                 ? text.readerOpening
