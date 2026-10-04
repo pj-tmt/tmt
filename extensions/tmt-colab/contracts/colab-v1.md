@@ -1446,8 +1446,11 @@ absent own history is never recreated automatically.
 
 The Annotate control beside a selection opens one plain trusted-parent input in a
 small anchored popover at that span. Its placement is cosmetic; the captured quote
-selector owns the thread anchor. Enter sends, Shift+Enter inserts a newline, and Esc cancels. There
-is no confirmation screen or automatic send. `@` opens the shared styled keyboard
+selector owns the thread anchor. Enter sends, Shift+Enter inserts a newline, and Esc closes the input (an unsent draft is kept). There
+is no confirmation screen or automatic send. The popover closes with its ×, with Escape from anywhere
+inside it, with a press outside it, and with a selection cleared by a page click while nothing beyond
+the prefilled `@agent` is typed; none of these interrupts a send in flight. Typed text is kept in memory
+for the page and restored, with a "Draft kept" note, when the same selection is annotated again. `@` opens the shared styled keyboard
 listbox. The optional publishing name supplies a default only when it matches one
 unique reachable `agents.list` entry; unknown or ambiguous names supply no default.
 The current verified Remote grant and agent/machine UUIDs own routing and admission.

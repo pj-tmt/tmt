@@ -1066,3 +1066,28 @@ footer {
 .comment-main {
   position: relative;
 }
+
+.annotation-new {
+  position: relative;
+}
+.annotation-new blockquote {
+  margin-right: 28px;
+}
+/* The same × as the Comments, Chat and Source overlays. */
+.annotation-popover .annotation-close {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  margin: 0;
+  border: 0;
+  padding: 7px 8px;
+  background: transparent;
+  color: var(--c-text);
+  box-shadow: none;
+  font-size: 20px;
+  line-height: 1;
+}
+.annotation-popover .annotation-close:hover {
+  text-decoration: underline;
+  text-underline-offset: 4px;
+}

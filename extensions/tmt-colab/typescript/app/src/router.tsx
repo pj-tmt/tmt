@@ -429,7 +429,16 @@ function Page() {
   const [annotation, setAnnotation] = useState<{
     selector: QuoteSelector;
     rectangle: SelectionRect;
+    /** Text kept from an earlier close of this selection. */
+    restored?: string;
   }>();
+  const annotationRef = useRef(annotation);
+  annotationRef.current = annotation;
+  const popover = useRef<HTMLElement>(null);
+  // An unsent draft lives in memory for this page only: never stored, never sent to the frame.
+  const drafts = useRef(new Map<string, string>());
+  const annotationDraft = useRef('');
+  const annotationBusy = useRef(false);
   const [activeThread, setActiveThread] = useState<string | null>(null);
   useEffect(() => {
     setAnnotation(undefined);
@@ -442,22 +451,57 @@ function Page() {
     setAnnotation({
       selector: structuredClone(currentSelector.current),
       rectangle: { ...currentRectangle.current },
+      restored: drafts.current.get(JSON.stringify(currentSelector.current)),
     });
     setActiveThread(null);
     setRectangle(null);
     setPanel(null);
     setMenu(false);
   }
-  function cancelAnnotation() {
+  /** True once something beyond the prefilled `@agent` has been typed. */
+  const typed = () =>
+    annotationDraft.current.trim() !== '' && !/^@\S*\s*$/.test(annotationDraft.current);
+  /** Closes without losing typed text: it comes back when the same selection is annotated again. */
+  function closeAnnotation(focusPage: boolean) {
+    // A send in flight is not interrupted by the ×, Escape, an outside press or a cleared selection.
+    if (!annotation || annotationBusy.current) return;
+    const key = JSON.stringify(annotation.selector);
+    if (typed()) drafts.current.set(key, annotationDraft.current);
+    else drafts.current.delete(key);
+    annotationDraft.current = '';
     setAnnotation(undefined);
     setRectangle(currentRectangle.current);
+    if (focusPage) queueMicrotask(() => host.current?.querySelector('iframe')?.focus());
   }
+  const closeRef = useRef(closeAnnotation);
+  closeRef.current = closeAnnotation;
+  const selectionCleared = useRef<() => void>(() => {});
+  selectionCleared.current = () => {
+    // A page click that clears the selection never hides a typed draft.
+    if (annotation && !typed()) closeAnnotation(false);
+  };
+  useEffect(() => {
+    if (!annotation) return;
+    const outside = (event: PointerEvent) => {
+      const target = event.target;
+      if (
+        target instanceof Element &&
+        !popover.current?.contains(target) &&
+        !target.closest('[role="listbox"]')
+      )
+        closeRef.current(false);
+    };
+    document.addEventListener('pointerdown', outside, true);
+    return () => document.removeEventListener('pointerdown', outside, true);
+  }, [annotation]);
   function openThread(ref: DiscussionRef | null) {
     if (!ref) {
       setActiveThread(null);
       return;
     }
     const id = `${ref.writer}:${ref.id}`;
+    if (annotationRef.current)
+      drafts.current.delete(JSON.stringify(annotationRef.current.selector));
     setAnnotation(undefined);
     setActiveThread(id);
     setPanel('comments');
@@ -491,6 +535,7 @@ function Page() {
         currentSelector.current = quote ?? null;
         currentRectangle.current = rect ?? null;
         setRectangle(rect ?? null);
+        if (!quote) selectionCleared.current();
       },
       onAnchors: setResolved,
       onAnnotate: annotate,
@@ -678,8 +723,30 @@ function Page() {
           open={annotate}
         >
           {annotation && (
-            <section className="annotation-new" role="dialog" aria-label="Annotate selection">
+            <section
+              className="annotation-new"
+              role="dialog"
+              aria-label="Annotate selection"
+              ref={popover}
+              onKeyDown={(event) => {
+                if (event.key === 'Escape' && !event.defaultPrevented) {
+                  event.preventDefault();
+                  closeAnnotation(true);
+                }
+              }}
+            >
+              <button
+                type="button"
+                className="annotation-close"
+                aria-label="Close annotation"
+                onClick={(event) => {
+                  if (event.isTrusted) closeAnnotation(true);
+                }}
+              >
+                ×
+              </button>
               <blockquote>{annotation.selector.exact}</blockquote>
+              {annotation.restored !== undefined && <p className="annotation-hint">Draft kept</p>}
               <AnnotationInput
                 key={JSON.stringify(annotation.selector)}
                 binding={snapshot.binding.ask}
@@ -689,7 +756,14 @@ function Page() {
                 title={view.title || snapshot.title}
                 publisher={view.publisherAgent}
                 blocked={!!liveError || state !== 'ready'}
-                cancel={cancelAnnotation}
+                initialValue={annotation.restored}
+                onDraft={(value) => {
+                  annotationDraft.current = value;
+                }}
+                onBusy={(busy) => {
+                  annotationBusy.current = busy;
+                }}
+                cancel={() => closeAnnotation(true)}
                 committed={openThread}
               />
             </section>
