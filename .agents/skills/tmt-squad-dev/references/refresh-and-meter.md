@@ -69,6 +69,26 @@ cost or text volume. `board::rate` owns evidence, `board::meter` presentation an
   `board.tok` select three distinct ascending whole m/h durations from 1m through
   24h, default 1m/5m/60m. Both layers validate even when masked. The config reader
   reports the winning setting path and preserves explicit column titles.
+- HOME projection: global `board.tok` windows live in the retained HOME model;
+  tiles and member grids keep squad overrides. `App::home_header_usage` joins only
+  shown sampling squads from existing roster names and meter UUIDs, with no reads.
+  It queries actual durations, so a shorter retained ring remains partial in a
+  longer global window. Duplicate UUIDs count once per window: prefer more verified
+  bucket evidence, then complete readings and longer spans; equal evidence keeps
+  displayed squad order. The global longest-window total is the shared denominator
+  for the top member and current-model shares. Missing readings contribute no
+  tokens, increment unreported once, and make totals/shares partial; a measured
+  zero stays numeric but has no share denominator. Current model attribution is
+  best effort. The header painter consumes this typed projection only.
+  `home::paint::usage` formats the global windows and shares, using shared model
+  family names and grapheme-safe fitting. `view::render_frame` reserves one row
+  below counts at the shared MD breakpoint (100) only when observations admit it,
+  painted through Strip. The MD row keeps w2/w3 and the top member's share,
+  labeled `share <window>:`. LG (140) adds w1, a comma-separated `models` group
+  and `N member(s) without data`. The share window is stated once and the top
+  member's model is not repeated. No readings means no usage row, including
+  warmup; measured zero admits it without a share denominator. Narrow widths,
+  disabled sampling and search with no shown sampling squads keep their height.
 - Coverage: covered readings stay numeric, including measured zero. Known nonzero
   history deltas also remain numeric lower bounds without continuous coverage;
   zero without coverage stays unavailable. Partial coverage, windows longer than available evidence and unreported members prefix

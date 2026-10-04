@@ -1054,6 +1054,7 @@ mod tests {
             snapshot.tabs = vec![tabs::ALL.into(), "ux".into()];
             snapshot.pinned = 1;
             snapshot.view.as_mut().unwrap().home = Some(crate::board::home::Home {
+                windows: crate::config::TokenWindow::DEFAULTS,
                 summary: Default::default(),
                 sections: Vec::new(),
                 squads: Vec::new(),

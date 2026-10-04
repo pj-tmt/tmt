@@ -65,6 +65,8 @@ pub struct SquadLine {
 #[derive(Debug)]
 pub struct Home {
     pub summary: Counts,
+    /// HOME uses global windows; named boards and tiles retain their overrides.
+    pub windows: [crate::config::TokenWindow; 3],
     pub sections: Vec<MemberSection>,
     pub squads: Vec<SquadLine>,
     pub failures: Vec<Value>,
@@ -111,7 +113,7 @@ pub fn load(
                     settings: config.token_rate(&squad.name)?,
                     input: super::rate::Input {
                         room: squad.room_id.clone(),
-                        names: Default::default(),
+                        names: acquired.member_names(&squad.name),
                         resumes: acquired
                             .member_ids(&squad.name)
                             .map(|id| {
@@ -126,11 +128,9 @@ pub fn load(
             ))
         })
         .collect::<Result<_, SquadError>>()?;
-    Ok((
-        public,
-        model(order, &acquired, crate::status::now_ms()),
-        inputs,
-    ))
+    let mut home = model(order, &acquired, crate::status::now_ms());
+    home.windows = config.token_windows("")?.0;
+    Ok((public, home, inputs))
 }
 
 fn section(key: &str, filter: Option<&str>) -> Section {
@@ -284,6 +284,7 @@ fn model(order: &[String], acquired: &Acquired, now: u64) -> Home {
         .collect();
     Home {
         summary,
+        windows: crate::config::TokenWindow::DEFAULTS,
         sections,
         squads,
         failures: acquired.failures.clone(),
@@ -300,6 +301,6 @@ mod tests;
 mod controller;
 mod paint;
 pub(super) use controller::{CRON, Target};
-pub(super) use paint::{age_label, hints, render, summary};
+pub(super) use paint::{age_label, hints, render, summary, usage};
 
 mod tiles;

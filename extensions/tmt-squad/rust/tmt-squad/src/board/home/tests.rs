@@ -358,6 +358,10 @@ fn home_acquisition_reuses_public_reads_and_preserves_all_json_and_text() {
     for name in ["a", "b"] {
         assert_eq!(rates[name].input.room, format!("room-{name}"));
         assert_eq!(
+            rates[name].input.names[&format!("id-{name}")],
+            format!("worker-{name}")
+        );
+        assert_eq!(
             rates[name].input.resumes.keys().collect::<Vec<_>>(),
             [&format!("id-{name}")]
         );
@@ -393,6 +397,26 @@ fn home_acquisition_reuses_public_reads_and_preserves_all_json_and_text() {
     );
     assert_eq!(home.sections[1].rows[0].member["name"], "worker-a");
     assert!(home.sections[1].rows.iter().all(|row| row.age.is_none()));
+}
+
+#[test]
+fn home_global_windows_do_not_replace_named_squad_overrides() {
+    let f = Fixture::new("[board]\ntok='1m/1h/2h'\n[squad.a.board]\ntok='2m/5m/10m'\n");
+    fs::write(f.root.join("inbox"), r#"{"items":[],"more":false}"#).unwrap();
+    for name in ["a", "b"] {
+        fs::write(f.root.join(name), roster(name).to_string()).unwrap();
+    }
+    f.install_core();
+    let (_, home, rates) = load(&f.core, &f.config, &squads(), &[], None).unwrap();
+    assert_eq!(
+        home.windows.map(|window| window.label()),
+        ["1m", "1h", "2h"]
+    );
+    assert_eq!(
+        rates["a"].settings.windows.map(|window| window.label()),
+        ["2m", "5m", "10m"]
+    );
+    assert_eq!(rates["b"].settings.windows, home.windows);
 }
 
 #[test]

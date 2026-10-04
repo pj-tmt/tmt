@@ -51,6 +51,46 @@ pub(super) struct UsageShare {
     pub partial: bool,
 }
 
+/// Raw UUID-deduplicated observations for the HOME header; painting only formats.
+#[derive(Debug)]
+pub(super) struct HomeHeaderUsage<'a> {
+    pub windows: [crate::config::TokenWindow; 3],
+    pub totals: [Option<super::rate::Reading>; 3],
+    pub top: Option<UsageTop<'a>>,
+    pub models: Vec<UsageModel<'a>>,
+    pub unreported: usize,
+}
+
+#[derive(Debug)]
+pub(super) struct UsageTop<'a> {
+    pub member: &'a str,
+    pub share: UsageShare,
+}
+
+#[derive(Debug)]
+pub(super) struct UsageModel<'a> {
+    pub model: Option<&'a str>,
+    pub share: UsageShare,
+}
+
+#[derive(Clone, Copy)]
+struct HeaderObservation<'a> {
+    reading: super::rate::Reading,
+    covered_slots: u64,
+    model: Option<&'a str>,
+}
+
+impl HeaderObservation<'_> {
+    fn evidence(&self) -> (u64, bool, u64) {
+        (self.covered_slots, !self.reading.partial, self.reading.span)
+    }
+}
+
+struct HeaderMember<'a> {
+    name: &'a str,
+    readings: [Option<HeaderObservation<'a>>; 3],
+}
+
 pub struct View {
     pub ask_lead: String,
     pub token_rate: Option<RateView>,
@@ -697,6 +737,18 @@ impl App {
             .filter(|model| !model.is_empty())
     }
 
+    fn home_meter(&self, squad: &str) -> Option<&super::meter::Meter> {
+        let rate = self.view.as_ref()?.home_rate.get(squad)?;
+        self.meters
+            .get(squad)
+            .or_else(|| {
+                self.meter
+                    .as_ref()
+                    .filter(|_| self.current.as_deref() == Some(squad))
+            })
+            .filter(|meter| meter.room == rate.input.room && meter.settings == rate.settings)
+    }
+
     pub(super) fn home_usage(&self, squad: &str, now: Instant) -> Option<HomeUsage<'_>> {
         let view = self.view.as_ref()?;
         let home = view.home.as_ref()?;
@@ -704,15 +756,7 @@ impl App {
             .home_rate
             .get(squad)
             .filter(|rate| rate.settings.enabled)?;
-        let meter = self
-            .meters
-            .get(squad)
-            .or_else(|| {
-                self.meter
-                    .as_ref()
-                    .filter(|_| self.current.as_deref() == Some(squad))
-            })
-            .filter(|meter| meter.room == rate.input.room && meter.settings == rate.settings);
+        let meter = self.home_meter(squad);
         let id = home
             .squads
             .iter()
@@ -737,6 +781,130 @@ impl App {
             lead,
             squad,
             share,
+        })
+    }
+
+    pub(super) fn home_header_usage(&self, now: Instant) -> Option<HomeHeaderUsage<'_>> {
+        let view = self.view.as_ref()?;
+        let windows = view.home.as_ref()?.windows;
+        // Stable displayed squad order decides equal-evidence UUID collisions.
+        let shown = self.home_entries();
+        let mut enabled = false;
+        let mut identities = BTreeMap::new();
+        let mut members: Vec<HeaderMember<'_>> = Vec::new();
+        for entry in shown
+            .iter()
+            .filter(|entry| entry.target.section == "squads")
+        {
+            let squad = &entry.target.squad;
+            let Some(rate) = view
+                .home_rate
+                .get(squad)
+                .filter(|rate| rate.settings.enabled)
+            else {
+                continue;
+            };
+            enabled = true;
+            let meter = self.home_meter(squad);
+            for id in rate.input.resumes.keys() {
+                let index = *identities.entry(id).or_insert_with(|| {
+                    members.push(HeaderMember {
+                        name: rate
+                            .input
+                            .names
+                            .get(id)
+                            .map_or("unknown member", String::as_str),
+                        readings: [None; 3],
+                    });
+                    members.len() - 1
+                });
+                for (i, window) in windows.iter().enumerate() {
+                    let candidate = meter.and_then(|meter| {
+                        meter
+                            .observation(id, *window, now)
+                            .map(|(reading, covered_slots)| HeaderObservation {
+                                reading,
+                                covered_slots,
+                                model: meter.model(id),
+                            })
+                    });
+                    if let Some(candidate) = candidate
+                        && members[index].readings[i]
+                            .is_none_or(|old| candidate.evidence() > old.evidence())
+                    {
+                        members[index].readings[i] = Some(candidate);
+                    }
+                }
+            }
+        }
+        if !enabled {
+            return None;
+        }
+        let totals = std::array::from_fn(|i| {
+            let mut sum = super::rate::Reading {
+                tokens: 0,
+                partial: false,
+                span: windows[i].milliseconds(),
+            };
+            let mut measured = false;
+            for member in &members {
+                if let Some(HeaderObservation { reading, .. }) = member.readings[i] {
+                    sum.tokens += reading.tokens;
+                    sum.partial |= reading.partial;
+                    sum.span = sum.span.min(reading.span);
+                    measured = true;
+                } else {
+                    sum.partial = true;
+                }
+            }
+            measured.then_some(sum)
+        });
+        let unreported = members
+            .iter()
+            .filter(|member| member.readings[2].is_none())
+            .count();
+        let mut top = None;
+        let mut by_model = BTreeMap::<Option<&str>, u128>::new();
+        if let Some(total) = totals[2].filter(|total| total.tokens > 0) {
+            let share = |tokens| UsageShare {
+                fraction: tokens as f64 / total.tokens as f64,
+                partial: total.partial,
+            };
+            let mut highest = 0;
+            for member in &members {
+                if let Some(HeaderObservation { reading, model, .. }) = member.readings[2] {
+                    *by_model.entry(model).or_default() += reading.tokens;
+                    if reading.tokens > highest {
+                        highest = reading.tokens;
+                        top = Some(UsageTop {
+                            member: member.name,
+                            share: share(reading.tokens),
+                        });
+                    }
+                }
+            }
+            let mut models = by_model.into_iter().collect::<Vec<_>>();
+            models.sort_by(|(a, x), (b, y)| y.cmp(x).then_with(|| a.cmp(b)));
+            return Some(HomeHeaderUsage {
+                windows,
+                totals,
+                top,
+                unreported,
+                models: models
+                    .into_iter()
+                    .map(|(model, tokens)| UsageModel {
+                        model,
+                        share: share(tokens),
+                    })
+                    .collect(),
+            });
+        }
+        Some(HomeHeaderUsage {
+            windows,
+            totals,
+            top,
+            models: Vec::new(),
+            unreported,
         })
     }
 
@@ -3420,6 +3588,7 @@ pub(crate) mod tests {
         let mut home = snapshot(super::super::ALL, json!([]));
         home.tabs.push(super::super::ALL.into());
         home.view.as_mut().unwrap().home = Some(super::super::home::Home {
+            windows: crate::config::TokenWindow::DEFAULTS,
             summary: super::super::home::Counts {
                 members: 7,
                 ..Default::default()
@@ -4879,6 +5048,7 @@ mod token_window_tests {
     use super::tests::{bind, crew};
     use super::*;
     use crate::config::{TokenRate, TokenWindow};
+    use serde_json::json;
     fn app() -> App {
         let mut app = crew(crate::action::preset(false, &[]), Vec::new());
         app.meter = Some(super::super::meter::Meter::new(
@@ -4896,6 +5066,7 @@ mod token_window_tests {
         let mut snapshot = super::tests::snapshot(super::super::ALL, serde_json::json!([]));
         let view = snapshot.view.as_mut().unwrap();
         view.home = Some(super::super::home::Home {
+            windows: TokenWindow::DEFAULTS,
             summary: Default::default(),
             sections: Vec::new(),
             failures: Vec::new(),
@@ -4927,6 +5098,247 @@ mod token_window_tests {
             super::super::meter::Meter::new(settings, &input, now),
         );
         app
+    }
+
+    fn header(now: Instant) -> App {
+        let mut app = home(now);
+        app.view.as_mut().unwrap().document["sections"] = json!([{"rows": [
+            {"squad":"product", "name":"product"}
+        ]}]);
+        app
+    }
+
+    fn extra(app: &mut App, input: super::super::rate::Input, settings: TokenRate, now: Instant) {
+        let view = app.view.as_mut().unwrap();
+        view.home
+            .as_mut()
+            .unwrap()
+            .squads
+            .push(super::super::home::SquadLine {
+                squad: "extra".into(),
+                lead: Some(json!({"id":"a"})),
+                counts: Default::default(),
+                members: Default::default(),
+            });
+        view.document["sections"][0]["rows"]
+            .as_array_mut()
+            .unwrap()
+            .push(json!({"squad":"extra", "name":"extra"}));
+        app.meters.insert(
+            "extra".into(),
+            super::super::meter::Meter::new(settings, &input, now),
+        );
+        view.home_rate.insert(
+            "extra".into(),
+            RateView {
+                input,
+                settings,
+                history: None,
+            },
+        );
+    }
+
+    #[test]
+    fn header_distinguishes_disabled_warmup_zero_and_missing_members() {
+        let now = Instant::now();
+        let mut app = header(now);
+        let initial = app.home_header_usage(now).unwrap();
+        assert_eq!(initial.totals, [None; 3]);
+        assert_eq!(initial.unreported, 2);
+        assert!(initial.top.is_none() && initial.models.is_empty());
+        let time = now + Duration::from_secs(10);
+        app.sample_home(Ok(&super::super::rate::tests::input(100).resumes), time);
+        let zero = app.home_header_usage(time).unwrap();
+        assert_eq!(zero.totals[2].unwrap().tokens, 0);
+        assert!(zero.totals[2].unwrap().partial);
+        assert_eq!(zero.unreported, 1);
+        assert!(zero.top.is_none() && zero.models.is_empty());
+        app.search = "not-shown".into();
+        assert!(app.home_header_usage(time).is_none());
+        app.search.clear();
+        app.view
+            .as_mut()
+            .unwrap()
+            .home_rate
+            .get_mut("product")
+            .unwrap()
+            .settings
+            .enabled = false;
+        assert!(app.home_header_usage(time).is_none());
+    }
+
+    #[test]
+    fn header_deduplicates_lead_members_and_uses_one_model_share_denominator() {
+        let now = Instant::now();
+        let mut app = header(now);
+        let mut input = super::super::rate::tests::input(100);
+        input.resumes.get_mut("a").unwrap()["model"] = json!("model-a");
+        let mut b = input.resumes["a"].clone();
+        b["model"] = json!("model-b");
+        input.resumes.insert("b".into(), b);
+        input.names.insert("b".into(), "worker-b".into());
+        extra(
+            &mut app,
+            input.clone(),
+            TokenRate {
+                enabled: true,
+                ..Default::default()
+            },
+            now,
+        );
+        let public = app.view.as_ref().unwrap().document.clone();
+        let time = now + Duration::from_secs(20);
+        let mut resumes = super::super::rate::tests::input(200).resumes;
+        resumes.get_mut("a").unwrap()["model"] = json!("model-a");
+        let mut b = super::super::rate::tests::input(400)
+            .resumes
+            .remove("a")
+            .unwrap();
+        b["model"] = json!("model-b");
+        resumes.insert("b".into(), b);
+        app.sample_home(Ok(&resumes), time);
+        let usage = app.home_header_usage(time).unwrap();
+        assert_eq!(usage.totals.map(|total| total.unwrap().tokens), [600; 3]);
+        assert_eq!(
+            usage.unreported, 1,
+            "duplicate UUID a is counted once, not once per squad"
+        );
+        let top = usage.top.unwrap();
+        assert_eq!(top.member, "worker-b");
+        assert_eq!(
+            top.share,
+            UsageShare {
+                fraction: 0.75,
+                partial: true
+            }
+        );
+        assert_eq!(usage.models.len(), 2);
+        assert_eq!(usage.models[0].model, Some("model-b"));
+        assert_eq!(usage.models[0].share.fraction, 0.75);
+        assert_eq!(usage.models[1].share.fraction, 0.25);
+        assert_eq!(app.view.as_ref().unwrap().document, public);
+        app.search = "product".into();
+        let filtered = app.home_header_usage(time).unwrap();
+        assert_eq!(filtered.totals[2].unwrap().tokens, 150);
+        assert_eq!(filtered.models.len(), 1);
+        app.search.clear();
+        app.view.as_mut().unwrap().home_rate.remove("extra");
+        assert_eq!(
+            app.home_header_usage(time).unwrap().totals[2]
+                .unwrap()
+                .tokens,
+            150
+        );
+    }
+
+    #[test]
+    fn header_uuid_collision_prefers_verified_evidence_then_displayed_squad_order() {
+        let now = Instant::now();
+        let mut app = header(now);
+        app.view
+            .as_mut()
+            .unwrap()
+            .home_rate
+            .get_mut("product")
+            .unwrap()
+            .input
+            .resumes
+            .remove("missing");
+        let settings = TokenRate {
+            enabled: true,
+            ..Default::default()
+        };
+        extra(
+            &mut app,
+            super::super::rate::tests::input(100),
+            settings,
+            now - Duration::from_secs(60),
+        );
+        let time = now + Duration::from_secs(20);
+        app.meters
+            .get_mut("product")
+            .unwrap()
+            .sample(Ok(&super::super::rate::tests::input(400)), time);
+        let mut better = super::super::rate::tests::input(200);
+        better.resumes.get_mut("a").unwrap()["model"] = json!("better-covered");
+        app.meters
+            .get_mut("extra")
+            .unwrap()
+            .sample(Ok(&better), time);
+        let usage = app.home_header_usage(time).unwrap();
+        assert_eq!(
+            usage.totals[2].unwrap().tokens,
+            150,
+            "more tokens cannot override better evidence"
+        );
+        assert_eq!(usage.models[0].model, Some("better-covered"));
+        let mut tied =
+            super::super::meter::Meter::new(settings, &super::super::rate::tests::input(100), now);
+        tied.sample(Ok(&super::super::rate::tests::input(300)), time);
+        app.meters.insert("extra".into(), tied);
+        assert_eq!(
+            app.home_header_usage(time).unwrap().totals[2]
+                .unwrap()
+                .tokens,
+            450
+        );
+        app.view
+            .as_mut()
+            .unwrap()
+            .home
+            .as_mut()
+            .unwrap()
+            .squads
+            .swap(0, 1);
+        assert_eq!(
+            app.home_header_usage(time).unwrap().totals[2]
+                .unwrap()
+                .tokens,
+            300
+        );
+    }
+
+    #[test]
+    fn header_queries_global_durations_and_keeps_shorter_squad_history_partial() {
+        let now = Instant::now();
+        let mut app = header(now);
+        let long = TokenWindow::parse("2h").unwrap();
+        app.view.as_mut().unwrap().home.as_mut().unwrap().windows =
+            [TokenWindow::MINUTE, TokenWindow::HOUR, long];
+        let time = now + Duration::from_secs(20);
+        app.sample_home(Ok(&super::super::rate::tests::input(200).resumes), time);
+        let usage = app.home_header_usage(time).unwrap();
+        assert_eq!(usage.windows[2].label(), "2h");
+        assert_eq!(usage.totals.map(|total| total.unwrap().tokens), [150; 3]);
+        assert!(usage.totals[2].unwrap().partial);
+        assert_eq!(
+            app.home_usage("product", time).unwrap().windows,
+            TokenWindow::DEFAULTS
+        );
+        // The original delta ages out of squad w2=5m, but global w2=1h retains it.
+        let time = now + Duration::from_secs(360);
+        app.sample_home(Ok(&super::super::rate::tests::input(200).resumes), time);
+        assert_eq!(
+            app.home_header_usage(time)
+                .unwrap()
+                .totals
+                .map(|total| total.unwrap().tokens),
+            [0, 150, 150]
+        );
+        assert_eq!(
+            app.home_usage("product", time).unwrap().lead[1]
+                .unwrap()
+                .tokens,
+            0
+        );
+        let mut failed = super::tests::snapshot(super::super::ALL, json!([]));
+        failed.view = Err("HOME read failed".into());
+        app.apply(failed);
+        assert!(
+            app.home_header_usage(time).unwrap().totals[2]
+                .unwrap()
+                .partial
+        );
     }
 
     #[test]

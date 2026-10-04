@@ -231,6 +231,7 @@ fn home_board() -> App {
         idle: 1,
     };
     let home = Home {
+        windows: crate::config::TokenWindow::DEFAULTS,
         summary: counts(names.len() * 8),
         sections: vec![
             section("needs-you", "working", 2, true),

@@ -11,6 +11,7 @@ use ratatui::{
     layout::Rect,
     widgets::Paragraph,
 };
+use tmt_cli_style::breakpoint::{LG, MD};
 
 pub(super) fn press(app: &mut App, key: KeyCode) -> Effect {
     app.key(KeyEvent::new(key, KeyModifiers::NONE))
@@ -691,6 +692,26 @@ fn home_tiles_paint_uncovered_known_history_as_partial_at_each_width_and_theme()
                 .map(|cell| cell.symbol())
                 .collect::<String>();
             assert!(screen.contains("product-lead"), "{base}/{width}: {screen}");
+            let header = terminal
+                .backend()
+                .buffer()
+                .content
+                .chunks(width as usize)
+                .nth(2)
+                .unwrap()
+                .iter()
+                .map(|cell| cell.symbol())
+                .collect::<String>();
+            if width >= MD.cells {
+                assert!(
+                    header.starts_with("tok ") && header.contains("share 1h: "),
+                    "{base}/{width}: {header}"
+                );
+                assert_eq!(header.contains("1m ~21"), width >= LG.cells);
+                assert_eq!(header.contains("models "), width >= LG.cells);
+            } else {
+                assert!(!header.starts_with("tok "), "{base}/{width}: {header}");
+            }
             assert!(
                 screen.matches("~21").count() >= 2,
                 "{base}/{width}: {screen}"
@@ -700,4 +721,209 @@ fn home_tiles_paint_uncovered_known_history_as_partial_at_each_width_and_theme()
             }
         }
     }
+}
+
+fn header_usage() -> crate::board::app::HomeHeaderUsage<'static> {
+    use crate::board::{
+        app::{HomeHeaderUsage, UsageModel, UsageShare, UsageTop},
+        rate::Reading,
+    };
+    HomeHeaderUsage {
+        windows: crate::config::TokenWindow::DEFAULTS,
+        totals: [
+            None,
+            Some(Reading {
+                tokens: 1_200,
+                partial: true,
+                span: 20_000,
+            }),
+            Some(Reading {
+                tokens: 2_000,
+                partial: true,
+                span: 20_000,
+            }),
+        ],
+        top: Some(UsageTop {
+            member: "worker",
+            share: UsageShare {
+                fraction: 0.6,
+                partial: true,
+            },
+        }),
+        models: vec![
+            UsageModel {
+                model: Some("gpt-6.1-sol"),
+                share: UsageShare {
+                    fraction: 0.6,
+                    partial: true,
+                },
+            },
+            UsageModel {
+                model: Some("claude-opus-4-6"),
+                share: UsageShare {
+                    fraction: 0.4,
+                    partial: true,
+                },
+            },
+        ],
+        unreported: 2,
+    }
+}
+
+#[test]
+fn header_usage_formats_thresholds_real_labels_and_partial_missing_values() {
+    let app = board(&[]);
+    let mut usage = header_usage();
+    assert!(paint::usage(&usage, MD.cells - 1, app.look()).is_none());
+    for width in [MD.cells, LG.cells - 1] {
+        let line = paint::usage(&usage, width, app.look()).unwrap();
+        assert_eq!(super::glyph_error(&line.to_string()), None);
+        assert_eq!(
+            line.to_string(),
+            "tok 5m ~1k · 1h ~2k · share 1h: worker ~60%"
+        );
+    }
+    for width in [LG.cells, 149, 160] {
+        let line = paint::usage(&usage, width, app.look()).unwrap();
+        assert_eq!(super::glyph_error(&line.to_string()), None);
+        assert_eq!(
+            line.to_string(),
+            "tok 1m – · 5m ~1k · 1h ~2k · share 1h: worker ~60% · models sol ~60%, opus ~40% · 2 members without data"
+        );
+        assert!(line.width() <= width as usize);
+    }
+    usage.windows =
+        ["5m", "1h", "24h"].map(|text| crate::config::TokenWindow::parse(text).unwrap());
+    let line = paint::usage(&usage, 100, app.look()).unwrap().to_string();
+    assert!(line.starts_with("tok 1h ~1k · 24h ~2k · share 24h:") && line.ends_with("~60%"));
+    usage.unreported = 1;
+    let line = paint::usage(&usage, LG.cells, app.look())
+        .unwrap()
+        .to_string();
+    assert!(line.ends_with("1 member without data"));
+    usage.totals = [None; 3];
+    assert!(
+        paint::usage(&usage, 160, app.look()).is_none(),
+        "no observed samples admit no header row"
+    );
+    usage.totals[2] = Some(crate::board::rate::Reading {
+        tokens: 0,
+        partial: false,
+        span: 3_600_000,
+    });
+    usage.top = None;
+    usage.models.clear();
+    let line = paint::usage(&usage, 160, app.look()).unwrap().to_string();
+    assert!(line.contains("24h 0 · share 24h: – · models – · 1 member without data"));
+}
+
+#[test]
+fn header_usage_fits_escaped_unicode_names_and_keeps_whole_optional_groups() {
+    let app = board(&[]);
+    let mut usage = header_usage();
+    usage.top.as_mut().unwrap().member = "long-界界界界界界-e\u{301}-worker\nunsafe";
+    usage.models[0].model = Some("unknown-model-with-a-very-long-name\u{1b}");
+    for width in [MD.cells, LG.cells - 1, LG.cells, 149, 160] {
+        let line = paint::usage(&usage, width, app.look()).unwrap();
+        let text = line.to_string();
+        assert!(line.width() <= width as usize, "{width}: {text}");
+        assert!(!text.contains('\n') && !text.contains('\u{1b}'));
+        assert!(text.contains("share 1h:") && text.contains("~60%"));
+        assert_eq!(text.contains("2 members without data"), width >= LG.cells);
+        assert!(!text.ends_with(" · "));
+    }
+}
+
+fn header_frames() -> Value {
+    let mut captures = Vec::new();
+    for (base, depth, name) in [
+        ("tmt", tmt_cli_style::Depth::TrueColor, "tmt"),
+        ("tmt-light", tmt_cli_style::Depth::TrueColor, "tmt-light"),
+        ("tmt", tmt_cli_style::Depth::None, "NO_COLOR"),
+    ] {
+        let mut app = board(&[
+            ("a", document("a", row("A", "lead-a", "working"), vec![])),
+            ("b", document("b", row("B", "lead-b", "working"), vec![])),
+        ]);
+        app.view.as_mut().unwrap().look = crate::look::Look {
+            theme: tmt_cli_style::Theme::new(tmt_cli_style::Base::parse(base).unwrap()),
+            depth,
+        };
+        for width in [160, 100, 80, 160] {
+            let mut frames = Vec::new();
+            let mut hits = Vec::new();
+            let mut buffers = Vec::new();
+            for show in [false, true] {
+                let line = show
+                    .then(|| paint::usage(&header_usage(), width, app.look()))
+                    .flatten();
+                let mut terminal = Terminal::new(TestBackend::new(width, 30)).unwrap();
+                terminal
+                    .draw(|frame| crate::board::view::render_frame(frame, &app, line))
+                    .unwrap();
+                let buffer = terminal.backend().buffer().clone();
+                let cells = buffer
+                    .content
+                    .iter()
+                    .map(|cell| {
+                        let mut metadata = cell.clone();
+                        metadata.set_symbol("");
+                        json!({"symbol":cell.symbol(), "style":format!("{metadata:?}")})
+                    })
+                    .collect::<Vec<_>>();
+                let hit = app.hits.borrow().clone();
+                frames.push(json!({"cells":cells,"hits":format!("{hit:?}"),
+                    "starts":*app.row_starts.borrow(), "tabs":format!("{:?}",app.tab_hits.borrow())}));
+                hits.push(hit);
+                buffers.push(buffer);
+            }
+            let shift = u16::from(width >= MD.cells);
+            assert_eq!(hits[0].len(), hits[1].len());
+            for (before, after) in hits[0].iter().zip(&hits[1]) {
+                assert_eq!(after.y, before.y + shift);
+                assert_eq!(
+                    (after.x, after.width, after.row),
+                    (before.x, before.width, before.row)
+                );
+            }
+            if shift == 0 {
+                assert_eq!(frames[0], frames[1]);
+            } else {
+                assert_eq!(
+                    &buffers[0].content[..2 * width as usize],
+                    &buffers[1].content[..2 * width as usize]
+                );
+                for y in 2..28 {
+                    let start = y * width as usize;
+                    let next = start + width as usize;
+                    assert_eq!(
+                        &buffers[0].content[start..next],
+                        &buffers[1].content[next..next + width as usize]
+                    );
+                }
+            }
+            captures.push(json!({"theme":name,"width":width,"before":frames[0],"after":frames[1]}));
+        }
+    }
+    json!(captures)
+}
+
+#[test]
+fn home_header_row_preserves_cell_styles_hit_identity_and_resize_order() {
+    let frames = header_frames();
+    for theme in 0..3 {
+        assert_eq!(
+            frames[theme * 4],
+            frames[theme * 4 + 3],
+            "160→100→80→160 restores cells/styles/hits"
+        );
+    }
+}
+
+#[test]
+#[ignore = "explicit decoded header evidence, never fixture regeneration"]
+fn record_home_header_diff() {
+    let path = std::env::var("TMT_HEADER_DIFF_PATH").expect("task-owned evidence output path");
+    assert!(std::path::Path::new(&path).starts_with("/private/tmp"));
+    fs::write(path, serde_json::to_string(&header_frames()).unwrap()).unwrap();
 }

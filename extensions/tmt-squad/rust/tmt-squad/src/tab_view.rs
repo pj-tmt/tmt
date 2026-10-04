@@ -385,6 +385,21 @@ fn project_rows(
 }
 
 impl Acquired {
+    /// Display names from the same full roster as member_ids, before row filters.
+    pub fn member_names(&self, squad: &str) -> BTreeMap<String, String> {
+        self.rows
+            .get(squad)
+            .into_iter()
+            .flatten()
+            .filter_map(|row| {
+                Some((
+                    row.value["id"].as_str()?.to_owned(),
+                    row.value["name"].as_str()?.to_owned(),
+                ))
+            })
+            .collect()
+    }
+
     /// Full roster UUIDs retained before sections can repeat or omit rows.
     pub fn member_ids(&self, squad: &str) -> impl Iterator<Item = &str> {
         self.rows

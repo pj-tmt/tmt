@@ -217,7 +217,7 @@ pub(crate) fn render_value(value: &Value, format: Format, now_ms: u64) -> Option
         .or_else(text)
 }
 
-fn tokens(number: f64) -> String {
+pub(crate) fn tokens(number: f64) -> String {
     let number = number.max(0.0);
     if number < 1_000.0 {
         format!("{number:.0}")
