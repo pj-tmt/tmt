@@ -169,7 +169,7 @@ footer {
   right: 0;
   height: var(--page-bar-size);
   top: env(safe-area-inset-top, 0px);
-  z-index: 10;
+  z-index: 30;
   display: flex;
   align-items: center;
   flex-wrap: nowrap;
@@ -404,6 +404,14 @@ footer {
   }
   .page-secondary .page-information summary {
     border: 0;
+  }
+  .page-secondary .page-information p {
+    position: static;
+    width: 100%;
+    margin: 0;
+    padding: 12px 0;
+    border: 0;
+    background: transparent;
   }
   .page-secondary .page-menu-close {
     display: block;

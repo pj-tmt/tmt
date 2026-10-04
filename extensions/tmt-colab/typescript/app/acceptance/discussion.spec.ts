@@ -124,7 +124,7 @@ test('two paired writers retain discussion, anchors and frozen comment Ask throu
     await second.getByTestId('ask-toggle').click();
     await expect(askEntry(second, operationId).getByTestId('ask-reply')).toBeVisible();
     expect(messageId).toMatch(/^[a-f0-9-]{36}$/);
-    await comment.getByRole('button', { name: 'Close preview', exact: true }).click();
+    await expect(comment.getByTestId('ask-preview')).toHaveCount(0);
 
     // New source surrounding a unique quote keeps attachment; changing it detaches.
     await first.getByRole('button', { name: 'Source', exact: true }).click();

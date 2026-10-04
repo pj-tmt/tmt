@@ -33,6 +33,8 @@ const PAGE_HTML = '<h1>Ask acceptance</h1><p id="quote">Exact selected sentence 
 async function reconnect(page: Page) {
   await page.getByRole('button', { name: 'Reconnect', exact: true }).click();
   await expect(page.getByTestId('ask-toggle')).toBeVisible({ timeout: 60_000 });
+  if ((await page.getByTestId('ask-toggle').getAttribute('aria-expanded')) === 'false')
+    await page.getByTestId('ask-toggle').click();
 }
 
 async function scenario(world: AcceptanceWorld, options: { gated?: boolean } = {}) {

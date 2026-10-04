@@ -127,3 +127,33 @@ for (const width of [1440, 390])
       );
     });
   }
+
+test('narrow desktop menu switches floating panels and keeps information readable', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 900, height: 900 });
+  await mount(page, true);
+  const frame = page.locator('iframe');
+  await expect.poll(async () => (await frame.boundingBox())?.height ?? 0).toBeGreaterThan(1500);
+  const before = await frame.boundingBox();
+  await page.getByRole('button', { name: 'More page actions' }).click();
+  await page.getByRole('button', { name: 'Source', exact: true }).click();
+  await expect(page.locator('.page-drawer[data-panel=source]')).toBeVisible();
+  await page.getByRole('button', { name: 'More page actions' }).click();
+  await page.getByTestId('comments-toggle').click();
+  await expect(page.locator('.page-drawer[data-panel=comments]')).toBeVisible();
+  await expect(page.locator('.page-drawer[data-panel=source]')).not.toBeVisible();
+  await page.getByRole('button', { name: 'More page actions' }).click();
+  await page.getByText('Page information', { exact: true }).click();
+  const information = page.locator('.page-information p');
+  await expect(information).toBeVisible();
+  const box = (await information.boundingBox())!;
+  expect(box.x).toBeGreaterThanOrEqual(0);
+  expect(box.x + box.width).toBeLessThanOrEqual(900);
+  await page.getByRole('button', { name: 'Close page actions' }).click();
+  await expect(page.getByRole('button', { name: 'More page actions' })).toHaveAttribute(
+    'aria-expanded',
+    'false',
+  );
+  expect((await frame.boundingBox())?.width).toBe(before?.width);
+});
