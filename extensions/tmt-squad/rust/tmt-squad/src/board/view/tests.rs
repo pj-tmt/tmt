@@ -124,6 +124,8 @@ fn waiting_hint_uses_rebound_key_and_drops_oldest_before_actions() {
     assert!(hints(&app, 160).contains("oldest auth-fix 12m"));
     assert!(hints(&app, 50).contains("z ask lead"));
     assert!(!hints(&app, 50).contains("oldest"));
+    assert!(!hints(&app, 80).contains("oldest"));
+    assert!(hints(&app, 100).contains("ctrl-r refresh"));
     assert!(!hints(&app, 50).contains("A ask lead"));
     assert_eq!(
         super::waiting::text(app.selected_row().unwrap()),
