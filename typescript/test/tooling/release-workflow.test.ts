@@ -12,6 +12,7 @@ const read = (relative: string) => readFileSync(path.join(repository, relative),
 
 const run = read('.github/workflows/native-release.yml');
 const bundle = read('.github/workflows/native-release-bundle.yml');
+const prepare = read('.github/workflows/native-release-prepare.yml');
 const smokeWorkflow = read('.github/workflows/native-release-smoke.yml');
 
 describe('independent release-tag concurrency guard', () => {
@@ -22,7 +23,11 @@ describe('independent release-tag concurrency guard', () => {
       const groups = [...workflow.matchAll(/^\s*group:\s*(.+)$/gm)].map((match) => match[1]);
       if (file === 'release.yml') {
         expect(groups).toEqual(['release-cut']); // Only allocation is serialized.
-      } else if (file !== 'project-release.yml' && file !== 'release-version-injection.yml') {
+      } else if (
+        !['project-release.yml', 'release-version-injection.yml', 'release-rehearsal.yml'].includes(
+          file
+        )
+      ) {
         for (const group of groups) expect(group, `${file}: ${group}`).toContain('inputs.tag');
       }
     }
@@ -81,7 +86,7 @@ describe('release version gate workflow boundaries', () => {
     expect(processTests).toContain('Synthetic alpha installation fixture debug build:');
   });
   it('keeps caller-selected x64 Node through Intel version injection and final verification', () => {
-    const verify = job(bundle, 'verify');
+    const verify = job(prepare, 'verify');
     const setup = verify.indexOf('uses: ./.github/actions/setup-tooling');
     const injection = verify.indexOf('uses: ./.github/actions/inject-release-version');
     const finalVerification = verify.indexOf('name: Execute final archive and bootstrap');
@@ -122,9 +127,9 @@ describe('release version gate workflow boundaries', () => {
     }
     expect(callers.sort()).toEqual([
       'ci.yml:native-process-tests',
-      'native-release-bundle.yml:assemble',
-      'native-release-bundle.yml:build',
-      'native-release-bundle.yml:verify',
+      'native-release-prepare.yml:assemble',
+      'native-release-prepare.yml:build',
+      'native-release-prepare.yml:verify',
       'native-release-upgrade.yml:prove',
       'release-version-injection.yml:injection',
     ]);
@@ -290,7 +295,7 @@ describe('per-tag release run (native-release.yml)', () => {
 
 describe('release bundle pipeline (native-release-bundle.yml)', () => {
   it('installs frozen Colab dependencies before building and moving the complete expected app', () => {
-    const step = job(bundle, 'verify')
+    const step = job(prepare, 'verify')
       .split(/\n      - /)
       .find((block) => block.startsWith('name: Build independent expected Colab app bytes\n'));
     expect(step).toBeDefined();
@@ -307,10 +312,10 @@ describe('release bundle pipeline (native-release-bundle.yml)', () => {
     expect(run).toMatch(
       /options:\n {10}- cli\n {10}- squad\n {10}- driver-herdr\n {10}- remote\n {10}- colab/
     );
-    expect(job(bundle, 'build')).toMatch(
+    expect(job(prepare, 'build')).toMatch(
       /- name: Set up Node.js and pnpm\n {8}uses: \.\/\.github\/actions\/setup-tooling/
     );
-    const verify = job(bundle, 'verify');
+    const verify = job(prepare, 'verify');
     expect(verify).toContain(
       'corepack pnpm@10.33.0 --filter @tmt/colab-app --fail-if-no-match build'
     );
@@ -327,9 +332,12 @@ describe('release bundle pipeline (native-release-bundle.yml)', () => {
   it('is only callable, and runs the pipeline of the draft it is given', () => {
     expect(bundle).toMatch(/^on:\n {2}workflow_call:/m);
     expect(bundle).not.toContain('workflow_dispatch');
+    expect(prepare).toMatch(/^on:\n {2}workflow_call:/m);
+    expect(prepare).not.toContain('workflow_dispatch');
     for (const name of ['build', 'assemble', 'verify']) {
-      expect(job(bundle, name), name).toContain('ref: ${{ inputs.sha || github.sha }}');
+      expect(job(prepare, name), name).toContain('ref: ${{ inputs.sha || github.sha }}');
     }
+    expect(job(bundle, 'prepare')).toContain('sha: ${{ inputs.sha }}');
     // Tooling that talks to the release API comes from the workflow's own commit.
     for (const name of ['check', 'attach', 'record-failure']) {
       expect(job(bundle, name), name).not.toContain('ref: ${{ inputs.sha');
@@ -337,38 +345,42 @@ describe('release bundle pipeline (native-release-bundle.yml)', () => {
   });
 
   it('builds a draft only while it has no bundle and no recorded failure, on main', () => {
-    expect(job(bundle, 'build')).toContain(
+    // The caller owns admission; the prepare workflow itself carries no draft or branch condition.
+    const call = job(bundle, 'prepare');
+    expect(call).toContain(
       "if: github.ref == 'refs/heads/main' && needs.check.outputs.todo == 'true'"
     );
-    expect(job(bundle, 'build')).toContain('needs: check');
-    expect(job(bundle, 'assemble')).toContain('needs: build');
-    expect(job(bundle, 'verify')).toContain('needs: assemble');
+    expect(call).toContain('needs: check');
+    expect(call).toContain('uses: ./.github/workflows/native-release-prepare.yml');
+    expect(job(prepare, 'build')).not.toMatch(/^ {4}(needs|if):/m);
+    expect(job(prepare, 'assemble')).toContain('needs: build');
+    expect(job(prepare, 'verify')).toContain('needs: assemble');
   });
 
   it('qualifies every artifact by the draft tag, so drafts of one run do not collide', () => {
-    const names = [...bundle.matchAll(/^ {10}(?:name|pattern): (native-[^\n]+)$/gm)].map(
-      ([, name]) => name
-    );
+    const names = [
+      ...(prepare + bundle).matchAll(/^ {10}(?:name|pattern): (native-[^\n]+)$/gm),
+    ].map(([, name]) => name);
     expect(names.length).toBeGreaterThanOrEqual(5);
     for (const name of names) expect(name, name).toMatch(/\$\{\{ inputs\.tag( \|\| 'main')? \}\}/);
   });
 
   it('asserts that the draft tag is the version its commit declares', () => {
-    expect(job(bundle, 'assemble')).toContain('RELEASE_TAG: ${{ inputs.tag }}');
-    expect(job(bundle, 'assemble')).toContain(
+    expect(job(prepare, 'assemble')).toContain('RELEASE_TAG: ${{ inputs.tag }}');
+    expect(job(prepare, 'assemble')).toContain(
       'is not the $tag that the injected checkout declares'
     );
   });
 
   it('attaches only after every verify job passed, and records a failure but not a cancellation', () => {
     const attach = job(bundle, 'attach');
-    expect(attach).toContain('needs: [check, verify]');
+    expect(attach).toContain('needs: [check, prepare]');
     expect(attach).toContain(
-      "if: inputs.tag != '' && needs.check.outputs.todo == 'true' && needs.verify.result == 'success'"
+      "if: inputs.tag != '' && needs.check.outputs.todo == 'true' && needs.prepare.result == 'success'"
     );
     expect(attach).toContain('release-draft-assets.mjs attach');
     const failure = job(bundle, 'record-failure');
-    expect(failure).toContain('needs: [check, build, assemble, verify, attach]');
+    expect(failure).toContain('needs: [check, prepare, attach]');
     expect(failure).toContain("contains(needs.*.result, 'failure')");
     expect(/^ {4}if: (.*)$/m.exec(failure)?.[1]).not.toContain('cancelled');
     expect(failure).toContain('release-draft-assets.mjs record-failure');
@@ -390,7 +402,7 @@ describe('release bundle pipeline (native-release-bundle.yml)', () => {
   });
 
   it('caches Rust dependencies per product and target, written by main only', () => {
-    const build = job(bundle, 'build');
+    const build = job(prepare, 'build');
     expect(build).toContain('Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6');
     expect(build).toContain('shared-key: release-${{ inputs.product }}-${{ matrix.target }}');
     expect(build).toContain("save-if: ${{ github.ref == 'refs/heads/main' }}");
@@ -471,7 +483,7 @@ describe('release upgrade proof (native-release-upgrade.yml)', () => {
 
   it('proves on the same four hosts as the bundle verification', () => {
     expect(targets(upgrade)).toHaveLength(4);
-    expect(targets(upgrade)).toEqual(targets(bundle));
+    expect(targets(upgrade)).toEqual(targets(prepare));
   });
 
   it('only reads releases: write access is for seeing draft assets, and nothing is written', () => {
@@ -591,6 +603,44 @@ describe('release upgrade proof (native-release-upgrade.yml)', () => {
   });
 });
 
+describe('shared prepare pipeline and release rehearsal', () => {
+  const rehearsal = read('.github/workflows/release-rehearsal.yml');
+  it('keeps the prepare workflow read-only: callable, no secrets, no writes, no publication', () => {
+    expect(prepare).toMatch(/^permissions:\n {2}contents: read$/m);
+    expect(prepare).not.toMatch(
+      /^ {2,6}(contents|actions|issues|pull-requests|checks|id-token): write$/m
+    );
+    expect(prepare).not.toMatch(
+      /secrets\.|environment:|gh release|release-publish|release-draft-assets/
+    );
+    expect([...jobs(prepare).keys()]).toEqual(['build', 'assemble', 'verify']);
+  });
+  it('lets both the draft pipeline and the rehearsal call it with an exact source commit', () => {
+    expect(job(bundle, 'prepare')).toContain(
+      'uses: ./.github/workflows/native-release-prepare.yml'
+    );
+    expect(job(bundle, 'prepare')).toContain('tag: ${{ inputs.tag }}');
+    const call = job(rehearsal, 'prepare');
+    expect(call).toContain('uses: ./.github/workflows/native-release-prepare.yml');
+    expect(call).toContain('sha: ${{ github.event.pull_request.head.sha || github.sha }}');
+    // No tag: the rehearsal never names, allocates or attaches to a draft.
+    expect(call).not.toContain('tag:');
+  });
+  it('has no privileges, secrets or publication path in the rehearsal workflow', () => {
+    expect(rehearsal).toMatch(/^permissions:\n {2}contents: read$/m);
+    expect(rehearsal).not.toMatch(/: write$/m);
+    expect(rehearsal).not.toMatch(
+      /secrets\.|environment:|gh release|workflow_run|repository_dispatch/
+    );
+    expect(rehearsal).not.toMatch(/native-release\.yml|native-release-bundle\.yml#|release\.yml/);
+    expect([...jobs(rehearsal).keys()]).toEqual(['prepare']);
+    expect(rehearsal).not.toContain('merge_group');
+  });
+  it('writes the Rust cache from main only, so a rehearsal restores without saving', () => {
+    expect(job(prepare, 'build')).toContain("save-if: ${{ github.ref == 'refs/heads/main' }}");
+  });
+});
+
 describe('publication gates (native-release-bundle.yml)', () => {
   const gates = job(bundle, 'gates');
   const upgradeJob = job(bundle, 'upgrade');
@@ -660,7 +710,7 @@ describe('publication gates (native-release-bundle.yml)', () => {
     ]) {
       expect(text, name).toContain('!cancelled()');
     }
-    for (const name of ['build', 'assemble', 'verify', 'attach']) {
+    for (const name of ['prepare', 'attach']) {
       expect(job(bundle, name), name).not.toMatch(/needs:[^\n]*\b(finish|publish|published)\b/);
     }
   });

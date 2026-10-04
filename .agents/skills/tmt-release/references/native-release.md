@@ -16,7 +16,16 @@ its independent inventory/checksum/notices and failure/cleanup checks.
 
 ## Native pipeline
 
-The matching-host pipeline is `.github/workflows/native-release-bundle.yml`; exact-tag
+The packaging stages (build, assemble, final verification on the four matching hosts) live in the
+read-only reusable `.github/workflows/native-release-prepare.yml`, called with an exact source SHA
+by `native-release-bundle.yml` for a draft and by `release-rehearsal.yml` before merge, so a
+release is never the first run of a packaging check. The rehearsal has no secrets, Environment,
+cache writes, tags or draft access; it does not run in the merge group. Today it rehearses Colab
+when the prepare, bundle or rehearsal workflow changes; selection by affected product and a nightly
+main run extend it under #1581. Publishing stays in `native-release-bundle.yml` (`check`, `prepare`
+call, `attach` and the jobs after it), whose `attach` and `record-failure` depend on the `prepare`
+call exactly as they did on build/assemble/verify. The matching-host pipeline is
+`.github/workflows/native-release-bundle.yml`; exact-tag
 dispatch, failed-draft recovery, publication gates and manual readback are owned by
 [main-cuts.md](main-cuts.md). Cached packaging tools are keyed by OS, architecture and
 exact tool versions and are developer tools only; Rust dependency caches are per product
@@ -419,7 +428,7 @@ gh api repos/pj-tmt/tmt/actions/workflows/project-release.yml/dispatches --metho
 JSON
 # After reviewing the table, repeat with dry_run=false.
 (cd typescript && corepack pnpm exec vp test run --config vitest.config.ts test/tooling/project-release.test.ts test/tooling/cargo-workspace.test.ts test/tooling/release-attribution.test.ts test/tooling/release-cut.test.ts test/tooling/ci-scope.test.ts test/tooling/release-workflow.test.ts test/tooling/release-publish.test.ts)
-actionlint .github/workflows/project-release.yml .github/workflows/native-release.yml .github/workflows/native-release-bundle.yml .github/workflows/native-release-smoke.yml
+actionlint .github/workflows/project-release.yml .github/workflows/native-release.yml .github/workflows/native-release-bundle.yml .github/workflows/native-release-prepare.yml .github/workflows/release-rehearsal.yml .github/workflows/native-release-smoke.yml
 ```
 
 ## Merge queue metrics

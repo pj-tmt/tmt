@@ -22,62 +22,10 @@
         "sha256": "a586da7b1428271c19b0510e5f8fb366fb039421539a35c06f8804884923c72a",
         "releaseOnly": "Admission re-reads a live draft and its failure/bundle markers immediately before building; those mutation races exist only in the allocated release pipeline."
       },
-      "build": {
-        "steps": [
-          "uses:actions/checkout@v4",
-          "uses:actions/checkout@v4#2",
-          "name:Set up Node.js and pnpm",
-          "name:Install embedded Office build dependencies",
-          "name:Install native build dependencies",
-          "name:Install pinned Rust",
-          "name:Cache Rust dependencies",
-          "id:version",
-          "id:tools",
-          "name:Build pinned packaging tools",
-          "name:Build release archive and target manifest",
-          "name:Verify plan, archive and binary versions against the injected tag",
-          "name:Recheck version-only source after this stage",
-          "uses:actions/upload-artifact@v4"
-        ],
-        "sha256": "9b51622283849732d52bbac8c888f85b2912ce336a5fc4d0d34853cfafc4ba09",
-        "releaseOnly": "The injection PR workflow builds synthetic archives on four hosts for its own narrow workflow paths. It does not select the full release packaging input set; affected-product preparation is deferred to #1581 rehearsal.",
-        "followUp": 1581
-      },
-      "assemble": {
-        "steps": [
-          "uses:actions/checkout@v4",
-          "uses:actions/checkout@v4#2",
-          "name:Set up Node.js and pnpm",
-          "name:Install pinned Rust",
-          "id:version",
-          "uses:actions/cache/restore@v4",
-          "name:Install verification dependencies",
-          "uses:actions/download-artifact@v4",
-          "name:Merge with cargo-dist and verify bootstrap inputs",
-          "name:Recheck version-only source after this stage",
-          "uses:actions/upload-artifact@v4"
-        ],
-        "sha256": "1b7a985d2a077634142ab562526fd5cd819e0c21114a352e292e36762bd090c4",
-        "releaseOnly": "No PR job merges all four cargo-dist target manifests, generates the complete bootstrap and checks the version-only source contract on that final bundle. Shared preparation is deferred to #1581 rehearsal.",
-        "followUp": 1581
-      },
-      "verify": {
-        "steps": [
-          "uses:actions/checkout@v4",
-          "uses:actions/checkout@v4#2",
-          "name:Require candidate Rosetta tooling",
-          "name:Set up Node.js and pnpm",
-          "name:Install verification dependencies",
-          "name:Install pinned Rust for version-only resolution",
-          "id:version",
-          "uses:actions/download-artifact@v4",
-          "name:Warm the macOS toolchain lookup",
-          "name:Build independent expected Colab app bytes",
-          "name:Execute final archive and bootstrap with the matching target process",
-          "name:Recheck version-only source after this stage"
-        ],
-        "sha256": "28fb80f4c56529d06918a282616da88dd5a57688838a61ca84c2e676615b33da",
-        "releaseOnly": "Raw runtime/injection PR proofs do not execute the assembled final bundle on four hosts. Independent Colab frontend comparison, combined notices and Rosetta final verification are deferred to #1581 rehearsal.",
+      "prepare": {
+        "steps": ["uses:./.github/workflows/native-release-prepare.yml"],
+        "sha256": "eb461961f8ef7e5fe2087cebd55840725f5f46ec5f803a912b75e7041ccb305f",
+        "releaseOnly": "Draft admission (check) and the main-only condition gate this call; its jobs are inventoried under native-release-prepare.yml. The rehearsal workflow calls the same prepare workflow before merge for Colab only when the prepare, bundle or rehearsal workflow changes; selection by affected product and the nightly run are deferred to #1581 B2.",
         "followUp": 1581
       },
       "attach": {
@@ -87,7 +35,7 @@
           "uses:actions/download-artifact@v4",
           "name:Attach the bundle to the draft release"
         ],
-        "sha256": "4bc9d5d744c24843e3f6daa17c24c74bb141282c7369cbe675b13385e7eba4d1",
+        "sha256": "cf1c721bb9d3f30bba6517b315d5108763713c58bc9f326606ca2683e915e009",
         "releaseOnly": "Uploading to a real draft, re-reading asset digests and attaching the completeness marker require an allocated draft and publication privileges."
       },
       "record-failure": {
@@ -96,7 +44,7 @@
           "uses:actions/setup-node@v4",
           "name:Record the failure on the draft release"
         ],
-        "sha256": "5cf2bbab0520dbca23df664735f39416b5d1ae2a4f3b912dbec7afd72aedc218",
+        "sha256": "6308980b351edfc783576b8b7878ba85ae8003872f47989b0c56f177a121d0b9",
         "releaseOnly": "The durable failure marker is a write to a real allocated draft; pre-merge tests cover the marker policy without performing this write."
       },
       "gates": {
@@ -155,6 +103,66 @@
         "steps": ["name:Dispatch the full Project sweep"],
         "sha256": "022e0727a249025cd2cdb6a62755a1592386e85c18494e6c2cfafbf4804dc803",
         "releaseOnly": "Dispatching the Project sweep changes delivery tracking after publication and successful public smoke; it is not a pre-merge release verification gate."
+      }
+    },
+    "native-release-prepare.yml": {
+      "build": {
+        "steps": [
+          "uses:actions/checkout@v4",
+          "uses:actions/checkout@v4#2",
+          "name:Set up Node.js and pnpm",
+          "name:Install embedded Office build dependencies",
+          "name:Install native build dependencies",
+          "name:Install pinned Rust",
+          "name:Cache Rust dependencies",
+          "id:version",
+          "id:tools",
+          "name:Build pinned packaging tools",
+          "name:Build release archive and target manifest",
+          "name:Verify plan, archive and binary versions against the injected tag",
+          "name:Recheck version-only source after this stage",
+          "uses:actions/upload-artifact@v4"
+        ],
+        "sha256": "c9cb8b9d3590e797363b6552c6d9c5bf77cd887d1720dd532cd431bcc8c67ea5",
+        "releaseOnly": "The injection PR workflow builds synthetic archives on four hosts for its own narrow workflow paths. It does not select the full release packaging input set; affected-product preparation is deferred to #1581 rehearsal.",
+        "followUp": 1581
+      },
+      "assemble": {
+        "steps": [
+          "uses:actions/checkout@v4",
+          "uses:actions/checkout@v4#2",
+          "name:Set up Node.js and pnpm",
+          "name:Install pinned Rust",
+          "id:version",
+          "uses:actions/cache/restore@v4",
+          "name:Install verification dependencies",
+          "uses:actions/download-artifact@v4",
+          "name:Merge with cargo-dist and verify bootstrap inputs",
+          "name:Recheck version-only source after this stage",
+          "uses:actions/upload-artifact@v4"
+        ],
+        "sha256": "1b7a985d2a077634142ab562526fd5cd819e0c21114a352e292e36762bd090c4",
+        "releaseOnly": "No PR job merges all four cargo-dist target manifests, generates the complete bootstrap and checks the version-only source contract on that final bundle. Shared preparation is deferred to #1581 rehearsal.",
+        "followUp": 1581
+      },
+      "verify": {
+        "steps": [
+          "uses:actions/checkout@v4",
+          "uses:actions/checkout@v4#2",
+          "name:Require candidate Rosetta tooling",
+          "name:Set up Node.js and pnpm",
+          "name:Install verification dependencies",
+          "name:Install pinned Rust for version-only resolution",
+          "id:version",
+          "uses:actions/download-artifact@v4",
+          "name:Warm the macOS toolchain lookup",
+          "name:Build independent expected Colab app bytes",
+          "name:Execute final archive and bootstrap with the matching target process",
+          "name:Recheck version-only source after this stage"
+        ],
+        "sha256": "28fb80f4c56529d06918a282616da88dd5a57688838a61ca84c2e676615b33da",
+        "releaseOnly": "Raw runtime/injection PR proofs do not execute the assembled final bundle on four hosts. Independent Colab frontend comparison, combined notices and Rosetta final verification are deferred to #1581 rehearsal.",
+        "followUp": 1581
       }
     },
     "native-release-upgrade.yml": {
@@ -359,7 +367,7 @@
   "incidents": {
     "1534": {
       "release": {
-        "workflow": "native-release-bundle.yml",
+        "workflow": "native-release-prepare.yml",
         "job": "verify",
         "step": "name:Execute final archive and bootstrap with the matching target process"
       },
@@ -368,7 +376,7 @@
     },
     "1541": {
       "release": {
-        "workflow": "native-release-bundle.yml",
+        "workflow": "native-release-prepare.yml",
         "job": "verify",
         "step": "name:Build independent expected Colab app bytes"
       },
@@ -400,7 +408,7 @@
     },
     "1550": {
       "release": {
-        "workflow": "native-release-bundle.yml",
+        "workflow": "native-release-prepare.yml",
         "job": "verify",
         "step": "name:Execute final archive and bootstrap with the matching target process"
       },
