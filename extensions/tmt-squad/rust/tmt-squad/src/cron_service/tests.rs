@@ -230,3 +230,41 @@ fn failed_hook_registration_rolls_back_and_non_members_cannot_own_jobs() {
         Some(WORKER)
     );
 }
+
+#[test]
+fn schedule_text_round_trips_through_the_editor_grammar() {
+    let now = 1_700_000_000_000;
+    for text in [
+        "every 30m",
+        "every 3h from 09:00",
+        "daily 23:00",
+        "weekdays 09:00",
+        "mon,thu 10:00",
+        "cron 0 */3 * * *",
+    ] {
+        let parsed = parse_schedule_text(text, "Asia/Tokyo", now).unwrap();
+        assert_eq!(schedule_text(&parsed), text, "{text}");
+    }
+    // A bare five-field expression is the same schedule as the shown `cron …` form.
+    assert_eq!(
+        parse_schedule_text(" 0  */3 * * * ", "Asia/Tokyo", now).unwrap(),
+        parse_schedule_text("cron 0 */3 * * *", "Asia/Tokyo", now).unwrap()
+    );
+    for text in [
+        "",
+        "soon",
+        "every",
+        "every 0m",
+        "daily",
+        "daily 25:00",
+        "0 0 *",
+    ] {
+        assert_eq!(
+            parse_schedule_text(text, "Asia/Tokyo", now)
+                .unwrap_err()
+                .code,
+            "SQUAD_CRON_SCHEDULE_INVALID",
+            "{text:?}"
+        );
+    }
+}

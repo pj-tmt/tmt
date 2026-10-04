@@ -7,7 +7,7 @@ use crate::{
 };
 use serde_json::{Value, json};
 use std::path::PathBuf;
-use tmt_squad::cron::{self, Job, Jobs, Pause, Schedule, Store};
+use tmt_squad::cron::{self, Job, Jobs, Pause, Schedule, ScheduleInput, Store};
 
 mod notices;
 mod retirement;
@@ -545,6 +545,35 @@ pub fn schedule_text(schedule: &Schedule) -> String {
         ),
         _ => format!("cron {}", value["expression"].as_str().unwrap_or_default()),
     }
+}
+
+/// The inverse of [`schedule_text`], for the board's one-line editor:
+/// `every 3h [from 09:00]`, `daily 23:00`, `weekdays 09:00`, `mon,thu 10:00`,
+/// or a five-field cron expression (optionally after `cron `). Parsing is
+/// delegated to `Schedule::parse`, which owns grammar, zones and next-slot math.
+pub fn parse_schedule_text(text: &str, zone: &str, now_ms: i64) -> Result<Schedule, SquadError> {
+    let words: Vec<&str> = text.split_whitespace().collect();
+    let input = match words.as_slice() {
+        ["every", duration] => ScheduleInput::Every {
+            duration,
+            from: None,
+        },
+        ["every", duration, "from", from] => ScheduleInput::Every {
+            duration,
+            from: Some(from),
+        },
+        ["daily", time] => ScheduleInput::At { time, on: None },
+        ["cron", ..] if words.len() == 6 => ScheduleInput::Cron(text.trim_start()[4..].trim()),
+        [on, time] if time.contains(':') => ScheduleInput::At { time, on: Some(on) },
+        _ if words.len() == 5 => ScheduleInput::Cron(text.trim()),
+        _ => {
+            return Err(failure(
+                "SQUAD_CRON_SCHEDULE_INVALID",
+                "Use every 30m [from 09:00], daily 09:00, weekdays 09:00, mon,thu 10:00 or a five-field cron expression.",
+            ));
+        }
+    };
+    Ok(Schedule::parse(input, zone, now_ms)?)
 }
 
 #[cfg(test)]
