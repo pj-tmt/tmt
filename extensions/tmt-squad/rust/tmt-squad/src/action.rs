@@ -220,7 +220,7 @@ impl Action {
     pub fn description(&self) -> String {
         let target = self.args.first().and_then(Template::literal);
         match self.verb {
-            Verb::Jump if target == Some("lead") => "go to the lead's pane".into(),
+            Verb::Jump if target == Some("lead") => "go to the squad lead's pane".into(),
             Verb::Jump => "go to the member's pane".into(),
             Verb::Back => "go back to the previous pane".into(),
             Verb::Open => "open the member's link".into(),
@@ -489,7 +489,7 @@ mod tests {
         for (configured, description) in [
             ("pick-tab", "pick or unpick a tab on this board"),
             ("jump", "go to the member's pane"),
-            ("jump lead", "go to the lead's pane"),
+            ("jump lead", "go to the squad lead's pane"),
             ("annotate member", "send the member a note"),
             ("annotate lead", "send the lead a note"),
             ("toggle notes", "fold or unfold the notes pane"),

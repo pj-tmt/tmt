@@ -1054,7 +1054,7 @@ fn help_groups_view_and_theme_bindings_and_lists_no_default_jump_lead() {
     assert!(
         help_lines(&app)
             .iter()
-            .any(|line| line == "L  go to the lead's pane")
+            .any(|line| line == "L  go to the squad lead's pane")
     );
 }
 
