@@ -10,8 +10,13 @@ import {
 import { until } from './harness/process.js';
 import { disposeActiveWorlds, withWorld } from './harness/with-world.js';
 
-async function edit(comment: Locator, body: string) {
-  await comment.getByRole('button', { name: 'Edit', exact: true }).click();
+async function edit(found: Locator, body: string) {
+  // The text filter stops matching once the draft replaces the body, so pin the row by its message id.
+  const id = await found.getAttribute('data-message-id');
+  const comment = found.page().locator(`[data-testid=comment-entry][data-message-id="${id}"]`);
+  await comment.hover();
+  await comment.getByRole('button', { name: 'Message actions', exact: true }).click();
+  await comment.getByRole('menuitem', { name: 'Edit', exact: true }).click();
   await comment.getByLabel('Edit comment', { exact: true }).fill(body);
   await comment.getByRole('button', { name: 'Save comment', exact: true }).click();
   await expect(comment.locator('.comment-body')).toHaveText(body);
@@ -121,12 +126,11 @@ test('paired writers retain anchored annotation conversations, direct exact send
     expect(agent.received()).toHaveLength(0);
     const opening = `@${agent.name} <script>plain discussion</script>\nPlease explain this.`;
     await input.fill(opening);
-    await compose.getByText('Show exactly what is sent', { exact: true }).click();
-    const exact = await compose.getByTestId('annotation-exact-bytes').textContent();
-    expect(exact).toContain('[remote: discussion-author]\n');
+    await expect(compose.locator('details')).toHaveCount(0);
     await input.press('Enter');
     await until(() => agent.received().length === 1, 'opening annotation delivered');
-    expect(agent.received()[0].message).toBe(exact);
+    expect(agent.received()[0].message).toContain('[remote: discussion-author]\n');
+    expect(agent.received()[0].message).toContain(opening.slice(agent.name.length + 2));
     const t1 = first.getByTestId('comment-thread').first();
     await expect(t1).toHaveAttribute('data-anchor', 'attached');
     const threadId = (await t1.getAttribute('data-thread-id'))!;
@@ -157,13 +161,16 @@ test('paired writers retain anchored annotation conversations, direct exact send
     expect(agent.received()[1].message).toContain(firstReply!);
     expect(agent.received()[1].message).toContain('Earlier conversation (quoted data):');
     await expect(t1.getByTestId('comment-entry')).toHaveCount(2);
-    const reply1 = t1
+    const replyId = await t2
       .getByTestId('comment-entry')
-      .filter({ hasText: 'A follow-up from another device.' });
-    const reply2 = t2
-      .getByTestId('comment-entry')
-      .filter({ hasText: 'A follow-up from another device.' });
-    await expect(reply1.getByRole('button', { name: 'Edit', exact: true })).toHaveCount(0);
+      .filter({ hasText: 'A follow-up from another device.' })
+      .getAttribute('data-message-id');
+    // Pinned by id: the text filter would stop matching once the body is edited.
+    const reply1 = t1.locator(`[data-testid=comment-entry][data-message-id="${replyId}"]`);
+    const reply2 = t2.locator(`[data-testid=comment-entry][data-message-id="${replyId}"]`);
+    await expect(reply1.getByRole('button', { name: 'Message actions', exact: true })).toHaveCount(
+      0,
+    );
     await edit(reply2, 'An edited reply.');
     await expect(reply1.locator('.comment-byline')).toHaveText(
       'discussion-replier · Just now · edited',
@@ -223,6 +230,15 @@ test('paired writers retain anchored annotation conversations, direct exact send
           node.scrollTop = 0;
         });
         await first.screenshot({ path: `/tmp/1587-native-${width}-${theme}-thread.png` });
+        // Comment order within a thread is not fixed; take the one this browser wrote.
+        const own = t1.getByTestId('comment-entry').filter({ hasText: 'You ·' }).first();
+        const menu = own.getByRole('button', { name: 'Message actions', exact: true });
+        await own.hover();
+        await menu.click();
+        await expect(own.getByRole('menuitem')).toHaveText(['Edit', 'Delete']);
+        await first.screenshot({ path: `/tmp/1690-native-${width}-${theme}-comment-menu.png` });
+        await menu.press('Escape');
+        await expect(own.getByRole('menuitem')).toHaveCount(0);
         await t1
           .getByRole('combobox', { name: 'Message to agent', exact: true })
           .scrollIntoViewIfNeeded();
@@ -252,7 +268,9 @@ test('paired writers retain anchored annotation conversations, direct exact send
     await t1.getByRole('button', { name: 'Confirm reattach', exact: true }).click();
     await expect(t2).toHaveAttribute('data-anchor', 'attached');
     await expect(t2.locator('blockquote').first()).toHaveText('Another selection.');
-    await reply2.getByRole('button', { name: 'Delete comment', exact: true }).click();
+    await reply2.hover();
+    await reply2.getByRole('button', { name: 'Message actions', exact: true }).click();
+    await reply2.getByRole('menuitem', { name: 'Delete', exact: true }).click();
     await expect(t1).toContainText('Comment deleted');
     await t1.getByRole('button', { name: 'Delete thread', exact: true }).click();
     await expect(t2).toContainText('Deleted thread');

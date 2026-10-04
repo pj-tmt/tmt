@@ -175,22 +175,23 @@ export function AskPanel({
               : stateCopy}
           </span>
         );
-        const details = (
-          <details>
-            <summary>{inline || chat ? 'Show exactly what was sent' : text.askDetails}</summary>
-            {(inline || chat) && <pre>{record.deliveredMessage ?? record.message}</pre>}
-            <dl className="ask-identities">
-              <dt>{text.askAgent}</dt>
-              <dd>{record.agent}</dd>
-              <dt>{text.askDeviceLabel}</dt>
-              <dd>{record.writer}</dd>
-              <dt>{text.askMachine}</dt>
-              <dd>{record.machine}</dd>
-              <dt>{text.askOperation}</dt>
-              <dd>{record.operationId}</dd>
-            </dl>
-          </details>
-        );
+        // Only the page-level ask list carries identities; no surface shows the delivered bytes on demand.
+        const details =
+          inline || chat ? null : (
+            <details>
+              <summary>{text.askDetails}</summary>
+              <dl className="ask-identities">
+                <dt>{text.askAgent}</dt>
+                <dd>{record.agent}</dd>
+                <dt>{text.askDeviceLabel}</dt>
+                <dd>{record.writer}</dd>
+                <dt>{text.askMachine}</dt>
+                <dd>{record.machine}</dd>
+                <dt>{text.askOperation}</dt>
+                <dd>{record.operationId}</dd>
+              </dl>
+            </details>
+          );
         const controls = (
           <>
             {record.state === 'uncertain' &&

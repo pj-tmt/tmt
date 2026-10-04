@@ -58,14 +58,10 @@ const askerName = 'asker-browser';
 test.describe('Ask agent real-binary acceptance (#1110)', () => {
   test.afterEach(disposeActiveWorlds);
 
-  test(`direct Chat send: disclosed bytes reach the recipient exactly once and the reply shows in a second viewer`, async () => {
+  test(`direct Chat send: the turn reaches the recipient exactly once and the reply shows in a second viewer`, async () => {
     await withWorld(async (world) => {
       const s = await scenario(world);
-      const draft = await composeChat(s.askerPage, s.recipient.name, 'Explain this sentence');
-      // The disclosure starts with Remote's stable device-name line.
-      expect(draft.deliveredMessage.startsWith(`[remote: ${askerName}]\n`)).toBe(true);
-      // The link names the page itself, with only its public space and page IDs.
-      expect(draft.deliveredMessage).toContain(`\nLink: ${s.askerPage.url()}\n`);
+      const draft = await composeChat(s.askerPage, s.recipient, 'Explain this sentence');
       expect(new URL(s.askerPage.url()).hash).toMatch(
         new RegExp(`^#space=[a-z2-7]{32}&path=%2Fpages%2F${s.page.pageId}$`),
       );
@@ -79,14 +75,15 @@ test.describe('Ask agent real-binary acceptance (#1110)', () => {
         'data-state',
         'accepted',
       );
-      // Exact bytes: the recipient's text is the disclosed text, once.
       await until(() => s.recipient.received().length === 1, 'recipient received the ask');
       expect(s.recipient.received()).toHaveLength(1);
-      expect(s.recipient.received()[0].message).toBe(draft.deliveredMessage);
+      // The text starts with Remote's stable device-name line and names the page itself.
+      expect(draft.delivered().startsWith(`[remote: ${askerName}]\n`)).toBe(true);
+      expect(draft.delivered()).toContain(`\nLink: ${s.askerPage.url()}\n`);
       expect(dispatches(world)).toHaveLength(1);
       // The real `tmt reply` shows up on the asker's page, attributed to the agent,
       // and in a second paired viewer.
-      const reply = replyBody(draft.deliveredMessage);
+      const reply = replyBody(draft.delivered());
       const entry = askEntry(s.askerPage, ask.operationId);
       await expect(entry.getByTestId('ask-reply')).toHaveText(reply);
       await expect(entry.getByTestId('ask-reply-attribution')).toContainText(s.recipient.name);
@@ -105,7 +102,7 @@ test.describe('Ask agent real-binary acceptance (#1110)', () => {
   test(`browser reload restores the ask from its own stream with the same operation ID and no second wake`, async () => {
     await withWorld(async (world) => {
       const s = await scenario(world, { gated: true });
-      const draft = await composeChat(s.askerPage, s.recipient.name, 'Hold the reply');
+      const draft = await composeChat(s.askerPage, s.recipient, 'Hold the reply');
       const ask = await sendChat(s.askerPage, draft);
       await until(() => s.recipient.received().length === 1, 'recipient received the ask');
       const requestId = s.recipient.received()[0].requestId as string;
@@ -118,7 +115,7 @@ test.describe('Ask agent real-binary acceptance (#1110)', () => {
       // Releasing the gate lets the real reply flow; still one wake, one dispatch.
       fs.writeFileSync(`${s.recipient.gate}/${requestId}.release`, '');
       await expect(askEntry(s.askerPage, ask.operationId).getByTestId('ask-reply')).toHaveText(
-        replyBody(draft.deliveredMessage),
+        replyBody(draft.delivered()),
       );
       expect(s.recipient.received()).toHaveLength(1);
       expect(dispatches(world)).toHaveLength(1);
@@ -128,7 +125,7 @@ test.describe('Ask agent real-binary acceptance (#1110)', () => {
   test(`remote restart after the core accepted recovers via operation.show with no second wake`, async () => {
     await withWorld(async (world) => {
       const s = await scenario(world);
-      const draft = await composeChat(s.askerPage, s.recipient.name, 'Survive a restart');
+      const draft = await composeChat(s.askerPage, s.recipient, 'Survive a restart');
       world.armNextBarrier('after');
       const ask = await sendChat(s.askerPage, draft);
       const parked = await world.barrierEntered();
@@ -155,7 +152,7 @@ test.describe('Ask agent real-binary acceptance (#1110)', () => {
   test(`remote restart before dispatch stays uncertain with no new dispatch; abandon records MAY_HAVE_BEEN_DELIVERED`, async () => {
     await withWorld(async (world) => {
       const s = await scenario(world);
-      const draft = await composeChat(s.askerPage, s.recipient.name, 'Never reaches the core');
+      const draft = await composeChat(s.askerPage, s.recipient, 'Never reaches the core');
       world.armNextBarrier('before');
       const ask = await sendChat(s.askerPage, draft);
       const parked = await world.barrierEntered();
@@ -192,7 +189,7 @@ test.describe('Ask agent real-binary acceptance (#1110)', () => {
   test(`colab restart keeps the ask and delivers the reply from the own stream once`, async () => {
     await withWorld(async (world) => {
       const s = await scenario(world, { gated: true });
-      const draft = await composeChat(s.askerPage, s.recipient.name, 'Reply after a restart');
+      const draft = await composeChat(s.askerPage, s.recipient, 'Reply after a restart');
       const ask = await sendChat(s.askerPage, draft);
       await until(() => s.recipient.received().length === 1, 'recipient received the ask');
       const requestId = s.recipient.received()[0].requestId as string;
@@ -203,7 +200,7 @@ test.describe('Ask agent real-binary acceptance (#1110)', () => {
       await s.askerPage.reload();
       await openChat(s.askerPage);
       const reply = askEntry(s.askerPage, ask.operationId).getByTestId('ask-reply');
-      await expect(reply).toHaveText(replyBody(draft.deliveredMessage), { timeout: 30_000 });
+      await expect(reply).toHaveText(replyBody(draft.delivered()), { timeout: 30_000 });
       await expect(askEntry(s.askerPage, ask.operationId).getByTestId('ask-reply')).toHaveCount(1);
       expect(s.recipient.received()).toHaveLength(1);
     });
@@ -213,7 +210,7 @@ test.describe('Ask agent real-binary acceptance (#1110)', () => {
     await withWorld(async (world) => {
       const s = await scenario(world);
       // Positive control: the same device can send before it is revoked.
-      const draft = await composeChat(s.askerPage, s.recipient.name, 'Before revoke');
+      const draft = await composeChat(s.askerPage, s.recipient, 'Before revoke');
       const first = await sendChat(s.askerPage, draft);
       await expect(askState(s.askerPage, first.operationId)).toHaveAttribute(
         'data-state',
@@ -240,7 +237,7 @@ test.describe('Ask agent real-binary acceptance (#1110)', () => {
       await expect(tabA.getByText('Colab is open in another tab')).toBeVisible();
       await expect(tabB.getByText('Colab is open in another tab')).toHaveCount(0);
       // An ask sent in the active tab B is accepted by Remote.
-      const draft = await composeChat(tabB, s.recipient.name, 'Sent from the active tab');
+      const draft = await composeChat(tabB, s.recipient, 'Sent from the active tab');
       const ask = await sendChat(tabB, draft);
       await expect(askState(tabB, ask.operationId)).toHaveAttribute('data-state', 'accepted');
       await until(() => s.recipient.received().length === 1, 'recipient received the ask');
@@ -251,7 +248,7 @@ test.describe('Ask agent real-binary acceptance (#1110)', () => {
       await expect(askEntry(tabA, ask.operationId)).toBeVisible();
       await expect(tabB.getByText('Colab is open in another tab')).toBeVisible();
       await expect(askEntry(tabA, ask.operationId).getByTestId('ask-reply')).toHaveText(
-        replyBody(draft.deliveredMessage),
+        replyBody(draft.delivered()),
       );
       // Takeover never resends: one wake, one dispatch.
       expect(s.recipient.received()).toHaveLength(1);

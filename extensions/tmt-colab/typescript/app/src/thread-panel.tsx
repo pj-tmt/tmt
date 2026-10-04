@@ -1,5 +1,6 @@
 import { useEffect, useId, useState, type ReactNode } from 'react';
 import { AskPanel, type AskBinding, type PageAsk } from './ask-panel.js';
+import { ActionMenu } from './components/action-menu.js';
 import type { ThreadBinding } from './thread-store.js';
 import type { CommentView, QuoteSelector, ThreadView, DiscussionRef } from './thread-records.js';
 import { text } from './strings.js';
@@ -101,6 +102,20 @@ export function DiscussionComment({
   const [busy, setBusy] = useState(false),
     [error, setError] = useState(false);
   const owned = binding?.deviceId === comment.ref.writer;
+  const menu = [
+    ...(owned && !chat
+      ? [{ key: 'edit', label: text.commentEdit, disabled: busy || blocked }]
+      : []),
+    ...(owned
+      ? [
+          {
+            key: 'delete',
+            label: 'Delete',
+            disabled: busy || blocked,
+          },
+        ]
+      : []),
+  ];
   const action = (run: () => Promise<void>) => {
     if (busy || blocked) return;
     setBusy(true);
@@ -119,81 +134,74 @@ export function DiscussionComment({
       data-message-id={comment.messageId}
       data-writer={comment.ref.writer}
     >
-      <header>
-        <p className="comment-byline" title={comment.ref.writer}>
-          {owned ? text.askYou : comment.deviceName || text.commentDevice} ·{' '}
-          <time
-            dateTime={new Date(Number(comment.at)).toISOString()}
-            title={new Date(Number(comment.at)).toISOString()}
-          >
-            {(chat ? compactRelativeTime : relativeTime)(Number(comment.at), now)}
-          </time>
-          {!comment.deleted && comment.revision !== '1' && <> · {text.commentEdited}</>}
-        </p>
-        {status}
-      </header>
-      {comment.deleted ? (
-        <p className="comment-status">{text.commentDeleted}</p>
-      ) : (
-        <>
-          {editing ? (
-            <form
-              onSubmit={(event) => {
-                event.preventDefault();
-                if (event.isTrusted && draft.trim())
-                  action(() => binding!.edit(comment.ref, editRevision, draft));
-              }}
+      <div className="comment-main">
+        <header>
+          <p className="comment-byline" title={comment.ref.writer}>
+            {owned ? text.askYou : comment.deviceName || text.commentDevice} ·{' '}
+            <time
+              dateTime={new Date(Number(comment.at)).toISOString()}
+              title={new Date(Number(comment.at)).toISOString()}
             >
-              <label htmlFor={editId}>{text.commentEditBody}</label>
-              <textarea
-                id={editId}
-                value={draft}
-                disabled={busy}
-                onChange={(event) => setDraft(event.target.value)}
-              />
-              <div className="comment-actions">
-                <button disabled={busy || blocked || !draft.trim()}>{text.commentSave}</button>
-                <button
-                  type="button"
-                  disabled={busy}
-                  onClick={(event) => {
-                    if (event.isTrusted) setEditing(false);
-                  }}
-                >
-                  {text.commentCancel}
-                </button>
-              </div>
-            </form>
-          ) : (
-            <p className="comment-body">{comment.body}</p>
-          )}
-          {owned && !editing && (
-            <div className="comment-actions">
-              <button
-                disabled={busy || blocked}
-                onClick={(event) => {
-                  if (event.isTrusted) {
+              {(chat ? compactRelativeTime : relativeTime)(Number(comment.at), now)}
+            </time>
+            {!comment.deleted && comment.revision !== '1' && <> · {text.commentEdited}</>}
+          </p>
+          <span className="comment-header-end">
+            {status}
+            {menu.length > 0 && !comment.deleted && !editing && (
+              <ActionMenu
+                label="Message actions"
+                items={menu}
+                onSelect={(key) => {
+                  if (key === 'edit') {
                     setDraft(comment.body);
                     setEditRevision(comment.revision);
                     setEditing(true);
-                  }
-                }}
-              >
-                {text.commentEdit}
-              </button>
-              <button
-                disabled={busy || blocked}
-                onClick={(event) => {
-                  if (event.isTrusted)
+                  } else if (key === 'delete')
                     action(() => binding!.deleteComment(comment.ref, comment.revision));
                 }}
+              />
+            )}
+          </span>
+        </header>
+        {comment.deleted ? (
+          <p className="comment-status">{text.commentDeleted}</p>
+        ) : (
+          <>
+            {editing ? (
+              <form
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  if (event.isTrusted && draft.trim())
+                    action(() => binding!.edit(comment.ref, editRevision, draft));
+                }}
               >
-                {chat ? 'Delete message' : text.commentDelete}
-              </button>
-            </div>
-          )}
-        </>
-      )}
+                <label htmlFor={editId}>{text.commentEditBody}</label>
+                <textarea
+                  id={editId}
+                  value={draft}
+                  disabled={busy}
+                  onChange={(event) => setDraft(event.target.value)}
+                />
+                <div className="comment-actions">
+                  <button disabled={busy || blocked || !draft.trim()}>{text.commentSave}</button>
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={(event) => {
+                      if (event.isTrusted) setEditing(false);
+                    }}
+                  >
+                    {text.commentCancel}
+                  </button>
+                </div>
+              </form>
+            ) : (
+              <p className="comment-body">{comment.body}</p>
+            )}
+          </>
+        )}
+      </div>
       {!busy && delivery}
       {!chat && (
         <AskPanel

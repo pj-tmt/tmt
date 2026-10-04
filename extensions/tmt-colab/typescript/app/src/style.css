@@ -750,6 +750,7 @@ footer {
   unicode-bidi: plaintext;
 }
 .comment {
+  position: relative;
   padding: 16px 0;
   border-bottom: 1px solid var(--c-rule);
 }
@@ -1026,7 +1027,8 @@ footer {
   border: 1px solid var(--c-rule);
   background: var(--c-sheet);
 }
-.chat-user-turn > header {
+.chat-user-turn > header,
+.chat-user-turn .comment-main > header {
   display: flex;
   align-items: baseline;
   justify-content: space-between;
@@ -1046,4 +1048,21 @@ footer {
 }
 .chat-user-turn details {
   margin-top: 8px;
+}
+
+.comment-main > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.comment-header-end {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* The menu list drops below this block: the message itself, not the asks and replies after it. */
+.comment-main {
+  position: relative;
 }
