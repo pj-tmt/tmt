@@ -1,10 +1,10 @@
+use super::row_paint::GAP;
 use super::{
     detail::{detail_represents, render_detail},
     footer::hints,
     header::{SPINNER_TICK, meter_region, summary_line},
     overlays::render_switcher,
     replies::reply_lines,
-    rows::{GAP, grid_line},
     tabs::{pane_tab, tab},
 };
 use crate::board::app::Switcher;
@@ -938,39 +938,62 @@ fn split(direction: Direction, panes: Vec<Pane>, sizes: Vec<u16>) -> crate::conf
     crate::config::Board::simple(BoardMode::Split, direction, panes, &sizes)
 }
 
+/// The painted cells of the first board row, from its first line down.
+fn board_buffer(app: &App, width: u16, height: u16) -> ratatui::buffer::Buffer {
+    let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
+    terminal.draw(|frame| render(frame, app)).unwrap();
+    terminal.backend().buffer().clone()
+}
+
+/// The foreground, background and modifiers a style gives a cell.
+fn painted(style: Style) -> (ratatui::style::Color, ratatui::style::Color, Modifier) {
+    let mut cell = ratatui::buffer::Cell::default();
+    cell.set_style(style);
+    (cell.fg, cell.bg, cell.modifier)
+}
+
+fn painted_at(
+    buffer: &ratatui::buffer::Buffer,
+    x: u16,
+    y: u16,
+) -> (ratatui::style::Color, ratatui::style::Color, Modifier) {
+    let cell = &buffer[(x, y)];
+    (cell.fg, cell.bg, cell.modifier)
+}
+
 #[test]
 fn state_cells_use_the_projected_token_for_pattern_and_exact_states() {
     let rows = rows_from("[p.columns]\nshow = ['state']\nstate = { width = 20 }\n");
     let look = crate::look::Look::default();
     for state in ["blocked", "blocked-on-ci"] {
-        let row =
-            json!({"state": state, "fields": {"state": state}, "colors": {"state": "review"}});
-        let spans = grid_line(
-            look,
-            &rows,
-            &crate::markup::Grid::compile(&rows, |_| 20, 20).unwrap(),
-            &crate::markup::row_values(&rows, "product", vec![(0, &row)]).unwrap()[0],
-            &row,
-            0,
-            false,
-        )
-        .unwrap();
-        assert_eq!(spans.len(), 1);
-        assert_eq!(spans[0][0].style.fg, look.named("review").fg);
-        assert_eq!(spans[0][0].content.trim(), state);
-        let plain = json!({"state": state, "fields": {"state": state}});
-        let spans = grid_line(
-            look,
-            &rows,
-            &crate::markup::Grid::compile(&rows, |_| 20, 20).unwrap(),
-            &crate::markup::row_values(&rows, "product", vec![(0, &plain)]).unwrap()[0],
-            &plain,
-            0,
-            false,
-        )
-        .unwrap();
-        assert_eq!(spans.len(), 1);
-        assert_eq!(spans[0][0].style, Style::new());
+        let draw_row = |colors: Value| {
+            let mut app = board(json!([{"title": null, "rows": [
+                {"name": "x", "pending": null, "fields": {"state": state}, "colors": colors}
+            ]}]));
+            let view = app.view.as_mut().unwrap();
+            view.rows = rows.clone();
+            view.look = look;
+            app.selected = 1;
+            board_buffer(&app, 30, 8)
+        };
+        let colored = draw_row(json!({"state": "review"}));
+        let plain = draw_row(json!({}));
+        let y = (0..8u16)
+            .find(|y| {
+                (0..30u16)
+                    .map(|x| colored[(x, *y)].symbol())
+                    .collect::<String>()
+                    .contains(state)
+            })
+            .unwrap();
+        for x in 2..2 + state.len() as u16 {
+            assert_eq!(
+                painted_at(&colored, x, y),
+                painted(look.named("review")),
+                "{state}"
+            );
+            assert_eq!(painted_at(&plain, x, y), painted(Style::new()), "{state}");
+        }
     }
 }
 
@@ -1073,11 +1096,46 @@ lines = [
 }
 
 #[test]
+fn sent_feedback_sits_under_its_row_before_the_annotation_and_stays_clickable() {
+    let mut app = board(json!([{"title": null, "rows": [
+        row("alpha", "working", "one", json!({"id": "u1", "annotation": {"to": "sol", "text": "noted"}})),
+        row("bravo", "working", "two", json!({"id": "u2"})),
+    ]}]));
+    app.view.as_mut().unwrap().look = Default::default();
+    app.sent = Some(crate::board::app::RowFeedback {
+        target: app.row_target(0).unwrap(),
+        home: None,
+    });
+    let screen = draw(&app, 60, 12);
+    let alpha = screen.iter().position(|l| l.contains("alpha")).unwrap();
+    assert_eq!(screen[alpha + 1], "    ✓ sent");
+    assert!(screen[alpha + 2].starts_with("    ✎ sent to sol: noted"));
+    assert!(screen[alpha + 3].contains("bravo"));
+    // The feedback line is the row's, so a click on it selects the row, and the
+    // sent mark takes the working role without the row's selection.
+    let hit = app
+        .hits
+        .borrow()
+        .iter()
+        .copied()
+        .find(|hit| usize::from(hit.y) == alpha + 1);
+    assert_eq!(hit.map(|hit| hit.row), Some(0));
+    let buffer = board_buffer(&app, 60, 12);
+    let look = app.look();
+    assert_eq!(
+        painted_at(&buffer, 4, (alpha + 1) as u16),
+        painted(look.role(Role::Working))
+    );
+    // The next frame without feedback restores the original stream.
+    app.sent = None;
+    assert_eq!(draw(&app, 60, 12)[alpha + 1], "    ✎ sent to sol: noted");
+}
+
+#[test]
 fn cell_tokens_override_decoration_but_keep_missing_failure_and_reverse_rules() {
     let rows = rows_from(
         "[p.rows]\ncolumns=[{name='task',width=12,overflow='wrap',max_lines=2}]\nlines=[[{field='task',token='waiting'}]]\n",
     );
-    let grid = crate::markup::Grid::compile(&rows, |_| 20, 12).unwrap();
     for depth in [
         tmt_cli_style::Depth::TrueColor,
         tmt_cli_style::Depth::Ansi16,
@@ -1087,24 +1145,47 @@ fn cell_tokens_override_decoration_but_keep_missing_failure_and_reverse_rules() 
             depth,
             ..Default::default()
         };
-        for (row, role) in [
+        for (row, role, lines) in [
             (
                 json!({"fields":{"task":"alpha beta gamma"},"colors":{"task":"review"}}),
                 Role::Waiting,
+                2,
             ),
-            (json!({"fields":{"task":"?"},"failed":["task"]}), Role::Dim),
-            (json!({"fields":{"task":""}}), Role::Dim),
-            (json!({"fields":{}}), Role::Dim),
+            (
+                json!({"fields":{"task":"?"},"failed":["task"]}),
+                Role::Dim,
+                1,
+            ),
+            (json!({"fields":{"task":""}}), Role::Dim, 1),
+            (json!({"fields":{}}), Role::Dim, 1),
         ] {
-            let scene = crate::markup::row_values(&rows, "product", vec![(0, &row)]).unwrap();
             for selected in [false, true] {
-                let lines = grid_line(look, &rows, &grid, &scene[0], &row, 0, selected).unwrap();
-                for spans in lines {
-                    assert_eq!(spans.len(), 1);
-                    assert_eq!(
-                        spans[0].style,
-                        look.row_span(selected, look.role(role), role == Role::Waiting)
-                    );
+                let mut app = board(json!([{"title": null, "rows": [row.clone(), row.clone()]}]));
+                let view = app.view.as_mut().unwrap();
+                view.rows = rows.clone();
+                view.look = look;
+                app.selected = usize::from(!selected);
+                let buffer = board_buffer(&app, 30, 10);
+                let base = if selected {
+                    look.selection()
+                } else {
+                    Style::new()
+                };
+                let expected = painted(base.patch(look.row_span(
+                    selected,
+                    look.role(role),
+                    role == Role::Waiting,
+                )));
+                // The first row's cell spans its wrapped lines, padding included.
+                let first = 3;
+                for y in first..first + lines {
+                    for x in 2..14 {
+                        assert_eq!(
+                            painted_at(&buffer, x, y),
+                            expected,
+                            "{depth:?} {role:?} selected={selected} ({x},{y})"
+                        );
+                    }
                 }
             }
         }
