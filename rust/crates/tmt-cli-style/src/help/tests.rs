@@ -237,6 +237,76 @@ fn cjk_help_paragraphs_use_display_cells_and_preserve_indentation() {
 }
 
 #[test]
+fn option_and_subcommand_descriptions_keep_a_hanging_indent() {
+    let command = wrapping_command();
+    let original = help_text(&command, Terminal::PLAIN);
+    let actor = original
+        .lines()
+        .find(|line| line.contains("--actor"))
+        .unwrap();
+    let description_column = actor.find("Explicit actor").unwrap();
+    for color in [false, true] {
+        let terminal = Terminal {
+            color,
+            width: Some(80),
+            theme: None,
+        };
+        let text = help_text(&command, terminal);
+        let text = anstream::adapter::strip_str(&text).to_string();
+        let mut lines = text.lines().skip_while(|line| !line.contains("--actor"));
+        assert!(lines.next().unwrap().contains("Explicit actor"));
+        let continuation: Vec<_> = lines.take_while(|line| !line.is_empty()).collect();
+        assert!(!continuation.is_empty());
+        assert!(continuation.iter().all(|line| {
+            line.len() - line.trim_start().len() == description_column && line.width() <= 80
+        }));
+    }
+    let description = "Observe stored schedules without changing owners or sending requests, and retain their existing permission and lifecycle rules.";
+    let input = format!("Commands:\n  observe  {description}\n");
+    let text = rendered_help(
+        &input.into(),
+        Terminal {
+            width: Some(80),
+            ..Terminal::PLAIN
+        },
+    );
+    let continuation: Vec<_> = text.lines().skip(2).collect();
+    assert!(!continuation.is_empty());
+    assert!(
+        continuation
+            .iter()
+            .all(|line| line.starts_with("           ") && !line.starts_with("            "))
+    );
+}
+
+#[test]
+fn a_wide_label_falls_back_to_the_paragraph_indent() {
+    let description = "Explicit actor; otherwise use the verified caller and recorded user, while preserving existing permission checks.";
+    for (label_length, expected_indent) in [(54, 60), (55, 2)] {
+        let input = format!(
+            "Options:\n  --{}  {description}\n",
+            "a".repeat(label_length)
+        );
+        let text = rendered_help(
+            &input.clone().into(),
+            Terminal {
+                width: Some(80),
+                ..Terminal::PLAIN
+            },
+        );
+        let continuation: Vec<_> = text.lines().skip(2).collect();
+        assert!(!continuation.is_empty());
+        assert!(continuation.iter().all(|line| {
+            line.len() - line.trim_start().len() == expected_indent && line.width() <= 80
+        }));
+        assert_eq!(
+            text.split_whitespace().collect::<Vec<_>>(),
+            input.split_whitespace().collect::<Vec<_>>()
+        );
+    }
+}
+
+#[test]
 fn usage_commands_and_examples_never_wrap() {
     let long = "tmt talk worker 'A runnable command with a quoted message that exceeds the terminal width must stay on its original line'";
     let input = format!(

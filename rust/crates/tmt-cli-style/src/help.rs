@@ -180,7 +180,20 @@ pub fn rendered_help(help: &clap::builder::StyledStr, terminal: Terminal) -> Str
 /// Retain each word and its ANSI bytes; replace only the whitespace at a wrap.
 fn wrap_prose(line: &str, width: usize, output: &mut String) {
     let visible = anstream::adapter::strip_str(line).to_string();
-    let indent = &visible[..visible.len() - visible.trim_start().len()];
+    let content = visible.trim_start();
+    let leading = &visible[..visible.len() - content.len()];
+    // Clap separates a row's label (including option operands) from its
+    // description by at least two spaces. Keep prose under that description,
+    // unless doing so would leave fewer than 20 cells per continuation.
+    let hanging = content.find("  ").and_then(|gap| {
+        let description = content[gap..].trim_start();
+        if description.is_empty() {
+            return None;
+        }
+        let column = visible[..visible.len() - description.len()].width();
+        (width.saturating_sub(column) >= 20).then_some(column)
+    });
+    let indent = hanging.map_or_else(|| leading.to_owned(), |column| " ".repeat(column));
     let mut column = 0;
     let mut has_word = false;
     let mut cursor = 0;
@@ -195,7 +208,7 @@ fn wrap_prose(line: &str, width: usize, output: &mut String) {
         let gap = &line[cursor..start];
         if word_width > 0 && has_word && column + gap.width() + word_width > width {
             output.push('\n');
-            output.push_str(indent);
+            output.push_str(&indent);
             column = indent.width();
         } else {
             output.push_str(gap);
