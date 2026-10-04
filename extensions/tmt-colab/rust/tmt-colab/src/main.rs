@@ -352,8 +352,7 @@ fn run(matches: &clap::ArgMatches) -> Result<()> {
         if let Some(link) = status.open_link() {
             // The door is ready: unreadable settings are the defaults, never a failed serve.
             let settings = tmt_colab::settings::read_or_default(&root);
-            let outcome =
-                open::open_link(&link, open::Flag::of(args), settings.open(), json_output);
+            let outcome = open::open_link(&link, open::flag(args), settings.open(), json_output);
             status.opened = matches!(outcome, open::Outcome::Opened);
             open_warnings.extend(open::describe(&outcome, &link).1);
             if settings.malformed {
