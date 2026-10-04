@@ -2,6 +2,7 @@
 //! for a person (detail rows) and for an agent (one stable JSON line).
 use crate::{
     door::{Door, Pairing},
+    reach::Reach,
     supervisor::Access,
 };
 use serde_json::{Value, json};
@@ -18,6 +19,8 @@ pub struct Status<'a> {
     pub pairing: Option<Pairing>,
     /// Ids of the pages that are not archived; `None` when the catalog could not be read.
     pub pages: Option<Vec<String>>,
+    /// The browser was opened on the link `open_link` named.
+    pub opened: bool,
 }
 
 impl Status<'_> {
@@ -62,6 +65,25 @@ impl Status<'_> {
             _ => link,
         })
     }
+    /// Where to send the browser: the page when the space has exactly one, else the space home.
+    fn target_path(&self) -> String {
+        match self.pages.as_deref() {
+            Some([only]) => Reach::path(self.space, only),
+            _ => "x/colab/".into(),
+        }
+    }
+    /// The full link to open in a browser, only while a door runs.
+    pub fn open_link(&self) -> Option<String> {
+        self.door().map(|door| door.url(&self.target_path()))
+    }
+    /// What the `open` row says: the link, or without a door the relative page path and why.
+    fn target_text(&self) -> Option<String> {
+        match (self.open_link(), self.pages.as_deref()) {
+            (Some(link), _) => Some(link),
+            (None, Some([_, ..])) => self.page_text(),
+            _ => None,
+        }
+    }
     fn needs_pairing(&self) -> bool {
         self.door().is_some() && !matches!(self.pairing, Some(Pairing::Paired(_)))
     }
@@ -95,6 +117,7 @@ impl Status<'_> {
             "pages": self.pages.as_ref().map(Vec::len),
             "page": self.page_link(),
             "next": next,
+            "opened": self.opened,
             "warning": self.access.warning().map(|(what, _)| what),
         })
     }
@@ -126,20 +149,24 @@ impl Status<'_> {
         if self.needs_pairing() {
             rows.push((
                 "pair",
-                match self.pairing {
-                    Some(Pairing::Unpaired) => format!("pair this browser once: {PAIR}"),
-                    _ => format!("if this browser is new: {PAIR}"),
-                },
+                self.pairing
+                    .as_ref()
+                    .and_then(Pairing::step)
+                    .unwrap_or("if this browser is new: tmt remote pair")
+                    .into(),
             ));
         }
-        rows.push((
-            "open",
-            match (self.page_text(), self.pages.as_ref()) {
-                (Some(text), _) => text,
-                (None, Some(_)) => format!("create one: {CREATE}"),
-                (None, None) => "pages unknown: tmt colab ls".into(),
-            },
-        ));
+        match (self.target_text(), self.pages.as_ref()) {
+            (Some(text), _) if self.opened => {
+                rows.push(("open", format!("opened in your browser: {text}")))
+            }
+            (Some(text), _) => rows.push(("open", text)),
+            (None, None) => rows.push(("open", "pages unknown: tmt colab ls".into())),
+            (None, Some(_)) => {}
+        }
+        if self.needs_page() {
+            rows.push(("create", CREATE.into()));
+        }
         rows
     }
 }

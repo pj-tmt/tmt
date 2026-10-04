@@ -542,25 +542,40 @@ pub fn create_page(root: &Path, args: &ArgMatches, source: String) -> Result<()>
         .as_str()
         .ok_or_else(|| input("Missing created page path."))?
         .to_owned();
-    let lookup = crate::door::Door::lookup();
-    if let crate::door::Lookup::Running(door) = &lookup {
-        result["url"] = json!(door.url(&relative));
-    }
+    let reach = crate::reach::Reach::gather();
     if args.get_flag("json") {
+        reach.annotate(&mut result, &relative);
         return output(&result, true);
     }
     let mut out = tmt_cli_style::stream::stdout(false);
     let terminal = out.terminal();
-    tmt_cli_style::detail::write(
-        &mut out,
-        terminal,
-        "PAGE CREATED",
-        &[
-            ("page", page_id),
-            ("title", title.to_owned()),
-            ("open", crate::door::Door::hint(&lookup, &relative)),
-        ],
-    )?;
+    // The page opens in the browser unless the setting, a flag or the environment says not to.
+    let mut shown = reach.text(&relative);
+    let mut warnings = Vec::new();
+    if let Some(link) = reach.link(&relative) {
+        // The page is committed: unreadable settings are the defaults, never a failed command.
+        let settings = tmt_colab::settings::read_or_default(root);
+        let outcome =
+            crate::open::open_link(&link, crate::open::Flag::of(args), settings.open(), false);
+        let (text, failed) = crate::open::describe(&outcome, &link);
+        shown = text;
+        warnings.extend(failed);
+        if settings.malformed {
+            warnings.push(tmt_colab::settings::UNREADABLE.to_owned());
+        }
+    }
+    let mut rows = vec![
+        ("page", page_id),
+        ("title", title.to_owned()),
+        ("open", shown),
+    ];
+    rows.extend(reach.step().map(|step| ("pair", step.to_owned())));
+    tmt_cli_style::detail::write(&mut out, terminal, "PAGE CREATED", &rows)?;
+    for what in &warnings {
+        let mut err = tmt_cli_style::stream::stderr();
+        let terminal = err.terminal();
+        tmt_cli_style::message::warning(&mut err, terminal, what, None)?;
+    }
     Ok(())
 }
 pub fn run(command: &str, args: &ArgMatches, root: &Path, json_output: bool) -> Result<()> {
@@ -605,6 +620,27 @@ pub fn run(command: &str, args: &ArgMatches, root: &Path, json_output: bool) -> 
         if catalog["membershipHead"] != inspection::catalog(&store, &key)?["membershipHead"] {
             return Err(management_error("STALE_HEAD"));
         }
+        // One door lookup for the whole listing; each page carries its own path and link.
+        let reach = crate::reach::Reach::gather();
+        for page in catalog["pages"].as_array_mut().into_iter().flatten() {
+            let path =
+                crate::reach::Reach::path(&key.space_id, page["pageId"].as_str().unwrap_or(""));
+            if json_output {
+                reach.annotate_link(page, &path);
+            } else {
+                // Human-only: the text under each row, which JSON replaces with `path` and `link`.
+                page["linkText"] = json!(reach.text(&path));
+            }
+        }
+        let listed = catalog["pages"].as_array().is_some_and(|p| !p.is_empty());
+        if json_output {
+            let mut facts = json!({});
+            reach.annotate(&mut facts, "");
+            catalog["paired"] = facts["paired"].take();
+            catalog["next"] = facts["next"].take();
+        } else if let (true, Some(step)) = (listed, reach.step()) {
+            catalog["pairStep"] = json!(step);
+        }
         return output(&catalog, json_output);
     }
     let mut page_args = args;
@@ -641,8 +677,14 @@ pub fn run(command: &str, args: &ArgMatches, root: &Path, json_output: bool) -> 
             return Err(management_error("STALE_HEAD"));
         }
         let mut detail = detail;
+        let reach = crate::reach::Reach::gather();
+        let path = crate::reach::Reach::path(&key.space_id, &id);
         detail["page"] = page;
-        return output(&detail, json_output);
+        if json_output {
+            reach.annotate(&mut detail, &path);
+            return output(&detail, true);
+        }
+        return output_with(&detail, false, &page_rows(&reach, &path));
     }
     let Some((operation, payload, widening)) = selection(command, args, &page, &detail)? else {
         if command == "retention" {
@@ -710,12 +752,12 @@ pub fn run(command: &str, args: &ArgMatches, root: &Path, json_output: bool) -> 
             _ => None,
         };
         if let Some(created) = created {
-            let path = reader_path(&key.space_id, &id, created, &ack.membership_head);
-            // The door is looked up after the commit, so a slow answer never delays the effect.
-            if let crate::door::Lookup::Running(door) = crate::door::Door::lookup() {
-                value["readerUrl"] = json!(door.url(&path));
-            }
-            value["readerPath"] = json!(path);
+            value["readerPath"] = json!(reader_path(
+                &key.space_id,
+                &id,
+                created,
+                &ack.membership_head
+            ));
         }
         Ok(value)
     })()
@@ -734,7 +776,31 @@ pub fn run(command: &str, args: &ArgMatches, root: &Path, json_output: bool) -> 
             }) as Box<dyn std::error::Error + Send + Sync>
         }
     })?;
-    output(&outcome, json_output)
+    // The door is looked up after the commit, so a slow answer never delays the effect.
+    let reach = crate::reach::Reach::gather();
+    let path = crate::reach::Reach::path(&key.space_id, &id);
+    let mut outcome = outcome;
+    if let Some(url) = outcome["readerPath"]
+        .as_str()
+        .and_then(|reader| reach.link(reader))
+    {
+        outcome["readerUrl"] = json!(url);
+    }
+    if json_output {
+        reach.annotate(&mut outcome, &path);
+        return output(&outcome, true);
+    }
+    let mut rows = page_rows(&reach, &path);
+    if let Some(reader) = outcome["readerPath"].as_str() {
+        rows.push(("reader link", reach.text(reader)));
+    }
+    output_with(&outcome, false, &rows)
+}
+/// The rows every page-naming command shares: where to open the page, and the pairing step.
+fn page_rows(reach: &crate::reach::Reach, path: &str) -> Vec<(&'static str, String)> {
+    let mut rows = vec![("link", reach.text(path))];
+    rows.extend(reach.step().map(|step| ("pair", step.to_owned())));
+    rows
 }
 // Civil UTC date from Unix days; Gregorian cycle decomposition follows
 // https://howardhinnant.github.io/date_algorithms.html#civil_from_days.
@@ -828,16 +894,16 @@ fn human_fields(value: &Value) -> Result<Vec<(String, String)>> {
             })
             .collect::<Vec<_>>()
             .join(", "),
-        _ => "none".to_owned(),
+        _ => "–".to_owned(),
     };
     let mut fields = Vec::new();
     for (key, v) in object {
         match key.as_str() {
             "page" if v.is_object() => {
-                fields.push(("page".to_owned(), text(&v["pageId"])));
                 if let Some(title) = v["title"].as_str() {
                     fields.push(("title".to_owned(), title.to_owned()));
                 }
+                fields.push(("page".to_owned(), text(&v["pageId"])));
                 if let (Some(sharing), Some(history)) =
                     (v["sharing"].as_str(), v["history"].as_str())
                 {
@@ -878,13 +944,8 @@ fn human_fields(value: &Value) -> Result<Vec<(String, String)>> {
                     ),
                 ));
             }
-            // The full link replaces the relative one; without a door the path says how to get one.
-            "readerUrl" => fields.push(("reader link".to_owned(), text(v))),
-            "readerPath" if object.contains_key("readerUrl") => {}
-            "readerPath" => fields.push((
-                "reader link".to_owned(),
-                crate::door::Door::hint(&crate::door::Lookup::Unknown, &text(v)),
-            )),
+            // The link rows carry the space; the reader link is added by the caller.
+            "spaceId" | "readerUrl" | "readerPath" => {}
             "operationId" => fields.push(("operation".to_owned(), text(v))),
             "expectedRevision" => fields.push(("expected revision".to_owned(), text(v))),
             "linkId" => fields.push(("link".to_owned(), text(v))),
@@ -896,6 +957,11 @@ fn human_fields(value: &Value) -> Result<Vec<(String, String)>> {
     Ok(fields)
 }
 fn output(value: &Value, json_output: bool) -> Result<()> {
+    output_with(value, json_output, &[])
+}
+/// Human output for a result; `extra` rows (the page link, the pairing step) follow the title,
+/// or the other rows when the result has none.
+fn output_with(value: &Value, json_output: bool, extra: &[(&str, String)]) -> Result<()> {
     let mut out = tmt_cli_style::stream::stdout(json_output);
     if json_output {
         writeln!(out, "{value}")?;
@@ -903,38 +969,81 @@ fn output(value: &Value, json_output: bool) -> Result<()> {
     }
     let terminal = out.terminal();
     if let Some(pages) = value["pages"].as_array() {
-        use tmt_cli_style::table::{Cell, Column, Table};
-        let mut rows = Table::new(&[Column::Fixed, Column::Detail, Column::Fixed, Column::Detail]);
+        use tmt_cli_style::{
+            palette::Token,
+            table::{Cell, Column, Table, escape},
+        };
+        writeln!(
+            out,
+            "{} {}",
+            terminal.paint(Token::Title, "PAGES"),
+            terminal.paint(Token::Dim, &pages.len().to_string())
+        )?;
+        // The audience column is padded to one width so separate rows still line up. Under each
+        // row sit the link and the expiry line: titles truncate, links never do.
+        let audience = |page: &Value| {
+            format!(
+                "{} / {}{}",
+                page["sharing"].as_str().unwrap_or(""),
+                page["history"].as_str().unwrap_or(""),
+                if page["archived"] == true {
+                    " / archived"
+                } else {
+                    ""
+                }
+            )
+        };
+        let width = pages
+            .iter()
+            .map(|p| audience(p).chars().count())
+            .max()
+            .unwrap_or(0);
         for page in pages {
+            let mut rows = Table::new(&[Column::Fixed, Column::Fixed, Column::Name]);
             rows.row([
                 Cell::from(page["pageId"].as_str().unwrap_or("")),
+                Cell::from(format!("{:<width$}", audience(page))),
                 Cell::from(page["title"].as_str().unwrap_or("title unavailable")),
-                Cell::from(format!(
-                    "{} / {}{}",
-                    page["sharing"].as_str().unwrap_or(""),
-                    page["history"].as_str().unwrap_or(""),
-                    if page["archived"] == true {
-                        " / archived"
-                    } else {
-                        ""
-                    }
-                )),
-                Cell::from(expiry_text(page)),
             ]);
+            rows.write(&mut out, terminal)?;
+            if let Some(text) = page["linkText"].as_str() {
+                writeln!(out, "    {}", escape(text))?;
+            }
+            writeln!(
+                out,
+                "    {}",
+                terminal.paint(Token::Dim, &escape(&expiry_text(page)))
+            )?;
         }
-        tmt_cli_style::list::Section {
-            title: "PAGES",
-            count: Some(pages.len()),
-            rows,
-            note: Some("Local expiry is advisory; data is never automatically deleted."),
-            hint: None,
+        // A footer, set off from the rows at the list indent: what to do, then the standing note.
+        writeln!(out)?;
+        if let Some(step) = value["pairStep"].as_str() {
+            writeln!(out, "  {}", terminal.paint(Token::Dim, &escape(step)))?;
         }
-        .write(&mut out, terminal)?;
+        writeln!(
+            out,
+            "  {}",
+            terminal.paint(
+                Token::Dim,
+                "Local expiry is advisory; data is never automatically deleted."
+            )
+        )?;
         for page in pages {
             warn_expiry(page)?;
         }
     } else {
-        let fields = human_fields(value)?;
+        let mut fields = human_fields(value)?;
+        // The title leads, then where to open it.
+        if let Some(at) = fields.iter().position(|(key, _)| key == "title") {
+            let title = fields.remove(at);
+            fields.insert(0, title);
+        }
+        let at = fields
+            .iter()
+            .position(|(key, _)| key == "title")
+            .map_or(fields.len(), |at| at + 1);
+        let extra = extra.iter().map(|(k, v)| (k.to_string(), v.clone()));
+        fields.splice(at..at, extra);
         let fields = fields
             .iter()
             .map(|(k, v)| (k.as_str(), v.clone()))

@@ -1721,6 +1721,36 @@ pairing is unknown), shown before `open` because the link needs a paired browser
 door, `open` shows the relative path and the reason (the install line, or `browser access
 unavailable: see warning`), never a command that `serve` replaces.
 
+### Page links and opening the browser (#1614)
+
+Every command that names a page tells a person where to open it, from one door and pairing
+lookup per command (`tmt remote status --json`, then `tmt remote devices --json` while a door
+runs; the same bounded calls as `serve`). `page create`, `ls`, `show` and the `share` commands
+print the **full link** while a door runs. Without one they print the relative path and the
+reason: the install line when Remote gave no answer, else `run tmt colab serve to get a full
+link`; never a manual `tmt remote serve`. When no paired device is known, the same pairing step
+as `serve` follows (`pair this browser once: tmt remote pair`, or `if this browser is new: ...`).
+
+`--json` results that name a page carry `path` (relative), `link` (full, `null` without a
+door), `paired` (`true|false|null`) and `next` (`["tmt remote pair"]` or `[]`). `ls` carries
+`path` and `link` on each page and `paired`/`next` once; its human form puts each link on its
+own indented line under the row. `show` prints rows of words (`title`, `link`, `pair`, `page`,
+`sharing`, `history`, `retention`, `membership`, `members`, `links`; `–` for none), never an
+embedded JSON object. `page create` keeps `url`'s role under the name `link`.
+
+`serve` (once the door is ready, attached or started) and `page create` open the link in the
+default browser: the page when the space has exactly one, else the space home. Opening is
+skipped, printing the link only, with `--no-open`, `--json`, the setting `open` off, no
+terminal on stdout, `CI`, an SSH session without a display, Linux without `DISPLAY` or
+`WAYLAND_DISPLAY` (WSL excepted) or no opener on `PATH`; `--open` overrides everything except
+`--json`, `--no-open` and a missing opener. Openers: macOS `open`, Linux `xdg-open`, WSL
+`wslview` then `explorer.exe`. The row reads `opened in your browser: <link>` or just the link;
+a failing opener warns once and keeps the printed link. `serve --json` adds `opened`.
+
+`tmt colab settings [open on|off] [--json]` shows or sets the one setting, stored as
+`{"open":true|false}` in `<dataRoot>/colab/settings.json` (default on; unknown keys ignored; a
+damaged file reads as the default with a warning). JSON: `{open,source:"default"|"settings.json"}`.
+
 ### `tmt colab stop` (#1594)
 
 `tmt colab stop [--json]` asks the serving process of this data root to shut down. It never
@@ -2034,10 +2064,9 @@ hash32). `path` is relative to the Remote door address:
 `x/colab/#space=<spaceId>&path=%2Fpages%2F<pageId>`. It pins the space using the
 browser router's existing fragment format. The CLI learns the door only through
 Remote's public `tmt remote status --json` (`{running,origin,path}`, one call with a
-three-second cap, run through the invoking core executable), never Remote's files. While
-a door is running, JSON adds `url` (door address plus `path`) and human output prints that
-link; otherwise `path` stays relative and human output says to start `tmt remote serve`
-to get a full link. Any failure, timeout or malformed answer is the no-door case. JSON
+three-second cap, run through the invoking core executable), never Remote's files. See
+[page links](#page-links-and-opening-the-browser-1614) for what is printed with and without a door.
+JSON
 failures use `{error:{code,message}}`,
 with generated `operationId` and `pageId` when available for inspection after an
 unknown outcome. Existing input/capacity/denial/conflict/stale-head/state/unknown
