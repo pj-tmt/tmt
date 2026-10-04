@@ -28,19 +28,19 @@ python3 extensions/tmt-colab/contracts/vectors/send-preview-reference.py
 
 Each is `(cd rust && cargo test --offline --locked -p tmt-colab <selector>)`:
 
-| Area                                            | Selector                                                                                                               |
-| ----------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
-| Store state, paired checkpoints                 | `--test state`                                                                                                         |
-| Owner state and schema preservation             | `--test owner_state --test registration`                                                                               |
-| Owner transitions (real child, FIFO barriers)   | `--test transitions`                                                                                                   |
-| Registration, revoke callback, mounted endpoint | `--test registration`                                                                                                  |
-| Management DTOs and mounted socket              | `management`, `--test socket management`                                                                               |
-| Management CLI (`ls`, `show`, `share ...`)      | `--bin tmt-colab --test cli`                                                                                           |
-| Stream sync                                     | `--test sync`, `--test socket`                                                                                         |
-| Readers                                         | `--lib readers::tests`, `--lib mounted_`, `--test socket mounted_public_readers`, `--test socket archived_owner_pages` |
-| Decoder (real child)                            | `--test decoder -- --nocapture`, `--test decoder baseline_`, `--test checkpoint_vectors`, `--test own_vectors`         |
-| Page source CLI                                 | `--test page`                                                                                                          |
-| Export                                          | `--test export`, `export::tests`                                                                                       |
+| Area                                            | Selector                                                                                                                         |
+| ----------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| Store state, paired checkpoints                 | `--test state`                                                                                                                   |
+| Owner state and schema preservation             | `--test owner_state --test registration`                                                                                         |
+| Owner transitions (real child, FIFO barriers)   | `--test transitions`                                                                                                             |
+| Registration, revoke callback, mounted endpoint | `--test registration`                                                                                                            |
+| Management DTOs and mounted socket              | `management`, `--test socket management`                                                                                         |
+| Management CLI (`ls`, `show`, `share ...`)      | `--bin tmt-colab --test cli`                                                                                                     |
+| Stream sync                                     | `--test sync`, `--test socket`                                                                                                   |
+| Readers                                         | `--lib readers::tests`, `--lib mounted_`, `--test socket mounted_public_readers`, `--test socket archived_owner_pages`           |
+| Decoder (real child)                            | `--test decoder -- --nocapture`, `--test decoder baseline_`, `--test checkpoint_vectors`, `--test own_vectors --test discussion` |
+| Page source CLI                                 | `--test page`                                                                                                                    |
+| Export                                          | `--test export`, `export::tests`                                                                                                 |
 
 - Management subcommands precede operands: `tmt colab share link list <page>`,
   `tmt colab share mode <page> link --yes`.

@@ -43,7 +43,11 @@ async function mount(page: Page, source: string) {
         onState: (state: string) => {
           host.dataset.state = state;
         },
-        onSelection: (text: string) => {
+        onAnchors: (resolved: string[]) => {
+          host.dataset.resolved = JSON.stringify(resolved);
+        },
+        onSelection: (text: string, selector: unknown) => {
+          host.dataset.selector = JSON.stringify(selector);
           host.dataset.selection = text;
           host.dataset.selections = JSON.stringify([
             ...(JSON.parse(host.dataset.selections ?? '[]') as string[]),
@@ -387,6 +391,10 @@ test('selection admits bounded text from the current frame, rejects foreign and 
   await frame.evaluate(async (renderId) => {
     parent.postMessage({ type: 'colab.render.selection', renderId: 'stale', text: 'stale' }, '*');
     parent.postMessage({ type: 'colab.render.selection', renderId, text: 'é'.repeat(8193) }, '*');
+    parent.postMessage(
+      { type: 'colab.render.selection', renderId, text: 'unknown', unexpected: true },
+      '*',
+    );
     // The parent receives all three messages in order; valid final text proves
     // the channel remains live after both rejected inputs.
     parent.postMessage({ type: 'colab.render.selection', renderId, text: 'barrier' }, '*');
@@ -402,4 +410,169 @@ test('selection admits bounded text from the current frame, rejects foreign and 
   });
   await expect(page.locator('#probe iframe')).toHaveCount(0);
   await expect(page.locator('#probe')).toHaveAttribute('data-selection', '');
+});
+
+test('quote selectors span tags and Unicode, preserve exact text, detach ambiguity and remap after edits', async ({
+  page,
+}) => {
+  await page.goto('/');
+  await mount(
+    page,
+    '<p id="quote">Before &amp; <em>🌍 exact</em> text. After</p><p id="other">Other</p>',
+  );
+  await expect(page.locator('#probe')).toHaveAttribute('data-state', 'ready');
+  const frame = page.frames().find((f) => f.url().endsWith('/renderer.html'))!;
+  await frame.evaluate(() => {
+    const range = document.createRange();
+    range.selectNodeContents(document.getElementById('quote')!);
+    getSelection()!.removeAllRanges();
+    getSelection()!.addRange(range);
+  });
+  await expect(page.locator('#probe')).toHaveAttribute(
+    'data-selection',
+    'Before & 🌍 exact text. After',
+  );
+  const selector = JSON.parse((await page.locator('#probe').getAttribute('data-selector'))!);
+  expect(selector).toEqual({ exact: 'Before & 🌍 exact text. After', prefix: '', suffix: 'Other' });
+  const id = '00000000-0000-4000-8000-000000000001:00000000-0000-4000-8000-000000000002';
+  async function highlight(value: { exact: string; prefix: string; suffix: string }) {
+    await page.evaluate(
+      ({ id, value }) => {
+        (
+          window as unknown as { probe: { handle: { highlight(v: unknown[]): void } } }
+        ).probe.handle.highlight([{ id, selector: value }]);
+      },
+      { id, value },
+    );
+  }
+  await highlight(selector);
+  await expect(page.locator('#probe')).toHaveAttribute('data-resolved', JSON.stringify([id]));
+  expect(await frame.evaluate(() => CSS.highlights.get('colab-comments')?.size)).toBe(1);
+  await frame.locator('#quote').evaluate((node) => {
+    node.innerHTML = 'Before &amp; 🌍 <strong>exact text.</strong> After';
+  });
+  await expect(page.locator('#probe')).toHaveAttribute('data-resolved', JSON.stringify([id]));
+  await frame.locator('#quote').evaluate((node) => {
+    node.textContent = 'Changed';
+  });
+  await expect(page.locator('#probe')).toHaveAttribute('data-resolved', '[]');
+  await frame.locator('#other').evaluate((node) => {
+    node.textContent = 'same same';
+  });
+  await highlight({ exact: 'same', prefix: '', suffix: '' });
+  await expect(page.locator('#probe')).toHaveAttribute('data-resolved', '[]');
+  await highlight({ exact: 'same', prefix: 'Changed', suffix: ' same' });
+  await expect(page.locator('#probe')).toHaveAttribute('data-resolved', JSON.stringify([id]));
+  await page.evaluate(() =>
+    (window as unknown as { probe: { controller: AbortController } }).probe.controller.abort(),
+  );
+  await expect(page.locator('#probe')).toHaveAttribute('data-resolved', '[]');
+});
+
+test('hidden text is excluded; repeated or over-budget quotes detach and fallback overlays leave text intact', async ({
+  page,
+}) => {
+  await page.goto('/');
+  await mount(
+    page,
+    '<p id="quote">Visible <span hidden>hidden poison</span>🌍</p><script>const ignored="poison";</script><p id="many">' +
+      'same '.repeat(65) +
+      '</p>',
+  );
+  await expect(page.locator('#probe')).toHaveAttribute('data-state', 'ready');
+  const frame = page.frames().find((f) => f.url().endsWith('/renderer.html'))!;
+  await frame.locator('#quote').evaluate((node) => {
+    const range = document.createRange();
+    range.selectNodeContents(node);
+    getSelection()!.removeAllRanges();
+    getSelection()!.addRange(range);
+  });
+  await expect(page.locator('#probe')).toHaveAttribute('data-selection', 'Visible 🌍');
+  const id = 'test';
+  async function highlight(exact: string) {
+    await page.evaluate(
+      ({ id, exact }) =>
+        (
+          window as unknown as { probe: { handle: { highlight(v: unknown[]): void } } }
+        ).probe.handle.highlight([{ id, selector: { exact, prefix: '', suffix: '' } }]),
+      { id, exact },
+    );
+  }
+  await highlight('same');
+  await expect(page.locator('#probe')).toHaveAttribute('data-resolved', '[]');
+  await frame.evaluate(() => {
+    Object.defineProperty(window, 'Highlight', { value: undefined });
+  });
+  await highlight('Visible 🌍');
+  await expect(page.locator('#probe')).toHaveAttribute('data-resolved', JSON.stringify([id]));
+  await expect(frame.locator('[data-colab-highlight]')).toHaveCount(1);
+  await expect(frame.locator('#quote')).toHaveText('Visible hidden poison🌍');
+  await frame.locator('#many').evaluate((node) => {
+    node.textContent = 'x'.repeat(256 * 1024 + 1);
+  });
+  await expect(page.locator('#probe')).toHaveAttribute('data-resolved', '[]');
+  await expect(frame.locator('[data-colab-highlight]')).toHaveCount(0);
+});
+
+test('anchor results accept only the current request and requested unique IDs; cosmetic claims grant no actions', async ({
+  page,
+}) => {
+  await page.goto('/');
+  await page.evaluate(() => {
+    const Original = MessageChannel;
+    Object.assign(window, {
+      MessageChannel: class extends Original {
+        constructor() {
+          super();
+          Object.assign(window, { anchorPort: this.port1 });
+          const post = this.port1.postMessage.bind(this.port1);
+          this.port1.postMessage = (value: unknown) => {
+            Object.assign(window, { anchorRequest: value });
+            post(value);
+          };
+        }
+      },
+    });
+  });
+  await mount(page, '<p>Visible</p>');
+  await expect(page.locator('#probe')).toHaveAttribute('data-state', 'ready');
+  const result = await page.evaluate(() => {
+    const w = window as unknown as {
+      probe: { handle: { highlight(v: unknown[]): void } };
+      anchorPort: MessagePort;
+      anchorRequest: { renderId: string; requestId: string };
+    };
+    const highlight = () =>
+      w.probe.handle.highlight([
+        { id: 'expected', selector: { exact: 'missing', prefix: '', suffix: '' } },
+      ]);
+    const resolved = () => document.getElementById('probe')!.dataset.resolved;
+    const emit = (value: unknown) =>
+      w.anchorPort.dispatchEvent(new MessageEvent('message', { data: value }));
+    highlight();
+    const stale = { ...w.anchorRequest };
+    highlight();
+    const current = {
+      type: 'colab.render.anchors',
+      renderId: w.anchorRequest.renderId,
+      requestId: w.anchorRequest.requestId,
+      resolved: ['expected'],
+    };
+    const rejected = [];
+    for (const data of [
+      { ...current, requestId: stale.requestId },
+      { ...current, renderId: 'stale' },
+      { ...current, resolved: ['foreign'] },
+      { ...current, resolved: ['expected', 'expected'] },
+      { ...current, extra: true },
+    ]) {
+      emit(data);
+      rejected.push(resolved());
+    }
+    emit(current);
+    return { rejected, positive: resolved() };
+  });
+  expect(result).toEqual({ rejected: ['[]', '[]', '[]', '[]', '[]'], positive: '["expected"]' });
+  await expect(page.getByTestId('comment-thread')).toHaveCount(0);
+  await expect(page.getByTestId('ask-preview')).toHaveCount(0);
 });

@@ -699,11 +699,10 @@ an ID, thread reference and exact plain-text body. Intents contain the immutable
 signed send input, its signature and frozen final bytes. Replies contain the
 operation correlation, ledger state and bounded core-final copy. Deletions are
 writer-owned tombstones; references to another writer's thread do not permit
-changing that thread's ownership or messages. Editor resolution of another
-writer's thread is an attributed action in the editor's own stream, not a write
-into the other writer's document. Conflicting resolution projections MUST use
-verified log revision, then stream sequence and bytewise writer ID as the stable
-tie-break order; they never authorize sends.
+changing that thread's ownership or messages. Local v1 allows currently admitted owner devices to comment and reply, but only
+the originating device may edit/delete its messages or resolve, reopen, reattach
+and delete its threads. Cross-writer editor resolution remains planned; it
+requires authenticated action provenance and a defined conflict order.
 
 ### Implemented raw own fold (#1264)
 
@@ -716,13 +715,60 @@ The 1,000-thread page limit sums map entries across writers, including retained
 tombstone values; equal record keys in different writer documents count separately.
 Both page folds enforce this limit before returning a view.
 
-This is bounded raw-state admission. Exact thread/message/intent/reply field
-schemas, tombstone interpretation and resolution projection remain deferred.
-Raw references, signatures and operation IDs confer no authority or effect.
-No comment UI, own writer API, Send execution or arbitrary core-result read is
-implemented by this fold. The trusted binding returns detached writer-keyed raw
-maps; renderer source remains content-only and the UI states that own data is not
-displayed. The owner-browser author-policy subset remains unchanged.
+Raw values remain inert. Typed Ask records are defined below; typed discussion
+records use the following strict immutable JSON grammar. Their authenticated,
+device-signed own envelopes bind the writer, so discussion records need no extra
+signature. The parent checks sender-to-stream binding, page/epoch scope and a
+historical signing key captured from a cut-admitted envelope before display.
+Historical keys grant no fresh write authority.
+
+### Own-stream discussion records (#1427)
+
+Both record kinds contain `version:1`, `kind`, `spaceId`, `pageId`, `epoch`,
+`senderDevice`, `revision`, `deleted:boolean`, `deviceName` and `at`. IDs are canonical
+UUIDv4, space IDs are canonical, and epoch/revision are positive decimal strings.
+Labels are publisher-asserted plain text, at most 128 UTF-8 bytes, with no authority.
+`at` is a canonical nonnegative decimal string of UTC milliseconds since the Unix
+epoch, at most `8640000000000000` (the JavaScript Date limit). The publisher sets it
+when publishing each revision, including tombstones. It is display-only: it never
+determines ordering, revision selection, ownership or admission. The UI shows the
+latest revision's relative time beside the author and marks revised live comments
+as edited; device IDs remain available in a tooltip.
+
+| Root/key                           | Additional fields                                                                         |
+| ---------------------------------- | ----------------------------------------------------------------------------------------- |
+| `threads[threadId+":"+revision]`   | `kind:"thread"`, `threadId`, `anchor:null` or `{exact,prefix,suffix}`, `resolved:boolean` |
+| `messages[messageId+":"+revision]` | `kind:"comment"`, `messageId`, `thread:{writer,id}`, `body:string`                        |
+
+No unknown fields are accepted. A value claiming either typed kind rejects if its
+root, key or field grammar is invalid in the browser or native decoder. Other
+bounded raw values remain inert. Bodies are exact plain text: nonempty and at most
+16 KiB UTF-8, or empty for a deleted comment. Deleted threads have null anchors.
+Selectors require nonempty exact text at most 16 KiB UTF-8, with prefix and suffix
+each at most 32 Unicode code points and 128 UTF-8 bytes.
+
+Logical records start at revision 1, with consecutive immutable revisions.
+Messages retain the same thread reference. A gap, changed reference or resurrection
+after a terminal tombstone yields no projected logical row. Writer ownership is
+part of every reference, so foreign replies never grant edits to the target stream.
+Missing verified targets remain inert until admitted. Duplicate immutable keys with
+different values refuse publication. The existing thread-entry cap counts all
+revisions and tombstones across writers; older text remains retained history.
+Deletion is not secure erasure. Deleted threads retain attributed replies and
+disable new replies.
+
+The generic own writer prepares at most 32 records in one update; thread creation
+publishes its thread and opening message together. Preparation cannot change the
+committed projection. Only admitted encrypted appends commit; failures preserve
+parent drafts. Current device/page/epoch admission is required for every mutation.
+Disconnected, read-only and inactive views disable actions. General member-role
+UI remains planned.
+
+Ask on a comment rechecks its unambiguous verified writer, thread/message IDs and
+revisions in the parent. It freezes stored quote/body and the real IDs in the
+existing signed Ask input. Later edits or deletion do not alter a prepared excerpt.
+Comment actions only publish discussion; explicit Send remains the sole Remote
+dispatch action. Standalone asks retain their existing panel and framing.
 
 ### Current-view baseline and history modes
 
@@ -793,8 +839,8 @@ history at the wrap's join revision; a current-history join rejects earlier
 epochs, while existing holders keep their previously admitted history. Acceptance includes a page at
 the epoch cap and a multi-page join that needs several wrap lists.
 
-Existing anchors remap through quote/context at the epoch reset and detach on
-mismatch; old Yjs relative positions MUST NOT be applied to a new document.
+Existing retained quote selectors re-resolve at epoch reset and detach on
+mismatch; they never imply permission to recreate absent discussion.
 Offline edits in the old epoch MUST NOT be silently reissued under the new one;
 authority and an explicit new edit are required.
 
@@ -1298,8 +1344,8 @@ further document loads/navigation tear down the frame.
 
 The initial window handshake carries renderId and transfers a MessagePort;
 accept its reply only with `event.source === frame.contentWindow` and matching
-renderId. Subsequent traffic uses only that bound port; port events do not have
-the window-source predicate. Close it on rerender/teardown and discard stale
+renderId. Highlight requests/results use that bound port; selections use the
+bound window channel. Port events do not have the window-source predicate. Close it on rerender/teardown and discard stale
 messages. Allow only bounded selection/anchor-result inbound and highlight
 outbound. No secrets, signing/send capabilities or bridge actions cross it.
 Interactive page scripts can intercept the port and forge a schema-valid quote;
@@ -1307,26 +1353,40 @@ port possession does not prove selection truth. Frame data is untrusted text,
 never HTML in parent UI. A selection cannot silently
 change the preview or sign anything.
 
-Anchors use canonical text from an inert parse of the exact captured source:
-a space before/after p, div, section, article, h1–h6, li, ul, ol, tr, td, th,
-table, pre, blockquote and br; collapse Unicode whitespace runs to one ASCII
-space and trim outer spaces. Offsets are Unicode code points, excluding head,
-script/style/template/noscript and elements with hidden (including descendants).
-CSS visibility and script-mutated innerText are not authoritative; CSS-only
-hidden text remains in the canonical source and MUST be exposed in the quote
-preview. parse5 7.3.0 source locations map canonical code points to source UTF-16
-offsets. L3 must freeze a shared Rust/browser extraction corpus covering entities
-(including omitted semicolons), astral text, repaired HTML, cross-tag selections
-and namespaces; the bounded #830 fixture alone does not prove full parser parity.
-Trusted code maps canonical offsets to source offsets and stores start/end Yjs
-relative positions on content html, quote and ±32 code points of context.
-Every render resolves positions to source and back to canonical text and checks
-against the live DOM before highlight. Deleted text or quote/mapping mismatch
-detaches the thread; preserve the quote and require explicit reattach. Fuzzy
-suggestions never apply without confirmation. Fuzzy search is limited to a
-4,096-code-point window, 64 candidates and 20 ms per thread; exceeding any bound
-detaches instead of performing an unbounded search. Epoch resets use the baseline
-remapping rule above. No anchor is valid across a stale renderId.
+Anchors use the W3C Web Annotation TextQuoteSelector fields
+[`exact`, `prefix`, `suffix`](https://www.w3.org/TR/annotation-model/#text-quote-selector).
+The trusted bootstrap installs selection capture and cosmetic resolution before
+author HTML. Both walk rendered text in document order, exclude head,
+script/style/template/noscript and hidden descendants, collapse Unicode whitespace
+to one ASCII space and trim outer spaces. Entity decoding and repaired markup are
+the browser DOM's behavior; offsets are Unicode code points with UTF-16 range maps.
+There is no source parser or Yjs relative-position binding. CSS visibility and
+script-mutated DOM may change cosmetic feedback; neither selection nor successful
+highlight proves source truth or authority.
+
+Bound window selection messages to the current frame and renderId. Selection adds
+`selector:null` or the bounded quote/context fields to `type`, `renderId`, `text`;
+legacy text-only messages supply no anchor. Parent Comment captures and displays
+the quote only after a trusted user action. Page-wide comments have null anchors.
+
+The bound MessagePort accepts only parent highlight messages with exactly
+`type:"colab.render.highlight"`, `renderId`, `requestId` and `anchors`, whose entries
+are `{id,selector}`. Results contain exactly `type:"colab.render.anchors"`,
+`renderId`, `requestId`, `resolved` IDs. The parent admits only unique IDs from its
+current request; stale frame/request results cannot change current feedback.
+Batches are at most 1,000 anchors and 256 KiB UTF-8. Collection is bounded to 20,000
+text nodes, 256 Ki code points and 20 ms; matching considers at most 64 candidates
+per anchor with a 20 ms batch deadline. Over-budget, missing, changed or ambiguous
+matches detach. A unique exact quote must match every supplied prefix/suffix.
+There is no fuzzy automatic attachment. DOM mutations trigger bounded debounced
+resolution; replacement/navigation/disposal closes ports, observers and highlights.
+
+CSS Highlights, or pointer-inert range overlays when unavailable, leave author text
+nodes intact. Author scripts can tamper with these APIs, DOM or cosmetic results;
+the parent sends no records, keys or application capability through the channel.
+Detached threads retain their quote and require a fresh selection plus explicit
+parent confirmation to reattach. Re-resolve against every fresh render and epoch;
+absent own history is never recreated automatically.
 
 ## Sync and backend admission
 
@@ -1805,7 +1865,8 @@ Until durable last-update evidence is available, both timestamp fields are null
 and warnings contain `expiry-unavailable`; human output states this plainly.
 No file time, read time or fabricated zero establishes expiry. Retention defaults
 to 30 days; forever is null. Local policy never automatically deletes or denies
-access. Discussion summaries await verified own folding (#1264/#1110).
+access. Discussion summaries in management listings remain deferred; the
+page view projects verified discussion separately.
 
 Failures exit 1. JSON is `{error:{code,message}}` with operation/revision/link
 correlation when captured; human failures use styled stderr. Management codes
@@ -1960,9 +2021,9 @@ The manifest MUST NOT list its own digest: that would be circular. The CLI resul
 lists both files with their byte sizes and SHA-256. Export contains no roots,
 wraps, bearer seeds, sessions or private keys. It is a readable copy, not an
 import/backup format; referenced assets, retained history and snapshots are not
-promised as portable files. Discussion export is deferred until own-namespace
-folding exists (#1110 / #1264 slice C); native fold validation of own updates
-still applies, but their projections are not included.
+promised as portable files. Discussion export remains excluded in local v1.
+Native own-fold validation and browser discussion display do not include those
+projections in exported files.
 
 `tmt colab export <page> [--dir <destination>] [--json]` reads existing local
 state only. It MUST NOT initialize missing state or run migrations. The

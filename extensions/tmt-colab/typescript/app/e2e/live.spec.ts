@@ -1054,7 +1054,8 @@ test('same-device tabs explicitly take over one durable stream without reopen pi
   expect(await reopens(other)).toBe(2);
   expect(await reopens(page)).toBe(1);
   await f.ownUpdate();
-  await expect(other.getByRole('status')).toContainText('Comments and activity are not displayed');
+  await expect(other.getByTestId('comments-panel')).toContainText('No comments yet.');
+  await expect(other.getByTestId('comment-entry')).toHaveCount(0);
   await page.getByRole('button', { name: 'Use here' }).click();
   await expect(other.getByTestId('colab-inactive')).toBeVisible();
   await expect(other.locator('iframe')).toHaveCount(0);
@@ -1155,7 +1156,8 @@ test('paired checkpoints precede an authenticated interleaved tail, preserve edi
   await page.goto(mount);
   await page.getByRole('link', { name: new RegExp(v.page) }).click();
   await expect(page.getByRole('heading', { name: 'Checkpoint', exact: true })).toBeVisible();
-  await expect(page.getByRole('status')).toContainText('Comments and activity are not displayed');
+  await expect(page.getByTestId('comments-panel')).toContainText('No comments yet.');
+  await expect(page.getByTestId('comment-entry')).toHaveCount(0);
   await page.getByRole('button', { name: 'Source', exact: true }).click();
   await expect(page.getByRole('textbox')).toHaveValue('<p>after tail</p>' + 'x'.repeat(300_000));
   await page.getByRole('textbox').fill('<h1>After compacted reload</h1>');

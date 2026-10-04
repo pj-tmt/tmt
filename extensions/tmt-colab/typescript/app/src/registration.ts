@@ -25,6 +25,7 @@ export interface RemoteSdk {
 }
 export interface Registration {
   remoteSession?: unknown;
+  deviceName?: string;
   deviceId: string;
   keys: DeviceKeys;
   chain: certificate.Chain;
@@ -111,7 +112,7 @@ export async function register(mount: URL, sdk: RemoteSdk): Promise<Registration
       equal(c.signingKey, keys.signPublic) &&
       equal(c.encryptionKey, keys.enc.publicKey()),
   );
-  return { deviceId, keys, chain, issuer, remoteSession };
+  return { deviceId, keys, chain, issuer, remoteSession, deviceName: session.name };
 }
 /** Call only with the root bound to the selected space, before trusting registration. */
 export async function verifyRegistration(value: Registration, space: string, owner: Uint8Array) {
