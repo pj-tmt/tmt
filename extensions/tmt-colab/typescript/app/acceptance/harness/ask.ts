@@ -15,6 +15,7 @@ export function run(
     return execFileSync(binary, args, {
       env: world.env(callerPane),
       encoding: 'utf8',
+      maxBuffer: 64 * 1024 * 1024,
       input,
       stdio: [input === undefined ? 'ignore' : 'pipe', 'pipe', 'pipe'],
     });
