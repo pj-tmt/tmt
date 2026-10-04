@@ -561,7 +561,9 @@ it.each([false, true])(
           ).toHaveLength(1);
           const results = JSON.parse(fs.readFileSync(report, 'utf8'));
           expect(results).toHaveLength(3);
-          expect(JSON.parse(results[2].stdout).sessionState).toBe(legacy ? 'ended' : 'unknown');
+          // whoami reports fresh runtime readiness; the SQL assertions above
+          // separately prove that the provider observation was not repaired.
+          expect(JSON.parse(results[2].stdout).sessionState).toBe('running');
           await waitForRuntimeExit(fixture, runtimePid, status);
         } finally {
           if (runtimePid) {

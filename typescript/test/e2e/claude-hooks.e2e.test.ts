@@ -103,7 +103,7 @@ describe(
           expect(results[10].badge).toBe('Hook Reader (tmt)');
           expect(JSON.parse(results[11].stdout)).toMatchObject({
             id: identity.id,
-            sessionState: 'unknown',
+            sessionState: 'running',
           });
           const db = new Database(path.join(fixture.globalDir, 'tmux-team.db'), { readonly: true });
           try {
