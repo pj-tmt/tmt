@@ -304,6 +304,7 @@ pub struct App {
     pub(super) note_cursors: RefCell<BTreeMap<String, super::notes::NotesCursor>>,
     pub(super) note_hits: RefCell<Vec<(ratatui::layout::Rect, usize)>>,
     pub(super) notebooks: RefCell<super::notes::Notebooks>,
+    pub(super) cron: super::cronboard::State,
     pub(super) meter: Option<super::meter::Meter>,
     meters: BTreeMap<String, super::meter::Meter>,
     pub(super) token_window: crate::config::TokenWindow,

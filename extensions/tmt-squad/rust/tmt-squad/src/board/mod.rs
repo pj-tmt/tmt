@@ -4,6 +4,7 @@
 mod app;
 mod changes;
 mod composition;
+mod cronboard;
 mod derived;
 mod help;
 mod home;
@@ -105,6 +106,10 @@ pub(super) enum BoardEvent {
     Attention {
         cancellation: crate::runner::Cancellation,
         attention: std::collections::BTreeMap<String, crate::attention::Attention>,
+    },
+    Cron {
+        cancellation: crate::runner::Cancellation,
+        read: Result<cronboard::Cron, String>,
     },
 }
 
@@ -317,6 +322,13 @@ fn session(
                 if !cancellation.cancelled() {
                     dirty |= app.attention != attention;
                     app.attention = attention;
+                }
+                Effect::None
+            }
+            Ok(BoardEvent::Cron { cancellation, read }) => {
+                if !cancellation.cancelled() {
+                    app.cron.replace(read);
+                    dirty = true;
                 }
                 Effect::None
             }
