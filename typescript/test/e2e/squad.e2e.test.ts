@@ -373,11 +373,12 @@ describe('squad on a private tmux server', { concurrent: false }, () => {
       const start = clientPlace(fixture);
       expect(start).toBe(`e2e/${shell.pane}`);
 
+      // A named squad opens on its own tab; an unnamed board opens on the home tab.
       fixture.tmux([
         'send-keys',
         '-t',
         shell.pane,
-        'tmt squad board --popup; echo BOARD_EXIT=$?',
+        'tmt squad board --squad product --popup; echo BOARD_EXIT=$?',
         'Enter',
       ]);
       await fixture.waitForCapture((screen) => screen.includes('auth-fix'), shell.pane);
@@ -387,7 +388,13 @@ describe('squad on a private tmux server', { concurrent: false }, () => {
 
       // The pane form: the same jump leaves the board running.
       fixture.tmux(['switch-client', '-t', shell.pane]);
-      fixture.tmux(['send-keys', '-t', shell.pane, 'clear; tmt squad board', 'Enter']);
+      fixture.tmux([
+        'send-keys',
+        '-t',
+        shell.pane,
+        'clear; tmt squad board --squad product',
+        'Enter',
+      ]);
       await fixture.waitForCapture(
         (screen) => screen.includes('auth-fix') && !screen.includes('BOARD_EXIT'),
         shell.pane

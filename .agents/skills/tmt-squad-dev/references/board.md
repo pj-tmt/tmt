@@ -109,7 +109,7 @@ by record when no positions were drawn.
 ## Tab line
 
 - Tabs are the same width selected or not: selection is a style, never extra characters.
-  `board::view::tab_label` owns the styled tab and switcher label: a fixed two-cell mark slot
+  `board::view::tabs::tab_label` owns the styled tab label: a fixed two-cell mark slot
   (`◆ ` waiting, `✗ ` blocked, else two spaces) precedes each name, the dominant count follows,
   and with both states a blocked `✗n` follows. Only the marks (and the appended blocked count)
   use the bold attention styles; names and primary counts are selected accent/bold or inactive
@@ -118,10 +118,23 @@ by record when no positions were drawn.
   reservation, hit geometry and switcher fitting; overflow counters keep their aggregate
   attention styling.
 - Moving a tab (Shift+←/→ or a drag on the tab line) saves `[tabs] order` through
-  `Config::write`. A tab line that does not fit scrolls: `tab_window` keeps the current tab in
-  view, starting as near the last frame's first tab as it can, counting hidden tabs at each end;
-  only drawn tabs are clickable. Pinned tabs (`[tabs] pin`) come first from `tabs::arrange` and
-  are drawn before the scrolled window; a move never moves or passes a pin.
+  `Config::write`. `board::view::tabs` owns tab-line display after `tabs::arrange`: a pure
+  window computation admits pins and a contiguous scrolling range from measured label, group and
+  overflow widths, and the painter applies the same decisions to spans and exact `TabHit`
+  geometry. Only adjacent squad keys sharing a nonempty prefix before the first `-` (two or more
+  drawn tabs; built-ins and user tabs interrupt a group) are grouped display-only; the prefix and
+  separator have no hit, and each suffix keeps its mark slot and original key/index for clicks,
+  drags and switching. Left overflow counts skipped tabs; right overflow names the remaining
+  tabs, waiting first, then blocked, then quiet, in arrangement order within a tier, using full
+  labels unless the visible prefix makes a suffix unambiguous. The current tab is always visible,
+  even when pins exceed the width, so other pins step aside from the end without changing the
+  stored order; otherwise pinned tabs (`[tabs] pin`) precede the scrolled window, and a move never
+  moves or passes a pin.
+- `Config::tabs` defaults to pinned home (`@all`) then leads only when neither order nor pin is
+  configured (explicit empty arrays count as configured; hide stays authoritative), so a board
+  opened without a squad name starts on home and `--squad NAME` opens that squad. Home renders as
+  an accent `▚ tmt` block with both attention counts inside, using existing roles and a reverse
+  fallback; its public and config keys stay `all`.
 - The switcher (`s`, unless rebound) filters tab-line and hidden tabs with `tabs::matching`: a
   prefix match first, then a substring, then letters in order. A shown squad that is not on the
   tab line is drawn first, selected, with no `TabHit`, so it cannot be moved.
