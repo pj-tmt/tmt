@@ -101,7 +101,17 @@ cells keep their grid position; rows without one gain a continuation line with
 its own row hit. `time_marks` includes request ages so they advance without reads.
 The waiting hint uses `Attention::of`, matching the tab's count, and effective
 bindings; narrow fitting removes the oldest-member label before the actions.
-The footer reserves `? more` as its final hint before fitting whole tail hints.
+
+The squad-tab footer (`board::view::footer::hints`) lists hints highest priority first: the
+waiting summary, `ask lead`, `⏎`, `r`, `⌫ back`, `/ search`, `t`, `a`, `o`, `y`, then the layout,
+refresh, view, theme and meter keys, `←→ tab`, `s`, `c` and the unknown-`me` line. It reserves
+`q quit` and `? more` first (`? more` alone below both, nothing below it) and drops whole
+hints from the end, never clipping one. A key shows the effective action bound to its event;
+`row_allows` hides a row action the selected row cannot take (no row, `r` without a decision,
+`o` without a link, `copy` with an unfillable template). The word is the verb name, except
+`hint_word` for internal spellings (`next-pane` reads `pane`). The oldest-member label may
+take space only if the whole row-action group still fits. Home and the cron footers keep
+their own fitting and the same reserved tail.
 
 `r` (`Verb::Reply`) answers a real open request (a chooser for several). With none and a non-empty
 `pending`, `compose_row` opens the annotation composer addressed to that member (`note_member`, so
