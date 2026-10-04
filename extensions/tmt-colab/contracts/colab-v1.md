@@ -1396,8 +1396,9 @@ parent action captures the quote. Page-wide comments have null anchors.
 
 The bound MessagePort accepts only parent highlight messages with exactly
 `type:"colab.render.highlight"`, `renderId`, `requestId` and `anchors`, whose entries
-are `{id,selector}` with an optional `label` of at most 128 UTF-8 bytes for the
-first-line tooltip. Results contain `type:"colab.render.anchors"`, `renderId`,
+are exactly `{id,selector}`. Comment bodies, reply text and discussion display labels
+MUST NOT enter the author-code frame; the parent reconstructs these narrow objects
+instead of forwarding caller records. Results contain `type:"colab.render.anchors"`, `renderId`,
 `requestId`, `resolved` IDs and optional `positions:[{id,top}]`; top is finite,
 nonnegative and at most 1,000,000. Position IDs must be unique resolved IDs. The parent admits only unique IDs from its
 current request; stale frame/request results cannot change current feedback.
@@ -1411,7 +1412,7 @@ resolution; replacement/navigation/disposal closes ports, observers and highligh
 CSS Highlights, or pointer-inert range overlays when unavailable, leave author text
 nodes intact. Resolved ranges keep a light highlight and a small square right-margin
 marker in the frame's document flow, with a count for anchors on the same line. Hover
-shows the bounded first line. A marker posts exactly `type:"colab.render.open-thread"`,
+shows the bounded quoted text. Comment first-line tooltips stay in parent chrome. A marker posts exactly `type:"colab.render.open-thread"`,
 `renderId`, `requestId`, `id` on the bound port; the parent accepts only a known ID in
 its current highlight request and opens that thread's overlay. Forging this view-only
 action cannot publish, sign or send. Resize and DOM changes re-resolve positions;

@@ -1187,7 +1187,8 @@ Colab (`extensions/tmt-colab/`: `tmt-colab`, `tmt-colab-model`, `@tmt/colab-clie
   network. Bound selections/rectangles, height/anchor-offset reports, quote-selector
   highlights and known-thread marker clicks are cosmetic untrusted claims; only parent
   controls admit discussion or sends. The bootstrap installs bounded DOM resolution before
-  author HTML and passes no application capability.
+  author HTML and passes no application capability. Parent highlight messages carry only
+  anchor IDs and quote selectors; discussion bodies and display labels never enter author code.
   This contains author code; page self-navigation can still leak a request.
 - **Plaintext invariant.** Page source and export are root-local: only the isolated decoder
   child decodes Yjs, no route serves plaintext, and the browser Worker is resource

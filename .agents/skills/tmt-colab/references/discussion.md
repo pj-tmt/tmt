@@ -30,7 +30,9 @@ owns record fields, limits, revision semantics and trust boundaries.
   resolution, highlights and count-bearing margin markers before author HTML; `renderer.ts` binds narrow requests/results to
   the current render and request. CSS Highlights and pointer-inert overlays grant
   no source truth or application capability. Known-thread marker messages open
-  only parent views. Selection rectangles and anchor offsets are bounded cosmetic
+  only parent views. Highlight messages contain only IDs and quote selectors, never
+  comment bodies or display labels; marker tooltips use quoted text and comment
+  first-line labels stay in parent chrome. Selection rectangles and anchor offsets are bounded cosmetic
   claims; normal anchor navigation scrolls the window. Ports/observers clear on teardown.
 
 Verification: `test/thread-records.test.ts` and native `tests/discussion.rs`

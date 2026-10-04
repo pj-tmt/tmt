@@ -431,6 +431,15 @@ export function ThreadPanel({
                 className="annotation-row"
                 data-testid="annotation-row"
                 data-thread-id={thread.threadId}
+                title={Array.from(
+                  (
+                    thread.comments.find(
+                      (value) => !value.deleted && value.ref.writer === thread.ref.writer,
+                    ) ?? thread.comments.find((value) => !value.deleted)
+                  )?.body.split('\n')[0] ?? '',
+                )
+                  .slice(0, 32)
+                  .join('')}
                 aria-expanded={active === id}
                 onClick={(event) => {
                   if (event.isTrusted) select(thread.ref);

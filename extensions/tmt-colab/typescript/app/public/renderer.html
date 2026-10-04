@@ -286,7 +286,6 @@
                   marker.dataset.colabThread = ids[0];
                   marker.textContent = ids.length > 1 ? String(ids.length) : '▪';
                   marker.title =
-                    batch.find((item) => item.id === ids[0])?.label ??
                     batch.find((item) => item.id === ids[0])?.selector.exact.slice(0, 80) ??
                     'Annotation';
                   marker.setAttribute('aria-label', 'Open annotation: ' + marker.title);
@@ -369,10 +368,8 @@
                   item &&
                   typeof item === 'object' &&
                   !Array.isArray(item) &&
-                  [2, 3].includes(Object.keys(item).length) &&
-                  Object.keys(item).every((key) => ['id', 'selector', 'label'].includes(key)) &&
-                  (item.label === undefined ||
-                    (typeof item.label === 'string' && utf8.encode(item.label).length <= 128)) &&
+                  Object.keys(item).length === 2 &&
+                  Object.keys(item).every((key) => ['id', 'selector'].includes(key)) &&
                   typeof item.id === 'string' &&
                   item.id.length <= 73 &&
                   validQuote(item.selector),

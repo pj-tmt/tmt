@@ -499,15 +499,6 @@ function Page() {
               {
                 id: `${thread.ref.writer}:${thread.threadId}`,
                 selector: thread.anchor,
-                label: Array.from(
-                  (
-                    thread.comments.find(
-                      (value) => !value.deleted && value.ref.writer === thread.ref.writer,
-                    ) ?? thread.comments.find((value) => !value.deleted)
-                  )?.body.split('\n')[0] ?? thread.anchor.exact,
-                )
-                  .slice(0, 32)
-                  .join(''),
               },
             ]
           : [],

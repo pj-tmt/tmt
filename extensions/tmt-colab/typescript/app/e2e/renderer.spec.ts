@@ -626,7 +626,7 @@ test('anchor results accept only the current request and requested unique IDs; c
   await expect(page.getByTestId('ask-preview')).toHaveCount(0);
 });
 
-test('range markers keep counts and first-line labels, follow document resize and scroll the window to their anchor', async ({
+test('range markers keep counts and quoted-text tooltips, follow document resize and scroll the window to their anchor', async ({
   page,
 }) => {
   await page.goto('/');
@@ -642,7 +642,6 @@ test('range markers keep counts and first-line labels, follow document resize an
     handle.highlight(
       ['first', 'second'].map((id) => ({
         id,
-        label: 'First message line',
         selector: { exact: 'Anchored line', prefix: '', suffix: '' },
       })),
     );
@@ -651,7 +650,7 @@ test('range markers keep counts and first-line labels, follow document resize an
   const marker = frame.locator('[data-colab-thread]');
   await expect(marker).toHaveCount(1);
   await expect(marker).toHaveText('2');
-  await expect(marker).toHaveAttribute('title', 'First message line');
+  await expect(marker).toHaveAttribute('title', 'Anchored line');
   const alignment = await frame.locator('#quote').evaluate((node) => {
     const range = node.ownerDocument.createRange();
     range.selectNodeContents(node);
@@ -686,4 +685,49 @@ test('range markers keep counts and first-line labels, follow document resize an
   });
   await expect(marker).toHaveCount(0);
   await expect(page.locator('#probe')).toHaveAttribute('data-resolved', '[]');
+});
+
+test('only IDs and quote selectors reach author code even when a caller supplies private comment fields', async ({
+  page,
+}) => {
+  await page.goto('/');
+  await mount(
+    page,
+    `<p>Anchor quote</p><script>
+    const every = Array.prototype.every;
+    Array.prototype.every = function(callback, ...args) {
+      if (this[0]?.selector && this[0]?.id) window.anchorTraffic = JSON.stringify(this);
+      return every.call(this, callback, ...args);
+    };
+  </script>`,
+  );
+  await expect(page.locator('#probe')).toHaveAttribute('data-state', 'ready');
+  const secret = 'PRIVATE COMMENT BODY MUST STAY IN PARENT';
+  await page.evaluate((secret) => {
+    const handle = (
+      window as unknown as { probe: { handle: { highlight(value: unknown[]): void } } }
+    ).probe.handle;
+    handle.highlight([
+      {
+        id: 'known',
+        selector: { exact: 'Anchor quote', prefix: '', suffix: '' },
+        label: secret,
+        body: secret,
+        replies: [secret],
+      },
+    ]);
+  }, secret);
+  await expect(page.locator('#probe')).toHaveAttribute('data-resolved', '["known"]');
+  const frame = page.frameLocator('#probe iframe');
+  const observed = await frame
+    .locator('html')
+    .evaluate(
+      (node) =>
+        (node.ownerDocument.defaultView as unknown as { anchorTraffic: string }).anchorTraffic,
+    );
+  expect(JSON.parse(observed)).toEqual([
+    { id: 'known', selector: { exact: 'Anchor quote', prefix: '', suffix: '' } },
+  ]);
+  expect(observed).not.toContain(secret);
+  await expect(frame.locator('[data-colab-thread]')).toHaveAttribute('title', 'Anchor quote');
 });

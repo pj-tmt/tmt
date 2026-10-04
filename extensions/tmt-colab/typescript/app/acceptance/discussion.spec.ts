@@ -34,7 +34,7 @@ test('paired writers retain anchored annotation conversations, direct exact send
         `<section><h2>Paragraph ${index + 1}</h2><p>This numbered paragraph is visible page content. The browser window moves it beneath the fixed Colab header.</p></section>`,
     ).join('');
     const html =
-      '<style>body{margin:0;padding:24px 48px 24px 24px;font:16px/1.6 sans-serif}p{max-width:70ch}h2{margin-top:32px}</style><h1>Shared review</h1><p id="quote">An &amp; <em>🌍 exact quote</em> for review.</p><p id="next">Another selection.</p>' +
+      '<script>const every=Array.prototype.every;window.anchorTraffic=[];Array.prototype.every=function(callback,...args){if(this[0]?.selector&&this[0]?.id)window.anchorTraffic.push(JSON.stringify(this));return every.call(this,callback,...args)};</script><style>body{margin:0;padding:24px 48px 24px 24px;font:16px/1.6 sans-serif}p{max-width:70ch}h2{margin-top:32px}</style><h1>Shared review</h1><p id="quote">An &amp; <em>🌍 exact quote</em> for review.</p><p id="next">Another selection.</p>' +
       paragraphs +
       '<h2 id="scroll-end">END OF PAGE</h2>';
     const created = createPage(world, 'Shared review', html, agent.pane);
@@ -174,7 +174,24 @@ test('paired writers retain anchored annotation conversations, direct exact send
     await expect(row2).toContainText('Open thread');
     const marker = first.frameLocator('iframe').locator('[data-colab-thread]');
     await expect(marker).toHaveCount(1);
-    await expect(marker).toHaveAttribute('title', opening.split('\n')[0].slice(0, 32));
+    const traffic = await first
+      .frameLocator('iframe')
+      .locator('html')
+      .evaluate(
+        (node) =>
+          (node.ownerDocument.defaultView as unknown as { anchorTraffic: string[] }).anchorTraffic,
+      );
+    expect(traffic.length).toBeGreaterThan(0);
+    for (const batch of traffic) {
+      expect(batch).not.toContain(opening.split('\n')[0].slice(0, 32));
+      for (const anchor of JSON.parse(batch))
+        expect(Object.keys(anchor).sort()).toEqual(['id', 'selector']);
+    }
+    await expect(first.getByTestId('annotation-row').first()).toHaveAttribute(
+      'title',
+      opening.split('\n')[0].slice(0, 32),
+    );
+    await expect(marker).toHaveAttribute('title', 'An & 🌍 exact quote for review.');
     await first.getByRole('button', { name: 'Close Comments', exact: true }).click();
     await marker.click();
     await expect(t1).toBeVisible();

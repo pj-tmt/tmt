@@ -56,7 +56,7 @@ export async function mountRenderer(
   },
 ): Promise<{
   readonly snapshot: RenderSnapshot;
-  highlight(anchors: { id: string; selector: QuoteSelector; label?: string }[]): void;
+  highlight(anchors: { id: string; selector: QuoteSelector }[]): void;
   scrollAnchor(id: string): void;
   destroy(): void;
 }> {
@@ -73,7 +73,7 @@ export async function mountRenderer(
     ready = false;
   const channel = new MessageChannel();
   let requestId = '';
-  let anchors: { id: string; selector: QuoteSelector; label?: string }[] = [];
+  let anchors: { id: string; selector: QuoteSelector }[] = [];
   const positions = new Map<string, number>();
   const inset = () => Math.max(0, Math.min(window.innerHeight, options.viewportInset?.() ?? 0));
   const viewportHeight = () => Math.max(1, window.innerHeight - inset());
@@ -332,19 +332,14 @@ export async function mountRenderer(
     }
     options.onAnchors?.([...value.resolved] as string[]);
   };
-  const highlight = (input: { id: string; selector: QuoteSelector; label?: string }[]) => {
+  const highlight = (input: { id: string; selector: QuoteSelector }[]) => {
     if (stopped) return;
-    const next = structuredClone(input);
+    // Author code can inspect everything delivered into its frame. Rebuild this
+    // narrow view instead of forwarding caller objects or discussion labels.
+    const next = input.map(({ id, selector }) => ({ id, selector: structuredClone(selector) }));
     if (next.length > 1000 || next.some((v) => typeof v.id !== 'string' || v.id.length > 73))
       return;
-    for (const item of next) {
-      validateSelector(item.selector);
-      if (
-        item.label !== undefined &&
-        (typeof item.label !== 'string' || new TextEncoder().encode(item.label).length > 128)
-      )
-        return;
-    }
+    for (const item of next) validateSelector(item.selector);
     positions.clear();
     requestId = crypto.randomUUID();
     const message = {
