@@ -6,6 +6,11 @@ keeps path ownership, CI selection and release attribution distinct. Read
 workflow before changing selection or a gate. Required checks remain `Code quality`,
 `Unit tests`, `Docker E2E` and `Native package matrix`; selected missing, failed,
 cancelled or unexpectedly skipped jobs fail closed. Never accept empty test discovery.
+The publication commit gate accepts scope-skipped `Unit tests` only with the latest
+successful `Native package matrix` from the same GitHub Actions suite, completed
+no earlier than that skip; the aggregate validates its selection. The other required
+contexts must succeed. Held-draft recovery belongs to
+[main cuts](main-cuts.md#publication-gates-and-recovery).
 
 ## Diff and scope selection
 
