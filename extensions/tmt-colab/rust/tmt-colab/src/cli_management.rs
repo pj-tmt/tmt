@@ -805,54 +805,69 @@ fn page_rows(reach: &crate::reach::Reach, path: &str) -> Vec<(&'static str, Stri
     rows.extend(reach.step().map(|step| ("pair", step.to_owned())));
     rows
 }
-// Civil UTC date from Unix days; Gregorian cycle decomposition follows
-// https://howardhinnant.github.io/date_algorithms.html#civil_from_days.
-fn utc_time(ms: u64) -> String {
-    let days = ms / 86_400_000 + 719_468;
-    let era = days / 146_097;
-    let day_in_era = days % 146_097;
-    let year_in_era =
-        (day_in_era - day_in_era / 1460 + day_in_era / 36524 - day_in_era / 146096) / 365;
-    let day_in_year = day_in_era - (365 * year_in_era + year_in_era / 4 - year_in_era / 100);
-    let month_index = (5 * day_in_year + 2) / 153;
-    let day = day_in_year - (153 * month_index + 2) / 5 + 1;
-    let month = if month_index < 10 {
-        month_index + 3
+const LOCAL_COPY_NOTE: &str = "Expiry never deletes your local copy.";
+const DAY_MS: u64 = 86_400_000;
+
+/// Whole elapsed units, matching the browser's retention interval (not UTC calendar days).
+fn retention_interval(duration_ms: u64) -> String {
+    let days = duration_ms / DAY_MS;
+    if days >= 1 {
+        format!("{days} {}", if days == 1 { "day" } else { "days" })
+    } else if duration_ms >= 3_600_000 {
+        format!("{} h", duration_ms / 3_600_000)
     } else {
-        month_index - 9
-    };
-    let year = year_in_era + era * 400 + u64::from(month <= 2);
-    let seconds = ms / 1000 % 86_400;
-    format!(
-        "{year:04}-{month:02}-{day:02} {:02}:{:02}:{:02}.{:03} UTC",
-        seconds / 3600,
-        seconds / 60 % 60,
-        seconds % 60,
-        ms % 1000
-    )
-}
-fn expiry_text(page: &Value) -> String {
-    if page["retentionDays"].is_null() {
-        return "No expiry: kept forever.".into();
+        "less than an hour".into()
     }
-    let warnings = page["warnings"].as_array();
-    let has = |name: &str| warnings.is_some_and(|w| w.iter().any(|v| v == name));
-    if has("expiry-out-of-range") {
-        return "Expiry date is beyond the supported range.".into();
+}
+fn last_edit_text(updated_ms: u64, now_ms: u64) -> String {
+    let duration = updated_ms.abs_diff(now_ms);
+    if duration < 60_000 {
+        return if updated_ms > now_ms {
+            "in less than a minute".into()
+        } else {
+            "just now".into()
+        };
+    }
+    let interval = if duration < 3_600_000 {
+        format!("{} min", duration / 60_000)
+    } else {
+        retention_interval(duration)
+    };
+    if updated_ms > now_ms {
+        format!("in {interval}")
+    } else {
+        format!("{interval} ago")
+    }
+}
+/// CLI display values named by UX; retention intervals match browser expiryText.
+/// List/detail/warning callers share this copy owner, without final periods.
+fn expiry_text(page: &Value, now_ms: u64, listing: bool) -> String {
+    if page["retentionDays"].is_null() {
+        return "kept forever".into();
+    }
+    if page["warnings"]
+        .as_array()
+        .is_some_and(|w| w.iter().any(|v| v == "expiry-out-of-range"))
+    {
+        return "beyond the supported range".into();
     }
     let Some(ms) = page["expiresAtMs"].as_u64() else {
-        return "Expiry starts after the next edit.".into();
+        return "starts after the next edit".into();
     };
-    let date = utc_time(ms);
-    if has("expired") {
-        format!("Expired {date}. Advisory only: this page is still available.")
-    } else if has("expires-soon") {
-        format!("Expires {date}, within seven days.")
+    let interval = retention_interval(ms.abs_diff(now_ms));
+    if ms <= now_ms {
+        format!("expired {interval} ago")
     } else {
-        format!("Expires {date}.")
+        let mark = if ms - now_ms <= 7 * DAY_MS {
+            "◷ "
+        } else {
+            ""
+        };
+        let verb = if listing { "expires " } else { "" };
+        format!("{mark}{verb}in {interval}")
     }
 }
-fn warn_expiry(page: &Value) -> Result<()> {
+fn warn_expiry(page: &Value, now_ms: u64) -> Result<()> {
     if page["warnings"]
         .as_array()
         .is_some_and(|w| w.iter().any(|v| v == "expires-soon" || v == "expired"))
@@ -863,9 +878,9 @@ fn warn_expiry(page: &Value) -> Result<()> {
             &mut out,
             terminal,
             &format!(
-                "{}: {} Local data is never automatically deleted.",
+                "{}: {} · {LOCAL_COPY_NOTE}",
                 page["pageId"].as_str().unwrap_or("Page"),
-                expiry_text(page)
+                expiry_text(page, now_ms, false)
             ),
             None,
         )?;
@@ -873,7 +888,7 @@ fn warn_expiry(page: &Value) -> Result<()> {
     Ok(())
 }
 /// Readable lines for a management result: no raw JSON blobs, full IDs where a command needs them.
-fn human_fields(value: &Value) -> Result<Vec<(String, String)>> {
+fn human_fields(value: &Value, now_ms: u64) -> Result<Vec<(String, String)>> {
     let object = value
         .as_object()
         .ok_or_else(|| input("Invalid CLI result."))?;
@@ -923,15 +938,20 @@ fn human_fields(value: &Value) -> Result<Vec<(String, String)>> {
                         "retention".to_owned(),
                         if days.is_null() {
                             "forever".to_owned()
+                        } else if v["warnings"]
+                            .as_array()
+                            .is_some_and(|w| w.iter().any(|v| v == "expiry-out-of-range"))
+                        {
+                            "out of range".to_owned()
                         } else {
                             format!("{} days", text(days))
                         },
                     ));
                 }
                 if let Some(updated) = v["lastUpdateAtMs"].as_u64() {
-                    fields.push(("last edit".to_owned(), utc_time(updated)));
+                    fields.push(("last edit".to_owned(), last_edit_text(updated, now_ms)));
                 }
-                fields.push(("expiry".to_owned(), expiry_text(v)));
+                fields.push(("expiry".to_owned(), expiry_text(v, now_ms, false)));
                 if v["archived"] == true {
                     fields.push(("archived".to_owned(), "yes".to_owned()));
                 }
@@ -972,6 +992,9 @@ fn output_with(value: &Value, json_output: bool, extra: &[(&str, String)]) -> Re
         writeln!(out, "{value}")?;
         return Ok(());
     }
+    // One clock for every page, detail and warning in this human result. JSON is untouched.
+    let now_ms = u64::try_from(SystemTime::now().duration_since(UNIX_EPOCH)?.as_millis())
+        .map_err(|_| input("Local clock is beyond the supported range."))?;
     let terminal = out.terminal();
     if let Some(pages) = value["pages"].as_array() {
         use tmt_cli_style::{
@@ -1017,7 +1040,7 @@ fn output_with(value: &Value, json_output: bool, extra: &[(&str, String)]) -> Re
             writeln!(
                 out,
                 "    {}",
-                terminal.paint(Token::Dim, &escape(&expiry_text(page)))
+                terminal.paint(Token::Dim, &escape(&expiry_text(page, now_ms, true)))
             )?;
         }
         // A footer, set off from the rows at the list indent: what to do, then the standing note.
@@ -1025,19 +1048,12 @@ fn output_with(value: &Value, json_output: bool, extra: &[(&str, String)]) -> Re
         if let Some(step) = value["pairStep"].as_str() {
             writeln!(out, "  {}", terminal.paint(Token::Dim, &escape(step)))?;
         }
-        writeln!(
-            out,
-            "  {}",
-            terminal.paint(
-                Token::Dim,
-                "Local expiry is advisory; data is never automatically deleted."
-            )
-        )?;
+        writeln!(out, "  {}", terminal.paint(Token::Dim, LOCAL_COPY_NOTE))?;
         for page in pages {
-            warn_expiry(page)?;
+            warn_expiry(page, now_ms)?;
         }
     } else {
-        let mut fields = human_fields(value)?;
+        let mut fields = human_fields(value, now_ms)?;
         // The title leads, then where to open it.
         if let Some(at) = fields.iter().position(|(key, _)| key == "title") {
             let title = fields.remove(at);
@@ -1055,7 +1071,12 @@ fn output_with(value: &Value, json_output: bool, extra: &[(&str, String)]) -> Re
             .collect::<Vec<_>>();
         tmt_cli_style::detail::write(&mut out, terminal, "COLAB", &fields)?;
         if let Some(page) = value.get("page") {
-            warn_expiry(page)?;
+            writeln!(
+                out,
+                "\n  {}",
+                terminal.paint(tmt_cli_style::palette::Token::Dim, LOCAL_COPY_NOTE)
+            )?;
+            warn_expiry(page, now_ms)?;
         }
     }
     Ok(())
@@ -1063,11 +1084,106 @@ fn output_with(value: &Value, json_output: bool, extra: &[(&str, String)]) -> Re
 
 #[cfg(test)]
 mod expiry_tests {
-    use super::utc_time;
+    use super::{DAY_MS, expiry_text, human_fields, last_edit_text};
+    use serde_json::{Value, json};
+
+    fn page(expires: Option<u64>, warnings: &[&str]) -> Value {
+        json!({"retentionDays":30,"expiresAtMs":expires,"warnings":warnings})
+    }
     #[test]
-    fn utc_dates_cover_epoch_leap_century_and_milliseconds() {
-        assert_eq!(utc_time(0), "1970-01-01 00:00:00.000 UTC");
-        assert_eq!(utc_time(951_827_696_789), "2000-02-29 12:34:56.789 UTC");
-        assert_eq!(utc_time(1_791_072_000_000), "2026-10-04 00:00:00.000 UTC");
+    fn expiry_uses_browser_intervals_and_cli_values_at_boundaries() {
+        let now = 30 * DAY_MS;
+        for (expires, detail, list) in [
+            (now + 30 * DAY_MS, "in 30 days", "expires in 30 days"),
+            (now + 7 * DAY_MS + 1, "in 7 days", "expires in 7 days"),
+            (now + 7 * DAY_MS, "◷ in 7 days", "◷ expires in 7 days"),
+            (now + DAY_MS, "◷ in 1 day", "◷ expires in 1 day"),
+            (now + DAY_MS - 1, "◷ in 23 h", "◷ expires in 23 h"),
+            (now + 3_600_000, "◷ in 1 h", "◷ expires in 1 h"),
+            (
+                now + 3_599_999,
+                "◷ in less than an hour",
+                "◷ expires in less than an hour",
+            ),
+            (
+                now + 1,
+                "◷ in less than an hour",
+                "◷ expires in less than an hour",
+            ),
+            (
+                now,
+                "expired less than an hour ago",
+                "expired less than an hour ago",
+            ),
+            (now - 2 * DAY_MS, "expired 2 days ago", "expired 2 days ago"),
+        ] {
+            assert_eq!(expiry_text(&page(Some(expires), &[]), now, false), detail);
+            assert_eq!(expiry_text(&page(Some(expires), &[]), now, true), list);
+        }
+    }
+    #[test]
+    fn unavailable_states_use_ux_display_values_and_forever_has_no_warning() {
+        for listing in [false, true] {
+            assert_eq!(
+                expiry_text(&page(None, &["expiry-unavailable"]), 0, listing),
+                "starts after the next edit"
+            );
+            assert_eq!(
+                expiry_text(&page(None, &["expiry-out-of-range"]), 0, listing),
+                "beyond the supported range"
+            );
+            let mut forever = page(None, &["expiry-out-of-range"]);
+            forever["retentionDays"] = Value::Null;
+            assert_eq!(expiry_text(&forever, 0, listing), "kept forever");
+        }
+    }
+    #[test]
+    fn last_edit_handles_whole_units_and_clock_rollback_without_overflow() {
+        let now = 30 * DAY_MS;
+        for (updated, expected) in [
+            (now, "just now"),
+            (now - 59_999, "just now"),
+            (now - 60_000, "1 min ago"),
+            (now - 120_999, "2 min ago"),
+            (now - 3_600_000, "1 h ago"),
+            (now - DAY_MS, "1 day ago"),
+            (now + 1, "in less than a minute"),
+            (now + 120_000, "in 2 min"),
+        ] {
+            assert_eq!(last_edit_text(updated, now), expected);
+        }
+        assert_eq!(last_edit_text(0, u64::MAX), "213503982334 days ago");
+        assert_eq!(last_edit_text(u64::MAX, 0), "in 213503982334 days");
+        assert_eq!(
+            expiry_text(&page(Some(u64::MAX), &[]), 0, false),
+            "in 213503982334 days"
+        );
+        assert_eq!(
+            expiry_text(&page(Some(0), &[]), u64::MAX, false),
+            "expired 213503982334 days ago"
+        );
+    }
+    #[test]
+    fn details_display_verified_out_of_range_without_changing_retention() {
+        let source = json!({"page":{"pageId":"page", "retentionDays":9_007_199_254_740_991u64,"lastUpdateAtMs":1_000,"expiresAtMs":null,"warnings":["expiry-out-of-range"]}});
+        let before = source.clone();
+        let fields = human_fields(&source, 121_000).unwrap();
+        assert!(fields.contains(&("retention".into(), "out of range".into())));
+        assert!(fields.contains(&("expiry".into(), "beyond the supported range".into())));
+        assert!(
+            !fields
+                .iter()
+                .any(|(_, value)| value.contains("9007199254740991"))
+        );
+        assert_eq!(source, before);
+    }
+    #[test]
+    fn details_use_the_supplied_clock_and_leave_the_projection_exact() {
+        let source = json!({"page":{"pageId":"page", "retentionDays":30,"lastUpdateAtMs":1_000,"expiresAtMs":30 * DAY_MS + 1_000,"warnings":[]}});
+        let before = source.clone();
+        let fields = human_fields(&source, 121_000).unwrap();
+        assert!(fields.contains(&("last edit".into(), "2 min ago".into())));
+        assert!(fields.contains(&("expiry".into(), "in 29 days".into())));
+        assert_eq!(source, before);
     }
 }
