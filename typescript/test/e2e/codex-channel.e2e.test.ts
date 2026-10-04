@@ -334,9 +334,7 @@ describe('Codex native channel product routing', { concurrent: false }, () => {
         const second = events(worker, 'prompt-hook')[1];
         expect(second.ok).toBe(true);
         expect(second.stderr).toBe('');
-        expect(
-          JSON.parse(second.stdout as string).hookSpecificOutput.additionalContext
-        ).not.toContain('Context usage is');
+        expect(second.stdout).toBe('');
         await f.waitFor(
           () => events(worker, 'stop-hook').length === 2,
           10000,
