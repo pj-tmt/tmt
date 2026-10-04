@@ -3,7 +3,6 @@
 use crate::board::app::App;
 use crate::board::notes::wrap;
 use crate::config::Pane;
-use ratatui::widgets::Paragraph;
 use ratatui::{
     Frame,
     layout::Rect,
@@ -34,9 +33,11 @@ pub(super) fn detail_represents(field: &str) -> bool {
 pub(super) fn render_detail(frame: &mut Frame, app: &App, area: Rect) {
     let look = app.look();
     let Some(row) = app.selected_row() else {
-        frame.render_widget(
-            Paragraph::new(Span::styled("(no row selected)", look.role(Role::Dim))),
+        crate::markup::paint_line(
+            frame,
             area,
+            Line::from(Span::styled("(no row selected)", look.role(Role::Dim))),
+            look,
         );
         return;
     };
@@ -45,11 +46,41 @@ pub(super) fn render_detail(frame: &mut Frame, app: &App, area: Rect) {
         text(&row["name"]),
         Style::new().add_modifier(Modifier::BOLD),
     ))];
-    if let Some(pending) = row["pending"].as_str() {
+    if let Some(pending) = super::waiting::text(row) {
         lines.push(Line::styled(
             format!("waiting on you: {pending}"),
             look.role(Role::Waiting),
         ));
+    }
+    if crate::attention::waits_on_you(row) {
+        let bindings = app.bindings();
+        let key = |verb| {
+            bindings
+                .get("enter")
+                .filter(|action| action.verb == verb && action.args.is_empty())
+                .map(|_| "⏎")
+                .or_else(|| {
+                    bindings
+                        .iter()
+                        .find(|(key, action)| {
+                            !matches!(key.as_str(), "click" | "double-click")
+                                && action.verb == verb
+                                && action.args.is_empty()
+                        })
+                        .map(|(key, _)| key.as_str())
+                })
+        };
+        let hints = [
+            (crate::action::Verb::Reply, "reply"),
+            (crate::action::Verb::Jump, "jump"),
+        ]
+        .into_iter()
+        .filter_map(|(verb, label)| key(verb).map(|key| format!("{key} {label}")))
+        .collect::<Vec<_>>()
+        .join(" · ");
+        if !hints.is_empty() {
+            lines.push(Line::styled(hints, look.role(Role::Muted)));
+        }
     }
     let place = [&row["pane"]["target"], &row["pane"]["cwd"]]
         .iter()

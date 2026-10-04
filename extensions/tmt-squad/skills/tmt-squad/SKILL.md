@@ -217,6 +217,30 @@ PgUp/PgDn and Home/End, or use the wheel over the pane. The scroll marks show
 remaining content. Older replies without a loaded body retain `tmt result <id>`
 hints; reading and scrolling acknowledge nothing.
 
+Rows that wait on you show a single decision line: `pending` when set,
+otherwise the oldest unanswered request preview. Text ends in `…` when it does
+not fit; detail retains the full available text and the effective reply/jump
+keys. Request age comes from the inbox timestamp; pending-only rows have no
+request age. The hint uses the tab's member count and drops its oldest-member
+label first when space is short.
+
+Press `A` (`ask-lead`, rebindable) on a squad tab to open `ask lead <name>`.
+The prompt starts with "List what waits on me: one line each with who, the
+decision, your suggestion and what happens if I wait." Edit before Enter sends;
+Esc cancels. Missing or changed lead/sender/squad refuses without sending.
+It uses ordinary detached `tmt talk`; replies and ▚ notices follow the normal
+request path.
+
+Set the question with `[board] ask_lead`, overridden by
+`[squad.<name>.board] ask_lead`. It must be a nonempty single line of at most
+4000 characters. The settings editor and `tmt sq config set board.ask_lead`
+use the same validation and concurrent-edit refusal as other board settings.
+
+```sh
+tmt sq config set board.ask_lead "What needs my decision?"
+tmt sq config set board.ask_lead "Summarize our pending decisions." --squad product
+```
+
 ## Home dashboard
 
 The built-in `all` board shows ① counts, ② needs you/blocked members and ③ one
@@ -286,8 +310,8 @@ settings supported by `config set`; the board uses the same validation and write
 Use `tmt sq config set KEY VALUE [--squad NAME]` for validated edits. Squad scope
 is required for `layout`, `board.panes`, `board.direction`, `board.sizes`,
 `board.hidden_columns`, `notes.render`, `states.STATE.color`, `reminders.enabled`
-and `reminders.stale_after`. `board.refresh`
-uses the squad layer with `--squad`, otherwise the global Squad board layer.
+and `reminders.stale_after`. `board.refresh` and `board.ask_lead`
+use the squad layer with `--squad`, otherwise the global Squad board layer.
 `tabs.order` and `tabs.hide` always edit global Squad tab policy. Arrays use JSON;
 other values are unquoted scalar arguments. Examples:
 

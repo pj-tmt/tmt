@@ -708,8 +708,9 @@ fn bindings_table(item: &Item, place: &str) -> Result<Bindings, SquadError> {
     .map_err(invalid)
 }
 
-/// A program as argv: a non-empty array of strings, the first a bare name on
-/// PATH or an absolute path. It never passes through a shell.
+/// The editable question presented before asking the squad lead.
+pub const DEFAULT_ASK_LEAD: &str = "List what waits on me: one line each with who, the decision, your suggestion and what happens if I wait.";
+
 /// The board's reload interval when nothing sets one.
 pub const DEFAULT_REFRESH: Duration = Duration::from_secs(5);
 
@@ -1605,6 +1606,22 @@ impl Config {
         Ok(draft)
     }
 
+    /// Validate both layers even when the squad masks the global question.
+    pub fn ask_lead(&self, squad: &str) -> Result<String, SquadError> {
+        let mut question = DEFAULT_ASK_LEAD.to_owned();
+        for path in [
+            vec!["board", "ask_lead"],
+            vec!["squad", squad, "board", "ask_lead"],
+        ] {
+            if let Some(item) = self.source_item(&path) {
+                let text = item.as_str().filter(|text| !text.trim().is_empty() && text.chars().count() <= 4000 && !text.chars().any(char::is_control))
+                    .ok_or_else(|| invalid(format!("`{}` must be a nonempty single-line question of at most 4000 characters.", path.join("."))))?;
+                question = text.to_owned();
+            }
+        }
+        Ok(question)
+    }
+
     /// `[squad.<name>.board]` over the layout's preset. Validated before the
     /// terminal changes mode, so a mistake never leaves a half-drawn screen.
     pub fn board(&self, squad: &str) -> Result<Board, SquadError> {
@@ -1638,6 +1655,7 @@ impl Config {
                 "token_rate",
                 "view",
                 "hidden_columns",
+                "ask_lead",
             ]
             .contains(&key)
             {
@@ -2400,6 +2418,37 @@ mod tests {
             assert_eq!(fs::read_to_string(&path).unwrap(), original);
         }
         fs::remove_dir_all(path.parent().unwrap()).unwrap();
+    }
+
+    #[test]
+    fn ask_lead_layers_and_writer_validate_before_publication() {
+        let path = temp("ask-lead");
+        std::fs::write(&path, "[board]\nask_lead = 'Global question'\n[squad.x.board]\nask_lead = 'Scoped question'\n").unwrap();
+        let mut config = Config::read(path.clone()).unwrap();
+        assert_eq!(config.ask_lead("x").unwrap(), "Scoped question");
+        assert_eq!(config.ask_lead("y").unwrap(), "Global question");
+        config
+            .set_setting(Some("x"), "board.ask_lead", "New scoped question")
+            .unwrap();
+        config
+            .set_setting(None, "board.ask_lead", "New global question")
+            .unwrap();
+        assert_eq!(
+            Config::read(path.clone()).unwrap().ask_lead("x").unwrap(),
+            "New scoped question"
+        );
+        assert_eq!(config.ask_lead("y").unwrap(), "New global question");
+        let before = std::fs::read(&path).unwrap();
+        for invalid in ["", "   ", "two\nlines"] {
+            assert!(config.set_setting(None, "board.ask_lead", invalid).is_err());
+            assert_eq!(std::fs::read(&path).unwrap(), before);
+        }
+        assert!(
+            config
+                .preview_setting(None, "board.ask_lead", &"q".repeat(4001))
+                .is_err()
+        );
+        std::fs::remove_file(path).unwrap();
     }
 
     fn temp(name: &str) -> PathBuf {

@@ -9,6 +9,7 @@ mod panes;
 mod replies;
 mod rows;
 mod tabs;
+mod waiting;
 
 use super::app::App;
 use ratatui::{
@@ -65,6 +66,7 @@ pub fn render(frame: &mut Frame, app: &App) {
     panes::render_body(frame, app, body);
     footer::render(frame, app, footer, look);
     overlays::render(frame, app, body, look);
+    waiting::prompt(frame, app, body);
 }
 
 #[cfg(test)]
