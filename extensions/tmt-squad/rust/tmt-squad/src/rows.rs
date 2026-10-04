@@ -515,7 +515,16 @@ fn width_value(width: Option<Basis>) -> Value {
 
 /// `[squad.<name>.rows]` when present, else the older `columns` table, else
 /// the preset. Setting both is refused rather than guessed.
+#[cfg(test)]
 pub fn read(squad: Option<&dyn TableLike>, name: &str) -> Result<Rows, SquadError> {
+    read_with_windows(squad, name, crate::config::TokenWindow::DEFAULTS)
+}
+
+pub fn read_with_windows(
+    squad: Option<&dyn TableLike>,
+    name: &str,
+    windows: [crate::config::TokenWindow; 3],
+) -> Result<Rows, SquadError> {
     let rows = squad.and_then(|table| table.get("rows"));
     let columns = squad.and_then(|table| table.get("columns"));
     let mut result = match (rows, columns) {
@@ -530,7 +539,7 @@ pub fn read(squad: Option<&dyn TableLike>, name: &str) -> Result<Rows, SquadErro
                     .and_then(Item::as_table_like)
                     .is_some_and(|fields| fields.contains_key(field))
             };
-            read_rows(rows, &format!("squad.{name}.rows"), &provided)
+            read_rows(rows, &format!("squad.{name}.rows"), &provided, windows)
         }
         (None, Some(columns)) => read_legacy(columns, &format!("squad.{name}.columns")),
         (None, None) => Ok(Rows::preset()),
@@ -586,6 +595,7 @@ fn read_rows(
     item: &Item,
     place: &str,
     provided: &dyn Fn(&str) -> bool,
+    windows: [crate::config::TokenWindow; 3],
 ) -> Result<Rows, SquadError> {
     let table = item
         .as_table_like()
@@ -622,7 +632,12 @@ fn read_rows(
     for (index, entry) in list.into_iter().enumerate() {
         let here = format!("{place}.columns[{index}]");
         let settings = entry.ok_or_else(|| invalid(format!("`{here}` must be a table.")))?;
-        let column = read_column(settings, &here, provided)?;
+        let mut column = read_column(settings, &here, provided)?;
+        if settings.get("title").is_none()
+            && let Some(index) = column.from.as_ref().and_then(ColumnSource::window)
+        {
+            column.title = windows[index].label();
+        }
         if columns.iter().any(|known| known.field == column.field) {
             return Err(invalid(format!(
                 "`{here}.name` repeats the column `{}`.",

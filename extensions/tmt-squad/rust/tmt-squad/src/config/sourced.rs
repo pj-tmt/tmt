@@ -123,10 +123,9 @@ impl Config {
                 let table = item
                     .as_table_like()
                     .ok_or_else(|| invalid("`board` must be a table."))?;
-                if let Some((key, _)) = table
-                    .iter()
-                    .find(|(key, _)| !matches!(*key, "refresh" | "theme" | "token_rate" | "view"))
-                {
+                if let Some((key, _)) = table.iter().find(|(key, _)| {
+                    !matches!(*key, "refresh" | "theme" | "token_rate" | "tok" | "view")
+                }) {
                     return Err(invalid(format!("`board.{key}` is not a board setting.")));
                 }
                 table

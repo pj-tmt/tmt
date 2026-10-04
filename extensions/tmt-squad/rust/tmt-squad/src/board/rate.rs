@@ -1,12 +1,13 @@
-//! Public cumulative counters become receipt-time completed-request buckets.
+//! Public closed history and live counters share one per-identity bucket ring.
 //! No provider files, core crate, context-window subtraction or in-flight estimate.
 use crate::config::TokenWindow;
 use serde_json::Value;
 use std::collections::BTreeMap;
 
+pub(super) mod history;
+
 const SAFE: u64 = 9_007_199_254_740_991;
 const SLOT_MS: u64 = 5_000;
-const SLOTS: usize = 720;
 
 /// Captured from the ordinary observed roster before sections duplicate/filter rows.
 #[derive(Debug, Clone)]
@@ -34,12 +35,19 @@ impl Input {
 
     /// A meter-only read uses exactly the already observed membership.
     pub fn listed(&self, listed: &Value) -> Self {
-        let rows: BTreeMap<_, _> = listed["identities"]
+        self.joined(&Self::resumes(listed))
+    }
+
+    pub fn resumes(listed: &Value) -> BTreeMap<String, Value> {
+        listed["identities"]
             .as_array()
             .into_iter()
             .flatten()
-            .filter_map(|row| Some((row["id"].as_str()?, row["resume"].clone())))
-            .collect();
+            .filter_map(|row| Some((row["id"].as_str()?.to_owned(), row["resume"].clone())))
+            .collect()
+    }
+
+    pub fn joined(&self, rows: &BTreeMap<String, Value>) -> Self {
         Self {
             room: self.room.clone(),
             names: self.names.clone(),
@@ -116,20 +124,26 @@ struct Member {
     previous: Option<Counter>,
     blocked: bool,
     reporter: bool,
+    model: Option<String>,
+    began: Option<u64>,
+    sampled: Option<u64>,
+    buckets: Vec<Bucket>,
 }
 
-/// The shared ring describes sampled batches, not generation-time intervals.
+/// Receipt-time batches and coverage; each reporting UUID owns one bounded ring.
 #[derive(Debug, Clone, Copy, Default)]
 struct Bucket {
     slot: Option<u64>,
     tokens: u128,
     evidence: bool,
     gap: bool,
+    /// Whole core rollup tokens cannot be split at a shorter window boundary.
+    source_from: Option<u64>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Reading {
-    pub rate: f64,
+    pub tokens: u128,
     pub partial: bool,
     pub span: u64,
 }
@@ -137,73 +151,172 @@ pub struct Reading {
 #[derive(Debug)]
 pub struct Rate {
     members: BTreeMap<String, Member>,
-    buckets: Box<[Bucket; SLOTS]>,
-    began: Option<u64>,
-    sampled: Option<u64>,
+    slots: usize,
     last_success: Option<u64>,
 }
 
 impl Default for Rate {
     fn default() -> Self {
-        Self {
-            members: BTreeMap::new(),
-            buckets: Box::new([Bucket::default(); SLOTS]),
-            began: None,
-            sampled: None,
-            last_success: None,
+        Self::new(TokenWindow::HOUR)
+    }
+}
+
+impl Member {
+    fn interval(
+        &mut self,
+        sampled: Option<u64>,
+        now: u64,
+        evidence: bool,
+        gap: bool,
+        tokens: u128,
+        slots: usize,
+    ) {
+        self.sampled = Some(now);
+        if !self.reporter {
+            return;
         }
+        if self.buckets.is_empty() {
+            self.buckets.resize(slots, Bucket::default());
+        }
+        let end = now / SLOT_MS;
+        let start = sampled
+            .map_or(end, |at| at / SLOT_MS + 1)
+            .max(end.saturating_sub(slots as u64 - 1));
+        for slot in start..=end {
+            let bucket = &mut self.buckets[(slot % slots as u64) as usize];
+            if bucket.slot != Some(slot) {
+                *bucket = Bucket {
+                    slot: Some(slot),
+                    ..Default::default()
+                };
+            }
+            bucket.evidence |= evidence;
+            bucket.gap |= gap;
+        }
+        // Repeated observations within one slot coalesce, including gap evidence.
+        let bucket = &mut self.buckets[(end % slots as u64) as usize];
+        if bucket.slot != Some(end) {
+            *bucket = Bucket {
+                slot: Some(end),
+                ..Default::default()
+            };
+        }
+        bucket.evidence |= evidence;
+        bucket.gap |= gap;
+        bucket.tokens += tokens;
+    }
+
+    fn reading(&self, now: u64, window: TokenWindow) -> Option<Reading> {
+        let span = now.saturating_sub(self.began?).min(window.milliseconds());
+        let end = now / SLOT_MS;
+        let count = window.milliseconds() / SLOT_MS;
+        let mut reading = Reading {
+            tokens: 0,
+            partial: span < window.milliseconds(),
+            span,
+        };
+        let mut evidence = false;
+        let mut observed_slots = 0;
+        for bucket in &self.buckets {
+            if bucket
+                .slot
+                .is_some_and(|slot| slot <= end && end - slot < count)
+            {
+                let cut = bucket
+                    .source_from
+                    .is_some_and(|from| from < now.saturating_sub(window.milliseconds()));
+                if !cut {
+                    reading.tokens += bucket.tokens;
+                }
+                reading.partial |= cut;
+                reading.partial |= bucket.gap;
+                evidence |= bucket.evidence;
+                observed_slots += 1;
+            }
+        }
+        reading.partial |= observed_slots < count;
+        // A baseline alone is not a measured zero.
+        evidence.then_some(reading)
     }
 }
 
 impl Rate {
-    fn bucket(&mut self, slot: u64) -> &mut Bucket {
-        let bucket = &mut self.buckets[(slot % SLOTS as u64) as usize];
-        if bucket.slot != Some(slot) {
-            *bucket = Bucket {
-                slot: Some(slot),
-                ..Default::default()
-            };
+    pub fn new(longest: TokenWindow) -> Self {
+        Self {
+            members: BTreeMap::new(),
+            slots: (longest.milliseconds() / SLOT_MS) as usize,
+            last_success: None,
         }
-        bucket
     }
 
-    fn interval(&mut self, now: u64, evidence: bool, gap: bool, tokens: u128) {
-        let end = now / SLOT_MS;
-        let start = self
-            .sampled
-            .map_or(end, |at| at / SLOT_MS + 1)
-            .max(end.saturating_sub(SLOTS as u64 - 1));
-        for slot in start..=end {
-            let bucket = self.bucket(slot);
-            bucket.evidence |= evidence;
-            bucket.gap |= gap;
-        }
-        // Several accepted observations in one slot coalesce without extra storage.
-        if evidence || gap || tokens > 0 {
-            let bucket = self.bucket(end);
-            bucket.evidence |= evidence;
-            bucket.gap |= gap;
-            bucket.tokens += tokens;
-        }
-        self.sampled = Some(now);
-    }
-
-    /// Time is monotonic receipt time. Never-reporting drivers are excluded.
-    pub fn sample(&mut self, input: &Input, now: u64) {
-        self.last_success = Some(now);
-        self.members.retain(|id, _| input.resumes.contains_key(id));
-        let mut delta = 0_u128;
-        let mut evidence = false;
-        let mut gap = false;
-        for (id, resume) in &input.resumes {
+    /// Replace the authoritative recent range, preserving older observations.
+    pub fn seed(&mut self, input: &Input, seeds: &history::Seeds, now: u64) {
+        self.retain(input);
+        for id in input.resumes.keys() {
             let state = self.members.entry(id.clone()).or_default();
-            state.reporter |= resume["consumption"].is_object();
-            let Some(next) = Counter::read(resume) else {
-                gap |= state.reporter;
+            let Some(seed) = seeds.get(id).and_then(Option::as_ref) else {
+                state.previous = None;
                 state.blocked = true;
+                state.interval(state.sampled, now, false, state.reporter, 0, self.slots);
                 continue;
             };
-            // Presence of a consumption object opts this member into coverage.
+            if seed.through > now {
+                state.previous = None;
+                state.blocked = true;
+                continue;
+            }
+            state.reporter |= seed.reporting;
+            if let Some(available) = seed.available {
+                state.began = Some(state.began.map_or(available, |old| old.min(available)));
+            }
+            if state.buckets.is_empty() {
+                state.buckets.resize(self.slots, Bucket::default());
+            }
+            // Includes open live receipts: latest, not through, is the seed watermark.
+            for bucket in &mut state.buckets {
+                if bucket.slot.is_some_and(|slot| slot >= seed.from / SLOT_MS) {
+                    *bucket = Bucket::default();
+                }
+            }
+            for slice in &seed.buckets {
+                let first = slice.from_ms / SLOT_MS;
+                let last = (slice.to_ms - 1) / SLOT_MS;
+                for slot in first..=last {
+                    let bucket = &mut state.buckets[(slot % self.slots as u64) as usize];
+                    *bucket = Bucket {
+                        slot: Some(slot),
+                        evidence: slice.complete,
+                        gap: !slice.complete || slice.gap || slice.discontinuous,
+                        ..Default::default()
+                    };
+                }
+                let bucket = &mut state.buckets[(last % self.slots as u64) as usize];
+                bucket.tokens = u128::from(slice.input_tokens) + u128::from(slice.output_tokens);
+                bucket.source_from = Some(slice.from_ms);
+                bucket.evidence |= slice.covered_ms > 0;
+            }
+            state.previous = Counter::read(&seed.latest);
+            state.blocked = state
+                .previous
+                .as_ref()
+                .is_none_or(|counter| !counter.usable);
+            state.sampled = seed.sampled;
+        }
+    }
+
+    /// Monotonic receipt time; model attribution is deliberately best effort.
+    pub fn sample(&mut self, input: &Input, now: u64) {
+        self.last_success = Some(now);
+        self.retain(input);
+        for (id, resume) in &input.resumes {
+            let state = self.members.entry(id.clone()).or_default();
+            state.model = nonempty(&resume["model"]);
+            state.reporter |= resume["consumption"].is_object();
+            let Some(next) = Counter::read(resume) else {
+                state.blocked = true;
+                state.interval(state.sampled, now, false, state.reporter, 0, self.slots);
+                continue;
+            };
             state.reporter = true;
             if let Some(previous) = &state.previous
                 && previous.key == next.key
@@ -212,13 +325,13 @@ impl Rate {
                     || (next.sequence == previous.sequence && next != *previous))
             {
                 state.blocked = true;
-                gap = true;
+                state.interval(state.sampled, now, false, true, 0, self.slots);
                 continue;
             }
             if !next.usable {
                 state.previous = Some(next);
                 state.blocked = true;
-                gap = true;
+                state.interval(state.sampled, now, false, true, 0, self.slots);
                 continue;
             }
             let continuous = state.previous.as_ref().filter(|previous| {
@@ -229,87 +342,97 @@ impl Rate {
                     && next.output >= previous.output
                     && next.cached >= previous.cached
             });
-            if let Some(previous) = continuous {
-                evidence = true;
-                delta += u128::from(next.input - previous.input)
-                    + u128::from(next.output - previous.output);
-            } else {
-                gap |= state.previous.is_some() || self.began.is_some_and(|at| at < now);
-            }
-            self.began.get_or_insert(now);
+            let (evidence, gap, tokens) = match continuous {
+                Some(previous) => (
+                    true,
+                    false,
+                    u128::from(next.input - previous.input)
+                        + u128::from(next.output - previous.output),
+                ),
+                None => (
+                    false,
+                    state.previous.is_some() || state.sampled.is_some_and(|at| at < now),
+                    0,
+                ),
+            };
+            state.began.get_or_insert(now);
             state.previous = Some(next);
             state.blocked = false;
+            state.interval(state.sampled, now, evidence, gap, tokens, self.slots);
         }
-        self.interval(now, evidence, gap, delta);
     }
 
-    /// A failed query cannot bridge recovery; its unknown intervals age out.
+    pub fn retain(&mut self, input: &Input) {
+        self.members.retain(|id, _| input.resumes.contains_key(id));
+    }
+
+    /// Failed reads and tab suspension cannot bridge unobserved intervals.
     pub fn failed(&mut self, now: u64, every_ms: u64) {
-        let gap = self.members.values().any(|member| member.reporter)
-            && self
-                .last_success
-                .is_some_and(|at| now.saturating_sub(at) >= every_ms * 2);
+        let gap = self
+            .last_success
+            .is_some_and(|at| now.saturating_sub(at) >= every_ms * 2);
         for member in self.members.values_mut() {
             member.blocked = true;
+            member.interval(member.sampled, now, false, gap, 0, self.slots);
         }
-        self.interval(now, false, gap, 0);
+    }
+
+    pub fn member(&self, id: &str, now: u64, window: TokenWindow) -> Option<Reading> {
+        self.members.get(id)?.reading(now, window)
+    }
+
+    pub fn model(&self, id: &str) -> Option<&str> {
+        self.members.get(id)?.model.as_deref()
     }
 
     pub fn reading(&self, now: u64, window: TokenWindow) -> Option<Reading> {
-        if !self.members.values().any(|member| member.reporter) {
-            return None;
-        }
-        let span = now.saturating_sub(self.began?).min(window.milliseconds());
-        if span
-            < if window == TokenWindow::Five {
-                SLOT_MS
-            } else {
-                10_000
-            }
-        {
-            return None;
-        }
-        let end = now / SLOT_MS;
-        let count = window.milliseconds() / SLOT_MS;
-        let buckets = || {
-            self.buckets.iter().filter(|bucket| {
-                bucket
-                    .slot
-                    .is_some_and(|slot| slot <= end && end - slot < count)
-            })
+        let mut sum = Reading {
+            tokens: 0,
+            partial: false,
+            span: window.milliseconds(),
         };
-        if !buckets().any(|bucket| bucket.evidence) {
-            return None;
+        let mut evidence = false;
+        for member in self.members.values() {
+            if let Some(reading) = member.reading(now, window) {
+                sum.tokens += reading.tokens;
+                sum.partial |= reading.partial;
+                sum.span = sum.span.min(reading.span);
+                evidence = true;
+            } else {
+                sum.partial = true;
+            }
         }
-        Some(Reading {
-            rate: buckets().map(|bucket| bucket.tokens).sum::<u128>() as f64 * 1000.0 / span as f64,
-            partial: buckets().any(|bucket| bucket.gap),
-            span,
-        })
+        evidence.then_some(sum)
     }
 
     pub fn reporter(&self, id: &str) -> bool {
         self.members.get(id).is_some_and(|member| member.reporter)
     }
 
-    /// Eight bucket-aligned trend slices. None differs from measured zero.
+    /// Eight bucket-aligned totals, from the same UUID rings as member readings.
     pub fn trend(&self, now: u64, window: TokenWindow) -> [Option<f64>; 8] {
         let bar_slots = (window.milliseconds() / SLOT_MS).div_ceil(8);
         let end = now / SLOT_MS;
         std::array::from_fn(|index| {
-            let behind = (7 - index) as u64 * bar_slots;
-            let last = end.checked_sub(behind)?;
+            let last = end.checked_sub((7 - index) as u64 * bar_slots)?;
             let first = last.saturating_sub(bar_slots - 1);
-            let buckets = || {
-                self.buckets.iter().filter(|bucket| {
-                    bucket
-                        .slot
-                        .is_some_and(|slot| (first..=last).contains(&slot))
-                })
-            };
-            buckets().any(|bucket| bucket.evidence).then(|| {
-                buckets().map(|bucket| bucket.tokens).sum::<u128>() as f64 / (bar_slots * 5) as f64
-            })
+            let mut tokens = 0_u128;
+            let mut evidence = false;
+            for bucket in self.members.values().flat_map(|member| &member.buckets) {
+                if bucket
+                    .slot
+                    .is_some_and(|slot| (first..=last).contains(&slot))
+                {
+                    if bucket
+                        .source_from
+                        .is_none_or(|from| from >= now.saturating_sub(window.milliseconds()))
+                    {
+                        tokens += bucket.tokens;
+                    }
+                    evidence |= bucket.evidence;
+                }
+            }
+            evidence.then_some(tokens as f64)
         })
     }
 }

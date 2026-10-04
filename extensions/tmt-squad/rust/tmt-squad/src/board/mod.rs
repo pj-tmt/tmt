@@ -95,6 +95,10 @@ pub(super) enum BoardEvent {
         room: String,
         input: Result<rate::Input, ()>,
     },
+    HomeUsage {
+        cancellation: crate::runner::Cancellation,
+        input: Result<std::collections::BTreeMap<String, serde_json::Value>, ()>,
+    },
     Notebook {
         cancellation: crate::runner::Cancellation,
         identity: String,
@@ -293,6 +297,15 @@ fn session(
                 }
                 Effect::None
             }
+            Ok(BoardEvent::HomeUsage {
+                cancellation,
+                input,
+            }) => {
+                if !cancellation.cancelled() {
+                    dirty |= app.sample_home(input.as_ref().map_err(|_| ()), Instant::now());
+                }
+                Effect::None
+            }
             Ok(BoardEvent::Usage {
                 cancellation,
                 room,
@@ -302,7 +315,9 @@ fn session(
                     && !app.loading()
                     && let Some(meter) = app.meter.as_mut().filter(|meter| meter.room == room)
                 {
-                    meter.sample(input.as_ref().map_err(|_| ()), Instant::now());
+                    let now = Instant::now();
+                    meter.sample(input.as_ref().map_err(|_| ()), now);
+                    app.project_usage(now);
                     dirty = true;
                 }
                 Effect::None

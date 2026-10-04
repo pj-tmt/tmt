@@ -174,21 +174,22 @@ pub(super) fn model(app: &App) -> KeyHelp {
         ));
     }
     if let Some(rate) = app.view.as_ref().and_then(|view| view.token_rate.as_ref()) {
+        let windows = format!(
+            "{}; observed totals, no persisted history",
+            rate.settings
+                .windows
+                .map(|window| window.label())
+                .join(" / ")
+        );
         let mut meter = section(
             "meter",
-            "token rate",
+            "tokens",
             &[
-                (
-                    "windows",
-                    "5s (with 5 s sampling), 1m, 30m, 1h; labels show covered span until full",
-                ),
-                (
-                    "trend",
-                    "eight bars: 5s window → 40s trend, 1m → 80s, 30m → 30m, 1h → 1h",
-                ),
+                ("windows", &windows),
+                ("trend", "eight bucket-aligned observed-token slices"),
                 (
                     "coverage",
-                    "no data hides; measured zero is 0; ≥ means a reporting member or interval is missing",
+                    "no data hides the meter; measured zero is 0; – is unreported; ~ is incomplete window/coverage",
                 ),
             ],
         );
@@ -196,9 +197,9 @@ pub(super) fn model(app: &App) -> KeyHelp {
             0,
             entry(
                 "sampling",
-                "tok/s",
+                "tokens",
                 format!(
-                    "completed requests observed every {} s; sampled batches, not live throughput",
+                    "completed requests observed every {} s; best effort, current session model",
                     rate.settings.every.as_secs()
                 ),
             ),
