@@ -105,15 +105,17 @@ bindings; narrow fitting removes the oldest-member label before the actions.
 The squad-tab footer (`board::view::footer::hints`) derives one hint per action from the
 effective bindings (the first key bound to it, `enter` first), ranked by `Action::footer_rank`,
 which is separate from `Action::order` (the menu's order) because the footer puts navigation and
-the decision first: waiting summary, `ask lead`, `⏎`, `r`, `⌫ back`, the board's `/ search`,
-`t`, `a`, `o`, `y`, then fold, pane, refresh, view, theme and meter, then `←→ tab`, `s`, `c` and
-the unknown-`me` line. Its match is exhaustive, so a new verb must choose a rank or `None`
+the decision first: waiting summary, `ask lead`, `⏎`, `t`, `r`, `⌫ back`, `a answer · note` (home's
+wording), the board's `/ search`, `o`, `y`, then the side-panel fold (`d side panel`, `d detail` or
+`d replies`; no state glyph, help keeps `▾`/`▸`), pane, refresh, view, theme and meter, then `←→ tab`,
+`s`, `c` and the unknown-`me` line. Its match is exhaustive, so a new verb must choose a rank or `None`
 (`notes`, `settings`, `run` and `pick-tab` are never listed). A rebound key moves its hint; an
 unbound action has none. The footer reserves `q quit` and `? more` first (`? more` alone below
 both, nothing below it) and drops whole hints from the end, never clipping one.
 `row_allows` hides a row action the selected row cannot take (no row, `r` without a decision,
 `o` without a link, `copy` with an unfillable template). The word is the verb name, except
-`hint_word` for internal spellings (`next-pane` reads `pane`). The oldest-member label may take
+`hint_word` for internal spellings (`next-pane` reads `pane`). Footer labels go through the
+shared glyph guard (`board/glyph_guard.rs`, also used by home and cron). The oldest-member label may take
 space only if every hint through `FOOTER_ROW_ACTIONS_END` still fits. Home and the cron footers
 keep their own fitting and the same reserved tail.
 
