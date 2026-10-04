@@ -10,7 +10,12 @@ struct Field {
     property: &'static str,
 }
 
-const GLOBAL_FIELDS: [Field; 10] = [
+const GLOBAL_FIELDS: [Field; 11] = [
+    Field {
+        key: SettingKey::NotesCompactionReminder,
+        container: Some("notes"),
+        property: "compactionReminder",
+    },
     Field {
         key: SettingKey::ReplyBatchWindowMs,
         container: Some("notifications"),
@@ -100,7 +105,7 @@ fn object<'a>(
 fn shape(value: &Value, path: &Path, scope: Scope) -> Result<(), ConfigError> {
     let root = object(value, path, "<root>")?;
     let containers: &[&str] = match scope {
-        Scope::Global => &["defaults", "exchange", "ui", "notifications"],
+        Scope::Global => &["defaults", "exchange", "ui", "notifications", "notes"],
         Scope::Local => &["$config"],
     };
     for name in containers {
@@ -136,6 +141,7 @@ pub(super) fn project(
         };
         let scalar = match value {
             Value::String(text) => Scalar::Text(text),
+            Value::Bool(value) => Scalar::Boolean(*value),
             Value::Number(number) => number.as_f64().map_or(Scalar::Invalid, Scalar::Number),
             _ => Scalar::Invalid,
         };
@@ -188,6 +194,7 @@ fn setting_value(setting: Setting) -> Value {
     match setting {
         Setting::PreambleMode(value) => json!(value.as_str()),
         Setting::PaneBadge(value) => json!(value.as_str()),
+        Setting::NotesCompactionReminder(value) => json!(value),
         Setting::CaptureLines(value)
         | Setting::PreambleEvery(value)
         | Setting::RetentionDays(value)

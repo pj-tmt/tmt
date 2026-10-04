@@ -1,6 +1,6 @@
 ---
 source: site/src/chapters/working.mdx
-sourceRevision: 3f5c7571ac6b28073f65dfaa5d8ee30ab1aa5a96
+sourceRevision: 84f4db1a7324997af9b0f01a760de1623dc41d89
 title: 启动、发送、获取 reply
 ---
 
@@ -160,6 +160,8 @@ $ tmt preamble show reviewer
 `}</Cmd>
 
 笔记需要已保存的 identity，临时 identity 会报错。笔记文件跟随 identity，不跟随名称。因此，新 identity 即使复用旧名称，也会从新文件开始。
+
+已保存的 Claude 或 Codex agent 压缩会话后，tmt 会提醒它重读并更新笔记。提醒会引用笔记文件路径；路径不存在或无法安全引用时，改为提示运行 `tmt notes path`。tmt 不会为此创建、读取或修改笔记，临时 identity 也不会收到提醒。`tmt config set notes.compactionReminder false --global` 可关闭，设为 `true` 即恢复。
 
 <Mdx.h3 id="tmt-setup">`tmt setup`</Mdx.h3>
 

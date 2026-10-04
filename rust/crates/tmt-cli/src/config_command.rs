@@ -180,6 +180,7 @@ fn show_json(
                 "pasteEnterDelayMs": settings.paste_enter_delay_ms,
             },
             "exchange": { "retentionDays": settings.retention_days },
+            "notes": { "compactionReminder": settings.notes_compaction_reminder },
             "notifications": { "replyBatchWindowMs": settings.reply_batch_window_ms, "typingQuietMs": settings.typing_quiet_ms },
             "ui": { "paneBadge": settings.pane_badge.as_str() },
             "theme": theme,
@@ -189,6 +190,7 @@ fn show_json(
             "preambleEvery": loaded.source(SettingKey::PreambleEvery),
             "pasteEnterDelayMs": loaded.source(SettingKey::PasteEnterDelayMs),
             "exchange": { "retentionDays": loaded.source(SettingKey::RetentionDays) },
+            "notes": { "compactionReminder": loaded.source(SettingKey::NotesCompactionReminder) },
             "notifications": { "replyBatchWindowMs": loaded.source(SettingKey::ReplyBatchWindowMs), "typingQuietMs": loaded.source(SettingKey::TypingQuietMs) },
             "ui": { "paneBadge": loaded.source(SettingKey::PaneBadge) },
             "theme": theme_source,
@@ -206,6 +208,11 @@ fn show_text(
 ) -> io::Result<()> {
     let settings = &loaded.settings;
     let rows = [
+        (
+            SettingKey::NotesCompactionReminder,
+            "notes.compactionReminder",
+            settings.notes_compaction_reminder.to_string(),
+        ),
         (
             SettingKey::ReplyBatchWindowMs,
             "notifications.replyBatchWindowMs",
