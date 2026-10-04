@@ -4,7 +4,8 @@
 owner page, router errors, mounted lifecycle notices and reader states. Screens
 supply their title and actions; `colab-header.css` owns geometry, brand/title
 hierarchy and flat actions. Header dimensions and typography come from
-`design/tokens/tokens.json`, including the shared compact viewport rule. Lucide
+`design/tokens/tokens.json` (the shared `header` group, which Remote's browser pages
+also use), including the shared compact viewport rule. Lucide
 icons use currentColor, square caps and miter joins.
 
 `notice-card.tsx` owns state-card markup for router errors, mounted lifecycle and

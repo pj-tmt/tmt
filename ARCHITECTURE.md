@@ -52,7 +52,8 @@ tracked-file guard. Handbook language exceptions belong to
 
 Shared visual tokens have one owner, `design/tokens/tokens.json`, maintained by
 the design lead. Its Vite projection, Rust CLI theme tests and native Colab guidance consume the same
-source. Colab projects its header metrics into React and static native CSS from these tokens.
+source. The `header` group is the one header contract: Colab projects it into React and static native CSS,
+and Remote's static browser pages ship the same metrics in `pages.css`, which a Remote test checks against it.
 Native Colab embeds the token JSON and the app header/reader/state-card stylesheets at compile time;
 Docker build stages preserve those source paths, and their CI rules retain native checks.
 The private design-tokens component attributes token changes to Colab through `releaseConsumers`.

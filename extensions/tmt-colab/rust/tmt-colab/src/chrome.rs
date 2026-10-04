@@ -29,7 +29,7 @@ pub fn stylesheet() -> &'static str {
                 format!("--f-{name}:{};", value["stack"].as_str().expect("font"))
             })
             .collect::<String>();
-        let header = &tokens["colab"]["header"];
+        let header = &tokens["header"];
         let metrics = header
             .as_object()
             .expect("header tokens")
@@ -79,7 +79,7 @@ mod tests {
         for (name, value) in tokens["font"].as_object().unwrap() {
             assert!(css.contains(&format!("--f-{name}:{};", value["stack"].as_str().unwrap())));
         }
-        let header = &tokens["colab"]["header"];
+        let header = &tokens["header"];
         for (name, value) in header.as_object().unwrap() {
             assert!(css.contains(&format!(
                 "--colab-header-{name}:{};",

@@ -152,12 +152,10 @@ for (const width of [1440, 390])
           reference ??= current;
           expect(current, screen).toEqual(reference);
           expect(current.height).toBe(
-            parseFloat(
-              width < 480 ? tokens.colab.header['compact-height'] : tokens.colab.header.height,
-            ),
+            parseFloat(width < 480 ? tokens.header['compact-height'] : tokens.header.height),
           );
-          expect(current.title.size).toBe(tokens.colab.header['title-size']);
-          expect(current.wordmark.size).toBe(tokens.colab.header['wordmark-size']);
+          expect(current.title.size).toBe(tokens.header['title-size']);
+          expect(current.wordmark.size).toBe(tokens.header['wordmark-size']);
           expect(current.wordmark.color).not.toBe(current.title.color);
           await expect(page.locator('.colab-header:visible')).toHaveCSS('position', 'fixed');
           await expect(page.locator('.colab-header:visible')).toHaveCSS('flex-wrap', 'nowrap');
@@ -214,7 +212,7 @@ for (const width of [1440, 390])
           for (const icon of await page.locator('svg.lucide:visible').all()) {
             await expect(icon).toHaveCSS('stroke-linecap', 'square');
             await expect(icon).toHaveCSS('stroke-linejoin', 'miter');
-            await expect(icon).toHaveCSS('stroke-width', `${tokens.colab.header['icon-stroke']}px`);
+            await expect(icon).toHaveCSS('stroke-width', `${tokens.header['icon-stroke']}px`);
           }
           await page.screenshot({
             path: `${captureDirectory}/${screen}-${width}-${theme}-top.png`,

@@ -207,7 +207,9 @@ fn static_pages_and_styles_are_exact_and_refusals_remain_generic() {
     let landing = get(&h, "/", "");
     assert_eq!(landing.status, 200);
     assert_eq!(landing.body, include_str!("../assets/landing.html"));
-    assert!(landing.body.contains("Remote <span>tmt</span>"));
+    assert!(landing.body.contains(
+        r#"<span class="header-mark">tmt</span><span class="header-wordmark">Remote</span>"#
+    ));
     assert!(landing.body.contains("aria-hidden=\"true\">○</span>"));
     assert_eq!(
         landing.header("content-type"),
@@ -280,6 +282,45 @@ fn page_palette_and_font_stacks_match_the_shared_token_owner() {
             "--f-{name}: {};",
             tokens["font"][name]["stack"].as_str().unwrap().replace('"', "'")
         )));
+    }
+}
+
+/// The header metrics have one owner (`header` in the shared tokens), the same one Colab's
+/// header reads. The pages ship a static stylesheet, so this is where drift is caught.
+#[test]
+fn page_header_metrics_match_the_shared_token_owner() {
+    let tokens: Value =
+        serde_json::from_str(include_str!("../../../../../design/tokens/tokens.json")).unwrap();
+    let css = include_str!("../assets/pages.css");
+    let header = tokens["header"].as_object().unwrap();
+    // These pages have no header actions or icons, so those tokens are not projected.
+    let unused = ["compact-max-width", "action-", "icon-"];
+    for (name, value) in header {
+        if name == "compact-max-width" {
+            assert!(css.contains(&format!(
+                "@media (max-width: {}) {{\n  :root {{\n    --header-height: var(--header-compact-height);",
+                value.as_str().unwrap()
+            )));
+        } else if unused.iter().any(|prefix| name.starts_with(prefix)) {
+            assert!(!css.contains(&format!("--header-{name}:")), "{name}");
+        } else {
+            assert!(
+                css.contains(&format!("--header-{name}: {};", value.as_str().unwrap())),
+                "{name}"
+            );
+        }
+    }
+    for page in [
+        include_str!("../assets/landing.html"),
+        include_str!("../assets/pair.html"),
+        include_str!("../assets/error.html"),
+    ] {
+        // mark, product, then the page title, exactly Colab's header order.
+        let mark = page.find("header-mark\">tmt<").unwrap();
+        let product = page.find("header-wordmark\">Remote<").unwrap();
+        let title = page.find("<h1 class=\"header-title\">").unwrap();
+        assert!(mark < product && product < title);
+        assert_eq!(page.matches("<h1").count(), 1);
     }
 }
 
