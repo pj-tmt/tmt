@@ -331,20 +331,32 @@ For `typescript/scripts/packed-command.mjs` changes run
 `vp test run --config vitest.config.ts`, then `pnpm check:tooling`. Keep the negative
 controls, confirmed-absence proof and original subprocess deadlines.
 
-## Conventional PR-title rollout
+## Conventional PR titles
 
-`Code quality` runs `node typescript/scripts/pr-title-check.mjs` only for `merge_group`: it
-checks every pending squash subject (after removing GitHub's final `(#PR)`) against
-`type(scope)?: subject` with a lowercase type, optional nonempty scope and `!`. It is syntax
-feedback only; the cut planner owns release attribution. The mode is **report-only**:
-findings (PR, SHA, escaped title) go to job output and `GITHUB_STEP_SUMMARY`, and invalid
-titles, unavailable queue evidence or summary I/O errors still exit zero (unavailable evidence
-is never a clean result). A title edited after queue entry is not compared against REST, and
-full CI has no `edited` trigger. Enforcement is a separate small PR whose cutover is the
-report-only PR's actual `merged_at` plus 24 hours as an explicit UTC timestamp; no
-clock-dependent flip or ruleset edit. Verify with
-`pnpm exec vp test run --config vitest.config.ts test/tooling/pr-title-check.test.ts`,
-`pnpm test:run`, `pnpm check` and `actionlint .github/workflows/ci.yml`.
+`Code quality` runs `node typescript/scripts/pr-title-check.mjs` on `pull_request` and
+`merge_group`. Both check `type(scope)?: subject` with a lowercase type, optional nonempty
+scope and `!`; the cut planner owns release attribution.
+
+- **Pull request: enforcing.** The step reads the current title through `gh api` (a rerun
+  reuses the original event payload, so the event title is stale) and the changed paths from
+  the event's `base...head`. A non-conventional title fails when a path changes a released
+  component, through the planner's own `releasedComponentNamesOfPath` (owned roots plus
+  declared consumers, without the Cargo closure). Note `cli` owns `.` except the other
+  components' roots, so nearly every PR is in scope; only PRs confined to unreleased roots
+  keep any title. Missing title evidence fails closed. After the author edits the title, rerun
+  `Code quality`; full CI has no `edited` trigger.
+- **Merge group: report-only.** Every pending squash subject (after removing GitHub's final
+  `(#PR)`) is checked; findings (PR, SHA, escaped title) go to job output and
+  `GITHUB_STEP_SUMMARY`. Invalid titles, unavailable queue evidence or summary I/O errors
+  still exit zero, and unavailable evidence is never a clean result.
+
+The planner is the fail-safe behind the gate: a non-conventional or capitalized top-level
+subject on a released component's paths is releasable and listed under `Other changes`, never
+dropped (#1643). Conventional `docs`, `chore`, `test` and similar types stay hidden.
+
+Verify with
+`pnpm exec vp test run --config vitest.config.ts test/tooling/pr-title-check.test.ts test/tooling/release-cut.test.ts`,
+`pnpm check:tooling` and `actionlint .github/workflows/ci.yml`.
 
 ## Project release tracking
 
