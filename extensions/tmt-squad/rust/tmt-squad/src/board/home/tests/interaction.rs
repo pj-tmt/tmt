@@ -11,6 +11,7 @@ use ratatui::{
     layout::Rect,
     widgets::Paragraph,
 };
+use tmt_cli_style::breakpoint::{LG, MD};
 
 pub(super) fn press(app: &mut App, key: KeyCode) -> Effect {
     app.key(KeyEvent::new(key, KeyModifiers::NONE))
@@ -701,13 +702,13 @@ fn home_tiles_paint_uncovered_known_history_as_partial_at_each_width_and_theme()
                 .iter()
                 .map(|cell| cell.symbol())
                 .collect::<String>();
-            if width >= 100 {
+            if width >= MD.cells {
                 assert!(
                     header.starts_with("tok ") && header.contains("top "),
                     "{base}/{width}: {header}"
                 );
-                assert_eq!(header.contains("1m ~21"), width >= 150);
-                assert_eq!(header.contains("by model"), width >= 150);
+                assert_eq!(header.contains("1m ~21"), width >= LG.cells);
+                assert_eq!(header.contains("by model"), width >= LG.cells);
             } else {
                 assert!(!header.starts_with("tok "), "{base}/{width}: {header}");
             }
@@ -774,8 +775,8 @@ fn header_usage() -> crate::board::app::HomeHeaderUsage<'static> {
 fn header_usage_formats_thresholds_real_labels_and_partial_missing_values() {
     let app = board(&[]);
     let mut usage = header_usage();
-    assert!(paint::usage(&usage, 99, app.look()).is_none());
-    for width in [100, 149] {
+    assert!(paint::usage(&usage, MD.cells - 1, app.look()).is_none());
+    for width in [MD.cells, LG.cells - 1] {
         let line = paint::usage(&usage, width, app.look()).unwrap();
         assert_eq!(super::glyph_error(&line.to_string()), None);
         assert_eq!(
@@ -783,7 +784,7 @@ fn header_usage_formats_thresholds_real_labels_and_partial_missing_values() {
             "tok 5m ~1k · 1h ~2k · top worker sol ~60% (1h)"
         );
     }
-    for width in [150, 160] {
+    for width in [LG.cells, 149, 160] {
         let line = paint::usage(&usage, width, app.look()).unwrap();
         assert_eq!(super::glyph_error(&line.to_string()), None);
         assert_eq!(
@@ -818,13 +819,13 @@ fn header_usage_fits_escaped_unicode_names_and_keeps_whole_optional_groups() {
     let mut usage = header_usage();
     usage.top.as_mut().unwrap().member = "long-界界界界界界-e\u{301}-worker\nunsafe";
     usage.top.as_mut().unwrap().model = Some("unknown-model-with-a-very-long-name\u{1b}");
-    for width in [100, 149, 150, 160] {
+    for width in [MD.cells, LG.cells - 1, LG.cells, 149, 160] {
         let line = paint::usage(&usage, width, app.look()).unwrap();
         let text = line.to_string();
         assert!(line.width() <= width as usize, "{width}: {text}");
         assert!(!text.contains('\n') && !text.contains('\u{1b}'));
         assert!(text.contains("~60% (1h)"));
-        assert_eq!(text.contains("2 unreported"), width >= 150);
+        assert_eq!(text.contains("2 unreported"), width >= LG.cells);
         assert!(!text.ends_with(" · "));
     }
 }
@@ -872,7 +873,7 @@ fn header_frames() -> Value {
                 hits.push(hit);
                 buffers.push(buffer);
             }
-            let shift = u16::from(width >= 100);
+            let shift = u16::from(width >= MD.cells);
             assert_eq!(hits[0].len(), hits[1].len());
             for (before, after) in hits[0].iter().zip(&hits[1]) {
                 assert_eq!(after.y, before.y + shift);

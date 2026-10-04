@@ -328,7 +328,7 @@ with unknown/custom states appear as `N other`. Sampled token windows and the le
 Selection covers the whole row, including padding.
 
 At 100 columns and wider, observed HOME usage adds a header row below the counts:
-`tok 5m ~N · 1h ~N · top <member> <model> P% (1h)`. At 150 columns it also
+`tok 5m ~N · 1h ~N · top <member> <model> P% (1h)`. At 140 columns it also
 shows the first window, model shares and `N unreported`. The labels use global
 `[board] tok`; the top and model shares use its longest window. Squad rows and
 member grids retain their own overrides. UUIDs in several shown sampling squads
