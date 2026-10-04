@@ -18,7 +18,7 @@ interface Result {
 interface Row {
   id: string;
   notes_nudge: number | null;
-  driver_state: string;
+  driver_state: string | null;
   latest: string | null;
 }
 
@@ -135,6 +135,10 @@ function row(db: Database.Database): Row | undefined {
 const promptContext = (result: Result) =>
   result.stdout ? (JSON.parse(result.stdout).hookSpecificOutput.additionalContext as string) : '';
 
+function reportedTokens(current: Row | undefined): number | undefined {
+  return current?.driver_state ? JSON.parse(current.driver_state).usage?.tokens : undefined;
+}
+
 async function settled(f: E2EFixture, worker: ReturnType<typeof startSampler>) {
   // On assertion failure, release current and future owned fixture checkpoints,
   // then await the wrapper's post-reap status before the harness removes its root.
@@ -187,7 +191,7 @@ it.each([
           await f.waitFor(
             () => {
               const current = row(db!);
-              const used = current && JSON.parse(current.driver_state).usage?.tokens;
+              const used = reportedTokens(current);
               return used === 8000 && current!.notes_nudge === (eligible ? 80 : null);
             },
             8500,
@@ -221,8 +225,7 @@ it.each([
             () => {
               const current = row(db!);
               return (
-                current?.notes_nudge === (eligible ? 90 : null) &&
-                JSON.parse(current!.driver_state).usage?.tokens === 9000
+                current?.notes_nudge === (eligible ? 90 : null) && reportedTokens(current) === 9000
               );
             },
             8500,
@@ -304,7 +307,7 @@ it('ignores retained usage after a failed read, keeps a disabled reminder, and n
         db = new Database(path.join(f.globalDir, 'tmux-team.db'), { readonly: true });
         fs.appendFileSync(worker.transcript, usage('codex', 8000));
         await f.waitFor(
-          () => JSON.parse(row(db!)!.driver_state).usage?.tokens === 8000,
+          () => reportedTokens(row(db!)) === 8000,
           8500,
           'high usage collected while reminders disabled'
         );
@@ -317,7 +320,7 @@ it('ignores retained usage after a failed read, keeps a disabled reminder, and n
           'setting re-enabled with source missing'
         );
         await f.waitFor(() => row(db!)?.latest === null, 8500, 'failed source sample recorded');
-        expect(JSON.parse(row(db)!.driver_state).usage.tokens).toBe(8000);
+        expect(reportedTokens(row(db))).toBe(8000);
         expect(row(db)?.notes_nudge).toBeNull();
         fs.writeFileSync(worker.checkpoints[1], 'continue');
         await f.waitFor(
