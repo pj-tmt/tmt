@@ -247,10 +247,12 @@ pub fn status(declared: Use, prefix: &Path) -> UseStatus {
         std::fs::symlink_metadata(&command),
         Err(error) if error.kind() == io::ErrorKind::NotFound
     );
-    let (installed, unavailable) = match linked
-        .then(|| inspect_product_prefix(declared.extension, prefix))
-        .unwrap_or_else(|| Err(io::Error::from(io::ErrorKind::NotFound)))
-    {
+    let inspected = if linked {
+        inspect_product_prefix(declared.extension, prefix)
+    } else {
+        Err(io::Error::from(io::ErrorKind::NotFound))
+    };
+    let (installed, unavailable) = match inspected {
         Ok(installation) => {
             let version = installation.state.version;
             let unavailable = (version < declared.minimum).then_some(Unavailable::TooOld);

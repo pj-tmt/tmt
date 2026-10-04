@@ -113,7 +113,8 @@ fn a_release_without_the_file_declares_nothing_and_still_verifies() {
 
 #[test]
 fn a_malformed_or_inconsistent_file_rejects_the_release_before_publication() {
-    let cases: [(&str, Option<(&str, u32)>, Option<bool>); 5] = [
+    type Case<'a> = (&'a str, Option<(&'a str, u32)>, Option<bool>);
+    let cases: [Case; 5] = [
         ("malformed JSON", Some(("nope", 0o644)), None),
         ("executable mode", Some((COLAB_USES, 0o755)), None),
         (
