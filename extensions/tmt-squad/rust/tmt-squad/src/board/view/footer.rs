@@ -43,6 +43,9 @@ pub(in crate::board) fn toggle_label(app: &App, action: &crate::action::Action) 
 
 /// The footer names what the most used keys do for the selected row.
 pub(super) fn hints(app: &App, width: usize) -> String {
+    if app.jobs_focus {
+        return crate::board::cronboard::jobs_hints(width);
+    }
     if app.view.as_ref().is_some_and(|view| view.home.is_some()) {
         return crate::board::home::hints(width, app.cron_shown());
     }
@@ -187,7 +190,18 @@ pub(super) fn render(frame: &mut Frame, app: &App, footer: Rect, look: crate::lo
         .as_ref()
         .filter(|input| !matches!(input.compose, crate::board::app::Compose::AskLead { .. }))
     {
-        Line::from(format!("{} › {}▏", input.prompt, input.text))
+        let mut spans = vec![Span::raw(format!("{} › {}▏", input.prompt, input.text))];
+        if let Some(hint) = input
+            .hint
+            .as_ref()
+            .filter(|hint| hint.error || input.text.is_empty())
+        {
+            spans.push(Span::styled(
+                format!("  {}", hint.text),
+                look.role(if hint.error { Role::Waiting } else { Role::Dim }),
+            ));
+        }
+        Line::from(spans)
     } else if app.searching {
         Line::from(format!("/{}▏", app.search))
     } else if let Some(notice) = &app.notice {

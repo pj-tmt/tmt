@@ -374,7 +374,7 @@ pub(super) fn render_rows(frame: &mut Frame, app: &App, area: Rect) {
                             ),
                         ];
                         if let Some(age) = request_age {
-                            age_mark(&mut spans, &age, usize::from(area.width), look, selected);
+                            age_mark(&mut spans, &[age], usize::from(area.width), look, selected);
                         }
                         row_lines.push((lines.len(), row_index));
                         lines.push(Line::from(spans).style(style));

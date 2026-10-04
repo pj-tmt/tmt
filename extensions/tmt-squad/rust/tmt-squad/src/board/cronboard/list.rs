@@ -24,6 +24,8 @@ pub(in crate::board) enum Input {
     Close,
     /// Enter or a click on this row id.
     Open(String),
+    /// A job control (`n e p x o d`) with the selected row id, if any.
+    Job(char, Option<String>),
 }
 
 pub(in crate::board) struct List {
@@ -65,7 +67,7 @@ impl List {
     }
 
     pub fn render(&self, state: &State, now_ms: i64, frame: &mut Frame, look: Look, body: Rect) {
-        let columns = Columns::for_width(true, body.width);
+        let columns = Columns::for_width(true, body.width.saturating_sub(4));
         let mut template = self.template.borrow_mut();
         if template.as_ref().is_none_or(|(old, _)| *old != columns) {
             *template = Some((columns, modal(columns)));
@@ -86,7 +88,7 @@ impl List {
             "rows": project(&jobs, None, now_ms),
             "query": "",
             "status": status,
-            "footer": "↑↓ choose · ⏎ open squad · Esc close",
+            "footer": super::hints::overlay(usize::from(body.width.saturating_sub(4))),
             "notes": [],
             // The cached scene is keyed by value, and the template depends on width.
             "columns": format!("{columns:?}"),
@@ -108,6 +110,9 @@ impl List {
                 KeyCode::Esc | KeyCode::Char('q') => return Input::Close,
                 KeyCode::Enter => {
                     return self.selected().map_or(Input::None, Input::Open);
+                }
+                KeyCode::Char(job @ ('n' | 'e' | 'p' | 'x' | 'o' | 'd')) => {
+                    return Input::Job(job, self.selected());
                 }
                 _ => {}
             }

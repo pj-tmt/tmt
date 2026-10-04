@@ -189,6 +189,13 @@ pub(super) fn model(app: &App) -> KeyHelp {
             )],
         ));
     }
+    if app.jobs_focus {
+        sections.push(section(
+            "cron-jobs",
+            "cron jobs (while the jobs half has focus)",
+            &crate::board::cronboard::help_keys(),
+        ));
+    }
     if !home && app.cron_shown() && !app.bindings().contains_key("c") {
         sections[0]
             .entries

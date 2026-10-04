@@ -198,6 +198,7 @@ fn execute(core: &Core, request: Request) -> Result<String, String> {
             .and_then(|mut config| config.set_tab_order(&keys))
             .map(|()| "Tab order saved.".to_owned())
             .map_err(|error| error.message),
+        Request::Cron(request) => cronboard::act(core, request),
         Request::Reply {
             me,
             request,

@@ -3,7 +3,9 @@
 
 use super::{List, ListInput, rows::key_of, rows::row_id};
 use crate::board::app::{App, Effect, Request, event_name};
-use ratatui::crossterm::event::{Event, KeyCode, KeyEventKind, MouseButton, MouseEventKind};
+use ratatui::crossterm::event::{
+    Event, KeyCode, KeyEventKind, KeyModifiers, MouseButton, MouseEventKind,
+};
 use tmt_tui::components::ListEvent;
 
 impl App {
@@ -27,6 +29,14 @@ impl App {
             ListInput::Close => {
                 self.cron_list = None;
                 Some(Effect::None)
+            }
+            ListInput::Job(job, id) => {
+                // Forms and the delete confirmation need the base layer's input
+                // line and menu; a send or pause keeps the list open to show it.
+                if matches!(job, 'n' | 'e' | 'o' | 'd') {
+                    self.cron_list = None;
+                }
+                Some(self.cron_key(job, id.as_deref()))
             }
             ListInput::Open(id) => {
                 let squad = self
@@ -99,6 +109,14 @@ impl App {
             KeyCode::Char('c') => {
                 let selected = self.jobs_selected();
                 Some(self.open_cron_list(selected.as_deref()))
+            }
+            KeyCode::Char(job @ ('n' | 'e' | 'p' | 'x' | 'o' | 'd'))
+                if !key
+                    .modifiers
+                    .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT) =>
+            {
+                let selected = self.jobs_selected();
+                Some(self.cron_key(job, selected.as_deref()))
             }
             _ => {
                 let room = self.jobs_room()?;

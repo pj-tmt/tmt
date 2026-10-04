@@ -57,7 +57,7 @@ fn the_list_shows_every_squad_clock_and_keys_inside_its_box_at_each_width() {
         assert!(text.contains("alpha") && text.contains("beta"), "{text}");
         assert!(text.contains("2 jobs · no clock"), "{text}");
         assert!(
-            text.contains("↑↓ choose · ⏎ open squad · Esc close"),
+            text.contains("↑↓ choose · ⏎ open squad") && text.contains("Esc close"),
             "{text}"
         );
         assert_eq!(

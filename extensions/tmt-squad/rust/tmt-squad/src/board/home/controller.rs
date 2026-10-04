@@ -247,7 +247,7 @@ impl Send {
                 Compose::Annotate { to, row } => {
                     entry.lead == Some(to) && entry.row["name"].as_str() == Some(row)
                 }
-                Compose::Talk { .. } | Compose::AskLead { .. } => false,
+                Compose::Talk { .. } | Compose::AskLead { .. } | Compose::Cron => false,
             })
     }
 }

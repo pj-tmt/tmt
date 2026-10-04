@@ -2,8 +2,11 @@
 //! loaded on the refresh worker. Paint and input only read it; reads and writes
 //! go through `cron_service`, never the store.
 
+mod act;
 mod controller;
+mod forms;
 mod half;
+mod hints;
 mod line;
 mod list;
 mod load;
@@ -13,7 +16,10 @@ mod surface;
 use crate::cron_service::{CronActor, JobView};
 use tmt_squad::cron::ClockStatus;
 
+pub(super) use act::{CronRequest, Op, act};
+pub(super) use forms::Draft;
 pub(super) use half::{render as render_half, wanted as half_wanted};
+pub(super) use hints::{help as help_keys, jobs as jobs_hints};
 pub(super) use line::line as home_line;
 #[cfg(test)]
 pub(super) use line::tests::{NOW as TEST_NOW, cron as test_cron, view as test_view};

@@ -101,10 +101,6 @@ impl Pane {
         let frame = self.frame.clone()?;
         self.list.input(event, &frame)
     }
-
-    pub fn viewport(&self) -> Option<Rect> {
-        self.frame.as_ref().map(|frame| frame.viewport)
-    }
 }
 
 /// The `c` list's modal template for these columns.

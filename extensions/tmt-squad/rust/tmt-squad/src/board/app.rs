@@ -128,6 +128,8 @@ pub enum Request {
     },
     /// Save this tab order to `[tabs] order` (tab keys, in order).
     Reorder(Vec<String>),
+    /// A cron job control, with its actor, job and viewed revision resolved.
+    Cron(super::cronboard::CronRequest),
 }
 
 impl Request {
@@ -136,7 +138,11 @@ impl Request {
     pub fn sends(&self) -> bool {
         matches!(
             self,
-            Self::Talk { .. } | Self::Annotate { .. } | Self::Reply { .. } | Self::Reorder(_)
+            Self::Talk { .. }
+                | Self::Annotate { .. }
+                | Self::Reply { .. }
+                | Self::Reorder(_)
+                | Self::Cron(_)
         )
     }
 }
@@ -168,7 +174,14 @@ pub enum Item<'a> {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Choice {
     Action(Action),
-    Reply { request: String, from: String },
+    /// Confirms a cron control picked from a menu.
+    Cron(super::cronboard::CronRequest),
+    /// Leaves the menu without doing anything.
+    Dismiss,
+    Reply {
+        request: String,
+        from: String,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -199,10 +212,23 @@ pub struct Menu {
 /// Where composed text goes.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Compose {
-    AskLead { to: String, sender: String },
-    Talk { to: String },
-    Annotate { to: String, row: String },
-    Reply { request: String, from: String },
+    AskLead {
+        to: String,
+        sender: String,
+    },
+    Talk {
+        to: String,
+    },
+    Annotate {
+        to: String,
+        row: String,
+    },
+    Reply {
+        request: String,
+        from: String,
+    },
+    /// One step of a cron form; its draft lives in `App::cron_draft`.
+    Cron,
 }
 
 /// The one-line composer: Enter sends, Esc cancels, empty sends nothing.
@@ -214,6 +240,14 @@ pub struct Input {
     pub compose: Compose,
     /// The squad the text is sent in: the row's own on the leads tab.
     pub squad: String,
+    /// A line after the text: the accepted forms, or why the last entry failed.
+    pub hint: Option<Hint>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Hint {
+    pub text: String,
+    pub error: bool,
 }
 
 /// Longest text the composer accepts, in characters.
@@ -307,6 +341,8 @@ pub struct App {
     pub(super) note_hits: RefCell<Vec<(ratatui::layout::Rect, usize)>>,
     pub(super) notebooks: RefCell<super::notes::Notebooks>,
     pub(super) cron: super::cronboard::State,
+    /// The cron form being filled in on the input line, if any.
+    pub(super) cron_draft: Option<super::cronboard::Draft>,
     /// The squad tab's jobs half has focus (Tab moves in after the last pane).
     pub(super) jobs_focus: bool,
     /// One list state per squad room; selection survives tab switches.
@@ -1429,6 +1465,7 @@ impl App {
             text: String::new(),
             compose,
             squad,
+            hint: None,
         });
         Effect::None
     }
@@ -1510,6 +1547,8 @@ impl App {
     fn choose(&mut self, choice: Choice) -> Effect {
         match choice {
             Choice::Action(action) => self.perform(&action),
+            Choice::Cron(request) => Effect::Act(Request::Cron(request)),
+            Choice::Dismiss => Effect::None,
             Choice::Reply { request, from } => {
                 let squad = self.current.clone().unwrap_or_default();
                 self.ask(
@@ -1748,7 +1787,12 @@ impl App {
         };
         match key.code {
             KeyCode::Esc => {
+                let cron = matches!(input.compose, Compose::Cron);
                 self.input = None;
+                if cron {
+                    self.cron_draft = None;
+                    return self.say("Cancelled; nothing changed.");
+                }
                 return self.say("Nothing sent.");
             }
             KeyCode::Enter => {}
@@ -1767,6 +1811,10 @@ impl App {
             _ => return Effect::None,
         }
         let input = self.input.take().expect("composing");
+        if matches!(input.compose, Compose::Cron) {
+            // A job message is stored exactly as typed: no trim, unlike talk.
+            return self.cron_submit(input.text);
+        }
         let text = input.text.trim().to_owned();
         if input
             .home
@@ -1792,6 +1840,7 @@ impl App {
                     Compose::AskLead { .. } => false,
                     Compose::Talk { to } => to == member,
                     Compose::Annotate { to, .. } => self.lead().as_ref() == Ok(to),
+                    Compose::Cron => false,
                     Compose::Reply { request, from } => {
                         from == member
                             && row["waitingOnYou"].as_array().is_some_and(|items| {
@@ -1826,6 +1875,7 @@ impl App {
                 row,
                 text,
             },
+            Compose::Cron => unreachable!("a cron step is submitted before this match"),
             Compose::Reply { request, from } => Request::Reply {
                 me,
                 request,
@@ -2269,6 +2319,9 @@ impl App {
         }
         if let Some(list) = &self.cron_list {
             list.invalidate();
+        }
+        for pane in self.jobs.borrow_mut().values_mut() {
+            pane.invalidate();
         }
     }
 
@@ -3434,6 +3487,7 @@ pub(crate) mod tests {
                     text: "draft".into(),
                     compose: compose.clone(),
                     squad: "product".into(),
+                    hint: None,
                 });
                 assert_eq!(app.key(refresh), Effect::Refresh);
                 let input = app.input.as_ref().unwrap();
@@ -3959,6 +4013,7 @@ mod token_window_tests {
                 text: String::new(),
                 compose,
                 squad: "x".into(),
+                hint: None,
             });
             app.key(key);
             assert_eq!(app.input.as_ref().unwrap().text, "w");

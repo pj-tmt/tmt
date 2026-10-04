@@ -121,7 +121,7 @@ impl Worker {
                         Deferred::Cron(job) => super::BoardEvent::Cron {
                             read: super::cronboard::fetch(
                                 &reader,
-                                job,
+                                *job,
                                 crate::status::now_ms() as i64,
                             ),
                             cancellation: cancellation.clone(),
@@ -232,7 +232,7 @@ impl Loaded {
 /// The existing worker's lower-priority work, behind full reloads.
 enum Deferred {
     Attention(Box<AttentionJob>),
-    Cron(super::cronboard::Fetch),
+    Cron(Box<super::cronboard::Fetch>),
     Usage(super::rate::Input),
     Notebook { identity: String, revision: u64 },
 }
@@ -426,7 +426,7 @@ fn serve(
         }
         if let Some(job) = cron
             && generation.load(Ordering::Acquire) == wanted.generation
-            && !deferred(Deferred::Cron(job), wanted.generation)
+            && !deferred(Deferred::Cron(Box::new(job)), wanted.generation)
         {
             break;
         }

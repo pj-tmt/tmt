@@ -145,12 +145,7 @@ pub fn actor(
     explicit: Option<&str>,
 ) -> Result<CronActor, SquadError> {
     if let Some(selector) = explicit {
-        let shown = core.json(&["identity", "show", selector])?;
-        let value = &shown["identity"];
-        return Ok(CronActor {
-            id: text(value, "id")?,
-            name: text(value, "name")?,
-        });
+        return member(core, selector);
     }
     if let Some(caller) = me::caller(core)? {
         return Ok(caller.me.into());
@@ -163,6 +158,16 @@ pub fn actor(
                 "Record yourself with tmt squad me <name>, or supply --identity.",
             )
         })
+}
+/// Resolves an identity selector to its UUID and name through public core.
+/// It admits nothing: roster membership and permission stay with `apply`.
+pub fn member(core: &Core, selector: &str) -> Result<CronActor, SquadError> {
+    let shown = core.json(&["identity", "show", selector])?;
+    let value = &shown["identity"];
+    Ok(CronActor {
+        id: text(value, "id")?,
+        name: text(value, "name")?,
+    })
 }
 fn text(value: &Value, key: &str) -> Result<String, SquadError> {
     value[key].as_str().map(str::to_owned).ok_or_else(|| {
