@@ -62,7 +62,8 @@ cron_service` and the native `squad.test.ts` cron cases cover actor permission, 
   literal buffers, styles and hits (themes, depths, widths, selection, stale, waiting, cron labels,
   annotation) before the old one goes.
 - Frame cost: the `#[ignore]` harness `board/view/tests/frame_timing.rs` times one 160x50 frame
-  of crew rows, team rows and home (meter on) through `Terminal::draw`, split by the phases of
+  of crew rows, team rows, home with attention sections only (meter on) and home with every
+  section through `Terminal::draw`, split by the phases of
   `view::render`, plus a `strip::paint_left` microbench. Run it with
   `CARGO_BUILD_JOBS=2 cargo test --release -p tmt-squad frame_timing -- --ignored --nocapture`;
   compare runs from one machine and build, never as a CI threshold. A render change keeps
