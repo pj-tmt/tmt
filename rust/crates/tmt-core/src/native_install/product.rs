@@ -123,6 +123,17 @@ impl Product {
         }
     }
 
+    /// Plain, non-executable files an extension release may carry beside the
+    /// required ones: `TMT-USES.json` declares optional uses of other
+    /// extensions. Like a companion, each is optional and recorded in the
+    /// receipt exactly when the release carries it.
+    pub const fn optional_files(self) -> &'static [&'static str] {
+        match self {
+            Self::Cli | Self::Office => &[],
+            Self::Squad | Self::Remote | Self::Colab => &["TMT-USES.json"],
+        }
+    }
+
     pub const fn files(self) -> [&'static str; 4] {
         [
             self.executable(),
