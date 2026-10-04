@@ -130,14 +130,13 @@ test('a browser pairs, gets a door session and certifies only its own extension'
   await expect(page.locator('#words')).toBeVisible();
   const candidate = await events.next();
   expect(candidate.event).toBe('candidate');
-  await expect(page.locator('#words')).toHaveText(
-    `Words: ${(candidate.words as string[]).join(' ')}`,
-  );
+  await expect(page.locator('#words')).toHaveText((candidate.words as string[]).join(' '));
   pair.stdin.write('confirm\n');
   expect((await events.next()).reason).toBe('paired');
   await expect(page.locator('#status')).toHaveText(
     'This browser is paired. You can close this page.',
   );
+  await expect(page.locator('#mark')).toHaveText('✓');
   expect(requested.some((url) => url.includes(code))).toBe(false);
 
   const cookies = await context.cookies(mounts);
@@ -370,11 +369,21 @@ test('browser pages use local tokens in both schemes and fit desktop and mobile'
         page.on('console', (message) => {
           if (message.text().startsWith('CSP violation:')) violations.push(message.text());
         });
-        const inspect = async (state: string) => {
+        const inspect = async (state: 'landing' | 'pairing' | 'confirmation' | 'error') => {
+          await expect(page.locator('.brand')).toHaveText('Remote tmt');
+          await expect(page.locator('.state-mark')).toHaveText(
+            { landing: '○', pairing: '○', confirmation: '◆', error: '✗' }[state]!,
+          );
           const look = await page.evaluate(() => {
             const sheet = document.querySelector('.sheet')!;
             const style = getComputedStyle(sheet);
             return {
+              mastheadWidth: document.querySelector('.masthead')!.getBoundingClientRect().width,
+              mastheadRule: getComputedStyle(document.querySelector('.masthead')!)
+                .borderBottomWidth,
+              markAboveEyebrow:
+                document.querySelector('.state-mark')!.getBoundingClientRect().bottom <=
+                document.querySelector('.eyebrow')!.getBoundingClientRect().top,
               paper: getComputedStyle(document.body).backgroundColor,
               sheet: style.backgroundColor,
               text: getComputedStyle(document.body).color,
@@ -390,6 +399,9 @@ test('browser pages use local tokens in both schemes and fit desktop and mobile'
             paper: colorScheme === 'light' ? 'rgb(244, 246, 251)' : 'rgb(26, 27, 38)',
             sheet: colorScheme === 'light' ? 'rgb(255, 255, 255)' : 'rgb(22, 22, 30)',
             text: colorScheme === 'light' ? 'rgb(52, 59, 88)' : 'rgb(192, 202, 245)',
+            mastheadWidth: width,
+            mastheadRule: '2px',
+            markAboveEyebrow: true,
             radius: '0px',
             overflow: false,
             inline: 0,
@@ -421,10 +433,27 @@ test('browser pages use local tokens in both schemes and fit desktop and mobile'
         await page.keyboard.press('Enter');
         const candidate = await events.next();
         expect(candidate.event).toBe('candidate');
-        await expect(page.locator('#words')).toHaveText(
-          `Words: ${(candidate.words as string[]).join(' ')}`,
-        );
+        await expect(page.locator('#words')).toHaveText((candidate.words as string[]).join(' '));
         await expect(page.locator('#status')).toHaveAttribute('data-state', 'waiting');
+        await expect(page.locator('.words-label')).toHaveText('Words');
+        await expect(page.locator('#status')).toHaveText(
+          'Compare these words with the terminal, then confirm there.',
+        );
+        const confirmation = await page.evaluate(() => ({
+          instruction: getComputedStyle(document.getElementById('status')!).color,
+          body: getComputedStyle(document.body).color,
+          mark: getComputedStyle(document.getElementById('mark')!).color,
+          wordsSize: parseFloat(getComputedStyle(document.getElementById('words')!).fontSize),
+          labelInside: document
+            .getElementById('words')!
+            .contains(document.querySelector('.words-label')),
+        }));
+        expect(confirmation.instruction).toBe(confirmation.body);
+        expect(confirmation.mark).toBe(
+          colorScheme === 'light' ? 'rgb(150, 80, 39)' : 'rgb(255, 158, 100)',
+        );
+        expect(confirmation.wordsSize).toBeGreaterThanOrEqual(24);
+        expect(confirmation.labelInside).toBe(false);
         await inspect('confirmation');
         pair.stdin.write('refuse\n');
         expect((await events.next()).reason).toBe('refused');
@@ -434,6 +463,7 @@ test('browser pages use local tokens in both schemes and fit desktop and mobile'
         await expect(page.locator('#status')).toHaveText(
           'Pairing did not complete. Run tmt remote pair again for a new link.',
         );
+        await expect(page.locator('#mark')).toHaveText('✗');
         await page.goto(`${origin}/pair/abc`);
         await expect(page.locator('#status')).toHaveAttribute('data-state', 'blocked');
         await expect(page.locator('#pair')).toBeHidden();

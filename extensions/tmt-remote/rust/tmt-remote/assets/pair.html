@@ -8,18 +8,24 @@
     <script type="module" src="/sdk/remote-v1.js"></script>
   </head>
   <body>
+    <header class="masthead">
+      <span class="brand">Remote <span>tmt</span></span>
+    </header>
     <main class="page">
-      <p class="brand">tmt <span>remote</span></p>
       <section class="sheet" aria-labelledby="heading">
-        <div class="sheet-header">Browser pairing</div>
         <div class="sheet-body">
+          <span id="mark" class="state-mark" aria-hidden="true">○</span>
+          <p class="eyebrow">Browser pairing</p>
           <h1 id="heading">Pair this browser with tmt remote</h1>
           <form id="pair">
             <label for="name">Device name</label>
             <input id="name" maxlength="64" required value="Browser" />
             <button type="submit">Pair</button>
           </form>
-          <p id="words" hidden></p>
+          <div id="comparison" hidden>
+            <p class="words-label">Words</p>
+            <p id="words"></p>
+          </div>
           <p id="status" role="status"></p>
         </div>
       </section>

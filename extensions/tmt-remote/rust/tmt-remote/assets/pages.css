@@ -10,7 +10,6 @@
   --c-paper: #f4f6fb;
   --c-sheet: #ffffff;
   --c-rule: #dde2ee;
-  --c-waiting-soft: #ffefe2;
   --f-display: 'Bricolage Grotesque', system-ui, sans-serif;
   --f-body: 'Hanken Grotesk', system-ui, -apple-system, 'Segoe UI', sans-serif;
   --f-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
@@ -26,7 +25,6 @@
     --c-paper: #1a1b26;
     --c-sheet: #16161e;
     --c-rule: #292e42;
-    --c-waiting-soft: #3a2a1f;
   }
 }
 
@@ -46,41 +44,62 @@ body {
   -webkit-text-size-adjust: 100%;
 }
 .page {
-  width: min(100% - 48px, 640px);
-  margin: clamp(32px, 12vh, 112px) auto 48px;
+  width: min(100% - 48px, 680px);
+  margin: clamp(44px, 11vh, 104px) auto 64px;
 }
-.brand,
 label,
 button,
 code,
-.sheet-header {
+.eyebrow,
+.words-label {
   font-family: var(--f-mono);
 }
+.masthead {
+  min-height: 62px;
+  display: flex;
+  align-items: center;
+  border-bottom: 2px solid var(--c-text);
+  padding: 10px clamp(20px, 4vw, 48px);
+  background: var(--c-sheet);
+}
 .brand {
-  margin: 0 0 24px;
-  font-size: 14px;
-  font-weight: 600;
-  letter-spacing: 0.02em;
+  font: 700 21px/1 var(--f-display);
+  letter-spacing: -0.03em;
 }
 .brand span {
-  color: var(--c-accent);
+  margin-left: 10px;
+  color: var(--c-muted);
+  font: 12px var(--f-mono);
+  letter-spacing: 0;
+}
+.state-mark {
+  display: block;
+  margin-bottom: 12px;
+  color: var(--c-waiting);
+  font: 700 30px/1 var(--f-mono);
+}
+.error .state-mark,
+.page:has(#status[data-state='blocked']) .state-mark {
+  color: var(--c-blocked);
+}
+.page:has(#status[data-state='paired']) .state-mark {
+  color: var(--c-working);
 }
 .sheet {
   border: 2px solid var(--c-text);
   background: var(--c-sheet);
   box-shadow: 6px 6px 0 var(--c-accent);
 }
-.sheet-header {
-  padding: 12px 28px;
-  border-bottom: 1px solid var(--c-rule);
+.eyebrow {
+  margin: 0 0 8px;
   color: var(--c-muted);
   font-size: 11px;
   font-weight: 600;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.09em;
   text-transform: uppercase;
 }
 .sheet-body {
-  padding: 32px 28px;
+  padding: clamp(24px, 5vw, 44px);
 }
 h1 {
   margin: 0 0 16px;
@@ -139,13 +158,22 @@ button:hover {
   outline: 2px solid var(--c-accent);
   outline-offset: 4px;
 }
-#words {
+#comparison {
   margin-top: 28px;
+}
+.words-label {
+  margin-bottom: 8px;
+  color: var(--c-muted);
+  font-size: 12px;
+  font-weight: 600;
+}
+#words {
   padding: 20px;
-  border: 1px solid var(--c-waiting);
-  background: var(--c-waiting-soft);
+  border: 1px solid var(--c-rule);
+  background: var(--c-paper);
   color: var(--c-text);
-  font: 600 clamp(18px, 3vw, 23px)/1.65 var(--f-mono);
+  font: 600 clamp(24px, 3vw, 30px)/1.65 var(--f-mono);
+  white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
 #status:not(:empty) {
@@ -153,25 +181,11 @@ button:hover {
   padding-top: 20px;
   border-top: 1px solid var(--c-rule);
 }
-#status[data-state='waiting'] {
-  color: var(--c-waiting);
-}
-#status[data-state='paired'] {
-  color: var(--c-working);
-}
-#status[data-state='blocked'] {
-  color: var(--c-blocked);
-}
-.error .sheet {
+.error .sheet,
+.page:has(#status[data-state='blocked']) .sheet {
   box-shadow: 6px 6px 0 var(--c-blocked);
 }
 @media (max-width: 480px) {
-  .sheet-header {
-    padding: 12px 20px;
-  }
-  .sheet-body {
-    padding: 28px 20px;
-  }
   button {
     width: 100%;
   }

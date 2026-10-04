@@ -1149,13 +1149,7 @@ System-wide invariants:
 Local extensions discover a running Remote through read-only `tmt remote status --json`
 or supervise `tmt remote serve --json` and consume its bound descriptor. The
 [local CLI discovery contract](contracts/remote-channel-v1.md#local-cli-discovery)
-owns both shapes; Colab never reads Remote's private state. Live status comes only
-from serve's control socket. Stopped status holds an existing serve lease and
-opens SQLite read-only without initialization or migration, preserving one database
-opener. `tmt remote stop` sets serve's SIGTERM shutdown flag through the control
-socket and confirms lease release and socket cleanup without identifying a PID;
-stored pairings and grants survive. Remote owns persistence of the last bound door
-port and defaults to reusing it.
+owns both shapes; Colab never reads Remote's private state.
 
 ## Colab extension
 

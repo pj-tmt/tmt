@@ -175,6 +175,8 @@ fn static_pages_and_styles_are_exact_and_refusals_remain_generic() {
     let landing = get(&h, "/", "");
     assert_eq!(landing.status, 200);
     assert_eq!(landing.body, include_str!("../assets/landing.html"));
+    assert!(landing.body.contains("Remote <span>tmt</span>"));
+    assert!(landing.body.contains("aria-hidden=\"true\">○</span>"));
     assert_eq!(
         landing.header("content-type"),
         Some("text/html; charset=utf-8")
@@ -201,6 +203,11 @@ fn static_pages_and_styles_are_exact_and_refusals_remain_generic() {
         );
         assert_eq!(reply.header("content-security-policy"), Some(policy));
         assert_eq!(reply.body, include_str!("../assets/error.html"));
+        assert!(reply.body.contains("aria-hidden=\"true\">✗</span>"));
+        // No cause crosses the generic refusal boundary; never infer expiry or reuse.
+        assert!(reply.body.contains("This page is unavailable"));
+        assert!(!reply.body.contains("has expired"));
+        assert!(!reply.body.contains("was already used"));
     }
     for path in ["/sdk/unknown", "/x/colab/", &format!("{}/append", h.prefix)] {
         let reply = get(&h, path, "");
