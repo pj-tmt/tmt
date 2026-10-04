@@ -14,6 +14,11 @@ import { spawnSync } from 'node:child_process';
 import { afterEach, describe, expect, it } from 'vite-plus/test';
 
 const roots: string[] = [];
+/** Vendored license clarifications: crate, locked version, vendored file. */
+const vendored = [
+  ['taffy', '0.7.7', 'LICENSE.md'],
+  ['yrs', '0.28.0', 'LICENSE'],
+] as const;
 
 function tool(directory: string, name: string, source: string) {
   const target = path.join(directory, name);
@@ -32,11 +37,12 @@ function artifactFixture(product: string, omitted = '') {
   mkdirSync(path.join(root, 'scripts'));
   mkdirSync(path.join(root, 'rust'));
   mkdirSync(path.join(root, 'typescript'));
-  mkdirSync(path.join(root, 'rust/licenses/taffy-0.7.7'), { recursive: true });
+  for (const [crate, version] of vendored)
+    mkdirSync(path.join(root, `rust/licenses/${crate}-${version}`), { recursive: true });
   for (const file of [
     'rust/about.toml',
     'rust/Cargo.lock',
-    'rust/licenses/taffy-0.7.7/LICENSE.md',
+    ...vendored.map(([crate, version, name]) => `rust/licenses/${crate}-${version}/${name}`),
   ]) {
     writeFileSync(path.join(root, file), readFileSync(path.resolve('..', file)));
   }
@@ -141,11 +147,16 @@ describe('native artifact stdout', () => {
       );
       const config = readFileSync(path.join(root, 'rust/target/native-notices/about.toml'), 'utf8');
       expect(config).toBe(
-        readFileSync(path.join(root, 'rust/about.toml'), 'utf8').replace(
-          '"__TMT_TAFFY_LICENSE__"',
-          JSON.stringify(path.join(root, 'rust/licenses/taffy-0.7.7/LICENSE.md'))
+        vendored.reduce(
+          (text, [crate, version, name]) =>
+            text.replace(
+              `"__TMT_${crate.toUpperCase()}_LICENSE__"`,
+              JSON.stringify(path.join(root, `rust/licenses/${crate}-${version}/${name}`))
+            ),
+          readFileSync(path.join(root, 'rust/about.toml'), 'utf8')
         )
       );
+      expect(config).not.toMatch(/"__TMT_[A-Z]+_LICENSE__"/);
     }
   );
   it.each(['cli', 'office', 'squad', 'driver-herdr', 'remote', 'colab'])(
@@ -163,50 +174,59 @@ describe('native artifact stdout', () => {
       expect(noticeOnly.stderr).not.toContain('companion build diagnostics');
     }
   );
-  it.each(['cli', 'office', 'squad', 'driver-herdr', 'remote', 'colab'])(
-    'rejects a corrupted license before generating %s notices',
-    (product) => {
+  it.each(
+    vendored.flatMap(([crate, version, name]) =>
+      ['cli', 'office', 'squad', 'driver-herdr', 'remote', 'colab'].map(
+        (product) => [crate, version, name, product] as const
+      )
+    )
+  )(
+    'rejects a corrupted %s license before generating %s notices',
+    (crate, version, name, product) => {
       const { root, bin, script } = artifactFixture(product);
       tool(
         bin,
         'cargo-about',
         `if [ "\${1:-}" = --version ]; then printf 'cargo-about 0.9.2\\n'; else exit 98; fi`
       );
-      const license = path.join(root, 'rust/licenses/taffy-0.7.7/LICENSE.md');
+      const license = path.join(root, `rust/licenses/${crate}-${version}/${name}`);
       writeFileSync(license, 'corrupted license');
       const corrupted = spawnSync(script, ['--notices-only', 'aarch64-apple-darwin', product], {
         encoding: 'utf8',
         env: { ...process.env, PATH: `${bin}:${process.env.PATH}` },
       });
       expect(corrupted.status).toBe(1);
-      expect(corrupted.stderr).toContain('Vendored taffy license checksum mismatch');
+      expect(corrupted.stderr).toContain(`Vendored ${crate} license checksum mismatch`);
     }
   );
-  it.each(['cli', 'office', 'squad', 'driver-herdr', 'remote', 'colab'])(
-    'rejects taffy version drift before generating %s notices',
-    (product) => {
-      const { root, bin, script } = artifactFixture(product);
-      tool(
-        bin,
-        'cargo-about',
-        `if [ "\${1:-}" = --version ]; then printf 'cargo-about 0.9.2\\n'; else exit 98; fi`
-      );
-      const lock = path.join(root, 'rust/Cargo.lock');
-      writeFileSync(
-        lock,
-        readFileSync(lock, 'utf8').replace(
-          'name = "taffy"\nversion = "0.7.7"',
-          'name = "taffy"\nversion = "0.7.8"'
-        )
-      );
-      const upgraded = spawnSync(script, ['--notices-only', 'aarch64-apple-darwin', product], {
-        encoding: 'utf8',
-        env: { ...process.env, PATH: `${bin}:${process.env.PATH}` },
-      });
-      expect(upgraded.status).toBe(1);
-      expect(upgraded.stderr).toContain('Review taffy notice on version changes');
-    }
-  );
+  it.each(
+    vendored.flatMap(([crate, version]) =>
+      ['cli', 'office', 'squad', 'driver-herdr', 'remote', 'colab'].map(
+        (product) => [crate, version, product] as const
+      )
+    )
+  )('rejects %s version drift before generating %s notices', (crate, version, product) => {
+    const { root, bin, script } = artifactFixture(product);
+    tool(
+      bin,
+      'cargo-about',
+      `if [ "\${1:-}" = --version ]; then printf 'cargo-about 0.9.2\\n'; else exit 98; fi`
+    );
+    const lock = path.join(root, 'rust/Cargo.lock');
+    writeFileSync(
+      lock,
+      readFileSync(lock, 'utf8').replace(
+        `name = "${crate}"\nversion = "${version}"`,
+        `name = "${crate}"\nversion = "${version}-drift"`
+      )
+    );
+    const upgraded = spawnSync(script, ['--notices-only', 'aarch64-apple-darwin', product], {
+      encoding: 'utf8',
+      env: { ...process.env, PATH: `${bin}:${process.env.PATH}` },
+    });
+    expect(upgraded.status).toBe(1);
+    expect(upgraded.stderr).toContain(`Review ${crate} notice on version changes`);
+  });
   it.each(['index', 'notices', 'build'])(
     'rejects Colab packaging with missing or failed %s frontend input',
     (omitted) => {

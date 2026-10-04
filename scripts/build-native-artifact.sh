@@ -75,26 +75,41 @@ if [ "$notices_only" = false ]; then
 fi
 cd "$repo/rust"
 mkdir -p target/native-notices
-# Registry git clarifications need HTTP in cargo-about 0.9.2. Resolve a local
-# file clarification instead, without mutating Cargo's registry or license text.
-awk '
-  /^name = "taffy"$/ { count++; getline; if ($0 != "version = \"0.7.7\"") bad = 1 }
-  END { if (count != 1 || bad) exit 1 }
-' Cargo.lock || { printf '%s\n' 'Review taffy notice on version changes.' >&2; exit 1; }
-license_path="$repo/rust/licenses/taffy-0.7.7/LICENSE.md"
-expected_checksum=$(awk '/^\[taffy.clarify\]/ { active = 1 } active && /^checksum =/ { gsub(/"/, "", $3); print $3 }' about.toml)
-if command -v sha256sum >/dev/null 2>&1; then
-  actual_checksum=$(sha256sum < "$license_path")
-else
-  actual_checksum=$(shasum -a 256 < "$license_path")
-fi
-test "${actual_checksum%% *}" = "$expected_checksum" || {
-  printf '%s\n' 'Vendored taffy license checksum mismatch.' >&2
-  exit 1
-}
-# Escape first for TOML, then for sed's replacement string (including its delimiter).
-escaped_license_path=$(printf '%s' "$license_path" | sed 's/[\\"]/\\&/g' | sed 's/[\\&|]/\\&/g')
-sed "s|__TMT_TAFFY_LICENSE__|$escaped_license_path|" about.toml > target/native-notices/about.toml
+# Registry git clarifications need HTTP in cargo-about 0.9.2, and some crate archives omit their
+# license file (cargo-about would then print the SPDX template with placeholder attribution).
+# Resolve a vendored local file clarification instead, without mutating Cargo's registry or
+# license text. Each row is "crate version file"; about.toml carries the matching
+# [crate.clarify] checksum and a __TMT_<CRATE>_LICENSE__ path token.
+vendored_licenses='taffy 0.7.7 LICENSE.md
+yrs 0.28.0 LICENSE'
+cp about.toml target/native-notices/about.toml
+while read -r crate version file; do
+  awk -v name="$crate" -v version="$version" '
+    $0 == "name = \"" name "\"" { count++; getline; if ($0 != "version = \"" version "\"") bad = 1 }
+    END { if (count != 1 || bad) exit 1 }
+  ' Cargo.lock || { printf '%s\n' "Review $crate notice on version changes." >&2; exit 1; }
+  license_path="$repo/rust/licenses/$crate-$version/$file"
+  expected_checksum=$(awk -v name="$crate" '
+    /^\[/ { active = ($0 ~ "^\\[\\[?" name "\\.clarify[].]") }
+    active && /^checksum =/ { gsub(/"/, "", $3); print $3; exit }
+  ' about.toml)
+  if command -v sha256sum >/dev/null 2>&1; then
+    actual_checksum=$(sha256sum < "$license_path")
+  else
+    actual_checksum=$(shasum -a 256 < "$license_path")
+  fi
+  test -n "$expected_checksum" && test "${actual_checksum%% *}" = "$expected_checksum" || {
+    printf '%s\n' "Vendored $crate license checksum mismatch." >&2
+    exit 1
+  }
+  # Escape first for TOML, then for sed's replacement string (including its delimiter).
+  escaped_license_path=$(printf '%s' "$license_path" | sed 's/[\\"]/\\&/g' | sed 's/[\\&|]/\\&/g')
+  token="__TMT_$(printf '%s' "$crate" | tr '[:lower:]' '[:upper:]')_LICENSE__"
+  sed "s|$token|$escaped_license_path|" target/native-notices/about.toml > target/native-notices/about.toml.next
+  mv target/native-notices/about.toml.next target/native-notices/about.toml
+done <<EOF_LICENSES
+$vendored_licenses
+EOF_LICENSES
 case "$product" in
   cli) product_manifest="crates/tmt-cli/Cargo.toml" ;;
   driver-herdr) product_manifest="crates/tmt-driver-herdr/Cargo.toml" ;;
