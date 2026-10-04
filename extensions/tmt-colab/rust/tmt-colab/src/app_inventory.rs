@@ -6,7 +6,9 @@ pub const APP_FILES: usize = 128;
 
 pub fn content_type(route: &str) -> Option<&'static str> {
     let name = match route {
-        "/index.html" | "/renderer.html" => return Some("text/html; charset=utf-8"),
+        "/index.html" | "/renderer.html" | "/reader.html" => {
+            return Some("text/html; charset=utf-8");
+        }
         "/THIRD-PARTY-NOTICES.txt" => return Some("text/plain; charset=utf-8"),
         _ => route.strip_prefix("/assets/")?,
     };
@@ -61,7 +63,10 @@ pub fn validate(files: &[(&str, &[u8])]) -> Result<(), &'static str> {
     if !inventory.contains_key("/renderer.html") {
         return Err("App renderer is missing.");
     }
-    for route in ["/index.html", "/renderer.html"] {
+    if !inventory.contains_key("/reader.html") {
+        return Err("App reader entry is missing.");
+    }
+    for route in ["/index.html", "/renderer.html", "/reader.html"] {
         if let Some(bytes) = inventory.get(route) {
             let html = std::str::from_utf8(bytes).map_err(|_| "App HTML must be UTF-8.")?;
             for reference in html.split("\"./assets/").skip(1) {

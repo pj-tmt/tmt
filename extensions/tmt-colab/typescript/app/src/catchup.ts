@@ -15,7 +15,7 @@ export class Catchup {
   #reset: { descriptor: string; object: BaselineObject } | null = null;
   constructor(
     readonly admission: Admission,
-    readonly sharing: string,
+    readonly sharing: string | readonly string[],
     readonly objects?: Objects,
   ) {}
   close() {

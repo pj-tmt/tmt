@@ -510,6 +510,54 @@ fn management_confirmation_and_input_denials_have_no_state_effects() {
     );
 }
 #[test]
+fn link_add_without_a_seed_file_generates_a_fresh_seed_and_prints_the_reader_link_once() {
+    let pilot = Pilot::new(None);
+    seed_page(&pilot);
+    pilot.call(&["share", "mode", PAGE, "link", "--yes", "--json"]);
+    let mut seeds = Vec::new();
+    for _ in 0..2 {
+        let outcome = pilot.call(&["share", "link", "add", PAGE, "--yes", "--json"]);
+        let path = outcome["readerPath"].as_str().unwrap();
+        let (route, fragment) = path.split_once('#').unwrap();
+        assert_eq!(route, "x/colab/read");
+        let pairs: Vec<(&str, &str)> = fragment
+            .split('&')
+            .map(|p| p.split_once('=').unwrap())
+            .collect();
+        let keys: Vec<&str> = pairs.iter().map(|(k, _)| *k).collect();
+        assert_eq!(keys, ["v", "space", "page", "link", "rev", "st", "seed"]);
+        let get = |k: &str| pairs.iter().find(|(n, _)| *n == k).unwrap().1;
+        assert_eq!(get("v"), "1");
+        assert_eq!(get("page"), PAGE);
+        assert_eq!(get("link"), outcome["linkId"]);
+        assert_eq!(get("rev"), outcome["membershipHead"]["revision"]);
+        assert_eq!(get("st"), outcome["membershipHead"]["statementHash"]);
+        assert_eq!(
+            tmt_colab_model::values::binary(get("seed"), 32)
+                .unwrap()
+                .len(),
+            32
+        );
+        seeds.push(get("seed").to_owned());
+        // Neither listing nor the rest of the result carries the seed.
+        let listed = pilot
+            .call(&["share", "link", "list", PAGE, "--json"])
+            .to_string();
+        assert!(!listed.contains(get("seed")));
+        let mut rest = outcome.clone();
+        rest.as_object_mut().unwrap().remove("readerPath");
+        assert!(!rest.to_string().contains(get("seed")));
+    }
+    assert_ne!(seeds[0], seeds[1]);
+    let human = pilot
+        .command()
+        .args(["share", "link", "add", PAGE, "--yes"])
+        .output()
+        .unwrap();
+    assert!(human.status.success());
+    assert!(String::from_utf8_lossy(&human.stdout).contains("x/colab/read#v=1&"));
+}
+#[test]
 fn management_link_cli_uses_serving_and_offline_service_with_durable_replay() {
     use tmt_colab_model::values;
     for serving in [false, true] {
@@ -575,6 +623,18 @@ fn management_link_cli_uses_serving_and_offline_service_with_durable_replay() {
         assert_eq!(result["operationId"], op);
         assert_eq!(result["expectedRevision"], "3");
         assert_eq!(result["membershipHead"]["revision"], "4");
+        let space = pilot.call(&["ls", "--json"])["spaceId"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        assert_eq!(
+            result["readerPath"],
+            format!(
+                "x/colab/read#v=1&space={space}&page={PAGE}&link={LINK}&rev=4&st={}&seed={}",
+                result["membershipHead"]["statementHash"].as_str().unwrap(),
+                values::encode_binary(&[17; 32])
+            )
+        );
         if serving {
             pilot.stop();
         }
@@ -632,6 +692,19 @@ fn management_link_cli_uses_serving_and_offline_service_with_durable_replay() {
         confirmed.push("--yes");
         let outcome = pilot.call(&confirmed);
         assert_eq!(outcome["linkId"], replacement);
+        assert_eq!(
+            outcome["readerPath"],
+            format!(
+                "x/colab/read#v=1&space={space}&page={PAGE}&link={replacement}&rev={}&st={}&seed={}",
+                outcome["membershipHead"]["revision"].as_str().unwrap(),
+                outcome["membershipHead"]["statementHash"].as_str().unwrap(),
+                values::encode_binary(&[18; 32])
+            )
+        );
+        let listed_text = pilot
+            .call(&["share", "link", "list", PAGE, "--json"])
+            .to_string();
+        assert!(!listed_text.contains(&values::encode_binary(&[18; 32])));
         let listed = pilot.call(&["share", "link", "list", PAGE, "--json"]);
         assert!(
             listed["links"]
