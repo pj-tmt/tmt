@@ -9,8 +9,8 @@ use ratatui::{
     style::Modifier,
     text::{Line, Span},
 };
-use ratatui::{layout::Alignment, widgets::Paragraph};
 use tmt_cli_style::Role;
+use tmt_tui::components::strip;
 
 /// Shown only when a switch takes long enough to notice.
 pub(in crate::board) const SPINNER_DELAY: std::time::Duration =
@@ -176,6 +176,7 @@ pub(super) fn meter_enabled(app: &App) -> bool {
 }
 
 pub(super) fn render_meter_status(frame: &mut Frame, app: &App, area: Rect) {
+    let look = app.look();
     if meter_enabled(app)
         && app
             .meter
@@ -184,15 +185,16 @@ pub(super) fn render_meter_status(frame: &mut Frame, app: &App, area: Rect) {
     {
         let text = "no usage reported yet";
         let width = area.width.min(text.len() as u16);
-        super::strip::paint_line(
-            frame,
+        strip::paint_left(
+            frame.buffer_mut(),
             Rect {
                 x: area.right() - width,
                 width,
                 ..area
             },
-            Line::styled(text, app.look().role(Role::Dim)),
-            app.look(),
+            Line::styled(text, look.role(Role::Dim)),
+            &look.theme,
+            look.depth,
         );
     }
 }
@@ -223,37 +225,36 @@ pub(super) fn render_meter(frame: &mut Frame, app: &App, summary: Rect) {
     let Some((area, layout)) = meter_region(app, summary) else {
         return;
     };
+    let look = app.look();
     let meter = app.meter.as_ref().expect("visible meter");
     let digits = meter.digits();
     let mut spans = vec![Span::raw(digits.as_deref().unwrap_or("–"))];
-    spans.push(Span::styled(layout.unit, app.look().role(Role::Muted)));
+    spans.push(Span::styled(layout.unit, look.role(Role::Muted)));
     if let Some(label) = layout.label {
-        spans.push(Span::styled(
-            format!(" {label}"),
-            app.look().role(Role::Muted),
-        ));
+        spans.push(Span::styled(format!(" {label}"), look.role(Role::Muted)));
     }
     if layout.spark {
         // Keep empty slices: the eight-slot trend grows from the right.
         spans.push(Span::styled(
             format!(" {}", meter.sparkline()),
-            app.look().role(Role::Muted),
+            look.role(Role::Muted),
         ));
     }
     let line = Line::from(spans);
     if digits.is_none() {
         let width = (line.width() as u16).min(area.width);
-        super::strip::paint_line(
-            frame,
+        strip::paint_left(
+            frame.buffer_mut(),
             Rect {
                 x: area.right() - width,
                 width,
                 ..area
             },
             line,
-            app.look(),
+            &look.theme,
+            look.depth,
         );
     } else {
-        frame.render_widget(Paragraph::new(line).alignment(Alignment::Right), area);
+        strip::paint_right(frame.buffer_mut(), area, line, &look.theme, look.depth);
     }
 }

@@ -11,6 +11,7 @@ use ratatui::{
 };
 use serde_json::Value;
 use tmt_cli_style::Role;
+use tmt_tui::components::strip;
 
 /// Fields already shown by detail's header, body or links line.
 pub(super) fn detail_represents(field: &str) -> bool {
@@ -33,11 +34,12 @@ pub(super) fn detail_represents(field: &str) -> bool {
 pub(super) fn render_detail(frame: &mut Frame, app: &App, area: Rect) {
     let look = app.look();
     let Some(row) = app.selected_row() else {
-        super::strip::paint_line(
-            frame,
+        strip::paint_left(
+            frame.buffer_mut(),
             area,
             Line::from(Span::styled("(no row selected)", look.role(Role::Dim))),
-            look,
+            &look.theme,
+            look.depth,
         );
         return;
     };
@@ -183,6 +185,5 @@ pub(super) fn render_detail(frame: &mut Frame, app: &App, area: Rect) {
                 .lines(identity, width, look, render),
         );
     }
-    app.scrolls
-        .show(frame, Pane::Detail, area, lines, look.role(Role::Dim));
+    app.scrolls.show(frame, Pane::Detail, area, lines, look);
 }

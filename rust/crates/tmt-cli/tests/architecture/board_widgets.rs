@@ -1,5 +1,5 @@
-//! Squad consumes tmt-tui drawing primitives. The remaining raw widget uses
-//! are exact file/widget exceptions until #1544 migrates those surfaces.
+//! Squad consumes tmt-tui drawing primitives; raw ratatui widgets are not allowed
+//! in its production tree.
 
 use super::source::{Source, production, production_impl, production_trait};
 use proc_macro2::{TokenStream, TokenTree};
@@ -15,70 +15,9 @@ pub struct Exception {
 
 const FOLLOW_UP: &str = "https://github.com/pj-tmt/tmt/issues/1544";
 
-macro_rules! exception {
-    ($file:literal, $widget:literal, $reason:literal) => {
-        Exception {
-            file: $file,
-            widget: $widget,
-            reason: $reason,
-            issue: FOLLOW_UP,
-        }
-    };
-}
-
-/// No file-wide exemption: a new widget in a listed file still fails.
-pub const EXCEPTIONS: &[Exception] = &[
-    exception!(
-        "board/view.rs",
-        "Paragraph",
-        "Preserve frozen tab and summary strip painting."
-    ),
-    exception!(
-        "board/view/header.rs",
-        "Paragraph",
-        "Preserve the existing right-aligned meter band."
-    ),
-    exception!(
-        "board/view/panes.rs",
-        "Block",
-        "Preserve existing pane borders and title geometry."
-    ),
-    exception!(
-        "board/view/panes.rs",
-        "Borders",
-        "Preserve existing pane border configuration."
-    ),
-    exception!(
-        "board/view/panes.rs",
-        "Paragraph",
-        "Preserve folded titles, pane tabs and layout errors."
-    ),
-    exception!(
-        "board/view/overlays.rs",
-        "Clear",
-        "Preserve the existing opaque action-menu area."
-    ),
-    exception!(
-        "board/view/overlays.rs",
-        "Block",
-        "Preserve the existing action-menu chrome."
-    ),
-    exception!(
-        "board/view/overlays.rs",
-        "Borders",
-        "Preserve existing action-menu border configuration."
-    ),
-    exception!(
-        "board/view/overlays.rs",
-        "Paragraph",
-        "Preserve existing action-menu entry painting."
-    ),
-    exception!(
-        "board/scroll.rs",
-        "Paragraph",
-        "Preserve visible-line decoration and overflow indicators."
-    ),
-];
+/// Empty: Squad draws only through tmt-tui. No file-wide exemption exists, so any
+/// new raw widget in the production tree fails.
+pub const EXCEPTIONS: &[Exception] = &[];
 
 type Finding = (String, String);
 type Aliases = BTreeMap<String, BTreeSet<Vec<String>>>;

@@ -14,7 +14,13 @@ fn draw(scrolls: &Scrolls, pane: Pane, count: usize, height: u16) -> Vec<String>
     terminal
         .draw(|frame| {
             scrolls.begin_frame();
-            scrolls.show(frame, pane, frame.area(), lines(count), Style::new());
+            scrolls.show(
+                frame,
+                pane,
+                frame.area(),
+                lines(count),
+                crate::look::Look::default(),
+            );
         })
         .unwrap();
     let buffer = terminal.backend().buffer().clone();
@@ -82,8 +88,20 @@ fn each_pane_keeps_its_own_position_and_the_wheel_finds_the_pane_under_it() {
             scrolls.begin_frame();
             let left = Rect::new(0, 0, 20, 6);
             let right = Rect::new(20, 0, 20, 6);
-            scrolls.show(frame, Pane::Rows, left, lines(20), Style::new());
-            scrolls.show(frame, Pane::Notes, right, lines(20), Style::new());
+            scrolls.show(
+                frame,
+                Pane::Rows,
+                left,
+                lines(20),
+                crate::look::Look::default(),
+            );
+            scrolls.show(
+                frame,
+                Pane::Notes,
+                right,
+                lines(20),
+                crate::look::Look::default(),
+            );
         })
         .unwrap();
     assert_eq!(scrolls.pane_at(3, 2), Some(Pane::Rows));
@@ -118,7 +136,7 @@ fn indicator_uses_the_resolved_token_without_extra_dimming() {
     let mut terminal = Terminal::new(TestBackend::new(20, 4)).unwrap();
     terminal
         .draw(|frame| {
-            Scrolls::default().show(frame, Pane::Notes, frame.area(), lines(10), dim);
+            Scrolls::default().show(frame, Pane::Notes, frame.area(), lines(10), look);
         })
         .unwrap();
     let marker = &terminal.backend().buffer()[(19, 3)];

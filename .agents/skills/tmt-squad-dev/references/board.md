@@ -108,7 +108,7 @@ from `Compose::Annotate { to, row }`, adding `about <row>` only when they differ
 Recipient headers use Accent; the quoted question's ◆ uses Waiting. The quote truncates before the input or recipient.
 Unanchored composers, including notebook-level annotations and links to a lead
 outside member rows, retain their footer path.
-`board::view::strip` owns single-line admitted paint without raw widgets.
+`tmt-tui::components::strip` owns single-line admitted paint.
 
 `RowFeedback` is session-only send evidence: it appears as `✓ sent` only after
 success, follows the anchored occurrence through refresh and clears on the next

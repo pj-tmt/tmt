@@ -14,7 +14,7 @@ Its surface modules under `board/view/` retain the existing painters:
 | ----------- | ------------------------------------------------------------------ |
 | `header`    | Summary, token meter, spinner and clock-derived invalidation text  |
 | `tabs`      | Tab labels, windows and painted tab hits                           |
-| `panes`     | Split/tab composition dispatch, borders and folded titles          |
+| `panes`     | Split/tab composition dispatch, `Outline` borders, folded titles   |
 | `rows`      | Cached row scene preparation, scroll reveal and clipped row hits   |
 | `row_paint` | Row scene: admitted cells, ages, waiting line, `paint_with` hits   |
 | `notes`     | Shared notebook lines, lead notes selection, links and hits        |
@@ -22,13 +22,20 @@ Its surface modules under `board/view/` retain the existing painters:
 | `replies`   | Safe final bodies, their derived cache and scrolling               |
 | `footer`    | Effective hints, notices, link previews and unanchored input strip |
 | `waiting`   | Acquired decision text, inline composer bands and docked ask-lead  |
-| `overlays`  | Overlay dispatch and action-menu/switcher painting                 |
+| `overlays`  | Overlay dispatch and switcher painting                             |
 
 `row_paint` builds the rows scene (admitted cells, solved boxes, ages, waiting line,
 annotation, `✓ sent` line, reserved input lines) and paints it through
 `tmt-tui::paint::paint_with`; `rows` only prepares and caches it.
 
-`App`, terminal/worker lifecycle, acquisition, `Scrolls`, home and shared TUI
+Every strip, border and scroll line is painted through `tmt-tui` (`Strip`,
+`Outline`, `Modal`): no board module names a ratatui widget. The action menu is a
+`tmt-modal` list surface built per menu in `board/menu_surface.rs` (its title is
+the row or request name); `Action::order` orders its entries, the selected row's
+actions before the board's.
+
+`App`, terminal/worker lifecycle, acquisition, `Scrolls` (position math; it paints
+its lines and overflow indicator through `Strip`), home and shared TUI
 components keep their separate owners. Home dispatch precedes ordinary panes;
 its painter alone produces home row starts and continuation hits. Existing
 `view` helper entry points remain available to those callers. Integrated renderer
