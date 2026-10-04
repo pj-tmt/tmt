@@ -2064,7 +2064,15 @@ with `expiry-out-of-range`. Forever has no expiry or expiry warning, even with
 unknown last-update time. At most one expiry warning is emitted: `expires-soon`
 when expiry is in the future and at most seven days away; `expired` at or after
 expiry. Otherwise warnings are empty, apart from a separate `title-unavailable`
-CLI hint. Human output shows the actual UTC date and advisory status.
+CLI hint. JSON retains exact UTC milliseconds. Human `ls`, `show` and retention
+reads use whole relative elapsed time, sampled once per result: `last edit 2 min
+ago`, `expiry in 30 days`, and a dim `expires in 30 days` line under each list
+link. Finite expiry within seven days has a `◷` waiting mark; past expiry reads
+`expired 2 days ago`. Intervals use days, hours or less than an hour, matching
+browser retention hints rather than UTC calendar dates. The footer says "Expiry
+never deletes your local copy." Forever and unavailable-state wording follows
+the browser, without a final period on CLI value lines. Human reads never change
+the projection or stored time.
 
 One verified owner-log projection supplies these hints to CLI and `/api/pages`.
 Discovery metadata never grants signed policy or write authority. Local expiry
