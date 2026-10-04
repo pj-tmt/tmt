@@ -839,20 +839,20 @@ fn last_edit_text(updated_ms: u64, now_ms: u64) -> String {
         format!("{interval} ago")
     }
 }
-/// CLI-specific finite values; shared unavailable-state wording follows browser expiryText.
-/// List/detail/warning callers use this one copy owner, with CLI lines omitting final periods.
+/// CLI display values named by UX; retention intervals match browser expiryText.
+/// List/detail/warning callers share this copy owner, without final periods.
 fn expiry_text(page: &Value, now_ms: u64, listing: bool) -> String {
     if page["retentionDays"].is_null() {
-        return "Kept forever".into();
+        return "kept forever".into();
     }
     if page["warnings"]
         .as_array()
         .is_some_and(|w| w.iter().any(|v| v == "expiry-out-of-range"))
     {
-        return "Retention date is beyond the supported range".into();
+        return "beyond the supported range".into();
     }
     let Some(ms) = page["expiresAtMs"].as_u64() else {
-        return "Expiry starts after the next edit".into();
+        return "starts after the next edit".into();
     };
     let interval = retention_interval(ms.abs_diff(now_ms));
     if ms <= now_ms {
@@ -938,6 +938,11 @@ fn human_fields(value: &Value, now_ms: u64) -> Result<Vec<(String, String)>> {
                         "retention".to_owned(),
                         if days.is_null() {
                             "forever".to_owned()
+                        } else if v["warnings"]
+                            .as_array()
+                            .is_some_and(|w| w.iter().any(|v| v == "expiry-out-of-range"))
+                        {
+                            "out of range".to_owned()
                         } else {
                             format!("{} days", text(days))
                         },
@@ -1115,19 +1120,19 @@ mod expiry_tests {
         }
     }
     #[test]
-    fn unavailable_states_keep_browser_copy_and_forever_has_no_warning() {
+    fn unavailable_states_use_ux_display_values_and_forever_has_no_warning() {
         for listing in [false, true] {
             assert_eq!(
                 expiry_text(&page(None, &["expiry-unavailable"]), 0, listing),
-                "Expiry starts after the next edit"
+                "starts after the next edit"
             );
             assert_eq!(
                 expiry_text(&page(None, &["expiry-out-of-range"]), 0, listing),
-                "Retention date is beyond the supported range"
+                "beyond the supported range"
             );
             let mut forever = page(None, &["expiry-out-of-range"]);
             forever["retentionDays"] = Value::Null;
-            assert_eq!(expiry_text(&forever, 0, listing), "Kept forever");
+            assert_eq!(expiry_text(&forever, 0, listing), "kept forever");
         }
     }
     #[test]
@@ -1155,6 +1160,20 @@ mod expiry_tests {
             expiry_text(&page(Some(0), &[]), u64::MAX, false),
             "expired 213503982334 days ago"
         );
+    }
+    #[test]
+    fn details_display_verified_out_of_range_without_changing_retention() {
+        let source = json!({"page":{"pageId":"page", "retentionDays":9_007_199_254_740_991u64,"lastUpdateAtMs":1_000,"expiresAtMs":null,"warnings":["expiry-out-of-range"]}});
+        let before = source.clone();
+        let fields = human_fields(&source, 121_000).unwrap();
+        assert!(fields.contains(&("retention".into(), "out of range".into())));
+        assert!(fields.contains(&("expiry".into(), "beyond the supported range".into())));
+        assert!(
+            !fields
+                .iter()
+                .any(|(_, value)| value.contains("9007199254740991"))
+        );
+        assert_eq!(source, before);
     }
     #[test]
     fn details_use_the_supplied_clock_and_leave_the_projection_exact() {

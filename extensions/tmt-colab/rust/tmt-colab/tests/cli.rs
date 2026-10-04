@@ -2572,7 +2572,7 @@ fn expiry_human_lines_are_relative_dim_and_keep_exact_json_and_local_state() {
         ),
         (
             None,
-            "Expiry starts after the next edit",
+            "starts after the next edit",
             None,
             Some("expiry-unavailable"),
         ),
@@ -2653,12 +2653,12 @@ fn expiry_human_lines_are_relative_dim_and_keep_exact_json_and_local_state() {
     pilot.call(&["retention", id, "9007199254740991", "--json"]);
     let out = pilot.command().args(["show", id]).output().unwrap();
     assert!(out.status.success());
-    assert!(
-        String::from_utf8(out.stdout)
-            .unwrap()
-            .contains("Retention date is beyond the supported range")
-    );
+    let text = String::from_utf8(out.stdout).unwrap();
+    assert!(text.contains("beyond the supported range"));
+    assert!(text.contains("retention") && text.contains("out of range"));
+    assert!(!text.contains("9007199254740991"));
     let before = pilot.call(&["retention", id, "--json"]);
+    assert_eq!(before["page"]["retentionDays"], 9_007_199_254_740_991u64);
     assert!(before["page"]["expiresAtMs"].is_null());
     assert_eq!(before["page"]["warnings"], json!(["expiry-out-of-range"]));
     pilot.call(&["retention", id, "forever", "--json"]);
@@ -2668,7 +2668,7 @@ fn expiry_human_lines_are_relative_dim_and_keep_exact_json_and_local_state() {
         assert!(
             String::from_utf8(out.stdout)
                 .unwrap()
-                .contains("Kept forever")
+                .contains("kept forever")
         );
         assert!(out.stderr.is_empty());
     }

@@ -2068,11 +2068,14 @@ CLI hint. JSON retains exact UTC milliseconds. Human `ls`, `show` and retention
 reads use whole relative elapsed time, sampled once per result: `last edit 2 min
 ago`, `expiry in 30 days`, and a dim `expires in 30 days` line under each list
 link. Finite expiry within seven days has a `◷` waiting mark; past expiry reads
-`expired 2 days ago`. Intervals use days, hours or less than an hour, matching
+`expired 2 days ago`. Expiry intervals use days, hours or less than an hour, matching
 browser retention hints rather than UTC calendar dates. The footer says "Expiry
-never deletes your local copy." Forever and unavailable-state wording follows
-the browser, without a final period on CLI value lines. Human reads never change
-the projection or stored time.
+never deletes your local copy." CLI state values are lowercase UX display copy:
+`kept forever`, `starts after the next edit`, and `beyond the supported range`.
+They omit redundant type labels and final periods; browser hints keep their
+sentence form. A verified `expiry-out-of-range` warning shows `retention out of
+range` instead of an unreadable day count. Human reads never change the projection,
+policy or stored time; JSON still exposes the exact configured day count.
 
 One verified owner-log projection supplies these hints to CLI and `/api/pages`.
 Discovery metadata never grants signed policy or write authority. Local expiry
