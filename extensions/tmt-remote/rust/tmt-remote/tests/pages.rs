@@ -84,10 +84,15 @@ fn the_pairing_page_and_sdk_are_served_with_exact_types_and_policy() {
     assert_eq!(
         page.header("content-security-policy"),
         Some(
-            "default-src 'none'; script-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
+            "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
         )
     );
     assert_eq!(page.header("cache-control"), Some("no-store"));
+    assert_eq!(page.body, include_str!("../assets/pair.html"));
+    assert!(
+        page.body
+            .contains(r#"<link rel="stylesheet" href="/sdk/pages.css" />"#)
+    );
     assert!(page.body.contains(r#"data-tmt-page="pair""#));
     assert!(
         page.body
@@ -161,5 +166,80 @@ fn mount_lookup_answers_from_the_door_mapping_for_same_origin_pages() {
         "x",
     ] {
         assert_eq!(mount(&h, body, origin).status, 400, "{body}");
+    }
+}
+
+#[test]
+fn static_pages_and_styles_are_exact_and_refusals_remain_generic() {
+    let h = Harness::new(FAST);
+    let landing = get(&h, "/", "");
+    assert_eq!(landing.status, 200);
+    assert_eq!(landing.body, include_str!("../assets/landing.html"));
+    assert_eq!(
+        landing.header("content-type"),
+        Some("text/html; charset=utf-8")
+    );
+    let policy = landing.header("content-security-policy").unwrap();
+    assert!(policy.contains("style-src 'self'"));
+    let css = get(&h, "/sdk/pages.css", "");
+    assert_eq!(css.status, 200);
+    assert_eq!(css.body, include_str!("../assets/pages.css"));
+    assert_eq!(css.header("content-type"), Some("text/css; charset=utf-8"));
+    assert_eq!(css.header("cache-control"), Some("no-store"));
+    assert_eq!(css.header("x-content-type-options"), Some("nosniff"));
+    for (path, headers, status) in [
+        ("/pair/", "", 404),
+        ("/pair/a.b", "", 404),
+        ("/", "Origin: http://127.0.0.1:1\r\n", 403),
+        ("/pair/abc", "Origin: http://127.0.0.1:1\r\n", 403),
+    ] {
+        let reply = get(&h, path, headers);
+        assert_eq!(reply.status, status);
+        assert_eq!(
+            reply.header("content-type"),
+            Some("text/html; charset=utf-8")
+        );
+        assert_eq!(reply.header("content-security-policy"), Some(policy));
+        assert_eq!(reply.body, include_str!("../assets/error.html"));
+    }
+    for path in ["/sdk/unknown", "/x/colab/", &format!("{}/append", h.prefix)] {
+        let reply = get(&h, path, "");
+        assert_eq!(reply.status, 404);
+        assert_eq!(reply.header("content-type"), Some("application/json"));
+        assert_eq!(reply.body, "{}");
+    }
+    let refused = get(&h, "/sdk/pages.css", "Origin: http://127.0.0.1:1\r\n");
+    assert_eq!(refused.status, 403);
+    assert_eq!(refused.body, "{}");
+}
+
+#[test]
+fn page_palette_and_font_stacks_match_the_shared_token_owner() {
+    let tokens: Value =
+        serde_json::from_str(include_str!("../../../../../design/tokens/tokens.json")).unwrap();
+    let css = include_str!("../assets/pages.css");
+    let (light, dark) = css
+        .split_once("@media (prefers-color-scheme: dark)")
+        .unwrap();
+    for (theme, section) in [("light", light), ("dark", dark)] {
+        for group in ["color", "surface"] {
+            for (name, token) in tokens[group].as_object().unwrap() {
+                if css.contains(&format!("--c-{name}:")) {
+                    assert!(
+                        section.contains(&format!(
+                            "--c-{name}: {};",
+                            token[theme].as_str().unwrap().to_ascii_lowercase()
+                        )),
+                        "{theme} {name}"
+                    );
+                }
+            }
+        }
+    }
+    for name in ["display", "body", "mono"] {
+        assert!(css.contains(&format!(
+            "--f-{name}: {};",
+            tokens["font"][name]["stack"].as_str().unwrap().replace('"', "'")
+        )));
     }
 }

@@ -345,3 +345,113 @@ test('a browser pairs, gets a door session and certifies only its own extension'
   }
   expect(dialogs).toEqual([]);
 });
+
+// Optional exported evidence uses the same real-door fixture as the pairing smoke.
+// No mocked HTML or network responses enter the captures.
+test('browser pages use local tokens in both schemes and fit desktop and mobile', async () => {
+  const captures = process.env.TMT_REMOTE_CAPTURE_DIR;
+  if (captures) await mkdir(captures, { recursive: true });
+  for (const colorScheme of ['light', 'dark'] as const) {
+    for (const width of [1440, 390]) {
+      const context = await browser.newContext({
+        colorScheme,
+        viewport: { width, height: 900 },
+      });
+      try {
+        const requests: string[] = [];
+        const violations: string[] = [];
+        context.on('request', (request) => requests.push(request.url()));
+        const page = await context.newPage();
+        await page.addInitScript(() => {
+          document.addEventListener('securitypolicyviolation', (event) => {
+            console.error(`CSP violation: ${event.violatedDirective}`);
+          });
+        });
+        page.on('console', (message) => {
+          if (message.text().startsWith('CSP violation:')) violations.push(message.text());
+        });
+        const inspect = async (state: string) => {
+          const look = await page.evaluate(() => {
+            const sheet = document.querySelector('.sheet')!;
+            const style = getComputedStyle(sheet);
+            return {
+              paper: getComputedStyle(document.body).backgroundColor,
+              sheet: style.backgroundColor,
+              text: getComputedStyle(document.body).color,
+              shadow: style.boxShadow,
+              radius: style.borderRadius,
+              overflow: document.documentElement.scrollWidth > innerWidth,
+              // Playwright restores the input caret with an empty style attribute.
+              inline: document.querySelectorAll('[style]:not([style=""]), style, script:not([src])')
+                .length,
+            };
+          });
+          expect(look).toMatchObject({
+            paper: colorScheme === 'light' ? 'rgb(244, 246, 251)' : 'rgb(26, 27, 38)',
+            sheet: colorScheme === 'light' ? 'rgb(255, 255, 255)' : 'rgb(22, 22, 30)',
+            text: colorScheme === 'light' ? 'rgb(52, 59, 88)' : 'rgb(192, 202, 245)',
+            radius: '0px',
+            overflow: false,
+            inline: 0,
+          });
+          expect(look.shadow).toContain('6px 6px 0px 0px');
+          if (captures) {
+            await page.screenshot({
+              path: join(captures, `${state}-${width}-${colorScheme}.png`),
+              fullPage: true,
+            });
+          }
+        };
+        expect((await page.goto(origin))?.status()).toBe(200);
+        await inspect('landing');
+        expect((await page.goto(`${origin}/pair/`))?.status()).toBe(404);
+        await expect(page.getByRole('heading')).toHaveText('This page is unavailable');
+        await inspect('error');
+
+        pair = spawn(BINARY, ['pair', '--json'], { env });
+        const events = lines(pair);
+        const offer = await events.next();
+        await page.goto(offer.link as string);
+        await expect(page.locator('#pair')).toBeVisible();
+        await inspect('pairing');
+        // Keyboard-only submission exercises the visible focus and form behavior.
+        await page.locator('#name').focus();
+        await page.keyboard.press('Tab');
+        await expect(page.getByRole('button', { name: 'Pair', exact: true })).toBeFocused();
+        await page.keyboard.press('Enter');
+        const candidate = await events.next();
+        expect(candidate.event).toBe('candidate');
+        await expect(page.locator('#words')).toHaveText(
+          `Words: ${(candidate.words as string[]).join(' ')}`,
+        );
+        await expect(page.locator('#status')).toHaveAttribute('data-state', 'waiting');
+        await inspect('confirmation');
+        pair.stdin.write('refuse\n');
+        expect((await events.next()).reason).toBe('refused');
+        await exited(pair);
+        pair = undefined;
+        await expect(page.locator('#status')).toHaveAttribute('data-state', 'blocked');
+        await expect(page.locator('#status')).toHaveText(
+          'Pairing did not complete. Run tmt remote pair again for a new link.',
+        );
+        await page.goto(`${origin}/pair/abc`);
+        await expect(page.locator('#status')).toHaveAttribute('data-state', 'blocked');
+        await expect(page.locator('#pair')).toBeHidden();
+        expect(requests.every((url) => new URL(url).origin === origin)).toBe(true);
+        expect(violations).toEqual([]);
+      } finally {
+        await context.close();
+      }
+    }
+  }
+  const coreCalls = (await readFile(join(root, 'core-calls.jsonl'), 'utf8'))
+    .trim()
+    .split('\n')
+    .map((line) => JSON.parse(line) as { operation: string });
+  // Serve discovers capabilities/root once; each owner pair client discovers its root.
+  expect(coreCalls.map((call) => call.operation)).toEqual([
+    'capabilities',
+    'storage.root',
+    ...Array<string>(4).fill('storage.root'),
+  ]);
+});

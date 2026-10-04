@@ -969,19 +969,22 @@ function pairingPage() {
 	const link = location.href;
 	history.replaceState(null, "", location.pathname);
 	const status = element("status");
+	const form = element("pair");
 	let parsed;
 	try {
 		parsed = parseLink(link);
 	} catch {
+		form.hidden = true;
+		status.dataset.state = "blocked";
 		status.textContent = "This pairing link is incomplete. Copy the whole link from tmt remote pair.";
 		return;
 	}
-	const form = element("pair");
 	form.addEventListener("submit", (event) => {
 		event.preventDefault();
 		form.hidden = true;
 		const name = element("name").value.trim();
 		ceremony(parsed, name, status).catch(() => {
+			status.dataset.state = "blocked";
 			status.textContent = "Pairing did not complete. Run tmt remote pair again for a new link.";
 		});
 	});
@@ -992,6 +995,7 @@ async function ceremony({ descriptor, code }, name, status) {
 	const words = element("words");
 	words.textContent = `Words: ${indexes.map((i) => WORDS[i]).join(" ")}`;
 	words.hidden = false;
+	status.dataset.state = "waiting";
 	status.textContent = "Compare these words with the terminal, then confirm there.";
 	const result = await pair({
 		descriptor,
@@ -1007,6 +1011,7 @@ async function ceremony({ descriptor, code }, name, status) {
 		paired: result
 	});
 	await openSession(result, key, descriptor.windowId);
+	status.dataset.state = "paired";
 	status.textContent = "This browser is paired. You can close this page.";
 }
 if (document.documentElement.dataset.tmtPage === "pair") pairingPage();

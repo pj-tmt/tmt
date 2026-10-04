@@ -183,7 +183,7 @@ and `transport` have no I/O, clock, storage or `CoreClient` access):
 | `operations`, `approval`            | Dispatch/read operations over the public core API; local held-operation confirmation on the control socket                                                                     |
 | `authority`, `store`, `state`       | Typed grants, `remote.db` and schema history, layout/machine key/serve lock                                                                                                    |
 | `pairing`, `control`, `devices`     | One pairing offer per run, owner-only control socket for discovery/stop and device list/revoke/rename                                                                          |
-| `mount`, `pages`                    | Extension mounts (allowlisted extensions only) and the pairing page/SDK assets                                                                                                 |
+| `mount`, `pages`                    | Extension mounts (allowlisted extensions only), static landing/pairing/error pages and embedded stylesheet/SDK assets                                                          |
 
 Rules that are easy to get wrong:
 
