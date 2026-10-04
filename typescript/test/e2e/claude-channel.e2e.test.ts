@@ -96,8 +96,25 @@ const named = (session: Session, event: string) =>
 const contents = (session: Session) =>
   named(session, 'channel').map((item) => String(item.content));
 
+/**
+ * Waits for a mock event. The mock logs `hook-error` when its lifecycle hook fails; that ends the
+ * wait at once, and every failure carries the mock's events and the pane so a timeout names its cause.
+ */
 async function waitForEvent(fixture: E2EFixture, session: Session, event: string): Promise<void> {
-  await fixture.waitFor(() => named(session, event).length > 0, 15_000, `mock event ${event}`);
+  const evidence = () =>
+    `Mock events: ${JSON.stringify(events(session))}\nBindings: ${JSON.stringify(bindings(fixture))}\n${fixture.capture(40, session.pane)}`;
+  try {
+    await fixture.waitFor(
+      () => named(session, event).length > 0 || named(session, 'hook-error').length > 0,
+      15_000,
+      `mock event ${event}`
+    );
+  } catch (cause) {
+    throw new Error(`${(cause as Error).message} ${evidence()}`, { cause });
+  }
+  if (named(session, event).length === 0) {
+    throw new Error(`Mock reported a hook error before ${event}. ${evidence()}`);
+  }
 }
 
 const channelDirectory = (fixture: E2EFixture) => path.join(fixture.globalDir, 'channels');
@@ -252,6 +269,12 @@ function terminalWrites(trace: TmuxTrace, pane?: string): string[] {
   return trace
     .invocations()
     .filter((line) => WRITES.test(line) && (target === null || target.test(line)));
+}
+
+function bindings(fixture: E2EFixture): unknown[] {
+  return sql(fixture, (db) =>
+    db.prepare('SELECT pane_id, runtime_pid, runtime_state FROM bindings').all()
+  );
 }
 
 function sql<T>(fixture: E2EFixture, run: (database: Database.Database) => T): T {
