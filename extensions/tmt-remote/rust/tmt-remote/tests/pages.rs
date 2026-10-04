@@ -282,3 +282,102 @@ fn page_palette_and_font_stacks_match_the_shared_token_owner() {
         )));
     }
 }
+
+#[test]
+fn short_page_alias_redirects_to_colab_without_reading_or_setting_a_cookie() {
+    let h = Harness::new(FAST);
+    for id in ["aB_0".to_owned(), "74f92bf5".to_owned(), "Z9_-".repeat(16)] {
+        for headers in [
+            String::new(),
+            format!("Origin: {}\r\n", h.origin),
+            "Cookie: tmt_door=untrusted\r\n".to_owned(),
+        ] {
+            let reply = get(&h, &format!("/p/{id}"), &headers);
+            assert_eq!(reply.status, 302, "{id}");
+            assert_eq!(
+                reply.header("location"),
+                Some(format!("{}/x/colab/p/{id}", h.prefix).as_str())
+            );
+            assert_eq!(reply.header("cache-control"), Some("no-store"));
+            assert_eq!(reply.header("referrer-policy"), Some("no-referrer"));
+            assert_eq!(reply.header("set-cookie"), None);
+            assert_eq!(reply.body, "{}");
+        }
+    }
+    assert_eq!(h.grants(), 0);
+}
+
+#[test]
+fn malformed_short_page_aliases_return_the_generic_page_404() {
+    let h = Harness::new(FAST);
+    for path in [
+        "/p".to_owned(),
+        "/p/".to_owned(),
+        "/p/abc".to_owned(),
+        format!("/p/{}", "a".repeat(65)),
+        "/p/abcd/".to_owned(),
+        "/p/abcd/efgh".to_owned(),
+        "/p/abcd.efgh".to_owned(),
+        "/p/abcd:efgh".to_owned(),
+        "/p/éabc".to_owned(),
+    ] {
+        let reply = get(&h, &path, "");
+        assert_eq!(reply.status, 404, "{path}");
+        assert_eq!(
+            reply.header("content-type"),
+            Some("text/html; charset=utf-8")
+        );
+        assert_eq!(reply.body, include_str!("../assets/error.html"));
+        assert_eq!(reply.header("location"), None);
+        assert_eq!(reply.header("set-cookie"), None);
+        assert!(!reply.body.contains(&h.prefix));
+    }
+    let upgrade = get(
+        &h,
+        "/p/abcd",
+        "Connection: Upgrade\r\nUpgrade: websocket\r\n",
+    );
+    assert_eq!(upgrade.status, 404);
+    assert_eq!(upgrade.body, include_str!("../assets/error.html"));
+    assert_eq!(upgrade.header("location"), None);
+    // Invalid HTTP targets still fail at the shared framing boundary.
+    for path in [
+        "/p/ab%63d",
+        "/p/abcd?next=other",
+        "/p/abcd#fragment",
+        "/p/../abcd",
+        "/p//abcd",
+    ] {
+        let reply = get(&h, path, "");
+        assert_eq!(reply.status, 400, "{path}");
+        assert_eq!(reply.body, "{}");
+        assert_eq!(reply.header("location"), None);
+    }
+    for method in ["POST", "HEAD"] {
+        let reply = exchange(
+            &h,
+            &format!("{method} /p/abcd HTTP/1.1\r\nHost: {}\r\n\r\n", h.addr),
+        );
+        assert_eq!(reply.status, 404);
+        assert_eq!(reply.body, include_str!("../assets/error.html"));
+        assert_eq!(reply.header("location"), None);
+    }
+}
+
+#[test]
+fn short_page_alias_refuses_cross_origin_requests_before_redirecting() {
+    let h = Harness::new(FAST);
+    for origin in ["http://127.0.0.1:1", "https://example.com", "null"] {
+        let reply = get(
+            &h,
+            "/p/abcd",
+            &format!("Origin: {origin}\r\nCookie: tmt_door=untrusted\r\n"),
+        );
+        assert_eq!(reply.status, 403, "{origin}");
+        assert_eq!(reply.body, include_str!("../assets/error.html"));
+        assert_eq!(reply.header("location"), None);
+        assert_eq!(reply.header("access-control-allow-origin"), None);
+        assert_eq!(reply.header("set-cookie"), None);
+        assert!(!reply.body.contains(&h.prefix));
+    }
+}
