@@ -199,12 +199,23 @@ function ShortPageChoice() {
   const deleted = pages.length === 1 && pages[0].deleted;
   return (
     <NoticeCard
-      state={deleted ? 'blocked' : 'inactive'}
+      state={deleted ? 'blocked' : 'waiting'}
       eyebrow={text.pages}
       title={deleted ? 'This page was deleted' : 'Choose a page'}
       testId="short-page-choice"
+      actions={
+        deleted ? (
+          <Link className="notice-action" to="/">
+            Back to pages
+          </Link>
+        ) : undefined
+      }
     >
-      {!deleted && <p>More than one page matches {prefix}. Choose the page you want to open.</p>}
+      {deleted ? (
+        <p>Its owner deleted it. Ask them for a new link if you still need it.</p>
+      ) : (
+        <p>More than one page matches {prefix}. Choose the page you want to open.</p>
+      )}
       <ul className="short-page-options">
         {pages.map((page) => (
           <li key={page.id}>
@@ -216,10 +227,15 @@ function ShortPageChoice() {
               </span>
             ) : (
               <Link to="/pages/$pageId" params={{ pageId: page.id }}>
-                {page.title}
-                {page.archived ? ' · Archived' : ''}
-                <br />
-                <code>{page.id}</code>
+                <span>
+                  <span className="short-page-title">
+                    {page.title}
+                    {page.archived ? ' · Archived' : ''}
+                  </span>
+                  <br />
+                  <code>{page.id}</code>
+                </span>
+                <ArrowUpRight aria-hidden />
               </Link>
             )}
           </li>

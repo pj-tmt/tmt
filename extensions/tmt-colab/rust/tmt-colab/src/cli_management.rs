@@ -1071,6 +1071,7 @@ fn output_with(value: &Value, json_output: bool, extra: &[(&str, String)]) -> Re
             .map(|p| audience(p).chars().count())
             .max()
             .unwrap_or(0);
+        let ids = catalog_ids(value);
         for page in pages {
             let mut rows = Table::new(&[Column::Name, Column::Fixed, Column::Fixed]);
             rows.row([
@@ -1085,14 +1086,10 @@ fn output_with(value: &Value, json_output: bool, extra: &[(&str, String)]) -> Re
                     (None, Some(code)) => Cell::from(format!("unavailable ({code})")),
                     (None, None) => Cell::from("title unavailable"),
                 },
-                Cell::from(
-                    page["pageId"]
-                        .as_str()
-                        .unwrap_or("")
-                        .chars()
-                        .take(8)
-                        .collect::<String>(),
-                ),
+                Cell::from(crate::short_links::shortest_id(
+                    page["pageId"].as_str().unwrap_or(""),
+                    &ids,
+                )),
                 Cell::from(format!("{:<width$}", audience(page))),
             ]);
             rows.write(&mut out, terminal)?;

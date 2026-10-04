@@ -206,7 +206,7 @@ in `acceptance/ask.spec.ts`.
   `AppHeader` and the shared `NoticeCard`; only their list rows own additional styling.
   `bootstrap.ts` preserves only the strict alias target on pinning.
 - `Reach`/`Status` keep full JSON links and add `shortLink`; human output and auto-open use the
-  Remote root alias. Human `ls` puts the page title first, with an eight-character display ID;
+  Remote root alias. Human `ls` puts the page title first, with the same shortest unique catalog prefix as its link;
   JSON and `show` retain full IDs. Ask composition captures the catalog prefix in `Live`, preserving full
   signed scope, legacy source-link admission and unchanged reader links. See the contract for
   Remote's root-redirect dependency and exact URL/JSON shapes.

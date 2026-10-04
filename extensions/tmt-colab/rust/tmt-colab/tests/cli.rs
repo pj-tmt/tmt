@@ -2949,6 +2949,57 @@ fn human_ls_names_an_admitted_empty_title_without_changing_the_json_title() {
     assert_eq!(listed["pages"][0]["title"], "");
 }
 #[test]
+fn human_ls_uses_the_link_prefix_even_when_a_collision_is_archived_or_deleted() {
+    use tmt_colab::{keyring::Layout, store::Store};
+    let pilot = Pilot::new(None);
+    seed_page_with_title(&pilot, "Original page");
+    let other = "10000000-1000-4000-8000-000000000002";
+    let layout = Layout::open(&pilot.root.join("selected")).unwrap();
+    let mut store = Store::open(&layout).unwrap();
+    // The creation projection reserves this sibling ID even before it has content.
+    store.create_page(other).unwrap();
+    store.close().unwrap();
+    for action in [None, Some("archive"), Some("delete")] {
+        if let Some(action) = action {
+            let mut args = vec![action, other, "--json"];
+            if action == "delete" {
+                args.push("--yes");
+            }
+            pilot.call(&args);
+        }
+        let out = pilot
+            .command_with_door(DOOR)
+            .env("COLUMNS", "120")
+            .args(["ls"])
+            .output()
+            .unwrap();
+        assert!(out.status.success(), "{out:?}");
+        let listing = String::from_utf8(out.stdout).unwrap();
+        let row = listing
+            .lines()
+            .find(|line| line.contains("Original page"))
+            .unwrap();
+        assert!(row.contains("10000000-0"), "{listing}");
+        assert!(
+            listing.contains("http://127.0.0.1:53253/p/10000000-0"),
+            "{listing}"
+        );
+        if action.is_none() {
+            assert!(
+                listing
+                    .lines()
+                    .any(|line| line.contains("10000000-1") && !line.contains("http")),
+                "{listing}"
+            );
+        } else {
+            // Prefixes are chosen from the full catalog, before ls hides archived/deleted rows.
+            assert!(!listing.contains("10000000-1"), "{listing}");
+        }
+        let json = pilot.call(&["ls", "--json"]);
+        assert_eq!(json["pages"][0]["pageId"], PAGE);
+    }
+}
+#[test]
 fn unreadable_settings_never_fail_a_committed_page_create_or_a_ready_serve() {
     let pilot = Pilot::new(None);
     pilot.opener(0);

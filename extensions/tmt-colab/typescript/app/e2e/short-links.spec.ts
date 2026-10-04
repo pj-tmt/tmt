@@ -29,6 +29,18 @@ test('an old short link opens a chooser after a new page collides and never gues
   await expect(page.locator('#short-fixture header')).toHaveCount(1);
   await expect(page.locator('#short-fixture .colab-header .colab-mark')).toHaveText('tmt');
   await expect(page.getByTestId('short-page-choice')).toHaveAttribute('role', 'status');
+  await expect(
+    page.getByTestId('short-page-choice').locator('.notice-mark svg.lucide-diamond'),
+  ).toBeVisible();
+  const original = page.getByRole('link', { name: /Original proposal/ });
+  await expect(original.locator('svg.lucide-arrow-up-right')).toBeVisible();
+  await original.focus();
+  await expect(original).toBeFocused();
+  await expect(original.locator('.short-page-title')).toHaveCSS(
+    'text-decoration-line',
+    'underline',
+  );
+  await original.blur();
   await capture(page, 'chooser');
   await page.getByRole('link', { name: /Original proposal/ }).click();
   await expect(
@@ -63,7 +75,12 @@ test('deleting the original page reserves old prefixes and never exposes its tit
     page.getByTestId('short-page-choice').locator('.notice-mark svg.lucide-x'),
   ).toBeVisible();
   await expect(page.locator('#short-fixture .colab-header')).toHaveCount(1);
+  await expect(
+    page.getByText('Its owner deleted it. Ask them for a new link if you still need it.'),
+  ).toBeVisible();
   await capture(page, 'deleted');
+  await page.getByRole('link', { name: 'Back to pages' }).click();
+  await expect(page.locator('#short-fixture .home')).toBeVisible();
   await page.evaluate(async (path) => (await import(path)).mount('12345678', true, true), fixture);
   await expect(page.getByRole('heading', { name: 'Choose a page' })).toBeVisible();
   await expect(page.getByRole('link', { name: /Original proposal/ })).toHaveCount(0);
