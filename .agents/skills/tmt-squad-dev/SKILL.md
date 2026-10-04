@@ -10,17 +10,18 @@ description: Build and verify the Squad extension (`tmt-squad`, `tmt-sq`, the bo
 `board/view.rs` owns frame orchestration and one frame-level hit/scroll-map reset.
 Its surface modules under `board/view/` retain the existing painters:
 
-| Module     | Responsibility                                                    |
-| ---------- | ----------------------------------------------------------------- |
-| `header`   | Summary, token meter, spinner and clock-derived invalidation text |
-| `tabs`     | Tab labels, windows and painted tab hits                          |
-| `panes`    | Split/tab composition dispatch, borders and folded titles         |
-| `rows`     | Projected grid spans, selection, ages and continuation hits       |
-| `notes`    | Shared notebook lines, lead notes selection, links and hits       |
-| `detail`   | Selected member fields and notebook                               |
-| `replies`  | Safe final bodies, their derived cache and scrolling              |
-| `footer`   | Effective hints, notices, link previews and input strip           |
-| `overlays` | Overlay dispatch and action-menu/switcher painting                |
+| Module     | Responsibility                                                     |
+| ---------- | ------------------------------------------------------------------ |
+| `header`   | Summary, token meter, spinner and clock-derived invalidation text  |
+| `tabs`     | Tab labels, windows and painted tab hits                           |
+| `panes`    | Split/tab composition dispatch, borders and folded titles          |
+| `rows`     | Projected grid spans, selection, ages and continuation hits        |
+| `notes`    | Shared notebook lines, lead notes selection, links and hits        |
+| `detail`   | Selected member fields and notebook                                |
+| `replies`  | Safe final bodies, their derived cache and scrolling               |
+| `footer`   | Effective hints, notices, link previews and unanchored input strip |
+| `waiting`  | Acquired decision text, inline composer bands and docked ask-lead  |
+| `overlays` | Overlay dispatch and action-menu/switcher painting                 |
 
 `App`, terminal/worker lifecycle, acquisition, `Scrolls`, home and shared TUI
 components keep their separate owners. Home dispatch precedes ordinary panes;

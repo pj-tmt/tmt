@@ -266,7 +266,8 @@ keys. Request age comes from the inbox timestamp; pending-only rows have no
 request age. The hint uses the tab's member count and drops its oldest-member
 label first when space is short.
 
-Press `A` (`ask-lead`, rebindable) on a squad tab to open `ask lead <name>`.
+Press `A` (`ask-lead`, rebindable) on a squad tab to open the docked prompt
+with recipient-first header `→ lead <name>`.
 The prompt starts with "List what waits on me: one line each with who, the
 decision, your suggestion and what happens if I wait." Edit before Enter sends;
 Esc cancels. Missing or changed lead/sender/squad refuses without sending.
@@ -283,11 +284,32 @@ tmt sq config set board.ask_lead "What needs my decision?"
 tmt sq config set board.ask_lead "Summarize our pending decisions." --squad product
 ```
 
+Press `a` on a home, squad member or leads row to answer an open request,
+otherwise to send the squad's lead a note. The input opens directly beneath the
+complete selected row in an opaque full-width band, shifting rows below it.
+The header names the actual recipient first: `→ docs-sweep (tmt-product)` for
+an answer, or `✎ note → sol · about docs-sweep` for a note to the lead about
+that member. When the row itself receives the note, the header is simply
+`✎ note → docs-sweep`. The chosen waiting question is quoted above the answer input.
+Several open requests require an explicit
+choice before composing. `r` still opens the answer path on member/leads rows;
+`t` still composes a direct message. Explicit member-note bindings retain that
+recipient.
+
+Inside the band, Enter sends and Esc cancels; Tab switches answer/note when
+both apply, preserving your text. The band has a visible rule in both themes
+and NO_COLOR. At 80 columns the quoted question truncates before the recipient
+or input, which retains at least 30 columns. A successful send closes the band
+and shows `✓ sent` on the row until the next key; the cursor stays with it.
+Opening, cancelling, empty input or a changed target sends nothing. A failed
+send shows its error and does not show `✓ sent` or retry automatically.
+
 ## Home dashboard
 
 The built-in `all` board shows ① counts, ② needs you/blocked members and ③ one
 line per squad with its lead, state counts and most pressing member. Attention
-rows show only member, squad and available age; questions appear after `a`.
+rows show only member, squad and available age; questions appear in the inline
+composer after `a`.
 Quiet needs-you takes one line, and empty blocked disappears. Public
 `tmt sq ls --tab all --json` and text retain the aggregate document.
 

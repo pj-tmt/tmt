@@ -153,6 +153,8 @@ pub(super) fn render_at(frame: &mut Frame, app: &App, area: Rect, now: u64) {
         ));
     }
     let mut starts = Vec::new();
+    let mut input_range = None;
+    let mut selected_range = 0..0;
     let mut section = "";
     if !entries
         .iter()
@@ -280,19 +282,31 @@ pub(super) fn render_at(frame: &mut Frame, app: &App, area: Rect, now: u64) {
             look.role(Role::Text)
         };
         lines.push(line);
+        if app.sent.as_ref().is_some_and(|feedback| {
+            feedback.target == crate::board::app::RowTarget::Home(entry.target.clone())
+        }) {
+            lines.push(Line::styled("   ✓ sent", look.role(Role::Working)));
+        }
+        if let Some(range) =
+            crate::board::view::waiting::reserve_input(app, index, area, &mut lines)
+        {
+            input_range = Some(range);
+        }
+        if selected {
+            selected_range = starts[index]..lines.len();
+        }
     }
     if home.squads.is_empty() {
         lines.push(Line::styled("③ squads · 0", look.role(Role::Dim)));
     }
-    if app.follow
-        && let Some(start) = starts.get(app.selected)
-    {
+    if app.follow && starts.get(app.selected).is_some() {
         app.scrolls
-            .reveal_range(Pane::Rows, *start..start + 1, area, lines.len());
+            .reveal_range(Pane::Rows, selected_range, area, lines.len());
     }
     let (offset, shown) = app
         .scrolls
         .show(frame, Pane::Rows, area, &lines, look.role(Role::Dim));
+    crate::board::view::waiting::place_input(app, input_range, area, offset, shown);
     for (row, start) in starts
         .iter()
         .enumerate()

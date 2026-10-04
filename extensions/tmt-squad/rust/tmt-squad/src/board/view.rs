@@ -10,7 +10,7 @@ mod replies;
 mod rows;
 mod strip;
 mod tabs;
-mod waiting;
+pub(in crate::board) mod waiting;
 
 use super::app::App;
 use ratatui::{
@@ -38,6 +38,7 @@ pub fn fit(text: &str, width: usize) -> String {
 
 pub fn render(frame: &mut Frame, app: &App) {
     let look = app.look();
+    app.input_band.set(None);
     app.hits.borrow_mut().clear();
     app.note_hits.borrow_mut().clear();
     app.link_hits.borrow_mut().clear();
@@ -67,6 +68,7 @@ pub fn render(frame: &mut Frame, app: &App) {
     frame.render_widget(Paragraph::new(summary_text), summary);
     header::render_meter(frame, app, summary);
     panes::render_body(frame, app, body);
+    waiting::inline_prompt(frame, app, body);
     footer::render(frame, app, footer, look);
     overlays::render(frame, app, body, look);
     waiting::prompt(frame, app, body);
