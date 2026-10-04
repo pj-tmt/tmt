@@ -72,6 +72,11 @@
       "owns": ["extensions/tmt-colab/typescript/app"],
       "release": false
     },
+    "design-tokens": {
+      "owns": ["design/tokens"],
+      "release": false,
+      "releaseConsumers": ["tmt-colab"]
+    },
     "colab-client": {
       "owns": ["extensions/tmt-colab/typescript/colab-client"],
       "release": false,
@@ -139,8 +144,18 @@
     {
       "id": "design-tokens",
       "consumers": ["native"],
-      "why": "Shared tokens are read by Rust CLI palette and contrast tests; Site has its own workflow watching this path. Office web checks read none of these files.",
+      "why": "Shared tokens are embedded by native Colab guidance and read by Rust CLI palette and contrast tests; Site has its own workflow watching this path. Office web checks read none of these files.",
       "paths": ["design/tokens/**"]
+    },
+    {
+      "id": "colab-native-chrome",
+      "consumers": ["native"],
+      "why": "Native Colab embeds these app stylesheets in its public guidance asset, so CSS-only changes require Rust compilation and socket tests.",
+      "paths": [
+        "extensions/tmt-colab/typescript/app/src/colab-header.css",
+        "extensions/tmt-colab/typescript/app/src/reader-style.css",
+        "extensions/tmt-colab/typescript/app/src/notice-card.css"
+      ]
     },
     {
       "id": "consumed-docs",

@@ -85,14 +85,14 @@ test('reader link: opens unpaired, shows live edits read-only, and ends on Reset
         expect(Math.abs((frameBox?.width ?? 0) - contentWidth)).toBeLessThan(1);
         await reader.page.evaluate(() => window.scrollTo(0, 0));
         await expect.poll(() => reader.page.evaluate(() => window.scrollY)).toBe(0);
-        await expect(reader.page.locator('.reader-bar')).toBeInViewport();
+        await expect(reader.page.locator('.colab-header')).toBeInViewport();
         if (captures)
           await reader.page.screenshot({ path: `${captures}/reader-${width}-${theme}-top.png` });
         await reader.page.evaluate(() => window.scrollTo(0, 1800));
         await expect.poll(() => reader.page.evaluate(() => window.scrollY)).toBeGreaterThan(1000);
-        await expect(reader.page.locator('.reader-bar')).toBeInViewport();
+        await expect(reader.page.locator('.colab-header')).toBeInViewport();
         expect(
-          Math.abs((await reader.page.locator('.reader-bar').boundingBox())?.y ?? Infinity),
+          Math.abs((await reader.page.locator('.colab-header').boundingBox())?.y ?? Infinity),
         ).toBeLessThan(1);
         expect(
           await frame.locator('html').evaluate((node) => node.ownerDocument.defaultView!.scrollY),
@@ -110,13 +110,13 @@ test('reader link: opens unpaired, shows live edits read-only, and ends on Reset
     });
     const frameWidth = (await element.boundingBox())?.width;
     const pageHeight = await reader.page.evaluate(() => document.documentElement.scrollHeight);
-    await reader.page.getByText('Info', { exact: true }).click();
+    await reader.page.getByLabel('Info', { exact: true }).click();
     await expect(reader.page.getByText('You are reading a shared page.')).toBeVisible();
     expect((await element.boundingBox())?.width).toBe(frameWidth);
     expect(await reader.page.evaluate(() => document.documentElement.scrollHeight)).toBe(
       pageHeight,
     );
-    await reader.page.getByText('Info', { exact: true }).click();
+    await reader.page.getByLabel('Info', { exact: true }).click();
     await frame.getByRole('link', { name: 'Jump to reader anchor' }).click();
     await expect.poll(() => reader.page.evaluate(() => window.scrollY)).toBeGreaterThan(2000);
     expect(
@@ -172,12 +172,12 @@ test('reader link: opens unpaired, shows live edits read-only, and ends on Reset
       added.linkId as string,
       '--yes',
     ]);
-    await expect(reader.page.getByRole('heading', { name: 'Access ended' })).toBeVisible({
+    await expect(reader.page.getByRole('heading', { name: 'Access ended', level: 2 })).toBeVisible({
       timeout: 60_000,
     });
     await expect(reader.page.locator('iframe')).toHaveCount(0);
     const stale = await openReaderLink(world, door, readerPath, 'reader-stale');
-    await expect(stale.page.getByRole('heading', { name: 'Access ended' })).toBeVisible({
+    await expect(stale.page.getByRole('heading', { name: 'Access ended', level: 2 })).toBeVisible({
       timeout: 30_000,
     });
     const fresh = await openReaderLink(world, door, reset.readerPath as string, 'reader-fresh');

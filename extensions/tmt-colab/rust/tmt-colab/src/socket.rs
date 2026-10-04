@@ -571,7 +571,15 @@ fn serve(
     if request.method == "GET"
         && let Some(file) = assets::anonymous_file(&request.path)
     {
-        if let Some((kind, bytes)) = browser.app.as_ref().and_then(|app| app.find(file)) {
+        if file == crate::chrome::STYLESHEET_PATH {
+            let _ = response_with_policy(
+                &mut socket,
+                200,
+                crate::chrome::stylesheet().as_bytes(),
+                "text/css; charset=utf-8",
+                assets::POLICY,
+            );
+        } else if let Some((kind, bytes)) = browser.app.as_ref().and_then(|app| app.find(file)) {
             let policy = if file == "/renderer.html" {
                 assets::RENDERER_POLICY
             } else {
@@ -635,14 +643,11 @@ fn serve(
             .app
             .as_ref()
             .is_some_and(|app| app.find("/assets/recovery.js").is_some());
-    let stylesheet = if browser
-        .app
-        .as_ref()
-        .is_some_and(|app| app.find("/assets/reader.css").is_some())
-    {
-        "<link rel=\"stylesheet\" href=\"./assets/reader.css\">"
+    let stylesheet = "<link rel=\"stylesheet\" href=\"./assets/chrome.css\">";
+    let screen_title = if request.owner.is_some() {
+        "App unavailable"
     } else {
-        ""
+        "Pair browser"
     };
     let recovery_status = if recovery {
         "<p id=\"colab-recovery-status\" class=\"guidance-status\" role=\"status\">Opening your paired browser…</p>"
@@ -655,20 +660,27 @@ fn serve(
     } else {
         ""
     };
-    let page = format!(
-        "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"><title>Colab</title>{stylesheet}</head><body class=\"guidance\"><header class=\"guidance-masthead\"><span class=\"guidance-brand\">Colab <span>tmt</span></span></header><main class=\"guidance-main\"><section class=\"guidance-card\"><span class=\"guidance-mark\" aria-hidden=\"true\">○</span><p class=\"guidance-eyebrow\">{eyebrow}</p><h1>{heading}</h1>{recovery_status}<div id=\"colab-guidance\" class=\"guidance-detail\"{hidden}>{detail}</div></section></main>{script}</body></html>"
-    );
-    if recovery {
-        let _ = response_with_policy(
-            &mut socket,
-            200,
-            page.as_bytes(),
-            "text/html; charset=utf-8",
-            assets::POLICY,
-        );
+    // Lucide Circle/Diamond geometry (lucide-react 1.52.0, ISC); text carries the state.
+    let mark = if request.owner.is_some() {
+        "<svg class=\"guidance-mark live lucide\" aria-hidden=\"true\" xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" fill=\"currentColor\" stroke=\"currentColor\"><circle cx=\"12\" cy=\"12\" r=\"10\"/></svg>"
     } else {
-        let _ = response(&mut socket, 200, page.as_bytes(), true);
-    }
+        "<svg class=\"guidance-mark lucide\" aria-hidden=\"true\" xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\"><path d=\"M2.7 10.3a2.41 2.41 0 0 0 0 3.41l7.59 7.59a2.41 2.41 0 0 0 3.41 0l7.59-7.59a2.41 2.41 0 0 0 0-3.41l-7.59-7.59a2.41 2.41 0 0 0-3.41 0Z\"/></svg>"
+    };
+    let state = if request.owner.is_some() {
+        "live"
+    } else {
+        "waiting"
+    };
+    let page = format!(
+        "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"><title>Colab</title>{stylesheet}</head><body class=\"guidance\"><header class=\"colab-header\"><span class=\"colab-brand\"><span class=\"colab-mark\">tmt</span><span class=\"colab-wordmark\">Colab</span></span><h1 class=\"colab-title\">{screen_title}</h1><div class=\"colab-actions\"></div></header><main class=\"guidance-main\"><section class=\"guidance-card notice {state}\">{mark}<p class=\"guidance-eyebrow\">{eyebrow}</p><h2>{heading}</h2>{recovery_status}<div id=\"colab-guidance\" class=\"guidance-detail\"{hidden}>{detail}</div></section></main>{script}</body></html>"
+    );
+    let _ = response_with_policy(
+        &mut socket,
+        200,
+        page.as_bytes(),
+        "text/html; charset=utf-8",
+        assets::POLICY,
+    );
 }
 type ActiveTunnels = Arc<Mutex<Vec<(String, Arc<UnixStream>)>>>;
 struct TunnelGuard<'a> {

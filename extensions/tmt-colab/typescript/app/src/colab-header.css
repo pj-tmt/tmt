@@ -1,0 +1,99 @@
+:root {
+  --page-bar-size: var(--colab-header-height);
+  --reader-bar-size: var(--colab-header-height);
+}
+body {
+  padding-top: calc(var(--colab-header-height) + env(safe-area-inset-top, 0px));
+}
+.colab-header {
+  position: fixed;
+  top: env(safe-area-inset-top, 0px);
+  left: 0;
+  right: 0;
+  z-index: 30;
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  height: var(--colab-header-height);
+  gap: var(--colab-header-gap);
+  padding: 0 var(--colab-header-padding-inline);
+  border-bottom: 1px solid var(--c-rule);
+  background: var(--c-paper);
+  color: var(--c-text);
+  box-sizing: border-box;
+}
+.colab-brand {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: var(--colab-header-gap);
+  color: var(--c-muted);
+  text-decoration: none;
+}
+.colab-mark {
+  font: var(--colab-header-mark-weight) var(--colab-header-mark-size) /
+    var(--colab-header-mark-line-height) var(--f-mono);
+}
+.colab-wordmark {
+  font: var(--colab-header-wordmark-weight) var(--colab-header-wordmark-size) /
+    var(--colab-header-wordmark-line-height) var(--f-display);
+}
+.colab-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  margin: 0;
+  padding-left: var(--colab-header-gap);
+  border-left: 1px solid var(--c-rule);
+  color: var(--c-text);
+  font: var(--colab-header-title-weight) var(--colab-header-title-size) /
+    var(--colab-header-title-line-height) var(--f-display);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.colab-actions {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: var(--colab-header-gap);
+  font: var(--colab-header-action-weight) var(--colab-header-action-size) /
+    var(--colab-header-action-line-height) var(--f-body);
+}
+.colab-header button,
+.colab-header summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 8px;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  background: transparent;
+  color: var(--c-text);
+  font: var(--colab-header-action-weight) var(--colab-header-action-size) /
+    var(--colab-header-action-line-height) var(--f-body);
+  white-space: nowrap;
+  cursor: pointer;
+  list-style: none;
+}
+.colab-header summary::-webkit-details-marker {
+  display: none;
+}
+.colab-header button:hover:not(:disabled),
+.colab-header summary:hover,
+.colab-header button[aria-expanded='true'],
+.colab-header button[aria-pressed='true'],
+.colab-header details[open] > summary {
+  background: transparent;
+  text-decoration: underline;
+  text-underline-offset: 4px;
+}
+.lucide {
+  width: var(--colab-header-icon-size);
+  height: var(--colab-header-icon-size);
+  flex: none;
+  vertical-align: middle;
+  stroke-width: var(--colab-header-icon-stroke);
+  stroke-linecap: square;
+  stroke-linejoin: miter;
+}

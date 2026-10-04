@@ -36,7 +36,8 @@ The app build emits its main entry plus two public standalone entries (`vp build
   `assets::anonymous_file` is exact. Add a file to the reader entry only together with that list,
   the contract's anonymous-asset sentence and `served.spec.ts`.
 
-Only these files and `renderer.html` are public; the rest of the app stays owner-gated. Verify the
+The native `/assets/chrome.css` token/header stylesheet also remains available without
+an app build. Only these files and `renderer.html` are public; the rest of the app stays owner-gated. Verify the
 guidance CSP and pairing failure/reload guard alongside the app lifecycle tests (`served.spec.ts`,
 `session-recovery.test.ts`).
 

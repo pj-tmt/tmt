@@ -35,7 +35,7 @@ async function mount(page: Page, source: string, reader: boolean, readerOnly = f
     },
     { source, reader },
   );
-  await expect(page.locator(reader ? '.reader-bar .status' : '.page-bar .status')).toContainText(
+  await expect(page.locator('.colab-header:visible .status')).toContainText(
     reader ? 'Live' : 'Live preview',
   );
   await page.evaluate(() => (window as unknown as { firstHeight: Promise<void> }).firstHeight);
@@ -116,7 +116,7 @@ for (const reader of [false, true]) {
         .evaluate((node) => node.ownerDocument.defaultView!.scrollY),
     ).toBeGreaterThan(0);
     await page.setViewportSize({ width: 390, height: 700 });
-    await expect.poll(async () => (await frame.boundingBox())?.height).toBe(644);
+    await expect.poll(async () => (await frame.boundingBox())?.height).toBe(652);
     await expect(frame).toHaveAttribute('data-scroll-mode', 'frame');
   });
 }

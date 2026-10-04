@@ -75,7 +75,7 @@ test('paired writers retain anchored annotation conversations, direct exact send
       console.log(
         JSON.stringify({ width, windowScrollTop, frameScrollTop, marker: 'END OF PAGE' }),
       );
-      expect((await first.locator('.page-bar').boundingBox())?.y).toBe(0);
+      expect((await first.locator('.colab-header').boundingBox())?.y).toBe(0);
       await first.screenshot({ path: `/tmp/1587-native-${width}-light-long-scrolled.png` });
     }
     await first.setViewportSize({ width: 1440, height: 900 });
@@ -256,11 +256,15 @@ test('paired writers retain anchored annotation conversations, direct exact send
     await first.getByRole('button', { name: 'Save source', exact: true }).click();
     // Saved means the draft equals the new base again; a second save before that uses a stale base.
     await expect(first.getByRole('button', { name: 'Save source', exact: true })).toBeDisabled();
+    await expect(
+      second.frameLocator('iframe').getByText('Inserted above.', { exact: true }),
+    ).toBeVisible();
     await expect(t1).toHaveAttribute('data-anchor', 'attached');
     await first
       .getByRole('textbox', { name: 'Source', exact: true })
       .fill(html.replace('exact quote', 'changed quote'));
     await first.getByRole('button', { name: 'Save source', exact: true }).click();
+    await expect(second.frameLocator('iframe').locator('#quote')).toContainText('changed quote');
     await expect(t1).toHaveAttribute('data-anchor', 'detached');
     await expect(marker).toHaveCount(0);
     await first.getByRole('button', { name: 'Close Source', exact: true }).click();

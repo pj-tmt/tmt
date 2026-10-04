@@ -247,9 +247,9 @@ for (let run = 1; run <= 2; run++) {
       const privatePage = await fetch(server.origin + mount);
       const privateHtml = await privatePage.text();
       expect(privateHtml).toContain('This colab space is private');
-      expect(privateHtml).toContain('<h1>Pair this browser first</h1>');
+      expect(privateHtml).toContain('<h2>Pair this browser first</h2>');
       expect(privateHtml).toContain('<code>tmt remote pair</code>');
-      expect(privateHtml).toContain('<link rel="stylesheet" href="./assets/reader.css">');
+      expect(privateHtml).toContain('<link rel="stylesheet" href="./assets/chrome.css">');
       expect(privateHtml).toContain('<main class="guidance-main">');
       expect(privatePage.headers.get('content-security-policy')).toContain("style-src 'self'");
 
@@ -260,14 +260,17 @@ for (let run = 1; run <= 2; run++) {
       await page.goto(server.origin + mount);
       await expect(page.locator('#colab-guidance')).toBeVisible();
       await expect(page.getByRole('heading', { name: 'Pair this browser first' })).toBeVisible();
-      await expect(page.locator('.guidance-mark')).toHaveText('○');
+      await expect(page.locator('.guidance-mark path')).toHaveAttribute(
+        'd',
+        'M2.7 10.3a2.41 2.41 0 0 0 0 3.41l7.59 7.59a2.41 2.41 0 0 0 3.41 0l7.59-7.59a2.41 2.41 0 0 0 0-3.41l-7.59-7.59a2.41 2.41 0 0 0-3.41 0Z',
+      );
       await expect(page.locator('.guidance-command code')).toHaveText('tmt remote pair');
       expect(
         await page
           .locator('.guidance-card')
           .evaluate((element) => getComputedStyle(element).boxShadow),
       ).not.toBe('none');
-      expect(requests).toContain(server.origin + mount + 'assets/reader.css');
+      expect(requests).toContain(server.origin + mount + 'assets/chrome.css');
       if (run === 1) await captureDesign(page, 'guidance');
       const recoverySdkRequests = requests.filter(
         (url) => new URL(url).pathname === '/sdk/remote-v1.js',
@@ -398,7 +401,7 @@ test('public reader entry: exact static bytes, link fragment removed, and no acc
     // A malformed link explains itself, and its fragment leaves the address bar first.
     await page.goto(server.origin + mount + 'read#v=1&seed=not-a-seed');
     await expect(page.getByRole('alert')).toContainText('incomplete or malformed');
-    await expect(page.getByRole('alert').locator('.notice-mark')).toHaveText('✗');
+    await expect(page.getByRole('alert').locator('.notice-mark .lucide-x')).toBeVisible();
     expect(await page.evaluate(() => location.hash)).toBe('');
     // A well-formed link for a space this server does not hold has no grant: access ended.
     const seed = Buffer.alloc(32, 7).toString('base64url');
@@ -414,8 +417,10 @@ test('public reader entry: exact static bytes, link fragment removed, and no acc
     ].join('&');
     await page.goto('about:blank'); // A hash-only change would not reload the entry.
     await page.goto(server.origin + mount + 'read#' + link);
-    await expect(page.getByRole('heading', { name: 'Access ended' })).toBeVisible();
-    await expect(page.getByRole('alert').locator('.notice-mark')).toHaveText('✗');
+    await expect(
+      page.getByRole('alert').getByRole('heading', { name: 'Access ended' }),
+    ).toBeVisible();
+    await expect(page.getByRole('alert').locator('.notice-mark .lucide-circle')).toBeVisible();
     await captureDesign(page, 'reader-access-ended');
     expect(await page.evaluate(() => location.hash)).toBe('');
     // The seed is in no request, and the reader stored nothing in the browser.

@@ -519,7 +519,8 @@ performs that registration. Anonymous root GET retains private-space guidance.
 Without owner context, exactly these static files are served (GET only, the same
 policy headers as owner responses): `/read` (the bytes of `reader.html`),
 `/renderer.html`, `/assets/reader.js`, `/assets/reader.css`, `/assets/reader-fold.js` and
-`/assets/recovery.js`. They are build-owned public bytes with no secret and no API. Every
+`/assets/recovery.js`, plus the native `/assets/chrome.css` stylesheet, which is also available
+without an app build. They are public static bytes with no secret and no API. Every
 other asset request without owner context, including `/index.html`, `/reader.html`,
 `/THIRD-PARTY-NOTICES.txt` and the hashed owner assets, returns 403. `/read` has no trailing
 slash so the entry's relative `./assets/` and `./renderer.html` references resolve under the mount. Unknown paths and owner
@@ -531,7 +532,8 @@ API routes and registered-owner `/sync` admission/transport are unchanged.
 
 Vite output MUST use relative URLs beneath `/r/<prefix>/x/colab/`, with no
 third-party requests. The current app declares installed/system font fallbacks;
-no external font service is used. The app response CSP is exactly:
+no external font service is used. App and native guidance responses share this
+exact parent CSP, including guidance served without an app build:
 
 ```text
 default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'self'; worker-src 'self'; frame-src 'self'; base-uri 'none'; form-action 'none'; object-src 'none'; frame-ancestors 'none'
