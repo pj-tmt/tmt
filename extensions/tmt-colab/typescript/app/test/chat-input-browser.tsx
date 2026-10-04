@@ -64,21 +64,35 @@ export function mountComposer(options: { agents: string[]; publisher?: string; r
   );
 }
 
-export function mountMenu() {
+export function mountMenu(options: { tight?: boolean } = {}) {
   root = createRoot(host());
-  root.render(
+  const row = (
     <article className="comment" data-testid="row" style={{ width: 360, padding: 16 }}>
+      <header style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+        <p>You · now</p>
+        <span className="comment-header-end">
+          <span role="status">✓ replied</span>
+          <ActionMenu
+            label="Message actions"
+            items={[
+              { key: 'edit', label: 'Edit' },
+              { key: 'delete', label: 'Delete' },
+            ]}
+            onSelect={(key) => selected.push(key)}
+          />
+        </span>
+      </header>
       <p>First line of a message.</p>
-      <ActionMenu
-        label="Message actions"
-        items={[
-          { key: 'edit', label: 'Edit' },
-          { key: 'delete', label: 'Delete' },
-        ]}
-        onSelect={(key) => selected.push(key)}
-      />
       <button type="button">After</button>
-    </article>,
+    </article>
+  );
+  // A short scrolling container: the list cannot fit below the trigger, so it flips up.
+  root.render(
+    options.tight ? (
+      <div style={{ height: 120, overflowY: 'auto', marginTop: 200 }}>{row}</div>
+    ) : (
+      row
+    ),
   );
 }
 

@@ -230,6 +230,15 @@ test('paired writers retain anchored annotation conversations, direct exact send
           node.scrollTop = 0;
         });
         await first.screenshot({ path: `/tmp/1587-native-${width}-${theme}-thread.png` });
+        // Comment order within a thread is not fixed; take the one this browser wrote.
+        const own = t1.getByTestId('comment-entry').filter({ hasText: 'You ·' }).first();
+        const menu = own.getByRole('button', { name: 'Message actions', exact: true });
+        await own.hover();
+        await menu.click();
+        await expect(own.getByRole('menuitem')).toHaveText(['Edit', 'Delete']);
+        await first.screenshot({ path: `/tmp/1690-native-${width}-${theme}-comment-menu.png` });
+        await menu.press('Escape');
+        await expect(own.getByRole('menuitem')).toHaveCount(0);
         await t1
           .getByRole('combobox', { name: 'Message to agent', exact: true })
           .scrollIntoViewIfNeeded();
@@ -261,7 +270,7 @@ test('paired writers retain anchored annotation conversations, direct exact send
     await expect(t2.locator('blockquote').first()).toHaveText('Another selection.');
     await reply2.hover();
     await reply2.getByRole('button', { name: 'Message actions', exact: true }).click();
-    await reply2.getByRole('menuitem', { name: 'Delete comment', exact: true }).click();
+    await reply2.getByRole('menuitem', { name: 'Delete', exact: true }).click();
     await expect(t1).toContainText('Comment deleted');
     await t1.getByRole('button', { name: 'Delete thread', exact: true }).click();
     await expect(t2).toContainText('Deleted thread');

@@ -110,7 +110,7 @@ export function DiscussionComment({
       ? [
           {
             key: 'delete',
-            label: chat ? 'Delete message' : text.commentDelete,
+            label: 'Delete',
             disabled: busy || blocked,
           },
         ]
@@ -134,70 +134,74 @@ export function DiscussionComment({
       data-message-id={comment.messageId}
       data-writer={comment.ref.writer}
     >
-      <header>
-        <p className="comment-byline" title={comment.ref.writer}>
-          {owned ? text.askYou : comment.deviceName || text.commentDevice} ·{' '}
-          <time
-            dateTime={new Date(Number(comment.at)).toISOString()}
-            title={new Date(Number(comment.at)).toISOString()}
-          >
-            {(chat ? compactRelativeTime : relativeTime)(Number(comment.at), now)}
-          </time>
-          {!comment.deleted && comment.revision !== '1' && <> · {text.commentEdited}</>}
-        </p>
-        {status}
-      </header>
-      {comment.deleted ? (
-        <p className="comment-status">{text.commentDeleted}</p>
-      ) : (
-        <>
-          {menu.length > 0 && !editing && (
-            <ActionMenu
-              label="Message actions"
-              items={menu}
-              onSelect={(key) => {
-                if (key === 'edit') {
-                  setDraft(comment.body);
-                  setEditRevision(comment.revision);
-                  setEditing(true);
-                } else if (key === 'delete')
-                  action(() => binding!.deleteComment(comment.ref, comment.revision));
-              }}
-            />
-          )}
-          {editing ? (
-            <form
-              onSubmit={(event) => {
-                event.preventDefault();
-                if (event.isTrusted && draft.trim())
-                  action(() => binding!.edit(comment.ref, editRevision, draft));
-              }}
+      <div className="comment-main">
+        <header>
+          <p className="comment-byline" title={comment.ref.writer}>
+            {owned ? text.askYou : comment.deviceName || text.commentDevice} ·{' '}
+            <time
+              dateTime={new Date(Number(comment.at)).toISOString()}
+              title={new Date(Number(comment.at)).toISOString()}
             >
-              <label htmlFor={editId}>{text.commentEditBody}</label>
-              <textarea
-                id={editId}
-                value={draft}
-                disabled={busy}
-                onChange={(event) => setDraft(event.target.value)}
+              {(chat ? compactRelativeTime : relativeTime)(Number(comment.at), now)}
+            </time>
+            {!comment.deleted && comment.revision !== '1' && <> · {text.commentEdited}</>}
+          </p>
+          <span className="comment-header-end">
+            {status}
+            {menu.length > 0 && !comment.deleted && !editing && (
+              <ActionMenu
+                label="Message actions"
+                items={menu}
+                onSelect={(key) => {
+                  if (key === 'edit') {
+                    setDraft(comment.body);
+                    setEditRevision(comment.revision);
+                    setEditing(true);
+                  } else if (key === 'delete')
+                    action(() => binding!.deleteComment(comment.ref, comment.revision));
+                }}
               />
-              <div className="comment-actions">
-                <button disabled={busy || blocked || !draft.trim()}>{text.commentSave}</button>
-                <button
-                  type="button"
+            )}
+          </span>
+        </header>
+        {comment.deleted ? (
+          <p className="comment-status">{text.commentDeleted}</p>
+        ) : (
+          <>
+            {editing ? (
+              <form
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  if (event.isTrusted && draft.trim())
+                    action(() => binding!.edit(comment.ref, editRevision, draft));
+                }}
+              >
+                <label htmlFor={editId}>{text.commentEditBody}</label>
+                <textarea
+                  id={editId}
+                  value={draft}
                   disabled={busy}
-                  onClick={(event) => {
-                    if (event.isTrusted) setEditing(false);
-                  }}
-                >
-                  {text.commentCancel}
-                </button>
-              </div>
-            </form>
-          ) : (
-            <p className="comment-body">{comment.body}</p>
-          )}
-        </>
-      )}
+                  onChange={(event) => setDraft(event.target.value)}
+                />
+                <div className="comment-actions">
+                  <button disabled={busy || blocked || !draft.trim()}>{text.commentSave}</button>
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={(event) => {
+                      if (event.isTrusted) setEditing(false);
+                    }}
+                  >
+                    {text.commentCancel}
+                  </button>
+                </div>
+              </form>
+            ) : (
+              <p className="comment-body">{comment.body}</p>
+            )}
+          </>
+        )}
+      </div>
       {!busy && delivery}
       {!chat && (
         <AskPanel

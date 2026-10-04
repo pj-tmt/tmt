@@ -117,7 +117,7 @@ test('page-visible device Chat threads send exact bytes once, preserve drafts, k
     // One quiet menu holds Delete for one's own message; no disclosure of the sent bytes exists.
     await userTurn.hover();
     await userTurn.getByRole('button', { name: 'Message actions', exact: true }).click();
-    await expect(userTurn.getByRole('menuitem')).toHaveText(['Delete message']);
+    await expect(userTurn.getByRole('menuitem')).toHaveText(['Delete']);
     await userTurn.getByRole('button', { name: 'Message actions', exact: true }).press('Escape');
     await expect(userTurn.getByRole('menuitem')).toHaveCount(0);
     await expect(userTurn.locator('details')).toHaveCount(0);

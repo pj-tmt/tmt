@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState, type KeyboardEvent } from 'react';
+import { useEffect, useId, useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react';
 import './action-menu.css';
 
 export interface ActionMenuItem {
@@ -23,20 +23,49 @@ export function ActionMenu({
   const root = useRef<HTMLSpanElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
   const entries = useRef<(HTMLButtonElement | null)[]>([]);
+  const list = useRef<HTMLDivElement>(null);
   const [open, setOpen] = useState(false);
+  const [place, setPlace] = useState<{ right: number; flip: boolean }>();
   const enabled = items.flatMap((item, index) => (item.disabled ? [] : [index]));
+
+  // The list drops below the row that owns the trigger (never over that row's own content),
+  // right edges aligned with the trigger, and flips above the row only when it would leave
+  // its scrolling container.
+  useLayoutEffect(() => {
+    if (!open) return setPlace(undefined);
+    const row = root.current?.offsetParent,
+      box = list.current?.getBoundingClientRect(),
+      trigger = root.current?.getBoundingClientRect();
+    if (!row || !box || !trigger) return;
+    const rowBox = row.getBoundingClientRect();
+    let bottom = innerHeight;
+    for (let parent = row.parentElement; parent; parent = parent.parentElement) {
+      if (/(auto|scroll)/.test(getComputedStyle(parent).overflowY)) {
+        bottom = Math.min(bottom, parent.getBoundingClientRect().bottom);
+        break;
+      }
+    }
+    setPlace({
+      // The list is positioned in the row's padding box.
+      right: rowBox.left + row.clientLeft + row.clientWidth - trigger.right,
+      flip: rowBox.bottom + 2 + box.height > bottom && rowBox.top - box.height - 2 >= 0,
+    });
+  }, [open]);
 
   useEffect(() => {
     if (!open) return;
-    entries.current[enabled[0]]?.focus();
     const closeOutside = (event: PointerEvent) => {
       if (event.target instanceof Node && !root.current?.contains(event.target)) setOpen(false);
     };
     document.addEventListener('pointerdown', closeOutside);
     return () => document.removeEventListener('pointerdown', closeOutside);
-    // The first enabled entry takes focus once per opening.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
+  // The first enabled entry takes focus once per opening, when the list is placed and visible.
+  const placed = place !== undefined;
+  useEffect(() => {
+    if (open && placed) entries.current[enabled[0]]?.focus();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, placed]);
 
   function close(refocus: boolean) {
     setOpen(false);
@@ -90,11 +119,29 @@ export function ActionMenu({
           }
         }}
       >
-        <span aria-hidden="true">⋯</span>
+        {/* Lucide "ellipsis" (ISC), square caps, currentColor. */}
+        <svg
+          viewBox="0 0 24 24"
+          width="18"
+          height="18"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="square"
+          strokeLinejoin="miter"
+          aria-hidden="true"
+        >
+          <circle cx="12" cy="12" r="1" />
+          <circle cx="19" cy="12" r="1" />
+          <circle cx="5" cy="12" r="1" />
+        </svg>
       </button>
       {open && (
         <div
           className="tmt-action-menu-list"
+          data-flip={place?.flip ?? false}
+          style={{ right: place?.right ?? 0, visibility: place ? 'visible' : 'hidden' }}
+          ref={list}
           role="menu"
           id={id}
           aria-label={label}
