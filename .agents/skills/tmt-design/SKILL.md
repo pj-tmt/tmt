@@ -11,7 +11,7 @@ Chapters are `site/src/chapters/*.mdx`, registered with the page tree in
 (`site/src/scenes/`, `site/src/chapter-scenes/`) whose words live in `site/src/lang/strings.ts`.
 Scenes advance only while on screen and rest on one complete frame under
 `prefers-reduced-motion`: new scenes must keep that. `index.html` asks Google Fonts for
-the token mono family's glyphs of the marks `●○◌◆✗✓↻▸` (the latin subset has none);
+the token mono family's glyphs of the marks `●○◌◆✗✓↻▸◐` (the latin subset has none);
 the family lacks `○✗✓↻`, which fall back to the system monospace font; colors, fonts and marks come from
 `design/tokens/tokens.json`. Anything not in a release is marked planned. Merging a
 change under `site/**` or `design/tokens/**` to `main` deploys to GitHub Pages
