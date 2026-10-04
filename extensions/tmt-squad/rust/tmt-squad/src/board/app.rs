@@ -855,6 +855,13 @@ impl App {
         self.shown.as_deref()
     }
 
+    #[cfg(test)]
+    pub(crate) fn set_tab_focus_for_test(&mut self, key: &str) {
+        self.current = Some(key.to_owned());
+        self.shown = self.current.clone();
+        self.loading_since = None;
+    }
+
     /// The view on screen belongs to another squad while a switch loads.
     pub fn loading(&self) -> bool {
         self.view.is_some() && self.shown != self.current
@@ -868,6 +875,24 @@ impl App {
                 || snapshot.squad.as_deref() == Some(super::ALL),
             "home data belongs to the aggregate snapshot"
         );
+        if self.loading()
+            && snapshot.squad == self.current
+            && let Err(error) = &snapshot.view
+        {
+            // Keep the retained view and its tab selected after a failed switch.
+            // The footer shows the failure instead of leaving a pending target.
+            let now = Instant::now();
+            let shown = self.shown.clone();
+            if let Some(shown) = shown.as_deref() {
+                self.handoff_meters(shown, now);
+            }
+            self.current = shown;
+            self.loading_since = None;
+            self.notice = None;
+            self.error = Some(error.clone());
+            self.project_usage(now);
+            return;
+        }
         if let Some(overlay) = &mut self.settings {
             overlay.squad_keys = snapshot.squad_keys.clone();
         }
@@ -1014,13 +1039,6 @@ impl App {
                     for meter in self.meters.values_mut() {
                         meter.suspend(Instant::now());
                     }
-                }
-                // The switch failed: the error is the state, not the previous frame
-                // that keeps saying it is loading. The old view stays cached.
-                if self.loading()
-                    && let (Some(previous), Some(name)) = (self.view.take(), self.shown.take())
-                {
-                    self.cache.entry(name).or_insert(previous);
                 }
                 self.error = Some(error);
             }
@@ -1190,29 +1208,54 @@ impl App {
         Effect::Act(Request::Reorder(self.tabs.clone()))
     }
 
+    /// Close the current tab's meter continuity and resume the target's cached
+    /// meter, including the enabled HOME meters when its view is retained.
+    fn handoff_meters(&mut self, next: &str, now: Instant) {
+        if self.current.as_deref() == Some(super::ALL) {
+            for meter in self.meters.values_mut() {
+                meter.suspend(now);
+            }
+        }
+        if let (Some(key), Some(mut meter)) = (self.current.as_ref(), self.meter.take()) {
+            meter.suspend(now);
+            if self.tabs.contains(key) || self.hidden.contains(key) {
+                self.meters.insert(key.clone(), meter);
+            }
+        }
+        // A cached view is not a fresh counter receipt for another squad.
+        self.meter = self.meters.remove(next);
+        if let Some(meter) = self.meter.as_mut() {
+            meter.resume(self.token_window, now);
+        }
+        if next == super::ALL {
+            let home = if self.shown.as_deref() == Some(next) {
+                self.view.as_ref()
+            } else {
+                self.cache.get(next)
+            };
+            if let Some(home) = home {
+                for (name, meter) in &mut self.meters {
+                    if home
+                        .home_rate
+                        .get(name)
+                        .is_some_and(|rate| rate.settings.enabled)
+                    {
+                        meter.resume(self.token_window, now);
+                    }
+                }
+            }
+        }
+    }
+
     /// Shows the tab `next`, from the cache at once when it was visited.
     pub(super) fn go(&mut self, next: String) -> Effect {
         self.picks.include(&next);
         if Some(&next) == self.current.as_ref() {
             return Effect::None;
         }
-        if self.current.as_deref() == Some(super::ALL) {
-            for meter in self.meters.values_mut() {
-                meter.suspend(Instant::now());
-            }
-        }
-        // A cached view is not a fresh counter receipt for another squad.
-        if let (Some(key), Some(mut meter)) = (self.current.as_ref(), self.meter.take()) {
-            meter.suspend(Instant::now());
-            if self.tabs.contains(key) || self.hidden.contains(key) {
-                self.meters.insert(key.clone(), meter);
-            }
-        }
-        self.meter = self.meters.remove(&next);
-        if let Some(meter) = self.meter.as_mut() {
-            meter.resume(self.token_window, Instant::now());
-        }
+        self.handoff_meters(&next, Instant::now());
         self.current = Some(next.clone());
+        self.error = None;
         self.jobs_focus = false;
         self.menu = None;
         self.loading_since = Some(Instant::now());
@@ -3546,30 +3589,43 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn a_failed_switch_shows_its_error_instead_of_a_stale_loading_frame() {
-        let mut app = App::new(Some("product".into()));
-        app.apply(snapshot(
-            "product",
-            json!([{"title": null, "rows": [row("a", "")]}]),
-        ));
-        press(&mut app, KeyCode::Right);
-        app.apply(Snapshot {
-            squad_keys: Vec::new(),
-            tabs: vec!["product".into(), "infra".into()],
-            hidden: Vec::new(),
-            pinned: 0,
-            attention: Default::default(),
-            squad: Some("infra".into()),
-            view: Err("infra: room not found".into()),
-        });
-        assert!(!app.loading() && app.loading_since.is_none());
-        assert!(app.view.is_none());
-        assert_eq!(app.error.as_deref(), Some("infra: room not found"));
-        press(&mut app, KeyCode::Enter);
-        assert_ne!(app.notice.as_deref(), Some("Loading infra…"));
-        // The squad it came from is still one key away, from the cache.
-        press(&mut app, KeyCode::Left);
-        assert_eq!(names(&app), ["a"]);
+    fn a_failed_switch_returns_to_the_retained_view_and_shows_its_error() {
+        for error in [
+            "infra: room not found",
+            "tmt did not finish in time; the outcome is unknown.",
+        ] {
+            let mut app = App::new(Some("product".into()));
+            app.apply(snapshot(
+                "product",
+                json!([{"title": null, "rows": [row("a", "")]}]),
+            ));
+            app.meter = Some(super::super::meter::Meter::new(
+                crate::config::TokenRate {
+                    enabled: true,
+                    ..Default::default()
+                },
+                &super::super::rate::tests::input(100),
+                Instant::now(),
+            ));
+            press(&mut app, KeyCode::Right);
+            assert!(app.meter.is_none() && app.meters.contains_key("product"));
+            app.apply(Snapshot {
+                squad_keys: Vec::new(),
+                tabs: vec!["product".into(), "infra".into()],
+                hidden: Vec::new(),
+                pinned: 0,
+                attention: Default::default(),
+                squad: Some("infra".into()),
+                view: Err(error.into()),
+            });
+            assert!(!app.loading() && app.loading_since.is_none());
+            assert_eq!(app.current.as_deref(), Some("product"));
+            assert_eq!(app.shown_tab(), Some("product"));
+            assert_eq!(names(&app), ["a"]);
+            assert_eq!(app.error.as_deref(), Some(error));
+            assert!(app.notice.is_none(), "the footer must show the error");
+            assert!(app.meter.is_some() && !app.meters.contains_key("product"));
+        }
     }
 
     fn member(name: &str, fields: Value) -> Value {
@@ -4716,6 +4772,23 @@ mod token_window_tests {
             super::super::meter::Meter::new(settings, &input, now),
         );
         app
+    }
+
+    #[test]
+    fn failed_switch_back_to_home_restores_its_member_meter() {
+        let now = Instant::now();
+        let mut app = home(now);
+        assert!(matches!(app.go("product".into()), Effect::Load(_)));
+        assert!(app.loading() && app.meter.is_some());
+        assert!(!app.meters.contains_key("product"));
+
+        let mut failed = super::tests::snapshot("product", serde_json::json!([]));
+        failed.view = Err("product load failed".into());
+        app.apply(failed);
+        assert_eq!(app.current.as_deref(), Some(super::super::ALL));
+        assert!(app.meter.is_none() && app.meters.contains_key("product"));
+        assert!(app.home_usage("product", now).is_some());
+        assert_eq!(app.error.as_deref(), Some("product load failed"));
     }
 
     #[test]

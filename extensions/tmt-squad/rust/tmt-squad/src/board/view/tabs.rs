@@ -38,21 +38,6 @@ pub(super) fn tab_label(
     colors: &TabColors,
     style: Style,
 ) -> Line<'static> {
-    let attention_style = |color: &str| {
-        let foreground = look.named(color);
-        Style {
-            // Explicit default foreground prevents the label's accent/muted
-            // foreground leaking into a mark whose configured color is default.
-            fg: Some(foreground.fg.unwrap_or_default()),
-            bg: style.bg,
-            ..foreground
-                .add_modifier(Modifier::BOLD | (style.add_modifier & Modifier::REVERSED))
-                .remove_modifier(
-                    style.add_modifier
-                        & !(foreground.add_modifier | Modifier::BOLD | Modifier::REVERSED),
-                )
-        }
-    };
     let (mark, count, color) = if attention.waiting > 0 {
         (Mark::Decision.symbol(), attention.waiting, &colors.waiting)
     } else if attention.blocked > 0 {
@@ -64,7 +49,7 @@ pub(super) fn tab_label(
         Span::styled(
             mark,
             if count > 0 {
-                attention_style(color)
+                tab_attention_style(look, color, style)
             } else {
                 style
             },
@@ -78,10 +63,26 @@ pub(super) fn tab_label(
         spans.push(Span::styled(" ", style));
         spans.push(Span::styled(
             format!("{}{}", Mark::Failed.symbol(), attention.blocked),
-            attention_style(&colors.blocked),
+            tab_attention_style(look, &colors.blocked, style),
         ));
     }
     Line::from(spans).style(style)
+}
+
+fn tab_attention_style(look: Look, color: &str, style: Style) -> Style {
+    let foreground = look.named(color);
+    Style {
+        // Explicit default foreground prevents the label's accent/muted
+        // foreground leaking into a mark whose configured color is default.
+        fg: Some(foreground.fg.unwrap_or_default()),
+        bg: style.bg,
+        ..foreground
+            .add_modifier(Modifier::BOLD | (style.add_modifier & Modifier::REVERSED))
+            .remove_modifier(
+                style.add_modifier
+                    & !(foreground.add_modifier | Modifier::BOLD | Modifier::REVERSED),
+            )
+    }
 }
 
 /// Fit the shared label through the grid owner, preserving the styles of the
@@ -121,6 +122,7 @@ pub(super) fn tab(
     look: crate::look::Look,
     name: &str,
     selected: bool,
+    pending: bool,
     attention: Attention,
     colors: &TabColors,
 ) -> Line<'static> {
@@ -132,6 +134,8 @@ pub(super) fn tab(
                 .role(Role::Accent)
                 .add_modifier(Modifier::BOLD | selection.add_modifier)
         }
+    } else if pending {
+        look.role(Role::Muted).add_modifier(Modifier::UNDERLINED)
     } else {
         look.role(Role::Muted)
     };
@@ -140,22 +144,27 @@ pub(super) fn tab(
     label
 }
 
-/// The home keeps its public `all` key; the accent block is presentation only.
+/// The home keeps its public `all` key; focus changes only its presentation.
 fn home_tab(
     look: crate::look::Look,
     selected: bool,
+    pending: bool,
     attention: Attention,
     colors: &TabColors,
 ) -> Line<'static> {
-    let style = look.role(Role::Accent).add_modifier(
-        Modifier::REVERSED
-            | Modifier::BOLD
-            | if selected {
-                Modifier::UNDERLINED
-            } else {
-                Modifier::empty()
-            },
-    );
+    let style = if selected {
+        let selection = look.selection();
+        Style {
+            bg: selection.bg,
+            ..look
+                .role(Role::Accent)
+                .add_modifier(Modifier::REVERSED | Modifier::BOLD | selection.add_modifier)
+        }
+    } else if pending {
+        look.role(Role::Muted).add_modifier(Modifier::UNDERLINED)
+    } else {
+        look.role(Role::Muted)
+    };
     let mut spans = vec![Span::styled(" ▚ tmt", style)];
     for (count, mark, color) in [
         (attention.waiting, Mark::Decision, &colors.waiting),
@@ -165,8 +174,7 @@ fn home_tab(
             spans.push(Span::styled(" ", style));
             spans.push(Span::styled(
                 format!("{}{count}", mark.symbol()),
-                look.named(color)
-                    .add_modifier(Modifier::REVERSED | Modifier::BOLD),
+                tab_attention_style(look, color, style),
             ));
         }
     }
@@ -360,17 +368,24 @@ fn prefix(key: &str) -> Option<(&str, &str)> {
         .filter(|(prefix, suffix)| !prefix.is_empty() && !suffix.is_empty())
 }
 
-fn label(key: &str, selected: bool, attention: Attention, look: Look, colors: &TabColors) -> Label {
+fn label(
+    key: &str,
+    selected: bool,
+    pending: bool,
+    attention: Attention,
+    look: Look,
+    colors: &TabColors,
+) -> Label {
     let full = if key == tabs::ALL {
-        home_tab(look, selected, attention, colors)
+        home_tab(look, selected, pending, attention, colors)
     } else {
-        tab(look, tabs::label(key), selected, attention, colors)
+        tab(look, tabs::label(key), selected, pending, attention, colors)
     };
     let (grouped, header) = prefix(key).map_or_else(
         || (full.clone(), Line::default()),
         |(name, suffix)| {
             (
-                tab(look, suffix, selected, attention, colors),
+                tab(look, suffix, selected, pending, attention, colors),
                 Line::from(vec![
                     Span::styled("│ ", look.role(Role::Dim)),
                     Span::styled(
@@ -526,10 +541,10 @@ pub(super) fn paint(app: &App, area: Rect) -> Line<'static> {
     let colors = app.view.as_ref().map_or(&default, |view| &view.tab_colors);
     let indices = app.picked_indices();
     let keys: Vec<_> = indices.iter().map(|&index| &app.tabs[index]).collect();
-    let position = app
-        .current
-        .as_ref()
-        .and_then(|key| keys.iter().position(|tab| *tab == key));
+    // A requested tab may still be loading while the retained view is on screen.
+    // Selection follows the content the user can see, not the pending request.
+    let shown = app.shown_tab().or(app.current.as_deref());
+    let position = shown.and_then(|key| keys.iter().position(|tab| tab.as_str() == key));
     let pinned = indices
         .iter()
         .take_while(|&&index| index < app.pinned)
@@ -544,6 +559,7 @@ pub(super) fn paint(app: &App, area: Rect) -> Line<'static> {
             label(
                 key,
                 position == Some(index),
+                app.loading() && app.current.as_deref() == Some(key.as_str()),
                 app.attention.get(*key).copied().unwrap_or_default(),
                 look,
                 colors,
@@ -555,19 +571,16 @@ pub(super) fn paint(app: &App, area: Rect) -> Line<'static> {
         .zip(&labels)
         .map(|(key, label)| widths(key, label))
         .collect();
-    let shown_hidden = app
-        .current
-        .as_ref()
-        .filter(|_| position.is_none())
-        .map(|key| {
-            tab(
-                look,
-                &format!("{} (hidden)", tabs::label(key)),
-                true,
-                app.attention.get(key).copied().unwrap_or_default(),
-                colors,
-            )
-        });
+    let shown_hidden = shown.filter(|_| position.is_none()).map(|key| {
+        tab(
+            look,
+            &format!("{} (hidden)", tabs::label(key)),
+            true,
+            false,
+            app.attention.get(key).copied().unwrap_or_default(),
+            colors,
+        )
+    });
     let hidden_width = shown_hidden.as_ref().map_or(0, |label| label.width() + 1);
     let window = window(
         &widths,
@@ -698,7 +711,7 @@ mod tests {
         ]
         .map(String::from)
         .to_vec();
-        app.current = Some(crate::board::ALL.into());
+        app.set_tab_focus_for_test(crate::board::ALL);
         app.pinned = 1;
         for (name, waiting, blocked) in [
             (crate::board::ALL, 3, 2),
@@ -827,7 +840,7 @@ mod tests {
             .map(String::from)
             .to_vec();
         app.picks = crate::board::pick::Picks::parse(Some("product"), &app.switchable()).unwrap();
-        app.current = Some("product".into());
+        app.set_tab_focus_for_test("product");
         app.attention.clear();
         let line = draw(&app, 80, 6)[0].clone();
         assert!(line.contains("1 not on this board"), "{line}");
@@ -862,6 +875,7 @@ mod tests {
                     app.look(),
                     "reviews",
                     false,
+                    false,
                     attention,
                     &TabColors::default(),
                 );
@@ -891,6 +905,7 @@ mod tests {
             look,
             "product",
             true,
+            false,
             Attention {
                 waiting: 1,
                 blocked: 1,
@@ -921,7 +936,7 @@ mod tests {
         let names: Vec<String> = (0..9).map(|n| format!("sq{n}")).collect();
         let mut app = board(json!([{"title": null, "rows": []}]));
         app.tabs = names.clone();
-        app.current = Some("sq4".into());
+        app.set_tab_focus_for_test("sq4");
         app.attention.insert(
             "sq1".into(),
             Attention {
@@ -995,33 +1010,171 @@ mod tests {
                     " ▚ tmt ◆3 ✗2  │   leads    mamezu  ◆ tmt-colab 1  +12 › tmt-remote◆2✗1 …",
                 ),
             ] {
-                let line = draw(&app, width, 6)[0].clone();
-                assert_eq!(line, expected, "{base:?} {depth:?} {width}");
-                let hits = app.tab_hits.borrow().clone();
-                assert_eq!(hits[0].tab, 0);
-                assert!(hits.iter().all(|hit| hit.x + hit.width <= width));
-                let mut terminal = Terminal::new(TestBackend::new(width, 6)).unwrap();
-                terminal.draw(|frame| render(frame, &app)).unwrap();
-                let buffer = terminal.backend().buffer();
-                assert!(
-                    buffer[(1, 0)]
-                        .modifier
-                        .contains(Modifier::REVERSED | Modifier::UNDERLINED)
-                );
-                assert_eq!(
-                    buffer[(1, 0)].fg,
-                    app.look().role(Role::Accent).fg.unwrap_or_default()
-                );
-                // Counts stay inside the block and use existing attention roles.
-                for (symbol, role) in [("◆", Role::Waiting), ("✗", Role::Blocked)] {
-                    let column = line[..line.find(symbol).unwrap()].chars().count() as u16;
+                for (current, selected) in [(tabs::ALL, true), ("tmt-colab", false)] {
+                    app.set_tab_focus_for_test(current);
+                    let line = draw(&app, width, 6)[0].clone();
+                    if selected {
+                        assert_eq!(line, expected, "{base:?} {depth:?} {width}");
+                    } else {
+                        assert!(line.starts_with(" ▚ tmt ◆3 ✗2 "), "{line}");
+                    }
+                    let hits = app.tab_hits.borrow().clone();
+                    assert_eq!(hits[0].tab, 0);
+                    assert!(hits.iter().all(|hit| hit.x + hit.width <= width));
+                    let mut terminal = Terminal::new(TestBackend::new(width, 6)).unwrap();
+                    terminal.draw(|frame| render(frame, &app)).unwrap();
+                    let buffer = terminal.backend().buffer();
+                    let home = &buffer[(1, 0)];
                     assert_eq!(
-                        buffer[(column, 0)].fg,
-                        app.look().role(role).fg.unwrap_or_default()
+                        home.fg,
+                        app.look()
+                            .role(if selected { Role::Accent } else { Role::Muted })
+                            .fg
+                            .unwrap_or_default()
                     );
-                    assert!(buffer[(column, 0)].modifier.contains(Modifier::REVERSED));
+                    assert_eq!(
+                        home.bg,
+                        if selected {
+                            app.look().selection().bg.unwrap_or_default()
+                        } else {
+                            app.look().role(Role::Muted).bg.unwrap_or_default()
+                        }
+                    );
+                    assert_eq!(home.modifier.contains(Modifier::REVERSED), selected);
+                    assert!(!home.modifier.contains(Modifier::UNDERLINED));
+                    // Counts stay inside the label and keep their attention roles.
+                    for (symbol, role) in [("◆", Role::Waiting), ("✗", Role::Blocked)] {
+                        let column = line[..line.find(symbol).unwrap()].chars().count() as u16;
+                        assert_eq!(
+                            buffer[(column, 0)].fg,
+                            app.look().role(role).fg.unwrap_or_default()
+                        );
+                        assert_eq!(
+                            buffer[(column, 0)].modifier.contains(Modifier::REVERSED),
+                            selected
+                        );
+                    }
                 }
             }
+        }
+    }
+
+    #[test]
+    fn tab_selection_follows_the_retained_home_view_until_the_requested_tab_loads() {
+        for (base, depth) in [
+            (tmt_cli_style::Base::Tmt, tmt_cli_style::Depth::TrueColor),
+            (
+                tmt_cli_style::Base::TmtLight,
+                tmt_cli_style::Depth::TrueColor,
+            ),
+            (tmt_cli_style::Base::Tmt, tmt_cli_style::Depth::None),
+        ] {
+            let mut snapshot = crate::board::app::tests::snapshot(tabs::ALL, json!([]));
+            snapshot.tabs = vec![tabs::ALL.into(), "ux".into()];
+            snapshot.pinned = 1;
+            snapshot.view.as_mut().unwrap().home = Some(crate::board::home::Home {
+                summary: Default::default(),
+                sections: Vec::new(),
+                squads: Vec::new(),
+                failures: Vec::new(),
+                incomplete: false,
+            });
+            snapshot.view.as_mut().unwrap().look = Look {
+                theme: tmt_cli_style::Theme::new(base),
+                depth,
+            };
+            let mut app = App::new(Some(tabs::ALL.into()));
+            app.apply(snapshot);
+
+            let assert_selected = |app: &App, expected: usize| {
+                let width = 113;
+                let line = draw(app, width, 20)[0].clone();
+                assert!(line.contains("▚ tmt") && line.contains("ux"), "{line}");
+                let mut terminal = Terminal::new(TestBackend::new(width, 20)).unwrap();
+                terminal.draw(|frame| render(frame, app)).unwrap();
+                let buffer = terminal.backend().buffer();
+                let selection = app.look().selection();
+                let selected: Vec<_> = app
+                    .tab_hits
+                    .borrow()
+                    .iter()
+                    .filter(|hit| {
+                        let cell = &buffer[(hit.x + 1, hit.y)];
+                        if let Some(bg) = selection.bg {
+                            cell.bg == bg
+                        } else {
+                            cell.modifier.contains(Modifier::REVERSED)
+                        }
+                    })
+                    .map(|hit| hit.tab)
+                    .collect();
+                assert_eq!(selected, [expected], "{base:?} {depth:?}: {line}");
+            };
+
+            assert_eq!(app.shown_tab(), Some(tabs::ALL));
+            assert_selected(&app, 0);
+            assert_eq!(
+                app.go("ux".into()),
+                crate::board::app::Effect::Load("ux".into())
+            );
+            assert!(app.loading() && app.view.as_ref().unwrap().home.is_some());
+            assert!(
+                app.switcher.is_none(),
+                "this is a pending load, not a switcher cursor"
+            );
+            assert_eq!(app.current.as_deref(), Some("ux"));
+            assert_eq!(app.shown_tab(), Some(tabs::ALL));
+            assert_selected(&app, 0);
+
+            let mut terminal = Terminal::new(TestBackend::new(113, 20)).unwrap();
+            terminal.draw(|frame| render(frame, &app)).unwrap();
+            let target = app
+                .tab_hits
+                .borrow()
+                .iter()
+                .find(|hit| hit.tab == 1)
+                .copied()
+                .unwrap();
+            assert!(
+                terminal.backend().buffer()[(target.x + 2, 0)]
+                    .modifier
+                    .contains(Modifier::UNDERLINED),
+                "the pending ux tab needs an immediate cue"
+            );
+
+            let failed = crate::board::app::Snapshot {
+                squad_keys: Vec::new(),
+                tabs: Vec::new(),
+                hidden: Vec::new(),
+                pinned: 0,
+                attention: Default::default(),
+                squad: Some("ux".into()),
+                view: Err("ux: room not found".into()),
+            };
+            app.apply(failed);
+            assert!(!app.loading() && app.loading_since.is_none());
+            assert_eq!(app.current.as_deref(), Some(tabs::ALL));
+            assert_eq!(app.shown_tab(), Some(tabs::ALL));
+            assert!(app.view.as_ref().unwrap().home.is_some());
+            assert_selected(&app, 0);
+            assert!(draw(&app, 113, 20)[19].contains("ux: room not found"));
+
+            assert_eq!(
+                app.go("ux".into()),
+                crate::board::app::Effect::Load("ux".into())
+            );
+            assert!(app.error.is_none());
+
+            let mut loaded = crate::board::app::tests::snapshot("ux", json!([]));
+            loaded.tabs = vec![tabs::ALL.into(), "ux".into()];
+            loaded.pinned = 1;
+            loaded.view.as_mut().unwrap().look = Look {
+                theme: tmt_cli_style::Theme::new(base),
+                depth,
+            };
+            app.apply(loaded);
+            assert_eq!(app.shown_tab(), Some("ux"));
+            assert_selected(&app, 1);
         }
     }
 
@@ -1113,7 +1266,7 @@ mod tests {
     fn groups_close_only_before_visible_ungrouped_tabs() {
         let mut app = tabline_board();
         app.pinned = 0;
-        app.current = Some("tmt-a".into());
+        app.set_tab_focus_for_test("tmt-a");
         app.tabs = ["tmt-a", "tmt-b", "docs", "ops-a", "ops-b", "notes"]
             .map(String::from)
             .to_vec();
@@ -1146,7 +1299,8 @@ mod tests {
         let line = draw(&app, 160, 6)[0].clone();
         assert_eq!(line.matches('│').count(), 1, "no end divider: {line}");
         app.tabs = (0..30).map(|index| format!("tmt-squad{index}")).collect();
-        app.current = Some(app.tabs[0].clone());
+        let first = app.tabs[0].clone();
+        app.set_tab_focus_for_test(&first);
         let line = draw(&app, 80, 6)[0].clone();
         assert!(line.contains(" › "), "{line}");
         assert_eq!(
@@ -1187,7 +1341,8 @@ mod tests {
             app.pinned = pinned;
             let original = app.tabs.clone();
             for index in 0..app.tabs.len() {
-                app.current = Some(app.tabs[index].clone());
+                let current = app.tabs[index].clone();
+                app.set_tab_focus_for_test(&current);
                 for width in [160, 100, 80, 32, 160] {
                     let line = draw(&app, width, 6)[0].clone();
                     let hits = app.tab_hits.borrow();
@@ -1222,7 +1377,7 @@ mod tests {
     #[test]
     fn hidden_current_and_wide_long_labels_have_no_invisible_hit_cells() {
         let mut app = tabline_board();
-        app.current = Some("hidden-squad".into());
+        app.set_tab_focus_for_test("hidden-squad");
         app.hidden = vec!["hidden-squad".into()];
         app.pinned = app.tabs.len();
         let line = draw(&app, 32, 6)[0].clone();
@@ -1235,7 +1390,8 @@ mod tests {
         app.tabs = ["界界界界界界界界界界界界界界界界界界界界", "next"]
             .map(String::from)
             .to_vec();
-        app.current = Some(app.tabs[0].clone());
+        let first = app.tabs[0].clone();
+        app.set_tab_focus_for_test(&first);
         let line = paint(&app, Rect::new(4, 3, 32, 1));
         assert!(line.width() <= 32, "{line}");
         let hit = *app.tab_hits.borrow().last().unwrap();
@@ -1258,7 +1414,7 @@ mod tests {
         .map(String::from)
         .to_vec();
         app.pinned = 0;
-        app.current = Some("current".into());
+        app.set_tab_focus_for_test("current");
         app.attention.insert(
             "waiting".into(),
             Attention {
@@ -1296,7 +1452,7 @@ mod tests {
         let mut app = board(json!([{"title": null, "rows": []}]));
         app.tabs = (0..9).map(|n| format!("sq{n}")).collect();
         app.hidden = vec!["quiet".into()];
-        app.current = Some("quiet".into());
+        app.set_tab_focus_for_test("quiet");
         app.attention.insert(
             "quiet".into(),
             Attention {
@@ -1342,7 +1498,7 @@ mod tests {
             .chain((0..9).map(|n| format!("sq{n}")))
             .collect();
         app.pinned = 1;
-        app.current = Some("sq8".into());
+        app.set_tab_focus_for_test("sq8");
         let line = draw(&app, 36, 6)[0].clone();
         assert!(
             line.starts_with(" ▚ tmt  │ ‹ "),
@@ -1359,17 +1515,17 @@ mod tests {
         // themselves. (A saved `order` could not reorder the pins.)
         let shift = |code| KeyEvent::new(code, KeyModifiers::SHIFT);
         let refused = Some("Pinned tabs keep the order in [tabs] pin.");
-        app.current = Some("sq0".into());
+        app.set_tab_focus_for_test("sq0");
         assert_eq!(app.key(shift(KeyCode::Left)), Effect::None);
         assert_eq!(app.notice.as_deref(), refused);
         app.pinned = 2;
-        app.current = Some(crate::board::ALL.into());
+        app.set_tab_focus_for_test(crate::board::ALL);
         app.notice = None;
         assert_eq!(app.key(shift(KeyCode::Right)), Effect::None);
         assert_eq!(app.notice.as_deref(), refused);
         assert_eq!(app.tabs[..2], [crate::board::ALL, "sq0"]);
         app.pinned = 1;
-        app.current = Some("sq0".into());
+        app.set_tab_focus_for_test("sq0");
         assert!(matches!(app.key(shift(KeyCode::Right)), Effect::Act(_)));
         assert_eq!(app.tabs[..3], [crate::board::ALL, "sq1", "sq0"]);
     }
