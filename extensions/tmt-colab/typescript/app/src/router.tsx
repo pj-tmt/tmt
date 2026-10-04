@@ -200,7 +200,15 @@ function Shell() {
     </>
   );
 }
-function ManageButton({ pageId, changed }: { pageId: string; changed?(): void }) {
+function ManageButton({
+  pageId,
+  title,
+  changed,
+}: {
+  pageId: string;
+  title: string;
+  changed?(): void;
+}) {
   const port = root.useRouteContext().transport.management;
   const router = useRouter();
   const [open, setOpen] = useState(false);
@@ -220,6 +228,7 @@ function ManageButton({ pageId, changed }: { pageId: string; changed?(): void })
           <ShareDialog
             port={port}
             pageId={pageId}
+            title={title}
             committed={() => {
               touched.current = true;
               changed?.();
@@ -242,6 +251,10 @@ function Home() {
   const { transport } = root.useRouteContext();
   const [archived, setArchived] = useState(false);
   const pages = space.pages.filter((p) => Boolean(p.archived) === archived);
+  useEffect(() => {
+    document.title =
+      space.title === text.product ? text.product : `${space.title} · ${text.product}`;
+  }, [space.title]);
   return (
     <section className="home">
       <p className="eyebrow">{text.pages}</p>
@@ -260,7 +273,7 @@ function Home() {
       {pages.length ? (
         <ul className="pages">
           {pages.map((p) => (
-            <li key={p.id}>
+            <li key={p.id} data-page-id={p.id}>
               {p.archived ? (
                 <div className="archived-page">
                   <h2>{p.title}</h2>
@@ -280,7 +293,13 @@ function Home() {
                   </span>
                 </Link>
               )}
-              <ManageButton pageId={p.id} />
+              {transport.management && (
+                <details>
+                  <summary>Details</summary>
+                  <p className="management-id">Page ID: {p.id}</p>
+                </details>
+              )}
+              <ManageButton pageId={p.id} title={p.title} />
             </li>
           ))}
         </ul>
@@ -333,6 +352,12 @@ function Page() {
     asks: snapshot.asks,
     threads: snapshot.threads,
   });
+  useEffect(() => {
+    document.title = `${view.title || snapshot.title} · ${text.product}`;
+    return () => {
+      document.title = text.product;
+    };
+  }, [view.title, snapshot.title]);
   const latest = useRef(view),
     dirty = useRef(false),
     base = useRef(snapshot.source);
@@ -603,6 +628,7 @@ function Page() {
           />
           <ManageButton
             pageId={snapshot.id}
+            title={view.title || snapshot.title}
             changed={() => {
               snapshot.binding?.close();
               setLiveError(managementChanged);

@@ -16,6 +16,7 @@ import { verifyRegistration } from './registration.js';
 import { clearRecovery, recoverSession } from './session-recovery.js';
 import { text } from './strings.js';
 import { InactiveTabError, type TabOwnership } from './active-tab.js';
+import { TitleCache } from './title-cache.js';
 
 export async function mountedTransport(
   ownership: TabOwnership,
@@ -56,6 +57,7 @@ export async function mountedTransport(
     return { registration, remote };
   }
   current = await attach(registration);
+  const titles = new TitleCache(bootstrap.space, registration.deviceId);
   let managementClient = new ManagementClient(mount, current.registration);
   const views = new WeakMap<ManagementView, ManagementClient>();
   const requests = new WeakMap<Pending, ManagementClient>();
@@ -106,6 +108,15 @@ export async function mountedTransport(
   };
   clearRecovery(mount);
   const owner: LiveSessionOwner = {
+    async rememberTitle(page, title, registration) {
+      if (registration !== current.registration || !ownership.active || lifetime.signal.aborted)
+        return;
+      try {
+        await owned(() => titles.remember(page, title, lifetime.signal));
+      } catch {
+        // A lost tab lease can discard a display hint without failing Live.
+      }
+    },
     recover: () =>
       owned(() =>
         recoverSession({
@@ -146,23 +157,27 @@ export async function mountedTransport(
       management,
       async spaceHome() {
         const client = managementClient;
-        const { boot, log } = await managed(client, () => client.snapshot(lifetime.signal));
-        return {
-          title: text.product,
-          pages: boot.pages.map((page) => {
-            const policy = project(page, log).page;
-            return {
-              id: page.pageId,
-              title: page.pageId,
-              sharing: policy.sharing,
-              archived: policy.archived,
-              retentionDays: policy.retentionDays,
-              lastUpdateAtMs: policy.lastUpdateAtMs,
-              expiresAtMs: policy.expiresAtMs,
-              warnings: policy.warnings,
-            };
-          }),
-        };
+        return managed(client, async () => {
+          const { boot, log } = await client.snapshot(lifetime.signal);
+          return {
+            title: text.product,
+            pages: await Promise.all(
+              boot.pages.map(async (page) => {
+                const policy = project(page, log).page;
+                return {
+                  id: page.pageId,
+                  title: (await titles.read(page.pageId)) || text.unknownPageTitle,
+                  sharing: policy.sharing,
+                  archived: policy.archived,
+                  retentionDays: policy.retentionDays,
+                  lastUpdateAtMs: policy.lastUpdateAtMs,
+                  expiresAtMs: policy.expiresAtMs,
+                  warnings: policy.warnings,
+                };
+              }),
+            ),
+          };
+        });
       },
       async page(id, signal) {
         const bound = current;

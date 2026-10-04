@@ -42,11 +42,13 @@ const roleOptions: readonly ListboxOption<payload.Role>[] = [
 export function ShareDialog({
   port,
   pageId,
+  title,
   close,
   committed,
 }: {
   port: ManagementPort;
   pageId: string;
+  title: string;
   close(): void;
   committed(): void;
 }) {
@@ -194,12 +196,12 @@ export function ShareDialog({
       }}
     >
       <div className="dialog-bar">
-        <h2 id="management-title">Share and manage page</h2>
+        <h2 id="management-title">{title}</h2>
         <button disabled={!canClose} onClick={close}>
           Close
         </button>
       </div>
-      <p className="management-id">{pageId}</p>
+      <p>Share and manage page</p>
       {(phase === 'loading' || phase === 'busy') && (
         <p role="status">
           {phase === 'loading'
@@ -288,6 +290,7 @@ export function ShareDialog({
           <p>{view.page.archived ? 'Archived: readable, writes frozen' : 'Active'}</p>
           <details>
             <summary>Details</summary>
+            <p className="management-id">Page ID: {pageId}</p>
             <p>Verified revision {view.revision}</p>
             <p>Last edit: {localTime(view.page.lastUpdateAtMs)}</p>
           </details>

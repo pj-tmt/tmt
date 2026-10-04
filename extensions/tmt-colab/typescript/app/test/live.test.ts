@@ -16,6 +16,7 @@ const connections = vi.hoisted(
         head: { revision: bigint; hash: Uint8Array } | null;
         root: object | null;
         validatePage: ReturnType<typeof vi.fn>;
+        registration: Registration;
       };
     }[],
 );
@@ -48,6 +49,8 @@ vi.mock('../src/admission.js', () => ({
       readonly space: string,
       readonly page: string,
       readonly epoch: string,
+      _owner: Uint8Array,
+      readonly registration: Registration,
     ) {}
     async restore() {}
   },
@@ -411,4 +414,33 @@ it('explicit recovery stops Live, Ask and observation before reopening, with no 
   expect(await live.reconnect()).toBe(false);
   expect(recover).toHaveBeenCalledOnce();
   expect(reconnect).not.toHaveBeenCalled();
+});
+
+it('remembers only accepted fold titles under the exact admission registration', async () => {
+  connections.length = 0;
+  asks.project.mockResolvedValue([]);
+  const registration = { deviceId: 'device' } as Registration;
+  const rememberTitle = vi.fn(async () => {});
+  const live = new Live(
+    new URL('https://example.test/colab/'),
+    { space: 'space', owner: new Uint8Array(32) } as Bootstrap,
+    registration,
+    { pageId: 'page', epoch: '1', sharing: 'private' } as PageInfo,
+    undefined,
+    null,
+    { reconnect: async () => ({ registration, remote: null }), rememberTitle },
+  );
+  try {
+    await live.snapshot();
+    expect(rememberTitle).toHaveBeenCalledWith('page', 'Page', registration);
+    connections.at(-1)!.publish({ source: 'renamed source', title: 'Renamed' });
+    expect((await live.snapshot()).title).toBe('Renamed');
+    expect(rememberTitle).toHaveBeenLastCalledWith('page', 'Renamed', registration);
+    asks.project.mockRejectedValueOnce(new Error('Rejected own evidence'));
+    connections.at(-1)!.publish({ source: 'rejected', title: 'Do not cache' });
+    await live.snapshot();
+    expect(rememberTitle).not.toHaveBeenCalledWith('page', 'Do not cache', registration);
+  } finally {
+    live.close();
+  }
 });

@@ -965,6 +965,14 @@ footer {
   border: 0;
 }
 
+.dialog-bar h2,
+.pages h2 {
+  overflow-wrap: anywhere;
+}
+.dialog-bar h2 {
+  min-width: 0;
+}
+
 .page-drawer[data-panel='chat'] .drawer-body {
   display: flex;
   padding: 0;
