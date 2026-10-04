@@ -486,6 +486,7 @@ fn failed_roster_and_inbox_are_reported_and_recovery_replaces_the_partial_model(
 
 mod cron;
 mod interaction;
+mod leads;
 
 #[test]
 fn tile_members_exclude_the_lead_and_choose_one_urgent_mark_per_membership() {

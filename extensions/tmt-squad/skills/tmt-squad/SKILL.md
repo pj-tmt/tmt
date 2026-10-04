@@ -331,7 +331,7 @@ send shows its error and does not show `✓ sent` or retry automatically.
 ## Home dashboard
 
 The built-in `all` board shows counts, needs-you members and a blocked subgroup,
-then cron and squads. Squads occupy one full-width column at every width, with one compact table row
+then boxed leads, cron and squads. Squads occupy one full-width column at every width, with one compact table row
 per squad. Member counts align within their table column rather than at the terminal edge. A row shows squad attention, lead/model and non-lead member marks in urgency
 order (◆ ✗ ◐ ● ○) and a member count. Each mark has a trailing space. Members
 with unknown/custom states appear as `N other`. Sampled token windows and the lead's share follow the member count.
@@ -364,9 +364,30 @@ age; blocked ages say `observed` to identify the task/state observation. Questio
 appear in the inline composer after `a`. Quiet needs-you takes one line, and empty
 blocked disappears. Public `tmt sq ls --tab all --json` and text retain the aggregate document.
 
-One cursor spans attention rows, cron and squads. Arrows or j/k move it; Tab
+Leads show the latest exchange with you, newest first, in one full-width square
+box. Each header has a bold name, its squad from 100 columns, and an event age
+at the right. The second line previews the message: ◆ means the lead asks you,
+… means you asked and no reply has been submitted, and ✓ means the lead replied.
+Reply wording does not change that mark. A lead with no exchange has a blank mark
+and `–` age. Partial, expired or unavailable reads remain explicit.
+
+`t` hides previews and the blank separators between leads, and saves the global
+`board.home_replies` choice (default `true`). `e` on a lead expands its complete
+wrapped message in the same inline band used for answers. Arrows/j/k and
+PgUp/PgDn scroll that body; `e` or Esc collapses it, and `a` opens an answer or
+note to that lead in the same place. Reading sends and acknowledges nothing.
+Only one band can be open.
+
+The `→ all leads` footer sits outside the box. `A` writes to all current leads;
+`@` picks one lead. Both use the ordinary composer. The recipient identities
+are frozen when it opens, deduplicated for dispatch and checked again before
+sending. A changed sender or lead audience sends nothing. Feedback reports
+each recipient's queued or unavailable acceptance; uncertain acceptance keeps
+its operation ID and saved intent for inspection, with no automatic resend.
+
+One cursor spans attention rows, leads, their footer, cron and squads. Arrows or j/k move it; Tab
 keeps its board-wide pane-focus behavior and does not jump between home sections. Open on the first decision, otherwise the first
-squad. Enter jumps to the member or opens the squad. `a` answers an open request
+squad. Enter jumps to a member/lead, opens the squad, or composes on the all-leads footer. `a` answers an open request
 through public `tmt answer`, otherwise annotates for that squad's actual lead.
 The composer refuses changed targets/requests/leads and missing sender/lead;
 Esc cancels and empty text sends nothing. Left/right switch tabs, `s` opens the

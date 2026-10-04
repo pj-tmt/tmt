@@ -313,7 +313,7 @@ by record when no positions were drawn.
   session-model columns, the meter projection and HOME; unfamiliar names pass through
   to the shared width fitter. Model acquisition keeps the original session name.
 - Home keeps one `App.selected` cursor reconciled by section/squad/member identity across
-  refresh and search; attention precedes cron, then squads. Home translates tile regions into
+  refresh and search; attention precedes deferred leads and their audience footer, then cron and squads. Home translates tile regions into
   global ordinals, complete selected-row reveal and viewport-clipped hits through
   one `Scrolls` pass. Selection covers every padded table row; gaps and headings have no hit.
   Inline composers and sent feedback insert beneath the selected table row,
@@ -324,6 +324,16 @@ by record when no positions were drawn.
   revalidates sender, target, lead and open request before public `tmt answer` or annotation
   dispatch; its inline band quotes the chosen question. Tiles show no member names, task/PR
   fields or private question text. Cron acquisition/lifecycle remains the [cron board](#cron-on-the-board).
+- `home::leads` formats the deferred projection into a square `Outline` box in the same
+  line stream. Headers retain a bold name and right-aligned event age; the squad column
+  starts at the shared MD breakpoint. The global replies preference removes preview
+  lines and boxed separators together. Both lead lines map to one stable cursor target;
+  the audience footer sits outside the box. The shared band reservation uses the full
+  inner width for lead messages and answers, with a height cap that preserves the
+  selected row and overflow line. `view::header::time_marks` advances displayed lead
+  ages without another read. Acquisition and selected-message fences belong to
+  [refresh-and-meter.md](refresh-and-meter.md); audience effects to
+  [config-and-effects.md](config-and-effects.md#home-lead-sends).
 - New home sections add pure line builders returning lines and local entry/x/width/start/end
   placements; home translates them into the shared cursor, paging, reveal and clipped hits.
   Their acquisition and lifecycle owners stay outside paint.

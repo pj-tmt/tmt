@@ -123,7 +123,13 @@ pub(in crate::board) fn reserved_lines(
         crate::board::app::Compose::Reply { .. } => 6,
         _ => 5,
     };
-    Some(demand.min(usize::from(area.height.saturating_sub(2))))
+    let margin = if matches!(&target, crate::board::app::RowTarget::Home(target) if target.section == crate::board::home::LEADS)
+    {
+        3
+    } else {
+        2
+    };
+    Some(demand.min(usize::from(area.height.saturating_sub(margin))))
 }
 
 /// Reserve visual lines in a line stream (the home painter's).
@@ -176,7 +182,7 @@ pub(super) fn inline_prompt(
     };
     let inset = input.row_send.as_ref().is_some_and(|send| {
         matches!(&send.target,
-        crate::board::app::RowTarget::Home(target) if target.section == "leads")
+        crate::board::app::RowTarget::Home(target) if target.section == crate::board::home::LEADS)
     });
     let band = if inset {
         reserved.intersection(body)

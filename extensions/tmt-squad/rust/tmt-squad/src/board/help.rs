@@ -112,9 +112,15 @@ pub(super) fn model(app: &App) -> KeyHelp {
             "navigation",
             "navigation",
             &[
-                ("↑↓ / j k", "move through attention rows, cron and squads"),
+                (
+                    "↑↓ / j k",
+                    "move through attention rows, leads, cron and squads",
+                ),
                 ("Enter", "go to a member or open the selected squad"),
                 ("a", "answer a request or send the squad lead a note"),
+                ("e", "expand or collapse the selected lead's full message"),
+                ("t", "show or hide lead previews and save the global choice"),
+                ("A / @", "write to all leads / pick one lead"),
                 (
                     "c",
                     "list every squad's cron jobs (also Enter on the cron line)",

@@ -300,7 +300,8 @@ mod tests;
 
 mod controller;
 mod paint;
-pub(super) use controller::{CRON, Target};
+pub(super) use controller::{ALL_LEADS, CRON, LEADS, Target};
 pub(super) use paint::{age_label, hints, render, summary, usage};
 
+mod leads;
 mod tiles;

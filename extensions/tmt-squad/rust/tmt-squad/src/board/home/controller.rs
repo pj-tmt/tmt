@@ -9,6 +9,8 @@ use serde_json::Value;
 
 /// Section key of the one cron cursor target.
 pub const CRON: &str = "cron";
+pub const LEADS: &str = "leads";
+pub const ALL_LEADS: &str = "all-leads";
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Target {
@@ -25,7 +27,7 @@ pub struct HomeEntry<'a> {
 }
 
 impl Home {
-    /// Future reply/cron targets belong before squads in this reading order.
+    /// Acquired attention and squads; App inserts its deferred lead/cron targets.
     pub fn entries<'a>(&'a self, document: &'a Value, search: &str) -> Vec<HomeEntry<'a>> {
         let mut entries = Vec::new();
         for section in &self.sections {
@@ -71,7 +73,7 @@ impl Home {
 static NO_ROW: Value = Value::Null;
 
 impl App {
-    /// Reading order: attention, then the cron line, then squads.
+    /// One reading order: attention, leads, audience footer, cron, squads.
     pub(in crate::board) fn home_entries(&self) -> Vec<HomeEntry<'_>> {
         let mut entries = self
             .view
@@ -82,6 +84,47 @@ impl App {
                     .map(|home| home.entries(&view.document, &self.search))
             })
             .unwrap_or_default();
+        if self.view.as_ref().is_some_and(|view| view.home.is_some()) {
+            let at = entries
+                .iter()
+                .position(|entry| entry.target.section == "squads")
+                .unwrap_or(entries.len());
+            let mut leads = self
+                .home_leads
+                .leads
+                .iter()
+                .filter(|lead| {
+                    crate::board::app::matches(&lead.row, &self.search)
+                        || lead
+                            .squad
+                            .to_lowercase()
+                            .contains(&self.search.to_lowercase())
+                })
+                .map(|lead| HomeEntry {
+                    target: Target {
+                        section: LEADS.into(),
+                        squad: lead.squad.clone(),
+                        member: Some(lead.id().into()),
+                    },
+                    row: &lead.row,
+                    lead: Some(lead.name()),
+                    age: None,
+                })
+                .collect::<Vec<_>>();
+            if self.search.is_empty() && !leads.is_empty() {
+                leads.push(HomeEntry {
+                    target: Target {
+                        section: ALL_LEADS.into(),
+                        squad: String::new(),
+                        member: None,
+                    },
+                    row: &NO_ROW,
+                    lead: None,
+                    age: None,
+                });
+            }
+            entries.splice(at..at, leads);
+        }
         if self.search.is_empty() && self.cron_shown() && !entries.is_empty() {
             let at = entries
                 .iter()
@@ -126,7 +169,9 @@ impl App {
         let Some(entry) = entries.get(self.selected) else {
             return self.say("No home row is selected.");
         };
-        if entry.target.section == CRON {
+        if entry.target.section == ALL_LEADS {
+            self.home_write()
+        } else if entry.target.section == CRON {
             self.open_cron_list(None)
         } else if entry.target.member.is_some() {
             match entry.row["name"].as_str() {
@@ -140,6 +185,13 @@ impl App {
     }
 
     pub(in crate::board) fn home_answer(&mut self) -> Effect {
+        if self
+            .home_entries()
+            .get(self.selected)
+            .is_some_and(|entry| entry.target.section == ALL_LEADS)
+        {
+            return self.home_write();
+        }
         if self
             .home_entries()
             .get(self.selected)
@@ -169,7 +221,7 @@ impl App {
             return self.say("No lead is selected.");
         };
         let Some(lead) = self.home_leads.leads.iter().find(|lead| {
-            entry.section == "leads"
+            entry.section == LEADS
                 && entry.squad == lead.squad
                 && entry.member.as_deref() == Some(lead.id())
         }) else {
@@ -397,7 +449,7 @@ impl App {
             recipients[0].name.clone()
         };
         let target = Target {
-            section: "all-leads".into(),
+            section: ALL_LEADS.into(),
             squad: String::new(),
             member: None,
         };

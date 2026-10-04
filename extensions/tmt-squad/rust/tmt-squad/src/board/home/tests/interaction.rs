@@ -68,6 +68,14 @@ fn one_cursor_moves_across_rows_and_sections_and_enter_goes_in() {
     assert_eq!(press(&mut app, Char('j')), Effect::None);
     assert_eq!(app.home_target.as_ref().unwrap().section, "blocked");
     press(&mut app, Down);
+    assert_eq!(app.home_target.as_ref().unwrap().section, "leads");
+    assert_eq!(
+        press(&mut app, Enter),
+        Effect::Act(Request::Jump("lead-a".into()))
+    );
+    press(&mut app, Down);
+    assert_eq!(app.home_target.as_ref().unwrap().section, "all-leads");
+    press(&mut app, Down);
     assert_eq!(app.home_target.as_ref().unwrap().section, "squads");
     assert_eq!(press(&mut app, Enter), Effect::Load("a".into()));
     let mut app = board(&[("a", waiting())]);
@@ -159,6 +167,9 @@ fn refresh_and_search_reconcile_the_stable_target() {
     press(&mut app, Esc);
     assert_eq!(app.home_target, target);
     app.view = board(&[("a", document("a", Value::Null, vec![]))]).view;
+    let view = app.view.as_ref().unwrap();
+    app.home_leads
+        .reconcile(view.home.as_ref().unwrap(), view.me_id.as_deref());
     press(&mut app, Down);
     assert_eq!(app.selected, 0);
     assert_eq!(app.home_target.unwrap().section, "squads");
@@ -308,7 +319,7 @@ fn snapshots() -> Value {
                 })
                 .collect::<Vec<_>>();
             assert!(!lines.iter().any(|line| line.contains("private question")));
-            assert!(scenario != "quiet" || lines.join("").matches("lead-a").count() == 1);
+            assert!(scenario != "quiet" || lines.join("").matches("lead-a").count() == 2);
             assert!(
                 lines.last().unwrap().contains("? more")
                     && lines.last().unwrap().contains("q quit")
@@ -433,7 +444,7 @@ fn tile_board() -> App {
 }
 
 fn tile_board_with<const N: usize>(names: [&str; N]) -> App {
-    board(&names.map(|name| {
+    let mut app = board(&names.map(|name| {
         (
             name,
             document(
@@ -442,7 +453,12 @@ fn tile_board_with<const N: usize>(names: [&str; N]) -> App {
                 vec![row(&format!("W{name}"), "worker", "idle")],
             ),
         )
-    }))
+    }));
+    // These cases isolate the squad table's own geometry; combined HOME lead
+    // selection, clipping and bands are covered in leads.rs.
+    app.home_leads.leads.clear();
+    app.select(0);
+    app
 }
 
 fn tile_frame(app: &App, area: Rect) -> ratatui::buffer::Buffer {
