@@ -104,7 +104,12 @@ and refuse a second installation before changing its delegate.
 
 Unknown group inspection stays pending inside the one-second cleanup bound;
 surviving or uninspectable groups fail cleanup. Preserve fixture cleanup order
-and error precedence. `cli-assertions.ts` owns only the strict success envelope
+and error precedence. Pane-launched foregrounds remain scenario-owned: request
+shutdown and await the shell's post-exit status plus channel-server absence on both
+success and callback failure before harness deletion. Killing the tmux server alone
+does not confirm a foreground's final storage writes have settled. Mock providers
+settle their hook/reply children and stdio channel server before exit.
+`cli-assertions.ts` owns only the strict success envelope
 (zero exit, empty stderr, parsed JSON); exact payload projections stay in each
 scenario. A different stderr/parsing contract cannot use that helper.
 
