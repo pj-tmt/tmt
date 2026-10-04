@@ -322,11 +322,15 @@ describe('release bundle pipeline (native-release-bundle.yml)', () => {
     expect(verify).toContain(
       'mv ../extensions/tmt-colab/typescript/app/dist "$RUNNER_TEMP/colab-app"'
     );
-    expect(verify).toContain('elif [ "$PRODUCT" = colab ]; then');
     expect(verify).toContain(
-      '--archive "target/distrib/tmt-colab-$TARGET.tar.gz" --target "$TARGET"'
+      '--archive "target/distrib/tmt-$PRODUCT-$TARGET.tar.gz" --target "$TARGET"'
     );
-    expect(verify).toContain('--app-dir "$RUNNER_TEMP/colab-app"');
+    expect(verify).toMatch(
+      /if \[ "\$PRODUCT" = colab \]; then\n\s+verification_args\+=\(--app-dir "\$RUNNER_TEMP\/colab-app"\)\n\s+fi/
+    );
+    expect(verify).toContain(
+      'node typescript/scripts/verify-native-artifact.mjs "${verification_args[@]}"'
+    );
   });
 
   it('is only callable, and runs the pipeline of the draft it is given', () => {

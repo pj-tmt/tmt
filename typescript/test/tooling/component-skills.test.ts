@@ -158,6 +158,7 @@ describe('components that ship agent skills', () => {
         );
         if (product === 'colab')
           expect(args[args.indexOf('--app-dir') + 1]).toBe(path.join(root, 'colab-app'));
+        else expect(args).not.toContain('--app-dir');
       }
       expect(() =>
         runPackedCommand('/bin/bash', ['--noprofile', '--norc', '-euo', 'pipefail', '-c', script], {
