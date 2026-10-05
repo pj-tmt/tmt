@@ -13,7 +13,7 @@ and audience effects to [config-and-effects.md](config-and-effects.md#home-lead-
   existing staleness lock/policy before/after its roster read; request age comes
   from inbox timestamps, while pending alone provides none. Public aggregate
   documents and `ls --tab all` retain their separate projection.
-- HOME bypasses ordinary pane composition. `home::scene` admits literal templates,
+- HOME bypasses ordinary pane composition. The neutral `view::scene` admits literal templates,
   binds display-ready data, computes TUI geometry and lifts a scratch buffer into
   lines. Section owners are `attention`, `leads`, `rows` (audience/cron), `tiles`
   (squads) and `bar` (summary/usage/keys). Builders report local entry/start/end/x/width
@@ -50,7 +50,8 @@ and audience effects to [config-and-effects.md](config-and-effects.md#home-lead-
   blocked, leads, squads; never the cron line). A start on a lead also sets
   `home_start`, so the first deferred lead read, which reorders the leads, places the
   cursor once more; `select` and the composer clear it. Squad tabs start at row 0.
-- `home::leads` puts deferred exchanges in one `Outline` box. Every visible line of
+- `home::leads` projects deferred exchanges into the shared `view::member_list`
+  `Outline` box. Every visible line of
   a lead maps to the same cursor target. A blank boxed line follows an exchange
   before the next lead; consecutive leads without exchanges have no separator.
   Disabling replies removes previews and separators together. Expanded messages
@@ -61,8 +62,9 @@ and audience effects to [config-and-effects.md](config-and-effects.md#home-lead-
 
 ## Cache invariant and verification
 
-Each section and summary/usage/key strip has a `home::scene::Kept` in the immutable
-view's `Derived.home` (`home::Scenes`). `scene::Key` contains bound data, width,
+Each section and summary/usage/key strip has a `view::scene::Kept` in the immutable
+view: HOME-specific caches live in `Derived.home` (`home::Scenes`), and the shared
+boxed-list cache lives in `Derived.member_list`. `scene::Key` contains bound data, width,
 look and selected block. Ages, cron text, input reservation, sent feedback, search
 and usage must reach bound data before key comparison; decoration may read only
 look and selected block. Local placement lets a shifted section reuse its block.

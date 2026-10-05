@@ -48,7 +48,8 @@ and changed clock text or spinner frames, rather than periodic full repainting.
   Search also filters the lead; without a lead there is no rule. `each_row` includes
   the lead in waiting, staleness, usage and color projections. `RowOrigin::Lead`
   carries no section binding, and public JSON keeps it outside `sections`.
-- Default squad `members` uses the existing `home::leads` boxed-list scene/cache:
+- Default squad `members` and HOME leads use the neutral `view::member_list` boxed-list
+  scene and `Derived.member_list` cache:
   lead first, the nonselectable members rule, then two selectable lines per member.
   `View.exchanges` comes from `home_leads::members` using the already acquired
   `requests::Sent` window. `App::items` applies the HOME comparator within authored

@@ -108,7 +108,7 @@ pub(super) fn render_rows(frame: &mut Frame, app: &App, area: Rect) {
         return;
     };
     if app.effective_board().is_some_and(|board| board.members) {
-        crate::board::home::leads::render_squad(frame, app, area);
+        super::member_list::render_squad(frame, app, area);
         return;
     }
     let Some(tab) = app.shown_tab() else { return };

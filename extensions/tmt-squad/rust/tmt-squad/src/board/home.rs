@@ -310,7 +310,6 @@ pub(super) use paint::{age_label, hints_of, render, summary_of, usage_of};
 pub(super) struct Scenes {
     /// By section: `needs-you`, `blocked`, and `quiet` for the empty needs-you rule.
     attention: std::collections::BTreeMap<&'static str, scene::Kept<attention::Block>>,
-    leads: scene::Kept<leads::Block>,
     audience: scene::Kept<rows::Block>,
     cron: scene::Kept<rows::Block>,
     squads: scene::Kept<tiles::TilePaint>,
@@ -328,7 +327,6 @@ impl Scenes {
             .values()
             .map(|slot| slot.builds)
             .sum::<usize>()
-            + self.leads.builds
             + self.audience.builds
             + self.cron.builds
             + self.squads.builds
@@ -340,7 +338,7 @@ impl Scenes {
 
 mod attention;
 mod bar;
-pub(in crate::board) mod leads;
+mod leads;
 mod rows;
-mod scene;
+use super::view::scene;
 mod tiles;
