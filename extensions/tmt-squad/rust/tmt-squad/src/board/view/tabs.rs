@@ -1438,7 +1438,8 @@ mod tests {
             .collect();
         assert!(line.starts_with("◆ quiet (hidden) 1 ✗ 2 "), "{line:?}");
         assert!(buffer[(2, 0)].modifier.contains(Modifier::BOLD));
-        assert_eq!(buffer[(2, 0)].fg, app.look().role(Role::Accent).fg.unwrap());
+        // The selected tab's name is a word on the selection background.
+        assert_eq!(buffer[(2, 0)].fg, app.look().role(Role::Text).fg.unwrap());
         assert_eq!(
             buffer[(0, 0)].fg,
             app.look().role(Role::Waiting).fg.unwrap()
