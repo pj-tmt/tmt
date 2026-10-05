@@ -6,6 +6,9 @@ const WEIGHTS = new URL('../test/e2e/shard-weights.json', import.meta.url);
 /** Shards of the full Docker E2E run. The workflow declares one job per shard, so this is fixed. */
 export const FULL_E2E_SHARDS = 2;
 
+// Ben retired Office product CI/CD (#1851); source and historical evidence remain.
+export const RETIRED_E2E_FILES = ['office-command.e2e.test.ts', 'office-consent.e2e.test.ts'];
+
 export function loadShardWeights(text = readFileSync(WEIGHTS, 'utf8')) {
   const weights = JSON.parse(text);
   const positive = (value) => Number.isFinite(value) && value > 0;
@@ -53,12 +56,15 @@ export function splitE2eFiles(files, count, weights = loadShardWeights()) {
 
 /**
  * The E2E files each of the two Docker E2E jobs runs for a native scope. `full`
- * splits every scenario file; a scoped component runs only its own file list in the
+ * splits every retained scenario file; a scoped component runs only its own file list in the
  * first shard (the second is skipped); `none` runs nothing.
  */
 export function e2eShardFiles(scope, scopedFiles, files = listE2eFiles()) {
   if (scope === 'full') {
-    const [first, second] = splitE2eFiles(files, FULL_E2E_SHARDS);
+    const [first, second] = splitE2eFiles(
+      files.filter((file) => !RETIRED_E2E_FILES.includes(file)),
+      FULL_E2E_SHARDS
+    );
     return [first.files, second.files];
   }
   if (scope === 'none' || scope === '') return [[], []];
