@@ -24,6 +24,7 @@ export const REMOTE_REFUSAL_CODES = [
   'REMOTE_INTENT_CONFLICT',
   'REMOTE_CLOSED',
   'REMOTE_SESSION_ENDED',
+  'REMOTE_SESSION_EVICTED',
   'REMOTE_INPUT_TOO_LARGE',
   'REMOTE_STATE_UNAVAILABLE',
   'REMOTE_CORE_UNAVAILABLE',
@@ -40,7 +41,20 @@ export class SessionEndedError extends Error {
     super(code);
   }
 }
-type SdkError = abstract new (...args: never[]) => Error & { code: string };
+/** Verified Remote session-limit refusal. The page must not reopen automatically. */
+export class SessionEvictedError extends Error {
+  constructor(
+    readonly limit: number,
+    readonly settingsUrl?: string,
+  ) {
+    super('REMOTE_SESSION_EVICTED');
+  }
+}
+type SdkError = abstract new (...args: never[]) => Error & {
+  code: string;
+  limit?: number;
+  settingsUrl?: string;
+};
 export function refusalReason(reason: string | undefined): RemoteRefusalCode | 'REMOTE_REFUSED' {
   return reason !== undefined && (REMOTE_REFUSAL_CODES as readonly string[]).includes(reason)
     ? (reason as RemoteRefusalCode)
@@ -122,6 +136,17 @@ export async function createRemoteClient(
   const sdk = supplied ?? ((await remoteSdk()) as unknown as OperationsSdk);
   requireValue(typeof sdk.operations === 'function');
   const ops = sdk.operations(opened, { timeoutMs: 20000 });
+  const evicted = (error: unknown): SessionEvictedError | undefined => {
+    if (
+      sdk.RefusalError &&
+      error instanceof sdk.RefusalError &&
+      error.code === 'REMOTE_SESSION_EVICTED' &&
+      Number.isSafeInteger(error.limit) &&
+      (error.limit ?? 0) > 0
+    )
+      return new SessionEvictedError(error.limit!, error.settingsUrl);
+    return undefined;
+  };
   const sessionFault = (error: unknown): SessionEndCode | undefined => {
     if (
       sdk.RefusalError &&
@@ -141,6 +166,8 @@ export async function createRemoteClient(
     try {
       return await action();
     } catch (error) {
+      const eviction = evicted(error);
+      if (eviction) throw eviction;
       const code = sessionFault(error);
       if (code) throw new SessionEndedError(code);
       if (sdk.RefusalError && error instanceof sdk.RefusalError)
@@ -202,6 +229,8 @@ export async function createRemoteClient(
       try {
         return state(await ops.send(input), input.operationId);
       } catch (error) {
+        const eviction = evicted(error);
+        if (eviction) throw eviction;
         return { state: 'uncertain', operationId: input.operationId, reason: sessionFault(error) };
       }
     },
@@ -210,7 +239,12 @@ export async function createRemoteClient(
       try {
         return state(await observe(() => ops.operation(id)), id);
       } catch (error) {
-        if (error instanceof SessionEndedError || error instanceof ReadRefusedError) throw error;
+        if (
+          error instanceof SessionEndedError ||
+          error instanceof SessionEvictedError ||
+          error instanceof ReadRefusedError
+        )
+          throw error;
         return { state: 'uncertain', operationId: id, reason: sessionFault(error) };
       }
     },

@@ -55,8 +55,8 @@ owner router, writer, Ask and export modules are not part of this bundle.
 
 Remote keeps sessions and door cookies in memory, so after a restart a paired browser's
 reload receives Colab's private guidance page. That page loads the public `assets/recovery.js`
-(`src/guidance.ts`), which takes over the tab claim (`ActiveTab`, Web Lock) before Remote's
-SDK checks its paired key and calls `reopenSession()`, then reloads. A session-storage marker
+(`src/guidance.ts`), which lets Remote's SDK check its paired key and call
+`reopenSession()` for that tab, then reloads. A session-storage marker
 (`colab-recovery:<mount path>`, `src/session-recovery.ts`) spans that reload so a second
 guidance response cannot loop; authenticated boot (`mounted.ts`) clears it. A failed or
 refused reopen, or unavailable session storage, leaves plain pairing guidance and never
@@ -164,7 +164,7 @@ in `acceptance/ask.spec.ts`.
   for current baseline/statement chunk transport without opening content or a Worker.
   POST acknowledgments never change policy: verification requires the exact signed
   revision/hash and matching change, even when later owner commits exist.
-- `mounted.ts` supplies one management facade through the existing tab lease and
+- `mounted.ts` supplies one management facade through the mounted tab lifetime and
   current registration. Views and prepared requests retain their originating client;
   session replacement refuses old mutations, while acknowledgment verification is
   read-only under the new registration. It never opens another Remote session.

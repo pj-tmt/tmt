@@ -10,7 +10,7 @@ export default defineConfig({
   timeout: 30000,
   use: { baseURL, trace: 'retain-on-failure' },
   webServer: {
-    command: `pnpm dev --port ${port} --strictPort`,
+    command: `./node_modules/.bin/vp dev --host 127.0.0.1 --port ${port} --strictPort`,
     url: baseURL,
     reuseExistingServer: false,
   },

@@ -29,6 +29,7 @@ const seed = (prefix,n) => bytes([...prefix,...Array(32).fill(n)]);
 const signPrefix = [48,46,2,1,0,48,5,6,3,43,101,112,4,34,4,32];
 const encode = (b) => btoa(String.fromCharCode(...b)).replaceAll('+','-').replaceAll('/','_').replace(/=+$/,'');
 export async function reopenSession(){await window.fixtureKeys;}
+export function transportUrl(_session,url){return String(url);}
 export async function certifyKey(purpose,publicKey){
   const issuedAtMs = Date.now();
   const fields = ['tmt-ext-cert-v1','colab',purpose,publicKey,String(issuedAtMs)]

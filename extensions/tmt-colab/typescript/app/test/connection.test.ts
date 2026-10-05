@@ -48,7 +48,7 @@ class Socket {
   onclose = null;
   send = vi.fn();
   close = vi.fn();
-  constructor() {
+  constructor(readonly url: string | URL) {
     Socket.current = this;
   }
   receive(frame: Record<string, unknown>) {
@@ -65,6 +65,7 @@ async function open(rejectChain = false) {
   const admission = {
     ...scope,
     root: new Uint8Array(32),
+    registration: { syncUrl: 'wss://example.test/colab/sync?tmt-session=fixture' },
     async chains(value: unknown) {
       calls.push('chain');
       expect(value).toEqual([{ deviceId: author, chain: 'fixture' }]);
@@ -80,6 +81,7 @@ async function open(rejectChain = false) {
     publish,
     failed,
   );
+  expect(Socket.current.url).toBe(admission.registration.syncUrl);
   Socket.current.receive({ ...scope, type: 'catchup', streams: [], more: false });
   await connection.ready;
   calls.length = 0;

@@ -62,7 +62,9 @@ export class Connection {
     this.#timer = setTimeout(() => this.close(new Error('Page catchup timed out')), 10_000);
     const url = new URL('sync', mount);
     url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
-    const socket = (this.#socket = new WebSocket(url, [...protocols]));
+    const socket = (this.#socket = new WebSocket(admission.registration.syncUrl ?? url, [
+      ...protocols,
+    ]));
     socket.onopen = () => {
       try {
         if (socket.protocol !== 'colab-sync-v1') throw new Error('Invalid sync protocol');

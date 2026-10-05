@@ -6,7 +6,7 @@ import { requireValue } from '@tmt/colab-client';
 import type { Bootstrap, PageInfo } from './bootstrap.js';
 import type { Registration } from './registration.js';
 import type { PageBinding, PageSnapshot, PageView } from './transport.js';
-import { SessionEndedError, type RemoteClient } from './ask-remote.js';
+import { SessionEndedError, SessionEvictedError, type RemoteClient } from './ask-remote.js';
 import { Admission } from './admission.js';
 import { Connection } from './connection.js';
 import { Writer } from './writer.js';
@@ -41,6 +41,7 @@ export class Live implements PageBinding {
   #closed = false;
   #connecting = false;
   #attempts = 0;
+  #diagnosing = false;
   #projection: PageView = { source: '', title: '' };
   #listeners = new Set<{ publish(value: PageView): void; failed(error: Error): void }>();
   #error: Error | null = null;
@@ -113,9 +114,9 @@ export class Live implements PageBinding {
           publish: (root, key, value) => this.#writer.submitOwn(root, key, value),
           connection: () => this.#current,
           observe: () => this.#observe(),
-          sessionEnded: () => {
+          sessionEnded: (error) => {
             if (!this.#connecting && !this.#closed && !this.#error)
-              this.#failed(new Error('Remote session ended'));
+              this.#failed(error ?? new SessionEndedError('REMOTE_SESSION_ENDED'));
           },
         })
       : undefined;
@@ -248,7 +249,41 @@ export class Live implements PageBinding {
     }
   }
   #failed(error: Error) {
-    if (this.#closed) return;
+    if (this.#closed || this.#error) return;
+    // Mounted WebSocket close does not carry Remote's signed reason. Read once
+    // against the old session before deciding whether to reopen or show eviction.
+    if (
+      error.message === 'Sync disconnected' &&
+      this.#remote &&
+      typeof this.#remote.listAgents === 'function' &&
+      !this.#connecting
+    ) {
+      if (this.#diagnosing) return;
+      this.#diagnosing = true;
+      void this.#remote
+        .listAgents()
+        .then(
+          () => this.#recoverFailure(error),
+          (reason: unknown) =>
+            this.#recoverFailure(
+              reason instanceof SessionEvictedError || reason instanceof SessionEndedError
+                ? reason
+                : error,
+            ),
+        )
+        .finally(() => {
+          this.#diagnosing = false;
+        });
+      return;
+    }
+    this.#recoverFailure(error);
+  }
+  #recoverFailure(error: Error) {
+    if (this.#closed || this.#error) return;
+    if (error instanceof SessionEvictedError) {
+      this.#block(error);
+      return;
+    }
     const sessionEnded =
       error instanceof SessionEndedError || error.message === 'Remote session ended';
     if (

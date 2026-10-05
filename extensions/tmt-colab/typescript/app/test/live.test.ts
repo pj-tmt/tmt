@@ -1,7 +1,7 @@
 import { expect, it, vi } from 'vite-plus/test';
 import type { Bootstrap, PageInfo } from '../src/bootstrap.js';
 import type { LiveAskOptions } from '../src/live-ask.js';
-import { SessionEndedError, type RemoteClient } from '../src/ask-remote.js';
+import { SessionEndedError, SessionEvictedError, type RemoteClient } from '../src/ask-remote.js';
 import type { PageView } from '../src/transport.js';
 import type { Registration } from '../src/registration.js';
 import { Live } from '../src/live.js';
@@ -382,6 +382,64 @@ it.each(['callback', 'message', 'typed error'] as const)(
       await vi.waitFor(() => expect(asks.signals).toHaveLength(2));
       expect(asks.signals[0].aborted).toBe(true);
       expect(asks.signals[1].aborted).toBe(false);
+    } finally {
+      live.close();
+    }
+  },
+);
+
+it.each([
+  ['evicted', new SessionEvictedError(8, 'https://example.test/remote/settings'), false],
+  ['ended', new SessionEndedError('REMOTE_SESSION_ENDED'), true],
+] as const)(
+  'a closed mounted socket distinguishes %s from ordinary session end',
+  async (_, reason, reopen) => {
+    const registration = {
+      deviceId: 'device',
+      keys: { sign: {}, signPublic: new Uint8Array(32) },
+    } as unknown as Registration;
+    const remote = {
+      listAgents: vi.fn(async () => {
+        throw reason;
+      }),
+    } as unknown as RemoteClient;
+    const reconnect = vi.fn(async () => ({ registration: { ...registration }, remote }));
+    const live = new Live(
+      new URL('https://example.test/colab/'),
+      {
+        space: 'space',
+        revision: '1',
+        owner: new Uint8Array(32),
+        pageIds: [],
+        pages: [],
+      } as Bootstrap,
+      registration,
+      {
+        pageId: '10000000-0000-4000-8000-000000000001',
+        epoch: '1',
+        sharing: 'private',
+      } as PageInfo,
+      undefined,
+      remote,
+      { reconnect },
+    );
+    const failed = vi.fn();
+    try {
+      await live.snapshot();
+      live.subscribe(() => {}, failed);
+      const before = connections.length;
+      connections.at(-1)!.failed(new Error('Sync disconnected'));
+      await vi.waitFor(() => expect(remote.listAgents).toHaveBeenCalledOnce());
+      if (reopen) {
+        await vi.waitFor(() => expect(reconnect).toHaveBeenCalledOnce());
+        await vi.waitFor(() => expect(connections).toHaveLength(before + 1));
+        expect(failed).not.toHaveBeenCalled();
+      } else {
+        await vi.waitFor(() => expect(failed).toHaveBeenCalledOnce());
+        expect(failed.mock.calls[0][0]).toBe(reason);
+        expect(reconnect).not.toHaveBeenCalled();
+        expect(connections).toHaveLength(before);
+      }
     } finally {
       live.close();
     }

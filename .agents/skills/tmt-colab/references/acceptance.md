@@ -66,7 +66,7 @@ contracts and focused cases are described in [discussion.md](discussion.md).
 
 `ask.spec.ts` holds the Ask cases: direct send (the recipient's received text is the oracle for the exact bytes) and a second viewer, browser
 reload, Remote restart after the core accepted, Remote restart before dispatch, Colab restart,
-device revocation and two tabs of one browser (one active tab, "Use here" takes it back). They
+device revocation and two tabs of one browser staying live at once. They
 drive direct Chat (`composeChat`, `sendChat`, `askEntry`, `askState`) and run against the built binaries. A restarted Remote keeps sessions and door cookies in memory, so the page
 shows "Sync disconnected" and the restart cases recover through its own Reconnect button
 (`reconnect(page)`: the SDK reopens the paired session once, then the page reloads). The
@@ -94,9 +94,9 @@ the CLI `tmt colab export`. It asserts the page, both conversation files and the
 (except `exportedAtMs`) are byte-identical between the two paths, and that the export holds both
 writers' comments, the accepted Ask and the stored reply.
 
-`tabs.spec.ts` pins a Remote contract the Ask design depends on: Remote keeps one session per
-device, so a newer `session.open` ends the older session and its tunnels. Two tabs of one paired
-browser are one device, so v1 allows one active tab with explicit takeover.
+`tabs.spec.ts` pins the Remote contract the Ask design depends on: several
+sessions of one device can coexist, while session eviction at the configured
+limit ends only the evicted tab's transports and reports the active limit.
 
 `chat.spec.ts` (#1645) covers one null-anchor thread per asking device, two paired
 viewers, page-visible history, Comments exclusion, exact follow-up context, retained

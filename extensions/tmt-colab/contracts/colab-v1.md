@@ -1193,7 +1193,15 @@ bridge ledger, native Ask route or additional SQLite migration.
 The browser wraps the same verified Session held by registration and Live with
 Remote's operations helper. The wrapper opens nothing and never reopens on
 uncertainty: the helper resyncs its sequence and reads the original operation ID.
-Only session end or unrecoverable sequence state signals Registration to reconnect.
+Each mounted tab opens its own Remote session and binds its sync WebSockets through
+the SDK's `transportUrl`; tabs on one paired device may remain live concurrently.
+After a socket disconnect, a read through the old verified operations helper
+distinguishes ordinary session end from limit eviction. Ordinary end or
+unrecoverable sequence state signals Registration to reconnect silently; eviction
+stops that tab and shows the reported limit, optional Remote settings URL and
+the `tmt remote settings sessions-per-device <n>` command. It MUST NOT reopen
+automatically after eviction or resend an Ask. Closing a tab affects only its
+own bindings.
 Registration rebuilds both the RemoteClient and page AskControllers with the new
 shared Session; old-session attempts cannot dispatch, and recovery reads the original IDs.
 
@@ -2559,13 +2567,13 @@ rotation; previously public content cannot be made private again. Requests freez
 exact selections, initiating context, ID, revision, expiry, signature and any new
 seed before send. Only explicit, unexpired byte-identical retry is offered after
 uncertainty; stale/expired requests require fresh review. No reload, reconnect,
-timer or takeover submits a management request.
+timer or tab close submits a management request.
 
-The mounted tab lease fences preparation and POST. Current registration owns
+The mounted tab lifetime fences preparation and POST. Current registration owns
 each prepared request; a replacement session refuses old views and mutation
 retries but may verify an earlier acknowledgment read-only. Management does not
-open a separate Remote session. Takeover closes metadata sockets and prevents
-new work while already-started effects settle under their existing bounded lease.
+open a separate Remote session. Closing one tab closes only its metadata sockets
+and prevents new work; already-started effects retain their existing outcome.
 An acknowledged or uncertain policy change closes stale Live/writer/Ask state; subsequent
 refresh never dispatches an Ask again.
 

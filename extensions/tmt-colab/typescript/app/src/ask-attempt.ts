@@ -4,6 +4,7 @@ import { FrozenAsk, type AdmittedSelection, type AskDestination } from './ask-in
 import {
   refusalReason,
   SessionEndedError,
+  SessionEvictedError,
   ReadRefusedError,
   sessionEndedReason,
   type RemoteClient,
@@ -24,7 +25,7 @@ export interface AskControllerOptions {
   remote: RemoteClient;
   key: CryptoKey;
   selection(): AdmittedSelection;
-  sessionEnded?(): void;
+  sessionEnded?(error?: SessionEvictedError): void;
 }
 /** Trusted parent composition: explicit Send is the only Remote write. All
  * state/result reads operate on the current device's admitted immutable ledger.
@@ -35,10 +36,10 @@ export class AskController {
   #sending = new Map<string, { preview: FrozenAsk; task: Promise<AskLedgerView> }>();
   #observing: Promise<void> | null = null;
   #ended = false;
-  #endSession() {
+  #endSession(error?: SessionEvictedError) {
     if (this.#ended) return;
     this.#ended = true;
-    this.options.sessionEnded?.();
+    this.options.sessionEnded?.(error);
   }
   constructor(private options: AskControllerOptions) {}
   async destinations(): Promise<AskDestinations> {
@@ -49,7 +50,8 @@ export class AskController {
       context = await remote.context();
       agents = await remote.listAgents();
     } catch (error) {
-      if (error instanceof SessionEndedError) this.#endSession();
+      if (error instanceof SessionEvictedError) this.#endSession(error);
+      else if (error instanceof SessionEndedError) this.#endSession();
       throw error;
     }
     requireValue(
@@ -112,7 +114,8 @@ export class AskController {
       const { remote, store, key } = this.options;
       let started = false,
         adopted = false,
-        sessionEnd = false;
+        sessionEnd = false,
+        evicted: SessionEvictedError | null = null;
       try {
         requireValue(!this.#ended);
         const current = await remote.context(),
@@ -169,16 +172,20 @@ export class AskController {
         );
         return updated;
       } catch (error) {
-        if (error instanceof SessionEndedError) sessionEnd = true;
+        if (error instanceof SessionEvictedError) {
+          sessionEnd = true;
+          evicted = error;
+        } else if (error instanceof SessionEndedError) sessionEnd = true;
         if (!adopted) throw error;
-        return store.state(
+        return await store.state(
           id,
           started || sessionEnd ? 'uncertain' : 'failed',
           null,
           sessionEnd ? 'REMOTE_SESSION_ENDED' : started ? 'REMOTE_UNCERTAIN' : 'SEND_UNAVAILABLE',
         );
       } finally {
-        if (sessionEnd) this.#endSession();
+        if (evicted) this.#endSession(evicted);
+        else if (sessionEnd) this.#endSession();
       }
     });
     this.#sending.set(id, { preview, task });
@@ -198,7 +205,8 @@ export class AskController {
         try {
           state = await remote.operation(id);
         } catch (error) {
-          if (error instanceof SessionEndedError) {
+          if (error instanceof SessionEvictedError) this.#endSession(error);
+          else if (error instanceof SessionEndedError) {
             if (error.code === 'REMOTE_SEQUENCE_UNAVAILABLE')
               await store.state(id, 'uncertain', view.requestId, error.code);
             this.#endSession();
@@ -234,7 +242,8 @@ export class AskController {
       try {
         result = await remote.result(view.requestId);
       } catch (error) {
-        if (error instanceof SessionEndedError) this.#endSession();
+        if (error instanceof SessionEvictedError) this.#endSession(error);
+        else if (error instanceof SessionEndedError) this.#endSession();
         throw error;
       }
       requireValue(result.requestId === view.requestId);

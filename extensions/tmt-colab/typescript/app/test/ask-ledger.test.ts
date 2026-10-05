@@ -5,7 +5,12 @@ import { AskController } from '../src/ask-attempt.js';
 import { AskRecordStore } from '../src/ask-record-store.js';
 import { ASK_OBSERVATION_MS, readAskViews, type AskLedgerView } from '../src/ask-records.js';
 import { FrozenAsk } from '../src/ask-intent.js';
-import { createRemoteClient, SessionEndedError, ReadRefusedError } from '../src/ask-remote.js';
+import {
+  createRemoteClient,
+  SessionEndedError,
+  SessionEvictedError,
+  ReadRefusedError,
+} from '../src/ask-remote.js';
 import type { OwnState } from '../src/fold-protocol.js';
 import { destination, id, RemoteDouble, selection } from './ask-fixtures.js';
 const draft = new Map<string, unknown>();
@@ -376,6 +381,44 @@ it('a session-ending final read stops observation, preserves its accepted record
   expect(next.sends).toEqual([]);
 });
 
+it('an evicted Ask read passes the verified limit to the page without dispatching again', async () => {
+  const { store, remote, key } = await setup();
+  const ended = vi.fn();
+  const controller = new AskController({ store, remote, key, selection, sessionEnded: ended });
+  await controller.destinations();
+  const frozen = controller.prepare(destination());
+  await controller.send(frozen);
+  const eviction = new SessionEvictedError(8, 'https://example.test/remote/settings');
+  remote.result = vi.fn(async () => {
+    throw eviction;
+  });
+  await expect(controller.recover(frozen.view.operationId)).rejects.toBe(eviction);
+  expect(ended).toHaveBeenCalledExactlyOnceWith(eviction);
+  await controller.observe(new AbortController().signal);
+  expect(remote.sends).toHaveLength(1);
+});
+
+it('an evicted send records uncertainty before stopping the page and never resends', async () => {
+  const { store, remote, key, own } = await setup();
+  const eviction = new SessionEvictedError(2);
+  const observed = vi.fn(() => {
+    const states = Object.values(own[id(4)].messages) as unknown as { state: string }[];
+    expect(states.at(-1)?.state).toBe('uncertain');
+  });
+  const controller = new AskController({ store, remote, key, selection, sessionEnded: observed });
+  await controller.destinations();
+  const frozen = controller.prepare(destination());
+  remote.send = async (input) => {
+    remote.sends.push(input);
+    throw eviction;
+  };
+  expect((await controller.send(frozen)).state).toBe('uncertain');
+  expect(observed).toHaveBeenCalledExactlyOnceWith(eviction);
+  expect(remote.sends).toHaveLength(1);
+  await controller.observe(new AbortController().signal);
+  expect(remote.sends).toHaveLength(1);
+});
+
 it('SDK class and code identify session faults; error-shaped objects never cause replacement', async () => {
   class ClientError extends Error {
     constructor(readonly code: string) {
@@ -383,7 +426,11 @@ it('SDK class and code identify session faults; error-shaped objects never cause
     }
   }
   class RefusalError extends Error {
-    constructor(readonly code: string) {
+    constructor(
+      readonly code: string,
+      readonly limit?: number,
+      readonly settingsUrl?: string,
+    ) {
       super(code);
     }
   }
@@ -436,6 +483,15 @@ it('SDK class and code identify session faults; error-shaped objects never cause
     ).toBe('uncertain');
     await expect(adapter.result(`req_${id(8)}`)).rejects.toBeInstanceOf(ReadRefusedError);
   }
+  fault = new RefusalError('REMOTE_SESSION_EVICTED', 8, 'https://example.test/remote/settings');
+  await expect(adapter.listAgents()).rejects.toMatchObject({
+    limit: 8,
+    settingsUrl: 'https://example.test/remote/settings',
+  });
+  await expect(adapter.result(`req_${id(8)}`)).rejects.toBeInstanceOf(SessionEvictedError);
+  await expect(
+    adapter.send({ operationId: id(9), agentId: id(6), message: 'exact' }),
+  ).rejects.toBeInstanceOf(SessionEvictedError);
   fault = { code: 'sequence_unavailable' };
   expect((await adapter.operation(id(9))).state).toBe('uncertain');
   expect(((await adapter.operation(id(9))) as { reason?: string }).reason).toBeUndefined();
