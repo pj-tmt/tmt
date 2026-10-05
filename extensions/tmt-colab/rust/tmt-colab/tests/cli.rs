@@ -3538,7 +3538,14 @@ fn serve_says_the_outdated_instruction_once_in_the_warning_and_points_at_it_in_t
 fn skill_is_exact_embedded_bytes_after_relocation_without_core_or_state() {
     let pilot = Pilot::new(None);
     let relocated = pilot.root.join("relocated-colab");
-    fs::copy(BINARY, &relocated).unwrap();
+    let binary = fs::read(BINARY).unwrap();
+    let mode = fs::metadata(BINARY).unwrap().permissions().mode() & 0o777;
+    tmt_test_support::write_executable(&relocated, &binary, mode).unwrap();
+    assert_eq!(fs::read(&relocated).unwrap(), binary);
+    assert_eq!(
+        fs::metadata(&relocated).unwrap().permissions().mode() & 0o777,
+        mode
+    );
     fs::remove_file(pilot.root.join("core")).unwrap();
     let invoke = |args: &[&str]| {
         Command::new(&relocated)
