@@ -24,6 +24,23 @@ export interface ComponentMap {
       readonly nativeTests: readonly string[];
       readonly e2eFiles: readonly string[];
     };
+    readonly neverShippedPaths: readonly {
+      readonly root: string;
+      readonly reason: string;
+      readonly testOnlyReferences: readonly { readonly file: string; readonly reason: string }[];
+    }[];
+    readonly generatedInputs: readonly {
+      readonly includeSite: string;
+      readonly expression: string;
+      readonly generator: string;
+      readonly generatorBlob: string;
+      readonly buildScript: string;
+      readonly variable: string;
+      readonly inputDirectory: string;
+      readonly packageRoot: string;
+      readonly releaseScript: string;
+      readonly reason: string;
+    }[];
   }[];
   readonly rules: readonly {
     readonly id: string;

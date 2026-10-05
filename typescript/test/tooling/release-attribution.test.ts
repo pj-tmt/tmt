@@ -12,13 +12,15 @@ import {
 import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { describe, expect, it } from 'vite-plus/test';
 import { readCargoWorkspace } from '../../scripts/cargo-workspace.mjs';
 import {
   parseComponentMap,
   releasedComponentsForPath,
   selectCiAreas,
+  ownerOf,
+  selectNativeScope,
 } from '../../scripts/ci-scope.mjs';
 import {
   affectedProducts,
@@ -30,9 +32,84 @@ import {
 import { attributeCutCommits } from '../../scripts/release-cut.mjs';
 
 const root = fileURLToPath(new URL('../../../', import.meta.url));
+const { productOfComponent } = (await import(
+  pathToFileURL(`${root}typescript/scripts/native-release-policy.mjs`).href
+)) as { productOfComponent: (name: string) => string };
 const source = readFileSync(`${root}.github/components.json`, 'utf8');
 const map = parseComponentMap(source);
 const workspace = readCargoWorkspace(root);
+
+describe('Project-only never-shipped declarations', () => {
+  it('preserves map policy, ownership, CI scope, cuts and product versions', () => {
+    const original = JSON.parse(source);
+    for (const component of Object.values(original.components) as Record<string, unknown>[]) {
+      delete component.neverShippedPaths;
+      delete component.generatedInputs;
+    }
+    const base = parseComponentMap(JSON.stringify(original));
+    const files = runGitFiles();
+    const paths = [...files, 'unmapped/input', 'extensions/tmt-colab/rust/tmt-colab/new-input'];
+    for (const path of paths) {
+      expect(ownerOf(path, map), path).toBe(ownerOf(path, base));
+      expect(selectCiAreas([path], map), path).toEqual(selectCiAreas([path], base));
+      expect(selectNativeScope([path], map), path).toBe(selectNativeScope([path], base));
+    }
+    const commits = [{ sha: 'a'.repeat(40), message: 'fix: changed input', files: paths }];
+    for (const component of map.components.filter(
+      (component) => component.package && component.release !== false
+    )) {
+      expect(
+        attributeCutCommits(commits, map, productOfComponent(component.name), workspace)
+      ).toEqual(attributeCutCommits(commits, base, productOfComponent(component.name), workspace));
+      expect(workspace.packages.find((p) => p.name === component.package)!.version).toBeDefined();
+    }
+    // The original policy metadata is unchanged; only these two additions differ.
+    const baseline = JSON.parse(
+      spawnSync(
+        'git',
+        ['show', '878f7b21e530bd843dff426aec4d4d4f511df852:.github/components.json'],
+        { cwd: root, encoding: 'utf8' }
+      ).stdout
+    );
+    expect(original).toEqual(baseline);
+  });
+
+  it.each([
+    ['empty root', { root: '' }],
+    ['absolute root', { root: '/tmp/tests' }],
+    ['parent traversal', { root: 'rust/../tests' }],
+    ['glob', { root: 'rust/**' }],
+    ['backslash', { root: 'rust\\tests' }],
+    ['empty reason', { reason: ' ' }],
+  ])('refuses %s', (_label, patch) => {
+    const invalid = JSON.parse(source);
+    Object.assign(invalid.components.cli.neverShippedPaths[0], patch);
+    expect(() => parseComponentMap(JSON.stringify(invalid))).toThrow();
+  });
+
+  it('keeps actual skills, build, app, dependency and undeclared inputs attributed', () => {
+    for (const path of [
+      'extensions/tmt-colab/skills/tmt-colab/SKILL.md',
+      'extensions/tmt-colab/skills/tmt-colab/references/future.md',
+      'extensions/tmt-colab/rust/tmt-colab/build.rs',
+      'extensions/tmt-colab/rust/tmt-colab/Cargo.toml',
+      'extensions/tmt-colab/rust/tmt-colab/src/main.rs',
+      'extensions/tmt-colab/typescript/app/src/main.ts',
+      'extensions/tmt-colab/typescript/colab-client/src/index.ts',
+      'extensions/tmt-colab/rust/tmt-colab-model/src/lib.rs',
+    ])
+      expect(affectedProducts([path], map, workspace).products, path).toContain('colab');
+    expect(
+      affectedProducts(['rust/crates/tmt-invoke/src/lib.rs'], map, workspace).products
+    ).toContain('colab');
+  });
+});
+
+function runGitFiles(): string[] {
+  const result = spawnSync('git', ['ls-files', '-z'], { cwd: root, encoding: 'utf8' });
+  expect(result.status, result.stderr).toBe(0);
+  return result.stdout.split('\0').filter(Boolean);
+}
 const sha = 'a'.repeat(40);
 const office = (name: string) => `extensions/tmt-office/rust/tmt-office-${name}/src/lib.rs`;
 

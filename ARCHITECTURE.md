@@ -637,6 +637,13 @@ private non-Rust consumers are additive. `cargo-workspace.mjs` supplies resolved
 Cargo metadata; version inheritance/editing has its own private release-tool owner.
 CI scope, ownership, binary consumption and version inheritance are separate contracts.
 
+Project-only never-shipped path declarations are defined in the
+[release-tracking reference](.agents/skills/tmt-release/references/native-release.md#project-release-tracking).
+The separate `tmt-cli` architecture guard checks all Rust files and macro tokens outside
+declared roots, packaging and canonical generated inputs without cfg/reachability inference.
+Required CI covers the component map, declaring crates and release build script; the Node
+Project sweep validates declarations and never executes captured source.
+
 Selected missing, failed, cancelled or unexpectedly skipped work cannot satisfy a
 required gate; empty test discovery never passes. Selection, worker, cache and
 advisory-browser details live in the

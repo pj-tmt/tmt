@@ -13,6 +13,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vite-plus/test';
 import { listE2eFiles } from '../../scripts/e2e-shards.mjs';
+import { readCargoWorkspace } from '../../scripts/cargo-workspace.mjs';
 import {
   RUST_WORKERS,
   ciGatePasses,
@@ -2385,3 +2386,35 @@ it.each(['Cargo.toml', 'src/store.rs', 'tests/state.rs'])(
     ).toBe(true);
   }
 );
+
+it('schedules architecture CI for the map, every declaring crate file and release script', () => {
+  const root = fileURLToPath(new URL('../../../', import.meta.url));
+  const map = parseComponentMap(readFileSync(`${root}.github/components.json`, 'utf8'));
+  const workspace = readCargoWorkspace(root);
+  const files: string[] = runPackedCommand('git', ['ls-files', '-z'], {
+    cwd: root,
+    env: process.env,
+  })
+    .split('\0')
+    .filter(Boolean);
+  const protectedPaths = ['.github/components.json', 'scripts/build-native-artifact.sh'];
+  for (const component of map.components.filter(
+    (c) => c.neverShippedPaths.length || c.generatedInputs.length
+  )) {
+    const crate = workspace.packages.find((p) => p.name === component.package)!;
+    expect(crate).toBeDefined();
+    protectedPaths.push(
+      ...files.filter((path) => path.startsWith(`${crate.dir}/`)),
+      `${crate.dir}/new-input.md`
+    );
+  }
+  for (const path of protectedPaths) {
+    expect(selectCiAreas([path], map).native, path).toBe(true);
+    expect(selectNativeScope([path], map), path).toBe('full');
+  }
+  const workflow = readFileSync(`${root}.github/workflows/ci.yml`, 'utf8');
+  const job = workflow.split('\n  native-workspace-tests:\n')[1].split(/\n {2}[a-z0-9-]+:\n/)[0];
+  expect(job).toContain("if: needs.changes.outputs.native == 'true'");
+  expect(job).toContain("if: needs.changes.outputs.native_scope == 'full'");
+  expect(job).toContain('cargo test --locked --workspace');
+});

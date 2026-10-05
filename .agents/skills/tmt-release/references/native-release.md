@@ -426,6 +426,26 @@ map's `releaseStatus` is valid only with `release:false` (`never`: test support 
 in no release; `parked`: Office). Style and invoke require CLI, Squad, Remote and Colab
 release evidence; TUI requires only Squad evidence.
 
+For reviewed leaves inside a component, `neverShippedPaths` in the component map is a
+Project-only list of `{root, reason, testOnlyReferences?}`. Roots are normalized literal
+repository-relative paths owned by that component; undeclared and mixed shipping inputs
+retain containing-tag requirements. Each optional test-only reference names `{file, reason}`;
+the architecture guard requires its parent module declaration immediately after literal
+`#[cfg(test)]`. This field changes neither ownership, cuts, versions nor ordinary CI selection.
+CI runs the separate all-file, macro-token-aware Rust architecture guard for map changes,
+every declaring crate input and the release build script. It rejects shipping source,
+package/dist/skill-tree overlap, production references, missing/ambiguous inputs and unproved
+dynamic includes. References originating within a declared root are ignored; no cfg or
+module reachability is inferred. Admission is CI-only; the Node sweep executes no source.
+
+The optional single `generatedInputs` entry records `includeSite`, exact `expression`,
+`generator`, reviewed Git `generatorBlob`, `buildScript`, `variable`, `inputDirectory`, `packageRoot`, `releaseScript` and
+`reason`. Colab's canonical OUT_DIR include is admitted only with its reviewed build-script
+forwarding, generator and exact release app-directory pin; other dynamic inputs fail closed.
+Never-shipped roots cannot overlap its app package or generated directory. Local environment
+overrides are outside canonical release attribution. Update declarations and their proofs in
+the same reviewed change when packaging or embedding changes; do not add naming exemptions.
+
 Leave open issues, PR items, other repositories and project membership unchanged.
 Recompute both owned fields, correcting stale terminal states and historical text. Complete
 discovery and the dry-run plan precede bounded batched mutations and a Project readback.
