@@ -412,7 +412,9 @@ describe('consented provider setup and bounded hook boundary', () => {
         const result = await runCli(sandbox, ['__hook', 'claude'], { stdin: input });
         expect(result.status, result.stderr).toBe(0);
         expect(result.stdout).toBe('');
-        expect(result.stderr.trim().split('\n')).toHaveLength(1);
+        expect(result.stderr).toBe(
+          'tmt: lifecycle context unavailable; continuing without context.\n'
+        );
         expect(result.stderr).not.toContain(input);
       }
       const started = performance.now();
@@ -423,6 +425,7 @@ describe('consented provider setup and bounded hook boundary', () => {
       });
       expect(slow.status, slow.stderr).toBe(0);
       expect(slow.stdout).toBe('');
+      expect(slow.stderr).toBe('tmt: lifecycle context unavailable; continuing without context.\n');
       expect(performance.now() - started).toBeLessThan(4500);
       expect(fileSnapshot(sandbox.root)).toEqual(before);
       expect(fs.existsSync(sandbox.database)).toBe(false);

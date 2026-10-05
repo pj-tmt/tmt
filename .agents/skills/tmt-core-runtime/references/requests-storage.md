@@ -66,6 +66,17 @@ configuration. The owner map is in
   Talk renders `<tmt-reply from="…">` with the resolved originator's display name or `unknown`:
   XML-escaped presentation, not authentication.
 
+## Request history
+
+- Schema 47 indexes the originator results view by submission-time keyset. Results use an
+  observation snapshot without housekeeping; storage reuses the canonical attempt/response
+  row decoders rather than introducing another request store.
+- `tmt-adapters::request_text` owns display-control classification shared by label validation
+  and preview/notice normalization. Stored request and response bodies remain exact.
+- `tmt-adapters::request_history` admits and encodes the local-owner API without reply proofs
+  or pane paths. The [extension API contract](../../../../contracts/extension-api.md) owns
+  fields and caps; transport admission remains with the existing HTTP or process owner.
+
 ## Reply notices
 
 - A request opts in only through its notification policy; historical, anonymous and queue-only

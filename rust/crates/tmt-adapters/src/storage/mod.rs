@@ -58,6 +58,15 @@ pub struct StorageHealth {
 const BUSY_TIMEOUT: Duration = Duration::from_secs(5);
 const WAL_RETRY_INTERVAL: Duration = Duration::from_millis(10);
 const WAL_ATTEMPT_TIMEOUT: Duration = Duration::from_millis(50);
+const HOOK_WRITER_WAIT: Duration = Duration::from_millis(500);
+const HOOK_COMPLETION_RESERVE: Duration = Duration::from_millis(100);
+
+fn hook_writer_wait(deadline: Instant, now: Instant) -> Duration {
+    deadline
+        .saturating_duration_since(now)
+        .saturating_sub(HOOK_COMPLETION_RESERVE)
+        .min(HOOK_WRITER_WAIT)
+}
 
 /// One invocation-owned connection. The raw handle never crosses this adapter's
 /// boundary. Explicit close reports failures; Connection's RAII remains a safety
@@ -73,13 +82,21 @@ pub struct Storage {
 impl Storage {
     /// Hooks observe existing state; they must not initialize or upgrade storage.
     /// The supervising hook process supplies the overall deadline, including any
-    /// pathological filesystem wait; lock contention is bounded independently.
-    pub fn open_hook(path: &Path) -> Result<Self, StorageError> {
+    /// pathological filesystem wait. Writer admission uses only the remaining
+    /// budget, reserving time for commit and context publication.
+    pub fn open_hook(path: &Path, deadline: Instant) -> Result<Self, StorageError> {
+        let wait = hook_writer_wait(deadline, Instant::now());
+        if wait.is_zero() {
+            return Err(StorageError::new(
+                StorageErrorCode::Busy,
+                "Hook storage budget is exhausted",
+            ));
+        }
         let connection =
             Connection::open_with_flags(path, rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE)
                 .map_err(|error| classify_open(error, "Open existing hook storage", path))?;
         connection
-            .busy_timeout(Duration::from_millis(50))
+            .busy_timeout(wait)
             .map_err(|error| classify(error, "Bound hook storage wait"))?;
         migrations::require_current(&connection)?;
         connection

@@ -428,10 +428,9 @@ Schema 27 adds indexed keyset history over those same attempts, not chat storage
 `request::history` owns the owner-visible projection, and its service composes
 retention and the existing attention final-state interpretation. Storage reuses
 the canonical attempt/response row decoders; bounded UTF-8 previews preserve
-embedded NUL without loading full message bodies into lists. Schema 47 indexes an originator results view (submission-time keyset, observation snapshot without housekeeping);
-`request_text` owns control classification shared by label validation and preview/notice normalization; stored bodies stay exact. The [extension API contract](contracts/extension-api.md) owns fields and caps. The `request_history`
-adapter admits/encodes the owner API without reply proofs or pane paths. HTTP
-inspection requires the same bearer/Origin admission as dispatch. Operation lookup
+embedded NUL without loading full message bodies into lists.
+[Request history](.agents/skills/tmt-core-runtime/references/requests-storage.md#request-history) owns results-view, text and inspection module details.
+HTTP inspection requires the same bearer/Origin admission as dispatch. Operation lookup
 and dispatch replay share the existing immutable ledger decoder; lookup cannot
 resubmit. Browser `LocalRuntime.requests` owns only bounded typed transport and
 response-scope checks, not another request cache or completion policy.
