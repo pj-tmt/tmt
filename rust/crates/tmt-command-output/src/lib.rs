@@ -27,7 +27,7 @@ pub struct Failure {
     pub code: String,
     pub message: String,
     pub status: u8,
-    diagnostics: Option<Box<Diagnostics>>,
+    details: Option<Box<FailureDetails>>,
     suggestion: Option<String>,
     request: Option<Box<RequestDetails>>,
     target: Option<Box<TargetDetails>>,
@@ -43,9 +43,10 @@ struct RequestDetails {
 }
 
 #[derive(Debug, Default)]
-struct Diagnostics {
+struct FailureDetails {
     cause: Option<Box<dyn Error>>,
     secondary: Vec<Box<dyn Error>>,
+    metadata_conflicts: Option<tmt_core::identity_metadata::MetadataConflicts>,
 }
 
 #[derive(Debug)]
@@ -82,7 +83,7 @@ impl Failure {
             code: code.into(),
             message: message.into(),
             status,
-            diagnostics: None,
+            details: None,
             suggestion: None,
             request: None,
             target: None,
@@ -91,7 +92,7 @@ impl Failure {
     }
 
     pub fn caused_by(mut self, cause: impl Error + 'static) -> Self {
-        self.diagnostics.get_or_insert_default().cause = Some(Box::new(cause));
+        self.details.get_or_insert_default().cause = Some(Box::new(cause));
         self
     }
 
@@ -101,7 +102,7 @@ impl Failure {
     }
 
     pub fn with_secondary_error(mut self, error: impl Error + 'static) -> Self {
-        self.diagnostics
+        self.details
             .get_or_insert_default()
             .secondary
             .push(Box::new(error));
@@ -163,6 +164,14 @@ impl Failure {
         self
     }
 
+    pub fn with_metadata_conflicts(
+        mut self,
+        current: tmt_core::identity_metadata::MetadataConflicts,
+    ) -> Self {
+        self.details.get_or_insert_default().metadata_conflicts = Some(current);
+        self
+    }
+
     pub fn at_stage(mut self, stage: &'static str) -> Self {
         self.stage = Some(stage);
         self
@@ -173,6 +182,13 @@ impl Failure {
     pub fn document(&self) -> serde_json::Value {
         let mut document =
             serde_json::json!({"error": {"code": self.code, "message": self.message}});
+        if let Some(current) = self
+            .details
+            .as_ref()
+            .and_then(|details| details.metadata_conflicts.as_ref())
+        {
+            document["error"]["current"] = serde_json::json!(current);
+        }
         if let Some(suggestion) = &self.suggestion {
             document["error"]["suggestion"] = suggestion.clone().into();
         }
@@ -258,7 +274,7 @@ impl fmt::Display for Failure {
 
 impl Error for Failure {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
-        self.diagnostics
+        self.details
             .as_ref()
             .and_then(|details| details.cause.as_deref())
     }
@@ -403,10 +419,10 @@ mod tests {
             assert_eq!(failure.message, "Missing identity");
             assert_eq!(failure.status, 3);
             assert_eq!(failure.source().unwrap().to_string(), "primary cause");
-            let diagnostics = failure.diagnostics.as_ref().unwrap();
-            assert_eq!(diagnostics.secondary.len(), usize::from(fail_cleanup));
+            let details = failure.details.as_ref().unwrap();
+            assert_eq!(details.secondary.len(), usize::from(fail_cleanup));
             if fail_cleanup {
-                assert_eq!(diagnostics.secondary[0].to_string(), "cleanup cause");
+                assert_eq!(details.secondary[0].to_string(), "cleanup cause");
             }
         }
     }

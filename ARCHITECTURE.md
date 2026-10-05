@@ -776,7 +776,7 @@ falls back to a working directory, active pane or sole identity.
 - `tmt-core::names` owns canonical identity classification; pane-target syntax
   belongs to each host. `identity` owns lifetime and storage-only create/promote
   policy, `identity_metadata` and `identity_status` own descriptive, untrusted data
-  that grants no authority, and `binding` owns evidence evaluation, retirement
+  that grants no authority (including the [atomic metadata contract](contracts/extension-api.md#conditional-identity-metadata)), and `binding` owns evidence evaluation, retirement
   authorization and binding use cases.
 - Unknown or conflicting endpoint evidence is never proof of death. Saved
   identities detach and stay offline; temporary identities retire only on

@@ -1,7 +1,11 @@
 //! Validated, identity-owned descriptive metadata and shared operations.
 
 use crate::identity::Identity;
-use std::{collections::BTreeMap, error::Error, fmt};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    error::Error,
+    fmt,
+};
 
 pub const MAX_METADATA_ENTRIES: usize = 64;
 pub const MAX_METADATA_KEY_BYTES: usize = 64;
@@ -78,6 +82,7 @@ pub enum MetadataValidationError {
     InvalidKey,
     InvalidValue,
     EntryLimit,
+    InvalidChanges,
 }
 
 impl fmt::Display for MetadataValidationError {
@@ -90,6 +95,7 @@ impl fmt::Display for MetadataValidationError {
                 "Metadata values must be 1-1024 UTF-8 bytes and contain no control characters."
             }
             Self::EntryLimit => "An identity may have at most 64 metadata entries.",
+            Self::InvalidChanges => "Metadata apply requires 1-64 changes with distinct keys.",
         })
     }
 }
@@ -115,6 +121,106 @@ pub enum MetadataMutation {
     Set { changed: bool },
     Removed { removed: bool },
     EntryLimit,
+}
+
+/// Exact expectations never reserve string values for sentinel spellings.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum MetadataExpectation {
+    Value(MetadataValue),
+    Absent,
+    Any,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum MetadataAction {
+    Set(MetadataValue),
+    Remove,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MetadataChange {
+    pub key: MetadataKey,
+    pub expect: MetadataExpectation,
+    pub then: MetadataAction,
+}
+
+/// Admitted changes contain distinct keys, so input order cannot affect the result.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MetadataChanges(Vec<MetadataChange>);
+
+pub type MetadataConflicts = BTreeMap<String, Option<String>>;
+
+impl MetadataChanges {
+    pub fn new(changes: Vec<MetadataChange>) -> Result<Self, MetadataValidationError> {
+        let mut keys = BTreeSet::new();
+        if changes.is_empty()
+            || changes.len() > MAX_METADATA_ENTRIES
+            || changes
+                .iter()
+                .any(|change| !keys.insert(change.key.clone()))
+        {
+            return Err(MetadataValidationError::InvalidChanges);
+        }
+        Ok(Self(changes))
+    }
+
+    pub fn changes(&self) -> &[MetadataChange] {
+        &self.0
+    }
+
+    /// Evaluate every expectation against one snapshot before projecting any effect.
+    pub fn evaluate(
+        &self,
+        current: &BTreeMap<String, String>,
+    ) -> Result<BTreeMap<String, String>, MetadataApply> {
+        let conflicts: MetadataConflicts = self
+            .0
+            .iter()
+            .filter_map(|change| {
+                let value = current.get(change.key.as_str());
+                let matches = match &change.expect {
+                    MetadataExpectation::Value(expected) => {
+                        value.is_some_and(|value| value == expected.as_str())
+                    }
+                    MetadataExpectation::Absent => value.is_none(),
+                    MetadataExpectation::Any => true,
+                };
+                (!matches).then(|| (change.key.as_str().to_owned(), value.cloned()))
+            })
+            .collect();
+        if !conflicts.is_empty() {
+            return Err(MetadataApply::Conflict(conflicts));
+        }
+        let mut next = current.clone();
+        for change in &self.0 {
+            match &change.then {
+                MetadataAction::Set(value) => {
+                    next.insert(change.key.as_str().to_owned(), value.as_str().to_owned());
+                }
+                MetadataAction::Remove => {
+                    next.remove(change.key.as_str());
+                }
+            }
+        }
+        if next.len() > MAX_METADATA_ENTRIES {
+            return Err(MetadataApply::EntryLimit);
+        }
+        Ok(next)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum MetadataApply {
+    IdentityNotFound,
+    Conflict(MetadataConflicts),
+    Applied { changed: bool },
+    EntryLimit,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ApplyMetadataResult {
+    pub identity_id: String,
+    pub changed: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -166,6 +272,14 @@ pub trait IdentityMetadataRepository {
         identity_id: &str,
         key: &MetadataKey,
     ) -> Result<MetadataMutation, Self::Error>;
+    /// Recheck the exact active UUID, evaluate one snapshot and commit every effect
+    /// under the same writer transaction. Conflicts and limits perform no writes.
+    fn apply_metadata(
+        &mut self,
+        identity_id: &str,
+        changes: &MetadataChanges,
+    ) -> Result<MetadataApply, Self::Error>;
+
     fn list_identities_matching(
         &self,
         filters: &[MetadataFilter],
@@ -177,6 +291,7 @@ pub enum MetadataError<E> {
     Invalid(MetadataValidationError),
     IdentityNotFound,
     KeyNotFound,
+    Conflict(MetadataConflicts),
     Repository(E),
 }
 
@@ -186,6 +301,9 @@ impl<E: fmt::Display> fmt::Display for MetadataError<E> {
             Self::Invalid(error) => error.fmt(formatter),
             Self::IdentityNotFound => formatter.write_str("The selected identity was not found."),
             Self::KeyNotFound => formatter.write_str("The metadata key was not found."),
+            Self::Conflict(_) => {
+                formatter.write_str("Metadata expectations did not match current values.")
+            }
             Self::Repository(error) => error.fmt(formatter),
         }
     }
@@ -277,6 +395,27 @@ pub fn remove_identity_metadata<R: IdentityMetadataRepository>(
     }
 }
 
+pub fn apply_identity_metadata<R: IdentityMetadataRepository>(
+    repository: &mut R,
+    identity_id: &str,
+    changes: &MetadataChanges,
+) -> Result<ApplyMetadataResult, MetadataError<R::Error>> {
+    match repository
+        .apply_metadata(identity_id, changes)
+        .map_err(MetadataError::Repository)?
+    {
+        MetadataApply::IdentityNotFound => Err(MetadataError::IdentityNotFound),
+        MetadataApply::Conflict(current) => Err(MetadataError::Conflict(current)),
+        MetadataApply::EntryLimit => {
+            Err(MetadataError::Invalid(MetadataValidationError::EntryLimit))
+        }
+        MetadataApply::Applied { changed } => Ok(ApplyMetadataResult {
+            identity_id: identity_id.to_owned(),
+            changed,
+        }),
+    }
+}
+
 pub fn search_identities_by_metadata<R: IdentityMetadataRepository>(
     repository: &R,
     filters: &[MetadataFilter],
@@ -298,6 +437,7 @@ mod tests {
         mutation: MetadataMutation,
         identities: Vec<Identity>,
         set_calls: usize,
+        apply: MetadataApply,
     }
 
     impl IdentityMetadataRepository for Stub {
@@ -333,6 +473,14 @@ mod tests {
             Ok(self.mutation)
         }
 
+        fn apply_metadata(
+            &mut self,
+            _identity_id: &str,
+            _changes: &MetadataChanges,
+        ) -> Result<MetadataApply, Self::Error> {
+            Ok(self.apply.clone())
+        }
+
         fn list_identities_matching(
             &self,
             _filters: &[MetadataFilter],
@@ -357,6 +505,7 @@ mod tests {
                 updated_at: "updated".into(),
             }],
             set_calls: 0,
+            apply: MetadataApply::Applied { changed: true },
         }
     }
 
@@ -468,5 +617,105 @@ mod tests {
                 .value,
             "value"
         );
+    }
+    fn change(key: &str, expect: MetadataExpectation, then: MetadataAction) -> MetadataChange {
+        MetadataChange {
+            key: MetadataKey::parse(key).unwrap(),
+            expect,
+            then,
+        }
+    }
+
+    #[test]
+    fn conditional_changes_evaluate_exact_absent_and_any_against_the_original_snapshot() {
+        use MetadataAction::{Remove, Set};
+        use MetadataExpectation::{Absent, Any, Value};
+        let value = |s: &str| MetadataValue::parse(s).unwrap();
+        let current = [
+            ("state".into(), " old ".into()),
+            ("pending".into(), "yes".into()),
+        ]
+        .into_iter()
+        .collect();
+        let matching = MetadataChanges::new(vec![
+            change("state", Value(value(" old ")), Set(value("new"))),
+            change("pending", Any, Remove),
+            change("created", Absent, Set(value("any"))),
+            change("missing", Any, Remove),
+        ])
+        .unwrap();
+        assert_eq!(
+            matching.evaluate(&current).unwrap(),
+            [
+                ("state".into(), "new".into()),
+                ("created".into(), "any".into())
+            ]
+            .into_iter()
+            .collect()
+        );
+        let conflicting = MetadataChanges::new(vec![
+            change("pending", Any, Remove),
+            change("state", Value(value("old")), Set(value("new"))),
+            change("missing", Value(value("old")), Remove),
+            change("pending2", Absent, Set(value("new"))),
+        ])
+        .unwrap();
+        let expected = [
+            ("state".into(), Some(" old ".into())),
+            ("missing".into(), None),
+        ]
+        .into_iter()
+        .collect();
+        assert_eq!(
+            conflicting.evaluate(&current),
+            Err(MetadataApply::Conflict(expected))
+        );
+        assert_eq!(current["pending"], "yes");
+        assert!(MetadataChanges::new(vec![]).is_err());
+        assert!(
+            MetadataChanges::new(vec![
+                change("key", Any, Remove),
+                change("key", Absent, Remove)
+            ])
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn conditional_service_preserves_typed_repository_outcomes() {
+        let changes = MetadataChanges::new(vec![change(
+            "key",
+            MetadataExpectation::Any,
+            MetadataAction::Remove,
+        )])
+        .unwrap();
+        let mut repository = stub();
+        assert_eq!(
+            apply_identity_metadata(&mut repository, "id", &changes).unwrap(),
+            ApplyMetadataResult {
+                identity_id: "id".into(),
+                changed: true
+            }
+        );
+        repository.apply = MetadataApply::Applied { changed: false };
+        assert!(
+            !apply_identity_metadata(&mut repository, "id", &changes)
+                .unwrap()
+                .changed
+        );
+        repository.apply = MetadataApply::Conflict([("key".into(), None)].into_iter().collect());
+        assert!(
+            matches!(apply_identity_metadata(&mut repository, "id", &changes), Err(MetadataError::Conflict(current)) if current["key"].is_none())
+        );
+        repository.apply = MetadataApply::IdentityNotFound;
+        assert!(matches!(
+            apply_identity_metadata(&mut repository, "id", &changes),
+            Err(MetadataError::IdentityNotFound)
+        ));
+        repository.apply = MetadataApply::EntryLimit;
+        assert!(matches!(
+            apply_identity_metadata(&mut repository, "id", &changes),
+            Err(MetadataError::Invalid(MetadataValidationError::EntryLimit))
+        ));
     }
 }

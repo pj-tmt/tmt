@@ -546,6 +546,7 @@ fn translate(path: &[&str], m: &ArgMatches) -> Result<Invocation, String> {
         ["identity", "meta", operation] => Invocation::Identity(IdentityRequest::Metadata {
             identity: text(m, "identity"),
             operation: match *operation {
+                "apply" => IdentityMetadataRequest::Apply,
                 "set" => IdentityMetadataRequest::Set {
                     key: required(m, "key"),
                     value: required(m, "value"),
