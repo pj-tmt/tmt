@@ -290,7 +290,8 @@ fn footer_shows_only_the_row_actions_the_selected_row_allows() {
     assert!(text.contains("/ search") && text.ends_with("q quit  ? more"));
     // The plain host's Enter is the row menu; rebinding changes the word.
     let view = app.view.as_mut().unwrap();
-    view.bindings = crate::action::preset(false, &view.board.panes);
+    view.bindings =
+        crate::action::with_action_keys(crate::action::preset(false, &view.board.panes));
     assert!(hints(&app, usize::MAX).contains("⏎ menu"));
 }
 
@@ -309,7 +310,8 @@ fn footer_labels_use_only_registered_spaced_marks_and_structural_typography() {
                 Notes::NotShown,
             );
             let view = app.view.as_mut().unwrap();
-            view.bindings = crate::action::preset(tmux, &view.board.panes);
+            view.bindings =
+                crate::action::with_action_keys(crate::action::preset(tmux, &view.board.panes));
             for folded in [false, true] {
                 if folded && panes.len() > 1 {
                     app.key(KeyEvent::new(KeyCode::Char('d'), KeyModifiers::NONE));
@@ -432,7 +434,7 @@ pub(super) fn board(sections: Value) -> App {
             ),
             notes: crate::board::app::Notes::NotShown,
             render: crate::config::NotesRender::Markdown,
-            bindings: crate::action::preset(true, &[]),
+            bindings: crate::action::with_action_keys(crate::action::preset(true, &[])),
             section_bindings: Vec::new(),
             configured_bindings: Default::default(),
             opener: None,
@@ -1002,7 +1004,8 @@ fn drawn_rows_are_clickable_and_the_menu_and_help_show_bindings() {
     // the three lines show rows.
     assert_eq!(lines, [(3, 1)]);
 
-    app.view.as_mut().unwrap().bindings = crate::action::preset(false, &[]);
+    app.view.as_mut().unwrap().bindings =
+        crate::action::with_action_keys(crate::action::preset(false, &[]));
     app.help = true;
     // Notes cursor guidance and the settings binding need one more help row.
     let help = help_lines(&app);
@@ -1041,7 +1044,8 @@ fn drawn_rows_are_clickable_and_the_menu_and_help_show_bindings() {
 #[test]
 fn help_groups_view_and_theme_bindings_and_lists_no_default_jump_lead() {
     let mut app = board(json!([]));
-    app.view.as_mut().unwrap().bindings = crate::action::preset(true, &[]);
+    app.view.as_mut().unwrap().bindings =
+        crate::action::with_action_keys(crate::action::preset(true, &[]));
     let help = help_lines(&app);
     assert!(help.iter().all(|line| !line.contains("lead's pane")));
     assert!(
@@ -1130,7 +1134,7 @@ fn search_help_and_errors_use_the_footer_and_overlay() {
 }
 
 fn paned(board: crate::config::Board, notes: Notes) -> App {
-    let bindings = crate::action::preset(true, &board.panes);
+    let bindings = crate::action::with_action_keys(crate::action::preset(true, &board.panes));
     let mut app = App::new(Some("product".into()));
     app.apply(Snapshot {
             squad_keys: Vec::new(),
@@ -3975,7 +3979,7 @@ fn footer_hints_are_conditional_and_effective_bindings_remain_visible() {
         vec![60, 40],
     );
     let view = app.view.as_mut().unwrap();
-    view.bindings = crate::action::preset(true, &view.board.panes);
+    view.bindings = crate::action::with_action_keys(crate::action::preset(true, &view.board.panes));
     assert!(hints(&app, usize::MAX).contains("d detail"));
     assert!(draw(&app, 48, 12)[11].contains("A ask lead"));
     assert!(

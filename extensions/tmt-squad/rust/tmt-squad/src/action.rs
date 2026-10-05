@@ -273,7 +273,7 @@ impl Action {
             Verb::Tab => "open the selected squad".into(),
             Verb::Talk => "send the member a message".into(),
             Verb::AskLead => "ask the lead what waits on you".into(),
-            Verb::HomeReplies => "show or hide HOME reply previews".into(),
+            Verb::HomeReplies => "show or hide reply previews".into(),
             Verb::HomeMessage => "expand the selected row in the shared band".into(),
             Verb::HomeWrite => "write to all HOME leads".into(),
             Verb::HomePick => "pick a HOME lead to write to".into(),
@@ -437,8 +437,7 @@ pub fn preset(tmux: bool, panes: &[crate::config::Pane]) -> Bindings {
         ("enter", enter),
         ("double-click", enter),
         ("backspace", "back"),
-        ("t", "talk"),
-        ("r", "reply"),
+        ("t", "home-replies"),
         ("a", "annotate lead"),
         ("A", "ask-lead"),
         ("o", "open"),
@@ -447,10 +446,7 @@ pub fn preset(tmux: bool, panes: &[crate::config::Pane]) -> Bindings {
         ("e", "home-message"),
         ("tab", "next-pane"),
         ("ctrl-r", "refresh"),
-        ("w", "token-window"),
-        ("T", "theme"),
         (",", "settings"),
-        ("l", "view"),
     ]
     .into_iter()
     .chain(detail.map(|action| ("d", action)))
@@ -461,6 +457,22 @@ pub fn preset(tmux: bool, panes: &[crate::config::Pane]) -> Bindings {
         )
     })
     .collect()
+}
+
+/// Fixtures that press a key the presets no longer bind (`t` talk, `r` reply,
+/// `w` token window, `T` theme, `l` view) bind it as a user would.
+#[cfg(test)]
+pub(crate) fn with_action_keys(mut bindings: Bindings) -> Bindings {
+    for (event, line) in [
+        ("t", "talk"),
+        ("r", "reply"),
+        ("w", "token-window"),
+        ("T", "theme"),
+        ("l", "view"),
+    ] {
+        bindings.insert(event.into(), Action::parse(line).expect("action"));
+    }
+    bindings
 }
 
 /// Overlay a selected section and suppress unavailable meter actions.
@@ -491,8 +503,6 @@ pub fn all_preset() -> Bindings {
             ("enter", Some("tab")),
             ("double-click", Some("tab")),
             ("ctrl-r", Some("refresh")),
-            ("T", Some("theme")),
-            ("l", Some("view")),
             (",", Some("settings")),
         ]
         .into_iter(),
@@ -538,6 +548,32 @@ mod tests {
             let action = Action::parse(configured).unwrap();
             assert_eq!(action.description(), description);
             assert_eq!(action.text, configured, "settings retain the literal value");
+        }
+    }
+
+    #[test]
+    fn presets_leave_the_picker_and_composer_keys_to_the_menu_and_the_composer() {
+        for bindings in [preset(true, &[]), preset(false, &[]), all_preset()] {
+            let verbs: Vec<Verb> = bindings.values().map(|action| action.verb).collect();
+            for gone in [
+                Verb::Talk,
+                Verb::Reply,
+                Verb::Theme,
+                Verb::View,
+                Verb::TokenWindow,
+            ] {
+                assert!(!verbs.contains(&gone), "{gone:?} has no default key");
+            }
+            assert_eq!(
+                bindings["t"].verb,
+                Verb::HomeReplies,
+                "t is one key everywhere"
+            );
+            assert_eq!(bindings[","].verb, Verb::Settings);
+        }
+        // They stay bindable, like every other action.
+        for line in ["talk", "reply", "theme", "view", "token-window"] {
+            assert!(parse_bindings([("x", Some(line))].into_iter(), "bind").is_ok());
         }
     }
 

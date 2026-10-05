@@ -1978,7 +1978,6 @@ impl App {
                 return self
                     .view
                     .as_ref()
-                    .filter(|view| view.home.is_some())
                     .map_or(Effect::None, |view| Effect::HomeReplies(!view.home_replies));
             }
             Verb::HomeMessage => {
@@ -3786,7 +3785,7 @@ pub(crate) mod tests {
             ),
             notes: super::Notes::NotShown,
             render: crate::config::NotesRender::Markdown,
-            bindings: crate::action::preset(true, &[]),
+            bindings: crate::action::with_action_keys(crate::action::preset(true, &[])),
             section_bindings: Vec::new(),
             configured_bindings: Default::default(),
             opener: None,
@@ -4351,7 +4350,10 @@ pub(crate) mod tests {
 
     #[test]
     fn keys_resolve_the_selected_row_into_requests_or_refuse_with_a_notice() {
-        let mut app = crew(crate::action::preset(true, &[]), Vec::new());
+        let mut app = crew(
+            crate::action::with_action_keys(crate::action::preset(true, &[])),
+            Vec::new(),
+        );
         assert_eq!(
             press(&mut app, KeyCode::Enter),
             Effect::Act(Request::Jump("auth-fix".into()))
@@ -4401,7 +4403,10 @@ pub(crate) mod tests {
 
     #[test]
     fn talk_annotate_and_reply_compose_one_line_and_empty_sends_nothing() {
-        let mut app = crew(crate::action::preset(true, &[]), Vec::new());
+        let mut app = crew(
+            crate::action::with_action_keys(crate::action::preset(true, &[])),
+            Vec::new(),
+        );
         {
             let view = app.view.as_mut().unwrap();
             view.me = Some("Ben".into());
@@ -4559,6 +4564,31 @@ pub(crate) mod tests {
             app.sent.is_none(),
             "the next key clears the row confirmation"
         );
+    }
+
+    #[test]
+    fn t_toggles_reply_previews_on_a_squad_tab_and_a_user_talk_binding_wins() {
+        let mut app = crew(crate::action::preset(true, &[]), vec![]);
+        app.view.as_mut().unwrap().me = Some("Ben".into());
+        assert_eq!(
+            press(&mut app, KeyCode::Char('t')),
+            Effect::HomeReplies(false)
+        );
+        app.view.as_mut().unwrap().home_replies = false;
+        assert_eq!(
+            press(&mut app, KeyCode::Char('t')),
+            Effect::HomeReplies(true)
+        );
+        assert!(app.input.is_none(), "t no longer opens a composer");
+        // Someone who bound `t` themselves keeps their binding.
+        app.view
+            .as_mut()
+            .unwrap()
+            .bindings
+            .insert("t".into(), crate::action::Action::parse("talk").unwrap());
+        app.select(0);
+        assert_eq!(press(&mut app, KeyCode::Char('t')), Effect::None);
+        assert_eq!(app.input.as_ref().unwrap().header(), "→ auth-fix · talk");
     }
 
     fn modes_of(app: &App) -> (String, Vec<&'static str>) {
@@ -4867,7 +4897,7 @@ pub(crate) mod tests {
 
     #[test]
     fn the_menu_lists_the_rows_actions_first_then_the_boards_and_user_keys_follow_their_verb() {
-        let mut bindings = crate::action::preset(false, &[]);
+        let mut bindings = crate::action::with_action_keys(crate::action::preset(false, &[]));
         bindings.insert(
             "x".into(),
             crate::action::Action::parse("reply").expect("reply"),
@@ -5334,7 +5364,7 @@ mod lead_row_tests {
         let mut loaded = snapshot("product", json!([{"title": null, "rows": rows}]));
         let view = loaded.view.as_mut().unwrap();
         view.document["squad"]["lead"] = lead();
-        view.bindings = crate::action::preset(true, &[]);
+        view.bindings = crate::action::with_action_keys(crate::action::preset(true, &[]));
         view.configured_bindings = view.bindings.clone();
         view.me = Some("Ben".into());
         app.apply(loaded);
@@ -5483,7 +5513,10 @@ mod token_window_tests {
     use crate::config::{TokenRate, TokenWindow};
     use serde_json::json;
     fn app() -> App {
-        let mut app = crew(crate::action::preset(false, &[]), Vec::new());
+        let mut app = crew(
+            crate::action::with_action_keys(crate::action::preset(false, &[])),
+            Vec::new(),
+        );
         app.meter = Some(super::super::meter::Meter::new(
             TokenRate {
                 enabled: true,
