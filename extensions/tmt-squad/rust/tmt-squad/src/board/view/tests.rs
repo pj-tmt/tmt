@@ -3500,6 +3500,29 @@ fn focused_notes_scroll_while_rows_keep_their_selection() {
     assert_eq!(app.selected, 0);
 }
 #[test]
+fn initial_loading_uses_the_resolved_theme_before_any_snapshot() {
+    for base in [tmt_cli_style::Base::Tmt, tmt_cli_style::Base::TmtLight] {
+        for depth in [tmt_cli_style::Depth::TrueColor, tmt_cli_style::Depth::None] {
+            let look = crate::look::Look {
+                theme: tmt_cli_style::Theme::new(base),
+                depth,
+            };
+            let mut app = App::new(Some("product".into()));
+            app.initial_look = Some(look);
+            app.loading_since = Some(std::time::Instant::now() - header::SPINNER_DELAY);
+            let line = summary_line(&app);
+            assert_eq!(line.spans[0].style, look.role(Role::Accent));
+            assert_eq!(line.spans[1].style, look.role(Role::Muted));
+            assert_eq!(line.spans[2].style, look.role(Role::Accent));
+            assert_eq!(
+                super::tabs::paint(&app, Rect::new(0, 0, 80, 1)).style,
+                look.role(Role::Accent).add_modifier(Modifier::BOLD)
+            );
+        }
+    }
+}
+
+#[test]
 fn loading_is_delayed_animated_and_absent_on_a_cached_switch() {
     let mut app = board(json!([]));
     let started = std::time::Instant::now();

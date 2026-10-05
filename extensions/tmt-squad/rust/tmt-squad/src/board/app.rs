@@ -564,6 +564,7 @@ pub struct TitleHit {
 
 #[derive(Default)]
 pub struct App {
+    pub(super) initial_look: Option<crate::look::Look>,
     pub(super) note_link: Option<(String, usize)>,
     pub(super) link_hits: RefCell<Vec<(ratatui::layout::Rect, usize)>>,
     pub(super) note_cursors: RefCell<BTreeMap<String, super::notes::NotesCursor>>,
@@ -3567,11 +3568,14 @@ impl App {
         }
     }
 
-    /// How the board draws now: the shown squad's theme, or the default
-    /// one before the first load.
+    /// The shown squad's theme, or the already resolved startup theme before
+    /// the first snapshot arrives.
     pub fn look(&self) -> crate::look::Look {
         let saved = self.view.as_ref().map_or_else(
-            || crate::look::Look::new(tmt_cli_style::Theme::default()),
+            || {
+                self.initial_look
+                    .unwrap_or_else(|| crate::look::Look::new(tmt_cli_style::Theme::default()))
+            },
             |view| view.look,
         );
         self.theme_picker
