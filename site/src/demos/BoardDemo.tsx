@@ -1,6 +1,6 @@
 import { useRef } from "react";
 import type { ReactNode } from "react";
-import { boardLines, type BoardSpec, type Row } from "./board";
+import { boardLines, statusBoard, type BoardSpec, type Row, type StatusStage } from "./board";
 import { FitWidth } from "./FitWidth";
 import { DemoControls, useStepPlayer } from "./player";
 import { dm, line, sh, wt, type Line } from "./segments";
@@ -21,6 +21,7 @@ type Step = {
   full?: boolean;
   toast?: string;
   hold?: number;
+  height?: number;
 };
 
 type Frame = {
@@ -145,7 +146,10 @@ export function BoardDemo({ steps, label }: { steps: Step[]; label: string }) {
         className="overflow-hidden border border-term-edge bg-term shadow-[6px_6px_0_var(--c-accent)]"
       >
         <FitWidth width={620}>
-          <div className="relative h-[340px] overflow-hidden font-mono text-[12.5px] leading-[1.6] text-t-text">
+          <div
+            style={{ height: step.height ?? 340 }}
+            className="relative overflow-hidden font-mono text-[12.5px] leading-[1.6] text-t-text"
+          >
             <div className="absolute inset-0 flex flex-col justify-end overflow-hidden px-3.5 py-2.5 whitespace-pre">
               {paneLines}
             </div>
@@ -377,3 +381,50 @@ export const jumpAndTalk: Step[] = [
     toast: "copied · docs-sweep: one install guide (working) #409",
   },
 ];
+
+export const updateStatus: Step[] = (
+  [
+    [
+      "initial",
+      "Open a → Tab → status. Neither manual field is preselected; the › focuses Clear pending. The task preview remains above the band.",
+    ],
+    [
+      "chosen",
+      "Choose Clear pending and Replace state, type working and a reason. › focuses Reason; [x] records choices, not focus. Both requests still require a final reply.",
+    ],
+    [
+      "conflict",
+      "An intervening state change conflicts with the exact old expectation. Nothing applies; the refreshed preview clears choices and requires a fresh explicit submit.",
+    ],
+    [
+      "fresh",
+      "Review the refreshed value, choose the fields again, then focus Apply and notify and press Enter. Every selected raw value participates, even if locally unchanged.",
+    ],
+    [
+      "failed",
+      "Status is applied, but notification acceptance is unresolved. The full error is abbreviated here. The two requests remain unanswered; › initially focuses a field, not Retry.",
+    ],
+    [
+      "retry",
+      "Focus Retry notification only and press Enter. Reuse the original operation/message; do not reapply metadata or send a final reply.",
+    ],
+    [
+      "accepted",
+      "The notification is accepted and queued, not proven delivered. The manual fields changed; the request attention remains.",
+    ],
+    [
+      "unknown",
+      "Separate failure branch: an unknown apply outcome sends no notification and offers no replay. Inspect current metadata before reopening; a context refusal cannot erase an earlier applied or unknown outcome.",
+    ],
+  ] satisfies [StatusStage, string][]
+).map(([stage, cap]) => ({
+  cap,
+  sess: "leads",
+  windows: WL,
+  on: 1,
+  right: "squad-product · illustrative",
+  full: true,
+  height: 640,
+  hold: 2600,
+  pops: [statusBoard(stage)],
+}));
