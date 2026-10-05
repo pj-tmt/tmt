@@ -146,9 +146,10 @@ in `acceptance/ask.spec.ts`.
   keys. The CLI (`cli_grammar.rs`, `cli_management.rs`, `inspection.rs`) is root-local:
   `ls`, `show`, `share mode/link/member/history`, `retention`, `archive` and `delete`.
   `cli_management::selection` adapts public CLI inputs to strict existing DTOs;
-  its shared page resolver admits unique UUID prefixes from the verified complete
-  catalog before read/write/export/management effects, then passes full IDs to
-  the domain. Ambiguity lists authenticated titles and shortest candidate IDs;
+  its shared page resolver reuses the short-link helpers to admit unique UUID prefixes
+  from the verified complete catalog, including retained deleted IDs, before
+  read/write/export/management effects. Domain requests, JSON and confirmations keep
+  full IDs. Ambiguity lists authenticated titles and shortest candidate IDs;
   missing/deleted prefixes refuse without changing state. Other ID operands stay strict.
   Member removal/role changes capture complete verified assignments, and deletion requires `--yes`.
   Explicit frozen delete retries bypass only the missing catalog view so the engine
