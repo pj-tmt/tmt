@@ -121,7 +121,7 @@ fn sample(deadline: Instant) -> Result<(), ()> {
         return Ok(());
     }
     let environment = ProviderEnvironment::capture().map_err(|_| ())?;
-    let mut storage = Storage::open_hook(&paths.database).map_err(|_| ())?;
+    let mut storage = Storage::open_hook(&paths.database, deadline).map_err(|_| ())?;
     let locator = storage
         .consumption_locator(
             &binding.identity_id,
@@ -171,7 +171,7 @@ fn sample(deadline: Instant) -> Result<(), ()> {
     if Instant::now() + Duration::from_millis(100) >= deadline {
         return Err(());
     }
-    let mut storage = Storage::open_hook(&paths.database).map_err(|_| ())?;
+    let mut storage = Storage::open_hook(&paths.database, deadline).map_err(|_| ())?;
     let pending = storage
         .commit_runtime_observation(RuntimeObservation {
             expected: &stored,

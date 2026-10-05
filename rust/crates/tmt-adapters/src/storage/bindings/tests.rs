@@ -533,7 +533,10 @@ fn presence_probes_do_not_block_a_resumed_claude_hook() {
                 let next = event
                     .propose(&bound.session, process, RuntimeLiveness::Alive)
                     .unwrap();
-                let mut hook = Storage::open_hook(&fixture.database)?;
+                let mut hook = Storage::open_hook(
+                    &fixture.database,
+                    std::time::Instant::now() + Duration::from_secs(2),
+                )?;
                 hook.with_binding_transaction::<_, StorageError>(|records| {
                     assert!(records.set_session_state(&bound.id, &bound.session, &next)?);
                     let mut preferences = records.session_preferences(&bound.identity_id)?;

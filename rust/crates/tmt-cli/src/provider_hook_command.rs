@@ -64,7 +64,7 @@ pub fn execute(provider: &str, worker: bool, work_budget_ms: Option<u64>) -> io:
         lifecycle
             .wait_for_hook_admission(input.as_bytes(), deadline)
             .map_err(|_| ())?;
-        let args = worker_arguments(provider, channel_duration.is_some(), deadline)?;
+        let args = worker_arguments(provider, deadline)?;
         let executable = std::env::current_exe().map_err(|_| ())?;
         let output = UnixCommandRunner
             .execute(CommandRequest {
@@ -409,7 +409,7 @@ fn observe(provider: &str, input: &str, deadline: Instant) -> Result<String, ()>
         return Err(());
     }
     let mode = lifecycle.mode(host).ok_or(())?;
-    let mut storage = Storage::open_hook(&paths.database).map_err(|_| ())?;
+    let mut storage = Storage::open_hook(&paths.database, deadline).map_err(|_| ())?;
     let changed = storage
         .with_binding_transaction::<_, StorageError>(|records| {
             let current = records
@@ -704,7 +704,7 @@ fn commit_observation(
     {
         remembered.state = Some(next);
     }
-    let mut storage = Storage::open_hook(&paths.database).map_err(|_| ())?;
+    let mut storage = Storage::open_hook(&paths.database, deadline).map_err(|_| ())?;
     let pending = storage.commit_runtime_observation(tmt_adapters::storage::RuntimeObservation {
         expected: stored,
         preferences: &preferences,
@@ -721,24 +721,18 @@ fn commit_observation(
         .map_err(|_| ())
 }
 
-fn worker_arguments(
-    provider: &str,
-    shared_deadline: bool,
-    deadline: Instant,
-) -> Result<Vec<std::ffi::OsString>, ()> {
+fn worker_arguments(provider: &str, deadline: Instant) -> Result<Vec<std::ffi::OsString>, ()> {
     let mut args = vec!["__hook".into(), provider.into(), "--worker".into()];
-    if shared_deadline {
-        // The parent owns the absolute monotonic deadline. Payload bytes and
-        // the default worker protocol stay unchanged; no budget is restarted.
-        let budget = deadline
-            .saturating_duration_since(Instant::now())
-            .min(BUDGET)
-            .as_millis();
-        if budget == 0 {
-            return Err(());
-        }
-        args.extend(["--work-budget-ms".into(), budget.to_string().into()]);
+    // Every worker shares its supervisor's remaining budget, including plain
+    // hooks. The parent remains the hard deadline owner through child startup.
+    let budget = deadline
+        .saturating_duration_since(Instant::now())
+        .min(BUDGET)
+        .as_millis();
+    if budget == 0 {
+        return Err(());
     }
+    args.extend(["--work-budget-ms".into(), budget.to_string().into()]);
     Ok(args)
 }
 
@@ -758,24 +752,26 @@ mod budget_tests {
         let started =
             Instant::now() - tmt_adapters::drivers::codex::MAXIMUM_HOOK_ADMISSION_DURATION;
         let deadline = started + tmt_adapters::drivers::codex::MAXIMUM_HOOK_WORK_DURATION;
-        let args = worker_arguments("codex", true, deadline).unwrap();
+        let args = worker_arguments("codex", deadline).unwrap();
         let remaining = args[4].to_str().unwrap().parse::<u64>().unwrap();
         assert!(remaining > 0 && remaining <= 500);
         assert_eq!(
             worker_duration(Some(remaining)),
             Duration::from_millis(remaining)
         );
-        assert!(worker_arguments("codex", true, Instant::now()).is_err());
-        // No deadline argument is added to the existing plain/Claude protocol,
-        // even when the parent deadline has expired; its process owner handles it.
+        assert!(worker_arguments("codex", Instant::now()).is_err());
+    }
+
+    #[test]
+    fn plain_hooks_pass_the_parent_remainder_instead_of_restarting_two_seconds() {
+        let args = worker_arguments("claude", Instant::now() + Duration::from_millis(731)).unwrap();
         assert_eq!(
-            worker_arguments("claude", false, Instant::now()).unwrap(),
-            vec![
-                std::ffi::OsString::from("__hook"),
-                "claude".into(),
-                "--worker".into()
-            ]
+            &args[..4],
+            &["__hook", "claude", "--worker", "--work-budget-ms"].map(std::ffi::OsString::from)
         );
+        let remaining = args[4].to_str().unwrap().parse::<u64>().unwrap();
+        assert!(remaining > 0 && remaining <= 731);
+        assert!(worker_arguments("claude", Instant::now()).is_err());
     }
 
     #[test]

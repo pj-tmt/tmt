@@ -144,7 +144,13 @@ fn absent_storage_is_not_created_and_missing_binding_is_not_reconciled() {
 fn hook_open_neither_creates_missing_storage_nor_migrates_an_old_schema() {
     let directory = TestDirectory::new();
     let absent = directory.path.join("missing.db");
-    assert!(Storage::open_hook(&absent).is_err());
+    assert!(
+        Storage::open_hook(
+            &absent,
+            std::time::Instant::now() + std::time::Duration::from_secs(2)
+        )
+        .is_err()
+    );
     assert!(!absent.exists());
     let old = directory.path.join("old.db");
     let connection = Connection::open(&old).unwrap();
@@ -155,19 +161,52 @@ fn hook_open_neither_creates_missing_storage_nor_migrates_an_old_schema() {
         .unwrap();
     connection.close().unwrap();
     let before = fs::read(&old).unwrap();
-    assert!(Storage::open_hook(&old).is_err());
+    assert!(
+        Storage::open_hook(
+            &old,
+            std::time::Instant::now() + std::time::Duration::from_secs(2)
+        )
+        .is_err()
+    );
     assert_eq!(fs::read(&old).unwrap(), before);
     let (_directory, path, _) = fixture();
-    let mut current = Storage::open_hook(&path).unwrap();
+    let mut current = Storage::open_hook(
+        &path,
+        std::time::Instant::now() + std::time::Duration::from_secs(2),
+    )
+    .unwrap();
     assert_eq!(
         current
             .connection()
             .unwrap()
             .query_row("PRAGMA busy_timeout", [], |row| row.get::<_, i64>(0))
             .unwrap(),
-        50
+        500
     );
     current.close().unwrap();
+}
+
+#[test]
+fn hook_writer_wait_uses_only_the_remaining_budget_with_a_completion_reserve() {
+    use std::time::{Duration, Instant};
+    let now = Instant::now();
+    for (remaining_ms, expected_ms) in [
+        (0, 0),
+        (100, 0),
+        (150, 50),
+        (500, 400),
+        (600, 500),
+        (2000, 500),
+    ] {
+        assert_eq!(
+            super::super::hook_writer_wait(now + Duration::from_millis(remaining_ms), now),
+            Duration::from_millis(expected_ms)
+        );
+    }
+    assert_eq!(
+        super::super::hook_writer_wait(now - Duration::from_secs(1), now),
+        Duration::ZERO
+    );
 }
 
 #[test]
