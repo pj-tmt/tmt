@@ -1151,6 +1151,9 @@ Colab owns short-ID resolution, while the door session cookie stays scoped to th
 the wire, pairing, session, operations and extension channel API. Remote owns the
 static root landing and pairing-page errors as well as the pairing ceremony;
 protocol refusals and mounted extension responses retain their own representation.
+[Planned Remote settings administration](contracts/remote-channel-v1.md#remote-settings-browser-authority)
+uses a separate local-owner designation from paired channel trust; its browser/SDK surface is not
+implemented. Remote owns that authority, while shared browser components own presentation only.
 The door serves the browser SDK `remote-v1.js` (built from `remote-client`), which
 gives mounted pages `reopenSession`, `operations(session)` and `certifyKey`; its README owns
 the caller-facing recovery rules. The

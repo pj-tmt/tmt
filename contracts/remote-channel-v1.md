@@ -2,7 +2,8 @@
 
 **Status: proposed, not implemented.** This document owns the remote channel: device identity,
 trust grants, wire values, the operations remote admits, the extension channel API and backend
-bindings. tmt-lead reviews it before runtime/SDK code. The
+bindings. Remote owns this contract; tmt-lead reviews changed core contracts and cross-squad
+seams before runtime/SDK code. The
 [security design](https://github.com/wkh237/tmt/issues/478#issuecomment-5910827518),
 [M1 ruling](https://github.com/wkh237/tmt/issues/478#issuecomment-5911118171) and
 [transport-layer decision](https://github.com/wkh237/tmt/issues/478#issuecomment-5911165578) are
@@ -412,7 +413,8 @@ identity UUIDs. `mode` is `direct` (default) or `hold`. `expiresAtMs` is null (d
 or the time limit the owner chose at pairing. `revision` is a positive integer; `disabled` is
 false on issue. Names are presentation only; rename preserves UUID authority, and a retired
 identity's same-name replacement inherits nothing. After pairing, authority may only be narrowed
-or revoked through local management (`tmt remote devices`).
+or revoked through local management (`tmt remote devices`). The separate
+[planned settings designation](#remote-settings-browser-authority) does not widen this agent grant.
 
 Default scopes are `agents.read`, `status.read`, `check.read`, `talk` and `results.read`. The owner
 may remove scopes at pairing. Future core capabilities do not silently become remotely callable;
@@ -443,6 +445,75 @@ acknowledgment. No request/effect not yet fenced may succeed afterward. Already 
 work is not undone; report it accurately. Restart issues a new window and session namespace;
 grants survive. Unconfirmed held work is cancelled; dispatching/uncertain work recovers its
 original operation, never becomes falsely unsent.
+
+### Remote settings browser authority
+
+**Planned for [#1769](https://github.com/pj-tmt/tmt/issues/1769), not implemented.**
+This section defines Remote's settings and paired-device page; it does not claim a shipped
+management SDK, route or browser capability. Until implementation lands, the local CLI remains
+the settings/device management path. Current landing, pairing and error-page presentation adoption
+does not implement this feature.
+
+A paired channel owner-device is not automatically a settings administrator. Loopback, Host,
+Origin, a route prefix, door cookie, display name or client-supplied owner flag cannot establish
+administrative authority. A page or package cannot choose this policy, and Colab's device context
+and content membership remain unchanged.
+
+The machine owner may designate one already-paired `browser` device on the door's own origin,
+using an optional choice inside the existing owner-only terminal pairing confirmation or later
+owner-only local management. This exercises existing local authority; it is not a second pairing
+or sign-in ceremony. No device is designated by default, on first pairing or on session open.
+HTTP/SDK clients cannot directly create, remove, transfer or restore a designation.
+
+Remote persists the designation in its owner-only state, bound to the machine, device UUID and
+paired public key, not to a name or IP address. It survives a serve restart, but never restores a
+Session: the browser must open a newly verified Session under its current live grant. Revoke,
+re-pair or key change ends the designation; local replacement must clear the old designation
+before issuing a replacement grant, and a new grant never inherits it. Expired or
+disabled grants cannot exercise it. Rename retains the designated identity while the existing
+grant-revision change ends old sessions. Local removal/replacement of the designation immediately
+fences subsequent effects. Tabs using the same designated device key share that identity, not a
+separate per-tab administrator role.
+
+Browser management uses the existing signed-envelope admission: pinned machine/key/origin,
+live Session and grant revision, timestamp, sequence/replay checks and bounded input. A cookie
+admits only the page/transport. Every mutation rechecks the current designation and grant at the
+effect fence; a cached capability or earlier authenticated read grants no authority. Local
+designation removal, grant authority loss and browser effects share the ordering fence: if removal
+wins, no later effect commits; if an effect already committed, report that outcome accurately.
+
+The initial non-designated-device disposition is **read-only, not held**. Live paired devices may
+read the bounded Remote settings/device projection; attempted settings writes, rename or revoke
+receive a signed refusal before effects, with zero writes and zero held intents. Unpaired, revoked,
+expired and extension-only principals receive no management inventory. The UI explains read-only
+access and the local CLI path; it cannot promise pending approval. The local CLI remains usable
+when no browser is designated. Existing default agent scopes, `direct`/`hold` modes, pairing expiry
+and approvals are unchanged.
+
+The management surface is typed and Remote-only: effective `open` and `sessions-per-device`
+settings with their sources, bounded paired-device/session-count/activity metadata, and designated
+browser actions to change those settings, rename or revoke a paired device. Reads expose no keys,
+cookies, session tokens or core inventory. Settings use the CLI's existing store, validation and
+locking; absent/default session cap 8 and `off`/unlimited semantics remain unchanged. Device
+mutations reuse Remote's grant-revision, session cleanup and device-event behavior. Explicit
+trusted UI actions authorize writes; presentation state does not. A self-rename/revoke can end the
+caller Session after a committed effect; lost acknowledgment must not be reported as no effect.
+Freeze each mutation's identity/input and recover unknown outcomes read-only without automatic
+resend or a replacement operation ID.
+
+Browser management never changes core settings, provider settings, drivers, extension installs or
+argv, and never approves, rejects, cancels or releases held operations. `tmt remote approve` and
+held-operation cancellation remain terminal-only. There is no generic config/command endpoint,
+and a management designation cannot widen agent or extension authority. Typed wire/SDK payloads,
+refusals and mutation recovery must be specified with the implementation before any such operation
+is advertised as supported.
+
+Implementation acceptance must prove same-loopback browsers with different keys cannot impersonate
+the designated browser, designation is local-only and never automatic, non-designated writes cause
+no effects or holds, and revoke/re-pair/key change, expiry, restart, rename and concurrent removal
+obey the lifecycle and effect fence above. The actual settings/device page separately requires
+product native/browser acceptance, UX review and publication evidence; a shared presentation
+package or current-page adoption cannot satisfy those requirements.
 
 ### Local CLI discovery
 
@@ -502,24 +573,26 @@ existing owner-only mount socket and grant rules apply to both attach and superv
 Payloads for core API operations are the existing API envelope, decoded without rewriting input.
 Remote narrows supported operations/authority before core calls.
 
-| Logical operation                                                                 | Scope and public core mapping                                                                                                                                                                                                      |
-| --------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `capabilities`                                                                    | Signed paired discovery of supported subset, fixed suite and core bounds.                                                                                                                                                          |
-| `agents.list`                                                                     | `agents.read`; `tmt ls --json` projected to permitted UUID/name/presence and delivery status, without pane address/cwd/process/profile.                                                                                            |
-| `identities.status`                                                               | `status.read`; input restricted to permitted UUIDs. Self-report is not readiness or completion.                                                                                                                                    |
-| `check`                                                                           | `check.read`; one permitted agent, the bounded capture `tmt check --json` returns locally. Read-only; it never writes to a pane.                                                                                                   |
-| `dispatch.create`                                                                 | `talk`; one permitted direct request recipient, anonymous core originator plus remote provenance (below). `direct` grants dispatch after admission; `hold` grants hold for local approval. No fan-out, room or announcement in v1. |
-| `dispatch.show`, `operation.show`                                                 | `talk`; only journal-owned operation IDs; core immutable receipt or remote held state.                                                                                                                                             |
-| `requests.show`, `result`                                                         | `results.read`; any request the local `tmt result` can read, through the public API or `tmt result --json`.                                                                                                                        |
-| `requests.list`, global `changes.cursor`, `references.resolve`, `rooms.roster`    | Unsupported in v1; later projections need explicit scoped admission.                                                                                                                                                               |
-| `notes.read`, `rooms.write`, `rooms.retire`                                       | Unsupported in v1.                                                                                                                                                                                                                 |
-| `identityHooks.*`, `skills.install`, `skills.remove`                              | Never remotely callable; JSON consent cannot manufacture local lifecycle/install authority.                                                                                                                                        |
-| reply/answer, X acknowledgment, config, pair, run/resume, approvals, installation | Never remotely callable. Result/log ack does not reply or acknowledge core work.                                                                                                                                                   |
-| any other command, argv or shell                                                  | Never; there is no generic command endpoint.                                                                                                                                                                                       |
+| Logical operation                                                                               | Scope and public core mapping                                                                                                                                                                                                      |
+| ----------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `capabilities`                                                                                  | Signed paired discovery of supported subset, fixed suite and core bounds.                                                                                                                                                          |
+| `agents.list`                                                                                   | `agents.read`; `tmt ls --json` projected to permitted UUID/name/presence and delivery status, without pane address/cwd/process/profile.                                                                                            |
+| `identities.status`                                                                             | `status.read`; input restricted to permitted UUIDs. Self-report is not readiness or completion.                                                                                                                                    |
+| `check`                                                                                         | `check.read`; one permitted agent, the bounded capture `tmt check --json` returns locally. Read-only; it never writes to a pane.                                                                                                   |
+| `dispatch.create`                                                                               | `talk`; one permitted direct request recipient, anonymous core originator plus remote provenance (below). `direct` grants dispatch after admission; `hold` grants hold for local approval. No fan-out, room or announcement in v1. |
+| `dispatch.show`, `operation.show`                                                               | `talk`; only journal-owned operation IDs; core immutable receipt or remote held state.                                                                                                                                             |
+| `requests.show`, `result`                                                                       | `results.read`; any request the local `tmt result` can read, through the public API or `tmt result --json`.                                                                                                                        |
+| `requests.list`, global `changes.cursor`, `references.resolve`, `rooms.roster`                  | Unsupported in v1; later projections need explicit scoped admission.                                                                                                                                                               |
+| `notes.read`, `rooms.write`, `rooms.retire`                                                     | Unsupported in v1.                                                                                                                                                                                                                 |
+| `identityHooks.*`, `skills.install`, `skills.remove`                                            | Never remotely callable; JSON consent cannot manufacture local lifecycle/install authority.                                                                                                                                        |
+| reply/answer, X acknowledgment, core/provider config, pair, run/resume, approvals, installation | Never remotely callable. Result/log ack does not reply or acknowledge core work.                                                                                                                                                   |
+| any other command, argv or shell                                                                | Never; there is no generic command endpoint.                                                                                                                                                                                       |
 
 `agents.list`, `check`, `operation.show` and `result` are adapter helpers over ordinary public JSON
 commands, not new core API operations. SDK `api(op,input)` cannot reach local management/argv
-through an invented operation. The proposed read-only `delivery` projection belongs to core's
+through an invented operation. The [planned Remote settings/device surface](#remote-settings-browser-authority)
+is a typed Remote-only boundary, not permission to invoke core management. Until implemented, it
+is not part of the supported subset above. The proposed read-only `delivery` projection belongs to core's
 public `ls`/API JSON: `channel` (enrolled native channel ready), `paste` (ordinary paste
 delivery), `not_ready` (enrolled but not ready, with core's local recovery hint) or `not_running`.
 Remote forwards it unchanged and never infers it from panes; until core publishes that projection,
