@@ -27,9 +27,10 @@ contexts must succeed. Held-draft recovery belongs to
   Cargo checks, architecture guard, native tests and E2E file under the existing
   job names, and skip unchanged CLI runtime builds, packed installs and tooling
   unit tests. Any shared, CLI-owned or unknown native input requires full scope.
-- Workspace Rust checks verify the retained products together, excluding Office
-  package targets. Office libraries imported by the shipped CLI still compile as
-  dependencies; CLI contracts, architecture and embedded inputs remain verified.
+- Workspace Rust checks exclude only `tmt-office`, `tmt-office-storage`,
+  `tmt-office-pairing` and `tmt-office-service`. The shipped CLI imports
+  `tmt-office-command` and `tmt-office-model`, so their tests, Clippy and MSRV
+  checks remain selected alongside CLI contracts, architecture and embedded inputs.
   Reject empty Remote test discovery before execution. Office product verification
   is retired for every event, independently of its parked release attribution.
 

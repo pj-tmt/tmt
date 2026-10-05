@@ -805,7 +805,7 @@ describe('remote Rust retains full CI coverage', () => {
 printf '%s\\n' "$*" >> "$CALLS"
 case "$*" in
   'test --locked -p tmt-remote -- --list') printf '%s\\n' "$DISCOVERY"; exit "$LIST_STATUS" ;;
-  'test --locked --workspace --exclude tmt-office --exclude tmt-office-model --exclude tmt-office-command --exclude tmt-office-storage --exclude tmt-office-pairing --exclude tmt-office-service') exit "$TEST_STATUS" ;;
+  'test --locked --workspace --exclude tmt-office --exclude tmt-office-storage --exclude tmt-office-pairing --exclude tmt-office-service') exit "$TEST_STATUS" ;;
 esac
 `,
         0o755
@@ -826,11 +826,11 @@ esac
       const expected = ['test --locked -p tmt-remote -- --list'];
       if (fixture.status === 0 || fixture.testStatus !== 0)
         expected.push(
-          'test --locked --workspace --exclude tmt-office --exclude tmt-office-model --exclude tmt-office-command --exclude tmt-office-storage --exclude tmt-office-pairing --exclude tmt-office-service'
+          'test --locked --workspace --exclude tmt-office --exclude tmt-office-storage --exclude tmt-office-pairing --exclude tmt-office-service'
         );
       if (fixture.status === 0)
         expected.push(
-          'build --locked --workspace --exclude tmt-office --exclude tmt-office-model --exclude tmt-office-command --exclude tmt-office-storage --exclude tmt-office-pairing --exclude tmt-office-service'
+          'build --locked --workspace --exclude tmt-office --exclude tmt-office-storage --exclude tmt-office-pairing --exclude tmt-office-service'
         );
       expect(calls).toEqual(expected);
     } finally {
@@ -1902,10 +1902,10 @@ describe('required CI gate', () => {
     expect(native).toContain('rust/target/release/tmt');
     expect(native).toContain('cargo test --locked');
     expect(native).toContain(
-      'cargo clippy --locked --workspace --exclude tmt-office --exclude tmt-office-model --exclude tmt-office-command --exclude tmt-office-storage --exclude tmt-office-pairing --exclude tmt-office-service --all-targets -- -D warnings'
+      'cargo clippy --locked --workspace --exclude tmt-office --exclude tmt-office-storage --exclude tmt-office-pairing --exclude tmt-office-service --all-targets -- -D warnings'
     );
     expect(native).toContain(
-      'cargo +"$MSRV" check --locked --workspace --exclude tmt-office --exclude tmt-office-model --exclude tmt-office-command --exclude tmt-office-storage --exclude tmt-office-pairing --exclude tmt-office-service --all-targets'
+      'cargo +"$MSRV" check --locked --workspace --exclude tmt-office --exclude tmt-office-storage --exclude tmt-office-pairing --exclude tmt-office-service --all-targets'
     );
     expect(native).not.toMatch(/cargo \+\d/);
     expect(native).toContain('cargo build --locked -p tmt-office');
@@ -2101,7 +2101,7 @@ describe('required CI gate', () => {
     expect(job('native-msrv')).toContain('rustup toolchain install "$MSRV" --profile minimal');
     expect(job('native-msrv')).not.toMatch(/rustup toolchain install \d/);
     expect(job('native-msrv')).toContain(
-      'cargo +"$MSRV" check --locked --workspace --exclude tmt-office --exclude tmt-office-model --exclude tmt-office-command --exclude tmt-office-storage --exclude tmt-office-pairing --exclude tmt-office-service --all-targets'
+      'cargo +"$MSRV" check --locked --workspace --exclude tmt-office --exclude tmt-office-storage --exclude tmt-office-pairing --exclude tmt-office-service --all-targets'
     );
     // The E2E suite is two shard jobs; only the first runs for a scoped component, and
     // only the first of a full run also runs the Rust adapter tests.
@@ -2314,6 +2314,30 @@ describe('required CI gate', () => {
     expect(job(browser, 'office-emulator')).toContain(
       "needs.changes.outputs.office_browser == 'true'"
     );
+  });
+
+  it('excludes only retired Office product targets while retaining shipped CLI libraries', () => {
+    const workflow = readFileSync(
+      fileURLToPath(new URL('../../../.github/workflows/ci.yml', import.meta.url)),
+      'utf8'
+    );
+    const commands = workflow.split('\n').filter((line) => line.includes('--workspace --exclude'));
+    expect(commands).toHaveLength(4);
+    for (const command of commands) {
+      expect([...command.matchAll(/--exclude ([a-z0-9-]+)/g)].map((match) => match[1])).toEqual([
+        'tmt-office',
+        'tmt-office-storage',
+        'tmt-office-pairing',
+        'tmt-office-service',
+      ]);
+      expect(command).not.toMatch(/--exclude tmt-office-(?:command|model)\b/);
+    }
+    const manifest = readFileSync(
+      fileURLToPath(new URL('../../../rust/crates/tmt-cli/Cargo.toml', import.meta.url)),
+      'utf8'
+    );
+    expect(manifest).toContain('tmt-office-command.workspace = true');
+    expect(manifest).toContain('tmt-office-model.workspace = true');
   });
 
   it('retains Office workflow history but disables automatic and manual execution', () => {
