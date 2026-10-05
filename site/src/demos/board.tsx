@@ -8,6 +8,7 @@ export type BoardSpec = {
   sel?: number | "lead";
   expanded?: boolean;
   to?: string;
+  mode?: "note" | "talk";
   typed?: string;
   reply?: Line[];
 };
@@ -59,6 +60,26 @@ export function boardLines(
   };
   if (leadSelected && board.expanded) pushBand("coordinate the squad");
   else push(line(dm("│   coordinate the squad")));
+  const pushComposer = () => {
+    if (!board.to) return;
+    push(
+      <span className="text-t-accent">
+        {"│ → " + board.to + " (product) · " + (board.mode ?? "note")}
+      </span>,
+    );
+    const draftLines = typed.match(/.{1,48}/g) ?? [""];
+    draftLines.forEach((text, index) =>
+      push(
+        <span>
+          {"│ "}
+          {text}
+          {cursor && index === draftLines.length - 1 && <span className="cursor"> </span>}
+        </span>,
+      ),
+    );
+    push(line(dm("│ Enter send · Esc cancel · Tab note/talk")));
+  };
+  if (leadSelected) pushComposer();
   push(line(dm("│ ── members · " + board.rows.length + " ──")));
   if (board.rows.length) {
     board.rows.forEach((row, index) => {
@@ -89,39 +110,26 @@ export function boardLines(
             {pr ? " · " + pr : ""}
           </span>,
         );
+      if (selected) pushComposer();
     });
   } else {
     push(line(dm("│   no members yet")));
   }
   push(line(dm("└" + "─".repeat(50) + "┘")));
-  if (board.to) {
-    push(
-      <>
-        <span className="text-t-accent">t ▸ {board.to}</span>
-        {"  "}
-        {typed}
-        {cursor && <span className="cursor"> </span>}
-      </>,
-    );
-  }
   push("");
-  push(line(dm("⏎ jump  ⌫ back  t talk  r reply  e expand  o open  y copy  n notes  l view")));
+  push(line(dm("↑↓ move  ⏎ open  a write  e expand  A ask lead  / search  ? more  q quit")));
   return lines;
 }
 
 const keys: [string, string][] = [
-  ["⏎", "jump"],
-  ["⌫", "back"],
-  ["/", "search"],
-  ["t", "talk"],
-  ["r", "reply"],
+  ["↑↓", "move"],
+  ["⏎", "open"],
+  ["a", "write"],
   ["e", "expand"],
-  ["a", "annotate"],
-  ["o", "open"],
-  ["y", "copy"],
-  ["n", "notes"],
-  ["l", "view"],
+  ["A", "ask lead"],
+  ["/", "search"],
   ["?", "more"],
+  ["q", "quit"],
 ];
 
 function KeyBar() {
@@ -144,7 +152,7 @@ export function BoardSketch() {
   return (
     <div
       role="img"
-      aria-label="Sketch of the default members view: one boxed list with lead sol first, then four members. Auth-fix is selected and waiting on you. Each row has a task preview; the lead's notes sit below the box. The key legend includes e to expand a row, n for notes and l for views."
+      aria-label="Sketch of the default members view: one boxed list with lead sol first, then four members. Auth-fix is selected and waiting on you. Each row has a task preview; the lead's notes sit below the box. The footer includes a to write, e to expand and question mark for more actions."
       className={sketch}
     >
       <pre className={pre}>
@@ -253,9 +261,10 @@ export function SplitBoardSketch() {
         </pre>
       </div>
       <div className="term-scroll border-t border-term-edge bg-term-bar px-3.5 py-2 font-mono text-[12.5px] leading-normal whitespace-pre">
-        <b className="font-semibold text-t-accent">a ▸ note on auth-fix → sol</b>
+        <b className="font-semibold text-t-accent">→ sol (product) · note · about auth-fix</b>
         {"  keep old tokens valid for a day"}
         <span className="inline-block w-[0.6em] bg-t-text"> </span>
+        {"\nEnter send · Esc cancel · Tab note/talk"}
       </div>
     </div>
   );
