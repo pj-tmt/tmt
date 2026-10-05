@@ -113,6 +113,8 @@ pub(crate) struct View {
     pub source: String,
     pub title: String,
     pub publisher_agent: Option<String>,
+    /// The complete content metadata projection, including keys not surfaced by the CLI.
+    pub meta: serde_json::Value,
     pub update: Vec<u8>,
     pub memory_limit: crate::decoder::MemoryLimit,
     /// Each authenticated writer's decoded `own` projection (threads, messages, intents,
@@ -362,6 +364,18 @@ impl Snapshot {
         decoder: &mut Decoder,
         edit: Option<crate::decoder::ContentEdit<'_>>,
     ) -> Result<View> {
+        self.materialize_with_replacements(key, page, decoder, edit, &BTreeMap::new())
+    }
+    /// Decode a candidate checkpoint in place of each selected stream's retained objects.
+    /// Original objects are still opened and authenticated before the candidate is considered.
+    pub(crate) fn materialize_with_replacements(
+        &self,
+        key: &Keyring,
+        page: &str,
+        decoder: &mut Decoder,
+        edit: Option<crate::decoder::ContentEdit<'_>>,
+        replacements: &BTreeMap<usize, Vec<u8>>,
+    ) -> Result<View> {
         let mut baseline = Vec::new();
         if let Some(saved) = &self.baseline {
             let d = payload::decode_baseline(&saved.descriptor)?;
@@ -412,24 +426,36 @@ impl Snapshot {
         let mut updates = Vec::new();
         let mut own_updates: BTreeMap<String, Vec<Vec<u8>>> = BTreeMap::new();
         let mut signing_keys: BTreeMap<String, [u8; 32]> = BTreeMap::new();
+        let mut replaced = BTreeSet::new();
         // What a reader still has to apply one by one: updates after a device's checkpoint.
         let mut tail_count = 0;
         let mut tail_bytes = 0;
         for (index, stored) in &self.objects {
             let opened = self.open_object(key, page, *index, stored)?;
+            let plaintext = if let Some(merged) = replacements.get(index) {
+                if !replaced.insert(*index) {
+                    continue;
+                }
+                merged.clone()
+            } else {
+                opened.plaintext
+            };
             if !stored.checkpoint {
                 tail_count += 1;
-                tail_bytes += opened.plaintext.len();
+                tail_bytes += plaintext.len();
             }
             if opened.namespace == "content" {
-                updates.push(opened.plaintext);
+                updates.push(plaintext);
             } else {
                 signing_keys.insert(opened.author_device.clone(), opened.key_bytes);
                 own_updates
                     .entry(opened.author_device)
                     .or_default()
-                    .push(opened.plaintext);
+                    .push(plaintext);
             }
+        }
+        if replaced.len() != replacements.len() {
+            return Err(OwnerFault::Invalid.into());
         }
         let state = baseline.len() + updates.iter().map(Vec::len).sum::<usize>();
         if edit.is_some() {
@@ -593,6 +619,7 @@ impl Snapshot {
             memory_limit: folded.memory_limit,
             own: own_views,
             signing_keys,
+            meta: folded.projection["meta"].clone(),
             source: folded.projection["html"]
                 .as_str()
                 .ok_or(OwnerFault::Invalid)?

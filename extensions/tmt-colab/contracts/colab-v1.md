@@ -1108,7 +1108,10 @@ decoder child merges only that stream's updates with `merge_updates_v1` (a devic
 depend on structs another device wrote, so the merge does not build or project the page), the
 device seals a checkpoint per namespace at its stream head, and the store prunes the covered
 prefix when both namespaces are paired. Other devices' streams are never touched. Combining is
-best effort and repeatable; a failure leaves the write durable and every update in place.
+best effort and repeatable. Before publishing either checkpoint, the owner decodes the page with
+the candidate merged streams and requires its HTML, complete metadata and every writer's own
+projection to equal the current page. A mismatch or decoder failure publishes nothing and leaves
+the write durable and every update in place.
 
 Linux sets and verifies its address-space limit before reading child input;
 failure rejects the job. On macOS and platforms without enforced memory limits,

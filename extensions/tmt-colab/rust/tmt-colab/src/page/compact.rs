@@ -10,6 +10,7 @@ use crate::{
     keyring::Keyring,
     store::{Envelope, Fault as StoreFault, Namespace, Store, StreamScope},
 };
+use std::collections::BTreeMap;
 use tmt_colab_model::object;
 
 /// A device compacts its own stream once this many updates sit after its last checkpoint.
@@ -91,8 +92,8 @@ pub fn compact(
         epoch: s.epoch,
         stream: &id,
     };
-    let mut merged_objects = 0;
     let mut namespaces = 0;
+    let mut pending = Vec::new();
     for (name, namespace) in [("content", Namespace::Content), ("own", Namespace::Own)] {
         let Some(cut_index) = own.iter().copied().find(|i| s.cuts[*i].namespace == name) else {
             continue;
@@ -122,6 +123,34 @@ pub fn compact(
             // Too large to carry as one object; leave the stream as it is.
             return Ok(None);
         }
+        pending.push((name, namespace, cut_index, objects.len(), merged));
+        namespaces += 1;
+    }
+    if namespaces == 0 {
+        return Err(Fault::Missing.into());
+    }
+    if !pending.is_empty() {
+        // A merge can be valid update-v1 yet omit or change content. Compare every projection
+        // before the first checkpoint can make a paired prefix eligible for pruning.
+        let current = s.materialize(key, page, decoder)?;
+        let replacements = pending
+            .iter()
+            .map(|(_, _, index, _, merged)| (*index, merged.clone()))
+            .collect::<BTreeMap<_, _>>();
+        let candidate =
+            match s.materialize_with_replacements(key, page, decoder, None, &replacements) {
+                Ok(candidate) => candidate,
+                Err(_) => return Ok(None),
+            };
+        if current.source != candidate.source
+            || current.meta != candidate.meta
+            || current.own != candidate.own
+        {
+            return Ok(None);
+        }
+    }
+    let mut merged_objects = 0;
+    for (name, namespace, _, count, merged) in pending {
         let envelope = key.seal_content(
             &object::Context {
                 space: key.space_id.clone(),
@@ -151,11 +180,7 @@ pub fn compact(
             Err(StoreFault::Conflict | StoreFault::StaleCheckpoint) => {}
             Err(other) => return Err(other.into()),
         }
-        merged_objects += objects.len();
-        namespaces += 1;
-    }
-    if namespaces == 0 {
-        return Err(Fault::Missing.into());
+        merged_objects += count;
     }
     Ok(Some(Compacted {
         through: head,
