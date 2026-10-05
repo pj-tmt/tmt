@@ -140,8 +140,125 @@ fn one_cursor_moves_across_rows_and_sections_and_enter_goes_in() {
     quiet["sections"][0]["rows"][0]["waitingOnYou"] = json!([]);
     assert_eq!(
         board(&[("a", quiet)]).home_target.unwrap().section,
-        "squads"
+        "blocked"
     );
+}
+
+fn opening_section(doc: Value) -> String {
+    board(&[("a", doc)]).home_target.unwrap().section
+}
+
+#[test]
+fn home_opens_on_the_first_row_from_the_top() {
+    // A needs-you row wins over a blocked one, a blocked row over a lead.
+    assert_eq!(opening_section(waiting()), "needs-you");
+    let mut blocked = waiting();
+    blocked["sections"][0]["rows"][0]["waitingOnYou"] = json!([]);
+    assert_eq!(opening_section(blocked), "blocked");
+    // Nothing needs attention: the first lead, not the squad tile below it.
+    let quiet = document(
+        "a",
+        row("L", "lead-a", "working"),
+        vec![row("W", "worker", "working")],
+    );
+    let app = board(&[("a", quiet)]);
+    let target = app.home_target.as_ref().unwrap();
+    assert_eq!(
+        (target.section.as_str(), target.member.as_deref()),
+        ("leads", Some("L"))
+    );
+    assert_eq!(app.selected, 0);
+    // No lead at all: the first squad.
+    let leaderless = document("a", Value::Null, vec![row("W", "worker", "working")]);
+    assert_eq!(opening_section(leaderless), "squads");
+}
+
+#[test]
+fn the_first_lead_read_replaces_the_opening_row_once_and_never_after_the_user_moves() {
+    let two_leads = || {
+        let mut app = board(&[
+            ("a", document("a", row("A", "lead-a", "working"), vec![])),
+            ("b", document("b", row("B", "lead-b", "working"), vec![])),
+        ]);
+        let view = app.view.as_mut().unwrap();
+        view.me_id = Some("user".into());
+        app.home_leads
+            .reconcile(view.home.as_ref().unwrap(), view.me_id.as_deref());
+        app
+    };
+    // The read reorders the leads: the asking lead sorts first.
+    let reordered = |app: &App, squad: &str| {
+        let mut leads = app.home_leads.leads.clone();
+        let asking = leads.iter_mut().find(|lead| lead.squad == squad).unwrap();
+        asking.exchange = Some(crate::board::home_leads::LeadPreview {
+            kind: crate::board::home_leads::Kind::Question,
+            request: Some("q".into()),
+            since_ms: Some(20),
+            preview: "Approve?".into(),
+            status: "retained".into(),
+        });
+        crate::board::home_leads::Read::for_test("user", leads)
+    };
+    let mut app = two_leads();
+    assert_eq!(app.home_target.as_ref().unwrap().squad, "a");
+    let read = reordered(&app, "b");
+    app.apply_home_leads(read);
+    assert_eq!(app.home_target.as_ref().unwrap().squad, "b");
+    assert_eq!(app.selected, 0, "the cursor is on the first row again");
+    // Only the first read places it: later reads follow the cursor's lead.
+    let mut later = app.home_leads.leads.clone();
+    later.reverse();
+    app.apply_home_leads(crate::board::home_leads::Read::for_test("user", later));
+    assert_eq!(app.home_target.as_ref().unwrap().squad, "b");
+    // A cursor the user moved stays on its lead.
+    let mut app = two_leads();
+    press(&mut app, Down);
+    assert_eq!(app.home_target.as_ref().unwrap().squad, "b");
+    let read = reordered(&app, "a");
+    app.apply_home_leads(read);
+    assert_eq!(app.home_target.as_ref().unwrap().squad, "b");
+    assert_eq!(app.selected, 1);
+}
+
+fn leave_and_return(app: &mut App) {
+    assert_eq!(app.go("a".into()), Effect::Load("a".into()));
+    let mut squad = crate::board::app::tests::snapshot("a", json!([]));
+    squad.tabs = app.tabs.clone();
+    app.apply(squad);
+    assert_eq!(app.current.as_deref(), Some("a"));
+    assert!(app.view.as_ref().unwrap().home.is_none());
+    assert_eq!(app.go(ALL.into()), Effect::Load(ALL.into()));
+}
+
+#[test]
+fn switching_back_to_home_returns_to_the_row_that_was_left() {
+    let mut doc = waiting();
+    doc["sections"][0]["rows"]
+        .as_array_mut()
+        .unwrap()
+        .push(row("Z", "zebra", "working"));
+    let mut app = board(&[("a", doc)]);
+    keys(&mut app, &[Down, Down]);
+    let left = app.home_target.clone();
+    assert_eq!(left.as_ref().unwrap().section, "leads");
+    leave_and_return(&mut app);
+    assert_eq!(app.home_target, left, "restored from the cached view");
+    assert_eq!(app.selected, 2);
+    // A second round trip keeps the new position, and so does a refresh.
+    press(&mut app, Down);
+    let left = app.home_target.clone();
+    leave_and_return(&mut app);
+    assert_eq!(app.home_target, left);
+}
+
+#[test]
+fn leaving_home_for_a_squad_that_has_not_loaded_and_coming_back_keeps_the_cursor() {
+    let mut app = board(&[("a", waiting())]);
+    keys(&mut app, &[Down, Down]);
+    let left = app.home_target.clone();
+    assert_eq!(app.go("a".into()), Effect::Load("a".into()));
+    assert_eq!(app.go(ALL.into()), Effect::Load(ALL.into()));
+    assert_eq!(app.home_target, left);
 }
 
 #[test]
