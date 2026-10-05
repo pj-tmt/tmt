@@ -2,7 +2,10 @@
 //! `[squad.<name>.theme]` in Squad's own configuration. Squad names no colors of its
 //! own; every color is a design token that tmt-cli-style renders.
 
-use ratatui::style::{Modifier, Style};
+use ratatui::{
+    buffer::Buffer,
+    style::{Color, Modifier, Style},
+};
 use tmt_cli_style::{
     Depth, Role, Theme,
     theme::{
@@ -10,6 +13,10 @@ use tmt_cli_style::{
         screen,
     },
 };
+
+/// The state marks from `design/tokens/tokens.json` that a selected row keeps in
+/// color: a mark is one glyph, never part of a word.
+const MARKS: [char; 8] = ['◆', '✗', '◐', '●', '○', '✓', '◌', '!'];
 
 static BACKGROUND: std::sync::OnceLock<Option<Background>> = std::sync::OnceLock::new();
 
@@ -165,6 +172,48 @@ impl Look {
         }
     }
 
+    /// On the selection background `muted`, `dim`, the state colors, `accent`
+    /// and `link` hold less than 4.5:1, so there their words paint in `text`.
+    /// Marks keep their color (non-text, 3:1), except a dim or muted one. One
+    /// pass over the finished frame, keyed on the background, so no surface
+    /// classifies its own spans and a new surface follows the rule. Bold,
+    /// underline and the background stay. Without a selection background
+    /// (reverse fallback) `row_span` has already decided.
+    pub fn selected_words(&self, buffer: &mut Buffer) {
+        let Some(selection) = self.role(Role::Selection).bg else {
+            return;
+        };
+        let Some(text) = self.role(Role::Text).fg else {
+            return;
+        };
+        let weak = [Role::Muted, Role::Dim].map(|role| self.role(role).fg);
+        let colored = [
+            Role::Accent,
+            Role::Waiting,
+            Role::Working,
+            Role::Review,
+            Role::Blocked,
+            Role::Link,
+        ]
+        .map(|role| self.role(role).fg);
+        for cell in &mut buffer.content {
+            // A reversed cell shows its foreground as the background: not a word.
+            if cell.bg != selection
+                || cell.fg == Color::Reset
+                || cell.modifier.contains(Modifier::REVERSED)
+            {
+                continue;
+            }
+            let fg = Some(cell.fg);
+            let mut symbol = cell.symbol().chars();
+            let mark =
+                matches!((symbol.next(), symbol.next()), (Some(c), None) if MARKS.contains(&c));
+            if weak.contains(&fg) || (colored.contains(&fg) && !mark) {
+                cell.fg = text;
+            }
+        }
+    }
+
     /// A named color: its token's style, or no style for `default` and
     /// anything unknown.
     pub fn named(&self, name: &str) -> Style {
@@ -278,6 +327,133 @@ mod tests {
                     }
                 }
             }
+        }
+    }
+
+    fn frame(look: &Look, cells: &[(&str, Role, bool)]) -> Buffer {
+        let mut buffer = Buffer::empty(ratatui::layout::Rect::new(0, 0, cells.len() as u16, 1));
+        for (x, (symbol, role, selected)) in cells.iter().enumerate() {
+            let style = if *selected {
+                look.selection().patch(look.role(*role))
+            } else {
+                look.role(*role)
+            };
+            buffer[(x as u16, 0)].set_symbol(symbol).set_style(style);
+        }
+        look.selected_words(&mut buffer);
+        buffer
+    }
+
+    #[test]
+    fn selected_words_use_text_and_marks_keep_their_state_color() {
+        for base in [tmt_cli_style::Base::Tmt, tmt_cli_style::Base::TmtLight] {
+            let look = Look {
+                theme: Theme::new(base),
+                depth: Depth::TrueColor,
+            };
+            let fg = |role: Role| look.role(role).fg.unwrap();
+            let words = [
+                Role::Muted,
+                Role::Dim,
+                Role::Waiting,
+                Role::Working,
+                Role::Review,
+                Role::Blocked,
+            ];
+            let cells = words
+                .iter()
+                .map(|role| ("x", *role, true))
+                .chain([
+                    ("◆", Role::Waiting, true),
+                    ("✗", Role::Blocked, true),
+                    ("◐", Role::Review, true),
+                    ("●", Role::Working, true),
+                    ("○", Role::Dim, true),
+                    ("x", Role::Accent, true),
+                    ("x", Role::Link, true),
+                    ("x", Role::Text, true),
+                    ("x", Role::Blocked, false),
+                    ("●", Role::Accent, true),
+                    ("x", Role::Accent, false),
+                ])
+                .collect::<Vec<_>>();
+            let buffer = frame(&look, &cells);
+            let at = |x: u16| &buffer[(x, 0)];
+            let bg = look.role(Role::Selection).bg.unwrap();
+            for x in 0..6 {
+                assert_eq!(at(x).fg, fg(Role::Text), "{base:?} word {x}");
+                assert_eq!(at(x).bg, bg);
+            }
+            for (x, role) in [
+                (6, Role::Waiting),
+                (7, Role::Blocked),
+                (8, Role::Review),
+                (9, Role::Working),
+            ] {
+                assert_eq!(at(x).fg, fg(role), "{base:?} mark {x} keeps its color");
+            }
+            assert_eq!(
+                at(10).fg,
+                fg(Role::Text),
+                "a dim mark is not readable on the selection"
+            );
+            assert_eq!(at(11).fg, fg(Role::Text), "accent words paint in text");
+            assert_eq!(at(12).fg, fg(Role::Text), "link words paint in text");
+            assert_eq!(at(13).fg, fg(Role::Text));
+            assert_eq!(
+                at(14).fg,
+                fg(Role::Blocked),
+                "unselected cells are untouched"
+            );
+        }
+    }
+
+    #[test]
+    fn a_reversed_cell_is_a_block_not_a_word() {
+        let look = Look::default();
+        let mut buffer = Buffer::empty(ratatui::layout::Rect::new(0, 0, 1, 1));
+        buffer[(0, 0)].set_symbol("x").set_style(
+            look.selection()
+                .patch(look.role(Role::Accent))
+                .add_modifier(Modifier::REVERSED),
+        );
+        look.selected_words(&mut buffer);
+        assert_eq!(buffer[(0, 0)].fg, look.role(Role::Accent).fg.unwrap());
+    }
+
+    #[test]
+    fn selected_words_keep_modifiers_and_do_nothing_without_a_selection_background() {
+        let look = Look::default();
+        let mut buffer = Buffer::empty(ratatui::layout::Rect::new(0, 0, 1, 1));
+        buffer[(0, 0)].set_symbol("x").set_style(
+            look.role(Role::Blocked)
+                .patch(look.selection())
+                .add_modifier(Modifier::BOLD | Modifier::UNDERLINED),
+        );
+        look.selected_words(&mut buffer);
+        assert_eq!(buffer[(0, 0)].fg, look.role(Role::Text).fg.unwrap());
+        assert!(
+            buffer[(0, 0)]
+                .modifier
+                .contains(Modifier::BOLD | Modifier::UNDERLINED)
+        );
+        for look in [
+            Look {
+                theme: Theme::new(tmt_cli_style::Base::Terminal),
+                depth: Depth::Ansi16,
+            },
+            Look {
+                theme: Theme::default(),
+                depth: Depth::None,
+            },
+        ] {
+            let mut buffer = Buffer::empty(ratatui::layout::Rect::new(0, 0, 1, 1));
+            buffer[(0, 0)]
+                .set_symbol("x")
+                .set_style(look.selection().patch(look.role(Role::Blocked)));
+            let before = buffer.clone();
+            look.selected_words(&mut buffer);
+            assert_eq!(buffer, before);
         }
     }
 

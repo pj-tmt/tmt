@@ -1405,11 +1405,14 @@ fn cell_tokens_override_decoration_but_keep_missing_failure_and_reverse_rules() 
                 } else {
                     Style::new()
                 };
-                let expected = painted(base.patch(look.row_span(
-                    selected,
-                    look.role(role),
-                    role == Role::Waiting,
-                )));
+                let style =
+                    base.patch(look.row_span(selected, look.role(role), role == Role::Waiting));
+                // Waiting and dim words on a selection background paint in text.
+                let expected = painted(if selected && look.selection().bg.is_some() {
+                    style.fg(look.role(Role::Text).fg.unwrap())
+                } else {
+                    style
+                });
                 // The first row's cell spans its wrapped lines, padding included.
                 let first = 3;
                 for y in first..first + lines {
@@ -1519,7 +1522,7 @@ fn team_pending_line_style_snapshots_and_unstyled_control() {
     const TRUE_COLOR: &str = r#""                               approve rollout                                  "
 [(2, "Reset/Reset/Reset/NONE/None"), (17, "Rgb(122, 131, 174)/Reset/Reset/NONE/None"), (1, "Reset/Reset/Reset/NONE/None"), (10, "Rgb(122, 131, 174)/Reset/Reset/NONE/None"), (1, "Reset/Reset/Reset/NONE/None"), (49, "Rgb(255, 158, 100)/Reset/Reset/NONE/None")]
 "                               approve rollout                                  "
-[(2, "Rgb(192, 202, 245)/Rgb(40, 52, 87)/Reset/NONE/None"), (17, "Rgb(122, 131, 174)/Rgb(40, 52, 87)/Reset/NONE/None"), (1, "Rgb(192, 202, 245)/Rgb(40, 52, 87)/Reset/NONE/None"), (10, "Rgb(122, 131, 174)/Rgb(40, 52, 87)/Reset/NONE/None"), (1, "Rgb(192, 202, 245)/Rgb(40, 52, 87)/Reset/NONE/None"), (49, "Rgb(255, 158, 100)/Rgb(40, 52, 87)/Reset/NONE/None")]"#;
+[(80, "Rgb(192, 202, 245)/Rgb(51, 70, 124)/Reset/NONE/None")]"#;
     const ANSI16: &str = r#""                               approve rollout                                  "
 [(2, "Reset/Reset/Reset/NONE/None"), (17, "Reset/Reset/Reset/DIM/None"), (1, "Reset/Reset/Reset/NONE/None"), (10, "Reset/Reset/Reset/DIM/None"), (1, "Reset/Reset/Reset/NONE/None"), (49, "Yellow/Reset/Reset/NONE/None")]
 "                               approve rollout                                  "
@@ -1617,9 +1620,9 @@ fn a_cell_shows_its_resolved_color_token_as_decoration() {
         buffer[(x.unwrap() as u16, y as u16)].clone()
     };
     let role = |app: &App, role: Role| app.look().role(role).fg.unwrap_or_default();
-    // The selected row keeps its background and the cell keeps its token.
+    // The selected row keeps its background; a state-colored word there paints in text.
     let selected = cell(&app, "auth-fix");
-    assert_eq!(selected.fg, role(&app, Role::Blocked));
+    assert_eq!(selected.fg, role(&app, Role::Text));
     assert_eq!(Some(selected.bg), app.look().selection().bg);
     assert!(!selected.modifier.contains(Modifier::REVERSED));
     // On a stale (dim) row the cell's own color still shows.
@@ -1678,7 +1681,13 @@ fn light_body_chrome_and_selection_use_the_theme_and_no_color_keeps_focus() {
         assert_eq!(buffer[(2, 4)].fg, ratatui::style::Color::Reset);
         assert_eq!(buffer[(13, 5)].fg, fg(Role::Dim));
         assert_eq!(buffer[(22, 5)].fg, fg(Role::Dim));
-        assert_eq!(buffer[(1, 0)].fg, fg(Role::Accent));
+        // The selected tab is a word on a real selection background: text.
+        let selected_tab = if app.look().selection().bg.is_some() {
+            Role::Text
+        } else {
+            Role::Accent
+        };
+        assert_eq!(buffer[(1, 0)].fg, fg(selected_tab));
         assert!(buffer[(2, 0)].modifier.contains(Modifier::BOLD));
         let selected = &buffer[(2, 3)];
         assert_eq!(selected.fg, fg(Role::Text));
@@ -2634,7 +2643,7 @@ fn tabs_carry_attention_by_color_and_count_and_the_summary_has_its_own_line() {
     let product = &buffer[(column("product"), 0)];
     // Waiting wins over blocked; selection is bold without moving the tab.
     let fg = |role| app.look().role(role).fg.unwrap_or_default();
-    assert_eq!(product.fg, fg(Role::Accent));
+    assert_eq!(product.fg, fg(Role::Text), "a selected tab name is a word");
     assert_eq!(buffer[(0, 0)].fg, fg(Role::Waiting));
     assert!(product.modifier.contains(Modifier::BOLD));
     assert!(!product.modifier.contains(Modifier::REVERSED));

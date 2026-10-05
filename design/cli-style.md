@@ -95,7 +95,9 @@ styles for ratatui from `theme::screen::style`, behind the crate's `ratatui`
 feature, so core links no ratatui. A test keeps the built-in values equal to the
 design tokens. A contrast test reads the same file and enforces 4.5:1 for
 body text and semantic foregrounds, and 3:1 for `muted`/`dim`, on the designed
-background, the selection background and representative terminal backgrounds.
+background and representative terminal backgrounds. On the selection background
+it enforces 4.5:1 for `text` and 3:1 for the state and accent marks; words
+there use `text` (see below).
 
 The Squad board uses `muted` for inactive tabs, summaries, column headers,
 pane titles and footer hints; `dim` remains for borders, empty values, times,
@@ -104,10 +106,12 @@ quick-switcher entry reserves a two-cell leading mark slot: `◆ ` for waiting,
 else `✗ ` for blocked, else two spaces. The dominant count follows the name;
 both states append blocked `✗n` (`◆ product 2 ✗1`). Only the leading mark
 and appended `✗n` use bold configured attention colors. Tab names and primary
-counts keep selected accent/bold or inactive muted; the switcher keeps its own
+counts are bold when selected (in `text` on the selection background) or inactive muted; the switcher keeps its own
 selected-row style. Selection spans the whole tab, including the slot and all
 counts. Overflow counters retain their aggregate attention colors. The selected
-row uses the `selection` background and keeps its text/state/provider foregrounds. Without a background color
+row uses the `selection` background. On it, `muted`, `dim`, `accent`, `link` and
+state-colored (`waiting`, `working`, `review`, `blocked`) words paint in `text`,
+keeping bold and underline; marks (`◆ ✗ ◐ ● ✓ ◌ !`) keep their color. Without a background color
 (`terminal`, `mono`, 16 colors or `NO_COLOR`), selection uses reverse video
 with one common foreground across the grid row, including empty and wrapped
 cells and its age label. Per-cell colors and dim are dropped in that fallback;
@@ -432,18 +436,18 @@ The full layout is designed for 80 columns and wider.
 
 ### Roles by component state
 
-| Component        | Normal             | Focused or selected            | Disabled or empty |
-| ---------------- | ------------------ | ------------------------------ | ----------------- |
-| pane title       | `muted`            | `accent`, bold                 | `dim`             |
-| border           | `dim`              | `dim`                          | `dim`             |
-| tab              | `muted`            | `accent`, bold, `selection` bg | `dim`             |
-| list row         | `text`             | `selection` background         | `muted`           |
-| key in help      | `accent`           | `accent`, `selection` bg       | `dim`             |
-| description      | `text`             | `text`, `selection` bg         | `muted`           |
-| editable setting | `accent` key       | `selection` background, `›`    | `muted` key, `*`  |
-| link             | `link`, underlined | `link`, `selection` bg         | `text`, plain     |
-| input value      | `text`, cursor `▏` | —                              | `muted`           |
-| scroll position  | `muted`            | —                              | —                 |
+| Component        | Normal             | Focused or selected                | Disabled or empty |
+| ---------------- | ------------------ | ---------------------------------- | ----------------- |
+| pane title       | `muted`            | `accent`, bold                     | `dim`             |
+| border           | `dim`              | `dim`                              | `dim`             |
+| tab              | `muted`            | `text`, bold, `selection` bg       | `dim`             |
+| list row         | `text`             | `selection` background             | `muted`           |
+| key in help      | `accent`           | `text`, `selection` bg             | `dim`             |
+| description      | `text`             | `text`, `selection` bg             | `muted`           |
+| editable setting | `accent` key       | `selection` background, `›`        | `muted` key, `*`  |
+| link             | `link`, underlined | `text`, underlined, `selection` bg | `text`, plain     |
+| input value      | `text`, cursor `▏` | —                                  | `muted`           |
+| scroll position  | `muted`            | —                                  | —                 |
 
 Attention marks (`◆`, `✗`) keep their own roles in every state, including selection with a background. Without a background color, selection follows Themes: one common foreground in reverse video, with attention marks in bold.
 
