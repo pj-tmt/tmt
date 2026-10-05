@@ -4,16 +4,9 @@ name: Office browser verification
 # checks. They run in their own workflow so that a red `CI` run means a required
 # or selected check failed, and so that all twelve share one image build.
 #
-# The eight native Office shards (#424) and the three local Vite partitions (#574) are paused on
-# pull requests: the shards fail on every run and the local partitions in most, so on a pull
-# request they only cost runner time. They keep running weekly and on a manual dispatch so the
-# failure sets stay visible. The fix of each issue re-enables its partitions on pull requests.
-# The emulator partition runs on PRs only for Office-owned paths. Weekly and
-# manual runs include it along with all local/native partitions as the safety net.
+# Retired by Ben's CI/CD direction (#1851). Keep the workflow and artifacts;
+# it has no automatic trigger and manual selection cannot admit product work.
 on:
-  pull_request:
-  schedule:
-    - cron: '41 4 * * 1'
   workflow_dispatch:
 
 permissions:
@@ -28,7 +21,6 @@ jobs:
     name: Select affected Office browser checks
     runs-on: ubuntu-latest
     timeout-minutes: 5
-    # Only a pull request has a diff; scheduled/manual runs ignore this PR-only flag.
     outputs:
       office_browser: ${{ steps.scope.outputs.office_browser || 'false' }}
     steps:
@@ -52,8 +44,7 @@ jobs:
   image:
     name: Build Office browser image
     needs: changes
-    # Office-owned PRs build for the emulator; scheduled/manual runs build for all partitions.
-    if: github.event_name != 'pull_request' || needs.changes.outputs.office_browser == 'true'
+    if: needs.changes.outputs.office_browser == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -76,7 +67,7 @@ jobs:
   office-emulator:
     name: Office browser (emulator)
     needs: [changes, image]
-    if: github.event_name != 'pull_request' || needs.changes.outputs.office_browser == 'true'
+    if: needs.changes.outputs.office_browser == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -129,9 +120,9 @@ jobs:
 
   office-local:
     name: Office browser (local ${{ matrix.shard }})
-    needs: image
-    # Paused on pull requests until #574 is fixed (see the top of this file).
-    if: github.event_name != 'pull_request'
+    needs: [changes, image]
+    # Retired for every event; #574 remains a preserved product finding.
+    if: needs.changes.outputs.office_browser == 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -190,9 +181,9 @@ jobs:
 
   native-office-browser:
     name: Native Office browser (${{ matrix.shard }}/8)
-    needs: image
-    # Paused on pull requests until #424 is fixed (see the top of this file).
-    if: github.event_name != 'pull_request'
+    needs: [changes, image]
+    # Retired for every event; #424 remains a preserved product finding.
+    if: needs.changes.outputs.office_browser == 'true'
     strategy:
       fail-fast: false
       matrix:

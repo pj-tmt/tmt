@@ -27,29 +27,33 @@ contexts must succeed. Held-draft recovery belongs to
   Cargo checks, architecture guard, native tests and E2E file under the existing
   job names, and skip unchanged CLI runtime builds, packed installs and tooling
   unit tests. Any shared, CLI-owned or unknown native input requires full scope.
-- Full workspace Rust checks still include Office and Remote members, independently
-  of release eligibility. Reject empty Remote test discovery before execution.
-  Office-specific browser, local-service and companion process checks require
-  explicit Office selection; merge groups and main pushes do not run them.
+- Workspace Rust checks verify the retained products together, excluding Office
+  package targets. Office libraries imported by the shipped CLI still compile as
+  dependencies; CLI contracts, architecture and embedded inputs remain verified.
+  Reject empty Remote test discovery before execution. Office product verification
+  is retired for every event, independently of its parked release attribution.
 
 ## Worker gates
 
 `Native Rust contracts` aggregates fmt/Clippy, workspace test/build, native process
-and MSRV workers. MSRV reads `rust/Cargo.toml` and checks every workspace target.
-Full scope requires all of those workers; the Office worker additionally requires
-`native_office=true`. Squad scope requires its selected workers, and `none` skips
-the aggregate. Invalid scope or worker results fail closed.
+and MSRV workers. MSRV reads `rust/Cargo.toml` and checks all retained workspace
+package targets. Full scope requires the retained workers and exactly a skipped
+Office worker (`native_office=false`). Required-check names stay stable; the
+aggregate reports success only with those results. Squad scope requires its
+selected workers, and `none` skips the aggregate. Invalid scope or worker results
+fail closed.
 
-The selected Office build producer publishes one SHA-256-checked embedded-SPA
-executable for the Office and native process workers. Without Office selection,
-native process tests exclude Office-owned suites and require no companion
-artifact; core discovery stays nonempty and other fixtures are built independently.
+Office SPA, local-service and companion producers never run. Native process
+verification excludes Office-owned suites and requires no Office companion;
+core discovery stays nonempty and other fixtures are built independently.
 
 `Docker E2E` gates the two shard jobs selected by
 `typescript/scripts/e2e-shards.mjs` and committed `test/e2e/shard-weights.json`.
 Full native scope requires both shards (the first also runs adapter tests), scoped
 component work requires the first, and no native selection requires neither.
-The shard guard rejects any scenario in zero or two shards.
+The shard guard rejects any retained scenario in zero or two shards. The exact
+retired Office file list is owned by `e2e-shards.mjs` and also drives real Vitest
+discovery; Docker no longer builds or copies the Office companion.
 
 `Code quality` gates selected Office verification. `Native package matrix` gates
 every selected native result and validates the event's `macos` classification:
@@ -76,12 +80,12 @@ restore.
 
 ## Advisory browser selection
 
-Office's `office_browser` flag follows Office ownership plus Office-specific
-workflow/emulator/Docker machinery. Shared dependencies, generic fixtures,
-ordinary core dependencies and unknown paths do not select browser PR work while
-Office is frozen. Weekly/manual runs cover all twelve partitions, including the
-emulator. Infra's lead triages red scheduled runs and routes product failures to
-their owner; workspace Rust coverage and required gate validation remain active.
+Office browser verification is disabled, with no automatic trigger and manual
+selection that admits no product job. The workflow and historical failure artifacts remain available;
+retirement is not a repaired-product claim. Office browser/SPA/local-service/native
+selection stays false for PRs, merge groups, main pushes, schedules and dispatches.
+The product remains parked for publication. Actual shipped CLI inputs and required
+gate validation remain active.
 
 Colab's separate advisory workflow selects `colab_harness` for its client, model
 and contract-vector paths, its workflow, shared Cargo manifest/lockfile and pnpm
