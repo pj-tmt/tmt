@@ -134,6 +134,7 @@ const refusalCodes = new Set<string>([
   'REMOTE_DEVICE_REVOKED',
   'REMOTE_DEVICE_NOT_FOUND',
   'REMOTE_SETTINGS_UNAVAILABLE',
+  'REMOTE_MANAGEMENT_CAPACITY',
 ]);
 function outcome(value: unknown, operationId: string): ManagementOutcome {
   const row = object(value);

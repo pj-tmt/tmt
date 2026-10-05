@@ -75,7 +75,11 @@ owns exact wire shapes, immutable outcome/deadline, first-touch uncertainty and 
 all reads. Self-rename can reopen then read the original operation. Lost self-revoke acknowledgment
 gets one fresh read-only admission attempt; refusal shows access loss plus unknown outcome and
 `tmt remote devices`, never a resend or a committed-revoke inference. No old-key exception exists.
-The actual settings page and complete feature acceptance remain pending.
+The actual settings page and complete feature acceptance remain pending. Management identity
+limits are cumulative: 1000 per caller, 4000 installation-wide, including expired rows. The
+30-day deadline bounds outcome availability, not row deletion. Capacity refuses new adoption
+before effects; show the local settings/devices CLI path without automatic retries or storage
+reset, and preserve any original unknown outcome. Compaction is deferred.
 
 Focused native evidence includes `cargo test --offline --locked -p tmt-remote` (management storage,
 signed admission, settings fault, CLI/state and existing lifecycle), plus SDK package check/test/build

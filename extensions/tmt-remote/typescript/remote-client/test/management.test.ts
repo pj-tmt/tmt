@@ -168,3 +168,44 @@ test('strict projection rejects rounded caps, secret fields and contradictory ca
     );
   }
 });
+
+test('signed phase-ambiguous failure preserves original outcome after a recorded effect', async () => {
+  for (const code of ['REMOTE_STATE_UNAVAILABLE', 'REMOTE_MANAGEMENT_UNAVAILABLE']) {
+    for (const state of ['committed', 'unknown'] as const) {
+      const { door, client } = await ready();
+      const id = crypto.randomUUID();
+      let effects = 0;
+      const receipt =
+        state === 'committed'
+          ? { operationId: id, state, result: { settings: saved }, sessionEnded: false }
+          : { operationId: id, state, reason: 'effect_outcome_unconfirmed' };
+      door.managementReply = (operation, payload) => {
+        if (operation === 'remote.settings.set') {
+          effects++;
+          return { error: { code, message: 'Outcome publication failed.' } };
+        }
+        assert.equal(operation, 'remote.management.operation');
+        assert.equal(payload.operationId, id);
+        return receipt;
+      };
+      await assert.rejects(
+        client.set({ operationId: id, setting: 'open', value: false }),
+        (error: unknown) =>
+          error instanceof ClientError &&
+          error.operationId === id &&
+          error.code === 'outcome_unconfirmed',
+      );
+      assert.deepEqual(await client.operation(id), receipt);
+      assert.equal(effects, 1);
+      assert.equal(
+        door.calls.filter((call) => call.envelope.operation === 'remote.settings.set').length,
+        1,
+      );
+      door.managementReply = () => ({ error: { code, message: 'Read unavailable.' } });
+      await assert.rejects(
+        client.settings(),
+        (error: unknown) => error instanceof RefusalError && error.code === code,
+      );
+    }
+  }
+});

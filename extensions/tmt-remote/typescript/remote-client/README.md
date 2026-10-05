@@ -236,3 +236,15 @@ confirmation. Do not claim revoke committed or offer a mutation retry. Transport
 unverified/stale descriptor is unconfirmed access and unknown outcome. All reads require a live
 grant; no historical-key reader or general recovery endpoint exists. Losing designation alone
 still permits a live grant to read its own original receipt.
+
+Verified generic management state/ownership/publication errors raise
+`ClientError("outcome_unconfirmed", ..., originalId)` after publication. A valid signature
+alone does not prove a pre-effect refusal. Keep that unknown outcome and read only the
+original operation; never resend it. Read `RefusalError` and agent behavior are unchanged.
+
+Management storage has cumulative limits of 1000 retained identities per caller and 4000
+per installation, including expired rows. The 30-day horizon bounds outcome availability,
+not physical deletion or a rolling allowance. `REMOTE_MANAGEMENT_CAPACITY` refuses new
+adoption before effects; an existing original-ID read still works at capacity. Show the
+local CLI management path, preserve any earlier unknown outcome, and do not retry, reset
+the database or invent a replacement ID to bypass the limit. Compaction is deferred.

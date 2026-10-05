@@ -585,7 +585,13 @@ used only for a proved failure before the settings-file first-touch boundary. Ex
 rate, live-session, intent-conflict, device-not-found/revoked and state-unavailable codes retain
 relevant meanings. Read refusals are SDK `RefusalError`; mutation signed refusals are refused
 outcomes. Unknown transport, timeout or unverifiable acknowledgment raises `ClientError` with
-original operationId. A post-publication HTTP 404 alone is unknown, not a signed zero-effect
+original operationId. A verified generic state, ownership or response-publication failure is
+phase-ambiguous after publication: the SDK raises `ClientError("outcome_unconfirmed")`, retaining
+that original ID and unknown outcome. `REMOTE_STATE_UNAVAILABLE`, `REMOTE_MANAGEMENT_UNAVAILABLE`,
+and generic closed/ended/core failures cannot prove that the mutation had no effect. Ordinary
+reads retain `RefusalError`; agent operation behavior is unchanged. Only explicit input, scope,
+rate, intent conflict, management read-only/capacity, device not-found/revoked and proved
+settings-before-touch refusal codes establish a pre-effect management refusal. A post-publication HTTP 404 alone is unknown, not a signed zero-effect
 refusal. A prior ended Session that prevented publication is a refused unsent attempt.
 
 Store persists exact intent digest, original caller UUID, grant revision, immutable adoption time,
@@ -593,8 +599,14 @@ Store persists exact intent digest, original caller UUID, grant revision, immuta
 retained intent returns only its existing outcome; changed operation/input/caller conflicts.
 No lookup renews the deadline. Expired identity rows remain replay tombstones; capacity is bounded
 at 1000 per caller and 4000 installation-wide, refusing new adoption rather than evicting an
-unknown ID into eligibility. This initial draft uses fail-closed capacity exhaustion; receipt
-compaction/capacity policy requires primary review before feature acceptance.
+unknown ID into eligibility. These are cumulative retained-identity limits, not a rolling
+30-day allowance. The 30-day horizon
+only bounds outcome availability: expiry does not physically delete identity/receipt rows or
+make their IDs eligible again. `REMOTE_MANAGEMENT_CAPACITY` is a signed pre-effect refusal with
+no adoption/effect. Existing live original-ID reads remain available at capacity. Show the local
+`tmt remote settings` / `tmt remote devices` path without retrying, resetting the database or
+allocating replacement IDs; preserve any previous unknown outcome. Compaction/reclamation is
+a deferred improvement.
 
 Settings adoption and file publication are not one transaction. Persist the original unknown
 receipt first, then recheck current Session/grant/key/revision/designation at the effect fence.

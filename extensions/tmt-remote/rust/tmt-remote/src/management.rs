@@ -291,7 +291,10 @@ impl Store {
         // expiry makes lookup unavailable, without resetting adoption identity.
         let (client,total):(i64,i64)=tx.query_row("SELECT (SELECT COUNT(*) FROM management_receipts WHERE client_id=?1),COUNT(*) FROM management_receipts",[&grant.client_id],|row|Ok((row.get(0)?,row.get(1)?))).map_err(database)?;
         if client >= journal::OPERATIONS || total >= 4 * journal::OPERATIONS {
-            return Err(database("management receipt capacity"));
+            return Err(RemoteError::new(
+                "REMOTE_MANAGEMENT_CAPACITY",
+                "Retained management identity limit reached. Use the local CLI.",
+            ));
         }
         tx.execute(
             "INSERT INTO management_receipts VALUES (?1,?2,?3,?4,?5,?6,?7,?8)",

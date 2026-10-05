@@ -39,7 +39,8 @@ export type ClientErrorCode =
   | 'transport_failure'
   | 'timeout'
   | 'unverifiable_response'
-  | 'sequence_unavailable';
+  | 'sequence_unavailable'
+  | 'outcome_unconfirmed';
 export type RemoteRefusalCode =
   | 'REMOTE_SCOPE_DENIED'
   | 'REMOTE_INPUT_INVALID'
@@ -55,7 +56,8 @@ export type RemoteRefusalCode =
   | 'REMOTE_MANAGEMENT_UNAVAILABLE'
   | 'REMOTE_DEVICE_REVOKED'
   | 'REMOTE_DEVICE_NOT_FOUND'
-  | 'REMOTE_SETTINGS_UNAVAILABLE';
+  | 'REMOTE_SETTINGS_UNAVAILABLE'
+  | 'REMOTE_MANAGEMENT_CAPACITY';
 /** Unknown outcome only; the caller retains its operation ID for read-only recovery. */
 export class ClientError extends Error {
   constructor(
@@ -88,6 +90,20 @@ const PRE_EFFECT = new Set<string>([
   'REMOTE_CLOSED',
   'REMOTE_SESSION_ENDED',
   'REMOTE_SESSION_EVICTED',
+]);
+// Only these signed errors prove management did not reach an effect. Generic
+// state/ownership/session failures may come from response publication after commit.
+const MANAGEMENT_PRE_EFFECT = new Set<string>([
+  'REMOTE_SCOPE_DENIED',
+  'REMOTE_INPUT_INVALID',
+  'REMOTE_RATE_LIMITED',
+  'REMOTE_INTENT_CONFLICT',
+  'REMOTE_INPUT_TOO_LARGE',
+  'REMOTE_MANAGEMENT_READ_ONLY',
+  'REMOTE_DEVICE_REVOKED',
+  'REMOTE_DEVICE_NOT_FOUND',
+  'REMOTE_SETTINGS_UNAVAILABLE',
+  'REMOTE_MANAGEMENT_CAPACITY',
 ]);
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
@@ -219,6 +235,7 @@ function remoteError(
         'REMOTE_DEVICE_REVOKED',
         'REMOTE_DEVICE_NOT_FOUND',
         'REMOTE_SETTINGS_UNAVAILABLE',
+        'REMOTE_MANAGEMENT_CAPACITY',
       ].includes(error.code),
   );
   return new RefusalError(
@@ -312,6 +329,14 @@ async function attempt<T>(
             ['REMOTE_CLOSED', 'REMOTE_SESSION_ENDED', 'REMOTE_SESSION_EVICTED'].includes(error.code)
           )
             channel.ended = true;
+          if (
+            mutationOutcome &&
+            error instanceof RefusalError &&
+            !MANAGEMENT_PRE_EFFECT.has(error.code)
+          ) {
+            failure = 'outcome_unconfirmed';
+            throw new Error('Signed failure does not establish the management outcome.');
+          }
           throw error;
         }
         return parse(value);
@@ -328,6 +353,8 @@ async function attempt<T>(
     if (error instanceof RefusalError || error instanceof SequenceMismatch) throw error;
     if (!published) throw new TypeError('Remote operation could not be signed.');
     const messages: Record<ClientErrorCode, string> = {
+      outcome_unconfirmed:
+        'Remote management outcome is unconfirmed; observe the original operation.',
       timeout: 'Remote outcome is unknown after timeout; observe the original operation.',
       transport_failure: 'Remote transport outcome is unknown; observe the original operation.',
       unverifiable_response:

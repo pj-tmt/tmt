@@ -352,6 +352,18 @@ var PRE_EFFECT = /* @__PURE__ */ new Set([
 	"REMOTE_SESSION_ENDED",
 	"REMOTE_SESSION_EVICTED"
 ]);
+var MANAGEMENT_PRE_EFFECT = /* @__PURE__ */ new Set([
+	"REMOTE_SCOPE_DENIED",
+	"REMOTE_INPUT_INVALID",
+	"REMOTE_RATE_LIMITED",
+	"REMOTE_INTENT_CONFLICT",
+	"REMOTE_INPUT_TOO_LARGE",
+	"REMOTE_MANAGEMENT_READ_ONLY",
+	"REMOTE_DEVICE_REVOKED",
+	"REMOTE_DEVICE_NOT_FOUND",
+	"REMOTE_SETTINGS_UNAVAILABLE",
+	"REMOTE_MANAGEMENT_CAPACITY"
+]);
 var UUID$2 = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 var V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 var coreId = (value) => typeof value === "string" && UUID$2.test(value) && value !== "00000000-0000-0000-0000-000000000000";
@@ -468,7 +480,8 @@ function remoteError(value, address) {
 		"REMOTE_MANAGEMENT_UNAVAILABLE",
 		"REMOTE_DEVICE_REVOKED",
 		"REMOTE_DEVICE_NOT_FOUND",
-		"REMOTE_SETTINGS_UNAVAILABLE"
+		"REMOTE_SETTINGS_UNAVAILABLE",
+		"REMOTE_MANAGEMENT_CAPACITY"
 	].includes(error.code));
 	return new RefusalError(error.code, retry, limit, settingsUrl);
 }
@@ -544,6 +557,10 @@ async function attempt(channel, timeoutMs, operation, id, payload, sequence, par
 					"REMOTE_SESSION_ENDED",
 					"REMOTE_SESSION_EVICTED"
 				].includes(error.code)) channel.ended = true;
+				if (mutationOutcome && error instanceof RefusalError && !MANAGEMENT_PRE_EFFECT.has(error.code)) {
+					failure = "outcome_unconfirmed";
+					throw new Error("Signed failure does not establish the management outcome.");
+				}
 				throw error;
 			}
 			return parse(value);
@@ -558,6 +575,7 @@ async function attempt(channel, timeoutMs, operation, id, payload, sequence, par
 		if (error instanceof RefusalError || error instanceof SequenceMismatch) throw error;
 		if (!published) throw new TypeError("Remote operation could not be signed.");
 		throw new ClientError(failure, {
+			outcome_unconfirmed: "Remote management outcome is unconfirmed; observe the original operation.",
 			timeout: "Remote outcome is unknown after timeout; observe the original operation.",
 			transport_failure: "Remote transport outcome is unknown; observe the original operation.",
 			unverifiable_response: "Remote response could not be verified; observe the original operation.",
@@ -759,7 +777,8 @@ var refusalCodes = /* @__PURE__ */ new Set([
 	"REMOTE_MANAGEMENT_UNAVAILABLE",
 	"REMOTE_DEVICE_REVOKED",
 	"REMOTE_DEVICE_NOT_FOUND",
-	"REMOTE_SETTINGS_UNAVAILABLE"
+	"REMOTE_SETTINGS_UNAVAILABLE",
+	"REMOTE_MANAGEMENT_CAPACITY"
 ]);
 function outcome(value, operationId) {
 	const row = object(value);

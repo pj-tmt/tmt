@@ -463,3 +463,57 @@ fn malformed_settings_projection_cannot_claim_a_healthy_file_or_custom_effective
     );
     drop(lock);
 }
+
+#[test]
+fn cumulative_identity_limits_refuse_new_adoption_but_preserve_live_original_reads() {
+    for global in [false, true] {
+        let mut f = Fixture::new();
+        f.designate();
+        let original = uuid_v4().unwrap();
+        f.adopt(&original, "remote.settings.set", &[1; 32]).unwrap();
+        let now = now_ms().unwrap();
+        let owners = if global {
+            (0..4)
+                .map(|i| {
+                    let mut grant = f.grant.clone();
+                    grant.client_id = uuid_v4().unwrap();
+                    grant.public_key = [30 + i; 32];
+                    f.store.insert_grant(&grant).unwrap();
+                    (grant.client_id, if i == 3 { 999 } else { 1000 })
+                })
+                .collect::<Vec<_>>()
+        } else {
+            vec![(f.grant.client_id.clone(), 999)]
+        };
+        let tx = f.store.connection.transaction().unwrap();
+        for (owner, count) in owners {
+            for _ in 0..count {
+                let id = uuid_v4().unwrap();
+                // Expired identities still occupy the accepted cumulative bound.
+                tx.execute("INSERT INTO management_receipts VALUES (?1,?2,'remote.settings.set',?3,1,0,1,?4)",params![id,owner,[2u8;32].as_slice(),unknown(&id).to_string()]).unwrap();
+            }
+        }
+        tx.commit().unwrap();
+        let count = f.count("management_receipts");
+        assert_eq!(count, if global { 4000 } else { 1000 });
+        assert_eq!(
+            f.adopt(&uuid_v4().unwrap(), "remote.settings.set", &[3; 32])
+                .unwrap_err()
+                .code,
+            "REMOTE_MANAGEMENT_CAPACITY"
+        );
+        assert_eq!(f.count("management_receipts"), count);
+        assert!(!f.root.join("remote/settings.json").exists());
+        assert_eq!(f.store.grant(&f.grant.client_id).unwrap().unwrap(), f.grant);
+        assert_eq!(
+            receipt(&f.store.connection, &f.grant.client_id, &original, now).unwrap()["state"],
+            "unknown"
+        );
+        assert_eq!(
+            f.adopt(&original, "remote.settings.set", &[1; 32])
+                .unwrap()
+                .unwrap()["state"],
+            "unknown"
+        );
+    }
+}
