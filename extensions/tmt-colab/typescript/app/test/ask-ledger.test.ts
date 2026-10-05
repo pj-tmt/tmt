@@ -402,8 +402,12 @@ it('an evicted send records uncertainty before stopping the page and never resen
   const { store, remote, key, own } = await setup();
   const eviction = new SessionEvictedError(2);
   const observed = vi.fn(() => {
-    const states = Object.values(own[id(4)].messages) as unknown as { state: string }[];
+    const states = Object.values(own[id(4)].messages) as unknown as {
+      state: string;
+      reason: string;
+    }[];
     expect(states.at(-1)?.state).toBe('uncertain');
+    expect(states.at(-1)?.reason).toBe('REMOTE_SESSION_EVICTED');
   });
   const controller = new AskController({ store, remote, key, selection, sessionEnded: observed });
   await controller.destinations();

@@ -181,7 +181,13 @@ export class AskController {
           id,
           started || sessionEnd ? 'uncertain' : 'failed',
           null,
-          sessionEnd ? 'REMOTE_SESSION_ENDED' : started ? 'REMOTE_UNCERTAIN' : 'SEND_UNAVAILABLE',
+          evicted
+            ? 'REMOTE_SESSION_EVICTED'
+            : sessionEnd
+              ? 'REMOTE_SESSION_ENDED'
+              : started
+                ? 'REMOTE_UNCERTAIN'
+                : 'SEND_UNAVAILABLE',
         );
       } finally {
         if (evicted) this.#endSession(evicted);
