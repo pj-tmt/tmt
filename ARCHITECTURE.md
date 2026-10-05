@@ -1156,13 +1156,11 @@ gives mounted pages `reopenSession`, `operations(session)` and `certifyKey`; its
 the caller-facing recovery rules. The
 [Remote skill](.agents/skills/tmt-remote/references/architecture-internals.md) owns module internals.
 Remote sessions are independently keyed by session ID; the durable journal and ack stay
-per device. The settings limit is read on open (default 8; off is unlimited); active
-limits evict that device's least recently used session. Mounted transports explicitly
+per device. Mounted transports explicitly
 bind the session through a non-secret, cookie-device-checked `tmt-session` identifier
 stripped at the door. Last transport close, idle expiry and authority loss reuse
 session-owned cleanup; grant-owned held work survives session end and cancels only on
 stop, revoke or grant expiry/revision change. Uncertain dispatch retains recovery.
-Migration preserves grants and existing counters.
 
 System-wide invariants:
 

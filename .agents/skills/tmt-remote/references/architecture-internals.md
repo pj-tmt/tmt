@@ -45,9 +45,14 @@ Rules that are easy to get wrong:
   The device context header is added only for a live owner session and is never
   copied from a client. Session lifetime counts successful upgraded transports;
   last-close marks the session ended, and the door maintenance loop persists cleanup.
-  Never-attached and attached idle limits belong to `limits`; `session` owns optional-limit LRU,
+  Never-attached and attached idle limits belong to `limits`; `session` owns
   per-session replay and device-wide authority loss. Held work belongs to the grant and
   survives session end; only stop/revoke/expiry/revision change cancels it. The journal/ack remain per device.
+- **Session cap.** `session.open` rereads `settings` on each open. Unset settings
+  use the default cap of 8 sessions per device; `off` is unlimited. `session`
+  enforces an active cap by evicting that device's least recently used session.
+- **Multi-session migration.** The `multi_session` store migration preserves grants
+  and copies existing client/server sequence counters into session-ID-keyed rows.
 - **Embedded SDK asset.** The door embeds `assets/remote-v1.js` built from
   `remote-client/src`; rebuild and commit it as described in
   [sdk-operations.md](sdk-operations.md#embedded-client-and-crypto-fixtures).
