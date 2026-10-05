@@ -54,9 +54,13 @@ fn home_footer_keeps_search_after_row_actions_when_it_fits() {
     for width in [160, 100, 80] {
         let hints = paint::hints(width, false);
         assert!(unicode_width::UnicodeWidthStr::width(hints.as_str()) <= width);
-        assert!(hints.contains("t replies"), "{width}: {hints}");
+        // The key line keeps to the keys that matter; `t` and the rest are in help.
+        assert!(!hints.contains("t replies"), "{width}: {hints}");
         if width >= 100 {
-            assert!(hints.contains("t replies  / search"), "{width}: {hints}");
+            assert!(
+                hints.starts_with("↑↓ move  ⏎ open  a write  e expand  A ask lead  / search"),
+                "{width}: {hints}"
+            );
         }
     }
 }
@@ -513,7 +517,7 @@ fn middle_home_row_composes_inline_and_success_survives_answer_refresh() {
                 .chunks(usize::from(width))
                 .map(|cells| cells.iter().map(|cell| cell.symbol()).collect::<String>())
                 .collect::<Vec<_>>();
-            assert!(lines[usize::from(band.y + 1)].contains("→ worker-2 (a)"));
+            assert!(lines[usize::from(band.y + 1)].contains("→ worker-2 (a) · answer"));
             assert!(lines[usize::from(band.y + 2)].contains("◆ “Should this decision proceed?”"));
             assert!(lines[usize::from(band.y + 4)].contains("Enter send · Esc cancel"));
             assert!(lines[usize::from(band.bottom())].contains("worker-3"));
@@ -526,7 +530,12 @@ fn middle_home_row_composes_inline_and_success_survives_answer_refresh() {
             press(&mut app, Tab);
             assert_eq!(
                 app.input.as_ref().unwrap().header(),
-                "✎ note → lead-a · about worker-2"
+                "→ lead-a (a) · note · about worker-2"
+            );
+            press(&mut app, Tab);
+            assert_eq!(
+                app.input.as_ref().unwrap().header(),
+                "→ worker-2 (a) · talk"
             );
             press(&mut app, Tab);
             press(&mut app, Char('y'));
@@ -739,7 +748,7 @@ fn table_note_band_shifts_later_rows_without_changing_hits_or_selection() {
                 .chunks(width as usize)
                 .map(|cells| cells.iter().map(|cell| cell.symbol()).collect::<String>())
                 .collect::<Vec<_>>();
-            assert!(lines[usize::from(band.y + 1)].contains("✎ note → lead-e · about e"));
+            assert!(lines[usize::from(band.y + 1)].contains("→ lead-e (e) · note · about e"));
             press(&mut app, Esc);
             assert!(app.input.is_none());
             assert_eq!(app.home_target, target);
@@ -1104,4 +1113,15 @@ fn names_that_are_not_stable_ids_never_reach_the_scene_identity() {
             assert!(!text.contains('\n') && !text.contains('\t'));
         }
     }
+}
+
+#[test]
+#[ignore = "read-only snapshot inspection before fixture approval"]
+fn dump_home_snapshots() {
+    let path = std::env::var("SQUAD_SNAPSHOTS_OUT").expect("SQUAD_SNAPSHOTS_OUT");
+    std::fs::write(
+        path,
+        serde_json::to_string_pretty(&snapshots()).unwrap() + "\n",
+    )
+    .unwrap();
 }

@@ -82,8 +82,24 @@ and changed clock text or spinner frames, rather than periodic full repainting.
   shared `App.input` as HOME/read/send modes. `home::controller` reuses cached bodies
   or the existing fenced request read; `view::waiting::read_lines` supplies field
   order, height, paint and scroll limits. Read-only expansion needs no recorded user;
-  writing does. Effective bindings control collapse/write/open, and covered hits
+  writing does. Effective bindings control collapse/write/open. Writing from a
+  read band dispatches the same row action as the list, so default `a` answers first
+  and explicit note/talk/reply bindings keep their recipient and mode. Covered hits
   are removed by the existing band owner.
+- Row composer and footer: `Input.compose` is the current mode (answer, note or talk)
+  and `Input.others` the rest in cycle order; Tab (`cycle_mode`) rotates them and
+  refreshes the quote. `attach_row` builds the list from the row (`other_modes`), so a
+  mode appears only when it can send. `Input::header` names the recipient, its squad and the mode (`→ sol (product) · note`).
+  The footer (`view/footer.rs`) is derived from the effective bindings through
+  `Action::footer_rank` (`None` keeps an action out of the footer, in `?` help only) with a
+  fixed `↑↓ move` first; `s switch` shows only while `App::tabs_overflow` (set by the tab
+  painter) is true. HOME's key line (`home/bar.rs`) follows the same list. `,` settings
+  rows (Theme, View, Token window) are `settings::Pick`s beside the config entries, never
+  config keys. After a successful settings save, their config-backed values are
+  resolved again through the same Config readers as opening; the component keeps
+  selection and the token-window row keeps its live session value. Failed saves
+  publish no new quick-row values. Presets bind `t` to `home-replies` and no `r`, `T`, `l`, `w` or `talk`;
+  fixtures that exercise those actions use `action::with_action_keys`.
 
 ## Composition, folds and scrolling
 

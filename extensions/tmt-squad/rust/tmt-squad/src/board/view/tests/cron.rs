@@ -734,3 +734,14 @@ fn walking_the_c_list_from_the_board_moves_one_job_per_press() {
         }
     }
 }
+
+#[test]
+#[ignore = "read-only snapshot inspection before fixture approval"]
+fn dump_split_squad_tab_snapshots() {
+    let path = std::env::var("SQUAD_SNAPSHOTS_OUT").expect("SQUAD_SNAPSHOTS_OUT");
+    std::fs::write(
+        path,
+        serde_json::to_string_pretty(&snapshots()).unwrap() + "\n",
+    )
+    .unwrap();
+}

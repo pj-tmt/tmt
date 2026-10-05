@@ -303,7 +303,8 @@ mod tests {
             crate::board::app::tests::snapshot("product", json!([{"rows":[{"name":"before"}]}]));
         let view = snapshot.view.as_mut().unwrap();
         view.board = config.board("product").unwrap();
-        view.bindings = config.bindings(true, &view.board.panes).unwrap();
+        view.bindings =
+            crate::action::with_action_keys(config.bindings(true, &view.board.panes).unwrap());
         app.apply(snapshot);
         app.set_body_width(120);
         (path, config, app)

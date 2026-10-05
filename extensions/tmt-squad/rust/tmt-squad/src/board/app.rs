@@ -411,7 +411,9 @@ impl RowSend {
 /// The one-line composer: Enter sends, Esc cancels, empty sends nothing.
 pub struct Input {
     pub(super) row_send: Option<RowSend>,
-    pub(super) alternative: Option<Compose>,
+    /// The row composer's other modes in cycle order (answer, note, talk): Tab
+    /// makes the first one current and sends the current one to the back.
+    pub(super) others: Vec<Compose>,
     pub(super) quote: Option<String>,
     pub link: Option<LinkSend>,
     pub prompt: String,
@@ -442,14 +444,36 @@ impl Input {
             Compose::ReadLead { .. } | Compose::ReadRow { .. } | Compose::Leads { .. } => {
                 self.prompt.clone()
             }
-            Compose::Talk { to } => format!("→ {to} ({})", self.squad),
-            Compose::Reply { from, .. } => format!("→ {from} ({})", self.squad),
+            Compose::Talk { to } => format!("→ {to} ({}) · talk", self.squad),
+            Compose::Reply { from, .. } => format!("→ {from} ({}) · answer", self.squad),
             Compose::Annotate { to, row } if to != row => {
-                format!("✎ note → {to} · about {row}")
+                format!("→ {to} ({}) · note · about {row}", self.squad)
             }
-            Compose::Annotate { to, .. } => format!("✎ note → {to}"),
+            Compose::Annotate { to, .. } => format!("→ {to} ({}) · note", self.squad),
             Compose::AskLead { to, .. } => format!("→ lead {to}"),
             Compose::Cron => self.prompt.clone(),
+        }
+    }
+
+    /// The modes of a row composer in cycle order, for the hint line.
+    pub(super) fn modes(&self) -> Vec<&'static str> {
+        let mut modes: Vec<_> = std::iter::once(&self.compose)
+            .chain(&self.others)
+            .filter_map(Compose::mode)
+            .collect();
+        modes.sort_by_key(|(rank, _)| *rank);
+        modes.into_iter().map(|(_, word)| word).collect()
+    }
+}
+
+impl Compose {
+    /// The row composer's mode: its place in the answer, note, talk cycle and word.
+    fn mode(&self) -> Option<(u8, &'static str)> {
+        match self {
+            Self::Reply { .. } => Some((0, "answer")),
+            Self::Annotate { .. } => Some((1, "note")),
+            Self::Talk { .. } => Some((2, "talk")),
+            _ => None,
         }
     }
 }
@@ -620,6 +644,8 @@ pub struct App {
     /// Where tabs were last drawn.
     pub tab_hits: RefCell<Vec<TabHit>>,
     pub(super) unpicked_hit: std::cell::Cell<Option<ratatui::layout::Rect>>,
+    /// The last tab line hid tabs, so the footer offers the switcher.
+    pub(super) tabs_overflow: std::cell::Cell<bool>,
     /// Only titles actually painted in the last frame can toggle.
     pub title_hits: RefCell<Vec<TitleHit>>,
     folds: BTreeMap<String, FoldState>,
@@ -1572,8 +1598,17 @@ impl App {
     }
 
     pub(super) fn open_settings(&mut self, config: Config) -> Result<(), crate::core::SquadError> {
-        let mut overlay =
-            super::settings::Overlay::open(config, self.shown_tab(), self.selected_section())?;
+        let window = self
+            .meter
+            .as_ref()
+            .filter(|meter| meter.settings.enabled)
+            .map(|_| self.token_window.label().to_owned());
+        let mut overlay = super::settings::Overlay::open(
+            config,
+            self.shown_tab(),
+            self.selected_section(),
+            window,
+        )?;
         overlay.opening_focus = self.focus;
         overlay.squad_keys = self.squad_keys.clone();
         overlay.staleness = self
@@ -1938,21 +1973,13 @@ impl App {
                 return self.toggle_panes(&panes);
             }
             Verb::TokenWindow => {
-                if let Some(meter) = self.meter.as_mut() {
-                    self.token_window = self.token_window.next(meter.settings.windows);
-                    self.window_changed = true;
-                    let now = Instant::now();
-                    meter.select(self.token_window, now);
-                    self.project_usage(now);
-                    self.notice = Some(format!("Token window: {}", self.token_window.label()));
-                }
+                self.cycle_token_window();
                 return Effect::None;
             }
             Verb::HomeReplies => {
                 return self
                     .view
                     .as_ref()
-                    .filter(|view| view.home.is_some())
                     .map_or(Effect::None, |view| Effect::HomeReplies(!view.home_replies));
             }
             Verb::HomeMessage => {
@@ -2141,7 +2168,7 @@ impl App {
     pub(super) fn ask(&mut self, prompt: String, compose: Compose, squad: String) -> Effect {
         self.input = Some(Input {
             row_send: None,
-            alternative: None,
+            others: Vec::new(),
             quote: None,
             link: None,
             prompt,
@@ -2370,29 +2397,98 @@ impl App {
         }
     }
 
+    /// The question a reply answers, quoted above the text while composing it.
+    fn reply_quote(&self, send: &RowSend, compose: &Compose) -> Option<String> {
+        let Compose::Reply { request, .. } = compose else {
+            return None;
+        };
+        self.target_row(&send.target)?["waitingOnYou"]
+            .as_array()?
+            .iter()
+            .find(|item| item["requestId"].as_str() == Some(request))
+            .map(|item| {
+                super::notes::sanitize(item["preview"].as_str().unwrap_or("(question unavailable)"))
+            })
+    }
+
+    /// The modes Tab reaches from `current`, in answer, note, talk order after
+    /// it. Answer is offered only for the one request the row waits on; several
+    /// requests are chosen from the menu `a` opens first.
+    fn other_modes(&self, send: &RowSend, current: &Compose) -> Vec<Compose> {
+        let answer = match current {
+            Compose::Reply { .. } => Some(current.clone()),
+            _ if send.note_member => None,
+            _ => self.target_row(&send.target).and_then(|row| {
+                let mut open = row["waitingOnYou"].as_array()?.iter();
+                let (item, rest) = (open.next()?, open.next());
+                rest.is_none().then(|| Compose::Reply {
+                    request: item["requestId"].as_str().unwrap_or_default().to_owned(),
+                    from: send.name.clone(),
+                })
+            }),
+        };
+        let all = [
+            answer,
+            send.note.clone(),
+            Some(Compose::Talk {
+                to: send.name.clone(),
+            }),
+        ];
+        let rank = |compose: &Compose| compose.mode().map(|(rank, _)| rank);
+        let here = rank(current);
+        let mut after: Vec<_> = all.into_iter().flatten().collect();
+        after.retain(|compose| rank(compose) != here);
+        after.sort_by_key(|compose| (rank(compose) <= here, rank(compose)));
+        after
+    }
+
     fn attach_row(&mut self, send: RowSend, squad: String) {
-        let quote = self.input.as_ref().and_then(|input| match &input.compose {
-            Compose::Reply { request, .. } => self.target_row(&send.target)?["waitingOnYou"]
-                .as_array()?
-                .iter()
-                .find(|item| item["requestId"].as_str() == Some(request))
-                .map(|item| {
-                    super::notes::sanitize(
-                        item["preview"].as_str().unwrap_or("(question unavailable)"),
-                    )
-                }),
-            _ => None,
-        });
+        let compose = self.input.as_ref().map(|input| input.compose.clone());
+        let others = compose
+            .as_ref()
+            .map(|compose| self.other_modes(&send, compose))
+            .unwrap_or_default();
+        let quote = compose
+            .as_ref()
+            .and_then(|compose| self.reply_quote(&send, compose));
         if let Some(input) = &mut self.input {
             input.squad = squad;
-            input.alternative = matches!(input.compose, Compose::Reply { .. })
-                .then(|| send.note.clone())
-                .flatten();
+            input.others = others;
             input.quote = quote;
             input.row_send = Some(send);
             input.prompt = input.header();
         }
         self.follow = true;
+    }
+
+    /// Tab in a row composer: the next of answer, note and talk, keeping the text.
+    fn cycle_mode(&mut self) {
+        let Some(input) = self.input.as_mut().filter(|input| !input.others.is_empty()) else {
+            return;
+        };
+        let next = input.others.remove(0);
+        let previous = std::mem::replace(&mut input.compose, next);
+        input.others.push(previous);
+        input.prompt = input.header();
+        let quote = self
+            .input
+            .as_ref()
+            .and_then(|input| self.reply_quote(input.row_send.as_ref()?, &input.compose));
+        if let Some(input) = &mut self.input {
+            input.quote = quote;
+        }
+    }
+
+    /// The next token window of the summary meter, when the squad samples one.
+    fn cycle_token_window(&mut self) {
+        if let Some(meter) = self.meter.as_mut() {
+            self.token_window = self.token_window.next(meter.settings.windows);
+            self.window_changed = true;
+            let now = Instant::now();
+            meter.select(self.token_window, now);
+            self.project_usage(now);
+            self.notice = Some(format!("Token window: {}", self.token_window.label()));
+        }
     }
 
     fn annotate_note(&mut self) -> Effect {
@@ -2639,10 +2735,7 @@ impl App {
                 return self.say("Nothing sent.");
             }
             KeyCode::Tab => {
-                if let Some(alternative) = input.alternative.take() {
-                    input.alternative = Some(std::mem::replace(&mut input.compose, alternative));
-                    input.prompt = input.header();
-                }
+                self.cycle_mode();
                 return Effect::None;
             }
             KeyCode::Enter => {}
@@ -2917,6 +3010,23 @@ impl App {
                             self.settings_preview();
                             self.settings = None;
                             Effect::CancelSettings
+                        }
+                        super::settings::Input::Pick("window") => {
+                            self.cycle_token_window();
+                            let label = self.token_window.label().to_owned();
+                            if let Some(overlay) = &mut self.settings {
+                                overlay.set_pick("window", label);
+                            }
+                            Effect::None
+                        }
+                        super::settings::Input::Pick(id) => {
+                            self.settings_preview();
+                            self.settings = None;
+                            if id == "theme" {
+                                Effect::PickTheme
+                            } else {
+                                Effect::PickView
+                            }
                         }
                     })
                 }
@@ -3677,7 +3787,7 @@ pub(crate) mod tests {
             ),
             notes: super::Notes::NotShown,
             render: crate::config::NotesRender::Markdown,
-            bindings: crate::action::preset(true, &[]),
+            bindings: crate::action::with_action_keys(crate::action::preset(true, &[])),
             section_bindings: Vec::new(),
             configured_bindings: Default::default(),
             opener: None,
@@ -4189,7 +4299,7 @@ pub(crate) mod tests {
             "sent in the lead's own squad room, not a tab's"
         );
         press(&mut app, KeyCode::Char('a'));
-        assert_eq!(app.input.as_ref().unwrap().header(), "✎ note → rin");
+        assert_eq!(app.input.as_ref().unwrap().header(), "→ rin (infra) · note");
         typed(&mut app, "check the queue");
         assert!(matches!(press(&mut app, KeyCode::Enter),
             Effect::Act(Request::Annotate { squad, to, .. }) if squad == "infra" && to == "rin"));
@@ -4242,7 +4352,10 @@ pub(crate) mod tests {
 
     #[test]
     fn keys_resolve_the_selected_row_into_requests_or_refuse_with_a_notice() {
-        let mut app = crew(crate::action::preset(true, &[]), Vec::new());
+        let mut app = crew(
+            crate::action::with_action_keys(crate::action::preset(true, &[])),
+            Vec::new(),
+        );
         assert_eq!(
             press(&mut app, KeyCode::Enter),
             Effect::Act(Request::Jump("auth-fix".into()))
@@ -4292,7 +4405,10 @@ pub(crate) mod tests {
 
     #[test]
     fn talk_annotate_and_reply_compose_one_line_and_empty_sends_nothing() {
-        let mut app = crew(crate::action::preset(true, &[]), Vec::new());
+        let mut app = crew(
+            crate::action::with_action_keys(crate::action::preset(true, &[])),
+            Vec::new(),
+        );
         {
             let view = app.view.as_mut().unwrap();
             view.me = Some("Ben".into());
@@ -4307,7 +4423,10 @@ pub(crate) mod tests {
         // The cursor starts on the lead; these cases act on the first member.
         app.select(1);
         press(&mut app, KeyCode::Char('t'));
-        assert_eq!(app.input.as_ref().unwrap().prompt, "→ auth-fix (product)");
+        assert_eq!(
+            app.input.as_ref().unwrap().prompt,
+            "→ auth-fix (product) · talk"
+        );
         typed(&mut app, "q j -rf; $(x)");
         assert!(app.input.is_some(), "q and j are text while composing");
         assert_eq!(
@@ -4336,7 +4455,7 @@ pub(crate) mod tests {
         press(&mut app, KeyCode::Tab);
         assert_eq!(
             app.input.as_ref().unwrap().prompt,
-            "✎ note → sol · about auth-fix"
+            "→ sol (product) · note · about auth-fix"
         );
         typed(&mut app, "split the job");
         assert_eq!(
@@ -4356,7 +4475,10 @@ pub(crate) mod tests {
         assert_eq!(menu.title, "answer auth-fix");
         assert_eq!(menu.entries.len(), 2);
         press(&mut app, KeyCode::Char('2'));
-        assert_eq!(app.input.as_ref().unwrap().prompt, "→ auth-fix (product)");
+        assert_eq!(
+            app.input.as_ref().unwrap().prompt,
+            "→ auth-fix (product) · answer"
+        );
         typed(&mut app, "postgres");
         assert_eq!(
             press(&mut app, KeyCode::Enter),
@@ -4405,7 +4527,10 @@ pub(crate) mod tests {
         app.select(1);
         press(&mut app, KeyCode::Char('a'));
         assert!(app.menu.is_none(), "a single request opens in place");
-        assert_eq!(app.input.as_ref().unwrap().header(), "→ auth-fix (product)");
+        assert_eq!(
+            app.input.as_ref().unwrap().header(),
+            "→ auth-fix (product) · answer"
+        );
         assert_eq!(
             app.input.as_ref().unwrap().quote.as_deref(),
             Some("Ship tonight?")
@@ -4414,12 +4539,23 @@ pub(crate) mod tests {
         press(&mut app, KeyCode::Tab);
         assert_eq!(
             app.input.as_ref().unwrap().header(),
-            "✎ note → sol · about auth-fix"
+            "→ sol (product) · note · about auth-fix"
+        );
+        assert_eq!(app.input.as_ref().unwrap().text, "draft");
+        press(&mut app, KeyCode::Tab);
+        assert_eq!(
+            app.input.as_ref().unwrap().header(),
+            "→ auth-fix (product) · talk"
         );
         assert_eq!(app.input.as_ref().unwrap().text, "draft");
         press(&mut app, KeyCode::Tab);
         assert!(
             matches!(app.input.as_ref().unwrap().compose, Compose::Reply { ref request, .. } if request == "q")
+        );
+        assert_eq!(
+            app.input.as_ref().unwrap().quote.as_deref(),
+            Some("Ship tonight?"),
+            "the question is quoted again when the mode returns to answer"
         );
         let target = app.row_target(1).unwrap();
         assert!(
@@ -4441,6 +4577,152 @@ pub(crate) mod tests {
         assert!(
             app.sent.is_none(),
             "the next key clears the row confirmation"
+        );
+    }
+
+    #[test]
+    fn t_toggles_reply_previews_on_a_squad_tab_and_a_user_talk_binding_wins() {
+        let mut app = crew(crate::action::preset(true, &[]), vec![]);
+        app.view.as_mut().unwrap().me = Some("Ben".into());
+        assert_eq!(
+            press(&mut app, KeyCode::Char('t')),
+            Effect::HomeReplies(false)
+        );
+        app.view.as_mut().unwrap().home_replies = false;
+        assert_eq!(
+            press(&mut app, KeyCode::Char('t')),
+            Effect::HomeReplies(true)
+        );
+        assert!(app.input.is_none(), "t no longer opens a composer");
+        // Someone who bound `t` themselves keeps their binding.
+        app.view
+            .as_mut()
+            .unwrap()
+            .bindings
+            .insert("t".into(), crate::action::Action::parse("talk").unwrap());
+        app.select(0);
+        assert_eq!(press(&mut app, KeyCode::Char('t')), Effect::None);
+        assert_eq!(
+            app.input.as_ref().unwrap().header(),
+            "→ auth-fix (product) · talk"
+        );
+    }
+
+    fn modes_of(app: &App) -> (String, Vec<&'static str>) {
+        let input = app.input.as_ref().unwrap();
+        (input.header(), input.modes())
+    }
+
+    #[test]
+    fn tab_cycles_answer_note_talk_for_the_modes_the_row_allows() {
+        let mut app = crew(crate::action::preset(true, &[]), vec![]);
+        let view = app.view.as_mut().unwrap();
+        view.me = Some("Ben".into());
+        view.document["squad"]["lead"] = json!({"name":"sol"});
+        // Nothing waits: `a` opens the note; Tab reaches talk and back.
+        app.select(1);
+        press(&mut app, KeyCode::Char('a'));
+        assert_eq!(
+            modes_of(&app),
+            (
+                "→ sol (product) · note · about auth-fix".into(),
+                vec!["note", "talk"]
+            )
+        );
+        typed(&mut app, "keep");
+        press(&mut app, KeyCode::Tab);
+        assert_eq!(
+            app.input.as_ref().unwrap().header(),
+            "→ auth-fix (product) · talk"
+        );
+        assert!(matches!(press(&mut app, KeyCode::Tab), Effect::None));
+        assert!(matches!(
+            app.input.as_ref().unwrap().compose,
+            Compose::Annotate { .. }
+        ));
+        assert_eq!(app.input.as_ref().unwrap().text, "keep");
+        // Each mode sends through its own request after the same revalidation.
+        press(&mut app, KeyCode::Tab);
+        assert!(matches!(
+            press(&mut app, KeyCode::Enter),
+            Effect::Act(Request::Talk { ref to, ref text, .. }) if to == "auth-fix" && text == "keep"
+        ));
+        // Something waits: answer, note, talk in that cycle; a talk start
+        // (a user's own `talk` binding) cycles on to answer, then note.
+        app.view.as_mut().unwrap().document["sections"][0]["rows"][0]["waitingOnYou"] =
+            json!([{"requestId": "q", "preview": "Ship?"}]);
+        press(&mut app, KeyCode::Char('a'));
+        assert_eq!(
+            modes_of(&app),
+            (
+                "→ auth-fix (product) · answer".into(),
+                vec!["answer", "note", "talk"]
+            )
+        );
+        press(&mut app, KeyCode::Esc);
+        app.view
+            .as_mut()
+            .unwrap()
+            .bindings
+            .insert("x".into(), crate::action::Action::parse("talk").unwrap());
+        press(&mut app, KeyCode::Char('x'));
+        assert_eq!(
+            app.input.as_ref().unwrap().header(),
+            "→ auth-fix (product) · talk"
+        );
+        press(&mut app, KeyCode::Tab);
+        assert_eq!(
+            app.input.as_ref().unwrap().header(),
+            "→ auth-fix (product) · answer"
+        );
+        press(&mut app, KeyCode::Tab);
+        assert_eq!(
+            app.input.as_ref().unwrap().header(),
+            "→ sol (product) · note · about auth-fix"
+        );
+    }
+
+    #[test]
+    fn a_row_without_a_lead_or_a_request_has_only_talk_and_tab_changes_nothing() {
+        let mut app = crew(crate::action::preset(true, &[]), vec![]);
+        app.view.as_mut().unwrap().me = Some("Ben".into());
+        app.view
+            .as_mut()
+            .unwrap()
+            .bindings
+            .insert("x".into(), crate::action::Action::parse("talk").unwrap());
+        app.select(0);
+        press(&mut app, KeyCode::Char('x'));
+        assert_eq!(
+            modes_of(&app),
+            ("→ auth-fix (product) · talk".into(), vec!["talk"])
+        );
+        typed(&mut app, "hi");
+        press(&mut app, KeyCode::Tab);
+        assert_eq!(
+            app.input.as_ref().unwrap().header(),
+            "→ auth-fix (product) · talk"
+        );
+        assert_eq!(app.input.as_ref().unwrap().text, "hi");
+    }
+
+    #[test]
+    fn an_explicit_member_note_binding_cycles_only_note_and_talk() {
+        let mut app = crew(crate::action::preset(true, &[]), vec![]);
+        let view = app.view.as_mut().unwrap();
+        view.me = Some("Ben".into());
+        view.document["squad"]["lead"] = json!({"name":"sol"});
+        view.document["sections"][0]["rows"][0]["waitingOnYou"] =
+            json!([{"requestId": "q", "preview": "Ship?"}]);
+        view.bindings.insert(
+            "x".into(),
+            crate::action::Action::parse("annotate member").unwrap(),
+        );
+        app.select(1);
+        press(&mut app, KeyCode::Char('x'));
+        assert_eq!(
+            modes_of(&app),
+            ("→ auth-fix (product) · note".into(), vec!["note", "talk"])
         );
     }
 
@@ -4470,7 +4752,10 @@ pub(crate) mod tests {
         press(&mut app, KeyCode::Esc);
         let note = Action::parse("annotate member").unwrap();
         app.perform(&note);
-        assert_eq!(app.input.as_ref().unwrap().header(), "✎ note → auth-fix");
+        assert_eq!(
+            app.input.as_ref().unwrap().header(),
+            "→ auth-fix (product) · note"
+        );
         typed(&mut app, "context");
         assert!(
             matches!(press(&mut app, KeyCode::Enter), Effect::Act(Request::Annotate { ref to, ref row, .. }) if to == "auth-fix" && row == "auth-fix")
@@ -4570,7 +4855,7 @@ pub(crate) mod tests {
             ] {
                 app.input = Some(Input {
                     row_send: None,
-                    alternative: None,
+                    others: Vec::new(),
                     quote: None,
                     link: None,
                     prompt: "message".into(),
@@ -4653,7 +4938,7 @@ pub(crate) mod tests {
 
     #[test]
     fn the_menu_lists_the_rows_actions_first_then_the_boards_and_user_keys_follow_their_verb() {
-        let mut bindings = crate::action::preset(false, &[]);
+        let mut bindings = crate::action::with_action_keys(crate::action::preset(false, &[]));
         bindings.insert(
             "x".into(),
             crate::action::Action::parse("reply").expect("reply"),
@@ -5120,7 +5405,7 @@ mod lead_row_tests {
         let mut loaded = snapshot("product", json!([{"title": null, "rows": rows}]));
         let view = loaded.view.as_mut().unwrap();
         view.document["squad"]["lead"] = lead();
-        view.bindings = crate::action::preset(true, &[]);
+        view.bindings = crate::action::with_action_keys(crate::action::preset(true, &[]));
         view.configured_bindings = view.bindings.clone();
         view.me = Some("Ben".into());
         app.apply(loaded);
@@ -5206,7 +5491,10 @@ mod lead_row_tests {
         // cancelling or an empty Enter.
         app.select(2);
         assert_eq!(press(&mut app, KeyCode::Char('r')), Effect::None);
-        assert_eq!(app.input.as_ref().unwrap().header(), "✎ note → bob");
+        assert_eq!(
+            app.input.as_ref().unwrap().header(),
+            "→ bob (product) · note"
+        );
         assert_eq!(press(&mut app, KeyCode::Esc), Effect::None);
         assert!(app.input.is_none());
         press(&mut app, KeyCode::Char('r'));
@@ -5243,7 +5531,7 @@ mod lead_row_tests {
             Effect::Act(Request::Jump("sol".into()))
         );
         press(&mut app, KeyCode::Char('t'));
-        assert_eq!(app.input.as_ref().unwrap().prompt, "→ sol (product)");
+        assert_eq!(app.input.as_ref().unwrap().prompt, "→ sol (product) · talk");
         for character in "hello".chars() {
             press(&mut app, KeyCode::Char(character));
         }
@@ -5269,7 +5557,10 @@ mod token_window_tests {
     use crate::config::{TokenRate, TokenWindow};
     use serde_json::json;
     fn app() -> App {
-        let mut app = crew(crate::action::preset(false, &[]), Vec::new());
+        let mut app = crew(
+            crate::action::with_action_keys(crate::action::preset(false, &[])),
+            Vec::new(),
+        );
         app.meter = Some(super::super::meter::Meter::new(
             TokenRate {
                 enabled: true,
@@ -5744,7 +6035,7 @@ mod token_window_tests {
         ] {
             app.input = Some(Input {
                 row_send: None,
-                alternative: None,
+                others: Vec::new(),
                 quote: None,
                 link: None,
                 prompt: "message".into(),
@@ -5946,7 +6237,10 @@ mod link_tests {
             app.view.as_mut().unwrap().document["squad"]["lead"] =
                 json!({"id":"lead-id", "name":"Lead"});
             assert_eq!(app.activate_link(), Effect::None);
-            assert_eq!(app.input.as_ref().unwrap().header(), "→ Lead (product)");
+            assert_eq!(
+                app.input.as_ref().unwrap().header(),
+                "→ Lead (product) · talk"
+            );
             if changed {
                 app.view.as_mut().unwrap().document["squad"]["lead"]["id"] = json!("replacement");
                 assert_eq!(enter(&mut app), Effect::None);
