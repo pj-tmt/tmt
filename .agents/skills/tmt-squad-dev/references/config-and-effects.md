@@ -19,7 +19,8 @@
   `team` unless they set the simple board form, which keeps `crew`; explicit `crew`,
   `pr-queue` and `minimal` keep their presets. `Config::board` resolves a hand-written
   per-squad `board.layout` or `panes` first, then per-squad `board.view`, then top-level
-  `board.view`, then the workflow layout's own arrangement. A user `rows` or legacy
+  `board.view`, then the boxed `members` arrangement. Existing simple `direction`/`sizes`
+  configs without a named view retain their workflow pane preset. A user `rows` or legacy
   `columns` table replaces the grid; `fields.<name>` replaces that provider's whole
   table (extra provider names keep `pr`); reminder keys override individually. A nested
   board requires a full `layout` or `panes` override, and partial `direction`/`sizes`
@@ -34,8 +35,7 @@
 ## Team preset
 
 The `team` preset uses the same `Layout`/`Board::preset` and config readers as the
-others: a 60/40 top-bottom split, rows beside detail/replies at 62/38 on top, detail
-above replies at 50/50, full-width lead notes beneath, crew states, pending-first order,
+others. Workflow defaults are crew states, pending-first order,
 a member/state/task/pr/model grid with a pending line, a 60-second `github-pr` field and
 a 30-minute observed-age default. Everything is configurable; the other presets keep
 their defaults. Model reads the existing session projection and providers stay on the
@@ -44,9 +44,11 @@ shared fetcher path.
 ## Views (pane arrangements)
 
 - The `view` command module owns the factory catalog and registers `view ls` (hidden
-  `list` alias), `set` and `rm`; bare `view` lists. `team`, `focus`, `notes`, `detail`
-  and `wide` supply arrangements and initial fold settings only; the team workflow reads
-  the same factory arrangement. A view changes no states, rows, providers, reminders or
+  `list` alias), `set` and `rm`; bare `view` lists. `members` is the default boxed
+  squad list with notes below. `team` preserves the previous side-pane arrangement;
+  `focus`, `notes`, `detail` and `wide` keep their arrangements and initial folds.
+  `Board.members` selects the shared HOME list scene without replacing configured
+  row/public-list projections. A view changes no states, rows, providers, reminders or
   meter policy. Explicit per-squad fold settings override factory defaults through the
   same Board reader; pane acquisition reads the resolved Board independently of the
   workflow layout. `wide` folds its middle column below 180 cells and relies on the
@@ -101,6 +103,9 @@ shared fetcher path.
   and `tab_view::rows` keep inspection and loaded tab/section rules together. Aggregate
   tabs show fixed grids and global appearance without squad providers. `config show`
   without scope inspects board defaults; `--squad` and `--tab` are exclusive.
+- `board.view` is editable globally and for squads without custom layout/panes.
+  `preview_setting` uses the same `view_draft` as the view command/picker; it never
+  writes during preview and global choices remain masked by scoped/custom layouts.
 - Editing in the overlay (`board/settings.rs`): an editable entry opens a local input
   prompt. Each valid value calls `Config::preview_setting`, and the app applies the
   disposable board, rows, notes mode, state colors, interval and tab policy to the newest

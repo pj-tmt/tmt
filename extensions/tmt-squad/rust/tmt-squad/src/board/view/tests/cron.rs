@@ -326,8 +326,8 @@ mod controls {
     fn keys_are_job_keys_only_while_the_jobs_half_has_focus() {
         let mut app = squad_tab();
         draw(&app, 100, 24);
-        // On the members, `n` is the notes preset and `x`, `p`, `e` do nothing.
-        for key in ['p', 'x', 'e', 'o', 'd', 'n'] {
+        // Member keys cannot perform cron operations.
+        for key in ['p', 'x', 'o', 'd', 'n'] {
             let effect = press(&mut app, KeyCode::Char(key));
             assert!(
                 !matches!(effect, Effect::Act(Request::Cron(_)))
@@ -336,6 +336,12 @@ mod controls {
                 "{key}"
             );
         }
+        let effect = press(&mut app, KeyCode::Char('e'));
+        assert!(!matches!(effect, Effect::Act(Request::Cron(_))));
+        assert!(matches!(
+            app.input.as_ref().map(|input| &input.compose),
+            Some(crate::board::app::Compose::ReadRow { .. })
+        ));
     }
 
     #[test]

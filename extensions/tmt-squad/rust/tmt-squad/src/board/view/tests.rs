@@ -418,6 +418,7 @@ pub(super) fn board(sections: Value) -> App {
             home_replies: true,
             token_rate: None,
             home_rate: Default::default(),
+            exchanges: Vec::new(),
             home: None,
             derived: Default::default(),
             document: json!({"squad": {"name": "product", "lead": null}, "sections": sections}),
@@ -676,11 +677,18 @@ fn factory_views_render_crew_team_and_custom_rows_at_each_width() {
 }
 
 #[test]
-fn default_team_is_readable_at_80_120_and_200_columns() {
+fn previous_team_view_is_readable_at_80_120_and_200_columns() {
     let path =
         std::env::temp_dir().join(format!("squad-team-responsive-{}.toml", std::process::id()));
     let _ = std::fs::remove_file(&path);
-    let config = crate::config::Config::read(path).unwrap();
+    let config = crate::config::Config::read(path)
+        .unwrap()
+        .preview_view(
+            &crate::view::ViewScope::Board,
+            Some(crate::view::ViewName::Team),
+            "product",
+        )
+        .unwrap();
     let mut app = preset_board();
     let view = app.view.as_mut().unwrap();
     view.rows = config.rows("product").unwrap();
@@ -1019,7 +1027,7 @@ fn drawn_rows_are_clickable_and_the_menu_and_help_show_bindings() {
     );
     app.help = false;
     app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
-    let screen = draw(&app, 60, 24);
+    let screen = draw(&app, 60, 28);
     assert!(screen.iter().any(|line| line.contains("┌ docs ")));
     assert!(
         screen
@@ -1136,6 +1144,7 @@ fn paned(board: crate::config::Board, notes: Notes) -> App {
                 home_replies: true,
                 token_rate: None,
                 home_rate: Default::default(),
+            exchanges: Vec::new(),
                 home: None,
             derived: Default::default(),
                 document: json!({"squad": {"name": "product", "lead": {"id": "LEAD", "name": "sol", "fields": {}}}, "sections": [
@@ -1936,6 +1945,7 @@ fn stale_lead_notes_say_so_on_the_pane_title() {
 fn nested_splits_draw_rows_beside_detail_over_notes() {
     use crate::split::{Size, Split};
     let board = crate::config::Board {
+        members: false,
         mode: BoardMode::Split,
         collapsed: Default::default(),
         fold_below: None,
@@ -3646,6 +3656,7 @@ fn nested_and_all_folded_render_titles_only_and_tiny_hits_stay_disjoint() {
     use crate::split::{Size, Split};
     let panes = vec![Pane::Rows, Pane::Detail, Pane::Notes, Pane::Replies];
     let board = crate::config::Board {
+        members: false,
         mode: BoardMode::Split,
         panes: panes.clone(),
         collapsed: Default::default(),
@@ -3836,7 +3847,18 @@ fn group_folding_reclaims_row_space_and_unfolding_restores_exact_geometry() {
         std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/markup-parity.toml"),
     )
     .unwrap();
-    let mut app = paned(config.board("team").unwrap(), Notes::Missing);
+    let mut app = paned(
+        config
+            .preview_view(
+                &crate::view::ViewScope::Board,
+                Some(crate::view::ViewName::Team),
+                "team",
+            )
+            .unwrap()
+            .board("team")
+            .unwrap(),
+        Notes::Missing,
+    );
     app.set_body_width(120);
     let expanded = draw(&app, 120, 42);
     let width = app.hits.borrow()[0].width;
@@ -4096,4 +4118,267 @@ fn inline_middle_row_band_moves_rows_masks_panes_and_fits_every_theme() {
             }
         }
     }
+}
+
+fn boxed_members(sections: Value) -> App {
+    let mut app = board(sections);
+    lead_sol(&mut app);
+    let config = crate::config::Config::read(std::env::temp_dir().join(format!(
+        "squad-members-default-{}.missing.toml",
+        std::process::id()
+    )))
+    .unwrap();
+    let view = app.view.as_mut().unwrap();
+    view.board = config.board("product").unwrap();
+    view.notes = Notes::Text("Squad coordination notes".into());
+    view.me = Some("Ben".into());
+    view.me_id = Some("USER".into());
+    view.exchanges =
+        crate::board::home_leads::members(&view.document, None, crate::status::now_ms());
+    app
+}
+
+#[test]
+fn boxed_members_share_home_scene_and_inline_band_at_all_widths_and_themes() {
+    for width in [160, 100, 80] {
+        for (base, depth) in [
+            ("tmt", tmt_cli_style::Depth::TrueColor),
+            ("tmt-light", tmt_cli_style::Depth::TrueColor),
+            ("tmt", tmt_cli_style::Depth::None),
+        ] {
+            let now = crate::status::now_ms();
+            let mut app = boxed_members(
+                json!([{"title": null, "rows": [row("worker", "working", "implement issue", json!({"id": "WORKER", "state": "working", "pending": "Approve this change?", "fields": {"task": "implement issue", "model": "gpt-6.1-sol", "pr_link": "https://github.com/pj-tmt/tmt/pull/1766"}}))]}]),
+            );
+            let view = app.view.as_mut().unwrap();
+            view.look = crate::look::Look {
+                theme: tmt_cli_style::Theme::new(tmt_cli_style::theme::Base::parse(base).unwrap()),
+                depth,
+            };
+            view.replies = vec![
+                json!({"requestId": "reply", "recipientId": "WORKER", "to": "worker", "status": "retained", "submittedAtMs": now - 300000, "response": "Pushed the shared list.\u{001b}[31m"}),
+            ];
+            let collapsed = draw(&app, width, 32);
+            let lead = collapsed
+                .iter()
+                .position(|line| line.contains("sol") && line.contains("lead"))
+                .unwrap();
+            let rule = collapsed
+                .iter()
+                .position(|line| line.contains("members · 1"))
+                .unwrap();
+            let worker = collapsed
+                .iter()
+                .position(|line| line.contains("worker") && line.contains("waits on you"))
+                .unwrap();
+            assert!(lead < rule && rule < worker);
+            assert!(collapsed[worker + 1].contains("implement issue"));
+            assert!(
+                !app.hits
+                    .borrow()
+                    .iter()
+                    .any(|hit| usize::from(hit.y) == rule)
+            );
+            assert_eq!(
+                app.hits.borrow().iter().filter(|hit| hit.row == 1).count(),
+                2
+            );
+            app.selected = 1;
+            assert_eq!(
+                app.key(KeyEvent::new(KeyCode::Char('e'), KeyModifiers::NONE)),
+                Effect::None
+            );
+            let expanded = draw(&app, width, 32);
+            let band = app.input_band.get().unwrap();
+            assert_eq!(band.x, 1, "single list border, band inset: {base}/{width}");
+            assert_eq!(band.width, width - 2);
+            let body = crate::board::view::waiting::read_lines(&app, band.width - 4)
+                .iter()
+                .map(|line| line.to_string())
+                .collect::<Vec<_>>()
+                .join("\n");
+            assert!(
+                body.find("◆ waits on you").unwrap() < body.find("task  implement issue").unwrap()
+            );
+            assert!(body.find("links").unwrap() < body.find("latest reply · 5m").unwrap());
+            assert!(body.contains("Pushed the shared list."));
+            assert!(!body.contains('\u{1b}'));
+            assert!(
+                expanded
+                    .iter()
+                    .any(|line| line.contains("a write to worker"))
+            );
+            assert!(
+                !app.hits
+                    .borrow()
+                    .iter()
+                    .any(|hit| (band.y..band.bottom()).contains(&hit.y))
+            );
+            assert_eq!(
+                app.selected_read(),
+                None,
+                "reuse already acquired reply body"
+            );
+            assert_eq!(
+                app.key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)),
+                Effect::None
+            );
+            assert!(app.input.is_none());
+            assert_eq!(app.selected, 1);
+            app.selected = 0;
+            app.perform(&crate::action::Action::parse("home-message").unwrap());
+            draw(&app, width, 32);
+            assert!(matches!(
+                app.input.as_ref().unwrap().compose,
+                crate::board::app::Compose::ReadRow { .. }
+            ));
+            app.key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+            app.key(KeyEvent::new(KeyCode::Char('n'), KeyModifiers::NONE));
+            assert!(app.collapsed_panes().contains(&Pane::Notes));
+            app.key(KeyEvent::new(KeyCode::Char('n'), KeyModifiers::NONE));
+            assert!(!app.collapsed_panes().contains(&Pane::Notes));
+        }
+    }
+}
+
+#[test]
+fn boxed_member_read_without_user_is_read_only_and_replaced_rows_cannot_inherit_a_band() {
+    let mut app = boxed_members(
+        json!([{"title":null,"rows":[row("worker", "idle", "safe detail", json!({"id":"WORKER", "state":"idle"}))]}]),
+    );
+    let view = app.view.as_mut().unwrap();
+    view.me = None;
+    view.me_id = None;
+    app.selected = 1;
+    app.perform(&crate::action::Action::parse("home-message").unwrap());
+    draw(&app, 80, 24);
+    assert!(app.input_band.get().is_some());
+    assert_eq!(app.selected_read(), None);
+    assert_eq!(
+        app.key(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE)),
+        Effect::None
+    );
+    assert!(app.input.is_none());
+    app.perform(&crate::action::Action::parse("home-message").unwrap());
+    app.view.as_mut().unwrap().document["sections"][0]["rows"][0]["id"] = json!("REPLACEMENT");
+    assert!(!app.message_valid());
+}
+
+#[test]
+fn boxed_member_order_preserves_lead_and_authored_sections_and_uses_home_exchanges() {
+    let mut app = boxed_members(json!([
+        {"title":"First", "rows":[
+            row("empty-z", "idle", "", json!({"id":"Z"})),
+            row("reply", "working", "", json!({"id":"R"})),
+            row("new-wait", "working", "", json!({"id":"N", "waitingOnYou":[{"preparedAtMs":20,"preview":"newer"}]})),
+            row("old-wait", "working", "", json!({"id":"O", "waitingOnYou":[{"preparedAtMs":10,"preview":"older"}]})),
+            row("empty-a", "idle", "", json!({"id":"A"}))]},
+        {"title":"Second", "rows":[row("second-wait", "working", "", json!({"id":"S", "pending":"decision"}))]}
+    ]));
+    let view = app.view.as_mut().unwrap();
+    let source = view.document.clone();
+    view.exchanges = crate::board::home_leads::members(&view.document, None, 100);
+    view.exchanges
+        .iter_mut()
+        .find(|row| row.id() == "R")
+        .unwrap()
+        .exchange = Some(crate::board::home_leads::LeadPreview {
+        kind: crate::board::home_leads::Kind::Reply,
+        request: Some("reply".into()),
+        since_ms: Some(90),
+        preview: "latest".into(),
+        status: "retained".into(),
+    });
+    assert_eq!(
+        app.rows()
+            .iter()
+            .map(|(_, row)| row["name"].as_str().unwrap())
+            .collect::<Vec<_>>(),
+        [
+            "sol",
+            "old-wait",
+            "new-wait",
+            "reply",
+            "empty-a",
+            "empty-z",
+            "second-wait"
+        ]
+    );
+    assert_eq!(
+        app.view.as_ref().unwrap().document,
+        source,
+        "ordering is board-only"
+    );
+    let screen = draw(&app, 80, 40).join("\n");
+    assert!(screen.find("First").unwrap() < screen.find("old-wait").unwrap());
+    assert!(screen.find("Second").unwrap() > screen.find("empty-z").unwrap());
+}
+
+#[test]
+fn boxed_member_band_uses_rebound_keys_and_scrolls_its_body_without_moving_the_cursor() {
+    use crate::action::Action;
+    let mut app = boxed_members(
+        json!([{"title":null,"rows":[row("worker", "working", &"long task ".repeat(100), json!({"id":"WORKER"}))]}]),
+    );
+    let view = app.view.as_mut().unwrap();
+    view.bindings.remove("e");
+    view.bindings.remove("a");
+    view.bindings
+        .insert("E".into(), Action::parse("home-message").unwrap());
+    view.bindings
+        .insert("A".into(), Action::parse("annotate").unwrap());
+    app.selected = 1;
+    app.key(KeyEvent::new(KeyCode::Char('E'), KeyModifiers::NONE));
+    draw(&app, 80, 24);
+    assert!(app.input_band.get().is_some());
+    let screen = draw(&app, 80, 24).join("\n");
+    assert!(screen.contains("E collapse · A write to worker"));
+    app.key(KeyEvent::new(KeyCode::PageDown, KeyModifiers::NONE));
+    assert_eq!(app.selected, 1);
+    assert!(
+        matches!(app.input.as_ref().unwrap().compose, crate::board::app::Compose::ReadRow { offset, .. } if offset > 0)
+    );
+    app.key(KeyEvent::new(KeyCode::Char('e'), KeyModifiers::NONE));
+    assert!(
+        app.input.is_some(),
+        "disabled collapse key remains disabled"
+    );
+    app.key(KeyEvent::new(KeyCode::Char('E'), KeyModifiers::NONE));
+    assert!(app.input.is_none());
+    app.key(KeyEvent::new(KeyCode::Char('E'), KeyModifiers::NONE));
+    assert_eq!(
+        app.key(KeyEvent::new(KeyCode::Char('A'), KeyModifiers::NONE)),
+        Effect::None
+    );
+    assert!(
+        matches!(&app.input.as_ref().unwrap().compose, crate::board::app::Compose::Talk { to } if to == "worker")
+    );
+}
+
+#[test]
+fn boxed_member_band_follows_its_occurrence_through_exchange_reordering_without_a_user() {
+    let mut app = boxed_members(json!([{"title":null,"rows":[
+        row("worker", "working", "keep reading", json!({"id":"WORKER"})),
+        row("alpha", "working", "other", json!({"id":"ALPHA"}))
+    ]}]));
+    app.view.as_mut().unwrap().me = None;
+    app.view.as_mut().unwrap().me_id = None;
+    app.selected = 2;
+    assert_eq!(app.selected_row().unwrap()["id"], "WORKER");
+    app.perform(&crate::action::Action::parse("home-message").unwrap());
+    let mut view = app.view.take().unwrap();
+    view.document["sections"][0]["rows"][0]["pending"] = json!("question moves this row first");
+    view.exchanges =
+        crate::board::home_leads::members(&view.document, None, crate::status::now_ms());
+    let mut snapshot = crate::board::app::tests::snapshot("product", json!([]));
+    snapshot.view = Ok(view);
+    app.apply(snapshot);
+    assert_eq!(app.selected, 1);
+    assert_eq!(app.selected_row().unwrap()["id"], "WORKER");
+    assert!(app.input.is_some());
+    assert!(app.message_valid());
+    draw(&app, 80, 24);
+    assert!(app.input_band.get().is_some());
+    app.view.as_mut().unwrap().document["sections"][0]["rows"][0]["id"] = json!("REPLACED");
+    assert!(!app.message_valid());
 }

@@ -3,12 +3,14 @@
 mod detail;
 mod footer;
 mod header;
+pub(in crate::board) mod member_list;
 mod notes;
 mod overlays;
 mod panes;
 mod replies;
 pub(in crate::board) mod row_paint;
 mod rows;
+pub(in crate::board) mod scene;
 mod tabs;
 pub(in crate::board) mod waiting;
 

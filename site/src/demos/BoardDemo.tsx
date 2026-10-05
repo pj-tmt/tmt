@@ -109,6 +109,10 @@ export function BoardDemo({ steps, label }: { steps: Step[]; label: string }) {
             }
           } else {
             emit({ ...base, typed, pop: { board, typed: "", replies: 0, cursor: false } });
+            for (let r = 1; r <= (board.reply?.length ?? 0); r++) {
+              if (!(await sleep(250))) return false;
+              emit({ ...base, typed, pop: { board, typed: "", replies: r, cursor: false } });
+            }
           }
         }
         if (step.toast && !(await sleep(400))) return false;
@@ -223,7 +227,7 @@ export const startSquad: Step[] = [
     out: [dm("✓ sol leads squad product")],
   },
   {
-    cap: "tmt sq opens the board full screen in your pane. Tell your lead what you need; the reply arrives right on the board.",
+    cap: "tmt sq opens the board full screen in your pane. Tell your lead what you need, then expand the lead row with e to read the reply.",
     sess: "leads",
     windows: W1,
     on: 0,
@@ -236,10 +240,11 @@ export const startSquad: Step[] = [
     pops: [
       {
         rows: [],
+        sel: "lead",
         to: "sol",
         typed: "Start two members: token rotation, and one install guide.",
-        reply: [dm("  waiting for sol…"), "  sol: On it. I’ll set up a crew and report back."],
       },
+      { rows: [], sel: "lead", expanded: true, reply: ["sol: I’ll set up the crew."] },
     ],
   },
   {
@@ -264,7 +269,6 @@ export const startSquad: Step[] = [
           ["auth-fix", "working", "rotate session tokens", "#412 draft"],
           ["docs-sweep", "working", "one install guide", ""],
         ],
-        detail: "sol: two members working · nothing waiting on you",
       },
     ],
   },
@@ -303,8 +307,6 @@ export const jumpAndTalk: Step[] = [
       {
         rows: blocked,
         sel: 0,
-        pending: "approve the token rotation plan",
-        detail: "auth-fix · ~/w/app-3 · fix/token · ● running",
       },
     ],
   },
@@ -327,7 +329,7 @@ export const jumpAndTalk: Step[] = [
     right: "squad-product · crew 2",
     pre: [...agent, "> go with 1", "", "● On it. Rotating on next login."],
     hold: 1500,
-    pops: [{ rows: working, sel: 0, detail: "⌫ back to leads:1 sol" }],
+    pops: [{ rows: working, sel: 0 }],
   },
   {
     cap: "Back in leads, exactly where you left off.",
@@ -339,7 +341,7 @@ export const jumpAndTalk: Step[] = [
     hold: 1600,
   },
   {
-    cap: "Or never leave the board: t sends a prompt to the selected member, and its reply shows up right here.",
+    cap: "Or stay on the board: t sends a prompt to the selected member. Press e to read its latest reply inside the row.",
     sess: "leads",
     windows: WL,
     on: 1,
@@ -350,13 +352,14 @@ export const jumpAndTalk: Step[] = [
       {
         rows: working,
         sel: 1,
-        detail: "docs-sweep · ~/w/app-1 · docs/install · ● running",
         to: "docs-sweep",
         typed: "Is the guide ready for review?",
-        reply: [
-          dm("  waiting for docs-sweep…"),
-          "  docs-sweep: Yes. One page, three platform tabs. PR #409 is open.",
-        ],
+      },
+      {
+        rows: working,
+        sel: 1,
+        expanded: true,
+        reply: ["docs-sweep: #409 is open."],
       },
     ],
   },
@@ -368,7 +371,7 @@ export const jumpAndTalk: Step[] = [
     right: "squad-product · crew 2",
     pre: s2,
     hold: 2600,
-    pops: [{ rows: working, sel: 1, detail: "docs-sweep · ~/w/app-1 · docs/install · ● running" }],
+    pops: [{ rows: working, sel: 1 }],
     toast: "copied · docs-sweep: one install guide (working) #409",
   },
 ];

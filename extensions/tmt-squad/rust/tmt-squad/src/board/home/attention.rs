@@ -1,8 +1,8 @@
 //! The needs-you and blocked sections: a rule, then one line per member.
 use super::{
     controller::HomeEntry,
-    paint::{age_label, rule},
-    scene::{self, Kept, Key, Painted, Part},
+    paint::age_label,
+    scene::{self, Kept, Key, Painted, Part, rule},
 };
 use crate::{
     board::{app::App, view::fit},

@@ -392,6 +392,7 @@ mod tests {
         let (path, config, mut app) = fixture("custom", original);
         app.open_view_picker(config).unwrap();
         app.key(key(KeyCode::Down)); // reset
+        app.key(key(KeyCode::Down)); // members
         app.key(key(KeyCode::Down)); // team
         assert_eq!(app.effective_board().unwrap().panes.len(), 4);
         let picker = app.view_picker.as_mut().unwrap();
@@ -454,6 +455,7 @@ mod tests {
             snapshot.view.as_mut().unwrap().board = board.clone();
             app.apply(snapshot);
             app.open_view_picker(config).unwrap();
+            app.key(key(KeyCode::Down)); // team
             app.key(key(KeyCode::Down)); // focus
             app.key(key(KeyCode::Down)); // notes
             assert_eq!(app.effective_board(), Some(&board));
@@ -527,7 +529,7 @@ mod tests {
                 .collect();
             for text in [
                 "default",
-                "inherit the arrangement (team)",
+                "inherit the arrangement (members)",
                 "view · all boards",
                 "all boards",
                 "Enter save · Esc cancel · Tab scope",

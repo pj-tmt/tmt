@@ -73,6 +73,24 @@ pub(in crate::board) fn time_marks(app: &App, now: u64) -> Vec<String> {
         .into_iter()
         .filter_map(|(_, row)| super::waiting::age(row, now))
         .collect();
+    if board.members {
+        marks.extend(app.rows().into_iter().filter_map(|(_, row)| {
+            row["staleness"]["unchangedSinceMs"]
+                .as_u64()
+                .filter(|at| *at <= now)
+                .map(|at| tmt_cli_style::value::relative_time(now - at))
+        }));
+        if let Some(reply) = app.input.as_ref().and_then(|input| {
+            matches!(input.compose, crate::board::app::Compose::ReadRow { .. })
+                .then(|| app.latest_row_reply())
+                .flatten()
+        }) && let Some(at) = reply["submittedAtMs"]
+            .as_u64()
+            .filter(|at| *at > 0 && *at <= now)
+        {
+            marks.push(age(now, at));
+        }
+    }
     if visible {
         marks.extend(
             view.replies

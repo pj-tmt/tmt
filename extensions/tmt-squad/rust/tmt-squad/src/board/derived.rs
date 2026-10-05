@@ -11,6 +11,8 @@ pub(super) struct Derived {
     pub composition: Option<super::composition::Cache>,
     /// HOME's painted sections, each held with the inputs it was painted for.
     pub home: super::home::Scenes,
+    /// One boxed-list cache shared by HOME projections and squad rows.
+    pub member_list: super::view::scene::Kept<super::view::member_list::Block>,
 }
 
 pub(super) struct NotebookLines {
