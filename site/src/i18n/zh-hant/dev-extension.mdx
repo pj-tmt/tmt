@@ -1,0 +1,101 @@
+---
+source: site/src/chapters/dev-extension.mdx
+sourceRevision: 4bc2a059aed3b33fd0c2eb90c1ed543de73b0103
+title: 建立擴充套件
+---
+
+import { Cmd, Code } from "../../components/Cmd";
+import { components as Mdx } from "../../components/mdx";
+import { Aside, Terms } from "../../components/marks";
+
+擴充套件是 PATH 上任何名為 `tmt-<name>` 的執行檔。不需要 manifest、registry 或安裝步驟：把檔案放到 PATH 上，`tmt <name>` 就能執行它。Squad 也是用同一種方式建立，沒有額外的存取權限。
+
+<Mdx.h3 id="1-name-it">1. 命名</Mdx.h3>
+
+名稱使用小寫字母、數字與連字號（`[a-z0-9][a-z0-9-]*`）。內建指令與別名一律優先，所以要選 tmt 尚未使用的名稱。`tmt help` 會列出找到的擴充套件，並標出被內建指令蓋過的項目。
+
+<Cmd>{`
+$ install -m 755 tmt-hello ~/.local/bin/
+$ tmt hello --loud        # 執行：tmt-hello --loud
+$ tmt help hello          # 執行：tmt-hello --help
+`}</Cmd>
+
+<Mdx.h3 id="2-what-your-program-receives">2. 程式會收到什麼</Mdx.h3>
+
+<Terms>
+  <dt>arguments</dt>
+  <dd>名稱之後的所有內容，原樣傳入。tmt 不會解析你的選項，tmt 自己的選項也不能放在名稱前面。</dd>
+  <dt>terminal</dt>
+  <dd>
+    tmt 用你的程式取代自己，所以你會直接接到它的 stdin、stdout、stderr、TTY 與 signal。
+    你的結束碼就是 tmt 的結束碼。
+  </dd>
+  <dt>TMT_EXECUTABLE</dt>
+  <dd>
+    啟動你的 tmt 的絕對路徑。呼叫 tmt 時一律用這個路徑，不要用 PATH 上其他的 <code>tmt</code>，
+    才能使用同一份安裝與資料。
+  </dd>
+</Terms>
+
+<Mdx.h3 id="3-tab-completion-optional">3. Tab 補完（選用）</Mdx.h3>
+
+如果要支援補完，只需多處理一種呼叫。tmt 會執行 `tmt-<name> __complete -- <words>`，words 是名稱之後的所有內容，包含正在輸入的那個詞。每行印出一個原樣的候選值。時間上限是一秒，輸出上限是 64 KiB。沒有輸出、發生錯誤或逾時時，會改用一般的檔案補完；shell 不會把候選值當作程式執行。
+
+<Mdx.h3 id="4-talk-to-tmt">4. 與 tmt 溝通</Mdx.h3>
+
+不要自行開啟 tmt 的資料庫。和其他程式一樣，使用這些入口：
+
+- **一般指令加上 `--json`**，用來處理人也會執行的操作：`whoami`、`identity show`、`list`、`room show`、`x`、`reply`、`result`。
+- **`tmt api`**，用來處理程式需要的操作：stdin 傳入一個有版本的 JSON 請求，stdout 回傳一個 JSON 回應。完整規範在 [contracts/extension-api.md](https://github.com/pj-tmt/tmt/blob/main/contracts/extension-api.md)。
+
+<Cmd>{`
+$ printf '%s' '{"version":1,"operation":"capabilities","input":{}}' | "$TMT_EXECUTABLE" api
+{"version":1,"supported":{"min":1,"max":1},"operations":["capabilities","storage.root",
+ "changes.cursor","requests.list","requests.show","dispatch.show","dispatch.create", ...],...}
+`}</Cmd>
+
+| 操作                 | 用途                                                                                                      |
+| -------------------- | --------------------------------------------------------------------------------------------------------- |
+| storage.root         | 找到 tmt 的資料目錄。自己的檔案放在 `<dataRoot>/<your-name>/` 下，不要開啟 tmt 的資料庫或設定。           |
+| requests.list / show | 逐頁讀取 agent 或 room 的請求紀錄，或讀取一則請求與回覆。讀取不會把任何項目標為已讀。                     |
+| dispatch.create      | 向一個或多個 agent 發送工作。先選好 `operationId`；用同一個 ID 再次傳送，會取得原本的 receipt，不會重送。 |
+| dispatch.show        | 當掉或逾時後，透過 `operationId` 取回 receipt。                                                           |
+| rooms.write          | 用 room 目前的 revision 建立或變更 room，避免同時編輯互相覆寫。                                           |
+| notes.read           | 用 ID 讀取已儲存 agent 的筆記。                                                                           |
+
+這些是主要的操作；`capabilities` 會列出已安裝的 tmt 支援的所有操作。
+
+<Aside title="寫入時要記錄誰在寫。">
+  寫入操作（<code>dispatch.create</code>、<code>rooms.write</code> 與 <code>rooms.retire</code>）
+  要指定一個發起者：<code>identity</code>，或用 <code>"originator":"anonymous"</code>
+  不記錄寫入者，就像 CLI 沒有指定 <code>--identity</code> 一樣。兩者都指定或都沒指定，都會被拒絕。
+  這是同一位使用者的本機介面，不是安全邊界：它記錄誰做了操作，不授予額外權限。
+</Aside>
+
+<Mdx.h3 id="a-complete-example">完整範例</Mdx.h3>
+
+<Code>{`
+#!/bin/sh
+# tmt-hello: say hello as the agent in this pane.
+set -e
+if [ "$1" = "__complete" ]; then printf '%s\\n' --loud; exit 0; fi
+if [ "$1" = "--help" ]; then echo "usage: tmt hello [--loud]"; exit 0; fi
+me=$("$TMT_EXECUTABLE" whoami --json) # fails clearly outside a named pane
+greeting="hello from $(printf '%s' "$me" | sed -n 's/.*"name":"\\([^"]*\\)".*/\\1/p')"
+[ "$1" = "--loud" ] && greeting=$(printf '%s' "$greeting" | tr a-z A-Z)
+echo "$greeting"
+`}</Code>
+
+<Mdx.h3 id="5-react-to-changes-optional">5. 回應變更（選用）</Mdx.h3>
+
+PATH 上的擴充套件只會在有人呼叫時執行。要在 identity 或 room 變更時做出回應，需要使用者明確同意：
+
+<Cmd>{`
+$ tmt extension hooks enable hello    # 信任 PATH 上的 tmt-hello
+$ tmt extension hooks ls
+$ tmt extension hooks disable hello
+`}</Cmd>
+
+啟用時，執行檔必須由使用者擁有，檔案與所在目錄都不能讓其他人寫入；核准只針對該檔案。升級或任何變更後，使用者都要重新啟用。指令完成提交後，tmt 會執行 `tmt-<name> __tmt-hooks 1 observe`，從 stdin 傳入 JSON 事件（identity 或 room 的建立、改名或退役）。hook 只會收到 ID 與狀態，不會收到名稱或訊息，也不能阻擋或變更指令。事件只是提醒你再查看一次；它們可能遺失或重複。
+
+啟用 hook 的擴充套件，也能在 `tmt whoami --context`、agent 的 session 開始時收到的 context，以及 `tmt setup` 安裝 prompt hook 後的每個 prompt context 裡，加入最多 240 個字元的一行參考資訊。tmt 會註明擴充套件名稱，並標示為 `(informational)`，所以不要把這行寫成指令。事件與欄位規範在 [contracts/extension-api.md](https://github.com/pj-tmt/tmt/blob/main/contracts/extension-api.md)。
