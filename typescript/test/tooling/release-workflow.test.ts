@@ -44,6 +44,35 @@ describe('independent release-tag concurrency guard', () => {
 });
 
 describe('release version gate workflow boundaries', () => {
+  it('prepares the full locked Cargo inventory before Code quality offline metadata tests', () => {
+    const quality = job(read('.github/workflows/ci.yml'), 'code-quality');
+    const preparation = quality
+      .split(/\n      - /)
+      .find((step) => step.startsWith('name: Build the Rust TOML helper'))!;
+    expect(preparation).toBeDefined();
+    expect(quality).toContain('name: Code quality');
+    expect(quality).toContain('timeout-minutes: 10');
+    expect(preparation).toContain('RUSTUP_TOOLCHAIN: 1.97.0');
+    const toolchain = preparation.indexOf('rustup toolchain install 1.97.0 --profile minimal');
+    const fetch = preparation.indexOf('cargo fetch --locked --manifest-path rust/Cargo.toml');
+    const build = preparation.indexOf(
+      'cargo build --locked -p tmt-release-tool --bin release-version --manifest-path rust/Cargo.toml'
+    );
+    expect(toolchain).toBeGreaterThan(0);
+    expect(fetch).toBeGreaterThan(toolchain);
+    expect(build).toBeGreaterThan(fetch);
+    expect(
+      preparation
+        .split('\n')
+        .map((line) => line.trim())
+        .filter((line) => line.startsWith('cargo fetch'))
+    ).toEqual(['cargo fetch --locked --manifest-path rust/Cargo.toml']);
+    expect(preparation).not.toMatch(/continue-on-error|retry-command/);
+    expect(quality.indexOf('name: Build the Rust TOML helper')).toBeLessThan(
+      quality.indexOf('name: Run code quality checks')
+    );
+    expect(quality).toContain('test/tooling/ci-scope.test.ts');
+  });
   it('builds and transfers the Rust TOML helper before ordinary tooling injection fixtures', () => {
     const ci = read('.github/workflows/ci.yml');
     const build = job(ci, 'native-runtime-build');
