@@ -7,10 +7,10 @@ board follow the [CLI style](cli-style.md). Colors, type, sizes and breakpoints
 come from [`tokens/tokens.json`](tokens/tokens.json). A surface never writes a
 color or size that is not a token.
 
-**Adoption status:** the components below ship in Colab under
-`extensions/tmt-colab/typescript/app/src`, except where a component says it is
-not shipped yet. Remote reuses the shared header and
-card through Colab's `chrome.css`. Office has not adopted this style. A shared
+**Adoption status:** Colab's shipped implementations are named below under
+`extensions/tmt-colab/typescript/app/src`; the other descriptions include
+approved design targets that have not shipped yet. Remote reuses the shared header
+and card through Colab's `chrome.css`. Office has not adopted this style. A shared
 component package and the implementation basis column are a **proposal**
 pending the core lead's dependency review; until then, new surfaces copy
 nothing and import from Colab only through the existing chrome assets.
@@ -213,14 +213,15 @@ One message in Chat or a thread: author line (`name · agent · time`), body,
 state (mark plus word), and a `⋯` menu for the author's own Edit or Delete.
 
 - Chat: user turns on the right, tinted with `accent-soft`. Agent turns on the
-  left, with a square Bot avatar filled in the agent's driver color, the name in
-  bold, a driver tag (`claude`, `codex`) and a hard shadow in the driver color
-  (the `review` role for Claude, `link` for Codex, as on the board).
-- Threads: square avatar (User, or Bot in the driver color) and a rail in the
-  author's color.
+  left with a Bot mark. The approved target adds a square Bot avatar filled in
+  the agent's driver color, a bold name, a driver tag (`claude`, `codex`) and a
+  hard shadow in the driver color (the `review` role for Claude, `link` for
+  Codex, as on the board).
+- Threads: square User or Bot avatar and an agent-body rail. The approved target
+  colors the Bot avatar and rail for the agent's driver.
 - Literal markup in a body always renders as text.
-- Chat turns ship in `ask-panel.tsx`; the shared component for Chat and threads
-  is in review (#1772). Basis: own.
+- The shared `components/conversation-turn.tsx` ships for Chat and threads via
+  `ask-panel.tsx` (#1772); the driver-colored treatment is not shipped. Basis: own.
 
 ### Status mark
 
