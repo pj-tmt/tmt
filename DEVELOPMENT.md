@@ -326,12 +326,15 @@ Progress is read from the `pj-tmt` project
 (<https://github.com/orgs/pj-tmt/projects/1>), filtered to `label:epic`. Each epic
 has one tracker issue titled `Epic: <name>` with the `epic` label; the project's
 Sub-issues progress counts only direct sub-issues, so the tracker is the only
-parent that matters.
+parent that matters. Each issue serving a tracker is its direct sub-issue;
+umbrella or findings-log issues stay outside the tracker. Tracking uses only
+native parent/sub-issue links.
+
+The Project `Epic` field is retired. Leave it empty on new items and leave
+existing values alone; never set, clear or wait for this field.
 
 Every issue carries these Project fields:
 
-- `Epic`: the tracker it serves; the issue is also its direct sub-issue. Umbrella
-  or findings-log issues stay outside the tracker.
 - `Squad`: the squad whose lead owns the issue.
 - `Status`: `Todo` (not started); `In Progress` (implementation started, including
   draft or stacked PRs); `In Review` (a PR is ready or queued; in a stacked chain
