@@ -302,7 +302,11 @@ fn page(value: Value) -> Result<(Vec<Value>, bool), SquadError> {
 }
 
 fn sort(leads: &mut [Lead]) {
-    leads.sort_by(|a, b| match (&a.exchange, &b.exchange) {
+    leads.sort_by(compare);
+}
+
+pub(super) fn compare(a: &Lead, b: &Lead) -> std::cmp::Ordering {
+    match (&a.exchange, &b.exchange) {
         (Some(a_exchange), Some(b_exchange)) => {
             // Question is also the HOME heading's ◆ source. The row attention
             // predicate may still be true when the selected exchange is a reply.
@@ -326,7 +330,62 @@ fn sort(leads: &mut [Lead]) {
             .cmp(b.name())
             .then_with(|| a.squad.cmp(&b.squad))
             .then_with(|| a.id().cmp(b.id())),
+    }
+}
+
+/// Named boards reuse their acquired bounded room history and the HOME exchange
+/// projection. This performs no read and does not alter public row documents.
+pub(super) fn members(
+    document: &Value,
+    sent: Option<&crate::requests::Sent>,
+    now: u64,
+) -> Vec<Lead> {
+    let mut rows = Vec::new();
+    let mut document = document.clone();
+    crate::display_rows::each_row(&mut document, |row| {
+        if row["id"].is_string() && !rows.iter().any(|lead: &Lead| lead.row["id"] == row["id"]) {
+            rows.push(Lead {
+                squad: String::new(),
+                row: row.clone(),
+                exchange: None,
+                failure: None,
+            });
+        }
     });
+    let name = document["squad"]["name"].as_str().unwrap_or_default();
+    for member in &mut rows {
+        member.squad = name.into();
+        if let Some(sent) = sent {
+            let (sender, history) = sent.history();
+            member.exchange = latest(member, sender, &[], history, now);
+        }
+        // The compact squad row marks the actual decision, independently of
+        // a newer reply. Feed that same question into the shared ordering.
+        if crate::attention::waits_on_you(&member.row) {
+            let question = member.row["waitingOnYou"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .min_by_key(|item| item["preparedAtMs"].as_u64().unwrap_or(u64::MAX));
+            member.exchange = Some(LeadPreview {
+                kind: Kind::Question,
+                request: question
+                    .and_then(|item| item["requestId"].as_str())
+                    .map(str::to_owned),
+                since_ms: question
+                    .and_then(|item| item["preparedAtMs"].as_u64())
+                    .filter(|at| *at > 0 && *at <= now),
+                preview: safe_preview(
+                    member.row["pending"]
+                        .as_str()
+                        .or_else(|| question.and_then(|item| item["preview"].as_str()))
+                        .unwrap_or_default(),
+                ),
+                status: "retained".into(),
+            });
+        }
+    }
+    rows
 }
 
 fn safe_preview(text: &str) -> String {

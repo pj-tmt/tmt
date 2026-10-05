@@ -586,6 +586,8 @@ pub struct FoldBelow {
 /// `[squad.<name>.board]`: which panes the board shows and how they sit.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Board {
+    /// The shared boxed member list; custom compositions retain their row grid.
+    pub members: bool,
     pub mode: BoardMode,
     /// Every pane in focus order (split) or tab order (tabs).
     pub panes: Vec<Pane>,
@@ -669,6 +671,7 @@ impl Board {
             &format!("{place}.layout"),
         )?;
         let mut board = Self {
+            members: false,
             mode: BoardMode::Split,
             panes: split.panes(),
             split,
@@ -681,7 +684,10 @@ impl Board {
     }
 
     fn factory(view: crate::view::ViewName) -> Self {
-        Self::from_settings(view.settings(), view.name()).expect("factory view is valid")
+        let mut board =
+            Self::from_settings(view.settings(), view.name()).expect("factory view is valid");
+        board.members = view == crate::view::ViewName::Members;
+        board
     }
 
     /// Crew keeps rows and the lead's notes side by side; pr-queue pairs rows
@@ -711,6 +717,7 @@ impl Board {
     /// The one-level form: `panes` side by side or stacked at `sizes`.
     pub fn simple(mode: BoardMode, direction: Direction, panes: Vec<Pane>, sizes: &[u16]) -> Self {
         Self {
+            members: false,
             mode,
             split: crate::split::Split::simple(direction, &panes, sizes),
             panes,
@@ -1475,7 +1482,7 @@ impl Config {
                     .and_then(crate::view::ViewName::parse)
                     .ok_or_else(|| {
                         invalid(format!(
-                            "`{place}.view` must be team, focus, notes, detail or wide."
+                            "`{place}.view` must be members, team, focus, notes, detail or wide."
                         ))
                     })
             })
@@ -1513,12 +1520,19 @@ impl Config {
             (Some(view), "squad")
         } else if let Some(view) = global {
             (Some(view), "board")
+        } else if self.resolve_layout(squad)? != Layout::Team
+            && self
+                .squad_table(squad)?
+                .and_then(|s| s.get("board"))
+                .is_some_and(|board| {
+                    ["direction", "sizes"]
+                        .iter()
+                        .any(|key| board.get(key).is_some())
+                })
+        {
+            (None, "layout")
         } else {
-            (
-                (self.resolve_layout(squad)? == Layout::Team)
-                    .then_some(crate::view::ViewName::Team),
-                "layout",
-            )
+            (Some(crate::view::ViewName::Members), "default")
         })
     }
 
@@ -1779,6 +1793,7 @@ impl Config {
             }
             let split = crate::split::read(layout, &format!("{place}.layout"))?;
             let mut board = Board {
+                members: false,
                 mode,
                 panes: split.panes(),
                 split,
@@ -2643,6 +2658,47 @@ mod tests {
     }
 
     #[test]
+    fn settings_view_preview_and_save_share_the_catalog_writer_and_custom_refusal() {
+        let path = temp("settings-view");
+        fs::write(&path, "# preserved\n[squad.x]\nlayout='crew'\n").unwrap();
+        let mut config = Config::read(path.clone()).unwrap();
+        let before = fs::read(&path).unwrap();
+        assert!(config.board("x").unwrap().members);
+        assert!(config.can_edit_setting("board.view", Some("x")));
+        let draft = config
+            .preview_setting(Some("x"), "board.view", "team")
+            .unwrap();
+        assert_eq!(fs::read(&path).unwrap(), before);
+        assert_eq!(
+            draft.board("x").unwrap(),
+            Board::factory(crate::view::ViewName::Team)
+        );
+        assert_eq!(draft.rows("x").unwrap(), config.rows("x").unwrap());
+        assert!(config.set_setting(Some("x"), "board.view", "team").unwrap());
+        assert_eq!(
+            Config::read(path.clone()).unwrap().board("x").unwrap(),
+            draft.board("x").unwrap()
+        );
+        assert_eq!(config.layout("x").unwrap(), Layout::Crew);
+        config.set_setting(None, "board.view", "members").unwrap();
+        assert!(config.board("y").unwrap().members);
+        let before = fs::read(&path).unwrap();
+        assert!(config.set_setting(None, "board.view", "bogus").is_err());
+        assert_eq!(fs::read(&path).unwrap(), before);
+        fs::write(&path, "[squad.x.board]\npanes=['rows']\n").unwrap();
+        let config = Config::read(path.clone()).unwrap();
+        assert!(!config.can_edit_setting("board.view", Some("x")));
+        assert!(
+            config
+                .preview_setting(Some("x"), "board.view", "team")
+                .is_err()
+        );
+        assert!(config.preview_setting(None, "board.view", "team").is_ok());
+        assert!(!config.board("x").unwrap().members);
+        fs::remove_dir_all(path.parent().unwrap()).unwrap();
+    }
+
+    #[test]
     fn settings_edits_use_existing_scopes_and_keep_custom_structure() {
         let path = temp("setting-scopes");
         fs::write(&path, "[squad.x.board]\ndirection='left-right'\n[squad.x.states.working]\nsort=7 # preserve rank\n[squad.x.columns]\nshow=['member','state','task','pr_link']\npr_link={width=12}\n").unwrap();
@@ -3341,7 +3397,7 @@ sort = ["state", "-name"]
     }
 
     #[test]
-    fn team_is_default_and_existing_presets_keep_their_overrides() {
+    fn members_are_default_and_workflow_presets_keep_their_overrides() {
         let path = temp("team");
         let read = |body: &str| {
             fs::write(&path, body).unwrap();
@@ -3361,7 +3417,7 @@ sort = ["state", "-name"]
             assert_eq!(config.reminders("x").unwrap(), Reminders::default());
         }
         for layout in [Layout::Crew, Layout::PrQueue, Layout::Minimal] {
-            let expected = Board::preset(layout);
+            let expected = Board::factory(crate::view::ViewName::Members);
             for body in ["[squad.x.board]\n", "[squad.x.board]\nrefresh = \"10s\"\n"] {
                 assert_eq!(
                     read(&format!(
@@ -3411,14 +3467,12 @@ sort = ["state", "-name"]
             }
         );
         let preset = config.board("x").unwrap();
-        assert_eq!(
-            preset.panes,
-            [Pane::Rows, Pane::Detail, Pane::Replies, Pane::Notes]
-        );
+        assert!(preset.members);
+        assert_eq!(preset.panes, [Pane::Rows, Pane::Notes]);
         assert_eq!(
             preset.split,
             crate::split::read(
-                crate::view::ViewName::Team
+                crate::view::ViewName::Members
                     .settings()
                     .get("layout")
                     .unwrap(),
@@ -3494,20 +3548,25 @@ panes = ["rows", "notes"]
             fs::write(&path, body).unwrap();
             Config::read(path.clone()).unwrap()
         };
-        let crew = read("[squad.x]\nlayout = \"crew\"\n").board("x").unwrap();
+        let crew =
+            read("[squad.x]\nlayout = \"crew\"\n[squad.x.board]\npanes=[\"rows\",\"notes\"]\nsizes=[60,40]\n")
+                .board("x")
+                .unwrap();
         assert_eq!(
             crew.split,
             Split::simple(Direction::LeftRight, &[Pane::Rows, Pane::Notes], &[60, 40])
         );
-        let queue = read("[squad.x]\nlayout = \"pr-queue\"\n")
-            .board("x")
-            .unwrap();
+        let queue = read(
+            "[squad.x]\nlayout = \"pr-queue\"\n[squad.x.board]\npanes=[\"rows\",\"detail\"]\nsizes=[70,30]\n",
+        )
+        .board("x")
+        .unwrap();
         assert_eq!(
             queue.split,
             Split::simple(Direction::TopBottom, &[Pane::Rows, Pane::Detail], &[70, 30])
         );
         assert_eq!(
-            read("[squad.x]\nlayout = \"minimal\"\n")
+            read("[squad.x]\nlayout = \"minimal\"\n[squad.x.board]\npanes=[\"rows\"]\n")
                 .board("x")
                 .unwrap()
                 .panes,
@@ -3852,7 +3911,10 @@ filter = "not pending"
         };
         let team = read("");
         assert_eq!(team.layout("x").unwrap(), Layout::Team);
-        assert_eq!(team.board("x").unwrap(), Board::preset(Layout::Team));
+        assert_eq!(
+            team.board("x").unwrap(),
+            Board::factory(crate::view::ViewName::Members)
+        );
         for key in [
             "direction = \"top-bottom\"",
             "panes = [\"rows\", \"notes\"]",
@@ -3927,7 +3989,7 @@ filter = "not pending"
                 .message
                 .contains("fold_below")
         );
-        fs::write(&path, "[squad.x.board]\nfold_below = { width = 80, panes = [\"detail\"] }\ncollapsed = [\"notes\"]\n").unwrap();
+        fs::write(&path, "[squad.x.board]\nview = \"team\"\nfold_below = { width = 80, panes = [\"detail\"] }\ncollapsed = [\"notes\"]\n").unwrap();
         let board = Config::read(path.clone()).unwrap().board("x").unwrap();
         assert_eq!(
             board.fold_below.unwrap(),

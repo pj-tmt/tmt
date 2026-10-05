@@ -497,7 +497,16 @@ mod tests {
                 .join("tests/fixtures/markup-parity.toml"),
         )
         .unwrap();
-        let tree = config.board("team").unwrap().split;
+        let tree = config
+            .preview_view(
+                &crate::view::ViewScope::Board,
+                Some(crate::view::ViewName::Team),
+                "team",
+            )
+            .unwrap()
+            .board("team")
+            .unwrap()
+            .split;
         let node = compile(&tree, &BTreeSet::new()).unwrap();
         // Squad ruling req_8fd1910e; literals cover tiny and fractional-parent cycle cases.
         for (height, top, detail, replies, notes) in [
@@ -528,7 +537,35 @@ mod tests {
         let mut digest = Sha256::new();
 
         for preset in ["crew", "pr-queue", "minimal", "team"] {
-            let board = config.board(preset).unwrap();
+            let board = match preset {
+                "crew" => crate::config::Board::simple(
+                    crate::config::BoardMode::Split,
+                    crate::config::Direction::LeftRight,
+                    vec![Pane::Rows, Pane::Notes],
+                    &[60, 40],
+                ),
+                "pr-queue" => crate::config::Board::simple(
+                    crate::config::BoardMode::Split,
+                    crate::config::Direction::TopBottom,
+                    vec![Pane::Rows, Pane::Detail],
+                    &[70, 30],
+                ),
+                "minimal" => crate::config::Board::simple(
+                    crate::config::BoardMode::Split,
+                    crate::config::Direction::LeftRight,
+                    vec![Pane::Rows],
+                    &[100],
+                ),
+                _ => config
+                    .preview_view(
+                        &crate::view::ViewScope::Board,
+                        Some(crate::view::ViewName::Team),
+                        preset,
+                    )
+                    .unwrap()
+                    .board(preset)
+                    .unwrap(),
+            };
             for mask in 0..(1 << board.panes.len()) {
                 let collapsed: BTreeSet<_> = board
                     .panes

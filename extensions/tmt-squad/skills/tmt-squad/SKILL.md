@@ -494,7 +494,7 @@ settings supported by `config set`; the board uses the same validation and write
 Use `tmt sq config set KEY VALUE [--squad NAME]` for validated edits. Squad scope
 is required for `layout`, `board.panes`, `board.direction`, `board.sizes`,
 `board.hidden_columns`, `notes.render`, `states.STATE.color`, `reminders.enabled`
-and `reminders.stale_after`. `board.refresh` and `board.ask_lead`
+and `reminders.stale_after`. `board.refresh`, `board.ask_lead` and `board.view`
 use the squad layer with `--squad`, otherwise the global Squad board layer.
 `board.home_replies` is a global boolean (default `true`) controlling HOME's
 lead-message previews and separators; it rejects `--squad`. `t` on HOME saves
@@ -530,8 +530,9 @@ extension consent.
 ## Choose a board view
 
 `tmt sq view ls` (or bare `tmt sq view`) lists factory pane arrangements:
-`team`, `focus`, `notes`, `detail` and `wide`. Views change only pane positions
-and fold defaults. Workflow states, rows, providers, reminders, the token meter
+`members`, `team`, `focus`, `notes`, `detail` and `wide`. The default `members`
+view uses one boxed list; the other views use the configured row grid and pane
+arrangements. Workflow states, rows, providers, reminders, the token meter
 and theme keep their settings; crew, pr-queue and minimal remain workflow layouts.
 
 ```sh
@@ -542,7 +543,8 @@ tmt sq view rm --squad product             # inherit the arrangement
 
 The effective arrangement comes from a hand-written per-squad `board.layout`
 or `panes`, then `[squad.<name>.board] view`, then `[board] view`, then the
-workflow layout's own arrangement. `team` keeps today's responsive arrangement;
+default `members` view. Existing simple direction/sizes configs without a named
+view retain their pane preset. `team` keeps the previous responsive side panes;
 `focus` starts detail/replies/notes folded, `notes` gives lead notes most space,
 `detail` places detail/replies below rows with notes folded, and `wide` uses
 three columns. Team folds detail/replies below 100 cells, detail folds replies
@@ -569,6 +571,27 @@ A failed or stale save stays open; cancel and reopen to read the changed file.
 the lead is the first row of its tab. Bind it yourself (`[bind] L = "jump lead"`)
 to go to the lead's pane from any row.
 Agents change views only when requested.
+
+## Squad member list
+
+Squad tabs default to one boxed list with the lead first, its `lead` tag, then
+`── members · N ──`. Each member has a mark/name/state/model/age line and a task
+line. Waiting members (`◆`) come first, with the oldest questions first; other
+exchanges follow newest first, and members without exchanges sort by name.
+The lead stays first, and authored sections keep their positions. The lead's
+notes stay below the list; `n` hides or shows them.
+
+Press `e` on the selected lead or member to expand the shared band beneath its
+header. It replaces the task preview and shows, when available, `◆ waits on you`,
+task, links, latest reply with age, then the available collapse/write/open hints.
+`e` or Esc collapses; `a` writes to that member, and `o` opens the row's PR or link.
+Arrow keys/j/k and PgUp/PgDn scroll long details without moving the selected row.
+There is one band at a time. Reading works without recording yourself; writing
+requires `tmt sq me`. Custom bindings also control the expanded band.
+
+Use `l` to choose `team` for the previous detail/replies side panes, or edit
+`board.view` to `team` in `,` settings. `members` restores the boxed list.
+Hand-written `board.layout` or `panes` keeps its configured composition.
 
 ## Fold board panes
 
@@ -900,13 +923,15 @@ Record the agreement in your notes (`tmt notes path` prints your notebook's
 path), or propose a `squad.toml` change for the user to apply. Squad never
 starts members, worktrees or windows; that is yours to arrange with the user.
 
-## Team board preset
+## Team workflow and previous board view
 
-Squads with no layout key use team unless they set the simple board form, which keeps crew. Set `layout = "crew"`, `"pr-queue"`
-or `"minimal"` to retain those presets. The top 60% contains rows beside a right column (62/38), with
-detail above replies (50/50). The lead's notes fill the bottom 40%.
+Squads with no layout key use the team workflow unless they set the simple board
+form, which keeps crew. Explicit `crew`, `pr-queue` and `minimal` retain their
+workflow settings. Presentation defaults to the boxed `members` view independently.
+Choose the named `team` view to restore rows beside a right column (62/38), with
+detail above replies (50/50) in the top 60% and lead notes in the bottom 40%.
 
-Below 100 columns of board body width, team folds detail and replies into title
+Below 100 columns of board body width, the team view folds detail and replies into title
 bars: `board.fold_below = { width = 100, panes = ["detail", "replies"] }`.
 `d` toggles detail and replies together; click either title to toggle it alone.
 Widening restores automatically folded panes without moving focus; manual folds
@@ -928,7 +953,7 @@ missing/`?` rules. A `rows` or legacy `columns` table replaces the whole grid;
 `fields.<name>` replaces that provider's whole table, other provider names add
 to `pr`, and reminder keys override individually. Set a full `board.layout`
 or `board.panes` to replace the nested pane arrangement; `direction` or `sizes`
-alone is refused. Host bindings and theme selection are unchanged.
+alone is refused for nested/named arrangements. Theme selection is unchanged.
 
 Team enables observed age at 30 minutes. Other layouts keep it disabled by
 default; `[squad.<name>.reminders] enabled = false` disables it for team too.

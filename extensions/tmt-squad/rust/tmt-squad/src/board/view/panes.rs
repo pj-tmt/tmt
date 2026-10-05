@@ -119,6 +119,10 @@ fn render_members(frame: &mut Frame, app: &App, area: Rect) {
                 spans.push(Span::raw(" "));
             }
             strip::paint_left(frame.buffer_mut(), bar, Line::from(spans));
+            if board.members && focused == Pane::Rows {
+                render_pane(frame, app, focused, rest);
+                return;
+            }
             let outline = pane_block(focused);
             let inner = outline.inner(rest);
             outline.paint(rest, frame.buffer_mut());
@@ -165,6 +169,8 @@ fn render_split(
                 title,
                 Line::styled(text, look.role(Role::Muted)),
             );
+        } else if pane == Pane::Rows && app.effective_board().is_some_and(|board| board.members) {
+            render_pane(frame, app, pane, area);
         } else {
             let outline = pane_block(pane);
             let inner = outline.inner(area);

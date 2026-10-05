@@ -52,6 +52,7 @@ impl Config {
             "custom" => format!("squad.{squad}.board"),
             "squad" => format!("squad.{squad}.board.view"),
             "board" => "board.view".into(),
+            "default" => "default:members".into(),
             _ => preset.clone(),
         };
         let mut sources = Sources::from([("view".into(), arrangement.clone())]);

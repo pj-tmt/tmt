@@ -48,7 +48,15 @@ and changed clock text or spinner frames, rather than periodic full repainting.
   Search also filters the lead; without a lead there is no rule. `each_row` includes
   the lead in waiting, staleness, usage and color projections. `RowOrigin::Lead`
   carries no section binding, and public JSON keeps it outside `sections`.
-- `view::rows` prepares `row_paint::RowPaint` before replacing the immutable view's
+- Default squad `members` uses the existing `home::leads` boxed-list scene/cache:
+  lead first, the nonselectable members rule, then two selectable lines per member.
+  `View.exchanges` comes from `home_leads::members` using the already acquired
+  `requests::Sent` window. `App::items` applies the HOME comparator within authored
+  member groups; the lead/rules/sections and public documents stay fixed. Actual
+  row waiting overrides newer replies for squad ordering; HOME retains its latest
+  exchange semantics. Task/state/model/observed age feed the same scene key, and
+  read-only expansion replaces the task line with the shared reservation.
+- Other named/custom views: `view::rows` prepares `row_paint::RowPaint` before replacing the immutable view's
   `Derived.grid`. Its key includes effective width, search and `Extra` (lead,
   clock-derived cron/request labels, sent feedback and input reservation). Failed
   layout/value preparation displays a muted error and leaves the prior cache intact.
@@ -68,6 +76,13 @@ and changed clock text or spinner frames, rather than periodic full repainting.
   word/mark classes; `render_replica` in `frame_timing` repeats the call. The reverse
   fallback stays with `row_span`. The contrast test in `tmt-cli-style` pins text 4.5:1
   and marks 3:1 on that background.
+
+- `Compose::ReadRow` anchors fields/latest reply to the same row occurrence and
+  shared `App.input` as HOME/read/send modes. `home::controller` reuses cached bodies
+  or the existing fenced request read; `view::waiting::read_lines` supplies field
+  order, height, paint and scroll limits. Read-only expansion needs no recorded user;
+  writing does. Effective bindings control collapse/write/open, and covered hits
+  are removed by the existing band owner.
 
 ## Composition, folds and scrolling
 

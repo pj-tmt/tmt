@@ -906,6 +906,7 @@ mod tests {
         for code in [
             KeyCode::Char('l'),
             KeyCode::Down,
+            KeyCode::Down,
             KeyCode::Enter,
             KeyCode::Enter,
             KeyCode::Char('q'),

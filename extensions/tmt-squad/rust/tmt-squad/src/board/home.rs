@@ -340,7 +340,7 @@ impl Scenes {
 
 mod attention;
 mod bar;
-mod leads;
+pub(in crate::board) mod leads;
 mod rows;
 mod scene;
 mod tiles;

@@ -260,7 +260,90 @@ impl App {
         crate::board::app::Effect::None
     }
 
+    pub(in crate::board) fn latest_row_reply(&self) -> Option<&serde_json::Value> {
+        let row = self.selected_row()?;
+        self.view
+            .as_ref()?
+            .replies
+            .iter()
+            .find(|reply| reply["recipientId"] == row["id"])
+    }
+
+    pub(in crate::board) fn row_expand(&mut self) -> crate::board::app::Effect {
+        use crate::board::app::{Compose, Input};
+        let Some(target) = self
+            .row_target(self.selected)
+            .filter(|_| self.focused_pane() == Some(crate::config::Pane::Rows))
+        else {
+            return self.say("Select a member row to expand its details.");
+        };
+        let row = self.selected_row().expect("selected target has a row");
+        let name = row["name"].as_str().unwrap_or_default().to_owned();
+        let id = row["id"].as_str().unwrap_or_default().to_owned();
+        let squad = self.shown_tab().unwrap_or_default().to_owned();
+        let reply = self.latest_row_reply();
+        let key = reply.and_then(|reply| {
+            Some(MessageKey {
+                sender: self.view.as_ref()?.me_id.clone()?,
+                lead: id,
+                squad: squad.clone(),
+                request: reply["requestId"].as_str()?.into(),
+                kind: crate::board::home_leads::Kind::Reply,
+            })
+        });
+        let text = reply.map_or_else(String::new, |reply| {
+            reply["response"]
+                .as_str()
+                .map(crate::board::notes::sanitize)
+                .unwrap_or_else(|| {
+                    if key.is_some() {
+                        "(reading reply…)".into()
+                    } else {
+                        "(reply unavailable)".into()
+                    }
+                })
+        });
+        self.input = Some(Input {
+            squad,
+            prompt: format!("details for {name}"),
+            text,
+            compose: Compose::ReadRow {
+                target,
+                reply: key,
+                offset: 0,
+            },
+            row_send: self.row_send(self.selected, true),
+            alternative: None,
+            quote: None,
+            link: None,
+            hint: None,
+        });
+        self.notice = None;
+        crate::board::app::Effect::None
+    }
+
     pub(in crate::board) fn message_valid(&self) -> bool {
+        if let Some(crate::board::app::Input {
+            compose: crate::board::app::Compose::ReadRow { target, reply, .. },
+            ..
+        }) = &self.input
+        {
+            let row = self.target_row(target);
+            return !self.loading()
+                && row.is_some()
+                && reply.as_ref().is_none_or(|key| {
+                    self.view.as_ref().and_then(|view| view.me_id.as_ref()) == Some(&key.sender)
+                        && self
+                            .view
+                            .as_ref()
+                            .and_then(|view| {
+                                view.replies.iter().find(|reply| {
+                                    Some(&reply["recipientId"]) == row.map(|row| &row["id"])
+                                })
+                            })
+                            .is_some_and(|reply| reply["requestId"] == key.request)
+                });
+        }
         let Some(crate::board::app::Input {
             compose: crate::board::app::Compose::ReadLead { key, .. },
             ..
@@ -291,7 +374,7 @@ impl App {
             return;
         }
         if let Some(input) = &mut self.input
-            && matches!(&input.compose, crate::board::app::Compose::ReadLead { key: current, .. } if current == key)
+            && matches!(&input.compose, crate::board::app::Compose::ReadLead { key: current, .. } | crate::board::app::Compose::ReadRow { reply: Some(current), .. } if current == key)
         {
             input.text = body.unwrap_or_else(|error| {
                 format!(
@@ -307,6 +390,38 @@ impl App {
         key: ratatui::crossterm::event::KeyEvent,
     ) -> crate::board::app::Effect {
         use ratatui::crossterm::event::{KeyCode, KeyModifiers};
+        let row = self.input.as_ref().is_some_and(|input| {
+            matches!(input.compose, crate::board::app::Compose::ReadRow { .. })
+        });
+        if row {
+            let action =
+                crate::board::app::event_name(key).and_then(|event| self.bindings().remove(&event));
+            match action.as_ref().map(|action| action.verb) {
+                Some(crate::action::Verb::HomeMessage) => {
+                    self.input = None;
+                    self.notice = None;
+                    return crate::board::app::Effect::None;
+                }
+                Some(crate::action::Verb::Annotate) => {
+                    self.input = None;
+                    if let Some(send) = self.row_send(self.selected, true) {
+                        return self.compose_row(
+                            send,
+                            crate::action::Verb::Talk,
+                            self.shown_tab().unwrap_or_default().into(),
+                        );
+                    }
+                    return self.say("Record yourself with tmt squad me <name>.");
+                }
+                Some(crate::action::Verb::Open) => {
+                    return self.perform(action.as_ref().expect("resolved action"));
+                }
+                _ => {}
+            }
+            if matches!(key.code, KeyCode::Char('e' | 'a' | 'o')) {
+                return crate::board::app::Effect::None;
+            }
+        }
         match key.code {
             KeyCode::Esc | KeyCode::Char('e') if !key.modifiers.contains(KeyModifiers::CONTROL) => {
                 self.input = None;
@@ -323,8 +438,14 @@ impl App {
             | KeyCode::PageUp
             | KeyCode::PageDown => {
                 let band = self.input_band.get();
+                let row_lines = band.map(|band| {
+                    crate::board::view::waiting::read_lines(self, band.width.saturating_sub(4))
+                        .len()
+                });
                 if let Some(crate::board::app::Input {
-                    compose: crate::board::app::Compose::ReadLead { offset, .. },
+                    compose:
+                        crate::board::app::Compose::ReadLead { offset, .. }
+                        | crate::board::app::Compose::ReadRow { offset, .. },
                     text,
                     ..
                 }) = &mut self.input
@@ -335,7 +456,10 @@ impl App {
                             band.width.saturating_sub(4),
                         );
                         let page = usize::from(band.height.saturating_sub(3));
-                        (lines.len().saturating_sub(page), page.max(1))
+                        (
+                            row_lines.unwrap_or(lines.len()).saturating_sub(page),
+                            page.max(1),
+                        )
                     });
                     let step = if matches!(key.code, KeyCode::PageUp | KeyCode::PageDown) {
                         page

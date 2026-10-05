@@ -67,14 +67,19 @@ fn baseline() -> Value {
             frames[0], frames[2],
             "resize must restore full cells and hit identities"
         );
-        let folded_frames: Vec<_> = if app.bindings().contains_key("d") {
-            app.key(KeyEvent::new(KeyCode::Char('d'), KeyModifiers::NONE));
+        let fold = if app.effective_board().is_some_and(|board| board.members) {
+            'n'
+        } else {
+            'd'
+        };
+        let folded_frames: Vec<_> = if app.bindings().contains_key(&fold.to_string()) {
+            app.key(KeyEvent::new(KeyCode::Char(fold), KeyModifiers::NONE));
             let folded: Vec<_> = [120, 80, 120]
                 .into_iter()
                 .map(|width| capture(&mut app, width))
                 .collect();
             assert_eq!(folded[0], folded[2], "manual fold survives resize");
-            app.key(KeyEvent::new(KeyCode::Char('d'), KeyModifiers::NONE));
+            app.key(KeyEvent::new(KeyCode::Char(fold), KeyModifiers::NONE));
             assert_eq!(
                 frames[0],
                 capture(&mut app, 120),
@@ -159,8 +164,16 @@ fn inspect_markup_parity_diff() {
         for kind in ["frames", "folded_frames"] {
             let before = old[kind].as_array().unwrap();
             let after = new[kind].as_array().unwrap();
-            assert_eq!(before.len(), after.len());
-            for (index, (old, new)) in before.iter().zip(after).enumerate() {
+            println!(
+                "{layout}/{kind}: frame count {} -> {}",
+                before.len(),
+                after.len()
+            );
+            for index in 0..before.len().max(after.len()) {
+                // Added/removed folded frames compare to that width's ordinary
+                // frame, so every changed cell remains decoded for review.
+                let old = before.get(index).unwrap_or(&old["frames"][index]);
+                let new = after.get(index).unwrap_or(&new["frames"][index]);
                 assert_eq!(old["width"], new["width"]);
                 let width = old["width"].as_u64().unwrap() as usize;
                 let before = cells(old);
