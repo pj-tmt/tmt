@@ -296,7 +296,11 @@ function Thread({
         <span className="thread-state">
           {thread.resolved ? <CircleCheck aria-hidden /> : <CircleDot aria-hidden />}
           <strong>
-            {thread.deleted ? text.threadDeleted : thread.resolved ? 'Resolved' : 'Open'}
+            {thread.deleted
+              ? text.threadDeleted
+              : thread.resolved
+                ? text.threadResolved
+                : text.threadOpen}
           </strong>
         </span>
         {thread.anchor && (
@@ -307,7 +311,7 @@ function Thread({
         <span className="thread-bar-actions">
           {owned && !thread.deleted && (
             <button
-              className="thread-icon-action"
+              className="thread-action"
               disabled={blocked || busy}
               title={thread.resolved ? text.threadReopen : text.threadResolve}
               aria-label={thread.resolved ? text.threadReopen : text.threadResolve}
@@ -316,17 +320,19 @@ function Thread({
               }}
             >
               {thread.resolved ? <RotateCcw aria-hidden /> : <Check aria-hidden />}
+              {thread.resolved ? text.threadReopen : text.threadResolve}
             </button>
           )}
           <button
-            className="thread-icon-action"
-            title="Close thread"
-            aria-label="Close thread"
+            className="thread-action"
+            title={text.threadClose}
+            aria-label={text.threadClose}
             onClick={(event) => {
               if (event.isTrusted) close();
             }}
           >
             <X aria-hidden />
+            {text.threadClose}
           </button>
         </span>
       </header>

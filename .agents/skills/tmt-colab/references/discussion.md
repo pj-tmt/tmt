@@ -27,7 +27,7 @@ owns record fields, limits, revision semantics and trust boundaries.
   once for both surfaces. Replies have one agent/name/time byline; pending states
   and trusted delivery actions stay in the requester turn until a reply exists
   (including an empty reply), then the status disappears.
-- `thread-panel.tsx` owns muted author/time labels with device-ID tooltips, labeled icon controls for Resolve/Reopen/Close, plain-text
+- `thread-panel.tsx` owns muted author/time labels with device-ID tooltips, visible Resolve/Reopen/Close thread labels alongside Lucide icons, plain-text
   parent controls, one all-annotations list, expanded conversation and explicit
   reattach confirmation. `annotation-input.tsx` owns one plain @ input with Enter
   Send, Shift+Enter newline, Escape cancellation. It

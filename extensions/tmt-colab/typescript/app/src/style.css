@@ -1013,16 +1013,17 @@ footer {
 .thread-bar-actions {
   margin-left: auto;
 }
-.comments-panel .thread-icon-action {
+.comments-panel .thread-action {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  gap: 4px;
   padding: 4px;
   border: 0;
   background: transparent;
   box-shadow: none;
 }
-.thread-icon-action:hover {
+.thread-action:hover {
   color: var(--c-accent);
 }
 

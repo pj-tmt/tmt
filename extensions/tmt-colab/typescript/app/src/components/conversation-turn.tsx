@@ -1,6 +1,7 @@
 import { Bot, User } from 'lucide-react';
 import { useEffect, useState, type ComponentPropsWithoutRef, type ReactNode } from 'react';
 import { compactRelativeTime } from '../display-time.js';
+import { text } from '../strings.js';
 
 /** Presentation only: callers supply admitted labels, text and trusted actions. */
 export function ConversationTurn({
@@ -48,7 +49,7 @@ export function ConversationTurn({
               <Bot className="conversation-meta-mark" aria-hidden />
             )}
             {author}
-            {role === 'agent' && ' · agent'} ·{' '}
+            {role === 'agent' && ` · ${text.conversationAgent}`} ·{' '}
             <time dateTime={new Date(at).toISOString()} title={new Date(at).toISOString()}>
               {compactRelativeTime(at, now)}
             </time>

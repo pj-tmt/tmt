@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { text } from '../src/strings.js';
 const fixture = '/test/ask-page-browser.tsx';
 async function run(page: Page, method: string, argument?: string) {
   return page.evaluate(
@@ -112,7 +113,9 @@ test('Chat shows held, pending, replied and display-only reply timeout without c
   await run(page, 'syncRecords', 'accepted');
   await expect(page.getByTestId('ask-state')).toHaveCount(0);
   await expect(page.getByTestId('ask-reply')).toHaveCount(2);
-  await expect(page.getByTestId('ask-reply-attribution').first()).toContainText('Agent 1 · agent');
+  await expect(page.getByTestId('ask-reply-attribution').first()).toContainText(
+    `Agent 1 · ${text.conversationAgent}`,
+  );
   await page.screenshot({ path: '/tmp/1730-390-dark-replied.png' });
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.evaluate(() => (document.documentElement.dataset.theme = 'light'));

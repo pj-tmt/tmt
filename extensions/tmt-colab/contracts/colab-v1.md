@@ -1509,7 +1509,7 @@ outcomes appear as a quiet mark-plus-word line in the requester turn; delivery s
 and recheck/abandon controls disappear when a reply exists, including an empty reply.
 Chat uses sided square tinted turns; annotation threads use one column with square
 User/Bot avatars and an ink rail on the agent body. Resolve/Reopen/Close thread
-controls have Lucide icons and accessible labels. After the existing
+controls have visible text, Lucide icons and accessible labels. After the existing
 two-hour observation window, an accepted turn awaiting a reply shows a display-only
 reply timeout; it keeps its accepted ledger state and read-only recheck action. No
 elapsed time authorizes a resend or changes durable ordering. Chat text never enters

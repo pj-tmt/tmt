@@ -1,5 +1,6 @@
 import { mkdirSync } from 'node:fs';
 import { expect, test, type Page } from '@playwright/test';
+import { text } from '../src/strings.js';
 const fixture = '/test/ask-page-browser.tsx';
 const captureDir = process.env.COLAB_TURN_CAPTURE_DIR ?? '/private/tmp/ux-1-1707-captures';
 const request = 'Explain <img src=x onerror=alert(1)> in this selection.\nKeep the exact text.';
@@ -46,7 +47,7 @@ for (const width of [1440, 390]) {
             await expect(agent).toHaveCount(1);
             await expect(agent.getByTestId('ask-reply')).toHaveText(reply);
             await expect(agent.getByTestId('ask-reply-attribution')).toHaveText(
-              /Atlas · agent · 5m ago/,
+              `Atlas · ${text.conversationAgent} · 5m ago`,
             );
             await expect(agent.getByTestId('ask-reply-attribution')).not.toContainText('You');
             await expect(agent.locator('svg.lucide-bot')).toBeVisible();
@@ -85,8 +86,20 @@ for (const width of [1440, 390]) {
             page.frameLocator('#ask-page-fixture iframe').locator('body'),
           ).not.toContainText(reply);
           await expect(user).toHaveCSS('border-radius', '0px');
-          if (surface === 'thread')
+          if (surface === 'thread') {
             await expect(user).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
+            const bar = page.locator('.thread-bar');
+            await expect(bar.getByRole('button', { name: text.threadResolve })).toHaveText(
+              text.threadResolve,
+            );
+            await expect(bar.getByRole('button', { name: text.threadClose })).toHaveText(
+              text.threadClose,
+            );
+            const actions = (await bar.locator('.thread-bar-actions').boundingBox())!,
+              bounds = (await bar.boundingBox())!;
+            expect(actions.x).toBeGreaterThanOrEqual(bounds.x);
+            expect(actions.x + actions.width).toBeLessThanOrEqual(bounds.x + bounds.width + 1);
+          }
           expect(await run(page, 'proof')).toEqual({ sends: [], actions: [] });
           mkdirSync(captureDir, { recursive: true });
           await page.screenshot({
@@ -98,7 +111,7 @@ for (const width of [1440, 390]) {
   }
 }
 
-test('thread delivery actions remain explicit, empty replies end the status, and labeled icon controls resolve/reopen/close', async ({
+test('thread delivery actions remain explicit, empty replies end the status, and visible action labels resolve/reopen/close', async ({
   page,
 }) => {
   await mount(page, 'thread', 'uncertain');
@@ -112,20 +125,23 @@ test('thread delivery actions remain explicit, empty replies end the status, and
   await expect(page.getByTestId('ask-reply')).toHaveAttribute('data-empty', 'true');
   await expect(page.getByText('The agent returned an empty reply.')).toBeVisible();
   await expect(page.getByTestId('ask-state')).toHaveCount(0);
-  const resolve = page.getByRole('button', { name: 'Resolve', exact: true });
-  await expect(resolve).toHaveAttribute('title', 'Resolve');
+  const resolve = page.getByRole('button', { name: text.threadResolve, exact: true });
+  await expect(resolve).toHaveAttribute('title', text.threadResolve);
+  await expect(resolve).toHaveText(text.threadResolve);
   await expect(resolve.locator('svg.lucide-check')).toBeVisible();
   await resolve.click();
-  await expect(page.locator('.thread-state')).toHaveText('Resolved');
+  await expect(page.locator('.thread-state')).toHaveText(text.threadResolved);
   await expect(page.locator('.thread-state svg.lucide-circle-check')).toBeVisible();
-  const reopen = page.getByRole('button', { name: 'Reopen', exact: true });
-  await expect(reopen).toHaveAttribute('title', 'Reopen');
+  const reopen = page.getByRole('button', { name: text.threadReopen, exact: true });
+  await expect(reopen).toHaveAttribute('title', text.threadReopen);
+  await expect(reopen).toHaveText(text.threadReopen);
   await expect(reopen.locator('svg.lucide-rotate-ccw')).toBeVisible();
   await reopen.click();
-  await expect(page.locator('.thread-state')).toHaveText('Open');
+  await expect(page.locator('.thread-state')).toHaveText(text.threadOpen);
   await expect(page.locator('.thread-state svg.lucide-circle-dot')).toBeVisible();
-  const close = page.getByRole('button', { name: 'Close thread', exact: true });
-  await expect(close).toHaveAttribute('title', 'Close thread');
+  const close = page.getByRole('button', { name: text.threadClose, exact: true });
+  await expect(close).toHaveAttribute('title', text.threadClose);
+  await expect(close).toHaveText(text.threadClose);
   await close.click();
   await expect(page.getByTestId('comment-thread')).toHaveCount(0);
   expect((await run(page, 'proof')).sends).toEqual([]);
