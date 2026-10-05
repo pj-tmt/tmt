@@ -27,7 +27,12 @@ owns record fields, limits, revision semantics and trust boundaries.
   defaults and captured context; `CommentExchange` presents it on both surfaces. Replies have one agent/name/time byline; pending states
   and trusted delivery actions stay in the requester turn until a reply exists
   (including an empty reply), then the status disappears.
-- `thread-panel.tsx` owns muted author/time labels with device-ID tooltips, visible Resolve/Reopen/Close thread labels alongside Lucide icons, plain-text
+- `thread-panel.tsx` exports `ThreadWindow`/`ThreadWindowProps` for the shared
+  conversation body. A parent composer slot preserves an existing input instance;
+  an optional awaited status callback delegates one trusted action to the parent,
+  with busy/error display and no notification or storage capability. Without that
+  callback, existing writer-owned controls use the discussion binding.
+  It owns muted author/time labels with device-ID tooltips, visible Resolve/Reopen/Close thread labels alongside Lucide icons, plain-text
   parent controls, one all-annotations list, expanded conversation and explicit
   reattach confirmation. `annotation-input.tsx` owns parent draft/recipient/send
   policy around the shared Lexical plaintext message composer: Enter submits the

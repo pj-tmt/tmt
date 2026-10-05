@@ -248,18 +248,7 @@ export function CommentExchange({
   );
 }
 
-function Thread({
-  thread,
-  attached,
-  anchorsChecked,
-  selection,
-  binding,
-  ask,
-  title,
-  asks,
-  close,
-  blocked,
-}: {
+export type ThreadWindowProps = {
   thread: ThreadView;
   attached: boolean;
   anchorsChecked: boolean;
@@ -270,22 +259,56 @@ function Thread({
   asks: readonly PageAsk[];
   close(): void;
   blocked: boolean;
-}) {
+  /** A parent-owned composer can stay mounted as a selection becomes a thread. */
+  composer?: ReactNode;
+  /** Current parent admission owns this explicit action, including publication outcomes. */
+  onStatusChange?: (thread: ThreadView, nextResolved: boolean) => Promise<void>;
+  /** The parent keeps outside-close behavior inert while this action is pending. */
+  onBusy?(busy: boolean): void;
+};
+
+export function ThreadWindow({
+  thread,
+  attached,
+  anchorsChecked,
+  selection,
+  binding,
+  ask,
+  title,
+  asks,
+  close,
+  blocked,
+  composer,
+  onStatusChange,
+  onBusy,
+}: ThreadWindowProps) {
   const [busy, setBusy] = useState(false),
     [error, setError] = useState(false);
   const owned = binding?.deviceId === thread.ref.writer;
   const [reattach, setReattach] = useState<QuoteSelector | null>(null);
   const action = (change: Parameters<ThreadBinding['updateThread']>[2]) => {
-    if (!binding || busy || blocked) return;
+    if (busy || blocked) return;
+    const nextResolved = 'resolved' in change ? change.resolved : undefined;
+    const mutate =
+      nextResolved !== undefined && onStatusChange
+        ? () => onStatusChange(thread, nextResolved)
+        : binding
+          ? () => binding.updateThread(thread.ref, thread.revision, change)
+          : undefined;
+    if (!mutate) return;
     setBusy(true);
+    onBusy?.(true);
     setError(false);
-    void binding
-      .updateThread(thread.ref, thread.revision, change)
+    void Promise.resolve()
+      .then(mutate)
       .then(
         () => setReattach(null),
         () => setError(true),
       )
-      .finally(() => setBusy(false));
+      .finally(() => {
+        setBusy(false);
+        onBusy?.(false);
+      });
   };
   return (
     <section
@@ -312,7 +335,7 @@ function Thread({
           </span>
         )}
         <span className="thread-bar-actions">
-          {owned && !thread.deleted && (
+          {(owned || onStatusChange) && !thread.deleted && (
             <button
               className="thread-action"
               disabled={blocked || busy}
@@ -330,6 +353,7 @@ function Thread({
             className="thread-action"
             title={text.threadClose}
             aria-label={text.threadClose}
+            disabled={busy}
             onClick={(event) => {
               if (event.isTrusted) close();
             }}
@@ -405,19 +429,22 @@ function Thread({
           </div>
         </section>
       )}
-      {!thread.deleted && binding && (
-        <AnnotationInput
-          binding={ask}
-          discussion={binding}
-          anchor={thread.anchor}
-          thread={thread}
-          asks={asks}
-          title={title}
-          blocked={blocked || busy}
-          cancel={close}
-          committed={() => {}}
-        />
-      )}
+      {composer !== undefined
+        ? composer
+        : !thread.deleted &&
+          binding && (
+            <AnnotationInput
+              binding={ask}
+              discussion={binding}
+              anchor={thread.anchor}
+              thread={thread}
+              asks={asks}
+              title={title}
+              blocked={blocked || busy}
+              cancel={close}
+              committed={() => {}}
+            />
+          )}
       {error && <p role="alert">{text.commentFailed}</p>}
     </section>
   );
@@ -529,7 +556,7 @@ export function ThreadPanel({
                 </span>
               </button>
               {active === id && (
-                <Thread
+                <ThreadWindow
                   thread={thread}
                   attached={resolved.includes(id)}
                   anchorsChecked={anchorsChecked}
