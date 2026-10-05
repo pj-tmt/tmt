@@ -14,6 +14,7 @@ import {
 } from './ask-remote.js';
 import { AskRecordStore } from './ask-record-store.js';
 import { ASK_MESSAGE_BYTES, ASK_REPLY_BYTES, type AskLedgerView } from './ask-records.js';
+const ACTIVATION_READ_LIMIT = 256;
 export interface AskDestinations {
   context: RemoteContext;
   machines: { id: string; name: string; online: 'online'; agents: RemoteAgent[] }[];
@@ -249,15 +250,16 @@ export class AskController {
   }
   /** A bounded visible-page observer. It calls only receipt/final reads and
    * owns no send capability on reload, reconnect or a timer wake. */
-  observe(signal: AbortSignal): Promise<void> {
+  observe(signal: AbortSignal, refreshOlder = false): Promise<void> {
     if (this.#ended) return Promise.resolve();
     if (this.#observing) return this.#observing;
     const started = performance.now();
     const unresolved = (view: AskLedgerView) =>
       !view.reply &&
       ['dispatching', 'held', 'accepted', 'uncertain'].includes(view.state) &&
-      !['RESULT_UNAVAILABLE', 'REPLY_TOO_LARGE'].includes(view.reason ?? '') &&
-      Date.now() - view.intent.issuedAt < ASK_OBSERVATION_MS;
+      !['RESULT_UNAVAILABLE', 'REPLY_TOO_LARGE'].includes(view.reason ?? '');
+    const withinHorizon = (view: AskLedgerView) =>
+      unresolved(view) && Date.now() - view.intent.issuedAt < ASK_OBSERVATION_MS;
     const task = (async () => {
       for (
         let cycle = 0;
@@ -288,7 +290,20 @@ export class AskController {
           });
           continue;
         }
-        const pending = (await this.options.store.views()).filter(unresolved);
+        // Activation gets one bounded sequential catch-up pass, newest first.
+        // Older asks never enter the retry loop; excess history keeps explicit recheck.
+        const views = await this.options.store.views();
+        const pending = refreshOlder
+          ? views
+              .filter(unresolved)
+              .sort(
+                (a, b) =>
+                  b.intent.issuedAt - a.intent.issuedAt ||
+                  a.intent.operationId.localeCompare(b.intent.operationId),
+              )
+              .slice(0, ACTIVATION_READ_LIMIT)
+          : views.filter(withinHorizon);
+        refreshOlder = false;
         if (!pending.length) return;
         for (const view of pending) {
           if (
@@ -304,7 +319,7 @@ export class AskController {
             // Read/publication failure leaves the original operation for re-check.
           }
         }
-        if (this.#ended || !(await this.options.store.views()).some(unresolved)) return;
+        if (this.#ended || !(await this.options.store.views()).some(withinHorizon)) return;
         if (!signal.aborted)
           await new Promise<void>((resolve) => {
             const done = () => {

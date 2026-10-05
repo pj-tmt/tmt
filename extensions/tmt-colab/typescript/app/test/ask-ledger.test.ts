@@ -3,7 +3,7 @@ import { expect, it, vi } from 'vite-plus/test';
 import { binary } from '@tmt/colab-client';
 import { AskController } from '../src/ask-attempt.js';
 import { AskRecordStore } from '../src/ask-record-store.js';
-import { readAskViews, type AskLedgerView } from '../src/ask-records.js';
+import { ASK_OBSERVATION_MS, readAskViews, type AskLedgerView } from '../src/ask-records.js';
 import { FrozenAsk } from '../src/ask-intent.js';
 import { createRemoteClient, SessionEndedError, ReadRefusedError } from '../src/ask-remote.js';
 import type { OwnState } from '../src/fold-protocol.js';
@@ -238,6 +238,78 @@ it('visible bounded observation publishes finals through reads only and abort st
   stop.abort();
   await controller.observe(stop.signal);
   expect(remote.sends).toHaveLength(1);
+});
+
+it('activation reads an old annotation once while ordinary polling keeps its operation horizon', async () => {
+  const { controller, remote, store, key } = await setup();
+  await controller.destinations();
+  const frozen = controller.prepare(destination());
+  await controller.send(frozen);
+  const before = await store.view(frozen.view.operationId);
+  const result = vi.spyOn(remote, 'result');
+  const clock = vi.spyOn(Date, 'now').mockReturnValue(before.intent.issuedAt + ASK_OBSERVATION_MS);
+  try {
+    const reloaded = new AskController({ store, remote, key, selection });
+    await reloaded.observe(new AbortController().signal);
+    expect(result).not.toHaveBeenCalled();
+    expect(await store.view(frozen.view.operationId)).toEqual(before);
+    await reloaded.observe(new AbortController().signal, true);
+    const recovered = await store.view(frozen.view.operationId);
+    expect(recovered.reply).toMatchObject({
+      requestId: before.requestId,
+      agentId: id(6),
+      body: '',
+    });
+    expect(result).toHaveBeenCalledExactlyOnceWith(before.requestId);
+    await reloaded.observe(new AbortController().signal, true);
+    expect(result).toHaveBeenCalledOnce();
+    expect(remote.sends).toHaveLength(1);
+  } finally {
+    clock.mockRestore();
+    result.mockRestore();
+  }
+});
+
+it('activation makes at most 256 sequential old-ask reads and does not retry failed older reads', async () => {
+  const { controller, remote, store } = await setup();
+  await controller.destinations();
+  const frozen = controller.prepare(destination());
+  await controller.send(frozen);
+  const view = await store.view(frozen.view.operationId);
+  const clock = vi
+    .spyOn(Date, 'now')
+    .mockReturnValue(view.intent.issuedAt + ASK_OBSERVATION_MS + 1000);
+  const views = Array.from({ length: 257 }, (_, index) => ({
+    ...view,
+    intent: {
+      ...view.intent,
+      operationId: id(index + 100),
+      issuedAt: view.intent.issuedAt - index,
+    },
+  }));
+  const records = vi.spyOn(store, 'views').mockResolvedValue([...views].reverse());
+  let active = 0,
+    peak = 0;
+  const recover = vi.spyOn(controller, 'recover').mockImplementation(async () => {
+    peak = Math.max(peak, ++active);
+    await Promise.resolve();
+    active--;
+    throw new ReadRefusedError('REMOTE_STATE_UNAVAILABLE');
+  });
+  try {
+    await controller.observe(new AbortController().signal, true);
+    expect(recover.mock.calls.map(([operationId]) => operationId)).toEqual(
+      views.slice(0, 256).map((value) => value.intent.operationId),
+    );
+    expect(peak).toBe(1);
+    await controller.observe(new AbortController().signal);
+    expect(recover).toHaveBeenCalledTimes(256);
+    expect(remote.sends).toHaveLength(1);
+  } finally {
+    recover.mockRestore();
+    records.mockRestore();
+    clock.mockRestore();
+  }
 });
 
 it('preserves verified scope refusal and never dispatches again during recovery', async () => {

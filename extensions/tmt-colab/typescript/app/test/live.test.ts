@@ -23,6 +23,7 @@ const connections = vi.hoisted(
 const asks = vi.hoisted(() => ({
   project: vi.fn(async () => []),
   signals: [] as AbortSignal[],
+  activation: [] as boolean[],
   instances: [] as { options: LiveAskOptions; close: ReturnType<typeof vi.fn> }[],
 }));
 vi.mock('../src/live-ask.js', () => ({
@@ -31,8 +32,9 @@ vi.mock('../src/live-ask.js', () => ({
     constructor(readonly options: LiveAskOptions) {
       asks.instances.push(this);
     }
-    async observe(signal: AbortSignal) {
+    async observe(signal: AbortSignal, refreshOlder = false) {
       asks.signals.push(signal);
+      asks.activation.push(refreshOlder);
       await new Promise<void>((resolve) =>
         signal.addEventListener('abort', () => resolve(), { once: true }),
       );
@@ -259,6 +261,7 @@ it('page observer stops on hidden/close and resumes visible without another cont
   const document = Object.assign(new EventTarget(), { visibilityState: 'visible' });
   vi.stubGlobal('document', document);
   asks.signals.length = 0;
+  asks.activation.length = 0;
   const live = new Live(
     new URL('https://example.test/colab/'),
     {
@@ -283,6 +286,7 @@ it('page observer stops on hidden/close and resumes visible without another cont
       () => {},
     );
     expect(asks.signals).toHaveLength(1);
+    expect(asks.activation).toEqual([true]);
     document.visibilityState = 'hidden';
     document.dispatchEvent(new Event('visibilitychange'));
     expect(asks.signals[0].aborted).toBe(true);
@@ -290,6 +294,7 @@ it('page observer stops on hidden/close and resumes visible without another cont
     document.dispatchEvent(new Event('visibilitychange'));
     await vi.waitFor(() => expect(asks.signals).toHaveLength(2));
     expect(asks.signals[1].aborted).toBe(false);
+    expect(asks.activation).toEqual([true, true]);
     unsubscribe();
     await vi.waitFor(() => expect(asks.signals[1].aborted).toBe(true));
   } finally {

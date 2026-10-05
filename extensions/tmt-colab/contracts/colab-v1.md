@@ -1302,10 +1302,14 @@ to 16 KiB; a larger retained core final yields `REPLY_TOO_LARGE`, with no silent
 truncated copy. Unavailable core history yields `RESULT_UNAVAILABLE`. Core remains
 final/retention authority; page copies follow page access and retention.
 
-Read-only observation resumes on load and after Send/re-check, uses 2-second to
-30-second backoff while visible, pauses hidden pages and resumes when visible,
-and stops after a two-hour operation horizon. After that, explicit re-check
-remains available. Closing the asking browser delays page publication until it
+On page open and visible-again, read-only observation makes one sequential
+catch-up pass over at most the 256 newest unresolved asks from the asking device,
+regardless of age. Older asks outside that pass keep explicit re-check. Failed
+older reads are not automatically retried. Continued polling after that pass and
+after Send/re-check uses 2-second to 30-second backoff while visible, pauses hidden
+pages and stops after a two-hour operation horizon. Annotations and Chat then show
+a Lucide Clock with `no reply yet`, keeping the accepted ledger state and read-only re-check action.
+Closing the asking browser delays page publication until it
 reopens; it never cancels work. Synchronization and other viewers cannot perform
 result reads as the asking Remote device.
 

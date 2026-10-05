@@ -12,7 +12,7 @@ let preparations = 0;
 let closes = 0;
 let commits = 0;
 let remote: RemoteDouble | undefined;
-export function mount(mode: 'held' | 'throw' | 'prepare-failure' | 'multi' = 'held') {
+export function mount(mode: 'accepted' | 'held' | 'throw' | 'prepare-failure' | 'multi' = 'held') {
   root?.unmount();
   document.getElementById('annotation-fixture')?.remove();
   document.getElementById('root')?.setAttribute('hidden', '');
@@ -76,23 +76,22 @@ export function mount(mode: 'held' | 'throw' | 'prepare-failure' | 'multi' = 'he
           ...result.attempt,
           async send() {
             const state = await result.attempt.send();
-            setRecords([
-              {
-                thread: ref.id,
-                messageIds: [id(3)],
-                operationId: result.attempt.preview.view.operationId,
-                writer: id(4),
-                message: result.attempt.preview.view.message,
-                deliveredMessage: result.attempt.preview.view.deliveredMessage,
-                agent: target.agent,
-                agentName: target.agentName,
-                deviceName: target.deviceName,
-                issuedAt: Date.now(),
-                machine: target.machine,
-                state: state.state as PageAsk['state'],
-                canTrack: true,
-              },
-            ]);
+            const record: PageAsk = {
+              thread: ref.id,
+              messageIds: [id(3)],
+              operationId: result.attempt.preview.view.operationId,
+              writer: id(4),
+              message: result.attempt.preview.view.message,
+              deliveredMessage: result.attempt.preview.view.deliveredMessage,
+              agent: target.agent,
+              agentName: target.agentName,
+              deviceName: target.deviceName,
+              issuedAt: Date.now(),
+              machine: target.machine,
+              state: state.state as PageAsk['state'],
+              canTrack: true,
+            };
+            setRecords((previous) => (mode === 'accepted' ? [...previous, record] : [record]));
             return state;
           },
         };
