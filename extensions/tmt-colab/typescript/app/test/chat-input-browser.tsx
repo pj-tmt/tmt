@@ -2,6 +2,7 @@
 import { createRoot, type Root } from 'react-dom/client';
 import { AnnotationInput } from '../src/annotation-input.js';
 import type { AskBinding } from '../src/ask-panel.js';
+import { ConversationTurn } from '../src/components/conversation-turn.js';
 import { ActionMenu } from '../src/components/action-menu.js';
 import type { ThreadBinding } from '../src/thread-store.js';
 import { destination, id } from './ask-fixtures.js';
@@ -67,10 +68,16 @@ export function mountComposer(options: { agents: string[]; publisher?: string; r
 export function mountMenu(options: { tight?: boolean } = {}) {
   root = createRoot(host());
   const row = (
-    <article className="comment" data-testid="row" style={{ width: 360, padding: 16 }}>
-      <header style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
-        <p>You · now</p>
-        <span className="comment-header-end">
+    <ConversationTurn
+      role="user"
+      layout="thread"
+      author="You"
+      at={Date.now()}
+      className="comment"
+      data-testid="row"
+      style={{ width: 360, padding: 16 }}
+      actions={
+        <>
           <span role="status">replied</span>
           <ActionMenu
             label="Message actions"
@@ -80,11 +87,12 @@ export function mountMenu(options: { tight?: boolean } = {}) {
             ]}
             onSelect={(key) => selected.push(key)}
           />
-        </span>
-      </header>
+        </>
+      }
+    >
       <p>First line of a message.</p>
       <button type="button">After</button>
-    </article>
+    </ConversationTurn>
   );
   // A short scrolling container: the list cannot fit below the trigger, so it flips up.
   root.render(

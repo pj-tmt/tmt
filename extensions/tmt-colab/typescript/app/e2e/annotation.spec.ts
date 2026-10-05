@@ -41,7 +41,10 @@ test('the shared input listbox consumes recipient Enter; explicit message Enter 
   expect(result.commits).toBe(1);
   expect(result.sends).toHaveLength(1);
   expect(result.sends[0].message).toContain('Explain this.\nMore detail.');
-  await expect(page.getByTestId('ask-entry')).toContainText('Deterministic agent');
+  await expect(page.getByTestId('ask-entry').locator('.comment-byline')).toContainText(
+    'Fixture browser ·',
+  );
+  await expect(page.getByTestId('ask-entry').getByTestId('ask-state')).toContainText('held');
   await expect(page.getByTestId('ask-preview')).toHaveCount(0);
   await expect(page.locator('dialog')).toHaveCount(0);
 });

@@ -559,8 +559,7 @@ footer {
   display: inline-block;
   margin: 0 0 0 16px;
 }
-.ask-compose,
-.ask-panel {
+.ask-compose {
   padding: 20px;
   margin: 16px 0;
   background: var(--c-sheet);
@@ -603,11 +602,6 @@ footer {
   display: block;
   color: var(--c-muted);
   font: 11px/1.65 var(--f-mono);
-}
-.ask-panel article {
-  border-top: 1px solid var(--c-rule);
-  padding-top: 16px;
-  margin-top: 20px;
 }
 .ask-panel pre {
   font: 12px/1.65 var(--f-mono);
@@ -670,11 +664,6 @@ footer {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   unicode-bidi: plaintext;
-}
-.comment {
-  position: relative;
-  padding: 16px 0;
-  border-bottom: 1px solid var(--c-rule);
 }
 .comment-byline {
   margin: 0;
@@ -928,29 +917,117 @@ footer {
   border-top: 1px solid var(--c-rule);
   padding: 12px 20px;
 }
-.chat-panel .comment {
-  margin: 16px 0;
-}
-.chat-panel .ask-panel {
-  margin: 12px 0;
-  border: 0;
+.ask-panel {
+  margin: 0;
   padding: 0;
+  border: 0;
   background: transparent;
 }
-.chat-panel .ask-panel .chat-exchange {
-  border: 0;
+.conversation-turn {
+  margin: 20px 0;
   padding: 0;
-  margin: 0;
+  border: 0;
+  background: transparent;
 }
-.chat-panel .chat-user-turn,
-.chat-panel .chat-agent-turn {
-  margin: 16px 0;
+.conversation-turn[data-turn-layout='thread'] {
+  display: grid;
+  grid-template-columns: 32px minmax(0, 1fr);
+  gap: 12px;
+}
+.conversation-turn[data-turn-layout='chat'] {
+  width: fit-content;
+  max-width: 88%;
   padding: 12px;
   border: 1px solid var(--c-rule);
-  background: var(--c-sheet);
+  background: color-mix(in srgb, var(--c-text) 6%, var(--c-paper));
 }
-.chat-user-turn > header,
-.chat-user-turn .comment-main > header {
+.conversation-turn[data-turn-layout='chat'][data-turn-role='user'] {
+  margin-left: auto;
+  border-color: var(--c-accent);
+  background: var(--c-accent-soft);
+}
+.conversation-turn[data-turn-layout='chat'][data-turn-role='agent'] {
+  margin-right: auto;
+}
+.conversation-meta-mark {
+  vertical-align: middle;
+  margin-right: 6px;
+  color: var(--c-text);
+}
+.conversation-avatar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: 1px solid var(--c-accent);
+  color: var(--c-accent);
+}
+.conversation-turn[data-turn-role='agent'] .conversation-avatar {
+  border-color: var(--c-text);
+  background: var(--c-text);
+  color: var(--c-paper);
+}
+.conversation-main {
+  min-width: 0;
+}
+.conversation-main .comment-byline {
+  margin: 0;
+}
+.conversation-body {
+  margin-top: 8px;
+}
+.conversation-body > :first-child {
+  margin-top: 0;
+}
+.conversation-body > :last-child {
+  margin-bottom: 0;
+}
+.conversation-body pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  unicode-bidi: plaintext;
+  font: inherit;
+}
+.conversation-turn[data-turn-layout='thread'][data-turn-role='agent'] .conversation-body {
+  border-left: 3px solid var(--c-text);
+  padding-left: 12px;
+}
+.conversation-delivery {
+  color: var(--c-muted);
+  font-size: 12px;
+}
+.conversation-delivery:empty {
+  display: none;
+}
+.conversation-delivery > [role='status'] {
+  display: block;
+  margin-top: 8px;
+}
+.thread-bar .thread-state,
+.thread-bar-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.thread-bar-actions {
+  margin-left: auto;
+}
+.comments-panel .thread-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 4px;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+.thread-action:hover {
+  color: var(--c-accent);
+}
+
+.comment-main > header {
   display: flex;
   align-items: baseline;
   justify-content: space-between;
@@ -958,25 +1035,6 @@ footer {
   flex-wrap: wrap;
   color: var(--c-muted);
   font-size: 12px;
-}
-.chat-user-turn .comment-byline,
-.chat-byline {
-  margin: 0 0 8px;
-  color: var(--c-muted);
-  font-size: 12px;
-}
-.chat-panel .chat-agent-turn pre {
-  margin-bottom: 0;
-}
-.chat-user-turn details {
-  margin-top: 8px;
-}
-
-.comment-main > header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
 }
 .comment-header-end {
   display: inline-flex;
