@@ -1308,7 +1308,7 @@ regardless of age. Older asks outside that pass keep explicit re-check. Failed
 older reads are not automatically retried. Continued polling after that pass and
 after Send/re-check uses 2-second to 30-second backoff while visible, pauses hidden
 pages and stops after a two-hour operation horizon. Annotations and Chat then show
-`… no reply yet`, keeping the accepted ledger state and read-only re-check action.
+a Lucide Clock with `no reply yet`, keeping the accepted ledger state and read-only re-check action.
 Closing the asking browser delays page publication until it
 reopens; it never cancels work. Synchronization and other viewers cannot perform
 result reads as the asking Remote device.

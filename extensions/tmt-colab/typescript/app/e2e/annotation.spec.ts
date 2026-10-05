@@ -22,11 +22,12 @@ test('an accepted annotation stops saying awaiting at the observation deadline w
   await input.fill('@Deterministic agent Explain this.');
   await input.press('Enter');
   await expect(page.getByTestId('ask-state')).toHaveAttribute('data-state', 'accepted');
-  await expect(page.getByTestId('ask-state')).toHaveText('Accepted; awaiting the agent’s reply.');
+  await expect(page.getByTestId('ask-state')).toHaveText('waiting');
   const before = await run(page, 'proof');
   expect(before.sends).toHaveLength(1);
   await page.clock.fastForward(2 * 60 * 60 * 1000 + 1);
-  await expect(page.getByTestId('ask-state')).toHaveText('… no reply yet');
+  await expect(page.getByTestId('ask-state')).toHaveText('no reply yet');
+  await expect(page.getByTestId('ask-state').locator('svg.lucide-clock')).toBeVisible();
   await expect(page.getByTestId('ask-state')).toHaveAttribute('data-state', 'accepted');
   await expect(page.getByRole('button', { name: 'Re-check delivery', exact: true })).toBeEnabled();
   expect(await run(page, 'proof')).toEqual(before);
@@ -58,9 +59,9 @@ test('each accepted annotation reaches its own deadline while the conversation s
   const before = await run(page, 'proof');
   expect(before.preparations).toBe(2);
   await page.clock.fastForward(60 * 60 * 1000 + 1);
-  await expect(status).toHaveText(['… no reply yet', 'Accepted; awaiting the agent’s reply.']);
+  await expect(status).toHaveText(['no reply yet', 'waiting']);
   await page.clock.fastForward(60 * 60 * 1000);
-  await expect(status).toHaveText(['… no reply yet', '… no reply yet']);
+  await expect(status).toHaveText(['no reply yet', 'no reply yet']);
   expect(await run(page, 'proof')).toEqual(before);
 });
 test('the shared input listbox consumes recipient Enter; explicit message Enter sends once and held stays inline', async ({

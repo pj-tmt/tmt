@@ -36,9 +36,8 @@ owns record fields, limits, revision semantics and trust boundaries.
   input options portal into its dialog ancestor (otherwise the body), so mobile
   modal sheets retain visible, clickable autocomplete across close/reopen.
   UI capture/default labels grant no routing authority. `ask-panel.tsx` shares the
-  accepted-turn observation deadline and `… no reply yet` copy between annotation
+  accepted-turn observation deadline and Clock + `no reply yet` copy between annotation
   threads and Chat; it retains read-only recheck without changing ledger state.
-  Reply bylines use the agent display label, not the device that published the reply copy.
 - `chat-panel.tsx` reads designated device threads from the same admitted projection,
   shows their page-visible history and inline outcomes, and continues only its device's thread with the shared input. Chat threads are excluded from Comments. No new store
   or record fields are introduced; two-hour reply timeout is display-only.

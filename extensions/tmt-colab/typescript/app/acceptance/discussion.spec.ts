@@ -67,12 +67,20 @@ test('a same-request annotation reply submitted while observation is paused is r
     });
     const expected = agent.rows().find((row) => row.event === 'replied')!.body as string;
     await expect(page.getByTestId('ask-reply')).toHaveText(expected);
-    await expect(page.getByTestId('ask-reply-byline')).toHaveText(`${agent.name} · Just now`);
+    await expect(page.getByTestId('ask-reply-attribution')).toContainText(agent.name);
+    await expect(page.getByTestId('ask-reply-attribution')).not.toContainText(
+      'late-annotation-author',
+    );
+    await expect(page.getByTestId('ask-state')).toHaveCount(0);
     await page.reload();
     await comments(page);
     await page.getByTestId('annotation-row').filter({ hasText: 'Quoted passage.' }).click();
     await expect(page.getByTestId('ask-reply')).toHaveText(expected);
-    await expect(page.getByTestId('ask-reply-byline')).toHaveText(`${agent.name} · Just now`);
+    await expect(page.getByTestId('ask-reply-attribution')).toContainText(agent.name);
+    await expect(page.getByTestId('ask-reply-attribution')).not.toContainText(
+      'late-annotation-author',
+    );
+    await expect(page.getByTestId('ask-state')).toHaveCount(0);
     expect(agent.received()).toHaveLength(1);
     expect(world.coreCalls().filter((call) => call.operation === 'dispatch.create')).toHaveLength(
       1,
