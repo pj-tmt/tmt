@@ -9,12 +9,11 @@ color or size that is not a token.
 
 **Adoption status:** Colab's shipped implementations are named below under
 `extensions/tmt-colab/typescript/app/src`; the other descriptions include
-approved design targets that have not shipped yet. Remote reuses the shared header
-and card through Colab's `chrome.css`. Office has not adopted this style. A shared
-component package and the implementation basis column are a **proposal**. A
-future package and any new dependencies require architecture and dependency
-review; until then, new surfaces copy nothing and import from Colab only
-through the existing chrome assets.
+approved design targets that have not shipped yet. Remote's pairing and door
+pages follow the same token, header and card rules in their own `pages.css`.
+Office has not adopted this style. A shared component package and the
+implementation basis column are a **proposal**. A future package and any new
+dependencies require architecture and dependency review.
 
 ## Principles
 
@@ -221,8 +220,9 @@ state (mark plus word), and a `⋯` menu for the author's own Edit or Delete.
 - Threads: square User or Bot avatar and an agent-body rail. The approved target
   colors the Bot avatar and rail for the agent's driver.
 - Literal markup in a body always renders as text.
-- The shared `components/conversation-turn.tsx` ships for Chat and threads via
-  `ask-panel.tsx` (#1772); the driver-colored treatment is not shipped. Basis: own.
+- The shared `components/conversation-turn.tsx` ships for Chat and threads through
+  `ask-panel.tsx` and `thread-panel.tsx` (#1772); the driver-colored treatment is
+  not shipped. Basis: own.
 
 ### Status mark
 
