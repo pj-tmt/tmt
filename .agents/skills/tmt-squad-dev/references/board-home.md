@@ -45,6 +45,11 @@ and audience effects to [config-and-effects.md](config-and-effects.md#home-lead-
   input and sent feedback join the stream beneath the selected row, shifting later
   regions together. Tiles expose no member names, task/PR fields or question text;
   composing uses the acquired target and ordinary send revalidation.
+  `App::shown_changed` places it when HOME comes on screen: `home_left` (the target
+  `go` saved on leaving) if that row still exists, else `place_home_start` (needs-you,
+  blocked, leads, squads; never the cron line). A start on a lead also sets
+  `home_start`, so the first deferred lead read, which reorders the leads, places the
+  cursor once more; `select` and the composer clear it. Squad tabs start at row 0.
 - `home::leads` puts deferred exchanges in one `Outline` box. Every visible line of
   a lead maps to the same cursor target. A blank boxed line follows an exchange
   before the next lead; consecutive leads without exchanges have no separator.
