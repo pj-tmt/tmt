@@ -1,15 +1,28 @@
 ---
 source: site/src/chapters/design.mdx
-sourceRevision: 08968bf4a346ebc33e61b4bee74b700aaf3cb504
+sourceRevision: 962e2bd12fcd3a3e827acacdc076b2dbc7082c24
 title: 共通の見た目と意味
 ---
 
+import { DesignPlayground } from "../../demos/DesignPlayground";
 import { Cmd } from "../../components/Cmd";
 import { Tag } from "../../components/marks";
 import { MarkList, TokenPreview, TokenTable, TypePreview } from "../../components/samples";
 import { components as Mdx } from "../../components/mdx";
 
 コマンドライン、Squad の board、このサイトのどこでも、tmt は同じ製品として見えるようにします。このページは共通の指針です。値は1つのファイル、[`design/tokens/tokens.json`](https://github.com/pj-tmt/tmt/blob/main/design/tokens/tokens.json) にあります。サイトのスタイルシートとこのページのすべての表がそこから読み取るので、手作業でコピーした値はありません。
+
+<Mdx.h3 id="interactive-design-guidebook-mdx">MDX インタラクティブデザインガイド</Mdx.h3>
+
+[ブラウザーのガイド](https://github.com/pj-tmt/tmt/blob/main/design/gui-style.md) がヘッダー、カード、操作部品、オーバーレイ、フォーカス、復旧時の文言を定義します。[CLI のガイド](https://github.com/pj-tmt/tmt/blob/main/design/cli-style.md) は端末出力を定義します。ここで例を試し、詳しい規則は各ガイドを参照してください。
+
+<Mdx.h3 id="try-the-components">コンポーネントを試す</Mdx.h3>
+
+Light と Dark、Ready、Waiting、Stopped を切り替えてください。入力した下書きは状態を変えても残ります。Tab でフォーカスを確認できます。Ready で文字を入力するまで Preview は無効になり、理由が表示されます。Preview は入力をこのページ内に表示します。
+
+<DesignPlayground />
+
+これは **デザインの例** で、Colab や Remote への接続ではありません。ラベルは製品の用語に合わせて英語です。Colab と Remote はそれぞれのリリース済みコンポーネントを持ち、[#1797](https://github.com/pj-tmt/tmt/issues/1797) の共有パッケージは **計画中** です。ペアリング、権限、Ask の配送、再接続は示しません。[コンポーネント仕様 PR](https://github.com/pj-tmt/tmt/pull/1798) に一覧と抽出の境界があります。
 
 <Mdx.h3 id="principles">基本方針</Mdx.h3>
 
