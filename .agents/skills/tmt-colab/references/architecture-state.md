@@ -146,7 +146,11 @@ in `acceptance/ask.spec.ts`.
   keys. The CLI (`cli_grammar.rs`, `cli_management.rs`, `inspection.rs`) is root-local:
   `ls`, `show`, `share mode/link/member/history`, `retention`, `archive` and `delete`.
   `cli_management::selection` adapts public CLI inputs to strict existing DTOs;
-  member removal/role changes capture complete verified assignments, and deletion requires `--yes`.
+  its shared page resolver admits unique UUID prefixes from the verified complete
+  catalog before read/write/export/management effects, then passes full IDs to
+  the domain. Ambiguity lists authenticated titles and shortest candidate IDs;
+  missing/deleted prefixes refuse without changing state. Other ID operands stay strict.
+  Member removal/role changes capture complete verified assignments, and deletion requires `--yes`.
   Explicit frozen delete retries bypass only the missing catalog view so the engine
   can replay the retained receipt. Retention reads use verified policy without a decoder.
   It uses the private socket IPC when `serve`
@@ -193,7 +197,7 @@ in `acceptance/ask.spec.ts`.
 
 ## Short owner-page links
 
-- `short_links.rs` and `short-links.ts` derive display-only UUID prefixes from the existing
+- `short_links.rs` and `short-links.ts` derive UUID prefixes from the existing
   complete verified catalog, including retained deleted IDs (ID/deleted flag only). Archive
   filtering and deletion never rebind a prefix; no alias state is stored.
 - `socket.rs` admits the mounted alias and emits a same-mount relative redirect. Registration

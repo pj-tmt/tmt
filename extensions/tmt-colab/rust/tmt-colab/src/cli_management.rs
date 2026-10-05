@@ -59,6 +59,91 @@ fn uuid(value: &str) -> Result<String> {
     values::generated_id(value).map_err(|_| input("Expected a canonical non-nil UUIDv4."))?;
     Ok(value.into())
 }
+/// CLI admission only: domain operations always receive a full canonical page ID.
+pub fn resolve_page(store: &Store, key: &Keyring, operand: &str) -> Result<String> {
+    resolve_catalog_page(
+        store,
+        key,
+        &inspection::catalog(store, key)?,
+        operand,
+        false,
+    )
+}
+fn resolve_catalog_page(
+    store: &Store,
+    key: &Keyring,
+    catalog: &Value,
+    operand: &str,
+    delete_retry: bool,
+) -> Result<String> {
+    let ids = catalog_ids(catalog);
+    let matches = tmt_colab::short_links::matches(operand, &ids);
+    let id = match matches.as_slice() {
+        [] => return Err(fail("COLAB_PAGE_NOT_FOUND", "Local page is not available.")),
+        [id] => *id,
+        _ => {
+            let mut candidates = Vec::new();
+            for id in matches {
+                let mut page = catalog["pages"]
+                    .as_array()
+                    .and_then(|pages| pages.iter().find(|p| p["pageId"] == id))
+                    .cloned();
+                if let Some(page) = page.as_mut() {
+                    title_or_error(store, key, page)?;
+                }
+                let title = match page.as_ref() {
+                    None => "Deleted page",
+                    Some(page) if page["archived"] == true => "Archived page (title unavailable)",
+                    Some(page) => match page["title"].as_str() {
+                        Some(title) if title.trim().is_empty() => "Untitled page",
+                        Some(title) => title,
+                        None => "title unavailable",
+                    },
+                };
+                candidates.push(json!({"pageId":id,
+                    "shortId":tmt_colab::short_links::shortest_id(id, &ids),
+                    "title":title,"deleted":page.is_none()}));
+            }
+            let current = inspection::catalog(store, key)?;
+            if current["membershipHead"] != catalog["membershipHead"]
+                || current["pageIds"] != catalog["pageIds"]
+            {
+                return Err(management_error("STALE_HEAD"));
+            }
+            let names = candidates
+                .iter()
+                .map(|page| {
+                    format!(
+                        "{} · {}",
+                        page["shortId"].as_str().unwrap_or_default(),
+                        tmt_cli_style::table::escape(page["title"].as_str().unwrap_or_default())
+                    )
+                })
+                .collect::<Vec<_>>()
+                .join("; ");
+            return Err(Box::new(ManagementFault {
+                code: "COLAB_PAGE_AMBIGUOUS",
+                message: format!("Page prefix {operand} is ambiguous. Use one of: {names}."),
+                correlation: json!({"candidates":candidates}),
+                source: None,
+            }));
+        }
+    };
+    let deleted = catalog["pageIds"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .any(|page| page["pageId"] == id && page["deleted"] == true);
+    if deleted && !delete_retry {
+        return Err(Box::new(ManagementFault {
+            code: "COLAB_PAGE_DELETED",
+            message: format!("Page {id} was deleted."),
+            correlation: json!({"pageId":id}),
+            source: None,
+        }));
+    }
+    uuid(id)
+}
 fn fresh_id() -> Result<String> {
     let mut b = [0u8; 16];
     getrandom::fill(&mut b).map_err(|_| input("Could not generate operation identity."))?;
@@ -681,16 +766,22 @@ pub fn run(command: &str, args: &ArgMatches, root: &Path, json_output: bool) -> 
     while let Some((_, next)) = page_args.subcommand() {
         page_args = next;
     }
-    let id = uuid(text(page_args, "page"))?;
-    let selected_page = catalog["pages"]
-        .as_array()
-        .and_then(|rows| rows.iter().find(|p| p["pageId"] == id))
-        .cloned();
     // Deletion removes the visible catalog row, not its operation receipt. Only
     // an explicit frozen retry may reach the engine without a current page view.
     let delete_retry = command == "delete"
         && args.get_one::<String>("operation-id").is_some()
         && args.get_one::<String>("expected-revision").is_some();
+    let id = resolve_catalog_page(
+        &store,
+        &key,
+        &catalog,
+        text(page_args, "page"),
+        delete_retry,
+    )?;
+    let selected_page = catalog["pages"]
+        .as_array()
+        .and_then(|rows| rows.iter().find(|p| p["pageId"] == id))
+        .cloned();
     let (mut page, detail) = match selected_page {
         Some(page) => {
             let detail = inspection::detail(&store, &key, &page)?;
@@ -730,15 +821,19 @@ pub fn run(command: &str, args: &ArgMatches, root: &Path, json_output: bool) -> 
             );
         }
         return output(
-            &json!({"membershipHead":detail["membershipHead"],"links":detail["links"]}),
+            &json!({"pageId":id,"membershipHead":detail["membershipHead"],"links":detail["links"]}),
             json_output,
         );
     };
     if widening && !args.get_flag("yes") {
-        return Err(fail(
-            "COLAB_CONFIRMATION_REQUIRED",
-            "Requires --yes after reviewing this command's disclosure in help. Deletion is permanent; copied plaintext and previously public history cannot be recalled.",
-        ));
+        return Err(Box::new(ManagementFault {
+            code: "COLAB_CONFIRMATION_REQUIRED",
+            message: format!(
+                "Page {id} requires --yes after reviewing this command's disclosure in help. Deletion is permanent; copied plaintext and previously public history cannot be recalled."
+            ),
+            correlation: json!({"pageId":id}),
+            source: None,
+        }));
     }
     let operation_id = args
         .get_one::<String>("operation-id")
@@ -751,7 +846,8 @@ pub fn run(command: &str, args: &ArgMatches, root: &Path, json_output: bool) -> 
         .unwrap_or_else(|| detail["membershipHead"]["revision"].as_str().unwrap_or("0"));
     values::decimal(revision, false)
         .map_err(|_| input("Expected a positive canonical owner revision."))?;
-    let mut correlation = json!({"operationId":operation_id,"expectedRevision":revision});
+    let mut correlation =
+        json!({"pageId":id,"operationId":operation_id,"expectedRevision":revision});
     let link_id = match operation {
         "link.add" => payload.get("linkId"),
         "link.remove" => payload["replacement"].get("linkId"),
@@ -775,7 +871,7 @@ pub fn run(command: &str, args: &ArgMatches, root: &Path, json_output: bool) -> 
             || values::binary(&ack.membership_head.statement_hash, 32)?.len()!=32 {
             return Err(fail("COLAB_OUTCOME_UNKNOWN", "Mismatched management acknowledgment; inspect state."));
         }
-        let mut value = json!({"operationId":ack.operation_id,
+        let mut value = json!({"pageId":id,"operationId":ack.operation_id,
             "membershipHead":{"revision":ack.membership_head.revision,"statementHash":ack.membership_head.statement_hash}});
         value["expectedRevision"] = json!(revision);
         if let Some(id) = link_id { value["linkId"] = id.clone(); }
@@ -1015,6 +1111,7 @@ fn human_fields(value: &Value, now_ms: u64) -> Result<Vec<(String, String)>> {
             // The link rows carry the space; the reader link is added by the caller.
             "spaceId" | "readerUrl" | "readerPath" => {}
             "operationId" => fields.push(("operation".to_owned(), text(v))),
+            "pageId" => fields.push(("page".to_owned(), text(v))),
             "expectedRevision" => fields.push(("expected revision".to_owned(), text(v))),
             "linkId" => fields.push(("link".to_owned(), text(v))),
             // An unavailable value is a missing one, written like the other missing values.
