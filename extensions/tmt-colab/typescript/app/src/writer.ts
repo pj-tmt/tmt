@@ -223,6 +223,7 @@ export class Writer {
   }
   /** A thread and its opening comment share one admitted envelope. */
   async submitOwnRecords(records: OwnRecord[]) {
+    records = structuredClone(records);
     requireValue(records.length > 0 && records.length <= 32);
     requireValue(
       records.every((record) =>
@@ -240,6 +241,7 @@ export class Writer {
     );
     try {
       await this.submit(prepared.update, 'own');
+      await c.waitForOwnRecords(records);
     } finally {
       prepared.update.fill(0);
     }

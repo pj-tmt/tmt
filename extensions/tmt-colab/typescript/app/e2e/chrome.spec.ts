@@ -14,7 +14,6 @@ const screens: Screen[] = [
   'error',
   'not-found',
   'mounted-opening',
-  'mounted-inactive',
   'mounted-failed',
   'reader',
   'reader-opening',
@@ -181,7 +180,7 @@ for (const width of [1440, 390])
                 ? 'working'
                 : screen.includes('opening') || screen === 'rust-private'
                   ? 'waiting'
-                  : screen === 'reader-ended' || screen === 'mounted-inactive'
+                  : screen === 'reader-ended'
                     ? 'muted'
                     : 'blocked';
             const color = await page.evaluate((role) => {

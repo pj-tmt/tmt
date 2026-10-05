@@ -4,7 +4,7 @@ import { AskController } from './ask-attempt.js';
 import type { AskDestination, AdmittedSelection } from './ask-intent.js';
 import { AskRecordStore } from './ask-record-store.js';
 import { readAskViews, type AskRoot } from './ask-records.js';
-import type { RemoteClient, RemoteAgent } from './ask-remote.js';
+import type { RemoteClient, RemoteAgent, SessionEvictedError } from './ask-remote.js';
 import type { AskBinding, PageAsk } from './ask-panel.js';
 import type { PreviewAttempt } from './ask-preview.js';
 import type { Admission } from './admission.js';
@@ -29,7 +29,7 @@ export interface LiveAskOptions {
   connection(): Promise<Connection>;
   remote: RemoteClient;
   observe?(): void;
-  sessionEnded?(): void;
+  sessionEnded?(error?: SessionEvictedError): void;
 }
 
 /** Page composition only. The controller owns operation policy and the Writer
@@ -53,8 +53,8 @@ export class LiveAsk implements AskBinding {
       store,
       remote: options.remote,
       key: options.key,
-      sessionEnded: () => {
-        if (!this.#closed) options.sessionEnded?.();
+      sessionEnded: (error) => {
+        if (!this.#closed) options.sessionEnded?.(error);
       },
       selection: () => {
         requireValue(this.#selection !== null);
