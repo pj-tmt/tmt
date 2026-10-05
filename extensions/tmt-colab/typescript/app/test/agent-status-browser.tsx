@@ -2,12 +2,15 @@
 import 'virtual:tokens.css';
 import '../src/style.css';
 import { createRoot } from 'react-dom/client';
+import { useEffect, useState } from 'react';
 import { RouterProvider } from '@tanstack/react-router';
 import { createAppRouter } from '../src/router.js';
 import { localTransport, type PageBinding, type PageView } from '../src/transport.js';
 import type { AskBinding } from '../src/ask-panel.js';
 import type { AgentDirectoryObservation } from '../src/live-ask.js';
 import type { ThreadBinding } from '../src/thread-store.js';
+import { AgentStatusPanel } from '../src/agent-status-panel.js';
+import { ChatPanel } from '../src/chat-panel.js';
 import { destination, id } from './ask-fixtures.js';
 
 let mode:
@@ -141,7 +144,8 @@ const binding: PageBinding = {
 const transport = localTransport('Review space', [
   { id: 'status-page', title: 'Storage discussion', source, sharing: 'private', binding },
 ]);
-createRoot(document.getElementById('root')!).render(
+const root = createRoot(document.getElementById('root')!);
+root.render(
   <RouterProvider router={createAppRouter({ ...transport, backendName: 'Studio Mac' })} />,
 );
 location.hash = '/pages/status-page';
@@ -165,4 +169,48 @@ export function proof() {
 export function disableClient() {
   ask = undefined;
   publish?.({ title: 'Storage discussion', source });
+}
+
+let changeAdmission: ((admitted: boolean) => void) | undefined;
+function AdmissionProbe() {
+  const [admitted, setAdmitted] = useState(true);
+  useEffect(() => {
+    changeAdmission = setAdmitted;
+    return () => {
+      changeAdmission = undefined;
+    };
+  }, []);
+  return (
+    <main>
+      <AgentStatusPanel open binding={ask} page="status-page" admitted={admitted} />
+      <ChatPanel
+        threads={[]}
+        asks={[]}
+        binding={ask}
+        discussion={discussion}
+        title="Storage discussion"
+        blocked={!admitted}
+        close={() => {}}
+      />
+    </main>
+  );
+}
+/** Same parent inputs as the drawer; admission alone changes while the client,
+ * page and mounted Chat composer remain identical. */
+export function mountAdmissionProbe() {
+  root.render(<AdmissionProbe />);
+}
+export function setAdmission(admitted: boolean) {
+  changeAdmission?.(admitted);
+}
+export function resolveOldest() {
+  pending.shift()?.(ready());
+}
+export function refuseNewest() {
+  pending.pop()?.({
+    kind: 'unavailable',
+    phase: 'directory',
+    failure: 'refused',
+    code: 'REMOTE_REFUSED',
+  });
 }

@@ -3,8 +3,17 @@ import { mkdirSync } from 'node:fs';
 const fixture = '/test/agent-status-browser.html';
 async function command(
   page: Page,
-  name: 'setMode' | 'replaceClient' | 'resolvePrevious' | 'failPage' | 'disableClient',
-  value?: string,
+  name:
+    | 'setMode'
+    | 'replaceClient'
+    | 'resolvePrevious'
+    | 'failPage'
+    | 'disableClient'
+    | 'mountAdmissionProbe'
+    | 'setAdmission'
+    | 'resolveOldest'
+    | 'refuseNewest',
+  value?: string | boolean,
 ) {
   await page.evaluate(
     async ({ name, value }) => {
@@ -107,6 +116,37 @@ test('empty successful directory and unavailable page are distinct', async ({ pa
   await expect(panel.locator('.agent-status-list li')).toHaveCount(0);
   await expect(panel.getByRole('button', { name: 'Recheck status' })).toBeDisabled();
   expect((await proof(page)).checks).toBe(1);
+});
+
+test('same-client admission restoration cannot resurrect cached rows or late results', async ({
+  page,
+}) => {
+  await page.goto(fixture);
+  await command(page, 'mountAdmissionProbe');
+  const panel = page.getByRole('region', { name: 'Agents', exact: true });
+  await expect(panel.locator('.agent-status-list li')).toHaveCount(3);
+  const input = page.getByRole('combobox', { name: 'Message to agent' });
+  await input.fill('Keep the draft through admission loss');
+  await command(page, 'setMode', 'pending');
+  await panel.getByRole('button', { name: 'Recheck status' }).click();
+  await expect(panel.getByRole('button', { name: 'Recheck status' })).toBeDisabled();
+  await command(page, 'setAdmission', false);
+  await expect(panel.locator('.agent-status-list li')).toHaveCount(0);
+  await command(page, 'setAdmission', true);
+  await expect(panel.getByRole('button', { name: 'Recheck status' })).toBeDisabled();
+  await expect(panel.locator('.agent-status-list li')).toHaveCount(0);
+  await expect(panel.getByText('Last successful check:', { exact: false })).toHaveCount(0);
+  await command(page, 'resolveOldest');
+  await expect(panel.locator('.agent-status-list li')).toHaveCount(0);
+  await expect(panel.getByRole('button', { name: 'Recheck status' })).toBeDisabled();
+  await command(page, 'refuseNewest');
+  await expect(panel.getByText('Read refused', { exact: true })).toBeVisible();
+  await expect(panel.locator('.agent-status-list li')).toHaveCount(0);
+  await expect(panel.getByText('No successful directory read yet.')).toBeVisible();
+  await expect(input).toHaveValue('Keep the draft through admission loss');
+  const effects = await proof(page);
+  expect(effects.checks).toBe(3);
+  expect(effects.prepares + effects.writes + effects.ledgerActions).toBe(0);
 });
 test('replaced binding drops the old pending directory and retains a Chat draft', async ({
   page,

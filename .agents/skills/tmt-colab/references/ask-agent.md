@@ -97,7 +97,7 @@ modules in `extensions/tmt-colab/typescript/app/src` and `rust/tmt-colab/src/ask
 - **Read-only agent status.** `AskController` owns one current-context/signed-directory
   read shared by Ask destination admission and `LiveAsk.observeDestinations`. The latter
   returns `AgentDirectoryObservation`: a local check time and admitted presence rows,
-  or a session/directory phase with bounded verified ended, evicted or refused codes;
+  or a session/directory phase with bounded session-end, verified eviction or refusal codes;
   unexpected failures expose no raw diagnostics. Observation does not populate the Ask
   preview cache, publish, dispatch or invoke Live's session recovery callback. It checks
   current page admission and the same active connection before and after the read; a

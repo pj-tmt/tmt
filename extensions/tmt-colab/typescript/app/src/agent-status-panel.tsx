@@ -30,6 +30,12 @@ export function AgentStatusPanel({
 }) {
   const [view, setView] = useState<StatusView>();
   const pending = useRef<object | undefined>(undefined);
+  // Admission loss invalidates the cache even if the same page/client later returns.
+  // Reset before rendering so a restored scope cannot expose an old successful read.
+  if (!admitted || (view && (view.binding !== binding || view.page !== page))) {
+    pending.current = undefined;
+    if (view) setView(undefined);
+  }
   const read = useCallback(() => {
     if (!admitted || !binding?.observeDestinations || pending.current) return;
     const request = (pending.current = {});

@@ -1383,7 +1383,7 @@ Remote context and signed `agents.list` normalization owner. Active, offline and
 unknown are directory values, never inferred from a transport failure. Duplicate
 names retain machine and stable agent-ID presentation; labels confer no authority.
 Colab page admission, Remote session reads and directory reads are separate health
-observations. Verified ended/evicted/refused codes remain distinct from unexpected
+observations. Known session-end categories and verified eviction/refusal codes remain distinct from unexpected
 unavailable reads; raw diagnostic messages and credentials are not displayed.
 
 Opening or explicitly rechecking this view is read-only: no Ask destination-cache
@@ -1391,7 +1391,8 @@ admission, preparation, publication, dispatch, session reopen, pairing, grant ch
 or automatic retry. Existing Ask actions retain their separate fail-closed lifecycle
 response. Current page/client generation fences late results. A transient directory
 failure can retain a last successful snapshot clearly marked stale with its check
-time; ended/evicted/scope-denied or replaced admission clears current rows. An empty
+time; ended/evicted/scope-denied, lost admission or a replaced page/client clears the
+cached observation and pending read. Restoring the same admission requires a new read. An empty
 successful directory is separate from an unavailable read. The view does not change
 conversation drafts or admit a message recipient.
 
