@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { mkdirSync } from 'node:fs';
 import { pairBrowser, startDoor } from './harness/browser.js';
 import { clientId, createPage, openPage, run, selectInRenderer } from './harness/ask.js';
 import { disposeActiveWorlds, withWorld } from './harness/with-world.js';
@@ -71,6 +72,24 @@ test('an evicted Colab tab shows the cap while the other tabs stay live', async 
     await expect(tabs[0].getByRole('alert')).toContainText(
       'tmt remote settings sessions-per-device 3',
     );
+    const captures = process.env.COLAB_1768_CAPTURE_DIR;
+    if (captures) {
+      mkdirSync(captures, { recursive: true });
+      for (const [tab, state] of [
+        [tabs[0], 'evicted'],
+        [tabs[2], 'live'],
+      ] as const)
+        for (const theme of ['light', 'dark']) {
+          await tab.evaluate((value) => (document.documentElement.dataset.theme = value), theme);
+          for (const width of [1440, 390]) {
+            await tab.setViewportSize({ width, height: 900 });
+            await tab.screenshot({
+              path: `${captures}/${state}-${width}-${theme}.png`,
+              fullPage: true,
+            });
+          }
+        }
+    }
     for (const tab of tabs.slice(1)) {
       await expect(
         tab.frameLocator('iframe').getByRole('heading', { name: 'Several tabs' }),
