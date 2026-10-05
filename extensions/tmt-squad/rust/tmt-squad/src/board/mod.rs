@@ -21,6 +21,7 @@ mod rate;
 mod refresh;
 mod scroll;
 mod settings;
+mod status_update;
 pub(crate) use crate::tabs;
 mod terminal;
 mod theme_picker;
@@ -96,6 +97,10 @@ pub(super) enum BoardEvent {
         cancellation: crate::runner::Cancellation,
         snapshot: Box<Snapshot>,
     },
+    History {
+        cancellation: crate::runner::Cancellation,
+        read: refresh::HistoryRead,
+    },
     Usage {
         cancellation: crate::runner::Cancellation,
         room: String,
@@ -114,6 +119,12 @@ pub(super) enum BoardEvent {
         key: home_leads::MessageKey,
         revision: u64,
         body: Result<String, String>,
+    },
+    Status {
+        cancellation: crate::runner::Cancellation,
+        target: crate::membership::status_update::Target,
+        revision: u64,
+        result: Result<crate::membership::status_update::Preview, String>,
     },
     Notebook {
         cancellation: crate::runner::Cancellation,
@@ -168,8 +179,34 @@ fn spawn_input(sender: Sender<BoardEvent>, mut filter: Option<terminal::backgrou
 /// Carries out a resolved request. Nothing here reads the row or config.
 /// Jump and back share the plain commands' path, including the per-client
 /// back stack.
-fn execute(core: &Core, request: Request) -> Result<String, String> {
-    match request {
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum ActionOutcome {
+    Message(String),
+    Status(Box<crate::membership::status_update::Outcome>),
+}
+impl From<String> for ActionOutcome {
+    fn from(message: String) -> Self {
+        Self::Message(message)
+    }
+}
+impl From<&str> for ActionOutcome {
+    fn from(message: &str) -> Self {
+        Self::Message(message.into())
+    }
+}
+fn execute(core: &Core, request: Request) -> Result<ActionOutcome, String> {
+    if let Request::Status(action) = request {
+        return Ok(ActionOutcome::Status(Box::new(match *action {
+            status_update::Action::Apply(submit) => {
+                crate::membership::status_update::apply(core, &submit)
+            }
+            status_update::Action::Retry { preview, intent } => {
+                crate::membership::status_update::retry(core, &preview, intent)
+            }
+        })));
+    }
+    let outcome = match request {
+        Request::Status(_) => unreachable!("handled above"),
         Request::Jump(member) => back::jump(core, &member)
             .map(|(focus, warning)| match warning {
                 None => format!("Showing {member} ({}).", focus.pane),
@@ -231,7 +268,8 @@ fn execute(core: &Core, request: Request) -> Result<String, String> {
         } => send::answer(core, &me, &request, &from, &text)
             .map(|()| format!("Replied to {from}."))
             .map_err(|error| error.message),
-    }
+    };
+    outcome.map(ActionOutcome::Message)
 }
 
 fn reload_interval(app: &App) -> Option<Duration> {
@@ -243,13 +281,13 @@ fn reload_interval(app: &App) -> Option<Duration> {
 /// The board loop, independent of the real terminal. It always returns within
 /// one input wait of a stop signal or a closed input, whatever the reader does.
 #[allow(clippy::too_many_arguments)] // The terminal-independent loop injects both worker request kinds.
-fn session(
+fn session<T: Into<ActionOutcome>>(
     app: &mut App,
     stop: &AtomicUsize,
     input: &Receiver<BoardEvent>,
     request: impl Fn(Option<String>, bool, bool),
     selected_read: impl Fn(u64, Option<refresh::SelectedRead>),
-    mut act: impl FnMut(Request) -> Result<String, String>,
+    mut act: impl FnMut(Request) -> Result<T, String>,
     mut load_config: impl FnMut() -> Result<Config, String>,
     mut draw: impl FnMut(&mut App) -> io::Result<()>,
 ) -> io::Result<Option<i32>> {
@@ -326,6 +364,22 @@ fn session(
                 }
                 Effect::None
             }
+            Ok(BoardEvent::Status {
+                cancellation,
+                target,
+                revision: read_revision,
+                result,
+            }) => {
+                if !cancellation.cancelled()
+                    && read_revision == revision
+                    && app.selected_read() == Some(refresh::SelectedRead::Status(target.clone()))
+                    && let Some(draft) = &mut app.status_draft
+                {
+                    draft.loaded(result);
+                    dirty = true;
+                }
+                Effect::None
+            }
             Ok(BoardEvent::Message {
                 cancellation,
                 key,
@@ -348,6 +402,12 @@ fn session(
                 {
                     app.apply_home_leads(read);
                     dirty = true;
+                }
+                Effect::None
+            }
+            Ok(BoardEvent::History { cancellation, read }) => {
+                if !cancellation.cancelled() {
+                    dirty |= app.apply_history(read, Instant::now());
                 }
                 Effect::None
             }
@@ -541,7 +601,13 @@ fn session(
                 let jump = matches!(action, Request::Jump(_));
                 let outcome = act(action);
                 let jumped = jump && outcome.is_ok();
-                app.finished(outcome);
+                match outcome.map(Into::into) {
+                    Ok(ActionOutcome::Status(outcome)) => {
+                        app.finished_status(*outcome);
+                    }
+                    Ok(ActionOutcome::Message(message)) => app.finished(Ok(message)),
+                    Err(error) => app.finished(Err(error)),
+                }
                 if jumped && app.popup {
                     return Ok(None);
                 }
@@ -656,7 +722,8 @@ pub fn run(
     let config = Config::load(&core)?;
     let (picks, squad) = selection(&core, &config, picks.as_deref(), squad.as_deref())?;
     composition::admit().map_err(|message| SquadError::new("SQUAD_LAYOUT_INVALID", message))?;
-    let requested = config.theme(squad.as_deref().unwrap_or(""))?.0.base;
+    let initial_theme = config.theme(squad.as_deref().unwrap_or(""))?.0;
+    let requested = initial_theme.base;
     let value = std::env::var("COLORFGBG").ok();
     let mut guard = terminal::Guard::enter(terminal::Crossterm).map_err(failed)?;
     let eligible = terminal::background::allowed(
@@ -679,6 +746,7 @@ pub fn run(
     );
     worker.request(squad.clone(), false, false);
     let mut app = App::new(squad);
+    app.initial_look = Some(crate::look::Look::new(initial_theme));
     app.picks = picks;
     app.popup = popup;
     let mut screen = Terminal::new(CrosstermBackend::new(io::stdout())).map_err(failed)?;
@@ -930,7 +998,7 @@ mod tests {
             |request| {
                 assert_eq!(request, Request::Jump("coder".into()));
                 actions += 1;
-                Ok("Jumped".into())
+                Ok("Jumped".to_owned())
             },
             || {
                 reads += 1;
@@ -983,7 +1051,7 @@ mod tests {
             |request| {
                 assert_eq!(request, Request::Jump("coder".into()));
                 actions += 1;
-                Ok("Jumped".into())
+                Ok("Jumped".to_owned())
             },
             || {
                 reads += 1;

@@ -129,7 +129,7 @@ pub(super) fn paint(
                 if app
                     .sent
                     .as_ref()
-                    .is_some_and(|feedback| feedback.target == target)
+                    .is_some_and(|feedback| feedback.sent && feedback.target == target)
                 {
                     after.push(json!({"id": "sent", "text": "  ✓ sent", "role": "working"}));
                 }

@@ -310,7 +310,7 @@ tmt sq config set board.ask_lead "Summarize our pending decisions." --squad prod
 
 Press `a` on a home, squad member or leads row, including its expanded `e` band, to write to it. One composer
 answers an open request when something waits on you and otherwise sends the squad's
-lead a note; Tab cycles **answer, note and talk** (talk is a detached `tmt talk`:
+lead a note (or opens talk when no lead is available); Tab cycles **answer, note, talk and status** (talk is a detached `tmt talk`:
 a request that expects a reply), through the modes the row allows. The input opens
 directly beneath the complete selected row in an opaque full-width band, shifting
 rows below it. The first line names the recipient, its squad and the mode: `→ docs-sweep (tmt-product) ·
@@ -321,11 +321,39 @@ requests require an explicit choice before composing. `r` has no default key
 (`a` already answers first; `reply` stays bindable and, on a row that waits only on a
 `pending` decision, opens a note to that member: nothing is sent, cleared or
 acknowledged until you press Enter on a non-empty note, and the pending text stays
-until its owner clears it). `t` shows or hides reply previews on every tab; a `talk`
+until it is explicitly cleared by its owner or Update status). `t` shows or hides reply previews on every tab; a `talk`
 binding of your own keeps working and opens in talk mode. Explicit member-note
-bindings retain that recipient and cycle note and talk.
+bindings retain that recipient and cycle note, talk and status.
 
-Inside the band, Enter sends and Esc cancels; Tab cycles answer, note and talk
+Use `a → Tab → status` to **Update status** for the selected lead or member. The
+shared band shows exact raw manual `pending` and `state` values separately from
+**Requires a reply**. Up/down selects a field or action; Enter toggles **Clear
+pending** or **Replace state**. Type the explicit replacement on its row and a
+reason on **Reason**, then choose **Apply and notify**. Neither change is
+preselected. Clearing pending never infers a new state. PgUp/PgDn scroll long
+previews; old/new values stack at narrow widths. Tab preserves both the message
+draft and the separate status form; Esc cancels.
+
+Every selected field participates in the atomic apply with its exact raw value
+expectation, including locally unchanged selections. The previewed identity UUID,
+room, namespace and metadata keys remain fixed. Only actual changes are announced.
+A conflict changes nothing,
+refreshes the preview, clears field choices and requires another explicit submit. Legacy empty or invalid
+metadata refuses with an unsupported-value notice. An unknown apply outcome sends
+no notification and cannot be replayed from the form: inspect current metadata
+before reopening. Confirmed updates queue an attributed announcement to that UUID;
+it does not require a reply or prove delivery. **Status updated; notification
+failed** offers **Retry notification only** when acceptance has not settled; select
+that action and press Enter. The
+retry retains the same operation and message and never repeats the metadata update.
+
+**Answer request** opens the existing answer composer for one identified unanswered
+request; an explicit dismissal is a final reply. Clearing manual fields leaves
+request attention intact, and answering leaves unrelated manual status intact.
+Several requests keep the explicit picker; Tab can leave it for the other modes
+without choosing a request. No status action acknowledges requests.
+
+Inside the message band, Enter sends and Esc cancels; Tab cycles answer, note, talk and status
 where they apply, preserving your text. The band has a visible rule in both themes
 and NO_COLOR. At 80 columns the quoted question truncates before the recipient
 or input, which retains at least 30 columns. A successful send closes the band
@@ -589,7 +617,7 @@ notes stay below the list; `n` hides or shows them.
 Press `e` on the selected lead or member to expand the shared band beneath its
 header. It replaces the task preview and shows, when available, `◆ waits on you`,
 task, links, latest reply with age, then the available collapse/write/open hints.
-`e` or Esc collapses; `a` opens the same answer/note/talk composer for that row, and `o` opens the row's PR or link.
+`e` or Esc collapses; `a` opens the same answer/note/talk/status composer for that row, and `o` opens the row's PR or link.
 Arrow keys/j/k and PgUp/PgDn scroll long details without moving the selected row.
 There is one band at a time. Reading works without recording yourself; writing
 requires `tmt sq me`. Custom bindings also control the expanded band.

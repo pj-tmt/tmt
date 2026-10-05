@@ -1911,6 +1911,18 @@ page ID and prints rows of words (`title`, `link`, `pair`, `page`,
 `sharing`, `history`, `retention`, `membership`, `members`, `links`; `–` for none), never an
 embedded JSON object. `page create` keeps `url`'s role under the name `link`.
 
+`tmt colab open [PAGE]` explicitly opens the existing space home, or a page selected
+through the same verified catalog and UUID-prefix resolver as `show`. It requires
+running Colab and Remote services and never starts another service, pairs a browser,
+changes access or writes content. Explicit opening ignores the automatic-open setting
+and noninteractive-terminal suppression, using the shared `tmt-invoke` opener;
+`--no-open` and `--json` suppress launching. Missing, deleted and ambiguous pages refuse
+before opening. Archived pages remain eligible for read-only access. An unavailable
+service prints the current link/path and next step. Opener failure warns once and
+retains the link. JSON adds `spaceId`, full `pageId` (null for home), `running` and
+`opened: false` to the existing path/link/shortLink/paired/next facts; a stopped Colab
+adds `tmt colab serve` to `next`. Browser navigation still undergoes existing admission.
+
 ### Short owner-page aliases (#1688)
 
 The shortest unique canonical page UUID prefix in the complete current catalog is the

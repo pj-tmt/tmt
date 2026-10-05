@@ -117,6 +117,12 @@ pub(in crate::board) fn reserved_lines(
             let lines = read_lines(app, area.width.saturating_sub(4));
             lines.len().saturating_add(3).max(5)
         }
+        crate::board::app::Compose::Status => {
+            super::super::status_update::lines(app, area.width.saturating_sub(4))
+                .len()
+                .saturating_add(3)
+                .max(5)
+        }
         crate::board::app::Compose::Reply { .. } => 6,
         _ => 5,
     };
@@ -199,7 +205,49 @@ pub(super) fn inline_prompt(
     };
     let areas = modal.areas(band, [band.width, band.height], true, false);
     modal.paint(areas, frame.buffer_mut(), &look.theme, look.depth);
-    if let crate::board::app::Compose::ReadLead { offset, .. }
+    if matches!(input.compose, crate::board::app::Compose::Status) {
+        let content = Rect {
+            height: areas.content.height + areas.position.height,
+            ..areas.content
+        };
+        let lines = super::super::status_update::lines(app, content.width);
+        let focus = app.status_draft.as_ref().map_or(0, |draft| draft.focus);
+        let selected = lines
+            .iter()
+            .rposition(|(field, _)| *field == Some(focus))
+            .unwrap_or(0);
+        let skip = app
+            .status_draft
+            .as_ref()
+            .and_then(|draft| draft.scroll)
+            .unwrap_or_else(|| {
+                selected.saturating_sub(usize::from(content.height).saturating_sub(1))
+            })
+            .min(lines.len().saturating_sub(usize::from(content.height)));
+        for (index, (field, text)) in lines
+            .into_iter()
+            .skip(skip)
+            .take(usize::from(content.height))
+            .enumerate()
+        {
+            strip::paint_left(
+                frame.buffer_mut(),
+                Rect {
+                    y: content.y + index as u16,
+                    height: 1,
+                    ..content
+                },
+                Line::styled(
+                    text,
+                    look.role(if field == Some(focus) {
+                        Role::Accent
+                    } else {
+                        Role::Text
+                    }),
+                ),
+            );
+        }
+    } else if let crate::board::app::Compose::ReadLead { offset, .. }
     | crate::board::app::Compose::ReadRow { offset, .. } = input.compose
     {
         let content = Rect {
@@ -279,7 +327,16 @@ pub(super) fn inline_prompt(
             ),
         );
     }
-    let hint = if matches!(input.compose, crate::board::app::Compose::ReadRow { .. }) {
+    let hint = if matches!(input.compose, crate::board::app::Compose::Status) {
+        format!(
+            "↑↓ field · Enter choose · PgUp/PgDn · Esc cancel · Tab {}",
+            if areas.footer.width >= tmt_cli_style::breakpoint::LG.cells {
+                input.modes().join("/")
+            } else {
+                "mode".into()
+            }
+        )
+    } else if matches!(input.compose, crate::board::app::Compose::ReadRow { .. }) {
         read_hints(app, areas.footer.width)
     } else if matches!(input.compose, crate::board::app::Compose::ReadLead { .. }) {
         format!(

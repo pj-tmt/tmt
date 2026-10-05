@@ -2794,6 +2794,119 @@ fn page_create_opens_its_page_only_with_a_door_and_never_for_json() {
     );
 }
 #[test]
+fn explicit_open_hands_off_home_and_resolved_page_without_mutating_content() {
+    let pilot = Pilot::new(None);
+    pilot.opener(0);
+    seed_page_with_title(&pilot, "Existing page");
+    pilot.call(&["settings", "open", "off", "--json"]);
+    let mut serving = Serving::start(
+        &pilot,
+        pilot.remote_core(Some(DOOR), Serve::Fail),
+        &["--json"],
+    );
+    serving.ready();
+    let database = pilot.root.join("selected/colab/space.db");
+    let before = fs::read(&database).unwrap();
+    for args in [vec!["open"], vec!["open", &PAGE[..8]]] {
+        // Captured stdout is not a terminal: explicit intent still opens.
+        let result = pilot.command_with_door(DOOR).args(args).output().unwrap();
+        assert!(result.status.success(), "{result:?}");
+        assert!(String::from_utf8_lossy(&result.stdout).contains("opened in your browser:"));
+    }
+    let opened = pilot.opened();
+    assert_eq!(opened.len(), 2);
+    assert!(opened[0].starts_with("http://127.0.0.1:53253/r/"));
+    assert!(opened[0].contains("/x/colab/#space="));
+    assert_eq!(
+        opened[1],
+        format!("http://127.0.0.1:53253/p/{}", &PAGE[..8])
+    );
+    assert_eq!(fs::read(&database).unwrap(), before);
+    serving.stop(Signal::SIGTERM);
+}
+#[test]
+fn explicit_open_reports_facts_without_launching_for_json_no_open_or_unavailable_services() {
+    let pilot = Pilot::new(None);
+    pilot.opener(0);
+    seed_page_with_title(&pilot, "Existing page");
+    let mut serving = Serving::start(
+        &pilot,
+        pilot.remote_core(Some(DOOR), Serve::Fail),
+        &["--json"],
+    );
+    serving.ready();
+    let result = pilot
+        .command_with_door(DOOR)
+        .args(["open", &PAGE[..8], "--json"])
+        .output()
+        .unwrap();
+    assert!(result.status.success(), "{result:?}");
+    let facts: Value = serde_json::from_slice(&result.stdout).unwrap();
+    assert_eq!(facts["pageId"], PAGE);
+    assert_eq!(facts["running"], true);
+    assert_eq!(facts["opened"], false);
+    assert_eq!(
+        facts["shortLink"],
+        format!("http://127.0.0.1:53253/p/{}", &PAGE[..8])
+    );
+    for (door, args) in [
+        (DOOR, vec!["open", PAGE, "--no-open"]),
+        (STOPPED, vec!["open", PAGE]),
+    ] {
+        let result = pilot.command_with_door(door).args(args).output().unwrap();
+        assert!(result.status.success(), "{result:?}");
+        assert!(!String::from_utf8_lossy(&result.stdout).contains("opened in your browser"));
+    }
+    serving.stop(Signal::SIGTERM);
+    let result = pilot
+        .command_with_door(DOOR)
+        .args(["open", PAGE])
+        .output()
+        .unwrap();
+    assert!(result.status.success(), "{result:?}");
+    assert!(String::from_utf8_lossy(&result.stdout).contains("tmt colab serve"));
+    assert!(pilot.opened().is_empty());
+    failure(
+        &pilot,
+        &["open", "ffffffff", "--json"],
+        "COLAB_PAGE_NOT_FOUND",
+    );
+    pilot.call(&["delete", PAGE, "--yes", "--json"]);
+    failure(&pilot, &["open", PAGE, "--json"], "COLAB_PAGE_DELETED");
+    assert!(pilot.opened().is_empty());
+}
+#[test]
+fn explicit_open_failure_keeps_the_link_and_warns_once() {
+    let pilot = Pilot::new(None);
+    pilot.opener(1);
+    seed_page_with_title(&pilot, "Existing page");
+    let mut serving = Serving::start(
+        &pilot,
+        pilot.remote_core(Some(DOOR), Serve::Fail),
+        &["--json"],
+    );
+    serving.ready();
+    let result = pilot
+        .command_with_door(DOOR)
+        .args(["open", PAGE])
+        .output()
+        .unwrap();
+    assert!(result.status.success(), "{result:?}");
+    assert_eq!(
+        String::from_utf8_lossy(&result.stderr)
+            .matches("Could not open the browser")
+            .count(),
+        1
+    );
+    assert!(
+        String::from_utf8_lossy(&result.stdout)
+            .contains(&format!("http://127.0.0.1:53253/p/{}", &PAGE[..8]))
+    );
+    assert!(!String::from_utf8_lossy(&result.stdout).contains("opened in your browser"));
+    assert_eq!(pilot.opened().len(), 1);
+    serving.stop(Signal::SIGTERM);
+}
+#[test]
 fn settings_show_and_change_open_with_its_source_and_survive_a_damaged_file() {
     let pilot = Pilot::new(None);
     assert_eq!(
@@ -3158,6 +3271,7 @@ fn human_ls_uses_the_link_prefix_even_when_a_collision_is_archived_or_deleted() 
 /// Exercise each CLI adapter and sharing selection without opening stdin, seed files or an export.
 fn prefix_commands<'a>(prefix: &'a str, file: &'a str, destination: &'a str) -> Vec<Vec<&'a str>> {
     vec![
+        vec!["open", prefix, "--json"],
         vec!["show", prefix, "--json"],
         vec!["page", "read", prefix, "--json"],
         vec!["page", "write", prefix, "--file", file, "--json"],

@@ -5,7 +5,8 @@ pages, Office and any later TMT page in a browser. It defines the principles,
 the shared components and the interaction rules. Terminal output and the Squad
 board follow the [CLI style](cli-style.md). Colors, type, sizes and breakpoints
 come from [`tokens/tokens.json`](tokens/tokens.json). A surface never writes a
-color or size that is not a token.
+color or size that is not a token. Component extraction and consumer ownership
+are recorded in the [browser component contracts](gui-components.md).
 
 **Adoption status:** Colab's shipped implementations are named below under
 `extensions/tmt-colab/typescript/app/src`; the other descriptions include
@@ -45,13 +46,13 @@ theme action overrides it.
 
 State roles map to marks:
 
-| Role | Mark | Word examples | Use |
-| --- | --- | --- | --- |
-| `waiting` | `◆` | waiting, waits on you, held | the user must act |
-| `blocked` | `✗` | failed, unavailable, deleted | stopped; needs a fix |
-| `working` | `●` | running, live, replied | healthy and active |
-| `review` | `◐` | opening, in review | in progress |
-| `muted` | `○` | ended, archived, resolved | finished or idle |
+| Role      | Mark | Word examples                | Use                  |
+| --------- | ---- | ---------------------------- | -------------------- |
+| `waiting` | `◆`  | waiting, waits on you, held  | the user must act    |
+| `blocked` | `✗`  | failed, unavailable, deleted | stopped; needs a fix |
+| `working` | `●`  | running, live, replied       | healthy and active   |
+| `review`  | `◐`  | opening, in review           | in progress          |
+| `muted`   | `○`  | ended, archived, resolved    | finished or idle     |
 
 In the browser the mark may be the matching Lucide icon (Diamond, X, Circle
 filled, LoaderCircle, Circle), always followed by its word.
@@ -247,16 +248,16 @@ drawn by Colab, not by page HTML. Designed in #1773; not shipped.
 `tokens.json` already has `color`, `surface`, `font`, `header` and
 `breakpoint`. These groups are proposed so components stop hard-coding values:
 
-| Group | Values |
-| --- | --- |
-| `driver` | `claude` → the `review` color, `codex` → the `link` color |
-| `type` | sizes 11, 12, 13, 14, 16, 22 and 34 px with line heights and weights |
-| `space` | 4, 8, 12, 16, 24, 32 px |
-| `size` | controls 20 (chip), 24 (small control, minimum target), 32 (input, button); icons 16, 18; avatars 24, 28; status dot 8 |
-| `border` | 1 px default, 2 px emphasis (focus ring, selected underline, rails); radius always 0 |
-| `shadow` | hard offsets 2, 3, 4, 5 px (small button, chip and tooltip, menu and overlay, card), colored by role |
-| `layer` | z order: page, header, overlay, popover, tooltip |
-| `motion` | spinner 1 s; 0 under reduced motion |
+| Group    | Values                                                                                                                 |
+| -------- | ---------------------------------------------------------------------------------------------------------------------- |
+| `driver` | `claude` → the `review` color, `codex` → the `link` color                                                              |
+| `type`   | sizes 11, 12, 13, 14, 16, 22 and 34 px with line heights and weights                                                   |
+| `space`  | 4, 8, 12, 16, 24, 32 px                                                                                                |
+| `size`   | controls 20 (chip), 24 (small control, minimum target), 32 (input, button); icons 16, 18; avatars 24, 28; status dot 8 |
+| `border` | 1 px default, 2 px emphasis (focus ring, selected underline, rails); radius always 0                                   |
+| `shadow` | hard offsets 2, 3, 4, 5 px (small button, chip and tooltip, menu and overlay, card), colored by role                   |
+| `layer`  | z order: page, header, overlay, popover, tooltip                                                                       |
+| `motion` | spinner 1 s; 0 under reduced motion                                                                                    |
 
 ## Interaction rules
 
@@ -270,9 +271,9 @@ drawn by Colab, not by page HTML. Designed in #1773; not shipped.
   component that failed. A failed send keeps the text.
 - **Empty states:** one sentence of what will appear and how to make it appear.
 - **Waiting and held:** `◆` with the reason (`held · waiting for approval on
-  your machine`) and a way to recheck.
+your machine`) and a way to recheck.
 - **Time:** relative and lowercase in running text (`5m ago`, `expires in 6
-  days`); exact time on hover.
+days`); exact time on hover.
 - **Counts:** the header carries one pending count per surface; it disappears at
   zero.
 - **Motion:** none except the LoaderCircle spin, which stops under
