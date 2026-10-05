@@ -105,9 +105,21 @@ it('keeps the shipped skill short-link instructions consistent with delivered As
   expect(url.pathname).toBe(documentedPath!.replace('SHORT', selected.shortId!));
   expect(url.hash).toBe('');
   expect(selected.page.startsWith(selected.shortId!)).toBe(true);
-  expect(skill).toContain('tmt colab ls --archived --json');
-  expect(skill).toContain('including\nretained deleted IDs');
-  expect(skill).toContain('exactly one match with `deleted: false`');
+  // CLI prefix admission replaces the former manual catalog lookup instructions.
+  const instructions = skill.replace(/\s+/g, ' ');
+  expect(instructions).toContain(
+    'Every CLI page argument accepts a full UUID or a lowercase UUID-shaped prefix of at least eight characters',
+  );
+  expect(instructions).toContain(
+    'The CLI resolves it against the verified owner catalog, including retained deleted IDs',
+  );
+  expect(instructions).toContain('returns full `pageId` values');
+  expect(instructions).toContain(
+    'If `COLAB_PAGE_AMBIGUOUS` lists candidates, ask which page is meant',
+  );
+  expect(instructions).toContain(
+    'if deleted or missing, report that instead of guessing a different page',
+  );
 });
 it('copies scopes and bytes before asynchronous signing, including paused-source inputs', async () => {
   const s = selection(),

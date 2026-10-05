@@ -177,13 +177,6 @@ fn grammar() -> Command {
         outputs: OutputModes::HumanAndJson,
         details: "Retains the title and submits a minimal signed content update through serve when running, or under its lifecycle lock when stopped. Use the opaque revision from page read as --expected-revision. Without it, the base is captured when this command starts; intervening changes still reject.",
     };
-    let page_id = || {
-        Arg::new("page").required(true).value_parser(|value: &str| {
-            tmt_colab_model::values::generated_id(value)
-                .map(|_| value.to_owned())
-                .map_err(|error| error.to_string())
-        })
-    };
     cli_grammar::extend(
         tmt_cli_style::command(&ROOT)
             .bin_name("tmt colab")
@@ -229,10 +222,10 @@ fn grammar() -> Command {
                                     .value_parser(clap::value_parser!(std::path::PathBuf))),
                         ),
                     )
-                    .subcommand(tmt_cli_style::command(&READ).arg(page_id()))
+                    .subcommand(tmt_cli_style::command(&READ).arg(cli_grammar::page()))
                     .subcommand(
                         tmt_cli_style::command(&WRITE)
-                            .arg(page_id())
+                            .arg(cli_grammar::page())
                             .arg(
                                 Arg::new("file")
                                     .long("file")
@@ -261,11 +254,7 @@ fn grammar() -> Command {
             )
             .subcommand(
                 tmt_cli_style::command(&EXPORT)
-                    .arg(Arg::new("page").required(true).value_parser(|value: &str| {
-                        tmt_colab_model::values::generated_id(value)
-                            .map(|_| value.to_owned())
-                            .map_err(|error| error.to_string())
-                    }))
+                    .arg(cli_grammar::page())
                     .arg(
                         Arg::new("dir")
                             .long("dir")
@@ -468,18 +457,17 @@ fn export(root: &std::path::Path, args: &clap::ArgMatches) -> Result<()> {
     let keyring = Keyring::read(&layout)?;
     let store = Store::read(&layout)?;
     store.require_current_schema()?;
+    let page_id = cli_management::resolve_page(
+        &store,
+        &keyring,
+        args.get_one::<String>("page").expect("required page"),
+    )?;
     let mut decoder = tmt_colab::decoder::Decoder::new(std::env::current_exe()?)?;
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)?
         .as_millis()
         .try_into()?;
-    let bundle = Bundle::capture(
-        &store,
-        &keyring,
-        args.get_one::<String>("page").expect("required page"),
-        &mut decoder,
-        now,
-    );
+    let bundle = Bundle::capture(&store, &keyring, &page_id, &mut decoder, now);
     let closed = store.close();
     let bundle = bundle?;
     closed?;
@@ -501,7 +489,9 @@ fn export(root: &std::path::Path, args: &clap::ArgMatches) -> Result<()> {
     let published = bundle.publish(&parent)?;
     let mut output = tmt_cli_style::stream::stdout(json_output);
     if json_output {
-        writeln!(output, "{}", serde_json::to_string(&published)?)?;
+        let mut value = serde_json::to_value(&published)?;
+        value["pageId"] = json!(page_id);
+        writeln!(output, "{value}")?;
     } else {
         let terminal = output.terminal();
         tmt_cli_style::detail::write(
@@ -509,6 +499,7 @@ fn export(root: &std::path::Path, args: &clap::ArgMatches) -> Result<()> {
             terminal,
             "PAGE EXPORTED",
             &[
+                ("page", page_id),
                 ("directory", published.directory.display().to_string()),
                 (
                     "files",
@@ -542,6 +533,15 @@ fn page(root: &std::path::Path, args: &clap::ArgMatches) -> Result<()> {
             .unwrap_or_default();
         return cli_management::create_page(root, args, source);
     }
+    let layout = Layout::existing(root)?.ok_or(Fault::Missing)?;
+    let key = Keyring::read(&layout)?;
+    let store = Store::read(&layout)?;
+    store.require_current_schema()?;
+    let id = cli_management::resolve_page(
+        &store,
+        &key,
+        args.get_one::<String>("page").expect("required page"),
+    )?;
     let source = if command == "write" {
         Some(page_source(
             args.get_one::<std::path::PathBuf>("file")
@@ -550,12 +550,7 @@ fn page(root: &std::path::Path, args: &clap::ArgMatches) -> Result<()> {
     } else {
         None
     };
-    let layout = Layout::existing(root)?.ok_or(Fault::Missing)?;
-    let key = Keyring::read(&layout)?;
-    let store = Store::read(&layout)?;
-    store.require_current_schema()?;
     let mut decoder = Decoder::new(std::env::current_exe()?)?;
-    let id = args.get_one::<String>("page").expect("required page");
     let json_output = args.get_flag("json");
     let mut output = tmt_cli_style::stream::stdout(json_output);
     if let Some(source) = source {
@@ -567,7 +562,7 @@ fn page(root: &std::path::Path, args: &clap::ArgMatches) -> Result<()> {
         let prepared = page::prepare(
             &store,
             &key,
-            id,
+            &id,
             tmt_colab::decoder::ContentEdit {
                 source: &source,
                 publisher_agent: publisher_agent.as_deref(),
@@ -588,7 +583,7 @@ fn page(root: &std::path::Path, args: &clap::ArgMatches) -> Result<()> {
                     && let Err(error) = page::compact::compact(
                         &mut store,
                         &key,
-                        id,
+                        &id,
                         &mut decoder,
                         page::compact::Trigger::default(),
                     )
@@ -632,7 +627,7 @@ fn page(root: &std::path::Path, args: &clap::ArgMatches) -> Result<()> {
             )?;
         }
     } else {
-        let value = page::read(&store, &key, id, &mut decoder);
+        let value = page::read(&store, &key, &id, &mut decoder);
         let closed = store.close();
         let value = value?;
         closed?;

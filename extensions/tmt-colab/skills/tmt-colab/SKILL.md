@@ -133,11 +133,15 @@ exact request using the incoming command supplied by the wake notice, for exampl
 tmt x show REQUEST --incoming --identity YOUR_IDENTITY --json
 ```
 
-Annotation and Chat links use `/p/SHORT`, where `SHORT` is a page-ID prefix. Run
-`tmt colab ls --archived --json` and match the prefix against `pageIds`, including
-retained deleted IDs. Require exactly one match with `deleted: false` and use its
-full `pageId` in CLI commands. If the prefix is ambiguous, ask which page is meant;
-if deleted or missing, report that instead of guessing a different page.
+Annotation and Chat links use `/p/SHORT`, where `SHORT` is a page-ID prefix.
+Every CLI page argument accepts a full UUID or a lowercase UUID-shaped prefix
+of at least eight characters, including the short IDs printed by `tmt colab ls`.
+The CLI resolves it against the verified owner catalog, including retained
+deleted IDs, and returns full `pageId` values. If `COLAB_PAGE_AMBIGUOUS` lists
+candidates, ask which page is meant; if deleted or missing, report that instead
+of guessing a different page. Sharing and deletion still require their existing
+`--yes` confirmations. Retain the resolved full ID and frozen operation/revision
+values for an explicit management retry.
 
 Older links use `#space=SPACE&path=%2Fpages%2FPAGE`. Decode the `path` fragment
 value; the page ID follows `/pages/`. If the requested work needs the page, read
