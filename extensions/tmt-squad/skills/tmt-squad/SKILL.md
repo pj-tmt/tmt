@@ -334,8 +334,10 @@ preselected. Clearing pending never infers a new state. PgUp/PgDn scroll long
 previews; old/new values stack at narrow widths. Tab preserves both the message
 draft and the separate status form; Esc cancels.
 
-Only chosen changed fields are applied together against the previewed raw values
-and the exact identity UUID, room and metadata keys. A conflict changes nothing,
+Every selected field participates in the atomic apply with its exact raw value
+expectation, including locally unchanged selections. The previewed identity UUID,
+room, namespace and metadata keys remain fixed. Only actual changes are announced.
+A conflict changes nothing,
 refreshes the preview, clears field choices and requires another explicit submit. Legacy empty or invalid
 metadata refuses with an unsupported-value notice. An unknown apply outcome sends
 no notification and cannot be replayed from the form: inspect current metadata

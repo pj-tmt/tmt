@@ -112,8 +112,20 @@ impl App {
                 .as_ref()
                 .is_none_or(|send| !send.valid(self, input))
         }) {
-            return self
-                .say("The row target or actor changed; reopen Update status. Nothing applied.");
+            let outcome = match self
+                .status_draft
+                .as_ref()
+                .and_then(|draft| draft.outcome.as_ref())
+            {
+                Some(Outcome::Applied { .. }) => {
+                    "Status was already applied; notification intent retained."
+                }
+                Some(Outcome::Unknown(_)) => "Apply outcome remains unknown.",
+                _ => "Reopen Update status.",
+            };
+            return self.say(format!(
+                "The row target or actor changed; no further action taken. {outcome}"
+            ));
         }
         let feedback =
             self.row_feedback(self.input.as_ref().and_then(|input| input.row_send.clone()));
@@ -609,5 +621,58 @@ mod tests {
         app.finished_status(Outcome::Unknown("Outcome unknown".into()));
         assert!(!app.sent.as_ref().unwrap().sent);
         assert_eq!(press(&mut app, KeyCode::Enter), Effect::None);
+    }
+
+    #[test]
+    fn invalidated_status_target_preserves_known_outcome_without_further_effects() {
+        for unknown in [false, true] {
+            for actor_changed in [false, true] {
+                let mut app = app();
+                let preview = ready(&mut app);
+                let outcome = if unknown {
+                    Outcome::Unknown("Apply outcome unknown".into())
+                } else {
+                    Outcome::Applied {
+                        intent: crate::send::Intent::new(
+                            &preview.target.actor,
+                            vec![crate::send::LeadRecipient {
+                                squad: preview.target.squad.clone(),
+                                id: preview.target.identity.clone(),
+                                name: preview.name.clone(),
+                            }],
+                            "announcement",
+                            Some(&preview.room),
+                            "Frozen notification",
+                        )
+                        .unwrap(),
+                        notification: Err("offline".into()),
+                    }
+                };
+                app.finished_status(outcome.clone());
+                if actor_changed {
+                    app.view.as_mut().unwrap().me = Some("Another actor".into());
+                } else {
+                    app.view.as_mut().unwrap().document["sections"][0]["rows"][0]["name"] =
+                        json!("Another target");
+                }
+                for key in [KeyCode::End, KeyCode::Enter, KeyCode::Enter] {
+                    assert_eq!(
+                        press(&mut app, key),
+                        Effect::None,
+                        "invalid context must emit no additional apply or dispatch request"
+                    );
+                }
+                assert_eq!(app.status_draft.as_ref().unwrap().outcome, Some(outcome));
+                assert_eq!(app.status_draft.as_ref().unwrap().preview, Some(preview));
+                let notice = app.notice.as_ref().unwrap();
+                assert!(notice.contains("no further action taken"));
+                assert!(!notice.contains("Nothing applied"));
+                assert!(notice.contains(if unknown {
+                    "Apply outcome remains unknown"
+                } else {
+                    "Status was already applied; notification intent retained"
+                }));
+            }
+        }
     }
 }

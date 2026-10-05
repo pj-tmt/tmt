@@ -56,7 +56,7 @@ fn actor(core: &Core, config: &Config, expected: &str) -> Result<String, SquadEr
     actor
         .filter(|actor| actor.id == expected)
         .map(|actor| actor.name)
-        .ok_or_else(|| refuse("The actor changed; reopen Update status. Nothing applied."))
+        .ok_or_else(|| refuse("The actor changed; action refused."))
 }
 pub(crate) fn read(core: &Core, target: &Target) -> Result<Preview, SquadError> {
     let squad = Squad::resolve(core, Some(&target.squad))?;
@@ -66,7 +66,7 @@ pub(crate) fn read(core: &Core, target: &Target) -> Result<Preview, SquadError> 
         .roster(core)?
         .into_iter()
         .find(|member| member.id == target.identity)
-        .ok_or_else(|| refuse("The selected UUID is no longer in this squad; nothing applied."))?;
+        .ok_or_else(|| refuse("The selected UUID is no longer in this squad; action refused."))?;
     Ok(Preview {
         target: target.clone(),
         room: squad.room_id.clone(),
@@ -87,7 +87,7 @@ fn context(core: &Core, preview: &Preview) -> Result<Config, SquadError> {
         || [current.key("pending")?, current.key("state")?] != preview.keys
     {
         return Err(refuse(
-            "The room or metadata namespace changed; reopen Update status. Nothing applied.",
+            "The room or metadata namespace changed; action refused.",
         ));
     }
     if !current
@@ -96,7 +96,7 @@ fn context(core: &Core, preview: &Preview) -> Result<Config, SquadError> {
         .any(|member| member.id == preview.target.identity && member.name == preview.name)
     {
         return Err(refuse(
-            "The selected identity or squad membership changed; reopen Update status. Nothing applied.",
+            "The selected identity or squad membership changed; action refused.",
         ));
     }
     Ok(config)
@@ -207,7 +207,7 @@ pub(crate) fn apply(core: &Core, submit: &Submit) -> Outcome {
             }
             let current = read(core, &submit.preview.target).and_then(|current| {
                 if current.room != submit.preview.room || current.namespace != submit.preview.namespace || current.keys != submit.preview.keys {
-                    return Err(refuse("The room or metadata namespace changed; reopen Update status. Nothing applied."));
+                    return Err(refuse("The room or metadata namespace changed; action refused."));
                 }
                 Ok(current)
             }).map_err(|error|error.message);

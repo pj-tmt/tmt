@@ -129,6 +129,45 @@ fn notification_retry_has_frozen_intent_and_never_reapplies_metadata() {
     assert_eq!(calls(&fixture, "dispatch.create"), 2);
 }
 #[test]
+fn refused_notification_context_keeps_applied_status_and_frozen_intent() {
+    for changed in ["actor", "room", "retired"] {
+        let fixture = fixture();
+        let opening = preview(&fixture);
+        fixture.change_model(|model| model["noticeFailure"] = json!(true));
+        let Outcome::Applied { intent, .. } = apply(&fixture.core, &submit(opening.clone())) else {
+            panic!("metadata must be applied before context changes")
+        };
+        let frozen = intent.clone();
+        let metadata = fixture.model()["members"][2]["metadata"].clone();
+        let applies = calls(&fixture, "identity.meta.apply");
+        let dispatches = calls(&fixture, "dispatch.create");
+        match changed {
+            "actor" => std::fs::write(
+                fixture.directory.join("squad.toml"),
+                format!("me='worker'\nme_id='{WORKER}'\n"),
+            )
+            .unwrap(),
+            "room" => fixture.change_model(|model| model["room"] = json!("different")),
+            "retired" => fixture.change_model(|model| model["retired"] = json!([WORKER])),
+            _ => unreachable!(),
+        }
+        let Outcome::Applied {
+            intent,
+            notification: Err(notice),
+        } = retry(&fixture.core, &opening, intent)
+        else {
+            panic!("context refusal must retain the applied outcome")
+        };
+        assert!(notice.contains("status remains applied"), "{notice}");
+        assert!(notice.contains("action refused"), "{notice}");
+        assert!(!notice.to_lowercase().contains("nothing applied"));
+        assert_eq!(intent, frozen);
+        assert_eq!(fixture.model()["members"][2]["metadata"], metadata);
+        assert_eq!(calls(&fixture, "identity.meta.apply"), applies);
+        assert_eq!(calls(&fixture, "dispatch.create"), dispatches);
+    }
+}
+#[test]
 fn lost_apply_output_never_notifies_or_offers_mutation_replay() {
     let fixture = fixture();
     let draft = submit(preview(&fixture));
