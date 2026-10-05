@@ -1,6 +1,6 @@
 //#region src/canonical-bytes.ts
 var encoder = new TextEncoder();
-var UUID$2 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+var UUID$3 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 var ADDON_ORIGIN = /^chrome-extension:\/\/[a-p]{32}$/;
 var DOOR_ORIGIN = /^http:\/\/127\.0\.0\.1:([1-9][0-9]{0,4})$/;
 var BASE32 = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
@@ -40,7 +40,7 @@ function lp(value) {
 }
 var lpText = (value) => lp(text(value));
 function uuid(value) {
-	requireValue$1(value.length === 36 && UUID$2.test(value), "UUIDv4");
+	requireValue$1(value.length === 36 && UUID$3.test(value), "UUIDv4");
 }
 function binary(value, length) {
 	requireValue$1(value instanceof Uint8Array && value.length === length, `binary length ${length}`);
@@ -352,45 +352,45 @@ var PRE_EFFECT = /* @__PURE__ */ new Set([
 	"REMOTE_SESSION_ENDED",
 	"REMOTE_SESSION_EVICTED"
 ]);
-var UUID$1 = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+var UUID$2 = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 var V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
-var coreId = (value) => typeof value === "string" && UUID$1.test(value) && value !== "00000000-0000-0000-0000-000000000000";
+var coreId = (value) => typeof value === "string" && UUID$2.test(value) && value !== "00000000-0000-0000-0000-000000000000";
 var requestId = (value) => typeof value === "string" && value.startsWith("req_") && coreId(value.slice(4));
 var utf8$1 = new TextEncoder();
 var strictUtf8$1 = new TextDecoder("utf-8", { fatal: true });
 var MAX_SEQUENCE = 18446744073709551615n;
-function valid(condition) {
+function valid$1(condition) {
 	if (!condition) throw new Error("Invalid operation response.");
 }
-function input(condition) {
+function input$1(condition) {
 	if (!condition) throw new TypeError("Invalid Remote operation input.");
 }
 function record(value) {
-	valid(typeof value === "object" && value !== null && !Array.isArray(value));
+	valid$1(typeof value === "object" && value !== null && !Array.isArray(value));
 	return value;
 }
 function reason(value) {
 	if (value.reason === void 0) return {};
-	valid(typeof value.reason === "string" && utf8$1.encode(value.reason).length <= 256);
+	valid$1(typeof value.reason === "string" && utf8$1.encode(value.reason).length <= 256);
 	return { reason: value.reason };
 }
 function sendState(value, id) {
 	const state = record(value);
-	valid(state.operationId === id);
+	valid$1(state.operationId === id);
 	switch (state.state) {
 		case "held": return {
 			state: "held",
 			operationId: id
 		};
 		case "accepted":
-			valid(requestId(state.requestId));
+			valid$1(requestId(state.requestId));
 			return {
 				state: "accepted",
 				operationId: id,
 				requestId: state.requestId
 			};
 		case "uncertain":
-			valid(state.requestId === void 0 || requestId(state.requestId));
+			valid$1(state.requestId === void 0 || requestId(state.requestId));
 			return {
 				state: "uncertain",
 				operationId: id,
@@ -407,14 +407,14 @@ function sendState(value, id) {
 }
 function resultState(value, id) {
 	const state = record(value);
-	valid(state.requestId === id);
+	valid$1(state.requestId === id);
 	switch (state.state) {
 		case "pending": return {
 			state: "pending",
 			requestId: id
 		};
 		case "replied":
-			valid(typeof state.message === "string");
+			valid$1(typeof state.message === "string");
 			return {
 				state: "replied",
 				requestId: id,
@@ -430,10 +430,10 @@ function resultState(value, id) {
 }
 function agents(value) {
 	const rows = record(value).identities;
-	valid(Array.isArray(rows));
+	valid$1(Array.isArray(rows));
 	return rows.map((value) => {
 		const row = record(value);
-		valid(coreId(row.id) && typeof row.name === "string" && (row.presence === "active" || row.presence === "offline" || row.presence === "unknown"));
+		valid$1(coreId(row.id) && typeof row.name === "string" && (row.presence === "active" || row.presence === "offline" || row.presence === "unknown"));
 		return {
 			id: row.id,
 			name: row.name,
@@ -445,25 +445,30 @@ function agents(value) {
 function remoteError(value, address) {
 	if (!Object.hasOwn(value, "error")) return void 0;
 	const error = record(value.error);
-	valid(typeof error.code === "string" && /^[A-Z][A-Z0-9_]{0,63}$/.test(error.code) && typeof error.message === "string");
+	valid$1(typeof error.code === "string" && /^[A-Z][A-Z0-9_]{0,63}$/.test(error.code) && typeof error.message === "string");
 	const limit = error.limit;
-	valid(limit === void 0 || typeof limit === "number" && Number.isSafeInteger(limit) && limit > 0);
-	valid(error.code !== "REMOTE_SESSION_EVICTED" || limit !== void 0);
+	valid$1(limit === void 0 || typeof limit === "number" && Number.isSafeInteger(limit) && limit > 0);
+	valid$1(error.code !== "REMOTE_SESSION_EVICTED" || limit !== void 0);
 	let settingsUrl;
 	if (error.settingsUrl !== void 0 && error.settingsUrl !== null) {
-		valid(typeof error.settingsUrl === "string" && error.settingsUrl.length > 0 && error.settingsUrl.length <= 2048);
+		valid$1(typeof error.settingsUrl === "string" && error.settingsUrl.length > 0 && error.settingsUrl.length <= 2048);
 		const url = new URL(error.settingsUrl, address);
 		const door = new URL(address);
-		valid(url.origin === door.origin && !url.username && !url.password && ["http:", "https:"].includes(url.protocol));
+		valid$1(url.origin === door.origin && !url.username && !url.password && ["http:", "https:"].includes(url.protocol));
 		settingsUrl = url.href;
 	}
 	const retry = error.retryAfterMs;
-	valid(retry === void 0 || typeof retry === "number" && Number.isSafeInteger(retry) && retry >= 0 && retry <= 6e4);
+	valid$1(retry === void 0 || typeof retry === "number" && Number.isSafeInteger(retry) && retry >= 0 && retry <= 6e4);
 	if (error.code === "REMOTE_REPLAY") return new SequenceMismatch();
-	valid(PRE_EFFECT.has(error.code) || [
+	valid$1(PRE_EFFECT.has(error.code) || [
 		"REMOTE_INPUT_TOO_LARGE",
 		"REMOTE_STATE_UNAVAILABLE",
-		"REMOTE_CORE_UNAVAILABLE"
+		"REMOTE_CORE_UNAVAILABLE",
+		"REMOTE_MANAGEMENT_READ_ONLY",
+		"REMOTE_MANAGEMENT_UNAVAILABLE",
+		"REMOTE_DEVICE_REVOKED",
+		"REMOTE_DEVICE_NOT_FOUND",
+		"REMOTE_SETTINGS_UNAVAILABLE"
 	].includes(error.code));
 	return new RefusalError(error.code, retry, limit, settingsUrl);
 }
@@ -473,7 +478,7 @@ function enqueue(channel, action) {
 	return pending;
 }
 /** One attempt; an abandoned fetch can finish without touching live counters. */
-async function attempt(channel, timeoutMs, operation, id, payload, sequence, parse) {
+async function attempt(channel, timeoutMs, operation, id, payload, sequence, parse, mutationOutcome = false) {
 	const abort = new AbortController();
 	let timer;
 	let published = false;
@@ -517,6 +522,7 @@ async function attempt(channel, timeoutMs, operation, id, payload, sequence, par
 			if (abort.signal.aborted) throw new Error("Abandoned response.");
 			if (response.status === 404) {
 				channel.ended = true;
+				if (mutationOutcome) throw new Error("Mutation acknowledgment is unconfirmed.");
 				throw new RefusalError("REMOTE_SESSION_ENDED");
 			}
 			if (response.status !== 200) throw new Error("Unconfirmed transport response.");
@@ -572,8 +578,8 @@ async function synchronize(channel, timeoutMs) {
 	const payload = utf8$1.encode("{}");
 	function capabilities(value) {
 		const reply = record(value);
-		valid(reply.version === 1 && reply.profile === "local-v1" && reply.binding === "loopback-http");
-		valid(Array.isArray(reply.operations) && reply.operations.every((value) => typeof value === "string"));
+		valid$1(reply.version === 1 && reply.profile === "local-v1" && reply.binding === "loopback-http");
+		valid$1(Array.isArray(reply.operations) && reply.operations.every((value) => typeof value === "string"));
 		record(reply.limits);
 	}
 	try {
@@ -590,13 +596,13 @@ async function synchronize(channel, timeoutMs) {
 		throw unavailable();
 	}
 }
-async function invoke(channel, timeoutMs, operation, id, payload, parse) {
+async function invoke(channel, timeoutMs, operation, id, payload, parse, mutationOutcome = false) {
 	if (channel.ended || channel.clientSequence > MAX_SEQUENCE) throw new RefusalError("REMOTE_SESSION_ENDED");
 	await synchronize(channel, timeoutMs);
 	if (channel.clientSequence > MAX_SEQUENCE) throw new RefusalError("REMOTE_SESSION_ENDED");
 	const sequence = channel.clientSequence;
 	try {
-		return await attempt(channel, timeoutMs, operation, id, payload, sequence, parse);
+		return await attempt(channel, timeoutMs, operation, id, payload, sequence, parse, mutationOutcome);
 	} catch (error) {
 		if (error instanceof SequenceMismatch) {
 			channel.uncertainSequence = "unavailable";
@@ -606,25 +612,31 @@ async function invoke(channel, timeoutMs, operation, id, payload, parse) {
 		throw error;
 	}
 }
+/** Package-internal primitive shared by agent and Remote management helpers.
+* It retains the verified Session's serialized lane, signer and response correlation.
+*/
+function verifiedSessionRequest(session, options = {}) {
+	const found = channelFor(session);
+	if (!found) throw new TypeError("Use a verified openSession or reopenSession result.");
+	const channel = found;
+	const timeoutMs = options.timeoutMs ?? 4e4;
+	input$1(Number.isSafeInteger(timeoutMs) && timeoutMs > 0 && timeoutMs <= 2147483647);
+	return function call(operation, id, value, parse, mutationOutcome = false) {
+		const payload = utf8$1.encode(JSON.stringify(value));
+		return enqueue(channel, () => invoke(channel, timeoutMs, operation, id, payload, parse, mutationOutcome));
+	};
+}
 /**
 * Constructing this helper opens nothing. Reuse the owner's existing Session;
 * after unknown send outcomes, observe operation(originalId) in that session.
 * Recovery never dispatches, reopens, or automatically allocates a dispatch ID.
 */
 function operations(session, options = {}) {
-	const found = channelFor(session);
-	if (!found) throw new TypeError("Use a verified openSession or reopenSession result.");
-	const channel = found;
-	const timeoutMs = options.timeoutMs ?? 4e4;
-	input(Number.isSafeInteger(timeoutMs) && timeoutMs > 0 && timeoutMs <= 2147483647);
-	function call(operation, id, value, parse) {
-		const payload = utf8$1.encode(JSON.stringify(value));
-		return enqueue(channel, () => invoke(channel, timeoutMs, operation, id, payload, parse));
-	}
+	const call = verifiedSessionRequest(session, options);
 	return {
 		listAgents: () => call("agents.list", crypto.randomUUID(), {}, agents),
 		async send(value) {
-			input(typeof value.operationId === "string" && V4.test(value.operationId) && coreId(value.agentId) && typeof value.message === "string" && strictUtf8$1.decode(utf8$1.encode(value.message)) === value.message);
+			input$1(typeof value.operationId === "string" && V4.test(value.operationId) && coreId(value.agentId) && typeof value.message === "string" && strictUtf8$1.decode(utf8$1.encode(value.message)) === value.message);
 			const { operationId, agentId, message } = value;
 			try {
 				return await call("dispatch.create", operationId, {
@@ -651,7 +663,7 @@ function operations(session, options = {}) {
 			}
 		},
 		async operation(operationId) {
-			input(coreId(operationId));
+			input$1(coreId(operationId));
 			try {
 				return await call("operation.show", crypto.randomUUID(), { operationId }, (value) => sendState(value, operationId));
 			} catch (error) {
@@ -667,8 +679,193 @@ function operations(session, options = {}) {
 			}
 		},
 		async result(id) {
-			input(requestId(id));
+			input$1(requestId(id));
 			return call("result", crypto.randomUUID(), { requestId: id }, (value) => resultState(value, id));
+		}
+	};
+}
+//#endregion
+//#region src/management.ts
+var UUID$1 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+var decimal = (value) => typeof value === "string" && /^[1-9][0-9]{0,19}$/.test(value);
+function valid(condition) {
+	if (!condition) throw new Error("Invalid management response.");
+}
+function input(condition) {
+	if (!condition) throw new TypeError("Invalid management input.");
+}
+function object(value) {
+	valid(typeof value === "object" && value !== null && !Array.isArray(value));
+	return value;
+}
+function exact(value, keys) {
+	valid(Object.keys(value).length === keys.length && keys.every((key) => Object.hasOwn(value, key)));
+}
+var integer = (value) => Number.isSafeInteger(value) && value >= 0;
+function settings(value) {
+	const row = object(value);
+	exact(row, [
+		"open",
+		"source",
+		"sessionsPerDevice",
+		"sessionsPerDeviceSource",
+		"warning"
+	]);
+	valid(typeof row.open === "boolean" && ["default", "settings.json"].includes(row.source));
+	valid(row.sessionsPerDevice === null || decimal(row.sessionsPerDevice));
+	valid(["default", "settings.json"].includes(row.sessionsPerDeviceSource));
+	valid(row.warning === null || row.warning === "settings.json could not be read; defaults apply");
+	return row;
+}
+function device(value, activity = false) {
+	const row = object(value);
+	exact(row, [
+		"clientId",
+		"name",
+		"kind",
+		"issuedAtMs",
+		"expiresAtMs",
+		"revision",
+		"revoked",
+		...activity ? [
+			"thisBrowser",
+			"liveSessionCount",
+			"lastActivityAtMs"
+		] : []
+	]);
+	valid(typeof row.clientId === "string" && UUID$1.test(row.clientId));
+	valid(typeof row.name === "string" && new TextEncoder().encode(row.name).length <= 64 && row.name.trim().length > 0 && ![...row.name].some((char) => char.charCodeAt(0) < 32 || char.charCodeAt(0) === 127));
+	valid([
+		"browser",
+		"addon",
+		"cli"
+	].includes(row.kind) && integer(row.issuedAtMs));
+	valid(row.expiresAtMs === null || integer(row.expiresAtMs));
+	valid(integer(row.revision) && row.revision > 0 && typeof row.revoked === "boolean");
+	if (activity) valid(typeof row.thisBrowser === "boolean" && integer(row.liveSessionCount) && (row.lastActivityAtMs === null || integer(row.lastActivityAtMs)));
+	return row;
+}
+var refusalCodes = /* @__PURE__ */ new Set([
+	"REMOTE_SCOPE_DENIED",
+	"REMOTE_INPUT_INVALID",
+	"REMOTE_RATE_LIMITED",
+	"REMOTE_INTENT_CONFLICT",
+	"REMOTE_CLOSED",
+	"REMOTE_SESSION_ENDED",
+	"REMOTE_SESSION_EVICTED",
+	"REMOTE_INPUT_TOO_LARGE",
+	"REMOTE_STATE_UNAVAILABLE",
+	"REMOTE_MANAGEMENT_READ_ONLY",
+	"REMOTE_MANAGEMENT_UNAVAILABLE",
+	"REMOTE_DEVICE_REVOKED",
+	"REMOTE_DEVICE_NOT_FOUND",
+	"REMOTE_SETTINGS_UNAVAILABLE"
+]);
+function outcome(value, operationId) {
+	const row = object(value);
+	valid(row.operationId === operationId);
+	if (row.state === "committed") {
+		exact(row, [
+			"operationId",
+			"state",
+			"result",
+			"sessionEnded"
+		]);
+		valid(typeof row.sessionEnded === "boolean");
+		const result = object(row.result);
+		valid(Object.keys(result).length === 1);
+		if (Object.hasOwn(result, "settings")) settings(result.settings);
+		else device(result.device);
+	} else {
+		exact(row, [
+			"operationId",
+			"state",
+			"reason"
+		]);
+		if (row.state === "unknown") valid(row.reason === "effect_outcome_unconfirmed");
+		else valid(row.state === "refused" && typeof row.reason === "string" && refusalCodes.has(row.reason));
+	}
+	return row;
+}
+/** Constructing this helper opens nothing. Unknown mutations are never resent.
+* After Session loss, explicitly reopen once and read operation(originalId).
+* Failed fresh admission changes access status; it cannot establish mutation outcome.
+*/
+function management(session, options = {}) {
+	const call = verifiedSessionRequest(session, options);
+	async function mutate(operation, value) {
+		const { operationId } = value;
+		input(UUID$1.test(operationId));
+		try {
+			return await call(operation, operationId, value, (reply) => {
+				const parsed = outcome(reply, operationId);
+				if (parsed.state === "committed") {
+					if (operation === "remote.settings.set") valid("settings" in parsed.result);
+					else {
+						valid("device" in parsed.result && parsed.result.device.clientId === value.clientId);
+						if (operation === "remote.devices.rename") valid(parsed.result.device.name === value.name);
+						if (operation === "remote.devices.revoke") valid(parsed.result.device.revoked);
+					}
+				}
+				return parsed;
+			}, true);
+		} catch (error) {
+			if (error instanceof ClientError) throw new ClientError(error.code, error.message, operationId);
+			if (error instanceof RefusalError) return {
+				state: "refused",
+				operationId,
+				reason: error.code
+			};
+			throw error;
+		}
+	}
+	return {
+		settings: () => call("remote.settings.show", crypto.randomUUID(), {}, (value) => {
+			const row = object(value);
+			exact(row, [
+				"settings",
+				"capabilities",
+				"readOnlyReason"
+			]);
+			settings(row.settings);
+			const capabilities = object(row.capabilities);
+			exact(capabilities, ["settingsWrite", "devicesWrite"]);
+			valid(typeof capabilities.settingsWrite === "boolean" && typeof capabilities.devicesWrite === "boolean");
+			valid(row.readOnlyReason === null || row.readOnlyReason === "local_cli_required");
+			valid(capabilities.settingsWrite === capabilities.devicesWrite && capabilities.settingsWrite === (row.readOnlyReason === null));
+			return row;
+		}),
+		devices: (page) => {
+			input(Number.isInteger(page.limit) && page.limit >= 1 && page.limit <= 50 && (page.cursor === null || typeof page.cursor === "string" && /^[A-Za-z0-9_-]{98}$/.test(page.cursor)));
+			return call("remote.devices.list", crypto.randomUUID(), page, (value) => {
+				const row = object(value);
+				exact(row, ["devices", "nextCursor"]);
+				valid(Array.isArray(row.devices) && row.devices.length <= page.limit);
+				const ids = /* @__PURE__ */ new Set();
+				for (const entry of row.devices) {
+					const item = device(entry, true);
+					valid(!ids.has(item.clientId));
+					ids.add(item.clientId);
+				}
+				valid(row.nextCursor === null || typeof row.nextCursor === "string" && /^[A-Za-z0-9_-]{98}$/.test(row.nextCursor));
+				return row;
+			});
+		},
+		set: (change) => {
+			input(change.setting === "open" && typeof change.value === "boolean" || change.setting === "sessions-per-device" && (change.value === null || decimal(change.value)));
+			return mutate("remote.settings.set", { ...change });
+		},
+		rename: (change) => {
+			input(UUID$1.test(change.clientId) && typeof change.name === "string" && change.name.trim().length > 0 && new TextEncoder().encode(change.name).length <= 64 && ![...change.name].some((char) => char.charCodeAt(0) < 32 || char.charCodeAt(0) === 127));
+			return mutate("remote.devices.rename", { ...change });
+		},
+		revoke: (change) => {
+			input(UUID$1.test(change.clientId));
+			return mutate("remote.devices.revoke", { ...change });
+		},
+		operation: (operationId) => {
+			input(UUID$1.test(operationId));
+			return call("remote.management.operation", crypto.randomUUID(), { operationId }, (value) => outcome(value, operationId));
 		}
 	};
 }
@@ -1074,4 +1271,4 @@ function transportUrl(session, value) {
 	return url.href;
 }
 //#endregion
-export { ClientError, RefusalError, certifyKey, operations, pairingPage, reopenSession, transportUrl };
+export { ClientError, RefusalError, certifyKey, management, operations, pairingPage, reopenSession, transportUrl };

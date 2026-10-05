@@ -1,6 +1,13 @@
 import { channelFor } from './session-channel.js';
 import { RefusalError } from './operations.js';
 export { operations, ClientError, RefusalError } from './operations.js';
+export { management } from './management.js';
+export type {
+  RemoteManagement,
+  ManagementOutcome,
+  RemoteSettings,
+  DevicePage,
+} from './management.js';
 export type {
   ClientErrorCode,
   RemoteRefusalCode,

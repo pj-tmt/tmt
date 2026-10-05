@@ -211,3 +211,28 @@ distinct end reason is available for 60 seconds, then a generic 404 still maps t
 transport; other tabs remain live. Recover previously unknown send outcomes by observing
 the original operation ID after reopening. Never retry a send automatically because its
 transport closed.
+
+## Remote management draft
+
+`management(session)` uses the same verified serialized Session channel as `operations(session)`.
+It exposes `settings()`, `devices({cursor,limit})`, `set`, `rename`, `revoke` and
+`operation(originalOperationId)`. This #1769 draft does not establish actual settings-page or
+complete feature acceptance. The [owning protocol](../../../../contracts/remote-channel-v1.md#remote-management-protocol)
+specifies exact shapes and bounds. Session caps are positive decimal **strings** or null, preserving
+native values beyond JavaScript safe integers; default reads as `"8"` and null means unlimited.
+Values/sources, malformed/default warning and management capabilities come from server admission.
+
+Freeze a UUIDv4 and input before a mutation. A verified refusal, committed result and unknown
+outcome are distinct. `ClientError` after publication retains the original operationId; no helper
+resends, reopens, creates a replacement mutation ID or designates a browser automatically.
+Read `operation(originalId)` explicitly, without submitting the setter again. Unknown/pending
+receipts never trigger a write; current values do not establish original commit.
+
+After self-rename, explicitly reopen a fresh verified Session using the still-live grant and read
+the original receipt. After a lost self-revoke acknowledgment, make one fresh read-only admission
+attempt with the same paired identity/current trusted door descriptor. If admission is refused,
+show lost current access **and unknown operation outcome**, with `tmt remote devices` for local
+confirmation. Do not claim revoke committed or offer a mutation retry. Transport failure or an
+unverified/stale descriptor is unconfirmed access and unknown outcome. All reads require a live
+grant; no historical-key reader or general recovery endpoint exists. Losing designation alone
+still permits a live grant to read its own original receipt.

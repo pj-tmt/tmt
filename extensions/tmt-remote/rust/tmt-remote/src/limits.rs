@@ -49,3 +49,9 @@ pub const SESSION_END_NOTICE: Duration = Duration::from_secs(60);
 
 /// Mounted sessions expire after twelve hours without activity.
 pub const SESSION_IDLE: Duration = Duration::from_secs(12 * 60 * 60);
+
+/// Grants materialized per browser management page (plus one lookahead row).
+pub const MANAGEMENT_PAGE: usize = 50;
+
+/// Decoded payload bound for fixed Remote management requests.
+pub const MANAGEMENT_INPUT_BYTES: usize = 1024;

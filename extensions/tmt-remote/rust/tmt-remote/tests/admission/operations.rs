@@ -1,6 +1,7 @@
 //! Signed application exchanges against a deterministic public-process fixture.
 //! E owns the separately built real core/private-tmux/mock-agent acceptance.
 use super::OwnerDoor;
+use super::core_fixture::Core;
 use serde_json::{Value, json};
 use std::{
     fs,
@@ -16,9 +17,6 @@ use tmt_remote::{
     store::uuid_v4,
     transport::{LoopbackTransport, Transport},
 };
-#[path = "../support/core.rs"]
-mod core_fixture;
-use core_fixture::Core;
 fn input(id: &str, recipient: &str, message: &str) -> Value {
     json!({"version":1,"operation":"dispatch.create","originator":"anonymous","input":{"operationId":id,"recipientIds":[recipient],"message":message,"kind":"request"}})
 }

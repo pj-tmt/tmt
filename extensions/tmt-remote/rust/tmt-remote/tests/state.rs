@@ -294,7 +294,8 @@ fn schema_history_uses_core_migrations() {
             (4, "journal".to_owned()),
             (5, "door_port".to_owned()),
             (6, "short_route_prefix".to_owned()),
-            (7, "multi_session".to_owned())
+            (7, "multi_session".to_owned()),
+            (8, "management".to_owned())
         ]
     );
     let journal: String = inspect
@@ -308,11 +309,11 @@ fn schema_history_uses_core_migrations() {
         .unwrap()
         .query_row("SELECT COUNT(*) FROM _migrations", [], |r| r.get(0))
         .unwrap();
-    assert_eq!(count, 7);
+    assert_eq!(count, 8);
     // A newer build's history refuses instead of being reinterpreted.
     Connection::open(&db)
         .unwrap()
-        .execute("INSERT INTO _migrations VALUES (8, 'future', 'now')", [])
+        .execute("INSERT INTO _migrations VALUES (9, 'future', 'now')", [])
         .unwrap();
     assert_eq!(
         Store::open(&layout.serve_lock().unwrap())
@@ -324,7 +325,7 @@ fn schema_history_uses_core_migrations() {
     // A renamed step refuses as damaged history.
     let damage = Connection::open(&db).unwrap();
     damage
-        .execute("DELETE FROM _migrations WHERE version = 8", [])
+        .execute("DELETE FROM _migrations WHERE version = 9", [])
         .unwrap();
     damage
         .execute(
@@ -442,7 +443,7 @@ fn stopped_port_reads_are_noncreating_and_legacy_state_is_not_migrated() {
     drop(stopped);
     // Model the previously shipped schema, preserving its exact migration names.
     let old = Connection::open(&db).unwrap();
-    old.execute_batch("DROP TABLE door_port; ALTER TABLE operations DROP COLUMN grant_revision; ALTER TABLE operations DROP COLUMN session_id;
+    old.execute_batch("DROP TABLE management_receipts; DROP TABLE settings_designation; DROP TABLE door_port; ALTER TABLE operations DROP COLUMN grant_revision; ALTER TABLE operations DROP COLUMN session_id;
             DROP TABLE sessions; CREATE TABLE sessions(client_id TEXT PRIMARY KEY REFERENCES grants(client_id),session_id TEXT NOT NULL UNIQUE,window_id TEXT NOT NULL,grant_revision INTEGER NOT NULL,next_client_sequence TEXT NOT NULL,next_server_sequence TEXT NOT NULL);
             DELETE FROM _migrations WHERE version >= 5")
         .unwrap();

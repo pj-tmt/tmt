@@ -13,6 +13,7 @@ pub mod error;
 pub mod http;
 pub mod journal;
 pub mod limits;
+pub mod management;
 pub mod mount;
 pub mod open;
 pub mod operations;

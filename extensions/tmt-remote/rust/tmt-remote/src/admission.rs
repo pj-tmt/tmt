@@ -153,7 +153,15 @@ impl Drop for MessagePermit {
 }
 pub(crate) fn scope(operation: &str) -> Option<Option<&'static str>> {
     Some(match operation {
-        "capabilities" | "subscribe" | "ack" => None,
+        "capabilities"
+        | "subscribe"
+        | "ack"
+        | "remote.settings.show"
+        | "remote.settings.set"
+        | "remote.devices.list"
+        | "remote.devices.rename"
+        | "remote.devices.revoke"
+        | "remote.management.operation" => None,
         "agents.list" => Some("agents.read"),
         "identities.status" => Some("status.read"),
         "check" => Some("check.read"),

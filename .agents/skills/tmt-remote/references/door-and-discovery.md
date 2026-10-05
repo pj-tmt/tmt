@@ -61,7 +61,22 @@ an open. `settings` owns the private `settings.json` / `settings.lock` under Rem
 existing layout, independent of the database/serve lease. Missing settings use the default;
 malformed settings use it with a human warning. Setters serialize through the bounded lock.
 
-The [planned settings/device page authority](../../../../contracts/remote-channel-v1.md#remote-settings-browser-authority)
-is separate from paired channel trust and remains unimplemented. Reuse this settings owner and
-the existing device/session mutation owners when implementing it; shared presentation supplies
-no authority. Current CLI settings/device behavior is unchanged.
+The [settings/device page authority](../../../../contracts/remote-channel-v1.md#remote-settings-browser-authority)
+is separate from paired channel trust. Its native/SDK draft reuses this settings owner and existing
+device/session mutation owners; shared presentation supplies no authority. Settings semantics and
+agent grants remain unchanged.
+
+## Management implementation draft
+
+The [fixed management protocol](../../../../contracts/remote-channel-v1.md#remote-management-protocol)
+owns exact wire shapes, immutable outcome/deadline, first-touch uncertainty and recovery policy.
+`management` composes the existing settings writer and Store transaction-local device helpers;
+`Devices` still owns post-commit Session cleanup and events. Live grant admission is required for
+all reads. Self-rename can reopen then read the original operation. Lost self-revoke acknowledgment
+gets one fresh read-only admission attempt; refusal shows access loss plus unknown outcome and
+`tmt remote devices`, never a resend or a committed-revoke inference. No old-key exception exists.
+The actual settings page and complete feature acceptance remain pending.
+
+Focused native evidence includes `cargo test --offline --locked -p tmt-remote` (management storage,
+signed admission, settings fault, CLI/state and existing lifecycle), plus SDK package check/test/build
+and regenerated-byte equality. Use the existing isolated roots and the worktree-owned target.

@@ -217,6 +217,19 @@ fn session(
                 "running":true, "origin":door.origin, "path":door.prefix,
             }))),
             Some("pair") => None,
+            Some("designate") if request.as_object().is_some_and(|o| o.len() == 2) => {
+                Some(match request["clientId"].as_str() {
+                    Some(client) => devices
+                        .designate(client, &door.origin)
+                        .map(|grant| json!({"designatedClientId":grant.client_id})),
+                    None => Err(crate::operations::invalid()),
+                })
+            }
+            Some("undesignate") if request == json!({"op":"undesignate"}) => Some(
+                devices
+                    .undesignate()
+                    .map(|()| json!({"designatedClientId":null})),
+            ),
             Some("devices") => Some(devices.list().map(
                 |grants| json!({"devices": grants.iter().map(device_json).collect::<Vec<_>>()}),
             )),

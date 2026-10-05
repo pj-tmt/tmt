@@ -50,7 +50,12 @@ export type RemoteRefusalCode =
   | 'REMOTE_SESSION_EVICTED'
   | 'REMOTE_INPUT_TOO_LARGE'
   | 'REMOTE_STATE_UNAVAILABLE'
-  | 'REMOTE_CORE_UNAVAILABLE';
+  | 'REMOTE_CORE_UNAVAILABLE'
+  | 'REMOTE_MANAGEMENT_READ_ONLY'
+  | 'REMOTE_MANAGEMENT_UNAVAILABLE'
+  | 'REMOTE_DEVICE_REVOKED'
+  | 'REMOTE_DEVICE_NOT_FOUND'
+  | 'REMOTE_SETTINGS_UNAVAILABLE';
 /** Unknown outcome only; the caller retains its operation ID for read-only recovery. */
 export class ClientError extends Error {
   constructor(
@@ -205,9 +210,16 @@ function remoteError(
   if (error.code === 'REMOTE_REPLAY') return new SequenceMismatch();
   valid(
     PRE_EFFECT.has(error.code) ||
-      ['REMOTE_INPUT_TOO_LARGE', 'REMOTE_STATE_UNAVAILABLE', 'REMOTE_CORE_UNAVAILABLE'].includes(
-        error.code,
-      ),
+      [
+        'REMOTE_INPUT_TOO_LARGE',
+        'REMOTE_STATE_UNAVAILABLE',
+        'REMOTE_CORE_UNAVAILABLE',
+        'REMOTE_MANAGEMENT_READ_ONLY',
+        'REMOTE_MANAGEMENT_UNAVAILABLE',
+        'REMOTE_DEVICE_REVOKED',
+        'REMOTE_DEVICE_NOT_FOUND',
+        'REMOTE_SETTINGS_UNAVAILABLE',
+      ].includes(error.code),
   );
   return new RefusalError(
     error.code as RemoteRefusalCode,
@@ -233,6 +245,7 @@ async function attempt<T>(
   payload: Uint8Array,
   sequence: bigint,
   parse: (value: unknown) => T,
+  mutationOutcome = false,
 ): Promise<T> {
   const abort = new AbortController();
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -277,6 +290,7 @@ async function attempt<T>(
         if (abort.signal.aborted) throw new Error('Abandoned response.');
         if (response.status === 404) {
           channel.ended = true;
+          if (mutationOutcome) throw new Error('Mutation acknowledgment is unconfirmed.');
           throw new RefusalError('REMOTE_SESSION_ENDED');
         }
         if (response.status !== 200) throw new Error('Unconfirmed transport response.');
@@ -379,6 +393,7 @@ async function invoke<T>(
   id: string,
   payload: Uint8Array,
   parse: (value: unknown) => T,
+  mutationOutcome = false,
 ): Promise<T> {
   if (channel.ended || channel.clientSequence > MAX_SEQUENCE)
     throw new RefusalError('REMOTE_SESSION_ENDED');
@@ -386,7 +401,16 @@ async function invoke<T>(
   if (channel.clientSequence > MAX_SEQUENCE) throw new RefusalError('REMOTE_SESSION_ENDED');
   const sequence = channel.clientSequence;
   try {
-    return await attempt(channel, timeoutMs, operation, id, payload, sequence, parse);
+    return await attempt(
+      channel,
+      timeoutMs,
+      operation,
+      id,
+      payload,
+      sequence,
+      parse,
+      mutationOutcome,
+    );
   } catch (error) {
     if (error instanceof SequenceMismatch) {
       channel.uncertainSequence = 'unavailable';
@@ -402,6 +426,29 @@ async function invoke<T>(
   }
 }
 
+/** Package-internal primitive shared by agent and Remote management helpers.
+ * It retains the verified Session's serialized lane, signer and response correlation.
+ */
+export function verifiedSessionRequest(session: Session, options: { timeoutMs?: number } = {}) {
+  const found = channelFor(session);
+  if (!found) throw new TypeError('Use a verified openSession or reopenSession result.');
+  const channel = found;
+  const timeoutMs = options.timeoutMs ?? 40000;
+  input(Number.isSafeInteger(timeoutMs) && timeoutMs > 0 && timeoutMs <= 2147483647);
+  return function call<T>(
+    operation: string,
+    id: string,
+    value: unknown,
+    parse: (value: unknown) => T,
+    mutationOutcome = false,
+  ): Promise<T> {
+    const payload = utf8.encode(JSON.stringify(value));
+    return enqueue(channel, () =>
+      invoke(channel, timeoutMs, operation, id, payload, parse, mutationOutcome),
+    );
+  };
+}
+
 /**
  * Constructing this helper opens nothing. Reuse the owner's existing Session;
  * after unknown send outcomes, observe operation(originalId) in that session.
@@ -411,20 +458,7 @@ export function operations(
   session: Session,
   options: { timeoutMs?: number } = {},
 ): RemoteOperations {
-  const found = channelFor(session);
-  if (!found) throw new TypeError('Use a verified openSession or reopenSession result.');
-  const channel = found;
-  const timeoutMs = options.timeoutMs ?? 40000;
-  input(Number.isSafeInteger(timeoutMs) && timeoutMs > 0 && timeoutMs <= 2147483647);
-  function call<T>(
-    operation: string,
-    id: string,
-    value: unknown,
-    parse: (value: unknown) => T,
-  ): Promise<T> {
-    const payload = utf8.encode(JSON.stringify(value));
-    return enqueue(channel, () => invoke(channel, timeoutMs, operation, id, payload, parse));
-  }
+  const call = verifiedSessionRequest(session, options);
   return {
     listAgents: () => call('agents.list', crypto.randomUUID(), {}, agents),
     async send(value) {
