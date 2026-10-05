@@ -5,14 +5,23 @@
 
 ## Run
 
-Build the binaries and the app, point `TMT_ACCEPTANCE_BIN_DIR` at the directory holding the
-three binaries (default `rust/target/debug`), then run from `typescript/`:
+Build the app before the binaries so the native build embeds the current assets.
+From the repository root, point `TMT_ACCEPTANCE_BIN_DIR` at the directory holding the
+three binaries (default `rust/target/debug`):
 
 ```bash
-(cd rust && CARGO_BUILD_JOBS=2 cargo build --locked -p tmt-cli -p tmt-remote -p tmt-colab --bins)
-corepack pnpm@10.33.0 --filter @tmt/colab-app --fail-if-no-match build
-corepack pnpm@10.33.0 --filter @tmt/colab-app --fail-if-no-match test:acceptance
+corepack pnpm@10.33.0 --dir typescript --filter @tmt/colab-app --fail-if-no-match build
+CARGO_BUILD_JOBS=2 TMT_COLAB_APP_DIR="$PWD/extensions/tmt-colab/typescript/app/dist" \
+  cargo build --locked --manifest-path rust/Cargo.toml -p tmt-cli -p tmt-remote -p tmt-colab --bins
+corepack pnpm@10.33.0 --dir typescript --filter @tmt/colab-app --fail-if-no-match test:acceptance
 ```
+
+If also running [native Chromium fixtures](development.md#app-and-browser-client),
+compile those fixtures before the final binary build: their test configuration can
+replace the regular `tmt-colab` artifact in a shared target directory. Copy the final
+three binaries into a dedicated execution directory, select it with
+`TMT_ACCEPTANCE_BIN_DIR`, and record the tested head, binary and embedded asset hashes
+before execution. Keep that directory unchanged throughout both acceptance runs.
 
 Run it twice for lifecycle acceptance; it is a recorded manual gate on the PR head, not a CI
 job. Set `TMT_ACCEPTANCE_KEEP=1` to keep a world's root (counter rows, `*.stderr`) after a run.

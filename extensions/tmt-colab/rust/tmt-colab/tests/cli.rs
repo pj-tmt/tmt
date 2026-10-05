@@ -1511,7 +1511,22 @@ fn frozen_management(base: &[String], operation: &str, revision: &str) -> Vec<St
 #[test]
 fn full_management_cli_serving_and_stopped_commits_policy_and_replays_after_restart() {
     for serving in [false, true] {
-        for (name, base) in full_management_cases() {
+        for (name, base) in full_management_cases()
+            .into_iter()
+            .flat_map(|(name, args)| {
+                let short = args
+                    .iter()
+                    .map(|arg| {
+                        if arg == PAGE {
+                            PAGE[..8].to_owned()
+                        } else {
+                            arg.clone()
+                        }
+                    })
+                    .collect();
+                [(name, args), (name, short)]
+            })
+        {
             let mut pilot = Pilot::new(None);
             seed_page(&pilot);
             if serving {
@@ -1533,6 +1548,7 @@ fn full_management_cli_serving_and_stopped_commits_policy_and_replays_after_rest
             assert_eq!(pilot.call(&["retention", PAGE, "--json"]), policy);
             let args = frozen_management(&base, "40000000-0000-4000-8000-000000000099", revision);
             let committed = pilot.call(&words(&args));
+            assert_eq!(committed["pageId"], PAGE);
             assert_eq!(committed["expectedRevision"], revision);
             assert_eq!(
                 pilot.call(&words(&args)),
@@ -1547,7 +1563,7 @@ fn full_management_cli_serving_and_stopped_commits_policy_and_replays_after_rest
                 failure(
                     &pilot,
                     &["delete", PAGE, "--yes", "--json"],
-                    "COLAB_PAGE_NOT_FOUND",
+                    "COLAB_PAGE_DELETED",
                 );
                 let new = frozen_management(
                     &base,
@@ -3085,6 +3101,245 @@ fn human_ls_uses_the_link_prefix_even_when_a_collision_is_archived_or_deleted() 
         assert_eq!(json["pages"][0]["pageId"], PAGE);
     }
 }
+/// Exercise each CLI adapter and sharing selection without opening stdin, seed files or an export.
+fn prefix_commands<'a>(prefix: &'a str, file: &'a str, destination: &'a str) -> Vec<Vec<&'a str>> {
+    vec![
+        vec!["show", prefix, "--json"],
+        vec!["page", "read", prefix, "--json"],
+        vec!["page", "write", prefix, "--file", file, "--json"],
+        vec!["export", prefix, "--dir", destination, "--json"],
+        vec!["retention", prefix, "42", "--json"],
+        vec!["archive", prefix, "--json"],
+        vec!["delete", prefix, "--yes", "--json"],
+        vec!["share", "mode", prefix, "public", "--yes", "--json"],
+        vec!["share", "history", prefix, "current", "--json"],
+        vec!["share", "link", "ls", prefix, "--json"],
+        vec![
+            "share",
+            "link",
+            "add",
+            prefix,
+            "--seed-file",
+            file,
+            "--yes",
+            "--json",
+        ],
+        vec![
+            "share",
+            "link",
+            "reset",
+            prefix,
+            LINK,
+            "--seed-file",
+            file,
+            "--yes",
+            "--json",
+        ],
+        vec!["share", "link", "remove", prefix, LINK, "--json"],
+        vec![
+            "share",
+            "member",
+            "add",
+            prefix,
+            MEMBER,
+            "viewer",
+            "--sign-key",
+            "invalid",
+            "--enc-key",
+            "invalid",
+            "--yes",
+            "--json",
+        ],
+        vec!["share", "member", "remove", prefix, MEMBER, "--json"],
+        vec![
+            "share", "member", "role", prefix, MEMBER, "editor", "--yes", "--json",
+        ],
+    ]
+}
+#[test]
+fn page_prefix_refusals_name_candidates_and_leave_every_adapter_without_effects() {
+    use tmt_colab::{keyring::Layout, store::Store};
+    let pilot = Pilot::new(None);
+    seed_page_with_title(&pilot, "Original title");
+    let other = "10000000-1000-4000-8000-000000000002";
+    let layout = Layout::open(&pilot.root.join("selected")).unwrap();
+    let store = Store::open(&layout).unwrap();
+    store.create_page(other).unwrap();
+    store.close().unwrap();
+    let database = layout.directory.join("space.db");
+    let source = pilot.root.join("missing-input");
+    let destination = pilot.root.join("not-exported");
+    let source = source.to_str().unwrap();
+    let dest = destination.to_str().unwrap();
+    for action in [None, Some("archive"), Some("delete")] {
+        if let Some(action) = action {
+            let mut args = vec![action, other, "--json"];
+            if action == "delete" {
+                args.push("--yes");
+            }
+            pilot.call(&args);
+        }
+        let before = fs::read(&database).unwrap();
+        for args in prefix_commands(&PAGE[..8], source, dest) {
+            let result = failure(&pilot, &args, "COLAB_PAGE_AMBIGUOUS");
+            assert_eq!(result["candidates"][0]["pageId"], PAGE);
+            assert_eq!(result["candidates"][0]["shortId"], "10000000-0");
+            assert_eq!(result["candidates"][0]["title"], "Original title");
+            assert_eq!(result["candidates"][1]["pageId"], other);
+            assert_eq!(result["candidates"][1]["shortId"], "10000000-1");
+            assert_eq!(result["candidates"][1]["deleted"], action == Some("delete"));
+            let message = result["error"]["message"].as_str().unwrap();
+            assert!(
+                message.starts_with("Page prefix 10000000 matches 2 pages: "),
+                "{result}"
+            );
+            assert!(message.contains("10000000-0 (Original title)"), "{result}");
+            if action == Some("delete") {
+                assert_eq!(result["candidates"][1]["title"], "Deleted page");
+            }
+        }
+        assert_eq!(fs::read(&database).unwrap(), before);
+        assert!(!destination.exists());
+        // A printed prefix remains resolvable even with a hidden sibling.
+        assert_eq!(
+            pilot.call(&["show", "10000000-0", "--json"])["page"]["pageId"],
+            PAGE
+        );
+    }
+    let before = fs::read(&database).unwrap();
+    for (prefix, code) in [
+        ("10000000-1", "COLAB_PAGE_DELETED"),
+        (other, "COLAB_PAGE_DELETED"),
+        ("ffffffff", "COLAB_PAGE_NOT_FOUND"),
+        ("1000000", "COLAB_INPUT_INVALID"),
+        ("10000000x", "COLAB_INPUT_INVALID"),
+        ("100000000", "COLAB_INPUT_INVALID"),
+        ("10000000-00Z", "COLAB_INPUT_INVALID"),
+        ("../10000000", "COLAB_INPUT_INVALID"),
+        (
+            "00000000-0000-0000-0000-000000000000",
+            "COLAB_INPUT_INVALID",
+        ),
+        (
+            "10000000-0000-4000-8000-0000000000010",
+            "COLAB_INPUT_INVALID",
+        ),
+    ] {
+        for args in prefix_commands(prefix, source, dest) {
+            let result = failure(&pilot, &args, code);
+            if code == "COLAB_PAGE_DELETED" {
+                assert_eq!(result["pageId"], other);
+            }
+        }
+    }
+    assert_eq!(fs::read(&database).unwrap(), before);
+    assert!(!destination.exists());
+}
+#[test]
+fn page_prefix_reads_writes_exports_and_confirmations_use_the_resolved_full_id() {
+    let pilot = Pilot::new(None);
+    seed_page_with_title(&pilot, "Original title");
+    let prefix = &PAGE[..8];
+    assert_eq!(
+        pilot.call(&["show", prefix, "--json"])["page"]["pageId"],
+        PAGE
+    );
+    assert_eq!(
+        pilot.call(&["retention", prefix, "--json"])["page"]["pageId"],
+        PAGE
+    );
+    assert_eq!(
+        pilot.call(&["share", "link", "ls", prefix, "--json"])["pageId"],
+        PAGE
+    );
+    let read = pilot.call(&["page", "read", prefix, "--json"]);
+    assert_eq!(read["pageId"], PAGE);
+    let source = pilot.root.join("edit.html");
+    fs::write(&source, "<h1>Edited source</h1>").unwrap();
+    let written = pilot.call(&[
+        "page",
+        "write",
+        prefix,
+        "--file",
+        source.to_str().unwrap(),
+        "--expected-revision",
+        read["revision"].as_str().unwrap(),
+        "--json",
+    ]);
+    assert_eq!(written["pageId"], PAGE);
+    assert_eq!(
+        pilot.call(&["page", "read", prefix, "--json"])["source"],
+        "<h1>Edited source</h1>"
+    );
+    let export = pilot.call(&[
+        "export",
+        prefix,
+        "--dir",
+        pilot.root.to_str().unwrap(),
+        "--json",
+    ]);
+    assert_eq!(export["pageId"], PAGE);
+    let directory = PathBuf::from(export["directory"].as_str().unwrap());
+    assert_eq!(
+        fs::read_to_string(directory.join("page.html")).unwrap(),
+        "<h1>Edited source</h1>"
+    );
+    let manifest: Value =
+        serde_json::from_slice(&fs::read(directory.join("manifest.json")).unwrap()).unwrap();
+    assert_eq!(manifest["pageId"], PAGE);
+    let database = pilot.root.join("selected/colab/space.db");
+    let before = fs::read(&database).unwrap();
+    for args in [
+        vec!["delete", prefix],
+        vec!["share", "mode", prefix, "public"],
+        vec!["share", "link", "add", prefix],
+    ] {
+        let mut json_args = args.clone();
+        json_args.push("--json");
+        let result = failure(&pilot, &json_args, "COLAB_CONFIRMATION_REQUIRED");
+        assert_eq!(result["pageId"], PAGE);
+        assert!(result["error"]["message"].as_str().unwrap().contains(PAGE));
+        let human = pilot.command().args(args).output().unwrap();
+        assert!(!human.status.success());
+        assert!(String::from_utf8_lossy(&human.stderr).contains(PAGE));
+    }
+    assert_eq!(fs::read(&database).unwrap(), before);
+    let mode = pilot.call(&["share", "mode", prefix, "link", "--yes", "--json"]);
+    assert_eq!(mode["pageId"], PAGE);
+    assert_eq!(
+        pilot.call(&["show", PAGE, "--json"])["page"]["sharing"],
+        "link"
+    );
+    let link = pilot.call(&["share", "link", "add", prefix, "--yes", "--json"]);
+    assert_eq!(link["pageId"], PAGE);
+    assert!(link["readerPath"].as_str().unwrap().contains(PAGE));
+    let human = pilot.command().args(["archive", prefix]).output().unwrap();
+    assert!(human.status.success(), "{human:?}");
+    assert!(String::from_utf8_lossy(&human.stdout).contains(PAGE));
+    assert_eq!(
+        pilot.call(&["show", PAGE, "--json"])["page"]["archived"],
+        true
+    );
+}
+#[test]
+fn page_prefix_help_is_shared_by_every_page_operand() {
+    let pilot = Pilot::new(None);
+    for args in prefix_commands(&PAGE[..8], "input", "destination") {
+        let end = args.iter().position(|arg| *arg == &PAGE[..8]).unwrap();
+        let help = pilot
+            .command()
+            .args(&args[..end])
+            .arg("--help")
+            .output()
+            .unwrap();
+        assert!(help.status.success(), "{help:?}");
+        let help = String::from_utf8(help.stdout).unwrap();
+        assert!(
+            help.contains("unique lowercase UUID prefix") && help.contains("at least 8 characters"),
+            "{help}"
+        );
+    }
+}
 #[test]
 fn unreadable_settings_never_fail_a_committed_page_create_or_a_ready_serve() {
     let pilot = Pilot::new(None);
@@ -3283,7 +3538,14 @@ fn serve_says_the_outdated_instruction_once_in_the_warning_and_points_at_it_in_t
 fn skill_is_exact_embedded_bytes_after_relocation_without_core_or_state() {
     let pilot = Pilot::new(None);
     let relocated = pilot.root.join("relocated-colab");
-    fs::copy(BINARY, &relocated).unwrap();
+    let binary = fs::read(BINARY).unwrap();
+    let mode = fs::metadata(BINARY).unwrap().permissions().mode() & 0o777;
+    tmt_test_support::write_executable(&relocated, &binary, mode).unwrap();
+    assert_eq!(fs::read(&relocated).unwrap(), binary);
+    assert_eq!(
+        fs::metadata(&relocated).unwrap().permissions().mode() & 0o777,
+        mode
+    );
     fs::remove_file(pilot.root.join("core")).unwrap();
     let invoke = |args: &[&str]| {
         Command::new(&relocated)
