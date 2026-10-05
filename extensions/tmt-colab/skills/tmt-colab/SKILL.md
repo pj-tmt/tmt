@@ -72,8 +72,12 @@ to the Remote door address. `paired: false` and `next`
 indicate the user-only pairing step, not a command for the agent to execute.
 `tmt colab show PAGE --json` inspects the page and its current link.
 
-JSON output skips automatic browser opening; `--no-open` also suppresses it for
-human output. Open a browser only when the user's request calls for that action.
+When the user asks to open an existing page, run `tmt colab open PAGE`; omit PAGE
+to open the space home. This explicit command opens even from a noninteractive
+agent terminal and with the automatic-open setting off. It requires the existing
+Colab and Remote services; it does not start a service or pair a browser.
+JSON output skips browser opening; `--no-open` also suppresses it for human output.
+Open a browser only when the user's request calls for that action.
 
 ## Read before writing
 

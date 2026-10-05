@@ -34,9 +34,10 @@ export const text = {
   reconnect: 'Reconnect',
   reconnectFailed:
     'Could not reconnect. Open this page from a paired browser, or pair with tmt remote pair.',
-  otherTab: 'Colab is open in another tab.',
-  useHere: 'Use here',
-  oneTab: 'Only one tab per browser stays connected. Your work is saved.',
+  sessionEvicted: (limit: number) =>
+    `This tab was disconnected when your paired device reached its limit of ${limit} Remote sessions.`,
+  sessionLimitCommand: 'To allow another tab, run:',
+  remoteSettings: 'Open Remote settings',
   ask: 'Ask agent',
   asks: 'Page asks',
   askSelection: 'Select text in the page to ask your agent.',

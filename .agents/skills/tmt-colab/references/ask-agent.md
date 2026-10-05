@@ -28,7 +28,12 @@ modules in `extensions/tmt-colab/typescript/app/src` and `rust/tmt-colab/src/ask
   no `check`. A Session fault (SDK `RefusalError` `REMOTE_SESSION_ENDED`, `ClientError`
   `sequence_unavailable`, an expired Session or a changed grant revision) is normalized to
   `SessionEndedError` or an `uncertain` state with that reason. A verified send that Remote
-  refused with `REMOTE_SESSION_ENDED` before admission stays `refused`. Other refusals use the nine reviewed
+  refused with `REMOTE_SESSION_ENDED` before admission stays `refused`. The SDK also
+  resolves signed eviction Send/operation refusals as states, carrying the positive
+  limit and optional settings URL. `sessionEviction` derives the typed page fault
+  without replacing a Send's known `refused` outcome. The adapter retains the first
+  verified eviction for its old Session; later ENDED reads or opaque socket close
+  cannot authorize reopening. Other refusals use the reviewed
   `REMOTE_REFUSAL_CODES`; anything else is `REMOTE_REFUSED`. Registration must rebuild the client and its
   controllers when it replaces the Session; an old client never adopts a new one.
 - **`ask-records.ts`.** Record types `ask`, `ask-state`, `ask-reply`, the ledger states and
@@ -60,7 +65,9 @@ modules in `extensions/tmt-colab/typescript/app/src` and `rust/tmt-colab/src/ask
   It never sends on reload or reconnect. `abandon` applies only to
   `uncertain`, records `MAY_HAVE_BEEN_DELIVERED` and cancels nothing. On a Session fault
   an adopted send ends `uncertain` (a typed sequence failure too) and an `accepted` ask's
-  records stay unchanged; a pre-admission `REMOTE_SESSION_ENDED` refusal stays `refused`.
+  records stay unchanged; pre-admission session-end or eviction Send refusals stay `refused`.
+  An eviction operation read leaves the prior ledger unchanged. Both returned
+  eviction paths carry the typed limit/settings notice and stop further work.
   The controller then calls `sessionEnded` once, after publication, refuses further work and
   stops observing.
 - **`writer.ts` and the fold Worker.** `Writer.submitOwn` is generic over the own roots

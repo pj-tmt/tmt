@@ -147,6 +147,7 @@ impl App {
         if let Some(crate::board::app::RowFeedback {
             target: crate::board::app::RowTarget::Home(target),
             home: Some(feedback),
+            ..
         }) = &self.sent
             && !entries.iter().any(|entry| &entry.target == target)
             && crate::board::app::matches(&feedback.row, &self.search)

@@ -117,7 +117,11 @@ pub(super) fn model(app: &App) -> KeyHelp {
                     "move through attention rows, leads, cron and squads",
                 ),
                 ("Enter", "go to a member or open the selected squad"),
-                ("a", "answer a request or send the squad lead a note"),
+                ("a", "answer or note; Tab reaches talk and status"),
+                (
+                    "a → Tab → status",
+                    "change chosen manual fields with a reason; notify the row UUID",
+                ),
                 ("e", "expand or collapse the selected lead's full message"),
                 ("t", "show or hide lead previews and save the global choice"),
                 ("A / @", "write to all leads / pick one lead"),
@@ -144,6 +148,10 @@ pub(super) fn model(app: &App) -> KeyHelp {
                 (
                     "↑↓ / j k",
                     "select a row or notebook line; scroll detail or replies",
+                ),
+                (
+                    "a → Tab → status",
+                    "change chosen manual fields with a reason; notify the row UUID",
                 ),
                 ("g G", "go to the first or last notebook line"),
                 ("PgUp / PgDn", "page the focused pane"),

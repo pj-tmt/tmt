@@ -30,7 +30,7 @@ restate them.
 The app build emits its main entry plus two public standalone entries (`vp build`, then
 `vp build --mode recovery` and `vp build --mode reader`; the `build` script runs all three):
 
-- `assets/recovery.js` reuses tab coordination for private guidance.
+- `assets/recovery.js` uses the tab's bounded SDK recovery for private guidance.
 - The read-only reader (`public/reader.html` served at `/read`, `src/reader-main.tsx`) builds as fixed-name
   `assets/reader.js`, `reader.css` and `reader-fold.js` (the decoder worker), so the native allowlist
   `assets::anonymous_file` is exact. Add a file to the reader entry only together with that list,
@@ -55,15 +55,17 @@ owner router, writer, Ask and export modules are not part of this bundle.
 
 Remote keeps sessions and door cookies in memory, so after a restart a paired browser's
 reload receives Colab's private guidance page. That page loads the public `assets/recovery.js`
-(`src/guidance.ts`), which takes over the tab claim (`ActiveTab`, Web Lock) before Remote's
-SDK checks its paired key and calls `reopenSession()`, then reloads. A session-storage marker
+(`src/guidance.ts`), which lets Remote's SDK check its paired key and call
+`reopenSession()` for that tab, then reloads. A session-storage marker
 (`colab-recovery:<mount path>`, `src/session-recovery.ts`) spans that reload so a second
 guidance response cannot loop; authenticated boot (`mounted.ts`) clears it. A failed or
 refused reopen, or unavailable session storage, leaves plain pairing guidance and never
-retries an Ask. An open page whose sync drops shows "Sync disconnected" with the explicit
-Reconnect button, which uses the same `recoverSession` helper through `Live.reconnect` (it
-closes the page socket, Ask and observer first). Acceptance drives this through `reconnect(page)`
-in `acceptance/ask.spec.ts`.
+retries an Ask. On an open page's socket close, `Live` makes one read-only old-session
+probe: signed session end silently reopens that tab; signed eviction stops it with the
+limit notice. Transport failures remain distinct and get bounded sync catchup. If recovery
+fails, the explicit Reconnect button uses `recoverSession` through `Live.reconnect`, closing
+the page socket, Ask and observer first. The Remote restart cases drive that explicit path
+through `reconnect(page)` in `acceptance/ask.spec.ts`.
 
 ## Persistence layout
 
@@ -144,7 +146,7 @@ in `acceptance/ask.spec.ts`.
 - `management.rs` holds strict DTOs and device-signature admission and adapts to the
   engine; it never writes authority tables or chooses baselines, cuts, wraps or epoch
   keys. The CLI (`cli_grammar.rs`, `cli_management.rs`, `inspection.rs`) is root-local:
-  `ls`, `show`, `share mode/link/member/history`, `retention`, `archive` and `delete`.
+  `ls`, `show`, `open`, `share mode/link/member/history`, `retention`, `archive` and `delete`.
   `cli_management::selection` adapts public CLI inputs to strict existing DTOs;
   its shared page resolver reuses the short-link helpers to admit unique UUID prefixes
   from the verified complete catalog, including retained deleted IDs, before
@@ -169,7 +171,7 @@ in `acceptance/ask.spec.ts`.
   for current baseline/statement chunk transport without opening content or a Worker.
   POST acknowledgments never change policy: verification requires the exact signed
   revision/hash and matching change, even when later owner commits exist.
-- `mounted.ts` supplies one management facade through the existing tab lease and
+- `mounted.ts` supplies one management facade through the mounted tab lifetime and
   current registration. Views and prepared requests retain their originating client;
   session replacement refuses old mutations, while acknowledgment verification is
   read-only under the new registration. It never opens another Remote session.
@@ -215,6 +217,9 @@ in `acceptance/ask.spec.ts`.
   JSON and `show` retain full IDs. Ask composition captures the catalog prefix in `Live`, preserving full
   signed scope, legacy source-link admission and unchanged reader links. See the contract for
   Remote's root-redirect dependency and exact URL/JSON shapes.
+- Explicit `open [PAGE]` reuses this catalog/link boundary and the shared opener without
+  starting services. JSON/no-open never launches; stopped Colab
+  reports the serving next step. This does not replace browser admission.
 
 ## Browser title hints
 

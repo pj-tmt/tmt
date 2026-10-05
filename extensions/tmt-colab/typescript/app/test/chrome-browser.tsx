@@ -17,7 +17,6 @@ export type Screen =
   | 'error'
   | 'not-found'
   | 'mounted-opening'
-  | 'mounted-inactive'
   | 'mounted-failed'
   | 'reader'
   | 'reader-opening'
@@ -43,13 +42,8 @@ export async function mount(screen: Screen) {
         : { kind: screen.slice('reader-'.length) as 'opening' | 'invalid' | 'ended' | 'failed' };
     root.render(<ReaderApp state={state} />);
   } else if (screen.startsWith('mounted-')) {
-    const state =
-      screen === 'mounted-opening'
-        ? 'loading'
-        : screen === 'mounted-inactive'
-          ? 'inactive'
-          : 'failed';
-    root.render(<MountedNotice state={state} useHere={() => {}} />);
+    const state = screen === 'mounted-opening' ? 'loading' : 'failed';
+    root.render(<MountedNotice state={state} />);
   } else {
     const pages: PageSnapshot[] = Array.from(
       { length: screen === 'empty' ? 0 : 24 },

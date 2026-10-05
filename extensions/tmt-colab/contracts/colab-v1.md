@@ -1193,7 +1193,19 @@ bridge ledger, native Ask route or additional SQLite migration.
 The browser wraps the same verified Session held by registration and Live with
 Remote's operations helper. The wrapper opens nothing and never reopens on
 uncertainty: the helper resyncs its sequence and reads the original operation ID.
-Only session end or unrecoverable sequence state signals Registration to reconnect.
+Each mounted tab opens its own Remote session and binds its sync WebSockets through
+the SDK's `transportUrl`; tabs on one paired device may remain live concurrently.
+After a socket disconnect, a read through the old verified operations helper
+distinguishes ordinary session end from limit eviction. Ordinary end or
+unrecoverable sequence state signals Registration to reconnect silently; eviction
+stops that tab and shows the reported limit, optional Remote settings URL and
+the `tmt remote settings sessions-per-device <n>` command. It MUST NOT reopen
+automatically after eviction or resend an Ask. Closing a tab affects only its
+own bindings.
+The SDK returns verified pre-effect eviction from Send and operation reads as
+`refused` states with `REMOTE_SESSION_EVICTED`, a positive `limit` and optional
+`settingsUrl`. The adapter retains that eviction for the lifetime of the old
+Session, including across later generic ENDED reads or opaque socket close.
 Registration rebuilds both the RemoteClient and page AskControllers with the new
 shared Session; old-session attempts cannot dispatch, and recovery reads the original IDs.
 
@@ -1281,16 +1293,20 @@ decimal strings, ordered numerically. `requestId` and `reason` are explicitly
 null when absent. Reasons are bounded sanitized codes, never raw transport
 errors. Verified pre-effect Remote refusals preserve `REMOTE_SCOPE_DENIED`,
 `REMOTE_INPUT_INVALID`, `REMOTE_RATE_LIMITED`, `REMOTE_INTENT_CONFLICT`,
-`REMOTE_CLOSED`, `REMOTE_SESSION_ENDED`, `REMOTE_INPUT_TOO_LARGE`,
+`REMOTE_CLOSED`, `REMOTE_SESSION_ENDED`, `REMOTE_SESSION_EVICTED`, `REMOTE_INPUT_TOO_LARGE`,
 `REMOTE_STATE_UNAVAILABLE` or `REMOTE_CORE_UNAVAILABLE`; unknown refusal codes become
 `REMOTE_REFUSED`. A verified pre-admission Send refusal, including session end,
 is definitive: it records refused with the reviewed code. A session-end Send
 refusal then signals Registration to reconnect and requires new explicit input capture.
+An eviction Send refusal instead stops the page with the verified limit/settings
+notice; it remains refused, not uncertain, and cannot reopen automatically.
 Adopted Sends never return refused; unknown outcomes remain uncertain. A typed
 SDK `sequence_unavailable` Send outcome becomes uncertain
 (`REMOTE_SEQUENCE_UNAVAILABLE`) and signals Registration to reconnect. The adapter never reopens. A session-ending result
 read leaves the existing accepted record unchanged and stops observation until
 reconnect. Every refused operation/result read leaves the ledger unchanged;
+an eviction operation read stops observation with the same typed notice and
+never changes the prior operation outcome or dispatches again.
 missing operations do not prove absence. Transient state/core-unavailable refusals
 continue bounded backoff. Read refusal copy is ephemeral, never an own-state
 transition. Fresh input capture is required for each later Send. Unknown-effect errors
@@ -1892,6 +1908,18 @@ audience/history. Each link is on its own indented line under the row. `show` re
 page ID and prints rows of words (`title`, `link`, `pair`, `page`,
 `sharing`, `history`, `retention`, `membership`, `members`, `links`; `–` for none), never an
 embedded JSON object. `page create` keeps `url`'s role under the name `link`.
+
+`tmt colab open [PAGE]` explicitly opens the existing space home, or a page selected
+through the same verified catalog and UUID-prefix resolver as `show`. It requires
+running Colab and Remote services and never starts another service, pairs a browser,
+changes access or writes content. Explicit opening ignores the automatic-open setting
+and noninteractive-terminal suppression, using the shared `tmt-invoke` opener;
+`--no-open` and `--json` suppress launching. Missing, deleted and ambiguous pages refuse
+before opening. Archived pages remain eligible for read-only access. An unavailable
+service prints the current link/path and next step. Opener failure warns once and
+retains the link. JSON adds `spaceId`, full `pageId` (null for home), `running` and
+`opened: false` to the existing path/link/shortLink/paired/next facts; a stopped Colab
+adds `tmt colab serve` to `next`. Browser navigation still undergoes existing admission.
 
 ### Short owner-page aliases (#1688)
 
@@ -2586,13 +2614,13 @@ rotation; previously public content cannot be made private again. Requests freez
 exact selections, initiating context, ID, revision, expiry, signature and any new
 seed before send. Only explicit, unexpired byte-identical retry is offered after
 uncertainty; stale/expired requests require fresh review. No reload, reconnect,
-timer or takeover submits a management request.
+timer or tab close submits a management request.
 
-The mounted tab lease fences preparation and POST. Current registration owns
+The mounted tab lifetime fences preparation and POST. Current registration owns
 each prepared request; a replacement session refuses old views and mutation
 retries but may verify an earlier acknowledgment read-only. Management does not
-open a separate Remote session. Takeover closes metadata sockets and prevents
-new work while already-started effects settle under their existing bounded lease.
+open a separate Remote session. Closing one tab closes only its metadata sockets
+and prevents new work; already-started effects retain their existing outcome.
 An acknowledged or uncertain policy change closes stale Live/writer/Ask state; subsequent
 refresh never dispatches an Ask again.
 

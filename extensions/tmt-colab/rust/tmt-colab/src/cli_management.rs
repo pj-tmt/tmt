@@ -812,6 +812,56 @@ pub fn run(command: &str, args: &ArgMatches, root: &Path, json_output: bool) -> 
     store.require_current_schema()?;
     let mut catalog = inspection::catalog(&store, &key)?;
     let ids = catalog_ids(&catalog);
+    if command == "open" {
+        let id = args
+            .get_one::<String>("page")
+            .map(|operand| resolve_catalog_page(&store, &key, &catalog, operand, false))
+            .transpose()?;
+        // The browser handoff uses verified catalog/link facts; it never starts
+        // a service, pairs a browser or mutates a page.
+        let path = match &id {
+            Some(id) => crate::reach::Reach::path(&key.space_id, id),
+            None => format!("x/colab/#space={}", key.space_id),
+        };
+        let reach = crate::reach::Reach::gather().with_pages(&ids);
+        let running = layout.running()?;
+        let mut facts =
+            json!({"spaceId":key.space_id,"pageId":id,"running":running,"opened":false});
+        reach.annotate(&mut facts, &path);
+        if !running {
+            facts["next"]
+                .as_array_mut()
+                .expect("annotated next steps")
+                .push(json!("tmt colab serve"));
+        }
+        if json_output {
+            return output(&facts, true);
+        }
+        let mut shown = reach.text(&path);
+        let mut warning = None;
+        if running
+            && !args.get_flag("no-open")
+            && let Some(link) = reach.short_link(&path).or_else(|| reach.link(&path))
+        {
+            let outcome = crate::open::open_link(&link, crate::open::Flag::Open, true, false);
+            (shown, warning) = crate::open::describe(&outcome, &link);
+        }
+        let mut rows = vec![("open", shown)];
+        rows.extend(id.map(|id| ("page", id)));
+        rows.extend(reach.step().map(|step| ("pair", step.to_owned())));
+        if !running {
+            rows.push(("next", "tmt colab serve".to_owned()));
+        }
+        let mut out = tmt_cli_style::stream::stdout(false);
+        let terminal = out.terminal();
+        tmt_cli_style::detail::write(&mut out, terminal, "OPEN COLAB", &rows)?;
+        if let Some(what) = warning {
+            let mut err = tmt_cli_style::stream::stderr();
+            let terminal = err.terminal();
+            tmt_cli_style::message::warning(&mut err, terminal, &what, None)?;
+        }
+        return Ok(());
+    }
     if command == "ls" {
         let pages = catalog["pages"]
             .as_array_mut()

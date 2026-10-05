@@ -144,7 +144,8 @@ pub(super) fn paint(
             let available = width.saturating_sub(4 + age_width);
             let name_width = (available / 2).min(24);
             let sent = app.sent.as_ref().is_some_and(|feedback| {
-                feedback.target == crate::board::app::RowTarget::Home(entry.target.clone())
+                feedback.sent
+                    && feedback.target == crate::board::app::RowTarget::Home(entry.target.clone())
             });
             let mut after = Vec::new();
             if sent {

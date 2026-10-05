@@ -170,7 +170,7 @@ export async function managementLog(
   return new Promise((resolve, reject) => {
     const url = new URL('sync', mount);
     url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
-    const socket = new WebSocket(url, 'colab-sync-v1');
+    const socket = new WebSocket(registration.syncUrl ?? url, 'colab-sync-v1');
     let stopped = false,
       started = false,
       queued = 0;

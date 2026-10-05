@@ -78,6 +78,7 @@ async function fixture(
       contentType: 'text/javascript',
       body: `
     export async function reopenSession() {sessionStorage.setItem('test:reopens',String(Number(sessionStorage.getItem('test:reopens')??0)+1));}
+    export function transportUrl(_session,url){return String(url);}
     export async function certifyKey(purpose, bytes) {
       return {publicKey:btoa(String.fromCharCode(...bytes)).replaceAll('+','-').replaceAll('/','_').replace(/=+$/,''),
         issuedAtMs:Date.now(),signature:'${c.encodeBinary(new Uint8Array(64))}'};
@@ -273,7 +274,7 @@ test('a successful HTTP registration with a forged certificate remains blocked',
   ).toBeUndefined();
 });
 
-test('a newer Use here cancels queued takeover and ignores an old registration completing after inactivity', async ({
+test('another tab opens while the first registration is still pending', async ({
   page,
   context,
 }) => {
@@ -300,23 +301,16 @@ test('a newer Use here cancels queued takeover and ignores an old registration c
     await page.goto(mount);
     await registered;
     await other.goto(mount);
-    await expect(page.getByTestId('colab-inactive')).toBeVisible();
+    await expect(other.getByRole('heading', { name: 'Colab', exact: true })).toBeVisible();
+    await expect(page.getByText('Opening space')).toBeVisible();
     expect(await reopens(page)).toBe(1);
-    expect(await reopens(other)).toBe(0);
-    await page.getByRole('button', { name: 'Use here' }).click();
-    await expect(other.getByTestId('colab-inactive')).toBeVisible();
+    expect(await reopens(other)).toBe(1);
     release();
     await expect(page.getByRole('heading', { name: 'Colab', exact: true })).toBeVisible();
-    await expect(other.getByTestId('colab-inactive')).toBeVisible();
-    expect(await reopens(page)).toBe(2);
-    expect(await reopens(other)).toBe(0);
-    expect(requests).toBe(2);
-    await other.getByRole('button', { name: 'Use here' }).click();
-    await expect(page.getByTestId('colab-inactive')).toBeVisible();
     await expect(other.getByRole('heading', { name: 'Colab', exact: true })).toBeVisible();
-    expect(await reopens(page)).toBe(2);
+    expect(await reopens(page)).toBe(1);
     expect(await reopens(other)).toBe(1);
-    expect(requests).toBe(3);
+    expect(requests).toBe(2);
   } finally {
     release();
     await other.close();
