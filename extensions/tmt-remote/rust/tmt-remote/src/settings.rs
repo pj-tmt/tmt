@@ -84,12 +84,15 @@ const LOCK_WAIT: Duration = Duration::from_secs(1);
 /// The settings for a command whose effect already happened (a created page, a ready door):
 /// any failure to read them is the defaults with `malformed` set, never an error.
 pub fn read_or_default(root: &Path) -> RemoteSettings {
-    read(root).unwrap_or(RemoteSettings {
-        open: None,
-        sessions_per_device: None,
-        sessions_configured: false,
-        malformed: true,
-    })
+    read(root)
+        .ok()
+        .filter(|settings| !settings.malformed)
+        .unwrap_or(RemoteSettings {
+            open: None,
+            sessions_per_device: None,
+            sessions_configured: false,
+            malformed: true,
+        })
 }
 
 /// The settings lock, waiting a bounded time for whoever holds it (a reader or a setter).

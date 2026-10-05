@@ -52,6 +52,7 @@ pub struct DoorSessions {
 struct Live {
     generation: u64,
     stopped: bool,
+    last_maintenance: Option<Instant>,
     by_session: HashMap<String, Session>,
     /// Cookie token SHA-256 to session ID; cookies authenticate device context.
     by_token: HashMap<[u8; 32], String>,
@@ -127,6 +128,8 @@ impl DoorSessions {
         let response = self
             .signed_response(control.message.envelope(), &session_id, 1, &payload, now)
             .ok()?;
+        let root = self.store.lock().ok()?.data_root.clone();
+        let limit = crate::settings::read_or_default(&root).sessions_per_device();
         {
             self.maintain().ok()?;
             let mut live = self.live.lock().ok()?;
@@ -139,8 +142,6 @@ impl DoorSessions {
             if live.nonces.contains_key(&key) || live.nonces.len() >= NONCES {
                 return None;
             }
-            let root = self.store.lock().ok()?.data_root.clone();
-            let limit = crate::settings::read(&root).ok()?.sessions_per_device();
             // A configured limit is enforced at open, including a lowered limit.
             while limit.is_some_and(|limit| {
                 live.by_session
@@ -643,6 +644,13 @@ impl DoorSessions {
             Err(std::sync::TryLockError::WouldBlock) => return Ok(()),
             Err(error) => return Err(crate::store::database(error)),
         };
+        let tick = (self.clock)();
+        if live.last_maintenance.is_some_and(|last| {
+            tick.duration_since(last) < crate::limits::SESSION_MAINTENANCE_INTERVAL
+        }) {
+            return Ok(());
+        }
+        live.last_maintenance = Some(tick);
         let now = now_ms()?;
         let mut ended = Vec::new();
         {

@@ -649,7 +649,15 @@ fn unattached_timeout_is_proactive_per_session_and_reopenable() {
 #[test]
 fn revision_change_and_expiry_end_all_sessions_without_waiting_for_requests() {
     for expire in [false, true] {
-        let owner = OwnerDoor::new();
+        let mut owner = OwnerDoor::new();
+        let clock = Arc::new(Mutex::new(std::time::Instant::now()));
+        let fake = Arc::clone(&clock);
+        owner.sessions = Arc::new(
+            Arc::try_unwrap(owner.sessions)
+                .ok()
+                .unwrap()
+                .with_clock(Arc::new(move || *fake.lock().unwrap())),
+        );
         let first = owner.open();
         let second = owner.open();
         let first_permit = owner
@@ -675,6 +683,7 @@ fn revision_change_and_expiry_end_all_sessions_without_waiting_for_requests() {
                 .rename(&owner.grant.client_id, "New name")
                 .unwrap();
         }
+        *clock.lock().unwrap() += Duration::from_secs(1);
         owner.sessions.maintain().unwrap();
         assert_eq!(first_permit.revalidate().unwrap_err().code, "REMOTE_CLOSED");
         assert_eq!(
@@ -682,4 +691,100 @@ fn revision_change_and_expiry_end_all_sessions_without_waiting_for_requests() {
             "REMOTE_CLOSED"
         );
     }
+}
+
+#[test]
+fn damaged_or_unreadable_settings_use_unlimited_sessions() {
+    for case in ["broken_json", "invalid_field", "oversized", "directory"] {
+        let owner = OwnerDoor::new();
+        tmt_remote::settings::set_sessions_per_device(&owner._root.0, Some(1)).unwrap();
+        let first = owner.open();
+        let path = owner._serving.layout().directory.join("settings.json");
+        match case {
+            "broken_json" => fs::write(&path, b"{").unwrap(),
+            "invalid_field" => {
+                fs::write(&path, br#"{"open":"invalid","sessionsPerDevice":1}"#).unwrap()
+            }
+            "oversized" => fs::write(&path, vec![b' '; 4097]).unwrap(),
+            "directory" => {
+                fs::remove_file(&path).unwrap();
+                fs::create_dir(&path).unwrap();
+            }
+            _ => unreachable!(),
+        }
+        let settings = tmt_remote::settings::read_or_default(&owner._root.0);
+        assert!(settings.malformed, "{case}");
+        assert_eq!(settings.sessions_per_device(), None, "{case}");
+        let second = owner.open();
+        let third = owner.open();
+        for session in [&first, &second, &third] {
+            assert!(
+                owner
+                    .admit(&owner.wire(session, "1", "capabilities", b"{}"))
+                    .is_ok(),
+                "{case}"
+            );
+        }
+    }
+}
+
+#[test]
+fn maintenance_scans_storage_at_most_once_a_second() {
+    let mut owner = OwnerDoor::new();
+    let clock = Arc::new(Mutex::new(std::time::Instant::now()));
+    let fake = Arc::clone(&clock);
+    owner.sessions = Arc::new(
+        Arc::try_unwrap(owner.sessions)
+            .ok()
+            .unwrap()
+            .with_clock(Arc::new(move || *fake.lock().unwrap())),
+    );
+    let first = owner.open();
+    let oracle =
+        rusqlite::Connection::open(owner._serving.layout().directory.join("remote.db")).unwrap();
+    // The next real grant scan must fail; skipped ticks must not touch this table.
+    oracle
+        .execute_batch("ALTER TABLE grants RENAME TO unavailable_grants")
+        .unwrap();
+    for _ in 0..9 {
+        *clock.lock().unwrap() += Duration::from_millis(100);
+        owner.sessions.maintain().unwrap();
+    }
+    *clock.lock().unwrap() += Duration::from_millis(100);
+    assert_eq!(
+        owner.sessions.maintain().unwrap_err().code,
+        "REMOTE_STATE_UNAVAILABLE"
+    );
+    oracle
+        .execute_batch("ALTER TABLE unavailable_grants RENAME TO grants")
+        .unwrap();
+    *clock.lock().unwrap() += Duration::from_secs(1);
+    owner.sessions.maintain().unwrap();
+    assert!(
+        owner
+            .admit(&owner.wire(&first, "1", "capabilities", b"{}"))
+            .is_ok()
+    );
+}
+
+#[test]
+fn requests_check_expiry_between_maintenance_scans() {
+    let mut owner = OwnerDoor::new();
+    let clock = Arc::new(Mutex::new(std::time::Instant::now()));
+    let fake = Arc::clone(&clock);
+    owner.sessions = Arc::new(
+        Arc::try_unwrap(owner.sessions)
+            .ok()
+            .unwrap()
+            .with_clock(Arc::new(move || *fake.lock().unwrap())),
+    );
+    let first = owner.open();
+    *clock.lock().unwrap() += Duration::from_millis(59900);
+    owner.sessions.maintain().unwrap();
+    *clock.lock().unwrap() += Duration::from_millis(100);
+    owner.sessions.maintain().unwrap(); // Throttled, but the request must still refuse.
+    assert_eq!(
+        signed_code(owner.admit(&owner.wire(&first, "1", "capabilities", b"{}"))),
+        "REMOTE_SESSION_ENDED"
+    );
 }

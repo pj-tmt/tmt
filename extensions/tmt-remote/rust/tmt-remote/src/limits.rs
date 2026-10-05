@@ -36,6 +36,9 @@ pub const AUTHORITY_WAIT: Duration = Duration::from_secs(40);
 /// Bounded graceful-stop confirmation after the control acknowledgment.
 pub const STOP_WAIT: Duration = Duration::from_secs(40);
 
+/// Minimum interval between background session authority and cleanup scans.
+pub const SESSION_MAINTENANCE_INTERVAL: Duration = Duration::from_secs(1);
+
 /// Sessions that have never acquired a mounted transport expire without activity.
 pub const SESSION_UNATTACHED_IDLE: Duration = Duration::from_secs(60);
 /// Keep signed end reasons briefly after cleanup; later admission is generic.

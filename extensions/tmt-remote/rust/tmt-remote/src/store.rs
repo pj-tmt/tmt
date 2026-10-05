@@ -54,7 +54,7 @@ impl Store {
             data_root: layout
                 .directory
                 .parent()
-                .expect("Remote data root")
+                .ok_or_else(|| database("missing Remote data root"))?
                 .to_owned(),
         })
     }
@@ -690,13 +690,23 @@ impl Store {
             .map_err(database)
     }
     pub(crate) fn prune_sessions(&self, window: &str, now: u64) -> Result<(), RemoteError> {
+        let cutoff = now.saturating_sub(crate::limits::SESSION_END_NOTICE.as_millis() as u64);
+        let stale: bool = self
+            .connection
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM sessions WHERE window_id!=?1 OR ended_at_ms<=?2)",
+                rusqlite::params![window, cutoff as i64],
+                |row| row.get(0),
+            )
+            .map_err(database)?;
+        // Avoid even acquiring SQLite's write lock when there is nothing to remove.
+        if !stale {
+            return Ok(());
+        }
         self.connection
             .execute(
-                "DELETE FROM sessions WHERE window_id!=?1 OR ended_at_ms<?2",
-                rusqlite::params![
-                    window,
-                    now.saturating_sub(crate::limits::SESSION_END_NOTICE.as_millis() as u64) as i64
-                ],
+                "DELETE FROM sessions WHERE window_id!=?1 OR ended_at_ms<=?2",
+                rusqlite::params![window, cutoff as i64],
             )
             .map_err(database)?;
         Ok(())
@@ -725,6 +735,59 @@ mod tests {
         drop(store);
         drop(serving);
         std::fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
+    fn session_pruning_writes_only_when_rows_need_removal() {
+        let root = std::env::temp_dir().join(format!("tmt-1768-prune-{}", uuid_v4().unwrap()));
+        let serving = Layout::open(&root).unwrap().serve_lock().unwrap();
+        let store = Store::open(&serving).unwrap();
+        store
+            .connection
+            .busy_timeout(std::time::Duration::from_millis(10))
+            .unwrap();
+        let oracle = Connection::open(serving.layout().directory.join("remote.db")).unwrap();
+        oracle
+            .execute_batch("PRAGMA foreign_keys=ON; BEGIN IMMEDIATE")
+            .unwrap();
+        // An idle prune may read alongside another writer, but must not request a write lock.
+        store.prune_sessions("current", 60000).unwrap();
+        oracle.execute_batch("ROLLBACK").unwrap();
+        oracle
+            .execute_batch(
+                "INSERT INTO grants VALUES ('device',zeroblob(32),'cli','cli','Test device','all','capabilities','direct',0,NULL,1,0);
+            INSERT INTO sessions VALUES
+            ('device','live','current',1,'1','2',NULL,NULL),
+            ('device','notice','current',1,'1','2','REMOTE_SESSION_ENDED',1000),
+            ('device','old-run','previous',1,'1','2',NULL,NULL)",
+            )
+            .unwrap();
+        store.prune_sessions("current", 60999).unwrap();
+        let count = || {
+            store
+                .connection
+                .query_row("SELECT count(*) FROM sessions", [], |row| {
+                    row.get::<_, i64>(0)
+                })
+                .unwrap()
+        };
+        assert_eq!(count(), 2); // Old run gone; live and not-yet-expired notice remain.
+        oracle.execute_batch("BEGIN IMMEDIATE").unwrap();
+        store.prune_sessions("current", 60999).unwrap();
+        // Positive control: an expired notice genuinely needs a write, so the writer blocks it.
+        assert!(store.prune_sessions("current", 61000).is_err());
+        oracle.execute_batch("ROLLBACK").unwrap();
+        store.prune_sessions("current", 61000).unwrap();
+        assert_eq!(count(), 1);
+        let remaining: String = store
+            .connection
+            .query_row("SELECT session_id FROM sessions", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(remaining, "live");
+        drop(oracle);
+        drop(store);
+        drop(serving);
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
