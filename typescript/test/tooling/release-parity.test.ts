@@ -268,7 +268,7 @@ describe('release gate parity inventory', () => {
 
   it('keeps live-state races release-only with a concrete reason and no rehearsal claim', () => {
     const value = manifest();
-    for (const issue of ['1593', '1661']) {
+    for (const issue of ['1593', '1661', '1745']) {
       expect(value.incidents[issue].preMerge, issue).toBeUndefined();
       expect(value.incidents[issue].releaseOnly.length, issue).toBeGreaterThan(40);
       expect(value.incidents[issue].followUp, issue).toBeUndefined();
