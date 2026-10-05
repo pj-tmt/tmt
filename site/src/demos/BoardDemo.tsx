@@ -227,7 +227,7 @@ export const startSquad: Step[] = [
     out: [dm("✓ sol leads squad product")],
   },
   {
-    cap: "tmt sq opens the board full screen in your pane. Tell your lead what you need, then expand the lead row with e to read the reply.",
+    cap: "tmt sq opens the board full screen. Press a on the lead, then Tab to talk mode. Send your request, then press e to read the reply inside the row.",
     sess: "leads",
     windows: W1,
     on: 0,
@@ -242,6 +242,7 @@ export const startSquad: Step[] = [
         rows: [],
         sel: "lead",
         to: "sol",
+        mode: "talk",
         typed: "Start two members: token rotation, and one install guide.",
       },
       { rows: [], sel: "lead", expanded: true, reply: ["sol: I’ll set up the crew."] },
@@ -341,7 +342,7 @@ export const jumpAndTalk: Step[] = [
     hold: 1600,
   },
   {
-    cap: "Or stay on the board: t sends a prompt to the selected member. Press e to read its latest reply inside the row.",
+    cap: "Or stay on the board: press a, then Tab to talk mode to send a request to the selected member. Press e to read its latest reply inside the row.",
     sess: "leads",
     windows: WL,
     on: 1,
@@ -353,6 +354,7 @@ export const jumpAndTalk: Step[] = [
         rows: working,
         sel: 1,
         to: "docs-sweep",
+        mode: "talk",
         typed: "Is the guide ready for review?",
       },
       {
