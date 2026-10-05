@@ -309,3 +309,49 @@ for (const width of [1440, 390])
       await expect(toggle).toHaveAttribute('aria-pressed', 'true');
       await page.screenshot({ path: `/tmp/1716-${width}-${theme}-on.png` });
     });
+
+for (const width of [1440, 390])
+  for (const theme of ['light', 'dark'] as const)
+    test(`page header shows only labeled actions until they overflow, with a text-sized live dot: ${width}px ${theme}`, async ({
+      page,
+    }) => {
+      await page.setViewportSize({ width, height: 800 });
+      await page.emulateMedia({ colorScheme: theme });
+      await page.addInitScript((theme) => {
+        document.documentElement.dataset.theme = theme;
+      }, theme);
+      await page.goto('/');
+      await page.evaluate(async () => {
+        const path = '/test/chrome-browser.tsx';
+        await (await import(path)).mount('page');
+      });
+      const header = page.locator('#chrome-fixture .colab-header');
+      await expect(header).toBeVisible();
+      const overflow = header.locator('.page-overflow-toggle');
+      const close = header.locator('.page-menu-close');
+      await expect(close).toBeHidden();
+      if (width === 1440) {
+        // Every action fits: no "more" button and no bare × in the header.
+        await expect(overflow).toBeHidden();
+        await expect(header.getByRole('button', { name: 'More page actions' })).toBeHidden();
+        const dot = header.locator('.status svg.status-dot');
+        await expect(dot).toBeVisible();
+        const box = (await dot.boundingBox())!;
+        expect(box.width).toBeLessThanOrEqual(10);
+        expect(box.height).toBeLessThanOrEqual(10);
+        for (const button of await header.getByRole('button').all())
+          if (await button.isVisible()) {
+            const name = (await button.getAttribute('aria-label')) ?? (await button.innerText());
+            expect(name.trim(), 'every visible header action is labeled').not.toBe('');
+          }
+        await page.screenshot({ path: `/tmp/1730-${width}-${theme}-header.png` });
+      } else {
+        await expect(overflow).toBeVisible();
+        await page.screenshot({ path: `/tmp/1730-${width}-${theme}-header.png` });
+        await overflow.click();
+        await expect(close).toBeVisible();
+        await page.screenshot({ path: `/tmp/1730-${width}-${theme}-header-menu.png` });
+        await close.click();
+        await expect(close).toBeHidden();
+      }
+    });

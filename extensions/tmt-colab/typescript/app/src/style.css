@@ -206,8 +206,12 @@ footer {
 }
 .theme-label,
 .info-label,
-.page-menu-close,
 .page-menu-meta {
+  display: none;
+}
+/* `.colab-header button` sets display, so these need its specificity to stay hidden at desktop. */
+.colab-header .page-menu-close,
+.colab-header .page-overflow-toggle {
   display: none;
 }
 .drawer-bar button {
@@ -232,9 +236,6 @@ footer {
   display: flex;
   align-items: center;
   gap: 12px;
-}
-.page-overflow-toggle {
-  display: none;
 }
 .page-information {
   position: relative;
@@ -323,8 +324,8 @@ footer {
   margin-top: 24px;
 }
 @media (max-width: 1100px) {
-  .page-overflow-toggle {
-    display: block;
+  .colab-header .page-overflow-toggle {
+    display: inline-flex;
   }
   .page-secondary {
     display: none;

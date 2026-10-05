@@ -97,3 +97,9 @@ body {
   stroke-linecap: square;
   stroke-linejoin: miter;
 }
+
+/* The live dot is the size of the status text, not of a header icon. */
+.status .lucide.status-dot {
+  width: 8px;
+  height: 8px;
+}

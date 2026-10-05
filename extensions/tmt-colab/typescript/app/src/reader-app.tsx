@@ -57,7 +57,7 @@ export function ReaderApp({ state }: { state: ReaderState }) {
                   role="status"
                 >
                   {render === 'ready' ? (
-                    <Circle fill="currentColor" aria-hidden />
+                    <Circle className="status-dot" fill="currentColor" aria-hidden />
                   ) : render === 'loading' ? (
                     <LoaderCircle aria-hidden />
                   ) : (
