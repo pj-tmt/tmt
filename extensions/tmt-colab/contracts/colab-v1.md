@@ -1376,6 +1376,25 @@ Owner-machine fallback is forbidden. Page authorization and Remote agent grants
 remain separate. Local v1 does not claim that cross-member or delayed-approval
 page-policy fence, offline automatic dispatch or native reply publication.
 
+### Admitted agent status (#1844)
+
+The trusted parent Agents view observes presence through the existing current
+Remote context and signed `agents.list` normalization owner. Active, offline and
+unknown are directory values, never inferred from a transport failure. Duplicate
+names retain machine and stable agent-ID presentation; labels confer no authority.
+Colab page admission, Remote session reads and directory reads are separate health
+observations. Verified ended/evicted/refused codes remain distinct from unexpected
+unavailable reads; raw diagnostic messages and credentials are not displayed.
+
+Opening or explicitly rechecking this view is read-only: no Ask destination-cache
+admission, preparation, publication, dispatch, session reopen, pairing, grant change
+or automatic retry. Existing Ask actions retain their separate fail-closed lifecycle
+response. Current page/client generation fences late results. A transient directory
+failure can retain a last successful snapshot clearly marked stale with its check
+time; ended/evicted/scope-denied or replaced admission clears current rows. An empty
+successful directory is separate from an unavailable read. The view does not change
+conversation drafts or admit a message recipient.
+
 ## Renderer and live anchors
 
 HTML runs in an opaque-origin iframe whose `src` is the same-mount

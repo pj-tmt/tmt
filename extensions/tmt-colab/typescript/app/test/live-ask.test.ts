@@ -265,11 +265,16 @@ it('status observes admitted presence without admitting an Ask preview or publis
 for (const phase of ['session', 'directory'] as const) {
   for (const [error, failure, code] of [
     [new SessionEndedError('REMOTE_SESSION_ENDED'), 'ended', 'REMOTE_SESSION_ENDED'],
+    [
+      new SessionEndedError('REMOTE_SEQUENCE_UNAVAILABLE'),
+      'unavailable',
+      'REMOTE_SEQUENCE_UNAVAILABLE',
+    ],
     [new SessionEvictedError(3), 'evicted', 'REMOTE_SESSION_EVICTED'],
     [new ReadRefusedError('REMOTE_SCOPE_DENIED'), 'refused', 'REMOTE_SCOPE_DENIED'],
     [new Error('private transport diagnostics'), 'unavailable', undefined],
   ] as const) {
-    it(`status reports ${phase} ${failure} without recovery; Ask retains its session policy`, async () => {
+    it(`status reports ${phase} ${failure} (${code ?? 'transport'}) without recovery; Ask retains its session policy`, async () => {
       const f = await fixture();
       if (phase === 'session') vi.spyOn(f.remote, 'context').mockRejectedValue(error);
       else vi.spyOn(f.remote, 'listAgents').mockRejectedValue(error);
@@ -284,7 +289,7 @@ for (const phase of ['session', 'directory'] as const) {
       expect(f.own).toEqual({});
       await expect(f.ask.destinations()).rejects.toBe(error);
       expect(f.sessionEnded).toHaveBeenCalledTimes(
-        failure === 'ended' || failure === 'evicted' ? 1 : 0,
+        error instanceof SessionEndedError || error instanceof SessionEvictedError ? 1 : 0,
       );
     });
   }

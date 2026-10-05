@@ -38,6 +38,7 @@ import { text } from './strings.js';
 import { SessionEvictedError } from './ask-remote.js';
 import { ExportPanel } from './export-panel.js';
 import { PageDrawer } from './page-drawer.js';
+import { AgentStatusPanel } from './agent-status-panel.js';
 import { ChatPanel } from './chat-panel.js';
 import { isChatThread } from './thread-records.js';
 
@@ -443,7 +444,9 @@ function Page() {
   const snapshot = page.useLoaderData();
   const backendName = transport.backendName?.trim();
   const backendLabel = backendName ? `local · ${backendName}` : 'local';
-  const [panel, setPanel] = useState<'source' | 'comments' | 'chat' | 'export' | null>(null);
+  const [panel, setPanel] = useState<'source' | 'comments' | 'chat' | 'export' | 'agents' | null>(
+    null,
+  );
   const [menu, setMenu] = useState(false);
   const [chatOpened, setChatOpened] = useState(false);
   const toolbar = useRef<HTMLElement>(null);
@@ -790,6 +793,15 @@ function Page() {
                 Chat
               </button>
               <button
+                data-testid="agents-toggle"
+                aria-expanded={panel === 'agents'}
+                onClick={(event) => {
+                  if (event.isTrusted) toggle('agents');
+                }}
+              >
+                {text.agentStatus}
+              </button>
+              <button
                 data-testid="comments-toggle"
                 aria-expanded={panel === 'comments'}
                 onClick={(event) => {
@@ -985,6 +997,19 @@ function Page() {
           active={activeThread}
           select={openThread}
           blocked={!!liveError || state !== 'ready'}
+        />
+      </PageDrawer>
+      <PageDrawer
+        open={panel === 'agents'}
+        title={text.agentStatus}
+        kind="agents"
+        close={() => setPanel(null)}
+      >
+        <AgentStatusPanel
+          open={panel === 'agents'}
+          binding={snapshot.binding?.ask}
+          page={snapshot.id}
+          admitted={!!snapshot.binding && !liveError}
         />
       </PageDrawer>
       <PageDrawer open={panel === 'chat'} title="Chat" kind="chat" close={() => setPanel(null)}>

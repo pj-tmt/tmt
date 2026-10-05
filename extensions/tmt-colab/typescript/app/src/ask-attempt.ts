@@ -89,7 +89,12 @@ export class AskController {
       if (error instanceof SessionEvictedError)
         return { kind: 'unavailable', phase, failure: 'evicted', code: 'REMOTE_SESSION_EVICTED' };
       if (error instanceof SessionEndedError)
-        return { kind: 'unavailable', phase, failure: 'ended', code: error.code };
+        return {
+          kind: 'unavailable',
+          phase,
+          failure: error.code === 'REMOTE_SEQUENCE_UNAVAILABLE' ? 'unavailable' : 'ended',
+          code: error.code,
+        };
       if (error instanceof ReadRefusedError)
         return { kind: 'unavailable', phase, failure: 'refused', code: error.code };
       return { kind: 'unavailable', phase, failure: 'unavailable' };
