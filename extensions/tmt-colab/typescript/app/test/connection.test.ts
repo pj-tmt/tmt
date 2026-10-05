@@ -2,13 +2,19 @@ import { afterEach, expect, it, vi } from 'vite-plus/test';
 import { encodeBinary } from '@tmt/colab-client';
 import type { Admission } from '../src/admission.js';
 import { Connection } from '../src/connection.js';
+import type { OwnState } from '../src/fold-protocol.js';
 
 const calls = vi.hoisted(() => [] as string[]);
+const projection = vi.hoisted(() => ({ own: undefined as OwnState | undefined }));
 vi.mock('../src/fold.js', () => ({
   Fold: class {
     async run({ updates }: { updates?: Uint8Array[] }) {
       calls.push('fold');
-      return { source: updates?.length ? 'updated' : 'initial', title: 'Title' };
+      return {
+        source: updates?.length ? 'updated' : 'initial',
+        title: 'Title',
+        ...(projection.own ? { own: projection.own } : {}),
+      };
     }
     close() {}
   },
@@ -58,14 +64,21 @@ class Socket {
 const page = '10000000-0000-4000-8000-000000000001';
 const author = '30000000-0000-4000-8000-000000000001';
 const scope = { version: 1, space: 'a'.repeat(32), page, epoch: '1' };
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => {
+  vi.useRealTimers();
+  vi.unstubAllGlobals();
+});
 async function open(rejectChain = false) {
   calls.length = 0;
+  projection.own = undefined;
   vi.stubGlobal('WebSocket', Socket);
   const admission = {
     ...scope,
     root: new Uint8Array(32),
-    registration: { syncUrl: 'wss://example.test/colab/sync?tmt-session=fixture' },
+    registration: {
+      deviceId: author,
+      syncUrl: 'wss://example.test/colab/sync?tmt-session=fixture',
+    },
     async chains(value: unknown) {
       calls.push('chain');
       expect(value).toEqual([{ deviceId: author, chain: 'fixture' }]);
@@ -125,4 +138,61 @@ it('closes a forged live-chain broadcast before decoding or publishing its envel
   } finally {
     connection.close();
   }
+});
+
+it('waits for the exact records in the local writer projection before dependent reads', async () => {
+  const { connection, socket, publish } = await open();
+  const records = [
+    { root: 'messages' as const, key: 'comment', value: { text: 'Hello', revision: 1 } },
+  ];
+  let completed = false;
+  const pending = connection.waitForOwnRecords(records).then(() => {
+    completed = true;
+  });
+  const own = (value: { text: string; revision: number }) => ({
+    threads: {},
+    intents: {},
+    replies: {},
+    messages: { comment: value },
+  });
+  try {
+    projection.own = { foreign: own(records[0].value) };
+    socket.receive(broadcast());
+    await connection.run(async () => {});
+    expect(completed).toBe(false);
+    projection.own = { [author]: own({ text: 'Different', revision: 1 }) };
+    socket.receive(broadcast());
+    await connection.run(async () => {});
+    expect(completed).toBe(false);
+    // JSON object field order is cosmetic. Admission/fold and publication must precede resolution.
+    projection.own = { [author]: own({ revision: 1, text: 'Hello' }) };
+    socket.receive(broadcast());
+    await pending;
+    expect(publish).toHaveBeenLastCalledWith(expect.objectContaining({ own: projection.own }));
+    await expect(connection.waitForOwnRecords(records)).resolves.toBeUndefined();
+  } finally {
+    connection.close();
+  }
+});
+
+it('rejects an unobserved own publication on close without publishing it', async () => {
+  const { connection, publish } = await open();
+  const pending = connection.waitForOwnRecords([{ root: 'messages', key: 'missing', value: null }]);
+  const rejected = expect(pending).rejects.toThrow('Disconnected');
+  connection.close(new Error('Disconnected'));
+  await rejected;
+  expect(publish).toHaveBeenCalledTimes(1);
+});
+
+it('bounds own publication catchup and closes the unavailable connection', async () => {
+  vi.useFakeTimers();
+  const { connection, failed, socket, publish } = await open();
+  const pending = connection.waitForOwnRecords([{ root: 'messages', key: 'missing', value: null }]);
+  const rejected = expect(pending).rejects.toThrow('Own publication catchup timed out');
+  await vi.advanceTimersByTimeAsync(10_000);
+  await rejected;
+  expect(connection.active).toBe(false);
+  expect(failed).toHaveBeenCalledWith(new Error('Own publication catchup timed out'));
+  expect(socket.close).toHaveBeenCalledOnce();
+  expect(publish).toHaveBeenCalledTimes(1);
 });

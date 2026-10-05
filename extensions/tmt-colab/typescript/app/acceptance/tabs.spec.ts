@@ -1,7 +1,14 @@
 import { expect, test } from '@playwright/test';
 import { mkdirSync } from 'node:fs';
 import { pairBrowser, startDoor } from './harness/browser.js';
-import { clientId, createPage, openPage, run, selectInRenderer } from './harness/ask.js';
+import {
+  annotationInput,
+  clientId,
+  createPage,
+  openPage,
+  run,
+  selectInRenderer,
+} from './harness/ask.js';
 import { disposeActiveWorlds, withWorld } from './harness/with-world.js';
 
 test.afterEach(disposeActiveWorlds);
@@ -147,7 +154,7 @@ test('three tabs on two pages sync edits and annotations, then all lose a revoke
     ] as const) {
       await selectInRenderer(tab, '#quote');
       await tab.getByTestId('selection-ask').click();
-      const input = tab.getByRole('combobox', { name: 'Message to agent', exact: true });
+      const input = await annotationInput(tab.getByTestId('annotation-compose'), agent.name);
       await input.fill(`@${agent.name} ${message}`);
       await input.press('Enter');
       await expect(tab.getByTestId('comment-thread')).toContainText(quote);

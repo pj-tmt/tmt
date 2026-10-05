@@ -11,11 +11,28 @@ import {
 import type { Admission } from './admission.js';
 import { Catchup } from './catchup.js';
 import { Fold } from './fold.js';
-import type { AdmittedUpdate, Projection } from './fold-protocol.js';
+import type { AdmittedUpdate, JsonValue, OwnRecord, Projection } from './fold-protocol.js';
 import type { PageView } from './transport.js';
 import { Frames } from './frames.js';
 import { Objects, position, UPDATE_ENVELOPE_BYTES, type ObjectEntry } from './objects.js';
 import { text as strings } from './strings.js';
+
+function sameValue(a: JsonValue | undefined, b: JsonValue): boolean {
+  if (a === b) return true;
+  if (a === null || b === null || typeof a !== 'object' || typeof b !== 'object') return false;
+  if (Array.isArray(a) || Array.isArray(b))
+    return (
+      Array.isArray(a) &&
+      Array.isArray(b) &&
+      a.length === b.length &&
+      a.every((value, index) => sameValue(value, b[index]))
+    );
+  const keys = Object.keys(b);
+  return (
+    Object.keys(a).length === keys.length &&
+    keys.every((key) => Object.hasOwn(a, key) && sameValue(a[key], b[key]))
+  );
+}
 
 /** A connection owns one reader/Worker. Queued messages and all local Worker
  * requests share one executor; no authority or keys enter the decoder. */
@@ -31,6 +48,12 @@ export class Connection {
   #complete = false;
   #projection: PageView = { source: '', title: '' };
   #stopped = false;
+  #ownPublications = new Set<{
+    records: readonly OwnRecord[];
+    resolve(): void;
+    reject(error: Error): void;
+    timer: ReturnType<typeof setTimeout>;
+  }>();
   #receipts = new Map<
     string,
     {
@@ -131,6 +154,32 @@ export class Connection {
   #emit(projection: PageView) {
     this.#projection = projection;
     this.publish({ ...projection, ownData: this.objects.ownData });
+    for (const pending of this.#ownPublications) {
+      if (!this.#containsOwn(pending.records)) continue;
+      this.#ownPublications.delete(pending);
+      clearTimeout(pending.timer);
+      pending.resolve();
+    }
+  }
+  #containsOwn(records: readonly OwnRecord[]) {
+    const own = this.#projection.own?.[this.admission.registration.deviceId];
+    return records.every(({ root, key, value }) => sameValue(own?.[root][key], value));
+  }
+  /** Relay success proves the leader appended, not that this reader has admitted
+   * the broadcast. Dependent reads wait for this connection's verified fold. */
+  waitForOwnRecords(records: readonly OwnRecord[]): Promise<void> {
+    requireValue(!this.#stopped && records.length > 0 && records.length <= 32);
+    if (this.#containsOwn(records)) return Promise.resolve();
+    requireValue(this.#ownPublications.size < 8);
+    return new Promise<void>((resolve, reject) => {
+      const pending = {
+        records: structuredClone(records),
+        resolve,
+        reject,
+        timer: setTimeout(() => this.close(new Error('Own publication catchup timed out')), 10_000),
+      };
+      this.#ownPublications.add(pending);
+    });
   }
   #batch(values: AdmittedUpdate[]) {
     return {
@@ -325,6 +374,11 @@ export class Connection {
       pending.reject(error);
     }
     this.#receipts.clear();
+    for (const pending of this.#ownPublications) {
+      clearTimeout(pending.timer);
+      pending.reject(error);
+    }
+    this.#ownPublications.clear();
     this.failed(error);
   }
 }
