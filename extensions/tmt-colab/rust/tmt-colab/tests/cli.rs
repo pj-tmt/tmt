@@ -3189,7 +3189,11 @@ fn page_prefix_refusals_name_candidates_and_leave_every_adapter_without_effects(
             assert_eq!(result["candidates"][1]["shortId"], "10000000-1");
             assert_eq!(result["candidates"][1]["deleted"], action == Some("delete"));
             let message = result["error"]["message"].as_str().unwrap();
-            assert!(message.contains("10000000-0 · Original title"), "{result}");
+            assert!(
+                message.starts_with("Page prefix 10000000 matches 2 pages: "),
+                "{result}"
+            );
+            assert!(message.contains("10000000-0 (Original title)"), "{result}");
             if action == Some("delete") {
                 assert_eq!(result["candidates"][1]["title"], "Deleted page");
             }

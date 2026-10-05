@@ -114,16 +114,19 @@ fn resolve_catalog_page(
                 .iter()
                 .map(|page| {
                     format!(
-                        "{} · {}",
+                        "{} ({})",
                         page["shortId"].as_str().unwrap_or_default(),
                         tmt_cli_style::table::escape(page["title"].as_str().unwrap_or_default())
                     )
                 })
                 .collect::<Vec<_>>()
-                .join("; ");
+                .join(", ");
             return Err(Box::new(ManagementFault {
                 code: "COLAB_PAGE_AMBIGUOUS",
-                message: format!("Page prefix {operand} is ambiguous. Use one of: {names}."),
+                message: format!(
+                    "Page prefix {operand} matches {} pages: {names}",
+                    candidates.len()
+                ),
                 correlation: json!({"candidates":candidates}),
                 source: None,
             }));

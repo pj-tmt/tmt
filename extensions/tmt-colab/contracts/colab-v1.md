@@ -2131,8 +2131,9 @@ match passes its full ID to the existing domain operation; no alias state is sto
 Malformed syntax returns `COLAB_INPUT_INVALID`, no match returns
 `COLAB_PAGE_NOT_FOUND`, and a unique deleted match returns `COLAB_PAGE_DELETED`
 with the full `pageId`. Multiple matches return `COLAB_PAGE_AMBIGUOUS`, with no
-effect and `candidates:[{pageId,shortId,title,deleted}]` in JSON. The message lists
-the same shortest unique IDs and authenticated titles; empty titles read
+effect and `candidates:[{pageId,shortId,title,deleted}]` in JSON. The message reads
+"Page prefix <prefix> matches N pages: <shortId> (<title>), ...", using the same
+shortest unique IDs and authenticated titles; empty titles read
 "Untitled page", archived titles read "Archived page (title unavailable)",
 unreadable titles read "title unavailable", and tombstones read "Deleted page".
 The catalog and owner head are rechecked after title projection. Member, link
