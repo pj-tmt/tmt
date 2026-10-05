@@ -74,11 +74,14 @@ fn hint_word(action: &crate::action::Action) -> &'static str {
         Verb::TokenWindow => "window",
         Verb::AskLead => "ask lead",
         Verb::Jump if lead => "jump lead",
+        // Enter is the row's main action: the pane, the menu or the squad.
+        Verb::Jump | Verb::Menu | Verb::Tab => "open",
         // Home's key line words `a` the same way; the board has no annotations.
         Verb::Annotate if action.args.first().and_then(|arg| arg.literal()) == Some("member") => {
             "note member"
         }
-        Verb::Annotate => "answer · note",
+        Verb::Annotate => "write",
+        Verb::HomeMessage => "expand",
         verb => verb.name(),
     }
 }
@@ -101,6 +104,7 @@ fn row_allows(app: &App, action: &crate::action::Action) -> bool {
         && matches!(
             action.verb,
             Verb::Jump
+                | Verb::HomeMessage
                 | Verb::Talk
                 | Verb::Annotate
                 | Verb::Reply
@@ -133,7 +137,7 @@ pub(super) fn hints(app: &App, width: usize) -> String {
         return crate::board::cronboard::jobs_hints(width);
     }
     if let Some(view) = app.view.as_ref().filter(|view| view.home.is_some()) {
-        return crate::board::home::hints_of(view, width, app.cron_shown());
+        return crate::board::home::hints_of(view, width, app.tabs_overflow.get());
     }
     let bindings = app.bindings();
     // One hint per action the effective bindings give the footer, ranked by
@@ -179,19 +183,19 @@ pub(super) fn hints(app: &App, width: usize) -> String {
     let row_actions = ranked
         .iter()
         .filter(|(rank, _)| *rank <= crate::action::FOOTER_ROW_ACTIONS_END)
-        .count();
-    let mut hints: Vec<String> = ranked.into_iter().map(|(_, hint)| hint).collect();
-    hints.push("←→ tab".into());
-    if !bindings.contains_key("s") {
+        .count()
+        + 1;
+    let mut hints: Vec<String> = std::iter::once("↑↓ move".to_owned())
+        .chain(ranked.into_iter().map(|(_, hint)| hint))
+        .collect();
+    // The other keys are in `?` help; the switcher returns only while tabs overflow.
+    if app.tabs_overflow.get() && !bindings.contains_key("s") {
         hints.push("s switch".into());
-    }
-    if app.cron_shown() && !bindings.contains_key("c") {
-        hints.push("c cron".into());
     }
     if app.view.as_ref().is_some_and(|view| view.me.is_none()) {
         hints.push(crate::status::UNKNOWN_YOU.to_owned());
     }
-    let reserved = ["q quit", "? more"];
+    let reserved = ["? more", "q quit"];
     let tail = reserved.join("  ");
     if let Some(waiting) = waiting_summary(app) {
         let minimum = std::iter::once(waiting.base.as_str())
@@ -208,10 +212,10 @@ pub(super) fn hints(app: &App, width: usize) -> String {
     }
     if width < tail.width() {
         // Below both reserved hints: `? more` first, then nothing.
-        return if width < reserved[1].width() {
+        return if width < reserved[0].width() {
             String::new()
         } else {
-            reserved[1].to_owned()
+            reserved[0].to_owned()
         };
     }
     let mut shown = String::new();

@@ -167,7 +167,7 @@ fn tokens(text: &str) -> Result<Vec<String>, String> {
 pub const FOOTER_SEARCH_RANK: u8 = 6;
 /// The last footer rank of a row action; the oldest-waiting label may take
 /// space only if every hint up to here still fits.
-pub const FOOTER_ROW_ACTIONS_END: u8 = 8;
+pub const FOOTER_ROW_ACTIONS_END: u8 = 6;
 
 impl Action {
     /// Where the action sits in a list of choices, by what people do: the
@@ -202,37 +202,37 @@ impl Action {
         }
     }
 
-    /// Where the action sits in the base footer when width runs short: lowest
-    /// first, `None` for actions the footer never lists. Unlike `order`, which
-    /// orders the action menu by what people do with the row, the footer ranks
-    /// navigation and the decision first. The match is exhaustive so a new verb
-    /// must choose.
+    /// Where the action sits in the base footer, which is also the order whole
+    /// hints drop from the end when width runs short: lowest first, `None` for
+    /// actions the footer never lists (they stay bound and appear in `?` help).
+    /// The footer names the decision and the way in: open, write, expand and
+    /// ask, then search. The match is exhaustive so a new verb must choose.
     pub fn footer_rank(&self) -> Option<u8> {
         let lead = self.args.first().and_then(Template::literal) == Some("lead");
         Some(match self.verb {
-            Verb::AskLead => 0,
-            Verb::Jump if !lead => 1,
-            Verb::Menu | Verb::Tab => 1,
-            Verb::Talk => 2,
-            Verb::Reply => 3,
-            Verb::Back => 4,
-            Verb::Annotate => 5,
+            Verb::Jump if !lead => 0,
+            Verb::Menu | Verb::Tab => 0,
+            Verb::Annotate => 1,
+            Verb::Reply => 2,
+            Verb::Talk => 3,
+            Verb::HomeMessage => 4,
+            Verb::AskLead => 5,
             // FOOTER_SEARCH_RANK (6) is the board's own `/ search`.
-            Verb::Open => 7,
-            Verb::Copy => FOOTER_ROW_ACTIONS_END,
-            Verb::Toggle => 9,
-            Verb::NextPane => 10,
-            Verb::Refresh => 11,
-            Verb::View => 12,
-            Verb::Theme => 13,
-            Verb::TokenWindow => 14,
-            Verb::Jump => 15,
-            Verb::Notes
+            Verb::Jump
+            | Verb::Back
+            | Verb::Open
+            | Verb::Copy
+            | Verb::Toggle
+            | Verb::NextPane
+            | Verb::Refresh
+            | Verb::View
+            | Verb::Theme
+            | Verb::TokenWindow
+            | Verb::Notes
             | Verb::PickTab
             | Verb::Settings
             | Verb::Run
             | Verb::HomeReplies
-            | Verb::HomeMessage
             | Verb::HomeWrite
             | Verb::HomePick => return None,
         })
@@ -253,7 +253,7 @@ impl Action {
             Verb::TokenWindow => "switch the token time window".into(),
             Verb::PickTab => "pick or unpick a tab on this board".into(),
             Verb::Theme => "pick a theme".into(),
-            Verb::Settings => "show settings".into(),
+            Verb::Settings => "show settings, theme, view and token window".into(),
             Verb::View => "pick a pane layout".into(),
             Verb::Run => "run your program for this member".into(),
             Verb::NextPane => "move to the next pane".into(),
@@ -273,13 +273,13 @@ impl Action {
             Verb::Tab => "open the selected squad".into(),
             Verb::Talk => "send the member a message".into(),
             Verb::AskLead => "ask the lead what waits on you".into(),
-            Verb::HomeReplies => "show or hide HOME reply previews".into(),
+            Verb::HomeReplies => "show or hide reply previews".into(),
             Verb::HomeMessage => "expand the selected row in the shared band".into(),
             Verb::HomeWrite => "write to all HOME leads".into(),
             Verb::HomePick => "pick a HOME lead to write to".into(),
             Verb::Reply => "answer the member's request, or note its pending decision".into(),
             Verb::Annotate if target == Some("member") => "send the member a note".into(),
-            Verb::Annotate => "send the lead a note".into(),
+            Verb::Annotate => "write answer/note/talk; Tab changes mode".into(),
         }
     }
 
@@ -437,8 +437,7 @@ pub fn preset(tmux: bool, panes: &[crate::config::Pane]) -> Bindings {
         ("enter", enter),
         ("double-click", enter),
         ("backspace", "back"),
-        ("t", "talk"),
-        ("r", "reply"),
+        ("t", "home-replies"),
         ("a", "annotate lead"),
         ("A", "ask-lead"),
         ("o", "open"),
@@ -447,10 +446,7 @@ pub fn preset(tmux: bool, panes: &[crate::config::Pane]) -> Bindings {
         ("e", "home-message"),
         ("tab", "next-pane"),
         ("ctrl-r", "refresh"),
-        ("w", "token-window"),
-        ("T", "theme"),
         (",", "settings"),
-        ("l", "view"),
     ]
     .into_iter()
     .chain(detail.map(|action| ("d", action)))
@@ -461,6 +457,22 @@ pub fn preset(tmux: bool, panes: &[crate::config::Pane]) -> Bindings {
         )
     })
     .collect()
+}
+
+/// Fixtures that press a key the presets no longer bind (`t` talk, `r` reply,
+/// `w` token window, `T` theme, `l` view) bind it as a user would.
+#[cfg(test)]
+pub(crate) fn with_action_keys(mut bindings: Bindings) -> Bindings {
+    for (event, line) in [
+        ("t", "talk"),
+        ("r", "reply"),
+        ("w", "token-window"),
+        ("T", "theme"),
+        ("l", "view"),
+    ] {
+        bindings.insert(event.into(), Action::parse(line).expect("action"));
+    }
+    bindings
 }
 
 /// Overlay a selected section and suppress unavailable meter actions.
@@ -491,8 +503,6 @@ pub fn all_preset() -> Bindings {
             ("enter", Some("tab")),
             ("double-click", Some("tab")),
             ("ctrl-r", Some("refresh")),
-            ("T", Some("theme")),
-            ("l", Some("view")),
             (",", Some("settings")),
         ]
         .into_iter(),
@@ -523,7 +533,7 @@ mod tests {
             ("jump", "go to the member's pane"),
             ("jump lead", "go to the squad lead's pane"),
             ("annotate member", "send the member a note"),
-            ("annotate lead", "send the lead a note"),
+            ("annotate lead", "write answer/note/talk; Tab changes mode"),
             ("toggle notes", "fold or unfold the notes pane"),
             (
                 "toggle detail replies",
@@ -538,6 +548,32 @@ mod tests {
             let action = Action::parse(configured).unwrap();
             assert_eq!(action.description(), description);
             assert_eq!(action.text, configured, "settings retain the literal value");
+        }
+    }
+
+    #[test]
+    fn presets_leave_the_picker_and_composer_keys_to_the_menu_and_the_composer() {
+        for bindings in [preset(true, &[]), preset(false, &[]), all_preset()] {
+            let verbs: Vec<Verb> = bindings.values().map(|action| action.verb).collect();
+            for gone in [
+                Verb::Talk,
+                Verb::Reply,
+                Verb::Theme,
+                Verb::View,
+                Verb::TokenWindow,
+            ] {
+                assert!(!verbs.contains(&gone), "{gone:?} has no default key");
+            }
+            assert_eq!(
+                bindings["t"].verb,
+                Verb::HomeReplies,
+                "t is one key everywhere"
+            );
+            assert_eq!(bindings[","].verb, Verb::Settings);
+        }
+        // They stay bindable, like every other action.
+        for line in ["talk", "reply", "theme", "view", "token-window"] {
+            assert!(parse_bindings([("x", Some(line))].into_iter(), "bind").is_ok());
         }
     }
 

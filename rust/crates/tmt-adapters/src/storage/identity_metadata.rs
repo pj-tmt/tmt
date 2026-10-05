@@ -1,11 +1,14 @@
 //! SQLite-backed descriptive identity metadata and exact-match search.
 
+use std::collections::BTreeMap;
+
 use rusqlite::{OptionalExtension, params, params_from_iter};
 use tmt_core::{
     identity::Identity,
     identity_metadata::{
-        IdentityMetadataRepository, MAX_METADATA_ENTRIES, MetadataCollection, MetadataFilter,
-        MetadataKey, MetadataLookup, MetadataMutation, MetadataValue,
+        IdentityMetadataRepository, MAX_METADATA_ENTRIES, MetadataApply, MetadataChanges,
+        MetadataCollection, MetadataFilter, MetadataKey, MetadataLookup, MetadataMutation,
+        MetadataValue,
     },
 };
 
@@ -143,6 +146,70 @@ impl IdentityMetadataRepository for Storage {
                 .map_err(|error| classify(error, "Remove identity metadata"))?
                 == 1;
             Ok(MetadataMutation::Removed { removed })
+        })
+    }
+
+    fn apply_metadata(
+        &mut self,
+        identity_id: &str,
+        changes: &MetadataChanges,
+    ) -> Result<MetadataApply, Self::Error> {
+        with_immediate_transaction(self, "identity metadata", |transaction| {
+            let active = transaction
+                .query_row(
+                    "SELECT 1 FROM identities WHERE id = ? AND retired_at_ms IS NULL",
+                    [identity_id],
+                    |_| Ok(()),
+                )
+                .optional()
+                .map_err(|error| classify(error, "Apply identity metadata"))?;
+            if active.is_none() {
+                return Ok(MetadataApply::IdentityNotFound);
+            }
+            let mut statement = transaction
+                .prepare(
+                    "SELECT key, value FROM identity_metadata
+                     WHERE identity_id = ? ORDER BY key COLLATE BINARY",
+                )
+                .map_err(|error| classify(error, "Read identity metadata before apply"))?;
+            let current = statement
+                .query_map([identity_id], |row| {
+                    Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+                })
+                .and_then(|rows| rows.collect::<rusqlite::Result<BTreeMap<_, _>>>())
+                .map_err(|error| classify(error, "Read identity metadata before apply"))?;
+            let next = match changes.evaluate(&current) {
+                Ok(next) => next,
+                Err(refusal) => return Ok(refusal),
+            };
+            for change in changes.changes() {
+                let key = change.key.as_str();
+                if current.get(key) == next.get(key) {
+                    continue;
+                }
+                match next.get(key) {
+                    Some(value) => {
+                        transaction
+                            .execute(
+                                "INSERT INTO identity_metadata (identity_id, key, value) VALUES (?, ?, ?)
+                                 ON CONFLICT(identity_id, key) DO UPDATE SET value = excluded.value",
+                                params![identity_id, key, value],
+                            )
+                            .map_err(|error| classify(error, "Apply identity metadata"))?;
+                    }
+                    None => {
+                        transaction
+                            .execute(
+                                "DELETE FROM identity_metadata WHERE identity_id = ? AND key = ?",
+                                params![identity_id, key],
+                            )
+                            .map_err(|error| classify(error, "Apply identity metadata"))?;
+                    }
+                }
+            }
+            Ok(MetadataApply::Applied {
+                changed: current != next,
+            })
         })
     }
 

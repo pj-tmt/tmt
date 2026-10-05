@@ -636,6 +636,7 @@ pub(super) fn paint(app: &App, area: Rect) -> Line<'static> {
         used += fitted.width();
         spans.push(Span::styled(fitted, left_style));
     }
+    app.tabs_overflow.set(!window.hidden.is_empty());
     if !window.hidden.is_empty() && used < width {
         let overflow = overflow(&labels, &window.hidden, width - used, look, colors);
         used += overflow.width();

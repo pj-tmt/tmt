@@ -319,7 +319,8 @@ fn disabled_meter_keeps_board_buffers_and_crossterm_bytes_identical() {
 fn window_hint_is_conditional_whole_and_help_discloses_semantics() {
     let now = Instant::now();
     let mut app = with_meter(now, true);
-    assert!(hints(&app, 200).contains("w window"));
+    // The window key is help-only; the footer never lists it.
+    assert!(!hints(&app, 200).contains("window"));
     let complete = hints(&app, 200);
     for width in 0..200 {
         let text = hints(&app, width);

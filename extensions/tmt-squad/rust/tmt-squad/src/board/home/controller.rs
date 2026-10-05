@@ -251,7 +251,7 @@ impl App {
             text: "(reading message…)".into(),
             compose: Compose::ReadLead { key, offset: 0 },
             row_send,
-            alternative: None,
+            others: Vec::new(),
             quote: None,
             link: None,
             hint: None,
@@ -313,7 +313,7 @@ impl App {
                 offset: 0,
             },
             row_send: self.row_send(self.selected, true),
-            alternative: None,
+            others: Vec::new(),
             quote: None,
             link: None,
             hint: None,
@@ -402,16 +402,13 @@ impl App {
                     self.notice = None;
                     return crate::board::app::Effect::None;
                 }
-                Some(crate::action::Verb::Annotate) => {
+                Some(
+                    crate::action::Verb::Annotate
+                    | crate::action::Verb::Talk
+                    | crate::action::Verb::Reply,
+                ) => {
                     self.input = None;
-                    if let Some(send) = self.row_send(self.selected, true) {
-                        return self.compose_row(
-                            send,
-                            crate::action::Verb::Talk,
-                            self.shown_tab().unwrap_or_default().into(),
-                        );
-                    }
-                    return self.say("Record yourself with tmt squad me <name>.");
+                    return self.perform(action.as_ref().expect("resolved action"));
                 }
                 Some(crate::action::Verb::Open) => {
                     return self.perform(action.as_ref().expect("resolved action"));
@@ -601,7 +598,7 @@ impl App {
                 note: None,
                 note_member: false,
             }),
-            alternative: None,
+            others: Vec::new(),
             quote: None,
             link: None,
             hint: None,

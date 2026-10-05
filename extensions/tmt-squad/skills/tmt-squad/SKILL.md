@@ -164,7 +164,7 @@ dim `lead` after its name (cut first when the name cell is narrow), followed by
 the dim rule `── members · N ───` (`── members · 0 · none yet ──` for a squad
 with no member; the numbers exclude the lead). The rule is not a row: ↑/↓ step from
 the lead straight to the first member. Opening a squad tab puts the cursor on
-the lead, so Enter, `t`, `a` and the other row keys reach it. Search matches
+the lead, so Enter, `a` and the other row keys reach it. Search matches
 the lead like any row. A squad without a lead keeps its member rows as they
 are. Text `ls` lists the lead first in its own `LEAD` section before `MEMBERS`;
 `--json` is unchanged.
@@ -213,10 +213,13 @@ selected and marked `(hidden)`, without a drag target. There are no number keys.
 
 `ctrl-r` refreshes the board in squad, leads and all views, including while
 searching or composing a message, without changing the entered text. The footer
-and `?` help list the effective bindings. The footer shows only the row actions the
-selected row allows (`r reply` needs a decision to answer, `o open` a link) and,
-when the width runs out, drops whole hints from the end; `q quit` and `? more`
-always stay. Rebind it in `[bind]` (or a section),
+and `?` help list the effective bindings. The footer shows `↑↓ move`, the row's main
+action (`⏎ open`), `a write`, `e expand` and `A ask lead` where those keys are bound
+and the selected row allows them, then `/ search`, `? more` and `q quit`; when the
+width runs out it drops whole hints from the end, and `q quit` and `? more` always
+stay. Every other key (tabs, back, open, copy, fold, refresh, `t` previews, ...) stays
+bound and is listed in `?` help only; `s switch` joins the footer when the tab line
+hides tabs. A `talk` or `reply` binding of your own keeps its hint. Rebind in `[bind]` (or a section),
 or `[tabs.all.bind]` for all. F5 has no default action; an explicit
 `f5 = "refresh"` binding remains supported.
 
@@ -255,8 +258,8 @@ tmt sq theme rm --squad product            # remove only its base override
 ```
 
 Set and remove keep token overrides and the rest of the user's TOML. They
-refuse if the file changed since it was read. On the board, `T` opens the
-theme picker (`theme` is a bindable action). Arrow keys or j/k preview in
+refuse if the file changed since it was read. On the board, the `,` settings menu's
+Theme row opens the theme picker (`theme` is also a bindable action, with no default key). Arrow keys or j/k preview in
 memory; Tab switches all-boards/this-squad scope, Enter saves, and Esc cancels.
 The leads/all tabs offer all-boards scope only. A squad's own base still wins
 over an all-boards preview; the picker names that masking setting. A failed
@@ -305,23 +308,25 @@ tmt sq config set board.ask_lead "What needs my decision?"
 tmt sq config set board.ask_lead "Summarize our pending decisions." --squad product
 ```
 
-Press `a` on a home, squad member or leads row to answer an open request,
-otherwise to send the squad's lead a note. The input opens directly beneath the
-complete selected row in an opaque full-width band, shifting rows below it.
-The header names the actual recipient first: `→ docs-sweep (tmt-product)` for
-an answer, or `✎ note → sol · about docs-sweep` for a note to the lead about
-that member. When the row itself receives the note, the header is simply
-`✎ note → docs-sweep`. The chosen waiting question is quoted above the answer input.
-Several open requests require an explicit
-choice before composing. `r` still opens the answer path on member/leads rows;
-on a row that waits only on a `pending` decision, with no open request to
-answer, it opens a note to that member instead (nothing is sent, cleared or
-acknowledged until you press Enter on a non-empty note, and the pending text
-stays until its owner clears it). `t` still composes a direct message. Explicit member-note bindings retain that
-recipient.
+Press `a` on a home, squad member or leads row, including its expanded `e` band, to write to it. One composer
+answers an open request when something waits on you and otherwise sends the squad's
+lead a note; Tab cycles **answer, note and talk** (talk is a detached `tmt talk`:
+a request that expects a reply), through the modes the row allows. The input opens
+directly beneath the complete selected row in an opaque full-width band, shifting
+rows below it. The first line names the recipient, its squad and the mode: `→ docs-sweep (tmt-product) ·
+answer`, `→ docs-sweep (tmt-product) · talk`, or `→ sol (tmt-product) · note · about
+docs-sweep` for a note to the lead about that member; when the row itself receives
+the note it is `→ docs-sweep (tmt-product) · note`. The chosen waiting question is quoted above the answer input. Several open
+requests require an explicit choice before composing. `r` has no default key
+(`a` already answers first; `reply` stays bindable and, on a row that waits only on a
+`pending` decision, opens a note to that member: nothing is sent, cleared or
+acknowledged until you press Enter on a non-empty note, and the pending text stays
+until its owner clears it). `t` shows or hides reply previews on every tab; a `talk`
+binding of your own keeps working and opens in talk mode. Explicit member-note
+bindings retain that recipient and cycle note and talk.
 
-Inside the band, Enter sends and Esc cancels; Tab switches answer/note when
-both apply, preserving your text. The band has a visible rule in both themes
+Inside the band, Enter sends and Esc cancels; Tab cycles answer, note and talk
+where they apply, preserving your text. The band has a visible rule in both themes
 and NO_COLOR. At 80 columns the quoted question truncates before the recipient
 or input, which retains at least 30 columns. A successful send closes the band
 and shows `✓ sent` on the row until the next key; the cursor stays with it.
@@ -374,7 +379,7 @@ Other exchanges follow, newest first. Undated exchanges follow dated exchanges
 within each group. Leads with no exchange follow a blank line, ordered by name.
 Partial, expired or unavailable reads remain explicit.
 
-`t` hides previews and the blank separators between leads, and saves the global
+`t` (on every tab) hides previews and the blank separators between leads, and saves the global
 `board.home_replies` choice (default `true`). `e` on a lead expands its complete
 wrapped message directly below its header in the same inline band used for answers,
 replacing that row’s preview while open. Arrows/j/k and
@@ -497,7 +502,7 @@ is required for `layout`, `board.panes`, `board.direction`, `board.sizes`,
 and `reminders.stale_after`. `board.refresh`, `board.ask_lead` and `board.view`
 use the squad layer with `--squad`, otherwise the global Squad board layer.
 `board.home_replies` is a global boolean (default `true`) controlling HOME's
-lead-message previews and separators; it rejects `--squad`. `t` on HOME saves
+lead-message previews and separators; it rejects `--squad`. `t` saves
 this setting through the same validated writer. `tabs.order` and `tabs.hide`
 always edit global Squad tab policy. Arrays use JSON;
 other values are unquoted scalar arguments. Examples:
@@ -556,8 +561,8 @@ format-preserving writer and refuse a concurrently changed file. Scoped set
 refuses a custom layout with a manual-removal hint. Reset removes only `view`,
 retaining custom layout and fold keys; all-boards settings remain masked by
 custom and scoped arrangements. Reset drops an emptied table only when its header
-has no comments; existing empty tables remain. On the board, `l` opens the view
-picker (`view` is bindable). Arrow keys or j/k preview only in memory, Tab
+has no comments; existing empty tables remain. On the board, the `,` settings menu's
+View row opens the view picker (`view` is also bindable, with no default key). Arrow keys or j/k preview only in memory, Tab
 switches all-boards/this-squad scope, Enter saves once, and Esc restores the
 opening arrangement and runtime folds without writing. Data keeps refreshing.
 The leads/home tabs offer all-boards scope only and retain their fixed composition
@@ -567,7 +572,7 @@ this-squad preview works, but scoped save is refused with a manual-removal hint.
 An all-boards choice saves while this squad keeps its custom layout; the picker
 names that masking setting.
 A failed or stale save stays open; cancel and reopen to read the changed file.
-`l` (view) and `T` (theme) appear together in help. No preset binds `jump lead`:
+Theme, View and Token window are rows of the `,` settings menu, which help lists. No preset binds `jump lead`:
 the lead is the first row of its tab. Bind it yourself (`[bind] L = "jump lead"`)
 to go to the lead's pane from any row.
 Agents change views only when requested.
@@ -584,7 +589,7 @@ notes stay below the list; `n` hides or shows them.
 Press `e` on the selected lead or member to expand the shared band beneath its
 header. It replaces the task preview and shows, when available, `◆ waits on you`,
 task, links, latest reply with age, then the available collapse/write/open hints.
-`e` or Esc collapses; `a` writes to that member, and `o` opens the row's PR or link.
+`e` or Esc collapses; `a` opens the same answer/note/talk composer for that row, and `o` opens the row's PR or link.
 Arrow keys/j/k and PgUp/PgDn scroll long details without moving the selected row.
 There is one band at a time. Reading works without recording yourself; writing
 requires `tmt sq me`. Custom bindings also control the expanded band.
@@ -765,7 +770,7 @@ usage values; text omits columns whose source is board-only.
 When token sampling is off, usage columns hide and MODEL remains. Default
 member grids keep at least 20 cells for TASK when space permits. On narrow
 boards, inactive window columns step aside first, then PR, then MODEL, and
-finally the active window. Pressing `w` also changes which window stays visible
+finally the active window. Switching the window (the settings menu's Token window row, or a `token-window` binding) also changes which window stays visible
 longest. MODEL follows its content up to 8 cells and truncates longer names.
 
 Input and output count once; cached input is already included in input, and
@@ -778,8 +783,8 @@ one hour and continues from its included counter watermark. It stores no separat
 usage history and computes no money estimate.
 
 Team enables observation; crew, pr-queue and minimal keep it off by default.
-The all/leads tabs omit this named-squad meter. `w` cycles the summary's windows
-through the bindable `token-window` action; member columns show all three at once.
+The all/leads tabs omit this named-squad meter. The settings menu's Token window row cycles the summary's windows, as does
+the bindable `token-window` action (no default key); member columns show all three at once.
 The label always names the configured window; the number is a total, never a
 per-second rate. Configure exactly three distinct ascending whole `m`/`h`
 durations, from 1m through 24h:
@@ -825,7 +830,7 @@ observed totals by slice: blank is no evidence, ▁ is measured zero and ▂–�
 nonzero values. Narrow boards drop the trend, then shorten the unit. The active
 window label stays next to the meter values; lead/attention text clips if needed.
 Only a terminal too narrow for the compact meter hides it. Without a
-covered reading it shows `–` and a dim `no usage reported yet` line. `w` still
+covered reading it shows `–` and a dim `no usage reported yet` line. Cycling the window still
 switches the label immediately and posts the window in the board notice. `?`
 explains the totals, best-effort coverage, switch order and `tok` configuration.
 Whole-hour labels use `h`, so 60m displays as `1h`.

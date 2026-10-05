@@ -462,7 +462,7 @@ fn read_only_band_rejects_typing_and_submission_and_e_collapses() {
         text: "full reply".into(),
         squad: "squad".into(),
         row_send: None,
-        alternative: None,
+        others: Vec::new(),
         quote: None,
         link: None,
         hint: None,

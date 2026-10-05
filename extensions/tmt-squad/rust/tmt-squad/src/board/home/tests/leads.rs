@@ -94,8 +94,8 @@ fn lead_rows_and_footer_share_one_cursor_and_hidden_previews_remove_separators()
         assert!(text[at("→ all leads") - 1].starts_with('└'));
         assert_eq!(glyph_error(&text.join("\n")), None);
         assert!(
-            text.last().unwrap().contains("t replies"),
-            "the new toggle remains discoverable at 80 columns"
+            text.last().unwrap().contains("? more"),
+            "help, where the toggle is listed, stays discoverable at 80 columns"
         );
         let target = app.home_target.clone();
         assert_eq!(press(&mut app, Char('t')), Effect::HomeReplies(false));
@@ -261,7 +261,7 @@ fn expanded_body_and_answer_share_the_full_inner_band_at_every_width_and_theme()
             let answer = lines(&draw(&app, width, 30));
             let next = app.input_band.get().unwrap();
             assert_eq!((next.x, next.width), (band.x, band.width));
-            assert!(answer[usize::from(next.y + 1)].contains("→ lead-a (a)"));
+            assert!(answer[usize::from(next.y + 1)].contains("→ lead-a (a) · answer"));
             assert!(answer[usize::from(next.y + 2)].contains("Approve this change?"));
             press(&mut app, Esc);
             assert!(app.input.is_none());

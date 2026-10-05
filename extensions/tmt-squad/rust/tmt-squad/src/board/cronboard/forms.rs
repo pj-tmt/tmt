@@ -230,7 +230,7 @@ impl App {
     fn cron_ask(&mut self, draft: Draft, text: String, hint: Option<Hint>) -> Effect {
         self.input = Some(Input {
             row_send: None,
-            alternative: None,
+            others: Vec::new(),
             quote: None,
             link: None,
             prompt: draft.prompt(),
@@ -251,7 +251,7 @@ impl App {
     fn cron_retry(&mut self, draft: Draft, text: String, why: String) -> Effect {
         self.input = Some(Input {
             row_send: None,
-            alternative: None,
+            others: Vec::new(),
             quote: None,
             link: None,
             prompt: draft.prompt(),

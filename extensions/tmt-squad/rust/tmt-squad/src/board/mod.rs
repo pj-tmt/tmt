@@ -570,6 +570,10 @@ fn session(
                         if let Some(view) = &mut app.view {
                             view.home_replies = shown;
                         }
+                        app.say(format!(
+                            "Reply previews {}.",
+                            if shown { "shown" } else { "hidden" }
+                        ));
                         revision += 1;
                         requested = None;
                         request(app.current.clone(), false, false);
@@ -793,7 +797,8 @@ mod tests {
             &[50, 50],
         );
         let view = snapshot.view.as_mut().unwrap();
-        view.bindings = crate::action::preset(true, &view.board.panes);
+        view.bindings =
+            crate::action::with_action_keys(crate::action::preset(true, &view.board.panes));
         view.document["squad"]["lead"] =
             serde_json::json!({"id":"LEAD", "name":"lead", "lifetime":"saved"});
         app.apply(snapshot);
@@ -827,7 +832,7 @@ mod tests {
                     view.refresh = None;
                     view.board = crate::config::Board::simple(crate::config::BoardMode::Split,
                         crate::config::Direction::LeftRight, vec![crate::config::Pane::Rows, crate::config::Pane::Detail], &[50,50]);
-                    view.bindings = crate::action::preset(true, &view.board.panes);
+                    view.bindings = crate::action::with_action_keys(crate::action::preset(true, &view.board.panes));
                     events.send(snapshot_event(fresh)).unwrap();
                     events.send(result(identity, revision, "BEFORE REFRESH")).unwrap();
                 } else {

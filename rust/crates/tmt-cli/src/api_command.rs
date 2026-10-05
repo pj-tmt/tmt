@@ -14,23 +14,23 @@ pub fn execute() -> io::Result<u8> {
             "Expected one bounded JSON request on non-terminal stdin, closed within five seconds.",
         ))
         .and_then(|body| api::decode(&body))
-        .map_err(|fault| fault.encode())
+        .map_err(|fault| (fault.status(), fault.encode()))
         .and_then(|request| {
             // Discovery must not even discover paths or open a storage handle.
             if matches!(request, api::Request::Capabilities) {
                 return Ok(api::capabilities());
             }
-            let paths = ConfigPaths::discover().map_err(|_| api::Fault::unavailable().encode())?;
+            let paths = ConfigPaths::discover().map_err(|_| (1, api::Fault::unavailable().encode()))?;
             api::execute(&paths, request).map_err(|mut fault| {
                 if let Some(error) = fault.take_storage_open() {
                     let failure = Failure::storage_access(error, &paths.global_dir, "No API operation was performed.", fault.code(), fault.message());
-                    serde_json::to_vec(&failure.document()).expect("bounded storage failure")
-                } else { fault.encode() }
+                    (failure.status, serde_json::to_vec(&failure.document()).expect("bounded storage failure"))
+                } else { (fault.status(), fault.encode()) }
             })
         });
     let (status, body) = match result {
         Ok(body) => (0, body),
-        Err(body) => (1, body),
+        Err((status, body)) => (status, body),
     };
     let mut stdout = io::stdout().lock();
     stdout.write_all(&body)?;

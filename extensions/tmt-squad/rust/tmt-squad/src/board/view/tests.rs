@@ -59,6 +59,7 @@ fn waiting_rows_detail_and_ask_prompt_fit_each_width_and_theme() {
             ]}]));
             lead_sol(&mut app);
             let view = app.view.as_mut().unwrap();
+            view.bindings = crate::action::preset(true, &[]);
             view.look = crate::look::Look {
                 theme: tmt_cli_style::Theme::new(tmt_cli_style::theme::Base::parse(base).unwrap()),
                 depth,
@@ -149,11 +150,11 @@ fn waiting_hint_uses_rebound_key_and_drops_oldest_before_actions() {
         crate::action::Action::parse("ask-lead").unwrap(),
     );
     assert!(hints(&app, 160).contains("oldest auth-fix 12m"));
-    assert!(hints(&app, 50).contains("z ask lead"));
+    assert!(hints(&app, 100).contains("z ask lead"));
     assert!(!hints(&app, 50).contains("oldest"));
     assert!(!hints(&app, 80).contains("oldest"));
     assert!(hints(&app, 100).contains("r reply"));
-    assert!(hints(&app, 100).ends_with("q quit  ? more"));
+    assert!(hints(&app, 100).ends_with("? more  q quit"));
     assert!(!hints(&app, 50).contains("A ask lead"));
     assert_eq!(
         super::waiting::text(app.selected_row().unwrap()),
@@ -166,15 +167,12 @@ fn footer_omits_whole_hints_instead_of_clipping_words() {
     let mut app = App::new(Some("product".into()));
     app.apply(crate::board::app::tests::snapshot("product", json!([])));
     let full = hints(&app, usize::MAX);
-    assert!(full.contains("T theme"));
+    assert!(full.starts_with("↑↓ move  A ask lead  / search"), "{full}");
     for width in [0, 1, 6, 20, 40, 80, 100, 108, 112, 120, 160] {
         let shown = hints(&app, width);
         assert!(shown.width() <= width);
         if width >= "? more".width() {
-            assert!(
-                shown.ends_with("? more"),
-                "help stays discoverable: {width}"
-            );
+            assert!(shown.contains("? more"), "help stays discoverable: {width}");
         }
         assert!(
             shown
@@ -204,16 +202,13 @@ fn footer_orders_hints_by_priority_and_always_keeps_quit_and_more() {
     assert_eq!(app.selected_row().unwrap()["name"], "auth-fix");
     let full = hints(&app, usize::MAX);
     let order = [
-        "⏎ jump",
-        "t talk",
+        "↑↓ move",
+        "⏎ open",
+        "a write",
         "r reply",
-        "⌫ back",
-        "a answer · note",
+        "t talk",
+        "A ask lead",
         "/ search",
-        "o open",
-        "y copy",
-        "tab pane",
-        "ctrl-r refresh",
     ];
     let at = |hint: &str| full.find(hint).unwrap_or_else(|| panic!("{hint}: {full}"));
     assert!(
@@ -221,7 +216,7 @@ fn footer_orders_hints_by_priority_and_always_keeps_quit_and_more() {
         "{full}"
     );
     assert!(!full.contains("next-pane"), "{full}");
-    assert!(full.ends_with("q quit  ? more"));
+    assert!(full.ends_with("? more  q quit"));
     let whole = shown_hints(&full);
     for width in 0..=full.width() {
         let shown = hints(&app, width);
@@ -229,16 +224,27 @@ fn footer_orders_hints_by_priority_and_always_keeps_quit_and_more() {
         match width {
             0..=5 => assert_eq!(shown, ""),
             6..=13 => assert_eq!(shown, "? more", "{width}"),
-            _ => assert!(shown.ends_with("q quit  ? more"), "{width}: {shown}"),
+            _ => assert!(shown.ends_with("? more  q quit"), "{width}: {shown}"),
         }
         // Whole hints only, always a prefix of the priority order.
         let kept = shown_hints(&shown);
         assert_eq!(kept, whole[..kept.len()], "{width}: {shown}");
     }
-    // Talking, replying and going back survive an 80-cell footer.
+    // The other keys are help-only, never in the footer.
+    for hint in [
+        "⌫ back",
+        "o open",
+        "y copy",
+        "tab pane",
+        "ctrl-r refresh",
+        "T theme",
+    ] {
+        assert!(!full.contains(hint), "{hint}: {full}");
+    }
+    // Opening, writing, replying and talking survive an 80-cell footer.
     let narrow = hints(&app, 80);
     assert!(
-        narrow.ends_with("⏎ jump  t talk  r reply  ⌫ back  q quit  ? more"),
+        narrow.contains("⏎ open  a write  r reply  t talk"),
         "{narrow}"
     );
 }
@@ -253,12 +259,10 @@ fn footer_shows_only_the_row_actions_the_selected_row_allows() {
     app.select(0);
     assert_eq!(app.selected_row().unwrap()["name"], "sol");
     let lead = hints(&app, usize::MAX);
-    for hint in ["⏎ jump", "t talk", "a answer · note"] {
+    for hint in ["⏎ open", "t talk", "a write"] {
         assert!(lead.contains(hint), "{lead}");
     }
-    for hint in ["r reply", "o open"] {
-        assert!(!lead.contains(hint), "{lead}");
-    }
+    assert!(!lead.contains("r reply"), "{lead}");
     // Only a decision (pending text or an open request) enables reply.
     app.select(1);
     assert!(hints(&app, usize::MAX).contains("r reply"));
@@ -277,21 +281,15 @@ fn footer_shows_only_the_row_actions_the_selected_row_allows() {
     let mut empty = App::new(Some("product".into()));
     empty.apply(crate::board::app::tests::snapshot("product", json!([])));
     let text = hints(&empty, usize::MAX);
-    for hint in [
-        "⏎",
-        "t talk",
-        "r reply",
-        "answer · note",
-        "o open",
-        "y copy",
-    ] {
+    for hint in ["⏎", "t talk", "r reply", "a write"] {
         assert!(!text.contains(hint), "{text}");
     }
-    assert!(text.contains("/ search") && text.ends_with("q quit  ? more"));
+    assert!(text.contains("/ search") && text.ends_with("? more  q quit"));
     // The plain host's Enter is the row menu; rebinding changes the word.
     let view = app.view.as_mut().unwrap();
-    view.bindings = crate::action::preset(false, &view.board.panes);
-    assert!(hints(&app, usize::MAX).contains("⏎ menu"));
+    view.bindings =
+        crate::action::with_action_keys(crate::action::preset(false, &view.board.panes));
+    assert!(hints(&app, usize::MAX).contains("⏎ open"));
 }
 
 #[test]
@@ -309,7 +307,8 @@ fn footer_labels_use_only_registered_spaced_marks_and_structural_typography() {
                 Notes::NotShown,
             );
             let view = app.view.as_mut().unwrap();
-            view.bindings = crate::action::preset(tmux, &view.board.panes);
+            view.bindings =
+                crate::action::with_action_keys(crate::action::preset(tmux, &view.board.panes));
             for folded in [false, true] {
                 if folded && panes.len() > 1 {
                     app.key(KeyEvent::new(KeyCode::Char('d'), KeyModifiers::NONE));
@@ -356,13 +355,12 @@ fn footer_hints_follow_rebound_keys_and_show_one_hint_per_action() {
     let text = hints(&app, usize::MAX);
     let shown = shown_hints(&text);
     assert_eq!(
-        shown.iter().filter(|hint| hint.ends_with(" jump")).count(),
+        shown.iter().filter(|hint| hint.ends_with(" open")).count(),
         1
     );
-    assert!(shown.contains(&"⏎ jump"), "{shown:?}");
-    // A different action text is its own hint: `copy` with another template.
-    assert!(shown.iter().any(|hint| hint.ends_with(" copy")));
-    // Rebound unlisted verbs (`run`, `notes`) never reach the footer.
+    assert!(shown.contains(&"⏎ open"), "{shown:?}");
+    // Help-only verbs (`copy`, `run`, `notes`) never reach the footer.
+    assert!(!shown.iter().any(|hint| hint.ends_with(" copy")));
     let view = app.view.as_mut().unwrap();
     view.bindings
         .insert("R".into(), Action::parse("run true").unwrap());
@@ -432,7 +430,7 @@ pub(super) fn board(sections: Value) -> App {
             ),
             notes: crate::board::app::Notes::NotShown,
             render: crate::config::NotesRender::Markdown,
-            bindings: crate::action::preset(true, &[]),
+            bindings: crate::action::with_action_keys(crate::action::preset(true, &[])),
             section_bindings: Vec::new(),
             configured_bindings: Default::default(),
             opener: None,
@@ -1002,12 +1000,16 @@ fn drawn_rows_are_clickable_and_the_menu_and_help_show_bindings() {
     // the three lines show rows.
     assert_eq!(lines, [(3, 1)]);
 
-    app.view.as_mut().unwrap().bindings = crate::action::preset(false, &[]);
+    app.view.as_mut().unwrap().bindings =
+        crate::action::with_action_keys(crate::action::preset(false, &[]));
     app.help = true;
     // Notes cursor guidance and the settings binding need one more help row.
     let help = help_lines(&app);
     assert!(help.iter().any(|line| line.starts_with("g G")));
-    assert!(help.iter().any(|line| line == ",  show settings"));
+    assert!(
+        help.iter()
+            .any(|line| line == ",  show settings, theme, view and token window")
+    );
     assert!(
         help.iter()
             .any(|line| line == "y  copy from the selected row"),
@@ -1035,13 +1037,14 @@ fn drawn_rows_are_clickable_and_the_menu_and_help_show_bindings() {
             .any(|line| line.contains("Enter runs · Esc closes"))
     );
     assert!(screen.iter().any(|line| line.contains("backspace back")));
-    assert!(draw(&App::new(None), 60, 4)[3].starts_with("/ search"));
+    assert!(draw(&App::new(None), 60, 4)[3].starts_with("↑↓ move  / search"));
 }
 
 #[test]
 fn help_groups_view_and_theme_bindings_and_lists_no_default_jump_lead() {
     let mut app = board(json!([]));
-    app.view.as_mut().unwrap().bindings = crate::action::preset(true, &[]);
+    app.view.as_mut().unwrap().bindings =
+        crate::action::with_action_keys(crate::action::preset(true, &[]));
     let help = help_lines(&app);
     assert!(help.iter().all(|line| !line.contains("lead's pane")));
     assert!(
@@ -1087,7 +1090,7 @@ fn fit_truncates_by_display_width_and_selection_scrolls_into_view() {
 fn refresh_hint_and_help_render_exact_lowercase_ctrl_r() {
     let mut app = board(json!([{"title": null, "rows": [row("a", "idle", "", json!({}))]}]));
     let screen = draw(&app, 160, 12);
-    assert!(screen[11].contains("ctrl-r refresh"), "{:?}", screen[11]);
+    assert!(!screen[11].contains("refresh"), "{:?}", screen[11]);
     assert!(!screen[11].contains("f5") && !screen[11].contains("F5"));
     app.help = true;
     let screen = help_lines(&app);
@@ -1130,7 +1133,7 @@ fn search_help_and_errors_use_the_footer_and_overlay() {
 }
 
 fn paned(board: crate::config::Board, notes: Notes) -> App {
-    let bindings = crate::action::preset(true, &board.panes);
+    let bindings = crate::action::with_action_keys(crate::action::preset(true, &board.panes));
     let mut app = App::new(Some("product".into()));
     app.apply(Snapshot {
             squad_keys: Vec::new(),
@@ -2508,7 +2511,9 @@ fn replies_scroll_with_keys_pages_and_wheel_to_the_complete_end() {
             crate::board::scroll::WHEEL_LINES
         );
         app.key(KeyEvent::new(KeyCode::End, KeyModifiers::NONE));
-        let bottom = draw(&app, width, 16).join("\n");
+        // Without the footer line: its `↑↓ move` is not a scroll mark.
+        let screen = draw(&app, width, 16);
+        let bottom = screen[..screen.len() - 1].join("\n");
         assert!(bottom.contains("FINAL-SENTINEL"), "{bottom}");
         assert!(bottom.contains("↑ "));
         assert!(!bottom.contains("↓ "));
@@ -3932,9 +3937,9 @@ fn toggle_footer_and_help_show_current_state_and_drop_the_whole_hint() {
                 app.key(KeyEvent::new(KeyCode::Char('d'), KeyModifiers::NONE));
             }
             let state = if folded { "▸" } else { "▾" };
-            let hint = format!("d {word}");
+            // The toggle is help-only: the footer never lists it.
             let full = hints(&app, usize::MAX);
-            assert!(full.contains(&hint), "{full}");
+            assert!(!full.contains(&format!("d {word}")), "{full}");
             assert!(!full.contains('▾') && !full.contains('▸'), "{full}");
             let description = app.bindings()["d"].description();
             assert!(help_lines(&app).contains(&format!("d  {description} (▾ open, ▸ folded)")));
@@ -3952,7 +3957,7 @@ fn toggle_footer_and_help_show_current_state_and_drop_the_whole_hint() {
         }
         if targets.len() == 2 {
             fold(&mut app, Pane::Detail);
-            assert!(hints(&app, usize::MAX).contains("d side panel"));
+            assert!(!hints(&app, usize::MAX).contains("d side panel"));
             assert_eq!(
                 crate::board::view::toggle_label(&app, &app.bindings()["d"]).as_deref(),
                 Some("detail+replies ▾"),
@@ -3975,21 +3980,19 @@ fn footer_hints_are_conditional_and_effective_bindings_remain_visible() {
         vec![60, 40],
     );
     let view = app.view.as_mut().unwrap();
-    view.bindings = crate::action::preset(true, &view.board.panes);
-    assert!(hints(&app, usize::MAX).contains("d detail"));
-    assert!(draw(&app, 48, 12)[11].contains("A ask lead"));
-    assert!(
-        !draw(&app, 48, 12)[11].contains("d detail"),
-        "decision actions take priority when narrow"
-    );
+    view.bindings = crate::action::with_action_keys(crate::action::preset(true, &view.board.panes));
+    // Folding keys are in help only, whatever the panes.
+    assert!(!hints(&app, usize::MAX).contains("d detail"));
+    assert!(help_lines(&app).iter().any(|line| line.starts_with("d  ")));
+    assert!(draw(&app, 120, 12)[11].contains("A ask lead"));
     app.view
         .as_mut()
         .unwrap()
         .bindings
         .insert("d".into(), crate::action::Action::parse("refresh").unwrap());
-    // One hint per action: `refresh` stays on its first key, `ctrl-r`.
+    // Refresh is help-only, on either key.
     let shown = hints(&app, usize::MAX);
-    assert!(shown.contains("ctrl-r refresh") && !shown.contains("d refresh"));
+    assert!(!shown.contains("refresh"), "{shown}");
     assert!(
         help_lines(&app)
             .iter()
@@ -4072,7 +4075,7 @@ fn inline_middle_row_band_moves_rows_masks_panes_and_fits_every_theme() {
                 let band = app.input_band.get().expect("inline band");
                 let header = &screen[usize::from(band.y + 1)];
                 assert!(
-                    header.contains("→ member-2 (product)"),
+                    header.contains("→ member-2 (product) · answer"),
                     "{base}/{width}/{tab}: {header}"
                 );
                 assert_eq!(band.height, 6);
@@ -4104,9 +4107,9 @@ fn inline_middle_row_band_moves_rows_masks_panes_and_fits_every_theme() {
                 app.key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
                 let note = draw(&app, width, 30);
                 assert!(note.iter().any(|line| line.contains(if tab == "product" {
-                    "✎ note → sol · about member-2"
+                    "→ sol (product) · note · about member-2"
                 } else {
-                    "✎ note → member-2"
+                    "→ member-2 (product) · note"
                 })));
                 assert_eq!(app.input_band.get().unwrap().height, 5);
                 app.key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
@@ -4203,11 +4206,7 @@ fn boxed_members_share_home_scene_and_inline_band_at_all_widths_and_themes() {
             assert!(body.find("links").unwrap() < body.find("latest reply · 5m").unwrap());
             assert!(body.contains("Pushed the shared list."));
             assert!(!body.contains('\u{1b}'));
-            assert!(
-                expanded
-                    .iter()
-                    .any(|line| line.contains("a write to worker"))
-            );
+            assert!(expanded.iter().any(|line| line.contains("a write")));
             assert!(
                 !app.hits
                     .borrow()
@@ -4332,7 +4331,7 @@ fn boxed_member_band_uses_rebound_keys_and_scrolls_its_body_without_moving_the_c
     draw(&app, 80, 24);
     assert!(app.input_band.get().is_some());
     let screen = draw(&app, 80, 24).join("\n");
-    assert!(screen.contains("E collapse · A write to worker"));
+    assert!(screen.contains("E collapse · A write"));
     app.key(KeyEvent::new(KeyCode::PageDown, KeyModifiers::NONE));
     assert_eq!(app.selected, 1);
     assert!(
@@ -4351,8 +4350,42 @@ fn boxed_member_band_uses_rebound_keys_and_scrolls_its_body_without_moving_the_c
         Effect::None
     );
     assert!(
+        matches!(&app.input.as_ref().unwrap().compose, crate::board::app::Compose::Annotate { to, row } if to == "sol" && row == "worker")
+    );
+    app.key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+    assert!(
         matches!(&app.input.as_ref().unwrap().compose, crate::board::app::Compose::Talk { to } if to == "worker")
     );
+}
+
+#[test]
+fn boxed_member_read_band_starts_answer_then_cycles_note_and_talk_without_losing_text() {
+    use crate::board::app::Compose;
+    let mut app = boxed_members(json!([{"title":null,"rows":[
+        row("worker", "working", "decision", json!({"id":"WORKER", "waitingOnYou":[{"requestId":"decision-q","preview":"Ship this?"}]}))
+    ]}]));
+    app.selected = 1;
+    app.key(KeyEvent::new(KeyCode::Char('e'), KeyModifiers::NONE));
+    assert!(matches!(
+        &app.input.as_ref().unwrap().compose,
+        Compose::ReadRow { .. }
+    ));
+    app.key(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE));
+    assert!(
+        matches!(&app.input.as_ref().unwrap().compose, Compose::Reply { request, from } if request == "decision-q" && from == "worker")
+    );
+    app.input.as_mut().unwrap().text = "Keep this draft".into();
+    app.key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+    assert!(
+        matches!(&app.input.as_ref().unwrap().compose, Compose::Annotate { to, row } if to == "sol" && row == "worker")
+    );
+    app.key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+    assert!(matches!(&app.input.as_ref().unwrap().compose, Compose::Talk { to } if to == "worker"));
+    app.key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+    assert!(
+        matches!(&app.input.as_ref().unwrap().compose, Compose::Reply { request, .. } if request == "decision-q")
+    );
+    assert_eq!(app.input.as_ref().unwrap().text, "Keep this draft");
 }
 
 #[test]
