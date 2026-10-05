@@ -132,8 +132,15 @@ export async function mount() {
     async deleteComment() {
       throw new Error('Not used');
     },
-    async updateThread() {
-      throw new Error('Not used');
+    async updateThread(ref, revision, change) {
+      const thread = current.threads!.find((value) => value.ref.id === ref.id)!;
+      if (thread.revision !== revision) throw new Error('Stale fixture revision');
+      actions.push(`thread:${JSON.stringify(change)}`);
+      current = {
+        ...current,
+        threads: [{ ...thread, ...change, revision: String(Number(revision) + 1) }],
+      };
+      publish?.(current);
     },
   };
   const binding: PageBinding = {
@@ -239,4 +246,76 @@ export function pending() {
   syncRecords('accepted');
   delete records[0].reply;
   publish?.({ ...current, asks: [...records] });
+}
+
+/** Admitted presentation double for shared Chat/annotation turns; no Remote effects. */
+export function conversation(options: {
+  surface: 'thread' | 'chat';
+  state: 'waiting' | 'held' | 'replied' | 'failed' | 'empty' | 'uncertain';
+}) {
+  const at = String(Date.now() - 5 * 60 * 1000);
+  const thread: ThreadView = {
+    version: 1,
+    kind: 'thread',
+    spaceId: selection().space,
+    pageId: id(1),
+    epoch: '1',
+    senderDevice: id(4),
+    deviceName: 'Asker browser',
+    threadId: options.surface === 'chat' ? id(4) : id(41),
+    revision: '1',
+    at,
+    anchor:
+      options.surface === 'chat' ? null : { exact: 'Exact selected text', prefix: '', suffix: '' },
+    resolved: false,
+    deleted: false,
+    ref: { writer: id(4), id: options.surface === 'chat' ? id(4) : id(41) },
+    comments: [],
+  };
+  thread.comments.push({
+    version: 1,
+    kind: 'comment',
+    spaceId: thread.spaceId,
+    pageId: thread.pageId,
+    epoch: '1',
+    senderDevice: id(4),
+    deviceName: thread.deviceName,
+    messageId: id(42),
+    revision: '1',
+    at,
+    thread: thread.ref,
+    body: 'Explain <img src=x onerror=alert(1)> in this selection.\nKeep the exact text.',
+    deleted: false,
+    ref: { writer: id(4), id: id(42) },
+  });
+  const replied = options.state === 'replied' || options.state === 'empty';
+  records = [
+    {
+      thread: thread.threadId,
+      messageIds: [id(42)],
+      operationId: id(43),
+      writer: id(4),
+      agent: id(6),
+      agentName: 'Atlas',
+      deviceName: 'Asker browser',
+      issuedAt: Number(at),
+      machine: id(5),
+      message: 'Frozen ask bytes',
+      state:
+        options.state === 'replied' || options.state === 'empty' || options.state === 'waiting'
+          ? 'accepted'
+          : options.state,
+      canTrack: true,
+      ...(replied
+        ? {
+            reply:
+              options.state === 'empty'
+                ? ''
+                : 'Keep <script>reply</script> as text.\nThis is Atlas’s answer.',
+          }
+        : {}),
+    },
+  ];
+  current = { ...current, threads: [thread], asks: records };
+  publish?.(current);
 }

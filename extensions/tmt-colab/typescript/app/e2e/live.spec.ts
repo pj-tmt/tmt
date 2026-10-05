@@ -1092,7 +1092,8 @@ result:async()=>({state:'replied',requestId:'${requestId}',message:${JSON.string
   await expect(page.getByTestId('ask-reply')).toHaveText(reply);
   expect(sends).toBe(1);
   await expect(page.getByTestId('ask-entry')).toHaveAttribute('data-operation-id', operationId!);
-  await expect(page.getByTestId('ask-state')).toHaveAttribute('data-state', 'accepted');
+  await expect(page.getByTestId('ask-state')).toHaveCount(0);
+  await expect(page.getByTestId('ask-entry')).toHaveAttribute('data-ledger-state', 'accepted');
   await expect(page.getByTestId('ask-reply-attribution')).toContainText('Wire agent');
   await expect(page.getByTestId('ask-panel').locator('script')).toHaveCount(0);
   await expect(heading).toHaveText('Live fixture');

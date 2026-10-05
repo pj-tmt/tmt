@@ -99,6 +99,7 @@ pub(in crate::board) fn render_frame(
     footer::render(frame, app, footer, look);
     overlays::render(frame, app, body, look);
     waiting::prompt(frame, app, body);
+    look.selected_words(frame.buffer_mut());
 }
 
 #[cfg(test)]

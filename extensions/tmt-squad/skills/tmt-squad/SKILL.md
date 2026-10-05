@@ -390,8 +390,9 @@ each recipient's queued or unavailable acceptance; uncertain acceptance keeps
 its operation ID and saved intent for inspection, with no automatic resend.
 
 One cursor spans attention rows, leads, their footer, cron and squads. Arrows or j/k move it; Tab
-keeps its board-wide pane-focus behavior and does not jump between home sections. Open on the first decision, otherwise the first
-squad. Enter jumps to a member/lead, opens the squad, or composes on the all-leads footer. `a` answers an open request
+keeps its board-wide pane-focus behavior and does not jump between home sections. Home opens on its first row from the top:
+the first needs-you row, else the first blocked row, else the first lead, else the first squad. Switching back to home from
+another tab returns to the row you left. Squad tabs keep their own start on the lead. Enter jumps to a member/lead, opens the squad, or composes on the all-leads footer. `a` answers an open request
 through public `tmt answer`, otherwise annotates for that squad's actual lead.
 The composer refuses changed targets/requests/leads and missing sender/lead;
 Esc cancels and empty text sends nothing. Left/right switch tabs, `s` opens the

@@ -283,6 +283,9 @@
     "width": 160,
     "lines": [
       "14 squads · 14 members   ◆ 0 waiting on you  ✗ 0 blocked  ◐ 0 review  ● 14 working  ○ 0 idle",
+      "",
+      "── ◆ needs you · 0 · nothing waits on you ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
+      "",
       "── leads · latest from each · t hides replies ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
       "┌──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐",
       "│   lead-0                     squad-00                                                                                                                      – │",
@@ -301,19 +304,19 @@
       "│   lead-9                     squad-09                                                                                                                      – │",
       "└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘",
       "→ all leads  A to write · @ to pick",
-      "",
-      "── squads · 14 ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
-      "   squad-00 lead-0   0 members",
-      "                                                                                                                                                  ↑ 3  13 more ↓",
+      "                                                                                                                                                       16 more ↓",
       "↑↓ move  ⏎ open  a answer · note  A ask lead  e expand  t replies  / search  ←→ tabs  s switch  ? more  q quit"
     ],
-    "hits": "[Hit { y: 3, x: 1, width: 158, row: 0 }, Hit { y: 4, x: 1, width: 158, row: 1 }, Hit { y: 5, x: 1, width: 158, row: 2 }, Hit { y: 6, x: 1, width: 158, row: 3 }, Hit { y: 7, x: 1, width: 158, row: 4 }, Hit { y: 8, x: 1, width: 158, row: 5 }, Hit { y: 9, x: 1, width: 158, row: 6 }, Hit { y: 10, x: 1, width: 158, row: 7 }, Hit { y: 11, x: 1, width: 158, row: 8 }, Hit { y: 12, x: 1, width: 158, row: 9 }, Hit { y: 13, x: 1, width: 158, row: 10 }, Hit { y: 14, x: 1, width: 158, row: 11 }, Hit { y: 15, x: 1, width: 158, row: 12 }, Hit { y: 16, x: 1, width: 158, row: 13 }, Hit { y: 18, x: 0, width: 160, row: 14 }, Hit { y: 21, x: 0, width: 160, row: 15 }]"
+    "hits": "[Hit { y: 6, x: 1, width: 158, row: 0 }, Hit { y: 7, x: 1, width: 158, row: 1 }, Hit { y: 8, x: 1, width: 158, row: 2 }, Hit { y: 9, x: 1, width: 158, row: 3 }, Hit { y: 10, x: 1, width: 158, row: 4 }, Hit { y: 11, x: 1, width: 158, row: 5 }, Hit { y: 12, x: 1, width: 158, row: 6 }, Hit { y: 13, x: 1, width: 158, row: 7 }, Hit { y: 14, x: 1, width: 158, row: 8 }, Hit { y: 15, x: 1, width: 158, row: 9 }, Hit { y: 16, x: 1, width: 158, row: 10 }, Hit { y: 17, x: 1, width: 158, row: 11 }, Hit { y: 18, x: 1, width: 158, row: 12 }, Hit { y: 19, x: 1, width: 158, row: 13 }, Hit { y: 21, x: 0, width: 160, row: 14 }]"
   },
   {
     "scenario": "many-squads",
     "width": 100,
     "lines": [
       "14 squads  ◆ 0  ✗ 0  ◐ 0  ● 14  ○ 0",
+      "",
+      "── ◆ needs you · 0 · nothing waits on you ──────────────────────────────────────────────────────────",
+      "",
       "── leads · latest from each · t hides replies ──────────────────────────────────────────────────────",
       "┌──────────────────────────────────────────────────────────────────────────────────────────────────┐",
       "│   lead-0                     squad-00                                                          – │",
@@ -332,19 +335,19 @@
       "│   lead-9                     squad-09                                                          – │",
       "└──────────────────────────────────────────────────────────────────────────────────────────────────┘",
       "→ all leads  A to write · @ to pick",
-      "",
-      "── squads · 14 ─────────────────────────────────────────────────────────────────────────────────────",
-      "   squad-00 lead-0   0 members",
-      "                                                                                      ↑ 3  13 more ↓",
+      "                                                                                           16 more ↓",
       "↑↓ move  ⏎ open  a answer · note  A ask lead  e expand  t replies  / search  ←→ tabs  ? more  q quit"
     ],
-    "hits": "[Hit { y: 3, x: 1, width: 98, row: 0 }, Hit { y: 4, x: 1, width: 98, row: 1 }, Hit { y: 5, x: 1, width: 98, row: 2 }, Hit { y: 6, x: 1, width: 98, row: 3 }, Hit { y: 7, x: 1, width: 98, row: 4 }, Hit { y: 8, x: 1, width: 98, row: 5 }, Hit { y: 9, x: 1, width: 98, row: 6 }, Hit { y: 10, x: 1, width: 98, row: 7 }, Hit { y: 11, x: 1, width: 98, row: 8 }, Hit { y: 12, x: 1, width: 98, row: 9 }, Hit { y: 13, x: 1, width: 98, row: 10 }, Hit { y: 14, x: 1, width: 98, row: 11 }, Hit { y: 15, x: 1, width: 98, row: 12 }, Hit { y: 16, x: 1, width: 98, row: 13 }, Hit { y: 18, x: 0, width: 100, row: 14 }, Hit { y: 21, x: 0, width: 100, row: 15 }]"
+    "hits": "[Hit { y: 6, x: 1, width: 98, row: 0 }, Hit { y: 7, x: 1, width: 98, row: 1 }, Hit { y: 8, x: 1, width: 98, row: 2 }, Hit { y: 9, x: 1, width: 98, row: 3 }, Hit { y: 10, x: 1, width: 98, row: 4 }, Hit { y: 11, x: 1, width: 98, row: 5 }, Hit { y: 12, x: 1, width: 98, row: 6 }, Hit { y: 13, x: 1, width: 98, row: 7 }, Hit { y: 14, x: 1, width: 98, row: 8 }, Hit { y: 15, x: 1, width: 98, row: 9 }, Hit { y: 16, x: 1, width: 98, row: 10 }, Hit { y: 17, x: 1, width: 98, row: 11 }, Hit { y: 18, x: 1, width: 98, row: 12 }, Hit { y: 19, x: 1, width: 98, row: 13 }, Hit { y: 21, x: 0, width: 100, row: 14 }]"
   },
   {
     "scenario": "many-squads",
     "width": 80,
     "lines": [
       "14 squads  ◆ 0  ✗ 0  ◐ 0  ● 14  ○ 0",
+      "",
+      "── ◆ needs you · 0 · nothing waits on you ──────────────────────────────────────",
+      "",
       "── leads · latest from each · t hides replies ──────────────────────────────────",
       "┌──────────────────────────────────────────────────────────────────────────────┐",
       "│   lead-0                                                                   – │",
@@ -363,12 +366,9 @@
       "│   lead-9                                                                   – │",
       "└──────────────────────────────────────────────────────────────────────────────┘",
       "→ all leads  A to write · @ to pick",
-      "",
-      "── squads · 14 ─────────────────────────────────────────────────────────────────",
-      "   squad-00 lead-0   0 members",
-      "                                                                  ↑ 3  13 more ↓",
+      "                                                                       16 more ↓",
       "↑↓ move  ⏎ open  a answer · note  A ask  e expand  t replies  ? more  q quit"
     ],
-    "hits": "[Hit { y: 3, x: 1, width: 78, row: 0 }, Hit { y: 4, x: 1, width: 78, row: 1 }, Hit { y: 5, x: 1, width: 78, row: 2 }, Hit { y: 6, x: 1, width: 78, row: 3 }, Hit { y: 7, x: 1, width: 78, row: 4 }, Hit { y: 8, x: 1, width: 78, row: 5 }, Hit { y: 9, x: 1, width: 78, row: 6 }, Hit { y: 10, x: 1, width: 78, row: 7 }, Hit { y: 11, x: 1, width: 78, row: 8 }, Hit { y: 12, x: 1, width: 78, row: 9 }, Hit { y: 13, x: 1, width: 78, row: 10 }, Hit { y: 14, x: 1, width: 78, row: 11 }, Hit { y: 15, x: 1, width: 78, row: 12 }, Hit { y: 16, x: 1, width: 78, row: 13 }, Hit { y: 18, x: 0, width: 80, row: 14 }, Hit { y: 21, x: 0, width: 80, row: 15 }]"
+    "hits": "[Hit { y: 6, x: 1, width: 78, row: 0 }, Hit { y: 7, x: 1, width: 78, row: 1 }, Hit { y: 8, x: 1, width: 78, row: 2 }, Hit { y: 9, x: 1, width: 78, row: 3 }, Hit { y: 10, x: 1, width: 78, row: 4 }, Hit { y: 11, x: 1, width: 78, row: 5 }, Hit { y: 12, x: 1, width: 78, row: 6 }, Hit { y: 13, x: 1, width: 78, row: 7 }, Hit { y: 14, x: 1, width: 78, row: 8 }, Hit { y: 15, x: 1, width: 78, row: 9 }, Hit { y: 16, x: 1, width: 78, row: 10 }, Hit { y: 17, x: 1, width: 78, row: 11 }, Hit { y: 18, x: 1, width: 78, row: 12 }, Hit { y: 19, x: 1, width: 78, row: 13 }, Hit { y: 21, x: 0, width: 80, row: 14 }]"
   }
 ]

@@ -125,6 +125,21 @@ pub struct Read {
     pub(super) elapsed_ms: u128,
 }
 
+#[cfg(test)]
+impl Read {
+    /// A finished lead read for `sender`, in the given roster order.
+    pub(super) fn for_test(sender: &str, leads: Vec<Lead>) -> Self {
+        Self {
+            sender: Some(sender.into()),
+            leads,
+            failure: None,
+            incomplete: false,
+            calls: 0,
+            elapsed_ms: 0,
+        }
+    }
+}
+
 #[derive(Default)]
 pub(super) struct State {
     sender: Option<String>,

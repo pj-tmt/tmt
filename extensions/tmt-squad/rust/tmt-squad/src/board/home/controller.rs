@@ -458,6 +458,7 @@ impl App {
             .position(|entry| entry.target == target)
         {
             self.selected = index;
+            self.home_start = false;
             self.home_target = Some(target.clone());
         }
         self.input = Some(Input {

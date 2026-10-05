@@ -60,6 +60,14 @@ and changed clock text or spinner frames, rather than periodic full repainting.
   text or end label. The lead tag stays inside the member cell, cuts before the
   name, disappears below two cells and reserves no width on other rows. Age/cron
   room is reserved only if it hides no additional column; cron drops before age.
+- Selection words: `Look::selected_words` is the one owner of what a real selection
+  background (`tmt`, `tmt-light`) does to colors. `render_frame` runs it last, over the
+  finished buffer: on a cell with the selection background, `muted`, `dim`, `accent`, `link` and the
+  state colors (waiting, working, review, blocked) paint in `text` unless the cell is a
+  single mark glyph (`MARKS`; a dim or muted mark still becomes `text`). Surfaces name no
+  word/mark classes; `render_replica` in `frame_timing` repeats the call. The reverse
+  fallback stays with `row_span`. The contrast test in `tmt-cli-style` pins text 4.5:1
+  and marks 3:1 on that background.
 
 ## Composition, folds and scrolling
 

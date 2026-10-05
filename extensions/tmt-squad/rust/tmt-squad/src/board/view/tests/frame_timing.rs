@@ -116,6 +116,7 @@ fn render_replica(frame: &mut Frame, app: &App, lap: &mut Lap) {
     lap.mark("footer strip");
     overlays::render(frame, app, body, look);
     waiting::prompt(frame, app, body);
+    look.selected_words(frame.buffer_mut());
     lap.mark("overlays and prompts");
 }
 

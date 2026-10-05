@@ -1,5 +1,5 @@
 import type { CommentContext } from './thread-store.js';
-import { Check, CircleAlert, Clock, Pause } from 'lucide-react';
+import { CircleAlert, Clock, Pause } from 'lucide-react';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import type { PreviewAttempt } from './ask-preview.js';
 import { ASK_OBSERVATION_MS, type LedgerState } from './ask-records.js';
@@ -7,7 +7,7 @@ import { ReadRefusedError } from './ask-remote.js';
 import type { RemoteAgent } from './ask-remote.js';
 import type { AskDestination } from './ask-intent.js';
 import { text } from './strings.js';
-import { relativeTime, compactRelativeTime } from './display-time.js';
+import { ConversationTurn } from './components/conversation-turn.js';
 
 /** Capabilities stay in trusted parent chrome. The mounted adapter owns current
  * page/member/grant admission and returns the existing frozen/signing attempt. */
@@ -76,7 +76,6 @@ export function AskPanel({
   useEffect(() => {
     const timestamp = Date.now();
     setNow(timestamp);
-    if (!chat) return;
     const deadlines = records
       .filter(
         (record) =>
@@ -161,31 +160,23 @@ export function AskPanel({
                 (record.reply !== undefined || record.resultUnavailable)
               ? text.askDeliveryAccepted
               : states[record.state];
-        // Chat states are a mark plus a word: the mark is colored by the state's role, the word is
+        // Pending states are a mark plus a word: the mark is colored by the state's role, the word is
         // never dropped.
-        const chatState: { mark: ReactNode; tone: string; label: string } | undefined = chat
-          ? record.reply !== undefined
-            ? { mark: <Check />, tone: 'done', label: 'replied' }
-            : timedOut
-              ? { mark: <Clock />, tone: 'waiting', label: 'no reply yet' }
-              : ['dispatching', 'accepted'].includes(record.state) && !record.resultUnavailable
-                ? { mark: <Clock />, tone: 'waiting', label: 'waiting' }
-                : record.state === 'held'
-                  ? { mark: <Pause />, tone: 'held', label: `held · ${stateCopy}` }
-                  : { mark: <CircleAlert />, tone: 'problem', label: stateCopy }
-          : undefined;
-        const status = (
+        const deliveryState: { mark: ReactNode; tone: string; label: string } = timedOut
+          ? { mark: <Clock />, tone: 'waiting', label: 'no reply yet' }
+          : ['dispatching', 'accepted'].includes(record.state) && !record.resultUnavailable
+            ? { mark: <Clock />, tone: 'waiting', label: 'waiting' }
+            : record.state === 'held'
+              ? { mark: <Pause />, tone: 'held', label: `held · ${stateCopy}` }
+              : { mark: <CircleAlert />, tone: 'problem', label: stateCopy };
+        const status = record.reply === undefined && (
           <span role="status" data-testid="ask-state" data-state={record.state}>
-            {chatState ? (
-              <span className="ask-state" data-tone={chatState.tone}>
-                <span className="ask-state-mark" aria-hidden>
-                  {chatState.mark}
-                </span>
-                {chatState.label}
+            <span className="ask-state" data-tone={deliveryState.tone}>
+              <span className="ask-state-mark" aria-hidden>
+                {deliveryState.mark}
               </span>
-            ) : (
-              stateCopy
-            )}
+              {deliveryState.label}
+            </span>
           </span>
         );
         // Only the page-level ask list carries identities; no surface shows the delivered bytes on demand.
@@ -244,84 +235,62 @@ export function AskPanel({
           </>
         );
         const reply = record.reply !== undefined && (
-          <section className={chat ? 'chat-agent-turn' : undefined} aria-label={text.askReply}>
-            {chat ? (
-              <p className="chat-byline" data-testid="ask-reply-attribution">
-                {record.agentName || text.askAgentLabel} ·{' '}
-                <time dateTime={new Date(record.issuedAt).toISOString()}>
-                  {compactRelativeTime(record.issuedAt, now)}
-                </time>
-              </p>
-            ) : (
-              <h4 data-testid="ask-reply-attribution">
-                {text.askReplyFrom} {record.agentName || text.askAgentLabel}
-                <small className="isolation-note">
-                  {record.deviceName} · {relativeTime(record.issuedAt, now)}
-                </small>
-              </h4>
-            )}
+          <ConversationTurn
+            role="agent"
+            layout={chat ? 'chat' : 'thread'}
+            author={record.agentName || text.askAgentLabel}
+            at={record.issuedAt}
+            authorTitle={record.agent}
+            bylineTestId="ask-reply-attribution"
+            aria-label={text.askReply}
+          >
             <pre data-testid="ask-reply" data-empty={record.reply === ''}>
               {record.reply}
             </pre>
             {record.reply === '' && <p>{text.askEmptyReply}</p>}
-          </section>
+          </ConversationTurn>
+        );
+        const delivery = (
+          <>
+            {status}
+            {details}
+            {controls}
+          </>
         );
         return (
-          <article
-            className={chat ? 'chat-exchange' : undefined}
+          <div
+            className="conversation-exchange"
             data-testid="ask-entry"
             data-operation-id={record.operationId}
+            data-ledger-state={record.state}
             data-writer={record.writer}
             tabIndex={-1}
             key={`${record.writer}:${record.operationId}`}
             aria-label={`${text.ask} ${record.operationId}`}
           >
-            {chat ? (
-              <>
-                {renderUser ? (
-                  renderUser(
-                    record,
-                    status,
-                    <>
-                      {details}
-                      {controls}
-                    </>,
-                  )
-                ) : (
-                  <article className="chat-user-turn">
-                    <header>
-                      <p className="chat-byline">
-                        {record.deviceName} · {compactRelativeTime(record.issuedAt, now)}
-                      </p>
-                      {status}
-                    </header>
-                    <pre>{record.message}</pre>
-                    {details}
-                    {controls}
-                  </article>
-                )}
-                {reply}
-              </>
+            {renderUser ? (
+              renderUser(
+                record,
+                status,
+                <>
+                  {details}
+                  {controls}
+                </>,
+              )
             ) : (
-              <>
-                {!inline && <h3>{record.agentName || text.askAgentLabel}</h3>}
-                <p className="isolation-note">
-                  {inline ? record.agentName || text.askAgentLabel : record.deviceName} ·{' '}
-                  <time
-                    dateTime={new Date(record.issuedAt).toISOString()}
-                    title={`${text.askCreated} ${new Date(record.issuedAt).toISOString()}`}
-                  >
-                    {relativeTime(record.issuedAt, now)}
-                  </time>
-                </p>
-                {details}
+              <ConversationTurn
+                role="user"
+                layout={chat ? 'chat' : 'thread'}
+                author={record.deviceName || text.commentDevice}
+                at={record.issuedAt}
+                authorTitle={record.writer}
+                delivery={delivery}
+              >
                 {!inline && <pre>{record.message}</pre>}
-                {status}
-                {controls}
-                {reply}
-              </>
+              </ConversationTurn>
             )}
-          </article>
+            {reply}
+          </div>
         );
       })}
     </section>
