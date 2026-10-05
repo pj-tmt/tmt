@@ -60,3 +60,8 @@ the platform opener shared with Colab; Remote retains its own presentation. The
 an open. `settings` owns the private `settings.json` / `settings.lock` under Remote's
 existing layout, independent of the database/serve lease. Missing settings use the default;
 malformed settings use it with a human warning. Setters serialize through the bounded lock.
+
+The [planned settings/device page authority](../../../../contracts/remote-channel-v1.md#remote-settings-browser-authority)
+is separate from paired channel trust and remains unimplemented. Reuse this settings owner and
+the existing device/session mutation owners when implementing it; shared presentation supplies
+no authority. Current CLI settings/device behavior is unchanged.
