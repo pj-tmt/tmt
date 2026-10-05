@@ -21,6 +21,10 @@ export class ManagementPage {
   busy = false;
   notice = '';
   private freshAttempted = false;
+  private cursor: string | null = null;
+  get onFirstPage(): boolean {
+    return this.cursor === null;
+  }
   constructor(
     private client: RemoteManagement,
     private readonly reopen: () => Promise<RemoteManagement>,
@@ -34,13 +38,14 @@ export class ManagementPage {
       !(this.outcome?.state === 'refused' && this.outcome.reason === 'REMOTE_MANAGEMENT_CAPACITY')
     );
   }
-  async refresh(cursor: string | null = null): Promise<void> {
+  async refresh(cursor: string | null = this.cursor): Promise<void> {
     this.busy = true;
     try {
       const settings = await this.client.settings();
       const devices = await this.client.devices({ cursor, limit: 25 });
       this.settings = settings;
       this.devices = devices;
+      this.cursor = cursor;
       this.access = 'live';
       if (this.outcome) this.describeOutcome();
       else this.notice = settings.settings.warning ?? '';

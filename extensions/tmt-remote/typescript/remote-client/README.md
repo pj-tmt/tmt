@@ -263,3 +263,7 @@ descriptor is current-access refusal; a changed/stale/malformed/unavailable desc
 transport/unverified reply is unconfirmed. Neither establishes committed revoke or permanent
 grant loss. A descriptor recheck is another read, never another admission/mutation. Existing
 no-argument reopen behavior is unchanged.
+
+The settings draft retains the current device page during value/effect/recovery refreshes.
+First/next navigation focuses an unsent device name and refuses to leave until that name is saved
+or restored to its admitted value. Only the current bounded page's forms are retained.

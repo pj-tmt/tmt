@@ -184,3 +184,30 @@ test('capacity refusal names local CLI and acknowledged self-change remains comm
   assert.equal(acknowledged.page.access, 'lost');
   assert.equal(acknowledged.page.outcome!.state, 'committed');
 });
+
+test('ordinary, effect and original-receipt refresh retain the last successfully loaded cursor', async () => {
+  const f = fixture();
+  const cursors: (string | null)[] = [];
+  f.remote.devices = async ({ cursor }) => {
+    cursors.push(cursor);
+    return { devices: [], nextCursor: 'next' };
+  };
+  await f.page.refresh();
+  await f.page.refresh('later-page');
+  await f.page.refresh();
+  const intent = input();
+  f.setResult({
+    operationId: intent.input.operationId,
+    state: 'committed',
+    result: { settings: f.page.settings!.settings },
+    sessionEnded: false,
+  });
+  await f.page.submit(intent);
+  await f.page.refresh();
+  await f.page.recover();
+  await f.page.refresh();
+  assert.deepEqual(cursors, [null, 'later-page', 'later-page', 'later-page', 'later-page']);
+  assert.equal(f.page.onFirstPage, false);
+  await f.page.refresh(null);
+  assert.equal(f.page.onFirstPage, true);
+});

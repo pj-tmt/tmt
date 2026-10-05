@@ -877,3 +877,84 @@ test('settings draft preserves authority, exact values, drafts and unknown self-
   expect(calls.filter((call) => call.operation === 'dispatch.create')).toHaveLength(0);
   await context.close();
 });
+
+test('settings pagination retains later-page drafts across refresh and guards navigation', async () => {
+  pair = spawn(BINARY, ['pair', '--json'], { env });
+  const events = lines(pair);
+  const offer = await events.next();
+  const context = await browser.newContext();
+  const page = await context.newPage();
+  await page.goto(offer.link as string);
+  await page.fill('#name', 'Pagination browser');
+  await page.click('button');
+  await expect(page.locator('#words')).toBeVisible();
+  await events.next();
+  pair.stdin.write('confirm\n');
+  expect((await events.next()).reason).toBe('paired');
+  await expect(page.locator('#status')).toContainText('This browser is paired.');
+  await exited(pair);
+  const inventory = JSON.parse(
+    execFileSync(BINARY, ['devices', '--json'], { env, encoding: 'utf8' }),
+  ) as { devices: { clientId: string }[] };
+  execFileSync(BINARY, ['devices', 'designate', inventory.devices[0]!.clientId, '--json'], { env });
+  // Populate only the disposable fixture's Store with 52 distinct live grants.
+  // The paired browser still supplies every signed read/effect; no authority is mocked.
+  execFileSync('python3', [
+    '-c',
+    "import sqlite3,sys; db=sqlite3.connect(sys.argv[1]); db.executemany('INSERT INTO grants VALUES (?,?,?,?,?,?,?,?,?,?,?,?)', [('00000000-0000-4000-8000-%012d'%i, i.to_bytes(32,'big'),'browser',sys.argv[2],'Device %d'%i,'all','capabilities','direct',0,None,1,0) for i in range(1,53)]); db.commit(); db.close()",
+    join(root, 'state/remote/remote.db'),
+    origin,
+  ]);
+  await page.goto(`${origin}/settings`);
+  await expect(page.locator('.device')).toHaveCount(25);
+  await page.click('#more');
+  const name = page.locator('#name-00000000-0000-4000-8000-000000000026');
+  await expect(name).toBeVisible();
+  await name.fill('Unsent later-page name');
+  await name.evaluate((input) => (input as HTMLInputElement).setSelectionRange(3, 3));
+  await page.click('#refresh');
+  await expect(page.locator('#refresh')).toBeEnabled();
+  await expect(name).toHaveValue('Unsent later-page name');
+  expect(await name.evaluate((input) => (input as HTMLInputElement).selectionStart)).toBe(3);
+  // A different committed effect also refreshes this page without resetting its forms.
+  await page.selectOption('#opening', 'off');
+  await page.click('#opening-form button');
+  await expect(page.locator('#opening-value')).toHaveText('Off · settings.json');
+  await expect(name).toHaveValue('Unsent later-page name');
+  // Original-receipt recovery refresh also stays on this page after a real lost ack.
+  let settingCalls = 0;
+  await page.route('**/append', async (route) => {
+    if (route.request().postDataJSON().operation === 'remote.settings.set') {
+      settingCalls++;
+      expect((await route.fetch()).status()).toBe(200);
+      await route.abort();
+    } else await route.continue();
+  });
+  await page.selectOption('#opening', 'on');
+  await page.click('#opening-form button');
+  await expect(page.locator('#outcome')).toContainText('unknown');
+  const original = await page.locator('#original').textContent();
+  await page.click('#recover');
+  await expect(page.locator('#opening-value')).toHaveText('On · settings.json');
+  await expect(page.locator('#outcome')).toContainText('committed');
+  await expect(page.locator('#original')).toHaveText(original!);
+  await expect(name).toHaveValue('Unsent later-page name');
+  expect(settingCalls).toBe(1);
+  // Both directions refuse to discard a dirty UUID-bound form, keeping it focused.
+  await page.click('#more');
+  await expect(page.locator('#outcome')).toContainText('Save or restore');
+  await expect(name).toHaveValue('Unsent later-page name');
+  await expect(name).toBeFocused();
+  await page.click('#first');
+  await expect(name).toHaveValue('Unsent later-page name');
+  await expect(name).toBeFocused();
+  await expect(page.locator('.device')).toHaveCount(25);
+  // Explicit restoration permits bounded navigation; return still uses server metadata.
+  await name.fill('Device 26');
+  await page.click('#first');
+  await expect(page.locator('#name-00000000-0000-4000-8000-000000000001')).toBeVisible();
+  await page.click('#more');
+  await expect(name).toHaveValue('Device 26');
+  await expect(page.locator('.device')).toHaveCount(25);
+  await context.close();
+});

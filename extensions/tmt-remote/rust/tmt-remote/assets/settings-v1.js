@@ -11,6 +11,10 @@ var ManagementPage = class {
 	busy = false;
 	notice = "";
 	freshAttempted = false;
+	cursor = null;
+	get onFirstPage() {
+		return this.cursor === null;
+	}
 	constructor(client, reopen) {
 		this.client = client;
 		this.reopen = reopen;
@@ -18,7 +22,7 @@ var ManagementPage = class {
 	get writable() {
 		return this.access === "live" && this.settings?.capabilities.settingsWrite === true && !this.busy && this.outcome?.state !== "unknown" && !(this.outcome?.state === "refused" && this.outcome.reason === "REMOTE_MANAGEMENT_CAPACITY");
 	}
-	async refresh(cursor = null) {
+	async refresh(cursor = this.cursor) {
 		this.busy = true;
 		try {
 			const settings = await this.client.settings();
@@ -28,6 +32,7 @@ var ManagementPage = class {
 			});
 			this.settings = settings;
 			this.devices = devices;
+			this.cursor = cursor;
 			this.access = "live";
 			if (this.outcome) this.describeOutcome();
 			else this.notice = settings.settings.warning ?? "";
@@ -119,6 +124,7 @@ var devices = element("devices");
 var recover = element("recover");
 var refresh = element("refresh");
 var more = element("more");
+var first = element("first");
 var rows = /* @__PURE__ */ new Map();
 var initialized = false;
 var page;
@@ -156,6 +162,8 @@ function render() {
 	recover.hidden = !page.canRecover;
 	more.hidden = !page.devices?.nextCursor;
 	more.disabled = page.busy;
+	first.hidden = page.onFirstPage;
+	first.disabled = page.busy;
 	element("outcome").textContent = `${page.outcome?.state ? `${page.outcome.state}: ` : ""}${page.notice || "No change submitted."}`;
 	element("original").textContent = page.intent ? `Original operation ${page.intent.input.operationId}` : "";
 	if (page.devices) {
@@ -266,7 +274,21 @@ element("limit-form").addEventListener("submit", (event) => {
 });
 mode.addEventListener("change", render);
 refresh.addEventListener("click", () => void run(() => page.refresh()));
-more.addEventListener("click", () => void run(() => page.refresh(page.devices?.nextCursor ?? null)));
+function navigate(cursor) {
+	if (page.busy) return;
+	for (const device of page.devices?.devices ?? []) {
+		const name = rows.get(device.clientId)?.querySelector("input");
+		if (name && name.value !== device.name) {
+			page.notice = "Save or restore the unsent device name before changing pages.";
+			render();
+			name.focus();
+			return;
+		}
+	}
+	run(() => page.refresh(cursor));
+}
+more.addEventListener("click", () => navigate(page.devices?.nextCursor ?? null));
+first.addEventListener("click", () => navigate(null));
 recover.addEventListener("click", () => void run(async () => {
 	await page.recover();
 	if (page.access === "live") await page.refresh();

@@ -654,7 +654,10 @@ and this draft does not claim #1797 package adoption.
 An untouched unset/default cap remains unset; explicit off is unlimited and custom positive caps
 remain decimal text. The default option describes the missing key and does not invent a reset
 setter. Existing CLI setters do not remove keys. A custom 8 is explicit configuration, distinct
-from an unset default. Form drafts survive asynchronous outcomes and read refreshes. Non-designated
+from an unset default. Ordinary, effect and recovery refreshes retain the current device-page cursor.
+Device-name forms remain bounded to that page; navigation is refused with the unsent name focused
+until it is saved or explicitly restored to the admitted name, so navigation cannot discard a draft.
+Form drafts survive asynchronous outcomes and read refreshes. Non-designated
 browsers retain visible values and persistent local-CLI read-only guidance with disabled mutation
 controls. Unknown or capacity outcomes disable further mutation submission without discarding
 original input/ID or unsent draft text; no mutation retry/reset/replacement-ID action exists.

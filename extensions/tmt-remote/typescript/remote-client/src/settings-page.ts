@@ -13,6 +13,7 @@ const devices = element<HTMLDivElement>('devices');
 const recover = element<HTMLButtonElement>('recover');
 const refresh = element<HTMLButtonElement>('refresh');
 const more = element<HTMLButtonElement>('more');
+const first = element<HTMLButtonElement>('first');
 const rows = new Map<string, HTMLElement>();
 let initialized = false;
 let page: ManagementPage;
@@ -55,6 +56,8 @@ function render(): void {
   recover.hidden = !page.canRecover;
   more.hidden = !page.devices?.nextCursor;
   more.disabled = page.busy;
+  first.hidden = page.onFirstPage;
+  first.disabled = page.busy;
   element('outcome').textContent =
     `${page.outcome?.state ? `${page.outcome.state}: ` : ''}${page.notice || 'No change submitted.'}`;
   element('original').textContent = page.intent
@@ -168,10 +171,23 @@ element<HTMLFormElement>('limit-form').addEventListener('submit', (event) => {
 });
 mode.addEventListener('change', render);
 refresh.addEventListener('click', () => void run(() => page.refresh()));
-more.addEventListener(
-  'click',
-  () => void run(() => page.refresh(page.devices?.nextCursor ?? null)),
-);
+// Navigation never discards an unsent name. Keep only this bounded page's forms,
+// rather than accumulating drafts or cursor history across the whole inventory.
+function navigate(cursor: string | null): void {
+  if (page.busy) return;
+  for (const device of page.devices?.devices ?? []) {
+    const name = rows.get(device.clientId)?.querySelector<HTMLInputElement>('input');
+    if (name && name.value !== device.name) {
+      page.notice = 'Save or restore the unsent device name before changing pages.';
+      render();
+      name.focus();
+      return;
+    }
+  }
+  void run(() => page.refresh(cursor));
+}
+more.addEventListener('click', () => navigate(page.devices?.nextCursor ?? null));
+first.addEventListener('click', () => navigate(null));
 recover.addEventListener(
   'click',
   () =>
