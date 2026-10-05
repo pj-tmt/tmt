@@ -1596,8 +1596,17 @@ impl App {
     }
 
     pub(super) fn open_settings(&mut self, config: Config) -> Result<(), crate::core::SquadError> {
-        let mut overlay =
-            super::settings::Overlay::open(config, self.shown_tab(), self.selected_section())?;
+        let window = self
+            .meter
+            .as_ref()
+            .filter(|meter| meter.settings.enabled)
+            .map(|_| self.token_window.label().to_owned());
+        let mut overlay = super::settings::Overlay::open(
+            config,
+            self.shown_tab(),
+            self.selected_section(),
+            window,
+        )?;
         overlay.opening_focus = self.focus;
         overlay.squad_keys = self.squad_keys.clone();
         overlay.staleness = self
@@ -1962,14 +1971,7 @@ impl App {
                 return self.toggle_panes(&panes);
             }
             Verb::TokenWindow => {
-                if let Some(meter) = self.meter.as_mut() {
-                    self.token_window = self.token_window.next(meter.settings.windows);
-                    self.window_changed = true;
-                    let now = Instant::now();
-                    meter.select(self.token_window, now);
-                    self.project_usage(now);
-                    self.notice = Some(format!("Token window: {}", self.token_window.label()));
-                }
+                self.cycle_token_window();
                 return Effect::None;
             }
             Verb::HomeReplies => {
@@ -2473,6 +2475,18 @@ impl App {
             .and_then(|input| self.reply_quote(input.row_send.as_ref()?, &input.compose));
         if let Some(input) = &mut self.input {
             input.quote = quote;
+        }
+    }
+
+    /// The next token window of the summary meter, when the squad samples one.
+    fn cycle_token_window(&mut self) {
+        if let Some(meter) = self.meter.as_mut() {
+            self.token_window = self.token_window.next(meter.settings.windows);
+            self.window_changed = true;
+            let now = Instant::now();
+            meter.select(self.token_window, now);
+            self.project_usage(now);
+            self.notice = Some(format!("Token window: {}", self.token_window.label()));
         }
     }
 
@@ -2995,6 +3009,23 @@ impl App {
                             self.settings_preview();
                             self.settings = None;
                             Effect::CancelSettings
+                        }
+                        super::settings::Input::Pick("window") => {
+                            self.cycle_token_window();
+                            let label = self.token_window.label().to_owned();
+                            if let Some(overlay) = &mut self.settings {
+                                overlay.set_pick("window", label);
+                            }
+                            Effect::None
+                        }
+                        super::settings::Input::Pick(id) => {
+                            self.settings_preview();
+                            self.settings = None;
+                            if id == "theme" {
+                                Effect::PickTheme
+                            } else {
+                                Effect::PickView
+                            }
                         }
                     })
                 }
