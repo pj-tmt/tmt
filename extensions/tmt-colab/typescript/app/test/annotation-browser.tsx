@@ -11,8 +11,19 @@ let writes = 0;
 let preparations = 0;
 let closes = 0;
 let commits = 0;
+let draft = '';
+let captured: unknown[] = [];
 let remote: RemoteDouble | undefined;
-export function mount(mode: 'accepted' | 'held' | 'throw' | 'prepare-failure' | 'multi' = 'held') {
+export function mount(
+  mode:
+    | 'accepted'
+    | 'held'
+    | 'throw'
+    | 'prepare-failure'
+    | 'multi'
+    | 'discovery-failure'
+    | 'write-failure' = 'held',
+) {
   root?.unmount();
   document.getElementById('annotation-fixture')?.remove();
   document.getElementById('root')?.setAttribute('hidden', '');
@@ -21,13 +32,17 @@ export function mount(mode: 'accepted' | 'held' | 'throw' | 'prepare-failure' | 
   document.body.append(host);
   writes = preparations = closes = commits = 0;
   remote = undefined;
+  draft = '';
+  captured = [];
   location.hash = `space=${selection().space}&path=${encodeURIComponent(`/pages/${id(1)}`)}`;
   const target = destination();
   const ref = { writer: id(4), id: id(2) };
   const discussion: ThreadBinding = {
     deviceId: id(4),
-    async create() {
+    async create(body, anchor) {
       writes++;
+      captured.push({ body, anchor });
+      if (mode === 'write-failure') throw new Error('Write refused');
       return {
         thread: ref,
         threadRevision: '1',
@@ -56,6 +71,7 @@ export function mount(mode: 'accepted' | 'held' | 'throw' | 'prepare-failure' | 
     const [cancelled, setCancelled] = useState(false);
     const binding: AskBinding = {
       async destinations() {
+        if (mode === 'discovery-failure') throw new Error('Discovery refused');
         return mode === 'multi'
           ? [
               target,
@@ -67,8 +83,12 @@ export function mount(mode: 'accepted' | 'held' | 'throw' | 'prepare-failure' | 
       async prepare(input) {
         preparations++;
         if (mode === 'prepare-failure') throw new Error('Preparation refused');
-        const result = await fixtureAttempt({ ...selection(), ...input }, target, {
-          mode: mode === 'multi' ? 'held' : mode,
+        captured.push(input);
+        const result = await fixtureAttempt({ ...selection(), ...input }, input.destination, {
+          mode:
+            mode === 'multi' || mode === 'discovery-failure' || mode === 'write-failure'
+              ? 'held'
+              : mode,
           operationId: crypto.randomUUID(),
         });
         remote = result.remote;
@@ -110,6 +130,9 @@ export function mount(mode: 'accepted' | 'held' | 'throw' | 'prepare-failure' | 
             title="Annotated page"
             publisher={target.agentName}
             blocked={false}
+            onDraft={(value) => {
+              draft = value;
+            }}
             cancel={() => {
               closes++;
               setCancelled(true);
@@ -128,4 +151,8 @@ export function mount(mode: 'accepted' | 'held' | 'throw' | 'prepare-failure' | 
 }
 export function proof() {
   return { writes, preparations, closes, commits, sends: remote?.sends ?? [] };
+}
+
+export function editingProof() {
+  return { draft, captured };
 }

@@ -21,7 +21,7 @@ async function mount(page: Page) {
   await expect(page.getByTestId('chat-panel')).toBeVisible();
 }
 async function compose(page: Page) {
-  const input = page.getByTestId('chat-panel').getByRole('combobox', { name: 'Message to agent' });
+  const input = page.getByTestId('chat-panel').getByRole('combobox', { name: 'Message' });
   await input.fill('@');
   await expect(page.getByRole('option')).toHaveCount(5);
   await page.getByRole('option').first().click();
@@ -36,7 +36,7 @@ test('Chat retains drafts across close and live edits; only trusted Enter freeze
   await page.getByRole('button', { name: 'Close Chat', exact: true }).click();
   expect((await run(page, 'proof')).sends).toEqual([]);
   await page.locator('#ask-page-fixture').getByTestId('chat-toggle').click();
-  await expect(input).toHaveValue('@Agent 1 Explain exactly');
+  await expect(input).toHaveText('@Agent 1 Explain exactly', { useInnerText: true });
   await run(page, 'change', '<p id="selected">Changed selected text</p>');
   await expect(page.getByRole('heading', { name: 'Changed live title' })).toBeVisible();
   await input.evaluate((node) =>
@@ -50,7 +50,7 @@ test('Chat retains drafts across close and live edits; only trusted Enter freeze
   expect(sent.message).toContain('@Agent 1 Explain exactly');
   expect(sent.message).not.toContain('Changed selected text');
   await expect(page.getByTestId('ask-preview')).toHaveCount(0);
-  await expect(input).toHaveValue('@Agent 1 ');
+  await expect(input).toHaveText('', { useInnerText: true });
   await page.locator('#ask-page-fixture').getByTestId('comments-toggle').click();
   await expect(page.getByTestId('annotation-row')).toHaveCount(0);
   await page.locator('#ask-page-fixture').getByTestId('chat-toggle').click();
@@ -76,15 +76,15 @@ test('closing a pending explicit send retains it and never dispatches again on r
   const input = await compose(page);
   await run(page, 'pausePrepare');
   await input.press('Enter');
-  await expect(input).toBeDisabled();
+  await expect(input).toHaveAttribute('contenteditable', 'false');
   await page.getByRole('button', { name: 'Close Chat', exact: true }).click();
   await run(page, 'resumePrepare');
   await expect.poll(async () => (await run(page, 'proof')).sends.length).toBe(1);
   await page.locator('#ask-page-fixture').getByTestId('chat-toggle').click();
-  await expect(input).toHaveValue('@Agent 1 ');
+  await expect(input).toHaveText('', { useInnerText: true });
   expect((await run(page, 'proof')).sends).toHaveLength(1);
   await run(page, 'block');
-  await expect(input).toBeDisabled();
+  await expect(input).toHaveAttribute('contenteditable', 'false');
   await expect(page.getByTestId('ask-preview')).toHaveCount(0);
 });
 test('Chat shows held, pending, replied and display-only reply timeout without changing the ledger or sending', async ({
@@ -182,7 +182,7 @@ test('mobile modal Chat keeps the shared autocomplete visible and clickable in i
   await mount(page);
   const drawer = page.locator('.page-drawer[data-panel=chat][open]');
   expect(await drawer.evaluate((node) => node.matches(':modal'))).toBe(true);
-  const input = drawer.getByRole('combobox', { name: 'Message to agent' });
+  const input = drawer.getByRole('combobox', { name: 'Message' });
   await input.fill('@');
   const option = drawer.getByRole('option').first();
   await expect(option).toBeInViewport();
@@ -197,7 +197,7 @@ test('mobile modal Chat keeps the shared autocomplete visible and clickable in i
     )
     .toBe(true);
   await option.click();
-  await expect(input).toHaveValue('@Agent 1 ');
+  await expect(input).toHaveText('@Agent 1 ', { useInnerText: true });
   await expect(input).toBeFocused();
   expect((await run(page, 'proof')).sends).toEqual([]);
 });
@@ -208,7 +208,7 @@ test('mobile Chat preserves an open autocomplete inside its dialog across keyboa
   await page.setViewportSize({ width: 390, height: 900 });
   await mount(page);
   const drawer = page.locator('.page-drawer[data-panel=chat][open]');
-  const input = drawer.getByRole('combobox', { name: 'Message to agent' });
+  const input = drawer.getByRole('combobox', { name: 'Message' });
   await input.fill('@');
   await expect(drawer.getByRole('option')).toHaveCount(5);
   const close = drawer.getByRole('button', { name: 'Close Chat' });
@@ -221,7 +221,7 @@ test('mobile Chat preserves an open autocomplete inside its dialog across keyboa
   const toggle = page.locator('#ask-page-fixture').getByTestId('chat-toggle');
   await toggle.focus();
   await toggle.press('Enter');
-  await expect(input).toHaveValue('@');
+  await expect(input).toHaveText('@', { useInnerText: true });
   const option = drawer.getByRole('option').first();
   await expect(option).toBeInViewport();
   await expect
@@ -235,6 +235,6 @@ test('mobile Chat preserves an open autocomplete inside its dialog across keyboa
     )
     .toBe(true);
   await option.click();
-  await expect(input).toHaveValue('@Agent 1 ');
+  await expect(input).toHaveText('@Agent 1 ', { useInnerText: true });
   expect((await run(page, 'proof')).sends).toEqual([]);
 });

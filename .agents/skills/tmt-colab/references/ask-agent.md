@@ -95,8 +95,11 @@ modules in `extensions/tmt-colab/typescript/app/src` and `rust/tmt-colab/src/ask
 - **UI.** `annotation-input.tsx` uses the same Ask binding for direct explicit Enter
   sends; it freezes the current text and captured conversation references without a
   confirmation screen; no surface offers a "show what was sent" view. In Chat it
-  prefills `@agent` (last replier, else publisher, else the only reachable agent) and
-  Enter without a recipient shows an error and opens the list. `thread-panel.tsx`
+  chooses a stable recipient independently of message bytes (last replier, else a
+  unique current admitted publisher candidate, else the only reachable agent).
+  No mention prefix is mandatory; ambiguity requires explicit selection. Choosing
+  a recipient performs no preparation or dispatch. Plain comments remain available
+  under content-write admission when discovery fails. `thread-panel.tsx`
   renders verified replies inline and puts Edit (own annotation comments) and Delete
   (own) in the square `⋯` menu (`components/action-menu.tsx`); held/recheck/uncertainty keep the existing ledger.
   `chat-panel.tsx` replaces standalone Ask with one bottom input and page-visible
@@ -106,7 +109,8 @@ modules in `extensions/tmt-colab/typescript/app/src` and `rust/tmt-colab/src/ask
   IDs remain `ask-entry`, `ask-state`, `ask-reply` and `ask-reply-attribution` for
   pending delivery and admitted replies; `ask-entry` retains the admitted ledger
   state independently of the disappearing delivery status. `chat-toggle` opens the pane; `chat-panel` scopes its shared
-  Message to agent combobox.
+  Message combobox. The shared plaintext/history Lexical editing boundary and
+  reset/recipient ownership are defined in [architecture-state](architecture-state.md#message-editing-boundary).
 
 ## Invariants and gotchas
 

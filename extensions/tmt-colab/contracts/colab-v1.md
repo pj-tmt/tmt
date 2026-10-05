@@ -1203,7 +1203,7 @@ agent uses the same send path for annotation turns and page Chat. On explicit En
 the parent freezes the admitted quote/comment, page title, canonical mounted HTTP(S)
 page URL and chosen agent/machine before signing.
 Credentialed URLs and malformed Unicode refuse. Paused rendering or later edits
-cannot replace frozen text. The one plain @ input sends without a confirmation screen
+cannot replace frozen text. The shared plaintext message input sends without a confirmation screen
 or an on-demand delivered-message view. The own stream retains frozen bytes and
 destination UUIDs. The pane states that asks and replies are visible to everyone with page access.
 
@@ -1472,14 +1472,19 @@ The Annotate control beside a selection opens one plain trusted-parent input in 
 small anchored popover at that span. Its placement is cosmetic; the captured quote
 selector owns the thread anchor. Enter sends, Shift+Enter inserts a newline, and Esc closes the input (an unsent draft is kept). There
 is no confirmation screen or automatic send. The popover closes with its ×, with Escape from anywhere
-inside it, with a press outside it, and with a selection cleared by a page click while nothing beyond
-the prefilled `@agent` is typed; none of these interrupts a send in flight. Typed text is kept in memory
-for the page and restored, with a "Draft kept" note, when the same selection is annotated again. `@` opens the shared styled keyboard
+inside it, with a press outside it, and with a selection cleared by a page click while
+no nonblank message is typed; none of these interrupts a send in flight. Typed text is kept in memory
+for the page together with the selected recipient and restored, with a "Draft kept" note, when the same selection is annotated again. Optional `@` completion opens the shared styled keyboard
 listbox. The optional publishing name supplies a default only when it matches one
 unique reachable `agents.list` entry; unknown or ambiguous names supply no default.
 The current verified Remote grant and agent/machine UUIDs own routing and admission.
+Recipient state is independent of message bytes; a mention prefix is never mandatory.
+Replies continue a uniquely bound prior UUID/machine under current admission; ambiguity
+requires explicit selection. Choosing a recipient never prepares or dispatches. Plain
+annotation/comments can record under current content-write admission without Ask or
+agent discovery; notification is an explicit bounded action, never fan-out.
 
-Send captures the composed text, selected destination and existing conversation
+Ask captures the composed text, selected destination and existing conversation
 references, publishes the current comment through the existing own stream, then
 freezes and signs the exact Ask with its real thread and message IDs. Prior user
 comments and verified agent replies are included as quoted data, in the existing
@@ -1503,7 +1508,7 @@ remain attributed to their agent. Overlay geometry does not reflow page content.
 
 The header Chat action replaces the standalone Ask action. Chat opens a fixed right
 parent overlay (a full-screen mobile sheet) without resizing or reflowing the page.
-Messages scroll inside it; one shared @ input remains at the bottom. Closing retains
+Messages scroll inside it; one shared plaintext message input remains at the bottom. Closing retains
 the draft and admitted history. Enter explicitly captures, freezes, signs and sends;
 there is no confirmation screen or automatic send. Composed text remains in the
 conversation; frozen transport bytes stay in the Ask record. The pane states that the conversation is visible to

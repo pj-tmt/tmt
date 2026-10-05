@@ -44,10 +44,10 @@ test('a same-request annotation reply submitted while observation is paused is r
     const page = await openPage(door, browser, created);
     await selectInRenderer(page, '#quote');
     await page.getByTestId('selection-ask').click();
-    const input = page.getByRole('combobox', { name: 'Message to agent', exact: true });
-    await expect(input).toHaveValue(`@${agent.name} `);
-    await input.fill(`@${agent.name} Explain this passage.`);
-    await input.press('Enter');
+    const input = page.getByRole('combobox', { name: 'Message', exact: true });
+    await expect(input).toHaveText('', { useInnerText: true });
+    await input.fill('Explain this passage.');
+    await page.getByRole('button', { name: 'Ask agent', exact: true }).click();
     await until(() => agent.received().length === 1, 'annotation delivery');
     await expect(page.getByTestId('ask-state')).toHaveAttribute('data-state', 'accepted');
     const requestId = agent.received()[0].requestId as string;
@@ -161,12 +161,20 @@ test('paired writers retain anchored annotation conversations, direct exact send
         await selectInRenderer(first, '#quote');
         await first.getByTestId('selection-ask').click();
         const popover = first.getByRole('dialog', { name: 'Annotate selection' });
-        const prefilled = popover.getByRole('combobox', { name: 'Message to agent' });
-        await expect(prefilled).toHaveValue(`@${agent.name} `);
+        const prefilled = popover.getByRole('combobox', { name: 'Message' });
+        await expect(prefilled).toHaveText('', { useInnerText: true });
         await expect(prefilled).toBeFocused();
-        expect(await prefilled.evaluate((node: HTMLTextAreaElement) => node.selectionStart)).toBe(
-          agent.name.length + 2,
-        );
+        expect(
+          await prefilled.evaluate((node) => {
+            const selection = node.ownerDocument.getSelection();
+            return (
+              !!selection?.isCollapsed &&
+              !!selection.anchorNode &&
+              node.contains(selection.anchorNode) &&
+              selection.anchorOffset === 0
+            );
+          }),
+        ).toBe(true);
         await expect(first.getByTestId('comments-toggle')).toHaveAttribute(
           'aria-expanded',
           'false',
@@ -176,6 +184,7 @@ test('paired writers retain anchored annotation conversations, direct exact send
         await expect(first.getByRole('listbox')).toBeVisible();
         await first.screenshot({ path: `/tmp/1587-native-${width}-${theme}-autocomplete.png` });
         await prefilled.press('Escape');
+        await prefilled.fill('');
         await prefilled.press('Escape');
         await expect(popover).toHaveCount(0);
         await expect(first.getByTestId('selection-ask')).toBeVisible();
@@ -187,21 +196,21 @@ test('paired writers retain anchored annotation conversations, direct exact send
     await selectInRenderer(first, '#quote');
     await first.getByTestId('selection-ask').click();
     const compose = first.locator('.annotation-new');
-    const input = compose.getByRole('combobox', { name: 'Message to agent' });
-    await expect(input).toHaveValue(`@${agent.name} `);
+    const input = compose.getByRole('combobox', { name: 'Message' });
+    await expect(input).toHaveText('', { useInnerText: true });
     const over = `@${agent.name} ${'é'.repeat(8193)}`;
     await input.fill(over);
     await input.press('Enter');
     await expect(compose.getByRole('alert')).toContainText('could not be recorded');
-    await expect(input).toHaveValue(over);
+    await expect(input).toHaveText(over, { useInnerText: true });
     expect(agent.received()).toHaveLength(0);
     const opening = `@${agent.name} <script>plain discussion</script>\nPlease explain this.`;
     await input.fill(opening);
     await expect(compose.locator('details')).toHaveCount(0);
-    await input.press('Enter');
+    await compose.getByRole('button', { name: 'Ask agent', exact: true }).click();
     await until(() => agent.received().length === 1, 'opening annotation delivered');
     expect(agent.received()[0].message).toContain('[remote: discussion-author]\n');
-    expect(agent.received()[0].message).toContain(opening.slice(agent.name.length + 2));
+    expect(agent.received()[0].message).toContain(opening);
     const t1 = first.getByTestId('comment-thread').first();
     await expect(t1).toHaveAttribute('data-anchor', 'attached');
     const threadId = (await t1.getAttribute('data-thread-id'))!;
@@ -230,7 +239,9 @@ test('paired writers retain anchored annotation conversations, direct exact send
     const follow = await inputFor(t2, agent.name);
     await follow.fill(`@${agent.name} A follow-up from another device.`);
     await follow.press('Shift+Enter');
-    await expect(follow).toHaveValue(`@${agent.name} A follow-up from another device.\n`);
+    await expect(follow).toHaveText(`@${agent.name} A follow-up from another device.\n`, {
+      useInnerText: true,
+    });
     await follow.type('One more line.');
     await follow.press('Enter');
     await until(() => agent.received().length === 2, 'follow-up annotation delivered');
@@ -296,7 +307,7 @@ test('paired writers retain anchored annotation conversations, direct exact send
         await first.evaluate((theme) => {
           document.documentElement.dataset.theme = theme;
         }, theme);
-        await t1.getByRole('combobox', { name: 'Message to agent', exact: true }).press('Escape');
+        await t1.getByRole('combobox', { name: 'Message', exact: true }).press('Escape');
         await first.locator('.page-drawer[open] .drawer-body').evaluate((node) => {
           node.scrollTop = 0;
         });
@@ -316,9 +327,7 @@ test('paired writers retain anchored annotation conversations, direct exact send
         await first.screenshot({ path: `/tmp/1690-native-${width}-${theme}-comment-menu.png` });
         await menu.press('Escape');
         await expect(own.getByRole('menuitem')).toHaveCount(0);
-        await t1
-          .getByRole('combobox', { name: 'Message to agent', exact: true })
-          .scrollIntoViewIfNeeded();
+        await t1.getByRole('combobox', { name: 'Message', exact: true }).scrollIntoViewIfNeeded();
         await first.screenshot({ path: `/tmp/1587-native-${width}-${theme}-input.png` });
       }
       await first.evaluate(() => {

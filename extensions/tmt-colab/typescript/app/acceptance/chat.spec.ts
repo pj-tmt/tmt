@@ -79,8 +79,8 @@ test('page-visible device Chat threads send exact bytes once, preserve drafts, k
     const before = await first.locator('iframe').boundingBox();
     await openChat(first);
     const panel = first.getByTestId('chat-panel');
-    const input = panel.getByRole('combobox', { name: 'Message to agent' });
-    await expect(input).toHaveValue(`@${agent.name} `);
+    const input = panel.getByRole('combobox', { name: 'Message' });
+    await expect(input).toHaveText('', { useInnerText: true });
     await expect(panel.locator('.annotation-compose details')).toHaveCount(0);
     await expect(panel).toContainText('Visible to everyone with page access.');
     await expect(panel.getByRole('button', { name: 'Delete thread', exact: true })).toHaveCount(0);
@@ -89,7 +89,7 @@ test('page-visible device Chat threads send exact bytes once, preserve drafts, k
     await input.fill(opening);
     await first.getByRole('button', { name: 'Close Chat', exact: true }).click();
     await openChat(first);
-    await expect(input).toHaveValue(opening);
+    await expect(input).toHaveText(opening, { useInnerText: true });
     expect(agent.received()).toHaveLength(0);
     const draft = await composeChat(
       first,
@@ -161,7 +161,7 @@ test('page-visible device Chat threads send exact bytes once, preserve drafts, k
           .toBe(true);
         await first.screenshot({ path: `/tmp/1645-native-${width}-${theme}-autocomplete.png` });
         await option.click();
-        await expect(input).toHaveValue(`@${agent.name} `);
+        await expect(input).toHaveText(`@${agent.name} `, { useInnerText: true });
         await input.fill('@');
         await input.press('Escape');
         await expect(input).toBeVisible();

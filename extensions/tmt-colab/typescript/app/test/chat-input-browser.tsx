@@ -57,7 +57,12 @@ export function mountComposer(options: { agents: string[]; publisher?: string; r
       asks={[]}
       title="Chat page"
       publisher={options.publisher}
-      replier={options.replier}
+      replier={(() => {
+        const matches = agents.filter((agent) => agent.agentName === options.replier);
+        return matches.length === 1
+          ? { machine: matches[0].machine, agent: matches[0].agent }
+          : undefined;
+      })()}
       blocked={false}
       cancel={() => {}}
       committed={() => {}}

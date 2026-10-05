@@ -1,5 +1,5 @@
 import { expect, it } from 'vite-plus/test';
-import { mentionedDestination, publishingDestination } from '../src/annotation-input.js';
+import { publishingDestination } from '../src/annotation-input.js';
 import { destination, id } from './ask-fixtures.js';
 import { validateProjection } from '../src/fold-protocol.js';
 
@@ -13,11 +13,6 @@ it('defaults only to a unique reachable publishing name and keeps ambiguous name
   ])
     expect(publishingDestination(agents, 'publisher')).toBeUndefined();
   expect(publishingDestination([target], undefined)).toBeUndefined();
-  expect(mentionedDestination('@publisher Explain this', [target])).toBe(target);
-  expect(mentionedDestination('@publisher-other Explain this', [target])).toBeUndefined();
-  expect(
-    mentionedDestination('@publisher Explain this', [target, { ...target, agent: id(9) }]),
-  ).toBeUndefined();
 });
 it('accepts bounded publisher metadata and rejects type, control and Unicode byte overflows', () => {
   for (const publisherAgent of ['publisher', 'é'.repeat(64)])

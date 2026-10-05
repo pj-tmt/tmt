@@ -16,6 +16,7 @@ export type MessageComposerProps = {
   label: string;
   placeholder?: string;
   disabled: boolean;
+  autoFocus?: boolean;
   candidates?: readonly AgentDestination[];
   /** An intentional parent replacement starts a fresh editing/history lifetime. */
   resetKey?: string | number;

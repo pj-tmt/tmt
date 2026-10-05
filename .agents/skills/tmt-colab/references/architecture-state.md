@@ -41,6 +41,38 @@ an app build. Only these files and `renderer.html` are public; the rest of the a
 guidance CSP and pairing failure/reload guard alongside the app lifecycle tests (`served.spec.ts`,
 `session-recovery.test.ts`).
 
+## Message editing boundary
+
+The main app uses one Colab-local `components/message-composer.tsx` for Chat,
+annotations, agent follow-ups, plain replies and comment edits. Exact 0.52.0
+`lexical`, `@lexical/react`, `@lexical/plain-text` and `@lexical/history` are app-only
+runtime dependencies; only plaintext/history extensions are imported. The source
+editor is a separate editing mode. Reader and recovery entries have no composer.
+
+`ComposerEdit` emits one atomic snapshot of exact plaintext, optional parent-selected
+machine/agent identity and cosmetic mention-token range. Paragraphs serialize with
+one LF, retaining blank and trailing lines. Parent echoes preserve the editing
+history/selection; explicit reset keys end a draft's editing lifetime. Mention-node
+identity follows edits and undo; editing/removing the token invalidates its cosmetic
+metadata without changing recipient authority. No Lexical document is persisted or
+sent as a routing instruction.
+
+`AnnotationInput` owns the plaintext draft, selected recipient, trusted action,
+current write/Ask admission and immutable send capture. `messageRecipient` is a pure
+parent presentation policy: plain comments resolve before agent discovery, while an
+explicit Ask uses a current stable destination. Publisher display-name metadata can
+supply a default only through one unique current admitted candidate. Prior replies
+use UUID/machine keys, never display labels. Ambiguous/stale choices do not silently
+retarget. `conversationAsks` owns comment/Ask association for display, reply defaults
+and captured conversation; the editor has no storage, ledger, notification or Remote
+capability. Content-write and Ask failures retain the existing draft/recorded-turn
+and uncertainty rules; recipient selection performs no preparation or dispatch.
+
+Candidate geometry is input-only in the shared Listbox: it uses viewport bounds and
+the native popover layer, remaining inside the current modal dialog's ownership.
+Management pickers retain their button policy. No native asset allowlist, embedding
+mechanism or CSP changes are required; no inline-style/eval relaxation is permitted.
+
 ## Read-only reader
 
 `src/reader-link.ts` parses the fragment (strict grammar in the contract), `src/reader.ts`

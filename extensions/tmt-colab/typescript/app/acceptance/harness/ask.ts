@@ -90,7 +90,7 @@ export async function selectInRenderer(page: Page, selector: string): Promise<vo
 
 /** Choose an annotation recipient through the shared parent input listbox. */
 export async function annotationInput(container: Locator, agent: string) {
-  const input = container.getByRole('combobox', { name: 'Message to agent', exact: true });
+  const input = container.getByRole('combobox', { name: 'Message', exact: true });
   await input.fill('');
   await input.fill('@');
   await container
@@ -139,7 +139,7 @@ export async function sendChat(page: Page, composed: ComposedChat) {
   const earlier = await panel
     .getByTestId('ask-entry')
     .evaluateAll((nodes) => nodes.map((node) => (node as HTMLElement).dataset.operationId));
-  await panel.getByRole('combobox', { name: 'Message to agent' }).press('Enter');
+  await panel.getByRole('combobox', { name: 'Message' }).press('Enter');
   const entries = panel.getByTestId('ask-entry');
   await expect
     .poll(
