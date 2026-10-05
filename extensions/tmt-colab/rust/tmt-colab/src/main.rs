@@ -95,6 +95,22 @@ fn grammar() -> Command {
         outputs: OutputModes::HumanAndJson,
         details: "Asks the serving process over its owner-only socket, never by signalling a pid. A Remote door that serve started stops with it; a door it only attached to keeps running. Pairings and data are untouched. Not running is not an error.",
     };
+    const OPEN: CommandSpec = CommandSpec {
+        name: "open",
+        summary: "Open the existing space or a page in your browser",
+        examples: &[
+            Example {
+                command: "tmt colab open",
+                note: "Open the running space home",
+            },
+            Example {
+                command: "tmt colab open 10000000-0000-4000-8000-000000000001",
+                note: "Open an existing page; a unique UUID prefix also works",
+            },
+        ],
+        outputs: OutputModes::HumanAndJson,
+        details: "Omit PAGE for the existing space home. This explicit request opens even without a terminal or with the automatic-open setting off. --no-open and --json only print link facts. Uses the running Colab and Remote services; never starts another service, pairs a browser or changes page access. If Colab is stopped, run tmt colab serve. Missing, deleted or ambiguous pages are refused before opening.",
+    };
     const SETTINGS: CommandSpec = CommandSpec {
         name: "settings",
         summary: "Show or change Colab settings",
@@ -196,6 +212,9 @@ fn grammar() -> Command {
             ))
             .subcommand(tmt_cli_style::command(&SKILL_COMMAND))
             .subcommand(tmt_cli_style::command(&STOP))
+            .subcommand(open_args(
+                tmt_cli_style::command(&OPEN).arg(cli_grammar::page().required(false)),
+            ))
             .subcommand(
                 tmt_cli_style::command(&SETTINGS)
                     .arg(
