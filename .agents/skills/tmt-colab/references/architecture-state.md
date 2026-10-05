@@ -30,7 +30,7 @@ restate them.
 The app build emits its main entry plus two public standalone entries (`vp build`, then
 `vp build --mode recovery` and `vp build --mode reader`; the `build` script runs all three):
 
-- `assets/recovery.js` reuses tab coordination for private guidance.
+- `assets/recovery.js` uses the tab's bounded SDK recovery for private guidance.
 - The read-only reader (`public/reader.html` served at `/read`, `src/reader-main.tsx`) builds as fixed-name
   `assets/reader.js`, `reader.css` and `reader-fold.js` (the decoder worker), so the native allowlist
   `assets::anonymous_file` is exact. Add a file to the reader entry only together with that list,
@@ -60,10 +60,12 @@ reload receives Colab's private guidance page. That page loads the public `asset
 (`colab-recovery:<mount path>`, `src/session-recovery.ts`) spans that reload so a second
 guidance response cannot loop; authenticated boot (`mounted.ts`) clears it. A failed or
 refused reopen, or unavailable session storage, leaves plain pairing guidance and never
-retries an Ask. An open page whose sync drops shows "Sync disconnected" with the explicit
-Reconnect button, which uses the same `recoverSession` helper through `Live.reconnect` (it
-closes the page socket, Ask and observer first). Acceptance drives this through `reconnect(page)`
-in `acceptance/ask.spec.ts`.
+retries an Ask. On an open page's socket close, `Live` makes one read-only old-session
+probe: signed session end silently reopens that tab; signed eviction stops it with the
+limit notice. Transport failures remain distinct and get bounded sync catchup. If recovery
+fails, the explicit Reconnect button uses `recoverSession` through `Live.reconnect`, closing
+the page socket, Ask and observer first. The Remote restart cases drive that explicit path
+through `reconnect(page)` in `acceptance/ask.spec.ts`.
 
 ## Persistence layout
 
