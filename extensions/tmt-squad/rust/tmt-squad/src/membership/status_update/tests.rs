@@ -232,3 +232,60 @@ fn absence_is_not_legacy_empty_and_pending_clear_never_infers_state() {
             .clone()
     );
 }
+
+#[test]
+fn selected_noop_values_still_guard_the_atomic_update_against_intervening_changes() {
+    for absent_pending in [false, true] {
+        let fixture = fixture();
+        if absent_pending {
+            fixture.change_model(|model| {
+                model["members"][2]["metadata"]
+                    .as_object_mut()
+                    .unwrap()
+                    .remove("squad.product.pending");
+            });
+        }
+        let mut draft = submit(preview(&fixture));
+        let key = if absent_pending {
+            "squad.product.pending"
+        } else {
+            draft.state = draft.preview.state.clone();
+            "squad.product.state"
+        };
+        fixture.change_model(|model| {
+            model["members"][2]["metadata"][key] = json!("intervening");
+        });
+        let before = fixture.model()["members"][2]["metadata"].clone();
+        assert!(matches!(
+            apply(&fixture.core, &draft),
+            Outcome::Conflict(Ok(_))
+        ));
+        assert_eq!(fixture.model()["members"][2]["metadata"], before);
+        assert_eq!(calls(&fixture, "dispatch.create"), 0);
+    }
+}
+
+#[test]
+fn selected_noops_are_checked_but_only_changed_fields_are_announced() {
+    let fixture = fixture();
+    let mut draft = submit(preview(&fixture));
+    draft.state = draft.preview.state.clone();
+    assert!(matches!(
+        apply(&fixture.core, &draft),
+        Outcome::Applied { .. }
+    ));
+    let model = fixture.model();
+    assert_eq!(
+        model["members"][2]["metadata"]["squad.product.state"],
+        "blocked"
+    );
+    assert_eq!(
+        model["notices"][0]["input"]["message"],
+        "Ben updated board status for product/worker\npending: approve → (empty)\nReason: Approval recorded"
+    );
+    let mut noop = submit(preview(&fixture));
+    noop.state = noop.preview.state.clone();
+    assert!(matches!(apply(&fixture.core, &noop), Outcome::Refused(_)));
+    assert_eq!(calls(&fixture, "identity.meta.apply"), 1);
+    assert_eq!(calls(&fixture, "dispatch.create"), 1);
+}

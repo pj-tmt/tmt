@@ -182,7 +182,9 @@ and changed clock text or spinner frames, rather than periodic full repainting.
   the existing cancellable worker, fenced by generation, read revision and exact
   target/actor. No display/provider value becomes an expectation. `membership/status_update`
   freezes UUID, room, namespace and full keys, validates the actor and occurrence,
-  then calls unattributed public `identity.meta.apply` once for selected fields.
+  then calls unattributed public `identity.meta.apply` once for selected fields,
+  including locally unchanged selections as expectation guards. A wholly unchanged
+  submission refuses before applying; the announcement lists only changed fields.
   Exact old values and absence stay distinct; unsupported legacy values refuse.
   Conflict refresh retains context, clears field choices and needs a fresh submit; ambiguous output locks
   out mutation replay and sends no announcement. Typed `ActionOutcome::Status`

@@ -119,8 +119,8 @@ impl Submit {
         let mut lines = Vec::new();
         if self.clear_pending {
             let expect = expected(&self.preview.pending)?;
+            changes.push(json!({"key":self.preview.keys[0],"expect":expect,"then":"remove"}));
             if let Some(old) = &self.preview.pending {
-                changes.push(json!({"key":self.preview.keys[0],"expect":expect,"then":"remove"}));
                 lines.push(format!("pending: {old} → (empty)"));
             }
         }
@@ -131,16 +131,15 @@ impl Submit {
                 ));
             }
             let expect = expected(&self.preview.state)?;
+            changes.push(json!({"key":self.preview.keys[1],"expect":expect,"then":{"set":next}}));
             if self.preview.state.as_ref() != Some(next) {
-                changes
-                    .push(json!({"key":self.preview.keys[1],"expect":expect,"then":{"set":next}}));
                 lines.push(format!(
                     "state: {} → {next}",
                     self.preview.state.as_deref().unwrap_or("(absent)")
                 ));
             }
         }
-        if changes.is_empty() {
+        if lines.is_empty() {
             return Err(refuse(
                 "Choose Clear pending or an explicit different state. Nothing applied.",
             ));
