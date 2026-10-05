@@ -412,6 +412,7 @@ pub(super) fn board(sections: Value) -> App {
         attention: Default::default(),
         squad: Some("product".into()),
         view: Ok(View {
+            history_pending: false,
             ask_lead: crate::config::DEFAULT_ASK_LEAD.into(),
             home_replies: true,
             token_rate: None,
@@ -1143,6 +1144,7 @@ fn paned(board: crate::config::Board, notes: Notes) -> App {
             attention: Default::default(),
             squad: Some("product".into()),
             view: Ok(View {
+                history_pending: false,
                 ask_lead: crate::config::DEFAULT_ASK_LEAD.into(),
                 home_replies: true,
                 token_rate: None,
@@ -2989,7 +2991,7 @@ fn switching_squads_never_moves_a_tab_or_blanks_the_frame() {
     assert_eq!(before[0], during[0], "selection never changes label width");
     assert_eq!(before[0].trim_end(), "  product   reviews");
     assert!(
-        during[1].contains("loading"),
+        during[1].contains("Opening reviews"),
         "a slow switch shows a spinner"
     );
     assert!(

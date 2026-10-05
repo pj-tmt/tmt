@@ -54,10 +54,21 @@ cost or text volume. `board::rate` owns evidence, `board::meter` presentation an
 
 - Acquisition: `board::rate::Input` captures roster UUIDs and public `resume`
   values before section shaping. On named/HOME entry, the existing cancellable
-  worker batches `consumption.history` for at most 32 UUIDs per call, requesting
-  one longest window capped at the API's 1 h limit. The transient response is
-  validated and consumed once into the existing Rate rings; it is not retained
-  as a second history store. Ordinary reloads do not acquire history.
+  worker publishes the usable roster before acquiring history. It batches
+  `consumption.history` for at most 32 UUIDs per call, requesting one longest
+  window capped at the API's 1 h limit. The worker may reuse validated seeds
+  only with the same successful core change cursor, closed five-second range
+  and requested window; missing UUIDs are fetched, failures are not cached, and
+  any unknown/changed cursor or time range discards reuse. This bounded worker
+  cache does not replace interval freshness for panes or notebooks.
+  Ordinary reloads do not acquire history.
+- Publication: the same worker serializes roster, history and a fresh public
+  usage observation. History never replays the opening snapshot's older counters.
+  One global `ls` supplies the post-history observation, replacing the first
+  scheduled usage poll. Delivery checks cancellation, displayed owner, room UUID,
+  settings and exact member UUIDs before seeding the existing Rate rings. A failed
+  observation preserves historical evidence with a gap; it cannot imply zero or
+  continuous coverage. The usable roster remains interactive while usage updates.
 - Seeding: closed deltas replace the authoritative recent region on re-entry,
   preserving older board observations in the same owner. The included `latest`
   driver/session/epoch/sequence and cumulative counters, rather than `throughMs`,

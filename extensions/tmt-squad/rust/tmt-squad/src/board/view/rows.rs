@@ -99,12 +99,6 @@ fn prepare(
 pub(super) fn render_rows(frame: &mut Frame, app: &App, area: Rect) {
     let look = app.look();
     let Some(view) = &app.view else {
-        let message = if app.error.is_some() {
-            ""
-        } else {
-            "Loading…"
-        };
-        strip::paint_left(frame.buffer_mut(), area, Line::from(message));
         return;
     };
     if app.effective_board().is_some_and(|board| board.members) {

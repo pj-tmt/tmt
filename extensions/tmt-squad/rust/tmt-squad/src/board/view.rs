@@ -94,7 +94,18 @@ pub(in crate::board) fn render_frame(
     strip::paint_left(frame.buffer_mut(), summary_area, summary_text);
     header::render_meter(frame, app, summary);
     header::render_meter_status(frame, app, meter_status);
-    if let Some(line) = home_usage {
+    if app
+        .view
+        .as_ref()
+        .is_some_and(|view| view.home.is_some() && view.history_pending)
+        && !app.loading()
+    {
+        strip::paint_left(
+            frame.buffer_mut(),
+            meter_status,
+            ratatui::text::Line::styled("Updating usage…", look.role(tmt_cli_style::Role::Muted)),
+        );
+    } else if let Some(line) = home_usage {
         strip::paint_left(frame.buffer_mut(), meter_status, line);
     }
     panes::render_body(frame, app, body);

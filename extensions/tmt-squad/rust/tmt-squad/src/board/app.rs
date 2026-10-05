@@ -92,6 +92,7 @@ struct HeaderMember<'a> {
 }
 
 pub struct View {
+    pub history_pending: bool,
     pub ask_lead: String,
     pub home_replies: bool,
     pub token_rate: Option<RateView>,
@@ -705,6 +706,7 @@ impl App {
     pub fn new(squad: Option<String>) -> Self {
         Self {
             current: squad,
+            loading_since: Some(Instant::now()),
             follow: true,
             ..Self::default()
         }
@@ -1159,6 +1161,61 @@ impl App {
 
     /// Swaps in a loaded squad in one step. A result for a squad the user
     /// already left is kept for switching back, never shown.
+    pub(super) fn apply_history(
+        &mut self,
+        read: super::refresh::HistoryRead,
+        now: Instant,
+    ) -> bool {
+        if self.loading()
+            || self.current.as_deref() != Some(&read.owner)
+            || self.shown.as_deref() != Some(&read.owner)
+        {
+            return false;
+        }
+        let Some(view) = self.view.as_mut() else {
+            return false;
+        };
+        let home = view.home.is_some();
+        let mut changed = false;
+        for (name, (settings, input)) in read.targets {
+            let current = if home {
+                view.home_rate.get(&name)
+            } else {
+                view.token_rate.as_ref()
+            };
+            let Some(current) = current.filter(|rate| {
+                rate.settings == settings
+                    && rate.settings.enabled
+                    && rate.input.room == input.room
+                    && rate.input.resumes.keys().eq(input.resumes.keys())
+            }) else {
+                continue;
+            };
+            let meter = if home {
+                self.meters.get_mut(&name)
+            } else {
+                self.meter.as_mut()
+            };
+            let Some(meter) =
+                meter.filter(|meter| meter.room == input.room && meter.settings == settings)
+            else {
+                continue;
+            };
+            meter.seed(&current.input, &read.seeds, now, false);
+            let observed = read
+                .observed
+                .as_ref()
+                .map(|rows| current.input.joined(rows));
+            meter.sample(observed.as_ref().map_err(|_| ()), now);
+            changed = true;
+        }
+        if changed {
+            view.history_pending = false;
+            self.project_usage(now);
+        }
+        changed
+    }
+
     pub fn apply(&mut self, snapshot: Snapshot) {
         debug_assert!(
             !snapshot.view.as_ref().is_ok_and(|view| view.home.is_some())
@@ -1543,6 +1600,9 @@ impl App {
         self.picks.include(&next);
         if Some(&next) == self.current.as_ref() {
             return Effect::None;
+        }
+        if let Some(view) = self.view.as_mut() {
+            view.history_pending = false;
         }
         self.handoff_meters(&next, Instant::now());
         if self.shown.as_deref() == Some(super::ALL) && self.home_target.is_some() {
@@ -3769,6 +3829,7 @@ pub(crate) mod tests {
 
     fn view(sections: Value) -> View {
         View {
+            history_pending: false,
             ask_lead: crate::config::DEFAULT_ASK_LEAD.into(),
             home_replies: true,
             token_rate: None,
@@ -5646,6 +5707,38 @@ mod token_window_tests {
                 history: None,
             },
         );
+    }
+
+    #[test]
+    fn delayed_history_rejects_changed_owner_room_settings_and_membership() {
+        for mismatch in ["owner", "room", "settings", "members", "none"] {
+            let now = Instant::now();
+            let mut app = home(now);
+            let rate = &app.view.as_ref().unwrap().home_rate["product"];
+            let mut input = rate.input.clone();
+            let mut settings = rate.settings;
+            let mut owner = super::super::ALL.to_owned();
+            match mismatch {
+                "owner" => owner = "other".into(),
+                "room" => input.room = "replacement-room".into(),
+                "settings" => settings.enabled = false,
+                "members" => {
+                    input.resumes.remove("missing");
+                }
+                _ => {}
+            }
+            let read = super::super::refresh::HistoryRead {
+                owner,
+                targets: [("product".into(), (settings, input))].into(),
+                seeds: BTreeMap::new(),
+                observed: Err(()),
+            };
+            assert_eq!(
+                app.apply_history(read, now),
+                mismatch == "none",
+                "{mismatch}"
+            );
+        }
     }
 
     #[test]

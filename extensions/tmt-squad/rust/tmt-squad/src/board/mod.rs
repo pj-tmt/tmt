@@ -96,6 +96,10 @@ pub(super) enum BoardEvent {
         cancellation: crate::runner::Cancellation,
         snapshot: Box<Snapshot>,
     },
+    History {
+        cancellation: crate::runner::Cancellation,
+        read: refresh::HistoryRead,
+    },
     Usage {
         cancellation: crate::runner::Cancellation,
         room: String,
@@ -348,6 +352,12 @@ fn session(
                 {
                     app.apply_home_leads(read);
                     dirty = true;
+                }
+                Effect::None
+            }
+            Ok(BoardEvent::History { cancellation, read }) => {
+                if !cancellation.cancelled() {
+                    dirty |= app.apply_history(read, Instant::now());
                 }
                 Effect::None
             }

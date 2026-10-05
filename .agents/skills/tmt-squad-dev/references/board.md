@@ -154,6 +154,9 @@ and changed clock text or spinner frames, rather than periodic full repainting.
   The requested tab is underlined without taking shown-view selection. Failure
   restores the shown tab and clears that cue. `view::header` delays the uncached
   spinner by `SPINNER_DELAY` (100 ms), with 80 ms frames; cached switches omit it.
+  Cold startup uses the same delayed spinner, with a stable Squad heading and
+  target-aware opening line. Historical usage loads after the roster; its scoped
+  status does not disable rows or replace the displayed owner with a blank frame.
   Effective refresh dispatch precedes text inputs, preserving search/drafts.
   `App::lead` resolves the shown squad/aggregate/HOME lead before ordinary jump.
 
