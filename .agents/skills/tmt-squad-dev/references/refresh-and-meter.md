@@ -61,7 +61,8 @@ cost or text volume. `board::rate` owns evidence, `board::meter` presentation an
   and requested window; missing UUIDs are fetched, failures are not cached, and
   any unknown/changed cursor or time range discards reuse. This bounded worker
   cache does not replace interval freshness for panes or notebooks.
-  Ordinary reloads do not acquire history.
+  A new generation reacquires history even when queued tab switches coalesce
+  back to the previous name; ordinary same-generation reloads do not acquire it.
 - Publication: the same worker serializes roster, history and a fresh public
   usage observation. History never replays the opening snapshot's older counters.
   One global `ls` supplies the post-history observation, replacing the first

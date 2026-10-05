@@ -511,8 +511,9 @@ fn serve(
             wanted.squad.clone(),
             wanted.generation,
             wanted.preview_panes,
-            last.as_ref()
-                .is_none_or(|(previous, _, _)| previous.squad != wanted.squad),
+            last.as_ref().is_none_or(|(previous, _, _)| {
+                previous.squad != wanted.squad || previous.generation != wanted.generation
+            }),
         );
         if generation.load(Ordering::Acquire) != wanted.generation {
             continue;
@@ -2013,6 +2014,165 @@ esac
             },
         );
         assert_eq!(*steps.borrow(), ["shown", "cron", "attention"]);
+    }
+
+    #[test]
+    fn coalesced_return_replaces_cancelled_history_but_refresh_does_not_reseed() {
+        use super::super::rate::tests::{fixture_seeds, historical_input, history_fixture};
+        use std::cell::{Cell, RefCell};
+
+        let fixture = history_fixture();
+        // Shift the shared frozen vector into App's wall-clock window without
+        // changing its receipts, deltas or relative bucket boundaries.
+        let offset = crate::status::now_ms() / 5_000 * 5_000 - 25_000;
+        let mut seeds = fixture_seeds(&fixture);
+        for seed in seeds.values_mut().flatten() {
+            seed.from += offset;
+            seed.through += offset;
+            seed.available = seed.available.map(|at| at + offset);
+            seed.sampled = seed.sampled.map(|at| at + offset);
+            let at = seed.latest["consumption"]["observedAtMs"].as_u64().unwrap();
+            seed.latest["consumption"]["observedAtMs"] = json!(at + offset);
+            for bucket in &mut seed.buckets {
+                bucket.from_ms += offset;
+                bucket.to_ms += offset;
+            }
+        }
+        let mut opening = historical_input(&fixture, false);
+        opening
+            .resumes
+            .insert("a".into(), fixture["observations"][0].clone());
+        let mut fresh = historical_input(&fixture, true);
+        for input in [&mut opening, &mut fresh] {
+            let at = input.resumes["a"]["consumption"]["observedAtMs"]
+                .as_u64()
+                .unwrap();
+            input.resumes.get_mut("a").unwrap()["consumption"]["observedAtMs"] = json!(at + offset);
+        }
+        let app = RefCell::new(super::super::app::App::new(Some("product".into())));
+        let generation = Generation::default();
+        let (sender, pending) = mpsc::channel();
+        let request = |squad: &str, generation| {
+            sender
+                .send(Work::Reload(Reload {
+                    squad: Some(squad.into()),
+                    generation,
+                    preview_panes: false,
+                }))
+                .unwrap();
+        };
+        request("product", 0);
+        let loads = Cell::new(0);
+        let stages = RefCell::new(Vec::new());
+        serve(
+            &pending,
+            |snapshot, current| {
+                let mut app = app.borrow_mut();
+                app.apply(snapshot);
+                assert!(!app.loading());
+                assert_eq!(app.current.as_deref(), Some("product"));
+                assert_eq!(app.view.as_ref().unwrap().history_pending, loads.get() < 3);
+                stages.borrow_mut().push(("usable", current));
+                loads.get() < 3
+            },
+            CHECK_EVERY,
+            &generation.number,
+            |_| Stamp::cursor(0),
+            |squad, current, _, opening_history| {
+                loads.set(loads.get() + 1);
+                assert_eq!(
+                    squad.as_deref(),
+                    Some("product"),
+                    "intermediate tab is coalesced"
+                );
+                assert_eq!(current, if loads.get() == 1 { 0 } else { 2 });
+                assert_eq!(opening_history, loads.get() < 3);
+                let mut snapshot = super::super::app::tests::snapshot("product", json!([]));
+                let view = snapshot.view.as_mut().unwrap();
+                view.token_rate = Some(super::super::app::RateView {
+                    settings: crate::config::TokenRate {
+                        enabled: true,
+                        ..Default::default()
+                    },
+                    input: if loads.get() < 3 {
+                        opening.clone()
+                    } else {
+                        fresh.clone()
+                    },
+                    history: None,
+                });
+                view.history_pending = opening_history;
+                let history = opening_history.then(|| HistoryJob::new("product", view).unwrap());
+                let mut loaded = Loaded::only(snapshot);
+                loaded.history = history;
+                loaded
+            },
+            |job, current| {
+                let Deferred::History(job) = job else {
+                    panic!("unexpected deferred job")
+                };
+                stages.borrow_mut().push(("history", current));
+                if current == 0 {
+                    let cancelled = generation.cancellation(current);
+                    let mut app = app.borrow_mut();
+                    app.go("infra".into());
+                    request("infra", generation.advance());
+                    assert!(
+                        !app.apply_history(
+                            HistoryRead {
+                                owner: job.owner.clone(),
+                                targets: job.targets.clone(),
+                                seeds: seeds.clone(),
+                                observed: Ok(fresh.resumes.clone()),
+                            },
+                            Instant::now()
+                        ),
+                        "another owner cannot consume the old seed"
+                    );
+                    app.go("product".into());
+                    request("product", generation.advance());
+                    assert!(
+                        cancelled.cancelled(),
+                        "queued old-owner events remain fenced on return"
+                    );
+                } else {
+                    let mut app = app.borrow_mut();
+                    assert!(app.view.as_ref().unwrap().history_pending);
+                    assert!(app.apply_history(
+                        HistoryRead {
+                            owner: job.owner,
+                            targets: job.targets,
+                            seeds: seeds.clone(),
+                            observed: Ok(fresh.resumes.clone()),
+                        },
+                        Instant::now()
+                    ));
+                    assert!(!app.view.as_ref().unwrap().history_pending);
+                    assert_eq!(
+                        app.meter
+                            .as_ref()
+                            .unwrap()
+                            .member("a", 0, Instant::now())
+                            .unwrap()
+                            .tokens,
+                        30
+                    );
+                    request("product", current);
+                }
+                true
+            },
+        );
+        assert_eq!(loads.get(), 3);
+        assert_eq!(
+            *stages.borrow(),
+            [
+                ("usable", 0),
+                ("history", 0),
+                ("usable", 2),
+                ("history", 2),
+                ("usable", 2),
+            ]
+        );
     }
 
     #[test]
