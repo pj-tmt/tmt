@@ -5,9 +5,8 @@ import { dm, line, pad, type Line } from "./segments";
 export type Row = [name: string, state: string, task: string, pr: string, waiting?: boolean];
 export type BoardSpec = {
   rows: Row[];
-  sel?: number;
-  detail?: string;
-  pending?: string;
+  sel?: number | "lead";
+  expanded?: boolean;
   to?: string;
   typed?: string;
   reply?: Line[];
@@ -33,17 +32,33 @@ export function boardLines(
   );
   push("");
   push(line(dm("┌" + "─".repeat(50) + "┐")));
+  const leadSelected = board.sel === "lead";
   push(
-    <>
+    <span className={leadSelected ? "bg-t-selection" : undefined}>
       <span className="text-t-dim">│ </span>
+      {leadSelected ? "▸ " : "  "}
       <span className="font-bold">sol</span>
       {"  "}
       <span className="text-t-dim">lead</span>
       {"  "}
       <span className="text-t-working">working</span>
-    </>,
+    </span>,
   );
-  push(line(dm("│   coordinate the squad")));
+  const pushBand = (task: string, pr?: string) => {
+    push(<span className="bg-t-selection">{"│    task · " + task}</span>);
+    if (pr) push(<span className="bg-t-selection">{"│    links · " + pr}</span>);
+    if (replies > 0 && board.reply) {
+      push(
+        <span className="bg-t-selection">
+          {"│    latest reply · "}
+          {line(board.reply[replies - 1])}
+        </span>,
+      );
+    }
+    push(<span className="bg-t-selection text-t-dim">{"│    e collapse  a write  o open"}</span>);
+  };
+  if (leadSelected && board.expanded) pushBand("coordinate the squad");
+  else push(line(dm("│   coordinate the squad")));
   push(line(dm("│ ── members · " + board.rows.length + " ──")));
   if (board.rows.length) {
     board.rows.forEach((row, index) => {
@@ -65,19 +80,20 @@ export function boardLines(
         </>
       );
       push(selected ? <span className="bg-t-selection">{content} </span> : content);
-      push(
-        <span className={selected ? "bg-t-selection" : "text-t-dim"}>
-          {"│    "}
-          {selected && board.pending ? board.pending : task}
-          {pr ? " · " + pr : ""}
-        </span>,
-      );
+      if (selected && board.expanded) pushBand(task, pr);
+      else
+        push(
+          <span className={selected ? "bg-t-selection" : "text-t-dim"}>
+            {"│    "}
+            {task}
+            {pr ? " · " + pr : ""}
+          </span>,
+        );
     });
   } else {
     push(line(dm("│   no members yet")));
   }
   push(line(dm("└" + "─".repeat(50) + "┘")));
-  if (board.detail) push(line(dm(board.detail)));
   if (board.to) {
     push(
       <>
@@ -87,7 +103,6 @@ export function boardLines(
         {cursor && <span className="cursor"> </span>}
       </>,
     );
-    (board.reply ?? []).slice(0, replies).forEach((reply) => push(line(reply)));
   }
   push("");
   push(line(dm("⏎ jump  ⌫ back  t talk  r reply  e expand  o open  y copy  n notes  l view")));
