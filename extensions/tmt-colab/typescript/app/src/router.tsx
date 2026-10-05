@@ -589,6 +589,7 @@ function Page() {
     currentRectangle.current = null;
     setRectangle(null);
     setResolved([]);
+    setAnchorsChecked(false);
     setActiveThread(null);
     setPanel(null);
     setChatOpened(false);
@@ -656,8 +657,11 @@ function Page() {
     renderer.current?.scrollAnchor(id);
   }
   const [resolved, setResolved] = useState<string[]>([]);
+  const [anchorsChecked, setAnchorsChecked] = useState(false);
   const renderer = useRef<Awaited<ReturnType<typeof mountRenderer>> | null>(null);
   const [state, setState] = useState<RenderState | 'loading'>('loading');
+  // Author loading does not block discussion: sends use the captured quote.
+  const discussionBlocked = !!liveError || state === 'failed' || state === 'navigation';
   const host = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const controller = new AbortController();
@@ -670,6 +674,7 @@ function Page() {
     // Source revisions replace only author content. Parent selection and composer
     // state keep the original quote and rectangle even if that quote is now stale.
     setResolved([]);
+    setAnchorsChecked(false);
     void mountRenderer(host.current!, view.source, {
       signal: controller.signal,
       onState: setState,
@@ -682,7 +687,10 @@ function Page() {
         setRectangle(rect ?? null);
         if (!quote) selectionCleared.current();
       },
-      onAnchors: setResolved,
+      onAnchors: (ids, checked = false) => {
+        setResolved(ids);
+        setAnchorsChecked(checked);
+      },
       onAnnotate: annotate,
       onOpenThread: (id) => {
         const thread = latest.current.threads?.find(
@@ -722,8 +730,9 @@ function Page() {
             ]
           : [],
       ),
+      annotation?.selector,
     );
-  }, [state, view.threads]);
+  }, [state, view.threads, annotation]);
   return (
     <section className="page">
       <ColabHeader
@@ -952,6 +961,9 @@ function Page() {
                   ×
                 </button>
                 <blockquote>{annotation.selector.exact}</blockquote>
+                {anchorsChecked && !resolved.includes('') && (
+                  <p className="annotation-hint">{text.commentQuoteChanged}</p>
+                )}
                 {annotation.restored !== undefined && <p className="annotation-hint">Draft kept</p>}
                 <AnnotationInput
                   key={JSON.stringify(annotation.selector)}
@@ -960,7 +972,7 @@ function Page() {
                   anchor={annotation.selector}
                   asks={view.asks ?? []}
                   title={view.title || snapshot.title}
-                  blocked={!!liveError || state !== 'ready'}
+                  blocked={discussionBlocked}
                   initialEdit={annotation.restored}
                   onDraft={(_value, edit) => {
                     annotationDraft.current = edit;
@@ -1017,6 +1029,7 @@ function Page() {
           key={`discussion:${snapshot.id}`}
           threads={(view.threads ?? []).filter((thread) => !isChatThread(thread))}
           resolved={resolved}
+          anchorsChecked={anchorsChecked}
           selection={selector}
           binding={liveError === managementChanged ? undefined : snapshot.binding?.discussion}
           ask={liveError === managementChanged ? undefined : snapshot.binding?.ask}
@@ -1024,7 +1037,7 @@ function Page() {
           asks={view.asks ?? []}
           active={activeThread}
           select={openThread}
-          blocked={!!liveError || state !== 'ready'}
+          blocked={discussionBlocked}
         />
       </PageDrawer>
       <PageDrawer
@@ -1050,7 +1063,7 @@ function Page() {
             binding={liveError === managementChanged ? undefined : snapshot.binding?.ask}
             discussion={liveError === managementChanged ? undefined : snapshot.binding?.discussion}
             title={view.title || snapshot.title}
-            blocked={!!liveError || state !== 'ready'}
+            blocked={discussionBlocked}
             close={() => setPanel(null)}
           />
         )}

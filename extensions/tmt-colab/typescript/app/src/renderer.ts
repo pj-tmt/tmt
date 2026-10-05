@@ -50,13 +50,14 @@ export async function mountRenderer(
     onSelection?(text: string, selector?: QuoteSelector | null, rect?: SelectionRect | null): void;
     onAnnotate?(): void;
     onOpenThread?(id: string): void;
-    onAnchors?(resolved: string[]): void;
+    /** Checked is true only for an admitted resolution response, false while pending. */
+    onAnchors?(resolved: string[], checked?: boolean): void;
     /** Trusted chrome's fixed header inset; absent for standalone renderer probes. */
     viewportInset?(): number;
   },
 ): Promise<{
   readonly snapshot: RenderSnapshot;
-  highlight(anchors: { id: string; selector: QuoteSelector }[]): void;
+  highlight(anchors: { id: string; selector: QuoteSelector }[], draft?: QuoteSelector): void;
   scrollAnchor(id: string): void;
   /** Stop the old channel while its frame preserves layout until replacement. */
   release(): void;
@@ -302,6 +303,7 @@ export async function mountRenderer(
       value.renderId === snapshot.renderId &&
       value.requestId === requestId &&
       typeof value.id === 'string' &&
+      value.id !== '' &&
       anchors.some((anchor) => anchor.id === value.id)
     ) {
       options.onOpenThread?.(value.id);
@@ -351,13 +353,15 @@ export async function mountRenderer(
         positions.set(position.id, position.top);
       }
     }
-    options.onAnchors?.([...value.resolved] as string[]);
+    options.onAnchors?.([...value.resolved] as string[], true);
   };
-  const highlight = (input: { id: string; selector: QuoteSelector }[]) => {
+  const highlight = (input: { id: string; selector: QuoteSelector }[], draft?: QuoteSelector) => {
     if (stopped) return;
     // Author code can inspect everything delivered into its frame. Rebuild this
     // narrow view instead of forwarding caller objects or discussion labels.
     const next = input.map(({ id, selector }) => ({ id, selector: structuredClone(selector) }));
+    // The empty ID checks an unsaved quote without adding a thread marker or action.
+    if (draft) next.push({ id: '', selector: structuredClone(draft) });
     if (next.length > 1000 || next.some((v) => typeof v.id !== 'string' || v.id.length > 73))
       return;
     for (const item of next) validateSelector(item.selector);

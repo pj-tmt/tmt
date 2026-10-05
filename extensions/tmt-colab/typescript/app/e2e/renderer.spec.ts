@@ -434,6 +434,32 @@ test('selection admits bounded text from the current frame, rejects foreign and 
   await expect(page.locator('#probe')).toHaveAttribute('data-selection', '');
 });
 
+test('the frozen unsaved quote resolves without a thread highlight or marker', async ({ page }) => {
+  await page.goto('/');
+  await mount(page, '<p>Original quote</p>');
+  await expect(page.locator('#probe')).toHaveAttribute('data-state', 'ready');
+  await page.evaluate(() => {
+    const probe = (
+      window as unknown as {
+        probe: {
+          handle: {
+            highlight(anchors: [], draft: { exact: string; prefix: string; suffix: string }): void;
+          };
+        };
+      }
+    ).probe;
+    probe.handle.highlight([], { exact: 'Original quote', prefix: '', suffix: '' });
+  });
+  await expect(page.locator('#probe')).toHaveAttribute('data-resolved', '[""]');
+  await expect(page.frameLocator('#probe iframe').locator('[data-colab-thread]')).toHaveCount(0);
+  expect(
+    await page
+      .frameLocator('#probe iframe')
+      .locator('html')
+      .evaluate(() => CSS.highlights?.has('colab-comments') ?? false),
+  ).toBe(false);
+});
+
 test('quote selectors span tags and Unicode, preserve exact text, detach ambiguity and remap after edits', async ({
   page,
 }) => {

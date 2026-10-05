@@ -1,5 +1,6 @@
 import { mkdirSync } from 'node:fs';
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Locator, type Page } from '@playwright/test';
+import { text } from '../src/strings.js';
 
 const fixture = '/test/ask-page-browser.tsx';
 const captureDir = process.env.COLAB_UPDATE_CAPTURE_DIR ?? '/tmp/colab-live-update-captures';
@@ -20,6 +21,44 @@ async function change(page: Page, html: string) {
   await expect(frame).not.toHaveAttribute('data-render-id', before!);
   await expect(page.locator('#ask-page-fixture .status')).toContainText('Live preview');
   await expect.poll(async () => (await frame.boundingBox())?.height ?? 0).toBeGreaterThan(3200);
+}
+async function changeWhileTyping(page: Page, html: string, input: Locator, addition: string) {
+  const value = await input.inputValue();
+  const caret = value.length - 1;
+  await input.focus();
+  await input.evaluate(
+    (node: HTMLTextAreaElement, caret) => node.setSelectionRange(caret, caret),
+    caret,
+  );
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  await page.route('**/renderer.html', async (route) => {
+    await gate;
+    await route.continue();
+  });
+  try {
+    const update = change(page, html);
+    await expect(page.locator('#ask-page-fixture .status')).toContainText(text.loading);
+    await expect(input).toBeEnabled();
+    await expect(input).toBeFocused();
+    expect(await input.evaluate((node: HTMLTextAreaElement) => node.selectionStart)).toBe(caret);
+    // Unicode fixture text exercises the caret path used by IME-produced text.
+    await page.keyboard.insertText(addition);
+    const expected = value.slice(0, caret) + addition + value.slice(caret);
+    await expect(input).toHaveValue(expected);
+    release();
+    await update;
+    await expect(input).toBeFocused();
+    expect(await input.evaluate((node: HTMLTextAreaElement) => node.selectionStart)).toBe(
+      caret + addition.length,
+    );
+    return expected;
+  } finally {
+    release();
+    await page.unroute('**/renderer.html');
+  }
 }
 async function select(page: Page) {
   await page
@@ -69,14 +108,18 @@ for (const width of [1440, 390]) {
       await input.evaluate((node) => Object.assign(window, { retainedComposer: node }));
       mkdirSync(captureDir, { recursive: true });
       await page.screenshot({ path: `${captureDir}/annotation-${width}-${theme}-before.png` });
-      await change(page, revised);
-      await expect(input).toHaveValue(draft);
+      const continuedDraft = await changeWhileTyping(page, revised, input, '新');
+      await expect(input).toHaveValue(continuedDraft);
       expect(
         await input.evaluate(
           (node) => (window as unknown as { retainedComposer: Element }).retainedComposer === node,
         ),
       ).toBe(true);
       await expect(composer.locator('blockquote')).toHaveText('Exact selected text');
+      await expect(composer.getByText(text.commentQuoteChanged)).toBeVisible();
+      await expect(
+        page.frameLocator('#ask-page-fixture iframe').locator('[data-colab-thread]'),
+      ).toHaveCount(0);
       const after = (await composer.boundingBox())!;
       console.log(
         JSON.stringify({
@@ -96,24 +139,25 @@ for (const width of [1440, 390]) {
       await expect.poll(async () => (await run(page, 'proof')).sends.length).toBe(1);
       const sent = (await run(page, 'proof')).sends[0];
       expect(sent.message).toContain('Exact selected text');
-      expect(sent.message).toContain('Keep this exact unsent draft.');
+      expect(sent.message).toContain(continuedDraft.slice('@Agent 1 '.length));
       expect(sent.message).not.toContain('New source without the captured quote');
       expect((await run(page, 'discussionProof'))[0].anchor.exact).toBe('Exact selected text');
 
       const thread = page.getByTestId('comment-thread');
       await expect(thread).toHaveAttribute('data-anchor', 'detached');
+      await expect(thread.getByText(text.commentQuoteChanged)).toBeVisible();
       const reply = thread.getByRole('combobox', { name: 'Message to agent' });
       const threadDraft = '@Agent 1 A thread reply still being written.';
       await reply.fill(threadDraft);
       const threadScroll = await page.evaluate(() => window.scrollY);
-      await change(page, source);
-      await expect(reply).toHaveValue(threadDraft);
+      const continuedThreadDraft = await changeWhileTyping(page, source, reply, '文');
+      await expect(reply).toHaveValue(continuedThreadDraft);
       await expect(thread).toHaveAttribute('data-anchor', 'attached');
+      await expect(thread.getByText(text.commentQuoteChanged)).toHaveCount(0);
       await expect(
         page.frameLocator('#ask-page-fixture iframe').locator('[data-colab-thread]'),
       ).toHaveCount(1);
       expect(Math.abs((await page.evaluate(() => window.scrollY)) - threadScroll)).toBeLessThan(2);
-      await page.screenshot({ path: `${captureDir}/thread-${width}-${theme}-updated.png` });
       await page.getByRole('button', { name: 'Close Comments', exact: true }).click();
       await panel(page, 'chat');
       const chat = page
@@ -122,14 +166,16 @@ for (const width of [1440, 390]) {
       const chatDraft = '@Agent 1 A Chat draft during another edit.';
       await chat.fill(chatDraft);
       const chatScroll = await page.evaluate(() => window.scrollY);
-      await change(page, revised);
-      await expect(chat).toHaveValue(chatDraft);
+      const continuedChatDraft = await changeWhileTyping(page, revised, chat, '續');
+      await expect(chat).toHaveValue(continuedChatDraft);
       expect(Math.abs((await page.evaluate(() => window.scrollY)) - chatScroll)).toBeLessThan(2);
       await page.screenshot({ path: `${captureDir}/chat-${width}-${theme}-updated.png` });
       await page.getByRole('button', { name: 'Close Chat', exact: true }).click();
       await panel(page, 'comments');
-      await expect(reply).toHaveValue(threadDraft);
+      await expect(reply).toHaveValue(continuedThreadDraft);
       await expect(thread).toHaveAttribute('data-anchor', 'detached');
+      await expect(thread.getByText(text.commentQuoteChanged)).toBeVisible();
+      await page.screenshot({ path: `${captureDir}/thread-${width}-${theme}-updated.png` });
       expect((await run(page, 'proof')).sends).toHaveLength(1);
 
       // A different page is the reset boundary, including drafts kept after close.

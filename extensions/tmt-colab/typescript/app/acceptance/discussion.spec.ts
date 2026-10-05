@@ -245,6 +245,7 @@ test('paired writers retain anchored annotation conversations, direct exact send
     );
     await expect(input).toHaveText(opening, { useInnerText: true });
     await expect(compose.locator('blockquote')).toHaveText(quote!);
+    await expect(compose.getByText(text.commentQuoteChanged)).toBeVisible();
     expect(Math.abs((await first.evaluate(() => window.scrollY)) - offset)).toBeLessThan(2);
     await compose.getByRole('button', { name: 'Ask agent', exact: true }).click();
     await until(() => agent.received().length === 1, 'opening annotation delivered');
@@ -253,8 +254,10 @@ test('paired writers retain anchored annotation conversations, direct exact send
     expect(agent.received()[0].message).toContain(quote!);
     const t1 = first.getByTestId('comment-thread').first();
     await expect(t1).toHaveAttribute('data-anchor', 'detached');
+    await expect(t1.getByText(text.commentQuoteChanged)).toBeVisible();
     await replaceSource(html);
     await expect(t1).toHaveAttribute('data-anchor', 'attached');
+    await expect(t1.getByText(text.commentQuoteChanged)).toHaveCount(0);
     const threadId = (await t1.getAttribute('data-thread-id'))!;
     const messageId = await t1.getByTestId('comment-entry').first().getAttribute('data-message-id');
     await comments(second);

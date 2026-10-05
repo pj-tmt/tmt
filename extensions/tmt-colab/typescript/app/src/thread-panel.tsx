@@ -251,6 +251,7 @@ export function CommentExchange({
 function Thread({
   thread,
   attached,
+  anchorsChecked,
   selection,
   binding,
   ask,
@@ -261,6 +262,7 @@ function Thread({
 }: {
   thread: ThreadView;
   attached: boolean;
+  anchorsChecked: boolean;
   selection: QuoteSelector | null;
   binding?: ThreadBinding;
   ask?: AskBinding;
@@ -338,6 +340,9 @@ function Thread({
         </span>
       </header>
       {thread.anchor && <blockquote>{thread.anchor.exact}</blockquote>}
+      {thread.anchor && anchorsChecked && !attached && (
+        <p className="annotation-hint">{text.commentQuoteChanged}</p>
+      )}
       {thread.comments.map((comment) => (
         <CommentExchange
           key={`${comment.ref.writer}:${comment.messageId}`}
@@ -422,6 +427,7 @@ export function ThreadPanel({
   hideHeader = false,
   threads,
   resolved,
+  anchorsChecked,
   selection,
   binding,
   ask,
@@ -434,6 +440,7 @@ export function ThreadPanel({
   hideHeader?: boolean;
   threads: readonly ThreadView[];
   resolved: readonly string[];
+  anchorsChecked: boolean;
   selection: QuoteSelector | null;
   binding?: ThreadBinding;
   ask?: AskBinding;
@@ -525,6 +532,7 @@ export function ThreadPanel({
                 <Thread
                   thread={thread}
                   attached={resolved.includes(id)}
+                  anchorsChecked={anchorsChecked}
                   selection={selection}
                   binding={binding}
                   ask={ask}
