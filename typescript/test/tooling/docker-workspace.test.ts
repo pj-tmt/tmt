@@ -2,40 +2,179 @@ import { readFileSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { expect, it } from 'vite-plus/test';
+import ts from 'typescript';
 import { readCargoWorkspace } from '../../scripts/cargo-workspace.mjs';
 import { imports } from '../support/source-imports.js';
 
+const { runPackedCommand } = await import(
+  new URL('../../scripts/packed-command.mjs', import.meta.url).href
+);
+
 const root = fileURLToPath(new URL('../../../', import.meta.url));
-const { packages: crates } = readCargoWorkspace(root);
+// COPY guards inspect workspace sources, not external dependency packages.
+// --no-deps also keeps Code quality independent of a warmed native Cargo cache.
+const { packages: crates } = readCargoWorkspace(root, {
+  runner: (
+    command: string,
+    args: string[],
+    options: { cwd: string; env: NodeJS.ProcessEnv; timeoutMs: number }
+  ) => runPackedCommand(command, [...args, '--no-deps'], options),
+});
 const nativeStages = [
   ['typescript/test/e2e/Dockerfile', 'native-tests', '/native'],
   ['typescript/test/native/artifact.Dockerfile', 'build', '/workspace'],
   ['extensions/tmt-office/typescript/services/office/Dockerfile', 'native-office', '/workspace'],
 ];
 
-// Repository-context COPYs only: --from inputs come from another stage/image.
-// Keep source-to-destination resolution shared with other embedded-input guards.
-function copiedAt(text: string, input: string, workdir: string): string[] {
-  return [...text.matchAll(/^COPY (.+)$/gm)].flatMap(([, line]) => {
-    if (/--from(?:=|\s)/.test(line)) return [];
-    const args = line.split(/\s+/).filter((arg) => !arg.startsWith('--'));
-    const target = args.pop()!;
-    return args.flatMap((arg) => {
-      const source = arg.replace(/\/$/, '');
+type Copy = { sources: string[]; target: string; workdir: string };
+
+// Share repository-context COPY parsing and destination resolution across guards.
+// --from inputs belong to another stage/image, not the repository build context.
+function copyInstruction(line: string, workdir: string): Copy | undefined {
+  if (!/^COPY\s/i.test(line) || /--from(?:=|\s)/.test(line)) return;
+  const argumentsText = line.replace(/^COPY\s+(?:--\S+\s+)*/i, '');
+  const args: string[] = argumentsText.startsWith('[')
+    ? JSON.parse(argumentsText)
+    : argumentsText.split(/\s+/);
+  const target = args.pop()!;
+  return {
+    sources: args.map((source) => path.posix.normalize(source).replace(/\/$/, '')),
+    target,
+    workdir,
+  };
+}
+
+function instructions(text: string): string[] {
+  return text
+    .replace(/\\\r?\n\s*/g, ' ')
+    .split(/\r?\n/)
+    .map((line) => line.trim());
+}
+
+function copyLocations(copies: Copy[], input: string): string[] {
+  return copies.flatMap(({ sources, target, workdir }) =>
+    sources.flatMap((source) => {
       if (input === source) {
         return [
           path.posix.resolve(
             workdir,
             target,
-            target.endsWith('/') ? path.posix.basename(input) : ''
+            target.endsWith('/') || sources.length > 1 ? path.posix.basename(input) : ''
           ),
         ];
       }
-      return input.startsWith(`${source}/`)
-        ? [path.posix.resolve(workdir, target, input.slice(source.length + 1))]
+      const prefix = source === '.' ? '' : `${source}/`;
+      return input.startsWith(prefix)
+        ? [path.posix.resolve(workdir, target, input.slice(prefix.length))]
         : [];
-    });
-  });
+    })
+  );
+}
+
+function copiedAt(text: string, input: string, workdir: string): string[] {
+  return copyLocations(
+    instructions(text).flatMap((line) => {
+      const copy = copyInstruction(line, workdir);
+      return copy ? [copy] : [];
+    }),
+    input
+  );
+}
+
+function dockerStages(text: string): { name: string; copies: Copy[] }[] {
+  const stages: { name: string; copies: Copy[]; workdir: string }[] = [];
+  for (const line of instructions(text)) {
+    const from = line.match(/^FROM\s+(?:--\S+\s+)*(\S+)(?:\s+AS\s+(\S+))?$/i);
+    if (from) {
+      const parent = stages.find(({ name }) => name === from[1]);
+      stages.push({
+        name: from[2] ?? String(stages.length),
+        copies: [...(parent?.copies ?? [])],
+        workdir: parent?.workdir ?? '/',
+      });
+      continue;
+    }
+    const stage = stages.at(-1);
+    if (!stage) continue;
+    const workdir = line.match(/^WORKDIR\s+(\S+)$/i);
+    if (workdir) stage.workdir = path.posix.resolve(stage.workdir, workdir[1]);
+    const copy = copyInstruction(line, stage.workdir);
+    if (copy) stage.copies.push(copy);
+  }
+  return stages;
+}
+
+// Static imports/re-exports and literal repository URL inputs only; dynamic imports are out of scope.
+function scriptInputs(text: string): { value: string; module: boolean }[] {
+  const inputs: { value: string; module: boolean }[] = [];
+  const source = ts.createSourceFile('module.mjs', text, ts.ScriptTarget.Latest, true);
+  const collect = (node: ts.Node): void => {
+    if (
+      (ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) &&
+      node.moduleSpecifier &&
+      ts.isStringLiteralLike(node.moduleSpecifier) &&
+      /^\.\.?\//.test(node.moduleSpecifier.text)
+    ) {
+      inputs.push({ value: node.moduleSpecifier.text, module: true });
+    }
+    if (
+      ts.isNewExpression(node) &&
+      ts.isIdentifier(node.expression) &&
+      node.expression.text === 'URL' &&
+      node.arguments?.length === 2 &&
+      ts.isStringLiteralLike(node.arguments[0]) &&
+      ts.isPropertyAccessExpression(node.arguments[1]) &&
+      node.arguments[1].name.text === 'url' &&
+      ts.isMetaProperty(node.arguments[1].expression) &&
+      node.arguments[1].expression.keywordToken === ts.SyntaxKind.ImportKeyword &&
+      node.arguments[1].expression.name.text === 'meta' &&
+      !/^(?:[a-z][a-z0-9+.-]*:|\/)/i.test(node.arguments[0].text)
+    ) {
+      inputs.push({ value: node.arguments[0].text, module: false });
+    }
+    ts.forEachChild(node, collect);
+  };
+  collect(source);
+  return inputs;
+}
+
+function missingScriptInputs(
+  dockerfile: string,
+  text: string,
+  files: string[],
+  read: (file: string) => string
+): string[] {
+  const repositoryFiles = new Set(files);
+  const missing = new Set<string>();
+  for (const stage of dockerStages(text)) {
+    const pending = files
+      .filter((file) => file.endsWith('.mjs'))
+      .flatMap((file) => copyLocations(stage.copies, file).map((location) => ({ file, location })));
+    const seen = new Set<string>();
+    while (pending.length) {
+      const { file, location } = pending.pop()!;
+      const key = `${file}:${location}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      for (const { value: input, module } of scriptInputs(read(file))) {
+        const dependency = path.posix.normalize(path.posix.join(path.posix.dirname(file), input));
+        // URL references to directories or generated binaries are not repository file inputs.
+        if (!module && !repositoryFiles.has(dependency)) continue;
+        const expected = path.posix.resolve(path.posix.dirname(location), input);
+        if (
+          !repositoryFiles.has(dependency) ||
+          !copyLocations(stage.copies, dependency).includes(expected)
+        ) {
+          missing.add(
+            `${dockerfile} [${stage.name}]: ${file} -> ${dependency} (expected ${expected})`
+          );
+        }
+        if (module && repositoryFiles.has(dependency) && /\.[cm]?js$/.test(dependency))
+          pending.push({ file: dependency, location: expected });
+      }
+    }
+  }
+  return [...missing].sort();
 }
 
 function rustFiles(directory: string): string[] {
@@ -181,5 +320,98 @@ it('places the native caller fixture in the Docker E2E image', () => {
   );
   expect(dockerfile).toContain(
     'COPY --from=native-tests /native-artifacts/codex /workspace/rust/target/debug/examples/runtime-caller-fixture'
+  );
+});
+
+const trackedFiles: string[] = runPackedCommand('git', ['ls-files', '-z'], {
+  cwd: root,
+  env: process.env,
+})
+  .split('\0')
+  .filter(Boolean);
+const dockerfiles = trackedFiles.filter((file) => /(?:^|\/|\.)Dockerfile$/.test(file));
+const readSource = (file: string) => readFileSync(path.join(root, file), 'utf8');
+it.each(dockerfiles)('preserves copied script import and file-read closure in %s', (file) => {
+  expect(missingScriptInputs(file, readSource(file), trackedFiles, readSource)).toEqual([]);
+});
+
+it('rejects the Office script-only COPY from before #1680', () => {
+  const file = 'extensions/tmt-office/typescript/services/office/Dockerfile';
+  const current = readSource(file);
+  expect(missingScriptInputs(file, current, trackedFiles, readSource)).toEqual([]);
+  const broken = current.replace(
+    /^COPY --chown=node:node typescript\/scripts\/native-artifact-policy\.mjs .*$/m,
+    'COPY --chown=node:node typescript/scripts/native-artifact-policy.mjs /workspace/typescript/scripts/'
+  );
+  expect(broken).not.toBe(current);
+  expect(missingScriptInputs(file, broken, trackedFiles, readSource)).toContain(
+    `${file} [browser-tests-base]: typescript/scripts/native-artifact-policy.mjs -> typescript/scripts/component-skills.mjs (expected /workspace/typescript/scripts/component-skills.mjs)`
+  );
+});
+
+it('rejects missing artifact verifier imports and transitive URL file inputs', () => {
+  const file = 'typescript/test/native/artifact.Dockerfile';
+  const current = readSource(file);
+  const broken = current.replace(
+    /^COPY typescript\/(?:scripts\/migrated-state\.mjs|test\/e2e\/shard-weights\.json).*\n/gm,
+    ''
+  );
+  expect(broken).not.toBe(current);
+  const missing = missingScriptInputs(file, broken, trackedFiles, readSource);
+  expect(missing).toContain(
+    `${file} [1]: typescript/scripts/verify-native-installation.mjs -> typescript/scripts/migrated-state.mjs (expected /verification/typescript/scripts/migrated-state.mjs)`
+  );
+  expect(missing).toContain(
+    `${file} [1]: typescript/scripts/e2e-shards.mjs -> typescript/test/e2e/shard-weights.json (expected /verification/typescript/test/e2e/shard-weights.json)`
+  );
+});
+
+it('checks transitive imports, cycles, URL reads and image destinations within each stage', () => {
+  const sources: Record<string, string> = {
+    'scripts/main.mjs': "import './nested/helper.mjs'; import 'node:fs'; // import './ignored.mjs'",
+    'scripts/nested/helper.mjs': `export { value } from '../value.js';
+      new URL('../../data/policy.json', import.meta.url);
+      new URL('policy.json', import.meta.url);
+      new URL('../../../rust/target/debug/tmt', import.meta.url);
+      import('./optional.mjs');
+      new URL('../../data/', import.meta.url);
+      new URL('../../unrelated.json', other.url);`,
+    'scripts/nested/policy.json': '{}',
+    'scripts/value.js': "import './main.mjs'; export const value = 1;",
+    'data/policy.json': '{}',
+  };
+  const check = (text: string) =>
+    missingScriptInputs('fixture.Dockerfile', text, Object.keys(sources), (file) => sources[file]);
+  const complete = String.raw`FROM node AS base
+WORKDIR /workspace
+COPY --chown=node:node \
+["scripts/", "scripts/"]
+COPY data/ data/
+FROM base AS child
+WORKDIR scripts
+`;
+  expect(check(complete)).toEqual([]);
+  expect(check('FROM node\nWORKDIR /workspace\nCOPY . .')).toEqual([]);
+  expect(check(complete.replace('COPY data/ data/', 'COPY data/ elsewhere/'))).toEqual([
+    'fixture.Dockerfile [base]: scripts/nested/helper.mjs -> data/policy.json (expected /workspace/data/policy.json)',
+    'fixture.Dockerfile [child]: scripts/nested/helper.mjs -> data/policy.json (expected /workspace/data/policy.json)',
+  ]);
+  expect(
+    check(`FROM node AS first
+WORKDIR /workspace
+COPY scripts/ scripts/
+FROM node AS second
+WORKDIR /workspace
+COPY data/ data/`)
+  ).toEqual([
+    'fixture.Dockerfile [first]: scripts/nested/helper.mjs -> data/policy.json (expected /workspace/data/policy.json)',
+  ]);
+  expect(
+    check(`FROM node
+WORKDIR /workspace
+COPY scripts/main.mjs scripts/nested/helper.mjs scripts/
+COPY --from=other /data/policy.json data/policy.json`)
+  ).toContain(
+    'fixture.Dockerfile [0]: scripts/nested/helper.mjs -> scripts/value.js (expected /workspace/scripts/value.js)'
   );
 });
