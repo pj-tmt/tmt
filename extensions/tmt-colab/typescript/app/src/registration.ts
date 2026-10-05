@@ -22,9 +22,12 @@ interface CertifiedKey {
 export interface RemoteSdk {
   reopenSession(): Promise<unknown>;
   certifyKey(purpose: 'sign' | 'enc', publicKey: Uint8Array): Promise<CertifiedKey>;
+  transportUrl(session: unknown, url: string | URL): string;
 }
 export interface Registration {
   remoteSession?: unknown;
+  /** Tab-bound mounted WebSocket URL from Remote's SDK; never navigated to or logged. */
+  syncUrl?: string;
   deviceName?: string;
   deviceId: string;
   keys: DeviceKeys;
@@ -66,6 +69,9 @@ export async function jsonResponse(response: Response, cap: number) {
  * endpoint, not permission to inspect the Remote SDK's persistence schema. */
 export async function register(mount: URL, sdk: RemoteSdk): Promise<Registration> {
   const remoteSession = await sdk.reopenSession();
+  const sync = new URL('sync', mount);
+  sync.protocol = sync.protocol === 'https:' ? 'wss:' : 'ws:';
+  const syncUrl = sdk.transportUrl(remoteSession, sync);
   const session = await jsonResponse(
     await fetch(new URL('api/session', mount), { signal: AbortSignal.timeout(10_000) }),
     8192,
@@ -112,7 +118,7 @@ export async function register(mount: URL, sdk: RemoteSdk): Promise<Registration
       equal(c.signingKey, keys.signPublic) &&
       equal(c.encryptionKey, keys.enc.publicKey()),
   );
-  return { deviceId, keys, chain, issuer, remoteSession, deviceName: session.name };
+  return { deviceId, keys, chain, issuer, remoteSession, syncUrl, deviceName: session.name };
 }
 /** Call only with the root bound to the selected space, before trusting registration. */
 export async function verifyRegistration(value: Registration, space: string, owner: Uint8Array) {

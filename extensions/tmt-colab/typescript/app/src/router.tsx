@@ -35,6 +35,7 @@ import { ShareDialog } from './share-dialog.js';
 import { mountRenderer } from './renderer.js';
 import type { RenderState, SelectionRect } from './renderer.js';
 import { text } from './strings.js';
+import { SessionEvictedError } from './ask-remote.js';
 import { ExportPanel } from './export-panel.js';
 import { PageDrawer } from './page-drawer.js';
 import { ChatPanel } from './chat-panel.js';
@@ -490,6 +491,7 @@ function Page() {
   const [draft, setDraft] = useState(snapshot.source),
     [saving, setSaving] = useState(false);
   const [liveError, setLiveError] = useState<string | null>(null),
+    [eviction, setEviction] = useState<SessionEvictedError | null>(null),
     [editError, setEditError] = useState<string | null>(null);
   useEffect(() => {
     dirty.current = false;
@@ -505,6 +507,7 @@ function Page() {
       threads: snapshot.threads,
     });
     setLiveError(null);
+    setEviction(null);
     setEditError(null);
     const unsubscribe = snapshot.binding?.subscribe(
       (value) => {
@@ -516,7 +519,10 @@ function Page() {
           setDraft(value.source);
         }
       },
-      (error) => setLiveError(error.message),
+      (error) => {
+        setLiveError(error.message);
+        setEviction(error instanceof SessionEvictedError ? error : null);
+      },
     );
     return () => {
       unsubscribe?.();
@@ -838,8 +844,25 @@ function Page() {
           <div className="frame-host" ref={host} />
           {(state === 'navigation' || state === 'failed') && (
             <NoticeCard state="blocked" eyebrow={text.product} title={text.blocked}>
-              <p>{liveError ?? (state === 'navigation' ? text.navigation : text.failed)}</p>
-              <p>{text.limit}</p>
+              {eviction ? (
+                <>
+                  <p>{text.sessionEvicted(eviction.limit)}</p>
+                  <p>
+                    {text.sessionLimitCommand}{' '}
+                    <code>tmt remote settings sessions-per-device {eviction.limit + 1}</code>
+                  </p>
+                  {eviction.settingsUrl && (
+                    <p>
+                      <a href={eviction.settingsUrl}>{text.remoteSettings}</a>
+                    </p>
+                  )}
+                </>
+              ) : (
+                <>
+                  <p>{liveError ?? (state === 'navigation' ? text.navigation : text.failed)}</p>
+                  <p>{text.limit}</p>
+                </>
+              )}
               {liveError === 'Sync disconnected' && snapshot.binding?.reconnect && (
                 <button
                   disabled={reconnecting}
