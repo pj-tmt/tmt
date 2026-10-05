@@ -1,6 +1,6 @@
 ---
 source: site/src/chapters/squad.mdx
-sourceRevision: 63a10ac9a947e3aef34e01a7ce8e83ffe1f37100
+sourceRevision: 19bae5db12dde1287c4765ceeb6bb2f100ff997b
 title: Squad：lead、成員與一個 board
 ---
 
@@ -9,8 +9,8 @@ import { Cmd, Code } from "../../components/Cmd";
 import { components as Mdx } from "../../components/mdx";
 import { Callout, Caption, KeyList, Lede, More, Tag, Waiting } from "../../components/marks";
 import { Spaces, TokenTable } from "../../components/samples";
-import { BoardSketch, SplitBoardSketch } from "../../demos/board";
-import { BoardDemo, jumpAndTalk, startSquad } from "../../demos/BoardDemo";
+import { BoardSketch, SplitBoardSketch, UpdateStatusSketch } from "../../demos/board";
+import { BoardDemo, jumpAndTalk, startSquad, updateStatus } from "../../demos/BoardDemo";
 
 <Lede>
   agent 超過幾個後，光是掌握每個人在做什麼，就成了一份工作。Squad 把這份工作交給其中一個 agent。
@@ -66,18 +66,44 @@ squad 頁籤預設使用 **members**：lead 與成員共用一份有框線的清
 
 <Caption>示意圖：預設的 members 視圖；單一框線清單下方是 lead 的筆記。</Caption>
 
-| 按鍵                     | 對選取列的操作                                                                                                                                                                                            |
-| ------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| enter · double-click · ⌫ | 在 tmux，Enter 或雙擊會跳到成員畫面，Backspace 返回。一般終端機的 Enter 或雙擊會開啟該列的動作選單。單擊選取一列；點擊窗格切換焦點。請看[在成員之間切換](/extensions/squad#jumping-between-members)。     |
-| a                        | `write`：這一列共用一個 composer。有正在等你回答的請求時先回答（若有多個，先選一個），否則向 lead 傳送關於這一列的筆記。**Tab** 切換可用的 answer、note、talk 模式並保留草稿；talk 會送出需要回覆的請求。 |
-| t                        | 隱藏或顯示回覆預覽，與 HOME 相同。                                                                                                                                                                        |
-| e · n                    | 在列內展開 lead 或成員的詳細資料；隱藏或顯示 lead 的筆記。                                                                                                                                                |
-| ,                        | 設定：選擇 **Theme**、**View**，或啟用 meter 時的 **Token window**。                                                                                                                                      |
-| o · y                    | `open` 該列的 pull request 或第一個連結；`copy` 一行狀態，例如 `auth-fix: rotate session tokens (blocked)`。透過 SSH 也能複製。                                                                           |
-| / · tab · s              | 搜尋；下一個窗格；切換到任何頁籤。                                                                                                                                                                        |
-| ctrl-r                   | 立即更新。選用側邊窗格視圖時，也可用 **d** 摺疊詳細資料與回覆。                                                                                                                                           |
+| 按鍵                     | 對選取列的操作                                                                                                                                                                                                                                           |
+| ------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| enter · double-click · ⌫ | 在 tmux，Enter 或雙擊會跳到成員畫面，Backspace 返回。一般終端機的 Enter 或雙擊會開啟該列的動作選單。單擊選取一列；點擊窗格切換焦點。請看[在成員之間切換](/extensions/squad#jumping-between-members)。                                                    |
+| a                        | `write`：這一列共用一個 composer。有正在等你回答的請求時先回答（若有多個，先選一個），否則向 lead 傳送關於這一列的筆記（沒有 lead 時使用 talk）。**Tab** 切換可用的 answer、note、talk、status 模式，保留訊息與 status 草稿；talk 會送出需要回覆的請求。 |
+| t                        | 隱藏或顯示回覆預覽，與 HOME 相同。                                                                                                                                                                                                                       |
+| e · n                    | 在列內展開 lead 或成員的詳細資料；隱藏或顯示 lead 的筆記。                                                                                                                                                                                               |
+| ,                        | 設定：選擇 **Theme**、**View**，或啟用 meter 時的 **Token window**。                                                                                                                                                                                     |
+| o · y                    | `open` 該列的 pull request 或第一個連結；`copy` 一行狀態，例如 `auth-fix: rotate session tokens (blocked)`。透過 SSH 也能複製。                                                                                                                          |
+| / · tab · s              | 搜尋；下一個窗格；切換到任何頁籤。                                                                                                                                                                                                                       |
+| ctrl-r                   | 立即更新。選用側邊窗格視圖時，也可用 **d** 摺疊詳細資料與回覆。                                                                                                                                                                                          |
 
 以上是預設按鍵。`r`、`T`、`l`、`w` 不再有預設綁定；reply、theme、view、token-window 動作仍可自行綁定。自訂綁定優先；`?` 列出實際使用的按鍵。
+
+<Mdx.h3 id="update-status">Update status</Mdx.h3>
+
+在 HOME 或 squad 頁籤選取 lead 或成員，使用 **a → Tab → status**，就能在共用 band 開啟 **Update status → squad / agent**。這是預設按鍵；自訂綁定優先。手動 `pending` 與 `state` 分別顯示精確的舊值和預計的新值；窄寬度時分行顯示。用上下鍵移動到 **Clear pending**、**Replace state**、**Reason**、**Apply and notify** 或某個 **Answer request**。`›` 標出目前焦點欄位或動作的每一行，換行與無色彩模式也保留；`[x]` 表示勾選要變更的欄位，不是鍵盤焦點。Enter 切換欄位的勾選；在 state 那一列輸入明確的新值，在 **Reason** 輸入必要的原因。兩個欄位都不會預先勾選，清除 pending 也不會推定為 working。PgUp/PgDn 捲動長預覽。Tab 保留訊息與 status 草稿；Esc 取消且不再執行動作。band 位於完整選取列及 task 預覽之後，後續列向下移動。
+
+**Apply and notify** 將每個勾選欄位一起提交，逐一比對預覽中的精確原始值或不存在狀態，連預計值沒有改變的勾選也會參與。identity UUID、room、namespace 和 metadata keys 固定不變。勾選值衝突時，所有欄位都不套用；重新取得預覽、清除勾選，並要求再次明確提交。actor、identity、room 或 metadata namespace 改變時拒絕該動作。既有資料若為空值或不合法，會顯示不支援值的拒絕訊息。套用結果未知時，不送通知，也不提供重播；先檢查目前 metadata 再重新開啟。如果 context 在已套用或結果未知之後改變，表單保留原結果，不再執行動作。
+
+確認更新後，選取的 agent 會收到標明操作者的 announcement，只包含實際變更的欄位與原因。它不要求回覆，也不代表已送達。**Status updated; notification failed** 在接受狀態未確認時提供 **Retry notification only**。移到該動作並按 Enter；沿用同一個 operation 和訊息，不重做 metadata 變更。收件者已確定不可用時，不能透過該 receipt 重送。
+
+**Requires a reply** 與手動狀態分開。**Answer request** 開啟指定請求的既有 answer composer；明確的 dismissal 也是 final reply。清除手動欄位不會結束請求，回答也不會清除無關的手動狀態。有多個請求時，可以用 Tab 離開既有 picker，切換其他模式，而不選擇回答對象。
+
+<UpdateStatusSketch />
+
+<Caption>
+  完整選取列下方的 status band 示意。兩個手動變更已勾選，非色彩 `›` 焦點在
+  Reason；兩個未回答請求維持獨立。範例輸出保留英文。
+</Caption>
+
+<BoardDemo
+  steps={updateStatus}
+  label="Update status 動畫示範：未勾選欄位、明確選擇與原因、衝突後重新提交，以及只重送通知。手動變更不會回答兩個請求。字幕說明各步驟。"
+/>
+
+<Caption>
+  已接受行為的示意畫面，不是即時 board。用箭頭查看每個畫面；減少動態效果時顯示完整畫面。
+</Caption>
 
 <Mdx.h3 id="token-rate">Token 時間區間</Mdx.h3>
 
@@ -194,7 +220,7 @@ squad 手動設定的 `board.layout` 或 `panes` 一律優先，接著是該 squ
 
 squad 頁籤預設是一份有框線的清單：lead 在最前面，帶有 `lead` 標籤；後面是 `── members · N ──` 分隔線。每位成員有一行標記、名稱、狀態、模型與經過時間，以及一行工作摘要。等待你處理的成員（`◆`）依最早的問題排前面；其他對話依最新時間排序，沒有對話的成員依名稱排序。lead 始終在最前面，自訂區段維持原位。
 
-在 lead 或成員上按 **e**，會以共用的列內詳細區塊取代工作預覽。若有資料，會依序顯示 `◆ waits on you`、工作、連結、附時間的最新回覆，以及摺疊／寫入／開啟提示。按 **e** 或 **Esc** 摺疊；**a** 開啟這一列共用的 answer／note／talk composer，**o** 開啟 PR 或連結。用方向鍵或 j/k、PgUp/PgDn 捲動較長的詳細資料，不會移動列游標。同時只會展開一個區塊。閱讀不需要先記錄使用者，寫入則需要 `tmt sq me`。lead 的筆記留在清單下方；按 **n** 隱藏或顯示。
+在 lead 或成員上按 **e**，會以共用的列內詳細區塊取代工作預覽。若有資料，會依序顯示 `◆ waits on you`、工作、連結、附時間的最新回覆，以及摺疊／寫入／開啟提示。按 **e** 或 **Esc** 摺疊；**a** 開啟這一列共用的 answer／note／talk／status composer，**o** 開啟 PR 或連結。用方向鍵或 j/k、PgUp/PgDn 捲動較長的詳細資料，不會移動列游標。同時只會展開一個區塊。閱讀不需要先記錄使用者，寫入則需要 `tmt sq me`。lead 的筆記留在清單下方；按 **n** 隱藏或顯示。
 
 想用原本的詳細資料／回覆側邊窗格，可在 **,** 設定選 **View** → `team`；選 `members` 即可回到框線清單。自訂 `board.layout` 或 `panes` 仍採用其設定的配置。
 

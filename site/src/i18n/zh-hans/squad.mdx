@@ -1,6 +1,6 @@
 ---
 source: site/src/chapters/squad.mdx
-sourceRevision: 63a10ac9a947e3aef34e01a7ce8e83ffe1f37100
+sourceRevision: 19bae5db12dde1287c4765ceeb6bb2f100ff997b
 title: Squad：lead、成员和一个看板
 ---
 
@@ -9,8 +9,8 @@ import { MarkLegend } from "../../chapter-scenes/MarkLegend";
 import { Cmd, Code } from "../../components/Cmd";
 import { Callout, Caption, KeyList, Lede, More, Tag, Waiting } from "../../components/marks";
 import { Spaces, TokenTable } from "../../components/samples";
-import { BoardSketch, SplitBoardSketch } from "../../demos/board";
-import { BoardDemo, jumpAndTalk, startSquad } from "../../demos/BoardDemo";
+import { BoardSketch, SplitBoardSketch, UpdateStatusSketch } from "../../demos/board";
+import { BoardDemo, jumpAndTalk, startSquad, updateStatus } from "../../demos/BoardDemo";
 
 <Lede>agent 一多，光是跟进它们就成了一项工作。Squad 将这项工作交给其中一个 agent。</Lede>
 
@@ -65,18 +65,42 @@ squad 标签页默认使用 **members**：lead 与成员显示在同一个带边
 
 <Caption>示意图：默认的 members 视图；单个带边框的列表下方是 lead 的笔记。</Caption>
 
-| 按键                     | 对所选行的操作                                                                                                                                                                                      |
-| ------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| enter · double-click · ⌫ | 在 tmux 中，Enter 或双击跳到成员界面，Backspace 返回。普通终端的 Enter 或双击打开该行的动作菜单。单击选择行；点击窗格切换焦点。参见[在成员之间跳转](/extensions/squad#jumping-between-members)。    |
-| a                        | `write`：所选行共用一个 composer。有等待你回答的请求时先回答（多个请求需先选一个），否则向 lead 发送关于该行的笔记。**Tab** 切换可用的 answer、note、talk 模式并保留草稿；talk 发出需要回复的请求。 |
-| t                        | 显示或隐藏回复预览，与 HOME 相同。                                                                                                                                                                  |
-| e · n                    | 在行内展开 lead 或成员的详情；隐藏或显示 lead 的笔记。                                                                                                                                              |
-| ,                        | 设置：选择 **Theme**、**View**，或 meter 开启时的 **Token window**。                                                                                                                                |
-| o · y                    | `open` 打开该行的拉取请求或第一个链接；`copy` 复制状态行，例如 `auth-fix: rotate session tokens (blocked)`。通过 SSH 也能复制。                                                                     |
-| / · tab · s              | 搜索 · 下一个窗格 · 切换到任意标签页                                                                                                                                                                |
-| ctrl-r                   | 立即刷新。侧边窗格视图还可用 **d** 折叠详情和回复。                                                                                                                                                 |
+| 按键                     | 对所选行的操作                                                                                                                                                                                                                                     |
+| ------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| enter · double-click · ⌫ | 在 tmux 中，Enter 或双击跳到成员界面，Backspace 返回。普通终端的 Enter 或双击打开该行的动作菜单。单击选择行；点击窗格切换焦点。参见[在成员之间跳转](/extensions/squad#jumping-between-members)。                                                   |
+| a                        | `write`：所选行共用一个 composer。有等待你回答的请求时先回答（多个请求需先选一个），否则向 lead 发送关于该行的笔记（没有 lead 时使用 talk）。**Tab** 切换可用的 answer、note、talk、status 模式并保留消息和 status 草稿；talk 发出需要回复的请求。 |
+| t                        | 显示或隐藏回复预览，与 HOME 相同。                                                                                                                                                                                                                 |
+| e · n                    | 在行内展开 lead 或成员的详情；隐藏或显示 lead 的笔记。                                                                                                                                                                                             |
+| ,                        | 设置：选择 **Theme**、**View**，或 meter 开启时的 **Token window**。                                                                                                                                                                               |
+| o · y                    | `open` 打开该行的拉取请求或第一个链接；`copy` 复制状态行，例如 `auth-fix: rotate session tokens (blocked)`。通过 SSH 也能复制。                                                                                                                    |
+| / · tab · s              | 搜索 · 下一个窗格 · 切换到任意标签页                                                                                                                                                                                                               |
+| ctrl-r                   | 立即刷新。侧边窗格视图还可用 **d** 折叠详情和回复。                                                                                                                                                                                                |
 
 以上是默认按键。`r`、`T`、`l`、`w` 不再有默认绑定；reply、theme、view、token-window 动作仍可自行绑定。自定义绑定优先；`?` 列出有效按键。
+
+<Mdx.h3 id="update-status">Update status</Mdx.h3>
+
+在 HOME 或 squad 标签页选择 lead 或成员，用 **a → Tab → status** 在共享行内区域打开 **Update status → squad / agent**。这些是默认按键；自定义绑定优先。手动 `pending` 和 `state` 分别显示准确的旧值与拟议新值，窄宽度下分行显示。上下键聚焦 **Clear pending**、**Replace state**、**Reason**、**Apply and notify** 或某个 **Answer request**。`›` 标记焦点字段或动作的每个换行，即使没有颜色也保留；`[x]` 表示选择了修改，不是键盘焦点。Enter 切换字段选择；在 state 行输入明确的新值，在 **Reason** 输入必填原因。两项均不预选，清除 pending 不会推断为 working。PgUp/PgDn 滚动长预览。Tab 保留消息和 status 草稿；Esc 取消且不再执行动作。行内区域紧接完整选中行及任务预览，后面的行向下移动。
+
+**Apply and notify** 一起提交每个所选字段，逐项匹配预览的准确原始值或不存在状态，包括拟议值未改变的选择。identity UUID、room、namespace 和 metadata keys 保持固定。所选值冲突时，所有字段均不应用；刷新预览、清除选择，并要求重新明确提交。actor、identity、room 或 metadata namespace 改变时拒绝动作。旧数据为空或无效时显示不支持值的拒绝提示。应用结果未知时不发送通知，也不提供重放；先检查当前 metadata，再重新打开。如果上下文在已应用或结果未知后改变，表单保留该结果，不再执行动作。
+
+确认更新后，所选 agent 收到带操作者信息的 announcement，只包含实际改变的字段和原因。它不要求回复，也不证明送达。**Status updated; notification failed** 在接受状态未确认时提供 **Retry notification only**。聚焦该动作并按 Enter；复用同一 operation 和消息，不重复 metadata 修改。收件人已确定不可用时，不能用该 receipt 重发。
+
+**Requires a reply** 与手动状态分开。**Answer request** 打开指定请求的现有 answer composer；明确 dismissal 也是 final reply。清除手动字段不会结束请求，回答不会清除无关手动状态。多个请求时可用 Tab 离开现有 picker，进入其他模式，而不选择回答目标。
+
+<UpdateStatusSketch />
+
+<Caption>
+  完整选中行下方的 status 区域示意。两项手动修改已勾选，非颜色 `›` 焦点在
+  Reason；两个未回答请求保持独立。示例输出保留英文。
+</Caption>
+
+<BoardDemo
+  steps={updateStatus}
+  label="Update status 动画示例：未选择字段、明确选择及原因、冲突后重新提交，以及只重发通知。手动修改不会回答两个请求。字幕解释每一步。"
+/>
+
+<Caption>已接受行为的示意画面，不是实时看板。用箭头查看各帧；减少动态效果时显示完整帧。</Caption>
 
 <Mdx.h3 id="token-rate">Token 时间窗口</Mdx.h3>
 
@@ -193,7 +217,7 @@ squad 手写的 `board.layout` 或 `panes` 始终优先，其次是该 squad 的
 
 squad 标签页默认显示一个带边框的列表：lead 排在最前，带有 `lead` 标签，随后是 `── members · N ──` 分隔线。每位成员占用两行：标记、名称、状态、模型和经过时间；下一行显示任务预览。等待你处理的成员（`◆`）按最早的问题优先排列；其他交谈按最新时间排列，没有交谈的成员按名称排序。lead 始终排在最前，自定义分区保持原位。
 
-在 lead 或成员上按 **e**，会用共享的行内详情替换任务预览。有内容时，依次显示 `◆ waits on you`、任务、链接、带时间的最新回复，再显示折叠／写入／打开提示。按 **e** 或 **Esc** 折叠；**a** 打开该行共用的 answer／note／talk composer，**o** 打开 PR 或链接。方向键或 j/k、PgUp/PgDn 可滚动较长的详情，不会移动行光标。一次只能展开一个详情。阅读不需要先记录用户，写入则需要 `tmt sq me`。lead 笔记位于列表下方；按 **n** 隐藏或显示。
+在 lead 或成员上按 **e**，会用共享的行内详情替换任务预览。有内容时，依次显示 `◆ waits on you`、任务、链接、带时间的最新回复，再显示折叠／写入／打开提示。按 **e** 或 **Esc** 折叠；**a** 打开该行共用的 answer／note／talk／status composer，**o** 打开 PR 或链接。方向键或 j/k、PgUp/PgDn 可滚动较长的详情，不会移动行光标。一次只能展开一个详情。阅读不需要先记录用户，写入则需要 `tmt sq me`。lead 笔记位于列表下方；按 **n** 隐藏或显示。
 
 要使用原来的详情／回复侧边窗格，在 **,** 设置选择 **View** → `team`；选择 `members` 恢复带边框列表。自定义 `board.layout` 或 `panes` 保留配置的布局。
 
