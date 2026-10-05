@@ -203,6 +203,7 @@ pub enum Request {
         all: bool,
         text: String,
     },
+    Status(Box<super::status_update::Action>),
     /// Save this tab order to `[tabs] order` (tab keys, in order).
     Reorder(Vec<String>),
     /// A cron job control, with its actor, job and viewed revision resolved.
@@ -221,6 +222,7 @@ impl Request {
                 | Self::Reorder(_)
                 | Self::Cron(_)
                 | Self::Leads { .. }
+                | Self::Status(_)
         )
     }
 }
@@ -322,6 +324,9 @@ pub enum Compose {
         request: String,
         from: String,
     },
+    Status,
+    /// Choose one acquired request through the existing request menu.
+    AnswerPicker,
     /// One step of a cron form; its draft lives in `App::cron_draft`.
     Cron,
 }
@@ -356,6 +361,8 @@ pub(super) struct RowSend {
 /// A successful send keeps its Home row visible through the ensuing refresh,
 /// until the next key clears the confirmation. This is display evidence only.
 pub(super) struct RowFeedback {
+    /// Retention alone is not evidence that a message was sent.
+    pub sent: bool,
     pub target: RowTarget,
     pub home: Option<HomeFeedback>,
 }
@@ -367,7 +374,7 @@ pub(super) struct HomeFeedback {
 }
 
 impl RowSend {
-    fn valid(&self, app: &App, input: &Input) -> bool {
+    pub(super) fn valid(&self, app: &App, input: &Input) -> bool {
         if matches!(input.compose, Compose::Leads { .. }) {
             return app.leads_valid(input);
         }
@@ -387,6 +394,8 @@ impl RowSend {
             return false;
         }
         match &input.compose {
+            Compose::Status => true,
+            Compose::AnswerPicker => false,
             Compose::Talk { to } => to == &self.name,
             Compose::Reply { request, from } => {
                 from == &self.name
@@ -453,6 +462,14 @@ impl Input {
             Compose::Annotate { to, .. } => format!("→ {to} ({}) · note", self.squad),
             Compose::AskLead { to, .. } => format!("→ lead {to}"),
             Compose::Cron => self.prompt.clone(),
+            Compose::AnswerPicker => self.prompt.clone(),
+            Compose::Status => format!(
+                "Update status → {} / {}",
+                self.squad,
+                self.row_send
+                    .as_ref()
+                    .map_or("agent", |send| send.name.as_str())
+            ),
         }
     }
 
@@ -471,16 +488,17 @@ impl Compose {
     /// The row composer's mode: its place in the answer, note, talk cycle and word.
     fn mode(&self) -> Option<(u8, &'static str)> {
         match self {
-            Self::Reply { .. } => Some((0, "answer")),
+            Self::Reply { .. } | Self::AnswerPicker => Some((0, "answer")),
             Self::Annotate { .. } => Some((1, "note")),
             Self::Talk { .. } => Some((2, "talk")),
+            Self::Status => Some((3, "status")),
             _ => None,
         }
     }
 }
 
 /// Longest text the composer accepts, in characters.
-const INPUT_LIMIT: usize = 4000;
+pub(super) const INPUT_LIMIT: usize = 4000;
 
 const DOUBLE_CLICK: Duration = Duration::from_millis(400);
 
@@ -573,6 +591,7 @@ pub struct App {
     pub(super) cron: super::cronboard::State,
     pub(super) home_leads: super::home_leads::State,
     /// The cron form being filled in on the input line, if any.
+    pub(super) status_draft: Option<super::status_update::Draft>,
     pub(super) cron_draft: Option<super::cronboard::Draft>,
     /// The squad tab's jobs half has focus (Tab moves in after the last pane).
     pub(super) jobs_focus: bool,
@@ -620,7 +639,7 @@ pub struct App {
     pub input: Option<Input>,
     /// Last successful row send; cleared on the next user action.
     pub(super) sent: Option<RowFeedback>,
-    pending_send: Option<RowFeedback>,
+    pub(super) pending_send: Option<RowFeedback>,
     /// Current-frame inline band, reserved by the row painter.
     pub(super) input_band: std::cell::Cell<Option<ratatui::layout::Rect>>,
     /// Index of the focused pane (split) or visible tab (tabs).
@@ -2336,11 +2355,8 @@ impl App {
         })
     }
 
-    /// One composer for row answers and notes; several requests still need a choice.
-    pub(super) fn compose_row(&mut self, mut send: RowSend, verb: Verb, squad: String) -> Effect {
-        let row = self.target_row(&send.target).expect("opening row exists");
-        let pending = row["pending"].as_str().is_some_and(|text| !text.is_empty());
-        let open: Vec<MenuEntry> = row["waitingOnYou"]
+    fn request_entries(&self, send: &RowSend) -> Vec<MenuEntry> {
+        self.target_row(&send.target).unwrap_or(&Value::Null)["waitingOnYou"]
             .as_array()
             .into_iter()
             .flatten()
@@ -2357,7 +2373,14 @@ impl App {
                     },
                 })
             })
-            .collect();
+            .collect()
+    }
+    /// One composer for row answers and notes; several requests still need a choice.
+    pub(super) fn compose_row(&mut self, mut send: RowSend, verb: Verb, squad: String) -> Effect {
+        self.status_draft = None;
+        let row = self.target_row(&send.target).expect("opening row exists");
+        let pending = row["pending"].as_str().is_some_and(|text| !text.is_empty());
+        let open = self.request_entries(&send);
         if verb != Verb::Talk && !(verb == Verb::Annotate && send.note_member) && !open.is_empty() {
             if open.len() > 1 {
                 self.menu = Some(Menu {
@@ -2393,7 +2416,15 @@ impl App {
             Verb::Reply => return self.say(format!("{} is not waiting on you.", send.name)),
             _ => match send.note.clone() {
                 Some(note) => note,
-                None => return self.say(format!("This squad has no lead; set one with tmt squad lead <name> --squad {squad}, or use annotate member.")),
+                None if matches!(&send.target,RowTarget::Home(target) if target.member.is_none()) =>
+                {
+                    return self.say(
+                        "This squad has no lead; choose a lead before writing to its squad row.",
+                    );
+                }
+                None => Compose::Talk {
+                    to: send.name.clone(),
+                },
             },
         };
         let effect = self.ask(String::new(), compose, squad.clone());
@@ -2444,7 +2475,7 @@ impl App {
         self.compose_row(send, action.verb, squad)
     }
 
-    fn choose(&mut self, choice: Choice) -> Effect {
+    pub(super) fn choose(&mut self, choice: Choice) -> Effect {
         match choice {
             Choice::Action(action) => self.perform(&action),
             Choice::Cron(request) => Effect::Act(Request::Cron(request)),
@@ -2477,14 +2508,18 @@ impl App {
     /// requests are chosen from the menu `a` opens first.
     fn other_modes(&self, send: &RowSend, current: &Compose) -> Vec<Compose> {
         let answer = match current {
-            Compose::Reply { .. } => Some(current.clone()),
+            Compose::Reply { .. } | Compose::AnswerPicker => Some(current.clone()),
             _ if send.note_member => None,
             _ => self.target_row(&send.target).and_then(|row| {
                 let mut open = row["waitingOnYou"].as_array()?.iter();
                 let (item, rest) = (open.next()?, open.next());
-                rest.is_none().then(|| Compose::Reply {
-                    request: item["requestId"].as_str().unwrap_or_default().to_owned(),
-                    from: send.name.clone(),
+                Some(if rest.is_none() {
+                    Compose::Reply {
+                        request: item["requestId"].as_str().unwrap_or_default().to_owned(),
+                        from: send.name.clone(),
+                    }
+                } else {
+                    Compose::AnswerPicker
                 })
             }),
         };
@@ -2494,6 +2529,8 @@ impl App {
             Some(Compose::Talk {
                 to: send.name.clone(),
             }),
+            (!matches!(&send.target,RowTarget::Home(target) if target.member.is_none()))
+                .then_some(Compose::Status),
         ];
         let rank = |compose: &Compose| compose.mode().map(|(rank, _)| rank);
         let here = rank(current);
@@ -2503,7 +2540,7 @@ impl App {
         after
     }
 
-    fn attach_row(&mut self, send: RowSend, squad: String) {
+    pub(super) fn attach_row(&mut self, send: RowSend, squad: String) {
         let compose = self.input.as_ref().map(|input| input.compose.clone());
         let others = compose
             .as_ref()
@@ -2523,7 +2560,7 @@ impl App {
     }
 
     /// Tab in a row composer: the next of answer, note and talk, keeping the text.
-    fn cycle_mode(&mut self) {
+    pub(super) fn cycle_mode(&mut self) {
         let Some(input) = self.input.as_mut().filter(|input| !input.others.is_empty()) else {
             return;
         };
@@ -2531,6 +2568,33 @@ impl App {
         let previous = std::mem::replace(&mut input.compose, next);
         input.others.push(previous);
         input.prompt = input.header();
+        if self
+            .input
+            .as_ref()
+            .is_some_and(|input| matches!(input.compose, Compose::AnswerPicker))
+        {
+            let input = self.input.take().unwrap();
+            if let Some(send) = input.row_send {
+                let entries = self.request_entries(&send);
+                self.menu = Some(Menu {
+                    title: format!("answer {}", send.name),
+                    row_send: Some(send),
+                    link: None,
+                    prefill: input.text,
+                    entries,
+                    selected: 0,
+                    surface: Default::default(),
+                });
+            }
+            return;
+        }
+        if self
+            .input
+            .as_ref()
+            .is_some_and(|input| matches!(input.compose, Compose::Status))
+        {
+            self.start_status();
+        }
         let quote = self
             .input
             .as_ref()
@@ -2774,6 +2838,13 @@ impl App {
     }
 
     fn input_key(&mut self, key: KeyEvent) -> Effect {
+        if self
+            .input
+            .as_ref()
+            .is_some_and(|input| matches!(input.compose, Compose::Status))
+        {
+            return self.status_key(key);
+        }
         if self.input.as_ref().is_some_and(|input| {
             matches!(
                 input.compose,
@@ -2789,6 +2860,7 @@ impl App {
             KeyCode::Esc => {
                 let cron = matches!(input.compose, Compose::Cron);
                 self.input = None;
+                self.status_draft = None;
                 if cron {
                     self.cron_draft = None;
                     return self.say("Cancelled; nothing changed.");
@@ -2845,6 +2917,8 @@ impl App {
                     Compose::Talk { to } => to == member,
                     Compose::Annotate { to, .. } => self.lead().as_ref() == Ok(to),
                     Compose::Cron
+                    | Compose::Status
+                    | Compose::AnswerPicker
                     | Compose::ReadLead { .. }
                     | Compose::ReadRow { .. }
                     | Compose::Leads { .. } => false,
@@ -2868,25 +2942,7 @@ impl App {
         if text.is_empty() {
             return self.say("Nothing sent.");
         }
-        self.pending_send = input.row_send.map(|send| {
-            let home = matches!(&send.target, RowTarget::Home(target) if target.member.is_some())
-                .then(|| {
-                    self.home_entries()
-                        .iter()
-                        .enumerate()
-                        .find(|(_, entry)| RowTarget::Home(entry.target.clone()) == send.target)
-                        .map(|(index, entry)| HomeFeedback {
-                            row: entry.row.clone(),
-                            lead: entry.lead.map(str::to_owned),
-                            index,
-                        })
-                })
-                .flatten();
-            RowFeedback {
-                target: send.target,
-                home,
-            }
-        });
+        self.pending_send = self.row_feedback(input.row_send);
         Effect::Act(match input.compose {
             Compose::Talk { to } | Compose::AskLead { to, .. } => Request::Talk {
                 me,
@@ -2914,6 +2970,8 @@ impl App {
             Compose::ReadLead { .. } | Compose::ReadRow { .. } => {
                 unreachable!("read-only mode cannot send")
             }
+            Compose::Status => unreachable!("status submission has its own retained form"),
+            Compose::AnswerPicker => unreachable!("answer mode opens the existing request menu"),
             Compose::Cron => unreachable!("a cron step is submitted before this match"),
             Compose::Reply { request, from } => Request::Reply {
                 me,
@@ -2924,6 +2982,46 @@ impl App {
         })
     }
 
+    pub(super) fn row_feedback(&self, send: Option<RowSend>) -> Option<RowFeedback> {
+        send.map(|send| {
+            let home = matches!(&send.target, RowTarget::Home(target) if target.member.is_some())
+                .then(|| {
+                    self.home_entries()
+                        .iter()
+                        .enumerate()
+                        .find(|(_, entry)| RowTarget::Home(entry.target.clone()) == send.target)
+                        .map(|(index, entry)| HomeFeedback {
+                            row: entry.row.clone(),
+                            lead: entry.lead.map(str::to_owned),
+                            index,
+                        })
+                })
+                .flatten();
+            RowFeedback {
+                sent: true,
+                target: send.target,
+                home,
+            }
+        })
+    }
+    pub(super) fn finished_status(&mut self, outcome: crate::membership::status_update::Outcome) {
+        if matches!(
+            outcome,
+            crate::membership::status_update::Outcome::Applied { .. }
+                | crate::membership::status_update::Outcome::Unknown(_)
+        ) {
+            if let Some(mut feedback) = self.pending_send.take() {
+                feedback.sent = false;
+                self.sent = Some(feedback);
+            }
+        } else {
+            self.pending_send = None;
+        }
+        if let Some(draft) = &mut self.status_draft {
+            draft.finished(outcome);
+            self.notice = draft.error.clone();
+        }
+    }
     /// Shows how a request ended.
     pub fn finished(&mut self, outcome: Result<String, String>) {
         self.sent = self.pending_send.take().filter(|_| outcome.is_ok());
@@ -2931,6 +3029,24 @@ impl App {
     }
 
     fn menu_key(&mut self, key: KeyEvent) -> Effect {
+        if key.code == KeyCode::Tab
+            && let Some(send) = self.menu.as_ref().and_then(|menu| menu.row_send.clone())
+        {
+            let squad = match &send.target {
+                RowTarget::Home(target) => target.squad.clone(),
+                RowTarget::Member { squad, .. } | RowTarget::Lead { squad, .. } => squad.clone(),
+            };
+            let prefill = self.menu.as_ref().unwrap().prefill.clone();
+            self.menu = None;
+            let compose = send.note.clone().unwrap_or(Compose::Talk {
+                to: send.name.clone(),
+            });
+            self.ask(String::new(), compose, squad.clone());
+            self.input.as_mut().unwrap().text = prefill;
+            self.attach_row(send, squad);
+            return Effect::None;
+        }
+
         let Some(menu) = &mut self.menu else {
             return Effect::None;
         };
@@ -3126,7 +3242,12 @@ impl App {
             return effect;
         }
         self.notice = None;
-        if self.sent.take().is_some() {
+        if !self
+            .input
+            .as_ref()
+            .is_some_and(|input| matches!(input.compose, Compose::Status))
+            && self.sent.take().is_some()
+        {
             self.clamp();
         }
         if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('c') {
@@ -3586,6 +3707,19 @@ impl App {
     pub(super) fn selected_read(&self) -> Option<super::refresh::SelectedRead> {
         if self.loading() {
             return None;
+        }
+        if self
+            .input
+            .as_ref()
+            .is_some_and(|input| matches!(input.compose, Compose::Status))
+            && let Some(draft) = &self.status_draft
+            && draft.preview.is_none()
+            && draft.error.is_none()
+        {
+            return draft
+                .target
+                .clone()
+                .map(super::refresh::SelectedRead::Status);
         }
         if let Some(Input {
             compose: Compose::ReadLead { key, .. },
@@ -4164,7 +4298,7 @@ pub(crate) mod tests {
         json!({"id": name, "name": name, "state": "working", "fields": fields})
     }
 
-    pub(super) fn crew(
+    pub(in crate::board) fn crew(
         bindings: crate::action::Bindings,
         sections: Vec<crate::action::Bindings>,
     ) -> App {
@@ -4572,13 +4706,15 @@ pub(crate) mod tests {
         press(&mut app, KeyCode::Char('r'));
         assert_eq!(app.notice.as_deref(), Some("docs is not waiting on you."));
         press(&mut app, KeyCode::Char('a'));
-        assert_eq!(
-            app.notice.as_deref(),
-            Some(
-                "This squad has no lead; set one with tmt squad lead <name> --squad product, or use annotate member."
-            )
-        );
-        assert!(app.input.is_none());
+        assert!(matches!(
+            app.input.as_ref().unwrap().compose,
+            Compose::Talk { .. }
+        ));
+        press(&mut app, KeyCode::Tab);
+        assert!(matches!(
+            app.input.as_ref().unwrap().compose,
+            Compose::Status
+        ));
     }
 
     #[test]
@@ -4612,6 +4748,12 @@ pub(crate) mod tests {
             app.input.as_ref().unwrap().header(),
             "→ auth-fix (product) · talk"
         );
+        assert_eq!(app.input.as_ref().unwrap().text, "draft");
+        press(&mut app, KeyCode::Tab);
+        assert!(matches!(
+            app.input.as_ref().unwrap().compose,
+            Compose::Status
+        ));
         assert_eq!(app.input.as_ref().unwrap().text, "draft");
         press(&mut app, KeyCode::Tab);
         assert!(
@@ -4691,7 +4833,7 @@ pub(crate) mod tests {
             modes_of(&app),
             (
                 "→ sol (product) · note · about auth-fix".into(),
-                vec!["note", "talk"]
+                vec!["note", "talk", "status"]
             )
         );
         typed(&mut app, "keep");
@@ -4701,6 +4843,11 @@ pub(crate) mod tests {
             "→ auth-fix (product) · talk"
         );
         assert!(matches!(press(&mut app, KeyCode::Tab), Effect::None));
+        assert!(matches!(
+            app.input.as_ref().unwrap().compose,
+            Compose::Status
+        ));
+        press(&mut app, KeyCode::Tab);
         assert!(matches!(
             app.input.as_ref().unwrap().compose,
             Compose::Annotate { .. }
@@ -4721,7 +4868,7 @@ pub(crate) mod tests {
             modes_of(&app),
             (
                 "→ auth-fix (product) · answer".into(),
-                vec!["answer", "note", "talk"]
+                vec!["answer", "note", "talk", "status"]
             )
         );
         press(&mut app, KeyCode::Esc);
@@ -4736,6 +4883,11 @@ pub(crate) mod tests {
             "→ auth-fix (product) · talk"
         );
         press(&mut app, KeyCode::Tab);
+        assert!(matches!(
+            app.input.as_ref().unwrap().compose,
+            Compose::Status
+        ));
+        press(&mut app, KeyCode::Tab);
         assert_eq!(
             app.input.as_ref().unwrap().header(),
             "→ auth-fix (product) · answer"
@@ -4748,7 +4900,7 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn a_row_without_a_lead_or_a_request_has_only_talk_and_tab_changes_nothing() {
+    fn a_row_without_a_lead_or_request_can_cycle_talk_and_status() {
         let mut app = crew(crate::action::preset(true, &[]), vec![]);
         app.view.as_mut().unwrap().me = Some("Ben".into());
         app.view
@@ -4760,19 +4912,19 @@ pub(crate) mod tests {
         press(&mut app, KeyCode::Char('x'));
         assert_eq!(
             modes_of(&app),
-            ("→ auth-fix (product) · talk".into(), vec!["talk"])
+            ("→ auth-fix (product) · talk".into(), vec!["talk", "status"])
         );
         typed(&mut app, "hi");
         press(&mut app, KeyCode::Tab);
         assert_eq!(
             app.input.as_ref().unwrap().header(),
-            "→ auth-fix (product) · talk"
+            "Update status → product / auth-fix"
         );
         assert_eq!(app.input.as_ref().unwrap().text, "hi");
     }
 
     #[test]
-    fn an_explicit_member_note_binding_cycles_only_note_and_talk() {
+    fn an_explicit_member_note_binding_cycles_note_talk_status() {
         let mut app = crew(crate::action::preset(true, &[]), vec![]);
         let view = app.view.as_mut().unwrap();
         view.me = Some("Ben".into());
@@ -4787,7 +4939,10 @@ pub(crate) mod tests {
         press(&mut app, KeyCode::Char('x'));
         assert_eq!(
             modes_of(&app),
-            ("→ auth-fix (product) · note".into(), vec!["note", "talk"])
+            (
+                "→ auth-fix (product) · note".into(),
+                vec!["note", "talk", "status"]
+            )
         );
     }
 

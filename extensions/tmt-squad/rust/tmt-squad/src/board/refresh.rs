@@ -65,6 +65,7 @@ impl Generation {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) enum SelectedRead {
     Notebook(String),
+    Status(crate::membership::status_update::Target),
     Message(super::home_leads::MessageKey),
 }
 
@@ -142,6 +143,16 @@ impl Worker {
                                 crate::status::now_ms() as i64,
                                 &mut places,
                             ),
+                            cancellation: cancellation.clone(),
+                        },
+                        Deferred::Selected {
+                            read: SelectedRead::Status(target),
+                            revision,
+                        } => super::BoardEvent::Status {
+                            result: crate::membership::status_update::read(&reader, &target)
+                                .map_err(|error| error.message),
+                            target,
+                            revision,
                             cancellation: cancellation.clone(),
                         },
                         Deferred::Selected {

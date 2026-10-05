@@ -1377,6 +1377,7 @@ fn sent_feedback_sits_under_its_row_before_the_annotation_and_stays_clickable() 
     ]}]));
     app.view.as_mut().unwrap().look = Default::default();
     app.sent = Some(crate::board::app::RowFeedback {
+        sent: true,
         target: app.row_target(0).unwrap(),
         home: None,
     });
@@ -4432,6 +4433,11 @@ fn boxed_member_read_band_starts_answer_then_cycles_note_and_talk_without_losing
     );
     app.key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
     assert!(matches!(&app.input.as_ref().unwrap().compose, Compose::Talk { to } if to == "worker"));
+    app.key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+    assert!(matches!(
+        app.input.as_ref().unwrap().compose,
+        Compose::Status
+    ));
     app.key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
     assert!(
         matches!(&app.input.as_ref().unwrap().compose, Compose::Reply { request, .. } if request == "decision-q")

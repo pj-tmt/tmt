@@ -1,6 +1,6 @@
 ---
 source: site/src/chapters/squad.mdx
-sourceRevision: 63a10ac9a947e3aef34e01a7ce8e83ffe1f37100
+sourceRevision: 8bd1e1392968d4d9d4eba8cfc86b0fb137b48931
 title: チームを1つの board で見る
 ---
 
@@ -8,8 +8,8 @@ import { MarkLegend } from "../../chapter-scenes/MarkLegend";
 import { Cmd, Code } from "../../components/Cmd";
 import { Callout, Caption, KeyList, Lede, More, Tag, Waiting } from "../../components/marks";
 import { Spaces, TokenTable } from "../../components/samples";
-import { BoardSketch, SplitBoardSketch } from "../../demos/board";
-import { BoardDemo, jumpAndTalk, startSquad } from "../../demos/BoardDemo";
+import { BoardSketch, SplitBoardSketch, UpdateStatusSketch } from "../../demos/board";
+import { BoardDemo, jumpAndTalk, startSquad, updateStatus } from "../../demos/BoardDemo";
 import { components as Mdx } from "../../components/mdx";
 
 <Lede>
@@ -73,7 +73,7 @@ squad タブの既定は **members** です。lead とメンバーを1つの枠�
 | キー                     | 選択した行での動作                                                                                                                                                                                                                                                                                           |
 | ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | enter · double-click · ⌫ | tmux では Enter またはダブルクリックでメンバーの画面へ移動し、Backspace で戻ります。通常の端末では Enter またはダブルクリックで行のアクションメニューを開きます。シングルクリックは選択、ペインのクリックはフォーカスです。[メンバー間の移動](/extensions/squad#jumping-between-members)を参照してください。 |
-| a                        | `write`：行に共通の composer を開きます。自分への質問があれば回答し（複数なら先に1つ選択）、なければその行について lead にメモを送ります。**Tab** は利用可能な answer、note、talk を切り替え、下書きを保ちます。talk は返信を求めるリクエストです。                                                          |
+| a                        | `write`：行に共通の composer を開きます。自分への質問があれば回答し（複数なら先に1つ選択）、なければその行について lead にメモを送ります（lead がいなければ talk）。**Tab** は利用可能な answer、note、talk、status を切り替え、メッセージと status の下書きを保ちます。talk は返信を求めるリクエストです。  |
 | t                        | HOME と同じく返信プレビューを表示／非表示にします。                                                                                                                                                                                                                                                          |
 | e · n                    | lead またはメンバーの詳細を行内に開く · lead の notes を隠す／表示する。                                                                                                                                                                                                                                     |
 | ,                        | 設定：**Theme**、**View**、meter 有効時の **Token window** を選びます。                                                                                                                                                                                                                                      |
@@ -82,6 +82,33 @@ squad タブの既定は **members** です。lead とメンバーを1つの枠�
 | ctrl-r                   | すぐ更新します。側面ペイン view では **d** で detail と replies を折りたためます。                                                                                                                                                                                                                           |
 
 以上は既定のキーです。`r`、`T`、`l`、`w` に既定の割り当てはありませんが、reply、theme、view、token-window は割り当て可能です。独自の割り当てが優先され、`?` に有効なキーが載ります。
+
+<Mdx.h3 id="update-status">Update status</Mdx.h3>
+
+HOME または squad タブで lead やメンバーを選び、**a → Tab → status** で共通の行内 band に **Update status → squad / agent** を開きます。これは既定のキーで、独自の割り当てが優先されます。手動の `pending` と `state` は正確な旧値と予定する新値を別々に表示し、幅が狭いときは縦に並べます。上下キーで **Clear pending**、**Replace state**、**Reason**、**Apply and notify**、各 **Answer request** にフォーカスを移します。`›` はフォーカス中の項目の折り返し行にも付き、色なしでも残ります。`[x]` は変更の選択であり、キーボードフォーカスではありません。Enter で項目の選択を切り替え、state 行に明示的な新値、**Reason** に必須の理由を入力します。どちらも事前選択されず、pending の消去から working を推定しません。PgUp/PgDn で長いプレビューをスクロールします。Tab はメッセージと status の下書きを保ち、Esc はキャンセルして追加の操作を行いません。band は選択した行全体と task プレビューの直後に入り、後続の行を下へ移します。
+
+**Apply and notify** は選択した全項目をまとめて送信し、プレビューした正確な生の値または不存在を照合します。予定値が変わらない選択も対象です。identity UUID、room、namespace、metadata keys は固定されます。選択した値がすべて変わらない場合は拒否し、更新も announcement も行いません。選択値が競合すると全項目を適用せず、プレビューを更新して選択を解除し、再度の明示的な送信を求めます。actor、identity、room、metadata namespace の変更は操作を拒否します。既存値が空または無効なら、未対応の値として拒否します。適用結果が不明な場合、通知を送らず再実行も提供しません。現在の metadata を確認してから開き直してください。適用済みまたは結果不明の後に context が変わっても、フォームはその結果を保ち、追加の操作を行いません。
+
+更新が確認されると、選択した agent に操作者を示す announcement が届くようキューへ送ります。内容は実際に変わった項目と理由だけです。返信を求めず、配信完了の証明でもありません。**Status updated; notification failed** は受け付けが未確認のとき **Retry notification only** を提供します。その操作にフォーカスして Enter を押すと、同じ operation とメッセージを使い、metadata の変更は繰り返しません。宛先が利用不可と確定した receipt からは再送できません。
+
+**Requires a reply** は手動状態と別です。**Answer request** は指定した1件の既存 answer composer を開きます。明示的な dismissal も final reply です。手動項目の消去はリクエストを終了せず、回答は無関係な手動状態を消しません。複数件ある場合、回答先を選ばずに Tab で既存 picker を離れて別のモードへ移れます。
+
+<UpdateStatusSketch />
+
+<Caption>
+  選択した行全体の下に置く status band の図です。手動変更は両方選択済みですが、色に依存しない `›` は
+  Reason のフォーカスを示します。未回答の2件は独立しています。出力例は英語のままです。
+</Caption>
+
+<BoardDemo
+  steps={updateStatus}
+  label="Update status の操作例：未選択の項目、明示的な選択と理由、競合後の再送信、通知だけの再試行。手動変更は2件のリクエストに回答しません。字幕で各段階を説明します。"
+/>
+
+<Caption>
+  受け入れ済みの動作を示す図で、実際の board
+  ではありません。矢印で各フレームを確認でき、動きを減らす設定では完成したフレームを表示します。
+</Caption>
 
 <Mdx.h3 id="token-rate">Token の時間窓</Mdx.h3>
 
@@ -198,7 +225,7 @@ squad に手書きの `board.layout` または `panes` があれば最優先で�
 
 squad タブは既定で1つの枠付き一覧です。先頭は `lead` タグ付きの lead、その後に `── members · N ──` の区切りがあります。メンバーは印・名前・状態・モデル・経過時間の行と作業の行で表示します。待機中（`◆`）は古い質問から先に並び、ほかのやり取りは新しい順、やり取りのないメンバーは名前順です。lead は先頭、作成者が定めた section は元の位置に残ります。
 
-lead またはメンバーで **e** を押すと、作業のプレビューが行内の詳細に変わります。利用できる場合は `◆ waits on you`、作業、リンク、経過時間付きの最新の返事、折りたたみ／書き込み／開く操作を表示します。**e** または **Esc** で閉じ、**a** はその行に共通の answer／note／talk composer を開き、**o** は PR またはリンクを開きます。長い詳細は矢印キーや j/k、PgUp/PgDn でスクロールでき、行の選択は動きません。一度に開ける詳細は1つです。読むだけならユーザー登録は不要で、書き込むには `tmt sq me` が必要です。lead の notes は一覧の下にあり、**n** で隠したり表示したりできます。
+lead またはメンバーで **e** を押すと、作業のプレビューが行内の詳細に変わります。利用できる場合は `◆ waits on you`、作業、リンク、経過時間付きの最新の返事、折りたたみ／書き込み／開く操作を表示します。**e** または **Esc** で閉じ、**a** はその行に共通の answer／note／talk／status composer を開き、**o** は PR またはリンクを開きます。長い詳細は矢印キーや j/k、PgUp/PgDn でスクロールでき、行の選択は動きません。一度に開ける詳細は1つです。読むだけならユーザー登録は不要で、書き込むには `tmt sq me` が必要です。lead の notes は一覧の下にあり、**n** で隠したり表示したりできます。
 
 従来の detail/replies 側面ペインは **,** 設定の **View** → `team` で選べます。`members` で枠付き一覧に戻ります。独自の `board.layout` や `panes` は設定した構成を保ちます。
 
