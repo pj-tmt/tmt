@@ -19,7 +19,9 @@ owns record fields, limits, revision semantics and trust boundaries.
   `writer.ts` keeps the existing lifetime lock, shared sequence and durable exact
   ciphertext retry. `Live` publishes discussion from its committed own view.
 - `thread-status.ts` folds immutable status actions by causal depth and writer/action-ID
-  ties after record scope and historical writer-key checks. Status actions do not transfer
+  ties after record scope and historical writer-key checks. Legacy `resolved` supplies the
+  initial state; missing/cross-thread parents and cycles remain inert. The contract
+  linked above owns the grammar and ordering rule. Status actions do not transfer
   creation, anchor, deletion or comment-edit ownership. `ThreadBinding.setStatus` uses a
   captured previous-action reference; publication failures preserve the effective state.
 - Native `threads.rs` validates typed grammar and `threads/status.rs` owns the same causal
