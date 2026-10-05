@@ -86,10 +86,10 @@ and changed clock text or spinner frames, rather than periodic full repainting.
   read band dispatches the same row action as the list, so default `a` answers first
   and explicit note/talk/reply bindings keep their recipient and mode. Covered hits
   are removed by the existing band owner.
-- Row composer and footer: `Input.compose` is the current mode (answer, note or talk)
+- Row composer and footer: `Input.compose` is the current mode (answer, note, talk or status)
   and `Input.others` the rest in cycle order; Tab (`cycle_mode`) rotates them and
   refreshes the quote. `attach_row` builds the list from the row (`other_modes`), so a
-  mode appears only when it can send. `Input::header` names the recipient, its squad and the mode (`→ sol (product) · note`).
+  mode appears only when available; multiple answers use the same explicit request menu. `Input::header` names the recipient, its squad and the mode (`→ sol (product) · note`).
   The footer (`view/footer.rs`) is derived from the effective bindings through
   `Action::footer_rank` (`None` keeps an action out of the footer, in `?` help only) with a
   fixed `↑↓ move` first; `s switch` shows only while `App::tabs_overflow` (set by the tab
@@ -170,13 +170,26 @@ and changed clock text or spinner frames, rather than periodic full repainting.
   label gets space only after all hints through `FOOTER_ROW_ACTIONS_END` fit.
   `board::glyph_guard` checks these labels and HOME/cron text. Tail fitting and
   appearance rules belong to the interaction owner linked above.
-- `App::input` is the shared talk/answer/annotation/ask-lead/HOME-audience composer.
+- `App::input` is the shared talk/answer/annotation/status/ask-lead/HOME-audience composer.
   `RowSend` retains occurrence and opening sender; a chosen request, quoted preview,
-  note recipient and draft survive answer/note mode changes. Several requests use
+  note recipient and draft survive mode changes; the status draft keeps its own field choices and reason. Several requests use
   an explicit picker. Submission revalidates sender, occurrence, actual lead or
   chosen open request against acquired data before the existing public send effect.
   Pending-only Reply opens an annotation to that member (`note_member`), never
   clears pending or acknowledges it. Empty submission and cancellation send nothing.
+- `board/status_update` owns the status form in that composer, measured wrapped
+  lines and focus/scroll. `SelectedRead::Status` acquires raw roster metadata through
+  the existing cancellable worker, fenced by generation, read revision and exact
+  target/actor. No display/provider value becomes an expectation. `membership/status_update`
+  freezes UUID, room, namespace and full keys, validates the actor and occurrence,
+  then calls unattributed public `identity.meta.apply` once for selected fields.
+  Exact old values and absence stay distinct; unsupported legacy values refuse.
+  Conflict refresh retains context, clears field choices and needs a fresh submit; ambiguous output locks
+  out mutation replay and sends no announcement. Typed `ActionOutcome::Status`
+  keeps Refused/Conflict/Unknown/Applied state rather than flattening it to a notice.
+  Applied retains only a frozen announcement for explicit notification-only retry;
+  focus returns to the first field so queued submit keys cannot retry a notification.
+  Unanswered requests remain separate and use the existing one-request composer.
 - Row painters reserve input beneath the complete target in the same line stream
   used for starts, reveal and hits. `view::waiting` places the current-frame opaque
   band across the body, or the HOME lead box's inner width, and removes covered
@@ -184,10 +197,12 @@ and changed clock text or spinner frames, rather than periodic full repainting.
   keeps the footer path; ask-lead keeps a docked band and opening sender/squad/lead
   fences. `Compose::ReadLead` is read-only; wrapping, reservation and scrolling share
   `home_leads::message_lines`, and transition to answer/note uses the normal owner.
-- `RowFeedback` is session-only evidence of successful send. It follows the anchored
-  occurrence through refresh and clears on the next key. A removed HOME row stays
-  in the transient display projection until then; the acquired model and request
-  state are unchanged. Clearing precedes any underlying action.
+- `RowFeedback` retains the anchored occurrence through refresh; its `sent` flag
+  alone permits `✓ sent`. A removed HOME row stays in the transient display
+  projection until the next key. An active status form retains its row through
+  applied/unknown outcomes and notification retry without claiming a successful
+  send; the acquired model and request state are unchanged. Clearing precedes any
+  underlying action after leaving the form.
 
 ## Overlays and offline validation
 

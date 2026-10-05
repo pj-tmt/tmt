@@ -60,6 +60,25 @@ if a[0]=='api':
  elif op=='rooms.roster': out={'members':[x for x in m['members'] if x['id'] not in m['retired'] and x['id'] not in m['rosterWithout']]}
  elif op=='references.resolve':
   out={'identities':[dict(next((x for x in m['members'] if x['id']==id),{'id':id}),found=any(x['id']==id for x in m['members']),retired=id in m['retired']) for id in i.get('identityIds',[])]}
+ elif op=='identity.meta.apply':
+  assert 'identity' not in q and 'originator' not in q
+  if m.get('applyFailure'): save(m); fail(m['applyFailure'])
+  member=next((x for x in m['members'] if x['id']==i['identityId'] and x['id'] not in m['retired']),None)
+  if member is None: save(m); fail('NAME_NOT_FOUND')
+  metadata=member['metadata']; current={}
+  for change in i['changes']:
+   key=change['key']; expect=change['expect']
+   assert expect!='any'
+   if (expect=='absent' and key in metadata) or (isinstance(expect,dict) and metadata.get(key)!=expect['value']): current[key]=metadata.get(key)
+  if current:
+   save(m); print(json.dumps({'error':{'code':'METADATA_CONFLICT','message':'conflict','current':current}})); sys.exit(5)
+  before=dict(metadata)
+  for change in i['changes']:
+   if change['then']=='remove': metadata.pop(change['key'],None)
+   else: metadata[change['key']]=change['then']['set']
+  out={'identityId':i['identityId'],'changed':metadata!=before}
+  if m.get('loseApplyResponse'):
+   save(m); print('interrupted'); sys.exit(0)
  elif op=='identityHooks.register':
   if m['hookFailure']: fail('HOOK_FAILURE')
   if i not in m['hooks']: m['hooks'].append(i)
@@ -74,27 +93,28 @@ if a[0]=='api':
   assert not locked, 'dispatch ran under jobs lock'
   if i['kind']=='announcement' and m['noticeFailure']:
    save(m); fail('DISPATCH_FAILURE')
-  if i['kind']=='announcement':
-   m['notices'].append(q); out={'items':[{'recipientId':id,'acceptance':'queued'} for id in i['recipientIds']]}
+  intent={'input':i,'identity':q.get('identity'),'originator':q.get('originator')}
+  dispatches=m.setdefault('announcements' if i['kind']=='announcement' else 'dispatches',{}); previous=dispatches.get(i['operationId'])
+  if previous and previous['intent']!=intent: save(m); fail('DISPATCH_OPERATION_CONFLICT')
+  if previous: out=previous['receipt']
   else:
-   intent={'input':i,'identity':q.get('identity'),'originator':q.get('originator')}
-   dispatches=m.setdefault('dispatches',{}); previous=dispatches.get(i['operationId'])
-   if previous and previous['intent']!=intent: save(m); fail('DISPATCH_OPERATION_CONFLICT')
-   if previous: out=previous['receipt']
-   else:
-    out={'operationId':i['operationId'],'items':[{'recipientId':id,'acceptance':'queued','requestId':'req_'+i['operationId']} for id in i['recipientIds']]}
-    dispatches[i['operationId']]={'intent':intent,'receipt':out}; m.setdefault('wakes',[]).append(i['operationId'])
-   if m.get('loseResponse'):
-    structured=m['loseResponse']=='storage'; m['loseResponse']=False; save(m)
-    if structured: fail('STORAGE_UNAVAILABLE')
-    print('interrupted'); sys.exit(0)
+   out={'operationId':i['operationId'],'items':[{'recipientId':id,'acceptance':'queued','requestId':'req_'+i['operationId']} for id in i['recipientIds']]}
+   dispatches[i['operationId']]={'intent':intent,'receipt':out}
+   if i['kind']=='announcement': m['notices'].append(q)
+   else: m.setdefault('wakes',[]).append(i['operationId'])
+  response_key='loseAnnouncementResponse' if i['kind']=='announcement' else 'loseResponse'
+  if m.get(response_key):
+   structured=m[response_key]=='storage'; m[response_key]=False; save(m)
+   if structured: fail('STORAGE_UNAVAILABLE')
+   print('interrupted'); sys.exit(0)
  elif op=='dispatch.show':
   if m.get('dispatchShowFailure'): save(m); fail('STORAGE_UNAVAILABLE')
-  previous=m.get('dispatches',{}).get(i['operationId'])
+  previous=m.get('dispatches',{}).get(i['operationId']) or m.get('announcements',{}).get(i['operationId'])
   if not previous: save(m); fail('DISPATCH_NOT_FOUND')
   out=previous['receipt']
  else: fail('API_INPUT_INVALID')
  save(m); print(json.dumps(out))
+elif a[0]=='config': print(json.dumps({'paths':{'global':str(p/'config.toml')}}))
 elif a[0]=='room' and a[1]=='show': print(json.dumps({'room':{'id':m['room']}}))
 elif a[0]=='room': print(json.dumps({'rooms':[{'id':m['room'],'name':'squad-product'}]}))
 elif a[0]=='identity':

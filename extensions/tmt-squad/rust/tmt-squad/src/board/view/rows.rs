@@ -133,7 +133,7 @@ pub(super) fn render_rows(frame: &mut Frame, app: &App, area: Rect) {
                     .and_then(|id| app.cron.member_label(id, now)),
                 request_age: super::waiting::age(row, request_now),
                 sent: app.sent.as_ref().is_some_and(|feedback| {
-                    app.row_target(index).as_ref() == Some(&feedback.target)
+                    feedback.sent && app.row_target(index).as_ref() == Some(&feedback.target)
                 }),
                 reserve: super::waiting::reserved_lines(app, index, area).unwrap_or(0),
             }
