@@ -315,16 +315,89 @@ fn tunnel_for(h: &Harness, cookie: &str, session: Option<&str>) -> TcpStream {
 /// The door closes the tunnel within a bound (one poll tick in practice).
 fn closes(client: &mut TcpStream) {
     let deadline = Instant::now() + Duration::from_secs(5);
-    client
-        .set_read_timeout(Some(Duration::from_secs(5)))
-        .unwrap();
     let mut byte = [0; 1];
-    match client.read(&mut byte) {
-        Ok(0) => {}
-        Err(e) if e.kind() == std::io::ErrorKind::ConnectionReset => {}
-        other => panic!("tunnel stayed open: {other:?}"),
+    let closed = wait_for_close(deadline, |remaining| {
+        client.set_read_timeout(Some(remaining))?;
+        client.read(&mut byte)
+    });
+    assert!(closed.is_ok(), "tunnel stayed open: {closed:?}");
+}
+/// Read interruptions do not prove closure or renew the original deadline.
+fn wait_for_close(
+    deadline: Instant,
+    mut read: impl FnMut(Duration) -> std::io::Result<usize>,
+) -> std::io::Result<()> {
+    loop {
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        if remaining.is_zero() {
+            return Err(std::io::ErrorKind::TimedOut.into());
+        }
+        let result = read(remaining);
+        if Instant::now() >= deadline {
+            return Err(std::io::ErrorKind::TimedOut.into());
+        }
+        match result {
+            Ok(0) => return Ok(()),
+            Err(e) if e.kind() == std::io::ErrorKind::ConnectionReset => return Ok(()),
+            Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(e) => return Err(e),
+            Ok(_) => return Err(std::io::Error::other("received bytes instead of closure")),
+        }
     }
-    assert!(Instant::now() < deadline);
+}
+
+#[test]
+fn closure_wait_retries_interruptions_and_requires_eof_or_reset() {
+    use std::io::{Error, ErrorKind};
+    for closure in [Ok(0), Err(Error::from(ErrorKind::ConnectionReset))] {
+        let deadline = Instant::now() + Duration::from_secs(5);
+        let mut reads = [
+            Err(Error::from(ErrorKind::Interrupted)),
+            Err(Error::from(ErrorKind::Interrupted)),
+            closure,
+        ]
+        .into_iter();
+        let mut previous = Duration::from_secs(5);
+        let mut attempts = 0;
+        wait_for_close(deadline, |remaining| {
+            assert!(remaining <= previous);
+            previous = remaining;
+            attempts += 1;
+            reads.next().unwrap()
+        })
+        .unwrap();
+        assert_eq!(attempts, 3, "interruption was mistaken for closure");
+    }
+    for unexpected in [
+        Ok(1),
+        Err(Error::from(ErrorKind::WouldBlock)),
+        Err(Error::from(ErrorKind::TimedOut)),
+    ] {
+        let mut reads = [Err(Error::from(ErrorKind::Interrupted)), unexpected].into_iter();
+        assert!(
+            wait_for_close(Instant::now() + Duration::from_secs(5), |_| {
+                reads.next().unwrap()
+            })
+            .is_err()
+        );
+        assert!(reads.next().is_none());
+    }
+}
+
+#[test]
+fn closure_wait_interruptions_do_not_extend_the_deadline() {
+    let deadline = Instant::now() + Duration::from_millis(5);
+    let mut attempts = 0;
+    let error = wait_for_close(deadline, |_| {
+        attempts += 1;
+        while Instant::now() < deadline {
+            thread::yield_now();
+        }
+        Err(std::io::ErrorKind::Interrupted.into())
+    })
+    .unwrap_err();
+    assert_eq!(error.kind(), std::io::ErrorKind::TimedOut);
+    assert!(attempts <= 1, "read was retried past the original deadline");
 }
 fn control(h: &Harness, request: Value) -> Value {
     let mut stream = control::connect(&h.root.join("remote")).unwrap();
