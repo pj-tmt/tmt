@@ -75,6 +75,11 @@ impl Routes {
     pub fn prefix(&self) -> &str {
         &self.prefix
     }
+    pub fn maintain(&self) -> Result<(), RemoteError> {
+        self.sessions
+            .as_ref()
+            .map_or(Ok(()), |sessions| sessions.maintain())
+    }
     pub fn shutdown(&self) {
         if let Some(sessions) = &self.sessions {
             sessions.shutdown();
@@ -98,6 +103,9 @@ impl Routes {
     }
 }
 impl Handler for Routes {
+    fn maintain(&self) -> Result<(), RemoteError> {
+        Routes::maintain(self)
+    }
     fn shutdown(&self) {
         Routes::shutdown(self);
     }

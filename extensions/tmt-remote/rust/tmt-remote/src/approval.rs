@@ -49,17 +49,19 @@ impl Approval {
         ))
     }
     pub(crate) fn confirm(&self, id: &str, grant: &Grant) -> Result<Value, RemoteError> {
-        let payload = {
-            let mut store = self.store.lock().map_err(database)?;
+        let payload = self.sessions.with_operation_store(|store| {
             store.claim_held(grant, id, now_ms()?)?;
-            self.operations
-                .release(&mut store, grant, id)
-                .unwrap_or_else(|_| json!({"state":"uncertain","operationId":id}))
-        };
+            Ok(self
+                .operations
+                .release(store, grant, id)
+                .unwrap_or_else(|_| json!({"state":"uncertain","operationId":id})))
+        })?;
         // Confirmation may already have reached core. Publication failure is an
         // uncertain observation; the durable frozen intent remains recoverable.
         let published = (|| {
-            let metadata = self.sessions.operation_response(grant, id, &payload)?;
+            let metadata = self
+                .sessions
+                .operation_response(grant, id, &payload, None)?;
             self.store.lock().map_err(database)?.settle(
                 grant,
                 id,
@@ -84,24 +86,53 @@ impl Approval {
         Ok(payload)
     }
     pub fn cancel_pending(&self) -> Result<(), RemoteError> {
-        let ids = self.store.lock().map_err(database)?.pending_holds()?;
-        for id in ids {
-            self.cancel(&id)?;
-        }
+        self.store
+            .lock()
+            .map_err(database)?
+            .cancel_pending_holds(None, now_ms()?)?;
+        self.sessions.changed();
         Ok(())
     }
 }
 impl Store {
-    fn pending_holds(&self) -> Result<Vec<String>, RemoteError> {
-        let mut query = self
-            .connection
-            .prepare("SELECT id FROM operations WHERE phase='held'")
-            .map_err(database)?;
-        query
-            .query_map([], |row| row.get::<_, String>(0))
-            .map_err(database)?
-            .collect::<Result<Vec<_>, _>>()
-            .map_err(database)
+    pub(crate) fn cancel_pending_holds(
+        &mut self,
+        client: Option<&str>,
+        now: u64,
+    ) -> Result<(), RemoteError> {
+        let ids = {
+            let mut query = self
+                .connection
+                .prepare(
+                    "SELECT id FROM operations WHERE phase='held' AND (?1 IS NULL OR client_id=?1)",
+                )
+                .map_err(database)?;
+            query
+                .query_map([client], |row| row.get::<_, String>(0))
+                .map_err(database)?
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(database)?
+        };
+        for id in ids {
+            let grant = self.operation_grant(&id)?;
+            self.cancel_held(&grant, &id, now)?;
+        }
+        Ok(())
+    }
+    pub(crate) fn cancel_invalid_holds(&mut self, now: u64) -> Result<(), RemoteError> {
+        let ids = {
+            let mut query=self.connection.prepare("SELECT o.id FROM operations o JOIN grants g ON g.client_id=o.client_id WHERE o.phase='held' AND (g.disabled=1 OR (g.expires_at_ms IS NOT NULL AND g.expires_at_ms<=?1) OR o.grant_revision!=g.revision)").map_err(database)?;
+            query
+                .query_map([now as i64], |row| row.get::<_, String>(0))
+                .map_err(database)?
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(database)?
+        };
+        for id in ids {
+            let grant = self.operation_grant(&id)?;
+            self.cancel_held(&grant, &id, now)?;
+        }
+        Ok(())
     }
     fn operation_grant(&self, id: &str) -> Result<Grant, RemoteError> {
         let client: String = self
@@ -116,13 +147,19 @@ impl Store {
     }
     fn claim_held(&mut self, grant: &Grant, id: &str, now: u64) -> Result<(), RemoteError> {
         let tx = self.authorized(grant, now)?;
-        let frozen: Vec<u8> = tx
+        let (frozen, revision): (Vec<u8>, i64) = tx
             .query_row(
-                "SELECT frozen FROM operations WHERE id=?1 AND client_id=?2 AND phase='held'",
+                "SELECT frozen,grant_revision FROM operations WHERE id=?1 AND client_id=?2 AND phase='held'",
                 params![id, grant.client_id],
-                |r| r.get(0),
+                |r| Ok((r.get(0)?, r.get(1)?)),
             )
             .map_err(database)?;
+        if revision != grant.revision as i64 {
+            return Err(RemoteError::new(
+                "REMOTE_CLOSED",
+                "Device authority changed.",
+            ));
+        }
         let intent = crate::operations::held_intent(grant, id, &frozen)?;
         crate::budgets::charge(
             &tx,
@@ -136,7 +173,12 @@ impl Store {
         }
         tx.commit().map_err(database)
     }
-    fn cancel_held(&mut self, grant: &Grant, id: &str, now: u64) -> Result<Value, RemoteError> {
+    pub(crate) fn cancel_held(
+        &mut self,
+        grant: &Grant,
+        id: &str,
+        now: u64,
+    ) -> Result<Value, RemoteError> {
         // Cancellation is the local owner's authority, even after grant expiry/revocation.
         let tx = self
             .connection

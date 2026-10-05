@@ -77,7 +77,7 @@ const SETTINGS: CommandSpec = CommandSpec {
         note: "Print pairing links without opening the browser",
     }],
     outputs: OutputModes::HumanAndJson,
-    details: "Browser opening defaults to on. Settings are stored only in Remote's data directory.",
+    details: "Browser opening defaults to on. sessions-per-device accepts a positive integer or off (default: 8); changes apply at the next session open. Settings are stored only in Remote's data directory.",
 };
 const DEVICES: CommandSpec = CommandSpec {
     name: "devices",
@@ -185,12 +185,12 @@ fn grammar() -> Command {
         )
         .subcommand(
             tmt_cli_style::command(&SETTINGS)
-                .arg(Arg::new("key").value_parser(["open"]).requires("value"))
                 .arg(
-                    Arg::new("value")
-                        .value_parser(["on", "off"])
-                        .requires("key"),
-                ),
+                    Arg::new("key")
+                        .value_parser(["open", "sessions-per-device"])
+                        .requires("value"),
+                )
+                .arg(Arg::new("value").requires("key")),
         )
         .subcommand(tmt_cli_style::command(&APPROVE).arg(Arg::new("operation-id").required(true)))
         .subcommand(tmt_cli_style::command(&CANCEL).arg(Arg::new("operation-id").required(true)))
@@ -744,7 +744,36 @@ fn warn_settings(loaded: &settings::RemoteSettings) -> Result<(), RemoteError> {
 fn settings_command(arguments: &clap::ArgMatches) -> Result<(), RemoteError> {
     let root = discovery_root()?;
     let loaded = match arguments.get_one::<String>("value") {
-        Some(value) => settings::set_open(&root, value == "on")?,
+        Some(value) => match arguments.get_one::<String>("key").map(String::as_str) {
+            Some("open") if matches!(value.as_str(), "on" | "off") => {
+                settings::set_open(&root, value == "on")?
+            }
+            Some("sessions-per-device") => {
+                let limit = if value == "off" {
+                    None
+                } else {
+                    Some(
+                        value
+                            .parse::<usize>()
+                            .ok()
+                            .filter(|n| *n > 0 && n.to_string() == *value)
+                            .ok_or_else(|| {
+                                RemoteError::new(
+                                    "REMOTE_INPUT_INVALID",
+                                    "Session limit must be a positive integer or off.",
+                                )
+                            })?,
+                    )
+                };
+                settings::set_sessions_per_device(&root, limit)?
+            }
+            _ => {
+                return Err(RemoteError::new(
+                    "REMOTE_INPUT_INVALID",
+                    "Browser opening must be on or off.",
+                ));
+            }
+        },
         None => settings::read_or_default(&root),
     };
     let json_output = arguments.get_flag("json");
@@ -757,14 +786,26 @@ fn settings_command(arguments: &clap::ArgMatches) -> Result<(), RemoteError> {
             &mut output,
             terminal,
             "REMOTE SETTINGS",
-            &[(
-                "open",
-                format!(
-                    "{} ({})",
-                    if loaded.open() { "on" } else { "off" },
-                    loaded.source()
+            &[
+                (
+                    "open",
+                    format!(
+                        "{} ({})",
+                        if loaded.open() { "on" } else { "off" },
+                        loaded.source()
+                    ),
                 ),
-            )],
+                (
+                    "sessions-per-device",
+                    format!(
+                        "{} ({})",
+                        loaded
+                            .sessions_per_device()
+                            .map_or_else(|| "off (unlimited)".into(), |n| n.to_string()),
+                        loaded.sessions_source()
+                    ),
+                ),
+            ],
         )?;
         warn_settings(&loaded)?;
     }

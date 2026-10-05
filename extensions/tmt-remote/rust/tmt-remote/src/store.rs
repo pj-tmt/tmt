@@ -16,6 +16,7 @@ pub(crate) fn database(error: impl std::fmt::Display) -> RemoteError {
 
 pub struct Store {
     pub(crate) connection: Connection,
+    pub(crate) data_root: std::path::PathBuf,
 }
 /// Stable per-machine identity.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -48,7 +49,14 @@ impl Store {
             )
             .map_err(database)?;
         migrate(&mut connection)?;
-        Ok(Self { connection })
+        Ok(Self {
+            connection,
+            data_root: layout
+                .directory
+                .parent()
+                .ok_or_else(|| database("missing Remote data root"))?
+                .to_owned(),
+        })
     }
     pub fn remembered_port(&self) -> Result<Option<u16>, RemoteError> {
         read_port(&self.connection)
@@ -125,7 +133,7 @@ impl Store {
 }
 /// Ordered schema history in the core `_migrations` shape. Append only; a
 /// recorded name must match, and a newer database than this build refuses.
-const MIGRATIONS: [(&str, &str); 6] = [
+const MIGRATIONS: [(&str, &str); 7] = [
     (
         "machine",
         "CREATE TABLE machine(
@@ -187,6 +195,22 @@ const MIGRATIONS: [(&str, &str); 6] = [
              port INTEGER NOT NULL CHECK(port BETWEEN 1 AND 65535))",
     ),
     ("short_route_prefix", ""),
+    ("multi_session", "ALTER TABLE sessions RENAME TO single_sessions;
+         CREATE TABLE sessions(
+             client_id TEXT NOT NULL REFERENCES grants(client_id),
+             session_id TEXT PRIMARY KEY,
+             window_id TEXT NOT NULL,
+             grant_revision INTEGER NOT NULL,
+             next_client_sequence TEXT NOT NULL,
+             next_server_sequence TEXT NOT NULL,
+             ended_reason TEXT, ended_at_ms INTEGER, ended_limit INTEGER);
+         INSERT INTO sessions SELECT client_id,session_id,window_id,grant_revision,
+             next_client_sequence,next_server_sequence,NULL,NULL,NULL FROM single_sessions;
+         DROP TABLE single_sessions;
+         CREATE INDEX sessions_client ON sessions(client_id);
+         ALTER TABLE operations ADD COLUMN session_id TEXT;
+         ALTER TABLE operations ADD COLUMN grant_revision INTEGER;
+         UPDATE operations SET grant_revision=(SELECT revision FROM grants WHERE grants.client_id=operations.client_id);"),
 ];
 fn read_port(connection: &Connection) -> Result<Option<u16>, RemoteError> {
     let port: Option<i64> = connection
@@ -361,7 +385,7 @@ impl Store {
     }
 }
 /// Durable counters belong to one live session/run. A restart never adopts an
-/// old row as a live session; a fresh signed open replaces it atomically.
+/// old row as a live session; each fresh signed open adds independent counters.
 impl Store {
     pub fn start_session(
         &mut self,
@@ -388,10 +412,8 @@ impl Store {
             return Err(RemoteError::new("REMOTE_CLOSED", "Device authority ended."));
         }
         tx.execute(
-            "INSERT INTO sessions VALUES (?1, ?2, ?3, ?4, '1', '2')
-             ON CONFLICT(client_id) DO UPDATE SET session_id=excluded.session_id,
-             window_id=excluded.window_id, grant_revision=excluded.grant_revision,
-             next_client_sequence='1', next_server_sequence='2'",
+            "INSERT INTO sessions(client_id,session_id,window_id,grant_revision,next_client_sequence,next_server_sequence)
+             VALUES (?1, ?2, ?3, ?4, '1', '2')",
             rusqlite::params![
                 grant.client_id,
                 session_id,
@@ -417,7 +439,7 @@ impl Store {
             .transaction_with_behavior(TransactionBehavior::Immediate)
             .map_err(database)?;
         let revision: Option<i64> = tx.query_row(
-            "SELECT grant_revision FROM sessions WHERE client_id=?1 AND session_id=?2 AND window_id=?3",
+            "SELECT grant_revision FROM sessions WHERE client_id=?1 AND session_id=?2 AND window_id=?3 AND ended_reason IS NULL",
             [client_id, session_id, window_id], |row| row.get(0),
         ).optional().map_err(database)?;
         let grant = tx
@@ -621,6 +643,66 @@ fn uuid_shape(value: &str) -> bool {
         && value.as_bytes()[14] == b'4'
 }
 
+impl Store {
+    /// Session lifetime is independent of grant-owned held work.
+    pub(crate) fn end_session(
+        &mut self,
+        client: &str,
+        session: &str,
+        reason: &str,
+        limit: Option<usize>,
+        now: u64,
+    ) -> Result<(), RemoteError> {
+        self.connection.execute("UPDATE sessions SET ended_reason=?3,ended_at_ms=?4,ended_limit=?5 WHERE client_id=?1 AND session_id=?2 AND ended_reason IS NULL",rusqlite::params![client,session,reason,now as i64,limit.map(|n|n as i64)]).map_err(database)?;
+        Ok(())
+    }
+    pub(crate) fn ended_reason(
+        &self,
+        client: &str,
+        session: &str,
+        window: &str,
+    ) -> Result<Option<(String, Option<usize>)>, RemoteError> {
+        self.connection.query_row("SELECT ended_reason,ended_limit FROM sessions WHERE client_id=?1 AND session_id=?2 AND window_id=?3",[client,session,window], |row| { let code: Option<String> = row.get(0)?; let limit = row.get::<_, Option<i64>>(1)?.map(|n|usize::try_from(n).map_err(|_|rusqlite::Error::IntegralValueOutOfRange(1,n))).transpose()?; Ok(code.map(|code| (code, limit))) }).optional().map(|value| value.flatten()).map_err(database)
+    }
+    pub(crate) fn operation_session(
+        &self,
+        client: &str,
+        id: &str,
+    ) -> Result<Option<String>, RemoteError> {
+        self.connection
+            .query_row(
+                "SELECT session_id FROM operations WHERE client_id=?1 AND id=?2",
+                [client, id],
+                |row| row.get(0),
+            )
+            .optional()
+            .map(|value| value.flatten())
+            .map_err(database)
+    }
+    pub(crate) fn prune_sessions(&self, window: &str, now: u64) -> Result<(), RemoteError> {
+        let cutoff = now.saturating_sub(crate::limits::SESSION_END_NOTICE.as_millis() as u64);
+        let stale: bool = self
+            .connection
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM sessions WHERE window_id!=?1 OR ended_at_ms<=?2)",
+                rusqlite::params![window, cutoff as i64],
+                |row| row.get(0),
+            )
+            .map_err(database)?;
+        // Avoid even acquiring SQLite's write lock when there is nothing to remove.
+        if !stale {
+            return Ok(());
+        }
+        self.connection
+            .execute(
+                "DELETE FROM sessions WHERE window_id!=?1 OR ended_at_ms<=?2",
+                rusqlite::params![window, cutoff as i64],
+            )
+            .map_err(database)?;
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -643,6 +725,59 @@ mod tests {
         drop(store);
         drop(serving);
         std::fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
+    fn session_pruning_writes_only_when_rows_need_removal() {
+        let root = std::env::temp_dir().join(format!("tmt-1768-prune-{}", uuid_v4().unwrap()));
+        let serving = Layout::open(&root).unwrap().serve_lock().unwrap();
+        let store = Store::open(&serving).unwrap();
+        store
+            .connection
+            .busy_timeout(std::time::Duration::from_millis(10))
+            .unwrap();
+        let oracle = Connection::open(serving.layout().directory.join("remote.db")).unwrap();
+        oracle
+            .execute_batch("PRAGMA foreign_keys=ON; BEGIN IMMEDIATE")
+            .unwrap();
+        // An idle prune may read alongside another writer, but must not request a write lock.
+        store.prune_sessions("current", 60000).unwrap();
+        oracle.execute_batch("ROLLBACK").unwrap();
+        oracle
+            .execute_batch(
+                "INSERT INTO grants VALUES ('device',zeroblob(32),'cli','cli','Test device','all','capabilities','direct',0,NULL,1,0);
+            INSERT INTO sessions VALUES
+            ('device','live','current',1,'1','2',NULL,NULL,NULL),
+            ('device','notice','current',1,'1','2','REMOTE_SESSION_ENDED',1000,NULL),
+            ('device','old-run','previous',1,'1','2',NULL,NULL,NULL)",
+            )
+            .unwrap();
+        store.prune_sessions("current", 60999).unwrap();
+        let count = || {
+            store
+                .connection
+                .query_row("SELECT count(*) FROM sessions", [], |row| {
+                    row.get::<_, i64>(0)
+                })
+                .unwrap()
+        };
+        assert_eq!(count(), 2); // Old run gone; live and not-yet-expired notice remain.
+        oracle.execute_batch("BEGIN IMMEDIATE").unwrap();
+        store.prune_sessions("current", 60999).unwrap();
+        // Positive control: an expired notice genuinely needs a write, so the writer blocks it.
+        assert!(store.prune_sessions("current", 61000).is_err());
+        oracle.execute_batch("ROLLBACK").unwrap();
+        store.prune_sessions("current", 61000).unwrap();
+        assert_eq!(count(), 1);
+        let remaining: String = store
+            .connection
+            .query_row("SELECT session_id FROM sessions", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(remaining, "live");
+        drop(oracle);
+        drop(store);
+        drop(serving);
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

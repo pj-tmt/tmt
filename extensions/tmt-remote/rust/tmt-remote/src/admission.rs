@@ -168,8 +168,21 @@ pub(crate) fn refusal(
     code: &str,
     text: &str,
 ) -> MessageRefusal {
+    refusal_with_limit(sessions, message, code, text, None)
+}
+pub(crate) fn refusal_with_limit(
+    sessions: &DoorSessions,
+    message: &SignedMessage,
+    code: &str,
+    text: &str,
+    limit: Option<usize>,
+) -> MessageRefusal {
+    let mut payload = json!({"error":{"code":code,"message":text}});
+    if let Some(limit) = limit {
+        payload["error"]["limit"] = json!(limit);
+    }
     sessions
-        .response(message, &json!({"error":{"code":code,"message":text}}))
+        .response(message, &payload)
         .map(MessageRefusal::Signed)
         .unwrap_or(MessageRefusal::Unauthenticated)
 }

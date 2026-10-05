@@ -5,100 +5,20 @@ use serde_json::{Value, json};
 use std::{
     fs,
     io::{BufRead, BufReader, Write},
-    path::PathBuf,
     sync::{Arc, atomic::AtomicBool},
 };
 use tmt_remote::{
     approval::Approval,
     control::{self, Control},
-    core::CoreClient,
     devices::Devices,
     operations::Operations,
     pairing::{Pairing, Timing},
     store::uuid_v4,
     transport::{LoopbackTransport, Transport},
 };
-#[path = "../support/executable_fixture.rs"]
-mod executable_fixture;
-struct Core {
-    root: PathBuf,
-}
-impl Core {
-    fn new() -> Self {
-        let root = PathBuf::from(format!("/tmp/t1055-c-{}", uuid_v4().unwrap()));
-        fs::create_dir(&root).unwrap();
-        fs::write(root.join("core.py"),r#"import sys,json,pathlib
-root=pathlib.Path(__file__).parent
-args=sys.argv[1:]
-if args[0] in ('list','check','identity'):
-    with (root/'calls').open('a') as f: f.write(json.dumps({'operation':args[0],'argv':args})+'\n')
-if args[0]=='list':
-    print((root/'agents').read_text());sys.exit(0)
-if args==['identity','list','--json']:
-    print((root/'identities').read_text());sys.exit(0)
-if args[0]=='check':
-    print(json.dumps({'target':args[1],'pane':'%fixture','lines':int(args[-1]),'output':'bounded capture'}));sys.exit(0)
-wire=json.load(sys.stdin)
-with (root/'calls').open('a') as f: f.write(json.dumps(wire)+'\n')
-if wire['operation']=='dispatch.show':
-    if (root/'receipt').exists(): print((root/'receipt').read_text())
-    else:
-        print(json.dumps({'error':{'code':'DISPATCH_NOT_FOUND','message':'absent'}}));sys.exit(1)
-elif wire['operation']=='dispatch.create':
-    if (root/'gate').exists():
-        (root/'entered').write_text('blocked')
-        with (root/'gate').open() as gate: gate.readline()
-    if (root/'fault').exists():
-        print('broken');sys.exit(0)
-    if (root/'receipt').exists():
-        print(json.dumps({'error':{'code':'DUPLICATE_TEST_SEND','message':'second create'}}));sys.exit(1)
-    receipt={'operationId':wire['input']['operationId'],'items':[{'recipientId':wire['input']['recipientIds'][0],'requestId':'req_11111111-1111-4111-8111-111111111111','acceptance':'queued'}]}
-    (root/'receipt').write_text(json.dumps(receipt))
-    if (root/'lost').exists(): print('broken')
-    else:
-        receipt['wake']={'status':'uncertain','paneAttempted':True};print(json.dumps(receipt))
-elif wire['operation']=='identities.status':
-    print(json.dumps({'identities':[{'id':id,'found':True,'status':{'state':'stale'}} for id in wire['input']['identityIds']]}))
-elif wire['operation']=='requests.show':
-    print(json.dumps({'requestId':wire['input']['requestId'],'final':json.loads((root/'final').read_text())}))
-else: raise RuntimeError('unexpected operation')
-"#).unwrap();
-        executable_fixture::write_executable(
-            &root.join("tmt"),
-            &format!(
-                "exec /usr/bin/python3 '{}' \"$@\"",
-                root.join("core.py").display()
-            ),
-        )
-        .unwrap();
-        Self { root }
-    }
-    fn operations(&self) -> Arc<Operations> {
-        Arc::new(Operations::new(
-            CoreClient::at(self.root.join("tmt")).unwrap(),
-            Arc::new(AtomicBool::new(false)),
-            65536,
-        ))
-    }
-    fn calls(&self) -> Vec<Value> {
-        fs::read_to_string(self.root.join("calls"))
-            .unwrap_or_default()
-            .lines()
-            .map(|line| serde_json::from_str(line).unwrap())
-            .collect()
-    }
-    fn sends(&self) -> usize {
-        self.calls()
-            .iter()
-            .filter(|call| call["operation"] == "dispatch.create")
-            .count()
-    }
-}
-impl Drop for Core {
-    fn drop(&mut self) {
-        fs::remove_dir_all(&self.root).unwrap();
-    }
-}
+#[path = "../support/core.rs"]
+mod core_fixture;
+use core_fixture::Core;
 fn input(id: &str, recipient: &str, message: &str) -> Value {
     json!({"version":1,"operation":"dispatch.create","originator":"anonymous","input":{"operationId":id,"recipientIds":[recipient],"message":message,"kind":"request"}})
 }
@@ -773,4 +693,290 @@ fn another_store_revoke_waits_for_a_blocked_core_effect_beyond_the_old_timeout()
         );
         assert_eq!(core.sends(), 1);
     });
+}
+
+#[test]
+fn session_eviction_preserves_grant_owned_holds_and_uncertainty() {
+    let owner = OwnerDoor::with_policy(
+        tmt_remote::store::DEFAULT_SCOPES
+            .iter()
+            .map(|s| (*s).into())
+            .collect(),
+        "hold",
+    );
+    tmt_remote::settings::set_sessions_per_device(&owner._root.0, Some(2)).unwrap();
+    let core = Core::new();
+    let operations = core.operations();
+    let first = owner.open();
+    let second = owner.open();
+    let first_id = uuid_v4().unwrap();
+    let second_id = uuid_v4().unwrap();
+    let uncertain_id = uuid_v4().unwrap();
+    for (session, sequence, id) in [
+        (&first, 1, &first_id),
+        (&first, 2, &uncertain_id),
+        (&second, 1, &second_id),
+    ] {
+        append(
+            &owner,
+            Arc::clone(&operations),
+            &wire(
+                &owner,
+                session,
+                sequence,
+                id,
+                &uuid_v4().unwrap(),
+                "Unconfirmed",
+            ),
+        );
+    }
+    // Independent preparation of a recovery-owned operation; ending a session cannot erase it.
+    let oracle =
+        rusqlite::Connection::open(owner._serving.layout().directory.join("remote.db")).unwrap();
+    oracle
+        .execute(
+            "UPDATE operations SET phase='uncertain' WHERE id=?1",
+            [&uncertain_id],
+        )
+        .unwrap();
+    drop(oracle);
+    let third = owner.open();
+    assert_eq!(
+        super::signed_code(owner.admit(&owner.wire(&first, "3", "capabilities", b"{}"))),
+        "REMOTE_SESSION_EVICTED"
+    );
+    let mut store = owner.store.lock().unwrap();
+    let now = tmt_remote::pairing::now_ms().unwrap();
+    assert_eq!(
+        store.owned(&owner.grant, &first_id, now).unwrap().phase,
+        "held"
+    );
+    assert_eq!(
+        store.owned(&owner.grant, &second_id, now).unwrap().phase,
+        "held"
+    );
+    let uncertain = store.owned(&owner.grant, &uncertain_id, now).unwrap();
+    assert_eq!(uncertain.phase, "uncertain");
+    assert!(uncertain.frozen.is_some());
+    assert!(core.calls().is_empty());
+    drop(store);
+    assert!(
+        owner
+            .admit(&owner.wire(&third, "1", "capabilities", b"{}"))
+            .is_ok()
+    );
+    owner.sessions.shutdown();
+    assert_eq!(
+        owner
+            .store
+            .lock()
+            .unwrap()
+            .owned(&owner.grant, &second_id, now)
+            .unwrap()
+            .phase,
+        "cancelled"
+    );
+}
+
+#[test]
+fn another_live_tab_recovers_uncertainty_into_the_same_device_stream_without_resending() {
+    let owner = OwnerDoor::new();
+    let core = Core::new();
+    let operations = core.operations();
+    let first = owner.open();
+    let id = uuid_v4().unwrap();
+    let recipient = uuid_v4().unwrap();
+    fs::write(core.root.join("lost"), b"").unwrap();
+    assert_eq!(
+        append(
+            &owner,
+            Arc::clone(&operations),
+            &wire(&owner, &first, 1, &id, &recipient, "same intent")
+        )["state"],
+        "uncertain"
+    );
+    fs::remove_file(core.root.join("lost")).unwrap();
+    let second = owner.open();
+    let observed = owner.wire(
+        &second,
+        "1",
+        "operation.show",
+        json!({"operationId":id}).to_string().as_bytes(),
+    );
+    assert_eq!(append(&owner, operations, &observed)["state"], "accepted");
+    assert_eq!(core.sends(), 1);
+    let page = owner
+        .store
+        .lock()
+        .unwrap()
+        .page(
+            &owner.grant,
+            None,
+            50,
+            tmt_remote::pairing::now_ms().unwrap(),
+        )
+        .unwrap();
+    let entries = page["entries"].as_array().unwrap();
+    let last = &entries.last().unwrap()["envelope"];
+    assert_eq!(last["sessionId"], second);
+    let payload =
+        tmt_remote::canonical::base64url_decode(last["payload"].as_str().unwrap()).unwrap();
+    let payload: Value = serde_json::from_slice(&payload).unwrap();
+    assert_eq!(payload["state"], "accepted");
+    assert_eq!(payload["operationId"], id);
+}
+
+#[test]
+fn held_bound_remains_per_device_across_session_eviction() {
+    let owner = OwnerDoor::with_policy(
+        tmt_remote::store::DEFAULT_SCOPES
+            .iter()
+            .map(|s| (*s).into())
+            .collect(),
+        "hold",
+    );
+    let core = Core::new();
+    let operations = core.operations();
+    let mut ids = Vec::new();
+    for _ in 0..16 {
+        let session = owner.open();
+        let id = uuid_v4().unwrap();
+        assert_eq!(
+            append(
+                &owner,
+                Arc::clone(&operations),
+                &wire(
+                    &owner,
+                    &session,
+                    1,
+                    &id,
+                    &uuid_v4().unwrap(),
+                    "held across tabs"
+                )
+            )["state"],
+            "held"
+        );
+        ids.push(id);
+    }
+    let session = owner.open();
+    assert_eq!(
+        append(
+            &owner,
+            Arc::clone(&operations),
+            &wire(
+                &owner,
+                &session,
+                1,
+                &uuid_v4().unwrap(),
+                &uuid_v4().unwrap(),
+                "over bound"
+            )
+        )["error"]["code"],
+        "REMOTE_RATE_LIMITED"
+    );
+    for id in &ids {
+        assert_eq!(
+            owner
+                .store
+                .lock()
+                .unwrap()
+                .owned(&owner.grant, id, tmt_remote::pairing::now_ms().unwrap())
+                .unwrap()
+                .phase,
+            "held"
+        );
+    }
+    assert_eq!(core.sends(), 0);
+    owner.sessions.shutdown();
+    for id in ids {
+        assert_eq!(
+            owner
+                .store
+                .lock()
+                .unwrap()
+                .owned(&owner.grant, &id, tmt_remote::pairing::now_ms().unwrap())
+                .unwrap()
+                .phase,
+            "cancelled"
+        );
+    }
+}
+
+#[test]
+fn authority_loss_cancels_held_work_even_after_its_session_ended() {
+    for change in ["revoke", "expiry", "revision"] {
+        let mut owner = OwnerDoor::with_policy(
+            tmt_remote::store::DEFAULT_SCOPES
+                .iter()
+                .map(|s| (*s).into())
+                .collect(),
+            "hold",
+        );
+        let clock = Arc::new(std::sync::Mutex::new(std::time::Instant::now()));
+        let fake = Arc::clone(&clock);
+        owner.sessions = Arc::new(
+            Arc::try_unwrap(owner.sessions)
+                .ok()
+                .unwrap()
+                .with_clock(Arc::new(move || *fake.lock().unwrap())),
+        );
+        let core = Core::new();
+        let session = owner.open();
+        let id = uuid_v4().unwrap();
+        assert_eq!(
+            append(
+                &owner,
+                core.operations(),
+                &wire(&owner, &session, 1, &id, &uuid_v4().unwrap(), "held")
+            )["state"],
+            "held"
+        );
+        *clock.lock().unwrap() += std::time::Duration::from_secs(61);
+        owner.sessions.maintain().unwrap();
+        let oracle =
+            rusqlite::Connection::open(owner._serving.layout().directory.join("remote.db"))
+                .unwrap();
+        let phase = || {
+            oracle
+                .query_row("SELECT phase FROM operations WHERE id=?1", [&id], |row| {
+                    row.get::<_, String>(0)
+                })
+                .unwrap()
+        };
+        assert_eq!(phase(), "held");
+        assert_eq!(
+            oracle
+                .execute("DELETE FROM sessions WHERE ended_reason IS NOT NULL", [])
+                .unwrap(),
+            1
+        );
+        match change {
+            "revoke" => {
+                owner
+                    .store
+                    .lock()
+                    .unwrap()
+                    .revoke(&owner.grant.client_id)
+                    .unwrap();
+            }
+            "revision" => {
+                owner
+                    .store
+                    .lock()
+                    .unwrap()
+                    .rename(&owner.grant.client_id, "Changed")
+                    .unwrap();
+            }
+            "expiry" => {
+                oracle
+                    .execute("UPDATE grants SET expires_at_ms=1", [])
+                    .unwrap();
+            }
+            _ => unreachable!(),
+        }
+        *clock.lock().unwrap() += std::time::Duration::from_secs(1);
+        owner.sessions.maintain().unwrap();
+        assert_eq!(phase(), "cancelled");
+        assert_eq!(core.sends(), 0);
+    }
 }

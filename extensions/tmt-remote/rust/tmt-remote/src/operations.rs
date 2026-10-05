@@ -263,10 +263,12 @@ impl Operations {
                 _ => uncertain(&id),
             }
         };
-        let metadata = match permit
-            .sessions
-            .operation_response(&permit.grant, &id, &payload)
-        {
+        let metadata = match permit.sessions.operation_response(
+            &permit.grant,
+            &id,
+            &payload,
+            Some(permit.message.envelope().session_id),
+        ) {
             Ok(metadata) => metadata,
             Err(_) => return permit.response(&uncertain(&id)),
         };

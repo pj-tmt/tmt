@@ -342,7 +342,7 @@ impl Store {
             .tip
             .checked_add(1)
             .ok_or_else(|| database("stream exhausted"))?;
-        tx.execute("INSERT INTO operations(id,client_id,operation,digest,frozen,phase,receipt,updated_ms,references_json) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9)",params![input.id,grant.client_id,input.operation,digest.as_slice(),frozen,phase,receipt.to_string(),now as i64,serde_json::to_string(resources).map_err(database)?]).map_err(database)?;
+        tx.execute("INSERT INTO operations(id,client_id,operation,digest,frozen,phase,receipt,updated_ms,references_json,session_id,grant_revision) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11)",params![input.id,grant.client_id,input.operation,digest.as_slice(),frozen,phase,receipt.to_string(),now as i64,serde_json::to_string(resources).map_err(database)?,input.session_id,grant.revision as i64]).map_err(database)?;
         let at_ms = (now as i64).max(stream.last_ms);
         tx.execute(
             "INSERT INTO entries VALUES (?1,?2,?3,?4)",

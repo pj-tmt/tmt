@@ -588,3 +588,115 @@ test('session-ended during capabilities resync remains a distinct refusal and ne
   );
   assert.equal(door.opens, 1);
 });
+
+for (const code of ['REMOTE_SESSION_ENDED', 'REMOTE_SESSION_EVICTED'] as const) {
+  test(`${code} is a typed, reopenable end without automatic send retry`, async () => {
+    const { door, device, client } = await ready();
+    door.error = {
+      code,
+      message: 'Session ended; reopen.',
+      ...(code === 'REMOTE_SESSION_EVICTED' ? { limit: 8 } : {}),
+    };
+    await assert.rejects(
+      client.listAgents(),
+      (error: unknown) => error instanceof RefusalError && error.code === code,
+    );
+    assert.equal(door.opens, 1);
+    const count = door.calls.length;
+    await assert.rejects(
+      client.listAgents(),
+      (error: unknown) => error instanceof RefusalError && error.code === 'REMOTE_SESSION_ENDED',
+    );
+    assert.equal(door.calls.length, count);
+    door.error = undefined;
+    const reopened = await openSession(
+      device.result,
+      device.key,
+      door.descriptor.windowId,
+      door.fetch,
+    );
+    assert.deepEqual(await operations(reopened).listAgents(), door.agents);
+    assert.equal(door.opens, 2);
+  });
+}
+test('transportUrl binds only a verified session to a mounted transport URL', async () => {
+  const { transportUrl } = await import('../src/browser.js');
+  const { session, device } = await ready();
+  const url = device.result.address.replace('http:', 'ws:') + '/x/colab/sync';
+  assert.equal(transportUrl(session, url), `${url}?tmt-session=${session.sessionId}`);
+  assert.throws(() => transportUrl({ ...session }, url), RefusalError);
+  for (const invalid of [
+    url.replace('ws:', 'http:'),
+    url.replace('/x/colab/', '/append/'),
+    `${url}?secret=1`,
+    `${url}#fragment`,
+    'ws://127.0.0.1:1/x/colab/sync',
+  ]) {
+    assert.throws(() => transportUrl(session, invalid), TypeError);
+  }
+});
+
+test('transportUrl matches the paired door scheme for both http and https', async () => {
+  const { transportUrl } = await import('../src/browser.js');
+  for (const scheme of ['http:', 'https:']) {
+    const { door, device } = await ready();
+    const paired = { ...device.result, address: device.result.address.replace('http:', scheme) };
+    const session = await openSession(paired, device.key, door.descriptor.windowId, door.fetch);
+    const transport =
+      paired.address.replace(scheme, scheme === 'https:' ? 'wss:' : 'ws:') + '/x/colab/sync';
+    assert.equal(transportUrl(session, transport), `${transport}?tmt-session=${session.sessionId}`);
+    assert.throws(
+      () =>
+        transportUrl(
+          session,
+          transport.replace(
+            scheme === 'https:' ? 'wss:' : 'ws:',
+            scheme === 'https:' ? 'ws:' : 'wss:',
+          ),
+        ),
+      TypeError,
+    );
+  }
+});
+for (const settingsUrl of [undefined, null, '/remote-settings']) {
+  test(`eviction exposes active limit and optional settings URL ${settingsUrl}`, async () => {
+    const { door, client, device } = await ready();
+    door.error = { code: 'REMOTE_SESSION_EVICTED', message: 'Evicted.', limit: 8, settingsUrl };
+    await assert.rejects(
+      client.listAgents(),
+      (error: unknown) =>
+        error instanceof RefusalError &&
+        error.limit === 8 &&
+        error.settingsUrl ===
+          (settingsUrl ? new URL(settingsUrl, device.result.address).href : undefined),
+    );
+    const again = await ready();
+    again.door.error = {
+      code: 'REMOTE_SESSION_EVICTED',
+      message: 'Evicted.',
+      limit: 12,
+      settingsUrl,
+    };
+    const result = await again.client.send(intent());
+    assert.equal(result.state, 'refused');
+    assert.ok(result.state === 'refused');
+    assert.equal(result.limit, 12);
+    assert.equal(
+      result.settingsUrl,
+      settingsUrl ? new URL(settingsUrl, again.device.result.address).href : undefined,
+    );
+  });
+}
+for (const bad of [
+  { limit: 0 },
+  { limit: -1 },
+  { limit: 1.5 },
+  { limit: 8, settingsUrl: 'javascript:alert(1)' },
+  { limit: 8, settingsUrl: 'https://elsewhere.example/settings' },
+]) {
+  test(`eviction metadata rejects ${JSON.stringify(bad)}`, async () => {
+    const { door, client } = await ready();
+    door.error = { code: 'REMOTE_SESSION_EVICTED', message: 'Evicted.', ...bad };
+    await assert.rejects(client.listAgents(), unknown('unverifiable_response'));
+  });
+}

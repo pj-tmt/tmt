@@ -312,7 +312,7 @@ fn single_in_flight_and_out_of_order_refuse_without_spending_next() {
     assert!(owner.admit(&next).is_ok());
 }
 #[test]
-fn new_session_and_revocation_end_already_admitted_authority() {
+fn concurrent_sessions_keep_authority_until_device_revocation() {
     let owner = OwnerDoor::new();
     let old = owner.open();
     let permit = owner
@@ -320,12 +320,13 @@ fn new_session_and_revocation_end_already_admitted_authority() {
         .ok()
         .unwrap();
     let new = owner.open();
-    assert_eq!(permit.revalidate().unwrap_err().code, "REMOTE_CLOSED");
+    permit.revalidate().unwrap();
     drop(permit);
-    assert!(matches!(
-        owner.admit(&owner.wire(&old, "2", "capabilities", b"{}")),
-        Err(MessageRefusal::Unauthenticated)
-    ));
+    assert!(
+        owner
+            .admit(&owner.wire(&old, "2", "capabilities", b"{}"))
+            .is_ok()
+    );
     let permit = owner
         .admit(&owner.wire(&new, "1", "capabilities", b"{}"))
         .ok()
@@ -522,3 +523,298 @@ mod journal;
 
 #[path = "admission/operations.rs"]
 mod operations;
+
+#[test]
+fn several_sessions_have_independent_sequences_and_signature_bound_replay() {
+    let owner = OwnerDoor::new();
+    let sessions = [owner.open(), owner.open(), owner.open()];
+    let permits = sessions
+        .iter()
+        .map(|s| {
+            owner
+                .admit(&owner.wire(s, "1", "capabilities", b"{}"))
+                .ok()
+                .unwrap()
+        })
+        .collect::<Vec<_>>();
+    for permit in &permits {
+        permit.revalidate().unwrap();
+    }
+    drop(permits);
+    let signed = owner.wire(&sessions[0], "2", "capabilities", b"{}");
+    let mut replay = signed.clone();
+    replay["sessionId"] = json!(sessions[1]);
+    assert!(matches!(
+        owner.admit(&replay),
+        Err(MessageRefusal::Unauthenticated)
+    ));
+    assert!(owner.admit(&signed).is_ok());
+    for session in &sessions[1..] {
+        let request = owner.wire(session, "2", "capabilities", b"{}");
+        let permit = owner.admit(&request).ok().unwrap();
+        let reply: Value =
+            serde_json::from_slice(&permit.response(&json!({"ok":true})).unwrap()).unwrap();
+        assert_eq!(reply["sequence"], "2");
+        owner.verify_reply(&reply, &request);
+    }
+    owner.sessions.shutdown();
+    for session in &sessions {
+        assert!(matches!(
+            owner.admit(&owner.wire(session, "3", "capabilities", b"{}")),
+            Err(MessageRefusal::Unauthenticated) | Err(MessageRefusal::Signed(_))
+        ));
+    }
+}
+#[test]
+fn explicit_off_is_unlimited_and_setting_changes_apply_at_the_next_open() {
+    let owner = OwnerDoor::new();
+    tmt_remote::settings::set_sessions_per_device(&owner._root.0, None).unwrap();
+    let sessions = (0..10).map(|_| owner.open()).collect::<Vec<_>>();
+    for session in &sessions {
+        assert!(
+            owner
+                .admit(&owner.wire(session, "1", "capabilities", b"{}"))
+                .is_ok()
+        );
+    }
+    tmt_remote::settings::set_sessions_per_device(&owner._root.0, Some(2)).unwrap();
+    // Touch one session so it survives a lower limit independently of creation order.
+    assert!(
+        owner
+            .admit(&owner.wire(&sessions[0], "2", "capabilities", b"{}"))
+            .is_ok()
+    );
+    let new = owner.open();
+    assert!(
+        owner
+            .admit(&owner.wire(&sessions[0], "3", "capabilities", b"{}"))
+            .is_ok()
+    );
+    assert!(
+        owner
+            .admit(&owner.wire(&new, "1", "capabilities", b"{}"))
+            .is_ok()
+    );
+    for session in &sessions[1..] {
+        assert_eq!(
+            signed_code(owner.admit(&owner.wire(session, "2", "capabilities", b"{}"))),
+            "REMOTE_SESSION_EVICTED"
+        );
+    }
+    tmt_remote::settings::set_sessions_per_device(&owner._root.0, None).unwrap();
+    let another = owner.open();
+    assert!(
+        owner
+            .admit(&owner.wire(&another, "1", "capabilities", b"{}"))
+            .is_ok()
+    );
+    assert!(
+        owner
+            .admit(&owner.wire(&new, "2", "capabilities", b"{}"))
+            .is_ok()
+    );
+}
+
+#[test]
+fn unattached_timeout_is_proactive_per_session_and_reopenable() {
+    let mut owner = OwnerDoor::new();
+    let clock = Arc::new(Mutex::new(std::time::Instant::now()));
+    let fake = Arc::clone(&clock);
+    owner.sessions = Arc::new(
+        Arc::try_unwrap(owner.sessions)
+            .ok()
+            .unwrap()
+            .with_clock(Arc::new(move || *fake.lock().unwrap())),
+    );
+    let first = owner.open();
+    *clock.lock().unwrap() += Duration::from_secs(30);
+    let second = owner.open();
+    *clock.lock().unwrap() += Duration::from_secs(31);
+    owner.sessions.maintain().unwrap();
+    assert_eq!(
+        signed_code(owner.admit(&owner.wire(&first, "1", "capabilities", b"{}"))),
+        "REMOTE_SESSION_ENDED"
+    );
+    assert!(
+        owner
+            .admit(&owner.wire(&second, "1", "capabilities", b"{}"))
+            .is_ok()
+    );
+    let reopened = owner.open();
+    assert!(
+        owner
+            .admit(&owner.wire(&reopened, "1", "capabilities", b"{}"))
+            .is_ok()
+    );
+}
+#[test]
+fn revision_change_and_expiry_end_all_sessions_without_waiting_for_requests() {
+    for expire in [false, true] {
+        let mut owner = OwnerDoor::new();
+        let clock = Arc::new(Mutex::new(std::time::Instant::now()));
+        let fake = Arc::clone(&clock);
+        owner.sessions = Arc::new(
+            Arc::try_unwrap(owner.sessions)
+                .ok()
+                .unwrap()
+                .with_clock(Arc::new(move || *fake.lock().unwrap())),
+        );
+        let first = owner.open();
+        let second = owner.open();
+        let first_permit = owner
+            .admit(&owner.wire(&first, "1", "capabilities", b"{}"))
+            .ok()
+            .unwrap();
+        let second_permit = owner
+            .admit(&owner.wire(&second, "1", "capabilities", b"{}"))
+            .ok()
+            .unwrap();
+        if expire {
+            let oracle =
+                rusqlite::Connection::open(owner._serving.layout().directory.join("remote.db"))
+                    .unwrap();
+            oracle
+                .execute("UPDATE grants SET expires_at_ms=1", [])
+                .unwrap();
+        } else {
+            owner
+                .store
+                .lock()
+                .unwrap()
+                .rename(&owner.grant.client_id, "New name")
+                .unwrap();
+        }
+        *clock.lock().unwrap() += Duration::from_secs(1);
+        owner.sessions.maintain().unwrap();
+        assert_eq!(first_permit.revalidate().unwrap_err().code, "REMOTE_CLOSED");
+        assert_eq!(
+            second_permit.revalidate().unwrap_err().code,
+            "REMOTE_CLOSED"
+        );
+    }
+}
+
+#[test]
+fn damaged_or_unreadable_settings_use_the_default_cap() {
+    for case in ["broken_json", "invalid_field", "oversized", "directory"] {
+        let owner = OwnerDoor::new();
+        tmt_remote::settings::set_sessions_per_device(&owner._root.0, Some(1)).unwrap();
+        let first = owner.open();
+        let path = owner._serving.layout().directory.join("settings.json");
+        match case {
+            "broken_json" => fs::write(&path, b"{").unwrap(),
+            "invalid_field" => {
+                fs::write(&path, br#"{"open":"invalid","sessionsPerDevice":1}"#).unwrap()
+            }
+            "oversized" => fs::write(&path, vec![b' '; 4097]).unwrap(),
+            "directory" => {
+                fs::remove_file(&path).unwrap();
+                fs::create_dir(&path).unwrap();
+            }
+            _ => unreachable!(),
+        }
+        let settings = tmt_remote::settings::read_or_default(&owner._root.0);
+        assert!(settings.malformed, "{case}");
+        assert_eq!(settings.sessions_per_device(), Some(8), "{case}");
+        let second = owner.open();
+        let third = owner.open();
+        for session in [&first, &second, &third] {
+            assert!(
+                owner
+                    .admit(&owner.wire(session, "1", "capabilities", b"{}"))
+                    .is_ok(),
+                "{case}"
+            );
+        }
+    }
+}
+
+#[test]
+fn maintenance_scans_storage_at_most_once_a_second() {
+    let mut owner = OwnerDoor::new();
+    let clock = Arc::new(Mutex::new(std::time::Instant::now()));
+    let fake = Arc::clone(&clock);
+    owner.sessions = Arc::new(
+        Arc::try_unwrap(owner.sessions)
+            .ok()
+            .unwrap()
+            .with_clock(Arc::new(move || *fake.lock().unwrap())),
+    );
+    let first = owner.open();
+    let oracle =
+        rusqlite::Connection::open(owner._serving.layout().directory.join("remote.db")).unwrap();
+    // The next real grant scan must fail; skipped ticks must not touch this table.
+    oracle
+        .execute_batch("ALTER TABLE grants RENAME TO unavailable_grants")
+        .unwrap();
+    for _ in 0..9 {
+        *clock.lock().unwrap() += Duration::from_millis(100);
+        owner.sessions.maintain().unwrap();
+    }
+    *clock.lock().unwrap() += Duration::from_millis(100);
+    assert_eq!(
+        owner.sessions.maintain().unwrap_err().code,
+        "REMOTE_STATE_UNAVAILABLE"
+    );
+    oracle
+        .execute_batch("ALTER TABLE unavailable_grants RENAME TO grants")
+        .unwrap();
+    *clock.lock().unwrap() += Duration::from_secs(1);
+    owner.sessions.maintain().unwrap();
+    assert!(
+        owner
+            .admit(&owner.wire(&first, "1", "capabilities", b"{}"))
+            .is_ok()
+    );
+}
+
+#[test]
+fn requests_check_expiry_between_maintenance_scans() {
+    let mut owner = OwnerDoor::new();
+    let clock = Arc::new(Mutex::new(std::time::Instant::now()));
+    let fake = Arc::clone(&clock);
+    owner.sessions = Arc::new(
+        Arc::try_unwrap(owner.sessions)
+            .ok()
+            .unwrap()
+            .with_clock(Arc::new(move || *fake.lock().unwrap())),
+    );
+    let first = owner.open();
+    *clock.lock().unwrap() += Duration::from_millis(59900);
+    owner.sessions.maintain().unwrap();
+    *clock.lock().unwrap() += Duration::from_millis(100);
+    owner.sessions.maintain().unwrap(); // Throttled, but the request must still refuse.
+    assert_eq!(
+        signed_code(owner.admit(&owner.wire(&first, "1", "capabilities", b"{}"))),
+        "REMOTE_SESSION_ENDED"
+    );
+}
+
+#[test]
+fn default_limit_is_eight_and_eviction_reports_the_active_limit() {
+    for limit in [8, 2] {
+        let owner = OwnerDoor::new();
+        if limit != 8 {
+            tmt_remote::settings::set_sessions_per_device(&owner._root.0, Some(limit)).unwrap();
+        }
+        let sessions = (0..limit + 1).map(|_| owner.open()).collect::<Vec<_>>();
+        tmt_remote::settings::set_sessions_per_device(&owner._root.0, None).unwrap();
+        let request = owner.wire(&sessions[0], "1", "capabilities", b"{}");
+        let refused = owner.admit(&request);
+        let Err(MessageRefusal::Signed(bytes)) = refused else {
+            panic!("expected signed eviction");
+        };
+        let reply: Value = serde_json::from_slice(&bytes).unwrap();
+        let payload = owner.verify_reply(&reply, &request);
+        assert_eq!(payload["error"]["code"], "REMOTE_SESSION_EVICTED");
+        assert_eq!(payload["error"]["limit"], limit);
+        assert!(payload["error"].get("settingsUrl").is_none());
+        for session in &sessions[1..] {
+            assert!(
+                owner
+                    .admit(&owner.wire(session, "1", "capabilities", b"{}"))
+                    .is_ok()
+            );
+        }
+    }
+}

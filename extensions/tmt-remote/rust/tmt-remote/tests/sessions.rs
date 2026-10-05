@@ -1,12 +1,16 @@
 //! Door session acceptance on real sockets: a paired test device opens a
 //! session with a signed `session.open`, the door cookie carries its device
-//! context to a fixture extension under `<prefix>/x/colab/`, and revocation, a newer
-//! session or idle expiry end it.
+//! context to a fixture extension under `<prefix>/x/colab/`; transport close, revocation
+//! and idle expiry end its session while ordinary session end preserves held work.
 #[allow(dead_code)]
 #[path = "support/door.rs"]
 mod door;
 
 use door::*;
+#[allow(dead_code)]
+#[path = "support/core.rs"]
+mod core_fixture;
+use core_fixture::Core;
 use ed25519_dalek::{Signer, SigningKey};
 use serde_json::{Value, json};
 use std::{
@@ -238,6 +242,10 @@ fn serve(stream: UnixStream, seen: &Mutex<Vec<Option<Value>>>) {
         if reader.read_line(&mut line).unwrap_or(0) == 0 || line == "\r\n" {
             break;
         }
+        assert!(
+            !line.contains("tmt-session"),
+            "session marker leaked to extension"
+        );
         let lower = line.to_ascii_lowercase();
         if lower.starts_with("tmt-device-context: ") {
             context = serde_json::from_str(line.split_once(": ").unwrap().1.trim()).ok();
@@ -275,13 +283,19 @@ fn mounted(h: &Harness, colab: &Colab, cookie: Option<&str>) -> Option<Value> {
 }
 /// Upgrade through the mount with `cookie`; returns the echoing client.
 fn tunnel(h: &Harness, cookie: &str) -> TcpStream {
+    tunnel_for(h, cookie, None)
+}
+fn tunnel_for(h: &Harness, cookie: &str, session: Option<&str>) -> TcpStream {
+    let query = session
+        .map(|id| format!("?tmt-session={id}"))
+        .unwrap_or_default();
     let mut client = TcpStream::connect(h.addr).unwrap();
     client
         .set_read_timeout(Some(Duration::from_secs(10)))
         .unwrap();
     write!(
         client,
-        "GET {}/x/colab/sync HTTP/1.1\r\nHost: {}\r\nOrigin: {}\r\nCookie: {cookie}\r\n{UPGRADE}\r\n",
+        "GET {}/x/colab/sync{query} HTTP/1.1\r\nHost: {}\r\nOrigin: {}\r\nCookie: {cookie}\r\n{UPGRADE}\r\n",
         h.prefix, h.addr, h.origin
     )
     .unwrap();
@@ -489,7 +503,7 @@ fn a_session_cookie_alone_cannot_operate_or_pair() {
 }
 
 #[test]
-fn a_newer_session_ends_the_previous_session_and_its_tunnel() {
+fn several_session_cookies_and_tunnels_stay_live_together() {
     let h = Harness::new(FAST);
     let colab = Colab::serve(&h);
     let device = Device::browser(&h, 7);
@@ -499,8 +513,15 @@ fn a_newer_session_ends_the_previous_session_and_its_tunnel() {
     let mut tunnel = tunnel(&h, &first);
     let second = open_session(&h, &Opening::new(&h, &client_id, &device.key).wire());
     let second = pair_of(&second.cookie().unwrap());
-    closes(&mut tunnel);
-    assert_eq!(mounted(&h, &colab, Some(&first)), None);
+    tunnel.write_all(b"pong").unwrap();
+    let mut echoed = [0; 4];
+    tunnel.read_exact(&mut echoed).unwrap();
+    assert_eq!(&echoed, b"pong");
+    assert_eq!(
+        mounted(&h, &colab, Some(&first)).unwrap()["deviceId"],
+        client_id
+    );
+    drop(tunnel);
     assert_eq!(
         mounted(&h, &colab, Some(&second)).unwrap()["deviceId"],
         client_id
@@ -516,6 +537,9 @@ fn revocation_ends_sessions_and_tunnels_before_it_acknowledges() {
     let reply = open_session(&h, &Opening::new(&h, &client_id, &device.key).wire());
     let cookie = pair_of(&reply.cookie().unwrap());
     let mut tunnel = tunnel(&h, &cookie);
+    let second = open_session(&h, &Opening::new(&h, &client_id, &device.key).wire());
+    let second_cookie = pair_of(&second.cookie().unwrap());
+    let mut second_tunnel = tunnel_for(&h, &second_cookie, None);
     let listed = control(&h, json!({"op":"devices"}));
     assert_eq!(listed["devices"][0]["clientId"], client_id);
     assert_eq!(listed["devices"][0]["revoked"], false);
@@ -529,6 +553,8 @@ fn revocation_ends_sessions_and_tunnels_before_it_acknowledges() {
     assert_eq!(revoked["device"]["revoked"], true);
     assert_eq!(revoked["device"]["revision"], 2);
     closes(&mut tunnel);
+    closes(&mut second_tunnel);
+    assert_eq!(mounted(&h, &colab, Some(&second_cookie)), None);
     assert_eq!(mounted(&h, &colab, Some(&cookie)), None);
     // The revoked key cannot open a session again; revoking twice is stable.
     let reopen = open_session(&h, &Opening::new(&h, &client_id, &device.key).wire());
@@ -604,5 +630,363 @@ fn rename_preserves_authority_and_reopens_with_the_new_context() {
         after.name = before.name.clone();
         after.revision = before.revision;
         assert_eq!(after, before);
+    }
+}
+
+/// A normal signed message used to observe a session-end reason after its tunnel drops.
+fn session_probe(h: &Harness, client: &str, key: &SigningKey, session: &str) -> Reply {
+    let mut wire = Opening::new(h, client, key).wire();
+    wire["kind"] = json!("request");
+    wire["operation"] = json!("capabilities");
+    wire["sessionId"] = json!(session);
+    wire["sequence"] = json!("1");
+    wire["payload"] = json!(canonical::base64url(b"{}"));
+    let text = |name: &str| wire[name].as_str().unwrap();
+    let bytes = canonical::envelope(&Envelope {
+        kind: text("kind"),
+        id: text("id"),
+        correlation_id: None,
+        machine_id: text("machineId"),
+        window_id: text("windowId"),
+        client_id: text("clientId"),
+        session_id: text("sessionId"),
+        sequence: text("sequence"),
+        timestamp_ms: wire["timestampMs"].as_u64().unwrap(),
+        origin: text("origin"),
+        operation: text("operation"),
+        payload: b"{}",
+    })
+    .unwrap();
+    wire["signature"] = json!(canonical::base64url(&key.sign(&bytes).to_bytes()));
+    open_session(h, &wire)
+}
+fn payload(reply: &Reply) -> Value {
+    assert_eq!(reply.status, 200);
+    let wire: Value = serde_json::from_str(&reply.body).unwrap();
+    serde_json::from_slice(&canonical::base64url_decode(wire["payload"].as_str().unwrap()).unwrap())
+        .unwrap()
+}
+#[test]
+fn explicit_transport_session_survives_shared_cookie_changes_and_ends_on_last_close() {
+    let h = Harness::new(FAST);
+    let colab = Colab::serve(&h);
+    let device = Device::browser(&h, 7);
+    let client = paired(&h, &device);
+    let first = open_session(&h, &Opening::new(&h, &client, &device.key).wire());
+    let first_id: Value = serde_json::from_str(&first.body).unwrap();
+    let first_id = first_id["sessionId"].as_str().unwrap();
+    let second = open_session(&h, &Opening::new(&h, &client, &device.key).wire());
+    let second_id: Value = serde_json::from_str(&second.body).unwrap();
+    let second_id = second_id["sessionId"].as_str().unwrap();
+    let cookie = pair_of(&second.cookie().unwrap());
+    let one = tunnel_for(&h, &cookie, Some(first_id));
+    let mut another = tunnel_for(&h, &cookie, Some(first_id));
+    let mut two = tunnel_for(&h, &cookie, Some(second_id));
+    drop(one);
+    another.write_all(b"live").unwrap();
+    let mut echoed = [0; 4];
+    another.read_exact(&mut echoed).unwrap();
+    assert_eq!(&echoed, b"live");
+    drop(another);
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        let result = payload(&session_probe(&h, &client, &device.key, first_id));
+        if result["error"]["code"] == "REMOTE_SESSION_ENDED" {
+            break;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "closed transport session stayed live"
+        );
+        thread::yield_now();
+    }
+    two.write_all(b"live").unwrap();
+    two.read_exact(&mut echoed).unwrap();
+    assert_eq!(&echoed, b"live");
+    assert!(mounted(&h, &colab, Some(&cookie)).is_some());
+    // Non-secret ID alone, another device's ID, and a page navigation cannot authorize.
+    let other = Device::browser(&h, 8);
+    let other_client = paired(&h, &other);
+    let other_open = open_session(&h, &Opening::new(&h, &other_client, &other.key).wire());
+    let other_cookie = pair_of(&other_open.cookie().unwrap());
+    for cookie_header in [String::new(), format!("Cookie: {other_cookie}\r\n")] {
+        let reply = exchange(
+            &h,
+            &format!(
+                "GET {}/x/colab/sync?tmt-session={second_id} HTTP/1.1\r\nHost: {}\r\nOrigin: {}\r\n{cookie_header}{UPGRADE}\r\n",
+                h.prefix, h.addr, h.origin
+            ),
+        );
+        assert_eq!(reply.status, 404);
+        assert!(!reply.head.contains("Location:"));
+    }
+    let reply = exchange(
+        &h,
+        &format!(
+            "GET {}/x/colab/home?tmt-session={second_id} HTTP/1.1\r\nHost: {}\r\nCookie: {cookie}\r\n\r\n",
+            h.prefix, h.addr
+        ),
+    );
+    assert_eq!(reply.status, 404);
+    drop(two);
+}
+
+#[test]
+fn attached_sessions_keep_the_twelve_hour_idle_limit_and_maintenance_closes_them() {
+    let now = Arc::new(Mutex::new(Instant::now()));
+    let observed = Arc::clone(&now);
+    let h = Harness::with_clock(
+        FAST,
+        tmt_remote::limits::SESSION_IDLE,
+        Arc::new(move || *observed.lock().unwrap()),
+    );
+    let colab = Colab::serve(&h);
+    let device = Device::browser(&h, 7);
+    let client = paired(&h, &device);
+    let opened = open_session(&h, &Opening::new(&h, &client, &device.key).wire());
+    let cookie = pair_of(&opened.cookie().unwrap());
+    let mut transport = tunnel(&h, &cookie);
+    *now.lock().unwrap() += tmt_remote::limits::SESSION_UNATTACHED_IDLE;
+    assert!(
+        mounted(&h, &colab, Some(&cookie)).is_some(),
+        "an attached session used the short timeout"
+    );
+    *now.lock().unwrap() += tmt_remote::limits::SESSION_IDLE;
+    // No follow-up request triggers cleanup: the existing door event loop does it.
+    closes(&mut transport);
+    assert!(mounted(&h, &colab, Some(&cookie)).is_none());
+}
+
+#[test]
+fn held_work_remains_approvable_after_last_transport_close_and_visible_to_later_tabs() {
+    for observer in ["other", "reopened", "later"] {
+        let mut h = Harness::new(FAST);
+        let _colab = Colab::serve(&h);
+        let device = Device::browser(&h, 7);
+        let client = paired(&h, &device);
+        let oracle = rusqlite::Connection::open(h.root.join("remote/remote.db")).unwrap();
+        oracle
+            .execute(
+                "UPDATE grants SET mode='hold' WHERE client_id=?1",
+                [&client],
+            )
+            .unwrap();
+        drop(oracle);
+        let opened = open_session(&h, &Opening::new(&h, &client, &device.key).wire());
+        let session: Value = serde_json::from_str(&opened.body).unwrap();
+        let session = session["sessionId"].as_str().unwrap();
+        let cookie = pair_of(&opened.cookie().unwrap());
+        let transport = tunnel(&h, &cookie);
+        let mut wire = Opening::new(&h, &client, &device.key).wire();
+        let id = wire["id"].as_str().unwrap().to_owned();
+        let intent=json!({"version":1,"operation":"dispatch.create","originator":"anonymous","input":{"operationId":id,"recipientIds":[uuid_v4().unwrap()],"message":"Unconfirmed tab work","kind":"request"}}).to_string();
+        wire["kind"] = json!("request");
+        wire["sessionId"] = json!(session);
+        wire["sequence"] = json!("1");
+        wire["operation"] = json!("dispatch.create");
+        wire["payload"] = json!(canonical::base64url(intent.as_bytes()));
+        let text = |name: &str| wire[name].as_str().unwrap();
+        let bytes = canonical::envelope(&Envelope {
+            kind: text("kind"),
+            id: text("id"),
+            correlation_id: None,
+            machine_id: text("machineId"),
+            window_id: text("windowId"),
+            client_id: text("clientId"),
+            session_id: text("sessionId"),
+            sequence: text("sequence"),
+            timestamp_ms: wire["timestampMs"].as_u64().unwrap(),
+            origin: text("origin"),
+            operation: text("operation"),
+            payload: intent.as_bytes(),
+        })
+        .unwrap();
+        wire["signature"] = json!(canonical::base64url(&device.key.sign(&bytes).to_bytes()));
+        let permit = h
+            .sessions
+            .admit(
+                tmt_remote::admission::BindingAction::Append,
+                Some(&h.origin),
+                wire.to_string().as_bytes(),
+                1024,
+            )
+            .ok()
+            .unwrap();
+        let held = permit.adopt(Some(intent.as_bytes()), &[]).unwrap();
+        assert_eq!(held.phase, "held");
+        drop(permit);
+        let core = Core::new();
+        fs::write(core.root.join("storage-root"), h.root.to_str().unwrap()).unwrap();
+        let operations = core.operations();
+        h.control.take().unwrap().stop();
+        let approval = Arc::new(tmt_remote::approval::Approval::new(
+            Arc::clone(&h.store),
+            Arc::clone(&h.sessions),
+            Arc::clone(&operations),
+        ));
+        h.control = Some(
+            control::Control::start(
+                &h._serving,
+                Arc::clone(&h.pairing),
+                Arc::clone(&h.devices),
+                control::Door {
+                    origin: h.origin.clone(),
+                    prefix: h.prefix.clone(),
+                },
+                Some(approval),
+                Arc::clone(&h.stop),
+            )
+            .unwrap(),
+        );
+        let open_observer = || {
+            let reply = open_session(&h, &Opening::new(&h, &client, &device.key).wire());
+            let wire: Value = serde_json::from_str(&reply.body).unwrap();
+            wire["sessionId"].as_str().unwrap().to_owned()
+        };
+        let mut observed = if observer == "other" {
+            Some(open_observer())
+        } else {
+            None
+        };
+        drop(transport);
+        let deadline = Instant::now() + Duration::from_secs(5);
+        loop {
+            if payload(&session_probe(&h, &client, &device.key, session))["error"]["code"]
+                == "REMOTE_SESSION_ENDED"
+            {
+                break;
+            }
+            assert!(Instant::now() < deadline, "last transport stayed live");
+            thread::sleep(Duration::from_millis(10));
+        }
+        let grant = h.store.lock().unwrap().grant(&client).unwrap().unwrap();
+        let held = h
+            .store
+            .lock()
+            .unwrap()
+            .owned(&grant, &id, now_ms())
+            .unwrap();
+        assert_eq!(held.phase, "held");
+        assert!(held.frozen.is_some());
+        if observer == "reopened" {
+            observed = Some(open_observer());
+        }
+        // Exercise the actual `tmt remote approve --json` executable and its unchanged prompt.
+        let mut command = std::process::Command::new(env!("CARGO_BIN_EXE_tmt-remote"));
+        command
+            .env_clear()
+            .env("HOME", &h.root)
+            .env("TMT_EXECUTABLE", core.root.join("tmt"))
+            .args(["approve", &id, "--json"])
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped());
+        let mut child = command.spawn().unwrap();
+        writeln!(child.stdin.take().unwrap(), "{{\"op\":\"confirm\"}}").unwrap();
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while child.try_wait().unwrap().is_none() {
+            if Instant::now() >= deadline {
+                child.kill().unwrap();
+                child.wait().unwrap();
+                panic!("approve did not finish");
+            }
+            thread::sleep(Duration::from_millis(10));
+        }
+        let output = child.wait_with_output().unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let events = String::from_utf8(output.stdout)
+            .unwrap()
+            .lines()
+            .map(|line| serde_json::from_str::<Value>(line).unwrap())
+            .collect::<Vec<_>>();
+        assert_eq!(events[0]["event"], "held");
+        assert!(events[0].get("sessionId").is_none());
+        assert!(events[0].get("tab").is_none());
+        assert_eq!(events[1]["state"], "accepted");
+        assert_eq!(core.sends(), 1);
+        let page = h
+            .store
+            .lock()
+            .unwrap()
+            .page(&grant, None, 50, now_ms())
+            .unwrap();
+        let envelope = &page["entries"].as_array().unwrap().last().unwrap()["envelope"];
+        if let Some(observed) = &observed {
+            assert_eq!(envelope["sessionId"], observed.as_str());
+        }
+        let published: Value = serde_json::from_slice(
+            &canonical::base64url_decode(envelope["payload"].as_str().unwrap()).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(published["state"], "accepted");
+        assert_eq!(published["operationId"], id);
+        crypto::verify_signature(
+            &h.machine_public,
+            &canonical::envelope(&Envelope {
+                kind: "response",
+                id: envelope["id"].as_str().unwrap(),
+                correlation_id: envelope["correlationId"].as_str(),
+                machine_id: envelope["machineId"].as_str().unwrap(),
+                window_id: envelope["windowId"].as_str().unwrap(),
+                client_id: envelope["clientId"].as_str().unwrap(),
+                session_id: envelope["sessionId"].as_str().unwrap(),
+                sequence: envelope["sequence"].as_str().unwrap(),
+                timestamp_ms: envelope["timestampMs"].as_u64().unwrap(),
+                origin: envelope["origin"].as_str().unwrap(),
+                operation: "dispatch.create",
+                payload: &canonical::base64url_decode(envelope["payload"].as_str().unwrap())
+                    .unwrap(),
+            })
+            .unwrap(),
+            &canonical::base64url_decode(envelope["signature"].as_str().unwrap()).unwrap(),
+        )
+        .unwrap();
+        if observer == "later" {
+            observed = Some(open_observer());
+        }
+        let mut probe = Opening::new(&h, &client, &device.key).wire();
+        let intent = json!({"operationId":id}).to_string();
+        probe["kind"] = json!("request");
+        probe["operation"] = json!("operation.show");
+        probe["sessionId"] = json!(observed.unwrap());
+        probe["sequence"] = json!("1");
+        probe["payload"] = json!(canonical::base64url(intent.as_bytes()));
+        let signed = canonical::envelope(&Envelope {
+            kind: "request",
+            id: probe["id"].as_str().unwrap(),
+            correlation_id: None,
+            machine_id: &h.machine_id,
+            window_id: &h.window_id,
+            client_id: &client,
+            session_id: probe["sessionId"].as_str().unwrap(),
+            sequence: "1",
+            timestamp_ms: probe["timestampMs"].as_u64().unwrap(),
+            origin: &h.origin,
+            operation: "operation.show",
+            payload: intent.as_bytes(),
+        })
+        .unwrap();
+        probe["signature"] = json!(canonical::base64url(&device.key.sign(&signed).to_bytes()));
+        let transport =
+            tmt_remote::transport::LoopbackTransport::new(Arc::clone(&h.sessions), 65536)
+                .with_operations(Arc::clone(&operations));
+        use tmt_remote::transport::Transport;
+        let reply: Value = serde_json::from_slice(
+            &transport
+                .append(Some(&h.origin), probe.to_string().as_bytes())
+                .unwrap(),
+        )
+        .unwrap();
+        let recovered: Value = serde_json::from_slice(
+            &canonical::base64url_decode(reply["payload"].as_str().unwrap()).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(recovered["state"], "accepted");
+        assert_eq!(recovered["operationId"], id);
+        assert_eq!(core.sends(), 1);
     }
 }

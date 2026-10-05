@@ -1,3 +1,5 @@
+import { channelFor } from './session-channel.js';
+import { RefusalError } from './operations.js';
 export { operations, ClientError, RefusalError } from './operations.js';
 export type {
   ClientErrorCode,
@@ -194,4 +196,28 @@ async function ceremony(
   });
   await openSession(result, key, descriptor.windowId);
   showState(status, 'paired', 'This browser is paired. You can close this page.');
+}
+
+/** Associate a mounted WebSocket with this tab's verified session, not the shared cookie's tab.
+ * Use only to construct a transport; never navigate to or log this URL.
+ */
+export function transportUrl(session: import('./device.js').Session, value: string | URL): string {
+  const channel = channelFor(session);
+  if (!channel || channel.ended) throw new RefusalError('REMOTE_SESSION_ENDED');
+  const address = new URL(channel.paired.address);
+  const url = new URL(value, channel.paired.address);
+  if (
+    url.protocol !== (address.protocol === 'https:' ? 'wss:' : 'ws:') ||
+    !['http:', 'https:'].includes(address.protocol) ||
+    url.host !== address.host ||
+    !url.pathname.startsWith(`${address.pathname}/x/`) ||
+    url.search ||
+    url.hash ||
+    url.username ||
+    url.password
+  ) {
+    throw new TypeError('Use a mounted WebSocket URL on this door without query or fragment.');
+  }
+  url.searchParams.set('tmt-session', channel.sessionId);
+  return url.href;
 }

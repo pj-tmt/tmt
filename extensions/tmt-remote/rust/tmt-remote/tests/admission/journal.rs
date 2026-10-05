@@ -304,3 +304,25 @@ fn another_store_can_revoke_after_signed_admission_before_adoption() {
     other.revoke(&owner.grant.client_id).unwrap();
     assert_eq!(permit.adopt(None, &[]).unwrap_err().code, "REMOTE_CLOSED");
 }
+
+#[test]
+fn concurrent_sessions_share_one_device_journal_and_idempotent_ack() {
+    let owner = OwnerDoor::new();
+    let first = owner.open();
+    let second = owner.open();
+    adopted(&owner, &first, 1, "capabilities", None);
+    let page = subscribe(&owner, &second, 1, Value::Null, 50);
+    assert_eq!(page["entries"].as_array().unwrap().len(), 1);
+    let cursor = page["nextCursor"].clone();
+    for session in [&first, &second] {
+        assert_eq!(
+            control(&owner, session, 2, "ack", json!({"cursor":cursor}))["cursor"],
+            cursor
+        );
+    }
+    let one = subscribe(&owner, &first, 3, cursor.clone(), 50);
+    let two = subscribe(&owner, &second, 3, cursor.clone(), 50);
+    assert_eq!(one["entries"], json!([]));
+    assert_eq!(two["entries"], json!([]));
+    assert_eq!(one["nextCursor"], two["nextCursor"]);
+}

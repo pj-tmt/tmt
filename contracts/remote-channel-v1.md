@@ -178,46 +178,94 @@ response whose sessionId is the fresh session UUID and whose payload is
 `{sessionId,serverTimeMs,grantRevision,expiresAtMs}`. `expiresAtMs` is the grant expiry, or null
 when the grant has none; a session also ends when remote stops. Opening a session is silent and
 never asks the owner to pair again. The client verifies the paired machine key before trusting it.
-One session per client; creating another invalidates the previous one without widening scope.
+Each open adds an independent session for the device, bound to the same grant and revision;
+opening never widens scope. `limits::DEFAULT_SESSIONS_PER_DEVICE` caps sessions at 8 by default.
+`tmt remote settings sessions-per-device <n>|off` sets a positive limit or disables it. An
+absent `sessionsPerDevice` key in Remote's `settings.json` means 8; explicit null (`off`) means
+unlimited. Both plain settings and JSON show the limit and its source (`default` or
+`settings.json`); JSON uses null for unlimited. Serve reads the setting on each open, with no
+restart. Damaged or unreadable settings use the default of 8. The active limit ends the least
+recently used sessions of that device until the new session fits; other devices are unaffected.
+The session table is keyed by sessionId with clientId indexed. Migration preserves grants and
+maps each former single-session row, including its counters, to one entry. Persisted rows never
+restore live authority across a serve restart.
 
-Normal messages also require a timestamp within 60 seconds of machine time. Normal client sequences
-start at 1 and increase by exactly one. One request is in flight per session. Under remote's
-authority lock, verify signature, audience, origin, live grant, timestamp, scope and expected
-sequence; consume the sequence durably before any effect. Concurrent duplicates have one winner.
-Invalid signatures do not advance it. A consumed sequence stays consumed even if downstream work
-fails. Stale, replayed or reordered messages cause no effect. Machine responses have an independent
-increasing session sequence starting at 1; clients reject non-increasing live response sequences.
-The SDK serializes controls and requests; use waitMs:0 when interactive work is queued, so a
-long-poll does not race a send. After a lost response on a still-live session, the SDK may
-resynchronize before its next call with at most two scope-free read-only `capabilities` probes:
-the next client sequence, then the unresolved current sequence only after a verified
-`REMOTE_REPLAY` refusal. Each probe
-is newly signed; never replay a captured envelope or send during recovery. If both probes are
-refused, the session is unusable and recovery requires a new signed session and ID-based receipt
-recovery. A lost recovery response also ends sequence recovery; never make a third guess. A
-retried logical request gets a fresh response envelope around its original receipt payload,
-correlated to the retry ID in the current session. The log cursor governs historical ordering, not a
-reused live-session counter. On reconnect, old signed log entries are accepted only as historical
-data for the subscribed audience, never as a fresh command; the new signed subscribe response binds
+Normal messages also require a timestamp within 60 seconds of machine time. Normal client
+sequences start at 1 and increase by exactly one, independently for each session. The signed
+canonical envelope binds sessionId and its sequence together: changing sessionId invalidates the
+signature, and an envelope signed for one session cannot be accepted in another. One request is
+in flight per session. Under remote's authority lock, verify signature, audience, origin, live
+grant, timestamp, scope and expected sequence; consume the sequence durably before any effect.
+Concurrent duplicates have one winner. Invalid signatures do not advance it. A consumed sequence
+stays consumed even if downstream work fails. Stale, replayed or reordered messages cause no
+effect. Machine responses have an independent increasing session sequence starting at 1; clients
+reject non-increasing live response sequences. The SDK serializes controls and requests; use
+waitMs:0 when interactive work is queued, so a long-poll does not race a send. After a lost
+response on a still-live session, the SDK may resynchronize before its next call with at most
+two scope-free read-only `capabilities` probes: the next client sequence, then the unresolved
+current sequence only after a verified `REMOTE_REPLAY` refusal. Each probe is newly signed;
+never replay a captured envelope or send during recovery. If both probes are refused, the
+session is unusable and recovery requires a new signed session and ID-based receipt recovery. A
+lost recovery response also ends sequence recovery; never make a third guess. A retried logical
+request gets a fresh response envelope around its original receipt payload, correlated to the
+retry ID in the current session. The log cursor governs historical ordering, not a reused
+live-session counter. On reconnect, old signed log entries are accepted only as historical data
+for the subscribed audience, never as a fresh command; the new signed subscribe response binds
 their ordered IDs/digests and cursor to the current control ID/session.
 
-Lost sequence state may use the bounded read-only recovery above while the session is still live.
-Lost session state or exhausted sequence recovery requires a new signed session and ID-based receipt
-recovery. It never permits a captured-envelope replay or automatic new send. Expiry/revoke/stop
-is checked again at the effect fence. Bindings cannot waive those checks because an edge previously accepted a
-signature.
+Lost sequence state may use the bounded read-only recovery above while the session is still
+live. Lost session state or exhausted sequence recovery requires a new signed session and
+ID-based receipt recovery. It never permits a captured-envelope replay or automatic new send.
+Expiry/revoke/stop is checked again at the effect fence. Bindings cannot waive those checks
+because an edge previously accepted a signature.
 
 A `browser` device on the door's own origin may instead hold a door session: after one signed
 `session.open` over the door, remote sets a 256-bit random token as an HttpOnly, SameSite=Strict
-cookie scoped to `Path=/r/<prefix>/x/`, the mount space (Secure on HTTPS), stores only its SHA-256
-and binds it to the device, grant revision and remote run. Browsers cannot set authorization headers
-on WebSocket construction, so tokens never move into query strings. The cookie is a carrier for the
-same authenticated device context, not a second credential model: every request and upgrade rechecks
-grant, revocation and expiry, and a state-changing operation still needs a fresh device signature
-over its exact intent. Door sessions live only in the running remote: they end on stop, revocation,
-a newer session for the device and after 12 hours without use, and do not survive restart. Reopening
-is silent: the page sends another signed `session.open` from its stored device key, with no owner
-step or new pairing. Ending a session closes the WebSocket tunnels opened under it.
+cookie scoped to `Path=/r/<prefix>/x/`, the mount space (Secure on HTTPS), stores only its
+SHA-256 and binds it to the device, grant revision and remote run. Browsers cannot set
+authorization headers on WebSocket construction, so credential tokens never move into query
+strings. Tabs share one browser cookie (the most recently issued token); Remote retains every
+live token for the device. The cookie scopes the device context, while signed messages and
+transports belong to individual sessions. The cookie is a carrier for the same authenticated
+device context, not a second credential model: every request and upgrade rechecks grant,
+revocation and expiry, and a state-changing operation still needs a fresh device signature over
+its exact intent. Door sessions live only in the running remote and do not survive restart.
+Revocation, grant expiry/revision change and stop end all device sessions and tokens.
+`limits::SESSION_IDLE` is 12 hours without activity for a session that has had a transport;
+`limits::SESSION_UNATTACHED_IDLE` is 60 seconds without activity for a session that has never
+had one. Traffic and authenticated requests count as activity. Maintenance runs even without new
+requests: the door's existing 100 ms event loop runs session maintenance at most once per
+`limits::SESSION_MAINTENANCE_INTERVAL` (one second). Request paths still check session expiry
+themselves; last-transport closure ends authority immediately. Maintenance prunes persisted
+session rows only when an old run or expired end notice needs removal.
+
+The SDK's `transportUrl(session, mountedWebSocketUrl)` adds exactly `?tmt-session=<sessionId>`
+to a mounted WebSocket URL. This value is a non-secret identifier, never a credential: Remote
+requires a live cookie, checks that the identified live session belongs to that cookie's device,
+and otherwise returns the generic 404 before forwarding. Only upgrade requests may carry it;
+ordinary page URLs cannot carry it and it must never enter browser navigation/history. Remote
+strips it before forwarding to the extension, never logs it and never places it in Location or
+Referer. The SDK requires the door-matching WebSocket scheme (http → ws, https → wss) on the
+current door's mount space, without other query parameters or fragments. Existing tunnels
+without the parameter attach to the cookie's session.
+
+Opening another session leaves existing sessions and tunnels live. The last upgraded transport
+closing (including tab close or a dropped transport while backgrounded/asleep) ends its session;
+other tabs stay live. A failed upgrade is not an established transport. Ending closes remaining
+tunnels while held work survives the session end, bound to the device grant. Only stop, revoke,
+and grant expiry/revision change cancel held work. Dispatching and uncertain work retain their
+original operation IDs, frozen intent and recovery behavior. A limit eviction uses
+`REMOTE_SESSION_EVICTED` with the active positive `limit` and optional `settingsUrl`; the door
+omits the URL until #1769 adds the Remote settings page. The SDK exposes `RefusalError.limit`
+and optional `settingsUrl`, also on send/operation refused states. Absent/null URLs mean
+command-only guidance; when present, Colab shows the settings link plus `tmt remote settings
+sessions-per-device <n>`. The SDK normalizes the URL and requires the door's origin. Transport
+close/idle expiry uses `REMOTE_SESSION_ENDED`. After verifying the device signature and current
+grant, Remote can sign the distinct end reason for `limits::SESSION_END_NOTICE` (60 seconds);
+afterward admission is the generic 404, also exposed by the SDK as `REMOTE_SESSION_ENDED`.
+Reopening is silent: the page sends another signed `session.open` from its stored device key,
+with no owner step or new pairing. The caller reattaches its transport using the new session; no
+send is retried.
 
 ## Durable log: append, subscribe and ack
 
@@ -380,15 +428,21 @@ an `error:` line and a separate `hint:` line; `--json` joins them as `error.mess
 fallback. The actual bound port is remembered for the next run, including after an explicit
 selection. Human startup output puts the full door URL on its own line with no trailing punctuation.
 Remote schema 6 replaces each existing 32-hex-character prefix once with 16 lowercase RFC 4648
-base32 characters (`a-z2-7`, 80 random bits), then keeps it stable. Old links and cookie paths stop
-working. Machine IDs, keys, origin-bound pairings, grants and the remembered port survive; browsers
-reopen their sessions under the current path without pairing again. An origin change requires
-browser pairing at the new origin. Neither address nor route prefix is a credential. Shutdown closes
-the door and cancels pending pairing and held operations. Revoke disables a device before
-acknowledgment. No request/effect not yet fenced may succeed afterward. Already committed core work
-is not undone; report it accurately. Restart issues a new window and session namespace; grants
-survive. Unconfirmed held work is cancelled; dispatching/uncertain work recovers its original
-operation, never becomes falsely unsent.
+base32 characters (`a-z2-7`, 80 random bits), then keeps it stable. Old links and cookie paths
+stop working. Machine IDs, keys, origin-bound pairings, grants and the remembered port survive;
+browsers reopen their sessions under the current path without pairing again. An origin change
+requires browser pairing at the new origin. Neither address nor route prefix is a credential.
+Shutdown closes the door and cancels pending pairing and held operations. Held work survives
+transport close, session idle expiry and eviction. After approval, any later session of the same
+device can recover the result by operation ID. The existing per-device hold bound
+(`budgets::HELDS`, 16) still applies, so held work cannot pile up past it when sessions end. The
+approve prompt is unchanged: the owner is not told which tab. Approval publishes machine-signed
+metadata to the device's shared journal even when no session is live; its cursor orders
+historical envelopes, which do not open sessions. Revoke disables a device before
+acknowledgment. No request/effect not yet fenced may succeed afterward. Already committed core
+work is not undone; report it accurately. Restart issues a new window and session namespace;
+grants survive. Unconfirmed held work is cancelled; dispatching/uncertain work recovers its
+original operation, never becomes falsely unsent.
 
 ### Local CLI discovery
 
@@ -510,12 +564,13 @@ IndexedDB. Explicit identical re-sends rebuild the same payload bytes.
 
 Verified pre-effect refusals on send/operation return
 `{state:"refused",operationId,reason}`, with the signed code `REMOTE_SCOPE_DENIED`,
-`REMOTE_INPUT_INVALID`, `REMOTE_RATE_LIMITED`, `REMOTE_INTENT_CONFLICT` or `REMOTE_CLOSED`.
+`REMOTE_INPUT_INVALID`, `REMOTE_RATE_LIMITED`, `REMOTE_INTENT_CONFLICT`, `REMOTE_CLOSED`,
+`REMOTE_SESSION_ENDED` or `REMOTE_SESSION_EVICTED`.
 The generic pre-admission HTTP 404 maps to `REMOTE_SESSION_ENDED`; this is a session-ended
-signal, not a signed response. The exported `RemoteRefusalCode` union contains those six codes
+signal, not a signed response. The exported `RemoteRefusalCode` union contains those codes
 plus `REMOTE_INPUT_TOO_LARGE`, `REMOTE_STATE_UNAVAILABLE` and `REMOTE_CORE_UNAVAILABLE`.
 These other signed refusals on send/operation, and all refusals on listAgents/result, throw
-exported `RefusalError {code:RemoteRefusalCode,retryAfterMs?}`. Its message is sanitized and at
+exported `RefusalError {code:RemoteRefusalCode,retryAfterMs?,limit?,settingsUrl?}`. Its message is sanitized and at
 most 256 UTF-8 bytes; retryAfterMs is an integer from 0 to 60000. An unavailable core/state error
 never turns an adopted uncertain send into refused; the server's signed SendState owns that
 classification. Callers branch on error class and code, never raw server messages.
@@ -528,7 +583,7 @@ capabilities probes above. Signed refusals also leave sequence consumption ambig
 the next call first synchronizes with the same bounded probes, then performs the caller's call.
 Exhausted recovery reports `sequence_unavailable`: this session can no longer be used, so the
 caller reopens and then observes the original ID. Session-ended refusals
-also require a caller-owned reopen; reopening ends that session's live sync tunnel. No implicit
+also require a caller-owned reopen; reopening adds a session and leaves other live tunnels intact. No implicit
 send from recovery, automatic dispatch retry or replacement operation ID is permitted.
 
 ## Dispatch, hold and uncertainty

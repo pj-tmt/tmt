@@ -1,6 +1,6 @@
 import { expect, test, chromium, type Browser, type Page } from '@playwright/test';
 import { spawn, execFileSync, type ChildProcessWithoutNullStreams } from 'node:child_process';
-import { createPublicKey, verify } from 'node:crypto';
+import { createHash, createPublicKey, verify } from 'node:crypto';
 import { extCertSigningBytes } from '../src/canonical-bytes.js';
 import type { ExtCertificate } from '../src/device.js';
 import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
@@ -83,6 +83,22 @@ async function colab(socket: string): Promise<Server> {
     connection.on('data', (chunk) => {
       head += chunk.toString('latin1');
       if (!head.includes('\r\n\r\n')) return;
+      expect(head).not.toContain('tmt-session');
+      if (/^upgrade: websocket$/im.test(head)) {
+        const key = /^sec-websocket-key: (.*)$/im.exec(head)?.[1]?.trim();
+        if (!key) throw new Error('No WebSocket key.');
+        const accept = createHash('sha1')
+          .update(key + '258EAFA5-E914-47DA-95CA-C5AB0DC85B11')
+          .digest('base64');
+        connection.removeAllListeners('data');
+        connection.write(
+          `HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: ${accept}\r\n\r\n`,
+        );
+        connection.on('data', (frame: Buffer) => {
+          if ((frame[0]! & 15) === 8) connection.destroy();
+        });
+        return;
+      }
       const context = /^tmt-device-context: (.*)$/im.exec(head)?.[1] ?? 'none';
       const body = `<!doctype html><title>colab</title><pre id="context">${context
         .replaceAll('&', '&amp;')
@@ -262,6 +278,7 @@ test('a browser pairs, gets a door session and certifies only its own extension'
     'operations',
     'pairingPage',
     'reopenSession',
+    'transportUrl',
   ]);
   expect(result.newRecordHasCache).toBe(false);
   expect(result.again.issuedAtMs).toBe(result.nextTime);
@@ -308,6 +325,73 @@ test('a browser pairs, gets a door session and certifies only its own extension'
     };
     await sdk.reopenSession();
   });
+  // Two pages of one context share the device cookie but retain independent transports/lanes.
+  const otherTab = await context.newPage();
+  await otherTab.goto(`${mounts}colab/other`);
+  const attach = async (tab: Page) =>
+    tab.evaluate(async () => {
+      const sdk = (await import(
+        '/sdk/remote-v1.js' as string
+      )) as typeof import('../src/browser.js');
+      const session = await sdk.reopenSession();
+      const url = sdk.transportUrl(
+        session,
+        location.href.replace('http:', 'ws:').replace(/\/[^/]*$/, '/sync'),
+      );
+      const socket = new WebSocket(url);
+      await new Promise<void>((resolve, reject) => {
+        socket.onopen = () => resolve();
+        socket.onerror = () => reject(new Error('Transport refused.'));
+      });
+      Object.assign(window, { remoteTest: { session, socket, remote: sdk.operations(session) } });
+      return session.sessionId;
+    });
+  const firstSession = await attach(app);
+  const secondSession = await attach(otherTab);
+  expect(firstSession).not.toBe(secondSession);
+  const list = async (tab: Page) =>
+    tab.evaluate(async () => {
+      const state = (
+        window as unknown as {
+          remoteTest: { remote: import('../src/operations.js').RemoteOperations };
+        }
+      ).remoteTest;
+      return state.remote.listAgents();
+    });
+  expect(await list(app)).toEqual(await list(otherTab));
+  // Simulate transport loss while the tab remains mounted (background/sleep recovery).
+  await app.evaluate(async () => {
+    const state = (window as unknown as { remoteTest: { socket: WebSocket } }).remoteTest;
+    await new Promise<void>((resolve) => {
+      state.socket.onclose = () => resolve();
+      state.socket.close();
+    });
+  });
+  await expect
+    .poll(async () =>
+      app.evaluate(async () => {
+        const state = (
+          window as unknown as {
+            remoteTest: { remote: import('../src/operations.js').RemoteOperations };
+          }
+        ).remoteTest;
+        try {
+          await state.remote.listAgents();
+          return 'live';
+        } catch (error) {
+          return (error as { code?: string }).code;
+        }
+      }),
+    )
+    .toBe('REMOTE_SESSION_ENDED');
+  expect(await list(otherTab)).toHaveLength(1);
+  await attach(app);
+  expect(await list(app)).toHaveLength(1);
+  // Closing one tab drops its transport; the surviving tab remains usable.
+  await otherTab.close();
+  expect(await list(app)).toHaveLength(1);
+  expect(new URL(app.url()).search).toBe('');
+
   const asked = await app.evaluate(async () => {
     const sdk = (await import('/sdk/remote-v1.js' as string)) as typeof import('../src/browser.js');
     const remote = sdk.operations(await sdk.reopenSession());
@@ -377,7 +461,7 @@ test('a browser pairs, gets a door session and certifies only its own extension'
     'python3',
     [
       '-c',
-      "import sqlite3,sys; db=sqlite3.connect(sys.argv[1]); db.execute('UPDATE machine SET route_prefix=?', (sys.argv[2],)); db.execute('DELETE FROM _migrations WHERE version=6'); db.commit(); db.close()",
+      "import sqlite3,sys; db=sqlite3.connect(sys.argv[1]); db.execute('UPDATE machine SET route_prefix=?', (sys.argv[2],)); db.execute('DELETE FROM _migrations WHERE version>=6'); db.execute('DROP TABLE sessions'); db.execute('CREATE TABLE sessions(client_id TEXT PRIMARY KEY REFERENCES grants(client_id),session_id TEXT NOT NULL UNIQUE,window_id TEXT NOT NULL,grant_revision INTEGER NOT NULL,next_client_sequence TEXT NOT NULL,next_server_sequence TEXT NOT NULL)'); db.execute('ALTER TABLE operations DROP COLUMN grant_revision'); db.execute('ALTER TABLE operations DROP COLUMN session_id'); db.commit(); db.close()",
       join(root, 'state/remote/remote.db'),
       legacyPrefix,
     ],

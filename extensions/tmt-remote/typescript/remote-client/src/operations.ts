@@ -11,7 +11,13 @@ export type SendState =
   | { state: 'held'; operationId: string }
   | { state: 'accepted'; operationId: string; requestId: string }
   | { state: 'uncertain'; operationId: string; requestId?: string }
-  | { state: 'refused' | 'cancelled'; operationId: string; reason?: string };
+  | {
+      state: 'refused' | 'cancelled';
+      operationId: string;
+      reason?: string;
+      limit?: number;
+      settingsUrl?: string;
+    };
 export type ResultState =
   | { state: 'pending'; requestId: string }
   | { state: 'replied'; requestId: string; message: string }
@@ -41,6 +47,7 @@ export type RemoteRefusalCode =
   | 'REMOTE_INTENT_CONFLICT'
   | 'REMOTE_CLOSED'
   | 'REMOTE_SESSION_ENDED'
+  | 'REMOTE_SESSION_EVICTED'
   | 'REMOTE_INPUT_TOO_LARGE'
   | 'REMOTE_STATE_UNAVAILABLE'
   | 'REMOTE_CORE_UNAVAILABLE';
@@ -60,6 +67,8 @@ export class RefusalError extends Error {
   constructor(
     readonly code: RemoteRefusalCode,
     readonly retryAfterMs?: number,
+    readonly limit?: number,
+    readonly settingsUrl?: string,
   ) {
     super(`Remote operation refused: ${code}.`);
     this.name = 'RefusalError';
@@ -73,6 +82,7 @@ const PRE_EFFECT = new Set<string>([
   'REMOTE_INTENT_CONFLICT',
   'REMOTE_CLOSED',
   'REMOTE_SESSION_ENDED',
+  'REMOTE_SESSION_EVICTED',
 ]);
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
@@ -154,7 +164,10 @@ function agents(value: unknown): RemoteAgent[] {
     };
   });
 }
-function remoteError(value: Record<string, unknown>): RefusalError | SequenceMismatch | undefined {
+function remoteError(
+  value: Record<string, unknown>,
+  address: string,
+): RefusalError | SequenceMismatch | undefined {
   if (!Object.hasOwn(value, 'error')) return undefined;
   const error = record(value.error);
   valid(
@@ -162,6 +175,28 @@ function remoteError(value: Record<string, unknown>): RefusalError | SequenceMis
       /^[A-Z][A-Z0-9_]{0,63}$/.test(error.code) &&
       typeof error.message === 'string',
   );
+  const limit = error.limit;
+  valid(
+    limit === undefined || (typeof limit === 'number' && Number.isSafeInteger(limit) && limit > 0),
+  );
+  valid(error.code !== 'REMOTE_SESSION_EVICTED' || limit !== undefined);
+  let settingsUrl: string | undefined;
+  if (error.settingsUrl !== undefined && error.settingsUrl !== null) {
+    valid(
+      typeof error.settingsUrl === 'string' &&
+        error.settingsUrl.length > 0 &&
+        error.settingsUrl.length <= 2048,
+    );
+    const url = new URL(error.settingsUrl as string, address);
+    const door = new URL(address);
+    valid(
+      url.origin === door.origin &&
+        !url.username &&
+        !url.password &&
+        ['http:', 'https:'].includes(url.protocol),
+    );
+    settingsUrl = url.href;
+  }
   const retry = error.retryAfterMs;
   valid(
     retry === undefined ||
@@ -174,7 +209,12 @@ function remoteError(value: Record<string, unknown>): RefusalError | SequenceMis
         error.code,
       ),
   );
-  return new RefusalError(error.code as RemoteRefusalCode, retry as number | undefined);
+  return new RefusalError(
+    error.code as RemoteRefusalCode,
+    retry as number | undefined,
+    limit as number | undefined,
+    settingsUrl,
+  );
 }
 function enqueue<T>(channel: Channel, action: () => Promise<T>): Promise<T> {
   const pending = channel.tail.then(action);
@@ -251,9 +291,13 @@ async function attempt<T>(
         if (abort.signal.aborted) throw new Error('Abandoned response.');
         channel.machineSequence = reply.sequence;
         const value = record(JSON.parse(strictUtf8.decode(reply.payload)) as unknown);
-        const error = remoteError(value);
+        const error = remoteError(value, channel.paired.address);
         if (error) {
-          if (error instanceof RefusalError && error.code === 'REMOTE_CLOSED') channel.ended = true;
+          if (
+            error instanceof RefusalError &&
+            ['REMOTE_CLOSED', 'REMOTE_SESSION_ENDED', 'REMOTE_SESSION_EVICTED'].includes(error.code)
+          )
+            channel.ended = true;
           throw error;
         }
         return parse(value);
@@ -406,7 +450,13 @@ export function operations(
         );
       } catch (error) {
         if (error instanceof RefusalError && PRE_EFFECT.has(error.code))
-          return { state: 'refused', operationId, reason: error.code };
+          return {
+            state: 'refused',
+            operationId,
+            reason: error.code,
+            ...(error.limit === undefined ? {} : { limit: error.limit }),
+            ...(error.settingsUrl === undefined ? {} : { settingsUrl: error.settingsUrl }),
+          };
         if (error instanceof ClientError)
           throw new ClientError(error.code, error.message, operationId);
         throw error;
@@ -420,7 +470,13 @@ export function operations(
         );
       } catch (error) {
         if (error instanceof RefusalError && PRE_EFFECT.has(error.code))
-          return { state: 'refused', operationId, reason: error.code };
+          return {
+            state: 'refused',
+            operationId,
+            reason: error.code,
+            ...(error.limit === undefined ? {} : { limit: error.limit }),
+            ...(error.settingsUrl === undefined ? {} : { settingsUrl: error.settingsUrl }),
+          };
         if (error instanceof ClientError)
           throw new ClientError(error.code, error.message, operationId);
         throw error;

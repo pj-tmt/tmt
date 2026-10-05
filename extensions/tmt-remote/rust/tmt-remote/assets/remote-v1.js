@@ -331,10 +331,14 @@ var ClientError = class extends Error {
 var RefusalError = class extends Error {
 	code;
 	retryAfterMs;
-	constructor(code, retryAfterMs) {
+	limit;
+	settingsUrl;
+	constructor(code, retryAfterMs, limit, settingsUrl) {
 		super(`Remote operation refused: ${code}.`);
 		this.code = code;
 		this.retryAfterMs = retryAfterMs;
+		this.limit = limit;
+		this.settingsUrl = settingsUrl;
 		this.name = "RefusalError";
 	}
 };
@@ -345,7 +349,8 @@ var PRE_EFFECT = /* @__PURE__ */ new Set([
 	"REMOTE_RATE_LIMITED",
 	"REMOTE_INTENT_CONFLICT",
 	"REMOTE_CLOSED",
-	"REMOTE_SESSION_ENDED"
+	"REMOTE_SESSION_ENDED",
+	"REMOTE_SESSION_EVICTED"
 ]);
 var UUID$1 = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 var V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
@@ -437,10 +442,21 @@ function agents(value) {
 		};
 	});
 }
-function remoteError(value) {
+function remoteError(value, address) {
 	if (!Object.hasOwn(value, "error")) return void 0;
 	const error = record(value.error);
 	valid(typeof error.code === "string" && /^[A-Z][A-Z0-9_]{0,63}$/.test(error.code) && typeof error.message === "string");
+	const limit = error.limit;
+	valid(limit === void 0 || typeof limit === "number" && Number.isSafeInteger(limit) && limit > 0);
+	valid(error.code !== "REMOTE_SESSION_EVICTED" || limit !== void 0);
+	let settingsUrl;
+	if (error.settingsUrl !== void 0 && error.settingsUrl !== null) {
+		valid(typeof error.settingsUrl === "string" && error.settingsUrl.length > 0 && error.settingsUrl.length <= 2048);
+		const url = new URL(error.settingsUrl, address);
+		const door = new URL(address);
+		valid(url.origin === door.origin && !url.username && !url.password && ["http:", "https:"].includes(url.protocol));
+		settingsUrl = url.href;
+	}
 	const retry = error.retryAfterMs;
 	valid(retry === void 0 || typeof retry === "number" && Number.isSafeInteger(retry) && retry >= 0 && retry <= 6e4);
 	if (error.code === "REMOTE_REPLAY") return new SequenceMismatch();
@@ -449,7 +465,7 @@ function remoteError(value) {
 		"REMOTE_STATE_UNAVAILABLE",
 		"REMOTE_CORE_UNAVAILABLE"
 	].includes(error.code));
-	return new RefusalError(error.code, retry);
+	return new RefusalError(error.code, retry, limit, settingsUrl);
 }
 function enqueue(channel, action) {
 	const pending = channel.tail.then(action);
@@ -515,9 +531,13 @@ async function attempt(channel, timeoutMs, operation, id, payload, sequence, par
 			if (abort.signal.aborted) throw new Error("Abandoned response.");
 			channel.machineSequence = reply.sequence;
 			const value = record(JSON.parse(strictUtf8$1.decode(reply.payload)));
-			const error = remoteError(value);
+			const error = remoteError(value, channel.paired.address);
 			if (error) {
-				if (error instanceof RefusalError && error.code === "REMOTE_CLOSED") channel.ended = true;
+				if (error instanceof RefusalError && [
+					"REMOTE_CLOSED",
+					"REMOTE_SESSION_ENDED",
+					"REMOTE_SESSION_EVICTED"
+				].includes(error.code)) channel.ended = true;
 				throw error;
 			}
 			return parse(value);
@@ -622,7 +642,9 @@ function operations(session, options = {}) {
 				if (error instanceof RefusalError && PRE_EFFECT.has(error.code)) return {
 					state: "refused",
 					operationId,
-					reason: error.code
+					reason: error.code,
+					...error.limit === void 0 ? {} : { limit: error.limit },
+					...error.settingsUrl === void 0 ? {} : { settingsUrl: error.settingsUrl }
 				};
 				if (error instanceof ClientError) throw new ClientError(error.code, error.message, operationId);
 				throw error;
@@ -636,7 +658,9 @@ function operations(session, options = {}) {
 				if (error instanceof RefusalError && PRE_EFFECT.has(error.code)) return {
 					state: "refused",
 					operationId,
-					reason: error.code
+					reason: error.code,
+					...error.limit === void 0 ? {} : { limit: error.limit },
+					...error.settingsUrl === void 0 ? {} : { settingsUrl: error.settingsUrl }
 				};
 				if (error instanceof ClientError) throw new ClientError(error.code, error.message, operationId);
 				throw error;
@@ -1037,5 +1061,17 @@ async function ceremony({ descriptor, code }, name, status) {
 	await openSession(result, key, descriptor.windowId);
 	showState(status, "paired", "This browser is paired. You can close this page.");
 }
+/** Associate a mounted WebSocket with this tab's verified session, not the shared cookie's tab.
+* Use only to construct a transport; never navigate to or log this URL.
+*/
+function transportUrl(session, value) {
+	const channel = channelFor(session);
+	if (!channel || channel.ended) throw new RefusalError("REMOTE_SESSION_ENDED");
+	const address = new URL(channel.paired.address);
+	const url = new URL(value, channel.paired.address);
+	if (url.protocol !== (address.protocol === "https:" ? "wss:" : "ws:") || !["http:", "https:"].includes(address.protocol) || url.host !== address.host || !url.pathname.startsWith(`${address.pathname}/x/`) || url.search || url.hash || url.username || url.password) throw new TypeError("Use a mounted WebSocket URL on this door without query or fragment.");
+	url.searchParams.set("tmt-session", channel.sessionId);
+	return url.href;
+}
 //#endregion
-export { ClientError, RefusalError, certifyKey, operations, pairingPage, reopenSession };
+export { ClientError, RefusalError, certifyKey, operations, pairingPage, reopenSession, transportUrl };

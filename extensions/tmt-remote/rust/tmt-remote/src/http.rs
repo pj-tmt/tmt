@@ -110,6 +110,9 @@ pub trait Handler: Send + Sync {
     /// Called once when the door stops, before its workers are joined, to end
     /// anything the handler took over.
     fn shutdown(&self) {}
+    fn maintain(&self) -> Result<(), RemoteError> {
+        Ok(())
+    }
 }
 
 pub struct Door {
@@ -152,6 +155,7 @@ impl Door {
         let mut workers: Vec<Worker> = Vec::new();
         let result = (|| -> Result<(), RemoteError> {
             while !stop.load(Ordering::Acquire) {
+                handler.maintain()?;
                 for i in (0..workers.len()).rev() {
                     if workers[i].handle.is_finished() {
                         workers
@@ -298,11 +302,22 @@ fn response(socket: &mut TcpStream, reply: &Reply) -> std::io::Result<()> {
     }
     Ok(())
 }
-/// Origin-form target without query, fragment, escapes, dot segments or empty
+/// Origin-form target with only the transport session query; no fragment, escapes, dot segments or empty
 /// inner segments; only the last segment may be empty (a directory such as
 /// `<prefix>/x/colab/`). Isolation between the operation routes and the mount
 /// space relies on it.
 fn target(path: &str) -> bool {
+    let path = if let Some((path, id)) = path.split_once("?tmt-session=") {
+        if !crate::canonical::is_core_id(id)
+            || id.as_bytes()[14] != b'4'
+            || !matches!(id.as_bytes()[19], b'8' | b'9' | b'a' | b'b')
+        {
+            return false;
+        }
+        path
+    } else {
+        path
+    };
     let Some(rest) = path.strip_prefix('/') else {
         return false;
     };

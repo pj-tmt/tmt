@@ -38,6 +38,9 @@ impl Handler for Site {
             self.routes.handle(request, client)
         }
     }
+    fn maintain(&self) -> Result<(), crate::error::RemoteError> {
+        self.routes.maintain()
+    }
     fn shutdown(&self) {
         self.routes.shutdown();
         self.mounts.shutdown();

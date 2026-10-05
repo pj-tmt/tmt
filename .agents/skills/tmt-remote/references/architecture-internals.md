@@ -39,10 +39,15 @@ Rules that are easy to get wrong:
   `core_tests.rs`.
 - **Pre-auth stays generic.** Refusals before a verified signature or live
   session are one 404 with no inventory. The `tmt_door` cookie only identifies a
-  session on mounted paths; `/r/` refuses cookies.
+  device context on mounted paths; `/r/` refuses cookies. A transport-only
+  `tmt-session` identifier must belong to that cookie device; it is stripped before forwarding.
 - **Mount trust.** Mounted extensions share one trust domain behind the door.
   The device context header is added only for a live owner session and is never
-  copied from a client.
+  copied from a client. Session lifetime counts successful upgraded transports;
+  last-close marks the session ended, and the door maintenance loop persists cleanup.
+  Never-attached and attached idle limits belong to `limits`; `session` owns optional-limit LRU,
+  per-session replay and device-wide authority loss. Held work belongs to the grant and
+  survives session end; only stop/revoke/expiry/revision change cancels it. The journal/ack remain per device.
 - **Embedded SDK asset.** The door embeds `assets/remote-v1.js` built from
   `remote-client/src`; rebuild and commit it as described in
   [sdk-operations.md](sdk-operations.md#embedded-client-and-crypto-fixtures).
