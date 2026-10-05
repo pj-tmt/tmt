@@ -123,6 +123,13 @@ impl DeviceContext {
 pub trait Sessions: Send + Sync {
     /// `cookie` is the request's raw `Cookie` header.
     fn context(&self, cookie: Option<&str>) -> Option<Admitted>;
+    fn context_for(&self, cookie: Option<&str>, session: Option<&str>) -> Option<Admitted> {
+        if session.is_some() {
+            None
+        } else {
+            self.context(cookie)
+        }
+    }
 }
 pub struct NoSessions;
 impl Sessions for NoSessions {
@@ -139,11 +146,17 @@ pub struct Admitted {
 pub type IdleClock = Arc<dyn Fn() -> Instant + Send + Sync>;
 
 /// What a session's tunnels share with it: ending the session (revocation or
-/// a newer session for the device) closes them, and their traffic counts as use.
+/// authority loss) closes them, and their traffic counts as use.
 pub struct SessionState {
     clock: IdleClock,
     ended: AtomicBool,
     used: Mutex<Instant>,
+    transports: Mutex<TransportLifetime>,
+}
+#[derive(Default)]
+struct TransportLifetime {
+    active: usize,
+    attached: bool,
 }
 impl Default for SessionState {
     fn default() -> Self {
@@ -154,9 +167,25 @@ impl SessionState {
     pub(crate) fn with_clock(clock: IdleClock) -> Self {
         Self {
             used: Mutex::new(clock()),
+            transports: Mutex::default(),
             clock,
             ended: AtomicBool::new(false),
         }
+    }
+    pub fn had_transport(&self) -> bool {
+        self.transports
+            .lock()
+            .map_or(true, |lifetime| lifetime.attached)
+    }
+    fn attach(self: &Arc<Self>) -> Option<SessionTransport> {
+        let mut transports = self.transports.lock().ok()?;
+        if self.ended() {
+            return None;
+        }
+        transports.active += 1;
+        transports.attached = true;
+        self.touch();
+        Some(SessionTransport(Arc::clone(self)))
     }
     pub fn end(&self) {
         self.ended.store(true, Ordering::Release);
@@ -173,6 +202,18 @@ impl SessionState {
         self.used.lock().map_or(Duration::MAX, |used| {
             (self.clock)().saturating_duration_since(*used)
         })
+    }
+}
+
+struct SessionTransport(Arc<SessionState>);
+impl Drop for SessionTransport {
+    fn drop(&mut self) {
+        if let Ok(mut transports) = self.0.transports.lock() {
+            transports.active -= 1;
+            if transports.active == 0 {
+                self.0.end();
+            }
+        }
     }
 }
 
@@ -257,7 +298,7 @@ impl Mounts {
         extension: UnixStream,
         slot: TunnelSlot,
         idle: Duration,
-        session: Option<Arc<SessionState>>,
+        session: Option<SessionTransport>,
     ) {
         let Ok(mut tunnels) = self.tunnels.lock() else {
             return;
@@ -274,7 +315,12 @@ impl Mounts {
             .name("remote-tunnel".into())
             .spawn(move || {
                 let _slot = slot;
-                splice(client, extension, idle, session.as_deref());
+                splice(
+                    client,
+                    extension,
+                    idle,
+                    session.as_ref().map(|t| t.0.as_ref()),
+                );
             });
         if let Ok(thread) = spawned {
             tunnels.running.push((retained, thread));
@@ -302,6 +348,7 @@ impl Mounts {
     /// `<prefix>/x/<name>/<rest>` for an allowlisted name; `rest` keeps its
     /// leading slash.
     fn extension<'a>(&self, path: &'a str) -> Option<(usize, &'static Extension, &'a str)> {
+        let path = path.split('?').next()?;
         let below = path.strip_prefix(&self.base)?;
         let (name, _) = below.split_once('/')?;
         let grammar = canonical::extension_name(name);
@@ -330,6 +377,9 @@ impl Mounts {
         (private(&directory, false) && private(&socket, true)).then_some(socket)
     }
     pub fn admit(&self, head: &Head<'_>) -> Result<usize, Reply> {
+        if head.path.contains('?') && !head.upgrade {
+            return Err(Reply::empty(404));
+        }
         let Some((_, extension, rest)) = self.extension(head.path) else {
             return Err(Reply::empty(404));
         };
@@ -363,6 +413,13 @@ impl Mounts {
         if header(&request.headers, "sec-fetch-site") == Some("cross-site") {
             return Some(Reply::empty(403));
         }
+        let requested = request.path.split_once("?tmt-session=").map(|(_, id)| id);
+        let admitted = self
+            .sessions
+            .context_for(request.cookie.as_deref(), requested);
+        if requested.is_some() && admitted.is_none() {
+            return Some(Reply::empty(404));
+        }
         let Some(socket) = self.socket(extension) else {
             return Some(Reply::empty(404));
         };
@@ -383,7 +440,6 @@ impl Mounts {
         else {
             return Some(Reply::empty(503));
         };
-        let admitted = self.sessions.context(request.cookie.as_deref());
         let deadline = Instant::now() + limits::MOUNT_RESPONSE;
         let context = admitted.as_ref().map(|a| &a.context);
         let forwarded = self.forward(&request, rest, extension, context, websocket);
@@ -405,14 +461,25 @@ impl Mounts {
             if !websocket {
                 return Some(Reply::empty(502));
             }
+            // Count only an established upgrade; failed extension handshakes leave it unattached.
+            let session_transport = match admitted.as_ref().map(|a| a.session.attach()) {
+                Some(Some(transport)) => Some(transport),
+                Some(None) => return Some(Reply::empty(404)),
+                None => None,
+            };
             let head = http::head(101, &headers, None);
             if let (Some(slot), Ok(owned)) = (slot, client.try_clone())
                 && write_all(client, head.as_bytes(), deadline)
                     .and_then(|()| write_all(client, &body, deadline))
                     .is_ok()
             {
-                let session = admitted.map(|a| a.session);
-                self.adopt(owned, stream, slot, extension.tunnel_idle, session);
+                self.adopt(
+                    owned,
+                    stream,
+                    slot,
+                    extension.tunnel_idle,
+                    session_transport,
+                );
             }
             return None;
         }

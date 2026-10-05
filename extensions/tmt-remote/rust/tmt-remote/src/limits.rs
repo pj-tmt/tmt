@@ -35,3 +35,11 @@ pub const AUTHORITY_WAIT: Duration = Duration::from_secs(40);
 
 /// Bounded graceful-stop confirmation after the control acknowledgment.
 pub const STOP_WAIT: Duration = Duration::from_secs(40);
+
+/// Sessions that have never acquired a mounted transport expire without activity.
+pub const SESSION_UNATTACHED_IDLE: Duration = Duration::from_secs(60);
+/// Keep signed end reasons briefly after cleanup; later admission is generic.
+pub const SESSION_END_NOTICE: Duration = Duration::from_secs(60);
+
+/// Mounted sessions expire after twelve hours without activity.
+pub const SESSION_IDLE: Duration = Duration::from_secs(12 * 60 * 60);

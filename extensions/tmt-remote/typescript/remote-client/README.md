@@ -83,8 +83,8 @@ sequence ambiguous, since refusal may precede or follow sequence consumption.
 No third sequence guess is allowed. A lost recovery response or two replay refusals produce
 `sequence_unavailable`; that helper session can no longer be used. The caller then
 explicitly reopens and observes the original ID. `REMOTE_CLOSED` and
-`REMOTE_SESSION_ENDED` also require a caller-owned reopen. Reopening ends the prior
-door session, including its live sync tunnel; normal recovery never reopens it.
+`REMOTE_SESSION_ENDED` also require a caller-owned reopen. Reopening adds a fresh
+session and leaves existing sessions and tunnels live. Normal recovery never reopens it.
 
 The SDK never resends automatically or generates a replacement dispatch ID. The
 caller owns durable IDs and exact intent; the SDK stores no dispatch payload in
@@ -166,3 +166,36 @@ Set `TMT_REMOTE_CAPTURE_DIR` to an absolute output directory when running `pnpm 
 to export pairing, four-word confirmation, static landing and page-error PNGs at 1440 and 390 px
 in light and dark. The browser-page test uses the real debug door and asserts local-only requests,
 CSP compliance, token colors, square hard shadows and no horizontal overflow.
+
+## Several tabs and transport lifetime
+
+Tabs share the paired device key in IndexedDB and one HttpOnly door cookie. Each
+`reopenSession()` adds its own session with independent client/server sequences
+and one serialized request lane. The cookie authenticates device context; it does
+not select a tab's signed request lane. Sessions are unlimited by default. The
+owner may set `tmt remote settings sessions-per-device <n>|off`; changes apply at
+the next open. With a limit, opening evicts the device's least recently used
+session and closes its transports with `REMOTE_SESSION_EVICTED`.
+
+Use `transportUrl(session, mountedWebSocketUrl)` when constructing each mounted
+WebSocket. It adds the non-secret `tmt-session` identifier; Remote checks the
+live cookie's device owns that session and removes the identifier before
+forwarding. It cannot authorize without the cookie. Use the resulting URL only
+for the transport: never navigate to it, store it in page history, log it, or
+copy it into Location/Referer. Existing URLs without it use the cookie's session.
+
+Closing the session's last transport ends that session promptly, including a
+transport lost while the tab sleeps or is backgrounded. A never-attached session
+expires after 60 seconds without activity; a session that has had a transport
+has the existing 12-hour idle limit. All sessions/tokens end on revoke, grant
+expiry/revision change, or stop. Held work is cancelled for the ended session;
+dispatching/uncertain work keeps its original ID and recovery.
+
+For list/result calls, `RefusalError.code` is `REMOTE_SESSION_ENDED` after
+transport loss or idle expiry, or `REMOTE_SESSION_EVICTED` after limit eviction.
+For send/operation these codes appear in `{state:'refused', operationId, reason}`.
+A signed distinct end reason is available for 60 seconds, then a generic 404
+still maps to `REMOTE_SESSION_ENDED`. The caller can silently `reopenSession()`
+and attach its new transport; other tabs remain live. Recover previously unknown
+send outcomes by observing the original operation ID after reopening. Never
+retry a send automatically because its transport closed.

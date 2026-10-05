@@ -16,6 +16,7 @@ pub(crate) fn database(error: impl std::fmt::Display) -> RemoteError {
 
 pub struct Store {
     pub(crate) connection: Connection,
+    pub(crate) data_root: std::path::PathBuf,
 }
 /// Stable per-machine identity.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -48,7 +49,14 @@ impl Store {
             )
             .map_err(database)?;
         migrate(&mut connection)?;
-        Ok(Self { connection })
+        Ok(Self {
+            connection,
+            data_root: layout
+                .directory
+                .parent()
+                .expect("Remote data root")
+                .to_owned(),
+        })
     }
     pub fn remembered_port(&self) -> Result<Option<u16>, RemoteError> {
         read_port(&self.connection)
@@ -125,7 +133,7 @@ impl Store {
 }
 /// Ordered schema history in the core `_migrations` shape. Append only; a
 /// recorded name must match, and a newer database than this build refuses.
-const MIGRATIONS: [(&str, &str); 6] = [
+const MIGRATIONS: [(&str, &str); 7] = [
     (
         "machine",
         "CREATE TABLE machine(
@@ -187,6 +195,20 @@ const MIGRATIONS: [(&str, &str); 6] = [
              port INTEGER NOT NULL CHECK(port BETWEEN 1 AND 65535))",
     ),
     ("short_route_prefix", ""),
+    ("multi_session", "ALTER TABLE sessions RENAME TO single_sessions;
+         CREATE TABLE sessions(
+             client_id TEXT NOT NULL REFERENCES grants(client_id),
+             session_id TEXT PRIMARY KEY,
+             window_id TEXT NOT NULL,
+             grant_revision INTEGER NOT NULL,
+             next_client_sequence TEXT NOT NULL,
+             next_server_sequence TEXT NOT NULL,
+             ended_reason TEXT, ended_at_ms INTEGER);
+         INSERT INTO sessions SELECT client_id,session_id,window_id,grant_revision,
+             next_client_sequence,next_server_sequence,NULL,NULL FROM single_sessions;
+         DROP TABLE single_sessions;
+         CREATE INDEX sessions_client ON sessions(client_id);
+         ALTER TABLE operations ADD COLUMN session_id TEXT;"),
 ];
 fn read_port(connection: &Connection) -> Result<Option<u16>, RemoteError> {
     let port: Option<i64> = connection
@@ -361,7 +383,7 @@ impl Store {
     }
 }
 /// Durable counters belong to one live session/run. A restart never adopts an
-/// old row as a live session; a fresh signed open replaces it atomically.
+/// old row as a live session; each fresh signed open adds independent counters.
 impl Store {
     pub fn start_session(
         &mut self,
@@ -388,10 +410,8 @@ impl Store {
             return Err(RemoteError::new("REMOTE_CLOSED", "Device authority ended."));
         }
         tx.execute(
-            "INSERT INTO sessions VALUES (?1, ?2, ?3, ?4, '1', '2')
-             ON CONFLICT(client_id) DO UPDATE SET session_id=excluded.session_id,
-             window_id=excluded.window_id, grant_revision=excluded.grant_revision,
-             next_client_sequence='1', next_server_sequence='2'",
+            "INSERT INTO sessions(client_id,session_id,window_id,grant_revision,next_client_sequence,next_server_sequence)
+             VALUES (?1, ?2, ?3, ?4, '1', '2')",
             rusqlite::params![
                 grant.client_id,
                 session_id,
@@ -417,7 +437,7 @@ impl Store {
             .transaction_with_behavior(TransactionBehavior::Immediate)
             .map_err(database)?;
         let revision: Option<i64> = tx.query_row(
-            "SELECT grant_revision FROM sessions WHERE client_id=?1 AND session_id=?2 AND window_id=?3",
+            "SELECT grant_revision FROM sessions WHERE client_id=?1 AND session_id=?2 AND window_id=?3 AND ended_reason IS NULL",
             [client_id, session_id, window_id], |row| row.get(0),
         ).optional().map_err(database)?;
         let grant = tx
@@ -619,6 +639,68 @@ fn uuid_shape(value: &str) -> bool {
             }
         })
         && value.as_bytes()[14] == b'4'
+}
+
+impl Store {
+    /// End only unconfirmed work; dispatching/uncertain intent retains recovery ownership.
+    pub(crate) fn end_session(
+        &mut self,
+        client: &str,
+        session: &str,
+        reason: &str,
+        now: u64,
+    ) -> Result<(), RemoteError> {
+        let ids = {
+            let mut query = self.connection.prepare("SELECT id FROM operations WHERE client_id=?1 AND session_id=?2 AND phase='held'").map_err(database)?;
+            query
+                .query_map([client, session], |row| row.get::<_, String>(0))
+                .map_err(database)?
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(database)?
+        };
+        if let Some(grant) = self.grant(client)? {
+            for id in ids {
+                self.cancel_held(&grant, &id, now)?;
+            }
+        }
+        self.connection.execute("UPDATE sessions SET ended_reason=?3,ended_at_ms=?4 WHERE client_id=?1 AND session_id=?2 AND ended_reason IS NULL",rusqlite::params![client,session,reason,now as i64]).map_err(database)?;
+        Ok(())
+    }
+    pub(crate) fn ended_reason(
+        &self,
+        client: &str,
+        session: &str,
+        window: &str,
+    ) -> Result<Option<String>, RemoteError> {
+        self.connection.query_row("SELECT ended_reason FROM sessions WHERE client_id=?1 AND session_id=?2 AND window_id=?3",[client,session,window], |row| row.get(0)).optional().map(|value| value.flatten()).map_err(database)
+    }
+    pub(crate) fn operation_session(
+        &self,
+        client: &str,
+        id: &str,
+    ) -> Result<Option<String>, RemoteError> {
+        self.connection
+            .query_row(
+                "SELECT session_id FROM operations WHERE client_id=?1 AND id=?2",
+                [client, id],
+                |row| row.get(0),
+            )
+            .optional()
+            .map(|value| value.flatten())
+            .map_err(database)
+    }
+    pub(crate) fn prune_sessions(&self, window: &str, now: u64) -> Result<(), RemoteError> {
+        self.connection
+            .execute(
+                "DELETE FROM sessions WHERE window_id!=?1 OR ended_at_ms<?2",
+                rusqlite::params![
+                    window,
+                    now.saturating_sub(crate::limits::SESSION_END_NOTICE.as_millis() as u64) as i64
+                ],
+            )
+            .map_err(database)?;
+        Ok(())
+    }
 }
 
 #[cfg(test)]

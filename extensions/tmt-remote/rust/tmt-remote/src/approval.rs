@@ -49,17 +49,19 @@ impl Approval {
         ))
     }
     pub(crate) fn confirm(&self, id: &str, grant: &Grant) -> Result<Value, RemoteError> {
-        let payload = {
-            let mut store = self.store.lock().map_err(database)?;
+        let payload = self.sessions.with_operation_store(grant, id, |store| {
             store.claim_held(grant, id, now_ms()?)?;
-            self.operations
-                .release(&mut store, grant, id)
-                .unwrap_or_else(|_| json!({"state":"uncertain","operationId":id}))
-        };
+            Ok(self
+                .operations
+                .release(store, grant, id)
+                .unwrap_or_else(|_| json!({"state":"uncertain","operationId":id})))
+        })?;
         // Confirmation may already have reached core. Publication failure is an
         // uncertain observation; the durable frozen intent remains recoverable.
         let published = (|| {
-            let metadata = self.sessions.operation_response(grant, id, &payload)?;
+            let metadata = self
+                .sessions
+                .operation_response(grant, id, &payload, None)?;
             self.store.lock().map_err(database)?.settle(
                 grant,
                 id,
@@ -136,7 +138,12 @@ impl Store {
         }
         tx.commit().map_err(database)
     }
-    fn cancel_held(&mut self, grant: &Grant, id: &str, now: u64) -> Result<Value, RemoteError> {
+    pub(crate) fn cancel_held(
+        &mut self,
+        grant: &Grant,
+        id: &str,
+        now: u64,
+    ) -> Result<Value, RemoteError> {
         // Cancellation is the local owner's authority, even after grant expiry/revocation.
         let tx = self
             .connection

@@ -41,6 +41,7 @@ export type RemoteRefusalCode =
   | 'REMOTE_INTENT_CONFLICT'
   | 'REMOTE_CLOSED'
   | 'REMOTE_SESSION_ENDED'
+  | 'REMOTE_SESSION_EVICTED'
   | 'REMOTE_INPUT_TOO_LARGE'
   | 'REMOTE_STATE_UNAVAILABLE'
   | 'REMOTE_CORE_UNAVAILABLE';
@@ -73,6 +74,7 @@ const PRE_EFFECT = new Set<string>([
   'REMOTE_INTENT_CONFLICT',
   'REMOTE_CLOSED',
   'REMOTE_SESSION_ENDED',
+  'REMOTE_SESSION_EVICTED',
 ]);
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
@@ -253,7 +255,11 @@ async function attempt<T>(
         const value = record(JSON.parse(strictUtf8.decode(reply.payload)) as unknown);
         const error = remoteError(value);
         if (error) {
-          if (error instanceof RefusalError && error.code === 'REMOTE_CLOSED') channel.ended = true;
+          if (
+            error instanceof RefusalError &&
+            ['REMOTE_CLOSED', 'REMOTE_SESSION_ENDED', 'REMOTE_SESSION_EVICTED'].includes(error.code)
+          )
+            channel.ended = true;
           throw error;
         }
         return parse(value);

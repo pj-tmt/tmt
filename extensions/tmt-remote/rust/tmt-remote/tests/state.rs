@@ -293,7 +293,8 @@ fn schema_history_uses_core_migrations() {
             (3, "sessions".to_owned()),
             (4, "journal".to_owned()),
             (5, "door_port".to_owned()),
-            (6, "short_route_prefix".to_owned())
+            (6, "short_route_prefix".to_owned()),
+            (7, "multi_session".to_owned())
         ]
     );
     let journal: String = inspect
@@ -307,11 +308,11 @@ fn schema_history_uses_core_migrations() {
         .unwrap()
         .query_row("SELECT COUNT(*) FROM _migrations", [], |r| r.get(0))
         .unwrap();
-    assert_eq!(count, 6);
+    assert_eq!(count, 7);
     // A newer build's history refuses instead of being reinterpreted.
     Connection::open(&db)
         .unwrap()
-        .execute("INSERT INTO _migrations VALUES (7, 'future', 'now')", [])
+        .execute("INSERT INTO _migrations VALUES (8, 'future', 'now')", [])
         .unwrap();
     assert_eq!(
         Store::open(&layout.serve_lock().unwrap())
@@ -323,7 +324,7 @@ fn schema_history_uses_core_migrations() {
     // A renamed step refuses as damaged history.
     let damage = Connection::open(&db).unwrap();
     damage
-        .execute("DELETE FROM _migrations WHERE version = 7", [])
+        .execute("DELETE FROM _migrations WHERE version = 8", [])
         .unwrap();
     damage
         .execute(
@@ -441,7 +442,9 @@ fn stopped_port_reads_are_noncreating_and_legacy_state_is_not_migrated() {
     drop(stopped);
     // Model the previously shipped schema, preserving its exact migration names.
     let old = Connection::open(&db).unwrap();
-    old.execute_batch("DROP TABLE door_port; DELETE FROM _migrations WHERE version >= 5")
+    old.execute_batch("DROP TABLE door_port; ALTER TABLE operations DROP COLUMN session_id;
+            DROP TABLE sessions; CREATE TABLE sessions(client_id TEXT PRIMARY KEY REFERENCES grants(client_id),session_id TEXT NOT NULL UNIQUE,window_id TEXT NOT NULL,grant_revision INTEGER NOT NULL,next_client_sequence TEXT NOT NULL,next_server_sequence TEXT NOT NULL);
+            DELETE FROM _migrations WHERE version >= 5")
         .unwrap();
     drop(old);
     let before = fs::read(&db).unwrap();
@@ -504,4 +507,56 @@ fn stop_wait_is_bounded_and_holds_the_released_lease_for_confirmation() {
     );
     drop(confirmed);
     assert!(layout.serve_lock().is_ok());
+}
+
+#[test]
+fn schema6_session_row_and_grant_survive_multi_session_migration() {
+    let root = Root::new();
+    let layout = Layout::open(&root.0).unwrap();
+    // Frozen schema5 is unchanged; schema6 changed only the route prefix and history.
+    layout.file("remote.db").unwrap();
+    let old = Connection::open(layout.directory.join("remote.db")).unwrap();
+    old.execute_batch(include_str!("fixtures/schema5.sql"))
+        .unwrap();
+    old.execute(
+        "INSERT INTO _migrations VALUES (6,'short_route_prefix','2026-10-05')",
+        [],
+    )
+    .unwrap();
+    old.execute("INSERT INTO grants VALUES ('client',?1,'cli','cli','Migration device','all','talk','direct',100,NULL,1,0)",[&[7u8;32][..]]).unwrap();
+    old.execute(
+        "INSERT INTO sessions VALUES ('client','session','window',1,'7','9')",
+        [],
+    )
+    .unwrap();
+    let before: String = old
+        .query_row(
+            "SELECT quote(client_id)||quote(public_key)||quote(kind)||quote(origin)||quote(name)||quote(agents)||quote(scopes)||quote(mode)||quote(issued_at_ms)||quote(expires_at_ms)||quote(revision)||quote(disabled) FROM grants",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    drop(old);
+    drop(Store::open(&layout.serve_lock().unwrap()).unwrap());
+    let db = Connection::open(layout.directory.join("remote.db")).unwrap();
+    let after: String = db
+        .query_row(
+            "SELECT quote(client_id)||quote(public_key)||quote(kind)||quote(origin)||quote(name)||quote(agents)||quote(scopes)||quote(mode)||quote(issued_at_ms)||quote(expires_at_ms)||quote(revision)||quote(disabled) FROM grants",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(before, after);
+    let counters:(String,String)=db.query_row("SELECT next_client_sequence,next_server_sequence FROM sessions WHERE session_id='session'",[],|r|Ok((r.get(0)?,r.get(1)?))).unwrap();
+    assert_eq!(counters, ("7".into(), "9".into()));
+    db.execute("INSERT INTO sessions(client_id,session_id,window_id,grant_revision,next_client_sequence,next_server_sequence) VALUES ('client','second','window',1,'1','2')",[]).unwrap();
+    assert_eq!(
+        db.query_row(
+            "SELECT COUNT(*) FROM sessions WHERE client_id='client'",
+            [],
+            |r| r.get::<_, i64>(0)
+        )
+        .unwrap(),
+        2
+    );
 }

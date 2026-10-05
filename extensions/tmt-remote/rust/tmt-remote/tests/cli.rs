@@ -1105,19 +1105,19 @@ fn remote_settings_are_private_persistent_and_do_not_open_remote_storage() {
     for (args, expected) in [
         (
             vec!["settings", "--json"],
-            serde_json::json!({"open":true,"source":"default"}),
+            serde_json::json!({"open":true,"source":"default","sessionsPerDevice":null,"sessionsPerDeviceSource":"default"}),
         ),
         (
             vec!["settings", "open", "off", "--json"],
-            serde_json::json!({"open":false,"source":"settings.json"}),
+            serde_json::json!({"open":false,"source":"settings.json","sessionsPerDevice":null,"sessionsPerDeviceSource":"default"}),
         ),
         (
             vec!["settings", "--json"],
-            serde_json::json!({"open":false,"source":"settings.json"}),
+            serde_json::json!({"open":false,"source":"settings.json","sessionsPerDevice":null,"sessionsPerDeviceSource":"default"}),
         ),
         (
             vec!["settings", "open", "on", "--json"],
-            serde_json::json!({"open":true,"source":"settings.json"}),
+            serde_json::json!({"open":true,"source":"settings.json","sessionsPerDevice":null,"sessionsPerDeviceSource":"default"}),
         ),
     ] {
         let answer = pilot.command().args(args).output().unwrap();
@@ -1356,4 +1356,57 @@ fn status_and_stop_refuse_unsafe_state_and_unresponsive_or_malformed_control() {
     assert!(!status_json(&pilot)["running"].as_bool().unwrap());
     assert_eq!(stop_json(&pilot), serde_json::json!({"running":false}));
     fs::remove_file(directory.join("control.sock")).unwrap();
+}
+
+#[test]
+fn session_limit_settings_show_source_and_preserve_open() {
+    let pilot = Pilot::new();
+    for args in [
+        ["settings", "open", "off", "--json"],
+        ["settings", "sessions-per-device", "2", "--json"],
+        ["settings", "open", "on", "--json"],
+    ] {
+        assert!(
+            pilot
+                .command()
+                .args(args)
+                .output()
+                .unwrap()
+                .status
+                .success()
+        );
+    }
+    let shown = pilot
+        .command()
+        .args(["settings", "--json"])
+        .output()
+        .unwrap();
+    let value: Value = serde_json::from_slice(&shown.stdout).unwrap();
+    assert_eq!(
+        value,
+        serde_json::json!({"open":true,"source":"settings.json","sessionsPerDevice":2,"sessionsPerDeviceSource":"settings.json"})
+    );
+    let plain = pilot.command().arg("settings").output().unwrap();
+    let text = String::from_utf8(plain.stdout).unwrap();
+    assert!(text.contains("sessions-per-device") && text.contains("2 (settings.json)"));
+    let off = pilot
+        .command()
+        .args(["settings", "sessions-per-device", "off", "--json"])
+        .output()
+        .unwrap();
+    let value: Value = serde_json::from_slice(&off.stdout).unwrap();
+    assert_eq!(value["sessionsPerDevice"], Value::Null);
+    assert_eq!(value["sessionsPerDeviceSource"], "settings.json");
+    assert_eq!(value["open"], true);
+    for invalid in ["0", "-1", "on", "1.5", "01"] {
+        assert!(
+            !pilot
+                .command()
+                .args(["settings", "sessions-per-device", invalid])
+                .output()
+                .unwrap()
+                .status
+                .success()
+        );
+    }
 }

@@ -345,7 +345,8 @@ var PRE_EFFECT = /* @__PURE__ */ new Set([
 	"REMOTE_RATE_LIMITED",
 	"REMOTE_INTENT_CONFLICT",
 	"REMOTE_CLOSED",
-	"REMOTE_SESSION_ENDED"
+	"REMOTE_SESSION_ENDED",
+	"REMOTE_SESSION_EVICTED"
 ]);
 var UUID$1 = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 var V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
@@ -517,7 +518,11 @@ async function attempt(channel, timeoutMs, operation, id, payload, sequence, par
 			const value = record(JSON.parse(strictUtf8$1.decode(reply.payload)));
 			const error = remoteError(value);
 			if (error) {
-				if (error instanceof RefusalError && error.code === "REMOTE_CLOSED") channel.ended = true;
+				if (error instanceof RefusalError && [
+					"REMOTE_CLOSED",
+					"REMOTE_SESSION_ENDED",
+					"REMOTE_SESSION_EVICTED"
+				].includes(error.code)) channel.ended = true;
 				throw error;
 			}
 			return parse(value);
@@ -1037,5 +1042,17 @@ async function ceremony({ descriptor, code }, name, status) {
 	await openSession(result, key, descriptor.windowId);
 	showState(status, "paired", "This browser is paired. You can close this page.");
 }
+/** Associate a mounted WebSocket with this tab's verified session, not the shared cookie's tab.
+* Use only to construct a transport; never navigate to or log this URL.
+*/
+function transportUrl(session, value) {
+	const channel = channelFor(session);
+	if (!channel || channel.ended) throw new RefusalError("REMOTE_SESSION_ENDED");
+	const address = new URL(channel.paired.address);
+	const url = new URL(value, channel.paired.address);
+	if (url.protocol !== "ws:" || url.host !== address.host || !url.pathname.startsWith(`${address.pathname}/x/`) || url.search || url.hash || url.username || url.password) throw new TypeError("Use a mounted WebSocket URL on this door without query or fragment.");
+	url.searchParams.set("tmt-session", channel.sessionId);
+	return url.href;
+}
 //#endregion
-export { ClientError, RefusalError, certifyKey, operations, pairingPage, reopenSession };
+export { ClientError, RefusalError, certifyKey, operations, pairingPage, reopenSession, transportUrl };

@@ -588,3 +588,46 @@ test('session-ended during capabilities resync remains a distinct refusal and ne
   );
   assert.equal(door.opens, 1);
 });
+
+for (const code of ['REMOTE_SESSION_ENDED', 'REMOTE_SESSION_EVICTED'] as const) {
+  test(`${code} is a typed, reopenable end without automatic send retry`, async () => {
+    const { door, device, client } = await ready();
+    door.error = { code, message: 'Session ended; reopen.' };
+    await assert.rejects(
+      client.listAgents(),
+      (error: unknown) => error instanceof RefusalError && error.code === code,
+    );
+    assert.equal(door.opens, 1);
+    const count = door.calls.length;
+    await assert.rejects(
+      client.listAgents(),
+      (error: unknown) => error instanceof RefusalError && error.code === 'REMOTE_SESSION_ENDED',
+    );
+    assert.equal(door.calls.length, count);
+    door.error = undefined;
+    const reopened = await openSession(
+      device.result,
+      device.key,
+      door.descriptor.windowId,
+      door.fetch,
+    );
+    assert.deepEqual(await operations(reopened).listAgents(), door.agents);
+    assert.equal(door.opens, 2);
+  });
+}
+test('transportUrl binds only a verified session to a mounted transport URL', async () => {
+  const { transportUrl } = await import('../src/browser.js');
+  const { session, device } = await ready();
+  const url = device.result.address.replace('http:', 'ws:') + '/x/colab/sync';
+  assert.equal(transportUrl(session, url), `${url}?tmt-session=${session.sessionId}`);
+  assert.throws(() => transportUrl({ ...session }, url), RefusalError);
+  for (const invalid of [
+    url.replace('ws:', 'http:'),
+    url.replace('/x/colab/', '/append/'),
+    `${url}?secret=1`,
+    `${url}#fragment`,
+    'ws://127.0.0.1:1/x/colab/sync',
+  ]) {
+    assert.throws(() => transportUrl(session, invalid), TypeError);
+  }
+});

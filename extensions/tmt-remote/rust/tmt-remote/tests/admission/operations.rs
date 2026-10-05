@@ -774,3 +774,134 @@ fn another_store_revoke_waits_for_a_blocked_core_effect_beyond_the_old_timeout()
         assert_eq!(core.sends(), 1);
     });
 }
+
+#[test]
+fn session_eviction_cancels_only_its_unconfirmed_holds_and_preserves_uncertainty() {
+    let owner = OwnerDoor::with_policy(
+        tmt_remote::store::DEFAULT_SCOPES
+            .iter()
+            .map(|s| (*s).into())
+            .collect(),
+        "hold",
+    );
+    tmt_remote::settings::set_sessions_per_device(&owner._root.0, Some(2)).unwrap();
+    let core = Core::new();
+    let operations = core.operations();
+    let first = owner.open();
+    let second = owner.open();
+    let first_id = uuid_v4().unwrap();
+    let second_id = uuid_v4().unwrap();
+    let uncertain_id = uuid_v4().unwrap();
+    for (session, sequence, id) in [
+        (&first, 1, &first_id),
+        (&first, 2, &uncertain_id),
+        (&second, 1, &second_id),
+    ] {
+        append(
+            &owner,
+            Arc::clone(&operations),
+            &wire(
+                &owner,
+                session,
+                sequence,
+                id,
+                &uuid_v4().unwrap(),
+                "Unconfirmed",
+            ),
+        );
+    }
+    // Independent preparation of a recovery-owned operation; ending a session cannot erase it.
+    let oracle =
+        rusqlite::Connection::open(owner._serving.layout().directory.join("remote.db")).unwrap();
+    oracle
+        .execute(
+            "UPDATE operations SET phase='uncertain' WHERE id=?1",
+            [&uncertain_id],
+        )
+        .unwrap();
+    drop(oracle);
+    let third = owner.open();
+    assert_eq!(
+        super::signed_code(owner.admit(&owner.wire(&first, "3", "capabilities", b"{}"))),
+        "REMOTE_SESSION_EVICTED"
+    );
+    let mut store = owner.store.lock().unwrap();
+    let now = tmt_remote::pairing::now_ms().unwrap();
+    assert_eq!(
+        store.owned(&owner.grant, &first_id, now).unwrap().phase,
+        "cancelled"
+    );
+    assert_eq!(
+        store.owned(&owner.grant, &second_id, now).unwrap().phase,
+        "held"
+    );
+    let uncertain = store.owned(&owner.grant, &uncertain_id, now).unwrap();
+    assert_eq!(uncertain.phase, "uncertain");
+    assert!(uncertain.frozen.is_some());
+    assert!(core.calls().is_empty());
+    drop(store);
+    assert!(
+        owner
+            .admit(&owner.wire(&third, "1", "capabilities", b"{}"))
+            .is_ok()
+    );
+    owner.sessions.shutdown();
+    assert_eq!(
+        owner
+            .store
+            .lock()
+            .unwrap()
+            .owned(&owner.grant, &second_id, now)
+            .unwrap()
+            .phase,
+        "cancelled"
+    );
+}
+
+#[test]
+fn another_live_tab_recovers_uncertainty_into_the_same_device_stream_without_resending() {
+    let owner = OwnerDoor::new();
+    let core = Core::new();
+    let operations = core.operations();
+    let first = owner.open();
+    let id = uuid_v4().unwrap();
+    let recipient = uuid_v4().unwrap();
+    fs::write(core.root.join("lost"), b"").unwrap();
+    assert_eq!(
+        append(
+            &owner,
+            Arc::clone(&operations),
+            &wire(&owner, &first, 1, &id, &recipient, "same intent")
+        )["state"],
+        "uncertain"
+    );
+    fs::remove_file(core.root.join("lost")).unwrap();
+    let second = owner.open();
+    let observed = owner.wire(
+        &second,
+        "1",
+        "operation.show",
+        json!({"operationId":id}).to_string().as_bytes(),
+    );
+    assert_eq!(append(&owner, operations, &observed)["state"], "accepted");
+    assert_eq!(core.sends(), 1);
+    let page = owner
+        .store
+        .lock()
+        .unwrap()
+        .page(
+            &owner.grant,
+            None,
+            50,
+            tmt_remote::pairing::now_ms().unwrap(),
+        )
+        .unwrap();
+    let entries = page["entries"].as_array().unwrap();
+    let last = &entries.last().unwrap()["envelope"];
+    assert_eq!(last["sessionId"], second);
+    let payload =
+        tmt_remote::canonical::base64url_decode(last["payload"].as_str().unwrap()).unwrap();
+    let payload: Value = serde_json::from_slice(&payload).unwrap();
+    assert_eq!(payload["state"], "accepted");
+    assert_eq!(payload["operationId"], id);
+}

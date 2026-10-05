@@ -1,8 +1,8 @@
-//! Door sessions (`session.open`). A paired device opens one session per run
+//! Door sessions (`session.open`). A paired device opens independent sessions per run
 //! with a signed control envelope; a `browser` device on this door's origin
 //! also receives the door cookie, of which serve keeps only the SHA-256.
-//! Sessions live in serve's memory: they end on stop, revocation, a newer
-//! session for the same device or idle expiry, and reopening is a silent
+//! Sessions live in serve's memory: they end on stop, authority loss, transport
+//! close, optional-limit eviction or idle expiry, and reopening is a silent
 //! signed `session.open` from the device key.
 use crate::{
     admission::{self, BindingAction, MessagePermit, MessageRefusal},
@@ -31,7 +31,7 @@ pub const COOKIE: &str = "tmt_door";
 /// Accepted distance between a control's timestamp and machine time.
 pub const CLOCK_SKEW: Duration = Duration::from_secs(60);
 /// A session unused for this long ends; the page reopens it silently.
-pub const IDLE: Duration = Duration::from_secs(12 * 60 * 60);
+pub const IDLE: Duration = crate::limits::SESSION_IDLE;
 /// Bound on remembered `session.open` nonces; beyond it opens refuse.
 const NONCES: usize = 4096;
 
@@ -52,14 +52,15 @@ pub struct DoorSessions {
 struct Live {
     generation: u64,
     stopped: bool,
-    by_client: HashMap<String, Session>,
-    /// Cookie token SHA-256 to client ID.
+    by_session: HashMap<String, Session>,
+    /// Cookie token SHA-256 to session ID; cookies authenticate device context.
     by_token: HashMap<[u8; 32], String>,
     /// `(clientId, clientNonce)` to the time it may be forgotten.
     nonces: HashMap<(String, String), u64>,
 }
 struct Session {
     id: String,
+    client_id: String,
     busy: Arc<AtomicBool>,
     token: Option<[u8; 32]>,
     grant_revision: u64,
@@ -127,6 +128,7 @@ impl DoorSessions {
             .signed_response(control.message.envelope(), &session_id, 1, &payload, now)
             .ok()?;
         {
+            self.maintain().ok()?;
             let mut live = self.live.lock().ok()?;
             if live.stopped {
                 return None;
@@ -137,23 +139,40 @@ impl DoorSessions {
             if live.nonces.contains_key(&key) || live.nonces.len() >= NONCES {
                 return None;
             }
+            let root = self.store.lock().ok()?.data_root.clone();
+            let limit = crate::settings::read(&root).ok()?.sessions_per_device();
+            // A configured limit is enforced at open, including a lowered limit.
+            while limit.is_some_and(|limit| {
+                live.by_session
+                    .values()
+                    .filter(|s| s.client_id == control.grant.client_id)
+                    .count()
+                    >= limit
+            }) {
+                let oldest = live
+                    .by_session
+                    .values()
+                    .filter(|s| s.client_id == control.grant.client_id)
+                    .max_by_key(|s| s.state.idle())
+                    .map(|s| s.id.clone())?;
+                self.remove(&mut live, &oldest, "REMOTE_SESSION_EVICTED")
+                    .ok()?;
+            }
             self.store
                 .lock()
                 .ok()?
                 .start_session(&control.grant, &session_id, &self.window_id, now)
                 .ok()?;
             live.nonces.insert(key, now + validity);
-            // One session per device: a newer one ends the previous session
-            // and its tunnels without widening scope.
-            remove(&mut live, &control.grant.client_id);
             let hash = token.map(|t| <[u8; 32]>::from(Sha256::digest(t)));
             if let Some(hash) = hash {
-                live.by_token.insert(hash, control.grant.client_id.clone());
+                live.by_token.insert(hash, session_id.clone());
             }
-            live.by_client.insert(
-                control.grant.client_id.clone(),
+            live.by_session.insert(
+                session_id.clone(),
                 Session {
                     id: session_id.clone(),
+                    client_id: control.grant.client_id.clone(),
                     busy: Arc::new(AtomicBool::new(false)),
                     token: hash,
                     grant_revision: control.grant.revision,
@@ -174,10 +193,18 @@ impl DoorSessions {
         })
     }
 
-    /// End the device's session and close its tunnels.
+    /// End every device session and close its tunnels.
     pub fn end_device(&self, client_id: &str) {
         if let Ok(mut live) = self.live.lock() {
-            remove(&mut live, client_id);
+            let ids = live
+                .by_session
+                .values()
+                .filter(|s| s.client_id == client_id)
+                .map(|s| s.id.clone())
+                .collect::<Vec<_>>();
+            for id in ids {
+                let _ = self.remove(&mut live, &id, "REMOTE_CLOSED");
+            }
             live.generation = live.generation.wrapping_add(1);
             self.ready.notify_all();
         }
@@ -256,19 +283,40 @@ impl DoorSessions {
                 .live
                 .lock()
                 .map_err(|_| MessageRefusal::Unauthenticated)?;
-            let session = live
-                .by_client
-                .get(&grant.client_id)
-                .ok_or(MessageRefusal::Unauthenticated)?;
+            let session = live.by_session.get(message.envelope().session_id);
+            let Some(session) = session else {
+                let reason = self.store.lock().ok().and_then(|store| {
+                    store
+                        .ended_reason(
+                            &grant.client_id,
+                            message.envelope().session_id,
+                            &self.window_id,
+                        )
+                        .ok()
+                        .flatten()
+                });
+                drop(live);
+                return Err(reason.map_or(MessageRefusal::Unauthenticated, |code| {
+                    admission::refusal(self, &message, &code, "Session ended; reopen to continue.")
+                }));
+            };
             if live.stopped
-                || session.id != message.envelope().session_id
+                || session.client_id != grant.client_id
                 || session.grant_revision != grant.revision
             {
                 return Err(MessageRefusal::Unauthenticated);
             }
-            if session.state.idle() >= self.idle {
-                remove(&mut live, &grant.client_id);
-                return Err(MessageRefusal::Unauthenticated);
+            if self.expired(session) {
+                let id = session.id.clone();
+                self.remove(&mut live, &id, "REMOTE_SESSION_ENDED")
+                    .map_err(|_| MessageRefusal::Unauthenticated)?;
+                drop(live);
+                return Err(admission::refusal(
+                    self,
+                    &message,
+                    "REMOTE_SESSION_ENDED",
+                    "Session ended; reopen to continue.",
+                ));
             }
             (Arc::clone(&session.busy), Arc::clone(&session.state))
         };
@@ -366,13 +414,31 @@ impl DoorSessions {
         })?;
         if live.stopped
             || !live
-                .by_client
-                .get(&expected.client_id)
+                .by_session
+                .get(message.envelope().session_id)
                 .is_some_and(|session| {
-                    session.id == message.envelope().session_id && session.state.idle() < self.idle
+                    session.client_id == expected.client_id && !self.expired(session)
                 })
         {
-            return Err(RemoteError::new("REMOTE_CLOSED", "Device session ended."));
+            let code = self
+                .store
+                .lock()
+                .ok()
+                .and_then(|store| {
+                    store
+                        .ended_reason(
+                            &expected.client_id,
+                            message.envelope().session_id,
+                            &self.window_id,
+                        )
+                        .ok()
+                        .flatten()
+                })
+                .unwrap_or_else(|| "REMOTE_SESSION_ENDED".into());
+            return Err(RemoteError::new(
+                &code,
+                "Device session ended; reopen to continue.",
+            ));
         }
         let mut store = self.store.lock().map_err(|_| {
             RemoteError::new("REMOTE_STATE_UNAVAILABLE", "Remote state unavailable.")
@@ -384,6 +450,28 @@ impl DoorSessions {
             return Err(RemoteError::new("REMOTE_CLOSED", "Device authority ended."));
         }
         Ok((action(&mut store)?, live.generation))
+    }
+    pub(crate) fn with_operation_store<T>(
+        &self,
+        grant: &Grant,
+        id: &str,
+        action: impl FnOnce(&mut Store) -> Result<T, RemoteError>,
+    ) -> Result<T, RemoteError> {
+        let live = self.live.lock().map_err(crate::store::database)?;
+        let mut store = self.store.lock().map_err(crate::store::database)?;
+        let session = store.operation_session(&grant.client_id, id)?;
+        if live.stopped
+            || !session
+                .as_ref()
+                .and_then(|id| live.by_session.get(id))
+                .is_some_and(|s| s.client_id == grant.client_id && !self.expired(s))
+        {
+            return Err(RemoteError::new(
+                "REMOTE_SESSION_ENDED",
+                "Session ended before confirmation.",
+            ));
+        }
+        action(&mut store)
     }
     pub(crate) fn changed(&self) {
         if let Ok(mut live) = self.live.lock() {
@@ -413,8 +501,9 @@ impl DoorSessions {
     pub fn shutdown(&self) {
         if let Ok(mut live) = self.live.lock() {
             live.stopped = true;
-            for (_, session) in live.by_client.drain() {
-                session.state.end();
+            let ids = live.by_session.keys().cloned().collect::<Vec<_>>();
+            for id in ids {
+                let _ = self.remove(&mut live, &id, "REMOTE_CLOSED");
             }
             live.by_token.clear();
             self.ready.notify_all();
@@ -426,14 +515,21 @@ impl DoorSessions {
         grant: &Grant,
         id: &str,
         payload: &Value,
+        response_session: Option<&str>,
     ) -> Result<Option<Vec<u8>>, RemoteError> {
         let live = self.live.lock().map_err(|_| {
             RemoteError::new("REMOTE_STATE_UNAVAILABLE", "Remote session unavailable.")
         })?;
-        let Some(session) = live
-            .by_client
-            .get(&grant.client_id)
-            .filter(|session| !live.stopped && session.state.idle() < self.idle)
+        let origin = self
+            .store
+            .lock()
+            .map_err(crate::store::database)?
+            .operation_session(&grant.client_id, id)?;
+        // Recovery in another live tab still publishes to the device's shared stream.
+        let Some(session) = response_session
+            .or(origin.as_deref())
+            .and_then(|id| live.by_session.get(id))
+            .filter(|session| !live.stopped && !self.expired(session))
         else {
             return Ok(None);
         };
@@ -509,22 +605,99 @@ impl DoorSessions {
         Ok(json!({"version":1,"profile":"local-v1","kind":"response","id":id,"correlationId":input.id,"machineId":self.machine_id,"windowId":self.window_id,"clientId":input.client_id,"sessionId":session_id,"sequence":sequence,"timestampMs":now,"origin":input.origin,"operation":input.operation,"payload":canonical::base64url(&payload),"signature":canonical::base64url(&self.machine_key.sign(&bytes))}).to_string().into_bytes())
     }
 }
+impl DoorSessions {
+    fn expired(&self, session: &Session) -> bool {
+        session.state.ended()
+            || session.state.idle()
+                >= if session.state.had_transport() {
+                    self.idle
+                } else {
+                    self.idle.min(crate::limits::SESSION_UNATTACHED_IDLE)
+                }
+    }
+    fn remove(&self, live: &mut Live, id: &str, reason: &str) -> Result<(), RemoteError> {
+        if let Some(session) = live.by_session.get(id) {
+            // Close authority/tunnels even if durable cancellation must be retried.
+            session.state.end();
+            self.store
+                .lock()
+                .map_err(crate::store::database)?
+                .end_session(&session.client_id, id, reason, now_ms()?)?;
+        }
+        if let Some(session) = live.by_session.remove(id) {
+            session.state.end();
+            if let Some(hash) = session.token {
+                live.by_token.remove(&hash);
+            }
+            live.generation = live.generation.wrapping_add(1);
+            self.ready.notify_all();
+        }
+        Ok(())
+    }
+    /// Called by the door's existing bounded event loop, even when no request arrives.
+    pub fn maintain(&self) -> Result<(), RemoteError> {
+        // A core effect owns the live fence through its bounded call. Do not block the
+        // listener's event loop; cleanup resumes as soon as that fence releases.
+        let mut live = match self.live.try_lock() {
+            Ok(live) => live,
+            Err(std::sync::TryLockError::WouldBlock) => return Ok(()),
+            Err(error) => return Err(crate::store::database(error)),
+        };
+        let now = now_ms()?;
+        let mut ended = Vec::new();
+        {
+            let store = self.store.lock().map_err(crate::store::database)?;
+            for session in live.by_session.values() {
+                let valid = store
+                    .grant(&session.client_id)?
+                    .is_some_and(|g| g.live_at(now) && g.revision == session.grant_revision);
+                if !valid || self.expired(session) {
+                    ended.push((
+                        session.id.clone(),
+                        if valid {
+                            "REMOTE_SESSION_ENDED"
+                        } else {
+                            "REMOTE_CLOSED"
+                        },
+                    ));
+                }
+            }
+        }
+        for (id, reason) in ended {
+            self.remove(&mut live, &id, reason)?;
+        }
+        self.store
+            .lock()
+            .map_err(crate::store::database)?
+            .prune_sessions(&self.window_id, now)?;
+        Ok(())
+    }
+}
 impl Sessions for DoorSessions {
-    /// Every request and upgrade rechecks the grant: revoked, expired or
-    /// re-revisioned grants and idle sessions resolve to no context.
     fn context(&self, cookie: Option<&str>) -> Option<Admitted> {
+        self.context_for(cookie, None)
+    }
+    fn context_for(&self, cookie: Option<&str>, requested: Option<&str>) -> Option<Admitted> {
         let token = cookie_token(cookie?)?;
         let hash = <[u8; 32]>::from(Sha256::digest(token));
         let (client_id, revision, state) = {
-            let mut live = self.live.lock().ok()?;
-            let client_id = live.by_token.get(&hash)?.clone();
-            let session = live.by_client.get(&client_id)?;
-            if session.state.idle() >= self.idle {
-                remove(&mut live, &client_id);
+            self.maintain().ok()?;
+            let live = self.live.lock().ok()?;
+            if live.stopped {
+                return None;
+            }
+            let cookie_id = live.by_token.get(&hash)?.clone();
+            let cookie_session = live.by_session.get(&cookie_id)?;
+            let id = requested.unwrap_or(&cookie_id);
+            let session = live.by_session.get(id)?;
+            if session.client_id != cookie_session.client_id {
+                return None;
+            }
+            if self.expired(session) || self.expired(cookie_session) {
                 return None;
             }
             (
-                client_id,
+                session.client_id.clone(),
                 session.grant_revision,
                 Arc::clone(&session.state),
             )
@@ -548,14 +721,6 @@ impl Sessions for DoorSessions {
             },
             session: state,
         })
-    }
-}
-fn remove(live: &mut Live, client_id: &str) {
-    if let Some(session) = live.by_client.remove(client_id) {
-        session.state.end();
-        if let Some(hash) = session.token {
-            live.by_token.remove(&hash);
-        }
     }
 }
 /// Exactly `{"clientNonce":"<32 lowercase hex>"}`.
