@@ -742,17 +742,36 @@ test('settings draft preserves authority, exact values, drafts and unknown self-
     execFileSync(BINARY, ['devices', '--json'], { env, encoding: 'utf8' }),
   ) as { devices: { clientId: string }[] };
   const clientId = inventory.devices[0]!.clientId;
+  async function descriptions(editable: boolean): Promise<void> {
+    const guidance =
+      'Read-only in this browser. Change Remote settings or manage devices with the local CLI.';
+    const help = 'Default is 8. Off means unlimited. Changes apply at the next session open.';
+    await expect(page.locator(`#name-${clientId}`)).toHaveAccessibleDescription(
+      editable ? '' : guidance,
+    );
+    await expect(page.locator('#opening-form')).toHaveAccessibleDescription(
+      editable ? '' : guidance,
+    );
+    await expect(page.locator('#limit-form')).toHaveAccessibleDescription(
+      editable ? help : `${help} ${guidance}`,
+    );
+  }
+
   await page.goto(`${origin}/settings`);
   await expect(page.locator('#access')).toContainText('confirmed');
   await expect(page.locator('#read-only')).toBeVisible();
   await expect(page.locator('#opening')).toBeDisabled();
+  await descriptions(false);
   await expect(page.locator('#limit-value')).toHaveText('8 · default');
   execFileSync(BINARY, ['devices', 'designate', clientId, '--json'], { env });
   await page.click('#refresh');
   await expect(page.locator('#opening')).toBeEnabled();
   await expect(page.locator('#read-only')).toBeHidden();
+  await descriptions(true);
   // Refresh preserves the unset source and never turns default 8 into an explicit cap.
   await page.click('#refresh');
+  await expect(page.locator('#refresh')).toBeEnabled();
+  await descriptions(true);
   expect(
     JSON.parse(execFileSync(BINARY, ['settings', '--json'], { env, encoding: 'utf8' }))
       .sessionsPerDeviceSource,
@@ -784,12 +803,15 @@ test('settings draft preserves authority, exact values, drafts and unknown self-
   await expect(page.locator('#limit-custom')).toHaveValue('19');
   await page.click('#refresh');
   await expect(page.locator('#read-only')).toBeVisible();
+  await descriptions(false);
   expect(
     JSON.parse(execFileSync(BINARY, ['settings', '--json'], { env, encoding: 'utf8' }))
       .sessionsPerDevice,
   ).toBe(null);
   execFileSync(BINARY, ['devices', 'designate', clientId, '--json'], { env });
   await page.click('#refresh');
+  await expect(page.locator('#read-only')).toBeHidden();
+  await descriptions(true);
   const captures = process.env.TMT_REMOTE_CAPTURE_DIR;
   for (const colorScheme of ['light', 'dark'] as const) {
     await page.emulateMedia({ colorScheme });

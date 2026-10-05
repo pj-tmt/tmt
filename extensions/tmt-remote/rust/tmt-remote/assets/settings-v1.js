@@ -137,6 +137,10 @@ function render() {
 	}[page.access];
 	const editable = page.access === "live" && page.settings?.capabilities.settingsWrite === true;
 	element("read-only").hidden = editable;
+	const openingForm = element("opening-form");
+	if (editable) openingForm.removeAttribute("aria-describedby");
+	else openingForm.setAttribute("aria-describedby", "read-only");
+	element("limit-form").setAttribute("aria-describedby", editable ? "limit-help" : "limit-help read-only");
 	if (page.settings) {
 		const value = page.settings.settings;
 		element("opening-value").textContent = `${value.open ? "On" : "Off"} · ${value.source}`;
@@ -186,7 +190,6 @@ function render() {
 				name.value = device.name;
 				name.required = true;
 				name.maxLength = 64;
-				name.setAttribute("aria-describedby", "read-only");
 				label.htmlFor = name.id;
 				label.textContent = "Device name";
 				const save = document.createElement("button");
@@ -225,7 +228,10 @@ function render() {
 				devices.append(row);
 			}
 			row.querySelector(".device-summary").textContent = `${device.name}${device.thisBrowser ? " · This browser" : ""} · ${device.kind} · ${device.revoked ? "Revoked" : "Paired"} · ${device.liveSessionCount} live sessions · Last activity ${device.lastActivityAtMs === null ? "unavailable" : new Date(device.lastActivityAtMs).toLocaleString()}`;
-			row.querySelector("input").disabled = !editable || device.revoked;
+			const name = row.querySelector("input");
+			name.disabled = !editable || device.revoked;
+			if (editable) name.removeAttribute("aria-describedby");
+			else name.setAttribute("aria-describedby", "read-only");
 			for (const button of row.querySelectorAll("button")) button.disabled = !page.writable || device.revoked;
 		}
 	}

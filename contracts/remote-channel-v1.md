@@ -659,7 +659,9 @@ Device-name forms remain bounded to that page; navigation is refused with the un
 until it is saved or explicitly restored to the admitted name, so navigation cannot discard a draft.
 Form drafts survive asynchronous outcomes and read refreshes. Non-designated
 browsers retain visible values and persistent local-CLI read-only guidance with disabled mutation
-controls. Unknown or capacity outcomes disable further mutation submission without discarding
+controls. Read-only accessibility descriptions follow admitted editability on every render/refresh;
+editable forms and device-name inputs do not reference hidden read-only guidance. Independent
+session-limit help remains associated in both roles. Unknown or capacity outcomes disable further mutation submission without discarding
 original input/ID or unsent draft text; no mutation retry/reset/replacement-ID action exists.
 
 The page keeps current access status separate from committed/refused/unknown outcome. Explicit
