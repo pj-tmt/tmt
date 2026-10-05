@@ -1,4 +1,4 @@
-//! Display-only page prefixes over the current verified catalog. No alias state or authority.
+//! Page prefixes over the current verified catalog. No alias state or authority.
 pub const MIN_PREFIX: usize = 8;
 pub fn valid_prefix(prefix: &str) -> bool {
     (MIN_PREFIX..=36).contains(&prefix.len())
