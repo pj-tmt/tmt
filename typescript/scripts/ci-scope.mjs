@@ -226,8 +226,8 @@ export function ownerOf(path, map = componentMap()) {
 /**
  * What each changed path selects and why, for the run summary. The first
  * matching rule of the component map decides native work; unknown inputs keep
- * full native verification. Frozen Office verification follows ownership only,
- * with shared dependencies covered by weekly/manual runs.
+ * full native verification. Office product verification is retired independently
+ * of ownership and release attribution.
  */
 export function explainCiSelection(paths, map = componentMap()) {
   return paths.map((path) => {
@@ -239,7 +239,7 @@ export function explainCiSelection(paths, map = componentMap()) {
       rule: rule?.id ?? 'unmapped',
       why:
         rule?.why ??
-        'Unmapped input retains full native verification; frozen Office follows ownership.',
+        'Unmapped input retains full native verification; Office product checks are retired.',
       native: rule ? rule.consumers.includes('native') : true,
       office,
       nativeOffice: office,
@@ -287,22 +287,9 @@ export function selectNativeNotices(paths) {
   );
 }
 
-// Office-local browser harnesses/build files are already component-owned. These
-// are the browser-specific machinery inputs outside that component; shared
-// dependency and generic fixture changes rely on the weekly/manual safety net.
-const OFFICE_BROWSER_INPUTS = new Set([
-  '.github/workflows/office-browser.yml',
-  '.dockerignore',
-  'typescript/scripts/verify-office-emulators.mjs',
-]);
-
-/**
- * Frozen Office PR verification follows ownership plus Office-specific machinery,
- * not shared inputs or core dependencies. Weekly/manual runs cover every partition.
- * Empty or unknown paths select no browser work; required CI stays conservative.
- */
-export function selectOfficeBrowser(paths, map = componentMap()) {
-  return paths.some((path) => ownerOf(path, map) === 'office' || OFFICE_BROWSER_INPUTS.has(path));
+/** Office product verification is retired for every event; ownership and release attribution remain. */
+export function selectOfficeBrowser(_paths, _map = componentMap()) {
+  return false;
 }
 
 // Keep the advisory harness narrower than required native CI. Ownership comes
@@ -586,19 +573,19 @@ export function runCiScope(args, { cwd, stdout, stderr, summaryFile }) {
     }
   }
   selection ??= { paths: [], areas: selectCiAreas([]), nativeScope: selectNativeScope([]) };
-  if (full) selection.areas = { native: true, office: true, nativeOffice: true };
+  if (full) selection.areas = { native: true, office: false, nativeOffice: false };
   if (queue) {
     selection.areas = { ...selection.areas, office: false, nativeOffice: false };
     selection.rows = selection.rows?.map((row) => ({ ...row, office: false, nativeOffice: false }));
   }
-  const officeBrowser = full || (!queue && !seed && selectOfficeBrowser(selection.paths));
+  const officeBrowser = selectOfficeBrowser(selection.paths);
   const colabHarness = !queue && !seed && !full && selectColabHarness(selection.paths);
   const nativeNotices = !seed && (full || selectNativeNotices(selection.paths));
   const evidence =
     (full || seed || fallback
-      ? `### CI selection\n\n${fallback ?? (full ? 'Weekly/manual full verification; no path filtering.' : 'Main cache seed; Office verification is frozen.')}\n`
+      ? `### CI selection\n\n${fallback ?? (full ? 'Weekly/manual retained-product verification; Office retired.' : 'Main cache seed; Office product verification is retired.')}\n`
       : renderSelectionEvidence({ base, head, range, ...selection })) +
-    `\nOffice browser PR selection (Office ownership or verification machinery): ${officeBrowser}.\n` +
+    `\nOffice browser selection (retired product): ${officeBrowser}.\n` +
     `\nColab browser PR selection (client, model, vectors or harness workflow): ${colabHarness}.\n` +
     `\nNative dependency notices selection: ${nativeNotices}.\n`;
   stderr.write(evidence);

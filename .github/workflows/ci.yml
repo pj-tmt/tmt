@@ -65,7 +65,7 @@ jobs:
       - name: Select the cache-seeding jobs
         if: steps.event.outputs.verify != 'true'
         id: seed
-        # Weekly/manual runs revive Office coverage; main pushes only seed Rust caches.
+        # Office product verification is retired; all seed events cover retained products only.
         env:
           SEED_SCOPE: ${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && 'full' || 'seed' }}
         run: node typescript/scripts/ci-scope.mjs "$SEED_SCOPE" >> "$GITHUB_OUTPUT"
@@ -273,7 +273,7 @@ jobs:
         if: needs.changes.outputs.native_scope == 'full'
         working-directory: rust
         run: |
-          cargo clippy --locked --workspace --all-targets -- -D warnings
+          cargo clippy --locked --workspace --exclude tmt-office --exclude tmt-office-storage --exclude tmt-office-pairing --exclude tmt-office-service --all-targets -- -D warnings
       - name: Lint Squad
         if: needs.changes.outputs.native_scope == 'squad'
         working-directory: rust
@@ -307,8 +307,8 @@ jobs:
           remote_tests="$(cargo test --locked -p tmt-remote -- --list)"
           printf '%s\n' "$remote_tests"
           grep -q ': test$' <<< "$remote_tests"
-          cargo test --locked --workspace
-          cargo build --locked --workspace
+          cargo test --locked --workspace --exclude tmt-office --exclude tmt-office-storage --exclude tmt-office-pairing --exclude tmt-office-service
+          cargo build --locked --workspace --exclude tmt-office --exclude tmt-office-storage --exclude tmt-office-pairing --exclude tmt-office-service
       - name: Test Squad and architecture
         if: needs.changes.outputs.native_scope == 'squad'
         working-directory: rust
@@ -540,7 +540,7 @@ jobs:
           save-if: ${{ needs.changes.outputs.verify == 'false' && github.ref == 'refs/heads/main' }}
       - name: Check all workspace targets at MSRV
         working-directory: rust
-        run: cargo +"$MSRV" check --locked --workspace --all-targets
+        run: cargo +"$MSRV" check --locked --workspace --exclude tmt-office --exclude tmt-office-storage --exclude tmt-office-pairing --exclude tmt-office-service --all-targets
 
   native-rust:
     name: Native Rust contracts

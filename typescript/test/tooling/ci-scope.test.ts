@@ -12,7 +12,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vite-plus/test';
-import { listE2eFiles } from '../../scripts/e2e-shards.mjs';
+import { listE2eFiles, RETIRED_E2E_FILES } from '../../scripts/e2e-shards.mjs';
 import {
   RUST_WORKERS,
   ciGatePasses,
@@ -307,15 +307,15 @@ describe('CI area selection', () => {
     '.github/workflows/office-browser.yml',
     '.dockerignore',
     'typescript/scripts/verify-office-emulators.mjs',
-  ])('selects Office-owned verification together with native inputs for %s', (file) => {
-    expect(selectCiAreas([file])).toEqual({ native: true, office: true, nativeOffice: true });
+  ])('retires Office product checks while retaining native inputs for %s', (file) => {
+    expect(selectCiAreas([file])).toEqual({ native: true, office: false, nativeOffice: false });
   });
 
   it.each([
     'extensions/tmt-office/typescript/apps/office/src/main.tsx',
     'extensions/tmt-office/docs/architecture.md',
-  ])('selects Office without the native matrix for %s', (file) => {
-    expect(selectCiAreas([file])).toEqual({ native: false, office: true, nativeOffice: true });
+  ])('retires Office product checks without inventing native consumers for %s', (file) => {
+    expect(selectCiAreas([file])).toEqual({ native: false, office: false, nativeOffice: false });
   });
 
   it.each([
@@ -339,7 +339,7 @@ describe('CI area selection', () => {
   it('unions ownership across mixed paths and both sides of a no-renames diff', () => {
     expect(
       selectCiAreas(['extensions/tmt-office/typescript/apps/office/removed.ts', 'rust/new.rs'])
-    ).toEqual({ native: true, office: true, nativeOffice: true });
+    ).toEqual({ native: true, office: false, nativeOffice: false });
     expect(selectCiAreas(['ARCHITECTURE.md', 'typescript/package.json'])).toEqual({
       native: true,
       office: false,
@@ -805,7 +805,7 @@ describe('remote Rust retains full CI coverage', () => {
 printf '%s\\n' "$*" >> "$CALLS"
 case "$*" in
   'test --locked -p tmt-remote -- --list') printf '%s\\n' "$DISCOVERY"; exit "$LIST_STATUS" ;;
-  'test --locked --workspace') exit "$TEST_STATUS" ;;
+  'test --locked --workspace --exclude tmt-office --exclude tmt-office-storage --exclude tmt-office-pairing --exclude tmt-office-service') exit "$TEST_STATUS" ;;
 esac
 `,
         0o755
@@ -825,8 +825,13 @@ esac
       const calls = readFileSync(path.join(root, 'calls'), 'utf8').trim().split('\n');
       const expected = ['test --locked -p tmt-remote -- --list'];
       if (fixture.status === 0 || fixture.testStatus !== 0)
-        expected.push('test --locked --workspace');
-      if (fixture.status === 0) expected.push('build --locked --workspace');
+        expected.push(
+          'test --locked --workspace --exclude tmt-office --exclude tmt-office-storage --exclude tmt-office-pairing --exclude tmt-office-service'
+        );
+      if (fixture.status === 0)
+        expected.push(
+          'build --locked --workspace --exclude tmt-office --exclude tmt-office-storage --exclude tmt-office-pairing --exclude tmt-office-service'
+        );
       expect(calls).toEqual(expected);
     } finally {
       rmSync(root, { recursive: true, force: true });
@@ -834,7 +839,7 @@ esac
   });
 });
 
-describe('Office-owned browser PR selection', () => {
+describe('retired Office browser selection', () => {
   it.each([
     'extensions/tmt-office/typescript/apps/office/src/main.tsx',
     'extensions/tmt-office/rust/tmt-office/src/main.rs',
@@ -842,9 +847,9 @@ describe('Office-owned browser PR selection', () => {
     'extensions/tmt-office/skills/tmt-office/SKILL.md',
     'extensions/tmt-office/docs/architecture.md',
     'typescript/test/native/office-storage.test.ts',
-  ])('selects Office-owned path %s', (file) => {
-    expect(selectOfficeBrowser([file])).toBe(true);
-    expect(selectOfficeBrowser(['rust/Cargo.lock', file])).toBe(true);
+  ])('does not select retired Office path %s', (file) => {
+    expect(selectOfficeBrowser([file])).toBe(false);
+    expect(selectOfficeBrowser(['rust/Cargo.lock', file])).toBe(false);
   });
 
   it.each([
@@ -853,8 +858,8 @@ describe('Office-owned browser PR selection', () => {
     '.dockerignore',
     'extensions/tmt-office/typescript/services/office/Dockerfile',
     'extensions/tmt-office/typescript/apps/office/e2e/native-office-fixture.ts',
-  ])('verifies browser machinery when it changes: %s', (file) => {
-    expect(selectOfficeBrowser([file])).toBe(true);
+  ])('does not revive retired browser machinery: %s', (file) => {
+    expect(selectOfficeBrowser([file])).toBe(false);
   });
 
   it.each([
@@ -925,8 +930,8 @@ describe('CI diff and command integration', () => {
       const historical = commit();
       expect(readChangedCiAreas(base, historical, root)).toEqual({
         native: false,
-        office: true,
-        nativeOffice: true,
+        office: false,
+        nativeOffice: false,
       });
       mkdirSync(path.join(root, 'extensions/tmt-office/typescript/apps/office'), {
         recursive: true,
@@ -939,8 +944,8 @@ describe('CI diff and command integration', () => {
       const added = commit();
       expect(readChangedCiAreas(historical, added, root)).toEqual({
         native: false,
-        office: true,
-        nativeOffice: true,
+        office: false,
+        nativeOffice: false,
       });
       mkdirSync(path.join(root, 'rust'));
       const target = path.join(root, 'rust/fixture.rs');
@@ -948,8 +953,8 @@ describe('CI diff and command integration', () => {
       const moved = commit();
       expect(readChangedCiAreas(added, moved, root)).toEqual({
         native: true,
-        office: true,
-        nativeOffice: true,
+        office: false,
+        nativeOffice: false,
       });
       rmSync(target);
       const deleted = commit();
@@ -1025,9 +1030,11 @@ describe('CI diff and command integration', () => {
         native_scope: 'full',
         scoped_native_tests: '',
       });
-      // Every scenario file is in exactly one of the two shards.
+      // Every retained scenario file is in exactly one of the two shards.
       const shardFiles = [...full.e2e_shard_1.split(' '), ...full.e2e_shard_2.split(' ')];
-      expect(shardFiles.sort()).toEqual(listE2eFiles());
+      expect(shardFiles.sort()).toEqual(
+        listE2eFiles().filter((file) => !RETIRED_E2E_FILES.includes(file))
+      );
       expect(stderr.text()).toContain('### CI selection');
       expect(stderr.text()).toContain('native scope full.');
       expect(stderr.text()).toContain('| `rust/fixture.rs` | cli | native-source | native |');
@@ -1078,16 +1085,16 @@ describe('CI diff and command integration', () => {
         runCiScope([baseHead, nextHead], { cwd: root, stdout: output, stderr: capture() });
         return outputs(output.text()).office_browser;
       };
-      expect(browserSelected(remoteHead, officeHead)).toBe('true');
+      expect(browserSelected(remoteHead, officeHead)).toBe('false');
       mkdirSync(path.join(root, 'docs'), { recursive: true });
       renameSync(officePath, path.join(root, 'docs/moved.md'));
       const movedHead = commit();
-      expect(browserSelected(officeHead, movedHead)).toBe('true');
+      expect(browserSelected(officeHead, movedHead)).toBe('false');
       writeFileSync(officePath, 'Office fixture\n');
       const restoredHead = commit();
       rmSync(officePath);
       const deletedHead = commit();
-      expect(browserSelected(restoredHead, deletedHead)).toBe('true');
+      expect(browserSelected(restoredHead, deletedHead)).toBe('false');
 
       // Additions, both rename endpoints and deletions drive the advisory output.
       const colabPath = path.join(root, 'extensions/tmt-colab/contracts/vectors/fixture.json');
@@ -1257,15 +1264,15 @@ describe('CI diff and command integration', () => {
       const shared = commit('unknown-input', 'shared');
       const full = select(['seed']).outputs;
       expect(select(['full']).outputs).toMatchObject({
-        office: 'true',
-        native_office: 'true',
-        office_browser: 'true',
+        office: 'false',
+        native_office: 'false',
+        office_browser: 'false',
       });
       const office = commit('extensions/tmt-office/rust/tmt-office/src/main.rs', '// Office');
       expect(select([shared, office]).outputs).toMatchObject({
-        office: 'true',
-        native_office: 'true',
-        office_browser: 'true',
+        office: 'false',
+        native_office: 'false',
+        office_browser: 'false',
       });
       expect(select(['merge-group', office]).outputs).toMatchObject({
         office: 'false',
@@ -1894,8 +1901,12 @@ describe('required CI gate', () => {
     expect(tooling).toContain('../rust/target/debug/examples/colab-runtime-fixture');
     expect(native).toContain('rust/target/release/tmt');
     expect(native).toContain('cargo test --locked');
-    expect(native).toContain('cargo clippy --locked --workspace --all-targets -- -D warnings');
-    expect(native).toContain('cargo +"$MSRV" check --locked --workspace --all-targets');
+    expect(native).toContain(
+      'cargo clippy --locked --workspace --exclude tmt-office --exclude tmt-office-storage --exclude tmt-office-pairing --exclude tmt-office-service --all-targets -- -D warnings'
+    );
+    expect(native).toContain(
+      'cargo +"$MSRV" check --locked --workspace --exclude tmt-office --exclude tmt-office-storage --exclude tmt-office-pairing --exclude tmt-office-service --all-targets'
+    );
     expect(native).not.toMatch(/cargo \+\d/);
     expect(native).toContain('cargo build --locked -p tmt-office');
     expect(native).toContain('rust/target/debug/examples/storage-probe');
@@ -1961,14 +1972,16 @@ describe('required CI gate', () => {
         .split('\n')
         .map((line) => line.split('='))
     );
-    expect(outputs).toMatchObject({ native: 'true', office: 'true', native_scope: 'full' });
+    expect(outputs).toMatchObject({ native: 'true', office: 'false', native_scope: 'full' });
     const first = outputs.e2e_shard_1.split(' ');
     const second = outputs.e2e_shard_2.split(' ');
     expect(first.length).toBeGreaterThan(0);
     expect(second.length).toBeGreaterThan(0);
     expect(first.filter((file) => second.includes(file))).toEqual([]);
-    expect([...first, ...second].sort()).toEqual(listE2eFiles());
-    expect(stderr.text()).toContain('no path filtering');
+    expect([...first, ...second].sort()).toEqual(
+      listE2eFiles().filter((file) => !RETIRED_E2E_FILES.includes(file))
+    );
+    expect(stderr.text()).toContain('Weekly/manual retained-product verification; Office retired.');
     const workflow = readFileSync(
       new URL('../../../.github/workflows/ci.yml', import.meta.url),
       'utf8'
@@ -2087,7 +2100,9 @@ describe('required CI gate', () => {
     expect(job('native-msrv')).toContain('RUSTUP_TOOLCHAIN=%s');
     expect(job('native-msrv')).toContain('rustup toolchain install "$MSRV" --profile minimal');
     expect(job('native-msrv')).not.toMatch(/rustup toolchain install \d/);
-    expect(job('native-msrv')).toContain('cargo +"$MSRV" check --locked --workspace --all-targets');
+    expect(job('native-msrv')).toContain(
+      'cargo +"$MSRV" check --locked --workspace --exclude tmt-office --exclude tmt-office-storage --exclude tmt-office-pairing --exclude tmt-office-service --all-targets'
+    );
     // The E2E suite is two shard jobs; only the first runs for a scoped component, and
     // only the first of a full run also runs the Rust adapter tests.
     expect(job('docker-e2e-shard-1')).toContain(
@@ -2301,65 +2316,51 @@ describe('required CI gate', () => {
     );
   });
 
-  // #424 and #574: the native Office shards and the local Office partitions fail on most runs, so
-  // they do not run on pull requests until each is fixed, only weekly and by dispatch. The fix of
-  // each puts its selection back and updates this test.
-  it('pauses the native and local Office partitions on pull requests and keeps them weekly and by dispatch', () => {
+  it('excludes only retired Office product targets while retaining shipped CLI libraries', () => {
+    const workflow = readFileSync(
+      fileURLToPath(new URL('../../../.github/workflows/ci.yml', import.meta.url)),
+      'utf8'
+    );
+    const commands = workflow.split('\n').filter((line) => line.includes('--workspace --exclude'));
+    expect(commands).toHaveLength(4);
+    for (const command of commands) {
+      expect([...command.matchAll(/--exclude ([a-z0-9-]+)/g)].map((match) => match[1])).toEqual([
+        'tmt-office',
+        'tmt-office-storage',
+        'tmt-office-pairing',
+        'tmt-office-service',
+      ]);
+      expect(command).not.toMatch(/--exclude tmt-office-(?:command|model)\b/);
+    }
+    const manifest = readFileSync(
+      fileURLToPath(new URL('../../../rust/crates/tmt-cli/Cargo.toml', import.meta.url)),
+      'utf8'
+    );
+    expect(manifest).toContain('tmt-office-command.workspace = true');
+    expect(manifest).toContain('tmt-office-model.workspace = true');
+  });
+
+  it('retains Office workflow history but disables automatic and manual execution', () => {
     const browser = readFileSync(
       fileURLToPath(new URL('../../../.github/workflows/office-browser.yml', import.meta.url)),
       'utf8'
     );
+    expect(browser).toMatch(/^on:\n {2}workflow_dispatch:\n/m);
+    expect(browser).not.toMatch(/^ {2}(?:pull_request|schedule):/m);
+    expect(browser).not.toContain('cron:');
     const job = (name: string) => {
       const start = browser.indexOf(`\n  ${name}:\n`);
       expect(start, name).toBeGreaterThanOrEqual(0);
       const next = browser.slice(start + 1).search(/\n {2}[a-z0-9-]+:\n/);
       return browser.slice(start, next < 0 ? undefined : start + 1 + next);
     };
-
-    expect(browser).toMatch(
-      /^on:\n {2}pull_request:\n {2}schedule:\n {4}- cron: '\d+ \d+ \* \* [0-6]'\n {2}workflow_dispatch:\n/m
-    );
-    expect(browser.match(/cron:/g)).toHaveLength(1);
-    expect(browser).toContain("cancel-in-progress: ${{ github.event_name == 'pull_request' }}");
-
-    // Neither the shards nor the local partitions run for a pull request or depend on the
-    // selection; the emulator partition is the only Office partition a pull request selects.
-    for (const name of ['native-office-browser', 'office-local']) {
-      const paused = job(name);
-      expect(paused, name).toContain('needs: image\n');
-      expect(paused, name).not.toMatch(/changes|native_office/);
-    }
-    expect(browser).not.toContain('native_office');
-    expect(browser).not.toMatch(/^ {2}office-browser:$/m);
-    expect(job('office-local')).toContain('shard: 1/3\n            partition: local-1');
-    expect(job('office-local')).toContain('shard: 3/3\n            partition: local-3');
-    expect(job('office-local').match(/^ {10}- shard: /gm)).toHaveLength(3);
-
-    // `changes` runs for every event so that no job is ever skipped through its dependencies (a
-    // job downstream of a skipped job is skipped too, even past one that uses a status
-    // function). Only a pull request has a diff, so only its steps run and the output is
-    // `false` for a scheduled or dispatched run.
-    const changes = job('changes');
-    expect(changes).not.toMatch(/^ {4}if:/m);
-    expect(changes).toContain(
+    expect(job('changes')).toContain(
       "office_browser: ${{ steps.scope.outputs.office_browser || 'false' }}"
     );
-    expect(changes.match(/^ {6}(?:- )?(?:name: [^\n]+\n {8})?if: /gm)).toHaveLength(3);
-    expect(changes.match(/if: github\.event_name == 'pull_request'/g)).toHaveLength(3);
-
-    // The job-level conditions are exactly these: the emulator partition follows the selection,
-    // weekly/manual runs include all partitions, while paused partitions still skip PRs.
-    const condition = (name: string) => /^ {4}if: (.*)$/m.exec(job(name))?.[1];
-    expect(condition('office-emulator')).toBe(
-      "github.event_name != 'pull_request' || needs.changes.outputs.office_browser == 'true'"
-    );
-    expect(condition('image')).toBe(
-      "github.event_name != 'pull_request' || needs.changes.outputs.office_browser == 'true'"
-    );
-    expect(condition('office-local')).toBe("github.event_name != 'pull_request'");
-    expect(condition('native-office-browser')).toBe("github.event_name != 'pull_request'");
-
-    // The check names and failure artifacts are what they were.
+    expect(job('changes').match(/if: github\.event_name == 'pull_request'/g)).toHaveLength(3);
+    for (const name of ['image', 'office-emulator', 'office-local', 'native-office-browser']) {
+      expect(job(name)).toContain("if: needs.changes.outputs.office_browser == 'true'");
+    }
     expect(job('office-emulator')).toContain('name: Office browser (emulator)');
     expect(job('office-local')).toContain('name: Office browser (local ${{ matrix.shard }})');
     expect(job('office-emulator')).toContain('name: office-browser-emulator-results');
