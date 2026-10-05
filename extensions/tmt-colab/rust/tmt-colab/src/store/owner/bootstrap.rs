@@ -196,6 +196,7 @@ impl OwnerTransaction<'_> {
             }
             pages.insert(id.clone(),serde_json::json!({"pageId":id,"epoch":epoch,"sharing":"private","history":"shared","archived":false,"retentionDays":30,"lastUpdateAtMs":updated}));
         }
+        let known_ids: Vec<String> = pages.keys().cloned().collect();
         // Existence/epoch are the local creation projection; presentation policy
         // comes only from owner-signed statements. Never expose encrypted titles.
         let mut head = None;
@@ -278,8 +279,12 @@ impl OwnerTransaction<'_> {
             page["expiresAtMs"] = serde_json::json!(expiry);
             page["warnings"] = serde_json::json!(warning.into_iter().collect::<Vec<_>>());
         }
+        let page_ids: Vec<_> = known_ids
+            .iter()
+            .map(|id| serde_json::json!({"pageId":id,"deleted":!pages.contains_key(id)}))
+            .collect();
         Ok(
-            serde_json::json!({"spaceId":self.space,"ownerKey":values::encode_binary(self.root),"revision":self.head().map_or(0,|h| h.revision).to_string(),"pages":pages.into_values().collect::<Vec<_>>()}),
+            serde_json::json!({"pageIds":page_ids,"spaceId":self.space,"ownerKey":values::encode_binary(self.root),"revision":self.head().map_or(0,|h| h.revision).to_string(),"pages":pages.into_values().collect::<Vec<_>>()}),
         )
     }
 }

@@ -322,6 +322,15 @@ acceptance. The write-token `fetch` of `native-release-upgrade.yml` is called on
 bundle on main, so a pull request can only reach the local fetch; the publication path's upgrade
 job keeps its jobs and outputs (`release-workflow.test.ts` evaluates the conditions).
 
+**Rehearsal publication gates.** The same rehearsal runs `gates-dry` in the prepare workflow:
+`publication-gates.mjs dry --product P --tag <synthetic tag> --sha <candidate> [--on-main]` evaluates
+`channel`, `immutability`, `monotonic` and `migration` for the candidate from published releases and
+git history, plus `commit` on main (the nightly run; a pull request's merge commit is not on main
+yet). It records no hold and writes nothing, and a gate that would hold fails the job with the gate
+named. Only the draft-bound evidence (the allocated draft, its hold marker and the proof's result in
+`finish`) stays release-only. The live `release.yml` `cut` job also stays release-only: it needs a
+token that sees drafts.
+
 Focused checks from the repository root:
 
 ```sh

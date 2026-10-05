@@ -126,7 +126,13 @@ impl Config {
                 if let Some((key, _)) = table.iter().find(|(key, _)| {
                     !matches!(
                         *key,
-                        "refresh" | "theme" | "token_rate" | "tok" | "view" | "ask_lead"
+                        "refresh"
+                            | "theme"
+                            | "token_rate"
+                            | "tok"
+                            | "view"
+                            | "ask_lead"
+                            | "home_replies"
                     )
                 }) {
                     return Err(invalid(format!("`board.{key}` is not a board setting.")));

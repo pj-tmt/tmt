@@ -250,9 +250,9 @@ test('paired writers retain anchored annotation conversations, direct exact send
     }
     await first.setViewportSize({ width: 1440, height: 900 });
     await first.getByRole('button', { name: 'Source', exact: true }).click();
-    await first
-      .getByRole('textbox', { name: 'Source', exact: true })
-      .fill('<p style="height:300px">Inserted above.</p>' + html);
+    const inserted = '<p style="height:300px">Inserted above.</p>' + html;
+    const source = first.getByRole('textbox', { name: 'Source', exact: true });
+    await source.fill(inserted);
     await first.getByRole('button', { name: 'Save source', exact: true }).click();
     // Saved means the draft equals the new base again; a second save before that uses a stale base.
     await expect(first.getByRole('button', { name: 'Save source', exact: true })).toBeDisabled();
@@ -260,9 +260,7 @@ test('paired writers retain anchored annotation conversations, direct exact send
       second.frameLocator('iframe').getByText('Inserted above.', { exact: true }),
     ).toBeVisible();
     await expect(t1).toHaveAttribute('data-anchor', 'attached');
-    await first
-      .getByRole('textbox', { name: 'Source', exact: true })
-      .fill(html.replace('exact quote', 'changed quote'));
+    await source.fill(html.replace('exact quote', 'changed quote'));
     await first.getByRole('button', { name: 'Save source', exact: true }).click();
     await expect(second.frameLocator('iframe').locator('#quote')).toContainText('changed quote');
     await expect(t1).toHaveAttribute('data-anchor', 'detached');

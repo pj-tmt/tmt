@@ -111,6 +111,11 @@ shared fetcher path.
   prompt and never replaces concurrent edits. While the overlay is open the ordinary loader
   acquires preview notes/replies and metadata behind its existing cancellation fence, and
   closing returns to resolved-pane acquisition.
+- HOME `board.home_replies` is a global-only boolean, default true. The reader
+  rejects scoped copies and non-booleans. The bindable `home-replies` effect and
+  settings overlay use `Config::set_setting`; a failed save does not flip the
+  displayed choice. Settings preview applies the boolean through the existing
+  disposable draft.
 - `config::edit` owns the shared edit policy and a disposable validated Config draft.
   `sq config set KEY VALUE` accepts layout preset, flat split panes/direction/sizes,
   refresh, notes mode, hidden tracks, exact state colors, global tabs order/hide and the
@@ -161,8 +166,9 @@ shared fetcher path.
 - `send` uses public commands only: detached `talk --identity <sender> --room squad-<name>`
   with operands after `--`; annotations as a talk tagged `[<squad> · <row>]`; answers as one
   `tmt answer <member> --request <id>` (core selects and proves the request, no receipt
-  passes through Squad); nothing acknowledges. Squad has no talk, reply or replies commands:
-  those words refuse before parsing with the core command that replaces them.
+  passes through Squad); nothing acknowledges. Squad has no talk, reply, replies or annotate
+  command: conversation is core's, and a note on a row is the board's `a` key only (an in-process
+  `Request::Annotate`), never a command or a hidden `__` entry.
 - `hotkeys` generates `squad.tmux.conf` (bindings noted `tmt squad popup|pane|back|lead`;
   the optional lead key's `run-shell` job has `TMUX` but no `TMUX_PANE`, so it passes
   `TMUX_PANE=#{pane_id}` for core to name the caller) and owns one `source-file` line in
@@ -188,3 +194,16 @@ calls `skills.install` as owner `squad`; `rm` calls `skills.remove` with the pla
 so the lead skill and `tmt extension rm squad` are unaffected. Squad never writes a provider
 directory and never executes a playbook. The lead skill source is embedded only in the squad
 executable, never in the core skill bundle.
+
+## HOME lead sends
+
+`send::leads` owns all-leads and picked-lead effects. The existing `App.input`
+keeps the opening user UUID and squad/lead occurrences; both submission and the
+send effect validate current authority. The public dispatch deduplicates recipient
+UUIDs. `send::new_operation` supplies a fresh UUID for explicit sends, shared with
+manual cron sends. Before dispatch, a private 0600 intent under
+`board-dispatches/<operation>.json` beside Squad configuration is synced. Confirmed
+acceptance removes it; uncertain acceptance retains it for manual inspection.
+One `dispatch.show` read can recover lost output; there is no create replay,
+automatic resend or wake retry. Feedback distinguishes each recipient's queued or
+unavailable acceptance without claiming delivery or processing.

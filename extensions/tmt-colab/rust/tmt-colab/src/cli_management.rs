@@ -546,12 +546,21 @@ pub fn create_page(root: &Path, args: &ArgMatches, source: String) -> Result<()>
             code:crate::error_code(error.as_ref()),message:error.to_string(),correlation:correlation.clone(),source:Some(error),
         }) as Box<dyn std::error::Error + Send + Sync>
     })?;
+    // The effect is already committed. A catalog-read failure must not turn it into a failed create;
+    // the full UUID alias remains safe when uniqueness cannot be observed.
+    let ids = (|| -> Result<Vec<String>> {
+        let layout = Layout::existing(root)?.ok_or_else(|| input("Missing local space."))?;
+        let key = Keyring::read(&layout)?;
+        let store = Store::read(&layout)?;
+        Ok(catalog_ids(&inspection::catalog(&store, &key)?))
+    })()
+    .unwrap_or_default();
     let mut result = result;
     let relative = result["path"]
         .as_str()
         .ok_or_else(|| input("Missing created page path."))?
         .to_owned();
-    let reach = crate::reach::Reach::gather();
+    let reach = crate::reach::Reach::gather().with_pages(&ids);
     if args.get_flag("json") {
         reach.annotate(&mut result, &relative);
         return output(&result, true);
@@ -561,11 +570,11 @@ pub fn create_page(root: &Path, args: &ArgMatches, source: String) -> Result<()>
     // The page opens in the browser unless the setting, a flag or the environment says not to.
     let mut shown = reach.text(&relative);
     let mut warnings = Vec::new();
-    if let Some(link) = reach.link(&relative) {
+    if let Some(link) = reach.short_link(&relative) {
         // The page is committed: unreadable settings are the defaults, never a failed command.
         let settings = tmt_colab::settings::read_or_default(root);
         let outcome =
-            crate::open::open_link(&link, crate::open::Flag::of(args), settings.open(), false);
+            crate::open::open_link(&link, crate::open::flag(args), settings.open(), false);
         let (text, failed) = crate::open::describe(&outcome, &link);
         shown = text;
         warnings.extend(failed);
@@ -633,6 +642,7 @@ pub fn run(command: &str, args: &ArgMatches, root: &Path, json_output: bool) -> 
     let store = Store::read(&layout)?;
     store.require_current_schema()?;
     let mut catalog = inspection::catalog(&store, &key)?;
+    let ids = catalog_ids(&catalog);
     if command == "ls" {
         let pages = catalog["pages"]
             .as_array_mut()
@@ -645,7 +655,7 @@ pub fn run(command: &str, args: &ArgMatches, root: &Path, json_output: bool) -> 
             return Err(management_error("STALE_HEAD"));
         }
         // One door lookup for the whole listing; each page carries its own path and link.
-        let reach = crate::reach::Reach::gather();
+        let reach = crate::reach::Reach::gather().with_pages(&ids);
         for page in catalog["pages"].as_array_mut().into_iter().flatten() {
             let path =
                 crate::reach::Reach::path(&key.space_id, page["pageId"].as_str().unwrap_or(""));
@@ -701,7 +711,7 @@ pub fn run(command: &str, args: &ArgMatches, root: &Path, json_output: bool) -> 
             return Err(management_error("STALE_HEAD"));
         }
         let mut detail = detail;
-        let reach = crate::reach::Reach::gather();
+        let reach = crate::reach::Reach::gather().with_pages(&ids);
         let path = crate::reach::Reach::path(&key.space_id, &id);
         detail["page"] = page;
         if json_output {
@@ -803,7 +813,7 @@ pub fn run(command: &str, args: &ArgMatches, root: &Path, json_output: bool) -> 
         }
     })?;
     // The door is looked up after the commit, so a slow answer never delays the effect.
-    let reach = crate::reach::Reach::gather();
+    let reach = crate::reach::Reach::gather().with_pages(&ids);
     let path = crate::reach::Reach::path(&key.space_id, &id);
     let mut outcome = outcome;
     if let Some(url) = outcome["readerPath"]
@@ -821,6 +831,15 @@ pub fn run(command: &str, args: &ArgMatches, root: &Path, json_output: bool) -> 
         rows.push(("reader link", reach.text(reader)));
     }
     output_with(&outcome, false, &rows)
+}
+/// Capture all IDs before presentation filters; archived pages still make a prefix ambiguous.
+fn catalog_ids(catalog: &Value) -> Vec<String> {
+    catalog["pageIds"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|page| page["pageId"].as_str().map(str::to_owned))
+        .collect()
 }
 /// The rows every page-naming command shares: where to open the page, and the pairing step.
 fn page_rows(reach: &crate::reach::Reach, path: &str) -> Vec<(&'static str, String)> {
@@ -1052,18 +1071,26 @@ fn output_with(value: &Value, json_output: bool, extra: &[(&str, String)]) -> Re
             .map(|p| audience(p).chars().count())
             .max()
             .unwrap_or(0);
+        let ids = catalog_ids(value);
         for page in pages {
-            let mut rows = Table::new(&[Column::Fixed, Column::Fixed, Column::Name]);
+            let mut rows = Table::new(&[Column::Name, Column::Fixed, Column::Fixed]);
             rows.row([
-                Cell::from(page["pageId"].as_str().unwrap_or("")),
-                Cell::from(format!("{:<width$}", audience(page))),
                 match (page["title"].as_str(), page["error"]["code"].as_str()) {
-                    (Some(title), _) => Cell::from(title),
+                    (Some(title), _) => Cell::from(if title.trim().is_empty() {
+                        "Untitled page"
+                    } else {
+                        title
+                    }),
                     // The page is intact but too big to open; the code stays in --json and on stderr.
                     (None, Some("COLAB_CAPACITY")) => Cell::styled("too large to open", Token::Dim),
                     (None, Some(code)) => Cell::from(format!("unavailable ({code})")),
                     (None, None) => Cell::from("title unavailable"),
                 },
+                Cell::from(tmt_colab::short_links::shortest_id(
+                    page["pageId"].as_str().unwrap_or(""),
+                    &ids,
+                )),
+                Cell::from(format!("{:<width$}", audience(page))),
             ]);
             rows.write(&mut out, terminal)?;
             if let Some(text) = page["linkText"].as_str() {

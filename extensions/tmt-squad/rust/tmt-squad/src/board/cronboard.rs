@@ -21,7 +21,9 @@ pub(super) use act::{CronRequest, Op, act};
 pub(super) use forms::Draft;
 pub(super) use half::{render as render_half, wanted as half_wanted};
 pub(super) use hints::{help as help_keys, jobs as jobs_hints};
+#[cfg(test)]
 pub(super) use line::line as home_line;
+pub(super) use line::pieces as home_pieces;
 #[cfg(test)]
 pub(super) use line::tests::{
     NOW as TEST_NOW, cron as test_cron, view as test_view, views as test_views,
@@ -118,12 +120,12 @@ impl State {
         self.cron.as_ref().map_or(0, |cron| cron.read_ms)
     }
 
-    /// A member row's `⏱ <next>` label; none without an active job, so the
+    /// A member row's `cron <next>` label; none without an active job, so the
     /// label's presence is the job's.
     pub fn member_label(&self, member_id: &str, now_ms: i64) -> Option<String> {
         let (at, view) = self.cron.as_ref()?.next_of(member_id)?;
         Some(format!(
-            "⏱ {}",
+            "cron {}",
             line::short_time(at, now_ms, &line::zone(view))?
         ))
     }
@@ -149,7 +151,7 @@ mod tests {
         };
         assert_eq!(
             state.member_label("u1", NOW).as_deref(),
-            Some("⏱ Mon 00:00")
+            Some("cron Mon 00:00")
         );
         assert_eq!(
             state.member_label("u2", NOW),

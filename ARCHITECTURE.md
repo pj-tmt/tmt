@@ -52,7 +52,8 @@ tracked-file guard. Handbook language exceptions belong to
 
 Shared visual tokens have one owner, `design/tokens/tokens.json`, maintained by
 the design lead. Its Vite projection, Rust CLI theme tests and native Colab guidance consume the same
-source. Colab projects its header metrics into React and static native CSS from these tokens.
+source. The `header` group is the one header contract: Colab projects it into React and static native CSS,
+and Remote's static browser pages ship the same metrics in `pages.css`, which a Remote test checks against it.
 Native Colab embeds the token JSON and the app header/reader/state-card stylesheets at compile time;
 Docker build stages preserve those source paths, and their CI rules retain native checks.
 The private design-tokens component attributes token changes to Colab through `releaseConsumers`.
@@ -679,6 +680,10 @@ core, adapters, CLI or extension behavior. Squad is its sole reviewed consumer; 
 consumer or dependency goes to tmt-lead. Rules and limits: the
 [`tmt-tui` skill](.agents/skills/tmt-tui/SKILL.md).
 
+`rust/crates/tmt-invoke` owns neutral executable discovery, bounded waited byte
+capture and the shared browser-opening policy, discovery and launch. It takes plain
+inputs and has no TMT dependencies; Colab and Remote own CLI interaction and presentation.
+
 `rust/crates/tmt-cli/tests/architecture.rs` is a test-only import and dependency
 guard. One reviewed manifest table owns the fixed workspace package names and
 their manifest locations. The guard follows the actual Rust module tree, checks
@@ -785,6 +790,10 @@ falls back to a working directory, active pane or sole identity.
   and driver-state persistence; core stores driver state without parsing it.
   Provider end leaves stored readiness Unknown pending a fresh start; only conclusive
   process loss ends the runtime incarnation.
+- Presence reads acquire host evidence outside the database writer lock and
+  recheck their captured records before reconciliation. Changed records never
+  authorize retirement or detachment; unchanged records retain conclusive stale
+  binding cleanup.
 - Provider hooks supply observation only: they never create bindings or move
   identities, they run under a bounded supervised worker that always exits zero,
   and provider configuration changes only through consented `tmt setup`.
@@ -1174,7 +1183,9 @@ core discovery or storage access.
   listens only on the owner-only socket `<dataRoot>/colab/door.sock`. Remote mounts it at
   `/r/<prefix>/x/colab/`, owns Host/Origin, cookies, pairing and grants, forwards the
   verified device as `tmt-device-context`, and never forwards the reserved `/.tmt/` subtree
-  from a browser. The server stores ciphertext and never decodes Yjs.
+  from a browser. Remote's root short-link redirect enters Colab's admitted mount; Colab resolves
+  display-only page-ID prefixes from its existing catalog, with ambiguity handled by parent chrome.
+  The server stores ciphertext and never decodes Yjs.
 - **Dependency direction.** `tmt-colab` depends on `tmt-colab-model` (pure codecs and fixed
   crypto), the `tmt-extension-state` leaf, `tmt-invoke` and `tmt-cli-style`; the browser
   depends on Remote's served SDK (`/sdk/remote-v1.js`). Never `tmt-core`, `tmt-adapters`,

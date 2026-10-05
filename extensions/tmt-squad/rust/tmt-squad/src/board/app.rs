@@ -3,6 +3,7 @@
 //! and actions leave as fully resolved requests.
 
 use super::scroll::{Scrolls, Step, WHEEL_LINES};
+use crate::display_rows::{Item, RowOrigin};
 use crate::links::Kind;
 use crate::{
     action::{Action, Bindings, Verb},
@@ -50,8 +51,49 @@ pub(super) struct UsageShare {
     pub partial: bool,
 }
 
+/// Raw UUID-deduplicated observations for the HOME header; painting only formats.
+#[derive(Debug)]
+pub(super) struct HomeHeaderUsage<'a> {
+    pub windows: [crate::config::TokenWindow; 3],
+    pub totals: [Option<super::rate::Reading>; 3],
+    pub top: Option<UsageTop<'a>>,
+    pub models: Vec<UsageModel<'a>>,
+    pub unreported: usize,
+}
+
+#[derive(Debug)]
+pub(super) struct UsageTop<'a> {
+    pub member: &'a str,
+    pub share: UsageShare,
+}
+
+#[derive(Debug)]
+pub(super) struct UsageModel<'a> {
+    pub model: Option<&'a str>,
+    pub share: UsageShare,
+}
+
+#[derive(Clone, Copy)]
+struct HeaderObservation<'a> {
+    reading: super::rate::Reading,
+    covered_slots: u64,
+    model: Option<&'a str>,
+}
+
+impl HeaderObservation<'_> {
+    fn evidence(&self) -> (u64, bool, u64) {
+        (self.covered_slots, !self.reading.partial, self.reading.span)
+    }
+}
+
+struct HeaderMember<'a> {
+    name: &'a str,
+    readings: [Option<HeaderObservation<'a>>; 3],
+}
+
 pub struct View {
     pub ask_lead: String,
+    pub home_replies: bool,
     pub token_rate: Option<RateView>,
     /// HOME sampling templates, separate from the painter/controller model.
     pub home_rate: BTreeMap<String, RateView>,
@@ -78,6 +120,7 @@ pub struct View {
     pub tab_colors: crate::config::TabColors,
     /// The user's saved identity, the sender of talk, reply and annotate.
     pub me: Option<String>,
+    pub me_id: Option<String>,
     /// Finals to the user's squad requests, newest first (replies pane).
     pub replies: Vec<Value>,
     /// The squad's theme at the terminal's depth: every color the board draws.
@@ -152,6 +195,12 @@ pub enum Request {
         from: String,
         text: String,
     },
+    Leads {
+        sender: String,
+        recipients: Vec<crate::send::LeadRecipient>,
+        all: bool,
+        text: String,
+    },
     /// Save this tab order to `[tabs] order` (tab keys, in order).
     Reorder(Vec<String>),
     /// A cron job control, with its actor, job and viewed revision resolved.
@@ -169,6 +218,7 @@ impl Request {
                 | Self::Reply { .. }
                 | Self::Reorder(_)
                 | Self::Cron(_)
+                | Self::Leads { .. }
         )
     }
 }
@@ -182,6 +232,7 @@ pub enum Effect {
     Refresh,
     Settings,
     SaveSetting,
+    HomeReplies(bool),
     CancelSettings,
     PickTheme,
     SaveTheme,
@@ -189,11 +240,6 @@ pub enum Effect {
     SaveView,
     CancelView,
     Act(Request),
-}
-
-pub enum Item<'a> {
-    Header(&'a str),
-    Row(&'a Value),
 }
 
 /// What a menu entry does: run a binding, or reply to one open request.
@@ -204,6 +250,10 @@ pub enum Choice {
     Cron(super::cronboard::CronRequest),
     /// Leaves the menu without doing anything.
     Dismiss,
+    Leads {
+        recipients: Vec<crate::send::LeadRecipient>,
+        all: bool,
+    },
     Reply {
         request: String,
         from: String,
@@ -239,6 +289,16 @@ pub struct Menu {
 /// Where composed text goes.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Compose {
+    Leads {
+        sender: String,
+        recipients: Vec<crate::send::LeadRecipient>,
+        all: bool,
+    },
+    /// Read-only mode of the existing anchored band; it never submits text.
+    ReadLead {
+        key: super::home_leads::MessageKey,
+        offset: usize,
+    },
     AskLead {
         to: String,
         sender: String,
@@ -300,6 +360,9 @@ pub(super) struct HomeFeedback {
 
 impl RowSend {
     fn valid(&self, app: &App, input: &Input) -> bool {
+        if matches!(input.compose, Compose::Leads { .. }) {
+            return app.leads_valid(input);
+        }
         if app.loading()
             || app.view.as_ref().and_then(|view| view.me.as_ref()) != Some(&self.sender)
         {
@@ -329,7 +392,10 @@ impl RowSend {
                 self.note.as_ref() == Some(&input.compose)
                     && (self.note_member || app.note_recipient(&self.target).as_ref() == Some(to))
             }
-            Compose::AskLead { .. } | Compose::Cron => false,
+            Compose::AskLead { .. }
+            | Compose::ReadLead { .. }
+            | Compose::Leads { .. }
+            | Compose::Cron => false,
         }
     }
 }
@@ -358,6 +424,7 @@ pub struct Hint {
 impl Input {
     pub(super) fn header(&self) -> String {
         match &self.compose {
+            Compose::ReadLead { .. } | Compose::Leads { .. } => self.prompt.clone(),
             Compose::Talk { to } => format!("→ {to} ({})", self.squad),
             Compose::Reply { from, .. } => format!("→ {from} ({})", self.squad),
             Compose::Annotate { to, row } if to != row => {
@@ -461,6 +528,7 @@ pub struct App {
     pub(super) note_hits: RefCell<Vec<(ratatui::layout::Rect, usize)>>,
     pub(super) notebooks: RefCell<super::notes::Notebooks>,
     pub(super) cron: super::cronboard::State,
+    pub(super) home_leads: super::home_leads::State,
     /// The cron form being filled in on the input line, if any.
     pub(super) cron_draft: Option<super::cronboard::Draft>,
     /// The squad tab's jobs half has focus (Tab moves in after the last pane).
@@ -594,8 +662,8 @@ impl App {
         }
     }
 
-    /// Section index and row for every row matching the search.
-    pub(super) fn rows(&self) -> Vec<(usize, &Value)> {
+    /// RowOrigin and row for every displayed row matching the search, in board order.
+    pub(super) fn rows(&self) -> Vec<(RowOrigin, &Value)> {
         let Some(view) = &self.view else {
             return Vec::new();
         };
@@ -603,47 +671,28 @@ impl App {
             return self
                 .home_entries()
                 .into_iter()
-                .map(|entry| (0, entry.row))
+                .map(|entry| (RowOrigin::Section(0), entry.row))
                 .collect();
         }
-        self.usage_document.as_ref().unwrap_or(&view.document)["sections"]
-            .as_array()
+        self.items()
             .into_iter()
-            .flatten()
-            .enumerate()
-            .flat_map(|(index, section)| {
-                section["rows"]
-                    .as_array()
-                    .into_iter()
-                    .flatten()
-                    .map(move |row| (index, row))
+            .filter_map(|item| match item {
+                Item::Row(slot, row) => Some((slot, row)),
+                _ => None,
             })
-            .filter(|(_, row)| matches(row, &self.search))
             .collect()
     }
 
-    /// Section headers and the rows matching the search, in board order. The
-    /// single default section has no header.
+    /// The lead, the members rule, section headers and the rows matching the
+    /// search, in board order. The single default section has no header.
     pub fn items(&self) -> Vec<Item<'_>> {
-        let mut items = Vec::new();
         let Some(view) = &self.view else {
-            return items;
+            return Vec::new();
         };
-        for section in self.usage_document.as_ref().unwrap_or(&view.document)["sections"]
-            .as_array()
-            .into_iter()
-            .flatten()
-        {
-            if let Some(title) = section["title"].as_str() {
-                items.push(Item::Header(title));
-            }
-            for row in section["rows"].as_array().into_iter().flatten() {
-                if matches(row, &self.search) {
-                    items.push(Item::Row(row));
-                }
-            }
-        }
-        items
+        crate::display_rows::project(
+            self.usage_document.as_ref().unwrap_or(&view.document),
+            |row| matches(row, &self.search),
+        )
     }
 
     /// Replace only the board display projection. Sampling never changes public ls JSON.
@@ -670,38 +719,33 @@ impl App {
             view.derived.borrow_mut().grid = None;
         }
         let mut document = view.document.clone();
-        for section in document["sections"].as_array_mut().into_iter().flatten() {
-            for row in section["rows"].as_array_mut().into_iter().flatten() {
-                if let Some(id) = row["id"].as_str().map(str::to_owned) {
-                    for column in &view.rows.columns {
-                        let Some(source) = &column.from else { continue };
-                        if let Some(index) = source.window() {
-                            let reading = meter.member(&id, index, now);
-                            let value = reading
-                                .and_then(|r| {
-                                    crate::source::render_value(
-                                        &serde_json::json!(r.tokens.to_string()),
-                                        column.format,
-                                        0,
-                                    )
-                                    .map(|value| {
-                                        format!("{}{value}", if r.partial { "~" } else { "" })
-                                    })
-                                })
-                                .unwrap_or_else(|| "–".into());
-                            row["fields"][&column.field] = value.into();
-                            if let Some(token) =
-                                reading.and_then(|r| column.threshold(r.tokens as f64))
-                            {
-                                row["colors"][&column.field] = token.into();
-                            }
-                        } else if source.path == "session.model" {
-                            row["fields"][&column.field] = meter.model(&id).unwrap_or("–").into();
+        crate::display_rows::each_row(&mut document, |row| {
+            if let Some(id) = row["id"].as_str().map(str::to_owned) {
+                for column in &view.rows.columns {
+                    let Some(source) = &column.from else { continue };
+                    if let Some(index) = source.window() {
+                        let reading = meter.member(&id, index, now);
+                        let value = reading
+                            .and_then(|r| {
+                                crate::source::render_value(
+                                    &serde_json::json!(r.tokens.to_string()),
+                                    column.format,
+                                    0,
+                                )
+                                .map(|value| format!("{}{value}", if r.partial { "~" } else { "" }))
+                            })
+                            .unwrap_or_else(|| "–".into());
+                        row["fields"][&column.field] = value.into();
+                        if let Some(token) = reading.and_then(|r| column.threshold(r.tokens as f64))
+                        {
+                            row["colors"][&column.field] = token.into();
                         }
+                    } else if source.path == "session.model" {
+                        row["fields"][&column.field] = meter.model(&id).unwrap_or("–").into();
                     }
                 }
             }
-        }
+        });
         if self.usage_document.as_ref() != Some(&document) {
             view.derived.borrow_mut().grid = None;
             self.usage_document = Some(document);
@@ -725,6 +769,18 @@ impl App {
             .filter(|model| !model.is_empty())
     }
 
+    fn home_meter(&self, squad: &str) -> Option<&super::meter::Meter> {
+        let rate = self.view.as_ref()?.home_rate.get(squad)?;
+        self.meters
+            .get(squad)
+            .or_else(|| {
+                self.meter
+                    .as_ref()
+                    .filter(|_| self.current.as_deref() == Some(squad))
+            })
+            .filter(|meter| meter.room == rate.input.room && meter.settings == rate.settings)
+    }
+
     pub(super) fn home_usage(&self, squad: &str, now: Instant) -> Option<HomeUsage<'_>> {
         let view = self.view.as_ref()?;
         let home = view.home.as_ref()?;
@@ -732,15 +788,7 @@ impl App {
             .home_rate
             .get(squad)
             .filter(|rate| rate.settings.enabled)?;
-        let meter = self
-            .meters
-            .get(squad)
-            .or_else(|| {
-                self.meter
-                    .as_ref()
-                    .filter(|_| self.current.as_deref() == Some(squad))
-            })
-            .filter(|meter| meter.room == rate.input.room && meter.settings == rate.settings);
+        let meter = self.home_meter(squad);
         let id = home
             .squads
             .iter()
@@ -765,6 +813,130 @@ impl App {
             lead,
             squad,
             share,
+        })
+    }
+
+    pub(super) fn home_header_usage(&self, now: Instant) -> Option<HomeHeaderUsage<'_>> {
+        let view = self.view.as_ref()?;
+        let windows = view.home.as_ref()?.windows;
+        // Stable displayed squad order decides equal-evidence UUID collisions.
+        let shown = self.home_entries();
+        let mut enabled = false;
+        let mut identities = BTreeMap::new();
+        let mut members: Vec<HeaderMember<'_>> = Vec::new();
+        for entry in shown
+            .iter()
+            .filter(|entry| entry.target.section == "squads")
+        {
+            let squad = &entry.target.squad;
+            let Some(rate) = view
+                .home_rate
+                .get(squad)
+                .filter(|rate| rate.settings.enabled)
+            else {
+                continue;
+            };
+            enabled = true;
+            let meter = self.home_meter(squad);
+            for id in rate.input.resumes.keys() {
+                let index = *identities.entry(id).or_insert_with(|| {
+                    members.push(HeaderMember {
+                        name: rate
+                            .input
+                            .names
+                            .get(id)
+                            .map_or("unknown member", String::as_str),
+                        readings: [None; 3],
+                    });
+                    members.len() - 1
+                });
+                for (i, window) in windows.iter().enumerate() {
+                    let candidate = meter.and_then(|meter| {
+                        meter
+                            .observation(id, *window, now)
+                            .map(|(reading, covered_slots)| HeaderObservation {
+                                reading,
+                                covered_slots,
+                                model: meter.model(id),
+                            })
+                    });
+                    if let Some(candidate) = candidate
+                        && members[index].readings[i]
+                            .is_none_or(|old| candidate.evidence() > old.evidence())
+                    {
+                        members[index].readings[i] = Some(candidate);
+                    }
+                }
+            }
+        }
+        if !enabled {
+            return None;
+        }
+        let totals = std::array::from_fn(|i| {
+            let mut sum = super::rate::Reading {
+                tokens: 0,
+                partial: false,
+                span: windows[i].milliseconds(),
+            };
+            let mut measured = false;
+            for member in &members {
+                if let Some(HeaderObservation { reading, .. }) = member.readings[i] {
+                    sum.tokens += reading.tokens;
+                    sum.partial |= reading.partial;
+                    sum.span = sum.span.min(reading.span);
+                    measured = true;
+                } else {
+                    sum.partial = true;
+                }
+            }
+            measured.then_some(sum)
+        });
+        let unreported = members
+            .iter()
+            .filter(|member| member.readings[2].is_none())
+            .count();
+        let mut top = None;
+        let mut by_model = BTreeMap::<Option<&str>, u128>::new();
+        if let Some(total) = totals[2].filter(|total| total.tokens > 0) {
+            let share = |tokens| UsageShare {
+                fraction: tokens as f64 / total.tokens as f64,
+                partial: total.partial,
+            };
+            let mut highest = 0;
+            for member in &members {
+                if let Some(HeaderObservation { reading, model, .. }) = member.readings[2] {
+                    *by_model.entry(model).or_default() += reading.tokens;
+                    if reading.tokens > highest {
+                        highest = reading.tokens;
+                        top = Some(UsageTop {
+                            member: member.name,
+                            share: share(reading.tokens),
+                        });
+                    }
+                }
+            }
+            let mut models = by_model.into_iter().collect::<Vec<_>>();
+            models.sort_by(|(a, x), (b, y)| y.cmp(x).then_with(|| a.cmp(b)));
+            return Some(HomeHeaderUsage {
+                windows,
+                totals,
+                top,
+                unreported,
+                models: models
+                    .into_iter()
+                    .map(|(model, tokens)| UsageModel {
+                        model,
+                        share: share(tokens),
+                    })
+                    .collect(),
+            });
+        }
+        Some(HomeHeaderUsage {
+            windows,
+            totals,
+            top,
+            models: Vec::new(),
+            unreported,
         })
     }
 
@@ -799,6 +971,9 @@ impl App {
     }
 
     fn clamp(&mut self) {
+        if !self.message_valid() {
+            self.input = None;
+        }
         let anchor = self
             .input
             .as_ref()
@@ -867,6 +1042,11 @@ impl App {
         self.view.is_some() && self.shown != self.current
     }
 
+    pub(super) fn apply_home_leads(&mut self, read: super::home_leads::Read) {
+        self.home_leads.replace(read);
+        self.clamp();
+    }
+
     /// Swaps in a loaded squad in one step. A result for a squad the user
     /// already left is kept for switching back, never shown.
     pub fn apply(&mut self, snapshot: Snapshot) {
@@ -933,7 +1113,8 @@ impl App {
         match snapshot.view {
             Ok(mut view) => {
                 let now = Instant::now();
-                if view.home.is_some() {
+                if let Some(home) = &view.home {
+                    self.home_leads.reconcile(home, view.me_id.as_deref());
                     for (name, meter) in &mut self.meters {
                         if view
                             .home_rate
@@ -1351,6 +1532,7 @@ impl App {
         };
         if let Some(view) = &mut self.view {
             view.refresh = config.refresh(key).expect("validated settings draft");
+            view.home_replies = config.home_replies().expect("validated settings draft");
             if !crate::tabs::aggregate(key) {
                 view.board = config.board(key).expect("validated settings draft");
                 view.bindings = config
@@ -1361,24 +1543,18 @@ impl App {
                 let states = config
                     .states(key, config.layout(key).unwrap())
                     .expect("validated settings draft");
-                for section in view.document["sections"]
-                    .as_array_mut()
-                    .into_iter()
-                    .flatten()
-                {
-                    for row in section["rows"].as_array_mut().into_iter().flatten() {
-                        let color = states.color(row["state"].as_str()).map(str::to_owned);
-                        if let Some(colors) = row["colors"].as_object_mut() {
-                            colors.remove("state");
-                        }
-                        if let Some(color) = color {
-                            if !row["colors"].is_object() {
-                                row["colors"] = serde_json::json!({});
-                            }
-                            row["colors"]["state"] = color.into();
-                        }
+                crate::display_rows::each_row(&mut view.document, |row| {
+                    let color = states.color(row["state"].as_str()).map(str::to_owned);
+                    if let Some(colors) = row["colors"].as_object_mut() {
+                        colors.remove("state");
                     }
-                }
+                    if let Some(color) = color {
+                        if !row["colors"].is_object() {
+                            row["colors"] = serde_json::json!({});
+                        }
+                        row["colors"]["state"] = color.into();
+                    }
+                });
                 if let Some(snapshot) = &overlay.staleness {
                     snapshot.apply_preview(
                         &mut view.document,
@@ -1604,7 +1780,9 @@ impl App {
     }
 
     pub(super) fn selected_section(&self) -> Option<usize> {
-        self.rows().get(self.selected).map(|(index, _)| *index)
+        self.rows()
+            .get(self.selected)
+            .and_then(|(slot, _)| slot.section())
     }
 
     /// The selected row's section overrides its tab/global/host bindings.
@@ -1615,7 +1793,7 @@ impl App {
         let section = self
             .rows()
             .get(self.selected)
-            .and_then(|(index, _)| view.section_bindings.get(*index));
+            .and_then(|(slot, _)| view.section_bindings.get(slot.section()?));
         let enabled = view
             .token_rate
             .as_ref()
@@ -1653,10 +1831,6 @@ impl App {
                     return self.home_enter();
                 }
                 Verb::Annotate => return self.home_answer(),
-                Verb::NextPane => {
-                    self.home_section(false);
-                    return Effect::None;
-                }
                 _ => {}
             }
         }
@@ -1687,6 +1861,16 @@ impl App {
                 }
                 return Effect::None;
             }
+            Verb::HomeReplies => {
+                return self
+                    .view
+                    .as_ref()
+                    .filter(|view| view.home.is_some())
+                    .map_or(Effect::None, |view| Effect::HomeReplies(!view.home_replies));
+            }
+            Verb::HomeMessage => return self.home_expand(),
+            Verb::HomeWrite => return self.home_write(),
+            Verb::HomePick => return self.home_pick(),
             Verb::AskLead => return self.ask_lead(),
             Verb::Settings => return Effect::Settings,
             Verb::Theme => return Effect::PickTheme,
@@ -1881,13 +2065,18 @@ impl App {
                 .get(index)
                 .map(|entry| RowTarget::Home(entry.target.clone()));
         }
-        let (section, row) = *self.rows().get(index)?;
+        let (slot, row) = *self.rows().get(index)?;
         let tab = self.shown_tab()?.to_owned();
-        Some(RowTarget::Member {
-            squad: row["squad"].as_str().unwrap_or(&tab).to_owned(),
-            tab,
-            section,
-            id: row["id"].as_str()?.to_owned(),
+        let squad = row["squad"].as_str().unwrap_or(&tab).to_owned();
+        let id = row["id"].as_str()?.to_owned();
+        Some(match slot {
+            RowOrigin::Lead => RowTarget::Lead { tab, squad, id },
+            RowOrigin::Section(section) => RowTarget::Member {
+                squad,
+                tab,
+                section,
+                id,
+            },
         })
     }
 
@@ -1907,7 +2096,7 @@ impl App {
                 .rows()
                 .into_iter()
                 .find(|(slot, row)| {
-                    *slot == *section
+                    *slot == RowOrigin::Section(*section)
                         && row["id"].as_str() == Some(id)
                         && row["squad"].as_str().unwrap_or(tab) == squad
                 })
@@ -1964,8 +2153,9 @@ impl App {
     }
 
     /// One composer for row answers and notes; several requests still need a choice.
-    pub(super) fn compose_row(&mut self, send: RowSend, verb: Verb, squad: String) -> Effect {
+    pub(super) fn compose_row(&mut self, mut send: RowSend, verb: Verb, squad: String) -> Effect {
         let row = self.target_row(&send.target).expect("opening row exists");
+        let pending = row["pending"].as_str().is_some_and(|text| !text.is_empty());
         let open: Vec<MenuEntry> = row["waitingOnYou"]
             .as_array()
             .into_iter()
@@ -2005,6 +2195,17 @@ impl App {
             Verb::Talk => Compose::Talk {
                 to: send.name.clone(),
             },
+            // A decision owed without a request to answer: write the member a
+            // note. Opening sends, clears and acknowledges nothing.
+            Verb::Reply if pending => {
+                let note = Compose::Annotate {
+                    to: send.name.clone(),
+                    row: send.name.clone(),
+                };
+                send.note = Some(note.clone());
+                send.note_member = true;
+                note
+            }
             Verb::Reply => return self.say(format!("{} is not waiting on you.", send.name)),
             _ => match send.note.clone() {
                 Some(note) => note,
@@ -2064,6 +2265,7 @@ impl App {
             Choice::Action(action) => self.perform(&action),
             Choice::Cron(request) => Effect::Act(Request::Cron(request)),
             Choice::Dismiss => Effect::None,
+            Choice::Leads { recipients, all } => self.compose_leads(recipients, all),
             Choice::Reply { request, from } => self.ask(
                 format!("→ {from}"),
                 Compose::Reply { request, from },
@@ -2163,7 +2365,7 @@ impl App {
         let event = event_name(key)?;
         self.rows()
             .get(self.selected)
-            .and_then(|(index, _)| view.section_bindings.get(*index))
+            .and_then(|(slot, _)| view.section_bindings.get(slot.section()?))
             .and_then(|bindings| bindings.get(&event))
             .or_else(|| view.configured_bindings.get(&event))
             .cloned()
@@ -2319,6 +2521,13 @@ impl App {
     }
 
     fn input_key(&mut self, key: KeyEvent) -> Effect {
+        if self
+            .input
+            .as_ref()
+            .is_some_and(|input| matches!(input.compose, Compose::ReadLead { .. }))
+        {
+            return self.message_key(key);
+        }
         let Some(input) = &mut self.input else {
             return Effect::None;
         };
@@ -2384,7 +2593,7 @@ impl App {
                     Compose::AskLead { .. } => false,
                     Compose::Talk { to } => to == member,
                     Compose::Annotate { to, .. } => self.lead().as_ref() == Ok(to),
-                    Compose::Cron => false,
+                    Compose::Cron | Compose::ReadLead { .. } | Compose::Leads { .. } => false,
                     Compose::Reply { request, from } => {
                         from == member
                             && row["waitingOnYou"].as_array().is_some_and(|items| {
@@ -2438,6 +2647,17 @@ impl App {
                 row,
                 text,
             },
+            Compose::Leads {
+                sender,
+                recipients,
+                all,
+            } => Request::Leads {
+                sender,
+                recipients,
+                all,
+                text,
+            },
+            Compose::ReadLead { .. } => unreachable!("read-only mode cannot send"),
             Compose::Cron => unreachable!("a cron step is submitted before this match"),
             Compose::Reply { request, from } => Request::Reply {
                 me,
@@ -2672,12 +2892,6 @@ impl App {
                 _ => {}
             }
             self.clamp();
-            return Effect::None;
-        }
-        if self.view.as_ref().is_some_and(|view| view.home.is_some())
-            && key.code == KeyCode::BackTab
-        {
-            self.home_section(true);
             return Effect::None;
         }
         if self.focused_pane().is_none()
@@ -3092,10 +3306,26 @@ impl App {
             .map_or(saved, |picker| picker.preview(saved.depth))
     }
 
+    pub(super) fn selected_read(&self) -> Option<super::refresh::SelectedRead> {
+        if self.loading() {
+            return None;
+        }
+        if let Some(Input {
+            compose: Compose::ReadLead { key, .. },
+            ..
+        }) = &self.input
+        {
+            return Some(super::refresh::SelectedRead::Message(key.clone()));
+        }
+        self.notebook_identity()
+            .map(super::refresh::SelectedRead::Notebook)
+    }
+
     /// Lazy acquisition follows the effective detail, including folds and tabs.
     pub(super) fn notebook_identity(&self) -> Option<String> {
         let board = self.effective_board()?;
         if self.loading()
+            || self.selected_is_lead()
             || !self.scrolls.visible(Pane::Detail)
             || !board.panes.contains(&Pane::Detail)
             || self.collapsed_panes().contains(&Pane::Detail)
@@ -3111,6 +3341,13 @@ impl App {
 
     pub fn selected_row(&self) -> Option<&Value> {
         self.rows().get(self.selected).map(|(_, row)| *row)
+    }
+
+    /// The displayed lead occurrence owns no detail notebook acquisition.
+    pub(super) fn selected_is_lead(&self) -> bool {
+        self.rows()
+            .get(self.selected)
+            .is_some_and(|(origin, _)| *origin == RowOrigin::Lead)
     }
 }
 
@@ -3308,6 +3545,7 @@ pub(crate) mod tests {
     fn view(sections: Value) -> View {
         View {
             ask_lead: crate::config::DEFAULT_ASK_LEAD.into(),
+            home_replies: true,
             token_rate: None,
             home_rate: Default::default(),
             home: None,
@@ -3333,6 +3571,7 @@ pub(crate) mod tests {
             look: Default::default(),
             theme_notice: None,
             me: None,
+            me_id: None,
             replies: Vec::new(),
         }
     }
@@ -3445,6 +3684,7 @@ pub(crate) mod tests {
         let mut home = snapshot(super::super::ALL, json!([]));
         home.tabs.push(super::super::ALL.into());
         home.view.as_mut().unwrap().home = Some(super::super::home::Home {
+            windows: crate::config::TokenWindow::DEFAULTS,
             summary: super::super::home::Counts {
                 members: 7,
                 ..Default::default()
@@ -3487,9 +3727,10 @@ pub(crate) mod tests {
     fn names(app: &App) -> Vec<&str> {
         app.items()
             .iter()
-            .map(|item| match item {
-                Item::Header(title) => *title,
-                Item::Row(row) => row["name"].as_str().unwrap(),
+            .filter_map(|item| match item {
+                Item::Section(title) => *title,
+                Item::Rule(_) => Some("--"),
+                Item::Row(_, row) => row["name"].as_str(),
             })
             .collect()
     }
@@ -3713,33 +3954,40 @@ pub(crate) mod tests {
         assert_eq!(app.notice.as_deref(), Some("Nothing sent."));
     }
 
-    /// `L` (`jump lead`) goes to the squad's lead on its own tab, and to the
+    /// A bound `jump lead` goes to the squad's lead on its own tab, and to the
     /// selected row's squad's lead on the leads and all tabs; without one it
     /// says why and nothing runs.
     #[test]
     fn jump_lead_goes_to_the_lead_of_the_tab_or_the_selected_row_s_squad() {
         let lead = |app: &mut App| press(app, KeyCode::Char('L'));
+        // No preset binds `jump lead`; a user binding does.
+        let bound = |mut snapshot: Snapshot| {
+            let view = snapshot.view.as_mut().unwrap();
+            view.bindings
+                .insert("L".into(), Action::parse("jump lead").unwrap());
+            snapshot
+        };
         let mut app = App::new(Some("product".into()));
         let mut own = snapshot(
             "product",
             json!([{"title": null, "rows": [row("rin", "x")]}]),
         );
         own.view.as_mut().unwrap().document["squad"]["lead"] = json!({"name": "sol"});
-        app.apply(own);
+        app.apply(bound(own));
         assert_eq!(lead(&mut app), Effect::Act(Request::Jump("sol".into())));
 
         // An empty squad still has its lead.
         let mut app = App::new(Some("product".into()));
         let mut empty = snapshot("product", json!([{"title": null, "rows": []}]));
         empty.view.as_mut().unwrap().document["squad"]["lead"] = json!({"name": "sol"});
-        app.apply(empty);
+        app.apply(bound(empty));
         assert_eq!(lead(&mut app), Effect::Act(Request::Jump("sol".into())));
 
         let mut app = App::new(Some("product".into()));
-        app.apply(snapshot(
+        app.apply(bound(snapshot(
             "product",
             json!([{"title": null, "rows": [row("rin", "x")]}]),
-        ));
+        )));
         assert_eq!(lead(&mut app), Effect::None);
         assert_eq!(
             app.notice.as_deref(),
@@ -3748,13 +3996,13 @@ pub(crate) mod tests {
 
         // The all tab: a row per squad, with its lead as a field.
         let mut app = App::new(Some(crate::board::ALL.into()));
-        app.apply(snapshot(
+        app.apply(bound(snapshot(
             crate::board::ALL,
             json!([{"title": null, "rows": [
                 {"name": "product", "squad": "product", "fields": {"lead": "sol"}},
                 {"name": "quiet", "squad": "quiet", "fields": {"lead": null}},
             ]}]),
-        ));
+        )));
         assert_eq!(lead(&mut app), Effect::Act(Request::Jump("sol".into())));
         press(&mut app, KeyCode::Down);
         assert_eq!(lead(&mut app), Effect::None);
@@ -3776,13 +4024,13 @@ pub(crate) mod tests {
 
         // The leads tab: the selected row is the lead.
         let mut app = App::new(Some(crate::board::LEADS.into()));
-        app.apply(snapshot(
+        app.apply(bound(snapshot(
             crate::board::LEADS,
             json!([{"title": null, "rows": [
                 {"name": "sol", "squad": "product", "fields": {}},
                 {"name": "rin", "squad": "infra", "fields": {}},
             ]}]),
-        ));
+        )));
         press(&mut app, KeyCode::Down);
         assert_eq!(lead(&mut app), Effect::Act(Request::Jump("rin".into())));
     }
@@ -3940,6 +4188,8 @@ pub(crate) mod tests {
             view.document["sections"][1]["rows"][0]["waitingOnYou"] =
                 json!([{"requestId": "q9", "preview": "ok to merge?"}]);
         }
+        // The cursor starts on the lead; these cases act on the first member.
+        app.select(1);
         press(&mut app, KeyCode::Char('t'));
         assert_eq!(app.input.as_ref().unwrap().prompt, "→ auth-fix (product)");
         typed(&mut app, "q j -rf; $(x)");
@@ -4015,6 +4265,7 @@ pub(crate) mod tests {
         // Nothing open, or no lead to annotate for, is a notice.
         app.view.as_mut().unwrap().document["sections"][1]["rows"][0]["waitingOnYou"] = json!([]);
         app.view.as_mut().unwrap().document["squad"]["lead"] = Value::Null;
+        app.clamp();
         press(&mut app, KeyCode::Char('r'));
         assert_eq!(app.notice.as_deref(), Some("docs is not waiting on you."));
         press(&mut app, KeyCode::Char('a'));
@@ -4035,6 +4286,7 @@ pub(crate) mod tests {
         view.document["squad"]["lead"] = json!({"name":"sol"});
         view.document["sections"][0]["rows"][0]["waitingOnYou"] =
             json!([{"requestId":"q", "preview":"Ship tonight?"}]);
+        app.select(1);
         press(&mut app, KeyCode::Char('a'));
         assert!(app.menu.is_none(), "a single request opens in place");
         assert_eq!(app.input.as_ref().unwrap().header(), "→ auth-fix (product)");
@@ -4053,7 +4305,7 @@ pub(crate) mod tests {
         assert!(
             matches!(app.input.as_ref().unwrap().compose, Compose::Reply { ref request, .. } if request == "q")
         );
-        let target = app.row_target(0).unwrap();
+        let target = app.row_target(1).unwrap();
         assert!(
             matches!(press(&mut app, KeyCode::Enter), Effect::Act(Request::Reply { ref text, .. }) if text == "draft")
         );
@@ -4068,7 +4320,7 @@ pub(crate) mod tests {
             app.sent.as_ref().map(|feedback| &feedback.target),
             Some(&target)
         );
-        assert_eq!(app.selected, 0);
+        assert_eq!(app.selected, 1);
         press(&mut app, KeyCode::Char('x'));
         assert!(
             app.sent.is_none(),
@@ -4118,6 +4370,7 @@ pub(crate) mod tests {
             view.document["squad"]["lead"] = json!({"name":"sol"});
             view.document["sections"][0]["rows"][0]["waitingOnYou"] =
                 json!([{"requestId":"q", "preview":"Choose?"}]);
+            app.select(1);
             press(&mut app, KeyCode::Char('a'));
             typed(&mut app, "yes");
             if change == "lead" {
@@ -4145,7 +4398,7 @@ pub(crate) mod tests {
             app.clamp();
             let effect = press(&mut app, KeyCode::Enter);
             if change == "reorder" {
-                assert_eq!(app.selected, 1);
+                assert_eq!(app.selected, 2);
                 assert!(
                     matches!(effect, Effect::Act(Request::Reply { ref request, ref from, .. }) if request == "q" && from == "auth-fix")
                 );
@@ -4720,10 +4973,178 @@ pub(crate) mod tests {
 }
 
 #[cfg(test)]
+mod lead_row_tests {
+    use super::tests::snapshot;
+    use super::*;
+    use serde_json::json;
+
+    fn press(app: &mut App, code: KeyCode) -> Effect {
+        app.key(KeyEvent::new(code, KeyModifiers::NONE))
+    }
+
+    fn lead() -> Value {
+        json!({"id": "L", "name": "sol", "fields": {"task": "coordinate"}})
+    }
+
+    fn member(name: &str) -> Value {
+        json!({"id": name, "name": name, "fields": {"task": "work"}})
+    }
+
+    /// `product` with a lead and the named members, as a loaded board.
+    fn board(members: &[&str]) -> App {
+        let mut app = App::new(Some("product".into()));
+        let rows: Vec<_> = members.iter().map(|name| member(name)).collect();
+        let mut loaded = snapshot("product", json!([{"title": null, "rows": rows}]));
+        let view = loaded.view.as_mut().unwrap();
+        view.document["squad"]["lead"] = lead();
+        view.bindings = crate::action::preset(true, &[]);
+        view.configured_bindings = view.bindings.clone();
+        view.me = Some("Ben".into());
+        app.apply(loaded);
+        app
+    }
+
+    fn shape(app: &App) -> Vec<String> {
+        app.items()
+            .iter()
+            .filter_map(|item| match item {
+                Item::Section(title) => title.map(|title| format!("# {title}")),
+                Item::Rule(rule) => Some(format!("-- {}", rule.label())),
+                Item::Row(_, row) => Some(row["name"].as_str().unwrap().to_owned()),
+            })
+            .collect()
+    }
+
+    #[test]
+    fn the_lead_is_the_first_row_and_the_cursor_starts_on_it() {
+        let mut app = board(&["amy", "bob"]);
+        assert_eq!(shape(&app), ["sol", "-- members · 2", "amy", "bob"]);
+        assert_eq!(app.selected_row().unwrap()["name"], "sol");
+        // The rule is not a row: one step goes from the lead to the first member.
+        press(&mut app, KeyCode::Down);
+        assert_eq!(app.selected_row().unwrap()["name"], "amy");
+        press(&mut app, KeyCode::Up);
+        assert_eq!(app.selected_row().unwrap()["name"], "sol");
+    }
+
+    #[test]
+    fn showing_another_squad_puts_the_cursor_on_its_lead() {
+        let mut app = board(&["amy", "bob"]);
+        press(&mut app, KeyCode::Down);
+        press(&mut app, KeyCode::Down);
+        assert_eq!(app.selected_row().unwrap()["name"], "bob");
+        app.current = Some("infra".into());
+        let mut other = snapshot("infra", json!([{"title": null, "rows": [member("cai")]}]));
+        other.view.as_mut().unwrap().document["squad"]["lead"] =
+            json!({"id": "M", "name": "mia", "fields": {}});
+        app.apply(other);
+        assert_eq!(app.selected_row().unwrap()["name"], "mia");
+    }
+
+    #[test]
+    fn a_lead_with_no_members_and_a_squad_without_a_lead() {
+        let app = board(&[]);
+        assert_eq!(shape(&app), ["sol", "-- members · 0 · none yet"]);
+        let mut app = App::new(Some("product".into()));
+        app.apply(snapshot(
+            "product",
+            json!([{"title": null, "rows": [member("amy")]}]),
+        ));
+        assert_eq!(shape(&app), ["amy"]);
+        assert_eq!(app.selected_row().unwrap()["name"], "amy");
+    }
+
+    #[test]
+    fn search_matches_the_lead_and_keeps_the_rule() {
+        let mut app = board(&["amy", "bob"]);
+        app.search = "sol".into();
+        assert_eq!(shape(&app), ["sol", "-- members · 0"]);
+        app.search = "bob".into();
+        assert_eq!(shape(&app), ["-- members · 1", "bob"]);
+    }
+
+    #[test]
+    fn r_answers_a_request_else_notes_a_pending_only_member_else_says_so() {
+        let mut app = board(&["amy", "bob", "cai"]);
+        let view = app.view.as_mut().unwrap();
+        view.document["sections"][0]["rows"][0]["pending"] = json!("pick a database");
+        view.document["sections"][0]["rows"][0]["waitingOnYou"] =
+            json!([{"requestId": "q1", "preview": "ship it?"}]);
+        view.document["sections"][0]["rows"][1]["pending"] = json!("review the plan");
+        app.select(1);
+        // A real request wins over the pending text.
+        press(&mut app, KeyCode::Char('r'));
+        assert!(matches!(
+            app.input.as_ref().unwrap().compose,
+            Compose::Reply { ref request, .. } if request == "q1"
+        ));
+        press(&mut app, KeyCode::Esc);
+        // Pending alone opens a note to that member; nothing is sent by opening,
+        // cancelling or an empty Enter.
+        app.select(2);
+        assert_eq!(press(&mut app, KeyCode::Char('r')), Effect::None);
+        assert_eq!(app.input.as_ref().unwrap().header(), "✎ note → bob");
+        assert_eq!(press(&mut app, KeyCode::Esc), Effect::None);
+        assert!(app.input.is_none());
+        press(&mut app, KeyCode::Char('r'));
+        assert_eq!(press(&mut app, KeyCode::Enter), Effect::None);
+        assert_eq!(app.notice.as_deref(), Some("Nothing sent."));
+        press(&mut app, KeyCode::Char('r'));
+        for character in "go ahead".chars() {
+            press(&mut app, KeyCode::Char(character));
+        }
+        assert_eq!(
+            press(&mut app, KeyCode::Enter),
+            Effect::Act(Request::Annotate {
+                me: "Ben".into(),
+                squad: "product".into(),
+                to: "bob".into(),
+                row: "bob".into(),
+                text: "go ahead".into()
+            })
+        );
+        // The pending text stays: nothing acknowledged or cleared it.
+        assert_eq!(app.rows()[2].1["pending"], "review the plan");
+        // Neither a request nor pending text: the notice, and no composer.
+        app.select(3);
+        press(&mut app, KeyCode::Char('r'));
+        assert_eq!(app.notice.as_deref(), Some("cai is not waiting on you."));
+        assert!(app.input.is_none());
+    }
+
+    #[test]
+    fn the_lead_row_takes_the_ordinary_row_actions() {
+        let mut app = board(&["amy"]);
+        assert_eq!(
+            press(&mut app, KeyCode::Enter),
+            Effect::Act(Request::Jump("sol".into()))
+        );
+        press(&mut app, KeyCode::Char('t'));
+        assert_eq!(app.input.as_ref().unwrap().prompt, "→ sol (product)");
+        for character in "hello".chars() {
+            press(&mut app, KeyCode::Char(character));
+        }
+        assert_eq!(
+            press(&mut app, KeyCode::Enter),
+            Effect::Act(Request::Talk {
+                me: "Ben".into(),
+                squad: "product".into(),
+                to: "sol".into(),
+                text: "hello".into()
+            })
+        );
+        // The lead's occurrence is the lead's own, so a member row never shares it.
+        assert!(matches!(app.row_target(0), Some(RowTarget::Lead { .. })));
+        assert!(matches!(app.row_target(1), Some(RowTarget::Member { .. })));
+    }
+}
+
+#[cfg(test)]
 mod token_window_tests {
     use super::tests::{bind, crew};
     use super::*;
     use crate::config::{TokenRate, TokenWindow};
+    use serde_json::json;
     fn app() -> App {
         let mut app = crew(crate::action::preset(false, &[]), Vec::new());
         app.meter = Some(super::super::meter::Meter::new(
@@ -4741,6 +5162,7 @@ mod token_window_tests {
         let mut snapshot = super::tests::snapshot(super::super::ALL, serde_json::json!([]));
         let view = snapshot.view.as_mut().unwrap();
         view.home = Some(super::super::home::Home {
+            windows: TokenWindow::DEFAULTS,
             summary: Default::default(),
             sections: Vec::new(),
             failures: Vec::new(),
@@ -4772,6 +5194,247 @@ mod token_window_tests {
             super::super::meter::Meter::new(settings, &input, now),
         );
         app
+    }
+
+    fn header(now: Instant) -> App {
+        let mut app = home(now);
+        app.view.as_mut().unwrap().document["sections"] = json!([{"rows": [
+            {"squad":"product", "name":"product"}
+        ]}]);
+        app
+    }
+
+    fn extra(app: &mut App, input: super::super::rate::Input, settings: TokenRate, now: Instant) {
+        let view = app.view.as_mut().unwrap();
+        view.home
+            .as_mut()
+            .unwrap()
+            .squads
+            .push(super::super::home::SquadLine {
+                squad: "extra".into(),
+                lead: Some(json!({"id":"a"})),
+                counts: Default::default(),
+                members: Default::default(),
+            });
+        view.document["sections"][0]["rows"]
+            .as_array_mut()
+            .unwrap()
+            .push(json!({"squad":"extra", "name":"extra"}));
+        app.meters.insert(
+            "extra".into(),
+            super::super::meter::Meter::new(settings, &input, now),
+        );
+        view.home_rate.insert(
+            "extra".into(),
+            RateView {
+                input,
+                settings,
+                history: None,
+            },
+        );
+    }
+
+    #[test]
+    fn header_distinguishes_disabled_warmup_zero_and_missing_members() {
+        let now = Instant::now();
+        let mut app = header(now);
+        let initial = app.home_header_usage(now).unwrap();
+        assert_eq!(initial.totals, [None; 3]);
+        assert_eq!(initial.unreported, 2);
+        assert!(initial.top.is_none() && initial.models.is_empty());
+        let time = now + Duration::from_secs(10);
+        app.sample_home(Ok(&super::super::rate::tests::input(100).resumes), time);
+        let zero = app.home_header_usage(time).unwrap();
+        assert_eq!(zero.totals[2].unwrap().tokens, 0);
+        assert!(zero.totals[2].unwrap().partial);
+        assert_eq!(zero.unreported, 1);
+        assert!(zero.top.is_none() && zero.models.is_empty());
+        app.search = "not-shown".into();
+        assert!(app.home_header_usage(time).is_none());
+        app.search.clear();
+        app.view
+            .as_mut()
+            .unwrap()
+            .home_rate
+            .get_mut("product")
+            .unwrap()
+            .settings
+            .enabled = false;
+        assert!(app.home_header_usage(time).is_none());
+    }
+
+    #[test]
+    fn header_deduplicates_lead_members_and_uses_one_model_share_denominator() {
+        let now = Instant::now();
+        let mut app = header(now);
+        let mut input = super::super::rate::tests::input(100);
+        input.resumes.get_mut("a").unwrap()["model"] = json!("model-a");
+        let mut b = input.resumes["a"].clone();
+        b["model"] = json!("model-b");
+        input.resumes.insert("b".into(), b);
+        input.names.insert("b".into(), "worker-b".into());
+        extra(
+            &mut app,
+            input.clone(),
+            TokenRate {
+                enabled: true,
+                ..Default::default()
+            },
+            now,
+        );
+        let public = app.view.as_ref().unwrap().document.clone();
+        let time = now + Duration::from_secs(20);
+        let mut resumes = super::super::rate::tests::input(200).resumes;
+        resumes.get_mut("a").unwrap()["model"] = json!("model-a");
+        let mut b = super::super::rate::tests::input(400)
+            .resumes
+            .remove("a")
+            .unwrap();
+        b["model"] = json!("model-b");
+        resumes.insert("b".into(), b);
+        app.sample_home(Ok(&resumes), time);
+        let usage = app.home_header_usage(time).unwrap();
+        assert_eq!(usage.totals.map(|total| total.unwrap().tokens), [600; 3]);
+        assert_eq!(
+            usage.unreported, 1,
+            "duplicate UUID a is counted once, not once per squad"
+        );
+        let top = usage.top.unwrap();
+        assert_eq!(top.member, "worker-b");
+        assert_eq!(
+            top.share,
+            UsageShare {
+                fraction: 0.75,
+                partial: true
+            }
+        );
+        assert_eq!(usage.models.len(), 2);
+        assert_eq!(usage.models[0].model, Some("model-b"));
+        assert_eq!(usage.models[0].share.fraction, 0.75);
+        assert_eq!(usage.models[1].share.fraction, 0.25);
+        assert_eq!(app.view.as_ref().unwrap().document, public);
+        app.search = "product".into();
+        let filtered = app.home_header_usage(time).unwrap();
+        assert_eq!(filtered.totals[2].unwrap().tokens, 150);
+        assert_eq!(filtered.models.len(), 1);
+        app.search.clear();
+        app.view.as_mut().unwrap().home_rate.remove("extra");
+        assert_eq!(
+            app.home_header_usage(time).unwrap().totals[2]
+                .unwrap()
+                .tokens,
+            150
+        );
+    }
+
+    #[test]
+    fn header_uuid_collision_prefers_verified_evidence_then_displayed_squad_order() {
+        let now = Instant::now();
+        let mut app = header(now);
+        app.view
+            .as_mut()
+            .unwrap()
+            .home_rate
+            .get_mut("product")
+            .unwrap()
+            .input
+            .resumes
+            .remove("missing");
+        let settings = TokenRate {
+            enabled: true,
+            ..Default::default()
+        };
+        extra(
+            &mut app,
+            super::super::rate::tests::input(100),
+            settings,
+            now - Duration::from_secs(60),
+        );
+        let time = now + Duration::from_secs(20);
+        app.meters
+            .get_mut("product")
+            .unwrap()
+            .sample(Ok(&super::super::rate::tests::input(400)), time);
+        let mut better = super::super::rate::tests::input(200);
+        better.resumes.get_mut("a").unwrap()["model"] = json!("better-covered");
+        app.meters
+            .get_mut("extra")
+            .unwrap()
+            .sample(Ok(&better), time);
+        let usage = app.home_header_usage(time).unwrap();
+        assert_eq!(
+            usage.totals[2].unwrap().tokens,
+            150,
+            "more tokens cannot override better evidence"
+        );
+        assert_eq!(usage.models[0].model, Some("better-covered"));
+        let mut tied =
+            super::super::meter::Meter::new(settings, &super::super::rate::tests::input(100), now);
+        tied.sample(Ok(&super::super::rate::tests::input(300)), time);
+        app.meters.insert("extra".into(), tied);
+        assert_eq!(
+            app.home_header_usage(time).unwrap().totals[2]
+                .unwrap()
+                .tokens,
+            450
+        );
+        app.view
+            .as_mut()
+            .unwrap()
+            .home
+            .as_mut()
+            .unwrap()
+            .squads
+            .swap(0, 1);
+        assert_eq!(
+            app.home_header_usage(time).unwrap().totals[2]
+                .unwrap()
+                .tokens,
+            300
+        );
+    }
+
+    #[test]
+    fn header_queries_global_durations_and_keeps_shorter_squad_history_partial() {
+        let now = Instant::now();
+        let mut app = header(now);
+        let long = TokenWindow::parse("2h").unwrap();
+        app.view.as_mut().unwrap().home.as_mut().unwrap().windows =
+            [TokenWindow::MINUTE, TokenWindow::HOUR, long];
+        let time = now + Duration::from_secs(20);
+        app.sample_home(Ok(&super::super::rate::tests::input(200).resumes), time);
+        let usage = app.home_header_usage(time).unwrap();
+        assert_eq!(usage.windows[2].label(), "2h");
+        assert_eq!(usage.totals.map(|total| total.unwrap().tokens), [150; 3]);
+        assert!(usage.totals[2].unwrap().partial);
+        assert_eq!(
+            app.home_usage("product", time).unwrap().windows,
+            TokenWindow::DEFAULTS
+        );
+        // The original delta ages out of squad w2=5m, but global w2=1h retains it.
+        let time = now + Duration::from_secs(360);
+        app.sample_home(Ok(&super::super::rate::tests::input(200).resumes), time);
+        assert_eq!(
+            app.home_header_usage(time)
+                .unwrap()
+                .totals
+                .map(|total| total.unwrap().tokens),
+            [0, 150, 150]
+        );
+        assert_eq!(
+            app.home_usage("product", time).unwrap().lead[1]
+                .unwrap()
+                .tokens,
+            0
+        );
+        let mut failed = super::tests::snapshot(super::super::ALL, json!([]));
+        failed.view = Err("HOME read failed".into());
+        app.apply(failed);
+        assert!(
+            app.home_header_usage(time).unwrap().totals[2]
+                .unwrap()
+                .partial
+        );
     }
 
     #[test]
@@ -5071,6 +5734,18 @@ mod token_window_tests {
             app.usage_document, projected,
             "same receipt does not change display"
         );
+        // The lead is an ordinary row of the display: it gets the same columns.
+        app.view.as_mut().unwrap().document["squad"]["lead"] =
+            serde_json::json!({"id": "a", "name": "boss", "fields": {}});
+        app.project_usage(time);
+        let lead = app.rows()[0].1;
+        assert_eq!(lead["name"], "boss");
+        assert_eq!(lead["fields"]["tok_1"], "150");
+        assert_eq!(lead["fields"]["model"], "new");
+        assert!(app.view.as_ref().unwrap().document["squad"]["lead"]["fields"]["tok_1"].is_null());
+        app.view.as_mut().unwrap().document["squad"]["lead"] = Value::Null;
+        app.project_usage(time);
+        assert_eq!(app.usage_document, projected);
         app.go("uncached".into());
         app.project_usage(time);
         assert_eq!(

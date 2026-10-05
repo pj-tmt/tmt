@@ -374,7 +374,8 @@ The shipped `tmt remote serve` runs in the foreground until Ctrl-C, SIGTERM or `
 with no default idle or hard deadline. Without `--port`, it reuses its last successfully bound
 IPv4-loopback port; on first use it selects an unused port. If the remembered port is busy, serve
 refuses with `REMOTE_PORT_BUSY`, names the port, tells the owner to stop the process using it to
-retain browser pairing, and offers `--port <n>` / `--port 0` to choose a new origin explicitly.
+retain browser pairing, and offers `--port <n>` to choose a new origin explicitly. Human output is
+an `error:` line and a separate `hint:` line; `--json` joins them as `error.message`.
 `--port 0` explicitly selects a random unused port; an explicit nonzero busy port refuses without
 fallback. The actual bound port is remembered for the next run, including after an explicit
 selection. Human startup output puts the full door URL on its own line with no trailing punctuation.
@@ -1095,8 +1096,8 @@ or confirmed offers return the generic JSON 404. Cross-origin loads refuse. The 
 exclusively in the captured fragment. Old `/pair/<descriptor>` paths refuse; no compatibility route
 remains. `GET /` serves a static pairing landing page; malformed pairing-page paths receive generic
 HTML errors with their refusal status. These pages load only the embedded same-origin
-`GET /sdk/pages.css` stylesheet, using the shared design tokens and system font fallbacks without network
-fonts. Protocol refusals below `/r/` remain JSON. `GET /sdk/remote-v1.js` serves the device SDK as
+`GET /sdk/pages.css` stylesheet, using the shared design tokens (the same `header` group as Colab's header) and system font
+fallbacks without network fonts. Protocol refusals below `/r/` remain JSON. `GET /sdk/remote-v1.js` serves the device SDK as
 `text/javascript; charset=utf-8` with `nosniff`; the path names the SDK interface version, not a
 build, so it is not cached across upgrades. `POST /sdk/mount` takes exactly `{path}` from a page on
 the door's own origin and answers `{machineId, windowId, address, extension, mount}`: this run's

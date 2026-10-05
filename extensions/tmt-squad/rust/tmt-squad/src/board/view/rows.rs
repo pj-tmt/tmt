@@ -2,10 +2,8 @@
 //! shared painter. Cells, ages and hits are built by `row_paint`.
 
 use super::row_paint::{Extra, GAP, RowPaint, row_end};
-use crate::board::{
-    app::{App, Item},
-    derived,
-};
+use crate::board::{app::App, derived};
+use crate::display_rows::{Item, RowOrigin};
 use crate::{config::Pane, rows::Rows};
 use ratatui::{Frame, layout::Rect, text::Line};
 use tmt_cli_style::Role;
@@ -28,8 +26,8 @@ fn prepare(
         app.items()
             .into_iter()
             .filter_map(|item| match item {
-                Item::Row(row) => crate::markup::value(row, field),
-                Item::Header(_) => None,
+                Item::Row(_, row) => crate::markup::value(row, field),
+                Item::Section(_) | Item::Rule(_) => None,
             })
             // Content demand is unwrapped; measured width is a capped upper bound.
             .map(|value| tmt_cli_style::table::escape(value).width())
@@ -41,13 +39,13 @@ fn prepare(
     let layout = crate::markup::Grid::compile(rows, natural, available)
         .map_err(|error| format!("Row layout: {error}"))?;
     // The row-end label room is reserved only when no column would be hidden:
-    // first for the age mark plus `⏱ next`, then for the age mark alone.
+    // first for the age mark plus `cron next`, then for the age mark alone.
     let ages: Vec<_> = app
         .items()
         .into_iter()
         .filter_map(|item| match item {
-            Item::Row(row) => Some(crate::staleness::label(&row["staleness"])),
-            Item::Header(_) => None,
+            Item::Row(_, row) => Some(crate::staleness::label(&row["staleness"])),
+            Item::Section(_) | Item::Rule(_) => None,
         })
         .collect();
     let widest = |label: &dyn Fn(&Option<String>, &Extra) -> Option<String>| {
@@ -106,13 +104,7 @@ pub(super) fn render_rows(frame: &mut Frame, app: &App, area: Rect) {
         } else {
             "Loading…"
         };
-        strip::paint_left(
-            frame.buffer_mut(),
-            area,
-            Line::from(message),
-            &look.theme,
-            look.depth,
-        );
+        strip::paint_left(frame.buffer_mut(), area, Line::from(message));
         return;
     };
     let Some(tab) = app.shown_tab() else { return };
@@ -124,11 +116,14 @@ pub(super) fn render_rows(frame: &mut Frame, app: &App, area: Rect) {
     let extras: Vec<Extra> = app
         .items()
         .into_iter()
-        .filter(|item| matches!(item, Item::Row(_)))
+        .filter(|item| matches!(item, Item::Row(..)))
         .enumerate()
         .map(|(index, item)| {
-            let Item::Row(row) = item else { unreachable!() };
+            let Item::Row(origin, row) = item else {
+                unreachable!()
+            };
             Extra {
+                lead: origin == RowOrigin::Lead,
                 next: row["id"]
                     .as_str()
                     .and_then(|id| app.cron.member_label(id, now)),
@@ -150,8 +145,6 @@ pub(super) fn render_rows(frame: &mut Frame, app: &App, area: Rect) {
                     frame.buffer_mut(),
                     area,
                     Line::styled(message, look.role(Role::Muted)),
-                    &look.theme,
-                    look.depth,
                 );
                 return;
             }

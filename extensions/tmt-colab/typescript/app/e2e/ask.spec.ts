@@ -31,7 +31,7 @@ test('trusted preview is inert, shows exact frozen/control bytes, and only an ex
   expect(initial.sends).toEqual([]);
   expect(initial.draft).toBeUndefined();
   expect(await page.getByLabel('Exact message').textContent()).toBe(initial.deliveredMessage);
-  expect(initial.message).toContain('Link: https://example.test/x/colab/#space=');
+  expect(initial.message).toContain('Link: https://example.test/p/00000000');
   expect(initial.message).not.toContain('secret');
   expect(initial.deliveredMessage).toBe(`[remote: Fixture browser]\n${initial.message}`);
   expect(await page.locator('#ask-fixture script').count()).toBe(0);

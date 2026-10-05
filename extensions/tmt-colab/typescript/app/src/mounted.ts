@@ -161,6 +161,7 @@ export async function mountedTransport(
           const { boot, log } = await client.snapshot(lifetime.signal);
           return {
             title: text.product,
+            pageIds: boot.pageIds,
             pages: await Promise.all(
               boot.pages.map(async (page) => {
                 const policy = project(page, log).page;

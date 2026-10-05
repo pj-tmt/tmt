@@ -322,3 +322,32 @@ fn caller_decoration_aligns_at_recorded_width_and_retains_scoped_hits() {
     assert_eq!(hit_at(&hits, 4, 0).unwrap().id.unwrap(), ["left"]);
     assert_eq!(hit_at(&hits, 8, 0).unwrap().id.unwrap(), ["right"]);
 }
+
+#[test]
+fn hits_and_selection_follow_a_stable_id_across_branches_and_resizes() {
+    let root = scene(
+        "class='flex-row'",
+        "<tmt-row id='row' row-id='member-1' selected='true' class='w-full'>\
+           <tmt-cell id='name' class='w-6'>rin</tmt-cell>\
+           <tmt-switch><tmt-case min='md'><tmt-cell id='squad' class='grow'>squad</tmt-cell></tmt-case>\
+           <tmt-default><tmt-cell id='squad' class='grow'>s</tmt-cell></tmt-default></tmt-switch>\
+         </tmt-row>",
+    );
+    for (width, label) in [(120u16, "squad"), (99, "s"), (100, "squad"), (80, "s")] {
+        let (buffer, hits) = draw(&root, [width, 1]);
+        let text: String = row(&buffer, 0).concat();
+        assert!(
+            text.starts_with(&format!("rin   {label}")),
+            "{width}: {text:?}"
+        );
+        // The shared id hits at either width and the selection style reaches both branches.
+        let squad = hit_at(&hits, 6, 0).unwrap();
+        assert_eq!(squad.id.unwrap(), ["row", "squad"], "{width}");
+        assert_eq!(squad.row_id, Some("member-1"));
+        assert!(
+            buffer[(6, 0)].modifier.contains(Modifier::REVERSED),
+            "{width}"
+        );
+        assert_eq!(hit_at(&hits, 0, 0).unwrap().id.unwrap(), ["row", "name"]);
+    }
+}

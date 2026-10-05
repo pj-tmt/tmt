@@ -1,4 +1,4 @@
-import { expect, test, chromium, type Browser } from '@playwright/test';
+import { expect, test, chromium, type Browser, type Page } from '@playwright/test';
 import { spawn, execFileSync, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { createPublicKey, verify } from 'node:crypto';
 import { extCertSigningBytes } from '../src/canonical-bytes.js';
@@ -16,6 +16,38 @@ import { fileURLToPath } from 'node:url';
  * colab served on its owner-only socket. Build the binary first with
  * `cargo build -p tmt-remote`, or point TMT_REMOTE_BINARY at one.
  */
+// The shared header tokens, the same metrics Colab's header reads.
+const { header: headerTokens } = JSON.parse(
+  await readFile(
+    fileURLToPath(new URL('../../../../../design/tokens/tokens.json', import.meta.url)),
+    'utf8',
+  ),
+) as { header: Record<string, string> };
+
+// The state colors (design tokens `waiting`, `blocked`, `working`) of the mark and the sheet's
+// hard shadow, as in Colab's notice card.
+const STATE_COLORS = {
+  light: { waiting: 'rgb(150, 80, 39)', blocked: 'rgb(182, 44, 59)', working: 'rgb(79, 106, 51)' },
+  dark: {
+    waiting: 'rgb(255, 158, 100)',
+    blocked: 'rgb(247, 118, 142)',
+    working: 'rgb(158, 206, 106)',
+  },
+};
+async function expectStateColor(
+  page: Page,
+  scheme: 'light' | 'dark',
+  state: 'waiting' | 'blocked' | 'working',
+) {
+  const color = await page.evaluate(() => ({
+    mark: getComputedStyle(document.querySelector('.state-mark')!).color,
+    shadow: /^rgb\([^)]*\)/.exec(
+      getComputedStyle(document.querySelector('.sheet')!).boxShadow,
+    )?.[0],
+  }));
+  expect(color).toEqual({ mark: STATE_COLORS[scheme][state], shadow: STATE_COLORS[scheme][state] });
+}
+
 const BINARY =
   process.env.TMT_REMOTE_BINARY ??
   fileURLToPath(new URL('../../../../../rust/target/debug/tmt-remote', import.meta.url));
@@ -145,6 +177,7 @@ test('a browser pairs, gets a door session and certifies only its own extension'
     'This browser is paired. You can close this page.',
   );
   await expect(page.locator('#mark')).toHaveText('✓');
+  await expectStateColor(page, 'light', 'working');
   expect(requested.some((url) => url.includes(code))).toBe(false);
 
   const cookies = await context.cookies(mounts);
@@ -432,7 +465,9 @@ test('browser pages use local tokens in both schemes and fit desktop and mobile'
           if (message.text().startsWith('CSP violation:')) violations.push(message.text());
         });
         const inspect = async (state: 'landing' | 'pairing' | 'confirmation' | 'error') => {
-          await expect(page.locator('.brand')).toHaveText('Remote tmt');
+          await expect(page.locator('.header-title')).toHaveText(
+            state === 'error' ? 'Page unavailable' : 'Pair a browser',
+          );
           await expect(page.locator('.state-mark')).toHaveText(
             { landing: '○', pairing: '◆', confirmation: '◆', error: '✗' }[state]!,
           );
@@ -440,9 +475,33 @@ test('browser pages use local tokens in both schemes and fit desktop and mobile'
             const sheet = document.querySelector('.sheet')!;
             const style = getComputedStyle(sheet);
             return {
-              mastheadWidth: document.querySelector('.masthead')!.getBoundingClientRect().width,
-              mastheadRule: getComputedStyle(document.querySelector('.masthead')!)
-                .borderBottomWidth,
+              header: (() => {
+                const header = document.querySelector('.header')!;
+                const box = header.getBoundingClientRect();
+                const part = (selector: string) => {
+                  const element = document.querySelector(selector)!;
+                  const font = getComputedStyle(element);
+                  return {
+                    size: font.fontSize,
+                    weight: font.fontWeight,
+                    left: element.getBoundingClientRect().left,
+                  };
+                };
+                return {
+                  width: box.width,
+                  height: box.height,
+                  top: box.top,
+                  position: getComputedStyle(header).position,
+                  rule: getComputedStyle(header).borderBottomWidth,
+                  background: getComputedStyle(header).backgroundColor,
+                  mark: part('.header-mark'),
+                  wordmark: part('.header-wordmark'),
+                  title: part('.header-title'),
+                  markText: document.querySelector('.header-mark')!.textContent,
+                  wordmarkText: document.querySelector('.header-wordmark')!.textContent,
+                  headings: document.querySelectorAll('h1').length,
+                };
+              })(),
               markAboveEyebrow:
                 document.querySelector('.state-mark')!.getBoundingClientRect().bottom <=
                 document.querySelector('.eyebrow')!.getBoundingClientRect().top,
@@ -461,14 +520,40 @@ test('browser pages use local tokens in both schemes and fit desktop and mobile'
             paper: colorScheme === 'light' ? 'rgb(244, 246, 251)' : 'rgb(26, 27, 38)',
             sheet: colorScheme === 'light' ? 'rgb(255, 255, 255)' : 'rgb(22, 22, 30)',
             text: colorScheme === 'light' ? 'rgb(52, 59, 88)' : 'rgb(192, 202, 245)',
-            mastheadWidth: width,
-            mastheadRule: '2px',
             markAboveEyebrow: true,
             radius: '0px',
             overflow: false,
             inline: 0,
           });
           expect(look.shadow).toContain('6px 6px 0px 0px');
+          await expectStateColor(page, colorScheme, state === 'error' ? 'blocked' : 'waiting');
+          // Colab's header, from the same tokens: mark, product, then the page title.
+          const header = look.header;
+          expect(header).toMatchObject({
+            width,
+            height: parseFloat(headerTokens[width < 480 ? 'compact-height' : 'height']!),
+            top: 0,
+            position: 'fixed',
+            rule: '1px',
+            background: look.paper,
+            markText: 'tmt',
+            wordmarkText: 'Remote',
+            headings: 1,
+          });
+          expect(header.mark).toMatchObject({
+            size: headerTokens['mark-size'],
+            weight: headerTokens['mark-weight'],
+          });
+          expect(header.wordmark).toMatchObject({
+            size: headerTokens['wordmark-size'],
+            weight: headerTokens['wordmark-weight'],
+          });
+          expect(header.title).toMatchObject({
+            size: headerTokens['title-size'],
+            weight: headerTokens['title-weight'],
+          });
+          expect(header.mark.left).toBeLessThan(header.wordmark.left);
+          expect(header.wordmark.left).toBeLessThan(header.title.left);
           if (captures) {
             await page.screenshot({
               path: join(captures, `${state}-${width}-${colorScheme}.png`),
@@ -479,7 +564,7 @@ test('browser pages use local tokens in both schemes and fit desktop and mobile'
         expect((await page.goto(origin))?.status()).toBe(200);
         await inspect('landing');
         expect((await page.goto(`${origin}/pair/`))?.status()).toBe(404);
-        await expect(page.getByRole('heading')).toHaveText('This page is unavailable');
+        await expect(page.locator('#heading')).toHaveText('This page is unavailable');
         await inspect('error');
 
         pair = spawn(BINARY, ['pair', '--json'], { env });
@@ -529,6 +614,7 @@ test('browser pages use local tokens in both schemes and fit desktop and mobile'
           'Pairing did not complete. Run tmt remote pair again for a new link.',
         );
         await expect(page.locator('#mark')).toHaveText('✗');
+        await expectStateColor(page, colorScheme, 'blocked');
         expect((await page.goto(`${origin}/pair/abc`))?.status()).toBe(404);
         await page.goto(`${origin}/pair#BAD`);
         await expect(page.locator('#status')).toHaveAttribute('data-state', 'blocked');

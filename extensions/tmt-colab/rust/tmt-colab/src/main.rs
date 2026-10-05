@@ -319,7 +319,7 @@ fn run(matches: &clap::ArgMatches) -> Result<()> {
         let mut output = tmt_cli_style::stream::stdout(json_output);
         let store = Store::open(&layout)?;
         let space_id = keyring.space_id.clone();
-        let pages = open_pages(&store, &keyring);
+        let (pages, all_pages) = open_pages(&store, &keyring);
         let registration = Arc::new(Mutex::new(Registration::new(
             store,
             keyring,
@@ -345,6 +345,7 @@ fn run(matches: &clap::ArgMatches) -> Result<()> {
             access: &access,
             pairing,
             pages,
+            all_pages,
             opened: false,
         };
         // Once the door is ready, open the page (or the space home) unless told or unable not to.
@@ -352,8 +353,7 @@ fn run(matches: &clap::ArgMatches) -> Result<()> {
         if let Some(link) = status.open_link() {
             // The door is ready: unreadable settings are the defaults, never a failed serve.
             let settings = tmt_colab::settings::read_or_default(&root);
-            let outcome =
-                open::open_link(&link, open::Flag::of(args), settings.open(), json_output);
+            let outcome = open::open_link(&link, open::flag(args), settings.open(), json_output);
             status.opened = matches!(outcome, open::Outcome::Opened);
             open_warnings.extend(open::describe(&outcome, &link).1);
             if settings.malformed {
@@ -397,15 +397,23 @@ fn run(matches: &clap::ArgMatches) -> Result<()> {
 }
 /// Ids of the pages that are not archived, for the start-up status. A catalog that cannot be
 /// read is unknown, never a reason to refuse to serve.
-fn open_pages(store: &Store, keyring: &Keyring) -> Option<Vec<String>> {
-    let catalog = tmt_colab::inspection::catalog(store, keyring).ok()?;
-    catalog["pages"]
-        .as_array()?
-        .iter()
-        .filter(|page| page["archived"] != true)
-        .map(|page| page["pageId"].as_str().map(str::to_owned))
-        .collect()
+fn open_pages(store: &Store, keyring: &Keyring) -> (Option<Vec<String>>, Option<Vec<String>>) {
+    let Some(catalog) = tmt_colab::inspection::catalog(store, keyring).ok() else {
+        return (None, None);
+    };
+    let ids = |rows: &serde_json::Value, active: bool| -> Option<Vec<String>> {
+        rows.as_array()?
+            .iter()
+            .filter(|page| !active || page["archived"] != true)
+            .map(|page| page["pageId"].as_str().map(str::to_owned))
+            .collect()
+    };
+    (
+        ids(&catalog["pages"], true),
+        ids(&catalog["pageIds"], false),
+    )
 }
+
 /// How long a stop request waits for the serving process to release its lock: the door's grace
 /// period plus socket and worker shutdown.
 const STOP_WAIT: std::time::Duration = std::time::Duration::from_secs(10);

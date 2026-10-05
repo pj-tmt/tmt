@@ -11,6 +11,7 @@ export interface PageView extends Projection {
   readonly threads?: readonly ThreadView[];
   readonly askUnavailable?: boolean;
 }
+import type { PageId } from './bootstrap.js';
 import type { ExpiryInfo } from './expiry.js';
 export interface PageSummary extends Partial<ExpiryInfo> {
   readonly id: string;
@@ -40,6 +41,7 @@ export interface PageBinding {
 export interface SpaceHome {
   readonly title: string;
   readonly pages: readonly PageSummary[];
+  readonly pageIds?: readonly PageId[];
 }
 
 /** App data port. Mounted adapters own authentication and admission;

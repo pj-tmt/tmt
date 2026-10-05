@@ -68,9 +68,30 @@ pub trait Sources {
     -> Result<Option<String>, String>;
 }
 
+/// What a width-conditional branch measures. Container is the default.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Of {
+    /// The content width of the switch's parent box.
+    Container,
+    /// The viewport width given to `geometry::layout`.
+    Terminal,
+}
+
+/// The condition a `Switch`, `Case` or `Default` node carries. Geometry resolves
+/// switches before laying out, so no condition reaches a painted cell.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum Cond {
+    #[default]
+    None,
+    Switch(Of),
+    /// The branch applies from this width, in cells, up.
+    Case(u16),
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Node {
     pub kind: Kind,
+    pub cond: Cond,
     pub style: CellStyle,
     /// Components preserve occurrence identity without delimiter collisions.
     pub id: Option<Vec<String>>,
@@ -161,6 +182,9 @@ fn fail(file: &str, element: &MarkupElement, message: impl Into<String>) -> Erro
         Kind::List => "tmt-list",
         Kind::Table => "tmt-table",
         Kind::Picker => "tmt-picker",
+        Kind::Switch => "tmt-switch",
+        Kind::Case => "tmt-case",
+        Kind::Default => "tmt-default",
     };
     Error {
         file: file.into(),
@@ -486,11 +510,40 @@ impl<S> Template<S> {
                 .transpose()?;
         }
         let mut children = Vec::new();
-        for child in &self.children {
-            children.extend(child.expand(file, scopes, sources, &scope, budget)?);
+        if self.element.kind == Kind::Switch {
+            // Only one branch is ever laid out, so branches may reuse an ID:
+            // a cell present at several widths keeps its identity across a
+            // resize. IDs still must not collide with anything outside the switch.
+            let outside = budget.ids.clone();
+            let mut seen = outside.clone();
+            for child in &self.children {
+                budget.ids.clone_from(&outside);
+                children.extend(child.expand(file, scopes, sources, &scope, budget)?);
+                seen.append(&mut budget.ids);
+            }
+            budget.ids = seen;
+        } else {
+            for child in &self.children {
+                children.extend(child.expand(file, scopes, sources, &scope, budget)?);
+            }
         }
+        let cond = match self.element.kind {
+            Kind::Switch => Cond::Switch(
+                match self.element.attributes.get("of").map(String::as_str) {
+                    Some("terminal") => Of::Terminal,
+                    _ => Of::Container,
+                },
+            ),
+            Kind::Case => Cond::Case(
+                tmt_cli_style::breakpoint::by_name(&self.element.attributes["min"])
+                    .expect("admitted min")
+                    .cells,
+            ),
+            _ => Cond::None,
+        };
         Ok(vec![Node {
             kind: self.element.kind,
+            cond,
             style,
             id: resolved_id,
             row_id,

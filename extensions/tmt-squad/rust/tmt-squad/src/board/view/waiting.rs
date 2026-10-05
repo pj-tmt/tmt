@@ -65,8 +65,6 @@ pub(super) fn prompt(
             look.role(tmt_cli_style::Role::Accent)
                 .add_modifier(ratatui::style::Modifier::BOLD),
         ),
-        &look.theme,
-        look.depth,
     );
     let content = Rect {
         y: areas.content.y + 1,
@@ -88,8 +86,6 @@ pub(super) fn prompt(
                 ..content
             },
             Line::styled(line.as_str(), look.role(tmt_cli_style::Role::Text)),
-            &look.theme,
-            look.depth,
         );
     }
     strip::paint_left(
@@ -99,8 +95,6 @@ pub(super) fn prompt(
             "Enter send · Esc cancel",
             look.role(tmt_cli_style::Role::Muted),
         ),
-        &look.theme,
-        look.depth,
     );
 }
 
@@ -117,12 +111,22 @@ pub(in crate::board) fn reserved_lines(
     if input.row_send.as_ref()?.target != target {
         return None;
     }
-    let demand = if matches!(input.compose, crate::board::app::Compose::Reply { .. }) {
-        6
-    } else {
-        5
+    let demand = match input.compose {
+        crate::board::app::Compose::ReadLead { .. } => {
+            let lines =
+                crate::board::home_leads::message_lines(&input.text, area.width.saturating_sub(4));
+            lines.len().saturating_add(3).max(5)
+        }
+        crate::board::app::Compose::Reply { .. } => 6,
+        _ => 5,
     };
-    Some(demand.min(area.height.saturating_sub(2)).into())
+    let margin = if matches!(&target, crate::board::app::RowTarget::Home(target) if target.section == crate::board::home::LEADS)
+    {
+        3
+    } else {
+        2
+    };
+    Some(demand.min(usize::from(area.height.saturating_sub(margin))))
 }
 
 /// Reserve visual lines in a line stream (the home painter's).
@@ -156,8 +160,9 @@ pub(in crate::board) fn place_input(
     }
 }
 
-/// The one input owner paints at the reserved row position, spanning the entire
-/// body so a neighboring pane cannot show through its opaque chrome.
+/// One band owner paints at the reserved row position. Member bands cover the
+/// full body; boxed HOME lead bands cover its full inner width. Both modes share
+/// opaque chrome and remove the underlying hits.
 pub(super) fn inline_prompt(
     frame: &mut ratatui::Frame,
     app: &crate::board::app::App,
@@ -172,10 +177,18 @@ pub(super) fn inline_prompt(
     let (Some(input), Some(reserved)) = (&app.input, app.input_band.get()) else {
         return;
     };
-    let band = Rect {
-        x: body.x,
-        width: body.width,
-        ..reserved
+    let inset = input.row_send.as_ref().is_some_and(|send| {
+        matches!(&send.target,
+        crate::board::app::RowTarget::Home(target) if target.section == crate::board::home::LEADS)
+    });
+    let band = if inset {
+        reserved.intersection(body)
+    } else {
+        Rect {
+            x: body.x,
+            width: body.width,
+            ..reserved
+        }
     };
     let look = app.look();
     let modal = Modal {
@@ -184,75 +197,101 @@ pub(super) fn inline_prompt(
     };
     let areas = modal.areas(band, [band.width, band.height], true, false);
     modal.paint(areas, frame.buffer_mut(), &look.theme, look.depth);
-    strip::paint_left(
-        frame.buffer_mut(),
-        Rect {
-            height: 1,
+    if let crate::board::app::Compose::ReadLead { offset, .. } = input.compose {
+        let content = Rect {
+            height: areas.content.height + areas.position.height,
             ..areas.content
-        },
-        Line::styled(
-            super::fit(&input.header(), usize::from(areas.content.width)),
-            look.role(Role::Accent)
-                .add_modifier(ratatui::style::Modifier::BOLD),
-        ),
-        &look.theme,
-        look.depth,
-    );
-    if matches!(input.compose, crate::board::app::Compose::Reply { .. }) && areas.content.height > 1
-    {
-        let quote = format!(
-            "“{}”",
-            input.quote.as_deref().unwrap_or("question unavailable")
-        );
+        };
+        let lines = crate::board::home_leads::message_lines(&input.text, content.width);
+        let skip = offset.min(lines.len().saturating_sub(usize::from(content.height)));
+        for (index, line) in lines
+            .iter()
+            .skip(skip)
+            .take(usize::from(content.height))
+            .enumerate()
+        {
+            strip::paint_left(
+                frame.buffer_mut(),
+                Rect {
+                    y: content.y + index as u16,
+                    height: 1,
+                    ..content
+                },
+                Line::styled(line.as_str(), look.role(Role::Text)),
+            );
+        }
+    } else {
         strip::paint_left(
             frame.buffer_mut(),
             Rect {
-                y: areas.content.y + 1,
                 height: 1,
                 ..areas.content
             },
-            Line::from(vec![
-                Span::styled(
-                    "◆ ",
-                    look.role(Role::Waiting)
-                        .add_modifier(ratatui::style::Modifier::BOLD),
-                ),
-                Span::styled(
-                    super::fit(&quote, usize::from(areas.content.width.saturating_sub(2))),
-                    look.role(Role::Muted),
-                ),
-            ]),
-            &look.theme,
-            look.depth,
+            Line::styled(
+                super::fit(&input.header(), usize::from(areas.content.width)),
+                look.role(Role::Accent)
+                    .add_modifier(ratatui::style::Modifier::BOLD),
+            ),
+        );
+        if matches!(input.compose, crate::board::app::Compose::Reply { .. })
+            && areas.content.height > 1
+        {
+            let quote = format!(
+                "“{}”",
+                input.quote.as_deref().unwrap_or("question unavailable")
+            );
+            strip::paint_left(
+                frame.buffer_mut(),
+                Rect {
+                    y: areas.content.y + 1,
+                    height: 1,
+                    ..areas.content
+                },
+                Line::from(vec![
+                    Span::styled(
+                        "◆ ",
+                        look.role(Role::Waiting)
+                            .add_modifier(ratatui::style::Modifier::BOLD),
+                    ),
+                    Span::styled(
+                        super::fit(&quote, usize::from(areas.content.width.saturating_sub(2))),
+                        look.role(Role::Muted),
+                    ),
+                ]),
+            );
+        }
+        // Fit the tail so the cursor remains visible even for a long draft.
+        let text = tmt_tui::text::lines(
+            &format!("{}▏", input.text),
+            areas.position.width,
+            tmt_tui::style::TextFlow::Wrap,
+        );
+        strip::paint_left(
+            frame.buffer_mut(),
+            areas.position,
+            Line::styled(
+                text.last().map(String::as_str).unwrap_or("▏"),
+                look.role(Role::Text),
+            ),
         );
     }
-    // Fit the tail so the cursor remains visible even for a long draft.
-    let text = tmt_tui::text::lines(
-        &format!("{}▏", input.text),
-        areas.position.width,
-        tmt_tui::style::TextFlow::Wrap,
-    );
-    strip::paint_left(
-        frame.buffer_mut(),
-        areas.position,
-        Line::styled(
-            text.last().map(String::as_str).unwrap_or("▏"),
-            look.role(Role::Text),
-        ),
-        &look.theme,
-        look.depth,
-    );
-    let hint = if input.alternative.is_some() {
-        "Enter send · Esc cancel · Tab answer/note"
+    let hint = if matches!(input.compose, crate::board::app::Compose::ReadLead { .. }) {
+        format!(
+            "e collapse · a reply to {}",
+            input
+                .row_send
+                .as_ref()
+                .map_or("lead", |send| send.name.as_str())
+        )
+    } else if input.alternative.is_some() {
+        "Enter send · Esc cancel · Tab answer/note".into()
     } else {
-        "Enter send · Esc cancel"
+        "Enter send · Esc cancel".into()
     };
     strip::paint_left(
         frame.buffer_mut(),
         areas.footer,
         Line::styled(hint, look.role(Role::Muted)),
-        &look.theme,
-        look.depth,
     );
     let covered = |area: &Rect| !area.intersection(band).is_empty();
     app.hits

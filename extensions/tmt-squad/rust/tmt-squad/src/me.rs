@@ -177,50 +177,6 @@ pub fn resolve_you(core: &Core, config: &mut Config) -> Result<Option<(Me, Sourc
     Ok(you(None, caller(core).ok().flatten().as_ref()).map(|pane| (pane, Source::Pane)))
 }
 
-/// Who sends a command's request: an explicit `--identity`, otherwise the
-/// caller, otherwise the recorded user. With none of them, one line says how
-/// to name a sender; the user is never asked.
-pub fn sender(
-    explicit: Option<Me>,
-    caller: Option<Caller>,
-    recorded: Option<Me>,
-) -> Result<Me, SquadError> {
-    explicit
-        .or(caller.map(|caller| caller.me))
-        .or(recorded)
-        .ok_or_else(|| {
-            SquadError::hinted(
-                "SQUAD_SENDER_UNKNOWN",
-                "Who is sending? This pane has no identity, and no user is recorded.",
-                " ",
-                "Name this pane with tmt this <name>, or record yourself with tmt squad me <name>.",
-            )
-        })
-}
-
-/// [`sender`] with its inputs read from core and `squad.toml`. An explicit
-/// identity must exist; the caller is consulted only without one, and the
-/// recorded user only when the caller has no identity.
-pub fn resolve_sender(
-    core: &Core,
-    config: &mut Config,
-    explicit: Option<&str>,
-) -> Result<Me, SquadError> {
-    if let Some(selector) = explicit {
-        let found = lookup(core, selector)?.ok_or_else(|| {
-            SquadError::new(
-                "NAME_NOT_FOUND",
-                format!("Identity '{selector}' was not found."),
-            )
-        })?;
-        return sender(Some(found), None, None);
-    }
-    if let Some(caller) = caller(core)? {
-        return sender(None, Some(caller), None);
-    }
-    sender(None, None, resolve(core, config)?)
-}
-
 /// `tmt squad me <name>`: a saved identity becomes the user.
 pub fn set(core: &Core, config: &mut Config, name: &str) -> Result<Me, SquadError> {
     let shown = core.json(&["identity", "show", name])?;
@@ -287,30 +243,6 @@ mod tests {
             me: me(name),
             saved,
         }
-    }
-
-    #[test]
-    fn the_sender_is_explicit_then_the_caller_then_the_recorded_user() {
-        let all = sender(Some(me("sol")), Some(caller("rin", true)), Some(me("ben")));
-        assert_eq!(all.unwrap().name, "sol");
-        let pane = sender(None, Some(caller("auth-fix", false)), Some(me("ben")));
-        assert_eq!(
-            pane.unwrap().name,
-            "auth-fix",
-            "a temporary agent speaks as itself"
-        );
-        assert_eq!(sender(None, None, Some(me("ben"))).unwrap().name, "ben");
-        let unknown = sender(None, None, None).unwrap_err();
-        assert_eq!(unknown.code, "SQUAD_SENDER_UNKNOWN");
-        assert_eq!(
-            unknown.human(),
-            (
-                "Who is sending? This pane has no identity, and no user is recorded.",
-                Some(
-                    "Name this pane with tmt this <name>, or record yourself with tmt squad me <name>."
-                )
-            )
-        );
     }
 
     #[test]

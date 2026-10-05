@@ -44,6 +44,8 @@ fn baseline() -> Value {
     let mut fixtures = Vec::new();
     for layout in [Layout::Crew, Layout::PrQueue, Layout::Minimal, Layout::Team] {
         let mut app = preset_board();
+        // The baseline's document: a lead that is only a name.
+        app.view.as_mut().unwrap().document["squad"]["lead"] = json!({"name": "sol"});
         assert_eq!(config.layout(layout.as_str()).unwrap(), layout);
         let view = app.view.as_mut().unwrap();
         view.rows = config.rows(layout.as_str()).unwrap();
@@ -109,4 +111,90 @@ fn regenerate_markup_parity_fixture() {
         serde_json::to_string(&baseline()).unwrap(),
     )
     .unwrap();
+}
+
+/// Decode interned styles and runs before requesting baseline-regeneration approval.
+#[test]
+#[ignore = "read-only parity inspection; see the tmt-tui development reference"]
+fn inspect_markup_parity_diff() {
+    fn cells(frame: &Value) -> Vec<(String, String)> {
+        frame["cells"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .flat_map(|run| {
+                let cell = (
+                    run[1].as_str().unwrap().to_owned(),
+                    frame["styles"][run[2].as_u64().unwrap() as usize]
+                        .as_str()
+                        .unwrap()
+                        .to_owned(),
+                );
+                std::iter::repeat_n(cell, run[0].as_u64().unwrap() as usize)
+            })
+            .collect()
+    }
+    let expected: Value = serde_json::from_str(include_str!("parity.json")).unwrap();
+    let actual = baseline();
+    assert_eq!(expected["source"], actual["source"]);
+    assert_eq!(
+        expected["fixtures"].as_array().unwrap().len(),
+        actual["fixtures"].as_array().unwrap().len()
+    );
+    for (old, new) in expected["fixtures"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .zip(actual["fixtures"].as_array().unwrap())
+    {
+        let layout = old["layout"].as_str().unwrap();
+        assert_eq!(old["layout"], new["layout"]);
+        for key in ["ls_text", "ls_json"] {
+            assert_eq!(
+                old[key], new[key],
+                "{layout}: {key} must stay byte-identical"
+            );
+        }
+        println!("{layout}: list text/JSON byte-identical");
+        for kind in ["frames", "folded_frames"] {
+            let before = old[kind].as_array().unwrap();
+            let after = new[kind].as_array().unwrap();
+            assert_eq!(before.len(), after.len());
+            for (index, (old, new)) in before.iter().zip(after).enumerate() {
+                assert_eq!(old["width"], new["width"]);
+                let width = old["width"].as_u64().unwrap() as usize;
+                let before = cells(old);
+                let after = cells(new);
+                assert_eq!(before.len(), after.len());
+                let mut symbols = 0;
+                let mut styles = 0;
+                println!("{layout}/{kind}/{index}: {width}x30");
+                for (offset, (old, new)) in before.iter().zip(&after).enumerate() {
+                    if old == new {
+                        continue;
+                    }
+                    symbols += usize::from(old.0 != new.0);
+                    styles += usize::from(old.1 != new.1);
+                    println!(
+                        "  ({}, {}) symbol {:?} -> {:?}",
+                        offset % width,
+                        offset / width,
+                        old.0,
+                        new.0
+                    );
+                    if old.1 != new.1 {
+                        println!("    style {} -> {}", old.1, new.1);
+                    }
+                }
+                for key in ["hits", "tabs", "starts"] {
+                    if old[key] != new[key] {
+                        println!("  {key}: {} -> {}", old[key], new[key]);
+                    } else {
+                        println!("  {key}: unchanged");
+                    }
+                }
+                println!("  changed symbols: {symbols}; changed styles: {styles}");
+            }
+        }
+    }
 }

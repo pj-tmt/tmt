@@ -1,9 +1,92 @@
 use super::*;
+use crate::board::glyph_guard::glyph_error;
 use std::{
     fs,
     path::PathBuf,
     sync::atomic::{AtomicU64, Ordering},
 };
+
+#[test]
+fn authored_home_and_cron_labels_use_only_registered_spaced_marks_and_structural_typography() {
+    use crate::board::home::tiles::{self, TileItem};
+    for width in [80, 100, 113, 160, 200] {
+        let counts = Counts {
+            members: 6,
+            waiting: 1,
+            blocked: 1,
+            review: 1,
+            working: 1,
+            idle: 1,
+        };
+        let squad = SquadLine {
+            squad: "squad".into(),
+            lead: Some(json!({"name":"lead"})),
+            counts: Counts::default(),
+            members: counts,
+        };
+        let item = TileItem {
+            squad: &squad,
+            members: &squad.members,
+            lead_model: Some("claude-opus-4-7"),
+            usage: None,
+        };
+        for line in tiles::paint(&[item], width, crate::look::Look::default(), None).lines {
+            assert_eq!(glyph_error(&line.to_string()), None);
+        }
+        let mut app = interaction::board(&[(
+            "squad",
+            document(
+                "squad",
+                row("L", "lead", "review"),
+                vec![row("W", "worker", "idle")],
+            ),
+        )]);
+        let summary = paint::summary(
+            app.view.as_ref().unwrap().home.as_ref().unwrap(),
+            width,
+            app.look(),
+        );
+        assert_eq!(glyph_error(&summary.to_string()), None);
+        app.tabs = std::iter::once(ALL.to_owned())
+            .chain((0..30).map(|index| format!("squad-{index}")))
+            .collect();
+        app.attention = app
+            .tabs
+            .iter()
+            .map(|name| {
+                (
+                    name.clone(),
+                    crate::attention::Attention {
+                        blocked: 1,
+                        ..Default::default()
+                    },
+                )
+            })
+            .collect();
+        let mut terminal =
+            ratatui::Terminal::new(ratatui::backend::TestBackend::new(width, 30)).unwrap();
+        terminal
+            .draw(|frame| crate::board::view::render(frame, &app))
+            .unwrap();
+        for y in 0..30 {
+            let line: String = (0..width)
+                .map(|x| terminal.backend().buffer()[(x, y)].symbol())
+                .collect();
+            assert_eq!(glyph_error(&line), None, "width {width}, row {y}: {line}");
+        }
+        let state = crate::board::cronboard::State {
+            cron: Some(crate::board::cronboard::test_cron(
+                Vec::new(),
+                tmt_squad::cron::ClockStatus::NoClock,
+            )),
+            failure: None,
+            reads: 2,
+        };
+        let line =
+            crate::board::cronboard::home_line(&state, state.now_ms(), width, app.look()).unwrap();
+        assert_eq!(glyph_error(&line.to_string()), None);
+    }
+}
 
 struct Fixture {
     root: PathBuf,
@@ -275,6 +358,10 @@ fn home_acquisition_reuses_public_reads_and_preserves_all_json_and_text() {
     for name in ["a", "b"] {
         assert_eq!(rates[name].input.room, format!("room-{name}"));
         assert_eq!(
+            rates[name].input.names[&format!("id-{name}")],
+            format!("worker-{name}")
+        );
+        assert_eq!(
             rates[name].input.resumes.keys().collect::<Vec<_>>(),
             [&format!("id-{name}")]
         );
@@ -310,6 +397,26 @@ fn home_acquisition_reuses_public_reads_and_preserves_all_json_and_text() {
     );
     assert_eq!(home.sections[1].rows[0].member["name"], "worker-a");
     assert!(home.sections[1].rows.iter().all(|row| row.age.is_none()));
+}
+
+#[test]
+fn home_global_windows_do_not_replace_named_squad_overrides() {
+    let f = Fixture::new("[board]\ntok='1m/1h/2h'\n[squad.a.board]\ntok='2m/5m/10m'\n");
+    fs::write(f.root.join("inbox"), r#"{"items":[],"more":false}"#).unwrap();
+    for name in ["a", "b"] {
+        fs::write(f.root.join(name), roster(name).to_string()).unwrap();
+    }
+    f.install_core();
+    let (_, home, rates) = load(&f.core, &f.config, &squads(), &[], None).unwrap();
+    assert_eq!(
+        home.windows.map(|window| window.label()),
+        ["1m", "1h", "2h"]
+    );
+    assert_eq!(
+        rates["a"].settings.windows.map(|window| window.label()),
+        ["2m", "5m", "10m"]
+    );
+    assert_eq!(rates["b"].settings.windows, home.windows);
 }
 
 #[test]
@@ -377,8 +484,11 @@ fn failed_roster_and_inbox_are_reported_and_recovery_replaces_the_partial_model(
     assert_eq!(home.squads.len(), 2);
 }
 
+mod cache;
 mod cron;
 mod interaction;
+mod leads;
+pub(in crate::board) mod oracle;
 
 #[test]
 fn tile_members_exclude_the_lead_and_choose_one_urgent_mark_per_membership() {

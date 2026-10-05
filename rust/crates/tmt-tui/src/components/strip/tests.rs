@@ -3,6 +3,7 @@ use ratatui::{
     style::{Color, Modifier, Style},
     text::Span,
 };
+use tmt_cli_style::{Depth, Theme};
 
 fn row(buffer: &Buffer, y: u16) -> String {
     (0..buffer.area.width)
@@ -12,11 +13,10 @@ fn row(buffer: &Buffer, y: u16) -> String {
 fn paint(line: Line<'_>, width: u16, right: bool) -> Buffer {
     let mut buffer = Buffer::empty(Rect::new(0, 0, width, 2));
     let area = Rect::new(0, 1, width, 1);
-    let theme = Theme::default();
     if right {
-        paint_right(&mut buffer, area, line, &theme, Depth::TrueColor);
+        paint_right(&mut buffer, area, line);
     } else {
-        paint_left(&mut buffer, area, line, &theme, Depth::TrueColor);
+        paint_left(&mut buffer, area, line);
     }
     buffer
 }
@@ -63,26 +63,13 @@ fn control_characters_are_escaped_not_sent_to_the_terminal() {
 #[test]
 fn an_area_outside_the_buffer_or_without_width_paints_nothing_and_never_panics() {
     let mut buffer = Buffer::empty(Rect::new(0, 0, 4, 1));
-    let theme = Theme::default();
     for area in [
         Rect::new(0, 0, 0, 1),
         Rect::new(10, 5, 8, 1),
         Rect::new(2, 0, 8, 1),
     ] {
-        paint_left(
-            &mut buffer,
-            area,
-            Line::raw("xyz"),
-            &theme,
-            Depth::TrueColor,
-        );
-        paint_right(
-            &mut buffer,
-            area,
-            Line::raw("xyz"),
-            &theme,
-            Depth::TrueColor,
-        );
+        paint_left(&mut buffer, area, Line::raw("xyz"));
+        paint_right(&mut buffer, area, Line::raw("xyz"));
     }
     assert_eq!(row(&buffer, 0), "  xy");
 }
@@ -205,10 +192,10 @@ fn direct_painting_equals_the_layout_pipeline_cell_for_cell() {
             let mut actual = occupied(bounds);
             if case % 2 == 0 {
                 reference::paint_left(&mut expected, area, line.clone(), &theme, depth);
-                paint_left(&mut actual, area, line.clone(), &theme, depth);
+                paint_left(&mut actual, area, line.clone());
             } else {
                 reference::paint_right(&mut expected, area, line.clone(), &theme, depth);
-                paint_right(&mut actual, area, line.clone(), &theme, depth);
+                paint_right(&mut actual, area, line.clone());
             }
             assert_eq!(
                 actual, expected,

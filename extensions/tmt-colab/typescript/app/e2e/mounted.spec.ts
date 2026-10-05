@@ -100,6 +100,7 @@ async function fixture(
         spaceId: space,
         ownerKey: c.encodeBinary(ownerKey),
         revision: '2',
+        pageIds: empty ? [] : [{ pageId, deleted: false }],
         pages: empty
           ? []
           : [
@@ -348,6 +349,7 @@ test('trusted sharing confirms narrowing, retries frozen bytes and exposes a new
         spaceId: f.space,
         ownerKey: c.encodeBinary(f.ownerKey),
         revision: String(head.revision),
+        pageIds: [{ pageId, deleted: false }],
         pages: [
           {
             pageId,
@@ -559,6 +561,7 @@ test('trusted home manages retention, archive and verified or awaiting deletion'
         spaceId: f.space,
         ownerKey: c.encodeBinary(f.ownerKey),
         revision: String(head.revision),
+        pageIds: [pageId, other].sort().map((id) => ({ pageId: id, deleted: !states.has(id) })),
         pages: [...states.values()],
       },
     }),
@@ -656,7 +659,11 @@ test('trusted home manages retention, archive and verified or awaiting deletion'
   await dialog.getByRole('button', { name: 'Close', exact: true }).click();
   await expect(row(pageId)).toHaveCount(0);
   await expect(row(other)).toBeVisible();
-  await page.getByLabel('Show archived pages').check();
+  await page.getByRole('button', { name: 'Show archived', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Show archived', exact: true })).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  );
   await expect(row(pageId)).toContainText('Archived');
   await expect(row(pageId).locator('.archived-page .retention-hint')).toHaveText('kept forever');
   await expect(row(pageId).getByRole('link')).toHaveCount(0);
@@ -691,7 +698,11 @@ test('trusted home manages retention, archive and verified or awaiting deletion'
   await expect(dialog.getByRole('button', { name: 'Manage another change' })).toHaveCount(0);
   await dialog.getByRole('button', { name: 'Close', exact: true }).click();
   await expect(page.getByText('No archived pages.', { exact: true })).toBeVisible();
-  await page.getByLabel('Show archived pages').uncheck();
+  await page.getByRole('button', { name: 'Show archived', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Show archived', exact: true })).toHaveAttribute(
+    'aria-pressed',
+    'false',
+  );
   await row(other).getByRole('button', { name: 'Manage page' }).click();
   await dialog.getByRole('button', { name: 'Delete page', exact: true }).click();
   await dialog.getByRole('button', { name: 'Confirm delete page' }).click();
@@ -730,6 +741,7 @@ test.describe('relative retention evidence', () => {
           spaceId: f.space,
           ownerKey: c.encodeBinary(f.ownerKey),
           revision: '2',
+          pageIds: [{ pageId, deleted: false }],
           pages: [
             {
               pageId,

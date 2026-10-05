@@ -235,6 +235,34 @@ primary names; completion may offer both. Removal help must state exactly what
 is removed or reset and what is retained. The recursive `list_spelling_report`
 guard checks `ls` with a hidden `list` alias in every nested listing command.
 
+## Hidden commands
+
+Agents and people use only the commands that help and completion show. Agents
+never call a hidden command or any command whose name starts with `__`; such a
+command is for TMT itself, a provider, a shell, an installer or a host, and
+carries no compatibility promise.
+
+- **Board-only actions are not commands.** An action that only makes sense inside
+  a full-screen surface, such as adding a note to a row on the Squad board, has no
+  CLI form and no hidden twin; the surface performs it in-process through the
+  public commands. A script that needs the effect uses those commands.
+- **Hidden is for protocol entry points.** A subcommand is hidden only when
+  something other than a person invokes it: a hook, a completion script, the
+  installer's handoff, a detached worker, a provider's stdio server. A new
+  entry point is named `__<name>`. A retired name that only answers with a
+  pointer may stay hidden under its old spelling. A user-facing action is never
+  hidden to keep it out of help.
+- **Every hidden subcommand is listed with a reason.** A hidden subcommand, at
+  any depth, needs an entry `(command, reason)` in its CLI's `HIDDEN` allowlist
+  (`cli_style_allowlist.rs`), and every subcommand named `__*` must be hidden.
+  The guard fails on an unlisted hidden command, a visible `__` command, and a
+  stale, duplicate or reasonless entry. Hidden aliases (`list`) and hidden
+  options are not commands and are not listed.
+
+Entry points an extension parses by hand before its grammar (`__tmt-hooks`, see
+the [extension API](../contracts/extension-api.md#lifecycle-hooks)) follow the
+same rule and are documented in the contract that defines them.
+
 ## Help
 
 Every command is built from a `CommandSpec`: summary, examples, output modes
@@ -339,7 +367,11 @@ User bindings can change a key; help and footers always show the effective key.
 A view that changes with the terminal width names one of three steps, never a
 number: `sm` (80 cells), `md` (100) and `lg` (140). They live in
 `design/tokens/tokens.json`; add a new step there, never a number in a view. A
-step is a lower bound, so a width exactly at the step takes it.
+step is a lower bound, so a width exactly at the step takes it. In markup a view
+names a step with `<tmt-switch>` (ordered `<tmt-case min="lg">` branches and a
+final `<tmt-default>`) or, for one optional element, `hide-below="md"`; a
+decision that follows the measured text, such as hints dropped until the line
+fits, is a fit and not a step.
 
 ### Overlays
 
@@ -470,8 +502,8 @@ Attention marks (`◆`, `✗`) keep their own roles in every state, including se
 
 ## Enforcement
 
-Three tests enforce this document. Each keeps a migration list of what does not
-follow it yet. A list must equal what still fails: a command or file that now
+These tests enforce this document. Except for the hidden-command allowlist, each
+keeps a migration list of what does not follow it yet. A list must equal what still fails: a command or file that now
 follows the style fails the test until its entry is removed, and anything new
 that breaks a rule fails at once. Migrating a command means deleting its
 entries. The first two lists are empty when #436 closes, the interaction list when #485 does.
@@ -488,6 +520,13 @@ entries. The first two lists are empty when #436 closes, the interaction list wh
   and parse through the CLI's real parser without running. Core's walk and its
   list are in `rust/crates/tmt-cli/src/cli_style_{tests,allowlist}.rs`;
   Squad's are the same files in `extensions/tmt-squad/rust/tmt-squad/src/`.
+
+- **Hidden-command guard** (`tmt_cli_style::audit::hidden_report`). It walks the
+  same grammars, extension trees included, and applies
+  [Hidden commands](#hidden-commands). Its `HIDDEN` allowlists are permanent
+  (command and reason), not migration lists, and sit beside the style lists in
+  `cli_style_allowlist.rs`; `tmt-cli` and `tmt-squad` run it in `cli_style_tests`.
+  An extension with a grammar of its own calls it from its own test.
 
 - **Printed command guard** (`tmt-cli`'s `cli_style_tests`, #1079). Core help
   examples use the same rendered-help walk. Presentation sites own small,

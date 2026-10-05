@@ -1,4 +1,4 @@
-//! `tmt squad jump|back|open|copy|annotate`: the board's row
+//! `tmt squad jump|back|open|copy`: the board's row
 //! actions for one member, for scripts and terminals without the board.
 
 use crate::{
@@ -7,7 +7,6 @@ use crate::{
     core::{Core, SquadError},
     effects,
     membership::Outcome,
-    send,
     squad::Squad,
     status,
     template::{DEFAULT_COPY, Template, field_value},
@@ -193,42 +192,6 @@ pub fn copy(
         json!({"member": name, "copied": text, "to": copied.name(), "message": copied.describe()})
             .into(),
     )
-}
-
-/// `tmt squad annotate <member> <text> [--to lead|member]`: a note about a
-/// row, sent to the lead (default) or the member; never a notebook write.
-pub fn annotate(
-    core: &Core,
-    squad: &Squad,
-    config: &mut Config,
-    identity: Option<&str>,
-    name: &str,
-    to_lead: bool,
-    text: &str,
-) -> Result<Outcome, SquadError> {
-    let me = crate::me::resolve_sender(core, config, identity)?;
-    let document = document(core, squad, config)?;
-    let lead = document["squad"]["lead"]["name"]
-        .as_str()
-        .map(str::to_owned);
-    find(document, squad, name)?;
-    let to = if to_lead {
-        lead.ok_or_else(|| {
-            SquadError::hinted(
-                "SQUAD_ACTION_REFUSED",
-                &format!("Squad {} has no lead to annotate for", squad.name),
-                "; ",
-                &format!(
-                    "Set one with tmt squad lead <name> --squad {}, or use --to member",
-                    squad.name
-                ),
-            )
-        })?
-    } else {
-        name.to_owned()
-    };
-    let request = send::annotate(core, &squad.name, &me.name, &to, name, text)?;
-    Ok(json!({"requestId": request, "to": to, "as": me.name, "row": name, "room": crate::squad::room_name(&squad.name)}).into())
 }
 
 #[cfg(test)]

@@ -99,8 +99,6 @@ fn render_members(frame: &mut Frame, app: &App, area: Rect) {
                         ..area
                     },
                     Line::styled(line, look.role(Role::Dim)),
-                    &look.theme,
-                    look.depth,
                 );
             }
             return;
@@ -120,13 +118,7 @@ fn render_members(frame: &mut Frame, app: &App, area: Rect) {
                 spans.push(pane_tab(look, pane.title(), *pane == focused));
                 spans.push(Span::raw(" "));
             }
-            strip::paint_left(
-                frame.buffer_mut(),
-                bar,
-                Line::from(spans),
-                &look.theme,
-                look.depth,
-            );
+            strip::paint_left(frame.buffer_mut(), bar, Line::from(spans));
             let outline = pane_block(focused);
             let inner = outline.inner(rest);
             outline.paint(rest, frame.buffer_mut());
@@ -172,8 +164,6 @@ fn render_split(
                 frame.buffer_mut(),
                 title,
                 Line::styled(text, look.role(Role::Muted)),
-                &look.theme,
-                look.depth,
             );
         } else {
             let outline = pane_block(pane);

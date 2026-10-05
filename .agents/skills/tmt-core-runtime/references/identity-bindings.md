@@ -26,6 +26,15 @@ in `contracts/`.
 
 ## Binding evidence
 
+- Presence reads (`whoami`, named/current-name presence and inventory) capture
+  identity/binding records, perform host observations outside SQLite's immediate
+  writer transaction, then compare the full records again before reconciliation.
+  Changed records are Unknown unless ownership evidence still agrees with the
+  current binding; they cannot authorize detachment or retirement.
+  Caller-pane reads capture candidates for the caller host and pane, then select
+  the observed server before reconciliation; matching unchanged stale records
+  still reconcile. Mutating marker operations retain their own coordination
+  transactions.
 - The pane marker (`@tmux-team.agent`) proves ownership by identity, binding, server and
   pane-process IDs alone; its name may lag the stored name and readers resolve by ID.
   `binding::rename_identity` renames inside the immediate binding transaction; the post-commit

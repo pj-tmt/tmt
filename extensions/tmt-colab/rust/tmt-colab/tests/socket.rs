@@ -180,6 +180,61 @@ fn closed(socket: &mut UnixStream) -> bool {
 }
 
 #[test]
+fn mounted_short_links_resolve_without_remote_and_preserve_ambiguous_past_links() {
+    let server = Running::start(Tunnels::PRODUCT);
+    let admitted = format!("{}\r\n", owner(DEVICE));
+    let get = |path: &str| server.request(&Running::get(path, &admitted));
+    let original = get("/p/00000000");
+    assert!(original.starts_with("HTTP/1.1 302"), "{original}");
+    assert!(original.contains(&format!(
+        "Location: ../#space={}&path=%2Fpages%2F{PAGE}\r\n",
+        server.space
+    )));
+    assert!(original.contains("Cache-Control: no-store"));
+    assert!(original.contains("Referrer-Policy: no-referrer"));
+    // The existing independent SQLite oracle adds another UUID sharing the old prefix.
+    // No text is decoded or stored by alias resolution.
+    let other = "00000000-1000-4000-8000-000000000002";
+    server
+        .oracle()
+        .execute(
+            "INSERT INTO pages(page,epoch) VALUES (?,?)",
+            rusqlite::params![other, "1"],
+        )
+        .unwrap();
+    let historical = get("/p/00000000");
+    assert!(
+        historical.contains(&format!(
+            "Location: ../#space={}&path=%2Fshort%2F00000000\r\n",
+            server.space
+        )),
+        "{historical}"
+    );
+    assert!(!historical.contains(&format!("%2Fpages%2F{other}")));
+    assert!(get("/p/00000000-0").contains(&format!("path=%2Fpages%2F{PAGE}")));
+    assert!(get("/p/99999999").contains("path=%2Fshort%2F99999999"));
+    let anonymous = server.request(&Running::get("/p/00000000", ""));
+    assert!(anonymous.contains("Location: ../#path=%2Fshort%2F00000000"));
+    assert!(!anonymous.contains(&server.space));
+    assert!(!anonymous.contains(PAGE));
+    for path in [
+        "/p/0000000",
+        "/p/FFFFFFFF",
+        "/p/00000000/extra",
+        "/p/00000000-0000-4000-8000-0000000000010",
+    ] {
+        assert!(get(path).starts_with("HTTP/1.1 404"), "{path}");
+    }
+    assert!(
+        server
+            .request(&format!(
+                "POST /p/00000000 HTTP/1.1\r\nHost: 127.0.0.1:1\r\n{admitted}\r\n"
+            ))
+            .starts_with("HTTP/1.1 404")
+    );
+}
+
+#[test]
 #[ignore = "Invoked explicitly by the cross-screen browser chrome test"]
 fn chrome_browser_responses() {
     let directory =
@@ -1131,7 +1186,7 @@ fn owner_discovery_and_paged_log_bootstrap_use_exact_signed_bytes() {
     let pages: Value = serde_json::from_str(response.split("\r\n\r\n").nth(1).unwrap()).unwrap();
     assert_eq!(
         pages,
-        json!({"spaceId":server.space,"ownerKey":values::encode_binary(&key.owner_public()),"revision":"130",
+        json!({"spaceId":server.space,"ownerKey":values::encode_binary(&key.owner_public()),"revision":"130","pageIds":[{"pageId":PAGE,"deleted":false}],
         "pages":[{"pageId":PAGE,"epoch":"1","sharing":"private","history":"current","archived":false,"retentionDays":30,"lastUpdateAtMs":null,"expiresAtMs":null,"warnings":["expiry-unavailable"]}]})
     );
     let mut peer = server.peer(DEVICE);
@@ -2397,6 +2452,30 @@ fn management_page_policy_lifecycle_keeps_archived_reads_and_closes_deleted_peer
     let page_list = server.request(&Running::get("/api/pages", &header));
     let pages: Value = serde_json::from_str(page_list.split_once("\r\n\r\n").unwrap().1).unwrap();
     assert_eq!(pages["pages"], json!([]));
+    assert_eq!(pages["pageIds"], json!([{"pageId":PAGE,"deleted":true}]));
+    let alias = server.request(&Running::get(&format!("/p/{PAGE}"), &header));
+    assert!(
+        alias.contains(&format!("path=%2Fshort%2F{PAGE}")),
+        "{alias}"
+    );
+    // Deletion followed by a new page with the same short prefix cannot rebind the old link.
+    let later = "00000000-1000-4000-8000-000000000002";
+    server
+        .oracle()
+        .execute("INSERT INTO pages(page,epoch) VALUES (?, '1')", [later])
+        .unwrap();
+    let historical = server.request(&Running::get("/p/00000000", &header));
+    assert!(
+        historical.contains("path=%2Fshort%2F00000000"),
+        "{historical}"
+    );
+    assert!(!historical.contains(&format!("%2Fpages%2F{later}")));
+    let list = server.request(&Running::get("/api/pages", &header));
+    let list: Value = serde_json::from_str(list.split_once("\r\n\r\n").unwrap().1).unwrap();
+    assert_eq!(
+        list["pageIds"],
+        json!([{"pageId":PAGE,"deleted":true},{"pageId":later,"deleted":false}])
+    );
 }
 #[test]
 fn management_public_share_uses_trusted_loopback_and_owner_published_keys() {

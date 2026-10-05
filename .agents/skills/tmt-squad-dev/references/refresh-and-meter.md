@@ -26,7 +26,24 @@
   Previous tab attention stays visible until that generation's update arrives, and a newer switch
   preempts this lower-priority work. The cross-squad leads/all views read the rosters needed for
   their own rows before publication.
-- Priorities: full loads outrank selection jobs (detail notebook) and usage-only reads.
+- HOME exchanges: after publishing HOME, `board::home_leads` reads one bounded
+  `requests.list` originator results page and one bounded recipient-history page per
+  distinct current lead UUID (50 items each). Other tabs schedule no exchange reads.
+  Inbox questions reuse the acquired `waitingOnYou` projection; acknowledged finals
+  remain results. Ordering uses submission time for replies and preparation time for
+  asks. The selected `Kind::Question` is also HOME's ◆ mark source: those questions
+  come first, oldest first. Other exchanges follow, newest first. Undated exchanges
+  follow dated ones within each group; both use stable lead UUID/squad ties.
+  Leads without any exchange follow both groups
+  in name/squad/UUID order. Read, reconcile and replacement share this ordering.
+  Truncated pages and read failures remain
+  explicit evidence; no room scan or unbounded pagination fills gaps. Observations
+  belong to the user's UUID and current lead occurrence, and share the refresh
+  generation's cancellation. Preview text is sanitized separately from retained bodies.
+  An expanded message schedules `requests.show` on that same worker through the
+  selected-read queue. The user/lead/request/kind key and selection revision fence
+  delivery; detail verifies both participants before displaying the retained body.
+- Priorities: full loads outrank selection jobs (detail notebook or expanded HOME message) and usage-only reads.
 
 ## Token window meter
 
@@ -69,6 +86,26 @@ cost or text volume. `board::rate` owns evidence, `board::meter` presentation an
   `board.tok` select three distinct ascending whole m/h durations from 1m through
   24h, default 1m/5m/60m. Both layers validate even when masked. The config reader
   reports the winning setting path and preserves explicit column titles.
+- HOME projection: global `board.tok` windows live in the retained HOME model;
+  tiles and member grids keep squad overrides. `App::home_header_usage` joins only
+  shown sampling squads from existing roster names and meter UUIDs, with no reads.
+  It queries actual durations, so a shorter retained ring remains partial in a
+  longer global window. Duplicate UUIDs count once per window: prefer more verified
+  bucket evidence, then complete readings and longer spans; equal evidence keeps
+  displayed squad order. The global longest-window total is the shared denominator
+  for the top member and current-model shares. Missing readings contribute no
+  tokens, increment unreported once, and make totals/shares partial; a measured
+  zero stays numeric but has no share denominator. Current model attribution is
+  best effort. The header painter consumes this typed projection only.
+  `home::paint::usage` formats the global windows and shares, using shared model
+  family names and grapheme-safe fitting. `view::render_frame` reserves one row
+  below counts at the shared MD breakpoint (100) only when observations admit it,
+  painted through Strip. The MD row keeps w2/w3 and the top member's share,
+  labeled `share <window>:`. LG (140) adds w1, a comma-separated `models` group
+  and `N member(s) without data`. The share window is stated once and the top
+  member's model is not repeated. No readings means no usage row, including
+  warmup; measured zero admits it without a share denominator. Narrow widths,
+  disabled sampling and search with no shown sampling squads keep their height.
 - Coverage: covered readings stay numeric, including measured zero. Known nonzero
   history deltas also remain numeric lower bounds without continuous coverage;
   zero without coverage stays unavailable. Partial coverage, windows longer than available evidence and unreported members prefix

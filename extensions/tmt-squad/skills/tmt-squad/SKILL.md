@@ -109,7 +109,8 @@ cell).
 - `sections`: always a list. Unless the user defined sections, it holds exactly
   one section with `title: null` containing every member except the lead. With
   user sections, members that match none follow in a final `title: null`
-  section.
+  section. The lead is shown first by the board and text `ls` only (below);
+  the JSON never moves it into `sections`, and member counts exclude it.
 - `squad.noteAnnotations` is optional: open notebook-line requests from the
   recorded user to the current lead, as `{requestId, line, quote}` with a
   zero-based source `line` and bounded sanitized `quote`. It is absent when
@@ -158,6 +159,16 @@ user's board shows it as ✎ until you do. Never edit the user's notes for it.
 
 ## Board appearance
 
+On a squad tab the lead is the first row, in the same columns as the members, with a
+dim `lead` after its name (cut first when the name cell is narrow), followed by
+the dim rule `── members · N ───` (`── members · 0 · none yet ──` for a squad
+with no member; the numbers exclude the lead). The rule is not a row: ↑/↓ step from
+the lead straight to the first member. Opening a squad tab puts the cursor on
+the lead, so Enter, `t`, `a` and the other row keys reach it. Search matches
+the lead like any row. A squad without a lead keeps its member rows as they
+are. Text `ls` lists the lead first in its own `LEAD` section before `MEMBERS`;
+`--json` is unchanged.
+
 The home tab is the `▚ tmt` accent block, with ◆ waiting and ✗ blocked
 counts inside. Its command/config name remains `all`. With neither `tabs.order`
 nor `tabs.pin` configured, home is pinned first, followed by leads and squads.
@@ -202,7 +213,10 @@ selected and marked `(hidden)`, without a drag target. There are no number keys.
 
 `ctrl-r` refreshes the board in squad, leads and all views, including while
 searching or composing a message, without changing the entered text. The footer
-and `?` help list the effective bindings. Rebind it in `[bind]` (or a section),
+and `?` help list the effective bindings. The footer shows only the row actions the
+selected row allows (`r reply` needs a decision to answer, `o open` a link) and,
+when the width runs out, drops whole hints from the end; `q quit` and `? more`
+always stay. Rebind it in `[bind]` (or a section),
 or `[tabs.all.bind]` for all. F5 has no default action; an explicit
 `f5 = "refresh"` binding remains supported.
 
@@ -249,7 +263,14 @@ over an all-boards preview; the picker names that masking setting. A failed
 save stays open with a notice; cancel and reopen to read a changed file.
 Agents change the user's appearance only when the user requests it.
 
-The detail pane shows full projected board-column values not already shown by its header, task, activity or links, in column order; values wrap without grid truncation, with `?` for failed providers and `–` for missing values.
+When the squad tab's lead row is selected, detail shows its name with a dim `lead`
+tag, state/model/cap, task, nonempty pending as `◆ waits on you`, and links.
+Missing values are omitted. With no row fields set, it shows
+`no row fields set · tmt sq set <lead> task=…`.
+The dim `notes below · replies at right` line points to the separate panes;
+lead detail reads and displays neither the notebook nor reply bodies.
+
+For members, the detail pane shows full projected board-column values not already shown by its header, task, activity or links, in column order; values wrap without grid truncation, with `?` for failed providers and `–` for missing values.
 
 The replies pane shows full available replies to your squad requests as safe
 Markdown, using the notes pane's styles. Reply bodies are indented; prompts wrap,
@@ -293,7 +314,10 @@ that member. When the row itself receives the note, the header is simply
 `✎ note → docs-sweep`. The chosen waiting question is quoted above the answer input.
 Several open requests require an explicit
 choice before composing. `r` still opens the answer path on member/leads rows;
-`t` still composes a direct message. Explicit member-note bindings retain that
+on a row that waits only on a `pending` decision, with no open request to
+answer, it opens a note to that member instead (nothing is sent, cleared or
+acknowledged until you press Enter on a non-empty note, and the pending text
+stays until its owner clears it). `t` still composes a direct message. Explicit member-note bindings retain that
 recipient.
 
 Inside the band, Enter sends and Esc cancels; Tab switches answer/note when
@@ -306,30 +330,68 @@ send shows its error and does not show `✓ sent` or retry automatically.
 
 ## Home dashboard
 
-The built-in `all` board shows ① counts, ② needs-you members and a blocked subgroup,
-then ⑤ cron and ③ squads. Circled numbers label sections; they are not keys.
-At 150 columns and wider squads use three tile columns, at 100–149 two, and below
-100 one compact line per squad. Ten or more visible squads use compact lines,
-in two columns from 150. A tile shows squad attention, lead/model/token windows
-and the lead's share of the longest window, followed by non-lead member marks
-in urgency order (◆ ✗ ◐ ● ○) and a member count. A member contributes one mark;
-unknown/custom states count without a mark. Compact lines keep the last two lead
-windows. Selection covers the whole tile, including padding and continuation rows.
+The built-in `all` board shows counts, needs-you members and a blocked subgroup,
+then boxed leads, cron and squads. Squads occupy one full-width column at every width, with one compact table row
+per squad. Member counts align within their table column rather than at the terminal edge. A row shows squad attention, lead/model and non-lead member marks in urgency
+order (◆ ✗ ◐ ● ○) and a member count. Each mark has a trailing space. Members
+with unknown/custom states appear as `N other`. Sampled token windows and the lead's share follow the member count.
+Selection covers the whole row, including padding.
+
+At 100 columns and wider, observed HOME usage adds a header row below the counts:
+`tok 5m ~N · 1h ~N · share 1h: <member> P%`. At 140 columns it also
+shows the first window, `models sol P%, opus P%` and `N members without data`
+(`1 member without data` for one). The labels use global
+`[board] tok`; the top and model shares use its longest window. Squad rows and
+member grids retain their own overrides. UUIDs in several shown sampling squads
+count once, using the better-covered observation. Missing readings are excluded
+from totals and counted once as members without data; incomplete totals and
+shares carry `~`. A zero total has no share. Model attribution uses the current observed model
+and is best effort. The row hides below 100 columns and when no shown sampling
+squad has observed readings. Search limits it to the squads currently shown.
 
 Tiles use the board's observed usage (see below). Missing values show `–`, measured
 zero shows `0`, and partial totals/share carry `~`; a zero squad total has no share.
-When a squad's token sampling is off, its tile hides token cells. If every squad
-has sampling off, the ③ heading hides the token legend too. Only sampling squads
-contribute windows to that legend. Known lead models remain visible with sampling
-off; unknown models may disappear. The ③ heading names shared windows once. Mixed `tok` settings label each tile's
-actual windows. Attention rows show only member, squad and available relative age;
-blocked ages say `observed` to identify the task/state observation. Questions appear
-in the inline composer after `a`. Quiet needs-you takes one line, and empty blocked
-disappears. Public `tmt sq ls --tab all --json` and text retain the aggregate document.
+A sampling lead with no observed totals shows one dim `–` in the first token column. When a squad's token sampling
+is off, its tile hides token cells. Token/share columns appear only when observations admit them, and the squads
+heading hides the token legend when no rendered column has data. Below 100 columns
+only the last two windows are eligible; wider tables also show the first window
+and share when observed. Observed lead models remain visible with sampling off; without a model
+observation, the model cell is omitted. Home and crew use the same short family names, such as `opus`,
+`sonnet` and `sol`; unfamiliar names truncate to the available column width.
+The squads heading names shared windows once. Mixed `tok` settings label each
+tile's actual windows. Attention rows show only member, squad and available relative
+age; blocked ages say `observed` to identify the task/state observation. Questions
+appear in the inline composer after `a`. Quiet needs-you takes one line, and empty
+blocked disappears. Public `tmt sq ls --tab all --json` and text retain the aggregate document.
 
-One cursor spans attention rows, cron and squads. Arrows or j/k move it; Tab and
-Shift-Tab traverse sections. Open on the first decision, otherwise the first
-squad. Enter jumps to the member or opens the squad. `a` answers an open request
+Leads show the latest exchange with you in one full-width square
+box. Each header has a bold name, its squad from 100 columns, and an event age
+at the right. The second line previews the message: ◆ means the lead asks you,
+… means you asked and no reply has been submitted, and ✓ means the lead replied.
+Reply wording does not change that mark. A lead with no exchange has a blank mark
+and `–` age, with just one line. Leads marked ◆ come first, oldest ask first.
+Other exchanges follow, newest first. Undated exchanges follow dated exchanges
+within each group. Leads with no exchange follow a blank line, ordered by name.
+Partial, expired or unavailable reads remain explicit.
+
+`t` hides previews and the blank separators between leads, and saves the global
+`board.home_replies` choice (default `true`). `e` on a lead expands its complete
+wrapped message directly below its header in the same inline band used for answers,
+replacing that row’s preview while open. Arrows/j/k and
+PgUp/PgDn scroll that body; `e` or Esc collapses it, and `a` opens an answer or
+note to that lead in the same place. Reading sends and acknowledges nothing.
+Only one band can be open.
+
+The `→ all leads` footer sits outside the box. `A` writes to all current leads;
+`@` picks one lead. Both use the ordinary composer. The recipient identities
+are frozen when it opens, deduplicated for dispatch and checked again before
+sending. A changed sender or lead audience sends nothing. Feedback reports
+each recipient's queued or unavailable acceptance; uncertain acceptance keeps
+its operation ID and saved intent for inspection, with no automatic resend.
+
+One cursor spans attention rows, leads, their footer, cron and squads. Arrows or j/k move it; Tab
+keeps its board-wide pane-focus behavior and does not jump between home sections. Open on the first decision, otherwise the first
+squad. Enter jumps to a member/lead, opens the squad, or composes on the all-leads footer. `a` answers an open request
 through public `tmt answer`, otherwise annotates for that squad's actual lead.
 The composer refuses changed targets/requests/leads and missing sender/lead;
 Esc cancels and empty text sends nothing. Left/right switch tabs, `s` opens the
@@ -337,16 +399,18 @@ switcher, and `/` searches. Home has no r/R reply shortcut or numeric navigation
 
 ## Cron on the board
 
-The home tab shows one line, `⑤ ⏱ N cron jobs · next <time> <owner> <what> · <clock> · c list`:
-the job count, the earliest active slot, and whether a clock runs (`no clock` means
-due slots are not sent; `clock: checking…` is the first read). A running clock shows where it
-runs as `session:window` (from tmux, when the board runs inside tmux), else the pane id. Tab reaches it like any section. Enter on it, or `c` anywhere,
-lists every squad's jobs, hidden squads included; Enter opens the job's squad and Esc closes.
+The home tab shows one line, `cron · N jobs · next <time> <owner> · clock on/off/checking · c list`: the job count
+and earliest active slot. It omits the job prompt, clock location and paths. Up/Down
+reaches it like any row. Enter on it, or `c` anywhere, lists every squad's
+jobs, hidden squads included; Enter opens the job's squad and Esc closes. The
+job list retains full prompts and clock status (`no clock` means due slots are
+not sent; `clock: checking…` is the first read). A running clock identifies its
+holder as `session:window` inside tmux when available, otherwise by pane id.
 
 A squad tab is split in two: members above, that squad's jobs below (as tall as its jobs, at
 most two fifths of the body). The `c` list is as tall as its jobs too. Tab moves into the
 jobs after the last pane and back to the first. Members who own an active job show
-`⏱ <next>` at the row end (the first thing to drop when narrow) and in their detail. The selected job expands in
+`cron <next>` at the row end (the first thing to drop when narrow) and in their detail. The selected job expands in
 place with its full message, its next three runs and its time zone.
 
 While the jobs (or the `c` list) have focus these keys are job keys, and `?` lists them:
@@ -431,7 +495,10 @@ is required for `layout`, `board.panes`, `board.direction`, `board.sizes`,
 `board.hidden_columns`, `notes.render`, `states.STATE.color`, `reminders.enabled`
 and `reminders.stale_after`. `board.refresh` and `board.ask_lead`
 use the squad layer with `--squad`, otherwise the global Squad board layer.
-`tabs.order` and `tabs.hide` always edit global Squad tab policy. Arrays use JSON;
+`board.home_replies` is a global boolean (default `true`) controlling HOME's
+lead-message previews and separators; it rejects `--squad`. `t` on HOME saves
+this setting through the same validated writer. `tabs.order` and `tabs.hide`
+always edit global Squad tab policy. Arrays use JSON;
 other values are unquoted scalar arguments. Examples:
 
 ```sh
@@ -497,7 +564,9 @@ this-squad preview works, but scoped save is refused with a manual-removal hint.
 An all-boards choice saves while this squad keeps its custom layout; the picker
 names that masking setting.
 A failed or stale save stays open; cancel and reopen to read the changed file.
-`l` (view), `L` (jump lead on a tmux host) and `T` (theme) appear together in help.
+`l` (view) and `T` (theme) appear together in help. No preset binds `jump lead`:
+the lead is the first row of its tab. Bind it yourself (`[bind] L = "jump lead"`)
+to go to the lead's pane from any row.
 Agents change views only when requested.
 
 ## Fold board panes
@@ -586,14 +655,12 @@ tmt squad rm <name>                           # leaves the squad; the agent keep
   `squad.lead` and the section partition.
 - Removing a member clears its fields for this squad only. Its requests and
   notes keep the history.
-- `tmt squad annotate` acts as you: the identity of the pane you run in (or
-  `--identity <name>`), never as the user. To talk to a member use
-  `tmt talk <member> "…" --detach`; to answer what someone is waiting on you
-  for use `tmt inbox` and `tmt answer` (or `tmt reply --receipt` when you were
-  given a receipt). `tmt squad talk`, `reply` and `replies` were removed and
-  only refuse.
-  Without a lead, select one with `tmt squad lead <name> --squad <squad>`, or
-  annotate a particular member with `tmt squad annotate <member> "…" --to member`.
+- Squad has no `talk`, `reply`, `replies` or `annotate` command. To talk to a
+  member use `tmt talk <member> "…" --detach`; to answer what someone is waiting
+  on you for use `tmt inbox` and `tmt answer` (or `tmt reply --receipt` when you
+  were given a receipt). Adding a note to a row is the user's board key, not a command, and
+  agents never call hidden or `__` commands (TMT's CLI style, "Hidden commands").
+  Without a lead, select one with `tmt squad lead <name> --squad <squad>`.
 
 ## Keep your notebook current
 
@@ -633,7 +700,7 @@ lead is open, clearing after the lead answers and the board refreshes. Notes rem
 read-only. The marker uses the nearest matching quoted excerpt after an edit;
 requests outside the bounded room-history window may not be shown.
 
-The detail pane shows the selected member's own notebook after its fields,
+The detail pane shows the selected non-lead member's own notebook after its fields,
 using the same read-only Markdown/plain rendering as lead notes. A saved member
 without a notebook shows `(no notes yet)`; temporary members show
 `(temporary identity: no notebook)`. Only the visible selected detail is read,
@@ -944,6 +1011,29 @@ provider configuration/data availability is not checked. Direct binds retain dis
     <tmt-row id-bind="row.id" row-bind="row.id" class="grid grid-cols-[12_1fr] gap-1">
       <tmt-cell bind="row.name"/>
       <tmt-cell bind="row.fields.task" wrap="true"/>
+    </tmt-row>
+  </tmt-repeat>
+</tmt-view>
+```
+
+Width steps are markup, not class prefixes. `<tmt-switch>` holds ordered
+`<tmt-case min="lg">` / `<tmt-case min="md">` branches and a final `<tmt-default>`;
+exactly one branch is laid out, the first whose `min` fits the container's width
+(`of="terminal"` measures the whole terminal). `min` and `hide-below` take a step
+name (`sm` 80, `md` 100, `lg` 140 cells), never a number, and a width exactly at a
+step takes it. `hide-below="md"` on a row, column, cell or text is the one-element
+form. Every branch is checked offline, so an error shows at every width.
+
+```xml
+<tmt-view version="1" class="flex-col">
+  <tmt-repeat each="$.rows" as="row">
+    <tmt-row id-bind="row.id" row-bind="row.id" class="flex-row gap-1">
+      <tmt-cell bind="row.name"/>
+      <tmt-switch>
+        <tmt-case min="lg"><tmt-cell bind="row.fields.task" wrap="true"/></tmt-case>
+        <tmt-default><tmt-cell bind="row.fields.task" class="truncate"/></tmt-default>
+      </tmt-switch>
+      <tmt-cell bind="row.presence" hide-below="md"/>
     </tmt-row>
   </tmt-repeat>
 </tmt-view>

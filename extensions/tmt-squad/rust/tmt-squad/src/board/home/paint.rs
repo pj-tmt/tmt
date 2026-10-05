@@ -1,65 +1,60 @@
 //! One home painter; ordinary pane geometry and scalar rows keep their owners.
 
 use super::{
-    Age, AgeSource, Counts, Home,
+    Age, AgeSource,
     tiles::{self, TileItem},
 };
 use crate::{
     board::{
-        app::{App, Hit},
+        app::{App, Hit, HomeHeaderUsage, View},
         view::fit,
     },
     config::Pane,
     look::Look,
 };
-use ratatui::{
-    Frame,
-    layout::Rect,
-    style::Modifier,
-    text::{Line, Span},
-};
-use tmt_cli_style::{Role, table::escape};
+use ratatui::{Frame, layout::Rect, text::Line};
+use std::ops::Range;
+use tmt_cli_style::Role;
 
-fn counts(counts: &Counts, look: Look, words: bool) -> Vec<Span<'static>> {
-    [
-        ("◆", counts.waiting, Role::Waiting, "waiting on you"),
-        ("✗", counts.blocked, Role::Blocked, "blocked"),
-        ("◐", counts.review, Role::Review, "review"),
-        ("●", counts.working, Role::Working, "working"),
-        ("○", counts.idle, Role::Dim, "idle"),
-    ]
-    .into_iter()
-    .map(|(mark, count, role, label)| {
-        let suffix = if words {
-            format!(" {label}")
-        } else {
-            String::new()
-        };
-        Span::styled(
-            format!("{mark} {count}{suffix}  "),
-            look.role(if count == 0 { Role::Dim } else { role }),
-        )
-    })
-    .collect()
+/// Every section, including quiet and empty ones, reaches the same body edge.
+pub(super) fn rule(title: &str, width: usize) -> String {
+    let title = format!("── {title} ");
+    let tail = width.saturating_sub(unicode_width::UnicodeWidthStr::width(title.as_str()));
+    fit(&format!("{title}{}", "─".repeat(tail)), width)
 }
 
-pub(crate) fn summary(home: &Home, width: u16, look: Look) -> Line<'static> {
-    let wide = width >= 120;
-    let mut spans = vec![
-        Span::styled("① ", look.role(Role::Dim)),
-        Span::raw(if wide {
-            format!(
-                "{} squads · {} members   ",
-                home.squads.len(),
-                home.summary.members
-            )
-        } else {
-            format!("{} squads  ", home.squads.len())
-        }),
-    ];
-    spans.extend(counts(&home.summary, look, wide));
-    Line::from(spans)
+/// The strips outside the body, held in the view like the body's sections.
+pub(crate) fn summary_of(view: &View, width: u16, look: Look) -> Line<'static> {
+    let home = view.home.as_ref().expect("a home view has a model");
+    super::bar::summary_in(
+        &mut view.derived.borrow_mut().home.summary,
+        home,
+        width,
+        look,
+    )
 }
+
+pub(crate) fn usage_of(
+    view: &View,
+    usage: &HomeHeaderUsage<'_>,
+    width: u16,
+    look: Look,
+) -> Option<Line<'static>> {
+    super::bar::usage_in(
+        &mut view.derived.borrow_mut().home.usage,
+        usage,
+        width,
+        look,
+    )
+}
+
+pub(crate) fn hints_of(view: &View, width: usize, cron: bool) -> String {
+    super::bar::hints_in(&mut view.derived.borrow_mut().home.hints, width, cron)
+}
+
+/// The strips painted from nothing, for tests of the strips themselves.
+#[cfg(test)]
+pub(crate) use super::bar::{hints, summary, usage};
 
 pub(crate) fn age_label(age: &Age, now: u64) -> String {
     let age_text = tmt_cli_style::value::relative_time(now.saturating_sub(age.since_ms));
@@ -69,63 +64,8 @@ pub(crate) fn age_label(age: &Age, now: u64) -> String {
     }
 }
 
-pub(crate) fn hints(width: usize, cron: bool) -> String {
-    // Drop complete optional hints, preserving the two exit/help hints at 80.
-    let mut optional = vec![
-        "↑↓ move",
-        "tab section",
-        "⏎ open",
-        "a answer · note",
-        "←→ tabs",
-        "s switch",
-        "/ search",
-    ];
-    if cron {
-        optional.insert(4, "c cron");
-    }
-    loop {
-        let text = optional
-            .iter()
-            .copied()
-            .chain(["? more", "q quit"])
-            .collect::<Vec<_>>()
-            .join("  ");
-        if unicode_width::UnicodeWidthStr::width(text.as_str()) <= width || optional.is_empty() {
-            return text;
-        }
-        optional.pop();
-    }
-}
-
 pub(crate) fn render(frame: &mut Frame, app: &App, area: Rect) {
     render_at(frame, app, area, crate::status::now_ms());
-}
-
-/// ⑤: the cron line is one selectable row; its text comes from the cron projection.
-fn cron_line(app: &App, selected: bool, width: usize) -> Line<'static> {
-    let look = app.look();
-    let line = crate::board::cronboard::home_line(
-        &app.cron,
-        app.cron.now_ms(),
-        width as u16,
-        look,
-        app.clock_place(),
-    )
-    .expect("a cron target exists only with a read or its failure");
-    let mut spans: Vec<Span<'static>> = line
-        .spans
-        .into_iter()
-        .map(|span| Span::styled(span.content, look.row_span(selected, span.style, false)))
-        .collect();
-    let used: usize = spans.iter().map(Span::width).sum();
-    spans.push(Span::raw(" ".repeat(width.saturating_sub(used))));
-    let mut line = Line::from(spans);
-    line.style = if selected {
-        look.selection().add_modifier(Modifier::BOLD)
-    } else {
-        look.role(Role::Text)
-    };
-    line
 }
 
 pub(super) fn render_at(frame: &mut Frame, app: &App, area: Rect, now: u64) {
@@ -135,10 +75,21 @@ pub(super) fn render_at(frame: &mut Frame, app: &App, area: Rect, now: u64) {
     let look = app.look();
     let width = usize::from(area.width);
     let mut lines = vec![Line::default()];
+    let lead_failures = app
+        .home_leads
+        .leads
+        .iter()
+        .filter(|lead| lead.failure.is_some())
+        .map(|lead| lead.id())
+        .collect::<std::collections::BTreeSet<_>>()
+        .len()
+        + usize::from(app.home_leads.failure.is_some());
     if !home.failures.is_empty()
         || home.incomplete
         || view.me.is_none()
         || view.theme_notice.is_some()
+        || lead_failures > 0
+        || app.home_leads.incomplete
     {
         let mut notices = view.theme_notice.iter().cloned().collect::<Vec<_>>();
         if !home.failures.is_empty() {
@@ -146,6 +97,14 @@ pub(super) fn render_at(frame: &mut Frame, app: &App, area: Rect, now: u64) {
         }
         if home.incomplete {
             notices.push("older requests not shown".into());
+        }
+        if lead_failures > 0 {
+            notices.push(format!(
+                "lead exchanges partial: {lead_failures} failed reads"
+            ));
+        }
+        if app.home_leads.incomplete {
+            notices.push("older lead exchanges not shown".into());
         }
         if view.me.is_none() {
             notices.push(crate::status::UNKNOWN_YOU.into());
@@ -155,9 +114,12 @@ pub(super) fn render_at(frame: &mut Frame, app: &App, area: Rect, now: u64) {
             look.role(Role::Waiting),
         ));
     }
+    let mut derived = view.derived.borrow_mut();
+    let scenes = &mut derived.home;
     let mut starts = Vec::new();
     let mut regions = Vec::new();
     let mut input_range = None;
+    let mut input_area = area;
     let mut selected_range = 0..0;
     let receipt_now = std::time::Instant::now();
     let mut section = "";
@@ -172,193 +134,237 @@ pub(super) fn render_at(frame: &mut Frame, app: &App, area: Rect, now: u64) {
         } else {
             "no matching members"
         };
-        lines.push(Line::styled(
-            fit(&format!("── ② ◆ needs you · 0 · {quiet}"), width),
-            look.role(Role::Dim),
-        ));
+        lines.extend(
+            super::attention::paint(
+                app,
+                look,
+                area,
+                now,
+                &super::attention::Section {
+                    first: 0,
+                    entries: &[],
+                    title: format!("◆ needs you · 0 · {quiet}"),
+                    role: Role::Dim,
+                    blank: false,
+                },
+                scenes.attention.entry("quiet").or_default(),
+            )
+            .lines,
+        );
     }
+    let mut handled = 0;
     for (index, entry) in entries.iter().enumerate() {
-        if entry.target.section == super::CRON {
-            section = super::CRON;
-            lines.push(Line::default());
-            starts.push(lines.len());
-            regions.push((index, lines.len()..lines.len() + 1, 0, area.width));
-            if index == app.selected {
-                selected_range = lines.len()..lines.len() + 1;
+        if index < handled {
+            continue;
+        }
+        if matches!(entry.target.section.as_str(), "needs-you" | "blocked") {
+            section = &entry.target.section;
+            let count = entries[index..]
+                .iter()
+                .take_while(|next| next.target.section == section)
+                .count();
+            handled = index + count;
+            let (label, role) = if section == "needs-you" {
+                ("◆ needs you", Role::Waiting)
+            } else {
+                ("✗ blocked", Role::Blocked)
+            };
+            let block = super::attention::paint(
+                app,
+                look,
+                area,
+                now,
+                &super::attention::Section {
+                    first: index,
+                    entries: &entries[index..handled],
+                    title: format!("{label} · {count}"),
+                    role,
+                    blank: true,
+                },
+                scenes
+                    .attention
+                    .entry(if section == "needs-you" {
+                        "needs-you"
+                    } else {
+                        "blocked"
+                    })
+                    .or_default(),
+            );
+            let base = lines.len();
+            lines.extend(block.lines);
+            for row in block.rows {
+                let at = index + row.local;
+                starts.push(base + row.start);
+                regions.push((at, base + row.start..base + row.start + 1, 0, area.width));
+                if at == app.selected {
+                    selected_range = base + row.start..base + row.end;
+                }
+                if let Some(range) = row.reserve {
+                    input_range = Some(base + range.start..base + range.end);
+                }
             }
-            lines.push(cron_line(app, index == app.selected, width));
+            continue;
+        }
+        if entry.target.section == super::LEADS {
+            section = super::LEADS;
+            let count = entries[index..]
+                .iter()
+                .take_while(|next| next.target.section == super::LEADS)
+                .count();
+            handled = index + count;
+            let group = &entries[index..handled];
+            let leads = group
+                .iter()
+                .map(|entry| {
+                    app.home_leads
+                        .leads
+                        .iter()
+                        .find(|lead| {
+                            lead.squad == entry.target.squad
+                                && entry.target.member.as_deref() == Some(lead.id())
+                        })
+                        .expect("a lead target retains its deferred projection")
+                })
+                .collect::<Vec<_>>();
+            let block = super::leads::paint(
+                app,
+                look,
+                area,
+                now,
+                &super::leads::Section {
+                    first: index,
+                    entries: group,
+                    leads: &leads,
+                    replies: view.home_replies,
+                },
+                &mut scenes.leads,
+            );
+            let base = lines.len();
+            lines.extend(block.lines);
+            for lead in block.leads {
+                let at = index + lead.local;
+                starts.push(base + lead.start);
+                regions.push((
+                    at,
+                    base + lead.hit.start..base + lead.hit.end,
+                    1.min(area.width),
+                    area.width.saturating_sub(2),
+                ));
+                if at == app.selected {
+                    selected_range = base + lead.start..base + lead.end;
+                }
+                if let Some(range) = lead.reserve {
+                    input_range = Some(base + range.start..base + range.end);
+                    input_area = Rect {
+                        x: area.x.saturating_add(1),
+                        width: area.width.saturating_sub(2),
+                        ..area
+                    };
+                }
+            }
+            continue;
+        }
+        if entry.target.section == super::ALL_LEADS || entry.target.section == super::CRON {
+            let kind = if entry.target.section == super::CRON {
+                super::rows::Kind::Cron
+            } else {
+                super::rows::Kind::AllLeads
+            };
+            section = &entry.target.section;
+            let slot = match kind {
+                super::rows::Kind::Cron => &mut scenes.cron,
+                super::rows::Kind::AllLeads => &mut scenes.audience,
+            };
+            let block = super::rows::paint(app, look, area, kind, index, slot);
+            let base = lines.len();
+            lines.extend(block.lines);
+            starts.push(base + block.row);
+            regions.push((index, base + block.row..base + block.row + 1, 0, area.width));
+            if index == app.selected {
+                selected_range = base + block.row
+                    ..base + block.row + 1 + block.reserve.as_ref().map_or(0, Range::len);
+            }
+            if let Some(range) = block.reserve {
+                input_range = Some(base + range.start..base + range.end);
+                input_area = area;
+            }
             continue;
         }
         if section != entry.target.section {
             section = &entry.target.section;
-            let count = entries
-                .iter()
-                .filter(|e| e.target.section == section)
-                .count();
-            let (label, role) = match section {
-                "needs-you" => ("② ◆ needs you", Role::Waiting),
-                "blocked" => ("✗ blocked", Role::Blocked),
-                _ => ("③ squads", Role::Muted),
-            };
             lines.push(Line::default());
-            let items = if section == "squads" {
-                entries[index..]
-                    .iter()
-                    .take_while(|entry| entry.target.section == "squads")
-                    .map(|entry| {
-                        let squad = home
-                            .squads
-                            .iter()
-                            .find(|squad| squad.squad == entry.target.squad)
-                            .expect("home target retains its acquired squad");
-                        TileItem {
-                            squad,
-                            members: &squad.members,
-                            lead_model: app.home_lead_model(&squad.squad),
-                            usage: app.home_usage(&squad.squad, receipt_now),
-                        }
-                    })
-                    .collect::<Vec<_>>()
-            } else {
-                Vec::new()
-            };
-            let legend = tiles::legend(&items, area.width);
-            let legend = if legend.is_empty() {
-                legend
-            } else {
-                format!(" · {legend}")
-            };
-            let title = format!("── {label} · {count}{legend} ");
-            let tail = width.saturating_sub(unicode_width::UnicodeWidthStr::width(title.as_str()));
-            lines.push(Line::styled(
-                fit(&format!("{title}{}", "─".repeat(tail)), width),
-                look.role(role),
-            ));
-            if section == "squads" {
-                let start = lines.len();
-                let selected = app
-                    .selected
-                    .checked_sub(index)
-                    .filter(|local| *local < items.len());
-                match tiles::paint(&items, area.width, look, selected) {
-                    Ok(painted) => {
-                        let selected_region = selected.and_then(|item| {
-                            painted.regions.iter().find(|region| region.item == item)
-                        });
-                        let boundary = selected_region.map(|region| region.lines.end);
-                        let mut tile_lines = painted.lines;
-                        let tail = boundary.map(|end| tile_lines.split_off(end));
-                        lines.extend(tile_lines);
-                        let before = lines.len();
-                        if selected_region.is_some() {
-                            if app.sent.as_ref().is_some_and(|feedback| {
-                                feedback.target
-                                    == crate::board::app::RowTarget::Home(
-                                        entries[app.selected].target.clone(),
-                                    )
-                            }) {
-                                lines.push(Line::styled("   ✓ sent", look.role(Role::Working)));
-                            }
-                            input_range = crate::board::view::waiting::reserve_input(
-                                app,
-                                app.selected,
-                                area,
-                                &mut lines,
-                            );
-                        }
-                        let inserted = lines.len() - before;
-                        if let Some(tail) = tail {
-                            lines.extend(tail);
-                        }
-                        for region in painted.regions {
-                            let shift = if boundary.is_some_and(|end| region.lines.start >= end) {
-                                inserted
-                            } else {
-                                0
-                            };
-                            let range = start + region.lines.start + shift
-                                ..start + region.lines.end + shift;
-                            starts.push(range.start);
-                            if index + region.item == app.selected {
-                                selected_range = range.start..range.end + inserted;
-                            }
-                            regions.push((index + region.item, range, region.x, region.width));
-                        }
+            let items = entries[index..]
+                .iter()
+                .take_while(|entry| entry.target.section == "squads")
+                .map(|entry| {
+                    let squad = home
+                        .squads
+                        .iter()
+                        .find(|squad| squad.squad == entry.target.squad)
+                        .expect("home target retains its acquired squad");
+                    TileItem {
+                        squad,
+                        members: &squad.members,
+                        lead_model: app.home_lead_model(&squad.squad),
+                        usage: app.home_usage(&squad.squad, receipt_now),
                     }
-                    Err(error) => lines.push(Line::styled(
-                        format!("tiles unavailable: {error}"),
-                        look.role(Role::Waiting),
-                    )),
+                })
+                .collect::<Vec<_>>();
+            let selected = app
+                .selected
+                .checked_sub(index)
+                .filter(|local| *local < items.len());
+            let painted = tiles::paint_in(&mut scenes.squads, &items, area.width, look, selected);
+            lines.extend(painted.head);
+            let start = lines.len();
+            let selected_region =
+                selected.and_then(|item| painted.regions.iter().find(|region| region.item == item));
+            let boundary = selected_region.map(|region| region.lines.end);
+            let mut tile_lines = painted.lines;
+            let tail = boundary.map(|end| tile_lines.split_off(end));
+            lines.extend(tile_lines);
+            let before = lines.len();
+            if selected_region.is_some() {
+                if app.sent.as_ref().is_some_and(|feedback| {
+                    feedback.target
+                        == crate::board::app::RowTarget::Home(entries[app.selected].target.clone())
+                }) {
+                    lines.push(Line::styled("   ✓ sent", look.role(Role::Working)));
                 }
+                input_range =
+                    crate::board::view::waiting::reserve_input(app, app.selected, area, &mut lines);
             }
-        }
-        if section == "squads" {
-            continue;
-        }
-        starts.push(lines.len());
-        regions.push((index, lines.len()..lines.len() + 1, 0, area.width));
-        let selected = index == app.selected;
-        let name = escape(entry.row["name"].as_str().unwrap_or_default());
-        let mut spans = Vec::new();
-        let text_span = |text: String, role: Role, emphasize| {
-            Span::styled(text, look.row_span(selected, look.role(role), emphasize))
-        };
-        let waiting = entry.target.section == "needs-you";
-        let age = entry.age.map(|age| age_label(age, now)).unwrap_or_default();
-        let age_width = unicode_width::UnicodeWidthStr::width(age.as_str());
-        let available = width.saturating_sub(4 + age_width);
-        let name_width = (available / 2).min(24);
-        spans.push(text_span(
-            format!(" {} ", if waiting { "◆" } else { "✗" }),
-            if waiting {
-                Role::Waiting
-            } else {
-                Role::Blocked
-            },
-            true,
-        ));
-        spans.push(text_span(fit(&name, name_width), Role::Text, false));
-        spans.push(text_span(
-            fit(
-                &escape(&entry.target.squad),
-                available.saturating_sub(name_width),
-            ),
-            Role::Muted,
-            false,
-        ));
-        spans.push(text_span(format!(" {age}"), Role::Dim, false));
-        let mut line = Line::from(spans);
-        let padding = width.saturating_sub(line.width());
-        line.spans.push(Span::raw(" ".repeat(padding)));
-        line.style = if selected {
-            look.selection().add_modifier(Modifier::BOLD)
-        } else {
-            look.role(Role::Text)
-        };
-        lines.push(line);
-        if app.sent.as_ref().is_some_and(|feedback| {
-            feedback.target == crate::board::app::RowTarget::Home(entry.target.clone())
-        }) {
-            lines.push(Line::styled("   ✓ sent", look.role(Role::Working)));
-        }
-        if let Some(range) =
-            crate::board::view::waiting::reserve_input(app, index, area, &mut lines)
-        {
-            input_range = Some(range);
-        }
-        if selected {
-            selected_range = starts[index]..lines.len();
+            let inserted = lines.len() - before;
+            if let Some(tail) = tail {
+                lines.extend(tail);
+            }
+            for region in painted.regions {
+                let shift = if boundary.is_some_and(|end| region.lines.start >= end) {
+                    inserted
+                } else {
+                    0
+                };
+                let range = start + region.lines.start + shift..start + region.lines.end + shift;
+                starts.push(range.start);
+                if index + region.item == app.selected {
+                    selected_range = range.start..range.end + inserted;
+                }
+                regions.push((index + region.item, range, region.x, region.width));
+            }
         }
     }
     if home.squads.is_empty() {
-        lines.push(Line::styled("③ squads · 0", look.role(Role::Dim)));
+        lines.push(Line::styled(
+            rule("squads · 0", width),
+            look.role(Role::Dim),
+        ));
     }
     if app.follow && starts.get(app.selected).is_some() {
         app.scrolls
             .reveal_range(Pane::Rows, selected_range, area, lines.len());
     }
     let (offset, shown) = app.scrolls.show(frame, Pane::Rows, area, &lines, look);
-    crate::board::view::waiting::place_input(app, input_range, area, offset, shown);
+    crate::board::view::waiting::place_input(app, input_range, input_area, offset, shown);
     for (row, range, x, width) in regions {
         for line in range.start.max(offset)..range.end.min(offset + shown) {
             if width > 0 {

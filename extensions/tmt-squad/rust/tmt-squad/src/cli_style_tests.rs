@@ -18,6 +18,12 @@ fn every_listing_command_uses_ls_with_the_list_alias() {
 }
 
 #[test]
+fn hidden_commands_are_listed_with_a_reason_and_double_underscore_commands_are_hidden() {
+    let report = audit::hidden_report(&super::grammar(), &["tmt", "squad"], allowlist::HIDDEN);
+    assert!(report.is_empty(), "{}", report.join("\n"));
+}
+
+#[test]
 fn concise_commands_and_aliases_reach_the_same_squad_dispatch() {
     let cases: &[(&[&str], &[&str], &[&str])] = &[
         (&["remove"], &["rm"], &["worker", "--squad", "product"]),

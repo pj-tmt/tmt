@@ -7,7 +7,7 @@ import { GATES } from './publication-gates.mjs';
 const ROOTS = ['native-release.yml', 'release.yml'];
 // Every failed or held release closes its gap here: an incident row names the release step that
 // caught it and either a pre-merge counterpart or a concrete release-only reason.
-const INCIDENTS = [1534, 1541, 1542, 1550, 1593, 1604, 1616, 1646, 1661, 1680];
+const INCIDENTS = [1534, 1541, 1542, 1550, 1593, 1604, 1616, 1643, 1646, 1661, 1680];
 const repository = fileURLToPath(new URL('../../', import.meta.url));
 const digest = (text) => createHash('sha256').update(text).digest('hex');
 const nonempty = (value) => typeof value === 'string' && value.trim().length > 0;
@@ -131,8 +131,10 @@ function checkCoverage(entry, label, read) {
   );
   if (Object.hasOwn(entry, 'releaseOnly')) {
     ensure(nonempty(entry.releaseOnly), `${label}: releaseOnly needs a reason`);
-    if (Object.hasOwn(entry, 'followUp'))
-      ensure(entry.followUp === 1581, `${label}: unknown parity follow-up`);
+    ensure(
+      !Object.hasOwn(entry, 'followUp'),
+      `${label}: a release-only entry cannot keep a follow-up`
+    );
     return;
   }
   ensure(
@@ -151,28 +153,42 @@ function checkCoverage(entry, label, read) {
     ensure(job, `${label}: missing preMerge job ${counterpart.workflow}:${counterpart.job}`);
     const selection = counterpart.selection;
     ensure(record(selection), `${label}: missing path selection`);
-    ensure(selection.kind === 'ci-scope', `${label}: unknown selection kind`);
-    ensure(
-      nonempty(selection.output) && nonempty(selection.value),
-      `${label}: invalid ci-scope selector`
-    );
-    const condition = `needs.changes.outputs.${selection.output} == '${selection.value}'`;
-    const jobCondition = job.body.match(/^ {4}if:\s*(.+)$/m)?.[1];
-    ensure(jobCondition?.includes(condition), `${label}: preMerge job does not use ${condition}`);
-    ensure(
-      source.includes(`      ${selection.output}:`),
-      `${label}: missing ci-scope output ${selection.output}`
-    );
-    // ci-scope emits most selections; a selector with its own module names it as `source`.
-    const emitter = selection.source ?? 'typescript/scripts/ci-scope.mjs';
-    ensure(
-      /^typescript\/scripts\/[\w-]+\.mjs$/.test(emitter),
-      `${label}: invalid ci-scope selector source`
-    );
-    ensure(
-      read(emitter).includes(`${selection.output}=`),
-      `${label}: ${emitter} does not emit ${selection.output}`
-    );
+    ensure(['ci-scope', 'always'].includes(selection.kind), `${label}: unknown selection kind`);
+    if (selection.kind === 'always') {
+      // An always-run counterpart is selected by no path: the job runs on every verification event,
+      // so its `if` may name the event class (`verify`) and nothing a changed path decides.
+      const condition = job.body.match(/^ {4}if:\s*(.+)$/m)?.[1] ?? '';
+      ensure(
+        !/needs\.changes\.outputs\.(?!verify\b)/.test(condition),
+        `${label}: an always-run job must not depend on a path selection`
+      );
+      ensure(
+        nonempty(selection.step) && job.steps.includes(selection.step),
+        `${label}: always-run counterpart needs a real step of ${counterpart.job}`
+      );
+    } else {
+      ensure(
+        nonempty(selection.output) && nonempty(selection.value),
+        `${label}: invalid ci-scope selector`
+      );
+      const condition = `needs.changes.outputs.${selection.output} == '${selection.value}'`;
+      const jobCondition = job.body.match(/^ {4}if:\s*(.+)$/m)?.[1];
+      ensure(jobCondition?.includes(condition), `${label}: preMerge job does not use ${condition}`);
+      ensure(
+        source.includes(`      ${selection.output}:`),
+        `${label}: missing ci-scope output ${selection.output}`
+      );
+      // ci-scope emits most selections; a selector with its own module names it as `source`.
+      const emitter = selection.source ?? 'typescript/scripts/ci-scope.mjs';
+      ensure(
+        /^typescript\/scripts\/[\w-]+\.mjs$/.test(emitter),
+        `${label}: invalid ci-scope selector source`
+      );
+      ensure(
+        read(emitter).includes(`${selection.output}=`),
+        `${label}: ${emitter} does not emit ${selection.output}`
+      );
+    }
     ensure(
       ['runtime', 'policy'].includes(counterpart.coverage),
       `${label}: unknown counterpart coverage`

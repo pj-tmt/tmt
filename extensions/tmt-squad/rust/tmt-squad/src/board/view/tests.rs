@@ -57,6 +57,7 @@ fn waiting_rows_detail_and_ask_prompt_fit_each_width_and_theme() {
                 row("docs-request", "working", "handbook", json!({"pending": "Keep the glossary?", "waitingOnYou": [{"requestId": "docs-q", "preview": "fallback", "preparedAtMs": now - 720000}]})),
                 row("docs", "working", "copy", json!({"pending": "Choose the tone?"})),
             ]}]));
+            lead_sol(&mut app);
             let view = app.view.as_mut().unwrap();
             view.look = crate::look::Look {
                 theme: tmt_cli_style::Theme::new(tmt_cli_style::theme::Base::parse(base).unwrap()),
@@ -85,7 +86,7 @@ fn waiting_rows_detail_and_ask_prompt_fit_each_width_and_theme() {
                 app.hits
                     .borrow()
                     .iter()
-                    .any(|hit| hit.row == 0 && screen[usize::from(hit.y)].contains("Ship #412"))
+                    .any(|hit| hit.row == 1 && screen[usize::from(hit.y)].contains("Ship #412"))
             );
             app.perform(&crate::action::Action::parse("ask-lead").unwrap());
             let prompt = draw(&app, width, 24);
@@ -116,6 +117,7 @@ fn waiting_rows_detail_and_ask_prompt_fit_each_width_and_theme() {
                     .any(|line| line.contains("List what waits on me"))
             );
             app.input = None;
+            app.select(1);
             let mut terminal = Terminal::new(TestBackend::new(width, 24)).unwrap();
             terminal
                 .draw(|frame| render_detail(frame, &app, frame.area()))
@@ -150,7 +152,8 @@ fn waiting_hint_uses_rebound_key_and_drops_oldest_before_actions() {
     assert!(hints(&app, 50).contains("z ask lead"));
     assert!(!hints(&app, 50).contains("oldest"));
     assert!(!hints(&app, 80).contains("oldest"));
-    assert!(hints(&app, 100).contains("ctrl-r refresh"));
+    assert!(hints(&app, 100).contains("r reply"));
+    assert!(hints(&app, 100).ends_with("q quit  ? more"));
     assert!(!hints(&app, 50).contains("A ask lead"));
     assert_eq!(
         super::waiting::text(app.selected_row().unwrap()),
@@ -182,6 +185,188 @@ fn footer_omits_whole_hints_instead_of_clipping_words() {
         );
     }
     assert!(!draw(&app, 108, 8).last().unwrap().ends_with("◆ ne"));
+}
+
+/// The shown hints without the reserved tail.
+fn shown_hints(text: &str) -> Vec<&str> {
+    text.split("  ")
+        .filter(|hint| !hint.is_empty() && !["q quit", "? more"].contains(hint))
+        .collect()
+}
+
+#[test]
+fn footer_orders_hints_by_priority_and_always_keeps_quit_and_more() {
+    let mut app = paned(
+        split(Direction::LeftRight, vec![Pane::Rows], vec![100]),
+        Notes::NotShown,
+    );
+    app.select(1);
+    assert_eq!(app.selected_row().unwrap()["name"], "auth-fix");
+    let full = hints(&app, usize::MAX);
+    let order = [
+        "⏎ jump",
+        "t talk",
+        "r reply",
+        "⌫ back",
+        "a answer · note",
+        "/ search",
+        "o open",
+        "y copy",
+        "tab pane",
+        "ctrl-r refresh",
+    ];
+    let at = |hint: &str| full.find(hint).unwrap_or_else(|| panic!("{hint}: {full}"));
+    assert!(
+        order.windows(2).all(|pair| at(pair[0]) < at(pair[1])),
+        "{full}"
+    );
+    assert!(!full.contains("next-pane"), "{full}");
+    assert!(full.ends_with("q quit  ? more"));
+    let whole = shown_hints(&full);
+    for width in 0..=full.width() {
+        let shown = hints(&app, width);
+        assert!(shown.width() <= width, "{width}: {shown}");
+        match width {
+            0..=5 => assert_eq!(shown, ""),
+            6..=13 => assert_eq!(shown, "? more", "{width}"),
+            _ => assert!(shown.ends_with("q quit  ? more"), "{width}: {shown}"),
+        }
+        // Whole hints only, always a prefix of the priority order.
+        let kept = shown_hints(&shown);
+        assert_eq!(kept, whole[..kept.len()], "{width}: {shown}");
+    }
+    // Talking, replying and going back survive an 80-cell footer.
+    let narrow = hints(&app, 80);
+    assert!(
+        narrow.ends_with("⏎ jump  t talk  r reply  ⌫ back  q quit  ? more"),
+        "{narrow}"
+    );
+}
+
+#[test]
+fn footer_shows_only_the_row_actions_the_selected_row_allows() {
+    let mut app = paned(
+        split(Direction::LeftRight, vec![Pane::Rows], vec![100]),
+        Notes::NotShown,
+    );
+    // The lead row waits on nothing and has no link: no reply, no open.
+    app.select(0);
+    assert_eq!(app.selected_row().unwrap()["name"], "sol");
+    let lead = hints(&app, usize::MAX);
+    for hint in ["⏎ jump", "t talk", "a answer · note"] {
+        assert!(lead.contains(hint), "{lead}");
+    }
+    for hint in ["r reply", "o open"] {
+        assert!(!lead.contains(hint), "{lead}");
+    }
+    // Only a decision (pending text or an open request) enables reply.
+    app.select(1);
+    assert!(hints(&app, usize::MAX).contains("r reply"));
+    let set = |app: &mut App, key: &str, value: Value| {
+        app.view.as_mut().unwrap().document["sections"][0]["rows"][0][key] = value;
+    };
+    set(&mut app, "pending", Value::Null);
+    assert!(!hints(&app, usize::MAX).contains("r reply"));
+    set(
+        &mut app,
+        "waitingOnYou",
+        json!([{"requestId": "q-1", "preview": "approve?"}]),
+    );
+    assert!(hints(&app, usize::MAX).contains("r reply"));
+    // No row: board keys only, and the reserved tail.
+    let mut empty = App::new(Some("product".into()));
+    empty.apply(crate::board::app::tests::snapshot("product", json!([])));
+    let text = hints(&empty, usize::MAX);
+    for hint in [
+        "⏎",
+        "t talk",
+        "r reply",
+        "answer · note",
+        "o open",
+        "y copy",
+    ] {
+        assert!(!text.contains(hint), "{text}");
+    }
+    assert!(text.contains("/ search") && text.ends_with("q quit  ? more"));
+    // The plain host's Enter is the row menu; rebinding changes the word.
+    let view = app.view.as_mut().unwrap();
+    view.bindings = crate::action::preset(false, &view.board.panes);
+    assert!(hints(&app, usize::MAX).contains("⏎ menu"));
+}
+
+#[test]
+fn footer_labels_use_only_registered_spaced_marks_and_structural_typography() {
+    use crate::board::glyph_guard::glyph_error;
+    for panes in [
+        vec![Pane::Rows],
+        vec![Pane::Rows, Pane::Detail],
+        vec![Pane::Rows, Pane::Replies],
+        vec![Pane::Rows, Pane::Detail, Pane::Replies, Pane::Notes],
+    ] {
+        for tmux in [true, false] {
+            let mut app = paned(
+                split(Direction::LeftRight, panes.clone(), vec![]),
+                Notes::NotShown,
+            );
+            let view = app.view.as_mut().unwrap();
+            view.bindings = crate::action::preset(tmux, &view.board.panes);
+            for folded in [false, true] {
+                if folded && panes.len() > 1 {
+                    app.key(KeyEvent::new(KeyCode::Char('d'), KeyModifiers::NONE));
+                }
+                for selected in [0, 1] {
+                    app.select(selected);
+                    for width in [usize::MAX, 160, 100, 80, 48] {
+                        let shown = hints(&app, width);
+                        assert_eq!(glyph_error(&shown), None, "{width}: {shown}");
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn footer_hints_follow_rebound_keys_and_show_one_hint_per_action() {
+    use crate::action::Action;
+    let mut app = paned(
+        split(Direction::LeftRight, vec![Pane::Rows], vec![100]),
+        Notes::NotShown,
+    );
+    app.select(1);
+    let default = hints(&app, usize::MAX);
+    let view = app.view.as_mut().unwrap();
+    // Rebinding talk moves its hint to the new key and keeps its rank.
+    view.bindings.remove("t");
+    view.bindings
+        .insert("m".into(), Action::parse("talk").unwrap());
+    let rebound = hints(&app, usize::MAX);
+    assert_eq!(rebound, default.replace("t talk", "m talk"), "{rebound}");
+    // An unbound action has no hint.
+    let view = app.view.as_mut().unwrap();
+    view.bindings.remove("m");
+    let unbound = hints(&app, usize::MAX);
+    assert_eq!(unbound, default.replace("t talk  ", ""), "{unbound}");
+    // A second key for one action adds no hint, and Enter stays the shown key.
+    let view = app.view.as_mut().unwrap();
+    view.bindings
+        .insert("J".into(), Action::parse("jump").unwrap());
+    view.bindings
+        .insert("x".into(), Action::parse("copy {name}").unwrap());
+    let text = hints(&app, usize::MAX);
+    let shown = shown_hints(&text);
+    assert_eq!(
+        shown.iter().filter(|hint| hint.ends_with(" jump")).count(),
+        1
+    );
+    assert!(shown.contains(&"⏎ jump"), "{shown:?}");
+    // A different action text is its own hint: `copy` with another template.
+    assert!(shown.iter().any(|hint| hint.ends_with(" copy")));
+    // Rebound unlisted verbs (`run`, `notes`) never reach the footer.
+    let view = app.view.as_mut().unwrap();
+    view.bindings
+        .insert("R".into(), Action::parse("run true").unwrap());
+    assert!(!hints(&app, usize::MAX).contains("R run"));
 }
 
 /// Rows read from a squad config snippet, as `squad.toml` would give them.
@@ -222,43 +407,51 @@ pub(super) fn draw(app: &App, width: u16, height: u16) -> Vec<String> {
 pub(super) fn board(sections: Value) -> App {
     let mut app = App::new(Some("product".into()));
     app.apply(Snapshot {
-            squad_keys: Vec::new(),
-            tabs: vec!["product".into(), "reviews".into()],
-            hidden: Vec::new(),
-            pinned: 0,
-            attention: Default::default(),
-            squad: Some("product".into()),
-            view: Ok(View {
-                ask_lead: crate::config::DEFAULT_ASK_LEAD.into(),
-                token_rate: None,
-                home_rate: Default::default(),
-                home: None,
+        squad_keys: Vec::new(),
+        tabs: vec!["product".into(), "reviews".into()],
+        hidden: Vec::new(),
+        pinned: 0,
+        attention: Default::default(),
+        squad: Some("product".into()),
+        view: Ok(View {
+            ask_lead: crate::config::DEFAULT_ASK_LEAD.into(),
+            home_replies: true,
+            token_rate: None,
+            home_rate: Default::default(),
+            home: None,
             derived: Default::default(),
-                document: json!({"squad": {"name": "product", "lead": {"name": "sol"}}, "sections": sections}),
-                rows: columns(),
-                refresh: Some(crate::config::DEFAULT_REFRESH),
-                board: crate::config::Board::simple(
-                    crate::config::BoardMode::Split,
-                    crate::config::Direction::LeftRight,
-                    vec![crate::config::Pane::Rows],
-                    &[100],
-                ),
+            document: json!({"squad": {"name": "product", "lead": null}, "sections": sections}),
+            rows: columns(),
+            refresh: Some(crate::config::DEFAULT_REFRESH),
+            board: crate::config::Board::simple(
+                crate::config::BoardMode::Split,
+                crate::config::Direction::LeftRight,
+                vec![crate::config::Pane::Rows],
+                &[100],
+            ),
             notes: crate::board::app::Notes::NotShown,
-                render: crate::config::NotesRender::Markdown,
-                bindings: crate::action::preset(true, &[]),
-                section_bindings: Vec::new(),
-                configured_bindings: Default::default(),
-                opener: None,
-                clipboard: None,
-                links: Default::default(),
-                tab_colors: Default::default(),
-                look: Default::default(),
-                theme_notice: None,
-                me: None,
-                replies: Vec::new(),
-            }),
-        });
+            render: crate::config::NotesRender::Markdown,
+            bindings: crate::action::preset(true, &[]),
+            section_bindings: Vec::new(),
+            configured_bindings: Default::default(),
+            opener: None,
+            clipboard: None,
+            links: Default::default(),
+            tab_colors: Default::default(),
+            look: Default::default(),
+            theme_notice: None,
+            me: None,
+            me_id: None,
+            replies: Vec::new(),
+        }),
+    });
     app
+}
+
+/// The fixture squad has no lead; this one has `sol`, shown as the first row.
+pub(super) fn lead_sol(app: &mut App) {
+    let lead = row("sol", "working", "coordinate", json!({"id": "LEAD"}));
+    app.view.as_mut().unwrap().document["squad"]["lead"] = lead;
 }
 
 fn row(name: &str, state: &str, task: &str, extra: Value) -> Value {
@@ -728,27 +921,55 @@ fn middle_truncation_keeps_both_ends_of_a_link() {
 
 #[test]
 fn rows_ignore_retired_notes_and_show_pending_sections_and_aligned_wide_text() {
-    let app = board(json!([
+    let mut app = board(json!([
         {"title": "Needs me", "rows": [row("auth-fix", "blocked", "rotate session tokens", json!({"pending": "approve", "note": "needs a call"}))]},
         {"title": "Everyone", "rows": [row("文件-sweep", "working", "整理安装指南", json!({}))]}
     ]));
-    let screen = draw(&app, 48, 10);
+    lead_sol(&mut app);
+    let screen = draw(&app, 48, 12);
     // The tab line holds only the tabs; the summary has its own line.
-    assert_eq!(screen[0], "  product    reviews");
+    assert_eq!(screen[0], "  product   reviews");
     assert_eq!(screen[1], "lead sol · 2 members");
     assert_eq!(screen[2], "  MEMBER     STATE    TASK");
-    assert_eq!(screen[3], "NEEDS ME");
-    assert_eq!(screen[4], "◆ auth-fix   blocked  rotate session tokens");
-    assert_eq!(screen[5], "    approve");
-    assert_eq!(screen[6], "EVERYONE");
-    assert_eq!(screen[7], "  文件-sweep working  整理安装指南");
+    // The lead is the first row; the rule names what follows.
+    assert_eq!(screen[3], "  sol  lead  working  coordinate");
+    assert_eq!(screen[4], format!("── members · 2 {}", "─".repeat(33)));
+    assert_eq!(screen[5], "NEEDS ME");
+    assert_eq!(screen[6], "◆ auth-fix   blocked  rotate session tokens");
+    assert_eq!(screen[7], "    approve");
+    assert_eq!(screen[8], "EVERYONE");
+    assert_eq!(screen[9], "  文件-sweep working  整理安装指南");
     assert!(screen.iter().all(|line| !line.contains("needs a call")));
-    assert!(screen[9].starts_with("◆ 1 waiting"));
+    assert!(screen[11].starts_with("◆ 1 waiting"));
+}
+
+#[test]
+fn the_lead_tag_sits_in_the_name_cell_and_is_the_first_thing_cut() {
+    let draw_lead = |member_width: usize| {
+        let mut app =
+            board(json!([{"title": null, "rows": [row("docs", "working", "guide", json!({}))]}]));
+        lead_sol(&mut app);
+        app.view.as_mut().unwrap().rows = rows_from(&format!(
+            "[p.rows]\ncolumns = [{{ name = \"member\", width = {member_width} }}, {{ name = \"state\", width = 8 }}]\n"
+        ));
+        draw(&app, 40, 8)
+    };
+    // Room for the tag: it follows the name by two cells; other rows are unchanged.
+    let screen = draw_lead(10);
+    assert_eq!(screen[3], "  sol  lead  working");
+    assert_eq!(screen[5], "  docs       working");
+    // Narrow cell: the tag shrinks (ellipsis) before the name does, then goes.
+    assert_eq!(draw_lead(8)[3], "  sol  le… working");
+    assert_eq!(draw_lead(7)[3], "  sol  l… working");
+    assert_eq!(draw_lead(6)[3], "  sol    working");
+    assert_eq!(draw_lead(3)[3], "  sol working");
 }
 
 #[test]
 fn a_squad_of_one_has_one_member() {
-    let app = board(json!([{"title": null, "rows": [row("docs", "working", "guide", json!({}))]}]));
+    let mut app =
+        board(json!([{"title": null, "rows": [row("docs", "working", "guide", json!({}))]}]));
+    lead_sol(&mut app);
     assert_eq!(draw(&app, 48, 5)[1], "lead sol · 1 member");
 }
 
@@ -810,10 +1031,11 @@ fn drawn_rows_are_clickable_and_the_menu_and_help_show_bindings() {
 }
 
 #[test]
-fn help_groups_view_lead_and_theme_bindings() {
+fn help_groups_view_and_theme_bindings_and_lists_no_default_jump_lead() {
     let mut app = board(json!([]));
     app.view.as_mut().unwrap().bindings = crate::action::preset(true, &[]);
     let help = help_lines(&app);
+    assert!(help.iter().all(|line| !line.contains("lead's pane")));
     assert!(
         help.iter()
             .any(|line| line == "double-click  go to the member's pane")
@@ -823,12 +1045,18 @@ fn help_groups_view_lead_and_theme_bindings() {
         .position(|line| line == "l  pick a pane layout")
         .unwrap();
     assert_eq!(
-        &help[at..at + 3],
-        [
-            "l  pick a pane layout",
-            "L  go to the lead's pane",
-            "T  pick a theme"
-        ]
+        &help[at..at + 2],
+        ["l  pick a pane layout", "T  pick a theme",]
+    );
+    // A user who binds it still sees it described.
+    app.view.as_mut().unwrap().bindings.insert(
+        "L".into(),
+        crate::action::Action::parse("jump lead").unwrap(),
+    );
+    assert!(
+        help_lines(&app)
+            .iter()
+            .any(|line| line == "L  go to the squad lead's pane")
     );
 }
 
@@ -905,11 +1133,12 @@ fn paned(board: crate::config::Board, notes: Notes) -> App {
             squad: Some("product".into()),
             view: Ok(View {
                 ask_lead: crate::config::DEFAULT_ASK_LEAD.into(),
+                home_replies: true,
                 token_rate: None,
                 home_rate: Default::default(),
                 home: None,
             derived: Default::default(),
-                document: json!({"squad": {"name": "product", "lead": {"name": "sol"}}, "sections": [
+                document: json!({"squad": {"name": "product", "lead": {"id": "LEAD", "name": "sol", "fields": {}}}, "sections": [
                     {"title": null, "rows": [row("auth-fix", "blocked", "rotate tokens", json!({
                         "pending": "approve the plan", "note": "needs a call", "presence": "active", "state": "blocked",
                         "pane": {"target": "crew:2.0", "cwd": "/w/app-3"}
@@ -930,6 +1159,7 @@ fn paned(board: crate::config::Board, notes: Notes) -> App {
                 look: Default::default(),
                 theme_notice: None,
                 me: None,
+                me_id: None,
                 replies: Vec::new(),
             }),
         });
@@ -1478,27 +1708,27 @@ fn selected_tabs_keep_foregrounds_and_geometry_with_selection_background() {
             };
             let selection = look.selection();
             for (attention, text) in [
-                (Attention::default(), "  product "),
+                (Attention::default(), "  product"),
                 (
                     Attention {
                         waiting: 2,
                         blocked: 0,
                     },
-                    "◆ product 2 ",
+                    "◆ product 2",
                 ),
                 (
                     Attention {
                         waiting: 0,
                         blocked: 1,
                     },
-                    "✗ product 1 ",
+                    "✗ product 1",
                 ),
                 (
                     Attention {
                         waiting: 2,
                         blocked: 1,
                     },
-                    "◆ product 2 ✗1 ",
+                    "◆ product 2 ✗ 1",
                 ),
             ] {
                 let selected = tab(
@@ -1550,7 +1780,7 @@ fn selected_tabs_keep_foregrounds_and_geometry_with_selection_background() {
                         } else if (x == 0 && attention.blocked > 0)
                             || (attention.waiting > 0
                                 && attention.blocked > 0
-                                && (12..14).contains(&x))
+                                && (12..15).contains(&x))
                         {
                             Some(Role::Blocked)
                         } else {
@@ -1717,6 +1947,8 @@ fn nested_splits_draw_rows_beside_detail_over_notes() {
         },
     };
     let mut app = paned(board, Notes::Text("## Now\n- tokens".into()));
+    // The cursor starts on the lead; the member is the next row.
+    app.key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
     let screen = draw(&app, 100, 23);
     // Rows take 60 of 100 columns; detail sits over notes in the rest.
     let right = |line: &str| line.chars().skip(60).collect::<String>();
@@ -1734,6 +1966,113 @@ fn nested_splits_draw_rows_beside_detail_over_notes() {
         app.key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
         assert_eq!(app.focused(), expected);
     }
+}
+
+#[test]
+fn lead_detail_keeps_fields_separate_from_notebooks_and_replies() {
+    for width in [160, 100, 80] {
+        for (base, depth) in [
+            ("tmt", tmt_cli_style::Depth::TrueColor),
+            ("tmt-light", tmt_cli_style::Depth::TrueColor),
+            ("tmt", tmt_cli_style::Depth::None),
+        ] {
+            for lifetime in ["saved", "temporary"] {
+                let mut app =
+                    board(json!([{"rows": [row("worker", "working", "ship", json!({}))]}]));
+                let view = app.view.as_mut().unwrap();
+                view.look = crate::look::Look {
+                    theme: tmt_cli_style::Theme::new(
+                        tmt_cli_style::theme::Base::parse(base).unwrap(),
+                    ),
+                    depth,
+                };
+                view.document["squad"]["lead"] = json!({
+                    "id": "LEAD", "name": "sol", "lifetime": lifetime, "state": "review",
+                    "pending": "Approve the rollout?",
+                    "fields": {"task": "review the patch", "model": "sol", "cap": "high",
+                        "pr_link": "https://example.com/1741", "link": ""},
+                    "waitingOnYou": [{"preview": "request preview must stay out"}]
+                });
+                view.replies = vec![json!({"response": "Reply sentinel"})];
+                app.notebooks
+                    .borrow_mut()
+                    .keep("LEAD".into(), Notes::Text("Notebook sentinel".into()));
+                let buffer = detail_buffer(&app, width, 20);
+                assert_eq!(
+                    detail_text(&buffer),
+                    [
+                        "sol  lead",
+                        "review · sol · high",
+                        "task: review the patch",
+                        "◆ waits on you: Approve the rollout?",
+                        "links: pr_link https://example.com/1741",
+                        "notes below · replies at right",
+                    ]
+                );
+                assert!(buffer[(0, 0)].modifier.contains(Modifier::BOLD));
+                assert_eq!(
+                    crate::board::glyph_guard::glyph_error(&detail_text(&buffer)[3]),
+                    None
+                );
+                assert_eq!(
+                    buffer[(5, 0)].fg,
+                    app.look().role(Role::Dim).fg.unwrap_or_default()
+                );
+                assert_eq!(
+                    buffer[(0, 3)].fg,
+                    app.look().role(Role::Waiting).fg.unwrap_or_default()
+                );
+                assert_eq!(app.notebook_identity(), None);
+                app.view.as_mut().unwrap().document["squad"]["lead"]["pending"] = Value::Null;
+                let text = detail_text(&detail_buffer(&app, width, 20)).join("\n");
+                assert!(
+                    !text.contains("waits on you"),
+                    "an inbox preview is not lead pending text"
+                );
+                app.select(1);
+                assert!(!app.selected_is_lead());
+                assert!(
+                    detail_text(&detail_buffer(&app, width, 20))
+                        .join("\n")
+                        .contains("─ notebook")
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn lead_detail_omits_missing_fields_and_wraps_safe_text_through_the_shared_scroll() {
+    let mut app = board(json!([]));
+    app.view.as_mut().unwrap().document["squad"]["lead"] = json!({"name": "sol", "id": "LEAD", "lifetime": "saved", "fields": {"task": "", "model": "", "cap": ""}});
+    let buffer = detail_buffer(&app, 100, 20);
+    assert_eq!(
+        detail_text(&buffer),
+        [
+            "sol  lead",
+            "no row fields set · tmt sq set sol task=…",
+            "notes below · replies at right",
+        ]
+    );
+    assert_eq!(
+        buffer[(0, 1)].fg,
+        app.look().role(Role::Dim).fg.unwrap_or_default()
+    );
+    app.view.as_mut().unwrap().document["squad"]["lead"]["fields"]["task"] =
+        json!("one\ntwo\t\u{1b}[31m long task to wrap");
+    let text = detail_text(&detail_buffer(&app, 12, 20)).join("");
+    assert!(text.contains("task:"));
+    assert!(!text.contains('\u{1b}') && !text.contains("no row fields set"));
+    detail_buffer(&app, 12, 3);
+    app.scrolls
+        .scroll(Pane::Detail, super::super::scroll::Step::Bottom);
+    assert!(
+        detail_text(&detail_buffer(&app, 12, 3))
+            .join("")
+            .contains("right")
+    );
+    detail_buffer(&app, 0, 0);
+    detail_buffer(&app, 1, 1);
 }
 
 #[test]
@@ -1929,7 +2268,7 @@ fn split_panes_follow_direction_and_sizes() {
     );
     assert!(screen.iter().any(|line| line.contains("◆ auth-fix")));
 
-    let app = paned(
+    let mut app = paned(
         split(
             Direction::TopBottom,
             vec![Pane::Rows, Pane::Detail],
@@ -1937,6 +2276,8 @@ fn split_panes_follow_direction_and_sizes() {
         ),
         Notes::NotShown,
     );
+    // The cursor starts on the lead; the member is the next row.
+    app.key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
     let screen = draw(&app, 70, 23);
     let detail_row = screen
         .iter()
@@ -2264,6 +2605,7 @@ fn tabs_carry_attention_by_color_and_count_and_the_summary_has_its_own_line() {
     let mut app = board(json!([{"title": null, "rows": [
         row("auth-fix", "blocked", "rotate", json!({"pending": "approve"})),
     ]}]));
+    lead_sol(&mut app);
     app.attention = BTreeMap::from([
         (
             "product".into(),
@@ -2287,7 +2629,7 @@ fn tabs_carry_attention_by_color_and_count_and_the_summary_has_its_own_line() {
         .map(|x| buffer[(x, 0)].symbol().to_owned())
         .collect();
     // Counts say what the color says, so no meaning is color-only.
-    assert_eq!(tabs.trim_end(), "◆ product 1 ✗1  ✗ reviews 2");
+    assert_eq!(tabs.trim_end(), "◆ product 1 ✗ 1 ✗ reviews 2");
     let column = |name: &str| tabs[..tabs.find(name).unwrap()].chars().count() as u16;
     let product = &buffer[(column("product"), 0)];
     // Waiting wins over blocked; selection is bold without moving the tab.
@@ -2349,21 +2691,21 @@ fn attention_counts_keep_shared_marks_and_tab_width_without_color() {
             &TabColors::default()
         )
         .to_string(),
-        "  product "
+        "  product"
     );
     let colors = TabColors::default();
     let plain = tab(app.look(), "product", false, false, counts, &colors);
     let selected = tab(app.look(), "product", true, false, counts, &colors);
-    assert_eq!(selected.to_string(), "◆ product 2 ✗1 ");
+    assert_eq!(selected.to_string(), "◆ product 2 ✗ 1");
     assert_eq!(selected.to_string(), plain.to_string());
-    assert_eq!(selected.width(), "◆ product 2 ✗1 ".width());
+    assert_eq!(selected.width(), "◆ product 2 ✗ 1".width());
     assert_eq!(selected.style.fg, None);
-    assert!(draw(&app, 60, 8)[0].contains("◆ product 2 ✗1"));
+    assert!(draw(&app, 60, 8)[0].contains("◆ product 2 ✗ 1"));
     app.switcher = Some(Switcher::new("product".into()));
     assert!(
         draw(&app, 60, 8)
             .iter()
-            .any(|line| line.contains("◆ product 2 ✗1"))
+            .any(|line| line.contains("◆ product 2 ✗ 1"))
     );
 }
 
@@ -2459,7 +2801,7 @@ fn the_leads_tab_is_labelled_leads_and_counts_squad_leads() {
         view: Ok(view),
     });
     let screen = draw(&app, 60, 6);
-    assert_eq!(screen[0], "  product    leads");
+    assert_eq!(screen[0], "  product   leads");
     assert_eq!(screen[1], "2 squad leads");
     assert_eq!(screen[2], "  SQUAD          LEAD           STATE      TASK");
     assert_eq!(screen[3], "  product        sol            working    plan");
@@ -2494,7 +2836,7 @@ fn tabs_move_with_shift_arrows_or_a_drag_and_the_order_is_saved() {
 
     // Drag: press on the first tab (showing it), release over the last.
     let screen = draw(&app, 60, 6);
-    assert_eq!(screen[0], "  reviews    leads    product");
+    assert_eq!(screen[0], "  reviews   leads   product");
     let mouse = |kind, column| MouseEvent {
         kind,
         column,
@@ -2621,7 +2963,7 @@ fn switching_squads_never_moves_a_tab_or_blanks_the_frame() {
     assert_eq!(app.current.as_deref(), Some("reviews"));
     // Selection is a style, so the tab text is the same either way.
     assert_eq!(before[0], during[0], "selection never changes label width");
-    assert_eq!(before[0].trim_end(), "  product    reviews");
+    assert_eq!(before[0].trim_end(), "  product   reviews");
     assert!(
         during[1].contains("loading"),
         "a slow switch shows a spinner"
@@ -3543,6 +3885,12 @@ fn toggle_footer_and_help_show_current_state_and_drop_the_whole_hint() {
             assert!(!help_lines(&app).iter().any(|line| line.starts_with("d ")));
             continue;
         }
+        // The footer's word has no state glyph; help keeps the state.
+        let word = if targets.len() == 2 {
+            "side panel".to_owned()
+        } else {
+            targets[0].title().to_owned()
+        };
         let label = targets
             .iter()
             .map(|pane| pane.title())
@@ -3553,16 +3901,19 @@ fn toggle_footer_and_help_show_current_state_and_drop_the_whole_hint() {
                 app.key(KeyEvent::new(KeyCode::Char('d'), KeyModifiers::NONE));
             }
             let state = if folded { "▸" } else { "▾" };
-            let hint = format!("d {label} {state}");
+            let hint = format!("d {word}");
             let full = hints(&app, usize::MAX);
             assert!(full.contains(&hint), "{full}");
+            assert!(!full.contains('▾') && !full.contains('▸'), "{full}");
             let description = app.bindings()["d"].description();
             assert!(help_lines(&app).contains(&format!("d  {description} (▾ open, ▸ folded)")));
+            assert_eq!(
+                crate::board::view::toggle_label(&app, &app.bindings()["d"]),
+                Some(format!("{label} {state}")),
+                "help keeps the state"
+            );
             for width in 0..160 {
                 let shown = hints(&app, width);
-                if shown.contains(&format!("d {label}")) {
-                    assert!(shown.contains(&hint), "{width}: {shown}");
-                }
                 assert!(!shown.contains('…'));
                 assert!(shown.width() <= width);
                 assert!(shown.is_empty() || !shown.ends_with(" ·"));
@@ -3570,9 +3921,11 @@ fn toggle_footer_and_help_show_current_state_and_drop_the_whole_hint() {
         }
         if targets.len() == 2 {
             fold(&mut app, Pane::Detail);
-            assert!(
-                hints(&app, usize::MAX).contains("d detail+replies ▾"),
-                "mixed state uses open mark"
+            assert!(hints(&app, usize::MAX).contains("d side panel"));
+            assert_eq!(
+                crate::board::view::toggle_label(&app, &app.bindings()["d"]).as_deref(),
+                Some("detail+replies ▾"),
+                "mixed state uses the open mark in help"
             );
         }
     }
@@ -3592,10 +3945,10 @@ fn footer_hints_are_conditional_and_effective_bindings_remain_visible() {
     );
     let view = app.view.as_mut().unwrap();
     view.bindings = crate::action::preset(true, &view.board.panes);
-    assert!(hints(&app, usize::MAX).contains("d detail ▾"));
+    assert!(hints(&app, usize::MAX).contains("d detail"));
     assert!(draw(&app, 48, 12)[11].contains("A ask lead"));
     assert!(
-        !draw(&app, 48, 12)[11].contains("d detail ▾"),
+        !draw(&app, 48, 12)[11].contains("d detail"),
         "decision actions take priority when narrow"
     );
     app.view
@@ -3603,7 +3956,9 @@ fn footer_hints_are_conditional_and_effective_bindings_remain_visible() {
         .unwrap()
         .bindings
         .insert("d".into(), crate::action::Action::parse("refresh").unwrap());
-    assert!(hints(&app, usize::MAX).contains("d refresh"));
+    // One hint per action: `refresh` stays on its first key, `ctrl-r`.
+    let shown = hints(&app, usize::MAX);
+    assert!(shown.contains("ctrl-r refresh") && !shown.contains("d refresh"));
     assert!(
         help_lines(&app)
             .iter()
@@ -3653,7 +4008,9 @@ fn inline_middle_row_band_moves_rows_masks_panes_and_fits_every_theme() {
                     crate::board::app::tests::snapshot(tab, json!([{"title":null, "rows":rows}]));
                 let view = snapshot.view.as_mut().unwrap();
                 view.me = Some("Ben".into());
-                view.document["squad"]["lead"] = json!({"name":"sol"});
+                if tab == "product" {
+                    view.document["squad"]["lead"] = json!({"id": "LEAD", "name": "sol"});
+                }
                 view.look = crate::look::Look {
                     theme: tmt_cli_style::Theme::new(
                         tmt_cli_style::theme::Base::parse(base).unwrap(),
@@ -3668,7 +4025,8 @@ fn inline_middle_row_band_moves_rows_masks_panes_and_fits_every_theme() {
                 view.notes = Notes::Text("neighbor pane fragment\n".repeat(25));
                 let mut app = App::new(Some(tab.into()));
                 app.apply(snapshot);
-                app.select(2);
+                // The product tab's cursor row 0 is the lead.
+                app.select(if tab == "product" { 3 } else { 2 });
                 let before = draw(&app, width, 30);
                 let old_after = before
                     .iter()

@@ -169,6 +169,13 @@ pub trait BindingRecords: IdentityReader {
         pane: &str,
         server: &str,
     ) -> Result<Option<BindingEntry>, Self::Error>;
+    /// Candidate records captured before the current server is observed. Pane IDs
+    /// may repeat across servers; reconciliation selects the observed server.
+    fn entries_for_pane(
+        &self,
+        host: crate::host::HostKind,
+        pane: &str,
+    ) -> Result<Vec<BindingEntry>, Self::Error>;
     fn binding_entries(&self) -> Result<Vec<BindingEntry>, Self::Error>;
     fn insert_binding(
         &mut self,
@@ -200,8 +207,9 @@ pub trait BindingRepository: IdentityRepository {
     ) -> Result<T, E>;
 }
 
-/// One invocation-owned adapter, reset only after the repository acquires its
-/// immediate lock. It owns the shared three-second budget, not core wall time.
+/// One invocation-owned adapter. It owns the shared three-second budget, not
+/// core wall time. Presence reads acquire host evidence outside write locks;
+/// mutations reset the budget after acquiring their coordination lock.
 pub trait BindingEndpoint {
     type Error;
     fn begin_coordination(&mut self);

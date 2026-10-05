@@ -16,6 +16,7 @@ export type AgentDestination = AskDestination & { presence?: RemoteAgent['presen
 export interface LiveAskOptions {
   space: string;
   page: string;
+  shortId?: string;
   sharing: string;
   deviceId: string;
   key: CryptoKey;
@@ -113,6 +114,7 @@ export class LiveAsk implements AskBinding {
         comment: origin?.comment ?? captured.comment,
         title: captured.title,
         url: captured.url,
+        shortId: this.options.shortId,
       };
       return controller.prepare(captured.destination);
     });
