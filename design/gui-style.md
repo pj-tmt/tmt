@@ -11,9 +11,10 @@ color or size that is not a token.
 `extensions/tmt-colab/typescript/app/src`; the other descriptions include
 approved design targets that have not shipped yet. Remote reuses the shared header
 and card through Colab's `chrome.css`. Office has not adopted this style. A shared
-component package and the implementation basis column are a **proposal**
-pending the core lead's dependency review; until then, new surfaces copy
-nothing and import from Colab only through the existing chrome assets.
+component package and the implementation basis column are a **proposal**. A
+future package and any new dependencies require architecture and dependency
+review; until then, new surfaces copy nothing and import from Colab only
+through the existing chrome assets.
 
 ## Principles
 
