@@ -56,12 +56,15 @@ grammar or key tables into the references below.
 
 ## Reference files
 
-| Topic                                                                                   | File                                                      |
-| --------------------------------------------------------------------------------------- | --------------------------------------------------------- |
-| Membership, leadership marker, `me`, field providers, staleness, reminders, cron        | [data-and-state.md](references/data-and-state.md)         |
-| `squad.toml` layering and writes, themes, views, settings, link and action effects      | [config-and-effects.md](references/config-and-effects.md) |
-| Row grid, composition, tab line, home, panes, notes, requests, scrolling, pickers, help | [board.md](references/board.md)                           |
-| Refresh worker, change detection, token meter, shutdown                                 | [refresh-and-meter.md](references/refresh-and-meter.md)   |
+| Topic                                                                                | File                                                      |
+| ------------------------------------------------------------------------------------ | --------------------------------------------------------- |
+| Membership, leadership marker, `me`, field providers, staleness, reminders, cron     | [data-and-state.md](references/data-and-state.md)         |
+| `squad.toml` layering and writes, themes, views, settings, link and action effects   | [config-and-effects.md](references/config-and-effects.md) |
+| Board frame, row grid, composition, tabs, scrolling, composers, overlays, validation | [board.md](references/board.md)                           |
+| HOME model, section scenes, cursor projection and cache invalidation                 | [board-home.md](references/board-home.md)                 |
+| Lead/member notebooks, links, annotations, detail and replies                        | [board-notebooks.md](references/board-notebooks.md)       |
+| Board cron acquisition, jobs half/list, forms and scoped input                       | [board-cron.md](references/board-cron.md)                 |
+| Refresh worker, change detection, token meter, shutdown                              | [refresh-and-meter.md](references/refresh-and-meter.md)   |
 
 ## Invariants
 
