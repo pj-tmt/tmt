@@ -1065,3 +1065,65 @@ fn a_page_source_larger_than_one_update_is_produced_as_ordered_updates_that_rebu
     );
     gone(made.child_pid);
 }
+
+#[test]
+fn merging_one_devices_updates_keeps_structs_that_depend_on_another_device() {
+    let mut decoder = Decoder::with_config(support::decoder_config(program())).unwrap();
+    // Device one writes the text; device two edits after it, so its updates alone are not a page.
+    let one = Doc::with_client_id(1);
+    one.get_or_insert_map("meta");
+    one.get_or_insert_text("html")
+        .insert(&mut one.transact_mut(), 0, "base");
+    let base = one
+        .transact()
+        .encode_state_as_update_v1(&StateVector::default());
+    let two = Doc::with_client_id(2);
+    two.get_or_insert_map("meta");
+    two.get_or_insert_text("html");
+    two.transact_mut()
+        .apply_update(Update::decode_v1(&base).unwrap())
+        .unwrap();
+    let mut mine = Vec::new();
+    for piece in [" edit", " more"] {
+        let mut txn = two.transact_mut();
+        let html = txn.get_text("html").unwrap();
+        let end = html.len(&txn);
+        html.insert(&mut txn, end, piece);
+        mine.push(txn.encode_update_v1());
+    }
+    let refs = mine.iter().map(Vec::as_slice).collect::<Vec<_>>();
+    // Read as a page on its own, it is incomplete and rejected...
+    assert!(
+        decoder
+            .decode(
+                UpdateBatch {
+                    namespace: Namespace::Content,
+                    baseline: &[],
+                    updates: &refs,
+                },
+                Role::Editor,
+                None,
+            )
+            .is_err()
+    );
+    // ...but merging keeps every struct, and with the other device's update it is the full page.
+    let merged = decoder.merge(Namespace::Content, &refs, None).unwrap();
+    let page = Doc::new();
+    page.get_or_insert_map("meta");
+    page.get_or_insert_text("html");
+    for update in [base.as_slice(), merged.as_slice()] {
+        page.transact_mut()
+            .apply_update(Update::decode_v1(update).unwrap())
+            .unwrap();
+    }
+    assert_eq!(
+        page.get_or_insert_text("html").get_string(&page.transact()),
+        "base edit more"
+    );
+    // A malformed update is refused, not merged.
+    assert!(
+        decoder
+            .merge(Namespace::Content, &[b"not an update"], None)
+            .is_err()
+    );
+}

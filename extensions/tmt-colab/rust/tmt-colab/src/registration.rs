@@ -285,7 +285,19 @@ impl Registration {
         prepared: &crate::page::Prepared,
         now: u64,
     ) -> crate::Result<crate::page::Committed> {
-        crate::page::commit(&mut self.store, &self.keyring, prepared, now)
+        let committed = crate::page::commit(&mut self.store, &self.keyring, prepared, now)?;
+        // Combining this device's own tail is best effort: the write is already durable, and the
+        // next write tries again.
+        let _ = self.engine.decoder(&prepared.page_id).and_then(|decoder| {
+            crate::page::compact::compact(
+                &mut self.store,
+                &self.keyring,
+                &prepared.page_id,
+                decoder,
+                crate::page::compact::Trigger::default(),
+            )
+        });
+        Ok(committed)
     }
     pub(crate) fn management_device(
         &mut self,

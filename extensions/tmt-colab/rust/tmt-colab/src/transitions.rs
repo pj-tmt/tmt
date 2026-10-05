@@ -229,7 +229,7 @@ impl Engine {
             },
         )
     }
-    fn decoder(&mut self, page: &str) -> Result<&mut Decoder> {
+    pub(crate) fn decoder(&mut self, page: &str) -> Result<&mut Decoder> {
         if !self.decoders.contains_key(page) {
             self.decoders.insert(
                 page.into(),

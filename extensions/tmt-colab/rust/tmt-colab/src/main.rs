@@ -584,6 +584,25 @@ fn page(root: &std::path::Path, args: &clap::ArgMatches) -> Result<()> {
             Ok(_lock) => {
                 let mut store = Store::write_existing(&layout)?;
                 let committed = page::commit(&mut store, &key, &prepared, now);
+                if committed.is_ok()
+                    && let Err(error) = page::compact::compact(
+                        &mut store,
+                        &key,
+                        id,
+                        &mut decoder,
+                        page::compact::Trigger::default(),
+                    )
+                {
+                    // The write is durable; the next write tries to combine again.
+                    let mut stderr = tmt_cli_style::stream::stderr();
+                    let terminal = stderr.terminal();
+                    tmt_cli_style::message::warning(
+                        &mut stderr,
+                        terminal,
+                        &format!("The page was written but could not be combined yet: {error}"),
+                        None,
+                    )?;
+                }
                 let closed = store.close();
                 let receipt = committed?.receipt;
                 closed?;

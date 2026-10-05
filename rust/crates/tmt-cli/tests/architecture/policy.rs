@@ -263,6 +263,8 @@ pub fn dependency_violations(package: &Value) -> Vec<String> {
             "tmt-cli-style",
             "tmt-invoke",
             "tmt-extension-state",
+            // The page budget is gzipped bytes; a write measures the state the way a browser loads it.
+            "flate2",
         ],
         // Colab model owns pure codecs and fixed crypto, not core or extension behavior.
         "tmt-colab-model" => &[

@@ -1,4 +1,5 @@
 //! Root-local source access: isolated preparation, then fenced ciphertext commit.
+pub mod compact;
 pub mod ipc;
 use crate::{
     Result,

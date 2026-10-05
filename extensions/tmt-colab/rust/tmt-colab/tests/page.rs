@@ -638,3 +638,154 @@ fn browser_author_append_invalidates_read_and_prepared_cli_bases() {
     assert_eq!(f.bytes(), before);
     assert_eq!(f.read().membership_head.revision, "2");
 }
+
+fn compact_now(f: &mut Fixture, updates: usize) -> Option<tmt_colab::page::compact::Compacted> {
+    let mut decoder = f.decoder();
+    tmt_colab::page::compact::compact(
+        &mut f.store,
+        &f.key,
+        PAGE,
+        &mut decoder,
+        tmt_colab::page::compact::Trigger {
+            updates,
+            bytes: usize::MAX,
+        },
+    )
+    .unwrap()
+}
+
+#[test]
+fn a_changed_merge_cannot_publish_a_checkpoint_or_prune_its_updates() {
+    let mut f = Fixture::new();
+    let mut source = String::from("old 🐈\r\n");
+    for i in 0..12 {
+        source.push_str(&format!("<p>{i}</p>"));
+        f.write(&source);
+    }
+    let receipts = |f: &Fixture| {
+        let connection = f.sql();
+        let mut query = connection
+            .prepare("SELECT hex(payload) FROM receipts WHERE payload IS NOT NULL ORDER BY rowid")
+            .unwrap();
+        query
+            .query_map([], |row| row.get::<_, String>(0))
+            .unwrap()
+            .collect::<rusqlite::Result<Vec<_>>>()
+            .unwrap()
+    };
+    let before = receipts(&f);
+    let program = f.root.join("changed-merge");
+    let script = format!(
+        r#"#!/usr/bin/python3
+import json, subprocess, sys
+wire = sys.stdin.buffer.read()
+child = subprocess.run([{binary}, "__decoder"], input=wire, capture_output=True)
+if child.returncode:
+    sys.stderr.buffer.write(child.stderr)
+    sys.exit(child.returncode)
+reply = json.loads(child.stdout)
+request = json.loads(wire)
+if request.get("merge_only"):
+    reply["merged"] = request["updates"][0]
+sys.stdout.write(json.dumps(reply))
+"#,
+        binary = serde_json::to_string(BINARY).unwrap()
+    );
+    tmt_test_support::write_executable(&program, script.as_bytes(), 0o700).unwrap();
+    let mut decoder = Decoder::with_config(support::decoder_config(program)).unwrap();
+    assert_eq!(
+        page::compact::compact(
+            &mut f.store,
+            &f.key,
+            PAGE,
+            &mut decoder,
+            page::compact::Trigger {
+                updates: 10,
+                bytes: usize::MAX,
+            },
+        )
+        .unwrap(),
+        None
+    );
+    let checkpoints: i64 = f
+        .sql()
+        .query_row(
+            "SELECT count(*) FROM checkpoints WHERE payload IS NOT NULL",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(checkpoints, 0);
+    assert_eq!(receipts(&f), before, "all update payloads remain available");
+    assert_eq!(f.read().source, source);
+}
+
+#[test]
+fn a_device_combines_its_own_tail_and_the_page_still_reads_back_exact() {
+    let mut f = Fixture::new();
+    let mut source = String::from("old 🐈\r\n");
+    for i in 0..12 {
+        source.push_str(&format!("<p>{i}</p>"));
+        f.write(&source);
+    }
+    // Below the trigger nothing happens.
+    assert_eq!(compact_now(&mut f, 100), None);
+    let objects_before: i64 = f
+        .sql()
+        .query_row(
+            "SELECT count(*) FROM receipts WHERE payload IS NOT NULL",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    let done = compact_now(&mut f, 10).expect("the tail passed the trigger");
+    assert_eq!(done.namespaces, 1);
+    assert_eq!(done.merged_objects, 12);
+    let objects_after: i64 = f
+        .sql()
+        .query_row(
+            "SELECT count(*) FROM receipts WHERE payload IS NOT NULL",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    // The device's twelve updates became one checkpoint; the first device's update is untouched.
+    assert_eq!(objects_before - objects_after, 12);
+    let checkpoints: i64 = f
+        .sql()
+        .query_row(
+            "SELECT count(*) FROM checkpoints WHERE payload IS NOT NULL",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(checkpoints, 1);
+    assert_eq!(f.read().source, source);
+    // Nothing left to combine, and repeating is harmless.
+    assert_eq!(compact_now(&mut f, 1), None);
+    // Writes continue on top of the checkpoint and read back exact.
+    source.push_str("<p>after</p>");
+    f.write(&source);
+    assert_eq!(f.read().source, source);
+}
+
+#[test]
+fn a_page_takes_more_than_two_hundred_changes_when_its_device_combines() {
+    let mut f = Fixture::new();
+    let mut source = String::from("old 🐈\r\n");
+    for i in 0..230 {
+        source.push_str(&format!("<i>{i}</i>"));
+        f.write(&source);
+        compact_now(&mut f, 20);
+    }
+    assert_eq!(f.read().source, source);
+    let live: i64 = f
+        .sql()
+        .query_row(
+            "SELECT count(*) FROM receipts WHERE payload IS NOT NULL",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert!(live <= 22, "{live} updates still stored");
+}
