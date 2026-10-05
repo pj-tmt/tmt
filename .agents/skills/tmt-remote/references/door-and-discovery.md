@@ -83,5 +83,13 @@ before effects; show the local settings/devices CLI path without automatic retri
 reset, and preserve any original unknown outcome. Compaction is deferred.
 
 Focused native evidence includes `cargo test --offline --locked -p tmt-remote` (management storage,
-signed admission, settings fault, CLI/state and existing lifecycle), plus SDK package check/test/build
+signed admission, settings fault, deterministic management process interruption, CLI/state and existing lifecycle), plus SDK package check/test/build
 and regenerated-byte equality. Use the existing isolated roots and the worktree-owned target.
+
+The management interruption test runs the same effect owner in an owned child, reports actual
+adoption/writer/transaction milestones, then the parent SIGKILLs and joins it before reopening
+the root. Production uses a no-op observer; there is no runtime fault flag. Pending identity,
+file uncertainty and device transaction rollback/commit are verified independently. The browser
+fixture also kills/restarts its disposable serve after a signed management commit but before
+acknowledgment, then verifies a fresh live Session's original receipt and designation. These are
+process-interruption tests, not power-loss or complete product/release acceptance.

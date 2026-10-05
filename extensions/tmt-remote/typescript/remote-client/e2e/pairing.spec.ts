@@ -980,3 +980,122 @@ test('settings pagination retains later-page drafts across refresh and guards na
   await expect(page.locator('.device')).toHaveCount(25);
   await context.close();
 });
+
+test('committed signed management survives owned serve SIGKILL and fresh original-ID read', async () => {
+  pair = spawn(BINARY, ['pair', '--json'], { env });
+  const events = lines(pair);
+  const offer = await events.next();
+  const context = await browser.newContext();
+  const page = await context.newPage();
+  await page.goto(offer.link as string);
+  await page.fill('#name', 'Crash browser');
+  await page.click('button');
+  await expect(page.locator('#words')).toBeVisible();
+  await events.next();
+  pair.stdin.write('confirm\n');
+  expect((await events.next()).reason).toBe('paired');
+  await expect(page.locator('#status')).toContainText('This browser is paired.');
+  await exited(pair);
+  const inventory = JSON.parse(
+    execFileSync(BINARY, ['devices', '--json'], { env, encoding: 'utf8' }),
+  ) as { devices: { clientId: string }[] };
+  execFileSync(BINARY, ['devices', 'designate', inventory.devices[0]!.clientId, '--json'], { env });
+  await page.goto(`${origin}/settings`);
+  await expect(page.locator('#opening')).toBeEnabled();
+  const startupCalls = (await readFile(join(root, 'core-calls.jsonl'), 'utf8'))
+    .split('\n')
+    .filter(Boolean).length;
+  let effectCalls = 0;
+  let opens = 0;
+  let originalId = '';
+  let durable!: Record<string, unknown>;
+  const beforeMount = await page.evaluate(() =>
+    fetch('/sdk/mount', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path: location.pathname }),
+    }).then((reply) => reply.json()),
+  );
+  await page.route('**/append', async (route) => {
+    const body = route.request().postDataJSON() as { operation: string; id: string };
+    if (body.operation === 'session.open') opens++;
+    if (body.operation === 'remote.settings.set') {
+      effectCalls++;
+      originalId = body.id;
+      const reply = await route.fetch();
+      expect(reply.status()).toBe(200);
+      // This real effect+settlement and native response is the deterministic
+      // milestone. The browser still has not received its acknowledgement.
+      const response = await reply.json();
+      expect(JSON.parse(Buffer.from(response.payload, 'base64url').toString('utf8')).state).toBe(
+        'committed',
+      );
+      durable = JSON.parse(
+        execFileSync(
+          'python3',
+          [
+            '-c',
+            "import sqlite3,sys,json; db=sqlite3.connect(sys.argv[1]); row=db.execute('SELECT id,adopted_ms,deadline_ms,outcome FROM management_receipts WHERE id=?',(sys.argv[2],)).fetchone(); print(json.dumps(dict(zip(['id','adopted','deadline','outcome'],row)))); db.close()",
+            join(root, 'state/remote/remote.db'),
+            originalId,
+          ],
+          { encoding: 'utf8' },
+        ),
+      );
+      expect(JSON.parse(durable.outcome as string).state).toBe('committed');
+      expect(serve.kill('SIGKILL')).toBe(true);
+      await exited(serve);
+      expect(serve.signalCode).toBe('SIGKILL');
+      await route.abort();
+    } else await route.continue();
+  });
+  await page.selectOption('#opening', 'off');
+  await page.click('#opening-form button');
+  await expect(page.locator('#outcome')).toContainText('unknown');
+  await expect(page.locator('#original')).toHaveText(`Original operation ${originalId}`);
+  // The killed task is joined above. Only this disposable root/owned serve restarts.
+  serve = spawn(BINARY, ['serve', '--json'], { env });
+  const restarted = await lines(serve).next();
+  expect(new URL(restarted.address as string).origin).toBe(origin);
+  const afterMount = await page.evaluate(() =>
+    fetch('/sdk/mount', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path: location.pathname }),
+    }).then((reply) => reply.json()),
+  );
+  expect(afterMount.machineId).toBe(beforeMount.machineId);
+  expect(afterMount.windowId).not.toBe(beforeMount.windowId);
+  await page.click('#recover');
+  await expect(page.locator('#outcome')).toContainText('committed');
+  await expect(page.locator('#opening-value')).toHaveText('Off · settings.json');
+  await expect(page.locator('#opening')).toBeEnabled(); // designation survived process death.
+  await expect(page.locator('#original')).toHaveText(`Original operation ${originalId}`);
+  expect(effectCalls).toBe(1);
+  expect(opens).toBe(1);
+  const after = JSON.parse(
+    execFileSync(
+      'python3',
+      [
+        '-c',
+        "import sqlite3,sys,json; db=sqlite3.connect(sys.argv[1]); row=db.execute('SELECT id,adopted_ms,deadline_ms,outcome FROM management_receipts WHERE id=?',(sys.argv[2],)).fetchone(); print(json.dumps(dict(zip(['id','adopted','deadline','outcome'],row)))); db.close()",
+        join(root, 'state/remote/remote.db'),
+        originalId,
+      ],
+      { encoding: 'utf8' },
+    ),
+  );
+  expect(after).toEqual(durable);
+  const calls = (await readFile(join(root, 'core-calls.jsonl'), 'utf8'))
+    .split('\n')
+    .filter(Boolean)
+    .map((line) => JSON.parse(line) as { operation: string });
+  expect(
+    calls
+      .slice(startupCalls)
+      .map((call) => call.operation)
+      .sort(),
+  ).toEqual(['capabilities', 'storage.root']);
+  expect(calls.filter((call) => call.operation === 'dispatch.create')).toHaveLength(0);
+  await context.close();
+});

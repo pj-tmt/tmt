@@ -167,6 +167,17 @@ fn audit_change(
     )
 }
 
+// Owner-local observation points: production uses a no-op; interruption tests
+// pause the same writer/transaction path without replacing its algorithm.
+enum EffectStage {
+    BeforeTouch,
+    Truncated,
+    Written,
+    Synced,
+    BeforeCommit,
+    Committed,
+}
+
 impl Store {
     /// Local owner authority only; this method is not a signed operation.
     pub fn designate(&mut self, client: &str, origin: &str, now: u64) -> Result<Grant> {
@@ -322,6 +333,18 @@ impl Store {
         digest: &[u8],
         mutation: Mutation,
     ) -> Result<(Value, Option<String>)> {
+        self.management_effect_observed(grant, id, operation, digest, mutation, |_| {})
+    }
+    // Observers run under the existing effect locks; never reacquire live/Store/settings.
+    fn management_effect_observed(
+        &mut self,
+        grant: &Grant,
+        id: &str,
+        operation: &str,
+        digest: &[u8],
+        mutation: Mutation,
+        mut observe: impl FnMut(EffectStage),
+    ) -> Result<(Value, Option<String>)> {
         let root = self.data_root.clone();
         let (tx, now) = self.authorized_at(grant, now_ms)?;
         require_writable(&tx, grant)?;
@@ -333,6 +356,12 @@ impl Store {
                     if stage == settings::WriteStage::BeforeTouch {
                         touched = true;
                     }
+                    observe(match stage {
+                        settings::WriteStage::BeforeTouch => EffectStage::BeforeTouch,
+                        settings::WriteStage::Truncated => EffectStage::Truncated,
+                        settings::WriteStage::Written => EffectStage::Written,
+                        settings::WriteStage::Synced => EffectStage::Synced,
+                    });
                     Ok(())
                 });
                 match saved {
@@ -390,7 +419,9 @@ impl Store {
             now,
             (decision, outcome["reason"].as_str().unwrap_or("")),
         )?;
+        observe(EffectStage::BeforeCommit);
         tx.commit().map_err(database)?;
+        observe(EffectStage::Committed);
         Ok((outcome, changed))
     }
 }

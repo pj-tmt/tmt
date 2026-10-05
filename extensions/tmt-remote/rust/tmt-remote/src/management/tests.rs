@@ -517,3 +517,258 @@ fn cumulative_identity_limits_refuse_new_adoption_but_preserve_live_original_rea
         );
     }
 }
+
+/// The same test executable owns the interrupted Store/writer. Its parent owns
+/// the root and kills/reaps it only after an actual owner milestone is published.
+#[test]
+fn process_crashes_preserve_original_management_identity_and_durable_boundaries() {
+    use std::io::{BufRead, Read, Write};
+    use std::os::unix::process::ExitStatusExt;
+    use std::process::{Child, Command, Stdio};
+    use std::sync::mpsc;
+    use std::thread::JoinHandle;
+    use std::time::Duration;
+    const PREFIX: &str = "TMT_MANAGEMENT_CRASH ";
+    const TEST: &str = "management::tests::process_crashes_preserve_original_management_identity_and_durable_boundaries";
+    fn milestone(phase: &str, id: &str, original: (i64, i64)) {
+        println!(
+            "{PREFIX}{}",
+            json!({"phase":phase,"operationId":id,"adopted":original.0,"deadline":original.1})
+        );
+        std::io::stdout().flush().unwrap();
+        // Parent-visible event, then an owned blocking pipe: no timing-based
+        // inference and no continuation through the effect after publication.
+        let mut release = [0];
+        std::io::stdin().read_exact(&mut release).unwrap();
+        panic!("parent must SIGKILL the milestone child, never release it");
+    }
+    if let Ok(phase) = std::env::var("TMT_MANAGEMENT_CRASH_PHASE") {
+        let root = PathBuf::from(std::env::var("TMT_MANAGEMENT_CRASH_ROOT").unwrap());
+        let serving = Layout::open(&root).unwrap().serve_lock().unwrap();
+        let mut store = Store::open(&serving).unwrap();
+        let client = std::env::var("TMT_MANAGEMENT_CRASH_CLIENT").unwrap();
+        let grant = store.grant(&client).unwrap().unwrap();
+        let id = std::env::var("TMT_MANAGEMENT_CRASH_ID").unwrap();
+        let operation = if phase.contains("rename") {
+            "remote.devices.rename"
+        } else if phase.contains("revoke") {
+            "remote.devices.revoke"
+        } else {
+            "remote.settings.set"
+        };
+        store
+            .management_adopt(&grant, &id, operation, &[9; 32], now_ms().unwrap())
+            .unwrap();
+        let original = store
+            .connection
+            .query_row(
+                "SELECT adopted_ms,deadline_ms FROM management_receipts WHERE id=?1",
+                [&id],
+                |row| Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?)),
+            )
+            .unwrap();
+        if phase == "adopted" {
+            milestone(&phase, &id, original);
+        }
+        let mutation = if phase.contains("rename") {
+            Mutation::Rename {
+                client,
+                name: "Committed new name".into(),
+            }
+        } else if phase.contains("revoke") {
+            Mutation::Revoke { client }
+        } else {
+            Mutation::Setting {
+                key: "open",
+                value: json!(false),
+            }
+        };
+        store
+            .management_effect_observed(&grant, &id, operation, &[9; 32], mutation, |stage| {
+                let reached = match stage {
+                    EffectStage::BeforeTouch => phase.starts_with("first-touch"),
+                    EffectStage::Truncated => phase == "truncated",
+                    EffectStage::Synced => phase == "synced",
+                    EffectStage::BeforeCommit => phase.starts_with("uncommitted"),
+                    EffectStage::Committed => phase.starts_with("committed"),
+                    _ => false,
+                };
+                if reached {
+                    milestone(&phase, &id, original);
+                }
+            })
+            .unwrap();
+        panic!("missing crash milestone for {phase}");
+    }
+    struct Interrupted {
+        child: Child,
+        reader: Option<JoinHandle<()>>,
+    }
+    impl Drop for Interrupted {
+        fn drop(&mut self) {
+            let _ = self.child.kill();
+            self.child.wait().unwrap();
+            if let Some(reader) = self.reader.take() {
+                reader.join().unwrap();
+            }
+        }
+    }
+    for phase in [
+        "adopted",
+        "first-touch-create",
+        "first-touch-truncate",
+        "truncated",
+        "synced",
+        "uncommitted-rename",
+        "uncommitted-revoke",
+        "committed-rename",
+        "committed-revoke",
+    ] {
+        let mut f = Fixture::new();
+        f.designate();
+        let file = f.root.join("remote/settings.json");
+        if phase != "adopted" && phase != "first-touch-create" {
+            settings::set_open(&f.root, true).unwrap();
+        }
+        let before = std::fs::read(&file).ok();
+        let id = uuid_v4().unwrap();
+        // Hand ownership to the child; a fresh lease must be acquired after death.
+        f.store.connection = Connection::open_in_memory().unwrap();
+        f.serving.take();
+        let child = Command::new(std::env::current_exe().unwrap())
+            .args(["--exact", TEST, "--nocapture"])
+            .env("TMT_MANAGEMENT_CRASH_PHASE", phase)
+            .env("TMT_MANAGEMENT_CRASH_ROOT", &f.root)
+            .env("TMT_MANAGEMENT_CRASH_CLIENT", &f.grant.client_id)
+            .env("TMT_MANAGEMENT_CRASH_ID", &id)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .spawn()
+            .unwrap();
+        let mut interrupted = Interrupted {
+            child,
+            reader: None,
+        };
+        let output = interrupted.child.stdout.take().unwrap();
+        let (sender, receiver) = mpsc::channel();
+        interrupted.reader = Some(std::thread::spawn(move || {
+            for line in std::io::BufReader::new(output).lines() {
+                let line = line.unwrap();
+                if let Some(event) = line.strip_prefix(PREFIX) {
+                    sender
+                        .send(serde_json::from_str::<Value>(event).unwrap())
+                        .unwrap();
+                    return;
+                }
+            }
+        }));
+        let event = receiver.recv_timeout(Duration::from_secs(30)).unwrap();
+        assert_eq!(event["phase"], phase);
+        assert_eq!(event["operationId"], id);
+        interrupted.child.kill().unwrap();
+        assert_eq!(interrupted.child.wait().unwrap().signal(), Some(9));
+        drop(interrupted); // reader joined, pipe closed, no child remains.
+        f.serving = Some(Layout::open(&f.root).unwrap().serve_lock().unwrap());
+        f.store = Store::open(f.serving.as_ref().unwrap()).unwrap();
+        let row: (String, i64, i64, String) = f
+            .store
+            .connection
+            .query_row(
+                "SELECT id,adopted_ms,deadline_ms,outcome FROM management_receipts WHERE id=?1",
+                [&id],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+            )
+            .unwrap();
+        assert_eq!(row.0, id);
+        assert_eq!(json!(row.1), event["adopted"]);
+        assert_eq!(json!(row.2), event["deadline"]);
+        let outcome: Value = serde_json::from_str(&row.3).unwrap();
+        let committed = phase.starts_with("committed");
+        assert_eq!(
+            outcome["state"],
+            if committed { "committed" } else { "unknown" }
+        );
+        assert_eq!(outcome["operationId"], id);
+        let target = f.store.grant(&f.grant.client_id).unwrap().unwrap();
+        assert_eq!(target.revision, if committed { 2 } else { 1 });
+        assert_eq!(target.disabled, phase == "committed-revoke");
+        assert_eq!(
+            target.name,
+            if phase == "committed-rename" {
+                "Committed new name"
+            } else {
+                "Owner"
+            }
+        );
+        assert_eq!(
+            writable(&f.store.connection, &target).unwrap(),
+            phase != "committed-revoke"
+        );
+        if phase == "truncated" {
+            assert_eq!(std::fs::read(&file).unwrap(), b"");
+            assert!(settings::read_or_default(&f.root).malformed);
+        } else if phase == "synced" {
+            assert!(!settings::read(&f.root).unwrap().open());
+        } else {
+            assert_eq!(std::fs::read(&file).ok(), before);
+        }
+        let bytes = std::fs::read(&file).ok();
+        let operation = if phase.contains("rename") {
+            "remote.devices.rename"
+        } else if phase.contains("revoke") {
+            "remote.devices.revoke"
+        } else {
+            "remote.settings.set"
+        };
+        if target.disabled {
+            assert!(
+                f.store
+                    .management_adopt(&target, &id, operation, &[9; 32], now_ms().unwrap())
+                    .is_err()
+            );
+            assert!(f.store.authorized(&target, now_ms().unwrap()).is_err());
+        } else {
+            assert_eq!(
+                f.store
+                    .management_adopt(&target, &id, operation, &[9; 32], now_ms().unwrap())
+                    .unwrap()
+                    .unwrap(),
+                outcome
+            );
+            assert_eq!(
+                f.store
+                    .management_adopt(&target, &id, operation, &[8; 32], now_ms().unwrap())
+                    .unwrap_err()
+                    .code,
+                "REMOTE_INTENT_CONFLICT"
+            );
+        }
+        assert_eq!(
+            receipt(
+                &f.store.connection,
+                &target.client_id,
+                &id,
+                now_ms().unwrap()
+            )
+            .unwrap(),
+            outcome
+        );
+        assert_eq!(std::fs::read(&file).ok(), bytes); // Read/repeat never applies a pending setter.
+        let final_times: (i64, i64) = f
+            .store
+            .connection
+            .query_row(
+                "SELECT adopted_ms,deadline_ms FROM management_receipts WHERE id=?1",
+                [&id],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(final_times, (row.1, row.2));
+        assert_eq!(f.count("management_receipts"), 1);
+        assert_eq!(f.count("operations"), 0);
+        println!(
+            "verified SIGKILL phase={phase} id={id} adopted={} deadline={} state={} revision={} child/reader joined",
+            row.1, row.2, outcome["state"], target.revision
+        );
+    }
+}
