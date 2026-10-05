@@ -84,9 +84,23 @@ struct Bucket {
 
 impl Bucket {
     fn read(connection: &Connection, id: &str, from: u64) -> Result<Self, StorageError> {
-        connection.query_row("SELECT input_tokens,output_tokens,cached_input_tokens,covered_ms,complete,gap,discontinuous,sampled_at_ms,latest FROM consumption_buckets WHERE identity_id=? AND from_ms=?", params![id,from as i64], |row| Ok(Self {
-            from, input:integer(row,0)?,output:integer(row,1)?,cached:integer(row,2)?,covered:integer(row,3)?,incomplete:!row.get::<_,bool>(4)?,gap:row.get(5)?,discontinuous:row.get(6)?,sampled:optional_integer(row,7)?,latest:row.get(8)?
-        })).optional().map(|value| value.unwrap_or(Self { from, ..Self::default() })).map_err(|e| classify(e,"Read consumption bucket"))
+        connection.query_row("SELECT input_tokens,output_tokens,cached_input_tokens,covered_ms,complete,gap,discontinuous,sampled_at_ms,latest FROM consumption_buckets WHERE identity_id=? AND from_ms=?", params![id,from as i64], |row| Self::from_row(row, from))
+            .optional().map(|value| value.unwrap_or(Self { from, ..Self::default() })).map_err(|e| classify(e,"Read consumption bucket"))
+    }
+
+    fn from_row(row: &rusqlite::Row<'_>, from: u64) -> rusqlite::Result<Self> {
+        Ok(Self {
+            from,
+            input: integer(row, 0)?,
+            output: integer(row, 1)?,
+            cached: integer(row, 2)?,
+            covered: integer(row, 3)?,
+            incomplete: !row.get::<_, bool>(4)?,
+            gap: row.get(5)?,
+            discontinuous: row.get(6)?,
+            sampled: optional_integer(row, 7)?,
+            latest: row.get(8)?,
+        })
     }
 
     fn write(&self, connection: &Connection, id: &str) -> Result<(), StorageError> {
@@ -189,29 +203,30 @@ impl Storage {
         let through = now / BUCKET_MS * BUCKET_MS;
         let retained = through.saturating_sub(HISTORY_MS);
         let mut identities = Vec::new();
+        // Keep both prepared statements for this snapshot. The adapter disables
+        // rusqlite's optional statement cache; transaction-local reuse needs no
+        // extra dependency or cache lifetime beyond this read.
+        let mut identity = transaction
+            .prepare("SELECT EXISTS(SELECT 1 FROM identities WHERE id=? AND retired_at_ms IS NULL)")
+            .map_err(|e| classify(e, "Read consumption identity"))?;
+        let mut statement = transaction.prepare("SELECT input_tokens,output_tokens,cached_input_tokens,covered_ms,complete,gap,discontinuous,sampled_at_ms,latest,from_ms FROM consumption_buckets WHERE identity_id=? AND from_ms>=? AND from_ms<? ORDER BY from_ms")
+            .map_err(|e| classify(e, "Read retained consumption buckets"))?;
         for id in ids {
-            let found: bool = transaction
-                .query_row(
-                    "SELECT EXISTS(SELECT 1 FROM identities WHERE id=? AND retired_at_ms IS NULL)",
-                    [id],
-                    |row| row.get(0),
-                )
+            let found: bool = identity
+                .query_row([id], |row| row.get(0))
                 .map_err(|e| classify(e, "Read consumption identity"))?;
             if !found {
                 identities.push(json!({"id":id,"found":false}));
                 continue;
             }
-            let mut statement = transaction.prepare("SELECT from_ms FROM consumption_buckets WHERE identity_id=? AND from_ms>=? AND from_ms<? ORDER BY from_ms").map_err(|e|classify(e,"Read retained consumption buckets"))?;
-            let starts: Vec<u64> = statement
+            // Read the whole retained range once: latest/availability and corruption
+            // checks still include evidence outside the requested display windows.
+            let rows: Vec<Bucket> = statement
                 .query_map(params![id, retained as i64, through as i64], |row| {
-                    integer(row, 0)
+                    Bucket::from_row(row, integer(row, 9)?)
                 })
                 .and_then(|rows| rows.collect())
-                .map_err(|e| classify(e, "Read retained consumption starts"))?;
-            let rows: Vec<_> = starts
-                .into_iter()
-                .map(|from| Bucket::read(&transaction, id, from))
-                .collect::<Result<_, _>>()?;
+                .map_err(|e| classify(e, "Read consumption bucket"))?;
             let last = rows.iter().rev().find(|row| row.sampled.is_some());
             let latest: Option<ConsumptionLatest> = last
                 .and_then(|row| row.latest.as_deref())
@@ -237,16 +252,17 @@ impl Storage {
                 let width = slots.div_ceil(max_buckets) * BUCKET_MS;
                 let mut buckets = Vec::new();
                 let mut start = from;
+                let mut cursor = rows.partition_point(|row| row.from < from);
                 while start < through {
                     let end = (start + width).min(through);
                     let mut aggregate = Bucket {
                         from: start,
                         ..Bucket::default()
                     };
-                    for row in rows
-                        .iter()
-                        .filter(|row| row.from >= start && row.from < end)
-                    {
+                    // Sorted, disjoint output intervals consume each retained row
+                    // at most once per window instead of rescanning for every bin.
+                    while let Some(row) = rows.get(cursor).filter(|row| row.from < end) {
+                        cursor += 1;
                         aggregate.input =
                             aggregate.input.checked_add(row.input).ok_or_else(invalid)?;
                         aggregate.output = aggregate
@@ -281,6 +297,8 @@ impl Storage {
             }
             identities.push(json!({"id":id,"found":true,"reporting":reporting,"availableFromMs":available,"lastSampleAtMs":last.filter(|row|row.latest.is_some()).and_then(|row|row.sampled),"latest":latest,"windows":readings}));
         }
+        drop(statement);
+        drop(identity);
         transaction
             .commit()
             .map_err(|e| classify(e, "Close consumption history snapshot"))?;
