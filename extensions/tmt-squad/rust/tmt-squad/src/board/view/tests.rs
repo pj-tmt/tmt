@@ -42,6 +42,32 @@ use std::collections::BTreeMap;
 use unicode_width::UnicodeWidthChar;
 
 #[test]
+fn home_pending_history_has_a_status_row_before_any_usage_is_available() {
+    for width in [80, 100, 160] {
+        let mut app = board(json!([]));
+        let view = app.view.as_mut().unwrap();
+        view.home = Some(crate::board::home::Home {
+            summary: Default::default(),
+            windows: crate::config::TokenRate::default().windows,
+            sections: Vec::new(),
+            squads: Vec::new(),
+            failures: Vec::new(),
+            incomplete: false,
+        });
+        view.history_pending = true;
+        let pending = draw(&app, width, 24);
+        assert!(pending[2].contains("Updating usage…"));
+        assert!(pending[1].contains("0 squads"));
+        app.view.as_mut().unwrap().history_pending = false;
+        assert!(
+            draw(&app, width, 24)
+                .iter()
+                .all(|line| !line.contains("Updating usage"))
+        );
+    }
+}
+
+#[test]
 fn waiting_rows_detail_and_ask_prompt_fit_each_width_and_theme() {
     for width in [160, 100, 80] {
         for (base, depth) in [

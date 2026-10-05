@@ -67,11 +67,16 @@ pub(in crate::board) fn render_frame(
     app.title_hits.borrow_mut().clear();
     app.jobs_area.set(ratatui::layout::Rect::default());
     app.scrolls.begin_frame();
+    let home_history_pending = !app.loading()
+        && app
+            .view
+            .as_ref()
+            .is_some_and(|view| view.home.is_some() && view.history_pending);
     let [tabs, summary, meter_status, body, footer] = Layout::vertical([
         Constraint::Length(1),
         Constraint::Length(1),
         Constraint::Length(u16::from(
-            header::meter_enabled(app) || home_usage.is_some(),
+            header::meter_enabled(app) || home_usage.is_some() || home_history_pending,
         )),
         Constraint::Min(1),
         Constraint::Length(1),
@@ -94,12 +99,7 @@ pub(in crate::board) fn render_frame(
     strip::paint_left(frame.buffer_mut(), summary_area, summary_text);
     header::render_meter(frame, app, summary);
     header::render_meter_status(frame, app, meter_status);
-    if app
-        .view
-        .as_ref()
-        .is_some_and(|view| view.home.is_some() && view.history_pending)
-        && !app.loading()
-    {
+    if home_history_pending {
         strip::paint_left(
             frame.buffer_mut(),
             meter_status,
