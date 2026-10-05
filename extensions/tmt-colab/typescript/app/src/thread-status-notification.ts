@@ -105,7 +105,7 @@ export function projectStatusNotifications(
         status: status.ref,
         recipient,
         state: ask?.state ?? (failure ? 'unavailable' : 'uncertain'),
-        reason: ask?.reason ?? failure?.reason,
+        reason: ask ? ask.reason : failure?.reason,
         canTrack: ask?.canTrack ?? false,
         reply: ask?.reply,
       };

@@ -135,3 +135,42 @@ it('supplies the window one parent-owned status/outcome view without storage or 
   expect(projectThreadPresentation(thread, [], seen)).toEqual(presentation);
   expect(writes).toBe(0);
 });
+
+it('uses the admitted Ask reason including null without inheriting a stale pre-ledger failure', () => {
+  for (const reason of ['PREPARATION_FAILED', 'RECIPIENT_UNAVAILABLE'] as const) {
+    const x = fixture();
+    const failure = {
+      ...f.notification,
+      operationId: x.context.recipient.operationId,
+      status: x.context.status,
+      reason,
+    };
+    x.own[failure.senderDevice].messages[discussionKey(failure)] = failure;
+    const thread = x.read()[0];
+    const ask: PageAsk = {
+      operationId: x.context.recipient.operationId,
+      writer: x.context.status.writer,
+      thread: x.thread.threadId,
+      message: 'Resolution notification',
+      agent: x.context.recipient.agent,
+      agentName: 'Renamed agent',
+      deviceName: 'Browser',
+      issuedAt: 1,
+      machine: x.context.recipient.machine,
+      state: 'accepted',
+      reason: null,
+      canTrack: true,
+    };
+    const original = structuredClone({ thread, ask });
+    for (const state of ['accepted', 'held', 'uncertain'] as const) {
+      const outcomes = projectStatusNotifications(thread, [{ ...ask, state }]);
+      expect(outcomes).toMatchObject([{ state, reason: null, canTrack: true }]);
+      expect(Object.values(outcomes[0]).some((value) => typeof value === 'function')).toBe(false);
+    }
+    expect({ thread, ask }).toEqual(original);
+    expect(thread.notifications).toMatchObject([{ reason }]);
+    expect(projectStatusNotifications(thread, [])).toMatchObject([
+      { state: 'unavailable', reason, canTrack: false },
+    ]);
+  }
+});
