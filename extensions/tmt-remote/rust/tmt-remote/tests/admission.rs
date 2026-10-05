@@ -566,8 +566,9 @@ fn several_sessions_have_independent_sequences_and_signature_bound_replay() {
     }
 }
 #[test]
-fn default_is_unlimited_and_setting_changes_apply_at_the_next_open() {
+fn explicit_off_is_unlimited_and_setting_changes_apply_at_the_next_open() {
     let owner = OwnerDoor::new();
+    tmt_remote::settings::set_sessions_per_device(&owner._root.0, None).unwrap();
     let sessions = (0..10).map(|_| owner.open()).collect::<Vec<_>>();
     for session in &sessions {
         assert!(
@@ -694,7 +695,7 @@ fn revision_change_and_expiry_end_all_sessions_without_waiting_for_requests() {
 }
 
 #[test]
-fn damaged_or_unreadable_settings_use_unlimited_sessions() {
+fn damaged_or_unreadable_settings_use_the_default_cap() {
     for case in ["broken_json", "invalid_field", "oversized", "directory"] {
         let owner = OwnerDoor::new();
         tmt_remote::settings::set_sessions_per_device(&owner._root.0, Some(1)).unwrap();
@@ -714,7 +715,7 @@ fn damaged_or_unreadable_settings_use_unlimited_sessions() {
         }
         let settings = tmt_remote::settings::read_or_default(&owner._root.0);
         assert!(settings.malformed, "{case}");
-        assert_eq!(settings.sessions_per_device(), None, "{case}");
+        assert_eq!(settings.sessions_per_device(), Some(8), "{case}");
         let second = owner.open();
         let third = owner.open();
         for session in [&first, &second, &third] {
@@ -787,4 +788,33 @@ fn requests_check_expiry_between_maintenance_scans() {
         signed_code(owner.admit(&owner.wire(&first, "1", "capabilities", b"{}"))),
         "REMOTE_SESSION_ENDED"
     );
+}
+
+#[test]
+fn default_limit_is_eight_and_eviction_reports_the_active_limit() {
+    for limit in [8, 2] {
+        let owner = OwnerDoor::new();
+        if limit != 8 {
+            tmt_remote::settings::set_sessions_per_device(&owner._root.0, Some(limit)).unwrap();
+        }
+        let sessions = (0..limit + 1).map(|_| owner.open()).collect::<Vec<_>>();
+        tmt_remote::settings::set_sessions_per_device(&owner._root.0, None).unwrap();
+        let request = owner.wire(&sessions[0], "1", "capabilities", b"{}");
+        let refused = owner.admit(&request);
+        let Err(MessageRefusal::Signed(bytes)) = refused else {
+            panic!("expected signed eviction");
+        };
+        let reply: Value = serde_json::from_slice(&bytes).unwrap();
+        let payload = owner.verify_reply(&reply, &request);
+        assert_eq!(payload["error"]["code"], "REMOTE_SESSION_EVICTED");
+        assert_eq!(payload["error"]["limit"], limit);
+        assert!(payload["error"].get("settingsUrl").is_none());
+        for session in &sessions[1..] {
+            assert!(
+                owner
+                    .admit(&owner.wire(session, "1", "capabilities", b"{}"))
+                    .is_ok()
+            );
+        }
+    }
 }

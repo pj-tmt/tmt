@@ -203,12 +203,14 @@ const MIGRATIONS: [(&str, &str); 7] = [
              grant_revision INTEGER NOT NULL,
              next_client_sequence TEXT NOT NULL,
              next_server_sequence TEXT NOT NULL,
-             ended_reason TEXT, ended_at_ms INTEGER);
+             ended_reason TEXT, ended_at_ms INTEGER, ended_limit INTEGER);
          INSERT INTO sessions SELECT client_id,session_id,window_id,grant_revision,
-             next_client_sequence,next_server_sequence,NULL,NULL FROM single_sessions;
+             next_client_sequence,next_server_sequence,NULL,NULL,NULL FROM single_sessions;
          DROP TABLE single_sessions;
          CREATE INDEX sessions_client ON sessions(client_id);
-         ALTER TABLE operations ADD COLUMN session_id TEXT;"),
+         ALTER TABLE operations ADD COLUMN session_id TEXT;
+         ALTER TABLE operations ADD COLUMN grant_revision INTEGER;
+         UPDATE operations SET grant_revision=(SELECT revision FROM grants WHERE grants.client_id=operations.client_id);"),
 ];
 fn read_port(connection: &Connection) -> Result<Option<u16>, RemoteError> {
     let port: Option<i64> = connection
@@ -642,28 +644,16 @@ fn uuid_shape(value: &str) -> bool {
 }
 
 impl Store {
-    /// End only unconfirmed work; dispatching/uncertain intent retains recovery ownership.
+    /// Session lifetime is independent of grant-owned held work.
     pub(crate) fn end_session(
         &mut self,
         client: &str,
         session: &str,
         reason: &str,
+        limit: Option<usize>,
         now: u64,
     ) -> Result<(), RemoteError> {
-        let ids = {
-            let mut query = self.connection.prepare("SELECT id FROM operations WHERE client_id=?1 AND session_id=?2 AND phase='held'").map_err(database)?;
-            query
-                .query_map([client, session], |row| row.get::<_, String>(0))
-                .map_err(database)?
-                .collect::<Result<Vec<_>, _>>()
-                .map_err(database)?
-        };
-        if let Some(grant) = self.grant(client)? {
-            for id in ids {
-                self.cancel_held(&grant, &id, now)?;
-            }
-        }
-        self.connection.execute("UPDATE sessions SET ended_reason=?3,ended_at_ms=?4 WHERE client_id=?1 AND session_id=?2 AND ended_reason IS NULL",rusqlite::params![client,session,reason,now as i64]).map_err(database)?;
+        self.connection.execute("UPDATE sessions SET ended_reason=?3,ended_at_ms=?4,ended_limit=?5 WHERE client_id=?1 AND session_id=?2 AND ended_reason IS NULL",rusqlite::params![client,session,reason,now as i64,limit.map(|n|n as i64)]).map_err(database)?;
         Ok(())
     }
     pub(crate) fn ended_reason(
@@ -671,8 +661,8 @@ impl Store {
         client: &str,
         session: &str,
         window: &str,
-    ) -> Result<Option<String>, RemoteError> {
-        self.connection.query_row("SELECT ended_reason FROM sessions WHERE client_id=?1 AND session_id=?2 AND window_id=?3",[client,session,window], |row| row.get(0)).optional().map(|value| value.flatten()).map_err(database)
+    ) -> Result<Option<(String, Option<usize>)>, RemoteError> {
+        self.connection.query_row("SELECT ended_reason,ended_limit FROM sessions WHERE client_id=?1 AND session_id=?2 AND window_id=?3",[client,session,window], |row| { let code: Option<String> = row.get(0)?; let limit = row.get::<_, Option<i64>>(1)?.map(|n|usize::try_from(n).map_err(|_|rusqlite::Error::IntegralValueOutOfRange(1,n))).transpose()?; Ok(code.map(|code| (code, limit))) }).optional().map(|value| value.flatten()).map_err(database)
     }
     pub(crate) fn operation_session(
         &self,
@@ -757,9 +747,9 @@ mod tests {
             .execute_batch(
                 "INSERT INTO grants VALUES ('device',zeroblob(32),'cli','cli','Test device','all','capabilities','direct',0,NULL,1,0);
             INSERT INTO sessions VALUES
-            ('device','live','current',1,'1','2',NULL,NULL),
-            ('device','notice','current',1,'1','2','REMOTE_SESSION_ENDED',1000),
-            ('device','old-run','previous',1,'1','2',NULL,NULL)",
+            ('device','live','current',1,'1','2',NULL,NULL,NULL),
+            ('device','notice','current',1,'1','2','REMOTE_SESSION_ENDED',1000,NULL),
+            ('device','old-run','previous',1,'1','2',NULL,NULL,NULL)",
             )
             .unwrap();
         store.prune_sessions("current", 60999).unwrap();

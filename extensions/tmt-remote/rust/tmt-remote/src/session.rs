@@ -156,7 +156,7 @@ impl DoorSessions {
                     .filter(|s| s.client_id == control.grant.client_id)
                     .max_by_key(|s| s.state.idle())
                     .map(|s| s.id.clone())?;
-                self.remove(&mut live, &oldest, "REMOTE_SESSION_EVICTED")
+                self.remove(&mut live, &oldest, "REMOTE_SESSION_EVICTED", limit)
                     .ok()?;
             }
             self.store
@@ -197,6 +197,9 @@ impl DoorSessions {
     /// End every device session and close its tunnels.
     pub fn end_device(&self, client_id: &str) {
         if let Ok(mut live) = self.live.lock() {
+            if let Ok(mut store) = self.store.lock() {
+                let _ = now_ms().and_then(|now| store.cancel_pending_holds(Some(client_id), now));
+            }
             let ids = live
                 .by_session
                 .values()
@@ -204,7 +207,7 @@ impl DoorSessions {
                 .map(|s| s.id.clone())
                 .collect::<Vec<_>>();
             for id in ids {
-                let _ = self.remove(&mut live, &id, "REMOTE_CLOSED");
+                let _ = self.remove(&mut live, &id, "REMOTE_CLOSED", None);
             }
             live.generation = live.generation.wrapping_add(1);
             self.ready.notify_all();
@@ -297,9 +300,17 @@ impl DoorSessions {
                         .flatten()
                 });
                 drop(live);
-                return Err(reason.map_or(MessageRefusal::Unauthenticated, |code| {
-                    admission::refusal(self, &message, &code, "Session ended; reopen to continue.")
-                }));
+                return Err(
+                    reason.map_or(MessageRefusal::Unauthenticated, |(code, limit)| {
+                        admission::refusal_with_limit(
+                            self,
+                            &message,
+                            &code,
+                            "Session ended; reopen to continue.",
+                            limit,
+                        )
+                    }),
+                );
             };
             if live.stopped
                 || session.client_id != grant.client_id
@@ -309,7 +320,7 @@ impl DoorSessions {
             }
             if self.expired(session) {
                 let id = session.id.clone();
-                self.remove(&mut live, &id, "REMOTE_SESSION_ENDED")
+                self.remove(&mut live, &id, "REMOTE_SESSION_ENDED", None)
                     .map_err(|_| MessageRefusal::Unauthenticated)?;
                 drop(live);
                 return Err(admission::refusal(
@@ -435,11 +446,10 @@ impl DoorSessions {
                         .ok()
                         .flatten()
                 })
-                .unwrap_or_else(|| "REMOTE_SESSION_ENDED".into());
-            return Err(RemoteError::new(
-                &code,
-                "Device session ended; reopen to continue.",
-            ));
+                .unwrap_or_else(|| ("REMOTE_SESSION_ENDED".into(), None));
+            let mut error = RemoteError::new(&code.0, "Device session ended; reopen to continue.");
+            error.limit = code.1;
+            return Err(error);
         }
         let mut store = self.store.lock().map_err(|_| {
             RemoteError::new("REMOTE_STATE_UNAVAILABLE", "Remote state unavailable.")
@@ -454,24 +464,14 @@ impl DoorSessions {
     }
     pub(crate) fn with_operation_store<T>(
         &self,
-        grant: &Grant,
-        id: &str,
         action: impl FnOnce(&mut Store) -> Result<T, RemoteError>,
     ) -> Result<T, RemoteError> {
         let live = self.live.lock().map_err(crate::store::database)?;
-        let mut store = self.store.lock().map_err(crate::store::database)?;
-        let session = store.operation_session(&grant.client_id, id)?;
-        if live.stopped
-            || !session
-                .as_ref()
-                .and_then(|id| live.by_session.get(id))
-                .is_some_and(|s| s.client_id == grant.client_id && !self.expired(s))
-        {
-            return Err(RemoteError::new(
-                "REMOTE_SESSION_ENDED",
-                "Session ended before confirmation.",
-            ));
+        if live.stopped {
+            return Err(RemoteError::new("REMOTE_CLOSED", "Door stopped."));
         }
+        // claim_held and effect recheck the live grant under the durable authority fence.
+        let mut store = self.store.lock().map_err(crate::store::database)?;
         action(&mut store)
     }
     pub(crate) fn changed(&self) {
@@ -502,9 +502,12 @@ impl DoorSessions {
     pub fn shutdown(&self) {
         if let Ok(mut live) = self.live.lock() {
             live.stopped = true;
+            if let Ok(mut store) = self.store.lock() {
+                let _ = now_ms().and_then(|now| store.cancel_pending_holds(None, now));
+            }
             let ids = live.by_session.keys().cloned().collect::<Vec<_>>();
             for id in ids {
-                let _ = self.remove(&mut live, &id, "REMOTE_CLOSED");
+                let _ = self.remove(&mut live, &id, "REMOTE_CLOSED", None);
             }
             live.by_token.clear();
             self.ready.notify_all();
@@ -526,20 +529,37 @@ impl DoorSessions {
             .lock()
             .map_err(crate::store::database)?
             .operation_session(&grant.client_id, id)?;
-        // Recovery in another live tab still publishes to the device's shared stream.
-        let Some(session) = response_session
-            .or(origin.as_deref())
-            .and_then(|id| live.by_session.get(id))
-            .filter(|session| !live.stopped && !self.expired(session))
-        else {
+        if live.stopped {
             return Ok(None);
+        }
+        let available = |session: &&Session| {
+            session.client_id == grant.client_id
+                && session.grant_revision == grant.revision
+                && !self.expired(session)
+        };
+        let session = response_session
+            .and_then(|id| live.by_session.get(id))
+            .filter(available)
+            .or_else(|| {
+                origin
+                    .as_deref()
+                    .and_then(|id| live.by_session.get(id))
+                    .filter(available)
+            })
+            .or_else(|| live.by_session.values().find(available));
+        let (session_id, sequence) = if let Some(session) = session {
+            (
+                session.id.clone(),
+                self.store
+                    .lock()
+                    .map_err(crate::store::database)?
+                    .response_sequence(&grant.client_id, &session.id, &self.window_id)?,
+            )
+        } else {
+            // Historical metadata is ordered by the journal cursor; it creates no live authority.
+            (uuid_v4()?, 1)
         };
         let now = now_ms()?;
-        let sequence = self
-            .store
-            .lock()
-            .map_err(|_| RemoteError::new("REMOTE_STATE_UNAVAILABLE", "Remote state unavailable."))?
-            .response_sequence(&grant.client_id, &session.id, &self.window_id)?;
         let input = Envelope {
             kind: "request",
             id,
@@ -547,14 +567,14 @@ impl DoorSessions {
             machine_id: &self.machine_id,
             window_id: &self.window_id,
             client_id: &grant.client_id,
-            session_id: &session.id,
+            session_id: &session_id,
             sequence: "1",
             timestamp_ms: now,
             origin: &grant.origin,
             operation: "dispatch.create",
             payload: b"{}",
         };
-        self.signed_response(input, &session.id, sequence, payload, now)
+        self.signed_response(input, &session_id, sequence, payload, now)
             .map(Some)
     }
     pub(crate) fn response(
@@ -616,14 +636,20 @@ impl DoorSessions {
                     self.idle.min(crate::limits::SESSION_UNATTACHED_IDLE)
                 }
     }
-    fn remove(&self, live: &mut Live, id: &str, reason: &str) -> Result<(), RemoteError> {
+    fn remove(
+        &self,
+        live: &mut Live,
+        id: &str,
+        reason: &str,
+        limit: Option<usize>,
+    ) -> Result<(), RemoteError> {
         if let Some(session) = live.by_session.get(id) {
-            // Close authority/tunnels even if durable cancellation must be retried.
+            // Close authority/tunnels even if persisting the end notice must be retried.
             session.state.end();
             self.store
                 .lock()
                 .map_err(crate::store::database)?
-                .end_session(&session.client_id, id, reason, now_ms()?)?;
+                .end_session(&session.client_id, id, reason, limit, now_ms()?)?;
         }
         if let Some(session) = live.by_session.remove(id) {
             session.state.end();
@@ -672,12 +698,11 @@ impl DoorSessions {
             }
         }
         for (id, reason) in ended {
-            self.remove(&mut live, &id, reason)?;
+            self.remove(&mut live, &id, reason, None)?;
         }
-        self.store
-            .lock()
-            .map_err(crate::store::database)?
-            .prune_sessions(&self.window_id, now)?;
+        let mut store = self.store.lock().map_err(crate::store::database)?;
+        store.cancel_invalid_holds(now)?;
+        store.prune_sessions(&self.window_id, now)?;
         Ok(())
     }
 }

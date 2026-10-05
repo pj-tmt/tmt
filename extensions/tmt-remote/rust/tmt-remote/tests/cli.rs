@@ -1105,19 +1105,19 @@ fn remote_settings_are_private_persistent_and_do_not_open_remote_storage() {
     for (args, expected) in [
         (
             vec!["settings", "--json"],
-            serde_json::json!({"open":true,"source":"default","sessionsPerDevice":null,"sessionsPerDeviceSource":"default"}),
+            serde_json::json!({"open":true,"source":"default","sessionsPerDevice":8,"sessionsPerDeviceSource":"default"}),
         ),
         (
             vec!["settings", "open", "off", "--json"],
-            serde_json::json!({"open":false,"source":"settings.json","sessionsPerDevice":null,"sessionsPerDeviceSource":"default"}),
+            serde_json::json!({"open":false,"source":"settings.json","sessionsPerDevice":8,"sessionsPerDeviceSource":"default"}),
         ),
         (
             vec!["settings", "--json"],
-            serde_json::json!({"open":false,"source":"settings.json","sessionsPerDevice":null,"sessionsPerDeviceSource":"default"}),
+            serde_json::json!({"open":false,"source":"settings.json","sessionsPerDevice":8,"sessionsPerDeviceSource":"default"}),
         ),
         (
             vec!["settings", "open", "on", "--json"],
-            serde_json::json!({"open":true,"source":"settings.json","sessionsPerDevice":null,"sessionsPerDeviceSource":"default"}),
+            serde_json::json!({"open":true,"source":"settings.json","sessionsPerDevice":8,"sessionsPerDeviceSource":"default"}),
         ),
     ] {
         let answer = pilot.command().args(args).output().unwrap();

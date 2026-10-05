@@ -46,7 +46,8 @@ Rules that are easy to get wrong:
   copied from a client. Session lifetime counts successful upgraded transports;
   last-close marks the session ended, and the door maintenance loop persists cleanup.
   Never-attached and attached idle limits belong to `limits`; `session` owns optional-limit LRU,
-  per-session cancellation/replay, and device-wide authority loss. The journal/ack remain per device.
+  per-session replay and device-wide authority loss. Held work belongs to the grant and
+  survives session end; only stop/revoke/expiry/revision change cancels it. The journal/ack remain per device.
 - **Embedded SDK asset.** The door embeds `assets/remote-v1.js` built from
   `remote-client/src`; rebuild and commit it as described in
   [sdk-operations.md](sdk-operations.md#embedded-client-and-crypto-fixtures).

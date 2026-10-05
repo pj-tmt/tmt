@@ -442,7 +442,7 @@ fn stopped_port_reads_are_noncreating_and_legacy_state_is_not_migrated() {
     drop(stopped);
     // Model the previously shipped schema, preserving its exact migration names.
     let old = Connection::open(&db).unwrap();
-    old.execute_batch("DROP TABLE door_port; ALTER TABLE operations DROP COLUMN session_id;
+    old.execute_batch("DROP TABLE door_port; ALTER TABLE operations DROP COLUMN grant_revision; ALTER TABLE operations DROP COLUMN session_id;
             DROP TABLE sessions; CREATE TABLE sessions(client_id TEXT PRIMARY KEY REFERENCES grants(client_id),session_id TEXT NOT NULL UNIQUE,window_id TEXT NOT NULL,grant_revision INTEGER NOT NULL,next_client_sequence TEXT NOT NULL,next_server_sequence TEXT NOT NULL);
             DELETE FROM _migrations WHERE version >= 5")
         .unwrap();
@@ -529,6 +529,7 @@ fn schema6_session_row_and_grant_survive_multi_session_migration() {
         [],
     )
     .unwrap();
+    old.execute("INSERT INTO operations(id,client_id,operation,digest,frozen,phase,receipt,updated_ms) VALUES ('held','client','dispatch.create',X'00',X'01','held','{}',100)",[]).unwrap();
     let before: String = old
         .query_row(
             "SELECT quote(client_id)||quote(public_key)||quote(kind)||quote(origin)||quote(name)||quote(agents)||quote(scopes)||quote(mode)||quote(issued_at_ms)||quote(expires_at_ms)||quote(revision)||quote(disabled) FROM grants",
@@ -547,6 +548,15 @@ fn schema6_session_row_and_grant_survive_multi_session_migration() {
         )
         .unwrap();
     assert_eq!(before, after);
+    assert_eq!(
+        db.query_row(
+            "SELECT grant_revision FROM operations WHERE id='held'",
+            [],
+            |r| r.get::<_, i64>(0)
+        )
+        .unwrap(),
+        1
+    );
     let counters:(String,String)=db.query_row("SELECT next_client_sequence,next_server_sequence FROM sessions WHERE session_id='session'",[],|r|Ok((r.get(0)?,r.get(1)?))).unwrap();
     assert_eq!(counters, ("7".into(), "9".into()));
     db.execute("INSERT INTO sessions(client_id,session_id,window_id,grant_revision,next_client_sequence,next_server_sequence) VALUES ('client','second','window',1,'1','2')",[]).unwrap();

@@ -165,7 +165,13 @@ export class Door {
   replyState = 'replied';
   final = '';
   sendState = 'accepted';
-  error?: { code: string; message: string; retryAfterMs?: number };
+  error?: {
+    code: string;
+    message: string;
+    retryAfterMs?: number;
+    limit?: number;
+    settingsUrl?: string | null;
+  };
   afterSign?: (response: Record<string, unknown>) => void;
   mutate?: (response: Record<string, unknown>) => void;
   afterAdoption?: (body: Record<string, unknown>, init: RequestInit) => Promise<void>;

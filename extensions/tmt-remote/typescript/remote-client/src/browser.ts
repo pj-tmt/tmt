@@ -207,7 +207,8 @@ export function transportUrl(session: import('./device.js').Session, value: stri
   const address = new URL(channel.paired.address);
   const url = new URL(value, channel.paired.address);
   if (
-    url.protocol !== 'ws:' ||
+    url.protocol !== (address.protocol === 'https:' ? 'wss:' : 'ws:') ||
+    !['http:', 'https:'].includes(address.protocol) ||
     url.host !== address.host ||
     !url.pathname.startsWith(`${address.pathname}/x/`) ||
     url.search ||

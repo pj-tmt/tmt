@@ -28,6 +28,8 @@ if args[0]=='check':
     print(json.dumps({'target':args[1],'pane':'%fixture','lines':int(args[-1]),'output':'bounded capture'}));sys.exit(0)
 wire=json.load(sys.stdin)
 with (root/'calls').open('a') as f: f.write(json.dumps(wire)+'\n')
+if wire['operation']=='storage.root':
+    print(json.dumps({'dataRoot':(root/'storage-root').read_text()}));sys.exit(0)
 if wire['operation']=='dispatch.show':
     if (root/'receipt').exists(): print((root/'receipt').read_text())
     else:

@@ -50,10 +50,10 @@ impl MessageService {
                         let audit = permit.with_store(|store| {
                             store.record_refusal(&permit.grant, &permit.message, &error.code, now)
                         });
-                        let code = audit.err().map_or(error.code, |error| error.code);
-                        permit.response(
-                            &json!({"error":{"code":code,"message":"Remote request refused."}}),
-                        )
+                        let error = audit.err().unwrap_or(error);
+                        let mut payload=json!({"error":{"code":error.code,"message":"Remote request refused."}});
+                        if let Some(limit)=error.limit { payload["error"]["limit"]=json!(limit); }
+                        permit.response(&payload)
                     })
                     .map_err(|_| Closed)
             }

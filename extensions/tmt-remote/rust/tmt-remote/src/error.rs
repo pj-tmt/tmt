@@ -6,6 +6,8 @@ pub struct RemoteError {
     pub message: String,
     /// The next step, when there is one. Human output prints it as its own `hint:` line.
     pub hint: Option<String>,
+    /// Active session cap for a signed eviction refusal.
+    pub limit: Option<usize>,
 }
 impl RemoteError {
     pub fn new(code: &str, message: &str) -> Self {
@@ -13,6 +15,7 @@ impl RemoteError {
             code: code.into(),
             message: message.into(),
             hint: None,
+            limit: None,
         }
     }
     pub fn with_hint(mut self, hint: &str) -> Self {

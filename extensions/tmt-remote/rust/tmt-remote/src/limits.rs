@@ -36,6 +36,9 @@ pub const AUTHORITY_WAIT: Duration = Duration::from_secs(40);
 /// Bounded graceful-stop confirmation after the control acknowledgment.
 pub const STOP_WAIT: Duration = Duration::from_secs(40);
 
+/// Default per-device session cap; an explicit setting may change it or disable it.
+pub const DEFAULT_SESSIONS_PER_DEVICE: usize = 8;
+
 /// Minimum interval between background session authority and cleanup scans.
 pub const SESSION_MAINTENANCE_INTERVAL: Duration = Duration::from_secs(1);
 

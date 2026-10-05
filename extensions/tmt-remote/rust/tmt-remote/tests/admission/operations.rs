@@ -696,7 +696,7 @@ fn another_store_revoke_waits_for_a_blocked_core_effect_beyond_the_old_timeout()
 }
 
 #[test]
-fn session_eviction_cancels_only_its_unconfirmed_holds_and_preserves_uncertainty() {
+fn session_eviction_preserves_grant_owned_holds_and_uncertainty() {
     let owner = OwnerDoor::with_policy(
         tmt_remote::store::DEFAULT_SCOPES
             .iter()
@@ -749,7 +749,7 @@ fn session_eviction_cancels_only_its_unconfirmed_holds_and_preserves_uncertainty
     let now = tmt_remote::pairing::now_ms().unwrap();
     assert_eq!(
         store.owned(&owner.grant, &first_id, now).unwrap().phase,
-        "cancelled"
+        "held"
     );
     assert_eq!(
         store.owned(&owner.grant, &second_id, now).unwrap().phase,
@@ -824,4 +824,159 @@ fn another_live_tab_recovers_uncertainty_into_the_same_device_stream_without_res
     let payload: Value = serde_json::from_slice(&payload).unwrap();
     assert_eq!(payload["state"], "accepted");
     assert_eq!(payload["operationId"], id);
+}
+
+#[test]
+fn held_bound_remains_per_device_across_session_eviction() {
+    let owner = OwnerDoor::with_policy(
+        tmt_remote::store::DEFAULT_SCOPES
+            .iter()
+            .map(|s| (*s).into())
+            .collect(),
+        "hold",
+    );
+    let core = Core::new();
+    let operations = core.operations();
+    let mut ids = Vec::new();
+    for _ in 0..16 {
+        let session = owner.open();
+        let id = uuid_v4().unwrap();
+        assert_eq!(
+            append(
+                &owner,
+                Arc::clone(&operations),
+                &wire(
+                    &owner,
+                    &session,
+                    1,
+                    &id,
+                    &uuid_v4().unwrap(),
+                    "held across tabs"
+                )
+            )["state"],
+            "held"
+        );
+        ids.push(id);
+    }
+    let session = owner.open();
+    assert_eq!(
+        append(
+            &owner,
+            Arc::clone(&operations),
+            &wire(
+                &owner,
+                &session,
+                1,
+                &uuid_v4().unwrap(),
+                &uuid_v4().unwrap(),
+                "over bound"
+            )
+        )["error"]["code"],
+        "REMOTE_RATE_LIMITED"
+    );
+    for id in &ids {
+        assert_eq!(
+            owner
+                .store
+                .lock()
+                .unwrap()
+                .owned(&owner.grant, id, tmt_remote::pairing::now_ms().unwrap())
+                .unwrap()
+                .phase,
+            "held"
+        );
+    }
+    assert_eq!(core.sends(), 0);
+    owner.sessions.shutdown();
+    for id in ids {
+        assert_eq!(
+            owner
+                .store
+                .lock()
+                .unwrap()
+                .owned(&owner.grant, &id, tmt_remote::pairing::now_ms().unwrap())
+                .unwrap()
+                .phase,
+            "cancelled"
+        );
+    }
+}
+
+#[test]
+fn authority_loss_cancels_held_work_even_after_its_session_ended() {
+    for change in ["revoke", "expiry", "revision"] {
+        let mut owner = OwnerDoor::with_policy(
+            tmt_remote::store::DEFAULT_SCOPES
+                .iter()
+                .map(|s| (*s).into())
+                .collect(),
+            "hold",
+        );
+        let clock = Arc::new(std::sync::Mutex::new(std::time::Instant::now()));
+        let fake = Arc::clone(&clock);
+        owner.sessions = Arc::new(
+            Arc::try_unwrap(owner.sessions)
+                .ok()
+                .unwrap()
+                .with_clock(Arc::new(move || *fake.lock().unwrap())),
+        );
+        let core = Core::new();
+        let session = owner.open();
+        let id = uuid_v4().unwrap();
+        assert_eq!(
+            append(
+                &owner,
+                core.operations(),
+                &wire(&owner, &session, 1, &id, &uuid_v4().unwrap(), "held")
+            )["state"],
+            "held"
+        );
+        *clock.lock().unwrap() += std::time::Duration::from_secs(61);
+        owner.sessions.maintain().unwrap();
+        let oracle =
+            rusqlite::Connection::open(owner._serving.layout().directory.join("remote.db"))
+                .unwrap();
+        let phase = || {
+            oracle
+                .query_row("SELECT phase FROM operations WHERE id=?1", [&id], |row| {
+                    row.get::<_, String>(0)
+                })
+                .unwrap()
+        };
+        assert_eq!(phase(), "held");
+        assert_eq!(
+            oracle
+                .execute("DELETE FROM sessions WHERE ended_reason IS NOT NULL", [])
+                .unwrap(),
+            1
+        );
+        match change {
+            "revoke" => {
+                owner
+                    .store
+                    .lock()
+                    .unwrap()
+                    .revoke(&owner.grant.client_id)
+                    .unwrap();
+            }
+            "revision" => {
+                owner
+                    .store
+                    .lock()
+                    .unwrap()
+                    .rename(&owner.grant.client_id, "Changed")
+                    .unwrap();
+            }
+            "expiry" => {
+                oracle
+                    .execute("UPDATE grants SET expires_at_ms=1", [])
+                    .unwrap();
+            }
+            _ => unreachable!(),
+        }
+        *clock.lock().unwrap() += std::time::Duration::from_secs(1);
+        owner.sessions.maintain().unwrap();
+        assert_eq!(phase(), "cancelled");
+        assert_eq!(core.sends(), 0);
+    }
 }

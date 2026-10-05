@@ -77,7 +77,7 @@ const SETTINGS: CommandSpec = CommandSpec {
         note: "Print pairing links without opening the browser",
     }],
     outputs: OutputModes::HumanAndJson,
-    details: "Browser opening defaults to on. sessions-per-device accepts a positive integer or off (default: unlimited); changes apply at the next session open. Settings are stored only in Remote's data directory.",
+    details: "Browser opening defaults to on. sessions-per-device accepts a positive integer or off (default: 8); changes apply at the next session open. Settings are stored only in Remote's data directory.",
 };
 const DEVICES: CommandSpec = CommandSpec {
     name: "devices",

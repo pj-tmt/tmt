@@ -179,12 +179,12 @@ response whose sessionId is the fresh session UUID and whose payload is
 when the grant has none; a session also ends when remote stops. Opening a session is silent and
 never asks the owner to pair again. The client verifies the paired machine key before trusting it.
 Each open adds an independent session for the device, bound to the same grant and revision;
-opening never widens scope. There is no per-device session limit by default. `tmt remote
-settings sessions-per-device <n>|off` optionally sets a positive limit (`off` or an absent
-`sessionsPerDevice` key in Remote's `settings.json` means unlimited). Both plain settings and
-JSON show the limit and its source (`default` or `settings.json`); JSON uses null for unlimited.
-Serve reads the setting on each open, with no restart. Damaged or unreadable settings use the
-unlimited default. A configured limit ends the least
+opening never widens scope. `limits::DEFAULT_SESSIONS_PER_DEVICE` caps sessions at 8 by default.
+`tmt remote settings sessions-per-device <n>|off` sets a positive limit or disables it. An
+absent `sessionsPerDevice` key in Remote's `settings.json` means 8; explicit null (`off`) means
+unlimited. Both plain settings and JSON show the limit and its source (`default` or
+`settings.json`); JSON uses null for unlimited. Serve reads the setting on each open, with no
+restart. Damaged or unreadable settings use the default of 8. The active limit ends the least
 recently used sessions of that device until the new session fits; other devices are unaffected.
 The session table is keyed by sessionId with clientId indexed. Migration preserves grants and
 maps each former single-session row, including its counters, to one entry. Persisted rows never
@@ -245,20 +245,27 @@ requires a live cookie, checks that the identified live session belongs to that 
 and otherwise returns the generic 404 before forwarding. Only upgrade requests may carry it;
 ordinary page URLs cannot carry it and it must never enter browser navigation/history. Remote
 strips it before forwarding to the extension, never logs it and never places it in Location or
-Referer. The SDK accepts only ws URLs on the current door's mount space, without other query
-parameters or fragments. Existing tunnels without the parameter attach to the cookie's session.
+Referer. The SDK requires the door-matching WebSocket scheme (http → ws, https → wss) on the
+current door's mount space, without other query parameters or fragments. Existing tunnels
+without the parameter attach to the cookie's session.
 
 Opening another session leaves existing sessions and tunnels live. The last upgraded transport
 closing (including tab close or a dropped transport while backgrounded/asleep) ends its session;
 other tabs stay live. A failed upgrade is not an established transport. Ending closes remaining
-tunnels and cancels only that session's held/unconfirmed work exactly as stop does; dispatching
-and uncertain work retain their original operation IDs, frozen intent and recovery behavior. A
-configured-limit eviction uses `REMOTE_SESSION_EVICTED`; transport close/idle expiry uses
-`REMOTE_SESSION_ENDED`. After verifying the device signature and current grant, Remote can sign
-the distinct end reason for `limits::SESSION_END_NOTICE` (60 seconds); afterward admission is
-the generic 404, also exposed by the SDK as `REMOTE_SESSION_ENDED`. Reopening is silent: the
-page sends another signed `session.open` from its stored device key, with no owner step or new
-pairing. The caller reattaches its transport using the new session; no send is retried.
+tunnels while held work survives the session end, bound to the device grant. Only stop, revoke,
+and grant expiry/revision change cancel held work. Dispatching and uncertain work retain their
+original operation IDs, frozen intent and recovery behavior. A limit eviction uses
+`REMOTE_SESSION_EVICTED` with the active positive `limit` and optional `settingsUrl`; the door
+omits the URL until #1769 adds the Remote settings page. The SDK exposes `RefusalError.limit`
+and optional `settingsUrl`, also on send/operation refused states. Absent/null URLs mean
+command-only guidance; when present, Colab shows the settings link plus `tmt remote settings
+sessions-per-device <n>`. The SDK normalizes the URL and requires the door's origin. Transport
+close/idle expiry uses `REMOTE_SESSION_ENDED`. After verifying the device signature and current
+grant, Remote can sign the distinct end reason for `limits::SESSION_END_NOTICE` (60 seconds);
+afterward admission is the generic 404, also exposed by the SDK as `REMOTE_SESSION_ENDED`.
+Reopening is silent: the page sends another signed `session.open` from its stored device key,
+with no owner step or new pairing. The caller reattaches its transport using the new session; no
+send is retried.
 
 ## Durable log: append, subscribe and ack
 
@@ -421,15 +428,21 @@ an `error:` line and a separate `hint:` line; `--json` joins them as `error.mess
 fallback. The actual bound port is remembered for the next run, including after an explicit
 selection. Human startup output puts the full door URL on its own line with no trailing punctuation.
 Remote schema 6 replaces each existing 32-hex-character prefix once with 16 lowercase RFC 4648
-base32 characters (`a-z2-7`, 80 random bits), then keeps it stable. Old links and cookie paths stop
-working. Machine IDs, keys, origin-bound pairings, grants and the remembered port survive; browsers
-reopen their sessions under the current path without pairing again. An origin change requires
-browser pairing at the new origin. Neither address nor route prefix is a credential. Shutdown closes
-the door and cancels pending pairing and held operations. Revoke disables a device before
-acknowledgment. No request/effect not yet fenced may succeed afterward. Already committed core work
-is not undone; report it accurately. Restart issues a new window and session namespace; grants
-survive. Unconfirmed held work is cancelled; dispatching/uncertain work recovers its original
-operation, never becomes falsely unsent.
+base32 characters (`a-z2-7`, 80 random bits), then keeps it stable. Old links and cookie paths
+stop working. Machine IDs, keys, origin-bound pairings, grants and the remembered port survive;
+browsers reopen their sessions under the current path without pairing again. An origin change
+requires browser pairing at the new origin. Neither address nor route prefix is a credential.
+Shutdown closes the door and cancels pending pairing and held operations. Held work survives
+transport close, session idle expiry and eviction. After approval, any later session of the same
+device can recover the result by operation ID. The existing per-device hold bound
+(`budgets::HELDS`, 16) still applies, so held work cannot pile up past it when sessions end. The
+approve prompt is unchanged: the owner is not told which tab. Approval publishes machine-signed
+metadata to the device's shared journal even when no session is live; its cursor orders
+historical envelopes, which do not open sessions. Revoke disables a device before
+acknowledgment. No request/effect not yet fenced may succeed afterward. Already committed core
+work is not undone; report it accurately. Restart issues a new window and session namespace;
+grants survive. Unconfirmed held work is cancelled; dispatching/uncertain work recovers its
+original operation, never becomes falsely unsent.
 
 ### Local CLI discovery
 
@@ -557,7 +570,7 @@ The generic pre-admission HTTP 404 maps to `REMOTE_SESSION_ENDED`; this is a ses
 signal, not a signed response. The exported `RemoteRefusalCode` union contains those codes
 plus `REMOTE_INPUT_TOO_LARGE`, `REMOTE_STATE_UNAVAILABLE` and `REMOTE_CORE_UNAVAILABLE`.
 These other signed refusals on send/operation, and all refusals on listAgents/result, throw
-exported `RefusalError {code:RemoteRefusalCode,retryAfterMs?}`. Its message is sanitized and at
+exported `RefusalError {code:RemoteRefusalCode,retryAfterMs?,limit?,settingsUrl?}`. Its message is sanitized and at
 most 256 UTF-8 bytes; retryAfterMs is an integer from 0 to 60000. An unavailable core/state error
 never turns an adopted uncertain send into refused; the server's signed SendState owns that
 classification. Callers branch on error class and code, never raw server messages.

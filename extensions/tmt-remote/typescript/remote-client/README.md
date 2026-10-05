@@ -170,32 +170,44 @@ CSP compliance, token colors, square hard shadows and no horizontal overflow.
 ## Several tabs and transport lifetime
 
 Tabs share the paired device key in IndexedDB and one HttpOnly door cookie. Each
-`reopenSession()` adds its own session with independent client/server sequences
-and one serialized request lane. The cookie authenticates device context; it does
-not select a tab's signed request lane. Sessions are unlimited by default. The
-owner may set `tmt remote settings sessions-per-device <n>|off`; changes apply at
-the next open. With a limit, opening evicts the device's least recently used
-session and closes its transports with `REMOTE_SESSION_EVICTED`.
+`reopenSession()` adds its own session with independent client/server sequences and one
+serialized request lane. The cookie authenticates device context; it does not select a
+tab's signed request lane. Sessions default to a limit of 8. The owner may set `tmt remote
+settings sessions-per-device <n>|off`; changes apply at the next open. Unset means 8;
+`off` means unlimited. With a limit, opening evicts the device's least recently used
+session and closes its transports with `REMOTE_SESSION_EVICTED`. `RefusalError.limit`
+exposes the active cap; send/operation refused states also carry `limit`. Colab can
+explain that more than that number of tabs were open and show `tmt remote settings
+sessions-per-device <n>` to raise it. Eviction is distinct from silent reopen after
+ordinary transport loss.
 
-Use `transportUrl(session, mountedWebSocketUrl)` when constructing each mounted
-WebSocket. It adds the non-secret `tmt-session` identifier; Remote checks the
-live cookie's device owns that session and removes the identifier before
-forwarding. It cannot authorize without the cookie. Use the resulting URL only
-for the transport: never navigate to it, store it in page history, log it, or
-copy it into Location/Referer. Existing URLs without it use the cookie's session.
+Use `transportUrl(session, mountedWebSocketUrl)` when constructing each mounted WebSocket.
+It adds the non-secret `tmt-session` identifier; Remote checks the live cookie's device
+owns that session and removes the identifier before forwarding. It cannot authorize
+without the cookie. The WebSocket scheme must match the door: http uses ws, and https uses
+wss. Use the resulting URL only for the transport: never navigate to it, store it in page
+history, log it, or copy it into Location/Referer. Existing URLs without it use the
+cookie's session.
 
-Closing the session's last transport ends that session promptly, including a
-transport lost while the tab sleeps or is backgrounded. A never-attached session
-expires after 60 seconds without activity; a session that has had a transport
-has the existing 12-hour idle limit. All sessions/tokens end on revoke, grant
-expiry/revision change, or stop. Held work is cancelled for the ended session;
-dispatching/uncertain work keeps its original ID and recovery.
+Closing the session's last transport ends that session promptly, including a transport
+lost while the tab sleeps or is backgrounded. A never-attached session expires after 60
+seconds without activity; a session that has had a transport has the existing 12-hour idle
+limit. All sessions/tokens end on revoke, grant expiry/revision change, or stop. Held work
+survives a session end and remains approvable under the live device grant; only stop,
+revoke or grant expiry/revision change cancels it. After approval, a reopened or other tab
+can recover by operation ID and observe the shared journal. The existing per-device hold
+bound still applies; the approval prompt stays unchanged and does not identify a tab.
+Dispatching/uncertain work keeps its original ID and recovery.
 
-For list/result calls, `RefusalError.code` is `REMOTE_SESSION_ENDED` after
-transport loss or idle expiry, or `REMOTE_SESSION_EVICTED` after limit eviction.
-For send/operation these codes appear in `{state:'refused', operationId, reason}`.
-A signed distinct end reason is available for 60 seconds, then a generic 404
-still maps to `REMOTE_SESSION_ENDED`. The caller can silently `reopenSession()`
-and attach its new transport; other tabs remain live. Recover previously unknown
-send outcomes by observing the original operation ID after reopening. Never
-retry a send automatically because its transport closed.
+For list/result calls, `RefusalError.code` is `REMOTE_SESSION_ENDED` after transport loss
+or idle expiry, or `REMOTE_SESSION_EVICTED` after limit eviction. Optional
+`RefusalError.settingsUrl` (also on refused states) is absent when the door omits it or
+sends null. It will identify Remote's settings page once #1769 adds it; until then the
+door omits it. When present, the SDK exposes a normalized URL on the door's own origin.
+Colab can show that link plus the command; when absent, show the command only. For
+send/operation these codes appear in `{state:'refused', operationId, reason}`. A signed
+distinct end reason is available for 60 seconds, then a generic 404 still maps to
+`REMOTE_SESSION_ENDED`. The caller can silently `reopenSession()` and attach its new
+transport; other tabs remain live. Recover previously unknown send outcomes by observing
+the original operation ID after reopening. Never retry a send automatically because its
+transport closed.

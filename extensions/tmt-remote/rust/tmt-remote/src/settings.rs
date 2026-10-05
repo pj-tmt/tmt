@@ -1,7 +1,7 @@
 //! Remote's user settings: one small JSON file in the Remote state directory, no config system.
 //! `{"open": true|false}` controls whether `pair` opens the browser; an absent
 //! file or key means the default (on). Optional sessionsPerDevice limits sessions at open;
-//! absent/null means unlimited. Unknown keys are ignored so a newer file never breaks an
+//! absent means the default cap (8), while explicit null means unlimited. Unknown keys are ignored so a newer file never breaks an
 //! older executable.
 use crate::{error::RemoteError, state::Layout};
 type Result<T> = std::result::Result<T, RemoteError>;
@@ -35,7 +35,11 @@ impl RemoteSettings {
         if self.open.is_some() { FILE } else { "default" }
     }
     pub fn sessions_per_device(&self) -> Option<usize> {
-        self.sessions_per_device
+        if self.sessions_configured {
+            self.sessions_per_device
+        } else {
+            Some(crate::limits::DEFAULT_SESSIONS_PER_DEVICE)
+        }
     }
     pub fn sessions_source(&self) -> &'static str {
         if self.sessions_configured {
@@ -45,7 +49,7 @@ impl RemoteSettings {
         }
     }
     pub fn json(&self) -> Value {
-        json!({"open": self.open(), "source": self.source(), "sessionsPerDevice": self.sessions_per_device, "sessionsPerDeviceSource": self.sessions_source()})
+        json!({"open": self.open(), "source": self.source(), "sessionsPerDevice": self.sessions_per_device(), "sessionsPerDeviceSource": self.sessions_source()})
     }
     fn parse(bytes: &[u8]) -> Self {
         match serde_json::from_slice::<Value>(bytes) {
