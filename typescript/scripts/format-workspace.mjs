@@ -23,6 +23,7 @@ const docsTargets = [
   '../AGENTS.md',
   '../ARCHITECTURE.md',
   '../CONVENTIONS.md',
+  '../design/**/*.md',
   '../DEVELOPMENT.md',
   '../rust/archive/NATIVE-INSTALL.md',
   '../contracts/extension-api.md',
