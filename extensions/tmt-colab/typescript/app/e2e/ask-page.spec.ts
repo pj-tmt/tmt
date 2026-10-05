@@ -54,7 +54,7 @@ test('Chat retains drafts across close and live edits; only trusted Enter freeze
   await expect(page.getByTestId('annotation-row')).toHaveCount(0);
   await page.locator('#ask-page-fixture').getByTestId('chat-toggle').click();
   await run(page, 'syncRecords');
-  await expect(page.locator('.chat-user-turn > pre').first()).toHaveText(
+  await expect(page.locator('.chat-user-turn .conversation-body > pre').first()).toHaveText(
     '<script>inert ask</script>',
   );
   await expect(page.locator('.chat-panel script,.chat-panel img')).toHaveCount(0);
@@ -110,9 +110,9 @@ test('Chat shows held, pending, replied and display-only reply timeout without c
   await expect(page.getByTestId('ask-state').first()).toHaveAttribute('data-state', 'accepted');
   await page.screenshot({ path: '/tmp/1645-chromium-390-dark-timeout.png' });
   await run(page, 'syncRecords', 'accepted');
-  await expect(page.getByTestId('ask-state').first()).toContainText('replied');
-  await expect(state('done').locator('svg.lucide')).toBeVisible();
-  await expect(state('done').locator('.ask-state-mark')).toHaveCSS('color', /./);
+  await expect(page.getByTestId('ask-state')).toHaveCount(0);
+  await expect(page.getByTestId('ask-reply')).toHaveCount(2);
+  await expect(page.getByTestId('ask-reply-attribution').first()).toContainText('Agent 1 · agent');
   await page.screenshot({ path: '/tmp/1730-390-dark-replied.png' });
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.evaluate(() => (document.documentElement.dataset.theme = 'light'));

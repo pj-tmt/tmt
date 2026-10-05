@@ -113,7 +113,8 @@ test('page-visible device Chat threads send exact bytes once, preserve drafts, k
     const exchange = askEntry(first, sent.operationId);
     const userTurn = exchange.locator('.chat-user-turn');
     await expect(userTurn.locator('header')).toContainText('You · just now');
-    await expect(userTurn.locator('header')).toContainText('replied');
+    await expect(exchange.getByTestId('ask-state')).toHaveCount(0);
+    await expect(exchange).toHaveAttribute('data-ledger-state', 'accepted');
     // One quiet menu holds Delete for one's own message; no disclosure of the sent bytes exists.
     await userTurn.hover();
     await userTurn.getByRole('button', { name: 'Message actions', exact: true }).click();

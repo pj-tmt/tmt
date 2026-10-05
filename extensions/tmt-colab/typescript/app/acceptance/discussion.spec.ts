@@ -143,12 +143,16 @@ test('paired writers retain anchored annotation conversations, direct exact send
     const t2 = second.getByTestId('comment-thread').first();
     await expect(t2).toHaveAttribute('data-anchor', 'attached');
     await expect(t2.getByTestId('comment-entry').first().locator('.comment-byline')).toHaveText(
-      'discussion-author · Just now',
+      'discussion-author · just now',
     );
     await expect(t2.getByRole('button', { name: 'Resolve', exact: true })).toHaveCount(0);
     await expect(t1.getByTestId('ask-reply')).toBeVisible();
     await expect(t2.getByTestId('ask-reply')).toBeVisible();
-    await expect(t1.getByTestId('ask-reply-attribution')).toContainText(agent.name);
+    await expect(t1.getByTestId('ask-reply-attribution')).toContainText(`${agent.name} · agent`);
+    await expect(t1.getByTestId('ask-reply-attribution')).not.toContainText('discussion-replier');
+    await expect(t1.getByTestId('ask-state')).toHaveCount(0);
+    await expect(t2.getByTestId('ask-state')).toHaveCount(0);
+    await expect(t1.locator('.conversation-turn[data-turn-role=agent]')).toHaveCount(1);
     const firstReply = await t1.getByTestId('ask-reply').textContent();
     const follow = await inputFor(t2, agent.name);
     await follow.fill(`@${agent.name} A follow-up from another device.`);
@@ -173,7 +177,7 @@ test('paired writers retain anchored annotation conversations, direct exact send
     );
     await edit(reply2, 'An edited reply.');
     await expect(reply1.locator('.comment-byline')).toHaveText(
-      'discussion-replier · Just now · edited',
+      'discussion-replier · just now · edited',
     );
     await t1.getByRole('button', { name: 'Resolve', exact: true }).click();
     await expect(row2).toContainText('Resolved thread');

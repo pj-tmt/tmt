@@ -20,10 +20,17 @@ owns record fields, limits, revision semantics and trust boundaries.
   ciphertext retry. `Live` publishes discussion from its committed own view.
 - Native `threads.rs` validates typed record grammar after isolated Yjs decoding.
   It has no DOM, signatures, publication or dispatch responsibility.
-- `thread-panel.tsx` owns muted author/time labels with device-ID tooltips, plain-text
+- `components/conversation-turn.tsx` owns the shared turn markup, attribution and
+  square styling. Its `thread` layout uses User/Bot avatars and an ink agent-body
+  rail; its `chat` layout uses sided tinted turns and a bot mark in the agent meta
+  line. `CommentExchange` associates admitted asks with their originating comment
+  once for both surfaces. Replies have one agent/name/time byline; pending states
+  and trusted delivery actions stay in the requester turn until a reply exists
+  (including an empty reply), then the status disappears.
+- `thread-panel.tsx` owns muted author/time labels with device-ID tooltips, labeled icon controls for Resolve/Reopen/Close, plain-text
   parent controls, one all-annotations list, expanded conversation and explicit
   reattach confirmation. `annotation-input.tsx` owns one plain @ input with Enter
-  Send, Shift+Enter newline, Escape cancellation and exact-byte disclosure. It
+  Send, Shift+Enter newline, Escape cancellation. It
   opens at the selection in a cosmetic parent popover; saved threads open in Comments.
   It extends the same `components/listbox.tsx` used by Manage and the agent list;
   input options portal into its dialog ancestor (otherwise the body), so mobile

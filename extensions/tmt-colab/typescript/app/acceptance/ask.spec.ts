@@ -71,8 +71,8 @@ test.describe('Ask agent real-binary acceptance (#1110)', () => {
       await expect(
         s.askerPage.getByTestId('chat-panel').getByRole('combobox', { name: 'Message to agent' }),
       ).toBeFocused();
-      await expect(askState(s.askerPage, ask.operationId)).toHaveAttribute(
-        'data-state',
+      await expect(askEntry(s.askerPage, ask.operationId)).toHaveAttribute(
+        'data-ledger-state',
         'accepted',
       );
       await until(() => s.recipient.received().length === 1, 'recipient received the ask');
@@ -110,8 +110,8 @@ test.describe('Ask agent real-binary acceptance (#1110)', () => {
       const requestId = s.recipient.received()[0].requestId as string;
       await s.askerPage.reload();
       await openChat(s.askerPage);
-      await expect(askState(s.askerPage, ask.operationId)).toHaveAttribute(
-        'data-state',
+      await expect(askEntry(s.askerPage, ask.operationId)).toHaveAttribute(
+        'data-ledger-state',
         'accepted',
       );
       // Releasing the gate lets the real reply flow; still one wake, one dispatch.
@@ -140,8 +140,8 @@ test.describe('Ask agent real-binary acceptance (#1110)', () => {
       // explicit Reconnect reopens the paired session, then reloads. The restored
       // ask observes the original operation ID (read-only, never a resend).
       await reconnect(s.askerPage);
-      await expect(askState(s.askerPage, ask.operationId)).toHaveAttribute(
-        'data-state',
+      await expect(askEntry(s.askerPage, ask.operationId)).toHaveAttribute(
+        'data-ledger-state',
         'accepted',
         { timeout: 60_000 },
       );
@@ -214,8 +214,8 @@ test.describe('Ask agent real-binary acceptance (#1110)', () => {
       // Positive control: the same device can send before it is revoked.
       const draft = await composeChat(s.askerPage, s.recipient, 'Before revoke');
       const first = await sendChat(s.askerPage, draft);
-      await expect(askState(s.askerPage, first.operationId)).toHaveAttribute(
-        'data-state',
+      await expect(askEntry(s.askerPage, first.operationId)).toHaveAttribute(
+        'data-ledger-state',
         'accepted',
       );
       await until(() => s.recipient.received().length === 1, 'recipient received the ask');
@@ -241,7 +241,10 @@ test.describe('Ask agent real-binary acceptance (#1110)', () => {
       // An ask sent in the active tab B is accepted by Remote.
       const draft = await composeChat(tabB, s.recipient, 'Sent from the active tab');
       const ask = await sendChat(tabB, draft);
-      await expect(askState(tabB, ask.operationId)).toHaveAttribute('data-state', 'accepted');
+      await expect(askEntry(tabB, ask.operationId)).toHaveAttribute(
+        'data-ledger-state',
+        'accepted',
+      );
       await until(() => s.recipient.received().length === 1, 'recipient received the ask');
       // "Use here" in A takes the session back; the ask made in B is visible in A,
       // and B now shows the notice instead.

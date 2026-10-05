@@ -1189,12 +1189,12 @@ agent uses the same send path for annotation turns and page Chat. On explicit En
 the parent freezes the admitted quote/comment, page title, canonical mounted HTTP(S)
 page URL and chosen agent/machine before signing.
 Credentialed URLs and malformed Unicode refuse. Paused rendering or later edits
-cannot replace frozen text. The one plain @ input sends without a confirmation screen. A disclosure shows exact
-delivered UTF-8; recorded turns retain their frozen bytes and destination UUIDs
-under Details. The pane states that asks and replies are visible to everyone with page access.
+cannot replace frozen text. The one plain @ input sends without a confirmation screen
+or an on-demand delivered-message view. The own stream retains frozen bytes and
+destination UUIDs. The pane states that asks and replies are visible to everyone with page access.
 
 Remote prepends its contract-defined `[remote: <device name>]` line and LF. The
-parent includes that line in the delivered disclosure, while signing and sending
+recipient receives that line before the message; the parent signs and sends
 only the frozen message below it. The verified device name and grant revision
 and session expiry are pinned to the frozen intent; rename, revision change or session
 end refuses dispatch.
@@ -1469,9 +1469,10 @@ projection order, with their captured references/revisions rechecked before sign
 Display timestamps never determine record ordering or authority. Deleted/stale
 context and byte overflow refuse; no context is silently truncated. A failure after
 comment publication retains that comment and shows the outcome; it never resends.
-A small disclosure shows exact delivered bytes, including Remote's device-name line,
-quote and context. Recorded turns retain their frozen message disclosure. Held
-approval stays inline; approval itself happens on the machine through Remote.
+The input and conversation show the composed text; no surface offers an on-demand
+view of the transport message. Frozen bytes, including the quote and captured
+context, remain in the existing Ask record. Held approval stays inline; approval
+itself happens on the machine through Remote.
 The existing ledger, expiry, recheck, abandon and uncertainty rules still apply.
 
 The Comments overlay lists every annotation and page-level thread, with a quote
@@ -1486,8 +1487,8 @@ The header Chat action replaces the standalone Ask action. Chat opens a fixed ri
 parent overlay (a full-screen mobile sheet) without resizing or reflowing the page.
 Messages scroll inside it; one shared @ input remains at the bottom. Closing retains
 the draft and admitted history. Enter explicitly captures, freezes, signs and sends;
-there is no confirmation screen or automatic send. Exact bytes remain in the input
-and recorded-turn disclosures. The pane states that the conversation is visible to
+there is no confirmation screen or automatic send. Composed text remains in the
+conversation; frozen transport bytes stay in the Ask record. The pane states that the conversation is visible to
 everyone with page access.
 
 Each asking device uses one designated null-anchor discussion thread in the existing
@@ -1501,8 +1502,14 @@ not its designated thread, so deleting a message does not prevent further turns.
 Existing unthreaded Ask records remain
 readable in Chat. The same captured-context validation and byte limits apply.
 
-Verified agent replies join only to their originating comment IDs. Pending, replied,
-held and other ledger outcomes appear inline with mark plus word. After the existing
+Verified agent replies join only to their originating comment IDs. Chat and annotation
+threads share one turn component and attribution: each reply has one agent-name,
+agent-role and time byline followed by plain reply text. Pending, held and failed
+outcomes appear as a quiet mark-plus-word line in the requester turn; delivery state
+and recheck/abandon controls disappear when a reply exists, including an empty reply.
+Chat uses sided square tinted turns; annotation threads use one column with square
+User/Bot avatars and an ink rail on the agent body. Resolve/Reopen/Close thread
+controls have Lucide icons and accessible labels. After the existing
 two-hour observation window, an accepted turn awaiting a reply shows a display-only
 reply timeout; it keeps its accepted ledger state and read-only recheck action. No
 elapsed time authorizes a resend or changes durable ordering. Chat text never enters

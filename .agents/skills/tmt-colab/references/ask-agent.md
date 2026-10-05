@@ -97,11 +97,13 @@ modules in `extensions/tmt-colab/typescript/app/src` and `rust/tmt-colab/src/ask
   renders verified replies inline and puts Edit (own annotation comments) and Delete
   (own) in the square `⋯` menu (`components/action-menu.tsx`); held/recheck/uncertainty keep the existing ledger.
   `chat-panel.tsx` replaces standalone Ask with one bottom input and page-visible
-  null-anchor threads. `ask-panel.tsx` displays verified ledger outcomes/replies and
+  null-anchor threads. `ask-panel.tsx` displays verified ledger outcomes/replies through the shared
+  `components/conversation-turn.tsx` and
   owns trusted recheck/abandon actions; it has no composer or dispatch button. Test
   IDs remain `ask-entry`, `ask-state`, `ask-reply` and `ask-reply-attribution` for
-  admitted history. `chat-toggle` opens the pane; `chat-panel` scopes its shared
-  Message to agent combobox and exact-byte disclosure.
+  pending delivery and admitted replies; `ask-entry` retains the admitted ledger
+  state independently of the disappearing delivery status. `chat-toggle` opens the pane; `chat-panel` scopes its shared
+  Message to agent combobox.
 
 ## Invariants and gotchas
 
