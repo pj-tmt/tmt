@@ -156,3 +156,26 @@ test('key or machine trust-pin replacement cannot recover with the prior Session
     }
   }
 });
+
+for (const length of [31, 0, 33]) {
+  test(`prior-Session recovery rejects a ${length}-byte machine pin before network access`, async () => {
+    const f = await fixture();
+    try {
+      const pin = new Uint8Array(length);
+      pin.set(f.record.paired.machinePublicKey.slice(0, length));
+      f.record.paired = { ...f.record.paired, machinePublicKey: pin };
+      let rejected: unknown;
+      try {
+        await reopenSession(f.previous);
+      } catch (error) {
+        rejected = error;
+      }
+      console.info('machine-pin fence', { length, ...f.counts() });
+      assert.ok(rejected instanceof RefusalError);
+      assert.equal(rejected.code, 'REMOTE_SESSION_ENDED');
+      assert.deepEqual(f.counts(), { mounts: 0, admissions: 0 });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+}

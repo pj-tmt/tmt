@@ -667,7 +667,9 @@ original input/ID or unsent draft text; no mutation retry/reset/replacement-ID a
 The page keeps current access status separate from committed/refused/unknown outcome. Explicit
 original-outcome reading makes at most one fresh admission attempt, then only the original lookup.
 `reopenSession(previousSession)` binds to the existing paired identity/public trust pins and rejects
-re-pair/key replacement before admission. It reads the current door descriptor and, after an
+re-pair/key replacement before any descriptor read or admission. The stored machine pin must be a
+32-byte Uint8Array equal in every byte to the verified prior Session pin; empty, shortened or
+overlong pins are terminal current-access refusals before network access. It reads the current door descriptor and, after an
 HTTP admission refusal, rechecks that descriptor without a second admission. Changed/unavailable/
 malformed descriptors and transport/unverified replies remain unconfirmed. A refused admission
 against the unchanged trusted descriptor shows current access loss; it never proves the original

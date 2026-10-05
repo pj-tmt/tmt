@@ -258,6 +258,9 @@ intent remain separate, including after unknown outcome or refreshed reads.
 
 The page explicitly calls `reopenSession(previousSession)` for original-outcome recovery.
 It binds to the existing paired identity and trust pins, never a separately persisted old key.
+Before any descriptor read or admission, the stored machine pin must be a 32-byte Uint8Array
+matching every byte of the verified prior Session pin. Invalid or replaced pins produce
+`REMOTE_SESSION_ENDED` without network access.
 There is one fresh admission attempt. An HTTP refusal with an unchanged current trusted door
 descriptor is current-access refusal; a changed/stale/malformed/unavailable descriptor or
 transport/unverified reply is unconfirmed. Neither establishes committed revoke or permanent

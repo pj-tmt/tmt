@@ -104,6 +104,9 @@ export async function reopenSession(previous?: Session): Promise<Session> {
       record.paired.clientId !== old.paired.clientId ||
       record.paired.machineId !== old.paired.machineId ||
       record.paired.origin !== old.paired.origin ||
+      !(record.paired.machinePublicKey instanceof Uint8Array) ||
+      record.paired.machinePublicKey.length !== 32 ||
+      old.paired.machinePublicKey.length !== 32 ||
       record.paired.machinePublicKey.some(
         (byte, index) => byte !== old.paired.machinePublicKey[index],
       ) ||
