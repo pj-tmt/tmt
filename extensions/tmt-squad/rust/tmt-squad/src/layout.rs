@@ -131,4 +131,39 @@ mod tests {
         }
         assert!(validate("large.xml", &" ".repeat(tmt_tui::MAX_BYTES + 1)).is_err());
     }
+
+    /// The shipped skill's examples are what the command accepts, and a switch is
+    /// checked as a whole offline: a missing default or a number is refused.
+    #[test]
+    fn the_skills_examples_validate_and_a_malformed_switch_does_not() {
+        let skill = include_str!("../../../skills/tmt-squad/SKILL.md");
+        let section = skill
+            .split("## Offline markup authoring")
+            .nth(1)
+            .expect("the authoring section");
+        let blocks = section
+            .split("```xml\n")
+            .skip(1)
+            .map(|block| block.split("```").next().unwrap())
+            .collect::<Vec<_>>();
+        assert!(blocks.iter().any(|block| block.contains("<tmt-switch>")));
+        for block in blocks {
+            validate("skill.xml", block).unwrap();
+        }
+        let wrap = |body: &str| {
+            format!(
+                "<tmt-view version='1'><tmt-repeat each='$.rows' as='row'><tmt-row id-bind='row.id'>{body}</tmt-row></tmt-repeat></tmt-view>"
+            )
+        };
+        for body in [
+            "<tmt-switch><tmt-case min='md'><tmt-cell/></tmt-case></tmt-switch>",
+            "<tmt-switch><tmt-case min='100'><tmt-cell/></tmt-case><tmt-default/></tmt-switch>",
+            "<tmt-switch><tmt-case min='md'><tmt-cell/></tmt-case><tmt-case min='lg'><tmt-cell/></tmt-case><tmt-default/></tmt-switch>",
+            "<tmt-cell hide-below='wide'/>",
+            "<tmt-switch><tmt-case min='md'><tmt-cell bind='row.fields.Bad'/></tmt-case><tmt-default/></tmt-switch>",
+        ] {
+            let error = validate("switch.xml", &wrap(body)).unwrap_err();
+            assert_eq!(error.code, "LAYOUT_INVALID", "{body}");
+        }
+    }
 }

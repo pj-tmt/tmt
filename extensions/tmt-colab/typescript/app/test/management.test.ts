@@ -95,7 +95,13 @@ async function fixture() {
   }
   await append('page.share', { pageId: v.page, mode: 'private', epoch: '1' });
   const client = new ManagementClient(mount, registration);
-  const boot: Bootstrap = { space: v.space, owner: hex(v.public), revision: '2', pages: [page] };
+  const boot: Bootstrap = {
+    space: v.space,
+    owner: hex(v.public),
+    revision: '2',
+    pages: [page],
+    pageIds: [{ pageId: page.pageId, deleted: false }],
+  };
   const view = project(page, log);
   return { client, registration, log, raw, append, boot, view };
 }
@@ -323,6 +329,10 @@ it('admits paged signed metadata without opening content; forged log, wrong scop
 
 /** Discovery is routing evidence; all policies below still require owner signatures. */
 function serve(f: Awaited<ReturnType<typeof fixture>>) {
+  const knownIds = new Set([
+    ...f.boot.pageIds.map((page) => page.pageId),
+    ...f.boot.pages.map((page) => page.pageId),
+  ]);
   const contexts: string[] = [];
   let closed = 0;
   vi.stubGlobal('location', { hash: `#space=${f.boot.space}` });
@@ -336,6 +346,10 @@ function serve(f: Awaited<ReturnType<typeof fixture>>) {
           ownerKey: c.encodeBinary(f.boot.owner),
           revision: String(f.log.at(-1)!.head.revision),
           pages: f.boot.pages,
+          pageIds: [...knownIds].sort().map((pageId) => ({
+            pageId,
+            deleted: !f.boot.pages.some((page) => page.pageId === pageId),
+          })),
         }),
       ),
   );

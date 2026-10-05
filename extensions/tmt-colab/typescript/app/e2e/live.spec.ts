@@ -130,6 +130,7 @@ async function wire(
         spaceId: v.space,
         ownerKey: c.encodeBinary(owner),
         revision: String(head.head.revision),
+        pageIds: [{ pageId: v.page, deleted: false }],
         pages: [
           {
             pageId: v.page,

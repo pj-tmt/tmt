@@ -9,6 +9,8 @@ pub(super) struct Derived {
     pub replies: Option<ReplyBodies>,
     pub grid: Option<Grid>,
     pub composition: Option<super::composition::Cache>,
+    /// HOME's painted sections, each held with the inputs it was painted for.
+    pub home: super::home::Scenes,
 }
 
 pub(super) struct NotebookLines {

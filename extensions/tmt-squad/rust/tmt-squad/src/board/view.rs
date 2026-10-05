@@ -37,6 +37,22 @@ pub fn fit(text: &str, width: usize) -> String {
 }
 
 pub fn render(frame: &mut Frame, app: &App) {
+    let home_usage = (!app.loading())
+        .then(|| app.home_header_usage(std::time::Instant::now()))
+        .flatten()
+        .zip(app.view.as_ref())
+        .and_then(|(usage, view)| {
+            super::home::usage_of(view, &usage, frame.area().width, app.look())
+        });
+    render_frame(frame, app, home_usage);
+}
+
+/// Frame geometry consumes an already formatted header, independent of acquisition.
+pub(in crate::board) fn render_frame(
+    frame: &mut Frame,
+    app: &App,
+    home_usage: Option<ratatui::text::Line<'static>>,
+) {
     let look = app.look();
     app.input_band.set(None);
     app.hits.borrow_mut().clear();
@@ -51,41 +67,33 @@ pub fn render(frame: &mut Frame, app: &App) {
     let [tabs, summary, meter_status, body, footer] = Layout::vertical([
         Constraint::Length(1),
         Constraint::Length(1),
-        Constraint::Length(u16::from(header::meter_enabled(app))),
+        Constraint::Length(u16::from(
+            header::meter_enabled(app) || home_usage.is_some(),
+        )),
         Constraint::Min(1),
         Constraint::Length(1),
     ])
     .areas(frame.area());
-    strip::paint_left(
-        frame.buffer_mut(),
-        tabs,
-        tabs::paint(app, tabs),
-        &look.theme,
-        look.depth,
-    );
+    strip::paint_left(frame.buffer_mut(), tabs, tabs::paint(app, tabs));
     let summary_text = app
         .view
         .as_ref()
-        .filter(|_| !app.loading())
-        .and_then(|view| view.home.as_ref())
+        .filter(|view| !app.loading() && view.home.is_some())
         .map_or_else(
             || header::summary_line(app),
-            |home| super::home::summary(home, summary.width, look),
+            |view| super::home::summary_of(view, summary.width, look),
         );
     let summary_area =
         header::meter_region(app, summary).map_or(summary, |(meter, _)| ratatui::layout::Rect {
             width: meter.x.saturating_sub(summary.x).saturating_sub(2),
             ..summary
         });
-    strip::paint_left(
-        frame.buffer_mut(),
-        summary_area,
-        summary_text,
-        &look.theme,
-        look.depth,
-    );
+    strip::paint_left(frame.buffer_mut(), summary_area, summary_text);
     header::render_meter(frame, app, summary);
     header::render_meter_status(frame, app, meter_status);
+    if let Some(line) = home_usage {
+        strip::paint_left(frame.buffer_mut(), meter_status, line);
+    }
     panes::render_body(frame, app, body);
     waiting::inline_prompt(frame, app, body);
     footer::render(frame, app, footer, look);

@@ -45,6 +45,11 @@ impl Config {
                 &self.source(&["board", "ask_lead"], "default:ask lead"),
             ),
         );
+        out.push(
+            "board.home_replies",
+            json!(self.home_replies()?),
+            self.source(&["board", "home_replies"], "default:true"),
+        );
         self.row_settings(key, &mut out)?;
         self.notebook_settings(key, &mut out)?;
         self.meter_settings(key, &mut out)?;

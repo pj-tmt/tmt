@@ -137,7 +137,8 @@ for (const width of [1440, 390])
               const path = '/test/chrome-browser.tsx';
               await (await import(path)).mount(screen);
             }, screen);
-            if (screen === 'archived') await page.getByLabel('Show archived pages').check();
+            if (screen === 'archived')
+              await page.getByRole('button', { name: 'Show archived', exact: true }).click();
             if (screen === 'page' || screen === 'reader') {
               await expect(page.locator('iframe')).toHaveAttribute('data-scroll-mode', 'window');
               await expect
@@ -151,12 +152,10 @@ for (const width of [1440, 390])
           reference ??= current;
           expect(current, screen).toEqual(reference);
           expect(current.height).toBe(
-            parseFloat(
-              width < 480 ? tokens.colab.header['compact-height'] : tokens.colab.header.height,
-            ),
+            parseFloat(width < 480 ? tokens.header['compact-height'] : tokens.header.height),
           );
-          expect(current.title.size).toBe(tokens.colab.header['title-size']);
-          expect(current.wordmark.size).toBe(tokens.colab.header['wordmark-size']);
+          expect(current.title.size).toBe(tokens.header['title-size']);
+          expect(current.wordmark.size).toBe(tokens.header['wordmark-size']);
           expect(current.wordmark.color).not.toBe(current.title.color);
           await expect(page.locator('.colab-header:visible')).toHaveCSS('position', 'fixed');
           await expect(page.locator('.colab-header:visible')).toHaveCSS('flex-wrap', 'nowrap');
@@ -213,7 +212,7 @@ for (const width of [1440, 390])
           for (const icon of await page.locator('svg.lucide:visible').all()) {
             await expect(icon).toHaveCSS('stroke-linecap', 'square');
             await expect(icon).toHaveCSS('stroke-linejoin', 'miter');
-            await expect(icon).toHaveCSS('stroke-width', `${tokens.colab.header['icon-stroke']}px`);
+            await expect(icon).toHaveCSS('stroke-width', `${tokens.header['icon-stroke']}px`);
           }
           await page.screenshot({
             path: `${captureDirectory}/${screen}-${width}-${theme}-top.png`,
@@ -250,3 +249,63 @@ for (const width of [1440, 390])
       }
     });
   }
+
+test('the page list filters archived pages with a square text toggle, not a native checkbox', async ({
+  page,
+}) => {
+  await page.goto('/');
+  await page.evaluate(async () => {
+    const path = '/test/chrome-browser.tsx';
+    await (await import(path)).mount('pages');
+  });
+  await expect(page.locator('input[type="checkbox"]')).toHaveCount(0);
+  const toggle = page.getByRole('button', { name: 'Show archived', exact: true });
+  const box = toggle.locator('.toggle-box');
+  await expect(toggle).toHaveAttribute('aria-pressed', 'false');
+  await expect(page.locator('#chrome-fixture ul.pages li').first()).toContainText('Release notes');
+  const before = await toggle.boundingBox();
+  const off = await box.evaluate((node) => getComputedStyle(node).backgroundColor);
+  // Space and Enter both toggle; the label is fixed, so the toggle never changes width.
+  await toggle.focus();
+  await page.keyboard.press('Space');
+  await expect(toggle).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.getByText('No archived pages.', { exact: true })).toBeVisible();
+  expect((await toggle.boundingBox())!.width).toBe(before!.width);
+  expect(await box.evaluate((node) => getComputedStyle(node).backgroundColor)).not.toBe(off);
+  await page.keyboard.press('Enter');
+  await expect(toggle).toHaveAttribute('aria-pressed', 'false');
+  await expect(page.locator('#chrome-fixture ul.pages li').first()).toContainText('Release notes');
+  await expect(toggle).toBeFocused();
+  // Pressed or not, it stays a light text button: no fill, no border.
+  await page.keyboard.press('Space');
+  await expect(toggle).toHaveAttribute('aria-pressed', 'true');
+  await expect(toggle).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
+  await expect(toggle).toHaveCSS('border-top-width', '0px');
+  await page.keyboard.press('Space');
+  await expect(toggle).toHaveAttribute('aria-pressed', 'false');
+  // Light text button on the token colors: no border, no radius, transparent.
+  await expect(toggle).toHaveCSS('border-top-width', '0px');
+  await expect(toggle).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
+  await expect(box).toHaveCSS('border-radius', '0px');
+});
+
+for (const width of [1440, 390])
+  for (const theme of ['light', 'dark'] as const)
+    test(`archived toggle captures: ${width}px ${theme}`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 700 });
+      await page.emulateMedia({ colorScheme: theme });
+      await page.addInitScript((theme) => {
+        document.documentElement.dataset.theme = theme;
+      }, theme);
+      await page.goto('/');
+      await page.evaluate(async () => {
+        const path = '/test/chrome-browser.tsx';
+        await (await import(path)).mount('archived');
+      });
+      const toggle = page.getByRole('button', { name: 'Show archived', exact: true });
+      await expect(toggle).toBeVisible();
+      await page.screenshot({ path: `/tmp/1716-${width}-${theme}-off.png` });
+      await toggle.click();
+      await expect(toggle).toHaveAttribute('aria-pressed', 'true');
+      await page.screenshot({ path: `/tmp/1716-${width}-${theme}-on.png` });
+    });

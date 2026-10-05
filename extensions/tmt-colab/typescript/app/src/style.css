@@ -988,6 +988,53 @@ footer {
   position: relative;
 }
 
+.short-page-options {
+  list-style: none;
+  padding: 0;
+}
+.short-page-options li {
+  border-top: 1px solid var(--c-rule);
+}
+.short-page-options li > a,
+.short-page-options li > span {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px 8px;
+}
+.short-page-options li > span {
+  display: block;
+}
+.short-page-options li > a > span {
+  min-width: 0;
+}
+.short-page-options li > a > svg {
+  flex: 0 0 var(--colab-header-icon-size);
+  width: var(--colab-header-icon-size);
+  height: var(--colab-header-icon-size);
+  color: var(--c-accent);
+}
+.short-page-options li > a:hover,
+.short-page-options li > a:focus-visible {
+  background: var(--c-accent-soft);
+}
+.short-page-title {
+  color: var(--c-accent);
+}
+.short-page-options li > a:hover .short-page-title,
+.short-page-options li > a:focus-visible .short-page-title {
+  text-decoration: underline;
+}
+.short-page-options code,
+.short-page-options [aria-disabled='true'] {
+  color: var(--c-muted);
+}
+.short-page-options code {
+  overflow-wrap: anywhere;
+  font: 11px var(--f-mono);
+}
+
 .annotation-new {
   position: relative;
 }
@@ -1037,4 +1084,43 @@ footer {
 }
 .ask-state[data-tone='problem'] .ask-state-mark {
   color: var(--c-blocked);
+}
+
+/* A light text toggle like the header actions: the square before the word carries on/off. */
+.archive-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 16px;
+  border: 0;
+  padding: 7px 8px 7px 0;
+  background: transparent;
+  color: var(--c-text);
+  box-shadow: none;
+}
+.archive-toggle:hover,
+.archive-toggle[aria-pressed='true'] {
+  color: var(--c-text);
+  border: 0;
+  background: transparent;
+}
+.archive-toggle:hover {
+  text-decoration: underline;
+  text-underline-offset: 4px;
+}
+.archive-toggle:focus-visible {
+  outline: 2px solid var(--c-accent);
+  outline-offset: 2px;
+}
+.toggle-box {
+  flex: none;
+  box-sizing: border-box;
+  width: 14px;
+  height: 14px;
+  border: 2px solid var(--c-text);
+  background: transparent;
+}
+.archive-toggle[aria-pressed='true'] .toggle-box {
+  background: var(--c-accent);
+  border-color: var(--c-accent);
 }

@@ -39,16 +39,19 @@ fn screen(app: &App, width: u16) -> Vec<String> {
 fn the_cron_line_sits_between_attention_and_squads_in_one_cursor_order() {
     let mut app = board(&[("a", waiting())]);
     assert!(
-        !screen(&app, 120).join("\n").contains("⑤"),
+        !screen(&app, 120).join("\n").contains("cron ·"),
         "no read yet: no line"
     );
     with_jobs(&mut app);
     for width in [160, 100, 80] {
         let lines = screen(&app, width);
         let at = |needle: &str| lines.iter().position(|line| line.contains(needle)).unwrap();
-        assert!(at("✗ blocked") < at("⑤ ⏱ 1"), "{lines:#?}");
-        assert!(at("⑤ ⏱ 1") < at("③ squads"), "{lines:#?}");
-        assert!(lines[at("⑤ ⏱ 1")].ends_with("c list"), "{lines:#?}");
+        assert!(at("✗ blocked") < at("cron · 1 job"), "{lines:#?}");
+        assert!(at("cron · 1 job") < at("squads"), "{lines:#?}");
+        assert!(
+            !lines[at("cron · 1 job")].contains("merge queue sweep"),
+            "{lines:#?}"
+        );
     }
     let sections = |app: &App| {
         app.home_entries()
@@ -56,12 +59,28 @@ fn the_cron_line_sits_between_attention_and_squads_in_one_cursor_order() {
             .map(|entry| entry.target.section.clone())
             .collect::<Vec<_>>()
     };
-    assert_eq!(sections(&app), ["needs-you", "blocked", "cron", "squads"]);
-    press(&mut app, Tab);
+    assert_eq!(
+        sections(&app),
+        [
+            "needs-you",
+            "blocked",
+            "leads",
+            "all-leads",
+            "cron",
+            "squads"
+        ]
+    );
+    press(&mut app, Down);
+    assert_eq!(app.home_target.as_ref().unwrap().section, "blocked");
+    press(&mut app, Down);
+    assert_eq!(app.home_target.as_ref().unwrap().section, "leads");
+    press(&mut app, Down);
+    assert_eq!(app.home_target.as_ref().unwrap().section, "all-leads");
+    press(&mut app, Down);
     assert_eq!(app.home_target.as_ref().unwrap().section, "cron");
-    press(&mut app, Tab);
+    press(&mut app, Down);
     assert_eq!(app.home_target.as_ref().unwrap().section, "squads");
-    press(&mut app, BackTab);
+    press(&mut app, Up);
     assert_eq!(app.home_target.as_ref().unwrap().section, "cron");
     // A search hides the cron line like any non-matching row.
     app.search = "worker".into();
@@ -74,7 +93,12 @@ fn enter_and_c_open_the_list_and_esc_restores_the_cursor() {
     assert_eq!(press(&mut app, Char('c')), Effect::None);
     assert!(app.cron_list.is_none(), "nothing read yet");
     with_jobs(&mut app);
-    press(&mut app, Tab);
+    let cursor = app
+        .home_entries()
+        .iter()
+        .position(|entry| entry.target.section == "cron")
+        .unwrap();
+    app.select(cursor);
     assert_eq!(press(&mut app, Enter), Effect::None);
     assert!(app.cron_list.is_some());
     // The modal swallows keys that would act on the board underneath.
@@ -111,10 +135,13 @@ fn a_failed_read_is_a_selectable_line_and_the_list_says_why() {
     assert!(
         lines
             .iter()
-            .any(|line| line.contains("⑤ ⏱ ✗ cron jobs unavailable: storage unreachable")),
+            .any(|line| line.contains("cron · ✗ jobs unavailable: storage unreachable")),
         "{lines:#?}"
     );
-    press(&mut app, Tab);
+    press(&mut app, Down);
+    press(&mut app, Down);
+    press(&mut app, Down);
+    press(&mut app, Down);
     press(&mut app, Enter);
     assert!(app.cron_list.is_some());
 }

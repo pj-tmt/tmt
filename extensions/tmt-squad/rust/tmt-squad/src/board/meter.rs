@@ -206,6 +206,16 @@ impl Meter {
             .member(id, self.milliseconds(now), self.settings.windows[index])
     }
 
+    /// HOME queries actual global durations, retaining partial shorter rings.
+    pub fn observation(
+        &self,
+        id: &str,
+        window: TokenWindow,
+        now: Instant,
+    ) -> Option<(Reading, u64)> {
+        self.rate.observation(id, self.milliseconds(now), window)
+    }
+
     pub fn retain(&mut self, input: &Input) {
         self.rate.retain(input);
     }
@@ -217,7 +227,7 @@ impl Meter {
     }
 
     pub fn model(&self, id: &str) -> Option<&str> {
-        self.rate.model(id)
+        self.rate.model(id).map(crate::source::model_name)
     }
 
     pub fn excluded<'a>(&self, input: &'a Input) -> Vec<&'a str> {

@@ -85,9 +85,15 @@ it('successful catchup resets reconnect failures across the page lifetime', asyn
   connections.length = 0;
   const live = new Live(
     new URL('https://example.test/colab/'),
-    { space: 'space', owner: new Uint8Array(32) } as Bootstrap,
+    {
+      space: 'space',
+      revision: '1',
+      owner: new Uint8Array(32),
+      pageIds: [],
+      pages: [],
+    } as Bootstrap,
     { deviceId: 'device' } as Registration,
-    { pageId: 'page', epoch: '1', sharing: 'private' } as PageInfo,
+    { pageId: '10000000-0000-4000-8000-000000000001', epoch: '1', sharing: 'private' } as PageInfo,
   );
   const failed = vi.fn();
   live.subscribe(() => {}, failed);
@@ -120,9 +126,19 @@ it('tunnel disconnects and resyncs preserve the Session and Remote without reope
   const create = () =>
     new Live(
       new URL('https://example.test/colab/'),
-      { space: 'space', owner: new Uint8Array(32) } as Bootstrap,
+      {
+        space: 'space',
+        revision: '1',
+        owner: new Uint8Array(32),
+        pageIds: [],
+        pages: [],
+      } as Bootstrap,
       registration,
-      { pageId: 'page', epoch: '1', sharing: 'private' } as PageInfo,
+      {
+        pageId: '10000000-0000-4000-8000-000000000001',
+        epoch: '1',
+        sharing: 'private',
+      } as PageInfo,
       undefined,
       remote,
       { reconnect },
@@ -163,7 +179,13 @@ it('tunnel disconnects and resyncs preserve the Session and Remote without reope
 it('exports admitted committed view/head and denies blocked, missing-key and closed bindings', async () => {
   const live = new Live(
     new URL('https://example.test/colab/'),
-    { space: 'uqvpga22vglwpngpg7jd7zpk5vzjtoud', owner: new Uint8Array(32) } as Bootstrap,
+    {
+      space: 'uqvpga22vglwpngpg7jd7zpk5vzjtoud',
+      revision: '1',
+      owner: new Uint8Array(32),
+      pageIds: [],
+      pages: [],
+    } as Bootstrap,
     { deviceId: 'device' } as Registration,
     { pageId: '00000000-0000-4000-8000-000000000002', epoch: '1', sharing: 'private' } as PageInfo,
   );
@@ -194,7 +216,13 @@ it('slow Ask verification keeps one latest view while source export reads the co
   asks.project.mockClear();
   const live = new Live(
     new URL('https://example.test/colab/'),
-    { space: 'uqvpga22vglwpngpg7jd7zpk5vzjtoud', owner: new Uint8Array(32) } as Bootstrap,
+    {
+      space: 'uqvpga22vglwpngpg7jd7zpk5vzjtoud',
+      revision: '1',
+      owner: new Uint8Array(32),
+      pageIds: [],
+      pages: [],
+    } as Bootstrap,
     { deviceId: 'device' } as Registration,
     { pageId: '00000000-0000-4000-8000-000000000002', epoch: '1', sharing: 'private' } as PageInfo,
   );
@@ -233,12 +261,18 @@ it('page observer stops on hidden/close and resumes visible without another cont
   asks.signals.length = 0;
   const live = new Live(
     new URL('https://example.test/colab/'),
-    { space: 'space', owner: new Uint8Array(32) } as Bootstrap,
+    {
+      space: 'space',
+      revision: '1',
+      owner: new Uint8Array(32),
+      pageIds: [],
+      pages: [],
+    } as Bootstrap,
     {
       deviceId: 'device',
       keys: { sign: {}, signPublic: new Uint8Array(32) },
     } as unknown as Registration,
-    { pageId: 'page', epoch: '1', sharing: 'private' } as PageInfo,
+    { pageId: '10000000-0000-4000-8000-000000000001', epoch: '1', sharing: 'private' } as PageInfo,
     undefined,
     {} as RemoteClient,
   );
@@ -292,9 +326,19 @@ it.each(['callback', 'message', 'typed error'] as const)(
     });
     const live = new Live(
       new URL('https://example.test/colab/'),
-      { space: 'space', owner: new Uint8Array(32) } as Bootstrap,
+      {
+        space: 'space',
+        revision: '1',
+        owner: new Uint8Array(32),
+        pageIds: [],
+        pages: [],
+      } as Bootstrap,
       first,
-      { pageId: 'page', epoch: '1', sharing: 'private' } as PageInfo,
+      {
+        pageId: '10000000-0000-4000-8000-000000000001',
+        epoch: '1',
+        sharing: 'private',
+      } as PageInfo,
       undefined,
       remote,
       { reconnect },
@@ -346,12 +390,18 @@ it('mounted ownership loss closes the Ask controller, observer and tunnel withou
   const reconnect = vi.fn();
   const live = new Live(
     new URL('https://example.test/colab/'),
-    { space: 'space', owner: new Uint8Array(32) } as Bootstrap,
+    {
+      space: 'space',
+      revision: '1',
+      owner: new Uint8Array(32),
+      pageIds: [],
+      pages: [],
+    } as Bootstrap,
     {
       deviceId: 'device',
       keys: { sign: {}, signPublic: new Uint8Array(32) },
     } as unknown as Registration,
-    { pageId: 'page', epoch: '1', sharing: 'private' } as PageInfo,
+    { pageId: '10000000-0000-4000-8000-000000000001', epoch: '1', sharing: 'private' } as PageInfo,
     lifetime.signal,
     {} as RemoteClient,
     { reconnect },
@@ -395,9 +445,15 @@ it('explicit recovery stops Live, Ask and observation before reopening, with no 
   const reconnect = vi.fn();
   const live = new Live(
     new URL('https://example.test/colab/'),
-    { space: 'space', owner: new Uint8Array(32) } as Bootstrap,
+    {
+      space: 'space',
+      revision: '1',
+      owner: new Uint8Array(32),
+      pageIds: [],
+      pages: [],
+    } as Bootstrap,
     registration,
-    { pageId: 'page', epoch: '1', sharing: 'private' } as PageInfo,
+    { pageId: '10000000-0000-4000-8000-000000000001', epoch: '1', sharing: 'private' } as PageInfo,
     undefined,
     {} as RemoteClient,
     { reconnect, recover },
@@ -423,23 +479,41 @@ it('remembers only accepted fold titles under the exact admission registration',
   const rememberTitle = vi.fn(async () => {});
   const live = new Live(
     new URL('https://example.test/colab/'),
-    { space: 'space', owner: new Uint8Array(32) } as Bootstrap,
+    {
+      space: 'space',
+      revision: '1',
+      owner: new Uint8Array(32),
+      pageIds: [],
+      pages: [],
+    } as Bootstrap,
     registration,
-    { pageId: 'page', epoch: '1', sharing: 'private' } as PageInfo,
+    { pageId: '10000000-0000-4000-8000-000000000001', epoch: '1', sharing: 'private' } as PageInfo,
     undefined,
     null,
     { reconnect: async () => ({ registration, remote: null }), rememberTitle },
   );
   try {
     await live.snapshot();
-    expect(rememberTitle).toHaveBeenCalledWith('page', 'Page', registration);
+    expect(rememberTitle).toHaveBeenCalledWith(
+      '10000000-0000-4000-8000-000000000001',
+      'Page',
+      registration,
+    );
     connections.at(-1)!.publish({ source: 'renamed source', title: 'Renamed' });
     expect((await live.snapshot()).title).toBe('Renamed');
-    expect(rememberTitle).toHaveBeenLastCalledWith('page', 'Renamed', registration);
+    expect(rememberTitle).toHaveBeenLastCalledWith(
+      '10000000-0000-4000-8000-000000000001',
+      'Renamed',
+      registration,
+    );
     asks.project.mockRejectedValueOnce(new Error('Rejected own evidence'));
     connections.at(-1)!.publish({ source: 'rejected', title: 'Do not cache' });
     await live.snapshot();
-    expect(rememberTitle).not.toHaveBeenCalledWith('page', 'Do not cache', registration);
+    expect(rememberTitle).not.toHaveBeenCalledWith(
+      '10000000-0000-4000-8000-000000000001',
+      'Do not cache',
+      registration,
+    );
   } finally {
     live.close();
   }

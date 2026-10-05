@@ -6,8 +6,11 @@ mod changes;
 mod composition;
 mod cronboard;
 mod derived;
+#[cfg(test)]
+mod glyph_guard;
 mod help;
 mod home;
+mod home_leads;
 mod markdown;
 mod menu_surface;
 mod meter;
@@ -98,9 +101,19 @@ pub(super) enum BoardEvent {
         room: String,
         input: Result<rate::Input, ()>,
     },
+    HomeLeads {
+        cancellation: crate::runner::Cancellation,
+        read: home_leads::Read,
+    },
     HomeUsage {
         cancellation: crate::runner::Cancellation,
         input: Result<std::collections::BTreeMap<String, serde_json::Value>, ()>,
+    },
+    Message {
+        cancellation: crate::runner::Cancellation,
+        key: home_leads::MessageKey,
+        revision: u64,
+        body: Result<String, String>,
     },
     Notebook {
         cancellation: crate::runner::Cancellation,
@@ -204,6 +217,12 @@ fn execute(core: &Core, request: Request) -> Result<String, String> {
             .map(|()| "Tab order saved.".to_owned())
             .map_err(|error| error.message),
         Request::Cron(request) => cronboard::act(core, request),
+        Request::Leads {
+            sender,
+            recipients,
+            all,
+            text,
+        } => send::leads(core, &sender, &recipients, all, &text).map_err(|error| error.message),
         Request::Reply {
             me,
             request,
@@ -229,7 +248,7 @@ fn session(
     stop: &AtomicUsize,
     input: &Receiver<BoardEvent>,
     request: impl Fn(Option<String>, bool, bool),
-    notebook: impl Fn(u64, Option<String>),
+    selected_read: impl Fn(u64, Option<refresh::SelectedRead>),
     mut act: impl FnMut(Request) -> Result<String, String>,
     mut load_config: impl FnMut() -> Result<Config, String>,
     mut draw: impl FnMut(&mut App) -> io::Result<()>,
@@ -256,10 +275,10 @@ fn session(
             draw(app)?;
             dirty = false;
         }
-        let identity = app.notebook_identity();
+        let identity = app.selected_read();
         if requested.is_some() && requested.as_ref() != Some(&identity) {
             revision += 1;
-            notebook(revision, identity.clone());
+            selected_read(revision, identity.clone());
             requested = Some(identity);
         }
         // Timers still wake for stop signals and interval reloads, but a
@@ -303,6 +322,31 @@ fn session(
                     && app.notebook_identity().as_deref() == Some(identity.as_str())
                 {
                     app.notebooks.borrow_mut().keep(identity, notes);
+                    dirty = true;
+                }
+                Effect::None
+            }
+            Ok(BoardEvent::Message {
+                cancellation,
+                key,
+                revision: read_revision,
+                body,
+            }) => {
+                if !cancellation.cancelled()
+                    && read_revision == revision
+                    && app.selected_read() == Some(refresh::SelectedRead::Message(key.clone()))
+                {
+                    app.apply_message(&key, body);
+                    dirty = true;
+                }
+                Effect::None
+            }
+            Ok(BoardEvent::HomeLeads { cancellation, read }) => {
+                if !cancellation.cancelled()
+                    && !app.loading()
+                    && app.current.as_deref() == Some(ALL)
+                {
+                    app.apply_home_leads(read);
                     dirty = true;
                 }
                 Effect::None
@@ -512,6 +556,30 @@ fn session(
                     refreshed = Instant::now();
                 }
             }
+            Effect::HomeReplies(shown) => {
+                match load_config().and_then(|mut config| {
+                    config
+                        .set_setting(
+                            None,
+                            "board.home_replies",
+                            if shown { "true" } else { "false" },
+                        )
+                        .map_err(|error| error.to_string())
+                }) {
+                    Ok(_) => {
+                        if let Some(view) = &mut app.view {
+                            view.home_replies = shown;
+                        }
+                        revision += 1;
+                        requested = None;
+                        request(app.current.clone(), false, false);
+                        refreshed = Instant::now();
+                    }
+                    Err(error) => {
+                        app.say(error);
+                    }
+                }
+            }
             Effect::None => {}
         }
         // A snapshot may change the interval, including turning reload off.
@@ -535,6 +603,7 @@ pub(super) fn selection(
     input: Option<&str>,
     initial: Option<&str>,
 ) -> Result<(pick::Picks, Option<String>), SquadError> {
+    config.home_replies()?;
     if input.is_none() {
         return Ok((pick::Picks::default(), initial.map(str::to_owned)));
     }
@@ -616,7 +685,7 @@ pub fn run(
         &stop,
         &input,
         |squad, preempt, preview| worker.request(squad, preempt, preview),
-        |revision, identity| worker.notebook(revision, identity),
+        |revision, identity| worker.selected(revision, identity),
         |request| execute(&core, request),
         || Config::load(&core).map_err(|error| error.message),
         |app| {
@@ -645,6 +714,70 @@ mod tests {
     use std::sync::{atomic::Ordering, mpsc::channel};
 
     #[test]
+    fn home_reply_toggle_uses_global_writer_and_a_conflict_keeps_the_displayed_choice() {
+        use serde_json::json;
+        for conflict in [false, true] {
+            let root = std::env::temp_dir().join(format!(
+                "squad-home-toggle-{}-{conflict}",
+                std::process::id()
+            ));
+            std::fs::create_dir_all(&root).unwrap();
+            let path = root.join("squad.toml");
+            std::fs::write(&path, "# original\n[board]\nhome_replies=true\n").unwrap();
+            let baseline = Config::read(path.clone()).unwrap();
+            let mut snapshot = app::tests::snapshot(ALL, json!([]));
+            let view = snapshot.view.as_mut().unwrap();
+            view.bindings = crate::action::all_preset();
+            view.refresh = None;
+            view.home = Some(home::Home {
+                windows: crate::config::TokenWindow::DEFAULTS,
+                summary: Default::default(),
+                sections: vec![],
+                squads: vec![],
+                failures: vec![],
+                incomplete: false,
+            });
+            let mut app = App::new(Some(ALL.into()));
+            app.apply(snapshot);
+            let (events, input) = mpsc::channel();
+            events.send(key(KeyCode::Char('t'))).unwrap();
+            events.send(key(KeyCode::Char('q'))).unwrap();
+            let reloads = std::cell::Cell::new(0);
+            session(
+                &mut app,
+                &AtomicUsize::new(0),
+                &input,
+                |_, _, _| reloads.set(reloads.get() + 1),
+                |_, _| {},
+                no_actions,
+                || {
+                    if conflict {
+                        std::fs::write(&path, "# concurrent edit\n[board]\nhome_replies=true\n")
+                            .unwrap();
+                    }
+                    Ok(baseline.clone())
+                },
+                |_| Ok(()),
+            )
+            .unwrap();
+            assert_eq!(app.view.as_ref().unwrap().home_replies, conflict);
+            assert_eq!(
+                Config::read(path.clone()).unwrap().home_replies().unwrap(),
+                conflict
+            );
+            assert_eq!(reloads.get(), usize::from(!conflict));
+            if conflict {
+                assert!(
+                    std::fs::read_to_string(&path)
+                        .unwrap()
+                        .starts_with("# concurrent edit")
+                );
+            }
+            std::fs::remove_dir_all(root).unwrap();
+        }
+    }
+
+    #[test]
     fn selected_notebooks_are_lazy_and_late_selection_or_refresh_results_are_ignored() {
         let mut app = App::new(Some("product".into()));
         let mut snapshot = app::tests::snapshot(
@@ -661,8 +794,12 @@ mod tests {
         );
         let view = snapshot.view.as_mut().unwrap();
         view.bindings = crate::action::preset(true, &view.board.panes);
+        view.document["squad"]["lead"] =
+            serde_json::json!({"id":"LEAD", "name":"lead", "lifetime":"saved"});
         app.apply(snapshot);
         let (events, input) = mpsc::channel();
+        // The first frame selects the lead; only moving to a member may read a notebook.
+        events.send(key(KeyCode::Down)).unwrap();
         let reads = std::cell::RefCell::new(Vec::new());
         let mut terminal =
             ratatui::Terminal::new(ratatui::backend::TestBackend::new(100, 30)).unwrap();
@@ -672,7 +809,7 @@ mod tests {
             &input,
             |_, _, _| {},
             |revision, identity| {
-                let Some(identity) = identity else { return };
+                let Some(refresh::SelectedRead::Notebook(identity)) = identity else { return };
                 reads.borrow_mut().push(identity.clone());
                 let result = |id, rev, text: &str| BoardEvent::Notebook {
                     cancellation: Default::default(),

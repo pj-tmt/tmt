@@ -33,21 +33,38 @@ test('one command starts the door; pairing opens a page; stopping it closes both
     const printed = await device.context.newPage();
     expect((await printed.goto(door.url))?.status()).toBe(200);
     await openColab(door, device);
-    // `page create` prints the full link (#1614): the door address plus the page path, and it
-    // opens as the paired device without any hand-built URL.
+    // #1688: JSON retains the full owner link and adds the short human link. Both open
+    // through the real Remote door as the paired device without a hand-built URL.
     const printed2 = await world.tmt(
       ['colab', 'page', 'create', '--title', 'Linked', '--file', '-', '--json'],
       { stdin: '<p id="body">Opened from the printed link.</p>' },
     );
     expect(printed2.code, printed2.stdout + printed2.stderr).toBe(0);
-    const linked = JSON.parse(printed2.stdout) as { link: string; path: string; paired: boolean };
+    const linked = JSON.parse(printed2.stdout) as {
+      link: string;
+      shortLink: string;
+      path: string;
+      pageId: string;
+      paired: boolean;
+    };
     expect(linked.link).toBe(`${door.address}/${linked.path}`);
     expect(linked.paired).toBe(true);
+    expect(linked.shortLink).toBe(`${door.origin}/p/${linked.pageId.slice(0, 8)}`);
     const linkedPage = await device.context.newPage();
     expect((await linkedPage.goto(linked.link))?.status()).toBe(200);
     // The link renders the page, not just an HTTP 200: the sandboxed frame shows its body.
     await expect(linkedPage.locator('iframe')).toBeVisible();
     await expect(linkedPage.frameLocator('iframe').locator('#body')).toHaveText(
+      'Opened from the printed link.',
+    );
+    const shortPage = await device.context.newPage();
+    expect((await shortPage.goto(linked.shortLink))?.status()).toBe(200);
+    await expect(shortPage.frameLocator('iframe').locator('#body')).toHaveText(
+      'Opened from the printed link.',
+    );
+    expect(new URL(shortPage.url()).hash).toContain(`%2Fpages%2F${linked.pageId}`);
+    await shortPage.reload();
+    await expect(shortPage.frameLocator('iframe').locator('#body')).toHaveText(
       'Opened from the printed link.',
     );
     const created = createPage(world, 'One command', '<p id="body">Opened by one command.</p>');

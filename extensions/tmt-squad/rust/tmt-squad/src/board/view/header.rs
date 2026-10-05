@@ -53,6 +53,12 @@ pub(in crate::board) fn time_marks(app: &App, now: u64) -> Vec<String> {
             .flat_map(|section| &section.rows)
             .filter_map(|row| row.age.as_ref())
             .map(|age| crate::board::home::age_label(age, now))
+            .chain(app.home_leads.leads.iter().filter_map(|lead| {
+                lead.exchange
+                    .as_ref()?
+                    .since_ms
+                    .map(|at| crate::requests::age(now, at))
+            }))
             .collect();
     }
     let board = app.effective_board().expect("loaded view has a board");
@@ -193,8 +199,6 @@ pub(super) fn render_meter_status(frame: &mut Frame, app: &App, area: Rect) {
                 ..area
             },
             Line::styled(text, look.role(Role::Dim)),
-            &look.theme,
-            look.depth,
         );
     }
 }
@@ -251,10 +255,8 @@ pub(super) fn render_meter(frame: &mut Frame, app: &App, summary: Rect) {
                 ..area
             },
             line,
-            &look.theme,
-            look.depth,
         );
     } else {
-        strip::paint_right(frame.buffer_mut(), area, line, &look.theme, look.depth);
+        strip::paint_right(frame.buffer_mut(), area, line);
     }
 }

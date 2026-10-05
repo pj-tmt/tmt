@@ -7,32 +7,24 @@
 //! `text::fit_line`, exactly as the geometry and paint pipeline would place it.
 use crate::{style::TextFlow, text};
 use ratatui::{buffer::Buffer, layout::Rect, style::Style, text::Line};
-use tmt_cli_style::{Depth, Theme, grid::Align};
+use tmt_cli_style::grid::Align;
 use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::UnicodeWidthStr;
 
 /// Paint `line` from the left edge of `area`; text beyond its width is clipped.
-/// Spans carry resolved styles, so `theme` and `depth` are not consulted; they
-/// stay in the signature so every caller keeps one painting contract.
-pub fn paint_left(buffer: &mut Buffer, area: Rect, line: Line<'_>, theme: &Theme, depth: Depth) {
-    paint_from(buffer, area, area.x, line, theme, depth);
+/// Spans carry the caller's resolved styles.
+pub fn paint_left(buffer: &mut Buffer, area: Rect, line: Line<'_>) {
+    paint_from(buffer, area, area.x, line);
 }
 
 /// Paint `line` flush with the right edge of `area`; a line wider than the
 /// area keeps its start, as `paint_left` does.
-pub fn paint_right(buffer: &mut Buffer, area: Rect, line: Line<'_>, theme: &Theme, depth: Depth) {
+pub fn paint_right(buffer: &mut Buffer, area: Rect, line: Line<'_>) {
     let width = line.width().min(usize::from(area.width)) as u16;
-    paint_from(buffer, area, area.right() - width, line, theme, depth);
+    paint_from(buffer, area, area.right() - width, line);
 }
 
-fn paint_from(
-    buffer: &mut Buffer,
-    area: Rect,
-    start: u16,
-    line: Line<'_>,
-    _theme: &Theme,
-    _depth: Depth,
-) {
+fn paint_from(buffer: &mut Buffer, area: Rect, start: u16, line: Line<'_>) {
     let mut x = start.max(area.x);
     for span in line.spans {
         let width = span

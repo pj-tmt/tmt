@@ -19,6 +19,8 @@ pub struct Status<'a> {
     pub pairing: Option<Pairing>,
     /// Ids of the pages that are not archived; `None` when the catalog could not be read.
     pub pages: Option<Vec<String>>,
+    /// Full catalog, including archived and deleted IDs, for collision-safe display aliases.
+    pub all_pages: Option<Vec<String>>,
     /// The browser was opened on the link `open_link` named.
     pub opened: bool,
 }
@@ -53,10 +55,19 @@ impl Status<'_> {
             None => relative,
         })
     }
+    fn short_page(&self) -> Option<String> {
+        let page = self.pages.as_ref()?.first()?;
+        let id =
+            tmt_colab::short_links::shortest_id(page, self.all_pages.as_deref().unwrap_or(&[]));
+        Some(match self.door() {
+            Some(door) => format!("{}/p/{id}", door.origin()),
+            None => format!("x/colab/p/{id}"),
+        })
+    }
     /// What a person reads beside a page link: the link, or, without a door, the relative path
     /// and why there is no full link. Never a command that `serve` itself replaces.
     fn page_text(&self) -> Option<String> {
-        let link = self.page_link()?;
+        let link = self.short_page()?;
         Some(match self.access {
             Access::Unavailable {
                 reason: Reason::Missing,
@@ -86,7 +97,14 @@ impl Status<'_> {
     }
     /// The full link to open in a browser, only while a door runs.
     pub fn open_link(&self) -> Option<String> {
-        self.door().map(|door| door.url(&self.target_path()))
+        self.door().map(|door| match self.pages.as_deref() {
+            Some([only]) => format!(
+                "{}/p/{}",
+                door.origin(),
+                tmt_colab::short_links::shortest_id(only, self.all_pages.as_deref().unwrap_or(&[]))
+            ),
+            _ => door.url(&self.target_path()),
+        })
     }
     /// What the `open` row says: the link, or without a door the relative page path and why.
     fn target_text(&self) -> Option<String> {
@@ -128,6 +146,7 @@ impl Status<'_> {
             "devices": devices,
             "pages": self.pages.as_ref().map(Vec::len),
             "page": self.page_link(),
+            "shortLink": self.door().and_then(|_| self.short_page()),
             "next": next,
             "opened": self.opened,
             "warning": self.access.warning().map(|(what, _)| what),

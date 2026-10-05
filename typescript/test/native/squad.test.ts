@@ -235,6 +235,49 @@ o = "run touch ${marker}"
     });
   });
 
+  it('persists the global HOME replies boolean and rejects scoped or invalid values without edits', async () => {
+    await withSandbox(async (sandbox) => {
+      installSquad(sandbox);
+      await identity(sandbox, 'home-settings-owner');
+      const config = path.join(sandbox.globalDir, 'squad.toml');
+      writeFileSync(config, '# keep this comment\n');
+      const setting = async () => {
+        const shown = await squad(sandbox, ['config', 'show', '--tab', 'all']);
+        expect(shown.status).toBe(0);
+        return shown.body.entries.find(
+          (entry: { key: string }) => entry.key === 'board.home_replies'
+        );
+      };
+      expect(await setting()).toMatchObject({
+        value: true,
+        source: 'default:true',
+        editable: true,
+      });
+      expect((await squad(sandbox, ['config', 'set', 'board.home_replies', 'false'])).status).toBe(
+        0
+      );
+      expect(await setting()).toMatchObject({ value: false, source: 'board.home_replies' });
+      const before = readFileSync(config, 'utf8');
+      expect(before).toContain('# keep this comment');
+      for (const args of [
+        ['config', 'set', 'board.home_replies', 'true', '--squad', 'product'],
+        ['config', 'set', 'board.home_replies', 'yes'],
+      ]) {
+        const rejected = await squad(sandbox, args);
+        expect(rejected.status).not.toBe(0);
+        expect(rejected.body.error.code).toBe('SQUAD_CONFIG_INVALID');
+        expect(rejected.body.error.message).toContain(
+          args.includes('--squad') ? 'read-only in this scope' : 'must be true or false'
+        );
+        expect(readFileSync(config, 'utf8')).toBe(before);
+      }
+      expect((await squad(sandbox, ['config', 'set', 'board.home_replies', 'true'])).status).toBe(
+        0
+      );
+      expect(await setting()).toMatchObject({ value: true, source: 'board.home_replies' });
+    });
+  });
+
   it('config set validates, preserves unrelated TOML and hides tracks without removing JSON values', async () => {
     await withSandbox(async (sandbox) => {
       installSquad(sandbox);
@@ -1288,7 +1331,7 @@ o = "run touch ${marker}"
     });
   });
 
-  it('sends as --identity, else the recorded user, else refuses in one line', async () => {
+  it('has no conversation or annotate commands: they are core verbs or board-only', async () => {
     await withSandbox(async (sandbox) => {
       installSquad(sandbox);
       const ids: Record<string, string> = {};
@@ -1296,76 +1339,34 @@ o = "run touch ${marker}"
       await squad(sandbox, ['init', 'product']);
       await squad(sandbox, ['lead', 'Sol']);
       await squad(sandbox, ['add', 'auth-fix']);
-      const api = async (operation: string, input: object) =>
-        JSON.parse(
-          (
-            await runCli(sandbox, ['api'], {
-              stdin: JSON.stringify({ version: 1, operation, input }),
-            })
-          ).stdout
-        );
-      const sender = async (requestId: string) =>
-        (await api('requests.show', { requestId })).sender.identityId;
-      const requests = async () =>
-        (await api('requests.list', { recipientId: ids['auth-fix'], limit: 50 })).items.length;
-
-      // The conversation verbs moved to core: each refuses with its
-      // replacement, sends nothing and never forwards.
-      for (const [command, replacement] of [
-        ['talk', 'tmt talk <member> "…" --detach'],
-        ['reply', 'tmt answer <member> "…"'],
-        ['replies', 'tmt x (and tmt result <request-id>)'],
-      ]) {
-        const removed = await squad(sandbox, [command, 'auth-fix', 'hello']);
-        expect(removed, command).toMatchObject({
-          status: 2,
-          body: { error: { code: 'SQUAD_COMMAND_REMOVED' } },
-        });
-        const human = await runCli(sandbox, ['sq', command, 'auth-fix', 'hello']);
-        expect(human.status).toBe(2);
-        expect(human.stderr).toBe(
-          `error: tmt squad ${command} was removed\nhint: ${replacement}\n`
-        );
-        const help = await runCli(sandbox, ['sq', '--help']);
-        expect(help.stdout).not.toMatch(new RegExp(`^  ${command} `, 'm'));
-      }
-      expect(await requests()).toBe(0);
-
-      // No pane identity and no recorded user: nothing is sent.
-      const refused = await squad(sandbox, ['annotate', 'auth-fix', 'split it']);
-      expect(refused).toMatchObject({
-        status: 1,
-        body: { error: { code: 'SQUAD_SENDER_UNKNOWN' } },
-      });
-      expect(await requests()).toBe(0);
-      const text = await runCli(sandbox, ['sq', 'annotate', 'auth-fix', 'hello']);
-      expect(text.stderr).toBe(
-        'error: Who is sending? This pane has no identity, and no user is recorded\n' +
-          'hint: Name this pane with tmt this <name>, or record yourself with tmt squad me <name>\n'
-      );
-
-      // An explicit identity speaks for itself, even with a user recorded.
       await squad(sandbox, ['me', 'Ben']);
-      const asLead = await squad(sandbox, [
-        'annotate',
-        'auth-fix',
-        'rebase first',
-        '--to',
-        'member',
-        '--identity',
-        'Sol',
-      ]);
-      expect(asLead.body).toMatchObject({ to: 'auth-fix', as: 'Sol' });
-      expect(await sender(asLead.body.requestId)).toBe(ids.Sol);
-      const unknown = await squad(sandbox, ['annotate', 'auth-fix', 'x', '--identity', 'Nobody']);
-      expect(unknown.body.error.code).toBe('NAME_NOT_FOUND');
+      const help = await runCli(sandbox, ['sq', '--help']);
+      expect(help.status).toBe(0);
 
-      // Without one, the recorded user sends.
-      const asUser = await runCli(sandbox, ['sq', 'annotate', 'auth-fix', 'split it']);
-      expect(asUser.stdout).toMatch(/^✓ Sent to Sol as Ben \(req_[0-9a-f-]+\)\n$/);
-      const annotated = await squad(sandbox, ['annotate', 'auth-fix', 'split it']);
-      expect(annotated.body).toMatchObject({ to: 'Sol', as: 'Ben' });
-      expect(await sender(annotated.body.requestId)).toBe(ids.Ben);
+      // Talking and answering are core's (tmt talk, tmt answer); annotating is
+      // the board's `a` key and has no command. None of them is a Squad
+      // command, none is advertised, and none sends anything.
+      for (const command of ['talk', 'reply', 'replies', 'annotate']) {
+        const json = await squad(sandbox, [command, 'auth-fix', 'hello']);
+        expect(json.status, command).toBe(2);
+        const human = await runCli(sandbox, ['sq', command, 'auth-fix', 'hello']);
+        expect(human.status, command).toBe(2);
+        expect(human.stdout, command).toBe('');
+        expect(human.stderr, command).toContain(`unrecognized subcommand '${command}'`);
+        expect(help.stdout, command).not.toMatch(new RegExp(`^  ${command} `, 'm'));
+      }
+      const api = JSON.parse(
+        (
+          await runCli(sandbox, ['api'], {
+            stdin: JSON.stringify({
+              version: 1,
+              operation: 'requests.list',
+              input: { recipientId: ids['auth-fix'], limit: 50 },
+            }),
+          })
+        ).stdout
+      );
+      expect(api.items).toHaveLength(0);
     });
   });
 
@@ -1842,21 +1843,6 @@ o = "run touch ${marker}"
       const text = await runCli(sandbox, ['sq', 'ls', '--squad', 'product']);
       expect(text.stdout).toContain('squad product · no lead · layout team');
       expect(text.stdout).not.toContain('hint: tmt squad lead');
-      const refused = await runCli(sandbox, ['sq', 'annotate', 'Sol', 'Review this']);
-      expect(refused.status).toBe(1);
-      expect(refused.stderr).toContain(
-        'hint: Set one with tmt squad lead <name> --squad product, or use --to member'
-      );
-      expect(observe(sandbox)).toEqual(after);
-      const db = new Database(sandbox.database, { readonly: true });
-      try {
-        expect(db.prepare('SELECT COUNT(*) AS n FROM request_attempts').get()).toEqual({ n: 0 });
-      } finally {
-        db.close();
-      }
-      expect(
-        (await squad(sandbox, ['annotate', 'Sol', 'Review this', '--to', 'member'])).body
-      ).toMatchObject({ to: 'Sol', as: 'Ben' });
       await squad(sandbox, ['lead', 'Rin']);
       const clearedText = await runCli(sandbox, ['sq', 'lead', '--none']);
       expect(clearedText.stdout).toBe('✓ Squad product has no lead; Rin remains a member\n');
@@ -2452,24 +2438,36 @@ sort = ["-name"]
         final: { status: 'not_submitted' },
         prompt: { message: text },
       });
-      const before = (await roomRequests()).length;
-      const empty = await squad(sandbox, ['annotate', 'auth-fix', '']);
-      expect(empty.body.error.code).toBe('SQUAD_ACTION_REFUSED');
-      expect((await roomRequests()).length, 'empty input sends nothing').toBe(before);
-
-      // annotate: tagged, to the lead by default or to the member.
-      const toLead = await squad(sandbox, ['annotate', 'auth-fix', 'split the job']);
-      expect(toLead.body).toMatchObject({ to: 'Sol', row: 'auth-fix' });
-      expect(await prompt(toLead.body.requestId)).toMatchObject({
+      // annotate: the board's `a` is a core talk in the squad room whose text is
+      // tagged `[<squad> · <row>]`, to the lead by default or to the member.
+      const annotate = async (to: string, row: string, note: string) => {
+        const sent = await runCli(sandbox, [
+          'talk',
+          '--identity',
+          'Ben',
+          '--room',
+          'squad-product',
+          '--detach',
+          '--json',
+          '--',
+          to,
+          `[product · ${row}] ${note}`,
+        ]);
+        expect(sent.status).toBe(0);
+        return { requestId: JSON.parse(sent.stdout).requestId as string };
+      };
+      const toLead = await annotate('Sol', 'auth-fix', 'split the job');
+      expect(await prompt(toLead.requestId)).toMatchObject({
         recipientId: ids.Sol,
         roomId,
         prompt: { message: '[product · auth-fix] split the job' },
       });
-      const toMember = await squad(sandbox, ['annotate', 'docs', 'add examples', '--to', 'member']);
-      expect(await prompt(toMember.body.requestId)).toMatchObject({
+      const toMember = await annotate('docs', 'docs', 'add examples');
+      expect(await prompt(toMember.requestId)).toMatchObject({
         recipientId: ids.docs,
         prompt: { message: '[product · docs] add examples' },
       });
+      expect((await roomRequests()).length).toBe(3);
 
       // The marker is derived from request state on every read.
       const marker = async () => {
@@ -2479,8 +2477,8 @@ sort = ["-name"]
         );
       };
       expect(await marker()).toEqual({
-        'auth-fix': { requestId: toLead.body.requestId, to: 'Sol', text: 'split the job' },
-        docs: { requestId: toMember.body.requestId, to: 'docs', text: 'add examples' },
+        'auth-fix': { requestId: toLead.requestId, to: 'Sol', text: 'split the job' },
+        docs: { requestId: toMember.requestId, to: 'docs', text: 'add examples' },
       });
       expect((await runCli(sandbox, ['sq', 'status'])).stdout).toContain('✎ to Sol: split the job');
       const incoming = async (who: string, requestId: string) =>
@@ -2497,10 +2495,10 @@ sort = ["-name"]
             ])
           ).stdout
         ).exchange;
-      const leadView = await incoming('Sol', toLead.body.requestId);
+      const leadView = await incoming('Sol', toLead.requestId);
       const answered = await runCli(sandbox, [
         'reply',
-        toLead.body.requestId,
+        toLead.requestId,
         '--receipt',
         leadView.reply.receipt,
         '--message',

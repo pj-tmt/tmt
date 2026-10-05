@@ -65,9 +65,10 @@ tmt colab page create --title "Weekly plan" --file page.html --json
 ```
 
 Use `--file -` for stdin; omitting `--file` creates an empty page. The result
-includes `pageId`, `path` and `link`. Give the user the full `link`, not just the
-page ID or JSON. If `link` is null, inspect serving status instead of inventing a
-URL; `path` is relative to the Remote door address. `paired: false` and `next`
+includes `pageId`, `path`, `link` and `shortLink`. Give the user `shortLink` when
+available, otherwise the full `link`, not just the page ID or JSON. If both links
+are null, inspect serving status instead of inventing a URL; `path` is relative
+to the Remote door address. `paired: false` and `next`
 indicate the user-only pairing step, not a command for the agent to execute.
 `tmt colab show PAGE --json` inspects the page and its current link.
 
@@ -132,9 +133,15 @@ exact request using the incoming command supplied by the wake notice, for exampl
 tmt x show REQUEST --incoming --identity YOUR_IDENTITY --json
 ```
 
-Annotation and Chat links use `#space=SPACE&path=%2Fpages%2FPAGE`. Decode the `path`
-fragment value; the page ID follows `/pages/`. If the requested work needs the
-page, read it through `tmt colab page read`; retain its revision for changes.
+Annotation and Chat links use `/p/SHORT`, where `SHORT` is a page-ID prefix. Run
+`tmt colab ls --archived --json` and match the prefix against `pageIds`, including
+retained deleted IDs. Require exactly one match with `deleted: false` and use its
+full `pageId` in CLI commands. If the prefix is ambiguous, ask which page is meant;
+if deleted or missing, report that instead of guessing a different page.
+
+Older links use `#space=SPACE&path=%2Fpages%2FPAGE`. Decode the `path` fragment
+value; the page ID follows `/pages/`. If the requested work needs the page, read
+it through `tmt colab page read`; retain its revision for changes.
 Do the authorized work, then submit one reply with the receipt from `x show`:
 
 ```sh

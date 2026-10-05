@@ -20,3 +20,13 @@ fn table_equals_the_design_tokens_file() {
     assert!(ALL.windows(2).all(|pair| pair[0].cells < pair[1].cells));
     assert_eq!([SM, MD, LG], ALL);
 }
+
+#[test]
+fn a_step_is_found_by_its_exact_token_name_only() {
+    for step in ALL {
+        assert_eq!(by_name(step.name), Some(step));
+    }
+    for other in ["", "xs", "MD", "md ", "100"] {
+        assert_eq!(by_name(other), None, "{other:?}");
+    }
+}

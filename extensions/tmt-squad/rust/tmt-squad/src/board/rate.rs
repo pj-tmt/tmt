@@ -206,7 +206,7 @@ impl Member {
         bucket.tokens += tokens;
     }
 
-    fn reading(&self, now: u64, window: TokenWindow) -> Option<Reading> {
+    fn reading(&self, now: u64, window: TokenWindow) -> Option<(Reading, u64)> {
         let span = now.saturating_sub(self.began?).min(window.milliseconds());
         let end = now / SLOT_MS;
         let count = window.milliseconds() / SLOT_MS;
@@ -217,6 +217,7 @@ impl Member {
         };
         let mut evidence = false;
         let mut observed_slots = 0;
+        let mut covered_slots = 0;
         for bucket in &self.buckets {
             if bucket
                 .slot
@@ -233,12 +234,13 @@ impl Member {
                 reading.partial |= cut;
                 reading.partial |= bucket.gap;
                 evidence |= bucket.evidence;
+                covered_slots += u64::from(bucket.evidence);
                 observed_slots += 1;
             }
         }
         reading.partial |= observed_slots < count;
         // A baseline or uncovered zero alone is not a measured zero.
-        evidence.then_some(reading)
+        evidence.then_some((reading, covered_slots))
     }
 }
 
@@ -380,6 +382,13 @@ impl Rate {
     }
 
     pub fn member(&self, id: &str, now: u64, window: TokenWindow) -> Option<Reading> {
+        self.observation(id, now, window)
+            .map(|(reading, _)| reading)
+    }
+
+    /// Retained verified bucket evidence ranks duplicate UUID observations.
+    /// This is an evidence count, not a reconstructed coverage duration.
+    pub fn observation(&self, id: &str, now: u64, window: TokenWindow) -> Option<(Reading, u64)> {
         self.members.get(id)?.reading(now, window)
     }
 
@@ -395,7 +404,7 @@ impl Rate {
         };
         let mut evidence = false;
         for member in self.members.values() {
-            if let Some(reading) = member.reading(now, window) {
+            if let Some((reading, _)) = member.reading(now, window) {
                 sum.tokens += reading.tokens;
                 sum.partial |= reading.partial;
                 sum.span = sum.span.min(reading.span);

@@ -1078,9 +1078,16 @@ fn busy_remembered_port_refuses_without_changing_origin_and_recovers_after_freei
             assert_eq!(answer["error"]["code"], "REMOTE_PORT_BUSY");
             answer["error"]["message"].as_str().unwrap().to_owned()
         };
-        assert!(message.contains(&format!("port {port}")));
-        assert!(message.contains("Stop the process using that port"));
-        assert!(message.contains("--port <n>") && message.contains("--port 0"));
+        assert!(message.contains(&format!("Remote's port {port} is in use")));
+        assert!(message.contains("stop what is using it to keep this browser paired"));
+        assert!(message.contains("tmt remote serve --port <n> and pair again"));
+        if human {
+            // The refusal is an error line and its own hint line, never one run-on message.
+            let lines: Vec<&str> = message.lines().collect();
+            assert_eq!(lines.len(), 2, "{message}");
+            assert!(lines[0].starts_with("error: ") && !lines[0].contains("--port"));
+            assert!(lines[1].starts_with("hint: stop what is using it"));
+        }
         assert!(!pilot.root.join("state/remote/control.sock").exists());
         assert_eq!(
             status_json(&pilot),

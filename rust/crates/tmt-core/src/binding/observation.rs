@@ -152,20 +152,46 @@ pub(super) fn observe<O: BindingEndpoint>(
     }
 }
 
+/// Host observations happen without reserving the database writer. Evidence
+/// captured for a previous record cannot detach or retire its replacement.
+fn reconcile_observed<R, O>(
+    records: &mut dyn BindingRecords<Error = R>,
+    observed: BindingEntry,
+    probe: &EndpointProbe,
+) -> Result<Option<IdentityPresence>, BindingError<R, O>> {
+    let Some(current) = records.entry_by_id(&observed.identity.id)? else {
+        return Ok(None);
+    };
+    let probe = if current == observed
+        || matches!(
+            evaluate_binding(&current, probe),
+            BindingEvidence::Active(_)
+        ) {
+        // A session admission or rename can change the record during the
+        // probe while its ownership evidence still agrees. Refreshing that
+        // current binding is safe; only cleanup requires the unchanged row.
+        probe
+    } else {
+        &EndpointProbe::Unknown
+    };
+    reconcile(records, current, probe)
+}
+
 pub fn name_presence<R: BindingRepository, O: BindingEndpoint>(
     repository: &mut R,
     endpoint: &mut O,
     name: &str,
 ) -> Result<IdentityPresence, BindingError<R::Error, O::Error>> {
+    let entry = repository.with_binding_transaction(|records| {
+        endpoint.begin_coordination();
+        named_entry(records, name)?.ok_or_else(|| BindingError::NameNotFound(name.into()))
+    })?;
+    let probe = observe(endpoint, &entry).map_err(BindingError::Endpoint)?;
     repository
         .with_binding_transaction(|records| {
-            endpoint.begin_coordination();
-            let entry = named_entry(records, name)?
-                .ok_or_else(|| BindingError::NameNotFound(name.into()))?;
-            let probe = observe(endpoint, &entry).map_err(BindingError::Endpoint)?;
             // Commit conclusive retirement even when this read no longer finds a
             // live-name record. Convert absence to the public error after commit.
-            reconcile(records, entry, &probe)
+            reconcile_observed(records, entry, &probe)
         })?
         .ok_or_else(|| BindingError::NameNotFound(name.into()))
 }
@@ -175,22 +201,29 @@ pub fn pane_presence<R: BindingRepository, O: BindingEndpoint>(
     endpoint: &mut O,
     pane_id: &str,
 ) -> Result<PaneIdentity, BindingError<R::Error, O::Error>> {
-    repository.with_binding_transaction(|records| {
+    let entries = repository.with_binding_transaction(|records| {
         endpoint.begin_coordination();
-        let snapshot = endpoint
-            .current_snapshot(&[pane_id.into()])
-            .map_err(BindingError::Endpoint)?;
-        let pane = snapshot
-            .panes
-            .iter()
-            .find(|pane| pane.id == pane_id)
-            .cloned()
-            .ok_or_else(|| BindingError::PaneNotFound(pane_id.into()))?;
-        let entry =
-            records.entry_by_pane(snapshot.server.host, pane_id, &snapshot.server.server_id)?;
+        records.entries_for_pane(endpoint.current_host(), pane_id)
+    })?;
+    let snapshot = endpoint
+        .current_snapshot(&[pane_id.into()])
+        .map_err(BindingError::Endpoint)?;
+    let pane = snapshot
+        .panes
+        .iter()
+        .find(|pane| pane.id == pane_id)
+        .cloned()
+        .ok_or_else(|| BindingError::PaneNotFound(pane_id.into()))?;
+    repository.with_binding_transaction(|records| {
+        let entry = entries.into_iter().find(|entry| {
+            entry
+                .binding
+                .as_ref()
+                .is_some_and(|binding| binding.server.server_id == snapshot.server.server_id)
+        });
         let server = snapshot.server.clone();
         let active = match entry {
-            Some(entry) => reconcile(records, entry, &EndpointProbe::Live(snapshot))?
+            Some(entry) => reconcile_observed(records, entry, &EndpointProbe::Live(snapshot))?
                 .filter(|row| row.presence == Presence::Active),
             None => None,
         };
@@ -213,7 +246,7 @@ pub fn current_name_presence<R: BindingRepository, O: BindingEndpoint>(
     endpoint: &mut O,
     name: &str,
 ) -> Result<Option<PaneIdentity>, BindingError<R::Error, O::Error>> {
-    repository.with_binding_transaction(|records| {
+    let entry = repository.with_binding_transaction(|records| {
         endpoint.begin_coordination();
         let Some(identity) = records.find_identity(&normalize_name(name))? else {
             return Ok(None);
@@ -229,11 +262,18 @@ pub fn current_name_presence<R: BindingRepository, O: BindingEndpoint>(
         if binding.server.host != endpoint.current_host() {
             return Ok(None);
         }
-        let snapshot = endpoint
-            .current_snapshot(std::slice::from_ref(&binding.pane_id))
-            .map_err(BindingError::Endpoint)?;
+        Ok::<_, BindingError<R::Error, O::Error>>(Some(entry))
+    })?;
+    let Some(entry) = entry else {
+        return Ok(None);
+    };
+    let pane = &entry.binding.as_ref().expect("selected binding").pane_id;
+    let snapshot = endpoint
+        .current_snapshot(std::slice::from_ref(pane))
+        .map_err(BindingError::Endpoint)?;
+    repository.with_binding_transaction(|records| {
         let server = snapshot.server.clone();
-        let active = reconcile(records, entry, &EndpointProbe::Live(snapshot))?
+        let active = reconcile_observed(records, entry, &EndpointProbe::Live(snapshot))?
             .filter(|row| row.presence == Presence::Active);
         Ok(active.and_then(|row| {
             row.pane.map(|pane| PaneIdentity {
@@ -254,32 +294,34 @@ pub fn list_presence<R: BindingRepository, O: BindingEndpoint>(
     endpoint: &mut O,
     current_server: Option<ServerSelector<'_>>,
 ) -> Result<Vec<IdentityPresence>, BindingError<R::Error, O::Error>> {
-    repository.with_binding_transaction(|records| {
+    let entries = repository.with_binding_transaction(|records| {
         endpoint.begin_coordination();
-        let entries = records.binding_entries()?;
-        let mut groups = BTreeMap::<_, (ServerEvidence, Vec<String>)>::new();
-        for entry in &entries {
-            if let Some(binding) = &entry.binding {
-                let server = &binding.server;
-                let key = server_key(server, current_server);
-                groups
-                    .entry(key)
-                    .or_insert_with(|| (server.clone(), Vec::new()))
-                    .1
-                    .push(binding.pane_id.clone());
-            }
+        records.binding_entries()
+    })?;
+    let mut groups = BTreeMap::<_, (ServerEvidence, Vec<String>)>::new();
+    for entry in &entries {
+        if let Some(binding) = &entry.binding {
+            let server = &binding.server;
+            let key = server_key(server, current_server);
+            groups
+                .entry(key)
+                .or_insert_with(|| (server.clone(), Vec::new()))
+                .1
+                .push(binding.pane_id.clone());
         }
-        let mut probes = BTreeMap::new();
-        for (key, (server, panes)) in groups {
-            let probe = if endpoint.budget_available() {
-                endpoint
-                    .probe_binding(&server, &panes)
-                    .map_err(BindingError::Endpoint)?
-            } else {
-                EndpointProbe::Unknown
-            };
-            probes.insert(key, probe);
-        }
+    }
+    let mut probes = BTreeMap::new();
+    for (key, (server, panes)) in groups {
+        let probe = if endpoint.budget_available() {
+            endpoint
+                .probe_binding(&server, &panes)
+                .map_err(BindingError::Endpoint)?
+        } else {
+            EndpointProbe::Unknown
+        };
+        probes.insert(key, probe);
+    }
+    repository.with_binding_transaction(|records| {
         let mut result = Vec::new();
         for entry in entries {
             let probe = entry
@@ -287,10 +329,11 @@ pub fn list_presence<R: BindingRepository, O: BindingEndpoint>(
                 .as_ref()
                 .and_then(|binding| probes.get(&server_key(&binding.server, current_server)))
                 .unwrap_or(&EndpointProbe::Unknown);
-            if let Some(row) = reconcile(records, entry, probe)? {
+            if let Some(row) = reconcile_observed(records, entry, probe)? {
                 result.push(row);
             }
         }
+        result.sort_by(|a, b| a.identity.canonical_name.cmp(&b.identity.canonical_name));
         Ok(result)
     })
 }

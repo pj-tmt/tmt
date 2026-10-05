@@ -165,12 +165,12 @@ pub fn value<'a>(row: &'a serde_json::Value, field: &str) -> Option<&'a str> {
     }
 }
 
-/// One admitted scene per occurrence. Section slots are authored layout scopes,
-/// not member positions; rows without a member UUID remain non-actionable.
+/// One admitted scene per occurrence. Slots are authored layout scopes (or the
+/// lead's own), not member positions; rows without a member UUID remain non-actionable.
 pub fn row_values(
     rows: &crate::rows::Rows,
     tab: &str,
-    occurrences: Vec<(usize, &serde_json::Value)>,
+    occurrences: Vec<(crate::display_rows::RowOrigin, &serde_json::Value)>,
 ) -> Result<Vec<tmt_tui::binding::Node>, String> {
     use serde_json::{Value, json};
     use tmt_tui::{binding, parse};
@@ -227,8 +227,8 @@ pub fn row_values(
         .collect::<Result<Vec<_>, _>>()
         .map_err(|e| e.to_string())?;
     let mut ids = BTreeSet::new();
-    occurrences.into_iter().map(|(section, row)| {
-        let mut data = json!({"tab": format!("tab:{tab}"), "scope": format!("section-{section}"), "squad": format!("squad:{}", row["squad"].as_str().unwrap_or(tab)), "id": row["id"]});
+    occurrences.into_iter().map(|(slot, row)| {
+        let mut data = json!({"tab": format!("tab:{tab}"), "scope": slot.scope(), "squad": format!("squad:{}", row["squad"].as_str().unwrap_or(tab)), "id": row["id"]});
         for (line, cells) in rows.lines.iter().enumerate() {
             for (at, cell) in cells.iter().enumerate() {
                 data[format!("v{line}_{at}")] = cell.field.as_deref()

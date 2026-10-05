@@ -29,7 +29,7 @@ def b64(value):
 
 def vector():
     # Exact controls/Unicode are intentional fixture data, not repository prose.
-    message = ("Page: Shared page\nLink: https://example.test/x/colab/#space=" + "a" * 32 + "&path=%2Fpages%2F" + uid(1) + "\n\nQuote:\n"
+    message = ("Page: Shared page\nLink: https://example.test/p/00000000\n\nQuote:\n"
                "<script>untrusted()</script>\r\n😀\0\u202e\n\nComment:\nKeep ! and café exact")
     final = message.encode("utf-8")
     final_digest = hashlib.sha256(final).digest()

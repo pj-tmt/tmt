@@ -14,8 +14,10 @@ modules in `extensions/tmt-colab/typescript/app/src` and `rust/tmt-colab/src/ask
   caller-verified `AskDestination`. It freezes the transport message
   (`Page:`, `Link:`, `Quote:`, `Comment:`; http(s) URL without credentials) and the preview-only `deliveredMessage`, which prepends Remote's
   `[remote: <deviceName>]` line. Only the unprefixed `finalBytes` are digested, signed and
-  sent. `Link:` is the page's own mounted URL with the canonical `#space=&path=` fragment built
-  from the selection; any other fragment, a query or a `/read` path is refused, never stripped. Explicit Enter captures and sends the frozen intent; admitted outcomes remain inline in the conversation. `signed` frames the 15-field `tmt-colab-send-v1` input (default validity one hour,
+  sent. New `Link:` values use the short owner URL from admitted page/catalog composition
+  (`short-links.ts`); the full scope stays in the signed record. Source admission still requires
+  the canonical full owner fragment (or none); other fragments, queries and `/read` paths are
+  refused, never stripped. Older captured full-fragment links remain valid. Explicit Enter captures and sends the frozen intent; admitted outcomes remain inline in the conversation. `signed` frames the 15-field `tmt-colab-send-v1` input (default validity one hour,
   at most 24); `escapedPreview` shows control and format characters without replacing bytes.
 - **`ask-remote.ts`.** `RemoteClient` port and `createRemoteClient`, which wraps the exact
   verified registration Session in the served SDK's `operations` helper. It never reopens

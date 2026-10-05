@@ -17,6 +17,12 @@ fn every_listing_command_uses_ls_with_the_list_alias() {
     assert!(report.is_empty(), "{}", report.join("\n"));
 }
 
+#[test]
+fn hidden_commands_are_listed_with_a_reason_and_double_underscore_commands_are_hidden() {
+    let report = audit::hidden_report(&crate::grammar::grammar(), &["tmt"], allowlist::HIDDEN);
+    assert!(report.is_empty(), "{}", report.join("\n"));
+}
+
 fn option_description_gaps(command: &clap::Command, path: &str) -> Vec<String> {
     let mut gaps = Vec::new();
     for option in command.get_arguments().filter(|arg| !arg.is_positional()) {

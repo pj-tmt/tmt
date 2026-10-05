@@ -464,6 +464,65 @@ describe('publication-gates.mjs early', () => {
   });
 });
 
+describe('publication-gates.mjs dry', () => {
+  const dry = (sha: string, more: string[] = []) => [
+    'dry',
+    '--product',
+    'cli',
+    '--tag',
+    'v5.0.0-alpha.999999',
+    '--sha',
+    sha,
+    ...more,
+  ];
+
+  it('evaluates the gates for a synthetic candidate without a commit gate or any write', () => {
+    const { run, uploaded, calls, candidate } = scenario({ hold: null });
+    const result = run(dry(candidate));
+    expect(result.status, result.stderr).toBe(0);
+    for (const gate of ['channel', 'immutability', 'monotonic', 'migration']) {
+      expect(result.summary).toContain(`- passed \`${gate}\``);
+    }
+    expect(result.summary).not.toContain('`commit`');
+    expect(result.summary).toContain('(dry run)');
+    expect(result.summary).toContain('nothing was recorded or published');
+    expect(result.output).toBe('');
+    expect(uploaded('publication-held.json')).toBeNull();
+    expect(calls().filter((call) => call.includes('--method'))).toEqual([]);
+  });
+
+  it('runs the commit gate on main, where the candidate is a merged commit', () => {
+    const { run, candidate } = scenario({ hold: null });
+    const result = run(dry(candidate, ['--on-main']));
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.summary).toContain('- passed `commit`');
+  });
+
+  it('fails the run for a breaking change, naming the gate, and records no hold', () => {
+    const { run, uploaded, calls, candidate } = scenario({ failedCut: 'breaking', hold: null });
+    const result = run(dry(candidate));
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('would hold v5.0.0-alpha.999999 at migration');
+    expect(result.summary).toContain('**Would hold** at `migration`');
+    expect(uploaded('publication-held.json')).toBeNull();
+    expect(calls().filter((call) => call.includes('--method'))).toEqual([]);
+  });
+
+  it('holds when the newest published release is not immutable', () => {
+    const { run, candidate } = scenario({ immutable: false, hold: null });
+    const result = run(dry(candidate));
+    expect(result.status).toBe(1);
+    expect(result.summary).toContain('**Would hold** at `immutability`');
+  });
+
+  it('requires the candidate commit', () => {
+    const { run } = scenario({ hold: null });
+    const result = run(dry('').slice(0, 5));
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('--sha is required');
+  });
+});
+
 describe('publication-gates.mjs early --release-hold', () => {
   it('skips exactly the gate the marker names and runs the others', () => {
     const { run, uploaded } = scenario({

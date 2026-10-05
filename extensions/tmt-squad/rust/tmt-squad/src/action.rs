@@ -28,6 +28,10 @@ pub enum Verb {
     Tab,
     Talk,
     AskLead,
+    HomeReplies,
+    HomeMessage,
+    HomeWrite,
+    HomePick,
     Reply,
     Annotate,
 }
@@ -53,6 +57,10 @@ impl Verb {
             "tab" => Self::Tab,
             "talk" => Self::Talk,
             "ask-lead" => Self::AskLead,
+            "home-replies" => Self::HomeReplies,
+            "home-message" => Self::HomeMessage,
+            "home-write" => Self::HomeWrite,
+            "home-pick" => Self::HomePick,
             "reply" => Self::Reply,
             "annotate" => Self::Annotate,
             _ => return None,
@@ -95,6 +103,10 @@ impl Verb {
             Self::Tab => "tab",
             Self::Talk => "talk",
             Self::AskLead => "ask-lead",
+            Self::HomeReplies => "home-replies",
+            Self::HomeMessage => "home-message",
+            Self::HomeWrite => "home-write",
+            Self::HomePick => "home-pick",
             Self::Reply => "reply",
             Self::Annotate => "annotate",
         }
@@ -151,6 +163,12 @@ fn tokens(text: &str) -> Result<Vec<String>, String> {
     Ok(out)
 }
 
+/// The board's own `/ search` hint sits right after `back`.
+pub const FOOTER_SEARCH_RANK: u8 = 6;
+/// The last footer rank of a row action; the oldest-waiting label may take
+/// space only if every hint up to here still fits.
+pub const FOOTER_ROW_ACTIONS_END: u8 = 8;
+
 impl Action {
     /// Where the action sits in a list of choices, by what people do: the
     /// selected row's actions first, then the board's. It orders the action menu,
@@ -167,7 +185,11 @@ impl Action {
             Verb::Notes => 6,
             Verb::Run => 7,
             Verb::Tab => 8,
-            Verb::AskLead => 10,
+            Verb::AskLead
+            | Verb::HomeReplies
+            | Verb::HomeMessage
+            | Verb::HomeWrite
+            | Verb::HomePick => 10,
             Verb::Jump => 11,
             Verb::View => 12,
             Verb::Theme => 13,
@@ -180,12 +202,48 @@ impl Action {
         }
     }
 
+    /// Where the action sits in the base footer when width runs short: lowest
+    /// first, `None` for actions the footer never lists. Unlike `order`, which
+    /// orders the action menu by what people do with the row, the footer ranks
+    /// navigation and the decision first. The match is exhaustive so a new verb
+    /// must choose.
+    pub fn footer_rank(&self) -> Option<u8> {
+        let lead = self.args.first().and_then(Template::literal) == Some("lead");
+        Some(match self.verb {
+            Verb::AskLead => 0,
+            Verb::Jump if !lead => 1,
+            Verb::Menu | Verb::Tab => 1,
+            Verb::Talk => 2,
+            Verb::Reply => 3,
+            Verb::Back => 4,
+            Verb::Annotate => 5,
+            // FOOTER_SEARCH_RANK (6) is the board's own `/ search`.
+            Verb::Open => 7,
+            Verb::Copy => FOOTER_ROW_ACTIONS_END,
+            Verb::Toggle => 9,
+            Verb::NextPane => 10,
+            Verb::Refresh => 11,
+            Verb::View => 12,
+            Verb::Theme => 13,
+            Verb::TokenWindow => 14,
+            Verb::Jump => 15,
+            Verb::Notes
+            | Verb::PickTab
+            | Verb::Settings
+            | Verb::Run
+            | Verb::HomeReplies
+            | Verb::HomeMessage
+            | Verb::HomeWrite
+            | Verb::HomePick => return None,
+        })
+    }
+
     /// Plain-language binding wording shared by help and settings. Describing an
     /// action never fills templates, resolves a member or executes a program.
     pub fn description(&self) -> String {
         let target = self.args.first().and_then(Template::literal);
         match self.verb {
-            Verb::Jump if target == Some("lead") => "go to the lead's pane".into(),
+            Verb::Jump if target == Some("lead") => "go to the squad lead's pane".into(),
             Verb::Jump => "go to the member's pane".into(),
             Verb::Back => "go back to the previous pane".into(),
             Verb::Open => "open the member's link".into(),
@@ -215,7 +273,11 @@ impl Action {
             Verb::Tab => "open the selected squad".into(),
             Verb::Talk => "send the member a message".into(),
             Verb::AskLead => "ask the lead what waits on you".into(),
-            Verb::Reply => "answer the member's request".into(),
+            Verb::HomeReplies => "show or hide HOME reply previews".into(),
+            Verb::HomeMessage => "expand the selected HOME lead message".into(),
+            Verb::HomeWrite => "write to all HOME leads".into(),
+            Verb::HomePick => "pick a HOME lead to write to".into(),
+            Verb::Reply => "answer the member's request, or note its pending decision".into(),
             Verb::Annotate if target == Some("member") => "send the member a note".into(),
             Verb::Annotate => "send the lead a note".into(),
         }
@@ -390,8 +452,6 @@ pub fn preset(tmux: bool, panes: &[crate::config::Pane]) -> Bindings {
         ("l", "view"),
     ]
     .into_iter()
-    // Only a host that can show a pane can jump to the lead.
-    .chain(tmux.then_some(("L", "jump lead")))
     .chain(detail.map(|action| ("d", action)))
     .map(|(event, line)| {
         (
@@ -423,6 +483,10 @@ pub fn all_preset() -> Bindings {
         [
             ("tab", Some("next-pane")),
             ("a", Some("annotate lead")),
+            ("t", Some("home-replies")),
+            ("e", Some("home-message")),
+            ("A", Some("home-write")),
+            ("@", Some("home-pick")),
             ("enter", Some("tab")),
             ("double-click", Some("tab")),
             ("ctrl-r", Some("refresh")),
@@ -456,7 +520,7 @@ mod tests {
         for (configured, description) in [
             ("pick-tab", "pick or unpick a tab on this board"),
             ("jump", "go to the member's pane"),
-            ("jump lead", "go to the lead's pane"),
+            ("jump lead", "go to the squad lead's pane"),
             ("annotate member", "send the member a note"),
             ("annotate lead", "send the lead a note"),
             ("toggle notes", "fold or unfold the notes pane"),
@@ -602,9 +666,12 @@ mod tests {
     #[test]
     fn presets_differ_only_where_the_host_cannot_jump() {
         let (tmux, plain) = (preset(true, &[]), preset(false, &[]));
-        assert_eq!(tmux["L"].verb, Verb::Jump);
-        assert_eq!(tmux["L"].args[0].literal(), Some("lead"));
-        assert!(!plain.contains_key("L"), "a plain terminal cannot jump");
+        // `jump lead` stays an action users can bind; no preset binds it.
+        assert!(!tmux.contains_key("L") && !plain.contains_key("L"));
+        assert_eq!(
+            Action::parse("jump lead").unwrap().args[0].literal(),
+            Some("lead")
+        );
         assert_eq!(Action::parse("jump").unwrap().args.len(), 0);
         assert_eq!(
             Action::parse("jump member").unwrap_err(),

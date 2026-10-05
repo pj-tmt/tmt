@@ -11,6 +11,7 @@ use ratatui::{
     layout::Rect,
     widgets::Paragraph,
 };
+use tmt_cli_style::breakpoint::{LG, MD};
 
 pub(super) fn press(app: &mut App, key: KeyCode) -> Effect {
     app.key(KeyEvent::new(key, KeyModifiers::NONE))
@@ -49,6 +50,18 @@ pub(super) fn waiting() -> Value {
 }
 
 #[test]
+fn home_footer_keeps_search_after_row_actions_when_it_fits() {
+    for width in [160, 100, 80] {
+        let hints = paint::hints(width, false);
+        assert!(unicode_width::UnicodeWidthStr::width(hints.as_str()) <= width);
+        assert!(hints.contains("t replies"), "{width}: {hints}");
+        if width >= 100 {
+            assert!(hints.contains("t replies  / search"), "{width}: {hints}");
+        }
+    }
+}
+
+#[test]
 fn one_cursor_moves_across_rows_and_sections_and_enter_goes_in() {
     let mut app = board(&[("a", waiting())]);
     app.view
@@ -67,17 +80,58 @@ fn one_cursor_moves_across_rows_and_sections_and_enter_goes_in() {
     assert_eq!(press(&mut app, Char('j')), Effect::None);
     assert_eq!(app.home_target.as_ref().unwrap().section, "blocked");
     press(&mut app, Down);
+    assert_eq!(app.home_target.as_ref().unwrap().section, "leads");
+    assert_eq!(
+        press(&mut app, Enter),
+        Effect::Act(Request::Jump("lead-a".into()))
+    );
+    press(&mut app, Down);
+    assert_eq!(app.home_target.as_ref().unwrap().section, "all-leads");
+    press(&mut app, Down);
     assert_eq!(app.home_target.as_ref().unwrap().section, "squads");
     assert_eq!(press(&mut app, Enter), Effect::Load("a".into()));
     let mut app = board(&[("a", waiting())]);
-    press(&mut app, Tab);
-    assert_eq!(app.home_target.as_ref().unwrap().section, "squads");
-    press(&mut app, Tab);
-    assert_eq!(app.home_target.as_ref().unwrap().section, "needs-you");
-    press(&mut app, BackTab);
-    assert_eq!(app.home_target.as_ref().unwrap().section, "squads");
-    press(&mut app, BackTab);
-    assert_eq!(app.home_target.as_ref().unwrap().section, "needs-you");
+    let selected = app.home_target.clone();
+    for key in [Tab, Tab, BackTab, BackTab] {
+        assert_eq!(press(&mut app, key), Effect::None);
+        assert_eq!(
+            app.home_target, selected,
+            "Tab uses board focus, not row navigation"
+        );
+    }
+    assert!(!paint::hints(200, true).contains("tab section"));
+    let navigation = crate::board::help::model(&app).sections.remove(0);
+    assert!(
+        navigation
+            .entries
+            .iter()
+            .all(|entry| !entry.description.contains("previous section"))
+    );
+    assert!(
+        navigation
+            .entries
+            .iter()
+            .any(|entry| entry.keys == "↑↓ / j k" && entry.description.contains("cron"))
+    );
+    press(&mut app, Down);
+    assert_eq!(app.home_target.as_ref().unwrap().section, "blocked");
+    press(&mut app, Up);
+    assert_eq!(app.home_target, selected);
+    assert_eq!(
+        press(&mut app, Enter),
+        Effect::Act(Request::Jump("worker".into()))
+    );
+
+    app.view
+        .as_mut()
+        .unwrap()
+        .bindings
+        .insert("tab".into(), Action::parse("refresh").unwrap());
+    assert_eq!(
+        press(&mut app, Tab),
+        Effect::Refresh,
+        "explicit board binding still wins"
+    );
     for key in [Char('r'), Char('R'), Char('1')] {
         assert_eq!(press(&mut app, key), Effect::None);
         assert!(app.input.is_none());
@@ -125,6 +179,9 @@ fn refresh_and_search_reconcile_the_stable_target() {
     press(&mut app, Esc);
     assert_eq!(app.home_target, target);
     app.view = board(&[("a", document("a", Value::Null, vec![]))]).view;
+    let view = app.view.as_ref().unwrap();
+    app.home_leads
+        .reconcile(view.home.as_ref().unwrap(), view.me_id.as_deref());
     press(&mut app, Down);
     assert_eq!(app.selected, 0);
     assert_eq!(app.home_target.unwrap().section, "squads");
@@ -189,7 +246,7 @@ fn pending_and_squad_notes_use_the_actual_lead_and_refuse_changes() {
         })
     );
     let mut app = board(&[("a", doc)]);
-    keys(&mut app, &[Tab, Char('a')]);
+    keys(&mut app, &[End, Char('a')]);
     app.view.as_mut().unwrap().home.as_mut().unwrap().squads[0].lead =
         Some(row("NL", "new-lead", "working"));
     press(&mut app, Char('x'));
@@ -274,7 +331,7 @@ fn snapshots() -> Value {
                 })
                 .collect::<Vec<_>>();
             assert!(!lines.iter().any(|line| line.contains("private question")));
-            assert!(scenario != "quiet" || lines.join("").matches("lead-a").count() == 1);
+            assert!(scenario != "quiet" || lines.join("").matches("lead-a").count() == 2);
             assert!(
                 lines.last().unwrap().contains("? more")
                     && lines.last().unwrap().contains("q quit")
@@ -399,7 +456,7 @@ fn tile_board() -> App {
 }
 
 fn tile_board_with<const N: usize>(names: [&str; N]) -> App {
-    board(&names.map(|name| {
+    let mut app = board(&names.map(|name| {
         (
             name,
             document(
@@ -408,7 +465,12 @@ fn tile_board_with<const N: usize>(names: [&str; N]) -> App {
                 vec![row(&format!("W{name}"), "worker", "idle")],
             ),
         )
-    }))
+    }));
+    // These cases isolate the squad table's own geometry; combined HOME lead
+    // selection, clipping and bands are covered in leads.rs.
+    app.home_leads.leads.clear();
+    app.select(0);
+    app
 }
 
 fn tile_frame(app: &App, area: Rect) -> ratatui::buffer::Buffer {
@@ -423,14 +485,14 @@ fn tile_frame(app: &App, area: Rect) -> ratatui::buffer::Buffer {
 }
 
 #[test]
-fn tile_continuations_click_the_same_stable_squad_and_gaps_have_no_hits() {
+fn table_rows_click_the_same_stable_squad_at_every_width() {
     use ratatui::crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
     for width in [160, 100, 80] {
         let mut app = tile_board();
         let area = Rect::new(2, 1, width, 24);
         tile_frame(&app, area);
         let hits = app.hits.borrow().clone();
-        let height = if width < 100 { 1 } else { 3 };
+        let height = 1;
         for row in 0..5 {
             let tiles = hits.iter().filter(|hit| hit.row == row).collect::<Vec<_>>();
             assert_eq!(tiles.len(), height);
@@ -467,7 +529,7 @@ fn tile_continuations_click_the_same_stable_squad_and_gaps_have_no_hits() {
 }
 
 #[test]
-fn full_tile_reveal_and_clipped_continuation_hits_share_the_scroll_viewport() {
+fn table_row_reveal_and_hits_share_the_scroll_viewport() {
     use crate::{board::scroll::Step, config::Pane};
     let mut app = tile_board();
     app.select(4);
@@ -482,7 +544,7 @@ fn full_tile_reveal_and_clipped_continuation_hits_share_the_scroll_viewport() {
             .filter(|hit| hit.row == 4)
             .copied()
             .collect::<Vec<_>>();
-        assert_eq!(selected.len(), if width < 100 { 1 } else { 3 });
+        assert_eq!(selected.len(), 1);
         assert!(
             selected
                 .iter()
@@ -490,26 +552,26 @@ fn full_tile_reveal_and_clipped_continuation_hits_share_the_scroll_viewport() {
         );
         assert_eq!(app.home_target, target);
     }
-    // A viewport shorter than a tile clips hits to visible continuations.
+    // A short viewport keeps one clipped row hit with a stable target.
     app.follow = false;
     let area = Rect::new(3, 2, 100, 3);
     tile_frame(&app, area);
     app.scrolls.scroll(Pane::Rows, Step::Bottom);
     tile_frame(&app, area);
     let hits = app.hits.borrow().clone();
-    assert_eq!(hits.iter().filter(|hit| hit.row == 4).count(), 2);
+    assert_eq!(hits.iter().filter(|hit| hit.row == 4).count(), 1);
     assert!(hits.iter().all(|hit| hit.y < area.bottom() - 1));
     assert_eq!(app.selected, 4);
     app.follow = true;
     tile_frame(&app, Rect::new(3, 2, 100, 5));
     assert_eq!(
         app.hits.borrow().iter().filter(|hit| hit.row == 4).count(),
-        3
+        1
     );
 }
 
 #[test]
-fn tile_note_band_shifts_later_grid_rows_without_changing_hits_or_selection() {
+fn table_note_band_shifts_later_rows_without_changing_hits_or_selection() {
     for width in [160, 100, 80] {
         for (base, depth) in [
             ("tmt", tmt_cli_style::Depth::TrueColor),
@@ -524,7 +586,7 @@ fn tile_note_band_shifts_later_grid_rows_without_changing_hits_or_selection() {
             app.select(4);
             let target = app.home_target.clone();
             press(&mut app, Char('a'));
-            let mut terminal = Terminal::new(TestBackend::new(width, 30)).unwrap();
+            let mut terminal = Terminal::new(TestBackend::new(width, 40)).unwrap();
             terminal
                 .draw(|frame| crate::board::view::render(frame, &app))
                 .unwrap();
@@ -534,14 +596,14 @@ fn tile_note_band_shifts_later_grid_rows_without_changing_hits_or_selection() {
                 .expect("note beneath the selected tile");
             let hits = app.hits.borrow().clone();
             let selected = hits.iter().filter(|hit| hit.row == 4).collect::<Vec<_>>();
-            assert_eq!(selected.len(), if width < 100 { 1 } else { 3 });
+            assert_eq!(selected.len(), 1);
             assert_eq!(selected.last().unwrap().y + 1, band.y);
             assert!(
                 !hits
                     .iter()
                     .any(|hit| (band.y..band.bottom()).contains(&hit.y))
             );
-            let next_grid_row = if width >= 100 { 6 } else { 5 };
+            let next_grid_row = 5;
             assert!(hits.iter().any(|hit| hit.row == next_grid_row));
             assert!(
                 hits.iter()
@@ -658,6 +720,26 @@ fn home_tiles_paint_uncovered_known_history_as_partial_at_each_width_and_theme()
                 .map(|cell| cell.symbol())
                 .collect::<String>();
             assert!(screen.contains("product-lead"), "{base}/{width}: {screen}");
+            let header = terminal
+                .backend()
+                .buffer()
+                .content
+                .chunks(width as usize)
+                .nth(2)
+                .unwrap()
+                .iter()
+                .map(|cell| cell.symbol())
+                .collect::<String>();
+            if width >= MD.cells {
+                assert!(
+                    header.starts_with("tok ") && header.contains("share 1h: "),
+                    "{base}/{width}: {header}"
+                );
+                assert_eq!(header.contains("1m ~21"), width >= LG.cells);
+                assert_eq!(header.contains("models "), width >= LG.cells);
+            } else {
+                assert!(!header.starts_with("tok "), "{base}/{width}: {header}");
+            }
             assert!(
                 screen.matches("~21").count() >= 2,
                 "{base}/{width}: {screen}"
@@ -665,6 +747,244 @@ fn home_tiles_paint_uncovered_known_history_as_partial_at_each_width_and_theme()
             if width >= 100 {
                 assert!(screen.contains("~100%"), "{base}/{width}: {screen}");
             }
+        }
+    }
+}
+
+pub(super) fn header_usage() -> crate::board::app::HomeHeaderUsage<'static> {
+    use crate::board::{
+        app::{HomeHeaderUsage, UsageModel, UsageShare, UsageTop},
+        rate::Reading,
+    };
+    HomeHeaderUsage {
+        windows: crate::config::TokenWindow::DEFAULTS,
+        totals: [
+            None,
+            Some(Reading {
+                tokens: 1_200,
+                partial: true,
+                span: 20_000,
+            }),
+            Some(Reading {
+                tokens: 2_000,
+                partial: true,
+                span: 20_000,
+            }),
+        ],
+        top: Some(UsageTop {
+            member: "worker",
+            share: UsageShare {
+                fraction: 0.6,
+                partial: true,
+            },
+        }),
+        models: vec![
+            UsageModel {
+                model: Some("gpt-6.1-sol"),
+                share: UsageShare {
+                    fraction: 0.6,
+                    partial: true,
+                },
+            },
+            UsageModel {
+                model: Some("claude-opus-4-6"),
+                share: UsageShare {
+                    fraction: 0.4,
+                    partial: true,
+                },
+            },
+        ],
+        unreported: 2,
+    }
+}
+
+#[test]
+fn header_usage_formats_thresholds_real_labels_and_partial_missing_values() {
+    let app = board(&[]);
+    let mut usage = header_usage();
+    assert!(paint::usage(&usage, MD.cells - 1, app.look()).is_none());
+    for width in [MD.cells, LG.cells - 1] {
+        let line = paint::usage(&usage, width, app.look()).unwrap();
+        assert_eq!(super::glyph_error(&line.to_string()), None);
+        assert_eq!(
+            line.to_string(),
+            "tok 5m ~1k · 1h ~2k · share 1h: worker ~60%"
+        );
+    }
+    for width in [LG.cells, 149, 160] {
+        let line = paint::usage(&usage, width, app.look()).unwrap();
+        assert_eq!(super::glyph_error(&line.to_string()), None);
+        assert_eq!(
+            line.to_string(),
+            "tok 1m – · 5m ~1k · 1h ~2k · share 1h: worker ~60% · models sol ~60%, opus ~40% · 2 members without data"
+        );
+        assert!(line.width() <= width as usize);
+    }
+    usage.windows =
+        ["5m", "1h", "24h"].map(|text| crate::config::TokenWindow::parse(text).unwrap());
+    let line = paint::usage(&usage, 100, app.look()).unwrap().to_string();
+    assert!(line.starts_with("tok 1h ~1k · 24h ~2k · share 24h:") && line.ends_with("~60%"));
+    usage.unreported = 1;
+    let line = paint::usage(&usage, LG.cells, app.look())
+        .unwrap()
+        .to_string();
+    assert!(line.ends_with("1 member without data"));
+    usage.totals = [None; 3];
+    assert!(
+        paint::usage(&usage, 160, app.look()).is_none(),
+        "no observed samples admit no header row"
+    );
+    usage.totals[2] = Some(crate::board::rate::Reading {
+        tokens: 0,
+        partial: false,
+        span: 3_600_000,
+    });
+    usage.top = None;
+    usage.models.clear();
+    let line = paint::usage(&usage, 160, app.look()).unwrap().to_string();
+    assert!(line.contains("24h 0 · share 24h: – · models – · 1 member without data"));
+}
+
+#[test]
+fn header_usage_fits_escaped_unicode_names_and_keeps_whole_optional_groups() {
+    let app = board(&[]);
+    let mut usage = header_usage();
+    usage.top.as_mut().unwrap().member = "long-界界界界界界-e\u{301}-worker\nunsafe";
+    usage.models[0].model = Some("unknown-model-with-a-very-long-name\u{1b}");
+    for width in [MD.cells, LG.cells - 1, LG.cells, 149, 160] {
+        let line = paint::usage(&usage, width, app.look()).unwrap();
+        let text = line.to_string();
+        assert!(line.width() <= width as usize, "{width}: {text}");
+        assert!(!text.contains('\n') && !text.contains('\u{1b}'));
+        assert!(text.contains("share 1h:") && text.contains("~60%"));
+        assert_eq!(text.contains("2 members without data"), width >= LG.cells);
+        assert!(!text.ends_with(" · "));
+    }
+}
+
+fn header_frames() -> Value {
+    let mut captures = Vec::new();
+    for (base, depth, name) in [
+        ("tmt", tmt_cli_style::Depth::TrueColor, "tmt"),
+        ("tmt-light", tmt_cli_style::Depth::TrueColor, "tmt-light"),
+        ("tmt", tmt_cli_style::Depth::None, "NO_COLOR"),
+    ] {
+        let mut app = board(&[
+            ("a", document("a", row("A", "lead-a", "working"), vec![])),
+            ("b", document("b", row("B", "lead-b", "working"), vec![])),
+        ]);
+        app.view.as_mut().unwrap().look = crate::look::Look {
+            theme: tmt_cli_style::Theme::new(tmt_cli_style::Base::parse(base).unwrap()),
+            depth,
+        };
+        for width in [160, 100, 80, 160] {
+            let mut frames = Vec::new();
+            let mut hits = Vec::new();
+            let mut buffers = Vec::new();
+            for show in [false, true] {
+                let line = show
+                    .then(|| paint::usage(&header_usage(), width, app.look()))
+                    .flatten();
+                let mut terminal = Terminal::new(TestBackend::new(width, 30)).unwrap();
+                terminal
+                    .draw(|frame| crate::board::view::render_frame(frame, &app, line))
+                    .unwrap();
+                let buffer = terminal.backend().buffer().clone();
+                let cells = buffer
+                    .content
+                    .iter()
+                    .map(|cell| {
+                        let mut metadata = cell.clone();
+                        metadata.set_symbol("");
+                        json!({"symbol":cell.symbol(), "style":format!("{metadata:?}")})
+                    })
+                    .collect::<Vec<_>>();
+                let hit = app.hits.borrow().clone();
+                frames.push(json!({"cells":cells,"hits":format!("{hit:?}"),
+                    "starts":*app.row_starts.borrow(), "tabs":format!("{:?}",app.tab_hits.borrow())}));
+                hits.push(hit);
+                buffers.push(buffer);
+            }
+            let shift = u16::from(width >= MD.cells);
+            assert_eq!(hits[0].len(), hits[1].len());
+            for (before, after) in hits[0].iter().zip(&hits[1]) {
+                assert_eq!(after.y, before.y + shift);
+                assert_eq!(
+                    (after.x, after.width, after.row),
+                    (before.x, before.width, before.row)
+                );
+            }
+            if shift == 0 {
+                assert_eq!(frames[0], frames[1]);
+            } else {
+                assert_eq!(
+                    &buffers[0].content[..2 * width as usize],
+                    &buffers[1].content[..2 * width as usize]
+                );
+                for y in 2..28 {
+                    let start = y * width as usize;
+                    let next = start + width as usize;
+                    assert_eq!(
+                        &buffers[0].content[start..next],
+                        &buffers[1].content[next..next + width as usize]
+                    );
+                }
+            }
+            captures.push(json!({"theme":name,"width":width,"before":frames[0],"after":frames[1]}));
+        }
+    }
+    json!(captures)
+}
+
+#[test]
+fn home_header_row_preserves_cell_styles_hit_identity_and_resize_order() {
+    let frames = header_frames();
+    for theme in 0..3 {
+        assert_eq!(
+            frames[theme * 4],
+            frames[theme * 4 + 3],
+            "160→100→80→160 restores cells/styles/hits"
+        );
+    }
+}
+
+#[test]
+#[ignore = "explicit decoded header evidence, never fixture regeneration"]
+fn record_home_header_diff() {
+    let path = std::env::var("TMT_HEADER_DIFF_PATH").expect("task-owned evidence output path");
+    assert!(std::path::Path::new(&path).starts_with("/private/tmp"));
+    fs::write(path, serde_json::to_string(&header_frames()).unwrap()).unwrap();
+}
+
+#[test]
+fn names_that_are_not_stable_ids_never_reach_the_scene_identity() {
+    // Squad and member names are display text: all digits, control characters and
+    // very long names must paint, escaped, instead of failing admission.
+    let long = "q".repeat(300);
+    for squad in ["2024", "tab\there", long.as_str(), " padded "] {
+        let mut member = row("W", "wor\nker", "blocked");
+        member["waitingOnYou"] = json!([{"requestId":"q","preparedAtMs":20,"preview":"private"}]);
+        let app = board(&[(
+            squad,
+            document(squad, row("L", "lead", "working"), vec![member]),
+        )]);
+        for width in [80, 100, 160] {
+            let mut terminal = Terminal::new(TestBackend::new(width, 30)).unwrap();
+            terminal
+                .draw(|frame| crate::board::view::render(frame, &app))
+                .unwrap();
+            let text = terminal
+                .backend()
+                .buffer()
+                .content
+                .iter()
+                .map(|cell| cell.symbol())
+                .collect::<String>();
+            assert!(
+                text.contains("needs you") && text.contains("squads"),
+                "{squad:?}/{width}"
+            );
+            assert!(!text.contains('\n') && !text.contains('\t'));
         }
     }
 }

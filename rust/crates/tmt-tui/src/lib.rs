@@ -29,6 +29,10 @@ pub enum Kind {
     List,
     Table,
     Picker,
+    /// Width-conditional layout: exactly one `Case`/`Default` branch is laid out.
+    Switch,
+    Case,
+    Default,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -208,14 +212,20 @@ fn read(
         "tmt-list" => Kind::List,
         "tmt-table" => Kind::Table,
         "tmt-picker" => Kind::Picker,
+        "tmt-switch" => Kind::Switch,
+        "tmt-case" => Kind::Case,
+        "tmt-default" => Kind::Default,
         _ => return Err(fail("unknown element or nested tmt-view".into())),
     };
     let leaf = matches!(kind, Kind::Cell | Kind::Text);
-    let mut attributes = BTreeMap::new();
+    let mut attributes: BTreeMap<String, String> = BTreeMap::new();
     for attr in node.attributes() {
         let name = attr.name();
         let allowed = if kind == Kind::Repeat {
             ["each", "as"].contains(&name)
+        } else if matches!(kind, Kind::Switch | Kind::Case | Kind::Default) {
+            // A branch is not a box: it takes no style, identity or token.
+            (kind == Kind::Switch && name == "of") || (kind == Kind::Case && name == "min")
         } else {
             ["id", "id-bind", "class", "token", "selected"].contains(&name)
                 || (matches!(kind, Kind::Modal | Kind::Picker)
@@ -230,6 +240,8 @@ fn read(
                 || (leaf
                     && ["column", "bind", "from", "format", "token-bind", "wrap"].contains(&name))
                 || (kind == Kind::Cell && ["priority", "min-cols"].contains(&name))
+                || (matches!(kind, Kind::Row | Kind::Col | Kind::Cell | Kind::Text)
+                    && name == "hide-below")
         };
         if !allowed || attr.namespace().is_some() {
             return Err(fail(format!(
@@ -251,6 +263,26 @@ fn read(
             }
         }
     }
+    let hide_below = attributes.remove("hide-below");
+    match kind {
+        Kind::Switch => {
+            if let Some(of) = attributes.get("of")
+                && !["container", "terminal"].contains(&of.as_str())
+            {
+                return Err(fail(format!("of={of:?}: expected container or terminal")));
+            }
+        }
+        Kind::Case => {
+            let Some(min) = attributes.get("min") else {
+                return Err(fail("requires min=<breakpoint>".into()));
+            };
+            breakpoint(min).map_err(|why| fail(format!("min={min:?}: {why}")))?;
+        }
+        _ => {}
+    }
+    if let Some(name) = &hide_below {
+        breakpoint(name).map_err(|why| fail(format!("hide-below={name:?}: {why}")))?;
+    }
     let style = style::admit(kind, &attributes).map_err(fail)?;
     let text: String = node
         .children()
@@ -271,17 +303,125 @@ fn read(
         }
         children.push(read(file, child, false, cursor)?);
     }
-    Ok(MarkupElement {
+    let location = Location {
+        line: pos.row,
+        column: pos.col,
+    };
+    check_branches(file, kind, location, &children)?;
+    let element = MarkupElement {
         kind,
         style,
         attributes,
         text,
         children,
-        location: Location {
-            line: pos.row,
-            column: pos.col,
-        },
+        location,
+    };
+    // `hide-below="md"` is the one-optional-element form of a switch: the
+    // element is the only case and the default is empty.
+    Ok(match hide_below {
+        Some(min) => {
+            let branch = |kind, attributes: BTreeMap<String, String>, children| MarkupElement {
+                kind,
+                style: style::admit(kind, &attributes).expect("branches take no style"),
+                attributes,
+                text: String::new(),
+                children,
+                location,
+            };
+            branch(
+                Kind::Switch,
+                BTreeMap::new(),
+                vec![
+                    branch(
+                        Kind::Case,
+                        BTreeMap::from([("min".to_owned(), min)]),
+                        vec![element],
+                    ),
+                    branch(Kind::Default, BTreeMap::new(), Vec::new()),
+                ],
+            )
+        }
+        None => element,
     })
+}
+
+fn breakpoint(name: &str) -> Result<tmt_cli_style::breakpoint::Breakpoint, String> {
+    tmt_cli_style::breakpoint::by_name(name).ok_or_else(|| {
+        let names = tmt_cli_style::breakpoint::ALL.map(|b| b.name);
+        format!("expected a breakpoint name ({})", names.join(", "))
+    })
+}
+
+/// A switch always renders exactly one branch: cases descend by `min` and a
+/// trailing default covers everything narrower, so there are no gaps or overlaps.
+fn check_branches(
+    file: &str,
+    kind: Kind,
+    location: Location,
+    children: &[MarkupElement],
+) -> Result<(), Error> {
+    let at = |location, message: String| Error {
+        file: file.into(),
+        location,
+        message,
+    };
+    if kind != Kind::Switch {
+        return match children
+            .iter()
+            .find(|child| matches!(child.kind, Kind::Case | Kind::Default))
+        {
+            Some(stray) => Err(at(
+                stray.location,
+                "branches belong directly inside <tmt-switch>".into(),
+            )),
+            None => Ok(()),
+        };
+    }
+    let mut previous: Option<tmt_cli_style::breakpoint::Breakpoint> = None;
+    let mut default = false;
+    for (index, child) in children.iter().enumerate() {
+        match child.kind {
+            Kind::Case if !default => {
+                let min = breakpoint(&child.attributes["min"]).expect("admitted min");
+                if let Some(previous) = previous.filter(|previous| min.cells >= previous.cells) {
+                    return Err(at(
+                        child.location,
+                        format!(
+                            "<tmt-case min={:?}> must come before {:?}; cases descend and never repeat",
+                            min.name, previous.name
+                        ),
+                    ));
+                }
+                previous = Some(min);
+            }
+            Kind::Default if index + 1 == children.len() && !default => default = true,
+            Kind::Case | Kind::Default => {
+                return Err(at(
+                    child.location,
+                    "<tmt-default> is the single last branch of a <tmt-switch>".into(),
+                ));
+            }
+            _ => {
+                return Err(at(
+                    child.location,
+                    "<tmt-switch> holds only <tmt-case> and <tmt-default>".into(),
+                ));
+            }
+        }
+    }
+    if previous.is_none() {
+        return Err(at(
+            location,
+            "<tmt-switch> needs at least one <tmt-case min=...>".into(),
+        ));
+    }
+    if !default {
+        return Err(at(
+            location,
+            "<tmt-switch> requires a final <tmt-default>".into(),
+        ));
+    }
+    Ok(())
 }
 
 #[cfg(test)]

@@ -74,7 +74,6 @@ fn rule(app: &App, width: usize, jobs: usize, look: Look, now_ms: i64) -> Line<'
     let title = if focused { Role::Accent } else { Role::Muted };
     let mut left = vec![
         Span::styled("── ", look.role(Role::Dim)),
-        Span::styled("⏱ ", look.role(Role::Accent)),
         Span::styled(
             format!("cron · {jobs}"),
             if focused {

@@ -226,12 +226,49 @@ impl Registration {
         .map_err(|_| Code::Unavailable)
     }
     pub fn pages(&self, context: Option<&str>) -> std::result::Result<Vec<u8>, Code> {
+        serde_json::to_vec(&self.page_catalog(context)?).map_err(|_| Code::Unavailable)
+    }
+    fn page_catalog(&self, context: Option<&str>) -> std::result::Result<serde_json::Value, Code> {
         Context::parse(context)?;
         self.store
             .owner_read(&self.keyring.space_id, &self.keyring.owner_public(), |tx| {
-                Ok(serde_json::to_vec(&tx.page_list()?)?)
+                tx.page_list()
             })
             .map_err(map_error)
+    }
+    /// Only the admitted metadata catalog resolves a page alias; no ciphertext is decoded.
+    pub fn page_alias(
+        &self,
+        context: Option<&str>,
+        prefix: &str,
+    ) -> std::result::Result<String, Code> {
+        let catalog = self.page_catalog(context)?;
+        let pages: Vec<String> = catalog["pageIds"]
+            .as_array()
+            .ok_or(Code::Unavailable)?
+            .iter()
+            .map(|page| {
+                page["pageId"]
+                    .as_str()
+                    .map(str::to_owned)
+                    .ok_or(Code::Unavailable)
+            })
+            .collect::<std::result::Result<_, _>>()?;
+        let path = match crate::short_links::matches(prefix, &pages).as_slice() {
+            [only]
+                if catalog["pages"]
+                    .as_array()
+                    .is_some_and(|pages| pages.iter().any(|page| page["pageId"] == *only)) =>
+            {
+                format!("/pages/{only}")
+            }
+            _ => format!("/short/{prefix}"),
+        };
+        Ok(format!(
+            "../#space={}&path={}",
+            self.keyring.space_id,
+            path.replace('/', "%2F")
+        ))
     }
     /// The caller serializes management with sync before taking this mutex.
     pub fn apply_owner(
