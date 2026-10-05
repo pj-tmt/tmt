@@ -253,7 +253,7 @@ impl Action {
             Verb::TokenWindow => "switch the token time window".into(),
             Verb::PickTab => "pick or unpick a tab on this board".into(),
             Verb::Theme => "pick a theme".into(),
-            Verb::Settings => "show settings".into(),
+            Verb::Settings => "show settings, theme, view and token window".into(),
             Verb::View => "pick a pane layout".into(),
             Verb::Run => "run your program for this member".into(),
             Verb::NextPane => "move to the next pane".into(),

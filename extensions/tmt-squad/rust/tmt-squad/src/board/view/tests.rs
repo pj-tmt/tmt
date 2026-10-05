@@ -1008,7 +1008,10 @@ fn drawn_rows_are_clickable_and_the_menu_and_help_show_bindings() {
     // Notes cursor guidance and the settings binding need one more help row.
     let help = help_lines(&app);
     assert!(help.iter().any(|line| line.starts_with("g G")));
-    assert!(help.iter().any(|line| line == ",  show settings"));
+    assert!(
+        help.iter()
+            .any(|line| line == ",  show settings, theme, view and token window")
+    );
     assert!(
         help.iter()
             .any(|line| line == "y  copy from the selected row"),
