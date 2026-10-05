@@ -11,6 +11,7 @@ import {
   createPage,
   freePort,
   openPage,
+  run,
   selectInRenderer,
 } from './harness/ask.js';
 import { until } from './harness/process.js';
@@ -213,11 +214,46 @@ test('paired writers retain anchored annotation conversations, direct exact send
     const opening = `@${agent.name} <script>plain discussion</script>\nPlease explain this.`;
     await input.fill(opening);
     await expect(compose.locator('details')).toHaveCount(0);
+    const quote = await compose.locator('blockquote').textContent();
+    const offset = await first.evaluate(() => window.scrollY);
+    const replaceSource = async (source: string) => {
+      const read = JSON.parse(
+        run(world, world.binaries.colab, ['page', 'read', created.pageId, '--json']),
+      ) as { revision: string };
+      const renderId = await first.locator('iframe').getAttribute('data-render-id');
+      run(
+        world,
+        world.binaries.colab,
+        [
+          'page',
+          'write',
+          created.pageId,
+          '--file',
+          '-',
+          '--expected-revision',
+          read.revision,
+          '--json',
+        ],
+        source,
+        agent.pane,
+      );
+      await expect(first.locator('iframe')).not.toHaveAttribute('data-render-id', renderId!);
+      await expect(first.locator('.colab-header .status')).toContainText('Live preview');
+    };
+    await replaceSource(
+      html.replace('An &amp; <em>🌍 exact quote</em> for review.', 'The source was updated.'),
+    );
+    await expect(input).toHaveText(opening, { useInnerText: true });
+    await expect(compose.locator('blockquote')).toHaveText(quote!);
+    expect(Math.abs((await first.evaluate(() => window.scrollY)) - offset)).toBeLessThan(2);
     await compose.getByRole('button', { name: 'Ask agent', exact: true }).click();
     await until(() => agent.received().length === 1, 'opening annotation delivered');
     expect(agent.received()[0].message).toContain('[remote: discussion-author]\n');
     expect(agent.received()[0].message).toContain(opening);
+    expect(agent.received()[0].message).toContain(quote!);
     const t1 = first.getByTestId('comment-thread').first();
+    await expect(t1).toHaveAttribute('data-anchor', 'detached');
+    await replaceSource(html);
     await expect(t1).toHaveAttribute('data-anchor', 'attached');
     const threadId = (await t1.getAttribute('data-thread-id'))!;
     const messageId = await t1.getByTestId('comment-entry').first().getAttribute('data-message-id');

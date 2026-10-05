@@ -40,6 +40,17 @@ the existing selection channel remain cosmetic and keep working after resize.
 Author backgrounds and widths belong to the page; parent theme tokens style
 chrome. The sandbox attributes, source limits and CSP remain unchanged.
 
+Source revisions replace only the author renderer, not parent chrome. `router.tsx`
+keeps the mounted annotation input and frozen quote/rectangle during loading;
+page-ID changes reset page-local selection, panels and unsent drafts. Existing
+thread highlights are projected again when the new render is ready. `renderer.ts`
+releases the old channel before replacement without clearing parent selection or
+removing the old frame; failures and ordinary abort/destroy still remove it. It
+retains the previous frame height during replacement and restores the window
+offset on its first admitted height report, clamped by the new document's bounds.
+The [UI contract](../../../../extensions/tmt-colab/contracts/colab-v1.md#own-stream-discussion-records-1427)
+owns draft survival and stale-quote behavior.
+
 `page-drawer.tsx` portals chrome outside the header/menu. Desktop panels float on
 the right with a hard shadow; mobile uses a full-screen native modal sheet. Neither
 changes renderer width or content layout. The panel body scrolls independently.
@@ -64,6 +75,8 @@ from the native no-app socket fixture. Short-screen midpoint checks add an inert
 scroll probe; their top captures show the natural notice layout.
 `e2e/layout.spec.ts` covers window-scrolled 1440/390 light/dark short/long captures,
 one-row/menu layout, overlays that preserve page geometry, and focus/Escape.
+`e2e/live-update.spec.ts` covers annotation/thread/Chat draft survival, frozen-quote
+sends, highlight reprojection, window offsets and page-change resets at 1440/390.
 `e2e/renderer-scroll.spec.ts` covers owner and reader resizing, local anchors,
 viewport-growth fallback and malformed/stale/over-limit claims. Existing Ask,
 discussion, management and export scenarios verify the publication controls;

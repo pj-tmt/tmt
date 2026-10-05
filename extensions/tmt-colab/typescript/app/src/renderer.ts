@@ -58,8 +58,16 @@ export async function mountRenderer(
   readonly snapshot: RenderSnapshot;
   highlight(anchors: { id: string; selector: QuoteSelector }[]): void;
   scrollAnchor(id: string): void;
+  /** Stop the old channel while its frame preserves layout until replacement. */
+  release(): void;
   destroy(): void;
 }> {
+  const previous = host.querySelector('iframe');
+  // Keep the old layout while the replacement loads, so the browser does not
+  // clamp the window offset to a temporary viewport-high document.
+  let restoreScroll = previous
+    ? { left: window.scrollX, top: window.scrollY, height: previous.getBoundingClientRect().height }
+    : undefined;
   const snapshot = await captureRender(source);
   options.signal.throwIfAborted();
   const frame = document.createElement('iframe');
@@ -83,7 +91,10 @@ export async function mountRenderer(
     updatedAt = -Infinity,
     growingAt = 0,
     growthReports = 0,
-    lastHeight = viewportHeight(),
+    lastHeight = Math.min(
+      MAX_RENDER_HEIGHT,
+      Math.max(viewportHeight(), restoreScroll?.height ?? 0),
+    ),
     innerScroll = false,
     scrolledAt = -Infinity;
   frame.scrolling = 'no';
@@ -132,8 +143,12 @@ export async function mountRenderer(
     lastHeight = next;
     updatedAt = now;
     frame.style.height = `${next}px`;
+    if (restoreScroll) {
+      window.scrollTo({ left: restoreScroll.left, top: restoreScroll.top, behavior: 'instant' });
+      restoreScroll = undefined;
+    }
   };
-  const destroy = () => {
+  const release = () => {
     if (stopped) return;
     stopped = true;
     clearTimeout(deadline);
@@ -144,9 +159,15 @@ export async function mountRenderer(
     frame.onload = null;
     channel.port1.close();
     channel.port2.close();
+  };
+  const destroy = () => {
+    const mounted = frame.parentNode === host;
+    release();
     frame.remove();
-    options.onSelection?.('', null);
-    options.onAnchors?.([]);
+    if (mounted) {
+      options.onSelection?.('', null);
+      options.onAnchors?.([]);
+    }
   };
   const stop = (state: RenderState) => {
     destroy();
@@ -381,6 +402,8 @@ export async function mountRenderer(
   };
   frame.src = new URL('./renderer.html', document.baseURI).href;
   host.replaceChildren(frame);
+  if (restoreScroll)
+    window.scrollTo({ left: restoreScroll.left, top: restoreScroll.top, behavior: 'instant' });
   const scrollAnchor = (id: string) => {
     const top = positions.get(id);
     if (stopped || top === undefined) return;
@@ -399,5 +422,5 @@ export async function mountRenderer(
       behavior: 'instant',
     });
   };
-  return { snapshot, highlight, scrollAnchor, destroy };
+  return { snapshot, highlight, scrollAnchor, release, destroy };
 }

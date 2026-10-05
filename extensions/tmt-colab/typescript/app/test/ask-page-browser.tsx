@@ -4,7 +4,7 @@ import { RouterProvider } from '@tanstack/react-router';
 import { ReadRefusedError } from '../src/ask-remote.js';
 import type { AskBinding, PageAsk } from '../src/ask-panel.js';
 import type { ThreadBinding } from '../src/thread-store.js';
-import type { ThreadView } from '../src/thread-records.js';
+import type { QuoteSelector, ThreadView } from '../src/thread-records.js';
 import type { PageView, PageBinding } from '../src/transport.js';
 import { createAppRouter } from '../src/router.js';
 import { fixtureAttempt } from './ask-browser-attempt.js';
@@ -86,7 +86,10 @@ export async function mount() {
       messageId,
       ref: { writer: id(4), id: messageId },
     });
-    current = { ...current, threads: [thread] };
+    current = {
+      ...current,
+      threads: [...current.threads!.filter((value) => value.threadId !== thread.threadId), thread],
+    };
     publish?.(current);
     return {
       thread: thread.ref,
@@ -95,27 +98,30 @@ export async function mount() {
       messageRevision: '1',
     };
   }
+  function createThread(body: string, anchor: QuoteSelector | null, threadId: string) {
+    const thread: ThreadView = {
+      version: 1,
+      kind: 'thread',
+      spaceId: selection().space,
+      pageId: id(1),
+      epoch: '1',
+      senderDevice: id(4),
+      deviceName: 'You',
+      threadId,
+      revision: '1',
+      at: String(Date.now()),
+      anchor,
+      resolved: false,
+      deleted: false,
+      ref: { writer: id(4), id: threadId },
+      comments: [],
+    };
+    return addTurn(body, thread);
+  }
   const discussion: ThreadBinding = {
     deviceId: id(4),
     async createChat(body) {
-      const thread: ThreadView = {
-        version: 1,
-        kind: 'thread',
-        spaceId: selection().space,
-        pageId: id(1),
-        epoch: '1',
-        senderDevice: id(4),
-        deviceName: 'You',
-        threadId: id(4),
-        revision: '1',
-        at: String(Date.now()),
-        anchor: null,
-        resolved: false,
-        deleted: false,
-        ref: { writer: id(4), id: id(4) },
-        comments: [],
-      };
-      return addTurn(body, thread);
+      return createThread(body, null, id(4));
     },
     async reply(ref, body) {
       return addTurn(
@@ -123,8 +129,8 @@ export async function mount() {
         current.threads!.find((thread) => thread.ref.id === ref.id)!,
       );
     },
-    async create() {
-      throw new Error('Not used');
+    async create(body, anchor) {
+      return createThread(body, anchor, crypto.randomUUID());
     },
     async edit() {
       throw new Error('Not used');
@@ -168,8 +174,21 @@ export async function mount() {
         async spaceHome() {
           return { title: 'Fixture space', pages: [] };
         },
-        async page() {
-          return { id: id(1), sharing: 'private', ...current, binding };
+        async page(pageId) {
+          if (pageId === 'notes')
+            return {
+              id: id(2),
+              sharing: 'private',
+              title: 'Another fixture page',
+              source: '<p id="other-page">Another fixture page</p>',
+              own: {},
+            };
+          return {
+            id: id(1),
+            sharing: 'private',
+            ...current,
+            binding,
+          };
         },
       })}
     />,
@@ -177,6 +196,9 @@ export async function mount() {
 }
 export function proof() {
   return { sends: sends.sends, actions };
+}
+export function discussionProof() {
+  return structuredClone(current.threads);
 }
 export function change(source: string) {
   current = { ...current, source, title: 'Changed live title' };

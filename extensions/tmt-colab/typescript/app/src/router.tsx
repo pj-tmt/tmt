@@ -582,6 +582,13 @@ function Page() {
   const [activeThread, setActiveThread] = useState<string | null>(null);
   useEffect(() => {
     setAnnotation(undefined);
+    drafts.current.clear();
+    annotationDraft.current = { value: '' };
+    setSelector(null);
+    currentSelector.current = null;
+    currentRectangle.current = null;
+    setRectangle(null);
+    setResolved([]);
     setActiveThread(null);
     setPanel(null);
     setChatOpened(false);
@@ -655,15 +662,13 @@ function Page() {
   useEffect(() => {
     const controller = new AbortController();
     if (liveError) {
+      host.current?.replaceChildren();
       setState('failed');
       return () => controller.abort();
     }
     setState('loading');
-    setSelector(null);
-    currentSelector.current = null;
-    currentRectangle.current = null;
-    setAnnotation(undefined);
-    setRectangle(null);
+    // Source revisions replace only author content. Parent selection and composer
+    // state keep the original quote and rectangle even if that quote is now stale.
     setResolved([]);
     void mountRenderer(host.current!, view.source, {
       signal: controller.signal,
@@ -691,9 +696,15 @@ function Page() {
         else renderer.current = handle;
       })
       .catch(() => {
-        if (!controller.signal.aborted) setState('failed');
+        if (!controller.signal.aborted) {
+          host.current?.replaceChildren();
+          setState('failed');
+        }
       });
     return () => {
+      // Retire messages before replacing the frame, retaining its layout and the
+      // parent's frozen selection. Unmount removes the host itself.
+      renderer.current?.release();
       controller.abort();
       renderer.current = null;
     };
@@ -908,60 +919,62 @@ function Page() {
           )}
         </div>
       </div>
-      {snapshot.binding?.discussion && snapshot.binding?.ask && !liveError && state === 'ready' && (
-        <SelectionAnnotation
-          host={host.current}
-          rectangle={annotation?.rectangle ?? rectangle}
-          inset={toolbar.current?.offsetHeight ?? 0}
-          open={annotate}
-        >
-          {annotation && (
-            <section
-              className="annotation-new"
-              role="dialog"
-              aria-label="Annotate selection"
-              ref={popover}
-              onKeyDown={(event) => {
-                if (event.key === 'Escape' && !event.defaultPrevented) {
-                  event.preventDefault();
-                  closeAnnotation(true);
-                }
-              }}
-            >
-              <button
-                type="button"
-                className="annotation-close"
-                aria-label="Close annotation"
-                onClick={(event) => {
-                  if (event.isTrusted) closeAnnotation(true);
+      {snapshot.binding?.discussion &&
+        snapshot.binding?.ask &&
+        (annotation || (!liveError && state === 'ready')) && (
+          <SelectionAnnotation
+            host={host.current}
+            rectangle={annotation?.rectangle ?? rectangle}
+            inset={toolbar.current?.offsetHeight ?? 0}
+            open={annotate}
+          >
+            {annotation && (
+              <section
+                className="annotation-new"
+                role="dialog"
+                aria-label="Annotate selection"
+                ref={popover}
+                onKeyDown={(event) => {
+                  if (event.key === 'Escape' && !event.defaultPrevented) {
+                    event.preventDefault();
+                    closeAnnotation(true);
+                  }
                 }}
               >
-                ×
-              </button>
-              <blockquote>{annotation.selector.exact}</blockquote>
-              {annotation.restored !== undefined && <p className="annotation-hint">Draft kept</p>}
-              <AnnotationInput
-                key={JSON.stringify(annotation.selector)}
-                binding={snapshot.binding.ask}
-                discussion={snapshot.binding.discussion}
-                anchor={annotation.selector}
-                asks={view.asks ?? []}
-                title={view.title || snapshot.title}
-                blocked={!!liveError || state !== 'ready'}
-                initialEdit={annotation.restored}
-                onDraft={(_value, edit) => {
-                  annotationDraft.current = edit;
-                }}
-                onBusy={(busy) => {
-                  annotationBusy.current = busy;
-                }}
-                cancel={() => closeAnnotation(true)}
-                committed={openThread}
-              />
-            </section>
-          )}
-        </SelectionAnnotation>
-      )}
+                <button
+                  type="button"
+                  className="annotation-close"
+                  aria-label="Close annotation"
+                  onClick={(event) => {
+                    if (event.isTrusted) closeAnnotation(true);
+                  }}
+                >
+                  ×
+                </button>
+                <blockquote>{annotation.selector.exact}</blockquote>
+                {annotation.restored !== undefined && <p className="annotation-hint">Draft kept</p>}
+                <AnnotationInput
+                  key={JSON.stringify(annotation.selector)}
+                  binding={snapshot.binding.ask}
+                  discussion={snapshot.binding.discussion}
+                  anchor={annotation.selector}
+                  asks={view.asks ?? []}
+                  title={view.title || snapshot.title}
+                  blocked={!!liveError || state !== 'ready'}
+                  initialEdit={annotation.restored}
+                  onDraft={(_value, edit) => {
+                    annotationDraft.current = edit;
+                  }}
+                  onBusy={(busy) => {
+                    annotationBusy.current = busy;
+                  }}
+                  cancel={() => closeAnnotation(true)}
+                  committed={openThread}
+                />
+              </section>
+            )}
+          </SelectionAnnotation>
+        )}
       <PageDrawer
         open={panel === 'source'}
         title={text.source}
