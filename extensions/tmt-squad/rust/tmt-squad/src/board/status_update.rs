@@ -373,9 +373,19 @@ pub(super) fn lines(app: &App, width: u16) -> Vec<(Option<usize>, String)> {
         .into_iter()
         .flat_map(|(focus, text)| {
             let text = super::notes::sanitize(&text);
-            tmt_tui::text::lines(&text, width, tmt_tui::style::TextFlow::Wrap)
-                .into_iter()
-                .map(move |line| (focus, line))
+            let field = focus.is_some();
+            let mark = if focus == Some(draft.focus) {
+                "› "
+            } else {
+                "  "
+            };
+            tmt_tui::text::lines(
+                &text,
+                width.saturating_sub(if field { 2 } else { 0 }),
+                tmt_tui::style::TextFlow::Wrap,
+            )
+            .into_iter()
+            .map(move |line| (focus, if field { format!("{mark}{line}") } else { line }))
         })
         .collect()
 }
@@ -673,6 +683,83 @@ mod tests {
                     "Status was already applied; notification intent retained"
                 }));
             }
+        }
+    }
+
+    #[test]
+    fn no_color_focus_moves_independently_of_checked_fields_without_effects() {
+        fn draw(app: &App, width: u16) -> String {
+            let mut terminal =
+                ratatui::Terminal::new(ratatui::backend::TestBackend::new(width, 42)).unwrap();
+            terminal
+                .draw(|frame| super::super::view::render(frame, app))
+                .unwrap();
+            let band = app.input_band.get().unwrap();
+            assert!(
+                !app.hits
+                    .borrow()
+                    .iter()
+                    .any(|hit| (band.y..band.bottom()).contains(&hit.y))
+            );
+            terminal
+                .backend()
+                .buffer()
+                .content()
+                .chunks(usize::from(width))
+                .map(|row| row.iter().map(|cell| cell.symbol()).collect::<String>())
+                .collect::<Vec<_>>()
+                .join("\n")
+        }
+        for width in [80, 100, 160] {
+            let mut app = app();
+            app.view.as_mut().unwrap().look.depth = tmt_cli_style::Depth::None;
+            app.view.as_mut().unwrap().document["sections"][0]["rows"][0]["waitingOnYou"] = json!([{"requestId":"req_11111111-1111-4111-8111-111111111111","preview":"First question with a wrapping preview that remains identifiable"},
+                    {"requestId":"req_22222222-2222-4222-8222-222222222222","preview":"Second question"}]);
+            let preview = ready(&mut app);
+            assert!(draw(&app, width).contains("› [ ] Clear pending"));
+            assert_eq!(press(&mut app, KeyCode::Enter), Effect::None);
+            assert!(draw(&app, width).contains("› [x] Clear pending"));
+            assert_eq!(press(&mut app, KeyCode::Down), Effect::None);
+            let text = draw(&app, width);
+            assert!(text.contains("[x] Clear pending") && !text.contains("› [x] Clear pending"));
+            assert!(text.contains("› [ ] Replace state"));
+            let mut previous = text;
+            for label in [
+                "Reason:",
+                "Apply and notify",
+                "Answer request req_11111111-1111-4111-8111-111111111111",
+                "Answer request req_22222222-2222-4222-8222-222222222222",
+            ] {
+                assert_eq!(press(&mut app, KeyCode::Down), Effect::None);
+                let text = draw(&app, width);
+                assert!(text.contains(&format!("› {label}")), "{width}: {text}");
+                assert_ne!(
+                    text, previous,
+                    "focus movement must remain visible without color"
+                );
+                previous = text;
+            }
+            assert!(app.status_draft.as_ref().unwrap().clear_pending);
+            assert!(!app.status_draft.as_ref().unwrap().replace_state);
+            let intent = crate::send::Intent::new(
+                &preview.target.actor,
+                vec![crate::send::LeadRecipient {
+                    squad: preview.target.squad.clone(),
+                    id: preview.target.identity.clone(),
+                    name: preview.name.clone(),
+                }],
+                "announcement",
+                Some(&preview.room),
+                "Frozen notification",
+            )
+            .unwrap();
+            app.finished_status(Outcome::Applied {
+                intent,
+                notification: Err("offline".into()),
+            });
+            assert!(!draw(&app, width).contains("› Retry notification only"));
+            assert_eq!(press(&mut app, KeyCode::End), Effect::None);
+            assert!(draw(&app, width).contains("› Retry notification only"));
         }
     }
 }

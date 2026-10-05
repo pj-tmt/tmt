@@ -178,7 +178,8 @@ and changed clock text or spinner frames, rather than periodic full repainting.
   Pending-only Reply opens an annotation to that member (`note_member`), never
   clears pending or acknowledges it. Empty submission and cancellation send nothing.
 - `board/status_update` owns the status form in that composer, measured wrapped
-  lines and focus/scroll. `SelectedRead::Status` acquires raw roster metadata through
+  lines and focus/scroll. Each wrapped field line reserves two columns for the `›`
+  focus cue, independent of color and checked mutation choices. `SelectedRead::Status` acquires raw roster metadata through
   the existing cancellable worker, fenced by generation, read revision and exact
   target/actor. No display/provider value becomes an expectation. `membership/status_update`
   freezes UUID, room, namespace and full keys, validates the actor and occurrence,
