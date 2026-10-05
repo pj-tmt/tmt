@@ -7,6 +7,7 @@ import {
   SessionEvictedError,
   ReadRefusedError,
   sessionEndedReason,
+  sessionEviction,
   type RemoteClient,
   type RemoteAgent,
   type RemoteContext,
@@ -155,6 +156,7 @@ export class AskController {
           message: decodeText(preview.finalBytes()),
         });
         requireValue(result.operationId === id);
+        evicted = sessionEviction(result) ?? null;
         sessionEnd =
           (result.state === 'uncertain' && sessionEndedReason(result.reason)) ||
           (result.state === 'refused' && result.reason === 'REMOTE_SESSION_ENDED');
@@ -219,14 +221,19 @@ export class AskController {
           }
           throw error;
         }
+        requireValue(state.operationId === id);
         if (state.state === 'refused') {
+          const eviction = sessionEviction(state);
+          if (eviction) {
+            this.#endSession(eviction);
+            throw eviction;
+          }
           if (state.reason === 'REMOTE_SESSION_ENDED') {
             this.#endSession();
             throw new SessionEndedError('REMOTE_SESSION_ENDED');
           }
           throw new ReadRefusedError(refusalReason(state.reason));
         }
-        requireValue(state.operationId === id);
         view = await store.state(
           id,
           state.state,

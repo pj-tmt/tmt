@@ -16,7 +16,13 @@ export type SendState =
   | { state: 'held'; operationId: string }
   | { state: 'accepted'; operationId: string; requestId: string }
   | { state: 'uncertain'; operationId: string; reason?: SessionEndCode }
-  | { state: 'refused' | 'cancelled'; operationId: string; reason?: string };
+  | {
+      state: 'refused' | 'cancelled';
+      operationId: string;
+      reason?: string;
+      limit?: number;
+      settingsUrl?: string;
+    };
 export const REMOTE_REFUSAL_CODES = [
   'REMOTE_SCOPE_DENIED',
   'REMOTE_INPUT_INVALID',
@@ -49,6 +55,17 @@ export class SessionEvictedError extends Error {
   ) {
     super('REMOTE_SESSION_EVICTED');
   }
+}
+/** SDK send/operation return signed pre-effect refusals as states. Preserve that
+ * result while deriving the same typed page fault used by verified read errors. */
+export function sessionEviction(value: SendState): SessionEvictedError | undefined {
+  if (value.state !== 'refused' || value.reason !== 'REMOTE_SESSION_EVICTED') return undefined;
+  requireValue(
+    Number.isSafeInteger(value.limit) &&
+      (value.limit ?? 0) > 0 &&
+      (value.settingsUrl === undefined || typeof value.settingsUrl === 'string'),
+  );
+  return new SessionEvictedError(value.limit!, value.settingsUrl);
 }
 type SdkError = abstract new (...args: never[]) => Error & {
   code: string;
@@ -136,6 +153,14 @@ export async function createRemoteClient(
   const sdk = supplied ?? ((await remoteSdk()) as unknown as OperationsSdk);
   requireValue(typeof sdk.operations === 'function');
   const ops = sdk.operations(opened, { timeoutMs: 20000 });
+  // The SDK marks its channel ended after signed eviction. Keep the first
+  // eviction here so a later generic ENDED/opaque-close read cannot erase it.
+  let knownEviction: SessionEvictedError | undefined;
+  const returned = (value: SendState, id: string): SendState => {
+    const verified = state(value, id);
+    knownEviction ??= sessionEviction(verified);
+    return verified;
+  };
   const evicted = (error: unknown): SessionEvictedError | undefined => {
     if (
       sdk.RefusalError &&
@@ -163,11 +188,18 @@ export async function createRemoteClient(
     return undefined;
   };
   const observe = async <T>(action: () => Promise<T>): Promise<T> => {
+    if (knownEviction) throw knownEviction;
     try {
-      return await action();
+      const value = await action();
+      if (knownEviction) throw knownEviction;
+      return value;
     } catch (error) {
+      if (knownEviction) throw knownEviction;
       const eviction = evicted(error);
-      if (eviction) throw eviction;
+      if (eviction) {
+        knownEviction ??= eviction;
+        throw knownEviction;
+      }
       const code = sessionFault(error);
       if (code) throw new SessionEndedError(code);
       if (sdk.RefusalError && error instanceof sdk.RefusalError)
@@ -177,6 +209,7 @@ export async function createRemoteClient(
   };
   return {
     context: async () => {
+      if (knownEviction) throw knownEviction;
       if (expiresAtMs !== null && Date.now() >= (expiresAtMs as number))
         throw new SessionEndedError('REMOTE_SESSION_ENDED');
       const current = await jsonResponse(
@@ -227,17 +260,22 @@ export async function createRemoteClient(
       generatedId(input.operationId);
       coreId(input.agentId);
       try {
-        return state(await ops.send(input), input.operationId);
+        if (knownEviction) throw knownEviction;
+        return returned(await ops.send(input), input.operationId);
       } catch (error) {
+        if (error instanceof SessionEvictedError) throw error;
         const eviction = evicted(error);
-        if (eviction) throw eviction;
+        if (eviction) {
+          knownEviction ??= eviction;
+          throw knownEviction;
+        }
         return { state: 'uncertain', operationId: input.operationId, reason: sessionFault(error) };
       }
     },
     operation: async (id) => {
       generatedId(id);
       try {
-        return state(await observe(() => ops.operation(id)), id);
+        return returned(await observe(() => ops.operation(id)), id);
       } catch (error) {
         if (
           error instanceof SessionEndedError ||

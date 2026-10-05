@@ -440,29 +440,31 @@ it('SDK class and code identify session faults; error-shaped objects never cause
   }
   let fault: unknown;
   let refusal = false;
-  const adapter = await createRemoteClient(
-    new URL('http://example.test/x/colab/'),
-    {
-      ClientError,
-      RefusalError,
-      operations: () => ({
-        listAgents: async () => {
-          throw fault;
-        },
-        send: async ({ operationId }) => {
-          if (refusal) return { state: 'refused', operationId, reason: 'REMOTE_SESSION_ENDED' };
-          throw fault;
-        },
-        operation: async () => {
-          throw fault;
-        },
-        result: async () => {
-          throw fault;
-        },
-      }),
-    },
-    { sessionId: id(7), serverTimeMs: Date.now(), grantRevision: 1, expiresAtMs: null },
-  );
+  const open = () =>
+    createRemoteClient(
+      new URL('http://example.test/x/colab/'),
+      {
+        ClientError,
+        RefusalError,
+        operations: () => ({
+          listAgents: async () => {
+            throw fault;
+          },
+          send: async ({ operationId }) => {
+            if (refusal) return { state: 'refused', operationId, reason: 'REMOTE_SESSION_ENDED' };
+            throw fault;
+          },
+          operation: async () => {
+            throw fault;
+          },
+          result: async () => {
+            throw fault;
+          },
+        }),
+      },
+      { sessionId: id(7), serverTimeMs: Date.now(), grantRevision: 1, expiresAtMs: null },
+    );
+  let adapter = await open();
   for (const [error, reason] of [
     [new ClientError('sequence_unavailable'), 'REMOTE_SEQUENCE_UNAVAILABLE'],
     [new RefusalError('REMOTE_SESSION_ENDED'), 'REMOTE_SESSION_ENDED'],
@@ -496,6 +498,9 @@ it('SDK class and code identify session faults; error-shaped objects never cause
   await expect(
     adapter.send({ operationId: id(9), agentId: id(6), message: 'exact' }),
   ).rejects.toBeInstanceOf(SessionEvictedError);
+  // An evicted adapter keeps its verified terminal cause. Error-shaped negative
+  // controls use a distinct Session/client, rather than reviving that channel.
+  adapter = await open();
   fault = { code: 'sequence_unavailable' };
   expect((await adapter.operation(id(9))).state).toBe('uncertain');
   expect(((await adapter.operation(id(9))) as { reason?: string }).reason).toBeUndefined();
@@ -662,3 +667,156 @@ it('display labels remain bounded publisher claims outside the signed input and 
     FrozenAsk.capture(selection(), { ...destination(), deviceName: '😀'.repeat(33) }),
   ).toThrow();
 });
+
+it.each(['send', 'operation'] as const)(
+  'SDK returned eviction from %s retains metadata before later ended-channel reads',
+  async (method) => {
+    class RefusalError extends Error {
+      constructor(readonly code: string) {
+        super(code);
+      }
+    }
+    const sdk = {
+      RefusalError,
+      operations: () => ({
+        listAgents: vi.fn(async () => {
+          throw new RefusalError('REMOTE_SESSION_ENDED');
+        }),
+        send: vi.fn(async ({ operationId }: { operationId: string }) => ({
+          state: 'refused' as const,
+          operationId,
+          reason: 'REMOTE_SESSION_EVICTED',
+          limit: 8,
+          settingsUrl: 'https://example.test/remote/settings',
+        })),
+        operation: vi.fn(async (operationId: string) => ({
+          state: 'refused' as const,
+          operationId,
+          reason: 'REMOTE_SESSION_EVICTED',
+          limit: 8,
+          settingsUrl: 'https://example.test/remote/settings',
+        })),
+        result: vi.fn(async () => ({ state: 'pending' as const })),
+      }),
+    };
+    const adapter = await createRemoteClient(new URL('https://example.test/x/colab/'), sdk, {
+      sessionId: id(7),
+      serverTimeMs: Date.now(),
+      grantRevision: 1,
+      expiresAtMs: null,
+    });
+    const value =
+      method === 'send'
+        ? await adapter.send({ operationId: id(9), agentId: id(6), message: 'exact' })
+        : await adapter.operation(id(9));
+    expect(value).toEqual({
+      state: 'refused',
+      operationId: id(9),
+      reason: 'REMOTE_SESSION_EVICTED',
+      limit: 8,
+      settingsUrl: 'https://example.test/remote/settings',
+    });
+    await expect(adapter.listAgents()).rejects.toMatchObject({
+      limit: 8,
+      settingsUrl: 'https://example.test/remote/settings',
+    });
+  },
+);
+
+it('a returned pre-effect send eviction persists refused before notifying the page and never resends', async () => {
+  const { store, remote, key } = await setup();
+  const ended = vi.fn();
+  const controller = new AskController({ store, remote, key, selection, sessionEnded: ended });
+  await controller.destinations();
+  const frozen = controller.prepare(destination());
+  remote.send = async (input) => {
+    remote.sends.push(input);
+    return {
+      state: 'refused',
+      operationId: input.operationId,
+      reason: 'REMOTE_SESSION_EVICTED',
+      limit: 2,
+      settingsUrl: 'https://example.test/remote/settings',
+    };
+  };
+  const result = await controller.send(frozen);
+  expect(result).toMatchObject({ state: 'refused', reason: 'REMOTE_SESSION_EVICTED' });
+  expect((await store.view(frozen.view.operationId)).state).toBe('refused');
+  expect(ended).toHaveBeenCalledExactlyOnceWith(
+    expect.objectContaining({
+      limit: 2,
+      settingsUrl: 'https://example.test/remote/settings',
+    }),
+  );
+  await controller.observe(new AbortController().signal);
+  expect(() => controller.prepare(destination())).toThrow();
+  expect(remote.sends).toHaveLength(1);
+  expect(remote.reads).toEqual([]);
+});
+
+it('a returned operation-read eviction preserves the held ledger and stops reads without another dispatch', async () => {
+  const { store, remote, key, own } = await setup();
+  const ended = vi.fn();
+  const controller = new AskController({ store, remote, key, selection, sessionEnded: ended });
+  remote.mode = 'held';
+  await controller.destinations();
+  const frozen = controller.prepare(destination());
+  await controller.send(frozen);
+  const before = structuredClone(own);
+  remote.operation = async (operationId) => {
+    remote.reads.push(operationId);
+    return { state: 'refused', operationId, reason: 'REMOTE_SESSION_EVICTED', limit: 8 };
+  };
+  await expect(controller.recover(frozen.view.operationId)).rejects.toMatchObject({ limit: 8 });
+  expect(ended).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ limit: 8 }));
+  expect(own).toEqual(before);
+  await controller.observe(new AbortController().signal);
+  expect(remote.reads).toEqual([frozen.view.operationId]);
+  expect(remote.sends).toHaveLength(1);
+});
+
+it.each(['send', 'operation'] as const)(
+  'an already pending ENDED probe cannot overwrite the returned %s eviction',
+  async (method) => {
+    class RefusalError extends Error {
+      constructor(readonly code: string) {
+        super(code);
+      }
+    }
+    let finish!: (error: Error) => void;
+    const started = vi.fn();
+    const ops = {
+      listAgents: () =>
+        new Promise<never>((_, reject) => {
+          finish = reject;
+          started();
+        }),
+      send: async ({ operationId }: { operationId: string }) => ({
+        state: 'refused' as const,
+        operationId,
+        reason: 'REMOTE_SESSION_EVICTED',
+        limit: 2,
+      }),
+      operation: async (operationId: string) => ({
+        state: 'refused' as const,
+        operationId,
+        reason: 'REMOTE_SESSION_EVICTED',
+        limit: 2,
+      }),
+      result: async () => ({ state: 'pending' as const }),
+    };
+    const adapter = await createRemoteClient(
+      new URL('https://example.test/colab/'),
+      { RefusalError, operations: () => ops },
+      { sessionId: id(7), serverTimeMs: Date.now(), grantRevision: 1, expiresAtMs: null },
+    );
+    const probe = adapter.listAgents();
+    const observed = expect(probe).rejects.toMatchObject({ limit: 2 });
+    expect(started).toHaveBeenCalledOnce();
+    if (method === 'send')
+      await adapter.send({ operationId: id(9), agentId: id(6), message: 'exact' });
+    else await adapter.operation(id(9));
+    finish(new RefusalError('REMOTE_SESSION_ENDED'));
+    await observed;
+  },
+);

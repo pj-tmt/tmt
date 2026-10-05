@@ -1202,6 +1202,10 @@ stops that tab and shows the reported limit, optional Remote settings URL and
 the `tmt remote settings sessions-per-device <n>` command. It MUST NOT reopen
 automatically after eviction or resend an Ask. Closing a tab affects only its
 own bindings.
+The SDK returns verified pre-effect eviction from Send and operation reads as
+`refused` states with `REMOTE_SESSION_EVICTED`, a positive `limit` and optional
+`settingsUrl`. The adapter retains that eviction for the lifetime of the old
+Session, including across later generic ENDED reads or opaque socket close.
 Registration rebuilds both the RemoteClient and page AskControllers with the new
 shared Session; old-session attempts cannot dispatch, and recovery reads the original IDs.
 
@@ -1289,16 +1293,20 @@ decimal strings, ordered numerically. `requestId` and `reason` are explicitly
 null when absent. Reasons are bounded sanitized codes, never raw transport
 errors. Verified pre-effect Remote refusals preserve `REMOTE_SCOPE_DENIED`,
 `REMOTE_INPUT_INVALID`, `REMOTE_RATE_LIMITED`, `REMOTE_INTENT_CONFLICT`,
-`REMOTE_CLOSED`, `REMOTE_SESSION_ENDED`, `REMOTE_INPUT_TOO_LARGE`,
+`REMOTE_CLOSED`, `REMOTE_SESSION_ENDED`, `REMOTE_SESSION_EVICTED`, `REMOTE_INPUT_TOO_LARGE`,
 `REMOTE_STATE_UNAVAILABLE` or `REMOTE_CORE_UNAVAILABLE`; unknown refusal codes become
 `REMOTE_REFUSED`. A verified pre-admission Send refusal, including session end,
 is definitive: it records refused with the reviewed code. A session-end Send
 refusal then signals Registration to reconnect and requires new explicit input capture.
+An eviction Send refusal instead stops the page with the verified limit/settings
+notice; it remains refused, not uncertain, and cannot reopen automatically.
 Adopted Sends never return refused; unknown outcomes remain uncertain. A typed
 SDK `sequence_unavailable` Send outcome becomes uncertain
 (`REMOTE_SEQUENCE_UNAVAILABLE`) and signals Registration to reconnect. The adapter never reopens. A session-ending result
 read leaves the existing accepted record unchanged and stops observation until
 reconnect. Every refused operation/result read leaves the ledger unchanged;
+an eviction operation read stops observation with the same typed notice and
+never changes the prior operation outcome or dispatches again.
 missing operations do not prove absence. Transient state/core-unavailable refusals
 continue bounded backoff. Read refusal copy is ephemeral, never an own-state
 transition. Fresh input capture is required for each later Send. Unknown-effect errors

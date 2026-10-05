@@ -1,7 +1,12 @@
 import { expect, it, vi } from 'vite-plus/test';
 import type { Bootstrap, PageInfo } from '../src/bootstrap.js';
 import type { LiveAskOptions } from '../src/live-ask.js';
-import { SessionEndedError, SessionEvictedError, type RemoteClient } from '../src/ask-remote.js';
+import {
+  createRemoteClient,
+  SessionEndedError,
+  SessionEvictedError,
+  type RemoteClient,
+} from '../src/ask-remote.js';
 import type { PageView } from '../src/transport.js';
 import type { Registration } from '../src/registration.js';
 import { Live } from '../src/live.js';
@@ -581,3 +586,88 @@ it('remembers only accepted fold titles under the exact admission registration',
     live.close();
   }
 });
+
+it.each(['send', 'operation'] as const)(
+  'a returned %s eviction survives opaque socket close before the Ask page callback',
+  async (method) => {
+    class RefusalError extends Error {
+      constructor(readonly code: string) {
+        super(code);
+      }
+    }
+    const operationId = '00000000-0000-4000-8000-000000000009';
+    const ops = {
+      listAgents: vi.fn(async () => {
+        throw new RefusalError('REMOTE_SESSION_ENDED');
+      }),
+      send: vi.fn(async () => ({
+        state: 'refused' as const,
+        operationId,
+        reason: 'REMOTE_SESSION_EVICTED',
+        limit: 8,
+        settingsUrl: 'https://example.test/remote/settings',
+      })),
+      operation: vi.fn(async () => ({
+        state: 'refused' as const,
+        operationId,
+        reason: 'REMOTE_SESSION_EVICTED',
+        limit: 8,
+        settingsUrl: 'https://example.test/remote/settings',
+      })),
+      result: vi.fn(async () => ({ state: 'pending' as const })),
+    };
+    const remote = await createRemoteClient(
+      new URL('https://example.test/colab/'),
+      { RefusalError, operations: () => ops },
+      { sessionId: operationId, serverTimeMs: Date.now(), grantRevision: 1, expiresAtMs: null },
+    );
+    const registration = {
+      deviceId: 'device',
+      keys: { sign: {}, signPublic: new Uint8Array(32) },
+    } as unknown as Registration;
+    const reconnect = vi.fn(async () => ({ registration, remote }));
+    const live = new Live(
+      new URL('https://example.test/colab/'),
+      {
+        space: 'space',
+        revision: '1',
+        owner: new Uint8Array(32),
+        pageIds: [],
+        pages: [],
+      } as Bootstrap,
+      registration,
+      {
+        pageId: '10000000-0000-4000-8000-000000000001',
+        epoch: '1',
+        sharing: 'private',
+      } as PageInfo,
+      undefined,
+      remote,
+      { reconnect },
+    );
+    const failed = vi.fn();
+    try {
+      await live.snapshot();
+      live.subscribe(() => {}, failed);
+      const connection = connections.at(-1)!;
+      if (method === 'send')
+        await remote.send({ operationId, agentId: operationId, message: 'exact' });
+      else await remote.operation(operationId);
+      connection.failed(new Error('Sync disconnected'));
+      await vi.waitFor(() => expect(failed).toHaveBeenCalledOnce());
+      expect(failed.mock.calls[0][0]).toBeInstanceOf(SessionEvictedError);
+      expect(failed.mock.calls[0][0]).toMatchObject({
+        limit: 8,
+        settingsUrl: 'https://example.test/remote/settings',
+      });
+      connection.failed(new SessionEndedError('REMOTE_SESSION_ENDED'));
+      connection.failed(new Error('Sync disconnected'));
+      expect(reconnect).not.toHaveBeenCalled();
+      expect(ops.listAgents).not.toHaveBeenCalled();
+      expect(ops.send).toHaveBeenCalledTimes(method === 'send' ? 1 : 0);
+      expect(ops.operation).toHaveBeenCalledTimes(method === 'operation' ? 1 : 0);
+    } finally {
+      live.close();
+    }
+  },
+);
