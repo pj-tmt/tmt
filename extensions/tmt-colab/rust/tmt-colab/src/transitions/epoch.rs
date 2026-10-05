@@ -33,6 +33,7 @@ impl Prepared {
         let view = snapshot.materialize(key, page, decoder)?;
         let baseline = decoder.produce_baseline(
             BaselineInput {
+                original_author: view.original_author.as_deref(),
                 source: view.source.as_bytes(),
                 title: &view.title,
                 publisher_agent: view.publisher_agent.as_deref(),

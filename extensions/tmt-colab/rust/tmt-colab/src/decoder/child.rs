@@ -162,6 +162,11 @@ fn execute() -> Result<(), DecodeFault> {
             .map_err(|_| DecodeFault::Rejected)?
     };
     let projection = project(&doc, wire.namespace)?;
+    if wire.source.is_some()
+        && projection["meta"]["originalAuthor"] != before["meta"]["originalAuthor"]
+    {
+        return Err(DecodeFault::Rejected);
+    }
     // A prepared edit is one update; a read's merged tail may be the whole state.
     if merged.len()
         > if wire.source.is_some() {
@@ -283,6 +288,10 @@ fn baseline(input: &[u8]) -> Result<(), DecodeFault> {
         serde_json::from_slice(input).map_err(|_| DecodeFault::InvalidInput)?;
     if wire.version != 1
         || wire
+            .original_author
+            .as_deref()
+            .is_some_and(|v| !valid_publisher_agent(v))
+        || wire
             .publisher_agent
             .as_deref()
             .is_some_and(|v| !valid_publisher_agent(v))
@@ -309,6 +318,7 @@ fn baseline(input: &[u8]) -> Result<(), DecodeFault> {
                         source_text,
                         &wire.title,
                         wire.publisher_agent.as_deref(),
+                        wire.original_author.as_deref(),
                         size,
                     );
                     doc.transact()
@@ -320,6 +330,7 @@ fn baseline(input: &[u8]) -> Result<(), DecodeFault> {
                     source_text,
                     &wire.title,
                     wire.publisher_agent.as_deref(),
+                    wire.original_author.as_deref(),
                 ),
             };
             (update, Some(source), None)
@@ -353,7 +364,9 @@ fn baseline(input: &[u8]) -> Result<(), DecodeFault> {
     validate_view(source_text.as_bytes(), &wire.title, &digest)?;
     if projection["meta"]["title"].as_str() != Some(wire.title.as_str())
         || (producing
-            && projection["meta"]["publisherAgent"].as_str() != wire.publisher_agent.as_deref())
+            && (projection["meta"]["publisherAgent"].as_str() != wire.publisher_agent.as_deref()
+                || projection["meta"]["originalAuthor"].as_str()
+                    != wire.original_author.as_deref()))
         || expected_source.is_some_and(|source| source != source_text.as_bytes())
     {
         return Err(DecodeFault::Rejected);
@@ -401,6 +414,7 @@ fn chunked_baseline(
     source: &str,
     title: &str,
     publisher_agent: Option<&str>,
+    original_author: Option<&str>,
     size: usize,
 ) -> Vec<Vec<u8>> {
     let html = doc.get_or_insert_text("html");
@@ -422,6 +436,9 @@ fn chunked_baseline(
             if let Some(agent) = publisher_agent {
                 meta.insert(&mut txn, "publisherAgent", agent);
             }
+            if let Some(author) = original_author {
+                meta.insert(&mut txn, "originalAuthor", author);
+            }
         }
         updates.push(txn.encode_update_v1());
         rest = tail;
@@ -429,7 +446,13 @@ fn chunked_baseline(
     }
     updates
 }
-fn fresh_baseline(doc: Doc, source: &str, title: &str, publisher_agent: Option<&str>) -> Vec<u8> {
+fn fresh_baseline(
+    doc: Doc,
+    source: &str,
+    title: &str,
+    publisher_agent: Option<&str>,
+    original_author: Option<&str>,
+) -> Vec<u8> {
     let html = doc.get_or_insert_text("html");
     let meta = doc.get_or_insert_map("meta");
     let mut txn = doc.transact_mut();
@@ -437,6 +460,9 @@ fn fresh_baseline(doc: Doc, source: &str, title: &str, publisher_agent: Option<&
     meta.insert(&mut txn, "title", title);
     if let Some(agent) = publisher_agent {
         meta.insert(&mut txn, "publisherAgent", agent);
+    }
+    if let Some(author) = original_author {
+        meta.insert(&mut txn, "originalAuthor", author);
     }
     txn.encode_state_as_update_v1(&StateVector::default())
 }
@@ -458,6 +484,7 @@ mod baseline_tests {
                 source,
                 title,
                 vector["publisherAgent"].as_str(),
+                vector["originalAuthor"].as_str(),
             );
             assert_eq!(URL_SAFE_NO_PAD.encode(&update), vector["update"]);
             assert_eq!(

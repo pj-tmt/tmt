@@ -40,6 +40,7 @@ export class Fold {
           'title',
           'update',
           'own',
+          ...(Object.hasOwn(event.data as object, 'originalAuthor') ? ['originalAuthor'] : []),
           ...(Object.hasOwn(event.data as object, 'publisherAgent') ? ['publisherAgent'] : []),
         ]);
         const value = event.data as unknown as FoldResult & { id: number; error?: string };
@@ -57,6 +58,7 @@ export class Fold {
               source: value.source,
               title: value.title,
               publisherAgent: value.publisherAgent,
+              originalAuthor: value.originalAuthor,
               own: value.own,
             }),
           ).length > STATE_BYTES
@@ -71,6 +73,7 @@ export class Fold {
         pending.resolve({
           source: value.source,
           title: value.title,
+          ...(value.originalAuthor === undefined ? {} : { originalAuthor: value.originalAuthor }),
           ...(value.publisherAgent === undefined ? {} : { publisherAgent: value.publisherAgent }),
           own: value.own,
           update: value.update,

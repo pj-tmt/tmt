@@ -203,6 +203,8 @@ test('baseline vectors reset exact struct identities and reject digest, title an
           one.source !== v.source ||
           two.source !== v.source ||
           one.title !== v.title ||
+          one.originalAuthor !== v.originalAuthor ||
+          two.originalAuthor !== v.originalAuthor ||
           one.publisherAgent !== v.publisherAgent ||
           two.publisherAgent !== v.publisherAgent
         )
@@ -212,6 +214,8 @@ test('baseline vectors reset exact struct identities and reject digest, title an
           right = await b.run({ type: 'apply', updates: [edit.update] });
         if (
           left.source !== right.source ||
+          left.originalAuthor !== v.originalAuthor ||
+          right.originalAuthor !== v.originalAuthor ||
           left.publisherAgent !== v.publisherAgent ||
           right.publisherAgent !== v.publisherAgent
         )

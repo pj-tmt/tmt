@@ -66,12 +66,12 @@ and `limits.rs`; do not restate them.
   `identity show --json` command in `core.rs`; failures leave no label. The decoder's
   `ContentEdit` replaces/clears `meta.publisherAgent` atomically with source. Browser
   edits preserve it, and owner epoch baselines carry it in their committed update.
-  No label selects an identity or grant.
+  Creation also initializes `meta.originalAuthor` from that same captured label. Source edits preserve the creation snapshot, and unknown creation is never backfilled. Both labels survive fresh epoch baselines and compacted content. The original label is asserted display, never identity proof or an Ask default; grammar and legacy absence are owned by colab-v1. No label selects an identity or grant.
 - Offline writes hold the serve lifecycle lock and use `Store::write_existing`; when `serve`
   holds the lock, `page/ipc.rs` makes one bounded request to the owned socket and never
   retries or falls back. The write signs with a purpose-separated local device certified by
   the management member; it is not a Remote registration.
-- `export.rs` snapshots exact source and title through `fold::Snapshot` and the decoder and
+- `export.rs` snapshots exact source, title and optional creation/latest display labels through `fold::Snapshot` and the decoder and
   writes `page.html`, `conversations.json`, `conversations.md` and `manifest.json` (format and
   disclosure: colab-v1). The fold now keeps each writer's decoded `own` projection and
   historical signing key in `View`; `export/conversations.rs` projects threads, comments and

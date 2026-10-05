@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Independent minimal update-v1 oracle; no product code or third-party imports.
 
-Pins fresh root items (plain html text, meta.title and optional publisherAgent strings) for client 1159.
+Pins fresh root items (plain html text, meta.title and optional publisherAgent/originalAuthor strings) for client 1159.
 Update-v1: unsigned varints, UTF-8 varstrings, content-string ref 4, content-any
 ref 8 with parentSub bit 32, lib0 string tag 119, and an empty delete set.
 The clock advances in UTF-16 code units, independently of Rust's text offsets.
@@ -29,13 +29,15 @@ def string(value):
     return varuint(len(raw)) + raw
 
 
-def update(source, title, publisher=None):
+def update(source, title, publisher=None, original=None):
     # Empty source inserts no item. Map title is always present, including empty.
     html = bytes([4, 1]) + string("html") + string(source) if source else b""
     meta = bytes([40, 1]) + string("meta") + string("title") + bytes([1, 119]) + string(title)
     if publisher is not None:
         meta += bytes([40, 1]) + string("meta") + string("publisherAgent") + bytes([1, 119]) + string(publisher)
-    return bytes([1]) + varuint((2 if source else 1) + (publisher is not None)) + varuint(1159) + bytes([0]) + html + meta + bytes([0])
+    if original is not None:
+        meta += bytes([40, 1]) + string("meta") + string("originalAuthor") + bytes([1, 119]) + string(original)
+    return bytes([1]) + varuint((2 if source else 1) + (publisher is not None) + (original is not None)) + varuint(1159) + bytes([0]) + html + meta + bytes([0])
 
 
 def binary(value):
@@ -48,14 +50,16 @@ def frame(*fields):
 
 def vectors():
     result = []
-    for source, title, publisher in [("", "", None), ("<p>Hello</p>\r\n", "Baseline", None), ("<p>\U0001f680 e\u0301 \x00</p>", "Title \U0001f680", None), ("<p>Annotated</p>", "Annotations", "publishing-agent"), ("", "Empty published page", "agent-\U0001f680")]:
+    for source, title, publisher, original in [("", "", None, None), ("<p>Hello</p>\r\n", "Baseline", None, None), ("<p>\U0001f680 e\u0301 \x00</p>", "Title \U0001f680", None, None), ("<p>Annotated</p>", "Annotations", "publishing-agent", "original-agent"), ("", "Empty published page", "agent-\U0001f680", "creator-\U0001f680")]:
         raw = source.encode("utf-8")
-        encoded = update(source, title, publisher)
+        encoded = update(source, title, publisher, original)
         result.append({"source": source, "title": title, "clientId": 1159,
                        "update": binary(encoded), "sourceDigest": binary(hashlib.sha256(raw).digest()),
                        "commitment": binary(hashlib.sha256(frame(b"tmt-colab-baseline-v1", b"1", raw, encoded)).digest())})
         if publisher is not None:
             result[-1]["publisherAgent"] = publisher
+        if original is not None:
+            result[-1]["originalAuthor"] = original
     return result
 
 

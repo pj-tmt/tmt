@@ -113,6 +113,7 @@ pub(crate) struct View {
     pub source: String,
     pub title: String,
     pub publisher_agent: Option<String>,
+    pub original_author: Option<String>,
     /// The complete content metadata projection, including keys not surfaced by the CLI.
     pub meta: serde_json::Value,
     pub update: Vec<u8>,
@@ -411,6 +412,7 @@ impl Snapshot {
             baseline = values::binary(&body.update, crate::decoder::BASELINE_UPDATE_BYTES)?;
             decoder.verify_baseline(
                 BaselineInput {
+                    original_author: None,
                     source: body.source.as_bytes(),
                     title: &d.title,
                     publisher_agent: None,
@@ -612,6 +614,9 @@ impl Snapshot {
             }
         }
         Ok(View {
+            original_author: folded.projection["meta"]["originalAuthor"]
+                .as_str()
+                .map(str::to_owned),
             publisher_agent: folded.projection["meta"]["publisherAgent"]
                 .as_str()
                 .map(str::to_owned),

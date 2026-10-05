@@ -27,18 +27,20 @@
     "source": "<p>Annotated</p>",
     "title": "Annotations",
     "clientId": 1159,
-    "update": "AQOHCQAEAQRodG1sEDxwPkFubm90YXRlZDwvcD4oAQRtZXRhBXRpdGxlAXcLQW5ub3RhdGlvbnMoAQRtZXRhDnB1Ymxpc2hlckFnZW50AXcQcHVibGlzaGluZy1hZ2VudAA",
+    "update": "AQSHCQAEAQRodG1sEDxwPkFubm90YXRlZDwvcD4oAQRtZXRhBXRpdGxlAXcLQW5ub3RhdGlvbnMoAQRtZXRhDnB1Ymxpc2hlckFnZW50AXcQcHVibGlzaGluZy1hZ2VudCgBBG1ldGEOb3JpZ2luYWxBdXRob3IBdw5vcmlnaW5hbC1hZ2VudAA",
     "sourceDigest": "XbSNaA-CMGRg55ML3fqiW2qjvzihguJkfMzeS37Uz08",
-    "commitment": "Ftz57GQfMG1BEAYWdLaT6hsjos45Myl_jamypw8Lxdo",
-    "publisherAgent": "publishing-agent"
+    "commitment": "zo3SkoeY5prZPD4ED5TJ-_W_GlvGMg53NVKD4taZbUQ",
+    "publisherAgent": "publishing-agent",
+    "originalAuthor": "original-agent"
   },
   {
     "source": "",
     "title": "Empty published page",
     "clientId": 1159,
-    "update": "AQKHCQAoAQRtZXRhBXRpdGxlAXcURW1wdHkgcHVibGlzaGVkIHBhZ2UoAQRtZXRhDnB1Ymxpc2hlckFnZW50AXcKYWdlbnQt8J-agAA",
+    "update": "AQOHCQAoAQRtZXRhBXRpdGxlAXcURW1wdHkgcHVibGlzaGVkIHBhZ2UoAQRtZXRhDnB1Ymxpc2hlckFnZW50AXcKYWdlbnQt8J-agCgBBG1ldGEOb3JpZ2luYWxBdXRob3IBdwxjcmVhdG9yLfCfmoAA",
     "sourceDigest": "47DEQpj8HBSa-_TImW-5JCeuQeRkm5NMpJWZG3hSuFU",
-    "commitment": "mGkw2pk8MWpzxDgSXucHRQuKLJO4b1zEgxzI9c3uvj8",
-    "publisherAgent": "agent-\ud83d\ude80"
+    "commitment": "xbJAUNpbCrAls2865NDUisPpzsuzP1SZEQfGVfpCRvE",
+    "publisherAgent": "agent-\ud83d\ude80",
+    "originalAuthor": "creator-\ud83d\ude80"
   }
 ]

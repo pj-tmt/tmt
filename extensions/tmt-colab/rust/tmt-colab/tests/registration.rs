@@ -1048,7 +1048,7 @@ fn fresh_creation_is_atomic_replayable_and_conflicting_selections_never_create_a
                     page: PAGE,
                     title,
                     source: "<h1>Created source</h1>",
-                    publisher_agent: None,
+                    publisher_agent: Some("original-author"),
                 },
                 transport_digest: None,
                 scope: None,
@@ -1093,5 +1093,7 @@ fn fresh_creation_is_atomic_replayable_and_conflicting_selections_never_create_a
     let page = tmt_colab::page::read(&store, &key, PAGE, &mut decoder).unwrap();
     assert_eq!(page.source, "<h1>Created source</h1>");
     assert_eq!(page.title, "Created title");
+    assert_eq!(page.original_author.as_deref(), Some("original-author"));
+    assert_eq!(page.publisher_agent.as_deref(), Some("original-author"));
     store.close().unwrap();
 }

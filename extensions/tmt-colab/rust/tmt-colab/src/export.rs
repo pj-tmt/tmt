@@ -98,6 +98,10 @@ struct Manifest<'a> {
     space_id: &'a str,
     page_id: &'a str,
     title: &'a str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    original_author: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    publisher_agent: Option<&'a str>,
     exported_at_ms: u64,
     membership_head: MembershipHead,
     epoch: String,
@@ -179,6 +183,8 @@ impl Bundle {
             space_id: &key.space_id,
             page_id: page,
             title: &view.title,
+            original_author: view.original_author.as_deref(),
+            publisher_agent: view.publisher_agent.as_deref(),
             exported_at_ms: now,
             membership_head: MembershipHead {
                 revision: snapshot.authority.head.revision.to_string(),

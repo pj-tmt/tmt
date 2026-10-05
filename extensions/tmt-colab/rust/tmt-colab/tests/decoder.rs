@@ -666,6 +666,7 @@ fn own_maps_have_a_positive_control_and_array_substitution_rejects() {
 fn view<'a>(source: &'a [u8], title: &'a str) -> BaselineInput<'a> {
     use sha2::{Digest, Sha256};
     BaselineInput {
+        original_author: None,
         source,
         title,
         publisher_agent: None,
@@ -703,6 +704,7 @@ fn baseline_exact_vectors_materialize_and_concurrent_clients_converge() {
         let produced = decoder
             .produce_baseline(
                 BaselineInput {
+                    original_author: vector["originalAuthor"].as_str(),
                     publisher_agent: vector["publisherAgent"].as_str(),
                     ..view(source.as_bytes(), title)
                 },
@@ -716,6 +718,11 @@ fn baseline_exact_vectors_materialize_and_concurrent_clients_converge() {
         apply_baseline(&a, &produced.update);
         apply_baseline(&b, &produced.update);
         for doc in [&a, &b] {
+            let original = doc
+                .get_or_insert_map("meta")
+                .get(&doc.transact(), "originalAuthor")
+                .map(|v| v.to_string(&doc.transact()));
+            assert_eq!(original.as_deref(), vector["originalAuthor"].as_str());
             let html = doc.get_or_insert_text("html");
             let meta = doc.get_or_insert_map("meta");
             let txn = doc.transact();
@@ -758,6 +765,7 @@ fn baseline_digest_commitment_and_materialization_mismatches_return_no_result() 
         .unwrap();
     gone(baseline.child_pid);
     let wrong_digest = BaselineInput {
+        original_author: None,
         source: b"exact",
         title: "title",
         source_digest: [0; 32],
@@ -964,6 +972,7 @@ fn publisher_metadata_updates_and_unknown_cli_edits_clear_it() {
     let baseline = decoder
         .produce_baseline(
             BaselineInput {
+                original_author: Some("original-author"),
                 publisher_agent: Some("publisher"),
                 ..view(b"before", "Title")
             },
@@ -999,6 +1008,10 @@ fn publisher_metadata_updates_and_unknown_cli_edits_clear_it() {
             .unwrap();
         assert_eq!(folded.projection["html"], source);
         assert_eq!(
+            folded.projection["meta"]["originalAuthor"],
+            "original-author"
+        );
+        assert_eq!(
             folded.projection["meta"]["publisherAgent"].as_str(),
             publisher
         );
@@ -1009,7 +1022,23 @@ fn publisher_metadata_updates_and_unknown_cli_edits_clear_it() {
             .transact()
             .encode_state_as_update_v1(&yrs::StateVector::default());
     }
-    for invalid in ["".to_owned(), "x".repeat(129), "line\nbreak".to_owned()] {
+    for invalid in [
+        "".to_owned(),
+        "x".repeat(129),
+        "line\nbreak".to_owned(),
+        "🚀".repeat(33),
+    ] {
+        assert!(
+            decoder
+                .produce_baseline(
+                    BaselineInput {
+                        original_author: Some(&invalid),
+                        ..view(b"after", "Title")
+                    },
+                    None
+                )
+                .is_err()
+        );
         assert!(
             decoder
                 .prepare(
@@ -1036,7 +1065,13 @@ fn a_page_source_larger_than_one_update_is_produced_as_ordered_updates_that_rebu
     let source = "héllo wörld 🌍 <p>text</p>\n".repeat(60_000);
     assert!(source.len() > 1_500_000);
     let made = decoder
-        .produce_page(view(source.as_bytes(), "T"), None)
+        .produce_page(
+            BaselineInput {
+                original_author: Some("original-author"),
+                ..view(source.as_bytes(), "T")
+            },
+            None,
+        )
         .unwrap();
     assert!(made.chunks.len() > 1);
     let doc = Doc::new();
@@ -1054,6 +1089,13 @@ fn a_page_source_larger_than_one_update_is_produced_as_ordered_updates_that_rebu
     }
     let rebuilt = doc.get_or_insert_text("html").get_string(&doc.transact());
     assert!(rebuilt == source, "the chunks rebuild a different source");
+    assert_eq!(
+        doc.get_or_insert_map("meta")
+            .get(&doc.transact(), "originalAuthor")
+            .unwrap()
+            .to_string(&doc.transact()),
+        "original-author"
+    );
     // The merged update is the same page in one piece, for the baseline commitment.
     let merged = Doc::new();
     apply_baseline(&merged, &made.update);
@@ -1126,4 +1168,28 @@ fn merging_one_devices_updates_keeps_structs_that_depend_on_another_device() {
             .merge(Namespace::Content, &[b"not an update"], None)
             .is_err()
     );
+}
+
+#[test]
+fn legacy_original_author_stays_absent_after_a_known_native_edit() {
+    let mut decoder = owner();
+    let baseline = decoder
+        .produce_baseline(view(b"legacy", "Title"), None)
+        .unwrap();
+    let edited = decoder
+        .prepare(
+            UpdateBatch {
+                namespace: Namespace::Content,
+                baseline: &baseline.update,
+                updates: &[],
+            },
+            tmt_colab::decoder::ContentEdit {
+                source: "edited",
+                publisher_agent: Some("later-agent"),
+            },
+            None,
+        )
+        .unwrap();
+    assert!(edited.projection["meta"].get("originalAuthor").is_none());
+    assert_eq!(edited.projection["meta"]["publisherAgent"], "later-agent");
 }
