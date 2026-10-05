@@ -15,6 +15,7 @@
     "e2e/**/*.ts",
     "vitest.config.ts",
     "vite.config.ts",
+    "vite.page.config.ts",
     "playwright.config.ts"
   ]
 }

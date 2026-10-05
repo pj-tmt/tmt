@@ -722,3 +722,158 @@ test('browser pages use local tokens in both schemes and fit desktop and mobile'
     ...Array<string>(4).fill('storage.root'),
   ]);
 });
+
+test('settings draft preserves authority, exact values, drafts and unknown self-change outcomes', async () => {
+  pair = spawn(BINARY, ['pair', '--json'], { env });
+  const events = lines(pair);
+  const offer = await events.next();
+  const context = await browser.newContext();
+  const page = await context.newPage();
+  await page.goto(offer.link as string);
+  await page.fill('#name', 'Settings browser');
+  await page.click('button');
+  await expect(page.locator('#words')).toBeVisible();
+  await events.next();
+  pair.stdin.write('confirm\n');
+  expect((await events.next()).reason).toBe('paired');
+  await expect(page.locator('#status')).toContainText('This browser is paired.');
+  await exited(pair);
+  const inventory = JSON.parse(
+    execFileSync(BINARY, ['devices', '--json'], { env, encoding: 'utf8' }),
+  ) as { devices: { clientId: string }[] };
+  const clientId = inventory.devices[0]!.clientId;
+  await page.goto(`${origin}/settings`);
+  await expect(page.locator('#access')).toContainText('confirmed');
+  await expect(page.locator('#read-only')).toBeVisible();
+  await expect(page.locator('#opening')).toBeDisabled();
+  await expect(page.locator('#limit-value')).toHaveText('8 · default');
+  execFileSync(BINARY, ['devices', 'designate', clientId, '--json'], { env });
+  await page.click('#refresh');
+  await expect(page.locator('#opening')).toBeEnabled();
+  await expect(page.locator('#read-only')).toBeHidden();
+  // Refresh preserves the unset source and never turns default 8 into an explicit cap.
+  await page.click('#refresh');
+  expect(
+    JSON.parse(execFileSync(BINARY, ['settings', '--json'], { env, encoding: 'utf8' }))
+      .sessionsPerDeviceSource,
+  ).toBe('default');
+  await page.selectOption('#limit-mode', 'custom');
+  await page.fill('#limit-custom', '8');
+  await page.click('#limit-form button');
+  await expect(page.locator('#limit-value')).toHaveText('8 · settings.json');
+  await page.selectOption('#opening', 'off');
+  await page.click('#opening-form button');
+  await expect(page.locator('#outcome')).toContainText('committed');
+  await expect(page.locator('#opening-value')).toHaveText('Off · settings.json');
+  await page.selectOption('#limit-mode', 'custom');
+  await page.fill('#limit-custom', '18446744073709551615');
+  await page.click('#limit-form button');
+  await expect(page.locator('#limit-value')).toHaveText('18446744073709551615 · settings.json');
+  expect(execFileSync(BINARY, ['settings', '--json'], { env, encoding: 'utf8' })).toContain(
+    '18446744073709551615',
+  );
+  await page.selectOption('#limit-mode', 'off');
+  await page.click('#limit-form button');
+  await expect(page.locator('#limit-value')).toHaveText('Off (unlimited) · settings.json');
+  // Role removal fences stale admitted capabilities and keeps unsent text.
+  await page.selectOption('#limit-mode', 'custom');
+  await page.fill('#limit-custom', '19');
+  execFileSync(BINARY, ['devices', 'undesignate', '--json'], { env });
+  await page.click('#limit-form button');
+  await expect(page.locator('#outcome')).toContainText('refused');
+  await expect(page.locator('#limit-custom')).toHaveValue('19');
+  await page.click('#refresh');
+  await expect(page.locator('#read-only')).toBeVisible();
+  expect(
+    JSON.parse(execFileSync(BINARY, ['settings', '--json'], { env, encoding: 'utf8' }))
+      .sessionsPerDevice,
+  ).toBe(null);
+  execFileSync(BINARY, ['devices', 'designate', clientId, '--json'], { env });
+  await page.click('#refresh');
+  const captures = process.env.TMT_REMOTE_CAPTURE_DIR;
+  for (const colorScheme of ['light', 'dark'] as const) {
+    await page.emulateMedia({ colorScheme });
+    for (const width of [1440, 390, 320]) {
+      await page.setViewportSize({ width, height: 1000 });
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
+        true,
+      );
+      await page.evaluate(() => scrollTo(0, 0));
+      if (captures && width !== 320) {
+        await mkdir(captures, { recursive: true });
+        await page.screenshot({
+          path: join(captures, `settings-${colorScheme}-${width}.png`),
+          fullPage: true,
+        });
+      }
+    }
+  }
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  let renameCalls = 0,
+    revokeCalls = 0,
+    opens = 0;
+  let recorded!: () => void, release!: () => void;
+  const published = new Promise<void>((resolve) => {
+    recorded = resolve;
+  });
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  await page.route('**/append', async (route) => {
+    const body = route.request().postDataJSON() as { operation: string };
+    if (body.operation === 'session.open') opens++;
+    if (body.operation === 'remote.devices.rename') {
+      renameCalls++;
+      expect((await route.fetch()).status()).toBe(200);
+      recorded();
+      await held;
+      await route.abort();
+    } else if (body.operation === 'remote.devices.revoke') {
+      revokeCalls++;
+      expect((await route.fetch()).status()).toBe(200);
+      await route.abort();
+    } else await route.continue();
+  });
+  const name = page.locator(`#name-${clientId}`);
+  await name.fill('Renamed browser');
+  await page.locator('.device button[type=submit]').click();
+  await published;
+  await name.fill('Unsent next name');
+  await name.evaluate((input) => {
+    (input as HTMLInputElement).setSelectionRange(2, 2);
+  });
+  release();
+  await expect(page.locator('#outcome')).toContainText('unknown');
+  await expect(name).toHaveValue('Unsent next name');
+  expect(await name.evaluate((input) => (input as HTMLInputElement).selectionStart)).toBe(2);
+  await expect(name).toBeFocused();
+  await name.press('Enter');
+  expect(renameCalls).toBe(1);
+  const original = await page.locator('#original').textContent();
+  await page.click('#recover');
+  await expect(page.locator('#outcome')).toContainText('committed');
+  await expect(page.locator('#original')).toHaveText(original!);
+  await expect(name).toHaveValue('Unsent next name');
+  expect(renameCalls).toBe(1);
+  expect(opens).toBe(1);
+  // Lost self-revoke acknowledgement: one fresh read-only admission, accurate access loss + unknown.
+  page.once('dialog', (dialog) => void dialog.accept());
+  await page.locator('.device button[type=button]').click();
+  await expect(page.locator('#outcome')).toContainText('unknown');
+  await page.click('#recover');
+  await expect(page.locator('#access')).toContainText('refused');
+  await expect(page.locator('#outcome')).toContainText('unknown');
+  await expect(page.locator('#recover')).toBeHidden();
+  await expect(page.locator('#opening')).toBeDisabled();
+  expect(revokeCalls).toBe(1);
+  expect(opens).toBe(2);
+  await page.click('#refresh');
+  await expect(page.locator('#outcome')).toContainText('unknown');
+  expect(opens).toBe(2);
+  const calls = (await readFile(join(root, 'core-calls.jsonl'), 'utf8'))
+    .split('\n')
+    .filter(Boolean)
+    .map((line) => JSON.parse(line) as { operation: string });
+  expect(calls.filter((call) => call.operation === 'dispatch.create')).toHaveLength(0);
+  await context.close();
+});

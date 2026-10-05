@@ -248,3 +248,18 @@ not physical deletion or a rolling allowance. `REMOTE_MANAGEMENT_CAPACITY` refus
 adoption before effects; an existing original-ID read still works at capacity. Show the
 local CLI management path, preserve any earlier unknown outcome, and do not retry, reset
 the database or invent a replacement ID to bypass the limit. Compaction is deferred.
+
+The Remote-owned `/settings` page is a current-token static draft with three sections and
+server-admitted values/sources/warnings/capabilities. Its separately built `settings-v1.js`
+imports the served SDK; no second channel or public page export is introduced. Shared #1797
+presentation adoption and complete feature acceptance remain pending. An untouched default
+cap is not saved as explicit 8; there is no invented reset setter. Draft text and original
+intent remain separate, including after unknown outcome or refreshed reads.
+
+The page explicitly calls `reopenSession(previousSession)` for original-outcome recovery.
+It binds to the existing paired identity and trust pins, never a separately persisted old key.
+There is one fresh admission attempt. An HTTP refusal with an unchanged current trusted door
+descriptor is current-access refusal; a changed/stale/malformed/unavailable descriptor or
+transport/unverified reply is unconfirmed. Neither establishes committed revoke or permanent
+grant loss. A descriptor recheck is another read, never another admission/mutation. Existing
+no-argument reopen behavior is unchanged.

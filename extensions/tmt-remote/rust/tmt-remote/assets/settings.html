@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="en" data-tmt-page="settings">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Remote settings and devices</title>
+    <link rel="stylesheet" href="/sdk/pages.css" />
+    <link rel="stylesheet" href="/sdk/settings.css" />
+    <script type="module" src="/sdk/settings-v1.js"></script>
+  </head>
+  <body>
+    <header class="header">
+      <span class="header-brand"
+        ><span class="header-mark">tmt</span><span class="header-wordmark">Remote</span></span
+      >
+      <h1 class="header-title">Settings and devices</h1>
+    </header>
+    <main class="page settings-page">
+      <p class="eyebrow">Remote settings preview</p>
+      <p id="access" role="status">Checking current access…</p>
+      <p id="read-only">
+        Read-only in this browser. Change Remote settings or manage devices with the local CLI.
+      </p>
+      <p><code>tmt remote settings</code> · <code>tmt remote devices</code></p>
+      <p id="warning" role="alert" hidden></p>
+      <section class="sheet" aria-labelledby="opening-title">
+        <div class="sheet-body">
+          <h2 id="opening-title">Browser opening</h2>
+          <p id="opening-value">Loading…</p>
+          <form id="opening-form" aria-describedby="read-only">
+            <label for="opening">Open a browser when pairing</label>
+            <select id="opening" disabled>
+              <option value="on">On</option>
+              <option value="off">Off</option>
+            </select>
+            <button type="submit" disabled>Save browser opening</button>
+          </form>
+        </div>
+      </section>
+      <section class="sheet" aria-labelledby="limit-title">
+        <div class="sheet-body">
+          <h2 id="limit-title">Session limit per device</h2>
+          <p id="limit-value">Loading…</p>
+          <p id="limit-help">
+            Default is 8. Off means unlimited. Changes apply at the next session open.
+          </p>
+          <form id="limit-form" aria-describedby="limit-help read-only">
+            <label for="limit-mode">Session limit</label>
+            <select id="limit-mode" disabled>
+              <option value="default" disabled>Default (8, not configured)</option>
+              <option value="off">Off (unlimited)</option>
+              <option value="custom">Custom</option>
+            </select>
+            <label for="limit-custom">Positive integer</label>
+            <input
+              id="limit-custom"
+              type="text"
+              inputmode="numeric"
+              pattern="[1-9][0-9]*"
+              autocomplete="off"
+              disabled
+            />
+            <button type="submit" disabled>Save session limit</button>
+          </form>
+        </div>
+      </section>
+      <section class="sheet" aria-labelledby="devices-title">
+        <div class="sheet-body">
+          <h2 id="devices-title">Paired devices</h2>
+          <p>“This browser” identifies a pairing. It does not grant settings authority.</p>
+          <div id="devices"></div>
+          <button id="more" type="button" hidden>Next devices</button>
+        </div>
+      </section>
+      <section class="outcome" aria-labelledby="outcome-title">
+        <h2 id="outcome-title">Last change</h2>
+        <p id="outcome" role="status">No change submitted.</p>
+        <p id="original"></p>
+        <button id="recover" type="button" hidden>Read original outcome</button>
+        <button id="refresh" type="button" disabled>Refresh values</button>
+      </section>
+    </main>
+  </body>
+</html>

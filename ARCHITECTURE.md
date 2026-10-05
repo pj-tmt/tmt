@@ -1157,8 +1157,10 @@ uses a separate local-owner designation from paired channel trust. The #1769 nat
 Store owns designation and bounded immutable receipts, with device cleanup/events after commit.
 JSON settings and SQLite receipts are separate durability boundaries; uncertain writes are never
 reapplied by receipt lookup. Every read retains live-grant admission, including original-ID recovery;
-no historical-key exception exists. Actual page/feature acceptance remains pending. Remote owns
-authority, while shared browser components own presentation only.
+no historical-key exception exists. The `/settings` static draft reuses Remote page tokens and
+composes the SDK for admitted forms, frozen outcomes and original-ID reading; its separate page
+bundle imports the single served SDK. Shared presentation adoption and feature acceptance remain
+pending. Remote owns authority, while shared browser components own presentation only.
 The door serves the browser SDK `remote-v1.js` (built from `remote-client`), which
 gives mounted pages `reopenSession`, `operations(session)` and `certifyKey`; its README owns
 the caller-facing recovery rules. The

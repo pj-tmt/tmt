@@ -1,0 +1,285 @@
+import { ClientError, RefusalError, management, reopenSession } from "/sdk/remote-v1.js";
+//#region src/management-page.ts
+var ManagementPage = class {
+	client;
+	reopen;
+	settings;
+	devices;
+	intent;
+	outcome;
+	access = "checking";
+	busy = false;
+	notice = "";
+	freshAttempted = false;
+	constructor(client, reopen) {
+		this.client = client;
+		this.reopen = reopen;
+	}
+	get writable() {
+		return this.access === "live" && this.settings?.capabilities.settingsWrite === true && !this.busy && this.outcome?.state !== "unknown" && !(this.outcome?.state === "refused" && this.outcome.reason === "REMOTE_MANAGEMENT_CAPACITY");
+	}
+	async refresh(cursor = null) {
+		this.busy = true;
+		try {
+			const settings = await this.client.settings();
+			const devices = await this.client.devices({
+				cursor,
+				limit: 25
+			});
+			this.settings = settings;
+			this.devices = devices;
+			this.access = "live";
+			if (this.outcome) this.describeOutcome();
+			else this.notice = settings.settings.warning ?? "";
+		} catch (error) {
+			this.access = accessRefused(error) ? "lost" : "unconfirmed";
+			this.notice = "Current access could not be confirmed. Use the local CLI.";
+		} finally {
+			this.busy = false;
+		}
+	}
+	async submit(intent) {
+		if (!this.writable) throw new Error("Management controls are read-only.");
+		this.intent = Object.freeze({
+			...intent,
+			input: Object.freeze({ ...intent.input })
+		});
+		this.outcome = void 0;
+		this.freshAttempted = false;
+		this.busy = true;
+		this.notice = "Saving…";
+		try {
+			const frozen = this.intent;
+			this.outcome = frozen.kind === "setting" ? await this.client.set(frozen.input) : frozen.kind === "rename" ? await this.client.rename(frozen.input) : await this.client.revoke(frozen.input);
+			if (this.outcome.state === "committed" && this.outcome.sessionEnded) this.access = "unconfirmed";
+			if (this.outcome.state === "refused" && this.outcome.reason === "REMOTE_MANAGEMENT_READ_ONLY") this.access = "unconfirmed";
+			this.describeOutcome();
+		} catch (error) {
+			if (!(error instanceof ClientError)) throw error;
+			this.outcome = {
+				operationId: this.intent.input.operationId,
+				state: "unknown",
+				reason: "effect_outcome_unconfirmed"
+			};
+			this.notice = "Outcome unknown. Read the original operation; do not submit it again.";
+		} finally {
+			this.busy = false;
+		}
+	}
+	/** One explicit fresh live-grant admission attempt, then only the original read.
+	* Access refusal never establishes the prior mutation's outcome.
+	*/
+	async recover() {
+		if (!this.intent || this.busy || this.freshAttempted) return;
+		this.freshAttempted = true;
+		this.busy = true;
+		try {
+			this.client = await this.reopen();
+			this.access = "live";
+			try {
+				this.outcome = await this.client.operation(this.intent.input.operationId);
+				this.describeOutcome();
+			} catch {
+				this.notice = "Original outcome unavailable or unconfirmed. Confirm with tmt remote devices or tmt remote settings.";
+			}
+		} catch (error) {
+			this.access = accessRefused(error) ? "lost" : "unconfirmed";
+			this.notice = accessRefused(error) ? "Current access lost. Prior outcome remains unknown unless already acknowledged. Confirm with tmt remote devices." : "Current access unconfirmed. Prior outcome remains unknown unless already acknowledged. Confirm with the local CLI.";
+		} finally {
+			this.busy = false;
+		}
+	}
+	get canRecover() {
+		return !!this.intent && !this.busy && !this.freshAttempted && (this.outcome?.state === "unknown" || this.access !== "live");
+	}
+	describeOutcome() {
+		if (this.outcome?.state === "committed") this.notice = this.intent?.kind === "setting" ? "Saved. Session limits apply at the next session open." : "Device change committed.";
+		else if (this.outcome?.state === "unknown") this.notice = "Outcome unknown. Read the original operation; do not submit it again.";
+		else if (this.outcome?.state === "refused") this.notice = this.outcome.reason === "REMOTE_MANAGEMENT_CAPACITY" ? "Browser management operation limit reached. Use tmt remote settings or tmt remote devices; do not retry or reset storage." : this.outcome.reason === "REMOTE_MANAGEMENT_READ_ONLY" ? "This browser is read-only. Use the local CLI." : "Change refused. Check the admitted values or use the local CLI.";
+	}
+};
+function accessRefused(error) {
+	return error instanceof RefusalError && [
+		"REMOTE_CLOSED",
+		"REMOTE_SESSION_ENDED",
+		"REMOTE_SESSION_EVICTED"
+	].includes(error.code);
+}
+//#endregion
+//#region src/settings-page.ts
+function element(id) {
+	const found = document.getElementById(id);
+	if (!found) throw new Error(`Settings page lacks #${id}.`);
+	return found;
+}
+var opening = element("opening");
+var mode = element("limit-mode");
+var custom = element("limit-custom");
+var devices = element("devices");
+var recover = element("recover");
+var refresh = element("refresh");
+var more = element("more");
+var rows = /* @__PURE__ */ new Map();
+var initialized = false;
+var page;
+function render() {
+	element("access").textContent = {
+		checking: "Checking current access…",
+		live: "Current browser access confirmed.",
+		lost: "Current browser access refused.",
+		unconfirmed: "Current browser access unconfirmed."
+	}[page.access];
+	const editable = page.access === "live" && page.settings?.capabilities.settingsWrite === true;
+	element("read-only").hidden = editable;
+	if (page.settings) {
+		const value = page.settings.settings;
+		element("opening-value").textContent = `${value.open ? "On" : "Off"} · ${value.source}`;
+		element("limit-value").textContent = `${value.sessionsPerDevice ?? "Off (unlimited)"} · ${value.sessionsPerDeviceSource}`;
+		const warning = element("warning");
+		warning.textContent = value.warning ?? "";
+		warning.hidden = value.warning === null;
+		if (!initialized) {
+			opening.value = value.open ? "on" : "off";
+			mode.value = value.sessionsPerDeviceSource === "default" ? "default" : value.sessionsPerDevice === null ? "off" : "custom";
+			custom.value = value.sessionsPerDevice ?? "";
+			initialized = true;
+		}
+	}
+	custom.required = mode.value === "custom";
+	for (const field of [
+		opening,
+		mode,
+		custom
+	]) field.disabled = !editable || field === custom && mode.value !== "custom";
+	for (const button of document.querySelectorAll("form button")) button.disabled = !page.writable;
+	refresh.disabled = page.busy;
+	recover.hidden = !page.canRecover;
+	more.hidden = !page.devices?.nextCursor;
+	more.disabled = page.busy;
+	element("outcome").textContent = `${page.outcome?.state ? `${page.outcome.state}: ` : ""}${page.notice || "No change submitted."}`;
+	element("original").textContent = page.intent ? `Original operation ${page.intent.input.operationId}` : "";
+	if (page.devices) {
+		const current = new Set(page.devices.devices.map((device) => device.clientId));
+		for (const [id, row] of rows) if (!current.has(id)) {
+			row.remove();
+			rows.delete(id);
+		}
+		for (const device of page.devices.devices) {
+			let row = rows.get(device.clientId);
+			if (!row) {
+				row = document.createElement("div");
+				row.className = "device";
+				const summary = document.createElement("p");
+				summary.className = "device-summary";
+				const form = document.createElement("form");
+				const label = document.createElement("label");
+				const name = document.createElement("input");
+				name.id = `name-${device.clientId}`;
+				name.value = device.name;
+				name.required = true;
+				name.maxLength = 64;
+				name.setAttribute("aria-describedby", "read-only");
+				label.htmlFor = name.id;
+				label.textContent = "Device name";
+				const save = document.createElement("button");
+				save.type = "submit";
+				save.textContent = "Rename";
+				const revoke = document.createElement("button");
+				revoke.type = "button";
+				revoke.textContent = "Revoke";
+				revoke.addEventListener("click", () => {
+					if (!page.writable) return;
+					const target = page.devices?.devices.find((item) => item.clientId === device.clientId);
+					if (!target || target.revoked) return;
+					if (confirm(`Revoke ${target.name}${target.thisBrowser ? " (this browser)" : ""}?`)) change({
+						kind: "revoke",
+						input: {
+							operationId: crypto.randomUUID(),
+							clientId: device.clientId
+						}
+					});
+				});
+				form.addEventListener("submit", (event) => {
+					event.preventDefault();
+					if (!page.writable) return;
+					change({
+						kind: "rename",
+						input: {
+							operationId: crypto.randomUUID(),
+							clientId: device.clientId,
+							name: name.value
+						}
+					});
+				});
+				form.append(label, name, save, revoke);
+				row.append(summary, form);
+				rows.set(device.clientId, row);
+				devices.append(row);
+			}
+			row.querySelector(".device-summary").textContent = `${device.name}${device.thisBrowser ? " · This browser" : ""} · ${device.kind} · ${device.revoked ? "Revoked" : "Paired"} · ${device.liveSessionCount} live sessions · Last activity ${device.lastActivityAtMs === null ? "unavailable" : new Date(device.lastActivityAtMs).toLocaleString()}`;
+			row.querySelector("input").disabled = !editable || device.revoked;
+			for (const button of row.querySelectorAll("button")) button.disabled = !page.writable || device.revoked;
+		}
+	}
+}
+async function run(action) {
+	const pending = action();
+	render();
+	try {
+		await pending;
+	} catch (error) {
+		page.notice = error instanceof Error ? error.message : "Action unavailable.";
+	}
+	render();
+}
+async function change(intent) {
+	await run(() => page.submit(intent));
+	if (page.outcome?.state === "committed" && !page.outcome.sessionEnded) await run(() => page.refresh());
+}
+element("opening-form").addEventListener("submit", (event) => {
+	event.preventDefault();
+	if (!page.writable) return;
+	if (opening.value === "on" === page.settings?.settings.open) return;
+	change({
+		kind: "setting",
+		input: {
+			operationId: crypto.randomUUID(),
+			setting: "open",
+			value: opening.value === "on"
+		}
+	});
+});
+element("limit-form").addEventListener("submit", (event) => {
+	event.preventDefault();
+	if (!page.writable) return;
+	if (mode.value === "default") return;
+	const value = mode.value === "off" ? null : custom.value;
+	if (value === page.settings?.settings.sessionsPerDevice && page.settings.settings.sessionsPerDeviceSource === "settings.json") return;
+	change({
+		kind: "setting",
+		input: {
+			operationId: crypto.randomUUID(),
+			setting: "sessions-per-device",
+			value
+		}
+	});
+});
+mode.addEventListener("change", render);
+refresh.addEventListener("click", () => void run(() => page.refresh()));
+more.addEventListener("click", () => void run(() => page.refresh(page.devices?.nextCursor ?? null)));
+recover.addEventListener("click", () => void run(async () => {
+	await page.recover();
+	if (page.access === "live") await page.refresh();
+}));
+try {
+	let session = await reopenSession();
+	page = new ManagementPage(management(session), async () => {
+		session = await reopenSession(session);
+		return management(session);
+	});
+	await run(() => page.refresh());
+} catch (error) {
+	element("access").textContent = error instanceof RefusalError ? "Current browser access refused. Use the local CLI." : "Current browser access unconfirmed. Pair locally with tmt remote pair, or use the local CLI.";
+	refresh.disabled = true;
+}
+//#endregion

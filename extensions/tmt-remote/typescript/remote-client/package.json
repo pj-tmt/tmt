@@ -7,8 +7,8 @@
     "node": ">=22.12.0"
   },
   "scripts": {
-    "build": "tsc --noEmit && vp build",
-    "check": "tsc --noEmit && vp lint --config vite.config.ts --deny-warnings src test e2e vitest.config.ts vite.config.ts playwright.config.ts && vp fmt --config vite.config.ts --check .",
+    "build": "tsc --noEmit && vp build && vp build --config vite.page.config.ts",
+    "check": "tsc --noEmit && vp lint --config vite.config.ts --deny-warnings src test e2e vitest.config.ts vite.config.ts vite.page.config.ts playwright.config.ts && vp fmt --config vite.config.ts --check .",
     "test": "python3 test/reference.py --check && vp test run --config vitest.config.ts",
     "test:browser": "vp exec playwright test"
   },

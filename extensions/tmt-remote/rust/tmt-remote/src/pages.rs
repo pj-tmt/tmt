@@ -16,6 +16,9 @@ const BOOTSTRAP: &str = include_str!("../assets/pair.js");
 const PAGE: &str = include_str!("../assets/pair.html");
 const LANDING: &str = include_str!("../assets/landing.html");
 const ERROR: &str = include_str!("../assets/error.html");
+const SETTINGS: &str = include_str!("../assets/settings.html");
+const SETTINGS_SCRIPT: &str = include_str!("../assets/settings-v1.js");
+const SETTINGS_STYLE: &str = include_str!("../assets/settings.css");
 const STYLE: &str = include_str!("../assets/pages.css");
 /// The page runs only the same-origin SDK module and talks only to this door.
 const PAGE_POLICY: &str = "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; \
@@ -47,6 +50,7 @@ impl Pages {
     }
     pub fn serves(path: &str) -> bool {
         path == "/"
+            || path == "/settings"
             || path == "/pair"
             || path.starts_with("/pair/")
             || short_page_route(path)
@@ -64,11 +68,14 @@ impl Pages {
             ("GET", path)
                 if matches!(
                     path,
-                    "/" | "/pair"
+                    "/" | "/settings"
+                        | "/pair"
                         | "/sdk/pair.js"
                         | "/sdk/pair-offer"
                         | "/sdk/remote-v1.js"
                         | "/sdk/pages.css"
+                        | "/sdk/settings-v1.js"
+                        | "/sdk/settings.css"
                 ) || path.starts_with("/pair/")
                     || short_page_route(path) =>
             {
@@ -112,6 +119,9 @@ impl Pages {
                 // is not cached across upgrades.
                 asset("text/javascript; charset=utf-8", SDK, None)
             }
+            "/settings" => asset("text/html; charset=utf-8", SETTINGS, Some(PAGE_POLICY)),
+            "/sdk/settings-v1.js" => asset("text/javascript; charset=utf-8", SETTINGS_SCRIPT, None),
+            "/sdk/settings.css" => asset("text/css; charset=utf-8", SETTINGS_STYLE, None),
             "/sdk/pair.js" => asset("text/javascript; charset=utf-8", BOOTSTRAP, None),
             "/sdk/pair-offer" => {
                 let Some(descriptor) = self
@@ -181,7 +191,12 @@ fn asset(content_type: &str, body: &str, policy: Option<&str>) -> Reply {
 
 /// Only browser page routes receive HTML. SDK and protocol refusals stay JSON.
 fn page_refusal(path: &str, status: u16) -> Reply {
-    if path != "/" && path != "/pair" && !path.starts_with("/pair/") && !short_page_route(path) {
+    if path != "/"
+        && path != "/settings"
+        && path != "/pair"
+        && !path.starts_with("/pair/")
+        && !short_page_route(path)
+    {
         return Reply::empty(status);
     }
     let mut reply = asset("text/html; charset=utf-8", ERROR, Some(PAGE_POLICY));

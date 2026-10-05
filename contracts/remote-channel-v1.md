@@ -448,7 +448,7 @@ original operation, never becomes falsely unsent.
 
 ### Remote settings browser authority
 
-**[#1769](https://github.com/pj-tmt/tmt/issues/1769) implementation draft; actual page and
+**[#1769](https://github.com/pj-tmt/tmt/issues/1769) implementation draft; static page exists and shared presentation/
 feature acceptance remain pending.** This section owns authority; the fixed management protocol
 below specifies the native/SDK draft. The local CLI remains the scripting management path.
 Current landing, pairing and error-page presentation adoption does not implement this feature.
@@ -517,8 +517,8 @@ package or current-page adoption cannot satisfy those requirements.
 ### Remote management protocol
 
 The #1769 implementation draft adds the following fixed operations on the existing signed
-`POST /append` request channel. The actual settings/device page, native/browser acceptance,
-shared presentation review and feature delivery remain pending; this draft is not a release claim.
+`POST /append` request channel. The current-token settings/device page is a static draft; native/browser acceptance,
+shared presentation adoption/review and feature delivery remain pending; this draft is not a release claim.
 Every read and effect retains ordinary live-grant admission. Only a `browser` grant pinned to the
 door's exact origin may use these cases. Agent scopes and direct/hold mode confer no management
 write capability. Unsupported operations, including `remote.management.recover`, remain refused.
@@ -641,6 +641,33 @@ proof of permanent grant loss or committed revoke. Expiry, local revoke, re-pair
 retain existing refusal semantics. Designation loss with a still-live grant permits only ordinary
 own-receipt reading. No historical/revoked-key admission, capture-based capability, new nonce
 framework, agent/held-work recovery exception or general recovery route exists.
+
+### Remote settings page draft
+
+`GET /settings` serves the Remote-owned current-token static draft with the existing page CSP,
+origin checks and no-store policy. `/sdk/settings-v1.js` imports `/sdk/remote-v1.js`; it does not
+embed another signer/channel implementation or add public SDK exports. The three sections are
+Browser opening, Session limit per device and Paired devices. Effective values, sources, warning
+and write capabilities come from admitted server reads. The shell is labeled as a Remote settings preview; shared presentation adoption remains pending
+and this draft does not claim #1797 package adoption.
+
+An untouched unset/default cap remains unset; explicit off is unlimited and custom positive caps
+remain decimal text. The default option describes the missing key and does not invent a reset
+setter. Existing CLI setters do not remove keys. A custom 8 is explicit configuration, distinct
+from an unset default. Form drafts survive asynchronous outcomes and read refreshes. Non-designated
+browsers retain visible values and persistent local-CLI read-only guidance with disabled mutation
+controls. Unknown or capacity outcomes disable further mutation submission without discarding
+original input/ID or unsent draft text; no mutation retry/reset/replacement-ID action exists.
+
+The page keeps current access status separate from committed/refused/unknown outcome. Explicit
+original-outcome reading makes at most one fresh admission attempt, then only the original lookup.
+`reopenSession(previousSession)` binds to the existing paired identity/public trust pins and rejects
+re-pair/key replacement before admission. It reads the current door descriptor and, after an
+HTTP admission refusal, rechecks that descriptor without a second admission. Changed/unavailable/
+malformed descriptors and transport/unverified replies remain unconfirmed. A refused admission
+against the unchanged trusted descriptor shows current access loss; it never proves the original
+mutation committed or permanent grant loss. No captured key is persisted as a recovery capability.
+The existing no-argument reopen behavior and ordinary agent operations remain unchanged.
 
 ### Local CLI discovery
 
