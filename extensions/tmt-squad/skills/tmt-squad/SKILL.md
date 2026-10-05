@@ -308,7 +308,7 @@ tmt sq config set board.ask_lead "What needs my decision?"
 tmt sq config set board.ask_lead "Summarize our pending decisions." --squad product
 ```
 
-Press `a` on a home, squad member or leads row to write to it. One composer
+Press `a` on a home, squad member or leads row, including its expanded `e` band, to write to it. One composer
 answers an open request when something waits on you and otherwise sends the squad's
 lead a note; Tab cycles **answer, note and talk** (talk is a detached `tmt talk`:
 a request that expects a reply), through the modes the row allows. The input opens
@@ -589,7 +589,7 @@ notes stay below the list; `n` hides or shows them.
 Press `e` on the selected lead or member to expand the shared band beneath its
 header. It replaces the task preview and shows, when available, `◆ waits on you`,
 task, links, latest reply with age, then the available collapse/write/open hints.
-`e` or Esc collapses; `a` writes to that member, and `o` opens the row's PR or link.
+`e` or Esc collapses; `a` opens the same answer/note/talk composer for that row, and `o` opens the row's PR or link.
 Arrow keys/j/k and PgUp/PgDn scroll long details without moving the selected row.
 There is one band at a time. Reading works without recording yourself; writing
 requires `tmt sq me`. Custom bindings also control the expanded band.

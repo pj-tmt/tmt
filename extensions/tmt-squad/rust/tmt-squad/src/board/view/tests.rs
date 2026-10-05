@@ -59,6 +59,7 @@ fn waiting_rows_detail_and_ask_prompt_fit_each_width_and_theme() {
             ]}]));
             lead_sol(&mut app);
             let view = app.view.as_mut().unwrap();
+            view.bindings = crate::action::preset(true, &[]);
             view.look = crate::look::Look {
                 theme: tmt_cli_style::Theme::new(tmt_cli_style::theme::Base::parse(base).unwrap()),
                 depth,
@@ -153,7 +154,7 @@ fn waiting_hint_uses_rebound_key_and_drops_oldest_before_actions() {
     assert!(!hints(&app, 50).contains("oldest"));
     assert!(!hints(&app, 80).contains("oldest"));
     assert!(hints(&app, 100).contains("r reply"));
-    assert!(hints(&app, 100).ends_with("q quit  ? more"));
+    assert!(hints(&app, 100).ends_with("? more  q quit"));
     assert!(!hints(&app, 50).contains("A ask lead"));
     assert_eq!(
         super::waiting::text(app.selected_row().unwrap()),
@@ -171,10 +172,7 @@ fn footer_omits_whole_hints_instead_of_clipping_words() {
         let shown = hints(&app, width);
         assert!(shown.width() <= width);
         if width >= "? more".width() {
-            assert!(
-                shown.ends_with("? more"),
-                "help stays discoverable: {width}"
-            );
+            assert!(shown.contains("? more"), "help stays discoverable: {width}");
         }
         assert!(
             shown
@@ -218,7 +216,7 @@ fn footer_orders_hints_by_priority_and_always_keeps_quit_and_more() {
         "{full}"
     );
     assert!(!full.contains("next-pane"), "{full}");
-    assert!(full.ends_with("q quit  ? more"));
+    assert!(full.ends_with("? more  q quit"));
     let whole = shown_hints(&full);
     for width in 0..=full.width() {
         let shown = hints(&app, width);
@@ -226,7 +224,7 @@ fn footer_orders_hints_by_priority_and_always_keeps_quit_and_more() {
         match width {
             0..=5 => assert_eq!(shown, ""),
             6..=13 => assert_eq!(shown, "? more", "{width}"),
-            _ => assert!(shown.ends_with("q quit  ? more"), "{width}: {shown}"),
+            _ => assert!(shown.ends_with("? more  q quit"), "{width}: {shown}"),
         }
         // Whole hints only, always a prefix of the priority order.
         let kept = shown_hints(&shown);
@@ -286,7 +284,7 @@ fn footer_shows_only_the_row_actions_the_selected_row_allows() {
     for hint in ["⏎", "t talk", "r reply", "a write"] {
         assert!(!text.contains(hint), "{text}");
     }
-    assert!(text.contains("/ search") && text.ends_with("q quit  ? more"));
+    assert!(text.contains("/ search") && text.ends_with("? more  q quit"));
     // The plain host's Enter is the row menu; rebinding changes the word.
     let view = app.view.as_mut().unwrap();
     view.bindings =
@@ -4208,11 +4206,7 @@ fn boxed_members_share_home_scene_and_inline_band_at_all_widths_and_themes() {
             assert!(body.find("links").unwrap() < body.find("latest reply · 5m").unwrap());
             assert!(body.contains("Pushed the shared list."));
             assert!(!body.contains('\u{1b}'));
-            assert!(
-                expanded
-                    .iter()
-                    .any(|line| line.contains("a write to worker"))
-            );
+            assert!(expanded.iter().any(|line| line.contains("a write")));
             assert!(
                 !app.hits
                     .borrow()
@@ -4337,7 +4331,7 @@ fn boxed_member_band_uses_rebound_keys_and_scrolls_its_body_without_moving_the_c
     draw(&app, 80, 24);
     assert!(app.input_band.get().is_some());
     let screen = draw(&app, 80, 24).join("\n");
-    assert!(screen.contains("E collapse · A write to worker"));
+    assert!(screen.contains("E collapse · A write"));
     app.key(KeyEvent::new(KeyCode::PageDown, KeyModifiers::NONE));
     assert_eq!(app.selected, 1);
     assert!(
@@ -4356,8 +4350,42 @@ fn boxed_member_band_uses_rebound_keys_and_scrolls_its_body_without_moving_the_c
         Effect::None
     );
     assert!(
+        matches!(&app.input.as_ref().unwrap().compose, crate::board::app::Compose::Annotate { to, row } if to == "sol" && row == "worker")
+    );
+    app.key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+    assert!(
         matches!(&app.input.as_ref().unwrap().compose, crate::board::app::Compose::Talk { to } if to == "worker")
     );
+}
+
+#[test]
+fn boxed_member_read_band_starts_answer_then_cycles_note_and_talk_without_losing_text() {
+    use crate::board::app::Compose;
+    let mut app = boxed_members(json!([{"title":null,"rows":[
+        row("worker", "working", "decision", json!({"id":"WORKER", "waitingOnYou":[{"requestId":"decision-q","preview":"Ship this?"}]}))
+    ]}]));
+    app.selected = 1;
+    app.key(KeyEvent::new(KeyCode::Char('e'), KeyModifiers::NONE));
+    assert!(matches!(
+        &app.input.as_ref().unwrap().compose,
+        Compose::ReadRow { .. }
+    ));
+    app.key(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE));
+    assert!(
+        matches!(&app.input.as_ref().unwrap().compose, Compose::Reply { request, from } if request == "decision-q" && from == "worker")
+    );
+    app.input.as_mut().unwrap().text = "Keep this draft".into();
+    app.key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+    assert!(
+        matches!(&app.input.as_ref().unwrap().compose, Compose::Annotate { to, row } if to == "sol" && row == "worker")
+    );
+    app.key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+    assert!(matches!(&app.input.as_ref().unwrap().compose, Compose::Talk { to } if to == "worker"));
+    app.key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+    assert!(
+        matches!(&app.input.as_ref().unwrap().compose, Compose::Reply { request, .. } if request == "decision-q")
+    );
+    assert_eq!(app.input.as_ref().unwrap().text, "Keep this draft");
 }
 
 #[test]

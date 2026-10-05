@@ -82,7 +82,9 @@ and changed clock text or spinner frames, rather than periodic full repainting.
   shared `App.input` as HOME/read/send modes. `home::controller` reuses cached bodies
   or the existing fenced request read; `view::waiting::read_lines` supplies field
   order, height, paint and scroll limits. Read-only expansion needs no recorded user;
-  writing does. Effective bindings control collapse/write/open, and covered hits
+  writing does. Effective bindings control collapse/write/open. Writing from a
+  read band dispatches the same row action as the list, so default `a` answers first
+  and explicit note/talk/reply bindings keep their recipient and mode. Covered hits
   are removed by the existing band owner.
 - Row composer and footer: `Input.compose` is the current mode (answer, note or talk)
   and `Input.others` the rest in cycle order; Tab (`cycle_mode`) rotates them and

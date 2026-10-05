@@ -104,6 +104,7 @@ fn row_allows(app: &App, action: &crate::action::Action) -> bool {
         && matches!(
             action.verb,
             Verb::Jump
+                | Verb::HomeMessage
                 | Verb::Talk
                 | Verb::Annotate
                 | Verb::Reply
@@ -194,7 +195,7 @@ pub(super) fn hints(app: &App, width: usize) -> String {
     if app.view.as_ref().is_some_and(|view| view.me.is_none()) {
         hints.push(crate::status::UNKNOWN_YOU.to_owned());
     }
-    let reserved = ["q quit", "? more"];
+    let reserved = ["? more", "q quit"];
     let tail = reserved.join("  ");
     if let Some(waiting) = waiting_summary(app) {
         let minimum = std::iter::once(waiting.base.as_str())
@@ -211,10 +212,10 @@ pub(super) fn hints(app: &App, width: usize) -> String {
     }
     if width < tail.width() {
         // Below both reserved hints: `? more` first, then nothing.
-        return if width < reserved[1].width() {
+        return if width < reserved[0].width() {
             String::new()
         } else {
-            reserved[1].to_owned()
+            reserved[0].to_owned()
         };
     }
     let mut shown = String::new();

@@ -1114,3 +1114,14 @@ fn names_that_are_not_stable_ids_never_reach_the_scene_identity() {
         }
     }
 }
+
+#[test]
+#[ignore = "read-only snapshot inspection before fixture approval"]
+fn dump_home_snapshots() {
+    let path = std::env::var("SQUAD_SNAPSHOTS_OUT").expect("SQUAD_SNAPSHOTS_OUT");
+    std::fs::write(
+        path,
+        serde_json::to_string_pretty(&snapshots()).unwrap() + "\n",
+    )
+    .unwrap();
+}

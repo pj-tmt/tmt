@@ -392,10 +392,6 @@ pub(in crate::board) fn read_lines(
 fn read_hints(app: &crate::board::app::App, width: u16) -> String {
     use crate::action::Verb;
     use unicode_width::UnicodeWidthStr;
-    let name = app
-        .selected_row()
-        .and_then(|row| row["name"].as_str())
-        .unwrap_or("member");
     let bindings = app.bindings();
     let key = |verb| {
         bindings
@@ -412,10 +408,7 @@ fn read_hints(app: &crate::board::app::App, width: u16) -> String {
     if app.view.as_ref().is_some_and(|view| view.me.is_some())
         && let Some(key) = key(Verb::Annotate)
     {
-        hints.push(format!(
-            "{key} write to {}",
-            crate::board::notes::sanitize(name)
-        ));
+        hints.push(format!("{key} write"));
     }
     if app
         .selected_row()
