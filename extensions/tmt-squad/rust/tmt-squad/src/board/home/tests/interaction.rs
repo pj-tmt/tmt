@@ -513,7 +513,7 @@ fn middle_home_row_composes_inline_and_success_survives_answer_refresh() {
                 .chunks(usize::from(width))
                 .map(|cells| cells.iter().map(|cell| cell.symbol()).collect::<String>())
                 .collect::<Vec<_>>();
-            assert!(lines[usize::from(band.y + 1)].contains("→ worker-2 (a)"));
+            assert!(lines[usize::from(band.y + 1)].contains("→ worker-2 · answer"));
             assert!(lines[usize::from(band.y + 2)].contains("◆ “Should this decision proceed?”"));
             assert!(lines[usize::from(band.y + 4)].contains("Enter send · Esc cancel"));
             assert!(lines[usize::from(band.bottom())].contains("worker-3"));
@@ -526,8 +526,10 @@ fn middle_home_row_composes_inline_and_success_survives_answer_refresh() {
             press(&mut app, Tab);
             assert_eq!(
                 app.input.as_ref().unwrap().header(),
-                "✎ note → lead-a · about worker-2"
+                "→ lead-a · note · about worker-2"
             );
+            press(&mut app, Tab);
+            assert_eq!(app.input.as_ref().unwrap().header(), "→ worker-2 · talk");
             press(&mut app, Tab);
             press(&mut app, Char('y'));
             assert!(
@@ -739,7 +741,7 @@ fn table_note_band_shifts_later_rows_without_changing_hits_or_selection() {
                 .chunks(width as usize)
                 .map(|cells| cells.iter().map(|cell| cell.symbol()).collect::<String>())
                 .collect::<Vec<_>>();
-            assert!(lines[usize::from(band.y + 1)].contains("✎ note → lead-e · about e"));
+            assert!(lines[usize::from(band.y + 1)].contains("→ lead-e · note · about e"));
             press(&mut app, Esc);
             assert!(app.input.is_none());
             assert_eq!(app.home_target, target);

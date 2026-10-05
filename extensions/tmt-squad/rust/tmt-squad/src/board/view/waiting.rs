@@ -289,8 +289,8 @@ pub(super) fn inline_prompt(
                 .as_ref()
                 .map_or("lead", |send| send.name.as_str())
         )
-    } else if input.alternative.is_some() {
-        "Enter send · Esc cancel · Tab answer/note".into()
+    } else if !input.others.is_empty() {
+        format!("Enter send · Esc cancel · Tab {}", input.modes().join("/"))
     } else {
         "Enter send · Esc cancel".into()
     };

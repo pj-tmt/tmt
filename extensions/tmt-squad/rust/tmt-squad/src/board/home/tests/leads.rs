@@ -261,7 +261,7 @@ fn expanded_body_and_answer_share_the_full_inner_band_at_every_width_and_theme()
             let answer = lines(&draw(&app, width, 30));
             let next = app.input_band.get().unwrap();
             assert_eq!((next.x, next.width), (band.x, band.width));
-            assert!(answer[usize::from(next.y + 1)].contains("→ lead-a (a)"));
+            assert!(answer[usize::from(next.y + 1)].contains("→ lead-a · answer"));
             assert!(answer[usize::from(next.y + 2)].contains("Approve this change?"));
             press(&mut app, Esc);
             assert!(app.input.is_none());

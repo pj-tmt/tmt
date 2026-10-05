@@ -4072,7 +4072,7 @@ fn inline_middle_row_band_moves_rows_masks_panes_and_fits_every_theme() {
                 let band = app.input_band.get().expect("inline band");
                 let header = &screen[usize::from(band.y + 1)];
                 assert!(
-                    header.contains("→ member-2 (product)"),
+                    header.contains("→ member-2 · answer"),
                     "{base}/{width}/{tab}: {header}"
                 );
                 assert_eq!(band.height, 6);
@@ -4104,9 +4104,9 @@ fn inline_middle_row_band_moves_rows_masks_panes_and_fits_every_theme() {
                 app.key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
                 let note = draw(&app, width, 30);
                 assert!(note.iter().any(|line| line.contains(if tab == "product" {
-                    "✎ note → sol · about member-2"
+                    "→ sol · note · about member-2"
                 } else {
-                    "✎ note → member-2"
+                    "→ member-2 · note"
                 })));
                 assert_eq!(app.input_band.get().unwrap().height, 5);
                 app.key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
