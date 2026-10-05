@@ -1155,7 +1155,7 @@ protocol refusals and mounted extension responses retain their own representatio
 The door serves the browser SDK `remote-v1.js` (built from `remote-client`), which
 gives mounted pages `reopenSession`, `operations(session)` and `certifyKey`; its README owns
 the caller-facing recovery rules. The
-[Remote skill](.agents/skills/tmt-remote/SKILL.md) owns module internals.
+[Remote skill](.agents/skills/tmt-remote/references/architecture-internals.md) owns module internals.
 System-wide invariants:
 
 - Unauthenticated protocol traffic gets one generic refusal and learns no inventory.
