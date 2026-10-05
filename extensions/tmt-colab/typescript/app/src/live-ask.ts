@@ -1,6 +1,6 @@
 import type { CommentContext, commentForAsk } from './thread-store.js';
 import { requireValue } from '@tmt/colab-client';
-import { AskController } from './ask-attempt.js';
+import { AskController, type AskDestinations, type DirectoryReadFailure } from './ask-attempt.js';
 import type { AskDestination, AdmittedSelection } from './ask-intent.js';
 import { AskRecordStore } from './ask-record-store.js';
 import { readAskViews, type AskRoot } from './ask-records.js';
@@ -13,6 +13,25 @@ import { text } from './strings.js';
 import type { JsonValue, OwnState } from './fold-protocol.js';
 
 export type AgentDestination = AskDestination & { presence?: RemoteAgent['presence'] };
+export type AgentDirectoryObservation =
+  | { kind: 'ready'; checkedAt: number; destinations: AgentDestination[] }
+  | DirectoryReadFailure;
+function agentDestinations(snapshot: AskDestinations): AgentDestination[] {
+  return snapshot.machines.flatMap((machine) =>
+    machine.agents.map((agent) => ({
+      machine: machine.id,
+      machineName: machine.name,
+      online: machine.online,
+      agent: agent.id,
+      agentName: agent.name,
+      presence: agent.presence,
+      grantExpiresAt: snapshot.context.expiresAtMs,
+      deviceName: snapshot.context.deviceName,
+      grantRevision: snapshot.context.grantRevision,
+      mode: snapshot.context.mode,
+    })),
+  );
+}
 export interface LiveAskOptions {
   space: string;
   page: string;
@@ -67,20 +86,28 @@ export class LiveAsk implements AskBinding {
     const controller = this.#controller;
     const snapshot = await controller.destinations();
     requireValue(!this.#closed);
-    return snapshot.machines.flatMap((machine) =>
-      machine.agents.map((agent) => ({
-        machine: machine.id,
-        machineName: machine.name,
-        online: machine.online,
-        agent: agent.id,
-        agentName: agent.name,
-        presence: agent.presence,
-        grantExpiresAt: snapshot.context.expiresAtMs,
-        deviceName: snapshot.context.deviceName,
-        grantRevision: snapshot.context.grantRevision,
-        mode: snapshot.context.mode,
-      })),
-    );
+    return agentDestinations(snapshot);
+  }
+  /** Read-only status: no Ask preparation, cache admission or session recovery. */
+  async observeDestinations(): Promise<AgentDirectoryObservation> {
+    requireValue(!this.#closed);
+    const connection = await this.options.connection();
+    const validate = () => {
+      requireValue(!this.#closed && connection.active);
+      requireValue(connection.admission.head !== null && connection.admission.root !== null);
+      connection.admission.validatePage(this.options.sharing);
+    };
+    await connection.run(async () => validate());
+    const observation = await this.#controller.observeDestinations();
+    requireValue((await this.options.connection()) === connection);
+    await connection.run(async () => validate());
+    return observation.kind === 'ready'
+      ? {
+          kind: 'ready',
+          checkedAt: observation.checkedAt,
+          destinations: agentDestinations(observation.snapshot),
+        }
+      : observation;
   }
   async #admit(): Promise<Connection> {
     const c = await this.options.connection();

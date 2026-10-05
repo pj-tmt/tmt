@@ -11,6 +11,8 @@ import {
   type RemoteClient,
   type RemoteAgent,
   type RemoteContext,
+  type RemoteRefusalCode,
+  type SessionEndCode,
   type ResultState,
   type SendState,
 } from './ask-remote.js';
@@ -21,6 +23,16 @@ export interface AskDestinations {
   context: RemoteContext;
   machines: { id: string; name: string; online: 'online'; agents: RemoteAgent[] }[];
 }
+export type DirectoryReadPhase = 'session' | 'directory';
+export type DirectoryReadFailure = {
+  kind: 'unavailable';
+  phase: DirectoryReadPhase;
+  failure: 'ended' | 'evicted' | 'refused' | 'unavailable';
+  code?: RemoteRefusalCode | 'REMOTE_REFUSED' | SessionEndCode;
+};
+export type AskDirectoryObservation =
+  | { kind: 'ready'; checkedAt: number; snapshot: AskDestinations }
+  | DirectoryReadFailure;
 export interface AskControllerOptions {
   store: AskRecordStore;
   remote: RemoteClient;
@@ -43,28 +55,55 @@ export class AskController {
     this.options.sessionEnded?.(error);
   }
   constructor(private options: AskControllerOptions) {}
-  async destinations(): Promise<AskDestinations> {
+  /** One current-session/list normalization owner. Observation never updates the
+   * Ask destination cache or invokes the session lifecycle callback. */
+  async #readDestinations(phase: (value: DirectoryReadPhase) => void): Promise<AskDestinations> {
     const { remote, store } = this.options;
+    phase('session');
     requireValue(!this.#ended);
-    let context: RemoteContext, agents: RemoteAgent[];
+    const context = await remote.context();
+    const validate = () =>
+      requireValue(
+        !this.#ended &&
+          context.deviceId === store.scope.deviceId &&
+          (context.expiresAtMs === null || Date.now() < context.expiresAtMs),
+      );
+    validate();
+    phase('directory');
+    const agents = await remote.listAgents();
+    phase('session');
+    validate();
+    return {
+      context,
+      machines: [{ id: context.machineId, name: 'This machine', online: 'online', agents }],
+    };
+  }
+  async observeDestinations(): Promise<AskDirectoryObservation> {
+    let phase: DirectoryReadPhase = 'session';
     try {
-      context = await remote.context();
-      agents = await remote.listAgents();
+      const snapshot = await this.#readDestinations((value) => {
+        phase = value;
+      });
+      return { kind: 'ready', checkedAt: Date.now(), snapshot: structuredClone(snapshot) };
+    } catch (error) {
+      if (error instanceof SessionEvictedError)
+        return { kind: 'unavailable', phase, failure: 'evicted', code: 'REMOTE_SESSION_EVICTED' };
+      if (error instanceof SessionEndedError)
+        return { kind: 'unavailable', phase, failure: 'ended', code: error.code };
+      if (error instanceof ReadRefusedError)
+        return { kind: 'unavailable', phase, failure: 'refused', code: error.code };
+      return { kind: 'unavailable', phase, failure: 'unavailable' };
+    }
+  }
+  async destinations(): Promise<AskDestinations> {
+    try {
+      this.#destinations = await this.#readDestinations(() => {});
+      return structuredClone(this.#destinations);
     } catch (error) {
       if (error instanceof SessionEvictedError) this.#endSession(error);
       else if (error instanceof SessionEndedError) this.#endSession();
       throw error;
     }
-    requireValue(
-      context.deviceId === store.scope.deviceId &&
-        (context.expiresAtMs === null || Date.now() < context.expiresAtMs),
-    );
-
-    this.#destinations = {
-      context,
-      machines: [{ id: context.machineId, name: 'This machine', online: 'online', agents }],
-    };
-    return structuredClone(this.#destinations);
   }
   /** Synchronous capture; no await can replace the parent's chosen source. */
   prepare(destination: AskDestination, options: Parameters<typeof FrozenAsk.capture>[2] = {}) {
