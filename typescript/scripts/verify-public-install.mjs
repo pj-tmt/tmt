@@ -80,6 +80,10 @@ async function fetchBytes(url, maximum) {
   }
 }
 
+/** How long, and how often, the public latest pointer may keep naming an older alpha. */
+export const LATEST_LAG_DEADLINE_MS = 5 * 60_000;
+export const LATEST_LAG_POLL_MS = 15_000;
+
 const sleep = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
 
 /** `file` with its symlinks resolved, or as given when it does not exist. */
@@ -115,7 +119,7 @@ function skillsOf(directory) {
  * Installs and checks `tag` of `product` from the public release, under `root`, and returns the
  * results, one per check, stopping at the first that fails (the later ones depend on it).
  * `source` is a checkout of the tag, `fetch` the one network read of this script, `wait` the pause
- * for latest-installer lag and `systemPath` the directories after the prefix on the isolated PATH.
+ * for latest-installer lag, `now` the clock that bounds it and `systemPath` the directories after the prefix on the isolated PATH.
  */
 export async function smokeRelease({
   product,
@@ -128,6 +132,7 @@ export async function smokeRelease({
   fetch: read = fetchText,
   download = fetchBytes,
   wait = sleep,
+  now = Date.now,
   githubToken,
   systemPath = ['/usr/bin', '/bin', '/usr/sbin', '/sbin'],
   verifyColab = verifyColabApp,
@@ -216,7 +221,9 @@ export async function smokeRelease({
 
   let installer = '';
   const fetched = await check('public installer', async () => {
-    for (let attempt = 1; attempt <= 3; attempt += 1) {
+    const startedAt = now();
+    let lagged = false;
+    for (;;) {
       installer = await read(installerUrl(repository));
       const embedded = /^\s*version='([^']+)'$/m.exec(installer)?.[1];
       if (!embedded) throw new Error('the installer names no version');
@@ -232,13 +239,19 @@ export async function smokeRelease({
         break;
       }
       const mismatch = `the latest installer is for ${embedded}, not ${version}`;
-      // The published latest entry can briefly lag. Only an older alpha is that condition;
-      // download errors, malformed data and an unexpected newer version fail immediately.
+      // The published latest pointer can lag publication by minutes (#813, #1745). Only an older
+      // alpha is that condition; download errors, malformed data and an unexpected newer version
+      // fail immediately. One deadline bounds the wait, not a read count.
       const lagging = isAlphaVersion(embedded) && compareVersions(embedded, version) < 0;
-      if (!lagging || attempt === 3) throw new Error(mismatch);
-      await wait(20_000);
+      if (!lagging || now() - startedAt + LATEST_LAG_POLL_MS > LATEST_LAG_DEADLINE_MS)
+        throw new Error(mismatch);
+      lagged = true;
+      await wait(LATEST_LAG_POLL_MS);
     }
-    return `embeds ${/^\s*version='([^']+)'$/m.exec(installer)[1]}`;
+    const embeds = `embeds ${/^\s*version='([^']+)'$/m.exec(installer)[1]}`;
+    return lagged
+      ? `${embeds} after latest lagged for ${Math.round((now() - startedAt) / 1000)}s`
+      : embeds;
   });
   if (!fetched) return finish();
 

@@ -328,7 +328,8 @@ only to `api.github.com`, rebuilding authorization per redirect hop; public boot
 and archive downloads remain unauthenticated. Native bounded HTTPS retries are unchanged.
 
 The CLI latest-installer read retries only an older alpha than the highest just-published
-tag (three reads, two 20-second waits); unchanged lag fails, while malformed versions and download errors fail immediately. A newer valid
+tag, every 15 seconds until a 5-minute deadline (GitHub's latest pointer can lag publication by
+minutes, #1745), and the check's result reports the lag; lag past the deadline fails, while malformed versions and download errors fail immediately. A newer valid
 alpha selects the candidate's versioned installer for its exact installation proof. Install jobs have a 25-minute bound and
 read-only contents permissions; a separate issue writer reports failures with all four
 host artifacts. Exhausted rate limits fail smoke; there is no deferred rate-limit retry

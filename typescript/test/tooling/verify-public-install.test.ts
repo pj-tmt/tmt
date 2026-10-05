@@ -11,6 +11,8 @@ import { colabFixtureBinary } from '../support/colab-runtime-fixture.js';
 import { verifyColabApp } from '../../scripts/colab-runtime-proof.mjs';
 import {
   installerUrl,
+  LATEST_LAG_DEADLINE_MS,
+  LATEST_LAG_POLL_MS,
   renderSmokeSummary,
   smokeRelease,
   type SmokeResult,
@@ -184,6 +186,8 @@ function run(
   writeFileSync(path.join(source, 'skills', 'index.txt'), 'not a skill\n');
   const fetched: string[] = options.fetches ?? [];
   const waits: number[] = [];
+  // A virtual clock that only `wait` advances, so the lag deadline is exact and instant.
+  let clock = 0;
   const inspected: string[] = [];
   return {
     root,
@@ -229,7 +233,9 @@ function run(
       },
       wait: async (milliseconds: number) => {
         waits.push(milliseconds);
+        clock += milliseconds;
       },
+      now: () => clock,
     }),
   };
 }
@@ -345,7 +351,7 @@ describe('the public installer smoke of a CLI release', () => {
     expect(elsewhere.at(-1)?.reason).toContain('not');
   });
 
-  it('bounds the specifically classified previous-version latest-installer lag', async () => {
+  it('fails latest-installer lag that outlasts the deadline with the unchanged message', async () => {
     const attempt = run({ version: '5.0.0-alpha.11' }, { tag: 'v5.0.0-alpha.12' });
     const results = await attempt.results;
     expect(results).toEqual([
@@ -355,21 +361,41 @@ describe('the public installer smoke of a CLI release', () => {
         reason: 'the latest installer is for 5.0.0-alpha.11, not 5.0.0-alpha.12',
       },
     ]);
-    expect(attempt.fetched).toHaveLength(3);
-    expect(attempt.waits).toEqual([20_000, 20_000]);
+    const polls = LATEST_LAG_DEADLINE_MS / LATEST_LAG_POLL_MS;
+    expect(attempt.waits).toEqual(Array(polls).fill(LATEST_LAG_POLL_MS));
+    expect(attempt.fetched).toHaveLength(polls + 1);
   });
 
-  it('recovers when latest catches up, without retrying malformed installer data', async () => {
-    const attempt = run({}, { installerVersions: ['5.0.0-alpha.11', '5.0.0-alpha.12'] });
-    expect(failed(await attempt.results)).toEqual([]);
-    expect(attempt.fetched).toHaveLength(2);
-    expect(attempt.waits).toEqual([20_000]);
-    for (const version of ['invalid']) {
-      const other = run({ version });
-      expect(failed(await other.results)).toHaveLength(1);
-      expect(other.fetched).toHaveLength(1);
-      expect(other.waits).toEqual([]);
-    }
+  it('recovers when latest catches up within the deadline and reports how long it lagged', async () => {
+    const lagged = Array(8).fill('5.0.0-alpha.11');
+    const attempt = run({}, { installerVersions: [...lagged, '5.0.0-alpha.12'] });
+    const results = await attempt.results;
+    expect(failed(results)).toEqual([]);
+    expect(results[0]).toEqual({
+      check: 'public installer',
+      ok: true,
+      reason: 'embeds 5.0.0-alpha.12 after latest lagged for 120s',
+    });
+    expect(attempt.fetched).toHaveLength(9);
+    expect(attempt.waits).toEqual(Array(8).fill(LATEST_LAG_POLL_MS));
+    expect((await run({}).results)[0]?.reason).toBe('embeds 5.0.0-alpha.12');
+  });
+
+  it('does not wait for malformed installer data or an unexpected newer version', async () => {
+    const other = run({ version: 'invalid' });
+    expect(failed(await other.results)).toHaveLength(1);
+    expect(other.fetched).toHaveLength(1);
+    expect(other.waits).toEqual([]);
+    const newer = run({ version: '5.0.0' }, { tag: 'v5.0.0-alpha.12' });
+    expect(failed(await newer.results)).toEqual([
+      {
+        check: 'public installer',
+        ok: false,
+        reason: 'the latest installer is for 5.0.0, not 5.0.0-alpha.12',
+      },
+    ]);
+    expect(newer.fetched).toHaveLength(1);
+    expect(newer.waits).toEqual([]);
   });
 
   it('proves an older independent CLI cut through its versioned installer while latest stays higher', async () => {

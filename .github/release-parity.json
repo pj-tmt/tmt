@@ -770,6 +770,14 @@
           "coverage": "runtime"
         }
       ]
+    },
+    "1745": {
+      "release": {
+        "workflow": "native-release-smoke.yml",
+        "job": "smoke",
+        "step": "name:Install from the public release"
+      },
+      "releaseOnly": "GitHub's public releases/latest pointer and its download redirect exist only after publication and can name the previous alpha for minutes; no pull request can reproduce that propagation. The injected-clock tests cover the bounded lag deadline."
     }
   }
 }
