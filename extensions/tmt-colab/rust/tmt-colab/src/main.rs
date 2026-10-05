@@ -585,7 +585,7 @@ fn page(root: &std::path::Path, args: &clap::ArgMatches) -> Result<()> {
         store.close()?;
         // A held serve lock selects the existing root-local IPC path. An uncertain
         // IPC result never falls back to a second offline writer or resends.
-        let receipt = page::publish(&layout, &key, &prepared, now)?;
+        let receipt = page::publish(&layout, &key, &prepared, now, &mut decoder)?;
         if json_output {
             writeln!(output, "{}", serde_json::to_string(&receipt)?)?;
         } else {

@@ -12,6 +12,7 @@ use tmt_cli_style::{
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ViewName {
+    Members,
     Team,
     Focus,
     Notes,
@@ -20,7 +21,8 @@ pub enum ViewName {
 }
 
 impl ViewName {
-    pub const ALL: [Self; 5] = [
+    pub const ALL: [Self; 6] = [
+        Self::Members,
         Self::Team,
         Self::Focus,
         Self::Notes,
@@ -32,6 +34,7 @@ impl ViewName {
     }
     pub fn name(self) -> &'static str {
         match self {
+            Self::Members => "members",
             Self::Team => "team",
             Self::Focus => "focus",
             Self::Notes => "notes",
@@ -41,7 +44,8 @@ impl ViewName {
     }
     pub fn description(self) -> &'static str {
         match self {
-            Self::Team => "rows, detail, replies and notes",
+            Self::Members => "boxed members, inline detail and lead notes",
+            Self::Team => "previous side panes: detail, replies and notes",
             Self::Focus => "rows only",
             Self::Notes => "read the lead's notes",
             Self::Detail => "one member up close",
@@ -52,6 +56,8 @@ impl ViewName {
     pub fn settings(self) -> &'static dyn toml_edit::TableLike {
         static VIEWS: std::sync::OnceLock<toml_edit::DocumentMut> = std::sync::OnceLock::new();
         VIEWS.get_or_init(|| r#"
+[members]
+layout = { direction = "top-bottom", sizes = [60, 40], panes = ["rows", "notes"] }
 [team]
 fold_below = { width = 100, panes = ["detail", "replies"] }
 layout = { direction = "top-bottom", sizes = [60, 40], panes = [{ direction = "left-right", sizes = [62, 38], panes = ["rows", { direction = "top-bottom", sizes = [50, 50], panes = ["detail", "replies"] }] }, "notes"] }
@@ -269,7 +275,7 @@ mod tests {
         assert_eq!(listed, words(&mut config, &["list", "--json"]));
         assert_eq!(listed["effective"]["view"], "notes");
         let human = text(&listed, Terminal::PLAIN);
-        assert!(human.starts_with("VIEWS 5\n"));
+        assert!(human.starts_with("VIEWS 6\n"));
         assert_eq!(human.matches("board\n").count(), 1);
         assert!(human.contains("workflow: team\n"));
         assert!(human.ends_with("hint: tmt sq view set <name> [--squad <name>]\n"));
@@ -308,7 +314,10 @@ mod tests {
             config.board("product").unwrap().panes,
             vec![Pane::Rows, Pane::Notes]
         );
-        assert_eq!(config.board("other").unwrap().panes, vec![Pane::Rows]);
+        assert_eq!(
+            config.board("other").unwrap().panes,
+            vec![Pane::Rows, Pane::Notes]
+        );
         assert_eq!(
             std::fs::read_to_string(&path).unwrap(),
             original
@@ -356,7 +365,10 @@ mod tests {
                 );
                 let board = config.board("product").unwrap();
                 assert_eq!(board.mode, BoardMode::Split);
-                assert_eq!(board.panes.len(), 4);
+                assert_eq!(
+                    board.panes.len(),
+                    if name == ViewName::Members { 2 } else { 4 }
+                );
                 assert!(board.panes.contains(&Pane::Rows));
                 for width in [80, 120, 200] {
                     let mut folds = board.collapsed.clone();
@@ -373,7 +385,7 @@ mod tests {
                         ViewName::Detail if width < 100 => [Pane::Notes, Pane::Replies].into(),
                         ViewName::Detail => [Pane::Notes].into(),
                         ViewName::Wide if width < 180 => [Pane::Detail, Pane::Replies].into(),
-                        ViewName::Wide => Default::default(),
+                        ViewName::Members | ViewName::Wide => Default::default(),
                     };
                     assert_eq!(folds, expected, "{} at {width}", name.name());
                     let solved = crate::board::pane_rectangles(
@@ -381,7 +393,7 @@ mod tests {
                         &folds,
                         ratatui::layout::Rect::new(0, 0, width, 30),
                     );
-                    assert_eq!(solved.len(), 4);
+                    assert_eq!(solved.len(), board.panes.len());
                     assert!(
                         solved
                             .iter()
@@ -457,7 +469,7 @@ mod tests {
         }
     }
     #[test]
-    fn invalid_masked_names_fail_before_writing_and_default_matches_team() {
+    fn invalid_masked_names_fail_before_writing_and_default_matches_members() {
         for text in [
             "[board]\nview = 'bogus'\n[squad.product.board]\nview = 'focus'\n",
             "[squad.product.board]\nview = 4\npanes = ['rows']\n",
@@ -473,9 +485,11 @@ mod tests {
             assert_eq!(std::fs::read_to_string(&path).unwrap(), text);
             std::fs::remove_dir_all(dir).unwrap();
         }
-        let (path, mut config) = fixture("default-team", "");
+        let (path, mut config) = fixture("default-members", "");
         let baseline = config.board("product").unwrap();
-        config.set_view(&ViewScope::Board, ViewName::Team).unwrap();
+        config
+            .set_view(&ViewScope::Board, ViewName::Members)
+            .unwrap();
         assert_eq!(config.board("product").unwrap(), baseline);
         std::fs::remove_dir_all(path.parent().unwrap()).unwrap();
     }

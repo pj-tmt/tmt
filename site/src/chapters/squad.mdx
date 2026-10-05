@@ -56,27 +56,25 @@ After that you work through the lead. Tell it what you need; it brings members i
 
 ### The board
 
-By default the board is **team**: the squad's members as rows, the selected member's detail and the latest replies beside them, and the lead's notes below. Press `/` and type to narrow the rows. A <Waiting /> marks a member that's waiting on you, and those rows sort first. Every key works from what's already on screen; slow lookups such as pull request status refresh in the background. The board reloads within about a second when a member, request or room changes, or when you edit `squad.toml`, and it still refreshes on its interval (`refresh`, or `"off"`) for everything else. Press **ctrl-r** to refresh at once, even while you search or type a message. `tmt sq ls` prints the member list as text, or as JSON with `--json`, and it's what `tmt sq` shows when there's no terminal. `tmt sq board` opens the board on an interactive terminal and prints the same list otherwise.
+Squad tabs default to **members**, one boxed lead/member list with inline details and the lead's notes below. The previous **team** side-pane view stays available. Press `/` and type to narrow the rows. A <Waiting /> marks a member that's waiting on you, and those rows sort first. Every key works from what's already on screen; slow lookups such as pull request status refresh in the background. The board reloads within about a second when a member, request or room changes, or when you edit `squad.toml`, and it still refreshes on its interval (`refresh`, or `"off"`) for everything else. Press **ctrl-r** to refresh at once, even while you search or type a message. `tmt sq ls` prints the member list as text, or as JSON with `--json`, and it's what `tmt sq` shows when there's no terminal. `tmt sq board` opens the board on an interactive terminal and prints the same list otherwise.
 
 <BoardSketch />
 
-<Caption>
-  Sketch: the default team board. On a narrow terminal detail and replies fold away.
-</Caption>
+<Caption>Sketch: the default members view, with one boxed list and the lead's notes below.</Caption>
 
 | Key                      | On the selected row                                                                                                                                                                                                                                                    |
 | ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | enter · double-click · ⌫ | `jump` to the member's own screen, and `back` to where you were. A single click only selects a row; clicking a pane, such as the notes, focuses it. This needs a host that can switch panes; see [Jumping between members](/extensions/squad#jumping-between-members). |
-| L                        | `jump lead`: to the lead of this tab's squad; on **leads** and **all**, to the lead of the selected row's squad. In tmux only.                                                                                                                                         |
 | t · r                    | `talk` to the member, or `reply` to what it's waiting on, through tmt's own `tmt talk` and `tmt answer`. The answer shows up on the board.                                                                                                                             |
-| a                        | `annotate`: send the lead a note about this row (below).                                                                                                                                                                                                               |
+| e · n                    | expand the selected lead or member inline · hide or show the lead's notes.                                                                                                                                                                                             |
+| a                        | `annotate`: send the lead a note about this row (below). In an expanded band, write to that member.                                                                                                                                                                    |
 | o · y                    | `open` the row's pull request or first link · `copy` a status line such as `auth-fix: rotate session tokens (blocked)`. Copy works over SSH too.                                                                                                                       |
 | / · tab · s              | search · next pane · switch to any tab                                                                                                                                                                                                                                 |
-| d · ctrl-r               | fold or unfold detail and replies (see Panes below) · refresh now                                                                                                                                                                                                      |
+| l · ctrl-r               | choose a view · refresh now. The optional side-pane views also offer **d** to fold detail and replies.                                                                                                                                                                 |
 
 ### Token rate
 
-The Team layout shows the squad's token rate at the right of the summary line, such as `1.2k tok/s 1m ▂▅▇▃`. It adds up the tokens of requests that finished in the window across members, so it moves in steps as requests finish, not while a model is writing. Press **w** to cycle 5s, 1m (the default), 30m and 1h; until a window has filled, its label shows the time covered so far. `0` means no finished requests, `≥` means some members could not be read, and the meter is hidden when no member reports usage. Members whose driver never reports usage are listed under `?`. The bars show the trend: `▁` is zero and a blank is no data.
+The board shows the squad's token rate at the right of the summary line, such as `1.2k tok/s 1m ▂▅▇▃`. It adds up the tokens of requests that finished in the window across members, so it moves in steps as requests finish, not while a model is writing. Press **w** to cycle 5s, 1m (the default), 30m and 1h; until a window has filled, its label shows the time covered so far. `0` means no finished requests, `≥` means some members could not be read, and the meter is hidden when no member reports usage. Members whose driver never reports usage are listed under `?`. The bars show the trend: `▁` is zero and a blank is no data.
 
 Turn it on or tune it under `[board.token_rate]` for every squad, or `[squad.<name>.board.token_rate]` for one:
 
@@ -158,15 +156,16 @@ Most settings belong to one squad, so add `--squad`. Tab order and hidden tabs (
 
 ### Board views
 
-A view arranges panes and their initial folds. It keeps the squad's states, rows, providers, reminders, token meter and theme. List the five factory views with `tmt sq view ls` (or bare `tmt sq view`):
+A view chooses the boxed list or an arrangement of panes and their initial folds. It keeps the squad's states, rows, providers, reminders, token meter and theme. List the six factory views with `tmt sq view ls` (or bare `tmt sq view`):
 
-| View   | Arrangement                                                                                                                           |
-| ------ | ------------------------------------------------------------------------------------------------------------------------------------- |
-| team   | The default arrangement: rows beside detail and replies, with full-width lead notes below. Detail and replies fold below 100 columns. |
-| focus  | Rows fill the board above folded detail, replies and notes titles.                                                                    |
-| notes  | Rows take 35% beside lead notes at 65%; detail and replies start folded below them.                                                   |
-| detail | Rows above detail and replies, with notes folded; replies also folds below 100 columns.                                               |
-| wide   | Rows, detail/replies and notes in three columns at 40/30/30; detail/replies fold below 180 columns.                                   |
+| View    | Arrangement                                                                                                                                      |
+| ------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| members | The default boxed lead/member list with lead notes below. Press e for inline details and n to hide/show notes.                                   |
+| team    | The previous side-pane arrangement: rows beside detail and replies, with full-width lead notes below. Detail and replies fold below 100 columns. |
+| focus   | Rows fill the board above folded detail, replies and notes titles.                                                                               |
+| notes   | Rows take 35% beside lead notes at 65%; detail and replies start folded below them.                                                              |
+| detail  | Rows above detail and replies, with notes folded; replies also folds below 100 columns.                                                          |
+| wide    | Rows, detail/replies and notes in three columns at 40/30/30; detail/replies fold below 180 columns.                                              |
 
 <Cmd>{`
 $ tmt sq view set notes                      # all boards
@@ -174,15 +173,23 @@ $ tmt sq view set wide --squad product       # this squad
 $ tmt sq view rm --squad product             # inherit the arrangement
 `}</Cmd>
 
-A hand-written `board.layout` or `panes` for a squad always wins, then that squad's `view`, then `[board] view`, then the workflow layout's own arrangement. `view set` changes only the `view` key and refuses a file that changed meanwhile; with `--squad` it also refuses a hand-written layout, so remove that yourself first. `view rm` removes only `view`, so custom layouts and folds stay. Folds you make by hand keep their usual session rules.
+A hand-written `board.layout` or `panes` for a squad always wins, then that squad's `view`, then `[board] view`, then the `members` default. Existing simple direction/sizes configurations without a named view keep their pane preset. `view set` changes only the `view` key and refuses a file that changed meanwhile; with `--squad` it also refuses a hand-written layout, so remove that yourself first. `view rm` removes only `view`, so custom layouts and folds stay. Folds you make by hand keep their usual session rules.
 
-Press **l** on the board to pick a view. Moving through the list previews each one live; **Tab** switches between all boards and this squad, **Enter** saves, and **Esc** puts back what you had without writing anything. The `default` entry shows what you would inherit and removes only your choice. The leads and all tabs always show rows only; views apply to squad tabs.
+Press **l** on the board to pick a view. Moving through the list previews each one live; **Tab** switches between all boards and this squad, **Enter** saves, and **Esc** puts back what you had without writing anything. The `default` entry shows what you would inherit and removes only your choice. The leads and home tabs retain their fixed composition; views apply to squad tabs.
 
-A squad with a hand-written `board.layout` or `panes` shows a `custom` entry. You can preview views there, but saving for that squad is refused until you remove those keys from `squad.toml`. A choice for all boards still saves, and that squad keeps its custom layout. In the help, **l** sits next to **L** (jump to the lead, in tmux) and **T** (theme).
+A squad with a hand-written `board.layout` or `panes` shows a `custom` entry. You can preview views there, but saving for that squad is refused until you remove those keys from `squad.toml`. A choice for all boards still saves, and that squad keeps its custom layout. The help lists the effective view and theme bindings.
+
+### Boxed squad members
+
+Squad tabs default to one boxed list: the lead first with its `lead` tag, then `── members · N ──`. Each member has a mark/name/state/model/age line and a task line. Waiting members (`◆`) come first, oldest questions first; other exchanges follow newest first, and members without exchanges sort by name. The lead stays first and authored sections keep their positions.
+
+Press **e** on a lead or member to replace its task preview with the shared band. It shows the available waits-on-you question, task, links and latest reply with age. **e** or **Esc** collapses it, **a** writes to that member, and **o** opens its PR or link. Arrow keys/j/k and PgUp/PgDn scroll long details without moving the row cursor. Reading needs no recorded user; writing needs `tmt sq me`. There is one band at a time. The lead's notes remain below the list; **n** hides or shows them.
+
+Choose `team` with **l**, or edit `board.view` to `team` in **,** settings, for the previous detail/replies side panes. Choose `members` to restore the boxed list. A custom `board.layout` or `panes` keeps its configured composition.
 
 ### Panes: rows, notes and replies
 
-The board is made of panes: **rows** (the list above), **notes** (the lead's own `tmt notes`, read-only), **detail** (the selected row) and **replies** (the latest answers from the lead and members). Show the ones you want, split side by side, stacked top and bottom, or as tabs you flip between.
+The optional side-pane views use **rows** (the member list), **notes** (the lead's own `tmt notes`, read-only), **detail** (the selected row) and **replies** (the latest answers from the lead and members). Show the panes you want, split side by side, stacked top and bottom, or as tabs you flip between.
 
 The notes pane shows the lead's own notebook, the file `tmt notes path --identity <lead>` prints. There is no separate squad notebook, and the board never creates one: a lead without a notebook shows `(no notes yet)`, and a temporary lead can't keep one. Leads keep a short **Current state** section at the top, with **Now**, **Next** and **Blocked** in a few lines, so the board shows what the squad is doing.
 
@@ -216,12 +223,12 @@ Nothing on the board is fixed. Pick a layout preset, then override any part of i
 
 | Layout preset | What it shows                                            | States                                             |
 | ------------- | -------------------------------------------------------- | -------------------------------------------------- |
-| team          | rows, detail, replies and the lead's notes (default)     | working · idle · blocked · review · testing · hold |
+| team          | member/state/task/PR/model grid and lead notes workflow  | working · idle · blocked · review · testing · hold |
 | crew          | members, the ones waiting on you first, beside the notes | working · idle · blocked · review · testing · hold |
 | pr-queue      | one list, oldest first                                   | preparing · ready · sent · merged                  |
 | minimal       | name and state only                                      | whatever your lead writes                          |
 
-**team** puts the rows beside the selected member's detail and the latest replies, with the lead's notes underneath. Each row shows the member, its state, its task, its pull request and its model, with what it's waiting on you for on a second line. On a narrow terminal it adapts on its own: the columns shrink, then the model steps aside, then the pull request, and below 100 columns detail and replies fold into their titles so the rows get the room (**d** brings detail and replies back together). A squad that already sets its own `direction`, `panes` or `sizes` under `[squad.<name>.board]` keeps **crew** until you set `layout`.
+The named **team** view puts the rows beside the selected member's detail and the latest replies, with the lead's notes underneath; the workflow layout and board view are independent. Squad tabs use **members** by default. Each row shows the member, its state, its task, its pull request and its model, with what it's waiting on you for on a second line. On a narrow terminal it adapts on its own: the columns shrink, then the model steps aside, then the pull request, and below 100 columns detail and replies fold into their titles so the rows get the room (**d** brings detail and replies back together). A squad that already sets its own `direction`, `panes` or `sizes` under `[squad.<name>.board]` keeps **crew** until you set `layout`.
 
 You can change the panes and their arrangement; add your own **sections**, each a titled list with a filter and a sort; and choose the **columns**, the **states** with their colors and order, and how links open. You also set what every key or click does. A binding is an event (a key like `o`, or `click`, `double-click`) and one line: `jump`, `jump lead`, `back`, `talk`, `reply`, `annotate lead`, `open {pr_link}`, `copy {name}: {task}`, or `run <program> {field}…`, where `{field}` is filled from the row. A section can have its own bindings.
 

@@ -52,6 +52,13 @@ and `limits.rs`; do not restate them.
 - `page.rs` reads and writes admitted source locally: it prepares through the fold and
   decoder, and the opaque token binds the owner head, page epoch and every namespace
   position, because content appends do not advance the membership log.
+- `page/compact.rs` combines the local device's own stream after a write (best effort, repeatable):
+  it opens only that stream's objects through `Snapshot::open_object`, merges them in the decoder
+  child (`Decoder::merge`, no projection, since one device's stream can depend on another's structs),
+  compares the full page's HTML, metadata and each own projection before and after substitution,
+  then seals a checkpoint per namespace at the stream head and publishes through `Store::checkpoint`,
+  which prunes the covered prefix once the namespaces are paired. Write limits count only the updates
+  after checkpoints; the page budget (gzipped, `fold::gzip_over_budget`) applies to larger states.
 - CLI create/write obtains an optional caller display label from the fixed public
   `identity show --json` command in `core.rs`; failures leave no label. The decoder's
   `ContentEdit` replaces/clears `meta.publisherAgent` atomically with source. Browser

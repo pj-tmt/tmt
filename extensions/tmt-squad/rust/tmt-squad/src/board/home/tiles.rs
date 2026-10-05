@@ -1,8 +1,7 @@
 //! The squad section returns lines and local regions to the single home painter.
 use super::{
     Counts, SquadLine,
-    paint::rule,
-    scene::{self, Kept, Key, Part},
+    scene::{self, Kept, Key, Part, rule},
 };
 use crate::{board::app::HomeUsage, config::TokenWindow, look::Look};
 use ratatui::{style::Style, text::Line};

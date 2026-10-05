@@ -1122,13 +1122,14 @@ o = "run touch ${marker}"
       expect(aliases[0]).toEqual(aliases[1]);
       expect(aliases[1]).toEqual(aliases[2]);
       expect(aliases[0].body.views.map((view: { name: string }) => view.name)).toEqual([
+        'members',
         'team',
         'focus',
         'notes',
         'detail',
         'wide',
       ]);
-      expect((await runCli(sandbox, ['sq', 'view', 'ls'])).stdout).toContain('VIEWS 5');
+      expect((await runCli(sandbox, ['sq', 'view', 'ls'])).stdout).toContain('VIEWS 6');
       expect((await squad(sandbox, ['view', 'set', 'notes', '--squad', 'product'])).status).toBe(0);
       expect(readFileSync(file, 'utf8')).toBe(
         original.replace("view = 'focus' # own", 'view = "notes" # own')
@@ -1148,6 +1149,18 @@ o = "run touch ${marker}"
       expect(readFileSync(file, 'utf8')).toBe(
         original.replace("view = 'focus' # own\n", '').replace('[squad.product.board]\n', '')
       );
+      expect(
+        (await squad(sandbox, ['view', 'ls', '--squad', 'product'])).body.effective
+      ).toMatchObject({ view: 'members', source: 'default', layout: 'crew' });
+      expect(
+        (await squad(sandbox, ['config', 'set', 'board.view', 'team', '--squad', 'product'])).status
+      ).toBe(0);
+      expect(
+        (await squad(sandbox, ['view', 'ls', '--squad', 'product'])).body.effective
+      ).toMatchObject({ view: 'team', source: 'squad', layout: 'crew' });
+      expect(await squad(sandbox, ['ls', '--squad', 'product'])).toEqual(before);
+      expect(observe(sandbox).metadata).toEqual(metadata);
+      expect((await squad(sandbox, ['view', 'rm', '--squad', 'product'])).status).toBe(0);
       const custom = original.replace("view = 'focus' # own", "panes = ['rows', 'notes'] # own");
       writeFileSync(file, custom);
       const refused = await squad(sandbox, ['view', 'set', 'wide', '--squad', 'product']);

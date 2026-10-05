@@ -100,6 +100,25 @@ fn execute() -> Result<(), DecodeFault> {
             discussion = next;
         }
     }
+    if wire.merge_only {
+        if wire.source.is_some() {
+            return Err(DecodeFault::InvalidInput);
+        }
+        let merged = yrs::merge_updates_v1(updates.iter().map(Vec::as_slice))
+            .map_err(|_| DecodeFault::Rejected)?;
+        if merged.len() > STATE_BYTES {
+            return Err(DecodeFault::Rejected);
+        }
+        return write_reply(&WireResult {
+            version: 1,
+            namespace: wire.namespace,
+            input_hash: URL_SAFE_NO_PAD.encode(Sha256::digest(&input)),
+            merged: URL_SAFE_NO_PAD.encode(merged),
+            projection: Value::Null,
+            memory_limit: memory_limit(),
+            pid: std::process::id(),
+        });
+    }
     let before = project(&doc, wire.namespace)?;
     // Edit only the admitted structs. The delta never reattributes foreign content.
     let merged = if let Some(source) = &wire.source {

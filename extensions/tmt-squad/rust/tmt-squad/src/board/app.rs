@@ -97,6 +97,7 @@ pub struct View {
     pub token_rate: Option<RateView>,
     /// HOME sampling templates, separate from the painter/controller model.
     pub home_rate: BTreeMap<String, RateView>,
+    pub(super) exchanges: Vec<super::home_leads::Lead>,
     /// The `status --json` document, so the board and `status` never differ.
     pub document: Value,
     /// Retained home composition; only the aggregate board view owns it.
@@ -299,6 +300,12 @@ pub enum Compose {
         key: super::home_leads::MessageKey,
         offset: usize,
     },
+    /// Row fields and latest reply share the existing read-only inline band.
+    ReadRow {
+        target: RowTarget,
+        reply: Option<super::home_leads::MessageKey>,
+        offset: usize,
+    },
     AskLead {
         to: String,
         sender: String,
@@ -320,7 +327,7 @@ pub enum Compose {
 
 /// A row occurrence, independent of its position after refresh or sorting.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(super) enum RowTarget {
+pub enum RowTarget {
     Home(super::home::Target),
     Member {
         tab: String,
@@ -394,6 +401,7 @@ impl RowSend {
             }
             Compose::AskLead { .. }
             | Compose::ReadLead { .. }
+            | Compose::ReadRow { .. }
             | Compose::Leads { .. }
             | Compose::Cron => false,
         }
@@ -422,9 +430,18 @@ pub struct Hint {
 }
 
 impl Input {
+    pub(super) fn target(&self) -> Option<&RowTarget> {
+        match &self.compose {
+            Compose::ReadRow { target, .. } => Some(target),
+            _ => self.row_send.as_ref().map(|send| &send.target),
+        }
+    }
+
     pub(super) fn header(&self) -> String {
         match &self.compose {
-            Compose::ReadLead { .. } | Compose::Leads { .. } => self.prompt.clone(),
+            Compose::ReadLead { .. } | Compose::ReadRow { .. } | Compose::Leads { .. } => {
+                self.prompt.clone()
+            }
             Compose::Talk { to } => format!("→ {to} ({})", self.squad),
             Compose::Reply { from, .. } => format!("→ {from} ({})", self.squad),
             Compose::Annotate { to, row } if to != row => {
@@ -694,10 +711,44 @@ impl App {
         let Some(view) = &self.view else {
             return Vec::new();
         };
-        crate::display_rows::project(
+        let mut items = crate::display_rows::project(
             self.usage_document.as_ref().unwrap_or(&view.document),
             |row| matches(row, &self.search),
-        )
+        );
+        if self.effective_board().is_some_and(|board| board.members) {
+            let exchanges: BTreeMap<_, _> = view
+                .exchanges
+                .iter()
+                .map(|member| (member.id(), member))
+                .collect();
+            // Keep lead/rule/authored sections in place; only member order changes.
+            let mut start = 0;
+            while start < items.len() {
+                if !matches!(items[start], Item::Row(RowOrigin::Section(_), _)) {
+                    start += 1;
+                    continue;
+                }
+                let end = start
+                    + items[start..]
+                        .iter()
+                        .take_while(|item| matches!(item, Item::Row(RowOrigin::Section(_), _)))
+                        .count();
+                items[start..end].sort_by(|a, b| {
+                    let exchange = |item: &Item<'_>| match item {
+                        Item::Row(_, row) => {
+                            row["id"].as_str().and_then(|id| exchanges.get(id).copied())
+                        }
+                        _ => None,
+                    };
+                    match (exchange(a), exchange(b)) {
+                        (Some(a), Some(b)) => super::home_leads::compare(a, b),
+                        _ => std::cmp::Ordering::Equal,
+                    }
+                });
+                start = end;
+            }
+        }
+        items
     }
 
     /// Replace only the board display projection. Sampling never changes public ls JSON.
@@ -982,8 +1033,7 @@ impl App {
         let anchor = self
             .input
             .as_ref()
-            .and_then(|input| input.row_send.as_ref())
-            .map(|send| &send.target)
+            .and_then(Input::target)
             .or(self.sent.as_ref().map(|feedback| &feedback.target));
         if let Some(target) = anchor
             && let Some(index) = (0..self.rows().len())
@@ -1905,7 +1955,13 @@ impl App {
                     .filter(|view| view.home.is_some())
                     .map_or(Effect::None, |view| Effect::HomeReplies(!view.home_replies));
             }
-            Verb::HomeMessage => return self.home_expand(),
+            Verb::HomeMessage => {
+                return if self.view.as_ref().is_some_and(|view| view.home.is_some()) {
+                    self.home_expand()
+                } else {
+                    self.row_expand()
+                };
+            }
             Verb::HomeWrite => return self.home_write(),
             Verb::HomePick => return self.home_pick(),
             Verb::AskLead => return self.ask_lead(),
@@ -1921,6 +1977,9 @@ impl App {
                 return Effect::Refresh;
             }
             Verb::Notes => {
+                if self.effective_board().is_some_and(|board| board.members) {
+                    return self.toggle_panes(&[Pane::Notes]);
+                }
                 let position = self
                     .effective_board()
                     .and_then(|board| board.panes.iter().position(|p| *p == Pane::Notes));
@@ -2117,7 +2176,7 @@ impl App {
         })
     }
 
-    fn target_row(&self, target: &RowTarget) -> Option<&Value> {
+    pub(super) fn target_row(&self, target: &RowTarget) -> Option<&Value> {
         match target {
             RowTarget::Home(target) => self
                 .home_entries()
@@ -2558,11 +2617,12 @@ impl App {
     }
 
     fn input_key(&mut self, key: KeyEvent) -> Effect {
-        if self
-            .input
-            .as_ref()
-            .is_some_and(|input| matches!(input.compose, Compose::ReadLead { .. }))
-        {
+        if self.input.as_ref().is_some_and(|input| {
+            matches!(
+                input.compose,
+                Compose::ReadLead { .. } | Compose::ReadRow { .. }
+            )
+        }) {
             return self.message_key(key);
         }
         let Some(input) = &mut self.input else {
@@ -2630,7 +2690,10 @@ impl App {
                     Compose::AskLead { .. } => false,
                     Compose::Talk { to } => to == member,
                     Compose::Annotate { to, .. } => self.lead().as_ref() == Ok(to),
-                    Compose::Cron | Compose::ReadLead { .. } | Compose::Leads { .. } => false,
+                    Compose::Cron
+                    | Compose::ReadLead { .. }
+                    | Compose::ReadRow { .. }
+                    | Compose::Leads { .. } => false,
                     Compose::Reply { request, from } => {
                         from == member
                             && row["waitingOnYou"].as_array().is_some_and(|items| {
@@ -2694,7 +2757,9 @@ impl App {
                 all,
                 text,
             },
-            Compose::ReadLead { .. } => unreachable!("read-only mode cannot send"),
+            Compose::ReadLead { .. } | Compose::ReadRow { .. } => {
+                unreachable!("read-only mode cannot send")
+            }
             Compose::Cron => unreachable!("a cron step is submitted before this match"),
             Compose::Reply { request, from } => Request::Reply {
                 me,
@@ -3355,6 +3420,18 @@ impl App {
         {
             return Some(super::refresh::SelectedRead::Message(key.clone()));
         }
+        if let Some(Input {
+            compose: Compose::ReadRow {
+                reply: Some(key), ..
+            },
+            ..
+        }) = &self.input
+            && self
+                .latest_row_reply()
+                .is_none_or(|reply| !reply["response"].is_string())
+        {
+            return Some(super::refresh::SelectedRead::Message(key.clone()));
+        }
         self.notebook_identity()
             .map(super::refresh::SelectedRead::Notebook)
     }
@@ -3586,6 +3663,7 @@ pub(crate) mod tests {
             home_replies: true,
             token_rate: None,
             home_rate: Default::default(),
+            exchanges: Vec::new(),
             home: None,
             derived: Default::default(),
             document: json!({"squad": {"name": "product"}, "sections": sections}),
@@ -4595,6 +4673,7 @@ pub(crate) mod tests {
                 "y",
                 "n",
                 "A",
+                "e",
                 "l",
                 "T",
                 ",",
@@ -4855,6 +4934,12 @@ pub(crate) mod tests {
             view.board = crate::config::Config::read(
                 std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
                     .join("tests/fixtures/markup-parity.toml"),
+            )
+            .unwrap()
+            .preview_view(
+                &crate::view::ViewScope::Board,
+                Some(crate::view::ViewName::Team),
+                "team",
             )
             .unwrap()
             .board("team")

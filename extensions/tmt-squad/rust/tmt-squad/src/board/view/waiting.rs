@@ -108,19 +108,20 @@ pub(in crate::board) fn reserved_lines(
 ) -> Option<usize> {
     let input = app.input.as_ref()?;
     let target = app.row_target(row)?;
-    if input.row_send.as_ref()?.target != target {
+    if input.target()? != &target {
         return None;
     }
     let demand = match input.compose {
-        crate::board::app::Compose::ReadLead { .. } => {
-            let lines =
-                crate::board::home_leads::message_lines(&input.text, area.width.saturating_sub(4));
+        crate::board::app::Compose::ReadLead { .. }
+        | crate::board::app::Compose::ReadRow { .. } => {
+            let lines = read_lines(app, area.width.saturating_sub(4));
             lines.len().saturating_add(3).max(5)
         }
         crate::board::app::Compose::Reply { .. } => 6,
         _ => 5,
     };
-    let margin = if matches!(&target, crate::board::app::RowTarget::Home(target) if target.section == crate::board::home::LEADS)
+    let margin = if app.effective_board().is_some_and(|board| board.members)
+        || matches!(&target, crate::board::app::RowTarget::Home(target) if target.section == crate::board::home::LEADS)
     {
         3
     } else {
@@ -177,10 +178,11 @@ pub(super) fn inline_prompt(
     let (Some(input), Some(reserved)) = (&app.input, app.input_band.get()) else {
         return;
     };
-    let inset = input.row_send.as_ref().is_some_and(|send| {
-        matches!(&send.target,
+    let inset = app.effective_board().is_some_and(|board| board.members)
+        || input.row_send.as_ref().is_some_and(|send| {
+            matches!(&send.target,
         crate::board::app::RowTarget::Home(target) if target.section == crate::board::home::LEADS)
-    });
+        });
     let band = if inset {
         reserved.intersection(body)
     } else {
@@ -197,12 +199,14 @@ pub(super) fn inline_prompt(
     };
     let areas = modal.areas(band, [band.width, band.height], true, false);
     modal.paint(areas, frame.buffer_mut(), &look.theme, look.depth);
-    if let crate::board::app::Compose::ReadLead { offset, .. } = input.compose {
+    if let crate::board::app::Compose::ReadLead { offset, .. }
+    | crate::board::app::Compose::ReadRow { offset, .. } = input.compose
+    {
         let content = Rect {
             height: areas.content.height + areas.position.height,
             ..areas.content
         };
-        let lines = crate::board::home_leads::message_lines(&input.text, content.width);
+        let lines = read_lines(app, content.width);
         let skip = offset.min(lines.len().saturating_sub(usize::from(content.height)));
         for (index, line) in lines
             .iter()
@@ -217,7 +221,7 @@ pub(super) fn inline_prompt(
                     height: 1,
                     ..content
                 },
-                Line::styled(line.as_str(), look.role(Role::Text)),
+                line.clone(),
             );
         }
     } else {
@@ -275,7 +279,9 @@ pub(super) fn inline_prompt(
             ),
         );
     }
-    let hint = if matches!(input.compose, crate::board::app::Compose::ReadLead { .. }) {
+    let hint = if matches!(input.compose, crate::board::app::Compose::ReadRow { .. }) {
+        read_hints(app, areas.footer.width)
+    } else if matches!(input.compose, crate::board::app::Compose::ReadLead { .. }) {
         format!(
             "e collapse · a reply to {}",
             input
@@ -306,4 +312,125 @@ pub(super) fn inline_prompt(
     app.title_hits
         .borrow_mut()
         .retain(|hit| !covered(&hit.area));
+}
+
+/// One read projection supplies reservation, painting and scroll limits for both
+/// HOME messages and squad-row details. No terminal or core read occurs here.
+pub(in crate::board) fn read_lines(
+    app: &crate::board::app::App,
+    width: u16,
+) -> Vec<ratatui::text::Line<'static>> {
+    use ratatui::text::Line;
+    use tmt_cli_style::Role;
+    let Some(input) = &app.input else {
+        return Vec::new();
+    };
+    let look = app.look();
+    if matches!(input.compose, crate::board::app::Compose::ReadLead { .. }) {
+        return crate::board::home_leads::message_lines(&input.text, width)
+            .into_iter()
+            .map(|line| Line::styled(line, look.role(Role::Text)))
+            .collect();
+    }
+    let Some(row) = app.selected_row() else {
+        return Vec::new();
+    };
+    let mut lines = Vec::new();
+    let mut add = |text: String, role| {
+        lines.extend(
+            crate::board::home_leads::message_lines(&crate::board::notes::sanitize(&text), width)
+                .into_iter()
+                .map(|line| Line::styled(line, look.role(role))),
+        );
+    };
+    if let Some(waiting) = text(row).filter(|text| !text.is_empty()) {
+        add(format!("◆ waits on you: {waiting}"), Role::Waiting);
+    }
+    if let Some(task) = row["fields"]["task"]
+        .as_str()
+        .filter(|text| !text.is_empty())
+    {
+        add(format!("task  {task}"), Role::Text);
+    }
+    let links = row["fields"]
+        .as_object()
+        .into_iter()
+        .flatten()
+        .filter(|(name, _)| name.as_str() == "link" || name.ends_with("_link"))
+        .filter_map(|(_, value)| value.as_str())
+        .filter(|value| !value.is_empty())
+        .collect::<Vec<_>>();
+    if !links.is_empty() {
+        add(format!("links  {}", links.join("  ")), Role::Link);
+    }
+    if let Some(reply) = app.latest_row_reply() {
+        let age = reply["submittedAtMs"]
+            .as_u64()
+            .filter(|at| *at > 0 && *at <= crate::status::now_ms())
+            .map(|at| crate::requests::age(crate::status::now_ms(), at));
+        add(
+            format!(
+                "latest reply{}",
+                age.map_or(String::new(), |age| format!(" · {age}"))
+            ),
+            Role::Muted,
+        );
+        add(
+            reply["response"].as_str().unwrap_or(&input.text).to_owned(),
+            Role::Text,
+        );
+    }
+    if lines.is_empty() {
+        lines.push(Line::styled(
+            "(no row fields or replies yet)",
+            look.role(Role::Dim),
+        ));
+    }
+    lines
+}
+
+fn read_hints(app: &crate::board::app::App, width: u16) -> String {
+    use crate::action::Verb;
+    use unicode_width::UnicodeWidthStr;
+    let name = app
+        .selected_row()
+        .and_then(|row| row["name"].as_str())
+        .unwrap_or("member");
+    let bindings = app.bindings();
+    let key = |verb| {
+        bindings
+            .iter()
+            .find(|(event, action)| {
+                action.verb == verb && !matches!(event.as_str(), "click" | "double-click")
+            })
+            .map(|(event, _)| event.as_str())
+    };
+    let mut hints = vec![
+        key(Verb::HomeMessage)
+            .map_or_else(|| "Esc collapse".into(), |key| format!("{key} collapse")),
+    ];
+    if app.view.as_ref().is_some_and(|view| view.me.is_some())
+        && let Some(key) = key(Verb::Annotate)
+    {
+        hints.push(format!(
+            "{key} write to {}",
+            crate::board::notes::sanitize(name)
+        ));
+    }
+    if app
+        .selected_row()
+        .is_some_and(|row| crate::effects::default_link(row).is_some())
+        && let Some(key) = key(Verb::Open)
+    {
+        let pr = app.selected_row().is_some_and(|row| {
+            row["fields"]["pr_link"]
+                .as_str()
+                .is_some_and(|link| !link.is_empty())
+        });
+        hints.push(format!("{key} open {}", if pr { "PR" } else { "link" }));
+    }
+    while hints.join(" · ").width() > usize::from(width) && hints.len() > 1 {
+        hints.pop();
+    }
+    hints.join(" · ")
 }

@@ -1,9 +1,12 @@
-//! HOME sections as admitted markup. A section is a literal template bound to
+//! Board scenes as admitted markup. A section is a literal template bound to
 //! display-ready data, solved by `tmt-tui` geometry at the body width and painted
-//! into a scratch buffer whose rows join HOME's line stream. The stream, the
+//! into a scratch buffer whose rows join the caller's line stream. The stream, the
 //! shared cursor, hits, reveal and input reservations stay with the painter that
 //! owns them; a section only reports where each of its blocks landed.
-use crate::{board::picker_surface::Data, look::Look};
+use crate::{
+    board::{picker_surface::Data, view::fit},
+    look::Look,
+};
 use ratatui::{
     buffer::Buffer,
     layout::Rect,
@@ -22,7 +25,7 @@ use unicode_width::UnicodeWidthStr;
 
 /// A compiled section template. Markup and schema are literals of the section,
 /// so a failure is a programming error, never a data error.
-pub(super) fn compile(file: &str, markup: &str, schema: &Schema) -> Template<()> {
+pub(in crate::board) fn compile(file: &str, markup: &str, schema: &Schema) -> Template<()> {
     let parsed = tmt_tui::parse(file, markup).expect("embedded HOME markup");
     tmt_tui::binding::compile(file, &parsed, schema, &Data).expect("embedded HOME schema")
 }
@@ -32,7 +35,7 @@ pub(super) fn compile(file: &str, markup: &str, schema: &Schema) -> Template<()>
 /// it), the width, the look and the selected block. A section's template is fixed
 /// per slot, so equal keys paint equal lines.
 #[derive(PartialEq)]
-pub(super) struct Key {
+pub(in crate::board) struct Key {
     pub width: u16,
     pub look: Look,
     pub selected: Option<String>,
@@ -41,7 +44,7 @@ pub(super) struct Key {
 
 /// A section's last painted output with the key it was painted for. It lives in
 /// the immutable view's derivations, so a new snapshot starts empty.
-pub(super) struct Kept<T> {
+pub(in crate::board) struct Kept<T> {
     held: Option<(Key, T)>,
     #[cfg(test)]
     pub builds: usize,
@@ -74,7 +77,7 @@ impl<T> Kept<T> {
 }
 
 /// The painted section and where each identified node landed.
-pub(super) struct Painted {
+pub(in crate::board) struct Painted {
     pub lines: Vec<Line<'static>>,
     nodes: Vec<(Vec<String>, BoxRect)>,
 }
@@ -97,17 +100,17 @@ impl Painted {
 /// The node being decorated: its own scoped identity (the last element names the
 /// part), the identity it inherits from the nearest ancestor that has one (the
 /// block it belongs to), and its inherited role.
-pub(super) struct Part<'a> {
+pub(in crate::board) struct Part<'a> {
     pub id: Option<&'a [String]>,
     pub scope: Option<&'a [String]>,
     pub role: Role,
 }
 
 /// The complete style of a node and its alignment inside the recorded width.
-pub(super) type Decorate<'a> = dyn FnMut(Part<'_>) -> (Style, Align) + 'a;
+pub(in crate::board) type Decorate<'a> = dyn FnMut(Part<'_>) -> (Style, Align) + 'a;
 
 /// Solve and paint `template` bound to `data` at `width` cells.
-pub(super) fn paint(
+pub(in crate::board) fn paint(
     file: &str,
     template: &Template<()>,
     data: &Value,
@@ -180,4 +183,11 @@ fn lift(buffer: &Buffer) -> Vec<Line<'static>> {
             Line::from(spans)
         })
         .collect()
+}
+
+/// Every section, including quiet and empty ones, reaches the same body edge.
+pub(in crate::board) fn rule(title: &str, width: usize) -> String {
+    let title = format!("── {title} ");
+    let tail = width.saturating_sub(unicode_width::UnicodeWidthStr::width(title.as_str()));
+    fit(&format!("{title}{}", "─".repeat(tail)), width)
 }

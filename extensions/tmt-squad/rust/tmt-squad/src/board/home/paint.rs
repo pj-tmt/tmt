@@ -7,7 +7,7 @@ use super::{
 use crate::{
     board::{
         app::{App, Hit, HomeHeaderUsage, View},
-        view::fit,
+        view::{fit, scene::rule},
     },
     config::Pane,
     look::Look,
@@ -15,13 +15,6 @@ use crate::{
 use ratatui::{Frame, layout::Rect, text::Line};
 use std::ops::Range;
 use tmt_cli_style::Role;
-
-/// Every section, including quiet and empty ones, reaches the same body edge.
-pub(super) fn rule(title: &str, width: usize) -> String {
-    let title = format!("── {title} ");
-    let tail = width.saturating_sub(unicode_width::UnicodeWidthStr::width(title.as_str()));
-    fit(&format!("{title}{}", "─".repeat(tail)), width)
-}
 
 /// The strips outside the body, held in the view like the body's sections.
 pub(crate) fn summary_of(view: &View, width: u16, look: Look) -> Line<'static> {
@@ -115,7 +108,8 @@ pub(super) fn render_at(frame: &mut Frame, app: &App, area: Rect, now: u64) {
         ));
     }
     let mut derived = view.derived.borrow_mut();
-    let scenes = &mut derived.home;
+    let derived = &mut *derived;
+    let (scenes, member_list) = (&mut derived.home, &mut derived.member_list);
     let mut starts = Vec::new();
     let mut regions = Vec::new();
     let mut input_range = None;
@@ -237,7 +231,7 @@ pub(super) fn render_at(frame: &mut Frame, app: &App, area: Rect, now: u64) {
                     leads: &leads,
                     replies: view.home_replies,
                 },
-                &mut scenes.leads,
+                member_list,
             );
             let base = lines.len();
             lines.extend(block.lines);

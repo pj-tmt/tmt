@@ -43,11 +43,14 @@ fn capture(app: &App, width: u16) -> Frame {
 }
 
 fn forget(app: &App) {
-    app.view.as_ref().unwrap().derived.borrow_mut().home = Default::default();
+    let mut derived = app.view.as_ref().unwrap().derived.borrow_mut();
+    derived.home = Default::default();
+    derived.member_list = Default::default();
 }
 
 fn builds(app: &App) -> usize {
-    app.view.as_ref().unwrap().derived.borrow().home.builds()
+    let derived = app.view.as_ref().unwrap().derived.borrow();
+    derived.home.builds() + derived.member_list.builds
 }
 
 fn look(base: &str, depth: Depth) -> crate::look::Look {

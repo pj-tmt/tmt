@@ -748,7 +748,7 @@ fn squad_view(
     )?;
     let attention = BTreeMap::from([(squad.name.clone(), Attention::of(&document))]);
     let mut replies = match &sent {
-        Some(sent) if preview_panes || board.panes.contains(&Pane::Replies) => {
+        Some(sent) if preview_panes || board.members || board.panes.contains(&Pane::Replies) => {
             requests::replies(sent, &document)
         }
         _ => Vec::new(),
@@ -767,6 +767,7 @@ fn squad_view(
         home: None,
         token_rate,
         home_rate: Default::default(),
+        exchanges: super::home_leads::members(&document, sent.as_ref(), crate::status::now_ms()),
         derived: Default::default(),
         rows,
         render: config.notes_render(&squad.name)?,
@@ -834,6 +835,7 @@ fn member_view(
         ask_lead: config.ask_lead("")?,
         token_rate: None,
         home_rate: Default::default(),
+        exchanges: Vec::new(),
         home: None,
         derived: Default::default(),
         rows: loaded.rows,
@@ -883,6 +885,7 @@ fn all_view(
         ask_lead: config.ask_lead("")?,
         token_rate: None,
         home_rate,
+        exchanges: Vec::new(),
         home: Some(home),
         derived: Default::default(),
         rows: loaded.rows,
@@ -1490,22 +1493,11 @@ esac
             let baseline = squad_view(&core, false, &config, &squad, None, false, &mut kept)
                 .unwrap()
                 .0;
-            if workflow == "minimal" {
-                assert_eq!(baseline.notes, Notes::NotShown);
-                assert!(!root.join("calls").exists());
-                let preview = squad_view(&core, false, &config, &squad, None, true, &mut kept)
-                    .unwrap()
-                    .0;
-                assert_eq!(preview.document, baseline.document);
-                assert_eq!(
-                    preview.board, baseline.board,
-                    "preview reads never resolve another board"
-                );
-                assert!(
-                    matches!(preview.notes, Notes::Text(_)),
-                    "preview acquires a missing notes pane"
-                );
-            }
+            assert!(baseline.board.members);
+            assert!(
+                matches!(baseline.notes, Notes::Text(_)),
+                "default members view keeps the lead notebook below the list"
+            );
             config
                 .set_view(
                     &crate::view::ViewScope::Squad("product".into()),

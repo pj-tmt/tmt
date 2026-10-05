@@ -1,4 +1,5 @@
 //! Root-local source access: isolated preparation, then fenced ciphertext commit.
+pub mod compact;
 pub mod ipc;
 use crate::{
     Result,
@@ -486,11 +487,36 @@ pub fn commit(
 
 /// Caller closes its read snapshot before this lock-or-serve commit. An uncertain
 /// serving result never falls back to an offline writer or retries publication.
-pub fn publish(layout: &Layout, key: &Keyring, prepared: &Prepared, now: u64) -> Result<Receipt> {
+pub fn publish(
+    layout: &Layout,
+    key: &Keyring,
+    prepared: &Prepared,
+    now: u64,
+    decoder: &mut Decoder,
+) -> Result<Receipt> {
     match layout.serve_lock() {
         Ok(_lock) => {
             let mut store = Store::write_existing(layout)?;
             let committed = commit(&mut store, key, prepared, now);
+            if committed.is_ok()
+                && let Err(error) = compact::compact(
+                    &mut store,
+                    key,
+                    &prepared.page_id,
+                    decoder,
+                    compact::Trigger::default(),
+                )
+            {
+                // Publication is durable; a later explicit write tries combining again.
+                let mut stderr = tmt_cli_style::stream::stderr();
+                let terminal = stderr.terminal();
+                tmt_cli_style::message::warning(
+                    &mut stderr,
+                    terminal,
+                    &format!("The page was written but could not be combined yet: {error}"),
+                    None,
+                )?;
+            }
             let closed = store.close();
             let receipt = committed?.receipt;
             closed?;

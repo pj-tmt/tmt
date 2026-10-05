@@ -1,6 +1,7 @@
 # TMT command-line style
 
-This document owns how TMT's command-line output and help look. Every CLI (core
+This document owns how TMT's command-line output and help look. Browser
+surfaces follow the [browser interface style](gui-style.md). Every CLI (core
 `tmt`, `tmt-squad` and `tmt-office`) follows it. The only implementation is the
 `rust/crates/tmt-cli-style` crate. It depends on no TMT crate, so any CLI can
 depend on it. Rules are enforced by tests, not by review.

@@ -221,13 +221,37 @@ impl Decoder {
         stop: Option<&AtomicBool>,
         deadline: Instant,
     ) -> Result<Decoded, DecodeFault> {
-        self.decode_request(batch, role, None, stop, deadline)
+        self.decode_request(batch, role, None, false, stop, deadline)
+    }
+    /// Merge one device's own updates into a single update-v1 with `merge_updates_v1`, without
+    /// building or checking the page: the compaction a device publishes as its checkpoint. Every
+    /// update must still decode and apply.
+    pub fn merge(
+        &mut self,
+        namespace: Namespace,
+        updates: &[&[u8]],
+        stop: Option<&AtomicBool>,
+    ) -> Result<Vec<u8>, DecodeFault> {
+        let role = match namespace {
+            Namespace::Content => Role::Editor,
+            Namespace::Own => Role::Commenter,
+        };
+        let deadline = Instant::now() + self.config.deadline;
+        let batch = UpdateBatch {
+            namespace,
+            baseline: &[],
+            updates,
+        };
+        Ok(self
+            .decode_request(batch, role, None, true, stop, deadline)?
+            .merged)
     }
     fn decode_request(
         &mut self,
         batch: UpdateBatch<'_>,
         role: Role,
         edit: Option<Edit<'_>>,
+        merge_only: bool,
         stop: Option<&AtomicBool>,
         deadline: Instant,
     ) -> Result<Decoded, DecodeFault> {
@@ -269,6 +293,7 @@ impl Decoder {
                 .iter()
                 .map(|v| URL_SAFE_NO_PAD.encode(v))
                 .collect(),
+            merge_only,
         };
         let input = serde_json::to_vec(&wire).map_err(|_| DecodeFault::InvalidInput)?;
         if input.len() > STREAM_BYTES {
@@ -289,7 +314,13 @@ impl Decoder {
         {
             return Err(DecodeFault::InvalidOutput);
         }
-        validate_projection(batch.namespace, &reply.projection)?;
+        if merge_only {
+            if !reply.projection.is_null() {
+                return Err(DecodeFault::InvalidOutput);
+            }
+        } else {
+            validate_projection(batch.namespace, &reply.projection)?;
+        }
         let wrong_edit = match edit {
             Some(Edit::Content(value)) => {
                 reply.projection["html"].as_str() != Some(value.source)
@@ -339,6 +370,7 @@ impl Decoder {
             batch,
             Role::Editor,
             Some(Edit::Content(edit)),
+            false,
             stop,
             Instant::now() + self.config.deadline,
         )
@@ -358,6 +390,7 @@ impl Decoder {
             batch,
             Role::Commenter,
             Some(Edit::Own(records)),
+            false,
             stop,
             Instant::now() + self.config.deadline,
         )
@@ -535,6 +568,10 @@ struct WireBatch {
     namespace: Namespace,
     baseline: String,
     updates: Vec<String>,
+    /// Merge the updates and return them, without projecting the document: a device's own
+    /// stream may depend on structs another device wrote, so alone it is not a complete page.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    merge_only: bool,
 }
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]

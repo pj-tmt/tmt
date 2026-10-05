@@ -145,7 +145,7 @@ pub fn run(root: &Path, args: &ArgMatches) -> Result<()> {
         closed?;
         let changed = prepared.is_some();
         let action = if let Some((publication, action)) = prepared {
-            page::publish(&layout, &key, &publication, now)?;
+            page::publish(&layout, &key, &publication, now, &mut decoder)?;
             Some(action)
         } else {
             None

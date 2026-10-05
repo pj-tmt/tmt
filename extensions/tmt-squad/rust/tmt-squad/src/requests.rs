@@ -185,6 +185,12 @@ pub struct Sent {
     room: Window,
 }
 
+impl Sent {
+    pub(crate) fn history(&self) -> (&str, &[Value]) {
+        (&self.me, &self.room.items)
+    }
+}
+
 /// Reads both windows and applies them; without `me` rows get empty values
 /// and there is nothing sent. A room window already read for the observation
 /// is reused rather than read again.
@@ -279,6 +285,7 @@ pub fn replies(sent: &Sent, document: &Value) -> Vec<Value> {
             json!({
                 "requestId": item["requestId"],
                 "to": names.get(to).copied().unwrap_or(to),
+                "recipientId": to,
                 "prompt": item["preview"],
                 "status": item["final"]["status"],
                 "submittedAtMs": item["final"]["submittedAtMs"],

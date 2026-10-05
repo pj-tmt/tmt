@@ -107,6 +107,10 @@ pub(super) fn render_rows(frame: &mut Frame, app: &App, area: Rect) {
         strip::paint_left(frame.buffer_mut(), area, Line::from(message));
         return;
     };
+    if app.effective_board().is_some_and(|board| board.members) {
+        super::member_list::render_squad(frame, app, area);
+        return;
+    }
     let Some(tab) = app.shown_tab() else { return };
     let rows = &view.rows;
     let mut derived = view.derived.borrow_mut();

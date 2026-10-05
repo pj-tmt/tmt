@@ -77,7 +77,8 @@ Verification: `test/thread-records.test.ts` and native `tests/discussion.rs`
 consume `contracts/vectors/discussion-v1.json`, including causal and status-export byte
 vectors. `test/thread-status.test.ts` and native `export::tests` pin the effective status
 and provenance; native `tests/page.rs` checks agent status publication, shared content/own
-sequence, idempotence, stale-base refusal and CLI no-dispatch behavior. `test/own-fold.test.ts` checks
+sequence, status preservation and causal continuation after own-stream compaction,
+idempotence, stale-base refusal and CLI no-dispatch behavior. `test/own-fold.test.ts` checks
 atomic preparation and immutable rejection; `test/live-ask.test.ts` checks real
 comment IDs in signed Ask framing. `e2e/renderer.spec.ts` tests bounded DOM quote
 capture/resolution and containment. `acceptance/discussion.spec.ts` uses two real

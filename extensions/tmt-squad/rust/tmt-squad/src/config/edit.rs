@@ -7,7 +7,7 @@ impl Config {
         (key == "board.home_replies" && squad.is_none())
             || matches!(
                 key,
-                "board.refresh" | "board.ask_lead" | "tabs.order" | "tabs.hide"
+                "board.refresh" | "board.ask_lead" | "board.view" | "tabs.order" | "tabs.hide"
             )
             || squad.is_some_and(|name| !crate::tabs::aggregate(name))
                 && (matches!(
@@ -29,6 +29,11 @@ impl Config {
     pub fn can_edit_setting(&self, key: &str, squad: Option<&str>) -> bool {
         if !Self::setting_key_in_scope(key, squad) {
             return false;
+        }
+        if key == "board.view" {
+            return squad.is_none_or(|name| {
+                !crate::tabs::aggregate(name) && self.custom_board(name).is_ok_and(|custom| !custom)
+            });
         }
         if !matches!(key, "board.direction" | "board.sizes" | "board.panes") {
             return true;
@@ -171,6 +176,16 @@ impl Config {
             return Err(invalid(
                 "Nested board layouts are read-only; edit the split tree in squad.toml.",
             ));
+        }
+        if key == "board.view" {
+            let scope = squad.map_or(crate::view::ViewScope::Board, |name| {
+                crate::view::ViewScope::Squad(name.into())
+            });
+            let view = crate::view::ViewName::parse(text)
+                .ok_or_else(|| invalid("`board.view` must name a factory view."))?;
+            let draft = self.view_draft(&scope, Some(view))?;
+            draft.validate_setting_draft(squad, squad.is_none())?;
+            return Ok(draft);
         }
         let replacement = Self::parse_setting_value(key, text)?;
         let mut draft = self.clone();
