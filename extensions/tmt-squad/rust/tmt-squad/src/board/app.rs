@@ -444,12 +444,12 @@ impl Input {
             Compose::ReadLead { .. } | Compose::ReadRow { .. } | Compose::Leads { .. } => {
                 self.prompt.clone()
             }
-            Compose::Talk { to } => format!("→ {to} · talk"),
-            Compose::Reply { from, .. } => format!("→ {from} · answer"),
+            Compose::Talk { to } => format!("→ {to} ({}) · talk", self.squad),
+            Compose::Reply { from, .. } => format!("→ {from} ({}) · answer", self.squad),
             Compose::Annotate { to, row } if to != row => {
-                format!("→ {to} · note · about {row}")
+                format!("→ {to} ({}) · note · about {row}", self.squad)
             }
-            Compose::Annotate { to, .. } => format!("→ {to} · note"),
+            Compose::Annotate { to, .. } => format!("→ {to} ({}) · note", self.squad),
             Compose::AskLead { to, .. } => format!("→ lead {to}"),
             Compose::Cron => self.prompt.clone(),
         }
@@ -4299,7 +4299,7 @@ pub(crate) mod tests {
             "sent in the lead's own squad room, not a tab's"
         );
         press(&mut app, KeyCode::Char('a'));
-        assert_eq!(app.input.as_ref().unwrap().header(), "→ rin · note");
+        assert_eq!(app.input.as_ref().unwrap().header(), "→ rin (infra) · note");
         typed(&mut app, "check the queue");
         assert!(matches!(press(&mut app, KeyCode::Enter),
             Effect::Act(Request::Annotate { squad, to, .. }) if squad == "infra" && to == "rin"));
@@ -4423,7 +4423,10 @@ pub(crate) mod tests {
         // The cursor starts on the lead; these cases act on the first member.
         app.select(1);
         press(&mut app, KeyCode::Char('t'));
-        assert_eq!(app.input.as_ref().unwrap().prompt, "→ auth-fix · talk");
+        assert_eq!(
+            app.input.as_ref().unwrap().prompt,
+            "→ auth-fix (product) · talk"
+        );
         typed(&mut app, "q j -rf; $(x)");
         assert!(app.input.is_some(), "q and j are text while composing");
         assert_eq!(
@@ -4452,7 +4455,7 @@ pub(crate) mod tests {
         press(&mut app, KeyCode::Tab);
         assert_eq!(
             app.input.as_ref().unwrap().prompt,
-            "→ sol · note · about auth-fix"
+            "→ sol (product) · note · about auth-fix"
         );
         typed(&mut app, "split the job");
         assert_eq!(
@@ -4472,7 +4475,10 @@ pub(crate) mod tests {
         assert_eq!(menu.title, "answer auth-fix");
         assert_eq!(menu.entries.len(), 2);
         press(&mut app, KeyCode::Char('2'));
-        assert_eq!(app.input.as_ref().unwrap().prompt, "→ auth-fix · answer");
+        assert_eq!(
+            app.input.as_ref().unwrap().prompt,
+            "→ auth-fix (product) · answer"
+        );
         typed(&mut app, "postgres");
         assert_eq!(
             press(&mut app, KeyCode::Enter),
@@ -4521,7 +4527,10 @@ pub(crate) mod tests {
         app.select(1);
         press(&mut app, KeyCode::Char('a'));
         assert!(app.menu.is_none(), "a single request opens in place");
-        assert_eq!(app.input.as_ref().unwrap().header(), "→ auth-fix · answer");
+        assert_eq!(
+            app.input.as_ref().unwrap().header(),
+            "→ auth-fix (product) · answer"
+        );
         assert_eq!(
             app.input.as_ref().unwrap().quote.as_deref(),
             Some("Ship tonight?")
@@ -4530,11 +4539,14 @@ pub(crate) mod tests {
         press(&mut app, KeyCode::Tab);
         assert_eq!(
             app.input.as_ref().unwrap().header(),
-            "→ sol · note · about auth-fix"
+            "→ sol (product) · note · about auth-fix"
         );
         assert_eq!(app.input.as_ref().unwrap().text, "draft");
         press(&mut app, KeyCode::Tab);
-        assert_eq!(app.input.as_ref().unwrap().header(), "→ auth-fix · talk");
+        assert_eq!(
+            app.input.as_ref().unwrap().header(),
+            "→ auth-fix (product) · talk"
+        );
         assert_eq!(app.input.as_ref().unwrap().text, "draft");
         press(&mut app, KeyCode::Tab);
         assert!(
@@ -4590,7 +4602,10 @@ pub(crate) mod tests {
             .insert("t".into(), crate::action::Action::parse("talk").unwrap());
         app.select(0);
         assert_eq!(press(&mut app, KeyCode::Char('t')), Effect::None);
-        assert_eq!(app.input.as_ref().unwrap().header(), "→ auth-fix · talk");
+        assert_eq!(
+            app.input.as_ref().unwrap().header(),
+            "→ auth-fix (product) · talk"
+        );
     }
 
     fn modes_of(app: &App) -> (String, Vec<&'static str>) {
@@ -4609,11 +4624,17 @@ pub(crate) mod tests {
         press(&mut app, KeyCode::Char('a'));
         assert_eq!(
             modes_of(&app),
-            ("→ sol · note · about auth-fix".into(), vec!["note", "talk"])
+            (
+                "→ sol (product) · note · about auth-fix".into(),
+                vec!["note", "talk"]
+            )
         );
         typed(&mut app, "keep");
         press(&mut app, KeyCode::Tab);
-        assert_eq!(app.input.as_ref().unwrap().header(), "→ auth-fix · talk");
+        assert_eq!(
+            app.input.as_ref().unwrap().header(),
+            "→ auth-fix (product) · talk"
+        );
         assert!(matches!(press(&mut app, KeyCode::Tab), Effect::None));
         assert!(matches!(
             app.input.as_ref().unwrap().compose,
@@ -4633,7 +4654,10 @@ pub(crate) mod tests {
         press(&mut app, KeyCode::Char('a'));
         assert_eq!(
             modes_of(&app),
-            ("→ auth-fix · answer".into(), vec!["answer", "note", "talk"])
+            (
+                "→ auth-fix (product) · answer".into(),
+                vec!["answer", "note", "talk"]
+            )
         );
         press(&mut app, KeyCode::Esc);
         app.view
@@ -4642,13 +4666,19 @@ pub(crate) mod tests {
             .bindings
             .insert("x".into(), crate::action::Action::parse("talk").unwrap());
         press(&mut app, KeyCode::Char('x'));
-        assert_eq!(app.input.as_ref().unwrap().header(), "→ auth-fix · talk");
-        press(&mut app, KeyCode::Tab);
-        assert_eq!(app.input.as_ref().unwrap().header(), "→ auth-fix · answer");
+        assert_eq!(
+            app.input.as_ref().unwrap().header(),
+            "→ auth-fix (product) · talk"
+        );
         press(&mut app, KeyCode::Tab);
         assert_eq!(
             app.input.as_ref().unwrap().header(),
-            "→ sol · note · about auth-fix"
+            "→ auth-fix (product) · answer"
+        );
+        press(&mut app, KeyCode::Tab);
+        assert_eq!(
+            app.input.as_ref().unwrap().header(),
+            "→ sol (product) · note · about auth-fix"
         );
     }
 
@@ -4663,10 +4693,16 @@ pub(crate) mod tests {
             .insert("x".into(), crate::action::Action::parse("talk").unwrap());
         app.select(0);
         press(&mut app, KeyCode::Char('x'));
-        assert_eq!(modes_of(&app), ("→ auth-fix · talk".into(), vec!["talk"]));
+        assert_eq!(
+            modes_of(&app),
+            ("→ auth-fix (product) · talk".into(), vec!["talk"])
+        );
         typed(&mut app, "hi");
         press(&mut app, KeyCode::Tab);
-        assert_eq!(app.input.as_ref().unwrap().header(), "→ auth-fix · talk");
+        assert_eq!(
+            app.input.as_ref().unwrap().header(),
+            "→ auth-fix (product) · talk"
+        );
         assert_eq!(app.input.as_ref().unwrap().text, "hi");
     }
 
@@ -4686,7 +4722,7 @@ pub(crate) mod tests {
         press(&mut app, KeyCode::Char('x'));
         assert_eq!(
             modes_of(&app),
-            ("→ auth-fix · note".into(), vec!["note", "talk"])
+            ("→ auth-fix (product) · note".into(), vec!["note", "talk"])
         );
     }
 
@@ -4716,7 +4752,10 @@ pub(crate) mod tests {
         press(&mut app, KeyCode::Esc);
         let note = Action::parse("annotate member").unwrap();
         app.perform(&note);
-        assert_eq!(app.input.as_ref().unwrap().header(), "→ auth-fix · note");
+        assert_eq!(
+            app.input.as_ref().unwrap().header(),
+            "→ auth-fix (product) · note"
+        );
         typed(&mut app, "context");
         assert!(
             matches!(press(&mut app, KeyCode::Enter), Effect::Act(Request::Annotate { ref to, ref row, .. }) if to == "auth-fix" && row == "auth-fix")
@@ -5452,7 +5491,10 @@ mod lead_row_tests {
         // cancelling or an empty Enter.
         app.select(2);
         assert_eq!(press(&mut app, KeyCode::Char('r')), Effect::None);
-        assert_eq!(app.input.as_ref().unwrap().header(), "→ bob · note");
+        assert_eq!(
+            app.input.as_ref().unwrap().header(),
+            "→ bob (product) · note"
+        );
         assert_eq!(press(&mut app, KeyCode::Esc), Effect::None);
         assert!(app.input.is_none());
         press(&mut app, KeyCode::Char('r'));
@@ -5489,7 +5531,7 @@ mod lead_row_tests {
             Effect::Act(Request::Jump("sol".into()))
         );
         press(&mut app, KeyCode::Char('t'));
-        assert_eq!(app.input.as_ref().unwrap().prompt, "→ sol · talk");
+        assert_eq!(app.input.as_ref().unwrap().prompt, "→ sol (product) · talk");
         for character in "hello".chars() {
             press(&mut app, KeyCode::Char(character));
         }
@@ -6195,7 +6237,10 @@ mod link_tests {
             app.view.as_mut().unwrap().document["squad"]["lead"] =
                 json!({"id":"lead-id", "name":"Lead"});
             assert_eq!(app.activate_link(), Effect::None);
-            assert_eq!(app.input.as_ref().unwrap().header(), "→ Lead · talk");
+            assert_eq!(
+                app.input.as_ref().unwrap().header(),
+                "→ Lead (product) · talk"
+            );
             if changed {
                 app.view.as_mut().unwrap().document["squad"]["lead"]["id"] = json!("replacement");
                 assert_eq!(enter(&mut app), Effect::None);
