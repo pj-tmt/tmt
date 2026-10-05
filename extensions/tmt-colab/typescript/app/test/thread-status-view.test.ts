@@ -63,15 +63,19 @@ it('counts only open live non-Chat threads and keeps status independent of atten
   const deleted = { ...open, deleted: true };
   expect(openThreadCount([resolved, open, chat, deleted])).toBe(1);
   expect(projectThreadStatus(chat).controllable).toBe(false);
-  const broken = new ThreadStatusSeen(fixture.scope, fixture.thread.senderDevice, {
+  const unavailable = {
     getItem: () => {
       throw new Error('unavailable');
     },
     setItem: () => {
       throw new Error('unavailable');
     },
-  });
+  };
+  const broken = new ThreadStatusSeen(fixture.scope, fixture.thread.senderDevice, unavailable);
   expect(projectThreadStatus(resolved, broken).resolved).toBe(true);
   expect(() => broken.opened(resolved)).not.toThrow();
-  expect(broken.unseen(resolved)).toBe(true);
+  expect(broken.unseen(resolved)).toBe(false);
+  expect(
+    new ThreadStatusSeen(fixture.scope, fixture.thread.senderDevice, unavailable).unseen(resolved),
+  ).toBe(true);
 });

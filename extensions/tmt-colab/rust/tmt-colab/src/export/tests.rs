@@ -316,6 +316,7 @@ fn status_projection_matches_browser_literal_bytes_and_historical_scope_binding(
             .flatten()
             .chain(std::iter::once(&row["thread"]))
             .chain(row["actions"].as_array().unwrap())
+            .chain(row["notifications"].as_array().into_iter().flatten())
         {
             let writer = record["senderDevice"].as_str().unwrap();
             keys.insert(writer.into(), [0; 32]);
@@ -334,7 +335,17 @@ fn status_projection_matches_browser_literal_bytes_and_historical_scope_binding(
             } else {
                 (
                     "messages",
-                    format!("{}:thread-status", record["actionId"].as_str().unwrap()),
+                    format!(
+                        "{}:{}",
+                        record[if record["kind"] == "thread-status" {
+                            "actionId"
+                        } else {
+                            "operationId"
+                        }]
+                        .as_str()
+                        .unwrap(),
+                        record["kind"].as_str().unwrap()
+                    ),
                 )
             };
             roots[root][key] = record.clone();
@@ -356,6 +367,18 @@ fn status_projection_matches_browser_literal_bytes_and_historical_scope_binding(
             "{}",
             row["name"]
         );
+        let conversations = conversations::Conversations::project(
+            scope.clone(),
+            &own,
+            &keys,
+            &keys.keys().cloned().collect(),
+        );
+        assert_eq!(
+            conversations.markdown(),
+            row["expected"]["markdown"].as_str().unwrap(),
+            "{}",
+            row["name"]
+        );
         // A historical key proves authorship, not status authority. Removing only
         // owner provenance leaves the existing thread visible at its legacy state.
         let unauthorized = conversations::threads(&scope, &own, &keys, &Default::default());
@@ -366,6 +389,7 @@ fn status_projection_matches_browser_literal_bytes_and_historical_scope_binding(
                 row["thread"]["resolved"].as_bool().unwrap()
             );
             assert!(thread.status.is_none());
+            assert!(thread.notifications.is_empty());
         }
         // Envelope keys still gate foreign status and thread visibility.
         keys.clear();

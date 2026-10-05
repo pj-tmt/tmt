@@ -6,9 +6,13 @@ import {
   validateDiscussionRecord,
   type ThreadRecord,
 } from '../src/thread-records.js';
-import { foldThreadStatus, type ThreadStatusRecord } from '../src/thread-status.js';
+import {
+  foldThreadStatus,
+  type ThreadStatusRecord,
+  type ThreadNotificationRecord,
+} from '../src/thread-status.js';
 import type { OwnState, JsonValue } from '../src/fold-protocol.js';
-import { projectConversations } from '../src/conversations.js';
+import { projectConversations, renderConversationsMarkdown } from '../src/conversations.js';
 const fixture = JSON.parse(
   readFileSync(new URL('../../../contracts/vectors/discussion-v1.json', import.meta.url), 'utf8'),
 );
@@ -17,10 +21,12 @@ interface Case {
   thread: ThreadRecord;
   threadHistory?: ThreadRecord[];
   actions: ThreadStatusRecord[];
+  notifications?: ThreadNotificationRecord[];
   expected: {
     resolved: boolean;
     status: { writer: string; id: string; depth: number } | null;
     threadsJson: string;
+    markdown: string;
   };
 }
 for (const row of fixture.statusCases as Case[]) {
@@ -117,7 +123,12 @@ it('projects only historically authenticated, writer-bound page/epoch actions wi
 for (const row of fixture.statusCases as Case[]) {
   it(`exported effective status/provenance bytes: ${row.name}`, async () => {
     const own: OwnState = {};
-    for (const record of [...(row.threadHistory ?? []), row.thread, ...row.actions]) {
+    for (const record of [
+      ...(row.threadHistory ?? []),
+      row.thread,
+      ...row.actions,
+      ...(row.notifications ?? []),
+    ]) {
       own[record.senderDevice] ??= { threads: {}, messages: {}, intents: {}, replies: {} };
       // Deliberately reverse field insertion order; export owns canonical order.
       own[record.senderDevice][record.kind === 'thread' ? 'threads' : 'messages'][
@@ -132,6 +143,7 @@ for (const row of fixture.statusCases as Case[]) {
       signingKey: () => new Uint8Array(32),
     });
     expect(JSON.stringify(output.threads)).toBe(row.expected.threadsJson);
+    expect(renderConversationsMarkdown(output)).toBe(row.expected.markdown);
   });
 }
 

@@ -67,7 +67,8 @@
       "expected": {
         "resolved": false,
         "status": null,
-        "threadsJson": "[{\"writer\":\"00000000-0000-4000-8000-000000000002\",\"id\":\"00000000-0000-4000-8000-000000000003\",\"revision\":\"1\",\"anchor\":{\"exact\":\"A quote & 🐈 across tags\",\"prefix\":\"Before \",\"suffix\":\" after\"},\"resolved\":false,\"deleted\":false,\"deviceName\":\"First browser\",\"at\":\"1791072000000\",\"comments\":[]}]"
+        "threadsJson": "[{\"writer\":\"00000000-0000-4000-8000-000000000002\",\"id\":\"00000000-0000-4000-8000-000000000003\",\"revision\":\"1\",\"anchor\":{\"exact\":\"A quote & 🐈 across tags\",\"prefix\":\"Before \",\"suffix\":\" after\"},\"resolved\":false,\"deleted\":false,\"deviceName\":\"First browser\",\"at\":\"1791072000000\",\"comments\":[]}]",
+        "markdown": "# Conversations\n\n- Page: `Status vectors`\n- Page ID: 00000000-0000-4000-8000-000000000001\n- Space: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n- Epoch: 1\n- Membership head: revision 1, 0000000000000000000000000000000000000000000000000000000000000000\n\nNames and times are labels asserted by each writer. They are not verified identities or clocks.\n\n## Threads (1)\n\n### Thread 1\n\n- Thread ID: 00000000-0000-4000-8000-000000000002:00000000-0000-4000-8000-000000000003\n- Status: open\n- Started by: `First browser` at 2026-10-04 00:00:00 UTC\n\nQuoted text:\n\n```\nA quote & 🐈 across tags\n```\n\n## Asks (0)\n\nNo asks.\n"
       }
     },
     {
@@ -95,7 +96,8 @@
       "expected": {
         "resolved": true,
         "status": null,
-        "threadsJson": "[{\"writer\":\"00000000-0000-4000-8000-000000000002\",\"id\":\"00000000-0000-4000-8000-000000000003\",\"revision\":\"1\",\"anchor\":{\"exact\":\"A quote & 🐈 across tags\",\"prefix\":\"Before \",\"suffix\":\" after\"},\"resolved\":true,\"deleted\":false,\"deviceName\":\"First browser\",\"at\":\"1791072000000\",\"comments\":[]}]"
+        "threadsJson": "[{\"writer\":\"00000000-0000-4000-8000-000000000002\",\"id\":\"00000000-0000-4000-8000-000000000003\",\"revision\":\"1\",\"anchor\":{\"exact\":\"A quote & 🐈 across tags\",\"prefix\":\"Before \",\"suffix\":\" after\"},\"resolved\":true,\"deleted\":false,\"deviceName\":\"First browser\",\"at\":\"1791072000000\",\"comments\":[]}]",
+        "markdown": "# Conversations\n\n- Page: `Status vectors`\n- Page ID: 00000000-0000-4000-8000-000000000001\n- Space: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n- Epoch: 1\n- Membership head: revision 1, 0000000000000000000000000000000000000000000000000000000000000000\n\nNames and times are labels asserted by each writer. They are not verified identities or clocks.\n\n## Threads (1)\n\n### Thread 1\n\n- Thread ID: 00000000-0000-4000-8000-000000000002:00000000-0000-4000-8000-000000000003\n- Status: resolved\n- Started by: `First browser` at 2026-10-04 00:00:00 UTC\n\nQuoted text:\n\n```\nA quote & 🐈 across tags\n```\n\n## Asks (0)\n\nNo asks.\n"
       }
     },
     {
@@ -150,7 +152,8 @@
           "id": "00000000-0000-4000-8000-00000000000a",
           "depth": 1
         },
-        "threadsJson": "[{\"writer\":\"00000000-0000-4000-8000-000000000002\",\"id\":\"00000000-0000-4000-8000-000000000003\",\"revision\":\"1\",\"anchor\":{\"exact\":\"A quote & 🐈 across tags\",\"prefix\":\"Before \",\"suffix\":\" after\"},\"resolved\":true,\"deleted\":false,\"deviceName\":\"First browser\",\"at\":\"1791072000000\",\"comments\":[],\"status\":{\"version\":1,\"kind\":\"thread-status\",\"spaceId\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"pageId\":\"00000000-0000-4000-8000-000000000001\",\"epoch\":\"1\",\"senderDevice\":\"00000000-0000-4000-8000-000000000004\",\"revision\":\"1\",\"deleted\":false,\"deviceName\":\"Owner device\",\"at\":\"0\",\"actionId\":\"00000000-0000-4000-8000-00000000000a\",\"thread\":{\"writer\":\"00000000-0000-4000-8000-000000000002\",\"id\":\"00000000-0000-4000-8000-000000000003\"},\"previous\":null,\"resolved\":true,\"actor\":\"person\",\"agentName\":null,\"recipients\":[],\"ref\":{\"writer\":\"00000000-0000-4000-8000-000000000004\",\"id\":\"00000000-0000-4000-8000-00000000000a\"},\"depth\":1}}]"
+        "threadsJson": "[{\"writer\":\"00000000-0000-4000-8000-000000000002\",\"id\":\"00000000-0000-4000-8000-000000000003\",\"revision\":\"1\",\"anchor\":{\"exact\":\"A quote & 🐈 across tags\",\"prefix\":\"Before \",\"suffix\":\" after\"},\"resolved\":true,\"deleted\":false,\"deviceName\":\"First browser\",\"at\":\"1791072000000\",\"comments\":[],\"status\":{\"version\":1,\"kind\":\"thread-status\",\"spaceId\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"pageId\":\"00000000-0000-4000-8000-000000000001\",\"epoch\":\"1\",\"senderDevice\":\"00000000-0000-4000-8000-000000000004\",\"revision\":\"1\",\"deleted\":false,\"deviceName\":\"Owner device\",\"at\":\"0\",\"actionId\":\"00000000-0000-4000-8000-00000000000a\",\"thread\":{\"writer\":\"00000000-0000-4000-8000-000000000002\",\"id\":\"00000000-0000-4000-8000-000000000003\"},\"previous\":null,\"resolved\":true,\"actor\":\"person\",\"agentName\":null,\"recipients\":[],\"ref\":{\"writer\":\"00000000-0000-4000-8000-000000000004\",\"id\":\"00000000-0000-4000-8000-00000000000a\"},\"depth\":1}}]",
+        "markdown": "# Conversations\n\n- Page: `Status vectors`\n- Page ID: 00000000-0000-4000-8000-000000000001\n- Space: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n- Epoch: 1\n- Membership head: revision 1, 0000000000000000000000000000000000000000000000000000000000000000\n\nNames and times are labels asserted by each writer. They are not verified identities or clocks.\n\n## Threads (1)\n\n### Thread 1\n\n- Thread ID: 00000000-0000-4000-8000-000000000002:00000000-0000-4000-8000-000000000003\n- Status: resolved\n- Started by: `First browser` at 2026-10-04 00:00:00 UTC\n\n- Resolved by: `Owner device` at 1970-01-01 00:00:00 UTC\n\nQuoted text:\n\n```\nA quote & 🐈 across tags\n```\n\n## Asks (0)\n\nNo asks.\n"
       }
     },
     {
@@ -227,7 +230,8 @@
           "id": "00000000-0000-4000-8000-00000000000a",
           "depth": 1
         },
-        "threadsJson": "[{\"writer\":\"00000000-0000-4000-8000-000000000002\",\"id\":\"00000000-0000-4000-8000-000000000003\",\"revision\":\"1\",\"anchor\":{\"exact\":\"A quote & 🐈 across tags\",\"prefix\":\"Before \",\"suffix\":\" after\"},\"resolved\":true,\"deleted\":false,\"deviceName\":\"First browser\",\"at\":\"1791072000000\",\"comments\":[],\"status\":{\"version\":1,\"kind\":\"thread-status\",\"spaceId\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"pageId\":\"00000000-0000-4000-8000-000000000001\",\"epoch\":\"1\",\"senderDevice\":\"00000000-0000-4000-8000-000000000004\",\"revision\":\"1\",\"deleted\":false,\"deviceName\":\"Owner device\",\"at\":\"0\",\"actionId\":\"00000000-0000-4000-8000-00000000000a\",\"thread\":{\"writer\":\"00000000-0000-4000-8000-000000000002\",\"id\":\"00000000-0000-4000-8000-000000000003\"},\"previous\":null,\"resolved\":true,\"actor\":\"person\",\"agentName\":null,\"recipients\":[],\"ref\":{\"writer\":\"00000000-0000-4000-8000-000000000004\",\"id\":\"00000000-0000-4000-8000-00000000000a\"},\"depth\":1}}]"
+        "threadsJson": "[{\"writer\":\"00000000-0000-4000-8000-000000000002\",\"id\":\"00000000-0000-4000-8000-000000000003\",\"revision\":\"1\",\"anchor\":{\"exact\":\"A quote & 🐈 across tags\",\"prefix\":\"Before \",\"suffix\":\" after\"},\"resolved\":true,\"deleted\":false,\"deviceName\":\"First browser\",\"at\":\"1791072000000\",\"comments\":[],\"status\":{\"version\":1,\"kind\":\"thread-status\",\"spaceId\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"pageId\":\"00000000-0000-4000-8000-000000000001\",\"epoch\":\"1\",\"senderDevice\":\"00000000-0000-4000-8000-000000000004\",\"revision\":\"1\",\"deleted\":false,\"deviceName\":\"Owner device\",\"at\":\"0\",\"actionId\":\"00000000-0000-4000-8000-00000000000a\",\"thread\":{\"writer\":\"00000000-0000-4000-8000-000000000002\",\"id\":\"00000000-0000-4000-8000-000000000003\"},\"previous\":null,\"resolved\":true,\"actor\":\"person\",\"agentName\":null,\"recipients\":[],\"ref\":{\"writer\":\"00000000-0000-4000-8000-000000000004\",\"id\":\"00000000-0000-4000-8000-00000000000a\"},\"depth\":1}}]",
+        "markdown": "# Conversations\n\n- Page: `Status vectors`\n- Page ID: 00000000-0000-4000-8000-000000000001\n- Space: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n- Epoch: 1\n- Membership head: revision 1, 0000000000000000000000000000000000000000000000000000000000000000\n\nNames and times are labels asserted by each writer. They are not verified identities or clocks.\n\n## Threads (1)\n\n### Thread 1\n\n- Thread ID: 00000000-0000-4000-8000-000000000002:00000000-0000-4000-8000-000000000003\n- Status: resolved\n- Started by: `First browser` at 2026-10-04 00:00:00 UTC\n\n- Resolved by: `Owner device` at 1970-01-01 00:00:00 UTC\n\nQuoted text:\n\n```\nA quote & 🐈 across tags\n```\n\n## Asks (0)\n\nNo asks.\n"
       }
     },
     {
@@ -329,7 +333,8 @@
           "id": "00000000-0000-4000-8000-00000000000c",
           "depth": 2
         },
-        "threadsJson": "[{\"writer\":\"00000000-0000-4000-8000-000000000002\",\"id\":\"00000000-0000-4000-8000-000000000003\",\"revision\":\"1\",\"anchor\":{\"exact\":\"A quote & 🐈 across tags\",\"prefix\":\"Before \",\"suffix\":\" after\"},\"resolved\":false,\"deleted\":false,\"deviceName\":\"First browser\",\"at\":\"1791072000000\",\"comments\":[],\"status\":{\"version\":1,\"kind\":\"thread-status\",\"spaceId\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"pageId\":\"00000000-0000-4000-8000-000000000001\",\"epoch\":\"1\",\"senderDevice\":\"00000000-0000-4000-8000-000000000002\",\"revision\":\"1\",\"deleted\":false,\"deviceName\":\"Owner device\",\"at\":\"0\",\"actionId\":\"00000000-0000-4000-8000-00000000000c\",\"thread\":{\"writer\":\"00000000-0000-4000-8000-000000000002\",\"id\":\"00000000-0000-4000-8000-000000000003\"},\"previous\":{\"writer\":\"00000000-0000-4000-8000-000000000004\",\"id\":\"00000000-0000-4000-8000-00000000000a\"},\"resolved\":false,\"actor\":\"person\",\"agentName\":null,\"recipients\":[],\"ref\":{\"writer\":\"00000000-0000-4000-8000-000000000002\",\"id\":\"00000000-0000-4000-8000-00000000000c\"},\"depth\":2}}]"
+        "threadsJson": "[{\"writer\":\"00000000-0000-4000-8000-000000000002\",\"id\":\"00000000-0000-4000-8000-000000000003\",\"revision\":\"1\",\"anchor\":{\"exact\":\"A quote & 🐈 across tags\",\"prefix\":\"Before \",\"suffix\":\" after\"},\"resolved\":false,\"deleted\":false,\"deviceName\":\"First browser\",\"at\":\"1791072000000\",\"comments\":[],\"status\":{\"version\":1,\"kind\":\"thread-status\",\"spaceId\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"pageId\":\"00000000-0000-4000-8000-000000000001\",\"epoch\":\"1\",\"senderDevice\":\"00000000-0000-4000-8000-000000000002\",\"revision\":\"1\",\"deleted\":false,\"deviceName\":\"Owner device\",\"at\":\"0\",\"actionId\":\"00000000-0000-4000-8000-00000000000c\",\"thread\":{\"writer\":\"00000000-0000-4000-8000-000000000002\",\"id\":\"00000000-0000-4000-8000-000000000003\"},\"previous\":{\"writer\":\"00000000-0000-4000-8000-000000000004\",\"id\":\"00000000-0000-4000-8000-00000000000a\"},\"resolved\":false,\"actor\":\"person\",\"agentName\":null,\"recipients\":[],\"ref\":{\"writer\":\"00000000-0000-4000-8000-000000000002\",\"id\":\"00000000-0000-4000-8000-00000000000c\"},\"depth\":2}}]",
+        "markdown": "# Conversations\n\n- Page: `Status vectors`\n- Page ID: 00000000-0000-4000-8000-000000000001\n- Space: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n- Epoch: 1\n- Membership head: revision 1, 0000000000000000000000000000000000000000000000000000000000000000\n\nNames and times are labels asserted by each writer. They are not verified identities or clocks.\n\n## Threads (1)\n\n### Thread 1\n\n- Thread ID: 00000000-0000-4000-8000-000000000002:00000000-0000-4000-8000-000000000003\n- Status: open\n- Started by: `First browser` at 2026-10-04 00:00:00 UTC\n\n- Reopened by: `Owner device` at 1970-01-01 00:00:00 UTC\n\nQuoted text:\n\n```\nA quote & 🐈 across tags\n```\n\n## Asks (0)\n\nNo asks.\n"
       }
     },
     {
@@ -406,7 +411,8 @@
           "id": "00000000-0000-4000-8000-000000000015",
           "depth": 1
         },
-        "threadsJson": "[{\"writer\":\"00000000-0000-4000-8000-000000000002\",\"id\":\"00000000-0000-4000-8000-000000000003\",\"revision\":\"1\",\"anchor\":{\"exact\":\"A quote & 🐈 across tags\",\"prefix\":\"Before \",\"suffix\":\" after\"},\"resolved\":false,\"deleted\":false,\"deviceName\":\"First browser\",\"at\":\"1791072000000\",\"comments\":[],\"status\":{\"version\":1,\"kind\":\"thread-status\",\"spaceId\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"pageId\":\"00000000-0000-4000-8000-000000000001\",\"epoch\":\"1\",\"senderDevice\":\"00000000-0000-4000-8000-000000000004\",\"revision\":\"1\",\"deleted\":false,\"deviceName\":\"Owner device\",\"at\":\"0\",\"actionId\":\"00000000-0000-4000-8000-000000000015\",\"thread\":{\"writer\":\"00000000-0000-4000-8000-000000000002\",\"id\":\"00000000-0000-4000-8000-000000000003\"},\"previous\":null,\"resolved\":false,\"actor\":\"person\",\"agentName\":null,\"recipients\":[],\"ref\":{\"writer\":\"00000000-0000-4000-8000-000000000004\",\"id\":\"00000000-0000-4000-8000-000000000015\"},\"depth\":1}}]"
+        "threadsJson": "[{\"writer\":\"00000000-0000-4000-8000-000000000002\",\"id\":\"00000000-0000-4000-8000-000000000003\",\"revision\":\"1\",\"anchor\":{\"exact\":\"A quote & 🐈 across tags\",\"prefix\":\"Before \",\"suffix\":\" after\"},\"resolved\":false,\"deleted\":false,\"deviceName\":\"First browser\",\"at\":\"1791072000000\",\"comments\":[],\"status\":{\"version\":1,\"kind\":\"thread-status\",\"spaceId\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"pageId\":\"00000000-0000-4000-8000-000000000001\",\"epoch\":\"1\",\"senderDevice\":\"00000000-0000-4000-8000-000000000004\",\"revision\":\"1\",\"deleted\":false,\"deviceName\":\"Owner device\",\"at\":\"0\",\"actionId\":\"00000000-0000-4000-8000-000000000015\",\"thread\":{\"writer\":\"00000000-0000-4000-8000-000000000002\",\"id\":\"00000000-0000-4000-8000-000000000003\"},\"previous\":null,\"resolved\":false,\"actor\":\"person\",\"agentName\":null,\"recipients\":[],\"ref\":{\"writer\":\"00000000-0000-4000-8000-000000000004\",\"id\":\"00000000-0000-4000-8000-000000000015\"},\"depth\":1}}]",
+        "markdown": "# Conversations\n\n- Page: `Status vectors`\n- Page ID: 00000000-0000-4000-8000-000000000001\n- Space: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n- Epoch: 1\n- Membership head: revision 1, 0000000000000000000000000000000000000000000000000000000000000000\n\nNames and times are labels asserted by each writer. They are not verified identities or clocks.\n\n## Threads (1)\n\n### Thread 1\n\n- Thread ID: 00000000-0000-4000-8000-000000000002:00000000-0000-4000-8000-000000000003\n- Status: open\n- Started by: `First browser` at 2026-10-04 00:00:00 UTC\n\n- Reopened by: `Owner device` at 1970-01-01 00:00:00 UTC\n\nQuoted text:\n\n```\nA quote & 🐈 across tags\n```\n\n## Asks (0)\n\nNo asks.\n"
       }
     },
     {
@@ -460,7 +466,8 @@
       "expected": {
         "resolved": false,
         "status": null,
-        "threadsJson": "[{\"writer\":\"00000000-0000-4000-8000-000000000002\",\"id\":\"00000000-0000-4000-8000-000000000003\",\"revision\":\"1\",\"anchor\":{\"exact\":\"A quote & 🐈 across tags\",\"prefix\":\"Before \",\"suffix\":\" after\"},\"resolved\":false,\"deleted\":false,\"deviceName\":\"First browser\",\"at\":\"1791072000000\",\"comments\":[]}]"
+        "threadsJson": "[{\"writer\":\"00000000-0000-4000-8000-000000000002\",\"id\":\"00000000-0000-4000-8000-000000000003\",\"revision\":\"1\",\"anchor\":{\"exact\":\"A quote & 🐈 across tags\",\"prefix\":\"Before \",\"suffix\":\" after\"},\"resolved\":false,\"deleted\":false,\"deviceName\":\"First browser\",\"at\":\"1791072000000\",\"comments\":[]}]",
+        "markdown": "# Conversations\n\n- Page: `Status vectors`\n- Page ID: 00000000-0000-4000-8000-000000000001\n- Space: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n- Epoch: 1\n- Membership head: revision 1, 0000000000000000000000000000000000000000000000000000000000000000\n\nNames and times are labels asserted by each writer. They are not verified identities or clocks.\n\n## Threads (1)\n\n### Thread 1\n\n- Thread ID: 00000000-0000-4000-8000-000000000002:00000000-0000-4000-8000-000000000003\n- Status: open\n- Started by: `First browser` at 2026-10-04 00:00:00 UTC\n\nQuoted text:\n\n```\nA quote & 🐈 across tags\n```\n\n## Asks (0)\n\nNo asks.\n"
       }
     },
     {
@@ -539,7 +546,8 @@
       "expected": {
         "resolved": false,
         "status": null,
-        "threadsJson": "[{\"writer\":\"00000000-0000-4000-8000-000000000002\",\"id\":\"00000000-0000-4000-8000-000000000003\",\"revision\":\"1\",\"anchor\":{\"exact\":\"A quote & 🐈 across tags\",\"prefix\":\"Before \",\"suffix\":\" after\"},\"resolved\":false,\"deleted\":false,\"deviceName\":\"First browser\",\"at\":\"1791072000000\",\"comments\":[]}]"
+        "threadsJson": "[{\"writer\":\"00000000-0000-4000-8000-000000000002\",\"id\":\"00000000-0000-4000-8000-000000000003\",\"revision\":\"1\",\"anchor\":{\"exact\":\"A quote & 🐈 across tags\",\"prefix\":\"Before \",\"suffix\":\" after\"},\"resolved\":false,\"deleted\":false,\"deviceName\":\"First browser\",\"at\":\"1791072000000\",\"comments\":[]}]",
+        "markdown": "# Conversations\n\n- Page: `Status vectors`\n- Page ID: 00000000-0000-4000-8000-000000000001\n- Space: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n- Epoch: 1\n- Membership head: revision 1, 0000000000000000000000000000000000000000000000000000000000000000\n\nNames and times are labels asserted by each writer. They are not verified identities or clocks.\n\n## Threads (1)\n\n### Thread 1\n\n- Thread ID: 00000000-0000-4000-8000-000000000002:00000000-0000-4000-8000-000000000003\n- Status: open\n- Started by: `First browser` at 2026-10-04 00:00:00 UTC\n\nQuoted text:\n\n```\nA quote & 🐈 across tags\n```\n\n## Asks (0)\n\nNo asks.\n"
       }
     },
     {
@@ -615,7 +623,8 @@
       "expected": {
         "resolved": false,
         "status": null,
-        "threadsJson": "[{\"writer\":\"00000000-0000-4000-8000-000000000002\",\"id\":\"00000000-0000-4000-8000-000000000003\",\"revision\":\"1\",\"anchor\":{\"exact\":\"A quote & 🐈 across tags\",\"prefix\":\"Before \",\"suffix\":\" after\"},\"resolved\":false,\"deleted\":false,\"deviceName\":\"First browser\",\"at\":\"1791072000000\",\"comments\":[]}]"
+        "threadsJson": "[{\"writer\":\"00000000-0000-4000-8000-000000000002\",\"id\":\"00000000-0000-4000-8000-000000000003\",\"revision\":\"1\",\"anchor\":{\"exact\":\"A quote & 🐈 across tags\",\"prefix\":\"Before \",\"suffix\":\" after\"},\"resolved\":false,\"deleted\":false,\"deviceName\":\"First browser\",\"at\":\"1791072000000\",\"comments\":[]}]",
+        "markdown": "# Conversations\n\n- Page: `Status vectors`\n- Page ID: 00000000-0000-4000-8000-000000000001\n- Space: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n- Epoch: 1\n- Membership head: revision 1, 0000000000000000000000000000000000000000000000000000000000000000\n\nNames and times are labels asserted by each writer. They are not verified identities or clocks.\n\n## Threads (1)\n\n### Thread 1\n\n- Thread ID: 00000000-0000-4000-8000-000000000002:00000000-0000-4000-8000-000000000003\n- Status: open\n- Started by: `First browser` at 2026-10-04 00:00:00 UTC\n\nQuoted text:\n\n```\nA quote & 🐈 across tags\n```\n\n## Asks (0)\n\nNo asks.\n"
       }
     },
     {
@@ -662,7 +671,8 @@
       "expected": {
         "resolved": false,
         "status": null,
-        "threadsJson": "[{\"writer\":\"00000000-0000-4000-8000-000000000002\",\"id\":\"00000000-0000-4000-8000-000000000002\",\"revision\":\"1\",\"anchor\":null,\"resolved\":false,\"deleted\":false,\"deviceName\":\"First browser\",\"at\":\"1791072000000\",\"comments\":[]}]"
+        "threadsJson": "[{\"writer\":\"00000000-0000-4000-8000-000000000002\",\"id\":\"00000000-0000-4000-8000-000000000002\",\"revision\":\"1\",\"anchor\":null,\"resolved\":false,\"deleted\":false,\"deviceName\":\"First browser\",\"at\":\"1791072000000\",\"comments\":[]}]",
+        "markdown": "# Conversations\n\n- Page: `Status vectors`\n- Page ID: 00000000-0000-4000-8000-000000000001\n- Space: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n- Epoch: 1\n- Membership head: revision 1, 0000000000000000000000000000000000000000000000000000000000000000\n\nNames and times are labels asserted by each writer. They are not verified identities or clocks.\n\n## Threads (1)\n\n### Thread 1\n\n- Thread ID: 00000000-0000-4000-8000-000000000002:00000000-0000-4000-8000-000000000002\n- Status: open\n- Started by: `First browser` at 2026-10-04 00:00:00 UTC\n\nQuoted text: none\n\n## Asks (0)\n\nNo asks.\n"
       }
     },
     {
@@ -709,7 +719,8 @@
       "expected": {
         "resolved": false,
         "status": null,
-        "threadsJson": "[{\"writer\":\"00000000-0000-4000-8000-000000000002\",\"id\":\"00000000-0000-4000-8000-000000000003\",\"revision\":\"2\",\"anchor\":null,\"resolved\":false,\"deleted\":true,\"deviceName\":\"First browser\",\"at\":\"1791072000000\",\"comments\":[]}]"
+        "threadsJson": "[{\"writer\":\"00000000-0000-4000-8000-000000000002\",\"id\":\"00000000-0000-4000-8000-000000000003\",\"revision\":\"2\",\"anchor\":null,\"resolved\":false,\"deleted\":true,\"deviceName\":\"First browser\",\"at\":\"1791072000000\",\"comments\":[]}]",
+        "markdown": "# Conversations\n\n- Page: `Status vectors`\n- Page ID: 00000000-0000-4000-8000-000000000001\n- Space: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n- Epoch: 1\n- Membership head: revision 1, 0000000000000000000000000000000000000000000000000000000000000000\n\nNames and times are labels asserted by each writer. They are not verified identities or clocks.\n\n## Threads (1)\n\n### Thread 1\n\n- Thread ID: 00000000-0000-4000-8000-000000000002:00000000-0000-4000-8000-000000000003\n- Status: deleted\n- Started by: `First browser` at 2026-10-04 00:00:00 UTC\n\nQuoted text: none\n\n## Asks (0)\n\nNo asks.\n"
       },
       "threadHistory": [
         {
@@ -785,7 +796,91 @@
           "id": "00000000-0000-4000-8000-00000000000a",
           "depth": 1
         },
-        "threadsJson": "[{\"writer\":\"00000000-0000-4000-8000-000000000002\",\"id\":\"00000000-0000-4000-8000-000000000003\",\"revision\":\"1\",\"anchor\":{\"exact\":\"A quote & 🐈 across tags\",\"prefix\":\"Before \",\"suffix\":\" after\"},\"resolved\":true,\"deleted\":false,\"deviceName\":\"First browser\",\"at\":\"1791072000000\",\"comments\":[],\"status\":{\"version\":1,\"kind\":\"thread-status\",\"spaceId\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"pageId\":\"00000000-0000-4000-8000-000000000001\",\"epoch\":\"1\",\"senderDevice\":\"00000000-0000-4000-8000-000000000004\",\"revision\":\"1\",\"deleted\":false,\"deviceName\":\"Owner device\",\"at\":\"0\",\"actionId\":\"00000000-0000-4000-8000-00000000000a\",\"thread\":{\"writer\":\"00000000-0000-4000-8000-000000000002\",\"id\":\"00000000-0000-4000-8000-000000000003\"},\"previous\":null,\"resolved\":true,\"actor\":\"agent\",\"agentName\":\"Review agent\",\"recipients\":[],\"ref\":{\"writer\":\"00000000-0000-4000-8000-000000000004\",\"id\":\"00000000-0000-4000-8000-00000000000a\"},\"depth\":1}}]"
+        "threadsJson": "[{\"writer\":\"00000000-0000-4000-8000-000000000002\",\"id\":\"00000000-0000-4000-8000-000000000003\",\"revision\":\"1\",\"anchor\":{\"exact\":\"A quote & 🐈 across tags\",\"prefix\":\"Before \",\"suffix\":\" after\"},\"resolved\":true,\"deleted\":false,\"deviceName\":\"First browser\",\"at\":\"1791072000000\",\"comments\":[],\"status\":{\"version\":1,\"kind\":\"thread-status\",\"spaceId\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"pageId\":\"00000000-0000-4000-8000-000000000001\",\"epoch\":\"1\",\"senderDevice\":\"00000000-0000-4000-8000-000000000004\",\"revision\":\"1\",\"deleted\":false,\"deviceName\":\"Owner device\",\"at\":\"0\",\"actionId\":\"00000000-0000-4000-8000-00000000000a\",\"thread\":{\"writer\":\"00000000-0000-4000-8000-000000000002\",\"id\":\"00000000-0000-4000-8000-000000000003\"},\"previous\":null,\"resolved\":true,\"actor\":\"agent\",\"agentName\":\"Review agent\",\"recipients\":[],\"ref\":{\"writer\":\"00000000-0000-4000-8000-000000000004\",\"id\":\"00000000-0000-4000-8000-00000000000a\"},\"depth\":1}}]",
+        "markdown": "# Conversations\n\n- Page: `Status vectors`\n- Page ID: 00000000-0000-4000-8000-000000000001\n- Space: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n- Epoch: 1\n- Membership head: revision 1, 0000000000000000000000000000000000000000000000000000000000000000\n\nNames and times are labels asserted by each writer. They are not verified identities or clocks.\n\n## Threads (1)\n\n### Thread 1\n\n- Thread ID: 00000000-0000-4000-8000-000000000002:00000000-0000-4000-8000-000000000003\n- Status: resolved\n- Started by: `First browser` at 2026-10-04 00:00:00 UTC\n\n- Resolved by: `Review agent` at 1970-01-01 00:00:00 UTC\n\nQuoted text:\n\n```\nA quote & 🐈 across tags\n```\n\n## Asks (0)\n\nNo asks.\n"
+      }
+    },
+    {
+      "name": "person resolve with pre-ledger failure",
+      "thread": {
+        "version": 1,
+        "kind": "thread",
+        "spaceId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "pageId": "00000000-0000-4000-8000-000000000001",
+        "epoch": "1",
+        "senderDevice": "00000000-0000-4000-8000-000000000002",
+        "revision": "1",
+        "deleted": false,
+        "deviceName": "First browser",
+        "at": "1791072000000",
+        "threadId": "00000000-0000-4000-8000-000000000003",
+        "anchor": {
+          "exact": "A quote & 🐈 across tags",
+          "prefix": "Before ",
+          "suffix": " after"
+        },
+        "resolved": false
+      },
+      "actions": [
+        {
+          "version": 1,
+          "kind": "thread-status",
+          "spaceId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "pageId": "00000000-0000-4000-8000-000000000001",
+          "epoch": "1",
+          "senderDevice": "00000000-0000-4000-8000-000000000004",
+          "revision": "1",
+          "deleted": false,
+          "deviceName": "Owner device",
+          "at": "0",
+          "actionId": "00000000-0000-4000-8000-00000000000a",
+          "thread": {
+            "writer": "00000000-0000-4000-8000-000000000002",
+            "id": "00000000-0000-4000-8000-000000000003"
+          },
+          "previous": null,
+          "resolved": true,
+          "actor": "person",
+          "agentName": null,
+          "recipients": [
+            {
+              "machine": "60000000-0000-4000-8000-000000000001",
+              "agent": "70000000-0000-7000-8000-000000000001",
+              "agentName": "Review agent",
+              "operationId": "80000000-0000-4000-8000-000000000001"
+            }
+          ]
+        }
+      ],
+      "notifications": [
+        {
+          "version": 1,
+          "spaceId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "pageId": "00000000-0000-4000-8000-000000000001",
+          "epoch": "1",
+          "senderDevice": "00000000-0000-4000-8000-000000000004",
+          "revision": "1",
+          "deleted": false,
+          "deviceName": "Owner device",
+          "at": "0",
+          "kind": "thread-notification",
+          "operationId": "80000000-0000-4000-8000-000000000001",
+          "status": {
+            "writer": "00000000-0000-4000-8000-000000000004",
+            "id": "00000000-0000-4000-8000-00000000000a"
+          },
+          "reason": "RECIPIENT_UNAVAILABLE"
+        }
+      ],
+      "expected": {
+        "resolved": true,
+        "status": {
+          "writer": "00000000-0000-4000-8000-000000000004",
+          "id": "00000000-0000-4000-8000-00000000000a",
+          "depth": 1
+        },
+        "threadsJson": "[{\"writer\":\"00000000-0000-4000-8000-000000000002\",\"id\":\"00000000-0000-4000-8000-000000000003\",\"revision\":\"1\",\"anchor\":{\"exact\":\"A quote & 🐈 across tags\",\"prefix\":\"Before \",\"suffix\":\" after\"},\"resolved\":true,\"deleted\":false,\"deviceName\":\"First browser\",\"at\":\"1791072000000\",\"comments\":[],\"status\":{\"version\":1,\"kind\":\"thread-status\",\"spaceId\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"pageId\":\"00000000-0000-4000-8000-000000000001\",\"epoch\":\"1\",\"senderDevice\":\"00000000-0000-4000-8000-000000000004\",\"revision\":\"1\",\"deleted\":false,\"deviceName\":\"Owner device\",\"at\":\"0\",\"actionId\":\"00000000-0000-4000-8000-00000000000a\",\"thread\":{\"writer\":\"00000000-0000-4000-8000-000000000002\",\"id\":\"00000000-0000-4000-8000-000000000003\"},\"previous\":null,\"resolved\":true,\"actor\":\"person\",\"agentName\":null,\"recipients\":[{\"machine\":\"60000000-0000-4000-8000-000000000001\",\"agent\":\"70000000-0000-7000-8000-000000000001\",\"agentName\":\"Review agent\",\"operationId\":\"80000000-0000-4000-8000-000000000001\"}],\"ref\":{\"writer\":\"00000000-0000-4000-8000-000000000004\",\"id\":\"00000000-0000-4000-8000-00000000000a\"},\"depth\":1},\"notifications\":[{\"version\":1,\"kind\":\"thread-notification\",\"spaceId\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"pageId\":\"00000000-0000-4000-8000-000000000001\",\"epoch\":\"1\",\"senderDevice\":\"00000000-0000-4000-8000-000000000004\",\"revision\":\"1\",\"deleted\":false,\"deviceName\":\"Owner device\",\"at\":\"0\",\"operationId\":\"80000000-0000-4000-8000-000000000001\",\"status\":{\"writer\":\"00000000-0000-4000-8000-000000000004\",\"id\":\"00000000-0000-4000-8000-00000000000a\"},\"reason\":\"RECIPIENT_UNAVAILABLE\"}]}]",
+        "markdown": "# Conversations\n\n- Page: `Status vectors`\n- Page ID: 00000000-0000-4000-8000-000000000001\n- Space: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n- Epoch: 1\n- Membership head: revision 1, 0000000000000000000000000000000000000000000000000000000000000000\n\nNames and times are labels asserted by each writer. They are not verified identities or clocks.\n\n## Threads (1)\n\n### Thread 1\n\n- Thread ID: 00000000-0000-4000-8000-000000000002:00000000-0000-4000-8000-000000000003\n- Status: resolved\n- Started by: `First browser` at 2026-10-04 00:00:00 UTC\n\n- Resolved by: `Owner device` at 1970-01-01 00:00:00 UTC\n\n- Notification 80000000-0000-4000-8000-000000000001: RECIPIENT_UNAVAILABLE\n\nQuoted text:\n\n```\nA quote & 🐈 across tags\n```\n\n## Asks (0)\n\nNo asks.\n"
       }
     }
   ],

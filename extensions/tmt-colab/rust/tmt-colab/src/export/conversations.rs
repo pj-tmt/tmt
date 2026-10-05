@@ -12,7 +12,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 pub const FORMAT: &str = "tmt-colab-conversations";
 
-#[derive(Serialize)]
+#[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Head {
     pub revision: String,
@@ -49,6 +49,8 @@ pub struct Thread {
     pub comments: Vec<Comment>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub status: Option<crate::threads::status::Status>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub notifications: Vec<crate::threads::status::Notification>,
 }
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -91,6 +93,7 @@ pub struct Conversations {
 }
 
 /// The captured snapshot's identity; everything else comes from the writers' streams.
+#[derive(Clone)]
 pub struct Capture<'a> {
     pub space_id: &'a str,
     pub page_id: &'a str,
@@ -145,6 +148,7 @@ pub(crate) fn threads(
     let mut threads: BTreeMap<String, Thread> = BTreeMap::new();
     let mut comments = Vec::new();
     let mut actions = Vec::new();
+    let mut notifications = Vec::new();
     for (writer, roots) in own {
         if !keys.contains_key(writer) {
             continue;
@@ -156,7 +160,10 @@ pub(crate) fn threads(
             };
             for (key, value) in entries {
                 let kind = text(value, "kind");
-                if !matches!(kind, Some("thread" | "comment" | "thread-status")) {
+                if !matches!(
+                    kind,
+                    Some("thread" | "comment" | "thread-status" | "thread-notification")
+                ) {
                     continue;
                 }
                 if crate::threads::validate_record(root, key, value).is_err()
@@ -165,6 +172,15 @@ pub(crate) fn threads(
                     || text(value, "pageId") != Some(scope.page_id)
                     || text(value, "epoch") != Some(scope.epoch)
                 {
+                    continue;
+                }
+                if kind == Some("thread-notification") {
+                    if let Ok(notification) = serde_json::from_value::<
+                        crate::threads::status::Notification,
+                    >(value.clone())
+                    {
+                        notifications.push(notification);
+                    }
                     continue;
                 }
                 if kind == Some("thread-status") {
@@ -230,6 +246,7 @@ pub(crate) fn threads(
                         at,
                         comments: Vec::new(),
                         status: None,
+                        notifications: Vec::new(),
                     },
                 );
             } else {
@@ -272,6 +289,20 @@ pub(crate) fn threads(
         );
         if let Some(status) = &thread.status {
             thread.resolved = status.action.resolved;
+            thread.notifications =
+                notifications
+                    .iter()
+                    .filter(|notification| {
+                        notification.status == status.reference
+                            && status.action.recipients.iter().any(|recipient| {
+                                recipient.operation_id == notification.operation_id
+                            })
+                    })
+                    .cloned()
+                    .collect();
+            thread
+                .notifications
+                .sort_by(|a, b| a.operation_id.cmp(&b.operation_id));
         }
         thread
             .comments
@@ -473,6 +504,35 @@ impl Conversations {
                 ),
                 String::new(),
             ]);
+            if let Some(status) = &thread.status {
+                let actor = if status.action.actor == "agent" {
+                    status.action.agent_name.as_deref().unwrap_or("Agent")
+                } else {
+                    &status.action.device_name
+                };
+                lines.extend([
+                    format!(
+                        "- {} by: {} at {}",
+                        if status.action.resolved {
+                            "Resolved"
+                        } else {
+                            "Reopened"
+                        },
+                        code_span(actor),
+                        when(millis(&status.action.at))
+                    ),
+                    String::new(),
+                ]);
+                for notification in &thread.notifications {
+                    lines.extend([
+                        format!(
+                            "- Notification {}: {}",
+                            notification.operation_id, notification.reason
+                        ),
+                        String::new(),
+                    ]);
+                }
+            }
             match &thread.anchor {
                 Some(anchor) => lines.extend([
                     "Quoted text:".into(),

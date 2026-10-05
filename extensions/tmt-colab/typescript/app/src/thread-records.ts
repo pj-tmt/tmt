@@ -56,6 +56,8 @@ export interface ThreadView extends ThreadRecord {
   ref: DiscussionRef;
   comments: CommentView[];
   status?: ThreadStatusView;
+  statuses?: ThreadStatusView[];
+  notifications?: ThreadNotificationRecord[];
 }
 export function validateSelector(value: unknown): asserts value is QuoteSelector {
   exactKeys(value, ['exact', 'prefix', 'suffix']);
@@ -152,6 +154,7 @@ export function readThreads(
   const threads = new Map<string, ThreadView>();
   const comments: CommentView[] = [];
   const statuses: Omit<ThreadStatusView, 'depth'>[] = [];
+  const notifications: ThreadNotificationRecord[] = [];
   for (const [writer, roots] of Object.entries(own)) {
     if (!signingKey(writer)) continue;
     const groups = new Map<string, (ThreadRecord | CommentRecord)[]>();
@@ -161,7 +164,9 @@ export function readThreads(
           !value ||
           typeof value !== 'object' ||
           Array.isArray(value) ||
-          !['thread', 'comment', 'thread-status'].includes(String(value.kind))
+          !['thread', 'comment', 'thread-status', 'thread-notification'].includes(
+            String(value.kind),
+          )
         )
           continue;
         try {
@@ -172,6 +177,10 @@ export function readThreads(
               value.pageId === scope.pageId &&
               value.epoch === scope.epoch,
           );
+          if (value.kind === 'thread-notification') {
+            notifications.push(structuredClone(value));
+            continue;
+          }
           if (value.kind === 'thread-status') {
             statuses.push({ ...structuredClone(value), ref: { writer, id: value.actionId } });
             continue;
@@ -195,8 +204,18 @@ export function readThreads(
     }
   }
   for (const comment of comments) threads.get(refKey(comment.thread))?.comments.push(comment);
-  for (const thread of threads.values())
+  for (const thread of threads.values()) {
     Object.assign(thread, foldThreadStatus(thread, thread.ref.writer, statuses));
+    const failures = notifications.filter((notification) =>
+      thread.statuses?.some(
+        (status) =>
+          status.ref.writer === notification.status.writer &&
+          status.ref.id === notification.status.id &&
+          status.recipients.some((recipient) => recipient.operationId === notification.operationId),
+      ),
+    );
+    if (failures.length) thread.notifications = failures;
+  }
   return [...threads.values()].sort((a, b) => refKey(a.ref).localeCompare(refKey(b.ref)));
 }
 

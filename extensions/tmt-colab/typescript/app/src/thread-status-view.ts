@@ -14,6 +14,7 @@ export function openThreadCount(threads: readonly ThreadView[]) {
  * explicit parent open action marks a winning agent resolution seen. Rendering,
  * marker geometry, closing a window and a page reload never acknowledge it. */
 export class ThreadStatusSeen {
+  #opened = new Map<string, string>();
   constructor(
     private scope: DiscussionScope,
     private deviceId: string,
@@ -25,6 +26,7 @@ export class ThreadStatusSeen {
   unseen(thread: ThreadView) {
     const status = thread.status;
     if (!isStatusThread(thread) || !status?.resolved || status.actor !== 'agent') return false;
+    if (this.#opened.get(this.#key(thread)) === discussionRefKey(status.ref)) return false;
     try {
       return this.storage.getItem(this.#key(thread)) !== discussionRefKey(status.ref);
     } catch {
@@ -34,6 +36,7 @@ export class ThreadStatusSeen {
   opened(thread: ThreadView) {
     const status = thread.status;
     if (!isStatusThread(thread) || !status?.resolved || status.actor !== 'agent') return;
+    this.#opened.set(this.#key(thread), discussionRefKey(status.ref));
     try {
       this.storage.setItem(this.#key(thread), discussionRefKey(status.ref));
     } catch {
@@ -56,3 +59,5 @@ export function projectThreadStatus(thread: ThreadView, seen?: ThreadStatusSeen)
     at: status?.at,
   };
 }
+
+export type ThreadStatusPresentation = ReturnType<typeof projectThreadStatus>;

@@ -1,6 +1,10 @@
 import { shortPageId } from './short-links.js';
 import { ThreadStore, commentForAsk, conversationForAsk } from './thread-store.js';
-import { readThreads } from './thread-records.js';
+import { readThreads, type DiscussionRef } from './thread-records.js';
+import { ThreadStatusCoordinator } from './thread-status-coordinator.js';
+import { statusNotificationForAsk } from './thread-status-notification.js';
+import { projectThreadPresentation } from './thread-status-presentation.js';
+import { ThreadStatusSeen } from './thread-status-view.js';
 import { LiveAsk, pageAsks } from './live-ask.js';
 import { requireValue } from '@tmt/colab-client';
 import type { Bootstrap, PageInfo } from './bootstrap.js';
@@ -28,7 +32,9 @@ export interface LiveSessionOwner {
 export class Live implements PageBinding {
   ask?: LiveAsk;
   readonly discussion: ThreadStore;
+  readonly status: ThreadStatusCoordinator;
   #remote: RemoteClient | null = null;
+  #seen?: { deviceId: string; value: ThreadStatusSeen };
   #observation: AbortController | null = null;
   #refreshOlderAsks = true;
   #views = Promise.resolve();
@@ -70,6 +76,19 @@ export class Live implements PageBinding {
       publish: (records) => this.#writer.submitOwnRecords(records),
       available: () => !this.#closed && !this.#error && !this.#connecting,
     });
+    this.status = new ThreadStatusCoordinator({
+      binding: this.discussion,
+      asks: () => this.#projection.asks ?? [],
+      destinations: async () => (this.ask ? this.ask.destinations() : []),
+      notify: async (status, recipient, thread) =>
+        this.ask
+          ? this.ask.notifyStatus(
+              { status: status.ref, recipient, thread },
+              this.#admitted.title,
+              this.mount.href,
+            )
+          : { adopted: false, reason: 'RECIPIENT_UNAVAILABLE' },
+    });
     this.#replaceAsk(remote);
     if (typeof document !== 'undefined')
       document.addEventListener('visibilitychange', this.#visibility);
@@ -109,6 +128,16 @@ export class Live implements PageBinding {
               connection.objects.ownSigningKey(writer),
             );
             return conversationForAsk(threads, context, asks);
+          },
+          statusContext: (context) => {
+            const connection = this.#connection;
+            requireValue(connection !== null);
+            const threads = readThreads(
+              this.#admitted.own ?? {},
+              { spaceId: bootstrap.space, pageId: page.pageId, epoch: page.epoch },
+              (writer) => connection.objects.ownSigningKey(writer),
+            );
+            return statusNotificationForAsk(threads, context, registration.deviceId);
           },
           publish: (root, key, value) => this.#writer.submitOwn(root, key, value),
           connection: () => this.#current,
@@ -236,7 +265,14 @@ export class Live implements PageBinding {
           },
           (writer) => connection.objects.ownSigningKey(writer),
         );
-        this.#projection = { ...value, asks, threads };
+        this.#projection = {
+          ...value,
+          asks,
+          threads,
+          threadPresentations: threads.map((thread) =>
+            projectThreadPresentation(thread, asks, this.#statusSeen()),
+          ),
+        };
         this.#listeners.forEach((v) => v.publish(structuredClone(this.#projection)));
         this.#observe();
       }
@@ -334,6 +370,42 @@ export class Live implements PageBinding {
       };
     });
     return prepareExport(view);
+  }
+  #statusSeen() {
+    const deviceId = this.registration.deviceId;
+    if (this.#seen?.deviceId === deviceId) return this.#seen.value;
+    let storage: Pick<Storage, 'getItem' | 'setItem'>;
+    try {
+      storage = globalThis.localStorage;
+      requireValue(storage !== undefined);
+    } catch {
+      storage = { getItem: () => null, setItem: () => {} };
+    }
+    const value = new ThreadStatusSeen(
+      { spaceId: this.bootstrap.space, pageId: this.page.pageId, epoch: this.page.epoch },
+      deviceId,
+      storage,
+    );
+    this.#seen = { deviceId, value };
+    return value;
+  }
+  /** Called only by the trusted parent open handler, never from rendering. */
+  markThreadStatusSeen(ref: DiscussionRef) {
+    if (this.#closed) return;
+    const threads = this.#projection.threads ?? [];
+    const matches = threads.filter(
+      (thread) => thread.ref.writer === ref.writer && thread.ref.id === ref.id,
+    );
+    if (matches.length !== 1) return;
+    const seen = this.#statusSeen();
+    seen.opened(matches[0]);
+    this.#projection = {
+      ...this.#projection,
+      threadPresentations: threads.map((thread) =>
+        projectThreadPresentation(thread, this.#projection.asks ?? [], seen),
+      ),
+    };
+    this.#listeners.forEach((listener) => listener.publish(structuredClone(this.#projection)));
   }
   async reconnect(): Promise<boolean> {
     if (!this.sessionOwner?.recover || this.#closed) return false;

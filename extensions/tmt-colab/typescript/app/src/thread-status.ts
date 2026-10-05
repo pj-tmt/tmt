@@ -106,7 +106,7 @@ export function foldThreadStatus(
   thread: ThreadRecord,
   writer: string,
   records: readonly Omit<ThreadStatusView, 'depth'>[],
-): { resolved: boolean; status?: ThreadStatusView } {
+): { resolved: boolean; status?: ThreadStatusView; statuses?: ThreadStatusView[] } {
   if (thread.deleted || (thread.threadId === writer && thread.anchor === null))
     return { resolved: thread.resolved };
   const candidates = records.filter(
@@ -133,5 +133,14 @@ export function foldThreadStatus(
     for (const child of children.get(discussionRefKey(value.ref)) ?? [])
       queue.push({ ...child, depth: value.depth + 1 });
   }
-  return winner ? { resolved: winner.resolved, status: winner } : { resolved: thread.resolved };
+  return winner
+    ? {
+        resolved: winner.resolved,
+        status: winner,
+        statuses: [...queue].sort(
+          (a, b) =>
+            a.depth - b.depth || (discussionRefKey(a.ref) < discussionRefKey(b.ref) ? -1 : 1),
+        ),
+      }
+    : { resolved: thread.resolved };
 }

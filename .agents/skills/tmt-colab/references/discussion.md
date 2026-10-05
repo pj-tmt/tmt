@@ -24,6 +24,14 @@ owns record fields, limits, revision semantics and trust boundaries.
   linked above owns the grammar and ordering rule. Status actions do not transfer
   creation, anchor, deletion or comment-edit ownership. `ThreadBinding.setStatus` uses a
   captured previous-action reference; publication failures preserve the effective state.
+- `thread-status-coordinator.ts` freezes unique mentions and prior signed recipient UUIDs,
+  publishes status/operation IDs before sequential notification attempts, and coalesces
+  the explicit parent action. `LiveAsk.notifyStatus` reuses FrozenAsk, AskController and
+  the existing own ledger; it never runs during loading or result re-checking.
+  `thread-status-notification.ts` re-admits the committed action/recipient and captured
+  discussion before Ask freezing, then projects held/refused/failure/uncertain outcomes
+  without granting dispatch. `thread-status-view.ts` owns the shared status metadata,
+  non-Chat open count and browser-local attention cleared only by an explicit parent open.
 - Native `threads.rs` validates typed grammar and `threads/status.rs` owns the same causal
   fold. `fold.rs` derives owner-device status provenance from verified historical
   certificate issuers separately from signing keys; non-owner and bridge records

@@ -93,9 +93,9 @@ impl Action {
         Ok(())
     }
 }
-#[derive(Deserialize)]
+#[derive(Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct Notification {
+pub struct Notification {
     version: u8,
     kind: String,
     space_id: String,
@@ -106,9 +106,9 @@ struct Notification {
     deleted: bool,
     device_name: String,
     at: String,
-    operation_id: String,
-    status: Reference,
-    reason: String,
+    pub(crate) operation_id: String,
+    pub(crate) status: Reference,
+    pub(crate) reason: String,
 }
 pub(super) fn validate(root: &str, key: &str, value: &Value) -> Result<()> {
     require(root == "messages")?;

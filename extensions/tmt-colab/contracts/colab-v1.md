@@ -2539,7 +2539,12 @@ newline):
 decimal string; `issuedAt` and `expiresAt` are JSON integers. A thread with an effective
 status action also includes `status`, the immutable action fields plus `ref:{writer,id}`
 and causal `depth`, in the same declared field order as the native/browser status
-vectors. It is omitted for legacy-only state. Threads are ordered by
+vectors. It is omitted for legacy-only state. The effective action's admitted
+pre-ledger failure records, when present, are included as `notifications` in
+operation-ID byte order. Failures with a missing/unauthorized action or an
+operation outside its frozen recipient list are inert. Normal delivery outcomes
+remain in the existing Ask ledger. The Markdown reading includes the status
+actor/time labels and these failure reasons from the same frozen view. Threads are ordered by
 `writer + ":" + id`, comments inside a thread likewise, asks by `writer + ":" +
 operationId`, all by byte order (never a locale comparison). Bodies and messages are exact
 UTF-8, including controls. Order never depends on `at`.
