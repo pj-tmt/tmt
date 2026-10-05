@@ -1,6 +1,6 @@
 ---
 source: site/src/chapters/squad.mdx
-sourceRevision: b0bd9ca6a2c24f3e09501d5d4082179f6b31f0e5
+sourceRevision: 6be111a46d67bd4d158deff28e9e6d7e503917a4
 title: チームを1つの board で見る
 ---
 
@@ -64,25 +64,25 @@ $ tmt sq                         # 端末では board、それ以外ではメン
 
 <Mdx.h3 id="the-board">board</Mdx.h3>
 
-既定の board は **team** です。squad のメンバーが行に並び、横に選択したメンバーの詳細と最近の返事、下に lead の notes が表示されます。`/` を押して入力すると行を絞り込めます。ユーザーを待つメンバーには <Waiting /> が付き、その行を先に表示します。各キーはすでに画面にある情報で動き、PR の状態など時間のかかる取得はバックグラウンドで更新します。メンバー、リクエスト、room の変更や `squad.toml` の編集は約1秒以内に再読み込みし、ほかの情報は設定した間隔（`refresh` または `"off"`）で更新します。検索中やメッセージの入力中でも、**ctrl-r** ですぐに更新できます。`tmt sq ls` はメンバー一覧をテキストで、`--json` を付けると JSON で表示します。端末がないときの `tmt sq` もこの一覧を表示します。`tmt sq board` は対話端末では board を開き、それ以外では同じ一覧を表示します。
+squad タブの既定は **members** です。lead とメンバーを1つの枠付き一覧に表示し、詳細は行の中に開き、lead の notes は下に置きます。従来の側面ペインを持つ **team** view も選べます。`/` を押して入力すると行を絞り込めます。ユーザーを待つメンバーには <Waiting /> が付き、その行を先に表示します。各キーはすでに画面にある情報で動き、PR の状態など時間のかかる取得はバックグラウンドで更新します。メンバー、リクエスト、room の変更や `squad.toml` の編集は約1秒以内に再読み込みし、ほかの情報は設定した間隔（`refresh` または `"off"`）で更新します。検索中やメッセージの入力中でも、**ctrl-r** ですぐに更新できます。`tmt sq ls` はメンバー一覧をテキストで、`--json` を付けると JSON で表示します。端末がないときの `tmt sq` もこの一覧を表示します。`tmt sq board` は対話端末では board を開き、それ以外では同じ一覧を表示します。
 
 <BoardSketch />
 
-<Caption>既定の team board の概略です。狭い端末では detail と replies が折りたたまれます。</Caption>
+<Caption>図：既定の members view。1つの枠付き一覧の下に lead の notes があります。</Caption>
 
 | キー                     | 選択した行での動作                                                                                                                                                                                                                                                            |
 | ------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | enter · double-click · ⌫ | `jump` でメンバーの画面へ移動し、`back` で元に戻ります。シングルクリックは行の選択だけです。notes などのペインをクリックするとフォーカスが移ります。ペインを切り替えられる host が必要です。[メンバー間の移動](/extensions/squad#jumping-between-members)を参照してください。 |
-| L                        | `jump lead` で、このタブの squad の lead へ移動します。**leads** と **all** では、選択した行の squad の lead へ移動します。tmux でのみ使えます。                                                                                                                              |
 | t · r                    | tmt 自身の `tmt talk` と `tmt answer` を通して、メンバーへ `talk` するか、待っている依頼に `reply` します。返事は board に表示されます。                                                                                                                                      |
-| a                        | `annotate` で、この行について lead にメモを送ります（後述）。                                                                                                                                                                                                                 |
+| e · n                    | lead またはメンバーの詳細を行内に開く · lead の notes を隠す／表示する。                                                                                                                                                                                                      |
+| a                        | lead にこの行の注釈を送ります。展開した詳細では、そのメンバーに書き込みます。                                                                                                                                                                                                 |
 | o · y                    | `open` で行の PR または最初のリンクを開きます。`copy` で `auth-fix: rotate session tokens (blocked)` のような状況の1行をコピーします。SSH 越しでもコピーできます。                                                                                                            |
 | / · tab · s              | 検索、次のペイン、任意のタブへの切り替えです。                                                                                                                                                                                                                                |
-| d · ctrl-r               | detail と replies の開閉（後述のペインを参照）、即時更新です。                                                                                                                                                                                                                |
+| l · ctrl-r               | view を選ぶ · すぐ更新する。任意の側面ペイン view では **d** で detail と replies を折りたためます。                                                                                                                                                                          |
 
 <Mdx.h3 id="token-rate">トークンレート</Mdx.h3>
 
-Team レイアウトでは、要約行の右側に squad のトークンレートを `1.2k tok/s 1m ▂▅▇▃` のように表示します。期間内に完了した各メンバーのリクエストのトークン数を合計するため、モデルの出力中ではなく、リクエストが終わるたびに段階的に変わります。**w** で 5s、1m（既定）、30m、1h を切り替えます。期間全体のデータが集まるまでは、実際に経過した時間を表示します。`0` は完了したリクエストがないこと、`≥` は一部のメンバーを読み取れなかったことを示します。使用量を報告するメンバーがいなければメーターは隠れます。driver が使用量を報告しないメンバーは `?` の下に表示します。棒は推移を示し、`▁` はゼロ、空白はデータなしです。
+board は、要約行の右側に squad のトークンレートを `1.2k tok/s 1m ▂▅▇▃` のように表示します。期間内に完了した各メンバーのリクエストのトークン数を合計するため、モデルの出力中ではなく、リクエストが終わるたびに段階的に変わります。**w** で 5s、1m（既定）、30m、1h を切り替えます。期間全体のデータが集まるまでは、実際に経過した時間を表示します。`0` は完了したリクエストがないこと、`≥` は一部のメンバーを読み取れなかったことを示します。使用量を報告するメンバーがいなければメーターは隠れます。driver が使用量を報告しないメンバーは `?` の下に表示します。棒は推移を示し、`▁` はゼロ、空白はデータなしです。
 
 すべての squad では `[board.token_rate]`、1つの squad では `[squad.<name>.board.token_rate]` で有効化や調整をします。
 
@@ -164,15 +164,16 @@ $ tmt sq config set tabs.hide '["leads"]'
 
 <Mdx.h3 id="board-views">board の view</Mdx.h3>
 
-view はペインの配置と初期の折りたたみ状態を決めます。squad の状態、行、provider、リマインダー、トークンメーター、テーマは保ちます。`tmt sq view ls`（または `tmt sq view`）で5つの標準 view を表示します。
+view は枠付き一覧またはペインの配置と初期の折りたたみ状態を選びます。squad の状態、行、provider、リマインダー、トークンメーター、テーマは保ちます。標準 view は6つあり、`tmt sq view ls`（または `tmt sq view`）で表示できます。
 
-| View   | 配置                                                                                                                           |
-| ------ | ------------------------------------------------------------------------------------------------------------------------------ |
-| team   | 既定の配置です。行の横に detail と replies、下に全幅の lead notes を置きます。100列未満で detail と replies を折りたたみます。 |
-| focus  | 行を board 全体に広げ、下に折りたたんだ detail、replies、notes の見出しを置きます。                                            |
-| notes  | 行が35%、横の lead notes が65%です。下の detail と replies は折りたたんで始まります。                                          |
-| detail | 行の下に detail と replies を置き、notes は折りたたみます。100列未満では replies も折りたたみます。                            |
-| wide   | 行、detail/replies、notes を40/30/30の3列に置きます。180列未満で detail/replies を折りたたみます。                             |
+| View    | 配置                                                                                                                                       |
+| ------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| members | 既定の枠付き lead／メンバー一覧で、下に lead の notes を置きます。**e** で行内の詳細、**n** で notes の表示を切り替えます。                |
+| team    | 従来の側面ペイン配置です。行の横に detail と replies、下に全幅の lead notes を置きます。100列未満では detail と replies を折りたたみます。 |
+| focus   | 行を board 全体に広げ、下に折りたたんだ detail、replies、notes の見出しを置きます。                                                        |
+| notes   | 行が35%、横の lead notes が65%です。下の detail と replies は折りたたんで始まります。                                                      |
+| detail  | 行の下に detail と replies を置き、notes は折りたたみます。100列未満では replies も折りたたみます。                                        |
+| wide    | 行、detail/replies、notes を40/30/30の3列に置きます。180列未満で detail/replies を折りたたみます。                                         |
 
 <Cmd>{`
 $ tmt sq view set notes                      # すべての board
@@ -180,15 +181,23 @@ $ tmt sq view set wide --squad product       # この squad
 $ tmt sq view rm --squad product             # 配置を継承する
 `}</Cmd>
 
-squad に手書きの `board.layout` または `panes` があれば最優先です。その後は squad の `view`、`[board] view`、ワークフローレイアウト自体の配置の順です。`view set` は `view` キーだけを変更し、途中で変更されたファイルへの書き込みを拒否します。`--squad` を指定した場合は手書きレイアウトも拒否するので、先に自分で削除してください。`view rm` は `view` だけを削除し、独自のレイアウトと折りたたみ設定は残します。手動の折りたたみには、通常のセッション内のルールが適用されます。
+squad に手書きの `board.layout` または `panes` があれば最優先です。その後は squad の `view`、`[board] view`、既定の `members` の順です。view を指定せず direction/sizes だけを設定した既存の squad は、従来のペイン構成を保ちます。`view set` は `view` キーだけを変更し、途中で変更されたファイルへの書き込みを拒否します。`--squad` では手書きの layout も拒否するので先に自分で削除してください。`view rm` は `view` だけを削除し、独自の layout や折りたたみ設定は残します。手動の折りたたみには通常のセッション内のルールが適用されます。
 
-board で **l** を押すと view を選べます。一覧を移動するとその場でプレビューします。**Tab** ですべての board とこの squad を切り替え、**Enter** で保存し、**Esc** で何も書き込まず元に戻します。`default` は継承する配置を表示し、自分の選択だけを削除します。leads と all タブは常に行だけで、view は squad のタブに適用されます。
+board で **l** を押すと view を選べます。一覧を移動するとその場でプレビューし、**Tab** ですべての board とこの squad を切り替え、**Enter** で保存、**Esc** で何も書かず元に戻します。`default` は継承する配置を表示し、自分の選択だけを削除します。leads と home タブは固定の構成を保ち、view は squad タブに適用されます。
 
-手書きの `board.layout` や `panes` がある squad には `custom` と表示します。view のプレビューはできますが、その squad への保存は `squad.toml` から該当キーを削除するまで拒否されます。すべての board 向けの選択は保存でき、その squad は独自の配置を保ちます。ヘルプでは **l** を、**L**（tmux で lead へ移動）と **T**（テーマ）の隣に表示します。
+手書きの `board.layout` や `panes` がある squad には `custom` と表示されます。プレビューはできますが、その squad への保存は該当キーを `squad.toml` から削除するまで拒否されます。すべての board 向けの選択は保存でき、独自の layout はそのままです。ヘルプには有効な view とテーマのキーが表示されます。
+
+<Mdx.h3 id="boxed-squad-members">枠付きの squad メンバー一覧</Mdx.h3>
+
+squad タブは既定で1つの枠付き一覧です。先頭は `lead` タグ付きの lead、その後に `── members · N ──` の区切りがあります。メンバーは印・名前・状態・モデル・経過時間の行と作業の行で表示します。待機中（`◆`）は古い質問から先に並び、ほかのやり取りは新しい順、やり取りのないメンバーは名前順です。lead は先頭、作成者が定めた section は元の位置に残ります。
+
+lead またはメンバーで **e** を押すと、作業のプレビューが行内の詳細に変わります。利用できる場合は `◆ waits on you`、作業、リンク、経過時間付きの最新の返事、折りたたみ／書き込み／開く操作を表示します。**e** または **Esc** で閉じ、**a** はそのメンバーに書き込み、**o** は PR またはリンクを開きます。長い詳細は矢印キーや j/k、PgUp/PgDn でスクロールでき、行の選択は動きません。一度に開ける詳細は1つです。読むだけならユーザー登録は不要で、書き込むには `tmt sq me` が必要です。lead の notes は一覧の下にあり、**n** で隠したり表示したりできます。
+
+従来の detail/replies 側面ペインには **l** で `team` を選ぶか、`,` 設定で `board.view` を `team` にします。`members` で枠付き一覧に戻ります。独自の `board.layout` または `panes` は設定された構成を保ちます。
 
 <Mdx.h3 id="panes-rows-notes-and-replies">ペイン：rows、notes、replies</Mdx.h3>
 
-board は **rows**（上記の一覧）、**notes**（lead 自身の読み取り専用の `tmt notes`）、**detail**（選択した行）、**replies**（lead とメンバーの最近の返事）というペインで構成されます。必要なものを選び、左右、上下、切り替え式のタブに配置できます。
+任意の側面ペイン view では、**rows**（メンバー一覧）、**notes**（lead 自身の読み取り専用の `tmt notes`）、**detail**（選択した行）、**replies**（lead とメンバーの最近の返事）を使います。必要なものを選び、左右、上下、切り替え式のタブに配置できます。
 
 notes ペインは lead 自身の notebook、つまり `tmt notes path --identity <lead>` が示すファイルを表示します。squad 専用の notebook はなく、board が作ることもありません。notebook がない lead は `(no notes yet)` と表示され、一時的な lead は notebook を持てません。lead は先頭に短い **Current state** を置き、**Now**、**Next**、**Blocked** を数行でまとめ、board から squad の状況が分かるようにします。
 
@@ -222,12 +231,12 @@ board の表示は固定ではありません。レイアウトのプリセッ�
 
 | レイアウトのプリセット | 表示内容                                              | 状態                                               |
 | ---------------------- | ----------------------------------------------------- | -------------------------------------------------- |
-| team                   | rows、detail、replies、lead の notes（既定）          | working · idle · blocked · review · testing · hold |
+| team                   | メンバー／状態／作業／PR／モデルの表と lead の notes  | working · idle · blocked · review · testing · hold |
 | crew                   | メンバーをユーザー待ちから順に並べ、横に notes を表示 | working · idle · blocked · review · testing · hold |
 | pr-queue               | 古い順の1つの一覧                                     | preparing · ready · sent · merged                  |
 | minimal                | 名前と状態だけ                                        | lead が書いた状態                                  |
 
-**team** は行の横に選択したメンバーの detail と最近の replies、下に lead の notes を置きます。各行にはメンバー、状態、作業、PR、モデルを表示し、2行目にユーザーへの依頼を表示します。狭い端末では自動で列を縮め、次にモデル、PR の順に隠します。100列未満では detail と replies を見出しだけに折りたたみ、行に場所を譲ります。**d** で両方を再表示できます。`[squad.<name>.board]` に独自の `direction`、`panes`、`sizes` がある squad は、`layout` を設定するまで **crew** を保ちます。
+名前付きの **team** view では、行の横に選択したメンバーの detail と最近の replies、下に lead の notes を置きます。各行にはメンバー、状態、作業、PR、モデルを表示し、2行目にユーザーへの依頼を表示します。狭い端末では自動で列を縮め、次にモデル、PR の順に隠します。100列未満では detail と replies を見出しだけに折りたたみ、行に場所を譲ります。**d** で両方を再表示できます。`[squad.<name>.board]` に独自の `direction`、`panes`、`sizes` がある squad は、`layout` を設定するまで **crew** を保ちます。
 
 ペインと配置を変えたり、見出し、フィルター、並べ替えを持つ独自の **section** を追加したりできます。**列**、色と順序を含む**状態**、リンクの開き方も選べます。キーやクリックの動作も指定できます。割り当ては `o` のようなキーや `click`、`double-click` というイベントと、`jump`、`jump lead`、`back`、`talk`、`reply`、`annotate lead`、`open {pr_link}`、`copy {name}: {task}`、`run <program> {field}…` のような1行の操作です。`{field}` はその行の値で埋めます。section ごとにも割り当てを設定できます。
 

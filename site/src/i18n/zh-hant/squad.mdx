@@ -1,6 +1,6 @@
 ---
 source: site/src/chapters/squad.mdx
-sourceRevision: b0bd9ca6a2c24f3e09501d5d4082179f6b31f0e5
+sourceRevision: 6be111a46d67bd4d158deff28e9e6d7e503917a4
 title: Squad：lead、成員與一個 board
 ---
 
@@ -60,25 +60,25 @@ $ tmt sq                         # 有終端機就開啟 board，其他情況列
 
 <Mdx.h3 id="the-board">Board</Mdx.h3>
 
-board 預設使用 **team**：成員列在左邊，選取成員的詳細資料與最新回覆在旁邊，lead 的筆記在下方。按 `/` 並輸入文字，就能縮小清單範圍。<Waiting /> 表示成員正在等你，這些列會排在最前面。每個按鍵都使用畫面上已有的資料；pull request 狀態這類較慢的查詢會在背景更新。成員、請求或 room 變更，或你編輯 `squad.toml` 後，board 會在大約一秒內重新載入；其他資料仍會依設定的間隔更新（`refresh`，或 `"off"`）。按 **ctrl-r** 可以立刻更新，搜尋或輸入訊息時也能用。`tmt sq ls` 會以文字列出成員，加上 `--json` 則輸出 JSON；沒有終端機時，`tmt sq` 也會顯示這份清單。`tmt sq board` 在互動式終端機開啟 board，其他情況則印出同一份清單。
+squad 頁籤預設使用 **members**：lead 與成員共用一份有框線的清單，詳細資料在列內展開，lead 的筆記在下方。原本的 **team** 側邊窗格視圖仍可選用。按 `/` 並輸入文字，就能縮小清單範圍。<Waiting /> 表示成員正在等你，這些列會排在最前面。每個按鍵都使用畫面上已有的資料；pull request 狀態這類較慢的查詢會在背景更新。成員、請求或 room 變更，或你編輯 `squad.toml` 後，board 會在大約一秒內重新載入；其他資料仍會依設定的間隔更新（`refresh`，或 `"off"`）。按 **ctrl-r** 可以立刻更新，搜尋或輸入訊息時也能用。`tmt sq ls` 會以文字列出成員，加上 `--json` 則輸出 JSON；沒有終端機時，`tmt sq` 也會顯示這份清單。`tmt sq board` 在互動式終端機開啟 board，其他情況則印出同一份清單。
 
 <BoardSketch />
 
-<Caption>示意圖：預設的 team board。在窄終端機裡，詳細資料與回覆會摺疊起來。</Caption>
+<Caption>示意圖：預設的 members 視圖；單一框線清單下方是 lead 的筆記。</Caption>
 
 | 按鍵                     | 對選取列的操作                                                                                                                                                                           |
 | ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | enter · double-click · ⌫ | `jump` 到成員自己的畫面，`back` 回到原本的位置。單擊只會選取一列；點擊筆記等窗格則會切換焦點。這需要能切換窗格的 host；請看[在成員之間切換](/extensions/squad#jumping-between-members)。 |
-| L                        | `jump lead`：到目前頁籤所屬 squad 的 lead；在 **leads** 與 **all** 上，則到選取列所屬 squad 的 lead。只適用於 tmux。                                                                     |
 | t · r                    | 用 tmt 自己的 `tmt talk` 與 `tmt answer`，向成員 `talk`，或 `reply` 它正在等待的事。回答會顯示在 board 上。                                                                              |
-| a                        | `annotate`：向 lead 傳送這一列的筆記（見下文）。                                                                                                                                         |
+| e · n                    | 在列內展開 lead 或成員的詳細資料；隱藏或顯示 lead 的筆記。                                                                                                                               |
+| a                        | 向 lead 傳送關於這一列的註記；在展開的詳細資料中，則寫給該成員。                                                                                                                         |
 | o · y                    | `open` 該列的 pull request 或第一個連結；`copy` 一行狀態，例如 `auth-fix: rotate session tokens (blocked)`。透過 SSH 也能複製。                                                          |
 | / · tab · s              | 搜尋；下一個窗格；切換到任何頁籤。                                                                                                                                                       |
-| d · ctrl-r               | 摺疊或展開詳細資料與回覆（見下方「窗格」）；立刻更新。                                                                                                                                   |
+| l · ctrl-r               | 選擇視圖；立即更新。選用側邊窗格視圖時，也可用 **d** 摺疊詳細資料與回覆。                                                                                                                |
 
 <Mdx.h3 id="token-rate">Token 速率</Mdx.h3>
 
-Team 版面會在摘要列右側顯示 squad 的 token 速率，例如 `1.2k tok/s 1m ▂▅▇▃`。它會加總所有成員在時間範圍內完成的請求所用的 token，因此數值在請求完成時逐次變動，不會在模型輸出時連續變動。按 **w** 可以依序切換 5s、1m（預設）、30m 與 1h；時間範圍還沒累積滿時，標籤會顯示目前涵蓋的時間。`0` 表示沒有已完成的請求，`≥` 表示部分成員的資料無法讀取；沒有任何成員回報用量時，則不顯示計量表。driver 從不回報用量的成員會列在 `?` 下。長條表示趨勢：`▁` 是零，空白表示沒有資料。
+board 會在摘要列右側顯示 squad 的 token 速率，例如 `1.2k tok/s 1m ▂▅▇▃`。它會加總所有成員在時間範圍內完成的請求所用的 token，因此數值在請求完成時逐次變動，不會在模型輸出時連續變動。按 **w** 可以依序切換 5s、1m（預設）、30m 與 1h；時間範圍還沒累積滿時，標籤會顯示目前涵蓋的時間。`0` 表示沒有已完成的請求，`≥` 表示部分成員的資料無法讀取；沒有任何成員回報用量時，則不顯示計量表。driver 從不回報用量的成員會列在 `?` 下。長條表示趨勢：`▁` 是零，空白表示沒有資料。
 
 在 `[board.token_rate]` 下為所有 squad 啟用或調整，或在 `[squad.<name>.board.token_rate]` 下只設定一個 squad：
 
@@ -160,15 +160,16 @@ $ tmt sq config set tabs.hide '["leads"]'
 
 <Mdx.h3 id="board-views">Board 視圖</Mdx.h3>
 
-視圖安排窗格與初始的摺疊狀態，保留 squad 的狀態、列、provider、提醒、token 計量表與主題。用 `tmt sq view ls`（或直接用 `tmt sq view`）列出五種內建視圖：
+視圖可選擇有框線的清單，或安排窗格與初始摺疊狀態；squad 的狀態、列、provider、提醒、token 計量表與主題不變。用 `tmt sq view ls`（或 `tmt sq view`）列出六種內建視圖：
 
-| 視圖   | 配置                                                                                                 |
-| ------ | ---------------------------------------------------------------------------------------------------- |
-| team   | 預設配置：列在詳細資料與回覆旁，lead 的筆記在下方占滿寬度。寬度不到 100 欄時，詳細資料與回覆會摺疊。 |
-| focus  | 列占滿 board 上方，下方是摺疊的詳細資料、回覆與筆記標題。                                            |
-| notes  | 列占 35%，旁邊 lead 的筆記占 65%；詳細資料與回覆預設摺疊在下方。                                     |
-| detail | 列在詳細資料與回覆上方，筆記摺疊；寬度不到 100 欄時，回覆也會摺疊。                                  |
-| wide   | 列、詳細資料／回覆、筆記分成三欄，比例為 40/30/30；不到 180 欄時，詳細資料與回覆會摺疊。             |
+| 視圖    | 配置                                                                                                   |
+| ------- | ------------------------------------------------------------------------------------------------------ |
+| members | 預設的 lead／成員框線清單，lead 筆記在下方。按 **e** 展開列內詳細資料，按 **n** 隱藏或顯示筆記。       |
+| team    | 原本的側邊窗格配置：列在詳細資料與回覆旁，lead 筆記在下方占滿寬度；不到 100 欄時會摺疊詳細資料與回覆。 |
+| focus   | 列占滿 board 上方，下方是摺疊的詳細資料、回覆與筆記標題。                                              |
+| notes   | 列占 35%，旁邊 lead 的筆記占 65%；詳細資料與回覆預設摺疊在下方。                                       |
+| detail  | 列在詳細資料與回覆上方，筆記摺疊；寬度不到 100 欄時，回覆也會摺疊。                                    |
+| wide    | 列、詳細資料／回覆、筆記分成三欄，比例為 40/30/30；不到 180 欄時，詳細資料與回覆會摺疊。               |
 
 <Cmd>{`
 $ tmt sq view set notes                      # 所有 board
@@ -176,15 +177,23 @@ $ tmt sq view set wide --squad product       # 這個 squad
 $ tmt sq view rm --squad product             # 沿用原本的配置
 `}</Cmd>
 
-squad 手動設定的 `board.layout` 或 `panes` 一律優先，接著是該 squad 的 `view`、`[board] view`，最後才是工作流程版面自己的配置。`view set` 只變更 `view`，如果檔案同時被變更，就會拒絕寫入；加上 `--squad` 時，也會拒絕覆寫手動設定的版面，請先自行移除。`view rm` 只移除 `view`，自訂版面與摺疊設定都會保留。手動摺疊仍遵循原本的 session 規則。
+squad 手動設定的 `board.layout` 或 `panes` 一律優先，接著是該 squad 的 `view`、`[board] view`，最後是預設的 `members`。沒有指定視圖、只設定 direction/sizes 的現有配置會保留原本的窗格樣式。`view set` 只變更 `view`，若檔案同時被修改就會拒絕寫入；加上 `--squad` 時，也會拒絕覆寫手動配置，請先自行移除。`view rm` 只移除 `view`，自訂配置與摺疊設定都會保留。手動摺疊仍遵循原本的 session 規則。
 
-在 board 按 **l** 選擇視圖。移動選項時會即時預覽；**Tab** 在所有 board 與目前 squad 之間切換，**Enter** 儲存，**Esc** 則恢復原樣，不寫入任何內容。`default` 選項顯示將沿用的配置，並只移除你選的視圖。leads 與 all 頁籤一律只顯示列；視圖只套用到 squad 頁籤。
+在 board 按 **l** 選視圖，移動選項時會即時預覽；**Tab** 在所有 board 與目前 squad 間切換，**Enter** 儲存，**Esc** 則恢復原樣，不寫入任何內容。`default` 會顯示繼承的配置，只移除你選的視圖。leads 與 home 頁籤維持固定構成；視圖只套用到 squad 頁籤。
 
-手動設定 `board.layout` 或 `panes` 的 squad 會顯示 `custom` 選項。你可以預覽視圖，但在移除 `squad.toml` 裡的這些設定前，無法為該 squad 儲存視圖。所有 board 的選項仍能儲存，該 squad 會保留自己的自訂版面。在說明中，**l** 列在 **L**（tmux 中跳到 lead）與 **T**（主題）旁。
+手動設定 `board.layout` 或 `panes` 的 squad 會顯示 `custom` 選項。可以預覽，但在移除 `squad.toml` 裡的設定前，不能為該 squad 儲存視圖。所有 board 的選項仍能儲存，而這個 squad 保留自訂配置。說明會顯示目前有效的視圖與主題按鍵。
+
+<Mdx.h3 id="boxed-squad-members">有框線的 squad 成員清單</Mdx.h3>
+
+squad 頁籤預設是一份有框線的清單：lead 在最前面，帶有 `lead` 標籤；後面是 `── members · N ──` 分隔線。每位成員有一行標記、名稱、狀態、模型與經過時間，以及一行工作摘要。等待你處理的成員（`◆`）依最早的問題排前面；其他對話依最新時間排序，沒有對話的成員依名稱排序。lead 始終在最前面，自訂區段維持原位。
+
+在 lead 或成員上按 **e**，會以共用的列內詳細區塊取代工作預覽。若有資料，會依序顯示 `◆ waits on you`、工作、連結、附時間的最新回覆，以及摺疊／寫入／開啟提示。按 **e** 或 **Esc** 摺疊；**a** 寫給該成員，**o** 開啟 PR 或連結。用方向鍵或 j/k、PgUp/PgDn 捲動較長的詳細資料，不會移動列游標。同時只會展開一個區塊。閱讀不需要先記錄使用者，寫入則需要 `tmt sq me`。lead 的筆記留在清單下方；按 **n** 隱藏或顯示。
+
+想用原本的詳細資料／回覆側邊窗格，可按 **l** 選 `team`，或在 `,` 設定中將 `board.view` 設為 `team`；選 `members` 即可回到框線清單。自訂 `board.layout` 或 `panes` 仍採用其設定的配置。
 
 <Mdx.h3 id="panes-rows-notes-and-replies">窗格：列、筆記與回覆</Mdx.h3>
 
-board 由窗格組成：**rows**（上面的清單）、**notes**（lead 自己的 `tmt notes`，唯讀）、**detail**（選取的列）與 **replies**（lead 與成員的最新回答）。你可以選擇顯示哪些窗格，左右並排、上下排列，或設成可切換的頁籤。
+選用側邊窗格視圖時，可使用 **rows**（成員清單）、**notes**（lead 自己的 `tmt notes`，唯讀）、**detail**（選取的列）與 **replies**（lead 與成員的最新回答）。你可以選擇顯示哪些窗格，左右並排、上下排列，或設成可切換的頁籤。
 
 筆記窗格顯示 lead 自己的筆記本，也就是 `tmt notes path --identity <lead>` 印出的檔案。squad 沒有另一份筆記本，board 也不會建立：lead 沒有筆記本時顯示 `(no notes yet)`，暫時的 lead 則無法保留筆記本。lead 會在頂端放一小段 **Current state**，用幾行 **Now**、**Next** 與 **Blocked**，讓 board 顯示 squad 正在做什麼。
 
@@ -216,14 +225,14 @@ board 由窗格組成：**rows**（上面的清單）、**notes**（lead 自己�
 
 board 上的內容都能調整。先選版面預設樣式，再從 squad 的設定檔覆寫任何部分。
 
-| 版面預設樣式 | 顯示內容                                 | 狀態                                               |
-| ------------ | ---------------------------------------- | -------------------------------------------------- |
-| team         | 列、詳細資料、回覆與 lead 的筆記（預設） | working · idle · blocked · review · testing · hold |
-| crew         | 成員在筆記旁，等待你處理的排在前面       | working · idle · blocked · review · testing · hold |
-| pr-queue     | 一份清單，最舊的排在前面                 | preparing · ready · sent · merged                  |
-| minimal      | 只顯示名稱與狀態                         | lead 寫的任何狀態                                  |
+| 版面預設樣式 | 顯示內容                                   | 狀態                                               |
+| ------------ | ------------------------------------------ | -------------------------------------------------- |
+| team         | 成員／狀態／工作／PR／模型表格與 lead 筆記 | working · idle · blocked · review · testing · hold |
+| crew         | 成員在筆記旁，等待你處理的排在前面         | working · idle · blocked · review · testing · hold |
+| pr-queue     | 一份清單，最舊的排在前面                   | preparing · ready · sent · merged                  |
+| minimal      | 只顯示名稱與狀態                           | lead 寫的任何狀態                                  |
 
-**team** 把列放在選取成員的詳細資料與最新回覆旁，lead 的筆記在下方。每一列顯示成員、狀態、工作、pull request 與模型，第二行顯示它在等你處理什麼。窄終端機會自動調整：先縮小欄位，再隱藏模型，接著隱藏 pull request；不到 100 欄時，詳細資料與回覆會摺疊成標題，把空間留給列（**d** 可以一起展開詳細資料與回覆）。已經在 `[squad.<name>.board]` 下自訂 `direction`、`panes` 或 `sizes` 的 squad，會繼續使用 **crew**，直到你設定 `layout`。
+具名的 **team** 視圖會把列放在選取成員的詳細資料與最新回覆旁，lead 的筆記在下方。每一列顯示成員、狀態、工作、pull request 與模型，第二行顯示它在等你處理什麼。窄終端機會自動調整：先縮小欄位，再隱藏模型，接著隱藏 pull request；不到 100 欄時，詳細資料與回覆會摺疊成標題，把空間留給列（**d** 可以一起展開詳細資料與回覆）。已經在 `[squad.<name>.board]` 下自訂 `direction`、`panes` 或 `sizes` 的 squad，會繼續使用 **crew**，直到你設定 `layout`。
 
 你可以改窗格與配置；加入自己的**區段**，每個都是有標題、篩選與排序的清單；也可以選擇**欄位**、**狀態**的顏色與順序，以及如何開啟連結。每個按鍵或點擊要做什麼，也由你設定。一個按鍵設定包含事件（例如 `o` 按鍵，或 `click`、`double-click`）與一行動作：`jump`、`jump lead`、`back`、`talk`、`reply`、`annotate lead`、`open {pr_link}`、`copy {name}: {task}`，或 `run <program> {field}…`；其中 `{field}` 會用該列的值填入。區段也可以有自己的按鍵設定。
 
