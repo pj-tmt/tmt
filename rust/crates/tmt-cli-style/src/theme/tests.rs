@@ -169,7 +169,7 @@ fn each_theme_renders_a_role_for_the_stream_s_depth() {
     // The selection is a background, or reverse video without a color.
     assert_eq!(
         tmt.style(Role::Selection, Depth::TrueColor).get_bg_color(),
-        Some(Color::Rgb(RgbColor(0x28, 0x34, 0x57)))
+        Some(Color::Rgb(RgbColor(0x33, 0x46, 0x7C)))
     );
     assert_eq!(
         tmt.style(Role::Selection, Depth::TrueColor).get_fg_color(),
@@ -297,7 +297,7 @@ fn screens_get_the_same_style() {
     let waiting = screen::style(&tmt, Role::Waiting, Depth::TrueColor);
     assert_eq!(waiting.fg, Some(ScreenColor::Rgb(0xFF, 0x9E, 0x64)));
     let selected = screen::style(&tmt, Role::Selection, Depth::TrueColor);
-    assert_eq!(selected.bg, Some(ScreenColor::Rgb(0x28, 0x34, 0x57)));
+    assert_eq!(selected.bg, Some(ScreenColor::Rgb(0x33, 0x46, 0x7C)));
     let dim = screen::style(&tmt, Role::Dim, Depth::Ansi16);
     assert_eq!(dim.fg, None);
     assert!(dim.add_modifier.contains(Modifier::DIM));
@@ -326,8 +326,10 @@ fn command_line_tokens_have_their_design_token() {
     assert_eq!(Token::Literal.role(), None);
 }
 
-/// Foregrounds must stay readable on the designed paper, selection and
-/// representative terminal backgrounds. Selection itself is a background.
+/// Foregrounds must stay readable on the designed paper and representative
+/// terminal backgrounds. On the selection background `text` carries words
+/// (4.5:1); `muted`, `dim` and state-colored words paint in `text` there, and
+/// marks keep their color at the 3:1 floor for non-text.
 #[test]
 fn design_tokens_keep_text_readable_on_board_backgrounds() {
     let tokens = design_tokens();
@@ -345,34 +347,57 @@ fn design_tokens_keep_text_readable_on_board_backgrounds() {
         };
         0.2126 * linear(r) + 0.7152 * linear(g) + 0.0722 * linear(b)
     };
+    let contrast = |foreground: &str, background: &str| {
+        let fg = luminance(foreground);
+        let bg = luminance(background);
+        (fg.max(bg) + 0.05) / (fg.min(bg) + 0.05)
+    };
+    let selection_marks = [
+        Role::Accent,
+        Role::Waiting,
+        Role::Working,
+        Role::Review,
+        Role::Blocked,
+        Role::Link,
+    ];
     for (mode, terminals) in [
         ("dark", &["#24283B", "#2A2C38"][..]),
         ("light", &["#FFFFFF"][..]),
     ] {
-        let backgrounds = [
-            tokens["surface"]["paper"][mode].as_str().unwrap(),
-            tokens["color"]["selection"][mode].as_str().unwrap(),
-        ];
+        let color = |role: Role| tokens["color"][role.name()][mode].as_str().unwrap();
+        let backgrounds = [tokens["surface"]["paper"][mode].as_str().unwrap()];
         for role in Role::ALL
             .into_iter()
             .filter(|role| *role != Role::Selection)
         {
-            let foreground = tokens["color"][role.name()][mode].as_str().unwrap();
             let floor = if matches!(role, Role::Muted | Role::Dim) {
                 3.0
             } else {
                 4.5
             };
             for background in backgrounds.iter().chain(terminals) {
-                let fg = luminance(foreground);
-                let bg = luminance(background);
-                let contrast = (fg.max(bg) + 0.05) / (fg.min(bg) + 0.05);
+                let ratio = contrast(color(role), background);
                 assert!(
-                    contrast >= floor,
-                    "{mode} {} {foreground} on {background}: {contrast:.2}:1 < {floor}:1",
+                    ratio >= floor,
+                    "{mode} {} {} on {background}: {ratio:.2}:1 < {floor}:1",
                     role.name(),
+                    color(role),
                 );
             }
+        }
+        let selection = tokens["color"]["selection"][mode].as_str().unwrap();
+        let ratio = contrast(color(Role::Text), selection);
+        assert!(
+            ratio >= 4.5,
+            "{mode} text on selection {selection}: {ratio:.2}:1 < 4.5:1"
+        );
+        for role in selection_marks {
+            let ratio = contrast(color(role), selection);
+            assert!(
+                ratio >= 3.0,
+                "{mode} {} mark on selection {selection}: {ratio:.2}:1 < 3:1",
+                role.name(),
+            );
         }
     }
 }
