@@ -1,6 +1,6 @@
 ---
 source: site/src/chapters/squad.mdx
-sourceRevision: 19bae5db12dde1287c4765ceeb6bb2f100ff997b
+sourceRevision: 8bd1e1392968d4d9d4eba8cfc86b0fb137b48931
 title: チームを1つの board で見る
 ---
 
@@ -87,7 +87,7 @@ squad タブの既定は **members** です。lead とメンバーを1つの枠�
 
 HOME または squad タブで lead やメンバーを選び、**a → Tab → status** で共通の行内 band に **Update status → squad / agent** を開きます。これは既定のキーで、独自の割り当てが優先されます。手動の `pending` と `state` は正確な旧値と予定する新値を別々に表示し、幅が狭いときは縦に並べます。上下キーで **Clear pending**、**Replace state**、**Reason**、**Apply and notify**、各 **Answer request** にフォーカスを移します。`›` はフォーカス中の項目の折り返し行にも付き、色なしでも残ります。`[x]` は変更の選択であり、キーボードフォーカスではありません。Enter で項目の選択を切り替え、state 行に明示的な新値、**Reason** に必須の理由を入力します。どちらも事前選択されず、pending の消去から working を推定しません。PgUp/PgDn で長いプレビューをスクロールします。Tab はメッセージと status の下書きを保ち、Esc はキャンセルして追加の操作を行いません。band は選択した行全体と task プレビューの直後に入り、後続の行を下へ移します。
 
-**Apply and notify** は選択した全項目をまとめて送信し、プレビューした正確な生の値または不存在を照合します。予定値が変わらない選択も対象です。identity UUID、room、namespace、metadata keys は固定されます。選択値が競合すると全項目を適用せず、プレビューを更新して選択を解除し、再度の明示的な送信を求めます。actor、identity、room、metadata namespace の変更は操作を拒否します。既存値が空または無効なら、未対応の値として拒否します。適用結果が不明な場合、通知を送らず再実行も提供しません。現在の metadata を確認してから開き直してください。適用済みまたは結果不明の後に context が変わっても、フォームはその結果を保ち、追加の操作を行いません。
+**Apply and notify** は選択した全項目をまとめて送信し、プレビューした正確な生の値または不存在を照合します。予定値が変わらない選択も対象です。identity UUID、room、namespace、metadata keys は固定されます。選択した値がすべて変わらない場合は拒否し、更新も announcement も行いません。選択値が競合すると全項目を適用せず、プレビューを更新して選択を解除し、再度の明示的な送信を求めます。actor、identity、room、metadata namespace の変更は操作を拒否します。既存値が空または無効なら、未対応の値として拒否します。適用結果が不明な場合、通知を送らず再実行も提供しません。現在の metadata を確認してから開き直してください。適用済みまたは結果不明の後に context が変わっても、フォームはその結果を保ち、追加の操作を行いません。
 
 更新が確認されると、選択した agent に操作者を示す announcement が届くようキューへ送ります。内容は実際に変わった項目と理由だけです。返信を求めず、配信完了の証明でもありません。**Status updated; notification failed** は受け付けが未確認のとき **Retry notification only** を提供します。その操作にフォーカスして Enter を押すと、同じ operation とメッセージを使い、metadata の変更は繰り返しません。宛先が利用不可と確定した receipt からは再送できません。
 

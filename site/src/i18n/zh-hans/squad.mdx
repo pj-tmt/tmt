@@ -1,6 +1,6 @@
 ---
 source: site/src/chapters/squad.mdx
-sourceRevision: 19bae5db12dde1287c4765ceeb6bb2f100ff997b
+sourceRevision: 8bd1e1392968d4d9d4eba8cfc86b0fb137b48931
 title: Squad：lead、成员和一个看板
 ---
 
@@ -82,7 +82,7 @@ squad 标签页默认使用 **members**：lead 与成员显示在同一个带边
 
 在 HOME 或 squad 标签页选择 lead 或成员，用 **a → Tab → status** 在共享行内区域打开 **Update status → squad / agent**。这些是默认按键；自定义绑定优先。手动 `pending` 和 `state` 分别显示准确的旧值与拟议新值，窄宽度下分行显示。上下键聚焦 **Clear pending**、**Replace state**、**Reason**、**Apply and notify** 或某个 **Answer request**。`›` 标记焦点字段或动作的每个换行，即使没有颜色也保留；`[x]` 表示选择了修改，不是键盘焦点。Enter 切换字段选择；在 state 行输入明确的新值，在 **Reason** 输入必填原因。两项均不预选，清除 pending 不会推断为 working。PgUp/PgDn 滚动长预览。Tab 保留消息和 status 草稿；Esc 取消且不再执行动作。行内区域紧接完整选中行及任务预览，后面的行向下移动。
 
-**Apply and notify** 一起提交每个所选字段，逐项匹配预览的准确原始值或不存在状态，包括拟议值未改变的选择。identity UUID、room、namespace 和 metadata keys 保持固定。所选值冲突时，所有字段均不应用；刷新预览、清除选择，并要求重新明确提交。actor、identity、room 或 metadata namespace 改变时拒绝动作。旧数据为空或无效时显示不支持值的拒绝提示。应用结果未知时不发送通知，也不提供重放；先检查当前 metadata，再重新打开。如果上下文在已应用或结果未知后改变，表单保留该结果，不再执行动作。
+**Apply and notify** 一起提交每个所选字段，逐项匹配预览的准确原始值或不存在状态，包括拟议值未改变的选择。identity UUID、room、namespace 和 metadata keys 保持固定。所选值全部未改变时拒绝提交，不更新也不发送 announcement。所选值冲突时，所有字段均不应用；刷新预览、清除选择，并要求重新明确提交。actor、identity、room 或 metadata namespace 改变时拒绝动作。旧数据为空或无效时显示不支持值的拒绝提示。应用结果未知时不发送通知，也不提供重放；先检查当前 metadata，再重新打开。如果上下文在已应用或结果未知后改变，表单保留该结果，不再执行动作。
 
 确认更新后，所选 agent 收到带操作者信息的 announcement，只包含实际改变的字段和原因。它不要求回复，也不证明送达。**Status updated; notification failed** 在接受状态未确认时提供 **Retry notification only**。聚焦该动作并按 Enter；复用同一 operation 和消息，不重复 metadata 修改。收件人已确定不可用时，不能用该 receipt 重发。
 

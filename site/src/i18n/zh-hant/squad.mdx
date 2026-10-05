@@ -1,6 +1,6 @@
 ---
 source: site/src/chapters/squad.mdx
-sourceRevision: 19bae5db12dde1287c4765ceeb6bb2f100ff997b
+sourceRevision: 8bd1e1392968d4d9d4eba8cfc86b0fb137b48931
 title: Squad：lead、成員與一個 board
 ---
 
@@ -83,7 +83,7 @@ squad 頁籤預設使用 **members**：lead 與成員共用一份有框線的清
 
 在 HOME 或 squad 頁籤選取 lead 或成員，使用 **a → Tab → status**，就能在共用 band 開啟 **Update status → squad / agent**。這是預設按鍵；自訂綁定優先。手動 `pending` 與 `state` 分別顯示精確的舊值和預計的新值；窄寬度時分行顯示。用上下鍵移動到 **Clear pending**、**Replace state**、**Reason**、**Apply and notify** 或某個 **Answer request**。`›` 標出目前焦點欄位或動作的每一行，換行與無色彩模式也保留；`[x]` 表示勾選要變更的欄位，不是鍵盤焦點。Enter 切換欄位的勾選；在 state 那一列輸入明確的新值，在 **Reason** 輸入必要的原因。兩個欄位都不會預先勾選，清除 pending 也不會推定為 working。PgUp/PgDn 捲動長預覽。Tab 保留訊息與 status 草稿；Esc 取消且不再執行動作。band 位於完整選取列及 task 預覽之後，後續列向下移動。
 
-**Apply and notify** 將每個勾選欄位一起提交，逐一比對預覽中的精確原始值或不存在狀態，連預計值沒有改變的勾選也會參與。identity UUID、room、namespace 和 metadata keys 固定不變。勾選值衝突時，所有欄位都不套用；重新取得預覽、清除勾選，並要求再次明確提交。actor、identity、room 或 metadata namespace 改變時拒絕該動作。既有資料若為空值或不合法，會顯示不支援值的拒絕訊息。套用結果未知時，不送通知，也不提供重播；先檢查目前 metadata 再重新開啟。如果 context 在已套用或結果未知之後改變，表單保留原結果，不再執行動作。
+**Apply and notify** 將每個勾選欄位一起提交，逐一比對預覽中的精確原始值或不存在狀態，連預計值沒有改變的勾選也會參與。identity UUID、room、namespace 和 metadata keys 固定不變。勾選值全部未改變時，拒絕提交，不更新也不送 announcement。勾選值衝突時，所有欄位都不套用；重新取得預覽、清除勾選，並要求再次明確提交。actor、identity、room 或 metadata namespace 改變時拒絕該動作。既有資料若為空值或不合法，會顯示不支援值的拒絕訊息。套用結果未知時，不送通知，也不提供重播；先檢查目前 metadata 再重新開啟。如果 context 在已套用或結果未知之後改變，表單保留原結果，不再執行動作。
 
 確認更新後，選取的 agent 會收到標明操作者的 announcement，只包含實際變更的欄位與原因。它不要求回覆，也不代表已送達。**Status updated; notification failed** 在接受狀態未確認時提供 **Retry notification only**。移到該動作並按 Enter；沿用同一個 operation 和訊息，不重做 metadata 變更。收件者已確定不可用時，不能透過該 receipt 重送。
 
