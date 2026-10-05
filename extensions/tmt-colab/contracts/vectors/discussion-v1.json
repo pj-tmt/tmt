@@ -1,13 +1,1088 @@
 {
-  "scope": {"spaceId":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","pageId":"00000000-0000-4000-8000-000000000001","epoch":"1"},
+  "scope": {
+    "spaceId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "pageId": "00000000-0000-4000-8000-000000000001",
+    "epoch": "1"
+  },
   "thread": {
-    "version":1,"kind":"thread","spaceId":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","pageId":"00000000-0000-4000-8000-000000000001","epoch":"1",
-    "senderDevice":"00000000-0000-4000-8000-000000000002","revision":"1","deleted":false,"deviceName":"First browser","at":"1791072000000",
-    "threadId":"00000000-0000-4000-8000-000000000003","anchor":{"exact":"A quote & 🐈 across tags","prefix":"Before ","suffix":" after"},"resolved":false
+    "version": 1,
+    "kind": "thread",
+    "spaceId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "pageId": "00000000-0000-4000-8000-000000000001",
+    "epoch": "1",
+    "senderDevice": "00000000-0000-4000-8000-000000000002",
+    "revision": "1",
+    "deleted": false,
+    "deviceName": "First browser",
+    "at": "1791072000000",
+    "threadId": "00000000-0000-4000-8000-000000000003",
+    "anchor": {
+      "exact": "A quote & 🐈 across tags",
+      "prefix": "Before ",
+      "suffix": " after"
+    },
+    "resolved": false
   },
   "comment": {
-    "version":1,"kind":"comment","spaceId":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","pageId":"00000000-0000-4000-8000-000000000001","epoch":"1",
-    "senderDevice":"00000000-0000-4000-8000-000000000004","revision":"1","deleted":false,"deviceName":"Second browser","at":"1791072300000",
-    "messageId":"00000000-0000-4000-8000-000000000005","thread":{"writer":"00000000-0000-4000-8000-000000000002","id":"00000000-0000-4000-8000-000000000003"},"body":"<script>Inert text</script>\nA precise reply."
-  }
+    "version": 1,
+    "kind": "comment",
+    "spaceId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "pageId": "00000000-0000-4000-8000-000000000001",
+    "epoch": "1",
+    "senderDevice": "00000000-0000-4000-8000-000000000004",
+    "revision": "1",
+    "deleted": false,
+    "deviceName": "Second browser",
+    "at": "1791072300000",
+    "messageId": "00000000-0000-4000-8000-000000000005",
+    "thread": {
+      "writer": "00000000-0000-4000-8000-000000000002",
+      "id": "00000000-0000-4000-8000-000000000003"
+    },
+    "body": "<script>Inert text</script>\nA precise reply."
+  },
+  "statusCases": [
+    {
+      "name": "legacy open",
+      "thread": {
+        "version": 1,
+        "kind": "thread",
+        "spaceId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "pageId": "00000000-0000-4000-8000-000000000001",
+        "epoch": "1",
+        "senderDevice": "00000000-0000-4000-8000-000000000002",
+        "revision": "1",
+        "deleted": false,
+        "deviceName": "First browser",
+        "at": "1791072000000",
+        "threadId": "00000000-0000-4000-8000-000000000003",
+        "anchor": {
+          "exact": "A quote & 🐈 across tags",
+          "prefix": "Before ",
+          "suffix": " after"
+        },
+        "resolved": false
+      },
+      "actions": [],
+      "expected": {
+        "resolved": false,
+        "status": null,
+        "threadsJson": "[{\"writer\":\"00000000-0000-4000-8000-000000000002\",\"id\":\"00000000-0000-4000-8000-000000000003\",\"revision\":\"1\",\"anchor\":{\"exact\":\"A quote & 🐈 across tags\",\"prefix\":\"Before \",\"suffix\":\" after\"},\"resolved\":false,\"deleted\":false,\"deviceName\":\"First browser\",\"at\":\"1791072000000\",\"comments\":[]}]"
+      }
+    },
+    {
+      "name": "legacy resolved",
+      "thread": {
+        "version": 1,
+        "kind": "thread",
+        "spaceId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "pageId": "00000000-0000-4000-8000-000000000001",
+        "epoch": "1",
+        "senderDevice": "00000000-0000-4000-8000-000000000002",
+        "revision": "1",
+        "deleted": false,
+        "deviceName": "First browser",
+        "at": "1791072000000",
+        "threadId": "00000000-0000-4000-8000-000000000003",
+        "anchor": {
+          "exact": "A quote & 🐈 across tags",
+          "prefix": "Before ",
+          "suffix": " after"
+        },
+        "resolved": true
+      },
+      "actions": [],
+      "expected": {
+        "resolved": true,
+        "status": null,
+        "threadsJson": "[{\"writer\":\"00000000-0000-4000-8000-000000000002\",\"id\":\"00000000-0000-4000-8000-000000000003\",\"revision\":\"1\",\"anchor\":{\"exact\":\"A quote & 🐈 across tags\",\"prefix\":\"Before \",\"suffix\":\" after\"},\"resolved\":true,\"deleted\":false,\"deviceName\":\"First browser\",\"at\":\"1791072000000\",\"comments\":[]}]"
+      }
+    },
+    {
+      "name": "foreign owner resolves",
+      "thread": {
+        "version": 1,
+        "kind": "thread",
+        "spaceId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "pageId": "00000000-0000-4000-8000-000000000001",
+        "epoch": "1",
+        "senderDevice": "00000000-0000-4000-8000-000000000002",
+        "revision": "1",
+        "deleted": false,
+        "deviceName": "First browser",
+        "at": "1791072000000",
+        "threadId": "00000000-0000-4000-8000-000000000003",
+        "anchor": {
+          "exact": "A quote & 🐈 across tags",
+          "prefix": "Before ",
+          "suffix": " after"
+        },
+        "resolved": false
+      },
+      "actions": [
+        {
+          "version": 1,
+          "kind": "thread-status",
+          "spaceId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "pageId": "00000000-0000-4000-8000-000000000001",
+          "epoch": "1",
+          "senderDevice": "00000000-0000-4000-8000-000000000004",
+          "revision": "1",
+          "deleted": false,
+          "deviceName": "Owner device",
+          "at": "0",
+          "actionId": "00000000-0000-4000-8000-00000000000a",
+          "thread": {
+            "writer": "00000000-0000-4000-8000-000000000002",
+            "id": "00000000-0000-4000-8000-000000000003"
+          },
+          "previous": null,
+          "resolved": true,
+          "actor": "person",
+          "agentName": null,
+          "recipients": []
+        }
+      ],
+      "expected": {
+        "resolved": true,
+        "status": {
+          "writer": "00000000-0000-4000-8000-000000000004",
+          "id": "00000000-0000-4000-8000-00000000000a",
+          "depth": 1
+        },
+        "threadsJson": "[{\"writer\":\"00000000-0000-4000-8000-000000000002\",\"id\":\"00000000-0000-4000-8000-000000000003\",\"revision\":\"1\",\"anchor\":{\"exact\":\"A quote & 🐈 across tags\",\"prefix\":\"Before \",\"suffix\":\" after\"},\"resolved\":true,\"deleted\":false,\"deviceName\":\"First browser\",\"at\":\"1791072000000\",\"comments\":[],\"status\":{\"version\":1,\"kind\":\"thread-status\",\"spaceId\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"pageId\":\"00000000-0000-4000-8000-000000000001\",\"epoch\":\"1\",\"senderDevice\":\"00000000-0000-4000-8000-000000000004\",\"revision\":\"1\",\"deleted\":false,\"deviceName\":\"Owner device\",\"at\":\"0\",\"actionId\":\"00000000-0000-4000-8000-00000000000a\",\"thread\":{\"writer\":\"00000000-0000-4000-8000-000000000002\",\"id\":\"00000000-0000-4000-8000-000000000003\"},\"previous\":null,\"resolved\":true,\"actor\":\"person\",\"agentName\":null,\"recipients\":[],\"ref\":{\"writer\":\"00000000-0000-4000-8000-000000000004\",\"id\":\"00000000-0000-4000-8000-00000000000a\"},\"depth\":1}}]"
+      }
+    },
+    {
+      "name": "concurrent writer tie",
+      "thread": {
+        "version": 1,
+        "kind": "thread",
+        "spaceId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "pageId": "00000000-0000-4000-8000-000000000001",
+        "epoch": "1",
+        "senderDevice": "00000000-0000-4000-8000-000000000002",
+        "revision": "1",
+        "deleted": false,
+        "deviceName": "First browser",
+        "at": "1791072000000",
+        "threadId": "00000000-0000-4000-8000-000000000003",
+        "anchor": {
+          "exact": "A quote & 🐈 across tags",
+          "prefix": "Before ",
+          "suffix": " after"
+        },
+        "resolved": false
+      },
+      "actions": [
+        {
+          "version": 1,
+          "kind": "thread-status",
+          "spaceId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "pageId": "00000000-0000-4000-8000-000000000001",
+          "epoch": "1",
+          "senderDevice": "00000000-0000-4000-8000-000000000002",
+          "revision": "1",
+          "deleted": false,
+          "deviceName": "Owner device",
+          "at": "0",
+          "actionId": "00000000-0000-4000-8000-00000000000b",
+          "thread": {
+            "writer": "00000000-0000-4000-8000-000000000002",
+            "id": "00000000-0000-4000-8000-000000000003"
+          },
+          "previous": null,
+          "resolved": false,
+          "actor": "person",
+          "agentName": null,
+          "recipients": []
+        },
+        {
+          "version": 1,
+          "kind": "thread-status",
+          "spaceId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "pageId": "00000000-0000-4000-8000-000000000001",
+          "epoch": "1",
+          "senderDevice": "00000000-0000-4000-8000-000000000004",
+          "revision": "1",
+          "deleted": false,
+          "deviceName": "Owner device",
+          "at": "0",
+          "actionId": "00000000-0000-4000-8000-00000000000a",
+          "thread": {
+            "writer": "00000000-0000-4000-8000-000000000002",
+            "id": "00000000-0000-4000-8000-000000000003"
+          },
+          "previous": null,
+          "resolved": true,
+          "actor": "person",
+          "agentName": null,
+          "recipients": []
+        }
+      ],
+      "expected": {
+        "resolved": true,
+        "status": {
+          "writer": "00000000-0000-4000-8000-000000000004",
+          "id": "00000000-0000-4000-8000-00000000000a",
+          "depth": 1
+        },
+        "threadsJson": "[{\"writer\":\"00000000-0000-4000-8000-000000000002\",\"id\":\"00000000-0000-4000-8000-000000000003\",\"revision\":\"1\",\"anchor\":{\"exact\":\"A quote & 🐈 across tags\",\"prefix\":\"Before \",\"suffix\":\" after\"},\"resolved\":true,\"deleted\":false,\"deviceName\":\"First browser\",\"at\":\"1791072000000\",\"comments\":[],\"status\":{\"version\":1,\"kind\":\"thread-status\",\"spaceId\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"pageId\":\"00000000-0000-4000-8000-000000000001\",\"epoch\":\"1\",\"senderDevice\":\"00000000-0000-4000-8000-000000000004\",\"revision\":\"1\",\"deleted\":false,\"deviceName\":\"Owner device\",\"at\":\"0\",\"actionId\":\"00000000-0000-4000-8000-00000000000a\",\"thread\":{\"writer\":\"00000000-0000-4000-8000-000000000002\",\"id\":\"00000000-0000-4000-8000-000000000003\"},\"previous\":null,\"resolved\":true,\"actor\":\"person\",\"agentName\":null,\"recipients\":[],\"ref\":{\"writer\":\"00000000-0000-4000-8000-000000000004\",\"id\":\"00000000-0000-4000-8000-00000000000a\"},\"depth\":1}}]"
+      }
+    },
+    {
+      "name": "descendant reopens",
+      "thread": {
+        "version": 1,
+        "kind": "thread",
+        "spaceId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "pageId": "00000000-0000-4000-8000-000000000001",
+        "epoch": "1",
+        "senderDevice": "00000000-0000-4000-8000-000000000002",
+        "revision": "1",
+        "deleted": false,
+        "deviceName": "First browser",
+        "at": "1791072000000",
+        "threadId": "00000000-0000-4000-8000-000000000003",
+        "anchor": {
+          "exact": "A quote & 🐈 across tags",
+          "prefix": "Before ",
+          "suffix": " after"
+        },
+        "resolved": false
+      },
+      "actions": [
+        {
+          "version": 1,
+          "kind": "thread-status",
+          "spaceId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "pageId": "00000000-0000-4000-8000-000000000001",
+          "epoch": "1",
+          "senderDevice": "00000000-0000-4000-8000-000000000002",
+          "revision": "1",
+          "deleted": false,
+          "deviceName": "Owner device",
+          "at": "0",
+          "actionId": "00000000-0000-4000-8000-00000000000c",
+          "thread": {
+            "writer": "00000000-0000-4000-8000-000000000002",
+            "id": "00000000-0000-4000-8000-000000000003"
+          },
+          "previous": {
+            "writer": "00000000-0000-4000-8000-000000000004",
+            "id": "00000000-0000-4000-8000-00000000000a"
+          },
+          "resolved": false,
+          "actor": "person",
+          "agentName": null,
+          "recipients": []
+        },
+        {
+          "version": 1,
+          "kind": "thread-status",
+          "spaceId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "pageId": "00000000-0000-4000-8000-000000000001",
+          "epoch": "1",
+          "senderDevice": "00000000-0000-4000-8000-000000000002",
+          "revision": "1",
+          "deleted": false,
+          "deviceName": "Owner device",
+          "at": "0",
+          "actionId": "00000000-0000-4000-8000-00000000000b",
+          "thread": {
+            "writer": "00000000-0000-4000-8000-000000000002",
+            "id": "00000000-0000-4000-8000-000000000003"
+          },
+          "previous": null,
+          "resolved": false,
+          "actor": "person",
+          "agentName": null,
+          "recipients": []
+        },
+        {
+          "version": 1,
+          "kind": "thread-status",
+          "spaceId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "pageId": "00000000-0000-4000-8000-000000000001",
+          "epoch": "1",
+          "senderDevice": "00000000-0000-4000-8000-000000000004",
+          "revision": "1",
+          "deleted": false,
+          "deviceName": "Owner device",
+          "at": "0",
+          "actionId": "00000000-0000-4000-8000-00000000000a",
+          "thread": {
+            "writer": "00000000-0000-4000-8000-000000000002",
+            "id": "00000000-0000-4000-8000-000000000003"
+          },
+          "previous": null,
+          "resolved": true,
+          "actor": "person",
+          "agentName": null,
+          "recipients": []
+        }
+      ],
+      "expected": {
+        "resolved": false,
+        "status": {
+          "writer": "00000000-0000-4000-8000-000000000002",
+          "id": "00000000-0000-4000-8000-00000000000c",
+          "depth": 2
+        },
+        "threadsJson": "[{\"writer\":\"00000000-0000-4000-8000-000000000002\",\"id\":\"00000000-0000-4000-8000-000000000003\",\"revision\":\"1\",\"anchor\":{\"exact\":\"A quote & 🐈 across tags\",\"prefix\":\"Before \",\"suffix\":\" after\"},\"resolved\":false,\"deleted\":false,\"deviceName\":\"First browser\",\"at\":\"1791072000000\",\"comments\":[],\"status\":{\"version\":1,\"kind\":\"thread-status\",\"spaceId\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"pageId\":\"00000000-0000-4000-8000-000000000001\",\"epoch\":\"1\",\"senderDevice\":\"00000000-0000-4000-8000-000000000002\",\"revision\":\"1\",\"deleted\":false,\"deviceName\":\"Owner device\",\"at\":\"0\",\"actionId\":\"00000000-0000-4000-8000-00000000000c\",\"thread\":{\"writer\":\"00000000-0000-4000-8000-000000000002\",\"id\":\"00000000-0000-4000-8000-000000000003\"},\"previous\":{\"writer\":\"00000000-0000-4000-8000-000000000004\",\"id\":\"00000000-0000-4000-8000-00000000000a\"},\"resolved\":false,\"actor\":\"person\",\"agentName\":null,\"recipients\":[],\"ref\":{\"writer\":\"00000000-0000-4000-8000-000000000002\",\"id\":\"00000000-0000-4000-8000-00000000000c\"},\"depth\":2}}]"
+      }
+    },
+    {
+      "name": "same writer action tie",
+      "thread": {
+        "version": 1,
+        "kind": "thread",
+        "spaceId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "pageId": "00000000-0000-4000-8000-000000000001",
+        "epoch": "1",
+        "senderDevice": "00000000-0000-4000-8000-000000000002",
+        "revision": "1",
+        "deleted": false,
+        "deviceName": "First browser",
+        "at": "1791072000000",
+        "threadId": "00000000-0000-4000-8000-000000000003",
+        "anchor": {
+          "exact": "A quote & 🐈 across tags",
+          "prefix": "Before ",
+          "suffix": " after"
+        },
+        "resolved": false
+      },
+      "actions": [
+        {
+          "version": 1,
+          "kind": "thread-status",
+          "spaceId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "pageId": "00000000-0000-4000-8000-000000000001",
+          "epoch": "1",
+          "senderDevice": "00000000-0000-4000-8000-000000000004",
+          "revision": "1",
+          "deleted": false,
+          "deviceName": "Owner device",
+          "at": "0",
+          "actionId": "00000000-0000-4000-8000-000000000014",
+          "thread": {
+            "writer": "00000000-0000-4000-8000-000000000002",
+            "id": "00000000-0000-4000-8000-000000000003"
+          },
+          "previous": null,
+          "resolved": true,
+          "actor": "person",
+          "agentName": null,
+          "recipients": []
+        },
+        {
+          "version": 1,
+          "kind": "thread-status",
+          "spaceId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "pageId": "00000000-0000-4000-8000-000000000001",
+          "epoch": "1",
+          "senderDevice": "00000000-0000-4000-8000-000000000004",
+          "revision": "1",
+          "deleted": false,
+          "deviceName": "Owner device",
+          "at": "0",
+          "actionId": "00000000-0000-4000-8000-000000000015",
+          "thread": {
+            "writer": "00000000-0000-4000-8000-000000000002",
+            "id": "00000000-0000-4000-8000-000000000003"
+          },
+          "previous": null,
+          "resolved": false,
+          "actor": "person",
+          "agentName": null,
+          "recipients": []
+        }
+      ],
+      "expected": {
+        "resolved": false,
+        "status": {
+          "writer": "00000000-0000-4000-8000-000000000004",
+          "id": "00000000-0000-4000-8000-000000000015",
+          "depth": 1
+        },
+        "threadsJson": "[{\"writer\":\"00000000-0000-4000-8000-000000000002\",\"id\":\"00000000-0000-4000-8000-000000000003\",\"revision\":\"1\",\"anchor\":{\"exact\":\"A quote & 🐈 across tags\",\"prefix\":\"Before \",\"suffix\":\" after\"},\"resolved\":false,\"deleted\":false,\"deviceName\":\"First browser\",\"at\":\"1791072000000\",\"comments\":[],\"status\":{\"version\":1,\"kind\":\"thread-status\",\"spaceId\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"pageId\":\"00000000-0000-4000-8000-000000000001\",\"epoch\":\"1\",\"senderDevice\":\"00000000-0000-4000-8000-000000000004\",\"revision\":\"1\",\"deleted\":false,\"deviceName\":\"Owner device\",\"at\":\"0\",\"actionId\":\"00000000-0000-4000-8000-000000000015\",\"thread\":{\"writer\":\"00000000-0000-4000-8000-000000000002\",\"id\":\"00000000-0000-4000-8000-000000000003\"},\"previous\":null,\"resolved\":false,\"actor\":\"person\",\"agentName\":null,\"recipients\":[],\"ref\":{\"writer\":\"00000000-0000-4000-8000-000000000004\",\"id\":\"00000000-0000-4000-8000-000000000015\"},\"depth\":1}}]"
+      }
+    },
+    {
+      "name": "missing parent",
+      "thread": {
+        "version": 1,
+        "kind": "thread",
+        "spaceId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "pageId": "00000000-0000-4000-8000-000000000001",
+        "epoch": "1",
+        "senderDevice": "00000000-0000-4000-8000-000000000002",
+        "revision": "1",
+        "deleted": false,
+        "deviceName": "First browser",
+        "at": "1791072000000",
+        "threadId": "00000000-0000-4000-8000-000000000003",
+        "anchor": {
+          "exact": "A quote & 🐈 across tags",
+          "prefix": "Before ",
+          "suffix": " after"
+        },
+        "resolved": false
+      },
+      "actions": [
+        {
+          "version": 1,
+          "kind": "thread-status",
+          "spaceId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "pageId": "00000000-0000-4000-8000-000000000001",
+          "epoch": "1",
+          "senderDevice": "00000000-0000-4000-8000-000000000004",
+          "revision": "1",
+          "deleted": false,
+          "deviceName": "Owner device",
+          "at": "0",
+          "actionId": "00000000-0000-4000-8000-00000000001e",
+          "thread": {
+            "writer": "00000000-0000-4000-8000-000000000002",
+            "id": "00000000-0000-4000-8000-000000000003"
+          },
+          "previous": {
+            "writer": "00000000-0000-4000-8000-000000000002",
+            "id": "00000000-0000-4000-8000-000000000063"
+          },
+          "resolved": true,
+          "actor": "person",
+          "agentName": null,
+          "recipients": []
+        }
+      ],
+      "expected": {
+        "resolved": false,
+        "status": null,
+        "threadsJson": "[{\"writer\":\"00000000-0000-4000-8000-000000000002\",\"id\":\"00000000-0000-4000-8000-000000000003\",\"revision\":\"1\",\"anchor\":{\"exact\":\"A quote & 🐈 across tags\",\"prefix\":\"Before \",\"suffix\":\" after\"},\"resolved\":false,\"deleted\":false,\"deviceName\":\"First browser\",\"at\":\"1791072000000\",\"comments\":[]}]"
+      }
+    },
+    {
+      "name": "cycle",
+      "thread": {
+        "version": 1,
+        "kind": "thread",
+        "spaceId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "pageId": "00000000-0000-4000-8000-000000000001",
+        "epoch": "1",
+        "senderDevice": "00000000-0000-4000-8000-000000000002",
+        "revision": "1",
+        "deleted": false,
+        "deviceName": "First browser",
+        "at": "1791072000000",
+        "threadId": "00000000-0000-4000-8000-000000000003",
+        "anchor": {
+          "exact": "A quote & 🐈 across tags",
+          "prefix": "Before ",
+          "suffix": " after"
+        },
+        "resolved": false
+      },
+      "actions": [
+        {
+          "version": 1,
+          "kind": "thread-status",
+          "spaceId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "pageId": "00000000-0000-4000-8000-000000000001",
+          "epoch": "1",
+          "senderDevice": "00000000-0000-4000-8000-000000000004",
+          "revision": "1",
+          "deleted": false,
+          "deviceName": "Owner device",
+          "at": "0",
+          "actionId": "00000000-0000-4000-8000-000000000028",
+          "thread": {
+            "writer": "00000000-0000-4000-8000-000000000002",
+            "id": "00000000-0000-4000-8000-000000000003"
+          },
+          "previous": {
+            "writer": "00000000-0000-4000-8000-000000000004",
+            "id": "00000000-0000-4000-8000-000000000029"
+          },
+          "resolved": true,
+          "actor": "person",
+          "agentName": null,
+          "recipients": []
+        },
+        {
+          "version": 1,
+          "kind": "thread-status",
+          "spaceId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "pageId": "00000000-0000-4000-8000-000000000001",
+          "epoch": "1",
+          "senderDevice": "00000000-0000-4000-8000-000000000004",
+          "revision": "1",
+          "deleted": false,
+          "deviceName": "Owner device",
+          "at": "0",
+          "actionId": "00000000-0000-4000-8000-000000000029",
+          "thread": {
+            "writer": "00000000-0000-4000-8000-000000000002",
+            "id": "00000000-0000-4000-8000-000000000003"
+          },
+          "previous": {
+            "writer": "00000000-0000-4000-8000-000000000004",
+            "id": "00000000-0000-4000-8000-000000000028"
+          },
+          "resolved": true,
+          "actor": "person",
+          "agentName": null,
+          "recipients": []
+        }
+      ],
+      "expected": {
+        "resolved": false,
+        "status": null,
+        "threadsJson": "[{\"writer\":\"00000000-0000-4000-8000-000000000002\",\"id\":\"00000000-0000-4000-8000-000000000003\",\"revision\":\"1\",\"anchor\":{\"exact\":\"A quote & 🐈 across tags\",\"prefix\":\"Before \",\"suffix\":\" after\"},\"resolved\":false,\"deleted\":false,\"deviceName\":\"First browser\",\"at\":\"1791072000000\",\"comments\":[]}]"
+      }
+    },
+    {
+      "name": "cross-thread parent",
+      "thread": {
+        "version": 1,
+        "kind": "thread",
+        "spaceId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "pageId": "00000000-0000-4000-8000-000000000001",
+        "epoch": "1",
+        "senderDevice": "00000000-0000-4000-8000-000000000002",
+        "revision": "1",
+        "deleted": false,
+        "deviceName": "First browser",
+        "at": "1791072000000",
+        "threadId": "00000000-0000-4000-8000-000000000003",
+        "anchor": {
+          "exact": "A quote & 🐈 across tags",
+          "prefix": "Before ",
+          "suffix": " after"
+        },
+        "resolved": false
+      },
+      "actions": [
+        {
+          "version": 1,
+          "kind": "thread-status",
+          "spaceId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "pageId": "00000000-0000-4000-8000-000000000001",
+          "epoch": "1",
+          "senderDevice": "00000000-0000-4000-8000-000000000004",
+          "revision": "1",
+          "deleted": false,
+          "deviceName": "Owner device",
+          "at": "0",
+          "actionId": "00000000-0000-4000-8000-00000000000a",
+          "thread": {
+            "writer": "00000000-0000-4000-8000-000000000002",
+            "id": "00000000-0000-4000-8000-00000000005a"
+          },
+          "previous": null,
+          "resolved": true,
+          "actor": "person",
+          "agentName": null,
+          "recipients": []
+        },
+        {
+          "version": 1,
+          "kind": "thread-status",
+          "spaceId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "pageId": "00000000-0000-4000-8000-000000000001",
+          "epoch": "1",
+          "senderDevice": "00000000-0000-4000-8000-000000000002",
+          "revision": "1",
+          "deleted": false,
+          "deviceName": "Owner device",
+          "at": "0",
+          "actionId": "00000000-0000-4000-8000-00000000000c",
+          "thread": {
+            "writer": "00000000-0000-4000-8000-000000000002",
+            "id": "00000000-0000-4000-8000-000000000003"
+          },
+          "previous": {
+            "writer": "00000000-0000-4000-8000-000000000004",
+            "id": "00000000-0000-4000-8000-00000000000a"
+          },
+          "resolved": false,
+          "actor": "person",
+          "agentName": null,
+          "recipients": []
+        }
+      ],
+      "expected": {
+        "resolved": false,
+        "status": null,
+        "threadsJson": "[{\"writer\":\"00000000-0000-4000-8000-000000000002\",\"id\":\"00000000-0000-4000-8000-000000000003\",\"revision\":\"1\",\"anchor\":{\"exact\":\"A quote & 🐈 across tags\",\"prefix\":\"Before \",\"suffix\":\" after\"},\"resolved\":false,\"deleted\":false,\"deviceName\":\"First browser\",\"at\":\"1791072000000\",\"comments\":[]}]"
+      }
+    },
+    {
+      "name": "Chat excludes actions",
+      "thread": {
+        "version": 1,
+        "kind": "thread",
+        "spaceId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "pageId": "00000000-0000-4000-8000-000000000001",
+        "epoch": "1",
+        "senderDevice": "00000000-0000-4000-8000-000000000002",
+        "revision": "1",
+        "deleted": false,
+        "deviceName": "First browser",
+        "at": "1791072000000",
+        "threadId": "00000000-0000-4000-8000-000000000002",
+        "anchor": null,
+        "resolved": false
+      },
+      "actions": [
+        {
+          "version": 1,
+          "kind": "thread-status",
+          "spaceId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "pageId": "00000000-0000-4000-8000-000000000001",
+          "epoch": "1",
+          "senderDevice": "00000000-0000-4000-8000-000000000004",
+          "revision": "1",
+          "deleted": false,
+          "deviceName": "Owner device",
+          "at": "0",
+          "actionId": "00000000-0000-4000-8000-00000000000a",
+          "thread": {
+            "writer": "00000000-0000-4000-8000-000000000002",
+            "id": "00000000-0000-4000-8000-000000000002"
+          },
+          "previous": null,
+          "resolved": true,
+          "actor": "person",
+          "agentName": null,
+          "recipients": []
+        }
+      ],
+      "expected": {
+        "resolved": false,
+        "status": null,
+        "threadsJson": "[{\"writer\":\"00000000-0000-4000-8000-000000000002\",\"id\":\"00000000-0000-4000-8000-000000000002\",\"revision\":\"1\",\"anchor\":null,\"resolved\":false,\"deleted\":false,\"deviceName\":\"First browser\",\"at\":\"1791072000000\",\"comments\":[]}]"
+      }
+    },
+    {
+      "name": "deleted thread ignores status",
+      "thread": {
+        "version": 1,
+        "kind": "thread",
+        "spaceId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "pageId": "00000000-0000-4000-8000-000000000001",
+        "epoch": "1",
+        "senderDevice": "00000000-0000-4000-8000-000000000002",
+        "revision": "2",
+        "deleted": true,
+        "deviceName": "First browser",
+        "at": "1791072000000",
+        "threadId": "00000000-0000-4000-8000-000000000003",
+        "anchor": null,
+        "resolved": false
+      },
+      "actions": [
+        {
+          "version": 1,
+          "kind": "thread-status",
+          "spaceId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "pageId": "00000000-0000-4000-8000-000000000001",
+          "epoch": "1",
+          "senderDevice": "00000000-0000-4000-8000-000000000004",
+          "revision": "1",
+          "deleted": false,
+          "deviceName": "Owner device",
+          "at": "0",
+          "actionId": "00000000-0000-4000-8000-00000000000a",
+          "thread": {
+            "writer": "00000000-0000-4000-8000-000000000002",
+            "id": "00000000-0000-4000-8000-000000000003"
+          },
+          "previous": null,
+          "resolved": true,
+          "actor": "person",
+          "agentName": null,
+          "recipients": []
+        }
+      ],
+      "expected": {
+        "resolved": false,
+        "status": null,
+        "threadsJson": "[{\"writer\":\"00000000-0000-4000-8000-000000000002\",\"id\":\"00000000-0000-4000-8000-000000000003\",\"revision\":\"2\",\"anchor\":null,\"resolved\":false,\"deleted\":true,\"deviceName\":\"First browser\",\"at\":\"1791072000000\",\"comments\":[]}]"
+      },
+      "threadHistory": [
+        {
+          "version": 1,
+          "kind": "thread",
+          "spaceId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "pageId": "00000000-0000-4000-8000-000000000001",
+          "epoch": "1",
+          "senderDevice": "00000000-0000-4000-8000-000000000002",
+          "revision": "1",
+          "deleted": false,
+          "deviceName": "First browser",
+          "at": "1791072000000",
+          "threadId": "00000000-0000-4000-8000-000000000003",
+          "anchor": {
+            "exact": "A quote & 🐈 across tags",
+            "prefix": "Before ",
+            "suffix": " after"
+          },
+          "resolved": false
+        }
+      ]
+    },
+    {
+      "name": "agent resolve",
+      "thread": {
+        "version": 1,
+        "kind": "thread",
+        "spaceId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "pageId": "00000000-0000-4000-8000-000000000001",
+        "epoch": "1",
+        "senderDevice": "00000000-0000-4000-8000-000000000002",
+        "revision": "1",
+        "deleted": false,
+        "deviceName": "First browser",
+        "at": "1791072000000",
+        "threadId": "00000000-0000-4000-8000-000000000003",
+        "anchor": {
+          "exact": "A quote & 🐈 across tags",
+          "prefix": "Before ",
+          "suffix": " after"
+        },
+        "resolved": false
+      },
+      "actions": [
+        {
+          "version": 1,
+          "kind": "thread-status",
+          "spaceId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "pageId": "00000000-0000-4000-8000-000000000001",
+          "epoch": "1",
+          "senderDevice": "00000000-0000-4000-8000-000000000004",
+          "revision": "1",
+          "deleted": false,
+          "deviceName": "Owner device",
+          "at": "0",
+          "actionId": "00000000-0000-4000-8000-00000000000a",
+          "thread": {
+            "writer": "00000000-0000-4000-8000-000000000002",
+            "id": "00000000-0000-4000-8000-000000000003"
+          },
+          "previous": null,
+          "resolved": true,
+          "actor": "agent",
+          "agentName": "Review agent",
+          "recipients": []
+        }
+      ],
+      "expected": {
+        "resolved": true,
+        "status": {
+          "writer": "00000000-0000-4000-8000-000000000004",
+          "id": "00000000-0000-4000-8000-00000000000a",
+          "depth": 1
+        },
+        "threadsJson": "[{\"writer\":\"00000000-0000-4000-8000-000000000002\",\"id\":\"00000000-0000-4000-8000-000000000003\",\"revision\":\"1\",\"anchor\":{\"exact\":\"A quote & 🐈 across tags\",\"prefix\":\"Before \",\"suffix\":\" after\"},\"resolved\":true,\"deleted\":false,\"deviceName\":\"First browser\",\"at\":\"1791072000000\",\"comments\":[],\"status\":{\"version\":1,\"kind\":\"thread-status\",\"spaceId\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"pageId\":\"00000000-0000-4000-8000-000000000001\",\"epoch\":\"1\",\"senderDevice\":\"00000000-0000-4000-8000-000000000004\",\"revision\":\"1\",\"deleted\":false,\"deviceName\":\"Owner device\",\"at\":\"0\",\"actionId\":\"00000000-0000-4000-8000-00000000000a\",\"thread\":{\"writer\":\"00000000-0000-4000-8000-000000000002\",\"id\":\"00000000-0000-4000-8000-000000000003\"},\"previous\":null,\"resolved\":true,\"actor\":\"agent\",\"agentName\":\"Review agent\",\"recipients\":[],\"ref\":{\"writer\":\"00000000-0000-4000-8000-000000000004\",\"id\":\"00000000-0000-4000-8000-00000000000a\"},\"depth\":1}}]"
+      }
+    }
+  ],
+  "notification": {
+    "version": 1,
+    "spaceId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "pageId": "00000000-0000-4000-8000-000000000001",
+    "epoch": "1",
+    "senderDevice": "00000000-0000-4000-8000-000000000004",
+    "revision": "1",
+    "deleted": false,
+    "deviceName": "Owner device",
+    "at": "0",
+    "kind": "thread-notification",
+    "operationId": "00000000-0000-4000-8000-000000000064",
+    "status": {
+      "writer": "00000000-0000-4000-8000-000000000004",
+      "id": "00000000-0000-4000-8000-00000000000a"
+    },
+    "reason": "RECIPIENT_UNAVAILABLE"
+  },
+  "recipientCases": [
+    {
+      "name": "core-agent-id",
+      "record": {
+        "version": 1,
+        "kind": "thread-status",
+        "spaceId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "pageId": "00000000-0000-4000-8000-000000000001",
+        "epoch": "1",
+        "senderDevice": "00000000-0000-4000-8000-000000000004",
+        "revision": "1",
+        "deleted": false,
+        "deviceName": "Owner device",
+        "at": "0",
+        "actionId": "00000000-0000-4000-8000-00000000000a",
+        "thread": {
+          "writer": "00000000-0000-4000-8000-000000000002",
+          "id": "00000000-0000-4000-8000-000000000003"
+        },
+        "previous": null,
+        "resolved": true,
+        "actor": "person",
+        "agentName": null,
+        "recipients": [
+          {
+            "machine": "60000000-0000-4000-8000-000000000001",
+            "agent": "70000000-0000-7000-8000-000000000001",
+            "agentName": "Review agent",
+            "operationId": "80000000-0000-4000-8000-000000000001"
+          }
+        ]
+      },
+      "valid": true
+    },
+    {
+      "name": "agent-resolve-with-recipients",
+      "record": {
+        "version": 1,
+        "kind": "thread-status",
+        "spaceId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "pageId": "00000000-0000-4000-8000-000000000001",
+        "epoch": "1",
+        "senderDevice": "00000000-0000-4000-8000-000000000004",
+        "revision": "1",
+        "deleted": false,
+        "deviceName": "Owner device",
+        "at": "0",
+        "actionId": "00000000-0000-4000-8000-00000000000a",
+        "thread": {
+          "writer": "00000000-0000-4000-8000-000000000002",
+          "id": "00000000-0000-4000-8000-000000000003"
+        },
+        "previous": null,
+        "resolved": true,
+        "actor": "agent",
+        "agentName": null,
+        "recipients": [
+          {
+            "machine": "60000000-0000-4000-8000-000000000001",
+            "agent": "70000000-0000-7000-8000-000000000001",
+            "agentName": "Review agent",
+            "operationId": "80000000-0000-4000-8000-000000000001"
+          }
+        ]
+      },
+      "valid": false
+    },
+    {
+      "name": "reopen-with-recipients",
+      "record": {
+        "version": 1,
+        "kind": "thread-status",
+        "spaceId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "pageId": "00000000-0000-4000-8000-000000000001",
+        "epoch": "1",
+        "senderDevice": "00000000-0000-4000-8000-000000000004",
+        "revision": "1",
+        "deleted": false,
+        "deviceName": "Owner device",
+        "at": "0",
+        "actionId": "00000000-0000-4000-8000-00000000000a",
+        "thread": {
+          "writer": "00000000-0000-4000-8000-000000000002",
+          "id": "00000000-0000-4000-8000-000000000003"
+        },
+        "previous": null,
+        "resolved": false,
+        "actor": "person",
+        "agentName": null,
+        "recipients": [
+          {
+            "machine": "60000000-0000-4000-8000-000000000001",
+            "agent": "70000000-0000-7000-8000-000000000001",
+            "agentName": "Review agent",
+            "operationId": "80000000-0000-4000-8000-000000000001"
+          }
+        ]
+      },
+      "valid": false
+    },
+    {
+      "name": "zero-agent",
+      "record": {
+        "version": 1,
+        "kind": "thread-status",
+        "spaceId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "pageId": "00000000-0000-4000-8000-000000000001",
+        "epoch": "1",
+        "senderDevice": "00000000-0000-4000-8000-000000000004",
+        "revision": "1",
+        "deleted": false,
+        "deviceName": "Owner device",
+        "at": "0",
+        "actionId": "00000000-0000-4000-8000-00000000000a",
+        "thread": {
+          "writer": "00000000-0000-4000-8000-000000000002",
+          "id": "00000000-0000-4000-8000-000000000003"
+        },
+        "previous": null,
+        "resolved": true,
+        "actor": "person",
+        "agentName": null,
+        "recipients": [
+          {
+            "machine": "60000000-0000-4000-8000-000000000001",
+            "agent": "00000000-0000-0000-0000-000000000000",
+            "agentName": "Review agent",
+            "operationId": "80000000-0000-4000-8000-000000000001"
+          }
+        ]
+      },
+      "valid": false
+    },
+    {
+      "name": "invalid-machine",
+      "record": {
+        "version": 1,
+        "kind": "thread-status",
+        "spaceId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "pageId": "00000000-0000-4000-8000-000000000001",
+        "epoch": "1",
+        "senderDevice": "00000000-0000-4000-8000-000000000004",
+        "revision": "1",
+        "deleted": false,
+        "deviceName": "Owner device",
+        "at": "0",
+        "actionId": "00000000-0000-4000-8000-00000000000a",
+        "thread": {
+          "writer": "00000000-0000-4000-8000-000000000002",
+          "id": "00000000-0000-4000-8000-000000000003"
+        },
+        "previous": null,
+        "resolved": true,
+        "actor": "person",
+        "agentName": null,
+        "recipients": [
+          {
+            "machine": "not-a-machine",
+            "agent": "70000000-0000-7000-8000-000000000001",
+            "agentName": "Review agent",
+            "operationId": "80000000-0000-4000-8000-000000000001"
+          }
+        ]
+      },
+      "valid": false
+    },
+    {
+      "name": "oversized-label",
+      "record": {
+        "version": 1,
+        "kind": "thread-status",
+        "spaceId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "pageId": "00000000-0000-4000-8000-000000000001",
+        "epoch": "1",
+        "senderDevice": "00000000-0000-4000-8000-000000000004",
+        "revision": "1",
+        "deleted": false,
+        "deviceName": "Owner device",
+        "at": "0",
+        "actionId": "00000000-0000-4000-8000-00000000000a",
+        "thread": {
+          "writer": "00000000-0000-4000-8000-000000000002",
+          "id": "00000000-0000-4000-8000-000000000003"
+        },
+        "previous": null,
+        "resolved": true,
+        "actor": "person",
+        "agentName": null,
+        "recipients": [
+          {
+            "machine": "60000000-0000-4000-8000-000000000001",
+            "agent": "70000000-0000-7000-8000-000000000001",
+            "agentName": "ééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé",
+            "operationId": "80000000-0000-4000-8000-000000000001"
+          }
+        ]
+      },
+      "valid": false
+    },
+    {
+      "name": "duplicate-agent",
+      "record": {
+        "version": 1,
+        "kind": "thread-status",
+        "spaceId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "pageId": "00000000-0000-4000-8000-000000000001",
+        "epoch": "1",
+        "senderDevice": "00000000-0000-4000-8000-000000000004",
+        "revision": "1",
+        "deleted": false,
+        "deviceName": "Owner device",
+        "at": "0",
+        "actionId": "00000000-0000-4000-8000-00000000000a",
+        "thread": {
+          "writer": "00000000-0000-4000-8000-000000000002",
+          "id": "00000000-0000-4000-8000-000000000003"
+        },
+        "previous": null,
+        "resolved": true,
+        "actor": "person",
+        "agentName": null,
+        "recipients": [
+          {
+            "machine": "60000000-0000-4000-8000-000000000001",
+            "agent": "70000000-0000-7000-8000-000000000001",
+            "agentName": "Review agent",
+            "operationId": "80000000-0000-4000-8000-000000000001"
+          },
+          {
+            "machine": "60000000-0000-4000-8000-000000000001",
+            "agent": "70000000-0000-7000-8000-000000000001",
+            "agentName": "Review agent",
+            "operationId": "80000000-0000-4000-8000-000000000002"
+          }
+        ]
+      },
+      "valid": false
+    },
+    {
+      "name": "duplicate-operation",
+      "record": {
+        "version": 1,
+        "kind": "thread-status",
+        "spaceId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "pageId": "00000000-0000-4000-8000-000000000001",
+        "epoch": "1",
+        "senderDevice": "00000000-0000-4000-8000-000000000004",
+        "revision": "1",
+        "deleted": false,
+        "deviceName": "Owner device",
+        "at": "0",
+        "actionId": "00000000-0000-4000-8000-00000000000a",
+        "thread": {
+          "writer": "00000000-0000-4000-8000-000000000002",
+          "id": "00000000-0000-4000-8000-000000000003"
+        },
+        "previous": null,
+        "resolved": true,
+        "actor": "person",
+        "agentName": null,
+        "recipients": [
+          {
+            "machine": "60000000-0000-4000-8000-000000000001",
+            "agent": "70000000-0000-7000-8000-000000000001",
+            "agentName": "Review agent",
+            "operationId": "80000000-0000-4000-8000-000000000001"
+          },
+          {
+            "machine": "60000000-0000-4000-8000-000000000001",
+            "agent": "70000000-0000-7000-8000-000000000002",
+            "agentName": "Review agent",
+            "operationId": "80000000-0000-4000-8000-000000000001"
+          }
+        ]
+      },
+      "valid": false
+    }
+  ]
 }

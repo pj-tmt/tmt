@@ -26,6 +26,12 @@ export function mount(mode: 'accepted' | 'held' | 'throw' | 'prepare-failure' | 
   const ref = { writer: id(4), id: id(2) };
   const discussion: ThreadBinding = {
     deviceId: id(4),
+    async setStatus() {
+      throw new Error('Not used');
+    },
+    async notificationFailed() {
+      throw new Error('Not used');
+    },
     async create() {
       writes++;
       return {

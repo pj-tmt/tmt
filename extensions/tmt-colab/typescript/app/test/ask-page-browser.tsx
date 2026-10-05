@@ -96,6 +96,12 @@ export async function mount() {
     };
   }
   const discussion: ThreadBinding = {
+    async setStatus() {
+      throw new Error('Not used');
+    },
+    async notificationFailed() {
+      throw new Error('Not used');
+    },
     deviceId: id(4),
     async createChat(body) {
       const thread: ThreadView = {

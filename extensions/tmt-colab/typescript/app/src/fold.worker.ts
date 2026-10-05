@@ -216,7 +216,8 @@ self.onmessage = async (event: MessageEvent<{ id: number; command: FoldCommand }
       const roots = projectOwn(previous, false);
       for (const root of ['threads', 'messages'])
         for (const [key, value] of Object.entries(roots[root])) {
-          if (value?.kind !== 'thread' && value?.kind !== 'comment') continue;
+          if (!['thread', 'comment', 'thread-status', 'thread-notification'].includes(value?.kind))
+            continue;
           if (JSON.stringify(value) !== JSON.stringify(ownProjection[writer][root][key]))
             throw new Error('Discussion record is immutable');
         }

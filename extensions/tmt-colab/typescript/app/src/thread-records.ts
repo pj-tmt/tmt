@@ -1,5 +1,13 @@
 import { decimal, exactKeys, generatedId, requireValue, spaceId, text } from '@tmt/colab-client';
 import type { OwnState } from './fold-protocol.js';
+import {
+  foldThreadStatus,
+  statusKey,
+  validateStatus,
+  type ThreadStatusRecord,
+  type ThreadStatusView,
+  type ThreadNotificationRecord,
+} from './thread-status.js';
 
 export const COMMENT_BYTES = 16 * 1024;
 export interface QuoteSelector {
@@ -16,7 +24,7 @@ export interface DiscussionRef {
   writer: string;
   id: string;
 }
-interface RecordScope extends DiscussionScope {
+export interface DiscussionRecordScope extends DiscussionScope {
   version: 1;
   senderDevice: string;
   revision: string;
@@ -24,25 +32,30 @@ interface RecordScope extends DiscussionScope {
   deviceName: string;
   at: string;
 }
-export interface ThreadRecord extends RecordScope {
+export interface ThreadRecord extends DiscussionRecordScope {
   kind: 'thread';
   threadId: string;
   anchor: QuoteSelector | null;
   resolved: boolean;
 }
-export interface CommentRecord extends RecordScope {
+export interface CommentRecord extends DiscussionRecordScope {
   kind: 'comment';
   messageId: string;
   thread: DiscussionRef;
   body: string;
 }
-export type DiscussionRecord = ThreadRecord | CommentRecord;
+export type DiscussionRecord =
+  | ThreadRecord
+  | CommentRecord
+  | ThreadStatusRecord
+  | ThreadNotificationRecord;
 export interface CommentView extends CommentRecord {
   ref: DiscussionRef;
 }
 export interface ThreadView extends ThreadRecord {
   ref: DiscussionRef;
   comments: CommentView[];
+  status?: ThreadStatusView;
 }
 export function validateSelector(value: unknown): asserts value is QuoteSelector {
   exactKeys(value, ['exact', 'prefix', 'suffix']);
@@ -59,6 +72,8 @@ export function validateRef(value: unknown): asserts value is DiscussionRef {
   generatedId(value.id as string);
 }
 export function discussionKey(record: DiscussionRecord) {
+  if (record.kind === 'thread-status' || record.kind === 'thread-notification')
+    return statusKey(record);
   return `${record.kind === 'thread' ? record.threadId : record.messageId}:${record.revision}`;
 }
 /** Envelope verification belongs to Objects. This codec admits inert typed data,
@@ -88,6 +103,9 @@ export function validateDiscussionRecord(
     generatedId(r.threadId as string);
     if (r.anchor !== null) validateSelector(r.anchor);
     requireValue(!r.deleted || r.anchor === null);
+  } else if (r.kind === 'thread-status' || r.kind === 'thread-notification') {
+    requireValue(root === 'messages');
+    validateStatus(r);
   } else {
     exactKeys(r, [...scope, 'messageId', 'thread', 'body']);
     requireValue(root === 'messages' && r.kind === 'comment');
@@ -106,7 +124,7 @@ export function validateDiscussionRecord(
   requireValue(decimal(r.at as string, true) <= 8_640_000_000_000_000n);
   requireValue(key === discussionKey(r as unknown as DiscussionRecord));
 }
-function latest<T extends DiscussionRecord>(records: T[]): T | undefined {
+function latest<T extends ThreadRecord | CommentRecord>(records: T[]): T | undefined {
   records.sort((a, b) => (BigInt(a.revision) < BigInt(b.revision) ? -1 : 1));
   const first = records[0];
   if (!first || first.revision !== '1' || first.deleted) return;
@@ -133,16 +151,17 @@ export function readThreads(
 ): ThreadView[] {
   const threads = new Map<string, ThreadView>();
   const comments: CommentView[] = [];
+  const statuses: Omit<ThreadStatusView, 'depth'>[] = [];
   for (const [writer, roots] of Object.entries(own)) {
     if (!signingKey(writer)) continue;
-    const groups = new Map<string, DiscussionRecord[]>();
+    const groups = new Map<string, (ThreadRecord | CommentRecord)[]>();
     for (const root of ['threads', 'messages'] as const) {
       for (const [key, value] of Object.entries(roots[root])) {
         if (
           !value ||
           typeof value !== 'object' ||
           Array.isArray(value) ||
-          !['thread', 'comment'].includes(String(value.kind))
+          !['thread', 'comment', 'thread-status'].includes(String(value.kind))
         )
           continue;
         try {
@@ -153,6 +172,11 @@ export function readThreads(
               value.pageId === scope.pageId &&
               value.epoch === scope.epoch,
           );
+          if (value.kind === 'thread-status') {
+            statuses.push({ ...structuredClone(value), ref: { writer, id: value.actionId } });
+            continue;
+          }
+          if (value.kind !== 'thread' && value.kind !== 'comment') continue;
           const id = value.kind === 'thread' ? value.threadId : value.messageId;
           const group = `${value.kind}:${id}`;
           groups.set(group, [...(groups.get(group) ?? []), structuredClone(value)]);
@@ -171,6 +195,8 @@ export function readThreads(
     }
   }
   for (const comment of comments) threads.get(refKey(comment.thread))?.comments.push(comment);
+  for (const thread of threads.values())
+    Object.assign(thread, foldThreadStatus(thread, thread.ref.writer, statuses));
   return [...threads.values()].sort((a, b) => refKey(a.ref).localeCompare(refKey(b.ref)));
 }
 

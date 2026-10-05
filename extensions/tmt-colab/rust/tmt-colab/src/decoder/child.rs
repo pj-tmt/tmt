@@ -51,8 +51,13 @@ fn execute() -> Result<(), DecodeFault> {
             .as_deref()
             .is_some_and(|v| !valid_publisher_agent(v))
         || (wire.source.is_none() && wire.publisher_agent.is_some())
+        || (wire.source.is_some() && wire.records.is_some())
+        || (wire.records.is_some() && wire.namespace != Namespace::Own)
     {
         return Err(DecodeFault::InvalidInput);
+    }
+    if let Some(records) = &wire.records {
+        validate_own_records(records)?;
     }
     let baseline = binary(&wire.baseline, STATE_BYTES)?;
     let updates: Vec<_> = wire
@@ -137,6 +142,29 @@ fn execute() -> Result<(), DecodeFault> {
             meta.remove(&mut tx, "publisherAgent");
         }
         tx.encode_state_as_update_v1(&vector)
+    } else if let Some(records) = &wire.records {
+        let vector = doc.transact().state_vector();
+        let mut tx = doc.transact_mut();
+        for record in records {
+            if let Some(existing) = before
+                .get(&record.root)
+                .and_then(|root| root.get(&record.key))
+            {
+                if existing != &record.value {
+                    return Err(DecodeFault::Rejected);
+                }
+                continue;
+            }
+            let map = Root::<MapRef>::new(record.root.as_str())
+                .get(&tx)
+                .ok_or(DecodeFault::Rejected)?;
+            map.insert(
+                &mut tx,
+                record.key.as_str(),
+                Any::from_json(&record.value.to_string()).map_err(|_| DecodeFault::Rejected)?,
+            );
+        }
+        tx.encode_state_as_update_v1(&vector)
     } else {
         // Merge the author's updates, never encode the shared document.
         yrs::merge_updates_v1(updates.iter().map(Vec::as_slice))
@@ -145,7 +173,7 @@ fn execute() -> Result<(), DecodeFault> {
     let projection = project(&doc, wire.namespace)?;
     // A prepared edit is one update; a read's merged tail may be the whole state.
     if merged.len()
-        > if wire.source.is_some() {
+        > if wire.source.is_some() || wire.records.is_some() {
             UPDATE_BYTES
         } else {
             STATE_BYTES
@@ -177,7 +205,7 @@ fn discussion_records(
             .ok_or(DecodeFault::Rejected)?;
         for (key, value) in map.iter(&txn) {
             if let Out::Any(Any::Map(fields)) = value
-                && matches!(fields.get("kind"), Some(Any::String(kind)) if kind.as_ref() == "thread" || kind.as_ref() == "comment")
+                && matches!(fields.get("kind"), Some(Any::String(kind)) if matches!(kind.as_ref(), "thread" | "comment" | "thread-status" | "thread-notification"))
             {
                 records.insert(
                     (root.into(), key.into()),

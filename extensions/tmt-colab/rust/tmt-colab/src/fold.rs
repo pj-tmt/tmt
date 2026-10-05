@@ -118,11 +118,29 @@ pub(crate) struct View {
     /// Each authenticated writer's decoded `own` projection (threads, messages, intents,
     /// replies), as the isolated decoder returned and validated it.
     pub own: BTreeMap<String, serde_json::Value>,
+    /// Exact merged structs for isolated preparation in the local writer's document.
+    pub local_own_update: Option<Vec<u8>>,
+    /// Owner-member provenance from verified, cut-admitted own envelopes at their
+    /// membership revision. Historical keys alone do not grant status authority.
+    pub status_writers: BTreeSet<String>,
     /// Each writer's historical signing key, from its cut-admitted envelopes. It gives no
     /// fresh write authority; it only lets a reader verify what the writer signed.
     pub signing_keys: BTreeMap<String, [u8; 32]>,
 }
 impl Snapshot {
+    pub fn require_update_capacity(&self, page: &str) -> Result<()> {
+        if self.objects.len() >= crate::decoder::WRITE_TAIL_UPDATES {
+            return Err(OwnerFault::too_large_to_edit(
+                page,
+                format!(
+                    "it has {} changes, the most one page can hold",
+                    count(self.objects.len())
+                ),
+            )
+            .into());
+        }
+        Ok(())
+    }
     pub fn capture(store: &Store, key: &Keyring, page: &str) -> Result<Self> {
         store.owner_read(&key.space_id, &key.owner_public(), |tx| {
             let (states, payloads) = verify_log(&tx.log()?, key, page)?;
@@ -242,6 +260,7 @@ impl Snapshot {
         let mut updates = Vec::new();
         let mut own_updates: BTreeMap<String, Vec<Vec<u8>>> = BTreeMap::new();
         let mut signing_keys: BTreeMap<String, [u8; 32]> = BTreeMap::new();
+        let mut owner_provenance: BTreeMap<String, bool> = BTreeMap::new();
         for (index, stored) in &self.objects {
             let cut = &self.cuts[*index];
             let envelope = object::Envelope::from_json(&stored.bytes)?;
@@ -274,11 +293,11 @@ impl Snapshot {
             let bridge = at_write
                 .recipients
                 .get(&("bridge".into(), cut.stream.clone()));
-            let (issuer, key_bytes) = if let Some(bridge) = bridge {
+            let (issuer, key_bytes, owner_device) = if let Some(bridge) = bridge {
                 if c.namespace != "own" {
                     return Err(OwnerFault::Invalid.into());
                 }
-                (bridge, bridge.recipient.signing_key)
+                (bridge, bridge.recipient.signing_key, false)
             } else {
                 let device = self
                     .devices
@@ -296,7 +315,11 @@ impl Snapshot {
                     .get(&(cert.issuer_kind.into(), cert.issuer_id.into()))
                     .ok_or(OwnerFault::Invalid)?;
                 verify_chain(&chain, issuer, key, revision)?;
-                (issuer, *cert.signing_key)
+                (
+                    issuer,
+                    *cert.signing_key,
+                    cert.issuer_kind == "member" && cert.issuer_id == at_write.head.owner_member.id,
+                )
             };
             if !eligible(&issuer.recipient, at_write, page)
                 || (c.namespace == "content" && issuer.recipient.role.as_deref() != Some("editor"))
@@ -375,6 +398,12 @@ impl Snapshot {
                 updates.push(plaintext);
             } else {
                 signing_keys.insert(c.author_device.clone(), key_bytes);
+                // An ambiguous writer never gains status authority. Later revocation
+                // does not erase provenance of an earlier cut-admitted envelope.
+                owner_provenance
+                    .entry(c.author_device.clone())
+                    .and_modify(|owner| *owner &= owner_device)
+                    .or_insert(owner_device);
                 own_updates
                     .entry(c.author_device.clone())
                     .or_default()
@@ -423,6 +452,8 @@ impl Snapshot {
         }
         let mut threads = 0;
         let mut own_views = BTreeMap::new();
+        let local_writer = key.local_writer()?.0;
+        let mut local_own_update = None;
         for (writer, own) in &own_updates {
             let discussion = own.iter().map(Vec::len).sum::<usize>();
             if discussion > crate::decoder::STATE_BYTES {
@@ -452,6 +483,9 @@ impl Snapshot {
                 .len();
             if threads > 1000 {
                 return Err(OwnerFault::Capacity.into());
+            }
+            if writer == &local_writer {
+                local_own_update = Some(decoded.merged);
             }
             own_views.insert(writer.clone(), decoded.projection);
         }
@@ -520,6 +554,11 @@ impl Snapshot {
             update: folded.merged,
             memory_limit: folded.memory_limit,
             own: own_views,
+            local_own_update,
+            status_writers: owner_provenance
+                .into_iter()
+                .filter_map(|(writer, owner)| owner.then_some(writer))
+                .collect(),
             signing_keys,
             source: folded.projection["html"]
                 .as_str()

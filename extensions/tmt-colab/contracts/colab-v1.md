@@ -737,7 +737,7 @@ Historical keys grant no fresh write authority.
 
 ### Own-stream discussion records (#1427)
 
-Both record kinds contain `version:1`, `kind`, `spaceId`, `pageId`, `epoch`,
+All discussion record kinds contain `version:1`, `kind`, `spaceId`, `pageId`, `epoch`,
 `senderDevice`, `revision`, `deleted:boolean`, `deviceName` and `at`. IDs are canonical
 UUIDv4, space IDs are canonical, and epoch/revision are positive decimal strings.
 Labels are publisher-asserted plain text, at most 128 UTF-8 bytes, with no authority.
@@ -748,19 +748,21 @@ determines ordering, revision selection, ownership or admission. The UI shows th
 latest revision's relative time beside the author and marks revised live comments
 as edited; device IDs remain available in a tooltip.
 
-| Root/key                           | Additional fields                                                                         |
-| ---------------------------------- | ----------------------------------------------------------------------------------------- |
-| `threads[threadId+":"+revision]`   | `kind:"thread"`, `threadId`, `anchor:null` or `{exact,prefix,suffix}`, `resolved:boolean` |
-| `messages[messageId+":"+revision]` | `kind:"comment"`, `messageId`, `thread:{writer,id}`, `body:string`                        |
+| Root/key                                       | Additional fields                                                                                                                                                                                                               |
+| ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `threads[threadId+":"+revision]`               | `kind:"thread"`, `threadId`, `anchor:null` or `{exact,prefix,suffix}`, `resolved:boolean`                                                                                                                                       |
+| `messages[messageId+":"+revision]`             | `kind:"comment"`, `messageId`, `thread:{writer,id}`, `body:string`                                                                                                                                                              |
+| `messages[actionId+":thread-status"]`          | `kind:"thread-status"`, `actionId`, `thread:{writer,id}`, `previous:null` or `{writer,id}`, `resolved:boolean`, `actor:"person"` or `"agent"`, `agentName:null` or string, `recipients:[{machine,agent,agentName,operationId}]` |
+| `messages[operationId+":thread-notification"]` | `kind:"thread-notification"`, `operationId`, `status:{writer,id}`, `reason:"RECIPIENT_UNAVAILABLE"` or `"PREPARATION_FAILED"`                                                                                                   |
 
-No unknown fields are accepted. A value claiming either typed kind rejects if its
+No unknown fields are accepted. A value claiming a typed kind rejects if its
 root, key or field grammar is invalid in the browser or native decoder. Other
 bounded raw values remain inert. Bodies are exact plain text: nonempty and at most
 16 KiB UTF-8, or empty for a deleted comment. Deleted threads have null anchors.
 Selectors require nonempty exact text at most 16 KiB UTF-8, with prefix and suffix
 each at most 32 Unicode code points and 128 UTF-8 bytes.
 
-Logical records start at revision 1, with consecutive immutable revisions.
+Thread and comment records start at revision 1, with consecutive immutable revisions.
 Messages retain the same thread reference. A gap, changed reference or resurrection
 after a terminal tombstone yields no projected logical row. Writer ownership is
 part of every reference, so foreign replies never grant edits to the target stream.
@@ -770,12 +772,57 @@ revisions and tombstones across writers; older text remains retained history.
 Deletion is not secure erasure. Deleted threads retain attributed replies and
 disable new replies.
 
+Status and notification records are immutable single actions: `revision` is `"1"`
+and `deleted` is false. An admitted owner device may resolve or reopen any live
+non-Chat thread in the current page/epoch. Thread creation, anchor changes,
+deletion and comment edits remain writer-owned. A designated null-anchor Chat
+thread cannot acquire status actions. The thread record's legacy `resolved` value
+is the initial state, never rewritten by a status action. Historical signing keys
+prove record authorship, not status authority. Native status projection separately
+requires owner-member provenance from the certificate chain and issuer verified
+for every admitted own envelope of that writer at its membership revision;
+ambiguous provenance, non-owner members and bridges cannot contribute status
+actions. Their existing thread, comment and Ask admission is unchanged. A later
+revocation does not erase a valid earlier action within its signed committed cut,
+but current admission remains required to publish another action.
+
+A status action references the effective previous action, or null for the initial
+state. The authenticated fold admits only same-thread ancestry rooted at null;
+missing parents, cross-thread parents and cycles remain inert. A descendant has
+its parent's depth plus one. The deepest action wins; equal-depth concurrent
+branches use ascending ASCII `(writer, actionId)` ordering with the greatest pair
+winning. Wall clocks and labels do not affect this order. Native reads, browser
+views and exports use this effective status rather than selecting status from a
+thread revision. A deleted thread ignores status actions.
+
+`actor` and `agentName` are publisher-asserted display labels. A person action has
+null `agentName`; an agent label, when present, is nonempty, at most 128 UTF-8
+bytes and contains no control characters. Machine and operation IDs are canonical
+UUIDv4; agent IDs use the existing nonzero core UUID grammar. A recipient list contains at most 1,000 distinct machine/agent
+pairs with distinct operation IDs and labels of at most 128 UTF-8 bytes. Only a
+person Resolve action can freeze recipients; Reopen and agent CLI actions have an
+empty recipient list. A notification failure belongs to the status action's
+writer and records a failure before adoption into the existing Ask ledger. It
+cannot change thread status or grant a dispatch capability.
+
 The generic own writer prepares at most 32 records in one update; thread creation
 publishes its thread and opening message together. Preparation cannot change the
 committed projection. Only admitted encrypted appends commit; failures preserve
 parent drafts. Current device/page/epoch admission is required for every mutation.
 Disconnected, read-only and inactive views disable actions. General member-role
 UI remains planned.
+
+Native `tmt colab threads <page> [--json]` reads the same authenticated current-epoch
+conversation projection as export. `threads resolve <page> <thread>` and `threads
+reopen <page> <thread>` publish an agent-labelled status action through the local
+writer, using its shared content/own sequence and the existing fenced ciphertext
+commit. Preparation edits only the writer's admitted own structs in the isolated
+child. A running owner receives ciphertext through the root-local socket; an
+uncertain IPC result never falls back to an offline writer or retries. Repeating
+an already-effective status is a no-op. Missing or ambiguous thread IDs, deleted
+threads and designated Chat threads cannot acquire a new status action. The fixed
+public identity probe supplies a display-only caller name, or no name when unknown.
+Agent CLI Resolve and Reopen have no recipients and never create an Ask or dispatch.
 
 Ask on a comment rechecks its unambiguous verified writer, thread/message IDs and
 revisions in the parent. It freezes stored quote/body and the real IDs in the
@@ -2489,7 +2536,10 @@ newline):
 ```
 
 `membershipHead.statementHash` is lowercase hex, like the manifest. `at` is the stored
-decimal string; `issuedAt` and `expiresAt` are JSON integers. Threads are ordered by
+decimal string; `issuedAt` and `expiresAt` are JSON integers. A thread with an effective
+status action also includes `status`, the immutable action fields plus `ref:{writer,id}`
+and causal `depth`, in the same declared field order as the native/browser status
+vectors. It is omitted for legacy-only state. Threads are ordered by
 `writer + ":" + id`, comments inside a thread likewise, asks by `writer + ":" +
 operationId`, all by byte order (never a locale comparison). Bodies and messages are exact
 UTF-8, including controls. Order never depends on `at`.

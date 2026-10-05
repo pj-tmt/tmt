@@ -1225,6 +1225,18 @@ core discovery or storage access.
   author HTML and passes no application capability. Parent highlight messages carry only
   anchor IDs and quote selectors; discussion bodies and display labels never enter author code.
   This contains author code; page self-navigation can still leak a request.
-- **Plaintext invariant.** Page source and export are root-local: only the isolated decoder
-  child decodes Yjs, no route serves plaintext, and the browser Worker is resource
-  containment, not a security sandbox.
+- **Plaintext invariant.** Page source, discussion reads and export are root-local: only the
+  isolated decoder child decodes Yjs and prepares content or bounded immutable own-record
+  updates. Native status publication reuses the local writer certificate, shared stream
+  sequence, lifecycle lock or owner socket, and fenced ciphertext commit; no route serves
+  plaintext. Native status authority comes separately from the verified owner-member
+  issuer of cut-admitted own envelopes, not from a historical signing key. Other
+  member and bridge records retain their existing admission; their status actions
+  are inert. Revocation gates new publication without erasing committed history.
+  The browser Worker is resource containment, not a security sandbox.
+- **Discussion status.** Immutable per-writer actions may resolve or reopen a live non-Chat
+  thread without transferring its creation, anchor, deletion or comment-edit ownership.
+  The authenticated status fold uses causal ancestry and deterministic writer/action-ID ties,
+  with legacy resolution as the initial state and invalid references inert. Native discussion
+  reads and export reuse one projection; shared vectors pin it against the browser fold.
+  Actor names and timestamps are display assertions, never authority or conflict order.

@@ -4,7 +4,7 @@ use crate::{
     Result,
     decoder::{Decoder, MemoryLimit},
     fold::{self, Snapshot},
-    keyring::Keyring,
+    keyring::{Keyring, Layout},
     store::{
         Accepted, Envelope, Namespace, Store, StreamScope,
         owner::{Cut, Device, OwnerTransaction},
@@ -126,7 +126,7 @@ pub struct Committed {
 fn hex(bytes: &[u8]) -> String {
     bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
-fn token(
+pub(crate) fn token(
     space: &str,
     page: &str,
     head: &statement::Head,
@@ -157,7 +157,12 @@ fn current_token(tx: &OwnerTransaction<'_>, key: &Keyring, page: &str) -> Result
         &tx.cuts(page, epoch)?,
     )
 }
-fn snapshot(store: &Store, key: &Keyring, page: &str, writing: bool) -> Result<Snapshot> {
+pub(crate) fn snapshot(
+    store: &Store,
+    key: &Keyring,
+    page: &str,
+    writing: bool,
+) -> Result<Snapshot> {
     values::generated_id(page)?;
     store.owner_read(&key.space_id, &key.owner_public(), |tx| {
         let (states, _) = fold::verify_log(&tx.log()?, key, page)?;
@@ -200,6 +205,40 @@ pub fn prepare(
     if expected.is_some_and(|r| r != revision) {
         return Err(Fault::StaleBase.into());
     }
+    let view = s.materialize_edit(key, page, decoder, Some(edit))?;
+    prepare_update(
+        store,
+        key,
+        page,
+        &s,
+        UpdateInput {
+            namespace: Namespace::Content,
+            source: &view.source,
+            update: &view.update,
+            memory_limit: view.memory_limit,
+        },
+        now,
+    )
+}
+pub(crate) struct UpdateInput<'a> {
+    pub namespace: Namespace,
+    pub source: &'a str,
+    pub update: &'a [u8],
+    pub memory_limit: MemoryLimit,
+}
+/// Shared local writer/certificate/sequence preparation; commit remains ciphertext-only.
+pub(crate) fn prepare_update(
+    store: &Store,
+    key: &Keyring,
+    page: &str,
+    s: &Snapshot,
+    input: UpdateInput<'_>,
+    now: u64,
+) -> Result<Prepared> {
+    s.require_update_capacity(page)?;
+    if input.update.len() > crate::decoder::UPDATE_BYTES {
+        return Err(Fault::Capacity.into());
+    }
     let (id, _, _) = key.local_writer()?;
     if s.authority.revoked_devices.contains(&id) {
         return Err(Fault::Denied.into());
@@ -227,7 +266,6 @@ pub fn prepare(
     } else {
         writer_chain(key, &s.authority.head, &issuer, now)?
     };
-    let view = s.materialize_edit(key, page, decoder, Some(edit))?;
     let head = s
         .cuts
         .iter()
@@ -243,28 +281,20 @@ pub fn prepare(
             page: page.into(),
             epoch: s.epoch.to_string(),
             kind: "update".into(),
-            namespace: "content".into(),
+            namespace: match input.namespace {
+                Namespace::Content => "content",
+                Namespace::Own => "own",
+            }
+            .into(),
             author_device: id,
             membership_revision: s.authority.head.revision.to_string(),
             stream_seq: seq.to_string(),
             prev_hash: head.map_or([0; 32], |c| c.tail_hash),
         },
         &s.secret,
-        &view.update,
+        input.update,
     )?;
-    let mut bytes = [0u8; 16];
-    getrandom::fill(&mut bytes)?;
-    bytes[6] = (bytes[6] & 15) | 64;
-    bytes[8] = (bytes[8] & 63) | 128;
-    let h = hex(&bytes);
-    let operation_id = format!(
-        "{}-{}-{}-{}-{}",
-        &h[..8],
-        &h[8..12],
-        &h[12..16],
-        &h[16..20],
-        &h[20..]
-    );
+    let operation_id = fresh_id()?;
     Ok(Prepared {
         version: 1,
         operation_id,
@@ -272,13 +302,29 @@ pub fn prepare(
         page_id: page.into(),
         epoch: s.epoch.to_string(),
         membership_head: Head::from(&s.authority.head),
-        base_revision: revision,
-        source_sha256: hex(&crypto::digest(edit.source.as_bytes())),
-        memory_limit: view.memory_limit,
+        base_revision: token(&key.space_id, page, &s.authority.head, s.epoch, &s.cuts)?,
+        source_sha256: hex(&crypto::digest(input.source.as_bytes())),
+        memory_limit: input.memory_limit,
         chain: values::encode_binary(&chain),
         envelope: values::encode_binary(&envelope.to_json()?),
     })
 }
+pub(crate) fn fresh_id() -> Result<String> {
+    let mut bytes = [0u8; 16];
+    getrandom::fill(&mut bytes)?;
+    bytes[6] = (bytes[6] & 15) | 64;
+    bytes[8] = (bytes[8] & 63) | 128;
+    let h = hex(&bytes);
+    Ok(format!(
+        "{}-{}-{}-{}-{}",
+        &h[..8],
+        &h[8..12],
+        &h[12..16],
+        &h[16..20],
+        &h[20..]
+    ))
+}
+
 pub(crate) fn writer_chain(
     key: &Keyring,
     head: &statement::Head,
@@ -350,7 +396,7 @@ pub fn commit(
     if c.space != p.space_id
         || c.page != p.page_id
         || c.epoch != p.epoch
-        || c.namespace != "content"
+        || !matches!(c.namespace.as_str(), "content" | "own")
         || c.kind != "update"
         || c.membership_revision != p.membership_head.revision
     {
@@ -400,13 +446,17 @@ pub fn commit(
             chain: chain_bytes.clone(),
             revoked: false,
         })?;
-        accepted = tx.append_content(&Envelope {
+        accepted = tx.append_update(&Envelope {
             scope: StreamScope {
                 page: &p.page_id,
                 epoch,
                 stream: &c.author_device,
             },
-            namespace: Namespace::Content,
+            namespace: match c.namespace.as_str() {
+                "content" => Namespace::Content,
+                "own" => Namespace::Own,
+                _ => return Err(Fault::Invalid.into()),
+            },
             seq,
             hash,
             previous: c.prev_hash,
@@ -432,4 +482,26 @@ pub fn commit(
         receipt: serde_json::from_slice(&outcome)?,
         accepted,
     })
+}
+
+/// Caller closes its read snapshot before this lock-or-serve commit. An uncertain
+/// serving result never falls back to an offline writer or retries publication.
+pub fn publish(layout: &Layout, key: &Keyring, prepared: &Prepared, now: u64) -> Result<Receipt> {
+    match layout.serve_lock() {
+        Ok(_lock) => {
+            let mut store = Store::write_existing(layout)?;
+            let committed = commit(&mut store, key, prepared, now);
+            let closed = store.close();
+            let receipt = committed?.receipt;
+            closed?;
+            Ok(receipt)
+        }
+        Err(error)
+            if error.downcast_ref::<crate::keyring::StateFault>()
+                == Some(&crate::keyring::StateFault::AlreadyServing) =>
+        {
+            ipc::write(layout, prepared)
+        }
+        Err(error) => Err(error),
+    }
 }

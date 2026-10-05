@@ -97,8 +97,9 @@ export function validateOwn(value: unknown): asserts value is OwnState {
           record &&
           typeof record === 'object' &&
           !Array.isArray(record) &&
-          ((record as Record<string, unknown>).kind === 'thread' ||
-            (record as Record<string, unknown>).kind === 'comment')
+          ['thread', 'comment', 'thread-status', 'thread-notification'].includes(
+            String((record as Record<string, unknown>).kind),
+          )
         )
           validateDiscussionRecord(root, key, record);
       }

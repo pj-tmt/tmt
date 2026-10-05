@@ -170,7 +170,7 @@ impl Engine {
                         update,
                     )?;
                     let hash = envelope.hash()?;
-                    tx.append_content(&Envelope {
+                    tx.append_update(&Envelope {
                         scope: StreamScope {
                             page,
                             epoch: 1,

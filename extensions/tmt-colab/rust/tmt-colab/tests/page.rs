@@ -638,3 +638,438 @@ fn browser_author_append_invalidates_read_and_prepared_cli_bases() {
     assert_eq!(f.bytes(), before);
     assert_eq!(f.read().membership_head.revision, "2");
 }
+
+const THREAD: &str = "40000000-0000-4000-8000-000000000001";
+fn seed_member_thread(f: &mut Fixture) {
+    let record = json!({"version":1,"kind":"thread","spaceId":f.key.space_id,
+        "pageId":PAGE,"epoch":"1","senderDevice":DEVICE,"revision":"1",
+        "deleted":false,"deviceName":"Page author","at":NOW.to_string(),
+        "threadId":THREAD,"anchor":{"exact":"old","prefix":"","suffix":""},"resolved":false});
+    let doc = Doc::new();
+    for root in ["threads", "messages", "intents", "replies"] {
+        doc.get_or_insert_map(root);
+    }
+    doc.get_or_insert_map("threads").insert(
+        &mut doc.transact_mut(),
+        format!("{THREAD}:1"),
+        yrs::Any::from_json(&record.to_string()).unwrap(),
+    );
+    // A non-owner member's historical key permits its ordinary records, but not
+    // a status action, even when it targets its own thread and claims an agent.
+    let unauthorized = json!({"version":1,"kind":"thread-status","spaceId":f.key.space_id,
+        "pageId":PAGE,"epoch":"1","senderDevice":DEVICE,"revision":"1","deleted":false,
+        "deviceName":"Page author","at":NOW.to_string(),"actionId":"50000000-0000-4000-8000-000000000001",
+        "thread":{"writer":DEVICE,"id":THREAD},"previous":null,"resolved":true,
+        "actor":"agent","agentName":"Untrusted label","recipients":[]});
+    doc.get_or_insert_map("messages").insert(
+        &mut doc.transact_mut(),
+        "50000000-0000-4000-8000-000000000001:thread-status",
+        yrs::Any::from_json(&unauthorized.to_string()).unwrap(),
+    );
+    let update = doc
+        .transact()
+        .encode_state_as_update_v1(&StateVector::default());
+    let previous = object::Envelope::from_json(
+        &f.store
+            .payload(
+                StreamScope {
+                    page: PAGE,
+                    epoch: 1,
+                    stream: DEVICE,
+                },
+                1,
+            )
+            .unwrap()
+            .unwrap(),
+    )
+    .unwrap()
+    .hash()
+    .unwrap();
+    let envelope = object::seal(
+        &object::Context {
+            space: f.key.space_id.clone(),
+            page: PAGE.into(),
+            epoch: "1".into(),
+            kind: "update".into(),
+            namespace: "own".into(),
+            author_device: DEVICE.into(),
+            membership_revision: "2".into(),
+            stream_seq: "2".into(),
+            prev_hash: previous,
+        },
+        &[11; 32],
+        &SigningKey::from_bytes(&[9; 32]),
+        &update,
+    )
+    .unwrap();
+    f.store
+        .append(&Envelope {
+            scope: StreamScope {
+                page: PAGE,
+                epoch: 1,
+                stream: DEVICE,
+            },
+            namespace: Namespace::Own,
+            seq: 2,
+            hash: envelope.hash().unwrap(),
+            previous,
+            bytes: &envelope.to_json().unwrap(),
+        })
+        .unwrap();
+}
+
+#[test]
+fn agent_status_is_own_stream_causal_fenced_and_shared_with_native_reads() {
+    use tmt_colab::discussion::{self, StatusEdit};
+    let mut f = Fixture::new();
+    seed_member_thread(&mut f);
+    let initial = discussion::read(&f.store, &f.key, PAGE, &mut f.decoder()).unwrap();
+    assert!(!initial.conversations.threads[0].resolved);
+    let (prepared, action) = discussion::prepare_status(
+        &f.store,
+        &f.key,
+        PAGE,
+        StatusEdit {
+            thread: THREAD,
+            resolved: true,
+            agent_name: Some("Review agent"),
+        },
+        &mut f.decoder(),
+        NOW,
+    )
+    .unwrap()
+    .unwrap();
+    assert!(action.recipients.is_empty());
+    assert_eq!(action.actor, "agent");
+    assert!(
+        !discussion::read(&f.store, &f.key, PAGE, &mut f.decoder())
+            .unwrap()
+            .conversations
+            .threads[0]
+            .resolved
+    );
+    let receipt = page::commit(&mut f.store, &f.key, &prepared, NOW).unwrap();
+    assert_eq!(receipt.accepted, Accepted::New);
+    assert_eq!(receipt.receipt.seq, "1");
+    assert_eq!(f.read().source, "old 🐈\r\n");
+    let view = discussion::read(&f.store, &f.key, PAGE, &mut f.decoder()).unwrap();
+    let thread = &view.conversations.threads[0];
+    assert_eq!(thread.writer, DEVICE);
+    assert_eq!(thread.revision, "1");
+    assert!(thread.resolved);
+    let status = thread.status.as_ref().unwrap();
+    assert_eq!(status.action.agent_name.as_deref(), Some("Review agent"));
+    assert_eq!(status.reference.id, action.action_id);
+    assert!(
+        view.conversations.asks.is_empty(),
+        "CLI Resolve never dispatches or creates an Ask"
+    );
+    assert!(
+        discussion::prepare_status(
+            &f.store,
+            &f.key,
+            PAGE,
+            StatusEdit {
+                thread: THREAD,
+                resolved: true,
+                agent_name: Some("Other label")
+            },
+            &mut f.decoder(),
+            NOW
+        )
+        .unwrap()
+        .is_none()
+    );
+    // The native writer's content and own updates share a sequence/hash chain.
+    assert_eq!(f.write("new source").seq, "2");
+    let (reopen, action) = discussion::prepare_status(
+        &f.store,
+        &f.key,
+        PAGE,
+        StatusEdit {
+            thread: THREAD,
+            resolved: false,
+            agent_name: None,
+        },
+        &mut f.decoder(),
+        NOW,
+    )
+    .unwrap()
+    .unwrap();
+    assert_eq!(action.previous.as_ref().unwrap(), &status.reference);
+    assert_eq!(
+        page::commit(&mut f.store, &f.key, &reopen, NOW)
+            .unwrap()
+            .receipt
+            .seq,
+        "3"
+    );
+    assert!(
+        !discussion::read(&f.store, &f.key, PAGE, &mut f.decoder())
+            .unwrap()
+            .conversations
+            .threads[0]
+            .resolved
+    );
+    let (stale, _) = discussion::prepare_status(
+        &f.store,
+        &f.key,
+        PAGE,
+        StatusEdit {
+            thread: THREAD,
+            resolved: true,
+            agent_name: None,
+        },
+        &mut f.decoder(),
+        NOW,
+    )
+    .unwrap()
+    .unwrap();
+    f.write("concurrent source");
+    assert_eq!(
+        page::commit(&mut f.store, &f.key, &stale, NOW)
+            .err()
+            .unwrap()
+            .downcast_ref::<Fault>(),
+        Some(&Fault::StaleBase)
+    );
+    assert!(
+        !discussion::read(&f.store, &f.key, PAGE, &mut f.decoder())
+            .unwrap()
+            .conversations
+            .threads[0]
+            .resolved
+    );
+    assert_eq!(f.read().source, "concurrent source");
+    let output = f
+        .command()
+        .args(["threads", PAGE, "--json"])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let queried: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(queried["threads"][0]["writer"], DEVICE);
+    assert_eq!(queried["threads"][0]["resolved"], false);
+    assert!(queried["path"].as_str().unwrap().contains(PAGE));
+    let output = f
+        .command()
+        .args(["threads", "resolve", PAGE, THREAD, "--json"])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let changed: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(changed["changed"], true);
+    assert_eq!(changed["action"]["actor"], "agent");
+    assert!(
+        changed["action"]["agentName"].is_null(),
+        "Unbound public identity probe fails closed"
+    );
+    assert_eq!(changed["action"]["recipients"], json!([]));
+    let output = f
+        .command()
+        .args(["threads", "resolve", PAGE, THREAD, "--json"])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let unchanged: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(unchanged["changed"], false);
+    assert!(unchanged["action"].is_null());
+    let output = f.command().args(["threads", PAGE]).output().unwrap();
+    assert!(output.status.success());
+    let text = String::from_utf8(output.stdout).unwrap();
+    assert!(text.contains("resolved") && text.contains("Local CLI") && text.contains("old"));
+}
+
+#[test]
+fn bridge_own_records_remain_visible_but_cannot_resolve_a_thread() {
+    use tmt_colab::discussion;
+    const BRIDGE: &str = "60000000-0000-4000-8000-000000000001";
+    const MESSAGE: &str = "70000000-0000-4000-8000-000000000001";
+    const ACTION: &str = "50000000-0000-4000-8000-000000000002";
+    let mut f = Fixture::new();
+    seed_member_thread(&mut f);
+    let signing = SigningKey::from_bytes(&[13; 32]);
+    let encryption = wrap::RecipientKey::from_seed(&[14; 32])
+        .unwrap()
+        .public_key();
+    f.store.owner_transaction(&f.key.space_id, &f.key.owner_public(),
+        Mutation { operation_id: BRIDGE, digest: [13; 32], expected_revision: 2 }, |tx| {
+            let statement = f.key.sign_statement(tx.head(), "bridge.add", &serde_json::to_vec(&json!({
+                "machineId":BRIDGE,"machineSignKey":values::encode_binary(signing.verifying_key().as_bytes()),
+                "encKey":values::encode_binary(&encryption),"pages":[PAGE]
+            }))?)?;
+            tx.append_statement(&statement)?;
+            tx.put_recipient(&Recipient {kind:"bridge".into(),id:BRIDGE.into(),role:None,
+                signing_key:signing.verifying_key().to_bytes(),encryption_key:encryption,pages:vec![PAGE.into()],revoked:false})?;
+            Ok(Vec::new())
+        }).unwrap();
+    let doc = Doc::new();
+    for root in ["threads", "messages", "intents", "replies"] {
+        doc.get_or_insert_map(root);
+    }
+    let scope = json!({"version":1,"spaceId":f.key.space_id,"pageId":PAGE,"epoch":"1",
+        "senderDevice":BRIDGE,"revision":"1","deleted":false,"deviceName":"Reply bridge","at":NOW.to_string()});
+    let mut comment = scope.clone();
+    comment["kind"] = json!("comment");
+    comment["messageId"] = json!(MESSAGE);
+    comment["thread"] = json!({"writer":DEVICE,"id":THREAD});
+    comment["body"] = json!("An ordinary bridge comment");
+    let mut status = scope;
+    status["kind"] = json!("thread-status");
+    status["actionId"] = json!(ACTION);
+    status["thread"] = json!({"writer":DEVICE,"id":THREAD});
+    status["previous"] = Value::Null;
+    status["resolved"] = json!(true);
+    status["actor"] = json!("agent");
+    status["agentName"] = json!("Bridge label");
+    status["recipients"] = json!([]);
+    for (key, value) in [
+        (format!("{MESSAGE}:1"), comment),
+        (format!("{ACTION}:thread-status"), status),
+    ] {
+        doc.get_or_insert_map("messages").insert(
+            &mut doc.transact_mut(),
+            key,
+            yrs::Any::from_json(&value.to_string()).unwrap(),
+        );
+    }
+    let update = doc
+        .transact()
+        .encode_state_as_update_v1(&StateVector::default());
+    let context = object::Context {
+        space: f.key.space_id.clone(),
+        page: PAGE.into(),
+        epoch: "1".into(),
+        kind: "update".into(),
+        namespace: "own".into(),
+        author_device: BRIDGE.into(),
+        membership_revision: "3".into(),
+        stream_seq: "1".into(),
+        prev_hash: [0; 32],
+    };
+    let envelope = object::seal(&context, &[11; 32], &signing, &update).unwrap();
+    f.store
+        .append(&Envelope {
+            scope: StreamScope {
+                page: PAGE,
+                epoch: 1,
+                stream: BRIDGE,
+            },
+            namespace: Namespace::Own,
+            seq: 1,
+            hash: envelope.hash().unwrap(),
+            previous: [0; 32],
+            bytes: &envelope.to_json().unwrap(),
+        })
+        .unwrap();
+    let view = discussion::read(&f.store, &f.key, PAGE, &mut f.decoder()).unwrap();
+    let thread = &view.conversations.threads[0];
+    assert!(!thread.resolved);
+    assert!(thread.status.is_none());
+    assert_eq!(thread.comments.len(), 1);
+    assert_eq!(thread.comments[0].body, "An ordinary bridge comment");
+    assert_eq!(thread.comments[0].writer, BRIDGE);
+}
+
+#[test]
+fn historical_owner_status_survives_revoke_only_inside_the_signed_cut() {
+    use tmt_colab::discussion::{self, StatusEdit};
+    use tmt_colab_model::stream_cut;
+    for includes_action in [true, false] {
+        let mut f = Fixture::new();
+        seed_member_thread(&mut f);
+        let (prepared, action) = discussion::prepare_status(
+            &f.store,
+            &f.key,
+            PAGE,
+            StatusEdit {
+                thread: THREAD,
+                resolved: true,
+                agent_name: Some("Owner agent"),
+            },
+            &mut f.decoder(),
+            NOW,
+        )
+        .unwrap()
+        .unwrap();
+        let receipt = page::commit(&mut f.store, &f.key, &prepared, NOW)
+            .unwrap()
+            .receipt;
+        let tail = if includes_action { 1 } else { 0 };
+        let hash = if includes_action {
+            values::binary(&receipt.envelope_hash, 32)
+                .unwrap()
+                .try_into()
+                .unwrap()
+        } else {
+            [0; 32]
+        };
+        let cut = values::encode_binary(
+            &stream_cut::input(&stream_cut::StreamCut {
+                stream_id: &receipt.stream_id,
+                namespace: "own",
+                checkpoint_hash: None,
+                checkpoint_seq: "0",
+                tail_head_seq: &tail.to_string(),
+                tail_head_hash: &hash,
+            })
+            .unwrap(),
+        );
+        f.store.owner_transaction(&f.key.space_id,&f.key.owner_public(),
+            Mutation {operation_id:"80000000-0000-4000-8000-000000000001",digest:[15;32],expected_revision:2},|tx| {
+                let statement = f.key.sign_statement(tx.head(),"device.revoke",&serde_json::to_vec(&json!({
+                    "deviceId":receipt.stream_id,"cuts":[{"pageId":PAGE,"epoch":"1","namespace":"own","cut":cut}]
+                }))?)?;
+                tx.append_statement(&statement)?;
+                let mut device = tx.device(&receipt.stream_id)?.unwrap();
+                device.revoked = true; tx.put_device(&device)?;
+                Ok(Vec::new())
+            }).unwrap();
+        let read = discussion::read(&f.store, &f.key, PAGE, &mut f.decoder());
+        if includes_action {
+            let view = read.unwrap();
+            assert!(view.conversations.threads[0].resolved);
+            assert_eq!(
+                view.conversations.threads[0]
+                    .status
+                    .as_ref()
+                    .unwrap()
+                    .reference
+                    .id,
+                action.action_id
+            );
+            let denied = discussion::prepare_status(
+                &f.store,
+                &f.key,
+                PAGE,
+                StatusEdit {
+                    thread: THREAD,
+                    resolved: false,
+                    agent_name: None,
+                },
+                &mut f.decoder(),
+                NOW,
+            )
+            .err()
+            .unwrap();
+            assert_eq!(denied.downcast_ref::<Fault>(), Some(&Fault::Denied));
+        } else {
+            assert!(
+                read.is_err(),
+                "a signed history outside the revoke cut is not admitted"
+            );
+        }
+    }
+}

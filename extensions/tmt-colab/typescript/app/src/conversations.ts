@@ -2,6 +2,7 @@ import { requireValue } from '@tmt/colab-client';
 import { readAskRecords } from './ask-records.js';
 import type { OwnState } from './fold-protocol.js';
 import { readThreads } from './thread-records.js';
+import type { ThreadStatusView } from './thread-status.js';
 
 /** The authorized discussion view of one captured page snapshot: verified threads,
  * comments and Ask conversations, as plain data. Native `export/conversations.rs`
@@ -27,6 +28,7 @@ export interface ConversationThread {
   deviceName: string;
   at: string;
   comments: ConversationComment[];
+  status?: ThreadStatusView;
 }
 export interface ConversationAsk {
   writer: string;
@@ -71,6 +73,36 @@ export interface ConversationsInput {
 const byOrder = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
 const ref = (writer: string, id: string) => `${writer}:${id}`;
 
+// Native status::Action serializes this declared order; never inherit map insertion order.
+function captureStatus(status: ThreadStatusView): ThreadStatusView {
+  return {
+    version: status.version,
+    kind: status.kind,
+    spaceId: status.spaceId,
+    pageId: status.pageId,
+    epoch: status.epoch,
+    senderDevice: status.senderDevice,
+    revision: status.revision,
+    deleted: status.deleted,
+    deviceName: status.deviceName,
+    at: status.at,
+    actionId: status.actionId,
+    thread: { writer: status.thread.writer, id: status.thread.id },
+    previous: status.previous ? { writer: status.previous.writer, id: status.previous.id } : null,
+    resolved: status.resolved,
+    actor: status.actor,
+    agentName: status.agentName,
+    recipients: status.recipients.map((recipient) => ({
+      machine: recipient.machine,
+      agent: recipient.agent,
+      agentName: recipient.agentName,
+      operationId: recipient.operationId,
+    })),
+    ref: { writer: status.ref.writer, id: status.ref.id },
+    depth: status.depth,
+  };
+}
+
 /** Reads only the admitted per-writer projections; a claimed writer in a body never
  * selects another stream. Everything is copied before it is returned. */
 export async function projectConversations(input: ConversationsInput): Promise<Conversations> {
@@ -96,6 +128,7 @@ export async function projectConversations(input: ConversationsInput): Promise<C
           at: comment.at,
         }))
         .sort((a, b) => byOrder(ref(a.writer, a.id), ref(b.writer, b.id))),
+      ...(thread.status ? { status: captureStatus(thread.status) } : {}),
     }))
     .sort((a, b) => byOrder(ref(a.writer, a.id), ref(b.writer, b.id)));
   const asks = (await readAskRecords(input.own, { space: spaceId, page: pageId }, input.signingKey))

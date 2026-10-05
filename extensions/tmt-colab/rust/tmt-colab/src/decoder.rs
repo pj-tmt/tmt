@@ -59,6 +59,38 @@ pub struct ContentEdit<'a> {
     pub source: &'a str,
     pub publisher_agent: Option<&'a str>,
 }
+/// A bounded plain-data batch for one authenticated writer's own document.
+/// The caller establishes writer/page/epoch scope; only the child touches Yjs.
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct OwnRecord {
+    pub root: String,
+    pub key: String,
+    pub value: Value,
+}
+#[derive(Clone, Copy)]
+enum Edit<'a> {
+    Content(ContentEdit<'a>),
+    Own(&'a [OwnRecord]),
+}
+fn validate_own_records(records: &[OwnRecord]) -> Result<(), DecodeFault> {
+    let mut keys = std::collections::BTreeSet::new();
+    if records.is_empty() || records.len() > crate::limits::OWN_RECORDS {
+        return Err(DecodeFault::InvalidInput);
+    }
+    for record in records {
+        if !matches!(
+            record.root.as_str(),
+            "threads" | "messages" | "intents" | "replies"
+        ) || !keys.insert((&record.root, &record.key))
+            || crate::threads::validate_record(&record.root, &record.key, &record.value).is_err()
+            || crate::ask::validate_record(&record.root, &record.key, &record.value).is_err()
+        {
+            return Err(DecodeFault::InvalidInput);
+        }
+    }
+    Ok(())
+}
 /// A publisher-asserted display label, never an identity or authorization claim.
 pub fn valid_publisher_agent(value: &str) -> bool {
     !value.is_empty()
@@ -195,7 +227,7 @@ impl Decoder {
         &mut self,
         batch: UpdateBatch<'_>,
         role: Role,
-        edit: Option<ContentEdit<'_>>,
+        edit: Option<Edit<'_>>,
         stop: Option<&AtomicBool>,
         deadline: Instant,
     ) -> Result<Decoded, DecodeFault> {
@@ -219,10 +251,18 @@ impl Decoder {
         let wire = WireBatch {
             version: 1,
             namespace: batch.namespace,
-            source: edit.as_ref().map(|v| v.source.to_owned()),
-            publisher_agent: edit
-                .as_ref()
-                .and_then(|v| v.publisher_agent.map(str::to_owned)),
+            source: match edit {
+                Some(Edit::Content(v)) => Some(v.source.to_owned()),
+                _ => None,
+            },
+            publisher_agent: match edit {
+                Some(Edit::Content(v)) => v.publisher_agent.map(str::to_owned),
+                _ => None,
+            },
+            records: match edit {
+                Some(Edit::Own(v)) => Some(v.to_vec()),
+                _ => None,
+            },
             baseline: URL_SAFE_NO_PAD.encode(batch.baseline),
             updates: batch
                 .updates
@@ -250,10 +290,21 @@ impl Decoder {
             return Err(DecodeFault::InvalidOutput);
         }
         validate_projection(batch.namespace, &reply.projection)?;
-        if edit.is_some_and(|value| {
-            reply.projection["html"].as_str() != Some(value.source)
-                || reply.projection["meta"]["publisherAgent"].as_str() != value.publisher_agent
-        }) {
+        let wrong_edit = match edit {
+            Some(Edit::Content(value)) => {
+                reply.projection["html"].as_str() != Some(value.source)
+                    || reply.projection["meta"]["publisherAgent"].as_str() != value.publisher_agent
+            }
+            Some(Edit::Own(records)) => records.iter().any(|record| {
+                reply
+                    .projection
+                    .get(&record.root)
+                    .and_then(|root| root.get(&record.key))
+                    != Some(&record.value)
+            }),
+            None => false,
+        };
+        if wrong_edit {
             return Err(DecodeFault::InvalidOutput);
         }
         // A prepared edit returns one update; a read returns the merged tail.
@@ -287,7 +338,26 @@ impl Decoder {
         self.decode_request(
             batch,
             Role::Editor,
-            Some(edit),
+            Some(Edit::Content(edit)),
+            stop,
+            Instant::now() + self.config.deadline,
+        )
+    }
+    /// Prepares one immutable own update without committing it to any stream.
+    pub fn prepare_own(
+        &mut self,
+        batch: UpdateBatch<'_>,
+        records: &[OwnRecord],
+        stop: Option<&AtomicBool>,
+    ) -> Result<Decoded, DecodeFault> {
+        if batch.namespace != Namespace::Own {
+            return Err(DecodeFault::InvalidInput);
+        }
+        validate_own_records(records)?;
+        self.decode_request(
+            batch,
+            Role::Commenter,
+            Some(Edit::Own(records)),
             stop,
             Instant::now() + self.config.deadline,
         )
@@ -460,6 +530,8 @@ struct WireBatch {
     source: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     publisher_agent: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    records: Option<Vec<OwnRecord>>,
     namespace: Namespace,
     baseline: String,
     updates: Vec<String>,

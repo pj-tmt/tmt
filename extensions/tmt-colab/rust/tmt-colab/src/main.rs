@@ -1,5 +1,6 @@
 mod cli_grammar;
 mod cli_management;
+mod cli_threads;
 mod door;
 mod open;
 mod reach;
@@ -218,6 +219,7 @@ fn grammar() -> Command {
                     ),
             )
             .subcommand(tmt_cli_style::command(&SPACES))
+            .subcommand(cli_threads::command())
             .subcommand(
                 tmt_cli_style::command(&PAGE)
                     .subcommand_required(true)
@@ -292,6 +294,9 @@ fn run(matches: &clap::ArgMatches) -> Result<()> {
         let root = core::data_root(&stop)?;
         if command == "page" {
             return page(&root, args);
+        }
+        if command == "threads" {
+            return cli_threads::run(&root, args);
         }
         let json_output = args.get_flag("json");
         if command == "spaces" {
@@ -580,23 +585,7 @@ fn page(root: &std::path::Path, args: &clap::ArgMatches) -> Result<()> {
         store.close()?;
         // A held serve lock selects the existing root-local IPC path. An uncertain
         // IPC result never falls back to a second offline writer or resends.
-        let receipt = match layout.serve_lock() {
-            Ok(_lock) => {
-                let mut store = Store::write_existing(&layout)?;
-                let committed = page::commit(&mut store, &key, &prepared, now);
-                let closed = store.close();
-                let receipt = committed?.receipt;
-                closed?;
-                receipt
-            }
-            Err(error)
-                if error.downcast_ref::<tmt_colab::keyring::StateFault>()
-                    == Some(&tmt_colab::keyring::StateFault::AlreadyServing) =>
-            {
-                page::ipc::write(&layout, &prepared)?
-            }
-            Err(error) => return Err(error),
-        };
+        let receipt = page::publish(&layout, &key, &prepared, now)?;
         if json_output {
             writeln!(output, "{}", serde_json::to_string(&receipt)?)?;
         } else {

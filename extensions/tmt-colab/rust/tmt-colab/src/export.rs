@@ -162,6 +162,7 @@ impl Bundle {
             },
             &view.own,
             &view.signing_keys,
+            &view.status_writers,
         );
         let json = conversations.json();
         let markdown = conversations.markdown().into_bytes();

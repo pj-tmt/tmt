@@ -4,6 +4,7 @@ use crate::limits::{COMMENT_BODY_BYTES, COMMENT_CONTEXT_BYTES, COMMENT_CONTEXT_P
 use serde::Deserialize;
 use serde_json::Value;
 use tmt_colab_model::{Invalid, Result, values};
+pub mod status;
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -90,6 +91,7 @@ fn require(valid: bool) -> Result<()> {
 }
 pub(crate) fn validate_record(root: &str, key: &str, value: &Value) -> Result<()> {
     match value.get("kind").and_then(Value::as_str) {
+        Some("thread-status" | "thread-notification") => status::validate(root, key, value)?,
         Some("thread") => {
             require(
                 value

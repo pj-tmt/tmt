@@ -8,7 +8,7 @@
 use crate::ask::SignedAsk;
 use serde::Serialize;
 use serde_json::Value;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 pub const FORMAT: &str = "tmt-colab-conversations";
 
@@ -47,6 +47,8 @@ pub struct Thread {
     pub device_name: String,
     pub at: String,
     pub comments: Vec<Comment>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub status: Option<crate::threads::status::Status>,
 }
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -134,13 +136,15 @@ fn latest(mut records: Vec<&Value>) -> Option<&Value> {
     Some(previous)
 }
 
-fn threads(
+pub(crate) fn threads(
     scope: &Capture,
     own: &BTreeMap<String, Value>,
     keys: &BTreeMap<String, [u8; 32]>,
+    status_writers: &BTreeSet<String>,
 ) -> Vec<Thread> {
     let mut threads: BTreeMap<String, Thread> = BTreeMap::new();
     let mut comments = Vec::new();
+    let mut actions = Vec::new();
     for (writer, roots) in own {
         if !keys.contains_key(writer) {
             continue;
@@ -150,9 +154,28 @@ fn threads(
             let Some(entries) = roots.get(root).and_then(Value::as_object) else {
                 continue;
             };
-            for value in entries.values() {
+            for (key, value) in entries {
                 let kind = text(value, "kind");
-                if !matches!(kind, Some("thread" | "comment")) {
+                if !matches!(kind, Some("thread" | "comment" | "thread-status")) {
+                    continue;
+                }
+                if crate::threads::validate_record(root, key, value).is_err()
+                    || text(value, "senderDevice") != Some(writer)
+                    || text(value, "spaceId") != Some(scope.space_id)
+                    || text(value, "pageId") != Some(scope.page_id)
+                    || text(value, "epoch") != Some(scope.epoch)
+                {
+                    continue;
+                }
+                if kind == Some("thread-status") {
+                    if !status_writers.contains(writer) {
+                        continue;
+                    }
+                    if let Ok(action) =
+                        serde_json::from_value::<crate::threads::status::Action>(value.clone())
+                    {
+                        actions.push(action);
+                    }
                     continue;
                 }
                 let id = text(
@@ -166,13 +189,6 @@ fn threads(
                 let (Some(kind), Some(id)) = (kind, id) else {
                     continue;
                 };
-                if text(value, "senderDevice") != Some(writer)
-                    || text(value, "spaceId") != Some(scope.space_id)
-                    || text(value, "pageId") != Some(scope.page_id)
-                    || text(value, "epoch") != Some(scope.epoch)
-                {
-                    continue;
-                }
                 groups
                     .entry(format!("{kind}:{id}"))
                     .or_default()
@@ -213,6 +229,7 @@ fn threads(
                         device_name,
                         at,
                         comments: Vec::new(),
+                        status: None,
                     },
                 );
             } else {
@@ -244,6 +261,18 @@ fn threads(
     let mut out: Vec<Thread> = threads.into_values().collect();
     out.sort_by(|a, b| (&a.writer, &a.id).cmp(&(&b.writer, &b.id)));
     for thread in &mut out {
+        thread.status = crate::threads::status::fold(
+            &crate::threads::status::Reference {
+                writer: thread.writer.clone(),
+                id: thread.id.clone(),
+            },
+            thread.deleted,
+            thread.id == thread.writer && thread.anchor.is_none(),
+            &actions,
+        );
+        if let Some(status) = &thread.status {
+            thread.resolved = status.action.resolved;
+        }
         thread
             .comments
             .sort_by(|a, b| (&a.writer, &a.id).cmp(&(&b.writer, &b.id)));
@@ -380,11 +409,12 @@ impl Conversations {
         scope: Capture,
         own: &BTreeMap<String, Value>,
         keys: &BTreeMap<String, [u8; 32]>,
+        status_writers: &BTreeSet<String>,
     ) -> Self {
         Self {
             format: FORMAT,
             version: 1,
-            threads: threads(&scope, own, keys),
+            threads: threads(&scope, own, keys, status_writers),
             asks: asks(&scope, own, keys),
             space_id: scope.space_id.to_owned(),
             page_id: scope.page_id.to_owned(),
