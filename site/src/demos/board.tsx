@@ -220,7 +220,7 @@ export function SplitBoardSketch() {
   return (
     <div
       role="img"
-      aria-label="Sketch of a split board: rows on the left with auth-fix selected, showing what the member waits on you for and an annotation sent to sol; the lead's notes on the right; and an annotation being typed."
+      aria-label="Sketch of a split board: rows on the left with auth-fix selected, showing what the member waits on you for and an annotation sent to sol; an opaque note composer directly below the complete selected row and before docs-sweep and perf-cache, spanning the split panes; and the lead's notes on the right."
       className={sketch}
     >
       <div className="grid grid-cols-1 sm:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
@@ -242,7 +242,22 @@ export function SplitBoardSketch() {
           <span className="text-t-dim">pending</span>
           {" needs login-vs-sweep call\n      "}
           <span className="text-t-waiting">✎ sent to sol</span>
-          {" keep old tokens…\n    docs-sweep  "}
+          {" keep old tokens…"}
+        </pre>
+        <pre className={`${pre} hidden sm:block`}>
+          <span className="text-t-dim">notes · sol</span>
+          {"\n\n"}
+          <span className="font-bold text-t-accent">## Now</span>
+          {"\n- tokens: waiting on Ben's\n  call (login vs sweep)"}
+        </pre>
+        <div className="term-scroll border-y border-term-edge bg-term-bar px-3.5 py-2 font-mono text-[12.5px] leading-normal whitespace-pre sm:col-span-2">
+          <b className="font-semibold text-t-accent">→ sol (product) · note · about auth-fix</b>
+          {"\nkeep old tokens valid for a day"}
+          <span className="inline-block w-[0.6em] bg-t-text"> </span>
+          {"\nEnter send · Esc cancel · Tab note/talk"}
+        </div>
+        <pre className={`${pre} border-b border-term-edge sm:border-r sm:border-b-0`}>
+          {"    docs-sweep  "}
           <span className="text-t-working">working</span>
           {"  #409\n    perf-cache  "}
           <span className="text-t-working">working</span>
@@ -250,21 +265,16 @@ export function SplitBoardSketch() {
           <span className="text-t-dim">–</span>
         </pre>
         <pre className={pre}>
-          <span className="text-t-dim">notes · sol</span>
-          {"\n\n"}
-          <span className="font-bold text-t-accent">## Now</span>
-          {
-            "\n- tokens: waiting on Ben's\n  call (login vs sweep)\n- install guide: one page,\n  platform tabs\n\n"
-          }
+          <span className="sm:hidden">
+            <span className="text-t-dim">notes · sol</span>
+            {"\n\n"}
+            <span className="font-bold text-t-accent">## Now</span>
+            {"\n- tokens: waiting on Ben's\n  call (login vs sweep)\n"}
+          </span>
+          {"- install guide: one page,\n  platform tabs\n\n"}
           <span className="font-bold text-t-accent">## Decided</span>
           {"\n- no new job runner this\n  quarter"}
         </pre>
-      </div>
-      <div className="term-scroll border-t border-term-edge bg-term-bar px-3.5 py-2 font-mono text-[12.5px] leading-normal whitespace-pre">
-        <b className="font-semibold text-t-accent">→ sol (product) · note · about auth-fix</b>
-        {"  keep old tokens valid for a day"}
-        <span className="inline-block w-[0.6em] bg-t-text"> </span>
-        {"\nEnter send · Esc cancel · Tab note/talk"}
       </div>
     </div>
   );
