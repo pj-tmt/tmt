@@ -96,6 +96,10 @@ pub(super) enum BoardEvent {
         cancellation: crate::runner::Cancellation,
         snapshot: Box<Snapshot>,
     },
+    History {
+        cancellation: crate::runner::Cancellation,
+        read: refresh::HistoryRead,
+    },
     Usage {
         cancellation: crate::runner::Cancellation,
         room: String,
@@ -348,6 +352,12 @@ fn session(
                 {
                     app.apply_home_leads(read);
                     dirty = true;
+                }
+                Effect::None
+            }
+            Ok(BoardEvent::History { cancellation, read }) => {
+                if !cancellation.cancelled() {
+                    dirty |= app.apply_history(read, Instant::now());
                 }
                 Effect::None
             }
@@ -656,7 +666,8 @@ pub fn run(
     let config = Config::load(&core)?;
     let (picks, squad) = selection(&core, &config, picks.as_deref(), squad.as_deref())?;
     composition::admit().map_err(|message| SquadError::new("SQUAD_LAYOUT_INVALID", message))?;
-    let requested = config.theme(squad.as_deref().unwrap_or(""))?.0.base;
+    let initial_theme = config.theme(squad.as_deref().unwrap_or(""))?.0;
+    let requested = initial_theme.base;
     let value = std::env::var("COLORFGBG").ok();
     let mut guard = terminal::Guard::enter(terminal::Crossterm).map_err(failed)?;
     let eligible = terminal::background::allowed(
@@ -679,6 +690,7 @@ pub fn run(
     );
     worker.request(squad.clone(), false, false);
     let mut app = App::new(squad);
+    app.initial_look = Some(crate::look::Look::new(initial_theme));
     app.picks = picks;
     app.popup = popup;
     let mut screen = Terminal::new(CrosstermBackend::new(io::stdout())).map_err(failed)?;
