@@ -71,7 +71,7 @@ selected. Completion styling must leave the title readable.
 
 ## Frame and reading hierarchy
 
-1. **Tabs:** HOME, aggregate and named/custom tabs retain the current keys and
+1. **Tabs:** HOME (`@all`), leads and named/custom tabs retain the current keys and
    ordering. A selected tab is distinct from a requested uncached tab. Pinned
    groups and the overflow switcher remain discoverable at every width.
 2. **Summary:** current scope, lead/member counts and response attention. Named
@@ -85,7 +85,7 @@ selected. Completion styling must leave the title readable.
 4. **Footer:** current effective actions, notices and overflow state. Drop whole
    low-priority hints rather than truncate keys. Help remains reachable.
 
-Headers for HOME, leads, all and named squads must state the displayed scope.
+Headers for HOME (`@all`), leads and named/custom squads must state the displayed scope.
 An authored tab's label is not proof of membership or a new request audience.
 Duplicate appearances of one agent retain occurrence identity; selection,
 expansion and composing affect only the chosen occurrence. Shared observed usage
@@ -98,18 +98,22 @@ authored layouts. Color blocks do not introduce a competing Todo-only layout or
 silently replace the user's pane tree. Pane ratios below identify existing
 arrangements, not new breakpoint policy.
 
-| Surface | Target grouping                                                          | Narrow / folded behavior                                   | Required interaction specimen                                       |
-| ------- | ------------------------------------------------------------------------ | ---------------------------------------------------------- | ------------------------------------------------------------------- |
-| HOME    | Attention, boxed leads, audience, cron and squad table in existing order | One stream; preserve section positions and usage omission  | Needs-you, no reading, measured zero, deferred leads, sent feedback |
-| leads   | Boxed lead rows with preview / expanded band                             | Same row stream and clipped hits                           | Replies off/on, expanded lead, multiple requests                    |
-| all     | Authored aggregate sections; no named-squad summary meter                | Priority tracks and retained occurrences                   | Agent repeated across sections, row-to-squad Enter                  |
-| members | Boxed lead/member list, then lead notes                                  | Existing 60/40 layout; task preview remains inside the box | Middle-row expansion and answer/note/talk composer                  |
-| team    | Rows with detail/replies beside them, notes below                        | Existing detail/replies fold below 100                     | Inline opaque band masks covered side panes; later rows shift       |
-| focus   | Rows, with detail/replies/notes title lines                              | Preserve configured collapsed panes                        | All folded, expand focused pane, end of list                        |
-| notes   | Rows beside lead notes, detail/replies folded                            | Existing tree; readable notes and focused links            | Notes scroll / links, retained row selection                        |
-| detail  | Rows above detail/replies; notes folded                                  | Replies fold below 100                                     | Long fields, missing data, reply scroll                             |
-| wide    | Three columns: rows, detail/replies, notes                               | Preserve actual 180+ arrangement and below-180 folds       | Full 180+ screenshot plus resize across threshold                   |
-| custom  | User-authored split/tab composition and row cells                        | Existing tree/fold rules; no implicit rewrite              | Duplicate agent occurrences, reordered sections and pinned tabs     |
+| Surface       | Target grouping                                                          | Narrow / folded behavior                                                  | Required interaction specimen                                       |
+| ------------- | ------------------------------------------------------------------------ | ------------------------------------------------------------------------- | ------------------------------------------------------------------- |
+| HOME (`@all`) | Attention, boxed leads, audience, cron and squad table in existing order | One stream; preserve section positions and admitted observed-total header | Needs-you, no reading, measured zero, deferred leads, sent feedback |
+| leads         | Boxed lead rows with preview / expanded band                             | Same row stream and clipped hits                                          | Replies off/on, expanded lead, multiple requests                    |
+| members       | Boxed lead/member list, then lead notes                                  | Existing 60/40 layout; task preview remains inside the box                | Middle-row expansion and answer/note/talk composer                  |
+| team          | Rows with detail/replies beside them, notes below                        | Existing detail/replies fold below 100                                    | Inline opaque band masks covered side panes; later rows shift       |
+| focus         | Rows, with detail/replies/notes title lines                              | Preserve configured collapsed panes                                       | All folded, expand focused pane, end of list                        |
+| notes         | Rows beside lead notes, detail/replies folded                            | Existing tree; readable notes and focused links                           | Notes scroll / links, retained row selection                        |
+| detail        | Rows above detail/replies; notes folded                                  | Replies fold below 100                                                    | Long fields, missing data, reply scroll                             |
+| wide          | Three columns: rows, detail/replies, notes                               | Preserve actual 180+ arrangement and below-180 folds                      | Full 180+ screenshot plus resize across threshold                   |
+| custom        | User-authored split/tab composition and row cells                        | Existing tree/fold rules; no implicit rewrite                             | Duplicate agent occurrences, reordered sections and pinned tabs     |
+
+The built-in `@all` board tab is HOME, not a second aggregate board surface.
+HOME keeps its admitted observed-total usage header and omits the named-squad
+summary. Authored aggregate sections belong to custom/user tabs. Public
+`ls --tab all` is a separate listing projection, not another board surface.
 
 ### Schematic: member row and inline composer
 
@@ -129,9 +133,12 @@ occurrence. On composing, reserve the opaque band beneath the **complete** targe
 row. Header, quoted request, draft and mode hints belong to the band. Shift later
 rows and mask covered split-pane hits; never put the composer after the whole
 notes grid. A narrow screen scrolls the band rather than hiding the recipient.
+Ordinary answer/note/talk composing retains the selected task preview. The boxed
+member painter suppresses that preview for `ReadRow`, not ordinary composing.
 
 ```text
 > ◆ auth-fix         waits on you · 14m
+  Fix login and preserve user bindings     [retained task preview]
   → auth-fix (product) · answer
   Request: Which login behavior should be retained?
   Draft: Keep the current saved bindings.
@@ -205,15 +212,15 @@ Unicode content and a middle-row composer. Compare identical viewport, tab,
 selection, request set and meter evidence. Do not generate expected behavior from
 the new painter or regenerate frozen parity without the owning approval.
 
-| Axis             | Required specimens                                                                                                                |
-| ---------------- | --------------------------------------------------------------------------------------------------------------------------------- |
-| Width / height   | 80, 100, 160, actual wide 180+; ordinary and low height; threshold resize                                                         |
-| Palette          | Dark, light, terminal 16 colors and NO_COLOR; selected/focused/disabled/error together                                            |
-| Position         | First/middle/last item, scroll/list end, wrapped row larger than viewport, all panes folded                                       |
-| Authority / data | Read-only, pending-only, several unanswered requests, stale/partial/failure, retained draft                                       |
-| Usage            | Named no-data active window; HOME warmup omission, known zero, partial totals; built-in leads/all omission                        |
-| Navigation       | Authored duplicate rows, pinned/overflow tabs, cached/uncached switch, search no matches, keyboard and clipped hits               |
-| Checklist        | Contract-admitted scopes/transitions, no items versus filtered empty, conflict/refusal and completed item with request still open |
+| Axis             | Required specimens                                                                                                                          |
+| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| Width / height   | 80, 100, 160, actual wide 180+; ordinary and low height; threshold resize                                                                   |
+| Palette          | Dark, light, terminal 16 colors and NO_COLOR; selected/focused/disabled/error together                                                      |
+| Position         | First/middle/last item, scroll/list end, wrapped row larger than viewport, all panes folded                                                 |
+| Authority / data | Read-only, pending-only, several unanswered requests, stale/partial/failure, retained draft                                                 |
+| Usage            | Named no-data active window; HOME (`@all`) warmup omission, known zero, partial observed-total header; no named-squad summary on HOME/leads |
+| Navigation       | Authored duplicate rows, pinned/overflow tabs, cached/uncached switch, search no matches, keyboard and clipped hits                         |
+| Checklist        | Contract-admitted scopes/transitions, no items versus filtered empty, conflict/refusal and completed item with request still open           |
 
 Evaluation tasks: identify the current squad; identify which item actually needs
 Ben; predict the next key's destination; locate the selected row after refresh;
