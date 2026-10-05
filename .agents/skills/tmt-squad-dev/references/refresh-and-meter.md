@@ -113,9 +113,9 @@ cost or text volume. `board::rate` owns evidence, `board::meter` presentation an
   alone is not measured zero. Without usable interval evidence, the meter retains its active
   window label and `–`, plus one dim `no usage reported yet` line; member cells
   also show `–`. Built-in all/leads tabs omit the named-squad summary meter.
-- Window selection: bindable `token-window` (`w` in both host presets, outside text
-  inputs) cycles configured windows and posts the label in the existing board
-  notice, including without data or when the summary cannot fit. Whole hours use
+- Window selection: comma settings > Token window cycles configured windows;
+  `token-window` remains bindable with no default key. Both paths post the label in
+  the existing board notice, including without data or when the summary cannot fit. Whole hours use
   `h`, so 60m displays as 1h. Selection is runtime state, never a config write.
 - Row projection: `App::project_usage` derives a board-only document from immutable
   public status using the accepted meters for model and three totals. Repeated

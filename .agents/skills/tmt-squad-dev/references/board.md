@@ -95,7 +95,10 @@ and changed clock text or spinner frames, rather than periodic full repainting.
   fixed `↑↓ move` first; `s switch` shows only while `App::tabs_overflow` (set by the tab
   painter) is true. HOME's key line (`home/bar.rs`) follows the same list. `,` settings
   rows (Theme, View, Token window) are `settings::Pick`s beside the config entries, never
-  config keys. Presets bind `t` to `home-replies` and no `r`, `T`, `l`, `w` or `talk`;
+  config keys. After a successful settings save, their config-backed values are
+  resolved again through the same Config readers as opening; the component keeps
+  selection and the token-window row keeps its live session value. Failed saves
+  publish no new quick-row values. Presets bind `t` to `home-replies` and no `r`, `T`, `l`, `w` or `talk`;
   fixtures that exercise those actions use `action::with_action_keys`.
 
 ## Composition, folds and scrolling
