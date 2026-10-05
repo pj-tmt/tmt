@@ -48,6 +48,17 @@ fn fail(code: &'static str, message: &str) -> Box<dyn std::error::Error + Send +
         source: None,
     })
 }
+/// What a command that needs `--yes` is about to do, in the words the refusal prints.
+struct Confirmation {
+    consequence: String,
+    action: &'static str,
+}
+fn confirm(consequence: String, action: &'static str) -> Option<Confirmation> {
+    Some(Confirmation {
+        consequence,
+        action,
+    })
+}
 fn input(message: &str) -> Box<dyn std::error::Error + Send + Sync> {
     fail("COLAB_INPUT_INVALID", message)
 }
@@ -249,13 +260,16 @@ fn principal<'a>(detail: &'a Value, kind: &str, id: &str) -> Result<&'a Value> {
             )
         })
 }
+const HISTORY_SCOPE: &str =
+    " The shared history includes deleted text, snapshots, comments and agent replies.";
 fn selection(
     command: &str,
     args: &ArgMatches,
     page: &Value,
     detail: &Value,
-) -> Result<Option<(&'static str, Value, bool)>> {
+) -> Result<Option<(&'static str, Value, Option<Confirmation>)>> {
     let id = &page["pageId"];
+    let page_id = id.as_str().unwrap_or_default();
     Ok(Some(match command {
         "share" => {
             let (action, selected) = args.subcommand().expect("required share action");
@@ -267,18 +281,44 @@ fn selection(
                         "link" => 1,
                         _ => 0,
                     };
-                    (
-                        "page.share",
-                        json!({"pageId":id,"mode":mode}),
-                        rank(mode) > rank(page["sharing"].as_str().unwrap_or("private")),
-                    )
+                    let widening = rank(mode) > rank(page["sharing"].as_str().unwrap_or("private"));
+                    let confirmation = if !widening {
+                        None
+                    } else if mode == "public" {
+                        let mut consequence = format!(
+                            "Making page {page_id} public lets anyone with the link read it, and copies can't be recalled later."
+                        );
+                        if page["history"] == "shared" {
+                            consequence.push_str(HISTORY_SCOPE);
+                        }
+                        confirm(consequence, "make it public")
+                    } else {
+                        let mut consequence = format!(
+                            "Sharing page {page_id} by link lets anyone with a link read it, and copies can't be recalled later."
+                        );
+                        if page["history"] == "shared" {
+                            consequence.push_str(HISTORY_SCOPE);
+                        }
+                        confirm(consequence, "share it by link")
+                    };
+                    ("page.share", json!({"pageId":id,"mode":mode}), confirmation)
                 }
                 "history" => {
                     let mode = text(selected, "mode");
+                    let confirmation = (mode == "shared" && page["history"] == "current")
+                        .then(|| {
+                            confirm(
+                                format!(
+                                    "Sharing the full history of page {page_id} lets readers see deleted text, snapshots, comments and agent replies, and copies can't be recalled later."
+                                ),
+                                "share the history",
+                            )
+                        })
+                        .flatten();
                     (
                         "page.history",
                         json!({"pageId":id,"mode":mode}),
-                        mode == "shared" && page["history"] == "current",
+                        confirmation,
                     )
                 }
                 "member" => {
@@ -296,13 +336,21 @@ fn selection(
                             {
                                 return Err(input("Encryption public key cannot be all zero."));
                             }
-                            ("member.add", payload, true)
+                            let consequence = format!(
+                                "Adding member {member} as {} gives them access to page {page_id}, and copies they make can't be recalled later.",
+                                text(selected, "role")
+                            );
+                            (
+                                "member.add",
+                                payload,
+                                confirm(consequence, "add the member"),
+                            )
                         }
                         "remove" | "role" => {
                             let old = principal(detail, "members", &member)?;
                             let mut payload = json!({"memberId":member,"pages":old["pages"]});
                             if action == "remove" {
-                                ("member.remove", payload, false)
+                                ("member.remove", payload, None)
                             } else {
                                 let role = text(selected, "role");
                                 let rank = |v: &str| match v {
@@ -313,7 +361,22 @@ fn selection(
                                 let widening =
                                     rank(role) > rank(old["role"].as_str().unwrap_or("viewer"));
                                 payload["role"] = json!(role);
-                                ("member.role", payload, widening)
+                                let confirmation = widening
+                                    .then(|| {
+                                        let (noun, verb) = if role == "editor" {
+                                            ("an editor", "edit")
+                                        } else {
+                                            ("a commenter", "comment on")
+                                        };
+                                        confirm(
+                                            format!(
+                                                "Making member {member} {noun} lets them {verb} page {page_id}."
+                                            ),
+                                            "change the role",
+                                        )
+                                    })
+                                    .flatten();
+                                ("member.role", payload, confirmation)
                             }
                         }
                         _ => return Err(input("Unsupported member action.")),
@@ -336,7 +399,7 @@ fn selection(
                         (
                             "link.remove",
                             json!({"linkId":text(selected,"link"),"pages":pages,"replacement":null}),
-                            false,
+                            None,
                         )
                     } else {
                         let link_id = selected
@@ -346,12 +409,21 @@ fn selection(
                             .map_or_else(fresh_id, Ok)?;
                         let new = json!({"linkId":link_id,"role":"viewer","pages":pages,"seed":seed(selected)?});
                         if action == "add" {
-                            ("link.add", new, true)
+                            let consequence = format!(
+                                "Adding a read-only link to page {page_id} lets anyone who has it read the page, and copies can't be recalled later."
+                            );
+                            ("link.add", new, confirm(consequence, "add the link"))
                         } else {
                             (
                                 "link.remove",
                                 json!({"linkId":text(selected,"link"),"pages":pages,"replacement":new}),
-                                true,
+                                confirm(
+                                    format!(
+                                        "Resetting link {} turns off the old link and creates a new read-only one; anyone with the new link can read page {page_id}.",
+                                        text(selected, "link")
+                                    ),
+                                    "reset the link",
+                                ),
                             )
                         }
                     }
@@ -373,10 +445,19 @@ fn selection(
                     .map_err(|_| input("Day count exceeds the safe-integer bound."))?;
                 json!(count)
             };
-            ("retention.set", json!({"pageId":id,"days":days}), false)
+            ("retention.set", json!({"pageId":id,"days":days}), None)
         }
-        "archive" => ("page.archive", json!({"pageId":id}), false),
-        "delete" => ("page.delete", json!({"pageId":id}), true),
+        "archive" => ("page.archive", json!({"pageId":id}), None),
+        "delete" => (
+            "page.delete",
+            json!({"pageId":id}),
+            confirm(
+                format!(
+                    "Deleting page {page_id} is permanent; copied text and earlier public history can't be recalled."
+                ),
+                "delete",
+            ),
+        ),
         _ => return Err(input("Unsupported management command.")),
     }))
 }
@@ -814,7 +895,7 @@ pub fn run(command: &str, args: &ArgMatches, root: &Path, json_output: bool) -> 
         }
         return output_with(&detail, false, &page_rows(&reach, &path));
     }
-    let Some((operation, payload, widening)) = selection(command, args, &page, &detail)? else {
+    let Some((operation, payload, confirmation)) = selection(command, args, &page, &detail)? else {
         if command == "retention" {
             return output(
                 &json!({"membershipHead":detail["membershipHead"],"page":{
@@ -828,12 +909,14 @@ pub fn run(command: &str, args: &ArgMatches, root: &Path, json_output: bool) -> 
             json_output,
         );
     };
-    if widening && !args.get_flag("yes") {
+    if let Some(Confirmation {
+        consequence,
+        action,
+    }) = confirmation.filter(|_| !args.get_flag("yes"))
+    {
         return Err(Box::new(ManagementFault {
             code: "COLAB_CONFIRMATION_REQUIRED",
-            message: format!(
-                "Page {id} requires --yes after reviewing this command's disclosure in help. Deletion is permanent; copied plaintext and previously public history cannot be recalled."
-            ),
+            message: format!("{consequence} Run again with --yes to {action}."),
             correlation: json!({"pageId":id}),
             source: None,
         }));

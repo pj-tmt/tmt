@@ -507,6 +507,24 @@ fn failure(pilot: &Pilot, args: &[&str], code: &str) -> Value {
     assert_eq!(result["error"]["code"], code, "{result}");
     result
 }
+/// A refused confirmation names its own consequence and the exact retry, never another
+/// command's disclosure.
+fn confirmation_required(pilot: &Pilot, args: &[&str], consequence: &str, action: &str) -> Value {
+    let result = failure(pilot, args, "COLAB_CONFIRMATION_REQUIRED");
+    let message = result["error"]["message"].as_str().unwrap();
+    assert!(message.starts_with(consequence), "{message}");
+    assert!(
+        message.ends_with(&format!(" Run again with --yes to {action}.")),
+        "{message}"
+    );
+    assert!(!message.contains("disclosure in help"), "{message}");
+    assert_eq!(
+        message.contains("permanent"),
+        args.contains(&"delete"),
+        "{message}"
+    );
+    result
+}
 #[test]
 fn management_reads_verify_encrypted_titles_and_preserve_missing_and_existing_state() {
     let pilot = Pilot::new(None);
@@ -543,12 +561,22 @@ fn management_confirmation_and_input_denials_have_no_state_effects() {
     seed_page(&pilot);
     let db = pilot.root.join("selected/colab/space.db");
     let before = fs::read(&db).unwrap();
-    for args in [
-        vec!["share", "mode", PAGE, "link", "--json"],
-        vec!["share", "mode", PAGE, "public", "--json"],
-    ] {
-        failure(&pilot, &args, "COLAB_CONFIRMATION_REQUIRED");
-    }
+    confirmation_required(
+        &pilot,
+        &["share", "mode", PAGE, "link", "--json"],
+        &format!(
+            "Sharing page {PAGE} by link lets anyone with a link read it, and copies can't be recalled later."
+        ),
+        "share it by link",
+    );
+    confirmation_required(
+        &pilot,
+        &["share", "mode", PAGE, "public", "--json"],
+        &format!(
+            "Making page {PAGE} public lets anyone with the link read it, and copies can't be recalled later."
+        ),
+        "make it public",
+    );
     failure(
         &pilot,
         &["show", "not-a-page", "--json"],
@@ -750,7 +778,14 @@ fn management_link_cli_uses_serving_and_offline_service_with_durable_replay() {
             replacement,
             "--json",
         ];
-        failure(&pilot, &reset, "COLAB_CONFIRMATION_REQUIRED");
+        confirmation_required(
+            &pilot,
+            &reset,
+            &format!(
+                "Resetting link {LINK} turns off the old link and creates a new read-only one; anyone with the new link can read page {PAGE}."
+            ),
+            "reset the link",
+        );
         assert_eq!(fs::read(&db).unwrap(), committed);
         let mut confirmed = reset.to_vec();
         confirmed.push("--yes");
@@ -1700,17 +1735,36 @@ fn full_management_confirmation_input_and_retention_reads_preserve_state() {
         let add = full_management_cases().remove(0).1;
         let mut unconfirmed_add = add.clone();
         unconfirmed_add.push("--json".into());
-        failure(
+        confirmation_required(
             &pilot,
             &words(&unconfirmed_add),
-            "COLAB_CONFIRMATION_REQUIRED",
+            &format!(
+                "Adding member 20000000-0000-4000-8000-000000000009 as viewer gives them access to page {PAGE}, and copies they make can't be recalled later."
+            ),
+            "add the member",
         );
-        for base in [
-            vec!["share", "member", "role", PAGE, MEMBER, "editor", "--json"],
-            vec!["share", "history", PAGE, "shared", "--json"],
-            vec!["delete", PAGE, "--json"],
+        for (base, consequence, action) in [
+            (
+                vec!["share", "member", "role", PAGE, MEMBER, "editor", "--json"],
+                format!("Making member {MEMBER} an editor lets them edit page {PAGE}."),
+                "change the role",
+            ),
+            (
+                vec!["share", "history", PAGE, "shared", "--json"],
+                format!(
+                    "Sharing the full history of page {PAGE} lets readers see deleted text, snapshots, comments and agent replies, and copies can't be recalled later."
+                ),
+                "share the history",
+            ),
+            (
+                vec!["delete", PAGE, "--json"],
+                format!(
+                    "Deleting page {PAGE} is permanent; copied text and earlier public history can't be recalled."
+                ),
+                "delete",
+            ),
         ] {
-            failure(&pilot, &base, "COLAB_CONFIRMATION_REQUIRED");
+            confirmation_required(&pilot, &base, &consequence, action);
         }
         for days in ["0", "-1", "01", "9007199254740992", "1.5", "Forever"] {
             failure(
@@ -3289,14 +3343,26 @@ fn page_prefix_reads_writes_exports_and_confirmations_use_the_resolved_full_id()
     assert_eq!(manifest["pageId"], PAGE);
     let database = pilot.root.join("selected/colab/space.db");
     let before = fs::read(&database).unwrap();
-    for args in [
-        vec!["delete", prefix],
-        vec!["share", "mode", prefix, "public"],
-        vec!["share", "link", "add", prefix],
+    for (args, consequence, action) in [
+        (
+            vec!["delete", prefix],
+            format!("Deleting page {PAGE} is permanent;"),
+            "delete",
+        ),
+        (
+            vec!["share", "mode", prefix, "public"],
+            format!("Making page {PAGE} public lets anyone with the link read it,"),
+            "make it public",
+        ),
+        (
+            vec!["share", "link", "add", prefix],
+            format!("Adding a read-only link to page {PAGE} lets anyone who has it read the page,"),
+            "add the link",
+        ),
     ] {
         let mut json_args = args.clone();
         json_args.push("--json");
-        let result = failure(&pilot, &json_args, "COLAB_CONFIRMATION_REQUIRED");
+        let result = confirmation_required(&pilot, &json_args, &consequence, action);
         assert_eq!(result["pageId"], PAGE);
         assert!(result["error"]["message"].as_str().unwrap().contains(PAGE));
         let human = pilot.command().args(args).output().unwrap();

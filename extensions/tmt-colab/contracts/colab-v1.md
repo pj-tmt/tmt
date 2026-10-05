@@ -2140,7 +2140,11 @@ The catalog and owner head are rechecked after title projection. Member, link
 and operation IDs still require their full canonical UUIDs. Successful JSON and
 confirmations always name the resolved full `pageId`, never the input prefix.
 Audience widening and link addition/Reset MUST require explicit `--yes`; absent
-confirmation sends and writes nothing. The full management commands (#1572)
+confirmation sends and writes nothing. Each refusal is `COLAB_CONFIRMATION_REQUIRED`
+and names the resolved full `pageId`, the consequence of that command alone (a
+widening never prints the deletion text) and the retry, as
+"<consequence> Run again with --yes to <action>." Shared-history pages add that the
+history includes deleted text, snapshots, comments and agent replies. The full management commands (#1572)
 also require `--yes` for member addition, role widening, history widening and
 every deletion. Role reductions, member removal, archive and retention changes
 are explicit commands without an additional confirmation. A seed is canonical

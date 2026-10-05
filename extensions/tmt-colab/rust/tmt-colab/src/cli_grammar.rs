@@ -37,7 +37,7 @@ fn yes() -> Arg {
         .long("yes")
         .action(ArgAction::SetTrue)
         .global(true)
-        .help("Confirm widening or deletion after reviewing disclosure")
+        .help("Confirm a widening or deletion the refusal described")
 }
 fn mutation(command: Command) -> Command {
     command
