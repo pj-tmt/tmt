@@ -561,6 +561,11 @@ pub struct App {
     /// Index among visible rows (headers excluded).
     pub selected: usize,
     pub(super) home_target: Option<super::home::Target>,
+    /// Where the cursor was when the user left HOME; the next visit restores it.
+    home_left: Option<super::home::Target>,
+    /// The cursor still sits where HOME's opening rule put it. The first lead
+    /// read can reorder the leads, so it places the cursor once more.
+    pub(super) home_start: bool,
     pub notice: Option<String>,
     pub help: bool,
     pub(super) help_state: RefCell<super::help::Help>,
@@ -1006,22 +1011,48 @@ impl App {
     }
 
     /// Another squad is now on screen: its selection and scrolling start over.
+    /// HOME alone returns to the row the user left.
     fn shown_changed(&mut self) {
         self.note_link = None;
         self.home_target = None;
-        let entries = self.home_entries();
-        self.selected = entries
-            .iter()
-            .position(|entry| entry.target.section == "needs-you")
-            .or_else(|| {
-                entries
-                    .iter()
-                    .position(|entry| entry.target.section == "squads")
-            })
-            .unwrap_or(0);
+        self.home_start = false;
+        self.selected = 0;
         self.scrolls = Scrolls::default();
         self.follow = true;
         self.reconcile_folds();
+        if self.view.as_ref().is_some_and(|view| view.home.is_some()) {
+            let left = self.home_left.take();
+            let index = left.and_then(|target| {
+                self.home_entries()
+                    .iter()
+                    .position(|entry| entry.target == target)
+            });
+            match index {
+                Some(index) => self.selected = index,
+                None => return self.place_home_start(),
+            }
+        }
+        self.clamp();
+    }
+
+    /// HOME opens on its first row from the top: a needs-you row, else a
+    /// blocked row, else the first lead, else the first squad. The cron line
+    /// is never the opening row. Squad tabs have no home entries and keep the
+    /// lead they start on.
+    fn place_home_start(&mut self) {
+        let entries = self.home_entries();
+        let first = |section: &str| {
+            entries
+                .iter()
+                .position(|entry| entry.target.section == section)
+        };
+        let index = ["needs-you", "blocked", super::home::LEADS, "squads"]
+            .into_iter()
+            .find_map(first);
+        self.home_start =
+            index.is_some_and(|index| entries[index].target.section == super::home::LEADS);
+        self.selected = index.unwrap_or(0);
+        self.home_target = None;
         self.clamp();
     }
 
@@ -1044,6 +1075,9 @@ impl App {
 
     pub(super) fn apply_home_leads(&mut self, read: super::home_leads::Read) {
         self.home_leads.replace(read);
+        if std::mem::take(&mut self.home_start) {
+            self.place_home_start();
+        }
         self.clamp();
     }
 
@@ -1435,6 +1469,9 @@ impl App {
             return Effect::None;
         }
         self.handoff_meters(&next, Instant::now());
+        if self.shown.as_deref() == Some(super::ALL) && self.home_target.is_some() {
+            self.home_left = self.home_target.clone();
+        }
         self.current = Some(next.clone());
         self.error = None;
         self.jobs_focus = false;
@@ -3115,6 +3152,7 @@ impl App {
 
     /// Selects a row and keeps it on screen.
     pub(super) fn select(&mut self, row: usize) {
+        self.home_start = false;
         self.home_target = None;
         self.selected = row;
         self.clamp();
