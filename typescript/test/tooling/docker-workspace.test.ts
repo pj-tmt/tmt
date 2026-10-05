@@ -11,7 +11,15 @@ const { runPackedCommand } = await import(
 );
 
 const root = fileURLToPath(new URL('../../../', import.meta.url));
-const { packages: crates } = readCargoWorkspace(root);
+// COPY guards inspect workspace sources, not external dependency packages.
+// --no-deps also keeps Code quality independent of a warmed native Cargo cache.
+const { packages: crates } = readCargoWorkspace(root, {
+  runner: (
+    command: string,
+    args: string[],
+    options: { cwd: string; env: NodeJS.ProcessEnv; timeoutMs: number }
+  ) => runPackedCommand(command, [...args, '--no-deps'], options),
+});
 const nativeStages = [
   ['typescript/test/e2e/Dockerfile', 'native-tests', '/native'],
   ['typescript/test/native/artifact.Dockerfile', 'build', '/workspace'],
