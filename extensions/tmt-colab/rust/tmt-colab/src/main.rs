@@ -583,7 +583,7 @@ fn page(root: &std::path::Path, args: &clap::ArgMatches) -> Result<()> {
                     && let Err(error) = page::compact::compact(
                         &mut store,
                         &key,
-                        id,
+                        &id,
                         &mut decoder,
                         page::compact::Trigger::default(),
                     )
