@@ -81,6 +81,21 @@ pub(in crate::grammar) fn exchanges() -> Command {
             .arg(option("revision").required(true))
             .arg(operand("request-id", true)),
         )
+        .subcommand(
+            with_options(
+                storage(spec!(
+                    "withdraw",
+                    "Withdraw your obsolete unanswered request",
+                    details = "Only the recorded originator can withdraw. A reason of 1–1024 UTF-8 bytes is required. Identical retries preserve the original reason and time; a final response or different reason conflicts. Withdrawal sends no recipient notification and does not cancel work.",
+                    [
+                        "Withdraw an obsolete request" => "tmt x withdraw req_0f8e4b52-3c1d-4a6e-9b7f-2d5c8a1e6f30 --reason \"Already resolved\" --identity lead",
+                    ]
+                )),
+                &["identity"],
+            )
+            .arg(clap::Arg::new("reason").long("reason").required(true).help("Why the request is obsolete (1–1024 UTF-8 bytes)"))
+            .arg(operand("request-id", true)),
+        )
         .subcommand(with_options(
             storage(spec!(
                 "ackall",

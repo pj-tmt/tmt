@@ -847,7 +847,8 @@ are classified once and projected through `tmt-command-output::Failure::storage_
 
 `tmt-core::request::RequestService` owns preparation, delivery-state transitions,
 exact final submission, waiter release, attention revisions and bounded retention
-housekeeping; `storage::requests` owns SQL and cleanup and `request::attention` the
+housekeeping, including originator withdrawal serialized with final submission;
+`storage::requests` owns SQL and cleanup and `request::attention` the
 pure attention contract. It samples clocks at the transaction boundary, never holds
 a transaction across transport, and treats uncertain delivery as uncertain, never as
 replay authorization. Final bodies are immutable and terminal text is never

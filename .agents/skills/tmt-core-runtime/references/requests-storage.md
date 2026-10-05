@@ -51,6 +51,12 @@ configuration. The owner map is in
   `open_requests` applies it, so "waiting on you" is an open-request question, not an attention
   one. `answer_target` selects one open request by recipient and originator, never guessing, and
   derives the route proof in process.
+- Originator withdrawal and final submission share the IMMEDIATE transaction. Withdrawal
+  metadata stays on the attempt, separate from delivery and the final-submission marker;
+  same-reason retries retain the first timestamp. It releases waiters without a recipient
+  notification, attention revision, acknowledgment or retention renewal. The open SQL query
+  excludes withdrawn rows before its limit, and the shared first-final rule rejects replies.
+  Results and history project this terminal state without inventing a final or approval.
 - A UUID-prefix result lookup (at least eight hex characters, optional `req_`) resolves and reads
   under one transaction; `retained_request_ids` returns at most five ordered ambiguity candidates.
 - `enqueue` prepares the attempt, stores the prompt and publishes recipient attention in one

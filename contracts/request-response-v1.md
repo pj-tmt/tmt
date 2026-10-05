@@ -82,6 +82,46 @@ attempt, wrong recipient, ineligible state, expiry and conflicting content.
 Rejected submissions preserve attempts, cadence and responses. Storage failures
 remain storage failures. There is no cancellation operation or automatic retry routing policy.
 
+## Originator withdrawal
+
+```text
+tmt x withdraw <request-id> --reason <text> [--identity <originator>] [--json]
+```
+
+Only the request's recorded originator identity may withdraw, using the verified
+or explicit identity selection of `x`. Anonymous requests cannot be withdrawn;
+announcements do not accept request withdrawal. This is local attribution, not
+authentication. The required reason is retained exactly, 1–1024 UTF-8 bytes.
+
+Withdrawal and final submission serialize in the same SQLite IMMEDIATE transaction:
+the first commit wins. Any submitted final, including one whose body has expired,
+refuses withdrawal with `REQUEST_ALREADY_FINAL` (exit 5), without mutation.
+A later reply to a withdrawn request fails with `REQUEST_WITHDRAWN` (exit 5).
+Identical withdrawal reasons are idempotent and preserve the original timestamp;
+a different reason yields `REQUEST_WITHDRAWAL_CONFLICT` (exit 5).
+Wrong originator or anonymous-request withdrawal is `REQUEST_ORIGINATOR_MISMATCH`
+(exit 5); an announcement is `REQUEST_WITHDRAWAL_NOT_REQUIRED` (exit 5).
+Invalid reason input is `REQUEST_WITHDRAWAL_INPUT_INVALID` (exit 1), and missing
+or no-longer-retained metadata is `REQUEST_NOT_FOUND` (exit 3).
+
+Success returns `{identity,status:"withdrawn",requestId,reason,withdrawnAtMs,changed}`;
+`changed` is false for an identical retry. `result` returns
+`{status:"withdrawn",requestId,reason,withdrawnAtMs}` (exit 0), including prefix
+selection. It neither returns `RESPONSE_NOT_AVAILABLE` nor invents a response body.
+`x show`, `x ls` and ordinary request history expose
+`final:{status:"withdrawn",reason,withdrawnAtMs}`; incoming show supplies no reply
+instruction for withdrawn requests. Originator results history still contains only
+submitted recipient finals.
+
+Withdrawal preserves the original prompt, history and frozen retention horizons,
+without changing delivery status, allocating attention revisions or acknowledging
+either party. It releases any active waiter; a blocking talk observer ends with
+`REQUEST_WITHDRAWN` (exit 5, `status:"withdrawn"`). A withdrawn exchange is settled,
+and open-request queries exclude it before pagination. Consumers waiting on a
+person must exclude this state. Withdrawal sends no recipient notification and
+does not cancel delivery or work the recipient may already have done. It is never
+a recipient final, successful work or approval.
+
 ## Reply and result commands
 
 ```text
@@ -257,7 +297,7 @@ request (not an announcement), has no final, and still accepts one: its
 delivery is `sending`, `sent`, `queued` or `uncertain`, and its acceptance
 deadline has not passed. That is the same rule final submission enforces, so
 the inbox never offers a request an answer would refuse. Acknowledgment and
-live delivery do not remove a request; only a final or the deadline does.
+live delivery do not remove a request; a final, originator withdrawal or the deadline does.
 There is no dismiss or decline.
 
 `inbox` is read-only and lists oldest first, at most 50 by default. JSON is
@@ -532,16 +572,17 @@ The attention contract is identity-scoped and explicit:
 - `tmt x ackall` takes one bounded, atomic snapshot of the
   selected identity's eligible revisions. Results committed concurrently after
   that snapshot remain unacknowledged and cannot be hidden by the batch.
-- An X is settled only when it has a final reply and its current attention
+- An X is settled when its originator has withdrawn it, or when it has a final reply and its current attention
   revision is explicitly acknowledged. A proven failed delivery may be
   acknowledged as an exception for attention management, but that is not
   successful work or a delivered result.
 
 The command surface is `tmt x ls`, `tmt x show <request-id>`,
-`tmt x ack <request-id> --revision <revision>`, and `tmt x ackall`.
+`tmt x ack <request-id> --revision <revision>`, `tmt x ackall`, and
+[`tmt x withdraw <request-id> --reason <text>`](#originator-withdrawal).
 `tmt x` is equivalent to `tmt x ls`. All accept command-local `--identity`
 and `--json`; only list accepts `--limit` and `--after`, and only ack accepts
-the mandatory `--revision`. Old `ack --all` and batch tokens are rejected.
+the mandatory `--revision`. Withdraw requires `--reason`. Old `ack --all` and batch tokens are rejected.
 
 Migration 8 assigns deterministic initial revisions to already known v7 originators
 ordered by preparation time and request ID. Unknown/anonymous provenance stays
@@ -566,7 +607,7 @@ deduplicate by request ID and restart at 0 to refresh. No body is loaded by list
 
 Summary fields are `requestId`, nullable `recipientIdentityId`, `preparedAtMs`,
 `delivery`, `final`, `revision`, `acknowledged`, `settled`, `retentionExpiresAtMs`.
-Final is `not_submitted`, `retained` (submission time, bytes and expiry), `expired`
+Final is `withdrawn` (reason and withdrawal time), `not_submitted`, `retained` (submission time, bytes and expiry), `expired`
 (submission time and expiry), or `unavailable` (marker exists but eligible body
 is absent). Missing final is not evidence that a task is running. Show returns
 `{identity,exchange}` and adds `prompt` plus exact `final.response` when retained.

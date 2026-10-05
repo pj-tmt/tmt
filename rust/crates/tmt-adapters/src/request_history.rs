@@ -116,6 +116,9 @@ pub fn decode_history_request(bytes: &[u8]) -> Option<String> {
 
 fn item_document<T>(item: &HistoryItem<T>, content: impl FnOnce(&T) -> Option<Value>) -> Value {
     let final_state = match &item.final_state {
+        FinalState::Withdrawn(withdrawal) => {
+            json!({"status":"withdrawn", "reason":withdrawal.reason, "withdrawnAtMs":withdrawal.withdrawn_at_ms})
+        }
         FinalState::NotSubmitted => json!({"status":"not_submitted"}),
         FinalState::NotRequired => json!({"status":"not_required"}),
         FinalState::Retained {

@@ -251,6 +251,10 @@ const MIGRATIONS: &[Migration] = &[
         name: "index originator results by final submission time",
         sql: include_str!("schema/047.sql"),
     },
+    Migration {
+        name: "retain originator withdrawal of unanswered requests",
+        sql: include_str!("schema/048.sql"),
+    },
 ];
 
 pub(super) fn apply(connection: &mut Connection) -> Result<(), StorageError> {
