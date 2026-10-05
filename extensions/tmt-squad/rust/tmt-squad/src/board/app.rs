@@ -644,6 +644,8 @@ pub struct App {
     /// Where tabs were last drawn.
     pub tab_hits: RefCell<Vec<TabHit>>,
     pub(super) unpicked_hit: std::cell::Cell<Option<ratatui::layout::Rect>>,
+    /// The last tab line hid tabs, so the footer offers the switcher.
+    pub(super) tabs_overflow: std::cell::Cell<bool>,
     /// Only titles actually painted in the last frame can toggle.
     pub title_hits: RefCell<Vec<TitleHit>>,
     folds: BTreeMap<String, FoldState>,

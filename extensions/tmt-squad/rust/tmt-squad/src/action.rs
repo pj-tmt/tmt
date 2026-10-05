@@ -167,7 +167,7 @@ fn tokens(text: &str) -> Result<Vec<String>, String> {
 pub const FOOTER_SEARCH_RANK: u8 = 6;
 /// The last footer rank of a row action; the oldest-waiting label may take
 /// space only if every hint up to here still fits.
-pub const FOOTER_ROW_ACTIONS_END: u8 = 8;
+pub const FOOTER_ROW_ACTIONS_END: u8 = 6;
 
 impl Action {
     /// Where the action sits in a list of choices, by what people do: the
@@ -202,37 +202,37 @@ impl Action {
         }
     }
 
-    /// Where the action sits in the base footer when width runs short: lowest
-    /// first, `None` for actions the footer never lists. Unlike `order`, which
-    /// orders the action menu by what people do with the row, the footer ranks
-    /// navigation and the decision first. The match is exhaustive so a new verb
-    /// must choose.
+    /// Where the action sits in the base footer, which is also the order whole
+    /// hints drop from the end when width runs short: lowest first, `None` for
+    /// actions the footer never lists (they stay bound and appear in `?` help).
+    /// The footer names the decision and the way in: open, write, expand and
+    /// ask, then search. The match is exhaustive so a new verb must choose.
     pub fn footer_rank(&self) -> Option<u8> {
         let lead = self.args.first().and_then(Template::literal) == Some("lead");
         Some(match self.verb {
-            Verb::AskLead => 0,
-            Verb::Jump if !lead => 1,
-            Verb::Menu | Verb::Tab => 1,
-            Verb::Talk => 2,
-            Verb::Reply => 3,
-            Verb::Back => 4,
-            Verb::Annotate => 5,
+            Verb::Jump if !lead => 0,
+            Verb::Menu | Verb::Tab => 0,
+            Verb::Annotate => 1,
+            Verb::Reply => 2,
+            Verb::Talk => 3,
+            Verb::HomeMessage => 4,
+            Verb::AskLead => 5,
             // FOOTER_SEARCH_RANK (6) is the board's own `/ search`.
-            Verb::Open => 7,
-            Verb::Copy => FOOTER_ROW_ACTIONS_END,
-            Verb::Toggle => 9,
-            Verb::NextPane => 10,
-            Verb::Refresh => 11,
-            Verb::View => 12,
-            Verb::Theme => 13,
-            Verb::TokenWindow => 14,
-            Verb::Jump => 15,
-            Verb::Notes
+            Verb::Jump
+            | Verb::Back
+            | Verb::Open
+            | Verb::Copy
+            | Verb::Toggle
+            | Verb::NextPane
+            | Verb::Refresh
+            | Verb::View
+            | Verb::Theme
+            | Verb::TokenWindow
+            | Verb::Notes
             | Verb::PickTab
             | Verb::Settings
             | Verb::Run
             | Verb::HomeReplies
-            | Verb::HomeMessage
             | Verb::HomeWrite
             | Verb::HomePick => return None,
         })

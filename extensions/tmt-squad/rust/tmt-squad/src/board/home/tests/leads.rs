@@ -94,8 +94,8 @@ fn lead_rows_and_footer_share_one_cursor_and_hidden_previews_remove_separators()
         assert!(text[at("→ all leads") - 1].starts_with('└'));
         assert_eq!(glyph_error(&text.join("\n")), None);
         assert!(
-            text.last().unwrap().contains("t replies"),
-            "the new toggle remains discoverable at 80 columns"
+            text.last().unwrap().contains("? more"),
+            "help, where the toggle is listed, stays discoverable at 80 columns"
         );
         let target = app.home_target.clone();
         assert_eq!(press(&mut app, Char('t')), Effect::HomeReplies(false));
