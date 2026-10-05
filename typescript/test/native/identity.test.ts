@@ -678,6 +678,131 @@ describe('native durable identity process boundary', () => {
     });
   });
 
+  it('atomically applies previewed metadata through CLI and API, with conflict exit 5', async () => {
+    await withSandbox(async (sandbox) => {
+      const alice = documentIdentity(
+        await runCli(sandbox, ['identity', 'create', 'Alice', '--json'])
+      );
+      const apply = (changes: unknown, id = alice.id) =>
+        runCli(sandbox, ['identity', 'meta', 'apply', '--identity', id, '--json'], {
+          stdin: JSON.stringify(changes),
+        });
+      const api = (changes: unknown, id = alice.id) =>
+        runCli(sandbox, ['api'], {
+          stdin: JSON.stringify({
+            version: 1,
+            operation: 'identity.meta.apply',
+            input: { identityId: id, changes },
+          }),
+        });
+      const durable = () => {
+        const db = new Database(sandbox.database, { readonly: true });
+        try {
+          return db
+            .prepare('SELECT key, value FROM identity_metadata WHERE identity_id = ? ORDER BY key')
+            .all(alice.id);
+        } finally {
+          db.close();
+        }
+      };
+      expectJsonSuccess(
+        await apply([
+          { key: 'pending', expect: 'absent', then: { set: 'review' } },
+          { key: 'state', expect: 'any', then: { set: 'blocked' } },
+        ]),
+        { identityId: alice.id, changed: true }
+      );
+      const before = durable();
+      for (const mutate of [apply, api]) {
+        const conflict = await mutate([
+          { key: 'pending', expect: { value: 'review' }, then: 'remove' },
+          { key: 'state', expect: { value: 'working' }, then: { set: 'done' } },
+          { key: 'missing', expect: { value: 'old' }, then: { set: 'new' } },
+        ]);
+        expect(conflict.status).toBe(5);
+        expect(parseWholeStdout(conflict)).toEqual({
+          error: {
+            code: 'METADATA_CONFLICT',
+            message: 'Metadata expectations did not match current values; no changes were applied.',
+            current: { missing: null, state: 'blocked' },
+          },
+        });
+        expect(durable()).toEqual(before);
+      }
+      expectJsonSuccess(
+        await api([
+          { key: 'pending', expect: { value: 'review' }, then: 'remove' },
+          { key: 'state', expect: { value: 'blocked' }, then: { set: 'working' } },
+          { key: 'missing', expect: 'absent', then: 'remove' },
+        ]),
+        { identityId: alice.id, changed: true }
+      );
+      expect(durable()).toEqual([{ key: 'state', value: 'working' }]);
+      expectJsonSuccess(
+        await apply(
+          [
+            { key: 'state', expect: 'any', then: { set: 'working' } },
+            { key: 'missing', expect: 'any', then: 'remove' },
+          ],
+          'Alice'
+        ),
+        { identityId: alice.id, changed: false }
+      );
+      const results = await Promise.all(
+        ['first', 'second'].map((next) =>
+          apply([
+            { key: 'state', expect: { value: 'working' }, then: { set: next } },
+            { key: 'owner', expect: 'absent', then: { set: next } },
+          ])
+        )
+      );
+      expect(results.map((result) => result.status).sort()).toEqual([0, 5]);
+      const rows = durable() as { key: string; value: string }[];
+      expect(rows.map((row) => row.key)).toEqual(['owner', 'state']);
+      expect(rows[0]?.value).toBe(rows[1]?.value);
+      expect(['first', 'second']).toContain(rows[0]?.value);
+      const conflict = results.find((result) => result.status === 5);
+      expect(parseWholeStdout(conflict!)).toMatchObject({
+        error: {
+          code: 'METADATA_CONFLICT',
+          current: { owner: rows[0]?.value, state: rows[0]?.value },
+        },
+      });
+      const invalid = await apply([
+        { key: 'state', expect: 'any', then: { set: 'must not commit' } },
+        { key: 'other', expect: 'any', then: { set: 'line\nfeed' } },
+      ]);
+      expect(invalid.status).toBe(1);
+      expect(parseWholeStdout(invalid)).toMatchObject({
+        error: { code: 'IDENTITY_METADATA_INVALID' },
+      });
+      expect(durable()).toEqual(rows);
+      const db = new Database(sandbox.database);
+      try {
+        db.prepare('UPDATE identities SET retired_at_ms = 1 WHERE id = ?').run(alice.id);
+      } finally {
+        db.close();
+      }
+      const replacement = documentIdentity(
+        await runCli(sandbox, ['identity', 'create', alice.id, '--json'])
+      );
+      for (const mutate of [apply, api]) {
+        const refused = await mutate([
+          { key: 'state', expect: 'any', then: { set: 'wrong identity' } },
+        ]);
+        expect(parseWholeStdout(refused)).toMatchObject({ error: { code: 'NAME_NOT_FOUND' } });
+        expect(refused.status).not.toBe(0);
+      }
+      expectJsonSuccess(
+        await runCli(sandbox, ['identity', 'meta', 'list', '--identity', replacement.id, '--json']),
+        {
+          identityId: replacement.id,
+          metadata: {},
+        }
+      );
+    });
+  });
+
   it('rejects invalid metadata and requires an explicit or verified caller identity', async () => {
     await withSandbox(async (sandbox) => {
       const missingIdentity = await runCli(sandbox, ['identity', 'meta', 'list', '--json']);

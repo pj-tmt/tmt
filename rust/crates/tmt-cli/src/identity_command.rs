@@ -28,6 +28,7 @@ enum Report {
     /// The identity with its remembered-session projection (JSON only).
     Shown(Identity, Option<serde_json::Value>),
     Listed(Vec<Identity>),
+    MetadataApplied(identity_metadata::ApplyMetadataResult),
     MetadataSet {
         identity_id: String,
         key: String,
@@ -93,6 +94,12 @@ fn metadata_failure(error: MetadataError<StorageError>) -> Failure {
             "The metadata key was not found.",
             3,
         ),
+        MetadataError::Conflict(current) => Failure::new(
+            "METADATA_CONFLICT",
+            "Metadata expectations did not match current values; no changes were applied.",
+            5,
+        )
+        .with_metadata_conflicts(current),
         MetadataError::Repository(error) => unavailable(error),
     }
 }
@@ -108,6 +115,33 @@ fn run(request: IdentityRequest) -> Result<Report, Failure> {
         }
         _ => None,
     };
+    let changes = if matches!(
+        &request,
+        IdentityRequest::Metadata {
+            operation: IdentityMetadataRequest::Apply,
+            ..
+        }
+    ) {
+        let body = tmt_adapters::response_input::read_stdin_bounded(
+            std::time::Duration::from_secs(5),
+            tmt_adapters::identity_metadata::APPLY_INPUT_LIMIT,
+        )
+        .map_err(|error| {
+            Failure::new(
+                "IDENTITY_METADATA_INVALID",
+                "Expected bounded JSON changes on non-terminal stdin, closed within five seconds.",
+                1,
+            )
+            .caused_by(error)
+        })?;
+        Some(
+            tmt_adapters::identity_metadata::decode_changes(&body).map_err(|error| {
+                Failure::new("IDENTITY_METADATA_INVALID", error.to_string(), 1).caused_by(error)
+            })?,
+        )
+    } else {
+        None
+    };
     let paths = ConfigPaths::discover().map_err(unavailable)?;
     let mut storage = Storage::open(&paths.database).map_err(|error| {
         Failure::storage_access(
@@ -118,7 +152,7 @@ fn run(request: IdentityRequest) -> Result<Report, Failure> {
             "Could not complete the identity operation.",
         )
     })?;
-    let pending = operation(&mut storage, request, selector);
+    let pending = operation(&mut storage, request, selector, changes);
     after_cleanup(pending, || storage.close())
 }
 
@@ -135,6 +169,7 @@ fn operation(
     storage: &mut Storage,
     request: IdentityRequest,
     selector: Option<identity_context::Selector>,
+    changes: Option<identity_metadata::MetadataChanges>,
 ) -> Result<Report, Failure> {
     match request {
         IdentityRequest::Status { operation, .. } => {
@@ -195,11 +230,30 @@ fn operation(
                 .map_err(metadata_failure)
         }
         IdentityRequest::Metadata { operation, .. } => {
-            let identity = identity_context::resolve(
-                storage,
-                selector.expect("metadata request resolved a selector"),
-            )?;
+            let selector = selector.expect("metadata request resolved a selector");
+            // An apply preview pins UUID authority: a retired UUID must not resolve
+            // to an unrelated identity whose display name happens to be that UUID.
+            let identity = if matches!(&operation, IdentityMetadataRequest::Apply)
+                && matches!(&selector, identity_context::Selector::Explicit(id) if tmt_core::dispatch::canonical_id(id))
+            {
+                let identity_context::Selector::Explicit(id) = selector else {
+                    unreachable!()
+                };
+                storage
+                    .find_active_identity_by_id(&id)
+                    .map_err(unavailable)?
+                    .ok_or_else(|| crate::output::identity_missing(&id))?
+            } else {
+                identity_context::resolve(storage, selector)?
+            };
             match operation {
+                IdentityMetadataRequest::Apply => identity_metadata::apply_identity_metadata(
+                    storage,
+                    &identity.id,
+                    &changes.expect("apply input admitted before storage"),
+                )
+                .map(Report::MetadataApplied)
+                .map_err(metadata_failure),
                 IdentityMetadataRequest::Set { key, value } => {
                     let result = identity_metadata::set_identity_metadata(
                         storage,
@@ -361,6 +415,17 @@ pub fn execute(request: IdentityRequest, mode: OutputMode) -> io::Result<u8> {
                     writeln!(stdout, "{key}={value} is unchanged")?;
                 }
             }
+            Report::MetadataApplied(result) => {
+                writeln!(
+                    stdout,
+                    "Metadata {}",
+                    if result.changed {
+                        "updated"
+                    } else {
+                        "unchanged"
+                    }
+                )?;
+            }
             Report::MetadataGet { value, .. } => writeln!(stdout, "{value}")?,
             Report::MetadataList { metadata, .. } if metadata.is_empty() => {
                 writeln!(stdout, "No metadata found.")?;
@@ -417,6 +482,7 @@ fn document(report: &Report) -> serde_json::Value {
         Report::Listed(identities) => {
             json!({"identities": identities.iter().map(identity_document).collect::<Vec<_>>()})
         }
+        Report::MetadataApplied(result) => tmt_adapters::identity_metadata::applied_value(result),
         Report::MetadataSet {
             identity_id,
             key,
@@ -443,6 +509,6 @@ fn document(report: &Report) -> serde_json::Value {
 
 pub(crate) fn list_document(paths: &ConfigPaths) -> Result<serde_json::Value, Failure> {
     let mut storage = Storage::open(&paths.database).map_err(unavailable)?;
-    let pending = operation(&mut storage, IdentityRequest::List(Vec::new()), None);
+    let pending = operation(&mut storage, IdentityRequest::List(Vec::new()), None, None);
     after_cleanup(pending, || storage.close()).map(|report| document(&report))
 }

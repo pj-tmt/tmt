@@ -349,6 +349,7 @@ pub enum IdentityFilterRequest {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum IdentityMetadataRequest {
+    Apply,
     Set { key: String, value: String },
     Get { key: String },
     List,

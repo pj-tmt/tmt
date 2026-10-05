@@ -26,6 +26,7 @@ pub mod file_lock;
 pub mod hint_cadence;
 #[cfg(unix)]
 pub mod host;
+pub mod identity_metadata;
 pub mod identity_projection;
 pub mod identity_status;
 #[cfg(unix)]

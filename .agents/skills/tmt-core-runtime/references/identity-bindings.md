@@ -11,6 +11,11 @@ in `contracts/`.
   dependency upgrade must not renormalize stored keys. Names are global in the database.
 - Metadata and self-reported status are descriptive, untrusted data with no permission,
   availability or prompt authority. Expired status stays inspectable but is not current.
+- `identity_metadata` owns validation and conditional expectation evaluation; storage
+  rechecks the exact active UUID and checks/applies all keys in one IMMEDIATE
+  transaction. CLI and API share adapter admission/projection, with no schema,
+  notification or host effects. The public shapes and failure contract belong to
+  [conditional metadata](../../../../contracts/extension-api.md#conditional-identity-metadata).
 - `identities.auto_named` is set only by an unnamed registered-runtime launch; `name`/`this`
   renames the same UUID while it is set and consumes it, as does an ordinary `mv`.
 - A bind commits identity creation before its binding transaction. If the second step is
