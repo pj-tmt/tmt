@@ -71,7 +71,7 @@ export function mountMenu(options: { tight?: boolean } = {}) {
       <header style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
         <p>You · now</p>
         <span className="comment-header-end">
-          <span role="status">✓ replied</span>
+          <span role="status">replied</span>
           <ActionMenu
             label="Message actions"
             items={[

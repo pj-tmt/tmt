@@ -1,4 +1,5 @@
 import type { CommentContext } from './thread-store.js';
+import { Check, CircleAlert, Clock, Pause } from 'lucide-react';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import type { PreviewAttempt } from './ask-preview.js';
 import { ASK_OBSERVATION_MS, type LedgerState } from './ask-records.js';
@@ -160,19 +161,31 @@ export function AskPanel({
                 (record.reply !== undefined || record.resultUnavailable)
               ? text.askDeliveryAccepted
               : states[record.state];
+        // Chat states are a mark plus a word: the mark is colored by the state's role, the word is
+        // never dropped.
+        const chatState: { mark: ReactNode; tone: string; label: string } | undefined = chat
+          ? record.reply !== undefined
+            ? { mark: <Check />, tone: 'done', label: 'replied' }
+            : timedOut
+              ? { mark: <Clock />, tone: 'waiting', label: 'no reply yet' }
+              : ['dispatching', 'accepted'].includes(record.state) && !record.resultUnavailable
+                ? { mark: <Clock />, tone: 'waiting', label: 'waiting' }
+                : record.state === 'held'
+                  ? { mark: <Pause />, tone: 'held', label: `held · ${stateCopy}` }
+                  : { mark: <CircleAlert />, tone: 'problem', label: stateCopy }
+          : undefined;
         const status = (
           <span role="status" data-testid="ask-state" data-state={record.state}>
-            {chat
-              ? record.reply !== undefined
-                ? '✓ replied'
-                : timedOut
-                  ? '… no reply yet'
-                  : ['dispatching', 'accepted'].includes(record.state) && !record.resultUnavailable
-                    ? '… waiting'
-                    : record.state === 'held'
-                      ? `• held · ${stateCopy}`
-                      : `! ${stateCopy}`
-              : stateCopy}
+            {chatState ? (
+              <span className="ask-state" data-tone={chatState.tone}>
+                <span className="ask-state-mark" aria-hidden>
+                  {chatState.mark}
+                </span>
+                {chatState.label}
+              </span>
+            ) : (
+              stateCopy
+            )}
           </span>
         );
         // Only the page-level ask list carries identities; no surface shows the delivered bytes on demand.

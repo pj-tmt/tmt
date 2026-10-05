@@ -1,4 +1,5 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react';
+import { Ellipsis } from 'lucide-react';
 import './action-menu.css';
 
 export interface ActionMenuItem {
@@ -119,22 +120,7 @@ export function ActionMenu({
           }
         }}
       >
-        {/* Lucide "ellipsis" (ISC), square caps, currentColor. */}
-        <svg
-          viewBox="0 0 24 24"
-          width="18"
-          height="18"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-          strokeLinecap="square"
-          strokeLinejoin="miter"
-          aria-hidden="true"
-        >
-          <circle cx="12" cy="12" r="1" />
-          <circle cx="19" cy="12" r="1" />
-          <circle cx="5" cy="12" r="1" />
-        </svg>
+        <Ellipsis aria-hidden />
       </button>
       {open && (
         <div

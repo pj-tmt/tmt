@@ -69,3 +69,8 @@
   top: auto;
   bottom: calc(100% + 2px);
 }
+
+.tmt-action-menu-trigger .lucide {
+  width: 18px;
+  height: 18px;
+}
