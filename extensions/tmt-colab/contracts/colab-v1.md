@@ -813,7 +813,8 @@ Disconnected, read-only and inactive views disable actions. General member-role
 UI remains planned.
 
 Native `tmt colab threads <page> [--json]` reads the same authenticated current-epoch
-conversation projection as export. `threads resolve <page> <thread>` and `threads
+conversation projection as export. Its page operand uses the same owner-catalog
+short-prefix resolution as other page commands; thread IDs remain full UUIDs. `threads resolve <page> <thread>` and `threads
 reopen <page> <thread>` publish an agent-labelled status action through the local
 writer, using its shared content/own sequence and the existing fenced ciphertext
 commit. Preparation edits only the writer's admitted own structs in the isolated
@@ -2167,8 +2168,25 @@ delete <page> --yes
 All commands support human output and one `--json` document. Human retention
 reads show a day count or forever and omit policy fields absent from that view.
 Mutation summaries use readable operation, expected revision and membership labels;
-JSON field names and values stay unchanged. Top-level `ls`
+JSON retains canonical full IDs. Top-level `ls`
 and `share link ls` have hidden `list` aliases, following the shared CLI style.
+Every `<page>` operand, including `show`, `page read/write`, `export` and all
+management commands, accepts a full UUIDv4 or a lowercase UUID-shaped prefix of
+at least eight characters (#1720). One CLI resolver reuses the short-link helpers
+against the complete verified owner catalog, including archived and retained
+deleted IDs, before reading write/seed input or producing effects. A unique live
+match passes its full ID to the existing domain operation; no alias state is stored.
+Malformed syntax returns `COLAB_INPUT_INVALID`, no match returns
+`COLAB_PAGE_NOT_FOUND`, and a unique deleted match returns `COLAB_PAGE_DELETED`
+with the full `pageId`. Multiple matches return `COLAB_PAGE_AMBIGUOUS`, with no
+effect and `candidates:[{pageId,shortId,title,deleted}]` in JSON. The message reads
+"Page prefix <prefix> matches N pages: <shortId> (<title>), ...", using the same
+shortest unique IDs and authenticated titles; empty titles read
+"Untitled page", archived titles read "Archived page (title unavailable)",
+unreadable titles read "title unavailable", and tombstones read "Deleted page".
+The catalog and owner head are rechecked after title projection. Member, link
+and operation IDs still require their full canonical UUIDs. Successful JSON and
+confirmations always name the resolved full `pageId`, never the input prefix.
 Audience widening and link addition/Reset MUST require explicit `--yes`; absent
 confirmation sends and writes nothing. The full management commands (#1572)
 also require `--yes` for member addition, role widening, history widening and
@@ -2196,17 +2214,20 @@ available. Deletion removes local content, receipts, checkpoints, baselines, wra
 and epoch keys, retaining page, signed-policy and owner-operation tombstones.
 
 Mutations accept `--operation-id` and `--expected-revision`; generated/default
-values are captured once. Success is `{operationId, expectedRevision,
+values are captured once. Success is `{pageId, operationId, expectedRevision,
 membershipHead:{revision, statementHash}}`; link creation/Reset also returns the
 nonsecret replacement `linkId`. An explicit retry MUST retain the same IDs,
 revision, selections and caller-held seed. Unknown IPC outcomes MUST retain this
 nonsecret correlation, never regenerate a request or claim no effect.
 An explicit delete retry with both operation ID and expected revision MUST still
 reach the existing receipt after the page disappears from the visible catalog.
+This is the sole deleted-page resolution exception; its operand must still resolve
+uniquely against retained IDs, and `--yes` is still required. Retain the full ID
+from the original result for retries so a later prefix collision cannot block one.
 The owner engine returns the original committed head; a changed frozen request
 conflicts and an unsaved request cannot revive the deleted page.
 
-Link listings return `{membershipHead, links}`.
+Link listings return `{pageId, membershipHead, links}`.
 Retention reads return `{membershipHead, page:{pageId, retentionDays,
 lastUpdateAtMs, expiresAtMs, warnings}}`.
 Page lists return `{spaceId, membershipHead, pages}`; an uninitialized list has null
@@ -2255,12 +2276,13 @@ Discovery metadata never grants signed policy or write authority. Local expiry
 never automatically deletes or denies access. Discussion summaries in management
 listings remain deferred; the page view projects verified discussion separately.
 
-Failures exit 1. JSON is `{error:{code,message}}` with operation/revision/link
+Failures exit 1. JSON is `{error:{code,message}}` with page/operation/revision/link
 correlation when captured; human failures use styled stderr. Management codes
 map explicitly to `COLAB_INVALID`, `COLAB_DENIED`, `COLAB_EXPIRED`,
 `COLAB_CONFLICT`, `COLAB_STALE_HEAD`, `COLAB_CAPACITY`, `COLAB_UNAVAILABLE`.
 CLI failures add `COLAB_INPUT_INVALID`, `COLAB_CONFIRMATION_REQUIRED`,
-`COLAB_PAGE_NOT_FOUND`, `COLAB_OUTCOME_UNKNOWN`; existing state failures keep
+`COLAB_PAGE_NOT_FOUND`, `COLAB_PAGE_AMBIGUOUS`, `COLAB_PAGE_DELETED`,
+`COLAB_OUTCOME_UNKNOWN`; existing state failures keep
 their codes. An older schema with a
 known migration path returns `COLAB_STORE_OUTDATED`: "This space was saved by an
 older Colab." Its next action is "Start or restart tmt colab serve to update it."
@@ -2332,7 +2354,8 @@ source, without an added newline; stderr carries the verified head, epoch and
 page revision. JSON is `{spaceId,pageId,source,title,epoch,membershipHead,
 revision,memoryLimit}` with optional bounded `publisherAgent`. `membershipHead` is `{revision,statementHash}` with decimal
 revision and lowercase hex hash. Reads never initialize or migrate state.
-Archive/delete reads retain the fold's current inactive-page restriction.
+Archived reads retain the fold's current inactive-page restriction; deleted
+operands fail through the shared CLI resolver described above.
 
 `tmt colab page write <page> --file <path|-> [--expected-revision <token>] [--json]`
 retains the title and prepares a minimal text delta in the isolated child against
@@ -2428,7 +2451,7 @@ The manifest is UTF-8 JSON with these fields:
 | `files`          | `page.html`, `conversations.json`, `conversations.md` as `{name, sizeBytes, sha256}`; bytes and lowercase hex SHA-256 |
 
 The manifest MUST NOT list its own digest: that would be circular. The CLI result
-lists all four files with their byte sizes and SHA-256. Export contains no roots,
+names the resolved full `pageId` and lists all four files with their byte sizes and SHA-256. Export contains no roots,
 wraps, bearer seeds, sessions or private keys. It is a readable copy, not an
 import/backup format; referenced assets, retained history and snapshots are not
 promised as portable files. Raw own records, earlier revisions and other epochs are
@@ -2436,9 +2459,10 @@ not exported.
 
 `tmt colab export <page> [--dir <destination>] [--json]` reads existing local
 state only. It MUST NOT initialize missing state or run migrations. The
-current native fold refuses inactive pages, so archived and deleted pages fail
+current native fold refuses inactive pages, so archived pages fail
 with `COLAB_EXPORT_INACTIVE` and the explanation "archived or deleted pages
-cannot be exported yet". After the archive/delete read-policy split (#1348),
+cannot be exported yet"; deleted operands fail earlier with `COLAB_PAGE_DELETED`.
+After the archive/delete read-policy split (#1348),
 archived exports are enabled separately; deleted pages remain denied.
 
 The destination names an existing parent directory, defaulting to the current

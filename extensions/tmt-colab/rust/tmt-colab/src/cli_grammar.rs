@@ -17,8 +17,20 @@ macro_rules! cmd {
         })
     };
 }
-fn page() -> Arg {
-    Arg::new("page").required(true).index(1)
+pub fn page() -> Arg {
+    Arg::new("page")
+        .required(true)
+        .index(1)
+        .help("Full page UUID or unique lowercase UUID prefix (at least 8 characters; see ls)")
+        .value_parser(|value: &str| {
+            if tmt_colab::short_links::valid_prefix(value)
+                && (value.len() < 36 || tmt_colab_model::values::generated_id(value).is_ok())
+            {
+                Ok(value.to_owned())
+            } else {
+                Err("Use a full page UUID or a lowercase UUID prefix of at least 8 characters")
+            }
+        })
 }
 fn yes() -> Arg {
     Arg::new("yes")

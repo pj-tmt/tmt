@@ -41,11 +41,11 @@ pub fn command() -> Command {
         "Reads authenticated discussions for the current epoch without creating or migrating state. Labels and times are asserted by writers. Resolve and Reopen publish one immutable local-device status action; creation, deletion and comment edits remain writer-owned. Agent CLI actions never notify other agents.")
         .mut_arg("json", |arg| arg.global(true))
         .args_conflicts_with_subcommands(true).subcommand_negates_reqs(true)
-        .arg(id("page"))
+        .arg(crate::cli_grammar::page())
         .subcommand(cmd!("resolve", "Resolve a live annotation thread", "tmt colab threads resolve 10000000-0000-4000-8000-000000000001 20000000-0000-4000-8000-000000000001",
-            "Publishes only status, through the running owner service or its offline lifecycle lock. The caller name is a display label, never authority. Already resolved is a no-op; ambiguous, deleted and Chat threads are refused. No notifications or automatic retry.").arg(id("page")).arg(id("thread")))
+            "Publishes only status, through the running owner service or its offline lifecycle lock. The caller name is a display label, never authority. Already resolved is a no-op; ambiguous, deleted and Chat threads are refused. No notifications or automatic retry.").arg(crate::cli_grammar::page()).arg(id("thread").index(2)))
         .subcommand(cmd!("reopen", "Reopen a resolved annotation thread", "tmt colab threads reopen 10000000-0000-4000-8000-000000000001 20000000-0000-4000-8000-000000000001",
-            "Uses the same immutable status stream and publication fences as Resolve. Already open is a no-op. No notifications or automatic retry.").arg(id("page")).arg(id("thread")))
+            "Uses the same immutable status stream and publication fences as Resolve. Already open is a no-op. No notifications or automatic retry.").arg(crate::cli_grammar::page()).arg(id("thread").index(2)))
 }
 pub fn run(root: &Path, args: &ArgMatches) -> Result<()> {
     let (mode, args) = args.subcommand().unwrap_or(("list", args));
@@ -54,7 +54,11 @@ pub fn run(root: &Path, args: &ArgMatches) -> Result<()> {
     let store = Store::read(&layout)?;
     store.require_current_schema()?;
     let mut decoder = Decoder::new(std::env::current_exe()?)?;
-    let page_id = args.get_one::<String>("page").expect("required page");
+    let page_id = crate::cli_management::resolve_page(
+        &store,
+        &key,
+        args.get_one::<String>("page").expect("required page"),
+    )?;
     let catalog = tmt_colab::inspection::catalog(&store, &key)?;
     let ids = catalog["pageIds"]
         .as_array()
@@ -68,12 +72,12 @@ pub fn run(root: &Path, args: &ArgMatches) -> Result<()> {
         })
         .collect::<std::result::Result<Vec<_>, _>>()?;
     let reach = crate::reach::Reach::gather().with_pages(&ids);
-    let path = crate::reach::Reach::path(&key.space_id, page_id);
+    let path = crate::reach::Reach::path(&key.space_id, &page_id);
 
     let json_output = args.get_flag("json");
     let mut output = tmt_cli_style::stream::stdout(json_output);
     if mode == "list" {
-        let view = discussion::read(&store, &key, page_id, &mut decoder);
+        let view = discussion::read(&store, &key, &page_id, &mut decoder);
         let closed = store.close();
         let view = view?;
         closed?;
@@ -131,7 +135,7 @@ pub fn run(root: &Path, args: &ArgMatches) -> Result<()> {
         let prepared = discussion::prepare_status(
             &store,
             &key,
-            page_id,
+            &page_id,
             StatusEdit {
                 thread,
                 resolved,
