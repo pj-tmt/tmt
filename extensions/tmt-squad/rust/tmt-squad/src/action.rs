@@ -279,7 +279,7 @@ impl Action {
             Verb::HomePick => "pick a HOME lead to write to".into(),
             Verb::Reply => "answer the member's request, or note its pending decision".into(),
             Verb::Annotate if target == Some("member") => "send the member a note".into(),
-            Verb::Annotate => "send the lead a note".into(),
+            Verb::Annotate => "write answer/note/talk; Tab changes mode".into(),
         }
     }
 
@@ -533,7 +533,7 @@ mod tests {
             ("jump", "go to the member's pane"),
             ("jump lead", "go to the squad lead's pane"),
             ("annotate member", "send the member a note"),
-            ("annotate lead", "send the lead a note"),
+            ("annotate lead", "write answer/note/talk; Tab changes mode"),
             ("toggle notes", "fold or unfold the notes pane"),
             (
                 "toggle detail replies",
