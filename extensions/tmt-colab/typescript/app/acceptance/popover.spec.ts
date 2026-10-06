@@ -71,7 +71,7 @@ test('the annotation popover closes by its × , Escape anywhere in it, an outsid
 
         // A press outside the popover.
         await open(touch);
-        const bar = page.locator('.colab-header');
+        const bar = page.locator('.tmt-ui-header');
         if (touch) await tap(page, bar);
         else await bar.click({ position: { x: 4, y: 4 } });
         await expect(popover).toHaveCount(0);
@@ -99,7 +99,7 @@ test('the annotation popover closes by its × , Escape anywhere in it, an outsid
     await expect(input).toHaveText(`@${agent.name} Keep this draft.`, { useInnerText: true });
     await expect(popover.getByText('Draft kept', { exact: true })).toBeVisible();
     await page.screenshot({ path: '/tmp/1713-native-1440-light-draft-kept.png' });
-    await page.locator('.colab-header').click({ position: { x: 4, y: 4 } });
+    await page.locator('.tmt-ui-header').click({ position: { x: 4, y: 4 } });
     await expect(popover).toHaveCount(0);
     // A different selection does not inherit it.
     await selectInRenderer(page, '#other');
@@ -131,7 +131,7 @@ test('the annotation popover closes by its × , Escape anywhere in it, an outsid
     await close.click();
     await close.focus();
     await page.keyboard.press('Escape');
-    await page.locator('.colab-header').click({ position: { x: 4, y: 4 } });
+    await page.locator('.tmt-ui-header').click({ position: { x: 4, y: 4 } });
     await clearSelection(page);
     await page.waitForTimeout(300);
     await expect(popover).toBeVisible();

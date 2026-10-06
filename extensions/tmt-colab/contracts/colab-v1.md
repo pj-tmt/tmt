@@ -539,6 +539,15 @@ encodings, queries and fragments MUST reject with 400. No request path is
 normalized, joined to a filesystem directory or given a SPA fallback. Existing
 API routes and registered-owner `/sync` admission/transport are unchanged.
 
+App and reader chrome consume `@tmt/browser-ui/react`, `/static` and `/static.css`.
+Native guidance embeds the same checked `design/browser-ui/generated/static.css` at
+compile time, with Colab-owned host metrics and viewport styles. Cargo and installed
+serving MUST NOT run Node or generate CSS. The same-origin `/assets/chrome.css` response
+uses `text/css; charset=utf-8`, including when the optional app build is absent. Shared
+presentation owns no routing, admission, page state or action/recovery capability.
+Guidance MUST render its recovery status/script only when the admitted app inventory
+actually contains `/assets/recovery.js`; without it, pairing/build guidance stays visible.
+
 Vite output MUST use relative URLs beneath `/r/<prefix>/x/colab/`, with no
 third-party requests. The current app declares installed/system font fallbacks;
 no external font service is used. App and native guidance responses share this
@@ -2439,6 +2448,94 @@ with the chain retained on the completed broadcast. Exact replay returns the
 original receipt without another broadcast. Slow or revoked peers use existing
 resync/admission failure behavior; queue failure does not undo a durable receipt.
 The service never receives or decodes plaintext source.
+
+### Unintegrated content-publication codecs (#1908)
+
+`publication.rs` exports pure native content-job, original-ID outcome and proposed local IPC
+codecs. They have no Store, keyring, registration, route or transport capability.
+The unintegrated #1928 `page::commit_publication` adapter authenticates the current root-local writer and commits a sealed
+content batch and its original terminal outcome in one immediate SQLite transaction.
+`page::publication_status` uses a caller-supplied current writer chain in a read-only snapshot;
+it never issues or repairs a certificate. Both return exact retained terminal JSON bytes. A complete
+original-key replay ignores stale effect epoch/head/base but still requires current authority.
+New effects reserve outcome capacity and use a content savepoint; admitted domain rejection
+rolls back all content/stream/receipt/device/time changes before recording rejection, while unexpected errors
+roll back the enclosing transaction. UNKNOWN is genuine absence and is never persisted.
+The unintegrated #1934 `page::prepare_publication` library captures one authenticated snapshot
+for its genesis issuer, owner head, epoch, cuts, devices and complete content/own projections.
+It reuses isolated causal preparation and returns explicit Noop with captured base and memory
+profile, or a frozen Write with one signed job, exact ordered sealed envelope packet and chain.
+Noop precedes operation ID, sequence, encryption and certificate issuance; publisher-only changes
+are writes. Write preparation preserves foreign state and metadata, admits combined retained tail
+and new deltas, and signs through the existing private local Keyring writer. Native evidence binds
+source digest, actual decoder memory profile and the exact chain hash. Preparation has no durable
+effect or authority promotion; later commit rechecks current authority and the frozen base.
+Both native single-edit and batch preparation include all own bytes in the checked whole-state
+raw fastpath and use one gzip stream at the unchanged 5,000,000-byte budget. This library does not
+activate v2 IPC, CLI, browser Save, durable caller recovery or final cap acceptance.
+Existing browser Save and CLI writes still publish through their single-update paths; the active
+page-write version-1 DTO and route limits above are unchanged. Syntax and signature success
+neither authorizes effects nor proves a retained terminal outcome.
+
+All new DTOs use camelCase, reject unknown/duplicate fields at every nested boundary, and
+reject explicit null for optional `nativeEvidence`. IDs/counters/hashes reuse the model's
+canonical UUIDv4, space ID, positive-u64 decimal, lowercase hex32 and base64url rules.
+The content manifest is `{version:1,operationId,spaceId,pageId,epoch,streamId,kind:"content",
+membershipHead:{revision,statementHash},baseRevision,entries,packetBytes,packetHash}` plus
+optional `{sourceSha256,memoryLimit,chainHash}` native evidence. `baseRevision` is `v1:` plus
+lowercase hex32. Each entry is `{namespace:"content",seq,envelopeHash,envelopeBytes}`;
+byte/count fields are positive unsigned JSON integers. `SignedJob` is `{manifest,signature}`.
+The packet is the exact concatenation of original envelope JSON slices in entry order,
+without re-encoding. SHA256 of those raw bytes is `packetHash`; `envelopeHash` is the model's
+separate envelope hash domain. Every strict envelope must be update/content and match the
+manifest space/page/epoch/device/membership revision/sequence/length/hash. Sequences are
+contiguous with checked overflow; later `prevHash` values match the previous envelope hash.
+The first previous hash retains model syntax; the native publication transaction uses the
+shared append owner to compare it with the actual admitted device head.
+
+The signature input is the existing four-byte-big-endian LP frame over, in order:
+`tmt-colab-publication-v1`, ASCII `1`, operationId, spaceId, pageId, epoch, streamId,
+ASCII `content`, membership revision, statementHash ASCII, baseRevision ASCII, entries blob,
+packetBytes decimal ASCII, decoded packetHash32, native evidence blob. Entries blob starts
+with u32-BE count then concatenates each entry's LP `[namespace,seq,decoded envelopeHash32,
+envelopeBytes decimal ASCII]`. Native blob is byte0 when absent, or byte1 followed by LP
+`[sourceSha256 ASCII,exact decoder memoryLimit spelling,decoded chainHash32]` when present.
+`jobDigest` is canonical base64url32 of SHA256(signature input). Job and every envelope
+signature are verified with the caller-supplied admitted public key using the strict model
+helpers; manifest data never selects an authority key.
+
+Entries are 1..decoder::WRITE_TAIL_UPDATES; each envelope JSON is at most limits::UPDATE_BYTES,
+each decoded ciphertext minus its 16-byte tag is at most decoder::UPDATE_BYTES, and their
+sum is at most decoder::WRITE_TAIL_BYTES. For N entries the packet cap is
+`min(N*limits::UPDATE_BYTES,((WRITE_TAIL_BYTES+N*2048)*4/3)+N*2048)` with checked arithmetic.
+Entry lengths sum to packetBytes and the complete actual packet length; trailing bytes reject.
+SignedJob and outcome JSON are at most 64 KiB; chain bytes at most 16 KiB. The standalone local
+write JSON bound is `4*ceil(MAX_PACKET_BYTES/3)+65536+4*ceil(16384/3)+2048`, where
+MAX_PACKET_BYTES uses N=WRITE_TAIL_UPDATES. These are codec bounds, not increased runtime
+acquisition/route/source limits or final whole-state gzip acceptance.
+
+`JobKey` is exactly `{operationId,jobDigest,spaceId,pageId,originalEpoch,streamId}`.
+Outcomes always bind that complete original key: `{status:"unknown",key}`;
+`{status:"rejected",key,code}` where code is exactly COLAB_STALE_BASE, COLAB_CAPACITY,
+COLAB_PAGE_INACTIVE, COLAB_STATE_MISSING or COLAB_STREAM_GAP; or
+`{status:"committed",key,count,finalPosition:{seq,envelopeHash},committedRevision}` plus
+optional complete nativeEvidence. A supplied expected job pins count/finalPosition/evidence;
+committedRevision uses the same v1 token grammar. Variant-inappropriate fields reject.
+Unknown is observational absence of a retained terminal outcome, never proof of no effect.
+
+Reserved, uninstalled local DTOs are `{version:2,action:"write",signedJob,packet,chain}`
+and `{version:2,action:"status",key}`. Write packet/chain are canonical base64url exact bytes;
+write requires complete native evidence with chainHash equal to SHA256(raw chain), plus job
+and envelope signatures under the supplied key. Chain issuer/certificate/local-keyring
+admission is performed by the native library adapter. Status is bounded 64 KiB original-ID lookup,
+with no write fields or new effect. Version1 is rejected by these new codecs alone.
+No-op creates no job/ID/sequence; own/checkpoint/HTML/asset jobs are unsupported. Schema 6 scopes
+content outcomes in the existing globally unique owner_operations ledger without changing
+legacy rows. Terminal identities and exact outcome/digest/scope/identity bytes share the
+existing page count/byte budgets across epochs; exact replay adds no charge or page time.
+There is no expiry, eviction or pending UNKNOWN row. The native library has no broadcast or
+production caller. Local v2 IPC activation, Save/CLI/browser adoption, recovery/fold barriers,
+gzip parity and final caps remain unintegrated.
 
 ## Plaintext page export (#1309)
 

@@ -43,13 +43,20 @@ const STOP: CommandSpec = CommandSpec {
 const STATUS: CommandSpec = CommandSpec {
     name: "status",
     summary: "Inspect the running door address without changing Remote state",
-    examples: &[Example {
-        command: "tmt remote status --json",
-        note: "Discover the live origin and route path, or the last port when stopped",
-    }],
+    examples: &[
+        Example {
+            command: "tmt remote status --json",
+            note: "Discover the live origin and route path, or the last port when stopped",
+        },
+        Example {
+            command: "tmt remote status --machine --json",
+            note: "Include the running owner's machine UUID as an optional local observation",
+        },
+    ],
     outputs: OutputModes::HumanAndJson,
     details: "Read-only; does not start the door or pair a device. Live addresses come from serve.
-Stopped status reports only the remembered port, which is not a live address.",
+Stopped status reports only the remembered port, which is not a live address.
+--machine requires --json; an older running door may not support this optional projection.",
 };
 const PAIR: CommandSpec = CommandSpec {
     name: "pair",
@@ -179,7 +186,15 @@ fn grammar() -> Command {
                 ),
         )
         .subcommand(tmt_cli_style::command(&STOP))
-        .subcommand(tmt_cli_style::command(&STATUS))
+        .subcommand(
+            tmt_cli_style::command(&STATUS).arg(
+                Arg::new("machine")
+                    .long("machine")
+                    .action(ArgAction::SetTrue)
+                    .requires("json")
+                    .help("Include the live machine UUID (requires --json)"),
+            ),
+        )
         .subcommand(
             tmt_cli_style::command(&PAIR)
                 .arg(
@@ -242,7 +257,7 @@ fn run(matches: &clap::ArgMatches) -> Result<(), RemoteError> {
         return pair(arguments.get_flag("json"), open::flag(arguments));
     }
     if name == "status" {
-        return status(arguments.get_flag("json"));
+        return status(arguments.get_flag("json"), arguments.get_flag("machine"));
     }
     if name == "stop" {
         return stop_command(arguments.get_flag("json"));
@@ -326,11 +341,11 @@ fn stop_command(json_output: bool) -> Result<(), RemoteError> {
 }
 /// Public discovery for local extensions. Only the control socket supplies
 /// live values; stopped reads hold the same lease as every database opener.
-fn status(json_output: bool) -> Result<(), RemoteError> {
+fn status(json_output: bool, machine: bool) -> Result<(), RemoteError> {
     let root = discovery_root()?;
     let answer = match Layout::existing(&root)? {
         None => json!({"running":false,"lastPort":null}),
-        Some(layout) => match control::status(&layout.directory) {
+        Some(layout) => match control::status(&layout.directory, machine) {
             Ok(Some(answer)) => answer,
             Ok(None) => {
                 let last_port = match layout.existing_serve_lock()? {

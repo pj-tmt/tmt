@@ -40,33 +40,35 @@ pub(crate) fn glyph_error(text: &str) -> Option<String> {
         .flat_map(|mark| mark.symbol().chars())
         .chain(['◐', '✎'])
         .collect::<std::collections::BTreeSet<_>>();
-    let mut chars = text.chars().peekable();
-    let mut previous: Option<char> = None;
-    while let Some(character) = chars.next() {
-        let structural = STRUCTURAL_GLYPHS.iter().any(|(glyphs, reason)| {
-            assert!(!reason.is_empty());
-            glyphs.contains(character)
-        });
-        let ambiguous = character.width() != character.width_cjk();
-        // Presentation sequences catch text-default emoji such as the stopwatch;
-        // wide glyphs also reject default emoji in these fixed English labels.
-        let emoji = matches!(character, '\u{fe0f}' | '\u{20e3}')
-            || !character.is_ascii()
-                && (character.width() == Some(2)
-                    || format!("{character}\u{fe0f}").width() > character.width().unwrap_or(0));
-        if (emoji || ambiguous) && !structural && !marks.contains(&character) {
-            return Some(format!("unregistered decorative glyph {character:?}"));
+    for line in text.lines() {
+        let mut chars = line.chars().peekable();
+        let mut previous: Option<char> = None;
+        while let Some(character) = chars.next() {
+            let structural = STRUCTURAL_GLYPHS.iter().any(|(glyphs, reason)| {
+                assert!(!reason.is_empty());
+                glyphs.contains(character)
+            });
+            let ambiguous = character.width() != character.width_cjk();
+            // Presentation sequences catch text-default emoji such as the stopwatch;
+            // wide glyphs also reject default emoji in these fixed English labels.
+            let emoji = matches!(character, '\u{fe0f}' | '\u{20e3}')
+                || !character.is_ascii()
+                    && (character.width() == Some(2)
+                        || format!("{character}\u{fe0f}").width() > character.width().unwrap_or(0));
+            if (emoji || ambiguous) && !structural && !marks.contains(&character) {
+                return Some(format!("unregistered decorative glyph {character:?}"));
+            }
+            if states.contains(&character)
+                && !character.is_ascii()
+                && previous.is_some_and(|previous| !previous.is_whitespace())
+            {
+                return Some(format!("state mark {character:?} needs a leading space"));
+            }
+            if states.contains(&character) && chars.peek().copied() != Some(' ') {
+                return Some(format!("state mark {character:?} needs a trailing space"));
+            }
+            previous = Some(character);
         }
-        if states.contains(&character)
-            && !character.is_ascii()
-            && previous.is_some_and(|previous| !previous.is_whitespace())
-        {
-            return Some(format!("state mark {character:?} needs a leading space"));
-        }
-        if states.contains(&character) && chars.peek() != Some(&' ') {
-            return Some(format!("state mark {character:?} needs a trailing space"));
-        }
-        previous = Some(character);
     }
     None
 }
@@ -97,6 +99,16 @@ fn glyph_guard_rejects_unregistered_ambiguous_and_emoji_decorations_and_unspaced
         "◆ 0 ✗ 1 ◐ 2 ● 3 ○ 4",
         "2 other",
     ] {
+        assert_eq!(glyph_error(good), None, "positive control {good:?}");
+    }
+}
+
+#[test]
+fn retired_occurrence_prefixes_do_not_relax_semantic_mark_spacing() {
+    for bad in ["◆>row", ">◆ row", "│>◆ row", " >◆ row", "label>◆ row"] {
+        assert!(glyph_error(bad).is_some(), "negative control {bad:?}");
+    }
+    for good in ["◆ row", " ◆ row", "  ◆ row", " │ ◆ row"] {
         assert_eq!(glyph_error(good), None, "positive control {good:?}");
     }
 }

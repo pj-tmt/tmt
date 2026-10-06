@@ -141,10 +141,7 @@ export function BoardDemo({ steps, label }: { steps: Step[]; label: string }) {
   }
   return (
     <div ref={root} className="my-6 w-full" aria-label={label} role="group">
-      <div
-        aria-hidden="true"
-        className="overflow-hidden border border-term-edge bg-term shadow-[6px_6px_0_var(--c-accent)]"
-      >
+      <div aria-hidden="true" className="overflow-hidden border border-term-edge bg-term">
         <FitWidth width={620}>
           <div
             style={{ height: step.height ?? 340 }}
@@ -155,9 +152,7 @@ export function BoardDemo({ steps, label }: { steps: Step[]; label: string }) {
             </div>
             <div
               className={`absolute overflow-hidden bg-term px-3 py-2 whitespace-pre transition-[opacity,transform] duration-200 motion-reduce:transition-none ${
-                step.full
-                  ? "inset-0"
-                  : "inset-[5%] border border-t-accent shadow-[0_10px_40px_rgba(0,0,0,.45)]"
+                step.full ? "inset-0" : "inset-[5%] border border-t-accent"
               } ${frame.pop ? "opacity-100" : "pointer-events-none translate-y-1.5 scale-[.985] opacity-0"}`}
             >
               {frame.pop &&

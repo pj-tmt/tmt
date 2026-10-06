@@ -525,16 +525,16 @@ fn schema_one_migration_preserves_all_ciphertext_and_refuses_newer_schema_untouc
     assert_eq!(
         db.pragma_query_value(None, "user_version", |r| r.get::<_, u32>(0))
             .unwrap(),
-        5
+        6
     );
     assert_eq!(counts(&db), vec![0; 7]);
-    db.pragma_update(None, "user_version", 6).unwrap();
+    db.pragma_update(None, "user_version", 7).unwrap();
     let path = f.layout.directory.join("space.db");
     let bytes = fs::read(&path).unwrap();
     let error = Store::open(&f.layout).err().unwrap();
     assert!(matches!(
         error.downcast_ref::<Fault>(),
-        Some(Fault::UnsupportedSchema(6))
+        Some(Fault::UnsupportedSchema(7))
     ));
     assert_eq!(fs::read(&path).unwrap(), bytes);
     assert_eq!(legacy_rows(&db), before);
@@ -635,4 +635,53 @@ fn open_restores_delete_journal_mode_before_migration_and_leaves_no_wal_sidecars
     }
     oracle.close().unwrap();
     reopened.close().unwrap();
+}
+
+#[test]
+fn schema_five_scoped_migration_preserves_independent_legacy_rows_and_replay() {
+    let mut f = Fixture::new();
+    let original = f.bootstrap();
+    let db = f.oracle();
+    // Historical schema5 owner_operations is defined independently, not relabeled modern columns.
+    db.execute_batch("ALTER TABLE owner_operations RENAME TO modern_operations;
+        CREATE TABLE owner_operations(id TEXT PRIMARY KEY,digest BLOB NOT NULL,outcome BLOB NOT NULL);
+        INSERT INTO owner_operations SELECT id,digest,outcome FROM modern_operations;
+        DROP TABLE modern_operations; PRAGMA user_version=5;").unwrap();
+    let before: (String, Vec<u8>, Vec<u8>) = db
+        .query_row("SELECT id,digest,outcome FROM owner_operations", [], |r| {
+            Ok((r.get(0)?, r.get(1)?, r.get(2)?))
+        })
+        .unwrap();
+    let raw = fs::read(f.layout.directory.join("space.db")).unwrap();
+    let read = Store::read(&f.layout).unwrap();
+    assert!(matches!(
+        read.require_current_schema(),
+        Err(Fault::OutdatedSchema(5))
+    ));
+    read.close().unwrap();
+    assert_eq!(fs::read(f.layout.directory.join("space.db")).unwrap(), raw);
+    f.store = Store::open(&f.layout).unwrap();
+    let after: (String, Vec<u8>, Vec<u8>) = db
+        .query_row("SELECT id,digest,outcome FROM owner_operations", [], |r| {
+            Ok((r.get(0)?, r.get(1)?, r.get(2)?))
+        })
+        .unwrap();
+    assert_eq!(after, before);
+    assert_eq!(db.query_row("SELECT count(*) FROM owner_operations WHERE publication_kind IS NULL AND space IS NULL AND page IS NULL AND original_epoch IS NULL AND original_stream IS NULL",[],|r|r.get::<_,i64>(0)).unwrap(),1);
+    assert_eq!(
+        f.store
+            .owner_transaction(
+                &f.key.space_id,
+                &f.key.owner_public(),
+                mutation(OP, 0),
+                |_| panic!("legacy replay executed mutation")
+            )
+            .unwrap(),
+        original
+    );
+    assert_eq!(
+        db.pragma_query_value(None, "user_version", |r| r.get::<_, u32>(0))
+            .unwrap(),
+        6
+    );
 }

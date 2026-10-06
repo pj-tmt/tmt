@@ -8,6 +8,7 @@ mod lifecycle;
 mod notification;
 mod responses;
 mod wake;
+mod withdrawal;
 
 use super::*;
 use crate::{exact_text::validate_exact_text, limits::MAX_JS_SAFE_INTEGER, retention::*};
@@ -222,6 +223,7 @@ fn prepare_records<E>(
         settled_at_ms: None,
         wait_released_at_ms: None,
         response_submitted_at_ms: None,
+        withdrawal: None,
         expires_at_ms: expires,
         retention_days,
         retention_expires_at_ms: horizon,

@@ -21,8 +21,8 @@ pub(super) const ATTEMPT_COLUMNS: &str = "
     expires_at_ms, retention_days, retention_expires_at_ms,
     attention_revision, attention_acknowledged_revision,
     recipient_attention_revision, recipient_attention_acknowledged_revision, request_kind, room_id,
-    host";
-pub(super) const ATTEMPT_COLUMN_COUNT: usize = 34;
+    host, withdrawn_at_ms, withdrawal_reason";
+pub(super) const ATTEMPT_COLUMN_COUNT: usize = 36;
 pub(super) fn qualified_attempt_columns() -> String {
     ATTEMPT_COLUMNS
         .split(',')
@@ -139,6 +139,21 @@ pub(super) fn attempt_row(row: &Row<'_>) -> rusqlite::Result<RequestAttempt> {
         settled_at_ms: optional_u64_at(row, 21)?,
         wait_released_at_ms: optional_u64_at(row, 22)?,
         response_submitted_at_ms: optional_u64_at(row, 23)?,
+        withdrawal: match (optional_u64_at(row, 34)?, row.get::<_, Option<String>>(35)?) {
+            (None, None) => None,
+            (Some(withdrawn_at_ms), Some(reason))
+                if withdrawn_at_ms > 0
+                    && !reason.is_empty()
+                    && reason.len() <= tmt_core::request::MAX_WITHDRAWAL_REASON_BYTES
+                    && optional_u64_at(row, 23)?.is_none() =>
+            {
+                Some(tmt_core::request::Withdrawal {
+                    reason,
+                    withdrawn_at_ms,
+                })
+            }
+            _ => return Err(invalid_row()),
+        },
         expires_at_ms: u64_at(row, 24)?,
         retention_days: u64_at(row, 25)?,
         retention_expires_at_ms: u64_at(row, 26)?,

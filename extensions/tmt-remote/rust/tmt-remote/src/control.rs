@@ -216,6 +216,10 @@ fn session(
             Some("status") if request == json!({"op":"status"}) => Some(Ok(json!({
                 "running":true, "origin":door.origin, "path":door.prefix,
             }))),
+            Some("status") if request == json!({"op":"status","machine":true}) => Some(Ok(json!({
+                "running":true, "origin":door.origin, "path":door.prefix,
+                "machineId":pairing.machine_id(),
+            }))),
             Some("pair") => None,
             Some("devices") => Some(devices.list().map(
                 |grants| json!({"devices": grants.iter().map(device_json).collect::<Vec<_>>()}),
@@ -419,8 +423,15 @@ fn socket_path(remote_directory: &Path) -> Result<PathBuf, RemoteError> {
 
 /// Bounded read-only discovery. The live address comes from this run, never
 /// from remembered state. Malformed or silent peers cannot become stopped status.
-pub fn status(remote_directory: &Path) -> Result<Option<Value>, RemoteError> {
-    let Some(answer) = request_operation(remote_directory, "status")? else {
+pub fn status(remote_directory: &Path, machine: bool) -> Result<Option<Value>, RemoteError> {
+    // Optional discovery preserves peer errors: unsupported is absence of this
+    // projection, not a reason to repair or restart an otherwise usable door.
+    let response = if machine {
+        request(remote_directory, &json!({"op":"status","machine":true}))
+    } else {
+        request_operation(remote_directory, "status")
+    };
+    let Some(answer) = response? else {
         return Ok(None);
     };
     let origin = answer["origin"].as_str().unwrap_or("");
@@ -430,7 +441,14 @@ pub fn status(remote_directory: &Path) -> Result<Option<Value>, RemoteError> {
         .filter(|port| *port != 0);
     let origin_valid = port.is_some_and(|port| origin == format!("http://127.0.0.1:{port}"));
     let path_valid = answer["path"].as_str().is_some_and(canonical::route_prefix);
-    if answer.as_object().is_none_or(|fields| fields.len() != 3)
+    let machine_valid = !machine
+        || answer["machineId"]
+            .as_str()
+            .is_some_and(|id| canonical::uuid(id).is_ok());
+    if answer
+        .as_object()
+        .is_none_or(|fields| fields.len() != if machine { 4 } else { 3 })
+        || !machine_valid
         || answer["running"] != true
         || !origin_valid
         || !path_valid

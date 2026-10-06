@@ -281,14 +281,18 @@ fn pages_follow_the_forwarded_owner_context_within_the_door_bounds() {
     let private = server.request(&Running::get("/", ""));
     assert!(private.starts_with("HTTP/1.1 200"));
     assert!(private.contains("<title>Colab</title>"));
-    assert!(private.contains("<h2>Pair this browser first</h2>"));
+    assert!(private.contains("<h2 class=\"tmt-ui-notice-heading\">Pair this browser first</h2>"));
     assert!(private.contains("This colab space is private. Pair this browser with"));
     assert!(private.contains("<code>tmt remote pair</code>"));
     assert!(private.contains("or open a share link."));
     assert!(private.contains("<main class=\"guidance-main\">"));
     assert!(!private.contains("./assets/reader.css"));
     assert!(private.contains("./assets/chrome.css"));
-    assert!(private.contains("class=\"colab-header\""));
+    assert!(!private.contains("colab-recovery-status"));
+    assert!(!private.contains("./assets/recovery.js"));
+    assert!(!private.contains("class=\"guidance-detail\" hidden"));
+    assert!(private.contains("data-tone=\"waiting\""));
+    assert!(private.contains("class=\"tmt-ui-header\""));
     let chrome = server.request(&Running::get("/assets/chrome.css", ""));
     assert!(chrome.starts_with("HTTP/1.1 200"));
     assert!(chrome.contains("Content-Type: text/css; charset=utf-8"));
@@ -299,8 +303,8 @@ fn pages_follow_the_forwarded_owner_context_within_the_door_bounds() {
     assert!(chrome.contains("Referrer-Policy: no-referrer"));
     assert!(chrome.contains("X-Content-Type-Options: nosniff"));
     assert!(chrome.contains("Cache-Control: no-store"));
-    assert!(chrome.contains("--colab-header-height:56px"));
-    assert!(chrome.contains(".colab-header"));
+    assert!(chrome.contains("--tmt-ui-header-height: 56px"));
+    assert!(chrome.contains(".tmt-ui-header"));
     assert_eq!(
         tmt_colab::assets::anonymous_file("/assets/chrome.css"),
         Some("/assets/chrome.css")
@@ -1791,9 +1795,9 @@ fn owner_static_assets_have_exact_bytes_types_and_no_filesystem_path_resolution(
     }
     let guidance = server.request(&Running::get("/", ""));
     assert!(guidance.contains("This colab space is private"));
-    assert!(guidance.contains("<span class=\"colab-brand\"><span class=\"colab-mark\">tmt</span><span class=\"colab-wordmark\">Colab</span></span>"));
+    assert!(guidance.contains("<span class=\"tmt-ui-brand\"><span class=\"tmt-ui-mark\" aria-hidden=\"true\">▚</span><span class=\"tmt-ui-wordmark\">Colab</span></span>"));
     assert!(guidance.contains("<svg class=\"guidance-mark lucide\""));
-    assert!(guidance.contains("<h2>Pair this browser first</h2>"));
+    assert!(guidance.contains("<h2 class=\"tmt-ui-notice-heading\">Pair this browser first</h2>"));
     assert!(guidance.contains("<code>tmt remote pair</code>"));
     assert!(guidance.contains("<link rel=\"stylesheet\" href=\"./assets/chrome.css\">"));
     assert!(guidance.contains("<main class=\"guidance-main\">"));

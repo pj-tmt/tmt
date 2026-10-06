@@ -1,3 +1,4 @@
+import { browserUiClasses as ui } from '@tmt/browser-ui/static';
 import { Circle, Info, LoaderCircle, X } from 'lucide-react';
 import { ColabHeader } from './colab-header.js';
 import { NoticeCard } from './notice-card.js';
@@ -72,7 +73,7 @@ export function ReaderApp({ state }: { state: ReaderState }) {
               </>
             )}
             <details className="reader-information">
-              <summary aria-label={text.readerInfo}>
+              <summary className={ui.action} data-variant="text" aria-label={text.readerInfo}>
                 <Info aria-hidden />
               </summary>
               <div className="reader-information-panel">

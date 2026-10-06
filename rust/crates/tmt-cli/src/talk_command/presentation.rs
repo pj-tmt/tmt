@@ -84,6 +84,15 @@ pub(super) fn publish(report: Report, mode: OutputMode) -> io::Result<u8> {
             }
             // The responder's exact text, never styled or escaped.
             writeln!(stdout, "{}", response.body)?;
+        } else if correlation.unbound {
+            tmt_cli_style::message::success(
+                &mut stdout,
+                terminal,
+                &format!(
+                    "Queued request {} for {} without a live endpoint",
+                    correlation.request_id, correlation.target
+                ),
+            )?;
         } else if correlation.offline {
             writeln!(
                 stdout,

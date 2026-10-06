@@ -60,6 +60,12 @@ the [refresh reference](refresh-and-meter.md#refresh-worker) owns worker priorit
 
 ## Replies and verification
 
+`requests::replies` admits only recipient finals (`retained`, `expired`,
+`unavailable`) from the user's squad-room requests, ordered by submission time.
+Originator withdrawal (`withdrawn`, with reason/time) remains Core history and
+never becomes a recipient reply, body read or approval. Open requests,
+announcements and unknown final states are excluded from this projection.
+
 `requests::bodies` considers only the newest `BODIES` (eight) finals and loads those
 still retained through `requests.show`. Its refresh-worker cache uses immutable
 request IDs and prunes to that same eight-item window. `view::replies` sanitizes

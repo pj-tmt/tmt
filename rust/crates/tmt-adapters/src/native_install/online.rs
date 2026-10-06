@@ -25,7 +25,12 @@ pub fn install_release(
     verifier: Option<ReleaseVerifier<'_>>,
     checkpoint: impl FnMut() -> io::Result<()>,
 ) -> io::Result<InstallReport> {
-    let client = crate::release_http::Https::new();
+    let deadline = Instant::now() + Duration::from_secs(60);
+    let client = if matches!(channel, Channel::Pr(_)) {
+        crate::release_http::Https::authenticated(deadline, &crate::process::UnixCommandRunner)?
+    } else {
+        crate::release_http::Https::new()
+    };
     install_release_with(
         product,
         prefix,
@@ -33,13 +38,25 @@ pub fn install_release(
         channel,
         verifier,
         checkpoint,
-        |url, accept, limit, deadline| client.get(url, accept, limit, deadline),
+        |url, accept, limit, request_deadline| {
+            let request_deadline = request_deadline.min(deadline);
+            if matches!(channel, Channel::Pr(_)) && url.ends_with("/zip") {
+                client.get_actions(url, limit, request_deadline)
+            } else {
+                client.get(url, accept, limit, request_deadline)
+            }
+        },
     )
 }
 
 /// The newest published version of `product` in `channel`, by bounded
 /// metadata discovery only: nothing is downloaded or installed.
 pub fn latest_release_version(product: Product, channel: Channel) -> io::Result<Version> {
+    if matches!(channel, Channel::Pr(_)) {
+        return Err(io::Error::other(super::pr_resolver::Unavailable(
+            "PR channels require target-aware authenticated acquisition; published-release discovery cannot select a PR candidate.",
+        )));
+    }
     let client = crate::release_http::Https::new();
     release::discover_latest(
         product,
@@ -60,14 +77,22 @@ fn install_release_with(
     get: impl FnMut(&str, &str, usize, Instant) -> io::Result<crate::release_http::Response>,
 ) -> io::Result<InstallReport> {
     checkpoint()?;
-    let downloaded = release::download_product(
-        product,
-        channel,
-        None,
-        target,
-        Instant::now() + Duration::from_secs(60),
-        get,
-    )?;
+    let deadline = Instant::now() + Duration::from_secs(60);
+    let downloaded = if let Channel::Pr(pr) = channel {
+        super::pr_resolver::download_current(
+            super::pr_resolver::Request {
+                product,
+                pr,
+                exact: None,
+                target,
+                opt_in: false,
+                deadline,
+            },
+            get,
+        )?
+    } else {
+        release::download_product(product, channel, None, target, deadline, get)?
+    };
     checkpoint()?;
     let artifact = artifact::acquire_bytes(
         product,
@@ -85,6 +110,8 @@ fn install_release_with(
             expected: None,
             provenance: Some(downloaded.provenance),
             verifier,
+            explicit_channel: true,
+            schema: None,
         },
         &artifact,
         checkpoint,
@@ -95,6 +122,37 @@ fn install_release_with(
 mod tests {
     use super::*;
     use crate::test_support::TestDirectory;
+
+    #[test]
+    fn pr_installation_never_falls_back_to_release_discovery_or_creates_a_prefix() {
+        let directory = TestDirectory::new();
+        let prefix = directory.path.join("prefix");
+        let channel = Channel::parse("pr234").unwrap();
+        let error = install_release_with(
+            Product::Cli,
+            &prefix,
+            "aarch64-apple-darwin",
+            channel,
+            None,
+            || Ok(()),
+            |_, _, _, _| panic!("Unknown compiled producer must refuse before network"),
+        )
+        .unwrap_err();
+        assert!(
+            error
+                .get_ref()
+                .unwrap()
+                .is::<super::super::pr_resolver::Unavailable>()
+        );
+        assert!(!prefix.exists());
+        assert!(
+            latest_release_version(Product::Cli, channel)
+                .unwrap_err()
+                .get_ref()
+                .unwrap()
+                .is::<super::super::pr_resolver::Unavailable>()
+        );
+    }
 
     #[test]
     fn no_release_does_not_create_an_installation() {

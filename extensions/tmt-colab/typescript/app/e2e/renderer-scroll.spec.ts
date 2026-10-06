@@ -35,7 +35,7 @@ async function mount(page: Page, source: string, reader: boolean, readerOnly = f
     },
     { source, reader },
   );
-  await expect(page.locator('.colab-header:visible .status')).toContainText(
+  await expect(page.locator('.tmt-ui-header:visible .status')).toContainText(
     reader ? 'Live' : 'Live preview',
   );
   await page.evaluate(() => (window as unknown as { firstHeight: Promise<void> }).firstHeight);

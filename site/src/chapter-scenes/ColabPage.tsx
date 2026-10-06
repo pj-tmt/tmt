@@ -55,7 +55,7 @@ export function ColabPage() {
                 </li>
               ))}
             </ol>
-            <div className="border border-(--t-waiting) bg-t-waiting/10 p-2.5 text-[13px] leading-snug">
+            <div className="border border-(--t-waiting) bg-term-bar p-2.5 text-[13px] leading-snug">
               {decision ? (
                 <>
                   <b className="font-mono text-t-working">✓ {colab.decided}</b> {decision} ·{" "}

@@ -106,7 +106,7 @@ function scenario(options: Scenario = {}) {
     path.join(repositoryRoot, '.github/components.json'),
     path.join(repo, '.github/components.json')
   );
-  writeReleaseWorkspace(repo, ['remote', 'colab']);
+  writeReleaseWorkspace(repo, ['remote', 'colab', 'driver-herdr']);
   // Exact-ref metadata must use the checkout's installed toolchain, not the host default.
   copyFileSync(
     path.join(repositoryRoot, 'rust/rust-toolchain.toml'),

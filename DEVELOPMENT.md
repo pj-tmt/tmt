@@ -305,6 +305,15 @@ Ordinary developer checks:
 `pnpm lint`, `pnpm format:check` run its parts); `pnpm docs:format:check` covers
 docs. Neither replaces the Rust commands, the native process suite or Docker runs.
 
+## Conventional PR title checks
+
+The single approved type policy is `CONVENTIONAL_PR_TYPES` in
+`typescript/scripts/pr-title-check.mjs`; the [release reference](.agents/skills/tmt-release/references/native-release.md#conventional-pr-titles)
+owns syntax, released-path scope, edit feedback and cumulative merge-group enforcement.
+The report-only observation day ended at **2026-10-03T16:35:42Z** (#1165); its original
+impact findings belong in the issue/flip PR, not this guide. `--report-only` is explicit
+observation compatibility, never the required CI gate.
+
 ## Installed guidance source ownership
 
 `skills/tmux-team/SKILL.md` and `skills/tmt-inbox/SKILL.md` are the canonical

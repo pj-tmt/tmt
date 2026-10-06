@@ -152,7 +152,7 @@ test('paired writers retain anchored annotation conversations, direct exact send
       console.log(
         JSON.stringify({ width, windowScrollTop, frameScrollTop, marker: 'END OF PAGE' }),
       );
-      expect((await first.locator('.colab-header').boundingBox())?.y).toBe(0);
+      expect((await first.locator('.tmt-ui-header').boundingBox())?.y).toBe(0);
       await first.screenshot({ path: `/tmp/1587-native-${width}-light-long-scrolled.png` });
     }
     await first.setViewportSize({ width: 1440, height: 900 });

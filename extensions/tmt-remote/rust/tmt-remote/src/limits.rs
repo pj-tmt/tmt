@@ -42,7 +42,7 @@ pub const DEFAULT_SESSIONS_PER_DEVICE: usize = 8;
 /// Minimum interval between background session authority and cleanup scans.
 pub const SESSION_MAINTENANCE_INTERVAL: Duration = Duration::from_secs(1);
 
-/// Sessions that have never acquired a mounted transport expire without activity.
+/// Sessions without a live mounted transport expire after this reattach grace.
 pub const SESSION_UNATTACHED_IDLE: Duration = Duration::from_secs(60);
 /// Keep signed end reasons briefly after cleanup; later admission is generic.
 pub const SESSION_END_NOTICE: Duration = Duration::from_secs(60);

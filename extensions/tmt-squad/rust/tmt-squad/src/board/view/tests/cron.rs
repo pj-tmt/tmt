@@ -717,7 +717,7 @@ fn walking_the_c_list_from_the_board_moves_one_job_per_press() {
                 );
                 let cid = expected.rsplit('/').next().unwrap();
                 assert!(
-                    screen.iter().any(|line| line.contains(&format!(" {cid} "))),
+                    screen.iter().any(|line| line.contains(&format!("›{cid} "))),
                     "{cid} painted\n{}",
                     screen.join("\n")
                 );

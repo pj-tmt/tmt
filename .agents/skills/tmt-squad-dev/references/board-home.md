@@ -52,7 +52,8 @@ and audience effects to [config-and-effects.md](config-and-effects.md#home-lead-
   cursor once more; `select` and the composer clear it. Squad tabs start at row 0.
 - `home::leads` projects deferred exchanges into the shared `view::member_list`
   `Outline` box. Every visible line of
-  a lead maps to the same cursor target. A blank boxed line follows an exchange
+  a lead maps to the same cursor target. Selection styles only its heading,
+  preserving the blank indentation and acquired preview text. A blank boxed line follows an exchange
   before the next lead; consecutive leads without exchanges have no separator.
   Disabling replies removes previews and separators together. Expanded messages
   replace their preview below the header, using the shared band and height cap
@@ -69,7 +70,9 @@ look and selected block. Ages, cron text, input reservation, sent feedback, sear
 and usage must reach bound data before key comparison; decoration may read only
 look and selected block. Local placement lets a shifted section reuse its block.
 Selection repaints the departed/entered sections; width/look changes rebuild affected
-scenes, and a new snapshot starts empty. The key strip paints without look decoration.
+scenes, and a new snapshot starts empty. The key strip paints without look decoration;
+its bound long/short strings include receiving focus, so suppression and restoration
+use the existing cache key rather than a separate invalidation owner.
 
 `home/tests/cache.rs` compares retained frames with fresh frames. `home/tests/oracle.rs`
 records whole-frame cells/styles/hits around `sm`, `md` and `lg` boundaries;

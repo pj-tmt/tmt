@@ -41,8 +41,8 @@ ownership comes separately from [`.github/components.json`](.github/components.j
 | `contracts/`              | Core public contracts and normative fixtures                                         |
 | `scripts/`                | Shared shell/build/development helpers                                               |
 | `skills/`                 | Canonical bundled user-agent guidance                                                |
-| `site/`                   | User handbook and translations                                                       |
-| `design/`                 | Shared visual tokens and CLI style guidance                                          |
+| `site/`                   | Public Home, retained handbook sources and translations                              |
+| `design/`                 | Tokens/CLI; [private browser-ui](design/gui-components.md); no Core/CLI dep/embed    |
 
 New homes or exceptions need infra review and coordinated map/allowlist changes;
 ignored local outputs are outside the tracked-file map. The
@@ -51,15 +51,13 @@ tracked-file guard. Handbook language exceptions belong to
 [AGENTS](AGENTS.md#repository-content-language) and the allowlist.
 
 Shared visual tokens have one owner, `design/tokens/tokens.json`, maintained by
-the design lead. Its Vite projection, Rust CLI theme tests and native Colab guidance consume the same
-source. The `header` group is the one header contract: Colab projects it into React and static native CSS,
-and Remote's static browser pages ship the same metrics in `pages.css`, which a Remote test checks against it.
-Native Colab embeds the token JSON and the app header/reader/state-card stylesheets at compile time;
-Docker build stages preserve those source paths, and their CI rules retain native checks.
+the design lead. Its Vite projection and Rust CLI theme tests consume that source; `design/browser-ui` projects browser roles, fonts and `header` metrics into checked static CSS.
+Colab app/reader use the leaf's React/static exports; native guidance embeds its CSS plus Colab host metrics and viewport styles at compile time, without running a generator in Cargo or serving.
+Docker stages preserve those inputs and CI retains native checks. Remote's current static pages still ship header metrics in `pages.css`, checked by a Remote test; adoption is separate.
 The private design-tokens component attributes token changes to Colab through `releaseConsumers`.
 Release procedures belong to the
 [release skill](.agents/skills/tmt-release/SKILL.md), including the archive's
-product-neutral `rust/archive/NATIVE-INSTALL.md`.
+product-neutral `rust/archive/NATIVE-INSTALL.md`; [dev-only embed](site/README.md) stays site-owned.
 
 ## TypeScript workspace boundary
 
@@ -644,12 +642,12 @@ declared roots, packaging and canonical generated inputs without cfg/reachabilit
 Required CI covers the component map, declaring crates and release build script; the Node
 Project sweep validates declarations and never executes captured source.
 
-Selected missing, failed, cancelled or unexpectedly skipped work cannot satisfy a
-required gate; empty test discovery never passes. Selection, worker, cache and
-advisory-browser details live in the
-[CI reference](.agents/skills/tmt-release/references/ci-selection.md).
-Publication reuses the native aggregate's scope-skip proof with check-suite
-provenance rather than recomputing historical selection or accepting bare skips.
+Selected missing, failed, cancelled or unexpectedly skipped work and empty discovery
+cannot satisfy required gates; selection, worker, cache and advisory-browser details live in the
+[CI reference](.agents/skills/tmt-release/references/ci-selection.md). `pr-title-check.mjs` owns
+released-path and cumulative squash-title gates; the [release reference](.agents/skills/tmt-release/references/native-release.md#conventional-pr-titles)
+owns edit-only feedback and explicit report-only compatibility. Publication reuses the native
+aggregate's scope-skip proof with check-suite provenance, not recomputed selection or bare skips.
 
 ## Runtime layers
 
@@ -830,7 +828,7 @@ Admitted compaction context reminds saved identities through global `notes.compa
 `tmt-adapters::config::ConfigPaths` is the sole application path owner;
 `config::document` preserves unknown JSON fields and validates known settings
 through `tmt-core::settings`; `init` creates the local file exclusively and never
-opens SQLite or tmux. The global `theme` object is presentation, interpreted only by
+opens SQLite or tmux. Global `theme.base` writes reuse the CLI style base registry; the global `theme` object is presentation, interpreted only by
 `tmt-cli-style` (and read by Squad through `config show`); a bad theme never fails
 configuration loading. Only `tmt-cli-style` names colors. Details are in the
 [storage and requests reference](.agents/skills/tmt-core-runtime/references/requests-storage.md#configuration-and-theme).
@@ -853,11 +851,11 @@ a transaction across transport, and treats uncertain delivery as uncertain, neve
 replay authorization. Final bodies are immutable and terminal text is never
 completion evidence. Reads never acknowledge; originator and recipient
 acknowledgment are independent. `RequestRoute` separates unbound pane delivery from
-the durable identity inbox, which settles `queued`. Reply notices are persisted
-batch windows composed by `request::notification` and `delivery::notices`, with
-detached finite workers owned by `process::detached`. Public behavior and limits are
-in the [request contract](contracts/request-response-v1.md); module rules are in the
-[storage and requests reference](.agents/skills/tmt-core-runtime/references/requests-storage.md).
+the durable identity inbox, which settles `queued`. Unbound identity delivery uses
+the foreground observer and recipient pull. Reply notice windows are persisted and composed by
+`request::notification` and `delivery::notices`, with finite detached workers owned
+by `process::detached`. See the [request contract](contracts/request-response-v1.md)
+for behavior and limits; module rules: [storage and requests reference](.agents/skills/tmt-core-runtime/references/requests-storage.md).
 
 ### Tmux and process effects
 
@@ -942,8 +940,8 @@ declares nothing beyond what the user approved. Core, not the driver, decides
 evidence: server identity is core's own process start token and a missing or changed
 driver is `Unavailable`, never proof of loss. `rust/crates/tmt-driver-herdr` is the
 first driver; its library depends only on the protocol crate, `tmt-invoke`,
-`serde_json` and `semver`, and the CLI archive carries its executable as a
-companion. Details are in the
+`serde_json` and `semver`. Its standalone alpha archives use the main release cut;
+the CLI retains its companion until #1084. Details are in the
 [hosts and drivers reference](.agents/skills/tmt-core-runtime/references/hosts-drivers.md#external-host-drivers).
 
 ## Managed skills and native installation
@@ -968,9 +966,9 @@ release, and the active executable is the authority for a managed update: receip
 anchor to the installation prefix, not to configuration roots. Verification precedes
 execution, publication runs the release verifier before the receipt so a rejection
 keeps the previous release, and failure or cancellation never leaves a half-published
-current release. CLI self-upgrade hands a verified candidate its own
-`__native-install` under the
-[handoff contract](contracts/native-install-handoff-v1.md) and then lets that CLI
+current release. CLI self-upgrade delegates to the verified candidate under the
+[handoff contract](contracts/native-install-handoff-v1.md); persisted PR channels,
+compiled schema export and admission are owned by the [PR channel contract](contracts/native-pr-channel.md). The candidate then lets that CLI
 run the consented extension phase; there is no rollback or second installer.
 `tmt extension install|upgrade|rm|ls` is the public surface for extensions and
 requires consent. Acquisition, receipts, companions, skills trees, repair and the
@@ -981,33 +979,31 @@ build, publication and verification procedures are in the
 
 ## Squad extension
 
-`extensions/tmt-squad/rust/tmt-squad` builds the optional `tmt-squad` executable,
-reached through the external command contract as `tmt squad` and, through a
-`tmt-sq` link to the same file, `tmt sq`. It is a workspace member for the shared
-lockfile and toolchain only, and is released independently (`tmt-squad-v<version>`).
-Module-level reference: the [Squad developer skill](.agents/skills/tmt-squad-dev/SKILL.md).
-Drawing ownership and guard verification are defined in the [Squad](.agents/skills/tmt-squad-dev/SKILL.md) and [TUI](.agents/skills/tmt-tui/SKILL.md) developer skills.
+`extensions/tmt-squad/rust/tmt-squad` builds optional `tmt-squad`, reached through
+external dispatch as `tmt squad` or the same-file `tmt-sq` link as `tmt sq`.
+It shares only the workspace lockfile/toolchain and releases independently (`tmt-squad-v<version>`).
+Module/drawing ownership and guard verification: [Squad](.agents/skills/tmt-squad-dev/SKILL.md) and [TUI](.agents/skills/tmt-tui/SKILL.md) developer skills.
 
 - **Seam.** Squad reaches core only through public `tmt --json` commands and
   `tmt api` (`TMT_EXECUTABLE`, else `tmt` on PATH), each call bounded by
   `tmt-invoke`. It never links a core crate or writes core state, tmux or provider
-  directories itself. No TMT crate depends on Squad; the architecture guard enforces
-  both directions for Cargo dependencies and source references. `tmt-squad` depends
-  only on `tmt-tui`, `tmt-cli-style` and `tmt-invoke`, never on core crates. Using a
-  new `tmt api` method (for example cron's planned `dispatch.create` and
-  `identityHooks`) changes the seam and goes to tmt-lead.
+  directories itself. The architecture guard enforces no TMT crate depending on Squad
+  and no Squad core dependency, for Cargo and source references. Its TMT dependencies
+  are only `tmt-tui`, `tmt-cli-style` and `tmt-invoke`. A new `tmt api` method
+  (for example cron's planned `dispatch.create` and `identityHooks`) changes the seam and goes to tmt-lead.
 - **Data ownership.** A squad is the core room `squad-<name>`; member fields are
   identity metadata `squad.<name>.<field>`, with no Squad membership store. Squad owns
-  `<dataRoot>/squad` (`storage.root`) and disposable caches under
-  `$XDG_CACHE_HOME/tmt-squad`. `squad.toml` is the user's file: agents never write it
-  and Squad edits it only through its compare-and-set writer. No Squad data goes into
-  `config.json` or the core database.
-- **Public JSON.** Public documents are display-ready and never carry board-only data
-  (home model, token-rate meter state, `usage.*` observations).
+  `<dataRoot>/squad` (`storage.root`) and disposable `$XDG_CACHE_HOME/tmt-squad` caches.
+  `squad.toml` is the user's file: agents never write it; Squad uses its compare-and-set
+  writer. No Squad data goes into `config.json` or the core database.
+- **Checklist.** `checklist_command` exposes native grammar and scoped output over the existing
+  `checklist` caller/room admission, `model` revisions/tombstones and `store` versioned room-UUID JSON
+  under `<dataRoot>/squad/checklist`. Reads create nothing; locked admission precedes synced replacement outside a Core/file transaction.
+  Prepublication failure preserves bytes; uncertainty remains Unknown after readback. The board Checklist controller consumes the same typed service, retaining exact previews and uncertain outcomes without dispatch.
+- **Public JSON.** Display-ready documents exclude board-only home/meter/`usage.*` data.
 
-Contracts index (shape owner: the embedded lead skill
-`extensions/tmt-squad/skills/tmt-squad/SKILL.md`, checked by
-`typescript/test/native/squad.test.ts`):
+Contracts index: the [embedded lead skill](extensions/tmt-squad/skills/tmt-squad/SKILL.md)
+owns shapes, checked by `typescript/test/native/squad.test.ts`:
 
 - `sq ls --json`: with `--squad`, one document (`squad`, `sections`, row grid
   `columns`/`lines`, `you`); without it always `{squads: [...], you}`, whatever the
@@ -1016,6 +1012,8 @@ Contracts index (shape owner: the embedded lead skill
   `olderRequestsNotShown`; `squad.noteAnnotations`, `squad.notesStaleness`.
 - `sq config show` and `sq config set --json`: entries of key, value, source and
   editable.
+- `sq checklist <action> --json`: admitted current/revision documents and optional authorized error current;
+  `ls` (hidden alias `list`) returns semantic action `list` with unfiltered/matched counts.
 - `sq cron ls|show|add|edit|pause|resume|reassign|rm --json`: job documents with the
   exact message, schedule, owner and pause attribution; writes admit only the recorded
   user or the squad's current lead.
@@ -1055,7 +1053,7 @@ shares the native runtime/linkage proof across archive, installer, upgrade and
 public smoke verification. Raw executables do not prove archives or public
 installation. The candidate-owned installer handoff contract is
 [`contracts/native-install-handoff-v1.md`](contracts/native-install-handoff-v1.md).
-Archive, installer, verifier and publication procedures belong to
+Archive, installer, verifier, publication, compiled CLI schema and unarmed RC checkpoint/coordinator sources belong to
 [tmt-release](.agents/skills/tmt-release/SKILL.md).
 
 ### Main release cuts
@@ -1170,10 +1168,10 @@ the caller-facing recovery rules. The
 Remote sessions are independently keyed by session ID; the durable journal and ack stay
 per device. Mounted transports explicitly
 bind the session through a non-secret, cookie-device-checked `tmt-session` identifier
-stripped at the door. Last transport close, idle expiry and authority loss reuse
-session-owned cleanup; grant-owned held work survives session end and cancels only on
-stop, revoke or grant expiry/revision change. Uncertain dispatch retains recovery.
-The `objects` backend is a library-only seam, not yet routed (#1852): [guide](.agents/skills/tmt-remote/references/object-backends.md).
+stripped at the door. Last-close touches; every session without a live transport has the existing 60-second inactivity grace.
+Activity renews it; reattach resumes that session. Detached sessions count against the cap until expiry. Idle expiry, explicit end, eviction and authority loss reuse session-owned cleanup.
+Grant-owned held work survives session end; only stop, revoke or grant expiry/revision change cancels it. Uncertain dispatch retains recovery.
+The `objects` backend and the `rust/crates/tmt-extension-objects` wire leaf (canonical identifiers, bounds, strict JSON admission and request/result frames only) are library-only, not yet routed (#1852): see the [Remote internals](.agents/skills/tmt-remote/references/architecture-internals.md) and [object-backends](.agents/skills/tmt-remote/references/object-backends.md) references.
 
 System-wide invariants:
 
@@ -1183,12 +1181,11 @@ System-wide invariants:
 - Enrolled panes are never pasted to; core's send-time guard decides, never terminal output.
 - The serve lease is inherited by invocation children, so restart cannot overlap an orphaned effect.
 
-Remote's binary-private `serve` owner composes one serving algorithm: human starts detach through
-an exact native worker/private bounded handoff; bare `serve --json` stays foreground for supervisors.
-The existing lease/control/invocation owners govern lifetime and cleanup; uncertainty never authorizes
-successor signals or automatic restart. Local extensions discover through read-only `status --json`.
-The [local CLI discovery contract](contracts/remote-channel-v1.md#local-cli-discovery) owns both
-public shapes; Colab never reads Remote's private state.
+Remote's binary-private `serve` owner runs one algorithm: human starts detach through an exact native
+worker/private bounded handoff; bare `serve --json` stays foreground. Lease/control/invocation owners
+govern lifetime and cleanup; uncertainty never authorizes successor signals or automatic restart.
+Optional machine status observes one root, without authority or a second acquisition. The
+[discovery contract](contracts/remote-channel-v1.md#local-cli-discovery) owns compatible shapes/errors; Colab never reads Remote state.
 
 ## Colab extension
 
@@ -1225,6 +1222,7 @@ core discovery or storage access.
   tab claim; all other app assets stay owner-gated. With core: `Product::Colab` registers
   the executable with the installer, and the app is served from `serve --app-dir`, else
   bytes embedded from `TMT_COLAB_APP_DIR`, else the checkout's Vite output.
+  Shared chrome serves native `/assets/chrome.css` even without an app build; Colab owns layout, routing, state words and trusted action/recovery. See the [browser contract](extensions/tmt-colab/contracts/colab-v1.md#implemented-mounted-browser-assets-1253).
   One `tmt colab serve` is enough for a browser: it attaches to a running door through
   `tmt remote status --json`, else starts `tmt remote serve --json` as a supervised child
   in its own process group, reading pairing from `tmt remote devices --json`. This optional
@@ -1247,4 +1245,4 @@ core discovery or storage access.
   or runtime implementation is claimed; archive/history/native acceptance remains required.
 - **Plaintext invariant.** Page source and export are root-local: only the isolated decoder
   child decodes Yjs, no route serves plaintext, and the browser Worker is resource
-  containment, not a security sandbox. Private causal content-batch preparation returns deltas without publishing them; browser Save and CLI write still use their single-update paths.
+  containment, not a security sandbox. Private causal preparation returns deltas; pure [publication codecs](extensions/tmt-colab/contracts/colab-v1.md#unintegrated-content-publication-codecs-1908) validate sealed intent. The unintegrated native library prepares a frozen signed packet and chain from one authenticated snapshot, then atomically retains content with its scoped terminal outcome in the existing Store; Browser Save and CLI write still use single-update paths.

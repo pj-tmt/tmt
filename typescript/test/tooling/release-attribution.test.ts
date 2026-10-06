@@ -401,3 +401,81 @@ it.each([false, true])(
   },
   70_000
 );
+
+describe('extension objects leaf attribution', () => {
+  const leaf = 'rust/crates/tmt-extension-objects';
+  const sources = `${leaf}/src/lib.rs`;
+  const members = {
+    'tmt-cli': 'rust/crates/tmt-cli',
+    'tmt-remote': 'extensions/tmt-remote/rust/tmt-remote',
+    'tmt-colab': 'extensions/tmt-colab/rust/tmt-colab',
+    'tmt-office': 'extensions/tmt-office/rust/tmt-office',
+    'tmt-squad': 'stubs/tmt-squad',
+    'tmt-driver-herdr': 'rust/crates/tmt-driver-herdr',
+    'tmt-extension-objects': leaf,
+  };
+  type Edge = [consumer: string, kind: 'normal' | 'build' | 'dev'];
+  // Synthetic `cargo metadata`: each edge is a consumer's dependency on the leaf.
+  const worldOf = (edges: Edge[]) =>
+    readCargoWorkspace('/world', {
+      runner: () =>
+        JSON.stringify({
+          workspace_members: Object.keys(members),
+          packages: Object.entries(members).map(([name, dir]) => ({
+            id: name,
+            name,
+            version: '0.0.0',
+            manifest_path: `/world/${dir}/Cargo.toml`,
+            targets: [],
+            dependencies: edges
+              .filter(([consumer]) => consumer === name)
+              .map(([, kind]) => ({
+                path: `/world/${leaf}`,
+                kind: kind === 'normal' ? null : kind,
+              })),
+          })),
+        }),
+    });
+  const productsOf = (path: string, edges: Edge[]) =>
+    affectedProducts([path], map, worldOf(edges)).products;
+  const cutsOf = (path: string, product: string, edges: Edge[]) =>
+    attributeCutCommits(
+      [{ sha, message: 'fix: leaf', files: [path] }],
+      map,
+      product,
+      worldOf(edges)
+    ).length;
+
+  const rows: [string, Edge[], string[], Record<string, number>][] = [
+    ['no consumer', [], ['remote'], { remote: 0, colab: 0, cli: 0 }],
+    ['Remote normal', [['tmt-remote', 'normal']], ['remote'], { remote: 1, colab: 0, cli: 0 }],
+    ['Remote build', [['tmt-remote', 'build']], ['remote'], { remote: 1, colab: 0, cli: 0 }],
+    [
+      'Remote and Colab',
+      [
+        ['tmt-remote', 'normal'],
+        ['tmt-colab', 'normal'],
+      ],
+      ['colab', 'remote'],
+      { remote: 1, colab: 1, cli: 0 },
+    ],
+    [
+      'Colab build only',
+      [['tmt-colab', 'build']],
+      ['colab', 'remote'],
+      { remote: 0, colab: 1, cli: 0 },
+    ],
+    ['dev-only Colab', [['tmt-colab', 'dev']], ['remote'], { remote: 0, colab: 0, cli: 0 }],
+  ];
+  it.each(rows)('attributes the leaf with %s', (_name, edges, products, cuts) => {
+    expect(productsOf(sources, edges)).toEqual(products);
+    for (const [product, count] of Object.entries(cuts))
+      expect(cutsOf(sources, product, edges), product).toBe(count);
+  });
+
+  it('keeps a prefix-sharing path with CLI and the real workspace leaf free of consumers', () => {
+    expect(productsOf(`${leaf}-other/src/lib.rs`, [['tmt-colab', 'normal']])).toEqual(['cli']);
+    expect(affectedProducts([sources], map, workspace).products).toEqual(['remote']);
+    expect(releasedComponentsForPath(sources, map, workspace)).toEqual([]);
+  });
+});

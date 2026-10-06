@@ -3,18 +3,19 @@
 Module owners (put a change in the existing owner; `canonical`, `crypto`, `wire`
 and `transport` have no I/O, clock, storage or `CoreClient` access):
 
-| Module                                 | Owns                                                                                                                                                                                                        |
-| -------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `main`, binary-private `serve`, `core` | CLI dispatch, one foreground/background composition and the two startup calls; `CoreClient` runs only fixed public `api`, `list --json`, `identity list --json`, `check <name> --json` via `TMT_EXECUTABLE` |
-| `http`, `routes`, `site`, `limits`     | Loopback door framing and bounds, `/r/` binding routes, route dispatch; every bound is named in `limits`                                                                                                    |
-| `wire`, `canonical`, `crypto`          | Strict JSON admission with exact payload bytes, framing/fingerprint codecs, signature and HMAC verification                                                                                                 |
-| `session`, `admission`, `transport`    | `session.open`, one normal message in flight per session, durable sequence consumption, envelope hand-off                                                                                                   |
-| `journal`, `budgets`, `audit`          | Metadata streams and recovery ownership, persisted budgets, audit written in the owning transaction                                                                                                         |
-| `operations`, `approval`               | Dispatch/read operations over the public core API; local held-operation confirmation on the control socket                                                                                                  |
-| `authority`, `store`, `state`          | Typed grants, `remote.db` and schema history, layout/machine key/serve lock                                                                                                                                 |
-| `pairing`, `control`, `devices`        | One pairing offer per run, owner-only control socket for discovery/stop and device list/revoke/rename                                                                                                       |
-| `mount`, `pages`                       | Extension mounts (allowlisted extensions only), static landing/pairing/error pages and embedded stylesheet/SDK assets                                                                                       |
-| `objects`                              | Object backend trait and `LocalFs`: the `objects.db` ledger and extension-private payload trees under the serve lease; no route, config or consumer yet                                                     |
+| Module                                 | Owns                                                                                                                                                                                                                  |
+| -------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `main`, binary-private `serve`, `core` | CLI dispatch, one foreground/background composition and the two startup calls; `CoreClient` runs only fixed public `api`, `list --json`, `identity list --json`, `check <name> --json` via `TMT_EXECUTABLE`           |
+| `http`, `routes`, `site`, `limits`     | Loopback door framing and bounds, `/r/` binding routes, route dispatch; every bound is named in `limits`                                                                                                              |
+| `wire`, `canonical`, `crypto`          | Strict JSON admission with exact payload bytes, framing/fingerprint codecs, signature and HMAC verification                                                                                                           |
+| `session`, `admission`, `transport`    | `session.open`, one normal message in flight per session, durable sequence consumption, envelope hand-off                                                                                                             |
+| `journal`, `budgets`, `audit`          | Metadata streams and recovery ownership, persisted budgets, audit written in the owning transaction                                                                                                                   |
+| `operations`, `approval`               | Dispatch/read operations over the public core API; local held-operation confirmation on the control socket                                                                                                            |
+| `authority`, `store`, `state`          | Typed grants, `remote.db` and schema history, layout/machine key/serve lock                                                                                                                                           |
+| `pairing`, `control`, `devices`        | One pairing offer per run, owner-only control socket for discovery/stop and device list/revoke/rename                                                                                                                 |
+| `mount`, `pages`                       | Extension mounts (allowlisted extensions only), static landing/pairing/error pages and embedded stylesheet/SDK assets                                                                                                 |
+| `objects`                              | Object backend trait and `LocalFs`: the `objects.db` ledger and extension-private payload trees under the serve lease; no route, config or consumer yet                                                               |
+| `tmt-extension-objects` (leaf)         | Remote-owned protocol leaf awaiting product integration: canonical IDs/encodings, bounds, strict JSON admission and typed request/result frames only; no I/O, backend, policy or Remote/Colab types, no consumers yet |
 
 Rules that are easy to get wrong:
 
@@ -45,8 +46,10 @@ Rules that are easy to get wrong:
 - **Mount trust.** Mounted extensions share one trust domain behind the door.
   The device context header is added only for a live owner session and is never
   copied from a client. Session lifetime counts successful upgraded transports;
-  last-close marks the session ended, and the door maintenance loop persists cleanup.
-  Never-attached and attached idle limits belong to `limits`; `session` owns
+  last-close touches the session, starting the short inactivity grace for every session
+  without a live transport. Reattach resumes that session; detached sessions count against
+  the cap until expiry. Live-transport and no-transport idle limits belong to `limits`;
+  the door maintenance loop persists expiry cleanup. `session` owns
   per-session replay and device-wide authority loss. Held work belongs to the grant and
   survives session end; only stop/revoke/expiry/revision change cancels it. The journal/ack remain per device.
 - **Session cap.** `session.open` rereads `settings` on each open. Unset settings
@@ -78,3 +81,13 @@ library-only and shared with Colab:
 ```
 
 Synced publication tests prove filesystem behavior, not power-loss recovery.
+
+The wire leaf `tmt-extension-objects` is library-only and has no consumer yet. It owns the wire
+bounds (`limits`: chunk, policy input, payload); the `tmt-remote` limits of the same value do not
+depend on it, so consumer slices must reuse the leaf bounds or equality-test them against the
+backend limits. Its tests are in-crate, so run it alone and keep it in the architecture guard:
+
+```bash
+(cd rust && CARGO_BUILD_JOBS=2 cargo test --offline --locked -p tmt-extension-objects)
+(cd rust && CARGO_BUILD_JOBS=2 cargo test --offline --locked -p tmt-cli --test architecture)
+```

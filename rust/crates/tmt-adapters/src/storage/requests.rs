@@ -574,6 +574,28 @@ impl RequestRecords for RequestRows<'_> {
         Ok(())
     }
 
+    fn withdraw_request(
+        &mut self,
+        attempt_id: &str,
+        withdrawal: &tmt_core::request::Withdrawal,
+    ) -> Result<bool, Self::Error> {
+        let changed = self
+            .0
+            .execute(
+                "UPDATE request_attempts SET withdrawn_at_ms = ?1, withdrawal_reason = ?2
+             WHERE attempt_id = ?3 AND withdrawn_at_ms IS NULL
+               AND response_submitted_at_ms IS NULL
+               AND NOT EXISTS (SELECT 1 FROM request_responses WHERE attempt_id = ?3)",
+                params![
+                    checked_now(withdrawal.withdrawn_at_ms, "Withdrawal time")?,
+                    withdrawal.reason,
+                    attempt_id
+                ],
+            )
+            .map_err(|error| classify(error, "Withdraw unanswered request"))?;
+        Ok(changed == 1)
+    }
+
     fn create_response(&mut self, response: &FinalResponse) -> Result<(), Self::Error> {
         let (route_kind, route_recipient, endpoint) = match &response.route {
             RequestRoute::Pane(endpoint) => ("pane", None, Some(endpoint)),
@@ -625,7 +647,7 @@ impl RequestRecords for RequestRows<'_> {
              SET response_submitted_at_ms = ?,
                  retention_expires_at_ms = MAX(retention_expires_at_ms, ?)
              WHERE attempt_id = ? AND request_id = ?
-               AND response_submitted_at_ms IS NULL",
+               AND response_submitted_at_ms IS NULL AND withdrawn_at_ms IS NULL",
                 params![
                     submitted_at_ms,
                     response_expires_at_ms,
