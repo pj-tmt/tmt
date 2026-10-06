@@ -1,7 +1,8 @@
 # Squad board redesign proposal
 
 **Status: design draft for #1829 under #1825.** The accepted direction is flat
-color blocks with purposeful highlights and no shadows. This document proposes
+opaque neutral blocks, a black/white foundation, soft gray hierarchy and fully
+saturated semantic signals with no shadows. This document proposes
 the complete presentation system; it does not describe a delivered redesign.
 Squad owns runtime behavior and checklist data. UX owns this specification and
 visual acceptance. The browser package (#1797) is a separate route.
@@ -13,6 +14,11 @@ needs a response without scanning every field. Keep task and reply content
 readable; spend saturated color on small meaningful cues. Neutral surfaces group
 content, while text, marks and selected geometry remain useful without color.
 
+The cross-product direction accepted in #1874 applies to visual roles, not a
+shared web/terminal renderer. Terminal palette resolution, cell geometry, user
+overrides and keyboard behavior remain owned by Squad. Do not copy browser RGB
+candidates into painters or treat an illustrative web mock as runtime evidence.
+
 The existing [full-screen interaction rules](cli-style.md#full-screen-interaction)
 and [board behavior owner](../.agents/skills/tmt-squad-dev/references/board.md)
 remain authoritative. This proposal changes presentation, not send, request,
@@ -23,25 +29,27 @@ precedence over the generic key examples in the style guide.
 ## Flat surfaces and semantic roles
 
 Use one quiet canvas, one neutral content surface, an opaque inline band and the
-existing selection treatment. Content surfaces have square edges and no offset
+selected background with a distinct non-color indicator. Preserve existing
+selection geometry and behavior while reviewing its appearance through #1830.
+Content surfaces have square edges and no offset
 shadow cells. Avoid a colored card for every state or separate frames around
 each field. A focused pane is recognizable from its title and focus marker;
 selecting a row does not imply that pane currently receives keys.
 
-| Meaning             | Presentation target                                       | Non-color cue                                                   | Existing owner / next boundary                                     |
-| ------------------- | --------------------------------------------------------- | --------------------------------------------------------------- | ------------------------------------------------------------------ |
-| Canvas              | Quiet background outside content blocks                   | Spacing and reading order                                       | Theme/screen adapter; proposed new surface roles need #1830 review |
-| Content surface     | Neutral block, shared by rows and reading panes           | Section title; one boundary when adjacent panes need separation | `Outline` / scene composition                                      |
-| Selected item       | One continuous background over the complete wrapped item  | Existing cursor/selection fallback                              | `Look::row_span`, `selected_words`                                 |
-| Keyboard focus      | Accent and bold pane title; explicit focus cue in mockups | Focused title with a distinct focus label                       | App focus, pane title / modal focus stack                          |
-| Waiting on the user | Warm attention mark; ordinary readable words              | `◆` plus `waits on you`                                         | Acquired attention predicate; never checklist-derived              |
-| Working             | Green mark, quiet body text                               | `●` plus `working`                                              | Admitted state; not a heartbeat                                    |
-| In review           | Review mark / role                                        | `◐` plus `in review`                                            | Admitted state; not waiting on Ben                                 |
-| Blocked or failed   | Error mark plus one actionable sentence                   | `✗` plus reason                                                 | Existing failure owner                                             |
-| Checklist complete  | Small success cue, retained item title                    | `[✓]` plus `done`                                               | Proposed presentation; allowed state from #1826                    |
-| Muted / unavailable | Secondary labels; readable inherited contrast             | `–`, empty phrase or explicit source label                      | Existing `muted` / `dim` roles                                     |
-| Disabled action     | Muted label with explicit unavailable reason              | Disabled marker; activation refused                             | Existing admission/controller                                      |
-| Link                | Link role and underline where supported                   | Link label and effective open hint                              | Existing link validation / effects                                 |
+| Meaning             | Presentation target                                          | Non-color cue                                                   | Existing owner / next boundary                                     |
+| ------------------- | ------------------------------------------------------------ | --------------------------------------------------------------- | ------------------------------------------------------------------ |
+| Canvas              | Quiet background outside content blocks                      | Spacing and reading order                                       | Theme/screen adapter; proposed new surface roles need #1830 review |
+| Content surface     | Neutral block, shared by rows and reading panes              | Section title; one boundary when adjacent panes need separation | `Outline` / scene composition                                      |
+| Selected item       | One continuous background over the complete wrapped item     | Explicit selected-occurrence mark across the wrapped item       | `Look::row_span`, `selected_words`                                 |
+| Keyboard focus      | Distinct pane-title focus label; optional supported emphasis | Focused title with a distinct focus label                       | App focus, pane title / modal focus stack                          |
+| Waiting on the user | Warm attention mark; ordinary readable words                 | `◆` plus `waits on you`                                         | Acquired attention predicate; never checklist-derived              |
+| Working             | Green mark, quiet body text                                  | `●` plus `working`                                              | Admitted state; not a heartbeat                                    |
+| In review           | Review mark / role                                           | `◐` plus `in review`                                            | Admitted state; not waiting on Ben                                 |
+| Blocked or failed   | Error mark plus one actionable sentence                      | `✗` plus reason                                                 | Existing failure owner                                             |
+| Checklist complete  | Small success cue, retained item title                       | `[✓]` plus `done`                                               | Proposed presentation; allowed state from #1826                    |
+| Muted / unavailable | Secondary labels; readable inherited contrast                | `–`, empty phrase or explicit source label                      | Existing `muted` / `dim` roles                                     |
+| Disabled action     | Muted label with explicit unavailable reason                 | Disabled marker; activation refused                             | Existing admission/controller                                      |
+| Link                | Link role and underline where supported                      | Link label and effective open hint                              | Existing link validation / effects                                 |
 
 Do not place literal palette values in Squad painters or create a second palette
 in tmt-tui. Existing `Role` does not have canvas/content/band backgrounds: those
@@ -55,6 +63,12 @@ disabled controls and errors on the selected background together. Do not paint
 attention over every word or make a disabled item look actionable because it is
 selected. Completion styling must leave the title readable.
 
+`Look::selected_words` is the existing final-frame policy owner: selected
+muted/dim/accent/link/state words use the text role, while eligible single
+semantic marks retain their color. It matches resolved role colors rather than
+measuring contrast dynamically. Preserve this single owner and user overrides;
+browser candidate hex values are not terminal painter constants.
+
 ### Terminal degradation
 
 - True color: neutral canvas/content separation, small semantic accents and
@@ -63,11 +77,41 @@ selected. Completion styling must leave the title readable.
 - Terminal 16 colors: respect the user's palette. Default foreground/background,
   bold titles, boundaries and marks must carry grouping when two neutral fills
   cannot be distinguished. No exact RGB contrast claim for arbitrary palettes.
-- NO_COLOR: no colored fills or semantic color. Preserve labels, marks, spacing
-  and the existing reverse/bold selection fallback; focus remains distinct from
-  selection. An error retains both its mark and its explanation.
+- NO_COLOR target: `Depth::None` removes theme-supplied colors and effects,
+  but current `Look::selection` adds reverse without a background and
+  `row_span` may add bold. Application-owned emphasis is a separate source.
+  Explicit cues must make selection understandable without relying on those
+  effects. Removing the existing fallback is not a prerequisite for the first
+  role-mapping slice; any removal needs affected selection evidence first. Explicit
+  glyphs and text identify the selected occurrence, receiving
+  focus and checked state independently; spacing and boundaries retain grouping.
+  An error keeps both its mark and its explanation. Interactive cursor, erase,
+  alternate-screen and mouse-control sequences remain terminal protocol, not
+  theme styling. Escape-free output applies to retained plain-text schematics
+  and exports, not to the live board's terminal protocol.
 - No decorative blink, pulse, gradient or shadow. Existing meaningful loading and
   observed meter updates retain their own lifecycle.
+
+### Reuse boundaries for #1830
+
+The following maps presentation onto existing owners. It proposes bounded
+changes, not a replacement renderer or new behavior controller. Actual theme
+tokens and overrides retain their canonical owner; browser RGB values are not
+literal constants for Squad painters.
+
+| Presentation                       | Existing reuse owner                                                                           | Required preservation / design gap                                                                                                                                                                                                                                                                                                    |
+| ---------------------------------- | ---------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Role resolution and selected words | Squad `look.rs::Look::{role,selection,row_span,selected_words}` and `tmt-cli-style::Theme`     | Preserve user theme resolution and semantic mark treatment. `Look::selection` explicitly adds reverse without a selection background; `row_span` adds bold in that fallback. Theme `Depth::None` alone does not establish the proposed non-effect selection target. Resolve that mapping in #1830 with explicit selection/focus cues. |
+| Pane grouping and focus            | `board/view/panes.rs`, `board/composition`, `tmt-tui::components::Outline`                     | Keep factory/authored composition, folded pane slots and receiving focus. `Outline` paints a boundary; it does not fill its contents. Any neutral fill belongs to the existing pane paint boundary, not a second layout pass.                                                                                                         |
+| Wrapped rows, scroll and hits      | `board/view/rows.rs`, `board/view/row_paint.rs`, member-list painter and existing scroll owner | Preserve measured complete row ranges, occurrence selection, clipped hits and follow-versus-wheel behavior. Apply selected styling to those same measured cells.                                                                                                                                                                      |
+| Composer and expanded read band    | `board/view/waiting` and `board/view.rs`                                                       | Reuse existing reserved row lines and input placement; retain full ordinary task preview, shifted later rows, opaque split-pane masking and admitted recipient/mode. No independent bottom composer.                                                                                                                                  |
+| Header/footer and compact text     | Existing board view/home owners and `tmt-tui::components::strip`                               | Keep effective hints, displayed/requested scope and observed-total admission. Style cannot change tab acquisition or attention predicates.                                                                                                                                                                                            |
+| Pickers, settings and actions      | Existing picker surface schemas and `tmt-tui::components::{surface,collection,Modal}`          | Reuse measured title/query/body/status/footer slots and hit maps. Keep draft, current values, save/conflict and modal key ownership in their existing controllers.                                                                                                                                                                    |
+
+Shared primitive code is justified only by actual consumers. #1830 may deliver
+an accepted reuse map without new abstractions; #1833 depends on a new primitive
+only when it actually consumes it. Acquisition, caching, request/attention,
+checklist data and loading lifecycle are outside this presentation batch.
 
 ## Frame and reading hierarchy
 
@@ -146,7 +190,9 @@ member painter suppresses that preview for `ReadRow`, not ordinary composing.
   ● docs             working               [later row shifted]
 ```
 
-Mode cycling retains answer/note/talk drafts and the admitted recipient. With
+Mode cycling retains each available answer/note/talk/status draft and its
+admitted recipient or status subject through the existing controller. Status
+updates, request answers and pending-only notes remain separate effects. With
 several requests, show the existing explicit request selection. Read-only `t/e`
 states never imply a send. Pending-only writing is a note; it does not clear
 pending or finalize an inbox request. Plain-host Enter exposes the action menu;
@@ -250,3 +296,42 @@ Squad current-behavior co-review support the specification. Runtime children
 Current runtime owners and component mechanics stay in the linked area
 references; acceptance history, per-run evidence and unresolved findings belong
 to #1829 and its PR rather than this living specification.
+
+### First implementation handoff: selected occurrence and role mapping
+
+The first #1830 slice maps the existing selected-item, selected-word, semantic
+mark and receiving-focus roles. Preserve the measured occurrence and viewport
+intersection as the selected range; never extend across a pane boundary or
+covered input band. A visible occurrence marker belongs in the existing row
+prefix allocation, repeats on visible continuation lines, and does not replace
+state/attention marks. If that prefix cannot accommodate it, return the exact
+geometry conflict before changing row width or hits. Focus is identified at the
+receiving pane title or input header, not inferred from the selected fill.
+
+Keep the existing real-background selected-word policy and no-background
+reverse/bold fallback in this first slice; explicit marks and labels must remain
+sufficient when effects are ignored. Preserve user overrides and distinguish
+true-color, terminal16 and Depth::None results. New canvas/content/band tokens
+are not required merely to complete this mapping. Additional opaque surfaces
+remain part of the following chrome/row/pane adoption, with concrete owners and
+reviewed values rather than a second palette.
+
+Use one pinned fixture definition for before/after comparison: same shown tab,
+requested tab, stable member UUIDs and occurrence IDs, pending/request/state,
+task bytes, bindings, meter evidence and viewport. Include a wrapped selected
+row, selected-but-unfocused row, repeated occurrence and composer coverage at
+80/100/160, plus an actual 180+ composition and a low-height clipped case.
+Record the expected selection/focus answer for each specimen. Source-only or
+illustrative review is labeled separately from rendered runtime evidence; no
+participant timings are inferred. Zero/partial usage, refresh transitions,
+checklist operations and other surfaces remain separately tracked coverage,
+not claims made by this first role slice.
+
+Squad is the accountable implementation owner; #1830 is currently unassigned.
+Squad supplies the immutable runtime base, existing-seat assignment and exclusive
+changed-file allocation before implementing. It owns hit/scroll/input regressions and scoped frozen
+fixture disposition; UX reviews the corresponding rendered before/after
+selection and focus. No acquisition, checklist, request, loading-lifecycle or
+browser-package work is included. Whole-board #1825 acceptance remains open
+through its existing chrome, views, overlays, guidance and combined-delivery
+children.
