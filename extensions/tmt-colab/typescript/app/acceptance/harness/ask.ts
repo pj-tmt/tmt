@@ -187,6 +187,50 @@ export async function freePort(): Promise<number> {
   });
 }
 
+/** Opt-in evidence only: ordinary acceptance remains independent of specialized manifests. */
+function composerEvidence(label: string) {
+  const directory = process.env.COLAB_1817_NATIVE_TRACE_DIR;
+  const file = process.env.COLAB_COMPOSER_ASSET_MANIFEST;
+  const head = process.env.COLAB_COMPOSER_EXPECTED_HEAD;
+  if ([directory, file, head].every((value) => value === undefined)) return undefined;
+  if (
+    !directory ||
+    !path.isAbsolute(directory) ||
+    !file ||
+    !path.isAbsolute(file) ||
+    !head ||
+    !/^[a-f0-9]{40}$/.test(head) ||
+    !/^[a-z-]+$/.test(label)
+  )
+    throw new Error('Set complete valid frozen composer evidence configuration.');
+  const manifest = JSON.parse(fs.readFileSync(file, 'utf8')) as {
+    head: string;
+    policies: { parent: string; renderer: string };
+    distAssets: { path: string; sha256: string; size: number }[];
+  };
+  expect(manifest.head).toBe(head);
+  expect(manifest.distAssets).toHaveLength(11);
+  expect(new Set(manifest.distAssets.map((asset) => asset.path)).size).toBe(11);
+  for (const asset of manifest.distAssets) {
+    if (
+      !/^(?:assets\/[A-Za-z0-9_.-]+|[A-Za-z0-9_.-]+)$/.test(asset.path) ||
+      !/^[a-f0-9]{64}$/.test(asset.sha256) ||
+      !Number.isSafeInteger(asset.size) ||
+      asset.size <= 0
+    )
+      throw new Error('Invalid frozen asset entry.');
+  }
+  if (
+    typeof manifest.policies.parent !== 'string' ||
+    !manifest.policies.parent ||
+    typeof manifest.policies.renderer !== 'string' ||
+    !manifest.policies.renderer ||
+    /unsafe-inline|unsafe-eval/.test(manifest.policies.parent)
+  )
+    throw new Error('Invalid frozen composer CSP.');
+  return { directory, head, manifest };
+}
+
 /** Original context trace and root witness; lifecycle cleanup stays with AcceptanceWorld. */
 export async function composerTrace(
   world: AcceptanceWorld,
@@ -194,9 +238,9 @@ export async function composerTrace(
   origin: string,
   label: string,
 ) {
-  const directory = process.env.COLAB_1817_NATIVE_TRACE_DIR;
-  if (!directory || !path.isAbsolute(directory) || !/^[a-z-]+$/.test(label))
-    throw new Error('Set an absolute fresh COLAB_1817_NATIVE_TRACE_DIR.');
+  const evidence = composerEvidence(label);
+  if (!evidence) return;
+  const { directory, head } = evidence;
   fs.mkdirSync(directory, { recursive: true });
   const trace = path.join(directory, `${label}.zip`);
   const witness = path.join(directory, `${label}.world.json`);
@@ -213,7 +257,7 @@ export async function composerTrace(
         tmuxName: world.tmuxName,
         sockets: world.sockets(),
         origin: new URL(origin).origin,
-        expectedHead: process.env.COLAB_COMPOSER_EXPECTED_HEAD,
+        expectedHead: head,
       },
       null,
       2,
@@ -226,18 +270,9 @@ export async function composerTrace(
 
 /** Read every frozen embedded asset so original trace resources carry all eleven bodies. */
 export async function composerAssets(page: Page, label: string) {
-  const file = process.env.COLAB_COMPOSER_ASSET_MANIFEST;
-  const head = process.env.COLAB_COMPOSER_EXPECTED_HEAD;
-  if (!file || !head)
-    throw new Error('Set frozen composer asset manifest and exact expected head.');
-  const manifest = JSON.parse(fs.readFileSync(file, 'utf8')) as {
-    head: string;
-    policies: { parent: string; renderer: string };
-    distAssets: { path: string; sha256: string; size: number }[];
-  };
-  expect(manifest.head).toBe(head);
-  expect(manifest.distAssets).toHaveLength(11);
-  expect(new Set(manifest.distAssets.map((asset) => asset.path)).size).toBe(11);
+  const evidence = composerEvidence(label);
+  if (!evidence) return;
+  const { directory, head, manifest } = evidence;
   const mount = new URL('./', page.url());
   const observed: { path: string; size: number; sha256: string }[] = [];
   for (const asset of manifest.distAssets) {
@@ -254,9 +289,6 @@ export async function composerAssets(page: Page, label: string) {
       asset.path === 'renderer.html' ? manifest.policies.renderer : manifest.policies.parent,
     );
   }
-  const directory = process.env.COLAB_1817_NATIVE_TRACE_DIR;
-  if (!directory || !/^[a-z-]+$/.test(label))
-    throw new Error('Missing original-trace output scope.');
   fs.writeFileSync(
     path.join(directory, `${label}.assets.json`),
     JSON.stringify({ head, origin: mount.origin, mount: mount.pathname, observed }, null, 2),
