@@ -2,8 +2,8 @@
 //! namespaces and keys, raw SHA-256/length and an immutable original intent.
 //! Nothing here interprets a page, epoch, reference, envelope or media type, and
 //! no operation grants permission: only Remote's admitted service calls it.
-//! [`LocalFs`] is the one trusted local implementation; the adapter guide is
-//! `.agents/skills/tmt-remote/references/object-backends.md`.
+//! [`LocalFs`] is the one trusted local implementation; the Remote skill's
+//! object-backends reference is the adapter guide.
 use crate::{canonical, limits};
 use std::{
     sync::{Arc, atomic::AtomicBool},
@@ -175,7 +175,7 @@ pub enum BackendError {
 pub type BackendResult<T> = Result<T, BackendError>;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Scope {
+pub enum UsageScope {
     Namespace(NamespaceId),
     Extension,
 }

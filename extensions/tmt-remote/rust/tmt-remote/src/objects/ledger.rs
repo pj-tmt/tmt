@@ -8,7 +8,7 @@
 //! immutable original columns are guarded by triggers.
 use super::{
     BackendError, BackendResult, BeginSpec, BlobKey, IntentId, Limit, NamespaceId, OpaqueKey,
-    Quotas, Scope, Usage, payload_charge,
+    Quotas, Usage, UsageScope, payload_charge,
 };
 use crate::{
     error::RemoteError,
@@ -562,14 +562,14 @@ impl Ledger {
             .optional()
             .map_err(db)
     }
-    pub fn usage(&self, ext: &str, scope: Scope) -> BackendResult<Usage> {
+    pub fn usage(&self, ext: &str, scope: UsageScope) -> BackendResult<Usage> {
         let connection = self
             .connection
             .lock()
             .map_err(|_| BackendError::Unavailable)?;
         let totals = match scope {
-            Scope::Extension => totals(&connection, Filter::Extension(ext))?,
-            Scope::Namespace(ns) => totals(&connection, Filter::Namespace(ext, &ns.0))?,
+            UsageScope::Extension => totals(&connection, Filter::Extension(ext))?,
+            UsageScope::Namespace(ns) => totals(&connection, Filter::Namespace(ext, &ns.0))?,
         };
         Ok(usage(totals))
     }

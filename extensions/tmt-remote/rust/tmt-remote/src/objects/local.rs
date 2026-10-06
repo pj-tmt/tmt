@@ -12,7 +12,7 @@
 use super::{
     BackendCaps, BackendError, BackendResult, BeginResult, BeginSpec, BlobKey, Clock, Digest,
     ExtensionId, IntentId, IoBudget, NamespaceId, ObjectBackend, OriginalIntent, Progress, Quotas,
-    ReadPart, Receipt, Scope, Transfer, TransferState, Usage,
+    ReadPart, Receipt, Transfer, TransferState, Usage, UsageScope,
     ledger::{Adoption, Gate, Ledger, Phase, Row},
     tree::{self, Dir, TreeError, hex},
 };
@@ -439,7 +439,9 @@ impl Inner {
             if bytes.len() as u64 != length {
                 return Err(BackendError::Conflict);
             }
-            let tree = self.write_tree(extension)?;
+            let tree = self
+                .tree(extension, false)?
+                .ok_or(BackendError::Unavailable)?;
             let staging = tree.staging(false)?.ok_or(BackendError::Unavailable)?;
             let file = staging
                 .open_file(&hex(&intent.0), 1)
@@ -927,7 +929,7 @@ impl ObjectBackend for LocalHandle<'_> {
     }
     fn usage(&self, namespace: Option<NamespaceId>, io: &IoBudget<'_>) -> BackendResult<Usage> {
         io.check()?;
-        let scope = namespace.map_or(Scope::Extension, Scope::Namespace);
+        let scope = namespace.map_or(UsageScope::Extension, UsageScope::Namespace);
         let usage = self.inner.ledger.usage(self.extension.as_str(), scope)?;
         io.check()?;
         Ok(usage)

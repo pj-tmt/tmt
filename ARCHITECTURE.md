@@ -1174,6 +1174,11 @@ stripped at the door. Last transport close, idle expiry and authority loss reuse
 session-owned cleanup; grant-owned held work survives session end and cancels only on
 stop, revoke or grant expiry/revision change. Uncertain dispatch retains recovery.
 
+Remote's object backend (`objects`) is a library-only seam, not yet wired to a route or setting
+(#1852): one trait over opaque installed-extension namespaces/keys, one `objects.db` ledger under
+the serve lease owning every original and charge, and extension-private payload trees reached by
+no-follow directory handles ([reference](.agents/skills/tmt-remote/references/object-backends.md)).
+
 System-wide invariants:
 
 - Unauthenticated protocol traffic gets one generic refusal and learns no inventory.
