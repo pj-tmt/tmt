@@ -79,6 +79,8 @@ pub fn round(length: usize) -> u64 {
 pub const RECORD: u64 = limits::OBJECT_RECORD_BYTES;
 pub const FENCE: u64 = limits::OBJECT_FENCE_BYTES;
 pub const BASE: u64 = limits::OBJECT_LEDGER_BASE_BYTES;
+/// The fixed payload tree an extension with any namespace owns.
+pub const TREE: u64 = limits::OBJECT_TREE_BASE_BYTES;
 /// What one adoption adds when its namespace already has a fence row.
 pub fn row_charge(length: usize) -> u64 {
     round(length) + RECORD
@@ -155,7 +157,7 @@ pub fn commit_publishes_exact_bytes(adapter: &dyn Adapter) {
         assert_eq!(
             backend.usage(None, &io()),
             Ok(Usage {
-                charged_bytes: row_charge(payload.len()) + FENCE,
+                charged_bytes: row_charge(payload.len()) + FENCE + TREE,
                 entries: 1,
                 active_uploads: 0,
                 retained_identities: 1
@@ -718,14 +720,14 @@ pub fn bytes_saturate_exactly_at_every_level(adapter: &dyn Adapter) {
         (
             Limit::ExtensionBytes,
             Quotas {
-                extension_bytes: one_object - 1,
+                extension_bytes: one_object + TREE - 1,
                 ..contract()
             },
         ),
         (
             Limit::InstallationBytes,
             Quotas {
-                installation_bytes: BASE + one_object - 1,
+                installation_bytes: BASE + one_object + TREE - 1,
                 ..contract()
             },
         ),
@@ -752,7 +754,7 @@ pub fn bytes_saturate_exactly_at_every_level(adapter: &dyn Adapter) {
     saturate(
         adapter,
         Quotas {
-            extension_bytes: one_object,
+            extension_bytes: one_object + TREE,
             ..contract()
         },
         Limit::ExtensionBytes,
@@ -762,7 +764,7 @@ pub fn bytes_saturate_exactly_at_every_level(adapter: &dyn Adapter) {
     saturate(
         adapter,
         Quotas {
-            installation_bytes: BASE + one_object,
+            installation_bytes: BASE + one_object + TREE,
             ..contract()
         },
         Limit::InstallationBytes,
@@ -772,7 +774,7 @@ pub fn bytes_saturate_exactly_at_every_level(adapter: &dyn Adapter) {
     // Another extension's use counts against the installation but not this extension.
     adapter.run(
         Quotas {
-            installation_bytes: BASE + 2 * one_object,
+            installation_bytes: BASE + 2 * (one_object + TREE),
             ..contract()
         },
         &mut |s| {
@@ -782,7 +784,10 @@ pub fn bytes_saturate_exactly_at_every_level(adapter: &dyn Adapter) {
                 s.backend("alpha").begin(&spec(3, 2, 3, b"x"), &io()),
                 Err(BackendError::Capacity(Limit::InstallationBytes))
             );
-            assert_eq!(s.installation().charged_bytes, BASE + 2 * one_object);
+            assert_eq!(
+                s.installation().charged_bytes,
+                BASE + 2 * (one_object + TREE)
+            );
         },
     );
     // A discard releases payload and entry, never the retained identity.

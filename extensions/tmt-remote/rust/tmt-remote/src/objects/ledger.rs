@@ -20,7 +20,10 @@ use rusqlite::{Connection, OptionalExtension, Transaction, TransactionBehavior, 
 use std::{
     collections::BTreeMap,
     os::unix::fs::MetadataExt,
-    sync::{Mutex, MutexGuard},
+    sync::{
+        Mutex, MutexGuard,
+        atomic::{AtomicBool, Ordering},
+    },
 };
 
 const FILE: &str = "objects.db";
@@ -299,14 +302,47 @@ fn totals(tx: &Connection, filter: Filter<'_>) -> BackendResult<Totals> {
     } else {
         0
     };
+    // Checked end to end: an unrepresentable aggregate is unavailable accounting,
+    // never a wrapped number that would understate a charge.
+    let unsigned = |value: i64| u64::try_from(value).map_err(|_| BackendError::Unavailable);
+    let narrow = |value: i64| u32::try_from(value).map_err(|_| BackendError::Unavailable);
+    let times = |count: i64, each: u64| {
+        unsigned(count)?
+            .checked_mul(each)
+            .ok_or(BackendError::Unavailable)
+    };
+    // Each extension with any namespace owns a payload tree of fixed directories.
+    let trees: i64 = match filter {
+        Filter::Installation => tx
+            .query_row(
+                "SELECT COUNT(DISTINCT extension) FROM namespaces",
+                [],
+                |r| r.get(0),
+            )
+            .map_err(db)?,
+        Filter::Extension(ext) => tx
+            .query_row(
+                "SELECT COUNT(*) FROM (SELECT 1 FROM namespaces WHERE extension=?1 LIMIT 1)",
+                [ext],
+                |r| r.get(0),
+            )
+            .map_err(db)?,
+        Filter::Namespace(..) => 0,
+    };
+    let bytes = [
+        times(retained, limits::OBJECT_RECORD_BYTES)?,
+        times(fences, limits::OBJECT_FENCE_BYTES)?,
+        times(trees, limits::OBJECT_TREE_BASE_BYTES)?,
+        base,
+    ]
+    .into_iter()
+    .try_fold(unsigned(payload)?, |total, part| total.checked_add(part))
+    .ok_or(BackendError::Unavailable)?;
     Ok(Totals {
-        bytes: payload as u64
-            + retained as u64 * limits::OBJECT_RECORD_BYTES
-            + fences as u64 * limits::OBJECT_FENCE_BYTES
-            + base,
-        entries: entries as u32,
-        active: active as u32,
-        retained: retained as u32,
+        bytes,
+        entries: narrow(entries)?,
+        active: narrow(active)?,
+        retained: narrow(retained)?,
     })
 }
 
@@ -327,6 +363,10 @@ pub enum Gate {
 
 pub struct Ledger {
     connection: Mutex<Connection>,
+    /// Set when a physical-accounting observation could not be made or represented:
+    /// no live handle adopts anything new afterwards; a restart refuses readiness
+    /// while the unsettled original or the unrepresentable aggregate remains.
+    accounting_unavailable: AtomicBool,
 }
 impl Ledger {
     /// Open or create the ledger under the serve lease. A damaged, foreign or
@@ -370,6 +410,7 @@ impl Ledger {
         }
         let ledger = Self {
             connection: Mutex::new(connection),
+            accounting_unavailable: AtomicBool::new(false),
         };
         ledger.validate()?;
         Ok(ledger)
@@ -385,6 +426,7 @@ impl Ledger {
                      next_index=(received+{c}-1)/{c} AND (received=payload_bytes OR received%{c}=0)\
                      AND (phase NOT IN ('committing','committed') OR received=payload_bytes)\
                      AND CASE WHEN phase IN ({TERMINAL}) THEN payload_charged=0 AND entry_held=0 AND staged=0 \
+                     WHEN phase='unknown' THEN entry_held=1 AND payload_charged>=((payload_bytes+{b}-1)/{b})*{b} \
                      ELSE entry_held=1 AND payload_charged=((payload_bytes+{b}-1)/{b})*{b} END)",
                     c = CHUNK,
                     b = limits::OBJECT_BLOCK_BYTES
@@ -473,6 +515,10 @@ impl Ledger {
             if live.is_some() {
                 return Err(BackendError::Conflict);
             }
+            // Adoption allocates: it stops for good once an accounting observation failed.
+            if self.accounting_unavailable.load(Ordering::SeqCst) {
+                return Err(BackendError::Unavailable);
+            }
             let payload = payload_charge(spec.payload_bytes);
             let added = payload
                 + limits::OBJECT_RECORD_BYTES
@@ -481,6 +527,24 @@ impl Ledger {
                 } else {
                     0
                 };
+            // The first namespace of an extension also brings its payload tree.
+            let first: i64 = tx
+                .query_row(
+                    "SELECT COUNT(*) FROM namespaces WHERE extension=?1",
+                    [ext],
+                    |r| r.get(0),
+                )
+                .map_err(db)?;
+            let shared = if first == 0 {
+                added + limits::OBJECT_TREE_BASE_BYTES
+            } else {
+                added
+            };
+            let exceeds = |used: u64, add: u64, limit: u64| {
+                used.checked_add(add)
+                    .map(|total| total > limit)
+                    .ok_or(BackendError::Unavailable)
+            };
             let installation = totals(tx, Filter::Installation)?;
             let extension = totals(tx, Filter::Extension(ext))?;
             let namespace = totals(tx, Filter::Namespace(ext, &ns.0))?;
@@ -503,13 +567,13 @@ impl Ledger {
             if installation.entries >= quotas.installation_entries {
                 return refuse(Limit::InstallationEntries);
             }
-            if namespace.bytes + added > quotas.namespace_bytes {
+            if exceeds(namespace.bytes, added, quotas.namespace_bytes)? {
                 return refuse(Limit::NamespaceBytes);
             }
-            if extension.bytes + added > quotas.extension_bytes {
+            if exceeds(extension.bytes, shared, quotas.extension_bytes)? {
                 return refuse(Limit::ExtensionBytes);
             }
-            if installation.bytes + added > quotas.installation_bytes {
+            if exceeds(installation.bytes, shared, quotas.installation_bytes)? {
                 return refuse(Limit::InstallationBytes);
             }
             if state.is_none() {
@@ -714,22 +778,53 @@ impl Ledger {
             transition(tx, ext, intent, &[Phase::Committing], Phase::Committed)
         })
     }
-    /// A possibly published original that cannot be settled stays charged and closed.
-    pub fn mark_unknown(
+    /// Stop all further adoption through this live ledger: a physical-accounting
+    /// observation failed, so no new allocation can be admitted safely. Observation
+    /// of existing originals continues.
+    pub fn fail_accounting(&self) {
+        self.accounting_unavailable.store(true, Ordering::SeqCst);
+    }
+    /// A possibly published original that cannot be settled stays closed, and its
+    /// charge becomes at least the measured physical allocation of every body it
+    /// retains: `max(prior charge, measured)`, never lower than the reservation.
+    /// The new charge may exceed a limit because the bytes already exist; the
+    /// ordinary limit checks then refuse later adoption where it applies.
+    pub fn settle_unknown(
         &self,
         ext: &str,
         intent: &IntentId,
+        measured: u64,
         io: &IoBudget<'_>,
     ) -> BackendResult<()> {
-        self.run(io, |tx| {
+        let result = self.run(io, |tx| {
+            let prior: i64 = tx
+                .query_row(
+                    "SELECT payload_charged FROM intents WHERE extension=?1 AND intent=?2",
+                    params![ext, intent.0.as_slice()],
+                    |r| r.get(0),
+                )
+                .optional()
+                .map_err(db)?
+                .ok_or(BackendError::Missing)?;
+            let measured = i64::try_from(measured).map_err(|_| BackendError::Unavailable)?;
             transition(
                 tx,
                 ext,
                 intent,
                 &[Phase::Staging, Phase::Committing, Phase::Unknown],
                 Phase::Unknown,
+            )?;
+            tx.execute(
+                "UPDATE intents SET payload_charged=?3 WHERE extension=?1 AND intent=?2",
+                params![ext, intent.0.as_slice(), prior.max(measured)],
             )
-        })
+            .map_err(db)?;
+            Ok(())
+        });
+        if result == Err(BackendError::Unavailable) {
+            self.fail_accounting();
+        }
+        result
     }
     /// Close incomplete staging by creator discard.
     pub fn discard_adopt(
@@ -806,17 +901,38 @@ impl Ledger {
                 Ok(true)
             }
             None => {
+                if self.accounting_unavailable.load(Ordering::SeqCst) {
+                    return Err(BackendError::Unavailable);
+                }
                 let installation = totals(tx, Filter::Installation)?;
                 let extension = totals(tx, Filter::Extension(ext))?;
                 let namespace = totals(tx, Filter::Namespace(ext, &ns.0))?;
+                // A tombstone for the extension's first namespace also brings its tree.
+                let first: i64 = tx
+                    .query_row(
+                        "SELECT COUNT(*) FROM namespaces WHERE extension=?1",
+                        [ext],
+                        |r| r.get(0),
+                    )
+                    .map_err(db)?;
                 let added = limits::OBJECT_FENCE_BYTES;
-                if namespace.bytes + added > quotas.namespace_bytes {
+                let shared = if first == 0 {
+                    added + limits::OBJECT_TREE_BASE_BYTES
+                } else {
+                    added
+                };
+                let exceeds = |used: u64, add: u64, limit: u64| {
+                    used.checked_add(add)
+                        .map(|total| total > limit)
+                        .ok_or(BackendError::Unavailable)
+                };
+                if exceeds(namespace.bytes, added, quotas.namespace_bytes)? {
                     return Err(BackendError::Capacity(Limit::NamespaceBytes));
                 }
-                if extension.bytes + added > quotas.extension_bytes {
+                if exceeds(extension.bytes, shared, quotas.extension_bytes)? {
                     return Err(BackendError::Capacity(Limit::ExtensionBytes));
                 }
-                if installation.bytes + added > quotas.installation_bytes {
+                if exceeds(installation.bytes, shared, quotas.installation_bytes)? {
                     return Err(BackendError::Capacity(Limit::InstallationBytes));
                 }
                 tx.execute(

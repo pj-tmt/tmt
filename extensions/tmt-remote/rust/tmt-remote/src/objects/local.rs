@@ -21,6 +21,7 @@ use sha2::{Digest as _, Sha256};
 use std::{
     collections::{HashMap, HashSet},
     fs::File,
+    os::unix::fs::MetadataExt,
     path::PathBuf,
     sync::{Condvar, Mutex, MutexGuard},
     time::{Duration, Instant},
@@ -52,6 +53,8 @@ pub(crate) enum Milestone {
     ReadBytes,
     /// Every successful return, just before its final budget check.
     Return,
+    /// Before a physical allocation is measured; a test can make the measurement fail.
+    Measure,
 }
 #[cfg(test)]
 pub(crate) type Observer = std::sync::Arc<dyn Fn(Milestone) -> bool + Send + Sync>;
@@ -120,6 +123,12 @@ impl<'s> LocalFs<'s> {
         if !local.inner.ledger.settled(io).map_err(unavailable)? {
             return Err(unavailable(BackendError::Unavailable));
         }
+        // The aggregate charge must be representable before anything is adopted.
+        local
+            .inner
+            .ledger
+            .installation_usage(io)
+            .map_err(unavailable)?;
         io.check().map_err(unavailable)?;
         Ok(local)
     }
@@ -618,38 +627,46 @@ impl Inner {
             .namespace(&row.spec.key.namespace, true)?
             .ok_or(BackendError::Unavailable)?;
         let (staged_name, final_name) = (hex(&row.spec.intent.0), hex(&row.spec.key.object.0));
-        let settle = |error: BackendError| {
-            // Possible bytes at an unverifiable destination stay charged and closed.
-            let _ = self.ledger.mark_unknown(extension, &row.spec.intent, io);
-            error
-        };
         loop {
             io.check()?;
             let destination = directory.open_file(&final_name, 2).map_err(fs)?;
-            if let Some(destination) = destination {
-                if tree::len(&destination).map_err(fs)? != row.spec.payload_bytes
-                    || digest(&destination, row.spec.payload_bytes, io)? != row.spec.payload_sha256
-                {
-                    return Err(settle(BackendError::Unavailable));
+            let staged = staging.open_file(&staged_name, 2).map_err(fs)?;
+            match (destination, staged) {
+                (Some(destination), Some(staged)) => {
+                    // Only one allocation under two names settles as a crash window;
+                    // equal bytes in another inode are a second body.
+                    if !tree::same_file(&destination, &staged).map_err(fs)? {
+                        return Err(self.unknown(extension, row, &[&destination, &staged], io));
+                    }
+                    if !verified && !self.holds_original(&destination, row, io)? {
+                        return Err(self.unknown(extension, row, &[&destination], io));
+                    }
+                    break;
                 }
-                break;
-            }
-            let Some(staged) = staging.open_file(&staged_name, 2).map_err(fs)? else {
-                return Err(settle(BackendError::Unavailable));
-            };
-            if !verified {
-                match self.trim_and_verify(&staged, row, io) {
-                    Ok(()) => {}
-                    Err(BackendError::Invalid) => return Err(settle(BackendError::Unavailable)),
-                    Err(error) => return Err(error),
+                // A destination without its staging name is not proof of a recovery:
+                // the staging name is removed only after the receipt.
+                (Some(destination), None) => {
+                    return Err(self.unknown(extension, row, &[&destination], io));
                 }
-            }
-            // Create-only: losing a race re-verifies the winner's file above.
-            if staging
-                .link_into(&staged_name, &directory, &final_name)
-                .map_err(fs)?
-            {
-                break;
+                (None, Some(staged)) => {
+                    if !verified {
+                        match self.trim_and_verify(&staged, row, io) {
+                            Ok(()) => {}
+                            Err(BackendError::Invalid) => {
+                                return Err(self.unknown(extension, row, &[&staged], io));
+                            }
+                            Err(error) => return Err(error),
+                        }
+                    }
+                    // Create-only: losing a race re-examines the winner's file above.
+                    if staging
+                        .link_into(&staged_name, &directory, &final_name)
+                        .map_err(fs)?
+                    {
+                        break;
+                    }
+                }
+                (None, None) => return Err(self.unknown(extension, row, &[], io)),
             }
         }
         self.milestone(Milestone::Linked)?;
@@ -669,6 +686,52 @@ impl Inner {
         }
         io.check()?;
         Ok(receipt(row))
+    }
+
+    /// The destination holds exactly the original's length and SHA-256.
+    fn holds_original(&self, file: &File, row: &Row, io: &IoBudget<'_>) -> BackendResult<bool> {
+        Ok(tree::len(file).map_err(fs)? == row.spec.payload_bytes
+            && digest(file, row.spec.payload_bytes, io)? == row.spec.payload_sha256)
+    }
+    /// Close a possibly published original as `unknown` and charge every distinct
+    /// body it retains (device+inode counted once) at its measured allocation, never
+    /// below the original reservation. Nothing is overwritten, unlinked or released.
+    /// If the allocation cannot be measured or represented, the original stays
+    /// unsettled, every handle of this ledger stops adopting, and readiness refuses
+    /// after a restart. Always returns the error the caller reports.
+    fn unknown(
+        &self,
+        extension: &str,
+        row: &Row,
+        bodies: &[&File],
+        io: &IoBudget<'_>,
+    ) -> BackendError {
+        let measured = (|| {
+            let mut seen = HashSet::new();
+            let mut total = 0u64;
+            for body in bodies {
+                let metadata = body.metadata().ok()?;
+                if seen.insert((metadata.dev(), metadata.ino())) {
+                    total = total.checked_add(tree::allocation(body).ok()??)?;
+                }
+            }
+            Some(total)
+        })();
+        let measured = match self.milestone(Milestone::Measure) {
+            Ok(()) => measured,
+            Err(_) => None,
+        };
+        let Some(measured) = measured else {
+            self.ledger.fail_accounting();
+            return BackendError::Unavailable;
+        };
+        match self
+            .ledger
+            .settle_unknown(extension, &row.spec.intent, measured, io)
+        {
+            Ok(()) => BackendError::Unavailable,
+            Err(error) => error,
+        }
     }
 
     /// Remove the staging name of a closing original, then release its charge.
@@ -912,7 +975,9 @@ impl Inner {
             None => 0,
         };
         if stored < row.received {
-            return self.ledger.mark_unknown(extension, &row.spec.intent, io);
+            return self
+                .ledger
+                .settle_unknown(extension, &row.spec.intent, 0, io);
         }
         if let Some(file) = &file
             && stored > row.received

@@ -81,6 +81,16 @@ impl Model {
             .filter(|(e, n)| selected(e, n))
             .count() as u64
             * limits::OBJECT_FENCE_BYTES;
+        // Each extension with any namespace owns a fixed payload tree.
+        if namespace.is_none() {
+            let trees: std::collections::HashSet<_> = self
+                .namespaces
+                .keys()
+                .filter(|(e, _)| extension.is_none_or(|x| x == e))
+                .map(|(e, _)| e.clone())
+                .collect();
+            totals.bytes += trees.len() as u64 * limits::OBJECT_TREE_BASE_BYTES;
+        }
         if extension.is_none() {
             totals.bytes += limits::OBJECT_LEDGER_BASE_BYTES;
         }
@@ -182,6 +192,13 @@ impl ObjectBackend for Memory {
             } else {
                 0
             };
+        let first = !model.namespaces.keys().any(|(e, _)| *e == self.extension);
+        let shared = added
+            + if first {
+                limits::OBJECT_TREE_BASE_BYTES
+            } else {
+                0
+            };
         let q = model.quotas;
         let installation = model.totals(None, None);
         let extension = model.totals(Some(&self.extension), None);
@@ -216,11 +233,11 @@ impl ObjectBackend for Memory {
                 Limit::NamespaceBytes,
             ),
             (
-                extension.bytes + added > q.extension_bytes,
+                extension.bytes + shared > q.extension_bytes,
                 Limit::ExtensionBytes,
             ),
             (
-                installation.bytes + added > q.installation_bytes,
+                installation.bytes + shared > q.installation_bytes,
                 Limit::InstallationBytes,
             ),
         ];
@@ -418,17 +435,24 @@ impl ObjectBackend for Memory {
         }
         if !model.namespaces.contains_key(&id) {
             let q = model.quotas;
+            let first = !model.namespaces.keys().any(|(e, _)| *e == self.extension);
             let added = limits::OBJECT_FENCE_BYTES;
+            let shared = added
+                + if first {
+                    limits::OBJECT_TREE_BASE_BYTES
+                } else {
+                    0
+                };
             let scoped = model.totals(Some(&self.extension), Some(namespace.0));
             let extension = model.totals(Some(&self.extension), None);
             let installation = model.totals(None, None);
             if scoped.bytes + added > q.namespace_bytes {
                 return Err(BackendError::Capacity(Limit::NamespaceBytes));
             }
-            if extension.bytes + added > q.extension_bytes {
+            if extension.bytes + shared > q.extension_bytes {
                 return Err(BackendError::Capacity(Limit::ExtensionBytes));
             }
-            if installation.bytes + added > q.installation_bytes {
+            if installation.bytes + shared > q.installation_bytes {
                 return Err(BackendError::Capacity(Limit::InstallationBytes));
             }
         }

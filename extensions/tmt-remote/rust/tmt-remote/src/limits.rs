@@ -79,5 +79,9 @@ pub const OBJECT_RECORD_BYTES: u64 = 8192;
 /// footprint test measured a namespace holding one tiny object at more than the
 /// record and payload charges alone, so the directory block is charged here.
 pub const OBJECT_FENCE_BYTES: u64 = 4096 + 512;
+/// Charge once per extension that has any namespace: its directory, `objects`,
+/// `staging` and `blobs` blocks plus one block of directory growth. The two-body
+/// footprint test showed these fixed blocks were uncovered when payloads dominate.
+pub const OBJECT_TREE_BASE_BYTES: u64 = 5 * 4096;
 /// Installation-wide charge for ledger bootstrap pages and the rollback journal's peak.
 pub const OBJECT_LEDGER_BASE_BYTES: u64 = 256 * 1024;

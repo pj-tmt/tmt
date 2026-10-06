@@ -457,9 +457,11 @@ fn a_corrupt_destination_closes_the_original_as_unknown_and_is_never_overwritten
         assert_eq!(usage.entries, 1, "unknown stays charged");
         assert_eq!(
             usage.charged_bytes,
-            payload_charge(payload.len() as u64)
+            2 * payload_charge(payload.len() as u64)
                 + limits::OBJECT_RECORD_BYTES
                 + limits::OBJECT_FENCE_BYTES
+                + limits::OBJECT_TREE_BASE_BYTES,
+            "two distinct bodies are retained, so both are charged"
         );
         // Unrelated work still proceeds.
         let other = spec(2, 2, 2, b"ok");
@@ -487,12 +489,35 @@ fn a_corrupt_destination_closes_the_original_as_unknown_and_is_never_overwritten
         assert_eq!(env.row(1).0, "unknown");
         assert_eq!(fs::read(env.blob(1, 1)).unwrap(), wrong);
     }
-    // An identical file left by an earlier interrupted link is the same original.
+    // Identical bytes in another inode are a second body, not a recovery.
     {
         let env = Env::new();
         let sp = commit_stopped_at(&env, Milestone::CommitAdopted, &payload);
         plant(&env.blob(1, 1), &payload);
+        let local = env.open();
+        assert_eq!(env.row(1).0, "unknown");
+        assert_eq!(
+            env.row(1).1,
+            2 * payload_charge(payload.len() as u64) as i64
+        );
+        assert_eq!(
+            backend(&local).status(sp.intent, &io()).unwrap().state,
+            TransferState::Unknown
+        );
+        assert_eq!(fs::read(env.stage(1)).unwrap(), payload);
+    }
+    // The staging name and the destination as one inode is the interrupted link.
+    {
+        let env = Env::new();
+        let sp = commit_stopped_at(&env, Milestone::CommitAdopted, &payload);
+        fs::DirBuilder::new()
+            .recursive(true)
+            .mode(0o700)
+            .create(env.blob(1, 1).parent().unwrap())
+            .unwrap();
+        fs::hard_link(env.stage(1), env.blob(1, 1)).unwrap();
         assert_settled_committed(&env, &sp, &payload);
+        assert_eq!(env.row(1).1, payload_charge(payload.len() as u64) as i64);
     }
     // Neither bytes nor staging survived a link: damage, not absence.
     {
@@ -502,9 +527,115 @@ fn a_corrupt_destination_closes_the_original_as_unknown_and_is_never_overwritten
         let local = env.open();
         assert_eq!(env.row(1).0, "unknown");
         assert_eq!(
+            env.row(1).1,
+            payload_charge(payload.len() as u64) as i64,
+            "an observation of nothing never lowers the reservation"
+        );
+        assert_eq!(
             backend(&local).status(sp.intent, &io()).unwrap().state,
             TransferState::Unknown
         );
+    }
+}
+
+#[test]
+fn a_failed_measurement_stops_adoption_through_every_live_handle_until_restart() {
+    let env = Env::new();
+    let payload = bytes(C + 3, 23);
+    let mut wrong = payload.clone();
+    wrong[0] ^= 1;
+    let (sp, other) = (spec(1, 1, 1, &payload), spec(2, 2, 2, &payload));
+    let local = env.open();
+    let b = backend(&local);
+    send_all(&b, &sp, &payload);
+    send_all(&b, &other, &payload);
+    b.commit(other.intent, &io()).unwrap();
+    let pending = spec(3, 3, 3, &payload);
+    b.begin(&pending, &io()).unwrap();
+    // A conflicting destination appears and the physical measurement then fails.
+    let (path, body) = (env.blob(1, 1), wrong.clone());
+    local.observe(Arc::new(move |point| {
+        if point == Milestone::CommitAdopted {
+            plant(&path, &body);
+        }
+        point != Milestone::Measure
+    }));
+    assert_eq!(b.commit(sp.intent, &io()), Err(BackendError::Unavailable));
+    assert_eq!(env.row(1).0, "committing", "unsettled, not guessed");
+    // Every live handle of this ledger refuses new allocation...
+    let fresh = spec(9, 9, 9, b"x");
+    let beta = local.handle(ExtensionId::new("beta").unwrap());
+    for handle in [&b, &beta] {
+        assert_eq!(handle.begin(&fresh, &io()), Err(BackendError::Unavailable));
+    }
+    assert_eq!(
+        b.remove_namespace(NamespaceId([8; 32]), &io()),
+        Err(BackendError::Unavailable),
+        "a new tombstone is an allocation too"
+    );
+    // ...while existing originals stay observable and settled work stays readable.
+    assert_eq!(
+        b.status(sp.intent, &io()).unwrap().state,
+        TransferState::Unknown
+    );
+    assert!(matches!(
+        b.begin(&pending, &io()),
+        Ok(BeginResult::Pending(_))
+    ));
+    assert_eq!(b.stat(other.key, &io()), Ok(receipt_of(&other)));
+    assert_eq!(b.discard(pending.intent, &io()), Ok(()));
+    assert_eq!(
+        fs::read(env.blob(1, 1)).unwrap(),
+        wrong,
+        "nothing overwritten"
+    );
+    drop(b);
+    drop(local);
+    // A restart measures again, settles the original with both bodies charged, and
+    // only then admits work (within the limits the measured charge leaves).
+    let local = env.open();
+    assert_eq!(env.row(1).0, "unknown");
+    assert_eq!(
+        env.row(1).1,
+        2 * payload_charge(payload.len() as u64) as i64
+    );
+    assert!(backend(&local).begin(&fresh, &io()).is_ok());
+}
+
+#[test]
+fn an_unrepresentable_aggregate_is_unavailable_live_and_refuses_readiness_after_restart() {
+    let env = Env::new();
+    let payload = bytes(64, 24);
+    let (first, second) = (spec(1, 1, 1, &payload), spec(2, 2, 2, &payload));
+    {
+        let local = env.open();
+        let b = backend(&local);
+        for sp in [&first, &second] {
+            send_all(&b, sp, &payload);
+            b.commit(sp.intent, &io()).unwrap();
+        }
+        // Out-of-band fixture corruption: two charges whose sum no integer can hold.
+        env.ledger()
+            .execute(
+                "UPDATE intents SET phase='unknown',payload_charged=9223372036854775807",
+                [],
+            )
+            .unwrap();
+        assert_eq!(b.usage(None, &io()), Err(BackendError::Unavailable));
+        assert_eq!(
+            b.begin(&spec(9, 9, 9, b"x"), &io()),
+            Err(BackendError::Unavailable),
+            "no allocation is admitted against accounting that cannot be represented"
+        );
+        assert_eq!(
+            b.status(first.intent, &io()).unwrap().state,
+            TransferState::Unknown,
+            "observation of the original is still answered"
+        );
+    }
+    match LocalFs::open(&env.serving, Quotas::contract(), system_clock(), &io()) {
+        Ok(_) => panic!("readiness must refuse an unrepresentable aggregate"),
+        Err(error) => assert_eq!(error.code, "REMOTE_OBJECTS_UNAVAILABLE"),
     }
 }
 
@@ -688,7 +819,9 @@ fn every_removal_window_resumes_to_a_closed_namespace_with_retained_originals() 
         }
         assert_eq!(
             b.usage(None, &io()).unwrap().charged_bytes,
-            2 * limits::OBJECT_RECORD_BYTES + limits::OBJECT_FENCE_BYTES
+            2 * limits::OBJECT_RECORD_BYTES
+                + limits::OBJECT_FENCE_BYTES
+                + limits::OBJECT_TREE_BASE_BYTES
         );
         assert_eq!(
             b.begin(&spec(3, 1, 3, b"x"), &io()),

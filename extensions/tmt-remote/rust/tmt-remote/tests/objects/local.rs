@@ -456,7 +456,7 @@ fn a_foreign_entry_in_a_namespace_keeps_removal_unsettled_and_charged() {
     let alpha = handle(&local, "alpha");
     assert_eq!(
         alpha.usage(None, &io()).unwrap().charged_bytes,
-        conformance::RECORD + conformance::FENCE
+        conformance::RECORD + conformance::FENCE + conformance::TREE
     );
     assert!(!directory.exists());
 }
@@ -523,6 +523,7 @@ fn the_charge_constants_and_extension_names_are_pinned() {
         ),
         (32 * 1024, 12 * 1024 * 1024, 2048)
     );
+    assert_eq!(limits::OBJECT_TREE_BASE_BYTES, 5 * 4096);
     assert_eq!(limits::OBJECT_STAGING.as_secs(), 24 * 60 * 60);
     for bad in [
         "",
@@ -798,26 +799,19 @@ fn numbered(
     sp.binding = vec![9; tmt_remote::limits::OBJECT_BINDING_BYTES];
     (sp, payload)
 }
-/// Build a population on a fresh root, then compare the conservative physical
-/// footprint (payload tree + ledger rows beyond the empty ledger) with the formula's
-/// charge (without the base, which the journal test bounds separately).
-fn physical_and_charged(
-    populate: impl FnOnce(&dyn ObjectBackend, &Arc<AtomicU64>, &Root),
-) -> (u64, u64) {
-    use tmt_remote::limits;
-    let empty = {
-        let root = Root::new();
-        let serving = root.serving();
-        let now = Arc::new(AtomicU64::new(1_000_000_000));
-        drop(open(&serving, Quotas::contract(), &now).unwrap());
-        fs::metadata(root.ledger()).unwrap().len()
-    };
+/// The empty ledger, measured on its own root.
+fn empty_ledger_bytes() -> u64 {
     let root = Root::new();
     let serving = root.serving();
     let now = Arc::new(AtomicU64::new(1_000_000_000));
-    let local = open(&serving, roomy(), &now).unwrap();
-    let alpha = handle(&local, "alpha");
-    populate(&alpha, &now, &root);
+    drop(open(&serving, Quotas::contract(), &now).unwrap());
+    fs::metadata(root.ledger()).unwrap().len()
+}
+/// The conservative physical footprint (payload tree, each distinct inode once, plus
+/// ledger rows beyond the empty ledger) against the formula's charge (without the
+/// base, which the journal test bounds separately).
+fn physical_vs_charge(root: &Root, local: &LocalFs<'_>, empty: u64) -> (u64, u64) {
+    use tmt_remote::limits;
     let usage = local.installation_usage(&io()).unwrap();
     let ledger = fs::metadata(root.ledger()).unwrap().len();
     let tree = root.0.join("alpha");
@@ -830,6 +824,19 @@ fn physical_and_charged(
         tree + ledger.saturating_sub(empty),
         usage.charged_bytes - limits::OBJECT_LEDGER_BASE_BYTES,
     )
+}
+/// Build a population on a fresh root, then compare physical footprint with charge.
+fn physical_and_charged(
+    populate: impl FnOnce(&dyn ObjectBackend, &Arc<AtomicU64>, &Root),
+) -> (u64, u64) {
+    let empty = empty_ledger_bytes();
+    let root = Root::new();
+    let serving = root.serving();
+    let now = Arc::new(AtomicU64::new(1_000_000_000));
+    let local = open(&serving, roomy(), &now).unwrap();
+    let alpha = handle(&local, "alpha");
+    populate(&alpha, &now, &root);
+    physical_vs_charge(&root, &local, empty)
 }
 
 #[test]
@@ -957,4 +964,209 @@ fn readiness_honors_a_spent_budget_before_any_effect() {
         ));
         assert_eq!(snapshot(&root.0), before);
     }
+}
+
+const MIB: usize = 1024 * 1024;
+
+/// Out-of-band fixture corruption, not something `LocalFs` creates: commit an
+/// original normally, rewind it to an adopted commit with no receipt, let `shape`
+/// arrange the destination and staging names, then reopen so readiness reconciles
+/// it. `check` sees the reopened backend and the ledger.
+fn damaged_commit(
+    payload: &[u8],
+    quotas: Quotas,
+    shape: impl FnOnce(&Path, &Path),
+    check: impl FnOnce(&Root, &LocalFs<'_>, &Serving),
+) {
+    let root = Root::new();
+    let serving = root.serving();
+    let now = Arc::new(AtomicU64::new(1_000_000_000));
+    let sp = spec(1, 1, 1, payload);
+    {
+        let local = open(&serving, quotas, &now).unwrap();
+        upload(&handle(&local, "alpha"), &sp, payload);
+    }
+    Connection::open(root.ledger())
+        .unwrap()
+        .execute("UPDATE intents SET phase='committing',staged=1", [])
+        .unwrap();
+    fs::create_dir_all(root.tree("alpha").join("staging")).unwrap();
+    shape(
+        &final_path(&root, "alpha", 1, 1),
+        &staging_path(&root, "alpha", 1),
+    );
+    let local = open(&serving, quotas, &now).unwrap();
+    check(&root, &local, &serving);
+}
+fn write_private(path: &Path, bytes: &[u8]) {
+    use std::{io::Write, os::unix::fs::OpenOptionsExt};
+    let mut file = fs::OpenOptions::new();
+    file.write(true).create_new(true).mode(0o600);
+    file.open(path).unwrap().write_all(bytes).unwrap();
+}
+fn phase_and_charge(root: &Root) -> (String, i64) {
+    Connection::open(root.ledger())
+        .unwrap()
+        .query_row("SELECT phase,payload_charged FROM intents", [], |r| {
+            Ok((r.get(0)?, r.get(1)?))
+        })
+        .unwrap()
+}
+
+#[test]
+fn an_unknown_original_is_charged_for_every_distinct_body_it_retains() {
+    use tmt_remote::{limits, objects::Limit};
+    let payload = bytes(MIB, 8);
+    let mut wrong = payload.clone();
+    wrong[17] ^= 0xff;
+    let empty = empty_ledger_bytes();
+    let reservation = conformance::round(MIB);
+    // A differing destination of the same length beside the staged body: two inodes.
+    // The extension limit holds exactly the original reservation plus one tiny adoption.
+    let one_object = reservation + conformance::RECORD + conformance::FENCE + conformance::TREE;
+    let tight = Quotas {
+        extension_bytes: one_object
+            + conformance::RECORD
+            + conformance::round(1)
+            + conformance::FENCE,
+        ..Quotas::contract()
+    };
+    damaged_commit(
+        &payload,
+        tight,
+        |dest, staging| {
+            fs::write(dest, &wrong).unwrap();
+            write_private(staging, &payload);
+        },
+        |root, local, _| {
+            let alpha = handle(local, "alpha");
+            assert_eq!(
+                phase_and_charge(root),
+                ("unknown".into(), 2 * reservation as i64)
+            );
+            assert_eq!(
+                alpha
+                    .status(spec(1, 1, 1, &payload).intent, &io())
+                    .unwrap()
+                    .state,
+                TransferState::Unknown
+            );
+            assert_eq!(
+                fs::read(final_path(root, "alpha", 1, 1)).unwrap(),
+                wrong,
+                "never overwritten"
+            );
+            assert_eq!(
+                fs::read(staging_path(root, "alpha", 1)).unwrap(),
+                payload,
+                "never unlinked"
+            );
+            let (physical, charged) = physical_vs_charge(root, local, empty);
+            assert!(
+                physical <= charged,
+                "two distinct bodies: {physical} B vs charge {charged} B"
+            );
+            // The measured overage refuses adoption in the limit it exceeds...
+            assert_eq!(
+                alpha.begin(&spec(9, 9, 9, b"x"), &io()),
+                Err(BackendError::Capacity(Limit::ExtensionBytes))
+            );
+            // ...and not in another extension, which is not full.
+            assert!(
+                handle(local, "beta")
+                    .begin(&spec(9, 9, 9, b"x"), &io())
+                    .is_ok()
+            );
+        },
+    );
+    // A destination larger than the intent is charged at its real size.
+    damaged_commit(
+        &payload,
+        Quotas::contract(),
+        |dest, staging| {
+            fs::write(dest, vec![7; 3 * MIB]).unwrap();
+            write_private(staging, &payload);
+        },
+        |root, local, _| {
+            assert_eq!(
+                phase_and_charge(root),
+                (
+                    "unknown".into(),
+                    (reservation + conformance::round(3 * MIB)) as i64
+                )
+            );
+            let (physical, charged) = physical_vs_charge(root, local, empty);
+            assert!(physical <= charged, "{physical} B vs {charged} B");
+        },
+    );
+    // Identical bytes in a different inode are not one allocation: content equality
+    // cannot establish a shared name.
+    damaged_commit(
+        &payload,
+        Quotas::contract(),
+        |_, staging| write_private(staging, &payload),
+        |root, local, _| {
+            assert_eq!(
+                phase_and_charge(root),
+                ("unknown".into(), 2 * reservation as i64)
+            );
+            let (physical, charged) = physical_vs_charge(root, local, empty);
+            assert!(physical <= charged, "{physical} B vs {charged} B");
+        },
+    );
+    // A destination without its staging name is not proof of an ordinary recovery.
+    damaged_commit(
+        &payload,
+        Quotas::contract(),
+        |_, _| {},
+        |root, local, _| {
+            assert_eq!(
+                phase_and_charge(root),
+                ("unknown".into(), reservation as i64)
+            );
+            assert_eq!(fs::read(final_path(root, "alpha", 1, 1)).unwrap(), payload);
+            let (physical, charged) = physical_vs_charge(root, local, empty);
+            assert!(physical <= charged);
+            assert_eq!(
+                handle(local, "alpha").commit(spec(1, 1, 1, &payload).intent, &io()),
+                Err(BackendError::Unavailable)
+            );
+        },
+    );
+    // The legitimate crash window: the staging name and the destination are one inode.
+    damaged_commit(
+        &payload,
+        Quotas::contract(),
+        |dest, staging| fs::hard_link(dest, staging).unwrap(),
+        |root, local, _| {
+            assert_eq!(
+                phase_and_charge(root),
+                ("committed".into(), reservation as i64)
+            );
+            assert!(!staging_path(root, "alpha", 1).exists());
+            assert_eq!(
+                fs::metadata(final_path(root, "alpha", 1, 1))
+                    .unwrap()
+                    .nlink(),
+                1
+            );
+            let (physical, charged) = physical_vs_charge(root, local, empty);
+            assert!(physical <= charged);
+        },
+    );
+    // The same with the destination absent: an ordinary create-only completion.
+    damaged_commit(
+        &payload,
+        Quotas::contract(),
+        |dest, staging| {
+            fs::rename(dest, staging).unwrap();
+        },
+        |root, _, _| {
+            assert_eq!(
+                phase_and_charge(root),
+                ("committed".into(), reservation as i64)
+            );
+        },
+    );
+    let _ = limits::OBJECT_CHUNK_BYTES;
 }

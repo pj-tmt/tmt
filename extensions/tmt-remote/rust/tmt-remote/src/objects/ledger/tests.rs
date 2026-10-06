@@ -4,6 +4,22 @@ use super::*;
 use crate::state::Layout;
 use std::{fs, path::PathBuf};
 
+/// A disposable root removed even when an assertion unwinds.
+struct Root(PathBuf);
+impl Root {
+    fn new(tag: &str) -> Self {
+        let path = PathBuf::from(format!("/tmp/t1850{tag}-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&path);
+        fs::create_dir(&path).unwrap();
+        Self(path)
+    }
+}
+impl Drop for Root {
+    fn drop(&mut self) {
+        let _ = fs::remove_dir_all(&self.0);
+    }
+}
+
 static NEVER: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 fn io() -> IoBudget<'static> {
     IoBudget {
@@ -38,9 +54,8 @@ fn maximal_rows(connection: &Connection, namespace: u8, count: usize, phase: &st
 
 #[test]
 fn the_largest_journal_of_any_transition_and_the_empty_ledger_fit_the_base_charge() {
-    let root = PathBuf::from(format!("/tmp/t1850j-{}", std::process::id()));
-    let _ = fs::remove_dir_all(&root);
-    fs::create_dir(&root).unwrap();
+    let guard = Root::new("j");
+    let root = guard.0.clone();
     let serving = Layout::open(&root).unwrap().serve_lock().unwrap();
     let ledger = Ledger::open(&serving).unwrap();
     let database = root.join("remote/objects.db");
@@ -112,14 +127,12 @@ fn the_largest_journal_of_any_transition_and_the_empty_ledger_fit_the_base_charg
     );
     drop(ledger);
     drop(serving);
-    let _ = fs::remove_dir_all(&root);
 }
 
 #[test]
 fn removal_releases_one_bounded_batch_at_a_time_and_resumes_where_it_stopped() {
-    let root = PathBuf::from(format!("/tmp/t1850b-{}", std::process::id()));
-    let _ = fs::remove_dir_all(&root);
-    fs::create_dir(&root).unwrap();
+    let guard = Root::new("b");
+    let root = guard.0.clone();
     let serving = Layout::open(&root).unwrap().serve_lock().unwrap();
     let ledger = Ledger::open(&serving).unwrap();
     let ext = "a-maximal-extension-name-32-chars";
@@ -176,15 +189,13 @@ fn removal_releases_one_bounded_batch_at_a_time_and_resumes_where_it_stopped() {
     ledger.removal_confirmed(ext, &ns, &io()).unwrap();
     drop(ledger);
     drop(serving);
-    let _ = fs::remove_dir_all(&root);
 }
 
 #[test]
 fn a_ledger_wait_that_outlives_the_budget_neither_reads_nor_transitions() {
     use std::sync::atomic::{AtomicBool, Ordering};
-    let root = PathBuf::from(format!("/tmp/t1850w-{}", std::process::id()));
-    let _ = fs::remove_dir_all(&root);
-    fs::create_dir(&root).unwrap();
+    let guard = Root::new("w");
+    let root = guard.0.clone();
     let serving = Layout::open(&root).unwrap().serve_lock().unwrap();
     let ledger = Ledger::open(&serving).unwrap();
     let ext = "alpha";
@@ -218,7 +229,7 @@ fn a_ledger_wait_that_outlives_the_budget_neither_reads_nor_transitions() {
             scope.spawn(|| ledger.usage(ext, UsageScope::Extension, &budget).map(drop)),
             scope.spawn(|| ledger.close_confirmed(ext, &spec.intent, &budget)),
             scope.spawn(|| ledger.advance(ext, &row, 1, &budget).map(drop)),
-            scope.spawn(|| ledger.mark_unknown(ext, &spec.intent, &budget)),
+            scope.spawn(|| ledger.settle_unknown(ext, &spec.intent, 1, &budget)),
         ];
         cancelled.store(true, Ordering::SeqCst);
         drop(held);
@@ -234,5 +245,80 @@ fn a_ledger_wait_that_outlives_the_budget_neither_reads_nor_transitions() {
     );
     drop(ledger);
     drop(serving);
-    let _ = fs::remove_dir_all(&root);
+}
+
+#[test]
+fn an_unknown_charge_never_drops_and_an_unrepresentable_one_stops_adoption() {
+    let guard = Root::new("u2");
+    let root = guard.0.clone();
+    let serving = Layout::open(&root).unwrap().serve_lock().unwrap();
+    let ledger = Ledger::open(&serving).unwrap();
+    let ext = "alpha";
+    let spec = |n: u8| BeginSpec {
+        intent: IntentId([n; 32]),
+        key: BlobKey {
+            namespace: NamespaceId([1; 32]),
+            object: OpaqueKey([n; 32]),
+        },
+        payload_sha256: [0; 32],
+        payload_bytes: 3 * 4096,
+        binding: vec![],
+    };
+    let quotas = Quotas::contract();
+    for n in [1, 2] {
+        ledger.adopt(ext, &spec(n), 10, &quotas, &io()).unwrap();
+    }
+    let charged = |intent: u8| -> i64 {
+        ledger
+            .connection
+            .lock()
+            .unwrap()
+            .query_row(
+                "SELECT payload_charged FROM intents WHERE intent=?1",
+                [vec![intent; 32]],
+                |r| r.get(0),
+            )
+            .unwrap()
+    };
+    // The reservation is a floor: a smaller observation never lowers it.
+    ledger
+        .settle_unknown(ext, &IntentId([1; 32]), 1, &io())
+        .unwrap();
+    assert_eq!(charged(1), 3 * 4096);
+    ledger
+        .settle_unknown(ext, &IntentId([1; 32]), 5 * 4096, &io())
+        .unwrap();
+    assert_eq!(charged(1), 5 * 4096);
+    ledger
+        .settle_unknown(ext, &IntentId([1; 32]), 4096, &io())
+        .unwrap();
+    assert_eq!(
+        charged(1),
+        5 * 4096,
+        "and a later smaller observation neither"
+    );
+    // A charge no signed integer holds is unavailable and changes nothing.
+    assert_eq!(
+        ledger.settle_unknown(ext, &IntentId([2; 32]), u64::MAX, &io()),
+        Err(BackendError::Unavailable)
+    );
+    let row = ledger.row(ext, &IntentId([2; 32]), &io()).unwrap().unwrap();
+    assert_eq!((row.phase, charged(2)), (Phase::Staging, 3 * 4096));
+    // From then on this live ledger adopts nothing new, but repeats still observe.
+    assert_eq!(
+        ledger.adopt(ext, &spec(3), 10, &quotas, &io()).err(),
+        Some(BackendError::Unavailable)
+    );
+    assert!(matches!(
+        ledger.adopt(ext, &spec(2), 10, &quotas, &io()),
+        Ok(Adoption::Repeat(_))
+    ));
+    assert_eq!(
+        ledger
+            .fence(ext, &NamespaceId([7; 32]), &quotas, &io())
+            .err(),
+        Some(BackendError::Unavailable)
+    );
+    drop(ledger);
+    drop(serving);
 }

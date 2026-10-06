@@ -59,7 +59,7 @@ admits it is #1852's.
    create-only hard link, directory sync, transaction `committed` (the receipt), then
    staging-name removal. A destination that already exists is accepted only when its
    length and digest equal the original; anything else closes the original as
-   `unknown` and is never overwritten.
+   `unknown` (charged for every distinct body) and is never overwritten.
 4. `discard` and expiry: `staging -> discarding|expiring`, remove the staging name, sync,
    then release payload and entry. `committing`, `committed` and `unknown` conflict.
 5. `remove_namespace`: commit the fence, drain in-flight holders, mark rows `removing`,
@@ -77,18 +77,37 @@ reader re-checks it after reading and before returning bytes.
 
 Recomputed from rows, never cached. Per scope: payload (rounded up to 4 KiB until its
 removal is confirmed) + `OBJECT_RECORD_BYTES` per retained original + `OBJECT_FENCE_BYTES`
-per namespace (its directory block, entry and fence row); the installation adds
-`OBJECT_LEDGER_BASE_BYTES`, which covers the empty ledger and the largest rollback
-journal. The two staging/final hard links share one payload charge. Constants live in
-`src/limits.rs`.
+per namespace (its directory block, entry and fence row). Extension and installation scopes
+also count `OBJECT_TREE_BASE_BYTES` once per extension that has any namespace (its fixed
+directories), and the installation adds `OBJECT_LEDGER_BASE_BYTES`, which covers the empty
+ledger and the largest rollback journal. The two staging/final hard links share one payload
+charge. Constants live in `src/limits.rs`. Sums, products and conversions are checked: an
+unrepresentable aggregate is unavailable accounting, never a wrapped number.
 
-The bound is demonstrated, not assumed: the footprint test builds populations (one
+An `unknown` original is the one state whose charge can exceed its reservation. When
+publication finds a destination that is not provably this original's own inode (device and
+inode of the two admitted handles; equal bytes alone prove nothing), the original is settled
+`unknown` and its charge becomes `max(reservation, measured)`, where measured sums the
+rounded allocation of each distinct inode it retains (length and allocated blocks, whichever
+is larger). The charge is never lowered, nothing is overwritten, unlinked or released, and
+it may exceed a limit because the bytes already exist: the ordinary checks then refuse later
+adoption in exactly the namespace, extension or installation limit it exceeds, and no other
+scope is full. A destination without its staging name is not a recovery (the staging name is
+removed only after the receipt). If an allocation cannot be measured or represented, the
+original stays unsettled, every handle of that `LocalFs` refuses new adoption (observation of
+existing originals continues), and a restart refuses readiness while the unsettled original or
+an unrepresentable aggregate remains. There is no manual resolution command.
+
+The bound is demonstrated, not assumed: the footprint tests build populations (one
 namespace per tiny object, block-straddling payloads, many objects in one namespace,
-pending staging, discarded/expired/removed tombstones, unknown originals) and checks
-the modeled physical bytes (4 KiB blocks, 4 KiB directories, 128 bytes per entry, real
-ledger growth) against the charge; the ledger test measures the largest journal. It is a
-logical model, not `st_blocks`: a filesystem with larger blocks may exceed it, and
-nothing here claims power-loss durability.
+pending staging, discarded/expired/removed tombstones, unknown originals, and
+differing, larger-than-intent and identical-but-different-inode destinations) and check
+the modeled physical bytes (each distinct inode once, 4 KiB blocks, 4 KiB directories, 128
+bytes per entry, real ledger growth) against the charge; the ledger test measures the
+largest journal. It is a logical model, not `st_blocks`: a filesystem with larger blocks
+may exceed it, and nothing here claims power-loss durability. The differing-destination
+cases are created by out-of-band fixture corruption; `LocalFs` itself never creates foreign
+bytes, and the tests prove its response, not that such bytes occur.
 
 ## Adding an adapter
 

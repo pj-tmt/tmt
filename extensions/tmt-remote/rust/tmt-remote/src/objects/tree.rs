@@ -179,6 +179,23 @@ pub fn admit_file(file: &File, max_links: u64) -> Result<()> {
     }
     Ok(())
 }
+/// Whether two admitted handles are the same allocation: device and inode, never content.
+pub fn same_file(left: &File, right: &File) -> Result<bool> {
+    let (left, right) = (left.metadata()?, right.metadata()?);
+    Ok(left.dev() == right.dev() && left.ino() == right.ino())
+}
+/// The physical allocation of one inode in bytes, or `None` when it cannot be
+/// represented: its length and its allocated blocks, each rounded up to a 4 KiB
+/// block, whichever is larger. Checked throughout.
+pub fn allocation(file: &File) -> Result<Option<u64>> {
+    let metadata = file.metadata()?;
+    let block = crate::limits::OBJECT_BLOCK_BYTES;
+    let round =
+        |bytes: u64| Some(bytes.checked_add(block - 1)? / block).and_then(|n| n.checked_mul(block));
+    Ok(round(metadata.len())
+        .zip(metadata.blocks().checked_mul(512).and_then(round))
+        .map(|(len, blocks)| len.max(blocks)))
+}
 pub fn len(file: &File) -> Result<u64> {
     Ok(file.metadata()?.len())
 }
