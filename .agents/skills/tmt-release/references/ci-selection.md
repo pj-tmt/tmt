@@ -104,8 +104,13 @@ envelope keys, malformed or ambiguous objects and unclassified text refuse admis
 Auxiliary output is opaque: it never supplies a test terminal or sender/test identity,
 and diagnostic values are not compared across runs. Original streams retain the bytes;
 ordered command/harness-block, line, byte-count and hash references are reported separately
-from exact coverage. The existing 4000-entry bound caps auxiliary references, and each
-metadata report write counts toward the unchanged role evidence budget.
+from exact coverage. All emitted top-level Cargo envelope keys, including `executable`,
+are reserved. The existing 4000-entry bound caps auxiliary references. Each report write
+charges the actual pretty-printed auxiliary metadata representation to the unchanged
+role evidence budget. Exhaustion retains a bounded explicit red count/hash record instead
+of the refused reference array and cannot bypass final listener/process observation attempts.
+The writer refuses cleanup admission at the existing observation/report boundary; a later
+report write cannot reset the refusal or grant cleanup authority.
 
 The manual workflow serializes producer, default Cargo baseline, restored whole
 harness consumer and separate rustdoc obligations on Ubuntu 24.04 with Rust 1.97.0,

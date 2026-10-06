@@ -310,6 +310,52 @@ describe('N=1 Cargo proof admission (synthetic formats, not Linux equivalence)',
       )
     ).toThrow('record bound');
   });
+  it('refuses every observed Cargo envelope key in baseline and direct ordinary JSON', () => {
+    // Top-level keys from original8627 command179 prefix lines1..402; no rerun.
+    const keys = [
+      'cfgs',
+      'env',
+      'executable',
+      'features',
+      'filenames',
+      'fresh',
+      'linked_libs',
+      'linked_paths',
+      'manifest_path',
+      'out_dir',
+      'package_id',
+      'profile',
+      'reason',
+      'success',
+      'target',
+      'message',
+    ];
+    const f = fixture();
+    const prefix =
+      f.artifacts.map((record) => JSON.stringify(record)).join('\n') +
+      '\n{"reason":"build-finished","success":true}\n';
+    for (const key of keys) {
+      const text = executed.replace(
+        'test alpha ... ok',
+        `${JSON.stringify({ [key]: null })}\ntest alpha ... ok`
+      );
+      const auxiliary: unknown[] = [];
+      expect(() =>
+        proof.parseExecution(
+          text,
+          { names: ['alpha', 'ignored'], ignored: ['ignored'] },
+          {
+            ordinary: ordinaryContext,
+            auxiliary,
+          }
+        )
+      ).toThrow('Cargo-shaped runtime JSON');
+      expect(auxiliary).toEqual([]);
+      expect(() => proof.cargoOutput(prefix + text, { mixed: true, execution: true })).toThrow(
+        'Cargo-shaped runtime JSON'
+      );
+    }
+  });
   it('keeps genuine Cargo records and binary/doc obligations exact across mixed runtime JSON', () => {
     const f = fixture();
     const inv = {
@@ -767,6 +813,184 @@ describe('bounded command and role cleanup', () => {
       }
     } finally {
       rmSync(temp, { recursive: true, force: true });
+    }
+  });
+  it('charges actual pretty metadata and preserves observations on auxiliary exhaustion without child or root effects', async () => {
+    const reference = { ...ordinaryContext, line: 2, bytes: 2, sha256: 'a'.repeat(64) };
+    const serialized = (value: unknown) => JSON.stringify(value, null, 2) + '\n';
+    const delta = (value: Record<string, unknown>) => {
+      const base = { ...value };
+      delete base.auxiliaryOutput;
+      delete base.auxiliaryEvidenceFailure;
+      return Buffer.byteLength(serialized(value)) - Buffer.byteLength(serialized(base));
+    };
+    const normal = { role: 'baseline', auxiliaryOutput: [reference], complete: false };
+    const writes: { name: string; bytes: string }[] = [];
+    const evidence = { bytes: 0 };
+    const writer = transport.proofJSONWriter({
+      output: '/injected-not-created',
+      role: 'baseline',
+      evidence,
+      writeFile: (file: string, bytes: string) => writes.push({ name: path.basename(file), bytes }),
+    });
+    writer('baseline.json', normal);
+    expect(writes[0].bytes).toBe(serialized(normal));
+    expect(evidence.bytes).toBe(delta(normal));
+    expect(evidence.bytes).toBeGreaterThan(
+      Buffer.byteLength(JSON.stringify(normal.auxiliaryOutput))
+    );
+    writer('baseline.json', normal);
+    expect(evidence.bytes).toBe(2 * delta(normal));
+    writer('processes-before.json', [processIdentity()]);
+    expect(writes[2].bytes).toBe(JSON.stringify([processIdentity()]) + '\n');
+    expect(evidence.bytes).toBe(2 * delta(normal) + Buffer.byteLength(writes[2].bytes));
+
+    for (const role of [...proof.ROLES, 'aggregate']) {
+      for (const originalFailure of [undefined, 'original work failure']) {
+        for (const phase of ['preliminary', 'exhausted', 'after-observations']) {
+          const report: Record<string, unknown> = {
+            role,
+            auxiliaryOutput: [reference],
+            failure: originalFailure,
+            complete: true,
+            cleanupVerified: false,
+            runtimeRootsRemoved: false,
+          };
+          const records = [{ id: '000-own', cleanup: true, observations: null }];
+          // finalizeRole adds these exact fields before the first write.
+          const first = { ...report, complete: false, commands: records };
+          const before = [processIdentity()];
+          const observationBytes = Buffer.byteLength(JSON.stringify(before) + '\n');
+          const budget = {
+            bytes:
+              phase === 'exhausted'
+                ? proof.LIMITS.evidenceBytes
+                : phase === 'preliminary'
+                  ? proof.LIMITS.evidenceBytes - 1
+                  : proof.LIMITS.evidenceBytes - delta(first) - observationBytes - 1,
+          };
+          const originalBytes = budget.bytes;
+          const calls: string[] = [];
+          const reports: Record<string, unknown>[] = [];
+          const publication: string[] = [];
+          const json = transport.proofJSONWriter({
+            output: '/injected-not-created',
+            role,
+            evidence: budget,
+            writeFile: (file: string, bytes: string) => {
+              publication.push(bytes);
+              if (path.basename(file) === `${role}.json`) reports.push(JSON.parse(bytes));
+            },
+          });
+          await transport.finalizeRole({
+            report,
+            records,
+            processesBefore: before,
+            listenersBefore: '',
+            roots: ['/injected-never-removed'],
+            deadline: 100,
+            now: () => 1,
+            command: async (label: string) => {
+              calls.push(label);
+              return { stdout: '' };
+            },
+            snapshot: () => {
+              calls.push('snapshot');
+              return before;
+            },
+            json,
+          });
+          // Includes main's last report write outside finalizeRole too.
+          expect(() => json(`${role}.json`, report)).not.toThrow();
+          expect(calls).toEqual(['listeners-after', 'snapshot']);
+          expect(report).toMatchObject({
+            failure: originalFailure ?? 'Auxiliary evidence bound',
+            complete: false,
+            cleanupVerified: false,
+            runtimeRootsRemoved: false,
+            cleanupFailure: 'Auxiliary evidence bound',
+          });
+          expect(report.auxiliaryOutput).toEqual([reference]);
+          expect(reports.at(-1)).not.toHaveProperty('auxiliaryOutput');
+          expect(reports.at(-1)?.auxiliaryEvidenceFailure).toMatchObject({
+            reason: 'Auxiliary evidence bound',
+            references: 1,
+            sha256: proof.digest(proof.canonical([reference])),
+          });
+          expect(reports.at(-1)?.auxiliaryEvidenceFailure).toHaveProperty('requiredBytes');
+          expect(reports.at(-1)?.complete).toBe(false);
+          // Charge the actual emitted metadata (including bounded red diagnostics),
+          // not an unwritten compact array or repeated failed reservation.
+          expect(budget.bytes - originalBytes).toBe(
+            reports.reduce((bytes, value) => bytes + delta(value), observationBytes)
+          );
+          for (const value of reports.filter((value) => value.auxiliaryEvidenceFailure))
+            expect(delta(value)).toBeLessThan(512);
+          expect(publication.length).toBeGreaterThanOrEqual(4);
+        }
+      }
+    }
+  });
+  it('never treats bounded publication as cleanup authority and keeps late report exhaustion red', async () => {
+    const reference = { ...ordinaryContext, line: 2, bytes: 2, sha256: 'a'.repeat(64) };
+    for (const outcome of ['normal', 'survivor', 'late-budget']) {
+      const report: Record<string, unknown> = { role: 'baseline', auxiliaryOutput: [reference] };
+      const evidence = { bytes: 0 };
+      const calls: string[] = [];
+      const reports: Record<string, unknown>[] = [];
+      const before = [processIdentity()];
+      const writer = transport.proofJSONWriter({
+        output: '/injected-not-created',
+        role: 'baseline',
+        evidence,
+        writeFile: (file: string, bytes: string) => {
+          if (path.basename(file) === 'baseline.json') reports.push(JSON.parse(bytes));
+        },
+      });
+      const json = (name: string, value: Record<string, unknown>) => {
+        // Exhaust only on finalizeRole's last report write, after its positive
+        // injected admission/removal sequence. No real root ever exists here.
+        if (outcome === 'late-budget' && name === 'baseline.json' && value.runtimeRootsRemoved)
+          evidence.bytes = proof.LIMITS.evidenceBytes;
+        writer(name, value);
+      };
+      const finalization = transport.finalizeRole({
+        report,
+        records: [{ id: '000-own', cleanup: true, observations: null }],
+        processesBefore: before,
+        listenersBefore: '',
+        roots: [],
+        deadline: 100,
+        now: () => 1,
+        json,
+        snapshot: () => {
+          calls.push('snapshot');
+          return outcome === 'survivor' ? [...before, processIdentity('200', '20')] : before;
+        },
+        command: async (label: string) => {
+          calls.push(label);
+          return { stdout: '' };
+        },
+      });
+      if (outcome === 'late-budget')
+        await expect(finalization).rejects.toThrow('Auxiliary evidence bound');
+      else await finalization;
+      expect(calls.slice(0, 2)).toEqual(['listeners-after', 'snapshot']);
+      expect(report.complete).toBe(outcome === 'normal');
+      if (outcome === 'survivor') {
+        expect(calls).toHaveLength(2);
+        expect(report.cleanupVerified).toBe(false);
+        expect(report.runtimeRootsRemoved).toBe(false);
+        expect(reports.at(-1)?.auxiliaryOutput).toEqual([reference]);
+      } else expect(calls).toEqual(['listeners-after', 'snapshot', 'remove-owned-roots']);
+      if (outcome === 'late-budget') {
+        expect(report.cleanupVerified).toBe(false);
+        // Do not erase an already observed removal when later publication turns red.
+        expect(report.runtimeRootsRemoved).toBe(true);
+        expect(reports.at(-1)?.complete).toBe(false);
+        expect(reports.at(-1)).toHaveProperty('auxiliaryEvidenceFailure');
+        expect(() => writer('baseline.json', report)).not.toThrow();
+      }
     }
   });
   it('retains original role deltas and observes the final listener window before refusing root removal', async () => {

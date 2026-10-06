@@ -110,6 +110,7 @@ function opaqueRuntimeJSON(line) {
     'features',
     'filenames',
     'fresh',
+    'executable',
     'linked_libs',
     'linked_paths',
     'cfgs',

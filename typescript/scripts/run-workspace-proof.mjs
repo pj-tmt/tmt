@@ -404,8 +404,8 @@ async function main(role, directory) {
     fs.mkdirSync(dir, { recursive: true });
   }
   const records = [];
-  let sequence = 0,
-    evidenceBytes = 0;
+  let sequence = 0;
+  const evidence = { bytes: 0 };
   async function command(
     label,
     executable,
@@ -447,7 +447,7 @@ async function main(role, directory) {
           (cleanupPhase ? cleanupDeadline : workDeadline) - performance.now() - LIMITS.settlementMs
         )
       ),
-      evidenceBytes: LIMITS.evidenceBytes - evidenceBytes,
+      evidenceBytes: LIMITS.evidenceBytes - evidence.bytes,
     });
     const record = {
       id,
@@ -461,11 +461,11 @@ async function main(role, directory) {
       ...result,
     };
     const processBytes = JSON.stringify(record, null, 2);
-    evidenceBytes += result.capturedBytes + Buffer.byteLength(processBytes);
+    evidence.bytes += result.capturedBytes + Buffer.byteLength(processBytes);
     records.push(record);
     fs.writeFileSync(path.join(output, `${id}.process.json`), processBytes);
     assert(
-      evidenceBytes <= LIMITS.evidenceBytes &&
+      evidence.bytes <= LIMITS.evidenceBytes &&
         !result.reason &&
         result.complete &&
         result.cleanup &&
@@ -481,21 +481,7 @@ async function main(role, directory) {
   }
   const run = async (label, args, options) =>
     command(label, cargo, args[0]?.startsWith('+') ? args.slice(1) : args, options);
-  const json = (name, value) => {
-    const bytes = JSON.stringify(value, null, name.startsWith('processes-') ? undefined : 2) + '\n';
-    fs.writeFileSync(path.join(output, name), bytes);
-    if (name === `${role}.json` && value.auxiliaryOutput?.length) {
-      evidenceBytes += Buffer.byteLength(JSON.stringify(value.auxiliaryOutput));
-      assert(evidenceBytes <= LIMITS.evidenceBytes, 'Auxiliary evidence bound');
-    }
-    if (name.startsWith('processes-')) {
-      evidenceBytes += Buffer.byteLength(bytes);
-      assert(
-        Buffer.byteLength(bytes) <= LIMITS.outputBytes && evidenceBytes <= LIMITS.evidenceBytes,
-        'Process observation evidence bound'
-      );
-    }
-  };
+  const json = proofJSONWriter({ output, role, evidence });
   const artifactIds = JSON.parse(process.env.PROOF_ARTIFACT_IDS ?? '{}');
   let report = { role, artifactIds, complete: false, cleanupVerified: false, auxiliaryOutput: [] };
   let processesBefore, listenersBefore;
@@ -1117,6 +1103,61 @@ async function main(role, directory) {
     json(`${role}.json`, report);
     if (!report.complete) process.exitCode = 1;
   }
+}
+// The report writer owns auxiliary accounting; cleanup keeps its existing boundary.
+// A preliminary report must not throw on auxiliary exhaustion before observations.
+export function proofJSONWriter({ output, role, evidence, writeFile = fs.writeFileSync }) {
+  let auxiliaryFailure,
+    finalProcessWriteAttempted = false;
+  const serialize = (value, space) => JSON.stringify(value, null, space) + '\n';
+  const metadataBytes = (value) => {
+    const base = { ...value };
+    delete base.auxiliaryOutput;
+    delete base.auxiliaryEvidenceFailure;
+    return Buffer.byteLength(serialize(value, 2)) - Buffer.byteLength(serialize(base, 2));
+  };
+  return (name, value) => {
+    const roleReport = name === `${role}.json`;
+    let refuseAfterObservations = false,
+      published = value;
+    if (roleReport && !auxiliaryFailure && Object.hasOwn(value, 'auxiliaryOutput')) {
+      const bytes = metadataBytes(value);
+      if (evidence.bytes + bytes > LIMITS.evidenceBytes) {
+        auxiliaryFailure = {
+          reason: 'Auxiliary evidence bound',
+          references: value.auxiliaryOutput.length,
+          requiredBytes: bytes,
+          sha256: digest(canonical(value.auxiliaryOutput)),
+        };
+        refuseAfterObservations = finalProcessWriteAttempted;
+      }
+    }
+    if (roleReport && auxiliaryFailure) {
+      value.failure ??= auxiliaryFailure.reason;
+      value.complete = false;
+      value.cleanupVerified = false;
+      value.auxiliaryEvidenceFailure = auxiliaryFailure;
+      published = { ...value };
+      // Refused references remain in memory and original hashed streams, not a
+      // falsely complete report. The bounded red record states their omission.
+      delete published.auxiliaryOutput;
+    }
+    const bytes = serialize(published, name.startsWith('processes-') ? undefined : 2);
+    if (roleReport) evidence.bytes += metadataBytes(published);
+    if (name === 'processes-after.json') finalProcessWriteAttempted = true;
+    writeFile(path.join(output, name), bytes);
+    if (name.startsWith('processes-')) {
+      evidence.bytes += Buffer.byteLength(bytes);
+      assert(!auxiliaryFailure, 'Auxiliary evidence bound');
+      assert(
+        Buffer.byteLength(bytes) <= LIMITS.outputBytes && evidence.bytes <= LIMITS.evidenceBytes,
+        'Process observation evidence bound'
+      );
+    }
+    // This throw is inside the existing finalization try after both observations;
+    // later red report writes never throw this same auxiliary refusal again.
+    assert(!refuseAfterObservations, 'Auxiliary evidence bound');
+  };
 }
 // One cleanup boundary for every role, including a failed command or admission.
 // Observations only detect; no PID from a snapshot is used for signalling.
