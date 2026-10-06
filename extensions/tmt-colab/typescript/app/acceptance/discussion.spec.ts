@@ -1,4 +1,4 @@
-import { expect, test, type Locator, type Page } from '@playwright/test';
+import { expect, test, type Locator, type Page, type Route } from '@playwright/test';
 import { text } from '../src/strings.js';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
@@ -6,6 +6,8 @@ import path from 'node:path';
 import { pairBrowser, restartColab, startDoor } from './harness/browser.js';
 import {
   annotationInput as inputFor,
+  composerTrace,
+  composerAssets,
   createPage,
   freePort,
   openPage,
@@ -400,6 +402,18 @@ test('composer records plain annotations and replies without a recipient, then s
     const door = await startDoor(world, await freePort());
     const agent = await world.startAgent('composer-agent', { gated: true });
     const browser = await pairBrowser(world, 'composer-author');
+    await composerTrace(world, browser, door.address, 'composer-owner');
+    const operations: string[] = [];
+    browser.context.on('request', (request) => {
+      if (
+        request.method() !== 'POST' ||
+        !new URL(request.url()).pathname.endsWith('/append') ||
+        !request.headers()['content-type']?.includes('application/json')
+      )
+        return;
+      const operation = (request.postDataJSON() as { operation?: string }).operation;
+      if (typeof operation === 'string') operations.push(operation);
+    });
     const created = createPage(
       world,
       'Composer acceptance',
@@ -408,11 +422,25 @@ test('composer records plain annotations and replies without a recipient, then s
     );
     const page = await openPage(door, browser, created);
     await selectInRenderer(page, '#quote');
+    await composerAssets(page, 'composer-owner');
+    const opened = operations.filter((operation) => operation === 'session.open').length;
+    let injectedContextReads = 0;
+    // Ordinary network failure at the existing context GET before directory discovery.
+    // No signed agents.list is fabricated or interrupted; content admission/sync is untouched.
+    const unavailableDirectoryContext = async (route: Route) => {
+      if (route.request().method() !== 'GET') return route.continue();
+      injectedContextReads++;
+      await route.abort('failed');
+    };
+    await page.route('**/api/session', unavailableDirectoryContext);
     await page.getByTestId('selection-ask').click();
     const compose = page.getByRole('dialog', { name: 'Annotate selection' });
     const input = compose.getByRole('combobox', { name: 'Message', exact: true });
     const plain = 'Plain annotation without a recipient.\nSecond line.';
+    await expect(compose.getByRole('status')).toContainText(text.messageAgentsUnavailable);
+    await expect(input).toBeEnabled();
     await input.fill(plain);
+    await expect(compose.getByRole('button', { name: 'Post comment', exact: true })).toBeEnabled();
     await compose.getByRole('button', { name: 'Post comment', exact: true }).click();
     await comments(page);
     await page.getByTestId('annotation-row').filter({ hasText: 'Frozen original quote.' }).click();
@@ -448,6 +476,12 @@ test('composer records plain annotations and replies without a recipient, then s
     expect(world.coreCalls().filter((call) => call.operation === 'dispatch.create')).toHaveLength(
       0,
     );
+    expect(injectedContextReads).toBeGreaterThan(0);
+    expect(operations.filter((operation) => operation === 'session.open')).toHaveLength(opened);
+    await expect(page.frameLocator('iframe').locator('#quote')).toHaveText(
+      'Frozen original quote.',
+    );
+    await page.unroute('**/api/session', unavailableDirectoryContext);
     const question =
       'Explain this exact quote, with no mandatory prefix.\n  Keep these spaces and this line.  ';
     await reply.fill(question);
@@ -474,6 +508,7 @@ test('composer records plain annotations and replies without a recipient, then s
         }
       }
     }
+    expect(operations.filter((operation) => operation === 'session.open')).toHaveLength(opened);
     world.armNextBarrier('after');
     await thread.getByRole('button', { name: 'Ask agent', exact: true }).click();
     const parked = await world.barrierEntered();

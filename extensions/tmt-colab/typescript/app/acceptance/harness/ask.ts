@@ -1,4 +1,7 @@
 import { execFileSync } from 'node:child_process';
+import fs from 'node:fs';
+import path from 'node:path';
+import { createHash } from 'node:crypto';
 import { expect, type Locator, type Page } from '@playwright/test';
 import type { Door, PairedBrowser } from './browser.js';
 import type { AcceptanceWorld, Agent } from './world.js';
@@ -182,4 +185,81 @@ export async function freePort(): Promise<number> {
       server.close(() => resolve(port));
     });
   });
+}
+
+/** Original context trace and root witness; lifecycle cleanup stays with AcceptanceWorld. */
+export async function composerTrace(
+  world: AcceptanceWorld,
+  browser: PairedBrowser,
+  origin: string,
+  label: string,
+) {
+  const directory = process.env.COLAB_1817_NATIVE_TRACE_DIR;
+  if (!directory || !path.isAbsolute(directory) || !/^[a-z-]+$/.test(label))
+    throw new Error('Set an absolute fresh COLAB_1817_NATIVE_TRACE_DIR.');
+  fs.mkdirSync(directory, { recursive: true });
+  const trace = path.join(directory, `${label}.zip`);
+  const witness = path.join(directory, `${label}.world.json`);
+  if (fs.existsSync(trace) || fs.existsSync(witness))
+    throw new Error('Refuse to overwrite original evidence.');
+  fs.writeFileSync(
+    witness,
+    JSON.stringify(
+      {
+        label,
+        workerPid: process.pid,
+        root: world.root,
+        profile: browser.profile,
+        tmuxName: world.tmuxName,
+        sockets: world.sockets(),
+        origin: new URL(origin).origin,
+        expectedHead: process.env.COLAB_COMPOSER_EXPECTED_HEAD,
+      },
+      null,
+      2,
+    ),
+    { flag: 'wx' },
+  );
+  await browser.context.tracing.start({ screenshots: true, snapshots: true, sources: true });
+  world.onDispose(() => browser.context.tracing.stop({ path: trace }));
+}
+
+/** Read every frozen embedded asset so original trace resources carry all eleven bodies. */
+export async function composerAssets(page: Page, label: string) {
+  const file = process.env.COLAB_COMPOSER_ASSET_MANIFEST;
+  const head = process.env.COLAB_COMPOSER_EXPECTED_HEAD;
+  if (!file || !head)
+    throw new Error('Set frozen composer asset manifest and exact expected head.');
+  const manifest = JSON.parse(fs.readFileSync(file, 'utf8')) as {
+    head: string;
+    policies: { parent: string; renderer: string };
+    distAssets: { path: string; sha256: string; size: number }[];
+  };
+  expect(manifest.head).toBe(head);
+  expect(manifest.distAssets).toHaveLength(11);
+  expect(new Set(manifest.distAssets.map((asset) => asset.path)).size).toBe(11);
+  const mount = new URL('./', page.url());
+  const observed: { path: string; size: number; sha256: string }[] = [];
+  for (const asset of manifest.distAssets) {
+    if (!/^(?:assets\/[A-Za-z0-9_.-]+|[A-Za-z0-9_.-]+)$/.test(asset.path))
+      throw new Error('Invalid frozen asset path.');
+    const response = await page.context().request.get(new URL(asset.path, mount).href);
+    expect(response.status(), asset.path).toBe(200);
+    const body = await response.body();
+    expect(body.length, asset.path).toBe(asset.size);
+    const sha256 = createHash('sha256').update(body).digest('hex');
+    expect(sha256, asset.path).toBe(asset.sha256);
+    observed.push({ path: asset.path, size: body.length, sha256 });
+    expect(response.headers()['content-security-policy'], asset.path).toBe(
+      asset.path === 'renderer.html' ? manifest.policies.renderer : manifest.policies.parent,
+    );
+  }
+  const directory = process.env.COLAB_1817_NATIVE_TRACE_DIR;
+  if (!directory || !/^[a-z-]+$/.test(label))
+    throw new Error('Missing original-trace output scope.');
+  fs.writeFileSync(
+    path.join(directory, `${label}.assets.json`),
+    JSON.stringify({ head, origin: mount.origin, mount: mount.pathname, observed }, null, 2),
+    { flag: 'wx' },
+  );
 }

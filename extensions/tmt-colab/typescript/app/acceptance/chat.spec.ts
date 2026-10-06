@@ -5,6 +5,8 @@ import { expect, test } from '@playwright/test';
 import { pairBrowser, restartColab, startDoor } from './harness/browser.js';
 import {
   composeChat,
+  composerTrace,
+  composerAssets,
   createPage,
   freePort,
   openChat,
@@ -25,6 +27,8 @@ test('page-visible device Chat threads send exact bytes once, preserve drafts, k
     const agent = await world.startAgent('chat-agent', { gated: true });
     const firstBrowser = await pairBrowser(world, 'chat-author');
     const secondBrowser = await pairBrowser(world, 'chat-viewer');
+    await composerTrace(world, firstBrowser, door.address, 'chat-owner');
+    await composerTrace(world, secondBrowser, door.address, 'chat-viewer');
     const source =
       '<script>const every=Array.prototype.every;window.anchorTraffic=[];Array.prototype.every=function(callback,...args){try{window.anchorTraffic.push(JSON.stringify(this))}catch{}return every.call(this,callback,...args)};</script><style>body{margin:0;padding:24px;font:16px/1.6 sans-serif}p{max-width:70ch}</style><h1>Page conversations</h1>' +
       Array.from(
@@ -36,6 +40,12 @@ test('page-visible device Chat threads send exact bytes once, preserve drafts, k
     const created = createPage(world, 'Page conversations', source, agent.pane);
     const first = await openPage(door, firstBrowser, created);
     const second = await openPage(door, secondBrowser, created);
+    await expect(
+      first
+        .frameLocator('iframe')
+        .getByRole('heading', { name: 'Page conversations', exact: true }),
+    ).toBeVisible();
+    await composerAssets(first, 'chat-owner');
     await expect
       .poll(async () => (await first.locator('iframe').boundingBox())?.height ?? 0)
       .toBeGreaterThan(2400);
