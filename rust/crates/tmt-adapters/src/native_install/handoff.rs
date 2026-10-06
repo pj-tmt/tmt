@@ -134,9 +134,9 @@ pub fn install_version(
         if request.protocol != VERSION
             || (version == VERSION && request.release_id == 0)
             || provenance.manifest_sha256() != request.manifest_sha256
-            || provenance
-                .release()
-                .is_some_and(|release| release.release_id != request.release_id)
+            || provenance.release().is_some_and(|release| {
+                release.release_id == 0 || release.release_id != request.release_id
+            })
             || (matches!(provenance, Provenance::Pr(_)) && request.release_id != 0)
         {
             return Err(invalid("Unsupported native installer handoff."));

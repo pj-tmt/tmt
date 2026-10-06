@@ -576,3 +576,139 @@ fn installer_response_requires_all_fields_and_rejects_unknown_fields() {
         assert!(parse_response(bytes).is_err());
     }
 }
+
+#[test]
+fn protocol_two_published_source_requires_positive_release_id_before_filesystem_access() {
+    let directory = crate::test_support::TestDirectory::new();
+    let prefix = directory.path.join("prefix");
+    let digest = "a".repeat(64);
+    let input = serde_json::to_vec(&PrRequest {
+        protocol: PR_VERSION,
+        transfer: Request {
+            protocol: VERSION,
+            archive: directory.path.join("absent.tar.gz"),
+            manifest: directory.path.join("absent.json"),
+            prefix: prefix.clone(),
+            target: tmt_core::native_install::native_target(
+                std::env::consts::OS,
+                std::env::consts::ARCH,
+            )
+            .unwrap()
+            .into(),
+            version: "1.2.3".into(),
+            archive_sha256: digest.clone(),
+            manifest_sha256: digest.clone(),
+            channel: "stable".into(),
+            pin: "preserve".into(),
+            expected_current: Uuid::new_v4().to_string(),
+            release_id: 0,
+        },
+        provenance: GitHubProvenance {
+            release_id: 0,
+            manifest_sha256: digest,
+        }
+        .into(),
+        explicit_channel: true,
+    })
+    .unwrap();
+    let (response, failed) = install_version(PR_VERSION, &input, || {
+        panic!("Refused input must not reach publication")
+    });
+    assert!(failed);
+    assert_eq!(response["error"], "Unsupported native installer handoff.");
+    assert!(response["installation"].is_null());
+    assert!(!prefix.exists());
+}
+
+#[test]
+fn pr_parent_probes_protocol_two_transfers_exact_admission_and_cleans_its_staging() {
+    let (_directory, layout, old) = published_layout();
+    let current = inspect(&layout.prefix.join("bin/tmt")).unwrap();
+    let mut downloaded = super::super::pr_resolver::tests::downloaded();
+    downloaded.explicit_channel = true;
+    let channel = Channel::parse("pr234").unwrap();
+    let calls = RefCell::new(0);
+    let runner = Runner {
+        stages: RefCell::new(Vec::new()),
+        run: |command: CommandRequest<'_>| {
+            *calls.borrow_mut() += 1;
+            assert_eq!(command.args[2], "2");
+            assert_eq!(command.max_output_bytes, PR_LIMIT);
+            if command.input.is_empty() {
+                assert!(command.args.iter().any(|arg| arg == "--probe"));
+                return Ok(output(probe_version(PR_VERSION)));
+            }
+            let request: PrRequest = serde_json::from_slice(command.input).unwrap();
+            assert_eq!(request.protocol, PR_VERSION);
+            assert_eq!(request.transfer.protocol, VERSION);
+            assert_eq!(request.transfer.release_id, 0);
+            assert_eq!(request.transfer.expected_current, old.id.to_string());
+            assert!(request.explicit_channel);
+            assert_eq!(request.provenance, downloaded.provenance);
+            let manifest = fs::read(&request.transfer.manifest).unwrap();
+            let archive = fs::read(&request.transfer.archive).unwrap();
+            assert_eq!(manifest, downloaded.manifest);
+            assert_eq!(archive, downloaded.archive);
+            let artifact = artifact::acquire_bytes(
+                Product::Cli,
+                &manifest,
+                &downloaded.archive_name,
+                &archive,
+                &current.target,
+            )
+            .unwrap();
+            // Native-schema integration exercises the actual child. This runner
+            // tests the parent boundary with the real publisher and local-owner DI.
+            let report = super::super::activate_with_local_schema(
+                super::super::ActivationRequest {
+                    product: Product::Cli,
+                    prefix: &request.transfer.prefix,
+                    channel,
+                    pin: PinAction::Preserve,
+                    expected: Some(old.id),
+                    provenance: Some(request.provenance),
+                    verifier: None,
+                    explicit_channel: request.explicit_channel,
+                    schema: None,
+                },
+                &artifact,
+                || Ok(()),
+                || {
+                    Ok(vec![super::super::pr_catalog::DatabaseSchema {
+                        domain: "tmt-core-db".into(),
+                        version: 48,
+                    }])
+                },
+            )
+            .unwrap();
+            Ok(output(
+                serde_json::to_value(Response {
+                    protocol: PR_VERSION,
+                    installation: Some(report),
+                    error: None,
+                })
+                .unwrap(),
+            ))
+        },
+    };
+    let report = upgrade(
+        &current,
+        &downloaded,
+        channel,
+        PinAction::Preserve,
+        || Ok(()),
+        &runner,
+    )
+    .unwrap();
+    assert_eq!(*calls.borrow(), 2);
+    assert!(report.changed);
+    assert_eq!(
+        inspect(&report.active_executable).unwrap().state.channel,
+        channel
+    );
+    assert_eq!(
+        layout.current().unwrap().unwrap().provenance,
+        Some(downloaded.provenance.clone())
+    );
+    assert_clean(&runner);
+}
