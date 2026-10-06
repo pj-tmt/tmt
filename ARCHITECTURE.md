@@ -853,11 +853,11 @@ a transaction across transport, and treats uncertain delivery as uncertain, neve
 replay authorization. Final bodies are immutable and terminal text is never
 completion evidence. Reads never acknowledge; originator and recipient
 acknowledgment are independent. `RequestRoute` separates unbound pane delivery from
-the durable identity inbox, which settles `queued`. Reply notices are persisted
-batch windows composed by `request::notification` and `delivery::notices`, with
-detached finite workers owned by `process::detached`. Public behavior and limits are
-in the [request contract](contracts/request-response-v1.md); module rules are in the
-[storage and requests reference](.agents/skills/tmt-core-runtime/references/requests-storage.md).
+the durable identity inbox, which settles `queued`. Unbound identity delivery uses
+the foreground observer and recipient pull. Reply notice windows are persisted and composed by
+`request::notification` and `delivery::notices`, with finite detached workers owned
+by `process::detached`. See the [request contract](contracts/request-response-v1.md)
+for behavior and limits; module rules: [storage and requests reference](.agents/skills/tmt-core-runtime/references/requests-storage.md).
 
 ### Tmux and process effects
 

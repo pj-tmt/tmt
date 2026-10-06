@@ -29,6 +29,15 @@ authorization and report a brief useful summary after successful submission.
 Outside a listening session, `tmt inbox` lists what is still waiting on you and
 `tmt answer` answers it without a receipt; it is the same queue, not a second one.
 
+Without a host binding, ordinary `tmt talk <recipient> <message>` queues locally
+and waits for the durable reply, by default for 180 seconds; `--timeout` changes
+the wait and `--detach` returns immediately. Use `--identity <originator>` outside
+a verified host pane. The recipient must already be
+actively pulling or listening. A sender timeout leaves the request available:
+inspect the exact request and reply once using its receipt, and the sender can
+retrieve that later final with `tmt result <request-id> --json`. Polling does not
+launch an inactive agent, and timeout is not permission to resend.
+
 An item with `kind: "announcement"` is a notification, not a request for work or
 a reply. Inspect its text, handle it within the user's authority, then acknowledge
 the processed revision. Its final status is `not_required`; no reply receipt is
