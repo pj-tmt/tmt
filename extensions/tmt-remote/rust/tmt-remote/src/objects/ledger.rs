@@ -7,8 +7,8 @@
 //! taken inside a transaction. Rows are never deleted or rewritten: the
 //! immutable original columns are guarded by triggers.
 use super::{
-    BackendError, BackendResult, BeginSpec, BlobKey, IntentId, Limit, NamespaceId, OpaqueKey,
-    Quotas, Usage, UsageScope, payload_charge,
+    BackendError, BackendResult, BeginSpec, BlobKey, IntentId, IoBudget, Limit, NamespaceId,
+    OpaqueKey, Quotas, Usage, UsageScope, payload_charge,
 };
 use crate::{
     error::RemoteError,
@@ -17,7 +17,11 @@ use crate::{
     store::{database, open_connection},
 };
 use rusqlite::{Connection, OptionalExtension, Transaction, TransactionBehavior, params};
-use std::{collections::BTreeMap, os::unix::fs::MetadataExt, sync::Mutex};
+use std::{
+    collections::BTreeMap,
+    os::unix::fs::MetadataExt,
+    sync::{Mutex, MutexGuard},
+};
 
 const FILE: &str = "objects.db";
 const VERSION: i64 = 1;
@@ -404,11 +408,22 @@ impl Ledger {
         }
         Ok(())
     }
-    fn run<R>(&self, f: impl FnOnce(&Transaction<'_>) -> BackendResult<R>) -> BackendResult<R> {
-        let mut connection = self
+    /// Take the ledger. The wait may have outlived the budget, so nothing reads or
+    /// transitions after it unless the budget still holds.
+    fn lock(&self, io: &IoBudget<'_>) -> BackendResult<MutexGuard<'_, Connection>> {
+        let guard = self
             .connection
             .lock()
             .map_err(|_| BackendError::Unavailable)?;
+        io.check()?;
+        Ok(guard)
+    }
+    fn run<R>(
+        &self,
+        io: &IoBudget<'_>,
+        f: impl FnOnce(&Transaction<'_>) -> BackendResult<R>,
+    ) -> BackendResult<R> {
+        let mut connection = self.lock(io)?;
         let tx = connection
             .transaction_with_behavior(TransactionBehavior::Immediate)
             .map_err(db)?;
@@ -426,8 +441,9 @@ impl Ledger {
         spec: &BeginSpec,
         now: u64,
         quotas: &Quotas,
+        io: &IoBudget<'_>,
     ) -> BackendResult<Adoption> {
-        self.run(|tx| {
+        self.run(io, |tx| {
             if let Some(mut row) = fetch(tx, ext, &spec.intent)? {
                 if row.spec != *spec {
                     return Err(BackendError::Conflict);
@@ -534,19 +550,18 @@ impl Ledger {
     }
 
     /// Read-only lookup for `status`.
-    pub fn row(&self, ext: &str, intent: &IntentId) -> BackendResult<Option<Row>> {
-        let connection = self
-            .connection
-            .lock()
-            .map_err(|_| BackendError::Unavailable)?;
+    pub fn row(
+        &self,
+        ext: &str,
+        intent: &IntentId,
+        io: &IoBudget<'_>,
+    ) -> BackendResult<Option<Row>> {
+        let connection = self.lock(io)?;
         fetch(&connection, ext, intent)
     }
     /// The committed row of a key in an open namespace.
-    pub fn blob(&self, ext: &str, key: &BlobKey) -> BackendResult<Option<Row>> {
-        let connection = self
-            .connection
-            .lock()
-            .map_err(|_| BackendError::Unavailable)?;
+    pub fn blob(&self, ext: &str, key: &BlobKey, io: &IoBudget<'_>) -> BackendResult<Option<Row>> {
+        let connection = self.lock(io)?;
         if namespace_state(&connection, ext, &key.namespace)?.as_deref() != Some("open") {
             return Ok(None);
         }
@@ -562,22 +577,16 @@ impl Ledger {
             .optional()
             .map_err(db)
     }
-    pub fn usage(&self, ext: &str, scope: UsageScope) -> BackendResult<Usage> {
-        let connection = self
-            .connection
-            .lock()
-            .map_err(|_| BackendError::Unavailable)?;
+    pub fn usage(&self, ext: &str, scope: UsageScope, io: &IoBudget<'_>) -> BackendResult<Usage> {
+        let connection = self.lock(io)?;
         let totals = match scope {
             UsageScope::Extension => totals(&connection, Filter::Extension(ext))?,
             UsageScope::Namespace(ns) => totals(&connection, Filter::Namespace(ext, &ns.0))?,
         };
         Ok(usage(totals))
     }
-    pub fn installation_usage(&self) -> BackendResult<Usage> {
-        let connection = self
-            .connection
-            .lock()
-            .map_err(|_| BackendError::Unavailable)?;
+    pub fn installation_usage(&self, io: &IoBudget<'_>) -> BackendResult<Usage> {
+        let connection = self.lock(io)?;
         Ok(usage(totals(&connection, Filter::Installation)?))
     }
 
@@ -589,8 +598,9 @@ impl Ledger {
         intent: &IntentId,
         now: u64,
         complete: bool,
+        io: &IoBudget<'_>,
     ) -> BackendResult<Gate> {
-        self.run(|tx| {
+        self.run(io, |tx| {
             let mut row = fetch(tx, ext, intent)?.ok_or(BackendError::Missing)?;
             if row.phase != Phase::Staging {
                 return Err(BackendError::Conflict);
@@ -611,8 +621,14 @@ impl Ledger {
     }
     /// Close a staging row whose deadline passed: `staging -> expiring`. Only staging
     /// is eligible; a possibly published original is never downgraded to expired.
-    pub fn expire(&self, ext: &str, intent: &IntentId, now: u64) -> BackendResult<Option<Row>> {
-        self.run(|tx| {
+    pub fn expire(
+        &self,
+        ext: &str,
+        intent: &IntentId,
+        now: u64,
+        io: &IoBudget<'_>,
+    ) -> BackendResult<Option<Row>> {
+        self.run(io, |tx| {
             let Some(mut row) = fetch(tx, ext, intent)? else {
                 return Ok(None);
             };
@@ -625,8 +641,14 @@ impl Ledger {
         })
     }
     /// Durable checkpoint after the chunk bytes are synced.
-    pub fn advance(&self, ext: &str, row: &Row, chunk: u64) -> BackendResult<Row> {
-        self.run(|tx| {
+    pub fn advance(
+        &self,
+        ext: &str,
+        row: &Row,
+        chunk: u64,
+        io: &IoBudget<'_>,
+    ) -> BackendResult<Row> {
+        self.run(io, |tx| {
             let received = row.received + chunk;
             let changed = tx
                 .execute(
@@ -654,8 +676,14 @@ impl Ledger {
         })
     }
     /// `staging -> committing`: the commit is adopted; from here the bytes may be published.
-    pub fn commit_adopt(&self, ext: &str, intent: &IntentId, now: u64) -> BackendResult<Gate> {
-        self.run(|tx| {
+    pub fn commit_adopt(
+        &self,
+        ext: &str,
+        intent: &IntentId,
+        now: u64,
+        io: &IoBudget<'_>,
+    ) -> BackendResult<Gate> {
+        self.run(io, |tx| {
             let mut row = fetch(tx, ext, intent)?.ok_or(BackendError::Missing)?;
             if row.phase != Phase::Staging {
                 return Err(BackendError::Conflict);
@@ -676,12 +704,24 @@ impl Ledger {
         })
     }
     /// The matching receipt is durable: `committing -> committed`.
-    pub fn commit_receipt(&self, ext: &str, intent: &IntentId) -> BackendResult<()> {
-        self.run(|tx| transition(tx, ext, intent, &[Phase::Committing], Phase::Committed))
+    pub fn commit_receipt(
+        &self,
+        ext: &str,
+        intent: &IntentId,
+        io: &IoBudget<'_>,
+    ) -> BackendResult<()> {
+        self.run(io, |tx| {
+            transition(tx, ext, intent, &[Phase::Committing], Phase::Committed)
+        })
     }
     /// A possibly published original that cannot be settled stays charged and closed.
-    pub fn mark_unknown(&self, ext: &str, intent: &IntentId) -> BackendResult<()> {
-        self.run(|tx| {
+    pub fn mark_unknown(
+        &self,
+        ext: &str,
+        intent: &IntentId,
+        io: &IoBudget<'_>,
+    ) -> BackendResult<()> {
+        self.run(io, |tx| {
             transition(
                 tx,
                 ext,
@@ -692,8 +732,13 @@ impl Ledger {
         })
     }
     /// Close incomplete staging by creator discard.
-    pub fn discard_adopt(&self, ext: &str, intent: &IntentId) -> BackendResult<Row> {
-        self.run(|tx| {
+    pub fn discard_adopt(
+        &self,
+        ext: &str,
+        intent: &IntentId,
+        io: &IoBudget<'_>,
+    ) -> BackendResult<Row> {
+        self.run(io, |tx| {
             let mut row = fetch(tx, ext, intent)?.ok_or(BackendError::Missing)?;
             match row.phase {
                 Phase::Staging => {
@@ -707,8 +752,13 @@ impl Ledger {
         })
     }
     /// Release the payload charge and entry only after its removal is confirmed.
-    pub fn close_confirmed(&self, ext: &str, intent: &IntentId) -> BackendResult<()> {
-        self.run(|tx| {
+    pub fn close_confirmed(
+        &self,
+        ext: &str,
+        intent: &IntentId,
+        io: &IoBudget<'_>,
+    ) -> BackendResult<()> {
+        self.run(io, |tx| {
             let row = fetch(tx, ext, intent)?.ok_or(BackendError::Missing)?;
             let terminal = match row.phase {
                 Phase::Discarding => Phase::Discarded,
@@ -725,8 +775,8 @@ impl Ledger {
         })
     }
     /// The staging name of a committed original is confirmed gone.
-    pub fn unstage(&self, ext: &str, intent: &IntentId) -> BackendResult<()> {
-        self.run(|tx| {
+    pub fn unstage(&self, ext: &str, intent: &IntentId, io: &IoBudget<'_>) -> BackendResult<()> {
+        self.run(io, |tx| {
             tx.execute(
                 "UPDATE intents SET staged=0 WHERE extension=?1 AND intent=?2 AND phase='committed'",
                 params![ext, intent.0.as_slice()],
@@ -738,8 +788,14 @@ impl Ledger {
 
     /// Commit the namespace fence (creating its tombstone row when it never had one).
     /// Returns `false` once the namespace is already removed.
-    pub fn fence(&self, ext: &str, ns: &NamespaceId, quotas: &Quotas) -> BackendResult<bool> {
-        self.run(|tx| match namespace_state(tx, ext, ns)?.as_deref() {
+    pub fn fence(
+        &self,
+        ext: &str,
+        ns: &NamespaceId,
+        quotas: &Quotas,
+        io: &IoBudget<'_>,
+    ) -> BackendResult<bool> {
+        self.run(io, |tx| match namespace_state(tx, ext, ns)?.as_deref() {
             Some("removed") => Ok(false),
             Some(_) => {
                 tx.execute(
@@ -773,11 +829,13 @@ impl Ledger {
         })
     }
     /// Every row of a fenced namespace that still holds payload or possible effects.
-    pub fn namespace_rows(&self, ext: &str, ns: &NamespaceId) -> BackendResult<Vec<Row>> {
-        let connection = self
-            .connection
-            .lock()
-            .map_err(|_| BackendError::Unavailable)?;
+    pub fn namespace_rows(
+        &self,
+        ext: &str,
+        ns: &NamespaceId,
+        io: &IoBudget<'_>,
+    ) -> BackendResult<Vec<Row>> {
+        let connection = self.lock(io)?;
         let mut query = connection
             .prepare(&format!(
                 "SELECT {COLUMNS} FROM intents WHERE extension=?1 AND namespace=?2 \
@@ -791,8 +849,13 @@ impl Ledger {
             .map_err(db)
     }
     /// A fenced namespace converts any live original to `removing` (its files go next).
-    pub fn mark_removing(&self, ext: &str, intent: &IntentId) -> BackendResult<()> {
-        self.run(|tx| {
+    pub fn mark_removing(
+        &self,
+        ext: &str,
+        intent: &IntentId,
+        io: &IoBudget<'_>,
+    ) -> BackendResult<()> {
+        self.run(io, |tx| {
             transition(
                 tx,
                 ext,
@@ -815,23 +878,31 @@ impl Ledger {
     /// Rows are released in small batches so no transaction (and so no rollback
     /// journal) grows with the namespace; an interrupted release resumes safely
     /// because the physical removal it records was already confirmed.
-    pub fn removal_confirmed(&self, ext: &str, ns: &NamespaceId) -> BackendResult<()> {
-        loop {
-            let released = self.run(|tx| {
-                tx.execute(
-                    "UPDATE intents SET phase='deleted',payload_charged=0,entry_held=0,staged=0 \
-                     WHERE extension=?1 AND phase='removing' AND intent IN (\
-                       SELECT intent FROM intents WHERE extension=?1 AND namespace=?2 \
-                       AND phase='removing' LIMIT ?3)",
-                    params![ext, ns.0.as_slice(), RELEASE_BATCH],
-                )
-                .map_err(db)
-            })?;
-            if released < RELEASE_BATCH as usize {
-                break;
-            }
-        }
-        self.run(|tx| {
+    pub fn release_removed(
+        &self,
+        ext: &str,
+        ns: &NamespaceId,
+        io: &IoBudget<'_>,
+    ) -> BackendResult<usize> {
+        self.run(io, |tx| {
+            tx.execute(
+                "UPDATE intents SET phase='deleted',payload_charged=0,entry_held=0,staged=0 \
+                 WHERE extension=?1 AND phase='removing' AND intent IN (\
+                   SELECT intent FROM intents WHERE extension=?1 AND namespace=?2 \
+                   AND phase='removing' LIMIT ?3)",
+                params![ext, ns.0.as_slice(), RELEASE_BATCH],
+            )
+            .map_err(db)
+        })
+    }
+    pub fn removal_confirmed(
+        &self,
+        ext: &str,
+        ns: &NamespaceId,
+        io: &IoBudget<'_>,
+    ) -> BackendResult<()> {
+        while self.release_removed(ext, ns, io)? == RELEASE_BATCH as usize {}
+        self.run(io, |tx| {
             let pending: i64 = tx
                 .query_row(
                     &format!(
@@ -854,11 +925,8 @@ impl Ledger {
         })
     }
     /// Work an interrupted run left behind, in a stable order.
-    pub fn unsettled(&self) -> BackendResult<Unsettled> {
-        let connection = self
-            .connection
-            .lock()
-            .map_err(|_| BackendError::Unavailable)?;
+    pub fn unsettled(&self, io: &IoBudget<'_>) -> BackendResult<Unsettled> {
+        let connection = self.lock(io)?;
         let rows = connection
             .prepare(&format!(
                 "SELECT {COLUMNS} FROM intents WHERE phase IN \
@@ -881,8 +949,8 @@ impl Ledger {
         Ok(Unsettled { rows, namespaces })
     }
     /// Whether any original or fence still needs owned settlement.
-    pub fn settled(&self) -> BackendResult<bool> {
-        let unsettled = self.unsettled()?;
+    pub fn settled(&self, io: &IoBudget<'_>) -> BackendResult<bool> {
+        let unsettled = self.unsettled(io)?;
         Ok(unsettled.rows.iter().all(|row| row.phase == Phase::Staging)
             && unsettled.namespaces.is_empty())
     }

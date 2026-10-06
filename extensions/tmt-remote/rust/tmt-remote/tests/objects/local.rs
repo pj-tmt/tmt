@@ -920,3 +920,41 @@ fn the_charge_formula_bounds_the_physical_footprint_of_every_retained_state() {
         );
     }
 }
+
+#[test]
+fn readiness_honors_a_spent_budget_before_any_effect() {
+    use std::{
+        sync::atomic::AtomicBool,
+        time::{Duration, Instant},
+    };
+    let cancelled = AtomicBool::new(true);
+    let never = AtomicBool::new(false);
+    let spent = [
+        tmt_remote::objects::IoBudget {
+            deadline: Instant::now() + Duration::from_secs(60),
+            cancelled: &cancelled,
+        },
+        tmt_remote::objects::IoBudget {
+            deadline: Instant::now(),
+            cancelled: &never,
+        },
+    ];
+    let now = Arc::new(AtomicU64::new(1_000_000_000));
+    for budget in &spent {
+        // A fresh root: nothing is created.
+        let root = Root::new();
+        let serving = root.serving();
+        assert!(LocalFs::open(&serving, Quotas::contract(), clock(&now), budget).is_err());
+        assert!(!root.ledger().exists(), "a spent budget creates no ledger");
+        // An existing root: nothing changes, and reconcile refuses too.
+        drop(open(&serving, Quotas::contract(), &now).unwrap());
+        let before = snapshot(&root.0);
+        assert!(LocalFs::open(&serving, Quotas::contract(), clock(&now), budget).is_err());
+        let local = open(&serving, Quotas::contract(), &now).unwrap();
+        assert!(matches!(
+            local.reconcile(budget),
+            Err(BackendError::Cancelled | BackendError::Deadline)
+        ));
+        assert_eq!(snapshot(&root.0), before);
+    }
+}

@@ -4,6 +4,14 @@ use super::*;
 use crate::state::Layout;
 use std::{fs, path::PathBuf};
 
+static NEVER: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+fn io() -> IoBudget<'static> {
+    IoBudget {
+        deadline: std::time::Instant::now() + std::time::Duration::from_secs(60),
+        cancelled: &NEVER,
+    }
+}
+
 fn maximal_rows(connection: &Connection, namespace: u8, count: usize, phase: &str) {
     for n in 0..count {
         let id = |fill: u8| {
@@ -56,7 +64,7 @@ fn the_largest_journal_of_any_transition_and_the_empty_ledger_fit_the_base_charg
             .unwrap();
     }
     let ext = "a-maximal-extension-name-32-chars";
-    ledger.removal_confirmed(ext, &ns).unwrap();
+    ledger.removal_confirmed(ext, &ns, &io()).unwrap();
     // Every other production transition on a full ledger.
     let q = Quotas {
         namespace_entries: u32::MAX,
@@ -77,22 +85,22 @@ fn the_largest_journal_of_any_transition_and_the_empty_ledger_fit_the_base_charg
         payload_bytes: limits::OBJECT_CHUNK_BYTES as u64 + 1,
         binding: vec![5; limits::OBJECT_BINDING_BYTES],
     };
-    let Adoption::Fresh(row) = ledger.adopt(ext, &spec, 10, &q).unwrap() else {
+    let Adoption::Fresh(row) = ledger.adopt(ext, &spec, 10, &q, &io()).unwrap() else {
         panic!("fresh adoption");
     };
     let row = ledger
-        .advance(ext, &row, limits::OBJECT_CHUNK_BYTES as u64)
+        .advance(ext, &row, limits::OBJECT_CHUNK_BYTES as u64, &io())
         .unwrap();
-    ledger.advance(ext, &row, 1).unwrap();
-    let Gate::Go(_) = ledger.commit_adopt(ext, &spec.intent, 11).unwrap() else {
+    ledger.advance(ext, &row, 1, &io()).unwrap();
+    let Gate::Go(_) = ledger.commit_adopt(ext, &spec.intent, 11, &io()).unwrap() else {
         panic!("commit adopts");
     };
-    ledger.commit_receipt(ext, &spec.intent).unwrap();
-    ledger.unstage(ext, &spec.intent).unwrap();
-    ledger.fence(ext, &NamespaceId([2; 32]), &q).unwrap();
-    ledger.mark_removing(ext, &spec.intent).unwrap();
+    ledger.commit_receipt(ext, &spec.intent, &io()).unwrap();
+    ledger.unstage(ext, &spec.intent, &io()).unwrap();
+    ledger.fence(ext, &NamespaceId([2; 32]), &q, &io()).unwrap();
+    ledger.mark_removing(ext, &spec.intent, &io()).unwrap();
     ledger
-        .removal_confirmed(ext, &NamespaceId([2; 32]))
+        .removal_confirmed(ext, &NamespaceId([2; 32]), &io())
         .unwrap();
     let journal = fs::metadata(root.join("remote/objects.db-journal"))
         .unwrap()
@@ -108,7 +116,7 @@ fn the_largest_journal_of_any_transition_and_the_empty_ledger_fit_the_base_charg
 }
 
 #[test]
-fn removal_releases_rows_in_batches_and_resumes_after_an_interruption() {
+fn removal_releases_one_bounded_batch_at_a_time_and_resumes_where_it_stopped() {
     let root = PathBuf::from(format!("/tmp/t1850b-{}", std::process::id()));
     let _ = fs::remove_dir_all(&root);
     fs::create_dir(&root).unwrap();
@@ -116,6 +124,7 @@ fn removal_releases_rows_in_batches_and_resumes_after_an_interruption() {
     let ledger = Ledger::open(&serving).unwrap();
     let ext = "a-maximal-extension-name-32-chars";
     let ns = NamespaceId([1; 32]);
+    let total = 3 * RELEASE_BATCH as usize + 1;
     {
         let connection = ledger.connection.lock().unwrap();
         connection
@@ -124,23 +133,105 @@ fn removal_releases_rows_in_batches_and_resumes_after_an_interruption() {
                 params![ext, ns.0.as_slice()],
             )
             .unwrap();
-        maximal_rows(&connection, 1, 3 * RELEASE_BATCH as usize + 1, "removing");
+        maximal_rows(&connection, 1, total, "removing");
     }
-    ledger.removal_confirmed(ext, &ns).unwrap();
-    let connection = ledger.connection.lock().unwrap();
-    let (deleted, charged): (i64, i64) = connection
+    let state = |ledger: &Ledger| -> (i64, i64, String) {
+        let connection = ledger.connection.lock().unwrap();
+        let (deleted, charged): (i64, i64) = connection
+            .query_row(
+                "SELECT COUNT(*),COALESCE(SUM(payload_charged),0) FROM intents WHERE phase='deleted'",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+        let namespace = connection
+            .query_row("SELECT state FROM namespaces", [], |r| r.get(0))
+            .unwrap();
+        (deleted, charged, namespace)
+    };
+    // One batch, then the process "stops": the rest stay removing and charged.
+    assert_eq!(
+        ledger.release_removed(ext, &ns, &io()).unwrap(),
+        RELEASE_BATCH as usize
+    );
+    assert_eq!(state(&ledger), (RELEASE_BATCH, 0, "removing".into()));
+    let charged: i64 = ledger
+        .connection
+        .lock()
+        .unwrap()
         .query_row(
-            "SELECT COUNT(*),SUM(payload_charged) FROM intents WHERE phase='deleted'",
+            "SELECT SUM(payload_charged) FROM intents WHERE phase='removing'",
             [],
-            |r| Ok((r.get(0)?, r.get(1)?)),
+            |r| r.get(0),
         )
         .unwrap();
-    assert_eq!((deleted, charged), (3 * RELEASE_BATCH + 1, 0));
-    let state: String = connection
-        .query_row("SELECT state FROM namespaces", [], |r| r.get(0))
-        .unwrap();
-    assert_eq!(state, "removed");
-    drop(connection);
+    assert_eq!(
+        charged,
+        (total as i64 - RELEASE_BATCH) * 4096,
+        "still charged"
+    );
+    // Resuming releases exactly the remainder and then closes the namespace.
+    ledger.removal_confirmed(ext, &ns, &io()).unwrap();
+    assert_eq!(state(&ledger), (total as i64, 0, "removed".into()));
+    ledger.removal_confirmed(ext, &ns, &io()).unwrap();
+    drop(ledger);
+    drop(serving);
+    let _ = fs::remove_dir_all(&root);
+}
+
+#[test]
+fn a_ledger_wait_that_outlives_the_budget_neither_reads_nor_transitions() {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    let root = PathBuf::from(format!("/tmp/t1850w-{}", std::process::id()));
+    let _ = fs::remove_dir_all(&root);
+    fs::create_dir(&root).unwrap();
+    let serving = Layout::open(&root).unwrap().serve_lock().unwrap();
+    let ledger = Ledger::open(&serving).unwrap();
+    let ext = "alpha";
+    let spec = BeginSpec {
+        intent: IntentId([1; 32]),
+        key: BlobKey {
+            namespace: NamespaceId([1; 32]),
+            object: OpaqueKey([1; 32]),
+        },
+        payload_sha256: [0; 32],
+        payload_bytes: 10,
+        binding: vec![],
+    };
+    let Adoption::Fresh(row) = ledger
+        .adopt(ext, &spec, 10, &Quotas::contract(), &io())
+        .unwrap()
+    else {
+        panic!("fresh adoption");
+    };
+    let cancelled = AtomicBool::new(false);
+    let budget = IoBudget {
+        deadline: std::time::Instant::now() + std::time::Duration::from_secs(60),
+        cancelled: &cancelled,
+    };
+    // Hold the ledger, start every kind of ledger call, spend the budget while they
+    // wait, then release: each must refuse and leave the row exactly as it was.
+    let held = ledger.connection.lock().unwrap();
+    let outcomes = std::thread::scope(|scope| {
+        let workers = [
+            scope.spawn(|| ledger.row(ext, &spec.intent, &budget).map(drop)),
+            scope.spawn(|| ledger.usage(ext, UsageScope::Extension, &budget).map(drop)),
+            scope.spawn(|| ledger.close_confirmed(ext, &spec.intent, &budget)),
+            scope.spawn(|| ledger.advance(ext, &row, 1, &budget).map(drop)),
+            scope.spawn(|| ledger.mark_unknown(ext, &spec.intent, &budget)),
+        ];
+        cancelled.store(true, Ordering::SeqCst);
+        drop(held);
+        workers.map(|worker| worker.join().unwrap())
+    });
+    for outcome in outcomes {
+        assert_eq!(outcome, Err(BackendError::Cancelled));
+    }
+    let after = ledger.row(ext, &spec.intent, &io()).unwrap().unwrap();
+    assert_eq!(
+        (after.phase, after.next_index, after.received),
+        (Phase::Staging, 0, 0)
+    );
     drop(ledger);
     drop(serving);
     let _ = fs::remove_dir_all(&root);

@@ -718,6 +718,68 @@ fn a_removal_fences_a_pending_publication_so_it_cannot_complete_later() {
     assert!(!env.stage(1).exists());
 }
 
+/// Every wait in a paused-worker fixture is bounded by this.
+const BOUND: Duration = Duration::from_secs(20);
+
+/// Releases a paused worker when dropped, including while a failed assertion unwinds.
+struct ReleaseOnDrop<'a>(&'a dyn Fn());
+impl Drop for ReleaseOnDrop<'_> {
+    fn drop(&mut self) {
+        (self.0)();
+    }
+}
+
+/// Run `commit` on a worker that pauses at `CommitAdopted` and call `during` while
+/// it is paused. The release is owned by a drop guard, so a failing assertion in
+/// `during` still releases and joins the worker, and every wait is bounded: the
+/// fixture fails instead of hanging.
+fn while_commit_paused<R>(
+    local: &LocalFs<'_>,
+    b: &LocalHandle<'_>,
+    sp: &BeginSpec,
+    during: impl FnOnce(&dyn Fn()) -> R,
+) -> (BackendResult<Receipt>, R) {
+    let (reached_tx, reached_rx) = mpsc::channel::<()>();
+    let (release_tx, release_rx) = mpsc::channel::<()>();
+    let (reached_tx, release_rx) = (Mutex::new(reached_tx), Mutex::new(release_rx));
+    local.observe(Arc::new(move |point| {
+        if point == Milestone::CommitAdopted {
+            let _ = reached_tx.lock().unwrap().send(());
+            let _ = release_rx.lock().unwrap().recv_timeout(BOUND);
+        }
+        true
+    }));
+    let release = move || {
+        let _ = release_tx.send(());
+    };
+    std::thread::scope(|scope| {
+        let worker = scope.spawn(|| b.commit(sp.intent, &io()));
+        let _outer = ReleaseOnDrop(&release);
+        reached_rx
+            .recv_timeout(BOUND)
+            .expect("the commit reached its paused point");
+        let during = during(&release);
+        release();
+        (worker.join().unwrap(), during)
+    })
+}
+
+/// Poll the durable namespace fence; readiness, not time.
+fn wait_for_fence(env: &Env) {
+    let deadline = Instant::now() + BOUND;
+    loop {
+        let state: Option<String> = env
+            .ledger()
+            .query_row("SELECT state FROM namespaces", [], |r| r.get(0))
+            .ok();
+        if state.as_deref() == Some("removing") {
+            return;
+        }
+        assert!(Instant::now() < deadline, "the fence never became durable");
+        std::thread::yield_now();
+    }
+}
+
 #[test]
 fn removal_waits_for_the_commit_it_fenced_and_refuses_everything_after_the_fence() {
     let env = Env::new();
@@ -726,62 +788,76 @@ fn removal_waits_for_the_commit_it_fenced_and_refuses_everything_after_the_fence
     let local = env.open();
     let b = backend(&local);
     send_all(&b, &sp, &payload);
-    let (reached_tx, reached_rx) = mpsc::channel::<()>();
-    let (release_tx, release_rx) = mpsc::channel::<()>();
-    let (reached_tx, release_rx) = (Mutex::new(reached_tx), Mutex::new(release_rx));
-    local.observe(Arc::new(move |point| {
-        if point == Milestone::CommitAdopted {
-            reached_tx.lock().unwrap().send(()).unwrap();
-            release_rx.lock().unwrap().recv().ok();
-        }
-        true
-    }));
     let removed = AtomicBool::new(false);
-    std::thread::scope(|scope| {
-        let commit = scope.spawn(|| b.commit(sp.intent, &io()));
-        reached_rx.recv().unwrap();
-        let removal = scope.spawn(|| {
-            let result = b.remove_namespace(NamespaceId([1; 32]), &io());
-            removed.store(true, Ordering::SeqCst);
-            result
-        });
-        // Wait for the durable fence, not for time.
-        let deadline = Instant::now() + Duration::from_secs(30);
-        loop {
-            let state: Option<String> = env
-                .ledger()
-                .query_row("SELECT state FROM namespaces", [], |r| r.get(0))
-                .ok();
-            if state.as_deref() == Some("removing") {
-                break;
-            }
-            assert!(Instant::now() < deadline, "the fence never became durable");
-            std::thread::yield_now();
-        }
-        assert!(
-            !removed.load(Ordering::SeqCst),
-            "removal cannot pass its drain"
-        );
-        assert_eq!(
-            env.row(1).0,
-            "committing",
-            "the adopted commit is not torn down"
-        );
-        assert_eq!(
-            b.begin(&spec(2, 1, 2, b"x"), &io()),
-            Err(BackendError::Conflict)
-        );
-        assert_eq!(b.stat(sp.key, &io()), Err(BackendError::Missing));
-        release_tx.send(()).unwrap();
-        assert_eq!(commit.join().unwrap(), Ok(receipt_of(&sp)));
-        assert_eq!(removal.join().unwrap(), Ok(()));
+    let (commit, removal) = while_commit_paused(&local, &b, &sp, |release| {
+        std::thread::scope(|inner| {
+            // Declared inside the scope: on a failed assertion it releases the paused
+            // commit before the scope joins the removal that is waiting for it.
+            let _inner = ReleaseOnDrop(release);
+            let removal = inner.spawn(|| {
+                let result = b.remove_namespace(NamespaceId([1; 32]), &io());
+                removed.store(true, Ordering::SeqCst);
+                result
+            });
+            wait_for_fence(&env);
+            assert!(
+                !removed.load(Ordering::SeqCst),
+                "removal cannot pass its drain"
+            );
+            assert_eq!(
+                env.row(1).0,
+                "committing",
+                "the adopted commit is not torn down"
+            );
+            assert_eq!(
+                b.begin(&spec(2, 1, 2, b"x"), &io()),
+                Err(BackendError::Conflict)
+            );
+            assert_eq!(b.stat(sp.key, &io()), Err(BackendError::Missing));
+            release();
+            removal.join().unwrap()
+        })
     });
+    assert_eq!(commit, Ok(receipt_of(&sp)));
+    assert_eq!(removal, Ok(()));
     assert_eq!(env.row(1).0, "deleted");
     assert!(!env.blob(1, 1).exists() && !env.stage(1).exists());
     assert_eq!(
         b.status(sp.intent, &io()).unwrap().state,
         TransferState::Unavailable
     );
+}
+
+#[test]
+fn a_failing_assertion_while_the_commit_is_paused_releases_and_joins_every_worker() {
+    let env = Env::new();
+    let payload = bytes(C + 1, 22);
+    let sp = spec(1, 1, 1, &payload);
+    let local = env.open();
+    let b = backend(&local);
+    send_all(&b, &sp, &payload);
+    let started = Instant::now();
+    // The hardest case: a removal is blocked behind the paused commit when the
+    // assertion fails, so the unwinding scope must release the commit to join it.
+    let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        while_commit_paused(&local, &b, &sp, |release| {
+            std::thread::scope(|inner| {
+                let _inner = ReleaseOnDrop(release);
+                inner.spawn(|| b.remove_namespace(NamespaceId([1; 32]), &io()));
+                wait_for_fence(&env);
+                panic!("deliberately failing assertion");
+            })
+        })
+    }));
+    assert!(outcome.is_err(), "the failure is reported");
+    assert!(
+        started.elapsed() < BOUND,
+        "the fixture failed within its bound ({:?})",
+        started.elapsed()
+    );
+    // Both workers ran to completion before the unwind finished.
+    assert_eq!(env.row(1).0, "deleted");
+    assert!(!env.blob(1, 1).exists() && !env.stage(1).exists());
 }
 
 #[test]
@@ -998,4 +1074,102 @@ fn a_killed_process_leaves_a_published_file_without_a_receipt_that_the_next_leas
     );
     drop(local);
     drop(serving);
+}
+
+#[test]
+fn every_successful_return_rechecks_the_budget_before_disclosing() {
+    let env = Env::new();
+    let local = env.open();
+    let b = backend(&local);
+    let payload = bytes(C + 1, 21);
+    let (done, open, gone) = (
+        spec(1, 1, 1, &payload),
+        spec(2, 2, 2, &payload),
+        spec(3, 3, 3, &payload),
+    );
+    send_all(&b, &done, &payload);
+    b.commit(done.intent, &io()).unwrap();
+    b.begin(&open, &io()).unwrap();
+    b.append(open.intent, 0, &payload[..C], &io()).unwrap();
+    b.begin(&gone, &io()).unwrap();
+    b.discard(gone.intent, &io()).unwrap();
+    b.remove_namespace(NamespaceId([9; 32]), &io()).unwrap();
+    // The budget is spent exactly as each operation is about to return its result.
+    let cancelled = Arc::new(AtomicBool::new(false));
+    let returns = Arc::new(AtomicUsize::new(0));
+    let (flag, count) = (cancelled.clone(), returns.clone());
+    local.observe(Arc::new(move |point| {
+        if point == Milestone::Return {
+            count.fetch_add(1, Ordering::SeqCst);
+            flag.store(true, Ordering::SeqCst);
+        }
+        true
+    }));
+    type Op<'a> = Box<dyn Fn(&IoBudget<'_>) -> Result<(), BackendError> + 'a>;
+    let ops: Vec<(&str, Op<'_>)> = vec![
+        (
+            "begin repeat, pending",
+            Box::new(|io| b.begin(&open, io).map(drop)),
+        ),
+        (
+            "begin repeat, committed",
+            Box::new(|io| b.begin(&done, io).map(drop)),
+        ),
+        (
+            "begin repeat, terminal",
+            Box::new(|io| b.begin(&gone, io).map(drop)),
+        ),
+        (
+            "append repeat of an acknowledged part",
+            Box::new(|io| b.append(open.intent, 0, &payload[..C], io).map(drop)),
+        ),
+        (
+            "commit of a committed original",
+            Box::new(|io| b.commit(done.intent, io).map(drop)),
+        ),
+        (
+            "status of an unknown original",
+            Box::new(|io| b.status(IntentId([7; 32]), io).map(drop)),
+        ),
+        (
+            "status of a committed original",
+            Box::new(|io| b.status(done.intent, io).map(drop)),
+        ),
+        ("stat", Box::new(|io| b.stat(done.key, io).map(drop))),
+        ("read", Box::new(|io| b.read(done.key, 0, 4, io).map(drop))),
+        (
+            "extension usage",
+            Box::new(|io| b.usage(None, io).map(drop)),
+        ),
+        (
+            "namespace usage",
+            Box::new(|io| b.usage(Some(NamespaceId([1; 32])), io).map(drop)),
+        ),
+        (
+            "installation usage",
+            Box::new(|io| local.installation_usage(io).map(drop)),
+        ),
+        (
+            "discard of a discarded original",
+            Box::new(|io| b.discard(gone.intent, io)),
+        ),
+        (
+            "removal of an already removed namespace",
+            Box::new(|io| b.remove_namespace(NamespaceId([9; 32]), io)),
+        ),
+    ];
+    for (name, op) in ops {
+        cancelled.store(false, Ordering::SeqCst);
+        returns.store(0, Ordering::SeqCst);
+        let budget = IoBudget {
+            deadline: Instant::now() + Duration::from_secs(60),
+            cancelled: &cancelled,
+        };
+        assert_eq!(op(&budget), Err(BackendError::Cancelled), "{name}");
+        assert_eq!(
+            returns.load(Ordering::SeqCst),
+            1,
+            "{name}: reached its return exactly once"
+        );
+    }
 }

@@ -50,6 +50,8 @@ pub(crate) enum Milestone {
     RemovalMarked,
     RemovalUnlinked,
     ReadBytes,
+    /// Every successful return, just before its final budget check.
+    Return,
 }
 #[cfg(test)]
 pub(crate) type Observer = std::sync::Arc<dyn Fn(Milestone) -> bool + Send + Sync>;
@@ -93,6 +95,8 @@ impl<'s> LocalFs<'s> {
         clock: Clock,
         io: &IoBudget<'_>,
     ) -> Result<Self, RemoteError> {
+        // A spent budget creates and changes nothing, including the ledger itself.
+        io.check().map_err(unavailable)?;
         let ledger = Ledger::open(serving)?;
         let data_root = serving
             .layout()
@@ -113,9 +117,10 @@ impl<'s> LocalFs<'s> {
             },
         };
         local.reconcile(io).map_err(unavailable)?;
-        if !local.inner.ledger.settled().map_err(unavailable)? {
+        if !local.inner.ledger.settled(io).map_err(unavailable)? {
             return Err(unavailable(BackendError::Unavailable));
         }
+        io.check().map_err(unavailable)?;
         Ok(local)
     }
     /// The backend of one trusted installed extension; the name grants nothing.
@@ -126,14 +131,17 @@ impl<'s> LocalFs<'s> {
         }
     }
     pub fn installation_usage(&self, io: &IoBudget<'_>) -> BackendResult<Usage> {
-        io.check()?;
-        self.inner.ledger.installation_usage()
+        let usage = io
+            .check()
+            .and_then(|()| self.inner.ledger.installation_usage(io));
+        self.inner.finish(io, usage)
     }
     /// Settle interrupted originals by their original IDs: trim unacknowledged
     /// tails, complete or refuse a possible publication, finish closes and
     /// removals. Not a timer: the owning service decides when to call it.
     pub fn reconcile(&self, io: &IoBudget<'_>) -> BackendResult<()> {
-        let unsettled = self.inner.ledger.unsettled()?;
+        io.check()?;
+        let unsettled = self.inner.ledger.unsettled(io)?;
         for row in unsettled.rows {
             io.check()?;
             self.inner.settle(&row, io)?;
@@ -142,7 +150,7 @@ impl<'s> LocalFs<'s> {
             io.check()?;
             self.inner.finish_removal(&extension, &namespace, io)?;
         }
-        Ok(())
+        io.check()
     }
     #[cfg(test)]
     pub(crate) fn observe(&self, observer: Observer) {
@@ -324,6 +332,14 @@ impl Inner {
     fn now(&self) -> u64 {
         (self.clock)()
     }
+    /// Every successful return passes here, so no result or acknowledgment is
+    /// disclosed unless the budget still holds; an effect already made stays.
+    fn finish<T>(&self, io: &IoBudget<'_>, value: BackendResult<T>) -> BackendResult<T> {
+        let value = value?;
+        self.milestone(Milestone::Return)?;
+        io.check()?;
+        Ok(value)
+    }
     #[cfg(test)]
     fn milestone(&self, point: Milestone) -> BackendResult<()> {
         let observer = self.observer.lock().unwrap().clone();
@@ -379,7 +395,7 @@ impl Inner {
         io.check()?;
         let row = match self
             .ledger
-            .adopt(extension, spec, self.now(), &self.quotas)?
+            .adopt(extension, spec, self.now(), &self.quotas, io)?
         {
             Adoption::Fresh(row) => {
                 self.milestone(Milestone::Adopted)?;
@@ -419,13 +435,16 @@ impl Inner {
         io.check()?;
         let known = self
             .ledger
-            .row(extension, &intent)?
+            .row(extension, &intent, io)?
             .ok_or(BackendError::Missing)?;
         let _hold = self
             .flight
             .hold(extension, &known.spec.key.namespace, Some(&intent), io)?;
         io.check()?;
-        let row = match self.ledger.gate(extension, &intent, self.now(), false)? {
+        let row = match self
+            .ledger
+            .gate(extension, &intent, self.now(), false, io)?
+        {
             Gate::Go(row) => row,
             Gate::Expired(row) => {
                 self.close(extension, &row, io)?;
@@ -490,7 +509,7 @@ impl Inner {
         file.sync_all().map_err(|_| BackendError::Unavailable)?;
         self.milestone(Milestone::ChunkSynced)?;
         io.check()?;
-        let next = self.ledger.advance(extension, &row, length)?;
+        let next = self.ledger.advance(extension, &row, length, io)?;
         self.milestone(Milestone::ChunkAcked)?;
         io.check()?;
         Ok(progress(&next))
@@ -505,7 +524,7 @@ impl Inner {
         io.check()?;
         let known = self
             .ledger
-            .row(extension, &intent)?
+            .row(extension, &intent, io)?
             .ok_or(BackendError::Missing)?;
         let _hold = self
             .flight
@@ -513,7 +532,7 @@ impl Inner {
         io.check()?;
         let row = self
             .ledger
-            .row(extension, &intent)?
+            .row(extension, &intent, io)?
             .ok_or(BackendError::Missing)?;
         match row.phase {
             Phase::Committed => return Ok(receipt(&row)),
@@ -523,7 +542,7 @@ impl Inner {
             Phase::Staging => {}
             _ => return Err(BackendError::Conflict),
         }
-        let row = match self.ledger.gate(extension, &intent, self.now(), true)? {
+        let row = match self.ledger.gate(extension, &intent, self.now(), true, io)? {
             Gate::Go(row) => row,
             Gate::Expired(row) => {
                 self.close(extension, &row, io)?;
@@ -549,7 +568,10 @@ impl Inner {
         self.trim_and_verify(&file, &row, io)?;
         self.milestone(Milestone::CommitVerified)?;
         io.check()?;
-        let adopted = match self.ledger.commit_adopt(extension, &intent, self.now())? {
+        let adopted = match self
+            .ledger
+            .commit_adopt(extension, &intent, self.now(), io)?
+        {
             Gate::Go(row) => row,
             Gate::Expired(row) => {
                 self.close(extension, &row, io)?;
@@ -598,7 +620,7 @@ impl Inner {
         let (staged_name, final_name) = (hex(&row.spec.intent.0), hex(&row.spec.key.object.0));
         let settle = |error: BackendError| {
             // Possible bytes at an unverifiable destination stay charged and closed.
-            let _ = self.ledger.mark_unknown(extension, &row.spec.intent);
+            let _ = self.ledger.mark_unknown(extension, &row.spec.intent, io);
             error
         };
         loop {
@@ -634,13 +656,14 @@ impl Inner {
         directory.sync().map_err(fs)?;
         self.milestone(Milestone::LinkSynced)?;
         io.check()?;
-        self.ledger.commit_receipt(extension, &row.spec.intent)?;
+        self.ledger
+            .commit_receipt(extension, &row.spec.intent, io)?;
         self.milestone(Milestone::Receipted)?;
         // The receipt is durable: removing the staging name is cleanup, and a
         // failure leaves `staged` set for reconciliation to finish.
         if staging.unlink(&staged_name).is_ok()
             && staging.sync().is_ok()
-            && self.ledger.unstage(extension, &row.spec.intent).is_ok()
+            && self.ledger.unstage(extension, &row.spec.intent, io).is_ok()
         {
             self.milestone(Milestone::StagingUnlinked)?;
         }
@@ -659,7 +682,7 @@ impl Inner {
         }
         self.milestone(Milestone::CloseUnlinked)?;
         io.check()?;
-        self.ledger.close_confirmed(extension, &row.spec.intent)
+        self.ledger.close_confirmed(extension, &row.spec.intent, io)
     }
 
     fn status(
@@ -669,7 +692,7 @@ impl Inner {
         io: &IoBudget<'_>,
     ) -> BackendResult<Transfer> {
         io.check()?;
-        let Some(row) = self.ledger.row(extension, &intent)? else {
+        let Some(row) = self.ledger.row(extension, &intent, io)? else {
             return Ok(Transfer {
                 state: TransferState::NotObserved,
                 original: None,
@@ -698,7 +721,7 @@ impl Inner {
         let _hold = self.flight.hold(extension, &key.namespace, None, io)?;
         let row = self
             .ledger
-            .blob(extension, &key)?
+            .blob(extension, &key, io)?
             .ok_or(BackendError::Missing)?;
         io.check()?;
         Ok(receipt(&row))
@@ -719,7 +742,7 @@ impl Inner {
         let _hold = self.flight.hold(extension, &key.namespace, None, io)?;
         let row = self
             .ledger
-            .blob(extension, &key)?
+            .blob(extension, &key, io)?
             .ok_or(BackendError::Missing)?;
         let total = row.spec.payload_bytes;
         if offset > total || (offset == total && total != 0) {
@@ -746,7 +769,7 @@ impl Inner {
         // The namespace may have been fenced or the budget spent during the read:
         // nothing is disclosed unless the same committed original is still open.
         self.ledger
-            .blob(extension, &key)?
+            .blob(extension, &key, io)?
             .ok_or(BackendError::Missing)?;
         io.check()?;
         Ok(ReadPart {
@@ -760,13 +783,13 @@ impl Inner {
         io.check()?;
         let known = self
             .ledger
-            .row(extension, &intent)?
+            .row(extension, &intent, io)?
             .ok_or(BackendError::Missing)?;
         let _hold = self
             .flight
             .hold(extension, &known.spec.key.namespace, Some(&intent), io)?;
         io.check()?;
-        let row = self.ledger.discard_adopt(extension, &intent)?;
+        let row = self.ledger.discard_adopt(extension, &intent, io)?;
         self.milestone(Milestone::DiscardAdopted)?;
         if matches!(row.phase, Phase::Discarding | Phase::Expiring) {
             self.close(extension, &row, io)?;
@@ -781,7 +804,7 @@ impl Inner {
         io: &IoBudget<'_>,
     ) -> BackendResult<()> {
         io.check()?;
-        if !self.ledger.fence(extension, &namespace, &self.quotas)? {
+        if !self.ledger.fence(extension, &namespace, &self.quotas, io)? {
             return Ok(());
         }
         self.milestone(Milestone::Fenced)?;
@@ -795,12 +818,12 @@ impl Inner {
         io: &IoBudget<'_>,
     ) -> BackendResult<()> {
         self.flight.drain(extension, namespace, io)?;
-        for row in self.ledger.namespace_rows(extension, namespace)? {
+        for row in self.ledger.namespace_rows(extension, namespace, io)? {
             io.check()?;
-            self.ledger.mark_removing(extension, &row.spec.intent)?;
+            self.ledger.mark_removing(extension, &row.spec.intent, io)?;
         }
         self.milestone(Milestone::RemovalMarked)?;
-        let rows = self.ledger.namespace_rows(extension, namespace)?;
+        let rows = self.ledger.namespace_rows(extension, namespace, io)?;
         if let Some(tree) = self.tree(extension, false)? {
             let staging = tree.staging(false)?;
             let directory = tree.namespace(namespace, false)?;
@@ -826,7 +849,7 @@ impl Inner {
         }
         self.milestone(Milestone::RemovalUnlinked)?;
         io.check()?;
-        self.ledger.removal_confirmed(extension, namespace)
+        self.ledger.removal_confirmed(extension, namespace, io)
     }
 
     /// One interrupted original, settled by its original ID.
@@ -836,22 +859,22 @@ impl Inner {
         let _hold = self
             .flight
             .hold(extension, &listed.spec.key.namespace, Some(&intent), io)?;
-        let Some(row) = self.ledger.row(extension, &intent)? else {
+        let Some(row) = self.ledger.row(extension, &intent, io)? else {
             return Ok(());
         };
         match row.phase {
             Phase::Staging => {
-                if let Some(row) = self.ledger.expire(extension, &intent, self.now())? {
+                if let Some(row) = self.ledger.expire(extension, &intent, self.now(), io)? {
                     return self.close(extension, &row, io);
                 }
-                self.trim(extension, &row)
+                self.trim(extension, &row, io)
             }
             Phase::Committing => match self.publish(extension, &row, false, io) {
                 Ok(_) => Ok(()),
                 Err(BackendError::Unavailable)
                     if self
                         .ledger
-                        .row(extension, &intent)?
+                        .row(extension, &intent, io)?
                         .is_some_and(|row| row.phase == Phase::Unknown) =>
                 {
                     Ok(())
@@ -865,7 +888,7 @@ impl Inner {
                     staging.unlink(&hex(&intent.0)).map_err(fs)?;
                     staging.sync().map_err(fs)?;
                 }
-                self.ledger.unstage(extension, &intent)
+                self.ledger.unstage(extension, &intent, io)
             }
             Phase::Discarding | Phase::Expiring => self.close(extension, &row, io),
             // A fenced namespace's removal owns these.
@@ -874,7 +897,7 @@ impl Inner {
     }
     /// Cut an unacknowledged tail back to the durable checkpoint; bytes lost
     /// below it close the original as unknown rather than guessing.
-    fn trim(&self, extension: &str, row: &Row) -> BackendResult<()> {
+    fn trim(&self, extension: &str, row: &Row, io: &IoBudget<'_>) -> BackendResult<()> {
         let staging = self
             .tree(extension, false)?
             .map(|tree| tree.staging(false))
@@ -889,7 +912,7 @@ impl Inner {
             None => 0,
         };
         if stored < row.received {
-            return self.ledger.mark_unknown(extension, &row.spec.intent);
+            return self.ledger.mark_unknown(extension, &row.spec.intent, io);
         }
         if let Some(file) = &file
             && stored > row.received
@@ -928,14 +951,15 @@ impl ObjectBackend for LocalHandle<'_> {
         }
     }
     fn usage(&self, namespace: Option<NamespaceId>, io: &IoBudget<'_>) -> BackendResult<Usage> {
-        io.check()?;
         let scope = namespace.map_or(UsageScope::Extension, UsageScope::Namespace);
-        let usage = self.inner.ledger.usage(self.extension.as_str(), scope)?;
-        io.check()?;
-        Ok(usage)
+        let usage = io
+            .check()
+            .and_then(|()| self.inner.ledger.usage(self.extension.as_str(), scope, io));
+        self.inner.finish(io, usage)
     }
     fn begin(&self, spec: &BeginSpec, io: &IoBudget<'_>) -> BackendResult<BeginResult> {
-        self.inner.begin(self.extension.as_str(), spec, io)
+        let result = self.inner.begin(self.extension.as_str(), spec, io);
+        self.inner.finish(io, result)
     }
     fn append(
         &self,
@@ -944,17 +968,22 @@ impl ObjectBackend for LocalHandle<'_> {
         bytes: &[u8],
         io: &IoBudget<'_>,
     ) -> BackendResult<Progress> {
-        self.inner
-            .append(self.extension.as_str(), intent, index, bytes, io)
+        let result = self
+            .inner
+            .append(self.extension.as_str(), intent, index, bytes, io);
+        self.inner.finish(io, result)
     }
     fn commit(&self, intent: IntentId, io: &IoBudget<'_>) -> BackendResult<Receipt> {
-        self.inner.commit(self.extension.as_str(), intent, io)
+        let result = self.inner.commit(self.extension.as_str(), intent, io);
+        self.inner.finish(io, result)
     }
     fn status(&self, intent: IntentId, io: &IoBudget<'_>) -> BackendResult<Transfer> {
-        self.inner.status(self.extension.as_str(), intent, io)
+        let result = self.inner.status(self.extension.as_str(), intent, io);
+        self.inner.finish(io, result)
     }
     fn stat(&self, key: BlobKey, io: &IoBudget<'_>) -> BackendResult<Receipt> {
-        self.inner.stat(self.extension.as_str(), key, io)
+        let result = self.inner.stat(self.extension.as_str(), key, io);
+        self.inner.finish(io, result)
     }
     fn read(
         &self,
@@ -963,15 +992,20 @@ impl ObjectBackend for LocalHandle<'_> {
         count: u32,
         io: &IoBudget<'_>,
     ) -> BackendResult<ReadPart> {
-        self.inner
-            .read(self.extension.as_str(), key, offset, count, io)
+        let result = self
+            .inner
+            .read(self.extension.as_str(), key, offset, count, io);
+        self.inner.finish(io, result)
     }
     fn discard(&self, intent: IntentId, io: &IoBudget<'_>) -> BackendResult<()> {
-        self.inner.discard(self.extension.as_str(), intent, io)
+        let result = self.inner.discard(self.extension.as_str(), intent, io);
+        self.inner.finish(io, result)
     }
     fn remove_namespace(&self, namespace: NamespaceId, io: &IoBudget<'_>) -> BackendResult<()> {
-        self.inner
-            .remove_namespace(self.extension.as_str(), namespace, io)
+        let result = self
+            .inner
+            .remove_namespace(self.extension.as_str(), namespace, io);
+        self.inner.finish(io, result)
     }
 }
 
