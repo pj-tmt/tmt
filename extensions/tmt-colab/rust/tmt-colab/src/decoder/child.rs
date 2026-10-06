@@ -119,7 +119,7 @@ fn execute() -> Result<(), DecodeFault> {
     }
     let before = project(&doc, wire.namespace)?;
     // Edit only the admitted structs. The delta never reattributes foreign content.
-    let merged = if let Some(source) = &wire.source {
+    let (merged, projection) = if let Some(source) = &wire.source {
         if wire.namespace != Namespace::Content || source.len() > BASELINE_BYTES {
             return Err(DecodeFault::InvalidInput);
         }
@@ -146,13 +146,15 @@ fn execute() -> Result<(), DecodeFault> {
         } else {
             meta.remove(&mut tx, "publisherAgent");
         }
-        tx.encode_state_as_update_v1(&vector)
+        let merged = tx.encode_state_as_update_v1(&vector);
+        drop(tx);
+        (merged, project(&doc, wire.namespace)?)
     } else {
         // Merge the author's updates, never encode the shared document.
-        yrs::merge_updates_v1(updates.iter().map(Vec::as_slice))
-            .map_err(|_| DecodeFault::Rejected)?
+        let merged = yrs::merge_updates_v1(updates.iter().map(Vec::as_slice))
+            .map_err(|_| DecodeFault::Rejected)?;
+        (merged, before)
     };
-    let projection = project(&doc, wire.namespace)?;
     // A prepared edit is one update; a read's merged tail may be the whole state.
     if merged.len()
         > if wire.source.is_some() {
@@ -645,5 +647,99 @@ mod content_preparation_tests {
         assert!(replay_content(&baseline, &[], &[b.clone(), a.clone()], &expected).is_err());
         assert!(replay_content(&baseline, &[], &[b], &expected).is_err());
         assert!(replay_content(&baseline, &[], &[a], &expected).is_err());
+    }
+}
+
+#[cfg(test)]
+mod projection_reuse_tests {
+    use super::*;
+
+    #[test]
+    fn unchanged_content_and_own_projection_matches_independent_values_after_merge() {
+        for namespace in [Namespace::Content, Namespace::Own] {
+            let doc = Doc::with_client_id(818);
+            let expected = match namespace {
+                Namespace::Content => {
+                    doc.get_or_insert_text("html")
+                        .insert(&mut doc.transact_mut(), 0, "old 🐈\n");
+                    let meta = doc.get_or_insert_map("meta");
+                    meta.insert(&mut doc.transact_mut(), "title", "T");
+                    meta.insert(&mut doc.transact_mut(), "publisherAgent", "agent");
+                    serde_json::json!({"html":"old 🐈\n","meta":{"title":"T","publisherAgent":"agent"}})
+                }
+                Namespace::Own => {
+                    for name in ["threads", "messages", "intents", "replies"] {
+                        doc.get_or_insert_map(name);
+                    }
+                    doc.get_or_insert_map("threads").insert(
+                        &mut doc.transact_mut(),
+                        "legacy",
+                        "retained 🐈",
+                    );
+                    serde_json::json!({"threads":{"legacy":"retained 🐈"},"messages":{},"intents":{},"replies":{}})
+                }
+            };
+            let original = doc
+                .transact()
+                .encode_state_as_update_v1(&StateVector::default());
+            let admitted = project(&doc, namespace).unwrap();
+            let merged = yrs::merge_updates_v1([original.as_slice()]).unwrap();
+            assert_eq!(admitted, expected);
+            assert_eq!(project(&doc, namespace).unwrap(), admitted);
+            let reader = Doc::new();
+            match namespace {
+                Namespace::Content => {
+                    reader.get_or_insert_text("html");
+                    reader.get_or_insert_map("meta");
+                }
+                Namespace::Own => {
+                    for name in ["threads", "messages", "intents", "replies"] {
+                        reader.get_or_insert_map(name);
+                    }
+                }
+            }
+            reader
+                .transact_mut()
+                .apply_update(Update::decode_v1(&merged).unwrap())
+                .unwrap();
+            assert_eq!(project(&reader, namespace).unwrap(), admitted);
+            assert_eq!(
+                doc.transact()
+                    .encode_state_as_update_v1(&StateVector::default()),
+                original
+            );
+        }
+    }
+
+    #[test]
+    fn projection_rejects_foreign_and_mixed_roots_and_is_fresh_after_edit() {
+        let doc = Doc::with_client_id(819);
+        let html = doc.get_or_insert_text("html");
+        html.insert(&mut doc.transact_mut(), 0, "old");
+        doc.get_or_insert_map("meta")
+            .insert(&mut doc.transact_mut(), "title", "T");
+        let before = project(&doc, Namespace::Content).unwrap();
+        html.insert(&mut doc.transact_mut(), 3, " new");
+        let after = project(&doc, Namespace::Content).unwrap();
+        assert_eq!(before["html"], "old");
+        assert_eq!(after["html"], "old new");
+        assert_eq!(before["meta"], after["meta"]);
+        doc.get_or_insert_map("html")
+            .insert(&mut doc.transact_mut(), "mixed", "bad");
+        assert!(matches!(
+            project(&doc, Namespace::Content),
+            Err(DecodeFault::Rejected)
+        ));
+        let own = Doc::new();
+        for name in ["threads", "messages", "intents", "replies"] {
+            own.get_or_insert_map(name);
+        }
+        assert!(project(&own, Namespace::Own).is_ok());
+        own.get_or_insert_map("foreign")
+            .insert(&mut own.transact_mut(), "x", "bad");
+        assert!(matches!(
+            project(&own, Namespace::Own),
+            Err(DecodeFault::Rejected)
+        ));
     }
 }

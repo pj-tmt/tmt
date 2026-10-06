@@ -364,3 +364,125 @@ fn content_batch_parent_rejects_structure_bounds_correlation_and_projection_subs
     .unwrap();
     assert_eq!(result.batch, ContentBatch::Updates(vec![vec![1]]));
 }
+
+#[test]
+fn strict_binary_matches_independent_vectors_bounds_and_old_malformed_predicate() {
+    for (wire, bytes) in [
+        ("", Vec::new()),
+        ("AA", vec![0]),
+        ("_w", vec![255]),
+        ("AAE", vec![0, 1]),
+        ("AAEC", vec![0, 1, 2]),
+        ("8J-QiA", "🐈".as_bytes().to_vec()),
+    ] {
+        assert_eq!(binary(wire, bytes.len()).unwrap(), bytes);
+        if !bytes.is_empty() {
+            assert!(matches!(
+                binary(wire, bytes.len() - 1),
+                Err(DecodeFault::InvalidInput)
+            ));
+        }
+    }
+    for wire in [
+        "A", "AA=", "AA==", "AA\n", " A", "+w", "/w", "AB", "AAF", "====",
+    ] {
+        assert!(
+            matches!(binary(wire, 8), Err(DecodeFault::InvalidInput)),
+            "{wire:?}"
+        );
+    }
+    // Enumerate malformed short encodings independently of production admission.
+    let alphabet = b"A_B/+= \n";
+    for len in 0..=4u32 {
+        for mut index in 0..alphabet.len().pow(len) {
+            let mut candidate = vec![0; len as usize];
+            for byte in &mut candidate {
+                *byte = alphabet[index % alphabet.len()];
+                index /= alphabet.len();
+            }
+            let wire = std::str::from_utf8(&candidate).unwrap();
+            for limit in [0usize, 1, 2, 3, 8] {
+                let old = if wire.len() > limit.div_ceil(3) * 4 {
+                    None
+                } else {
+                    URL_SAFE_NO_PAD.decode(wire).ok().filter(|bytes| {
+                        bytes.len() <= limit && URL_SAFE_NO_PAD.encode(bytes) == wire
+                    })
+                };
+                assert_eq!(binary(wire, limit).ok(), old, "wire={wire:?} limit={limit}");
+            }
+        }
+    }
+}
+
+#[test]
+fn borrowed_preparation_wire_preserves_exact_bytes_hash_and_strict_owned_parse() {
+    let base = serde_json::json!({"html":"old\r\n", "meta":{"foreign":null,"title":"T 🐈"}});
+    let source = "new 🐈\n\"\\";
+    let expected = r#"{"version":1,"baseline":"AA","updates":["AAE"],"expected_base":{"html":"old\r\n","meta":{"foreign":null,"title":"T 🐈"}},"source":"new 🐈\n\"\\","publisher_agent":null}"#;
+    for publisher in [None, Some("agent")] {
+        let borrowed = WireContentPreparation {
+            version: 1,
+            baseline: "AA".into(),
+            updates: vec!["AAE".into()],
+            expected_base: &base,
+            source,
+            publisher_agent: publisher,
+        };
+        let bytes = serde_json::to_vec(&borrowed).unwrap();
+        let oracle = if publisher.is_some() {
+            expected.replace("\"publisher_agent\":null", "\"publisher_agent\":\"agent\"")
+        } else {
+            expected.into()
+        };
+        assert_eq!(bytes, oracle.as_bytes());
+        let owned: WireContentPreparation = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(owned.expected_base, base);
+        assert_eq!(owned.source, source);
+        assert_eq!(owned.publisher_agent.as_deref(), publisher);
+        assert_eq!(serde_json::to_vec(&owned).unwrap(), bytes);
+        assert_eq!(Sha256::digest(&bytes), Sha256::digest(oracle.as_bytes()));
+        for malformed in [
+            oracle.replacen("\"version\":1", "\"version\":1,\"extra\":true", 1),
+            oracle.replacen("\"source\":", "\"source\":null,\"source\":", 1),
+            oracle.replacen("\"source\":\"new", "\"source\":null,\"unused\":\"new", 1),
+        ] {
+            assert!(serde_json::from_str::<WireContentPreparation>(&malformed).is_err());
+        }
+    }
+}
+
+#[test]
+fn edited_projection_preserves_full_metadata_publisher_set_clear_and_noop() {
+    let base = serde_json::json!({"html":"old 🐈", "meta":{
+        "title":"T", "publisherAgent":"old", "foreign":{"nested":[null,1,"x"]}
+    }});
+    for (source, publisher) in [
+        ("new\n🐈", Some("agent")),
+        ("old 🐈", Some("old")),
+        ("old 🐈", None),
+    ] {
+        let result = edited_projection(
+            &base,
+            ContentEdit {
+                source,
+                publisher_agent: publisher,
+            },
+        );
+        let mut oracle = base.clone();
+        oracle["html"] = Value::String(source.into());
+        let meta = oracle["meta"].as_object_mut().unwrap();
+        if let Some(agent) = publisher {
+            meta.insert("publisherAgent".into(), Value::String(agent.into()));
+        } else {
+            meta.remove("publisherAgent");
+        }
+        assert_eq!(result, oracle);
+        assert_eq!(
+            serde_json::to_vec(&result).unwrap(),
+            serde_json::to_vec(&oracle).unwrap()
+        );
+    }
+    assert_eq!(base["html"], "old 🐈");
+    assert_eq!(base["meta"]["publisherAgent"], "old");
+}

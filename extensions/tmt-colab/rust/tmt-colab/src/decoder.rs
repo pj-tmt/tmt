@@ -416,9 +416,9 @@ impl Decoder {
                 .iter()
                 .map(|v| URL_SAFE_NO_PAD.encode(v))
                 .collect(),
-            expected_base: expected_base.clone(),
-            source: edit.source.to_owned(),
-            publisher_agent: edit.publisher_agent.map(str::to_owned),
+            expected_base,
+            source: edit.source,
+            publisher_agent: edit.publisher_agent,
         };
         let input = serde_json::to_vec(&wire).map_err(|_| DecodeFault::InvalidInput)?;
         let hash = URL_SAFE_NO_PAD.encode(Sha256::digest(&input));
@@ -705,13 +705,13 @@ struct WireResult {
 }
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct WireContentPreparation {
+struct WireContentPreparation<S = String, V = Value> {
     version: u8,
     baseline: String,
     updates: Vec<String>,
-    expected_base: Value,
-    source: String,
-    publisher_agent: Option<String>,
+    expected_base: V,
+    source: S,
+    publisher_agent: Option<S>,
 }
 #[derive(Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "lowercase", deny_unknown_fields)]
@@ -730,8 +730,10 @@ struct WirePreparedContent {
     pid: u32,
 }
 fn edited_projection(base: &Value, edit: ContentEdit<'_>) -> Value {
-    let mut expected = base.clone();
-    expected["html"] = Value::String(edit.source.into());
+    let mut expected = serde_json::json!({
+        "html": edit.source,
+        "meta": base["meta"].clone(),
+    });
     let meta = expected["meta"]
         .as_object_mut()
         .expect("validated content metadata");
@@ -849,7 +851,8 @@ fn binary(value: &str, limit: usize) -> Result<Vec<u8>, DecodeFault> {
     let bytes = URL_SAFE_NO_PAD
         .decode(value)
         .map_err(|_| DecodeFault::InvalidInput)?;
-    if bytes.len() > limit || URL_SAFE_NO_PAD.encode(&bytes) != value {
+    // The pinned URL_SAFE_NO_PAD engine rejects padding and nonzero trailing bits.
+    if bytes.len() > limit {
         return Err(DecodeFault::InvalidInput);
     }
     Ok(bytes)
