@@ -41,7 +41,7 @@ ownership comes separately from [`.github/components.json`](.github/components.j
 | `contracts/`              | Core public contracts and normative fixtures                                         |
 | `scripts/`                | Shared shell/build/development helpers                                               |
 | `skills/`                 | Canonical bundled user-agent guidance                                                |
-| `site/`                   | User handbook and translations                                                       |
+| `site/`                   | Public Home, retained handbook sources and translations                              |
 | `design/`                 | Shared visual tokens and CLI style guidance                                          |
 
 New homes or exceptions need infra review and coordinated map/allowlist changes;
