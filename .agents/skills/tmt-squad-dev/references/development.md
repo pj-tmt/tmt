@@ -28,6 +28,13 @@ markup: see [tmt-tui](../../tmt-tui/SKILL.md).
   with `main` and the package-scoped release `tmt` to prove the CLI is unchanged.
 - Cron tests use disposable roots and must not touch the core database or
   `squad.toml`.
+- Checklist storage/service: `cargo test --locked -p tmt-squad checklist` exercises
+  real temporary documents, literal schema/tombstones, separate revisions, contention,
+  lifecycle and independently controlled public-port admission changes. Publication fault
+  tests inspect committed bytes, temporary cleanup, lock release and retained Unknown
+  after readback. Run unfiltered Squad tests on current/MSRV toolchains, owning clippy,
+  fmt, CLI architecture/current+MSRV and the native Squad regression as well. This storage
+  module adds no command/board surface, dependency or parity fixture regeneration.
 - `main::print_help` sends both routed help and clap `DisplayHelp` through
   `tmt_cli_style::rendered_help` before core discovery. Specs and argument help
   remain in `specs.rs`/`main.rs`; the shared style crate owns terminal wrapping.
