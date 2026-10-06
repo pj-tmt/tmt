@@ -83,6 +83,7 @@ impl Fixture {
     }
     fn create(&mut self) {
         self.apply(OwnerAction::Create {
+            creation_recipient: None,
             page: PAGE,
             title: "Expiry",
             source: "<p>Initial</p>",

@@ -53,6 +53,19 @@ pub struct UpdateBatch<'a> {
     pub baseline: &'a [u8],
     pub updates: &'a [&'a [u8]],
 }
+/// Creation-time routing preference; current Remote admission remains authoritative.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub struct CreationRecipient {
+    pub machine_id: String,
+    pub agent_id: String,
+}
+impl CreationRecipient {
+    pub fn valid(&self) -> bool {
+        tmt_colab_model::values::generated_id(&self.machine_id).is_ok()
+            && tmt_colab_model::values::core_id(&self.agent_id).is_ok()
+    }
+}
 /// One CLI source replacement, including its optional display-only caller label.
 #[derive(Clone, Copy)]
 pub struct ContentEdit<'a> {
@@ -72,6 +85,7 @@ pub struct BaselineInput<'a> {
     pub title: &'a str,
     pub publisher_agent: Option<&'a str>,
     pub source_digest: [u8; 32],
+    pub creation_recipient: Option<&'a CreationRecipient>,
 }
 /// One fresh struct identity to persist and distribute unchanged to every client.
 /// The caller owns descriptor signing, encryption and atomic epoch admission.
@@ -380,6 +394,9 @@ impl Decoder {
             return Err(DecodeFault::CleanupBlocked);
         }
         validate_view(view.source, view.title, &view.source_digest)?;
+        if view.creation_recipient.is_some_and(|v| !v.valid()) {
+            return Err(DecodeFault::InvalidInput);
+        }
         if view
             .publisher_agent
             .is_some_and(|v| !valid_publisher_agent(v))
@@ -401,6 +418,7 @@ impl Decoder {
             },
             title: view.title.into(),
             publisher_agent: view.publisher_agent.map(str::to_owned),
+            creation_recipient: view.creation_recipient.cloned(),
             source_digest: URL_SAFE_NO_PAD.encode(view.source_digest),
             action,
         })
@@ -518,6 +536,8 @@ pub const BASELINE_UPDATE_BYTES: usize = STATE_BYTES + BASELINE_TITLE_BYTES + 10
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct WireBaseline {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    creation_recipient: Option<CreationRecipient>,
     version: u8,
     source: String,
     title: String,
@@ -597,6 +617,9 @@ fn validate_projection(namespace: Namespace, value: &Value) -> Result<(), Decode
             if meta.iter().any(|(k, v)| match k.as_str() {
                 "title" => !v.is_string(),
                 "publisherAgent" => v.as_str().is_none_or(|v| !valid_publisher_agent(v)),
+                "creationRecipient" => {
+                    !serde_json::from_value::<CreationRecipient>(v.clone()).is_ok_and(|v| v.valid())
+                }
                 _ => true,
             }) {
                 return Err(DecodeFault::InvalidOutput);

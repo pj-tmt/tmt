@@ -685,13 +685,13 @@ scoped `(streamId, seq)` key. One browser tab owns the device's write lock with
 `own` have separate documents and decoders; unsigned routing cannot choose a
 document. The following roots are exhaustive:
 
-| Namespace | Roots                                                                        | Fold and authority                                                                   |
-| --------- | ---------------------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
-| `content` | `html` Y.Text; `meta` Y.Map containing `title` and optional `publisherAgent` | Shared page document, folded from admitted owner/editor streams in the current epoch |
-| `own`     | `threads`, `messages`, `intents`, `replies` Y.Maps                           | Separate document per writer; only that writer's signed stream mutates it            |
+| Namespace | Roots                                                                                             | Fold and authority                                                                   |
+| --------- | ------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
+| `content` | `html` Y.Text; `meta` Y.Map containing `title` and optional `publisherAgent`, `creationRecipient` | Shared page document, folded from admitted owner/editor streams in the current epoch |
+| `own`     | `threads`, `messages`, `intents`, `replies` Y.Maps                                                | Separate document per writer; only that writer's signed stream mutates it            |
 
 `meta.publisherAgent`, when present, is a nonempty string of at most 128 UTF-8
-bytes without control characters. It is a publisher-asserted display/default label,
+bytes without control characters. It is a publisher-asserted display-only label,
 never an identity binding, agent ID or publication authority. CLI page create/write
 captures it best-effort through the fixed public `identity show --json` command via
 `tmt_invoke` and the invoking TMT executable (one-second deadline, 64 KiB output
@@ -699,6 +699,25 @@ cap). Unknown/unbound callers, invalid output and invocation failures produce no
 label; an unknown CLI writer removes the previous label. Browser source edits
 retain the last CLI label. Content folding and epoch baselines preserve it in the
 committed update bytes; no descriptor field or extra signature is added.
+
+`meta.creationRecipient`, when present, is exactly `{machineId,agentId}`: a
+canonical non-nil Remote UUIDv4 and canonical non-nil core UUID. It is an asserted
+creation-time routing preference, not proof of authorship or authority. CLI creation
+freezes one bounded public caller identity observation with one optional same-root
+`tmt remote status --machine --json` observation before the create intent.
+Unsupported, stopped, missing, malformed or unavailable observations leave the
+complete pair absent and creation succeeds. Creation reuses this observation for
+link presentation: unavailable or unsupported projection prints the committed path
+with neutral unavailable-link wording and no next step, pairing read or automatic
+opening. Only a validated running descriptor permits full links and the existing
+separate presentation-only devices read; a validated stopped result may retain the
+Colab-serve hint. Other commands retain their ordinary status discovery. Later supported source writes preserve
+the pair; historical absence never backfills. Neither latest publisher nor display
+labels can supply it. The future #1817 consumer may default only after an exact
+authenticated current machine and one uniquely admitted agent UUID match this frozen
+preference; this native/non-UI change does not integrate that UI default. Live grant
+and send admission remain separate. Old strict readers reject this added metadata
+rather than silently dropping it; mixed-version runtime acceptance is not claimed.
 
 Mixed-root updates or other root names/types reject before atomic application.
 Sharing, roles, script policy, retention and local grants MUST NOT be Yjs state.
@@ -824,7 +843,10 @@ and atomic epoch transitions remain caller-owned, later integration work.
 [Baseline vectors](vectors/baseline-v1.json) pin update-v1 bytes and commitment
 with a test-only fixed client ID; production uses a fresh identity. Their
 [independent oracle](vectors/baseline-reference.py) covers only the fresh
-`html`/`meta.title` plus optional `meta.publisherAgent` schema and requires no third-party libraries.
+`html`/`meta.title` plus optional `meta.publisherAgent` and `meta.creationRecipient` schema and requires no third-party libraries.
+The complete two-key preference has two fixed-client lib0 object-key byte orders,
+each with its own exact-byte commitment; this does not relax the deterministic
+frozen export manifest.
 
 The owner-local epoch engine stores baseline plaintext as strict JSON with exactly
 `source` (the exact UTF-8 source string) and `update` (canonical base64url update-v1).
@@ -2118,7 +2140,8 @@ recover authority by retrying. New operations fence the expected owner revision.
 The owner-only `POST /.tmt/colab/management` route takes exactly
 `space, page, expectedRevision, operationId, operation, payload`; revision is canonical
 positive decimal text and payload is canonical base64url of the same typed JSON.
-The root-only `page.create` selection is `{pageId,title,source}` with optional bounded `publisherAgent`; it accepts
+The root-only `page.create` selection is `{pageId,title,source}` with optional bounded `publisherAgent` and optional complete `creationRecipient` as defined
+in the content-root definition above; it accepts
 revision `"0"` only when initializing owner genesis. Browser-signed management
 cannot create pages. Its source/title bounds are 2 MiB/256 KiB in UTF-8; the
 local route has a separate body cap for worst-case JSON escaping plus base64
@@ -2365,7 +2388,8 @@ codes apply; failures exit 1. The browser home empty state names this command.
 owner-authenticated fold and isolated decoder. Raw stdout is exact admitted UTF-8
 source, without an added newline; stderr carries the verified head, epoch and
 page revision. JSON is `{spaceId,pageId,source,title,epoch,membershipHead,
-revision,memoryLimit}` with optional bounded `publisherAgent`. `membershipHead` is `{revision,statementHash}` with decimal
+revision,memoryLimit}` with optional bounded `publisherAgent` and optional complete `creationRecipient`, omitted
+when absent. `membershipHead` is `{revision,statementHash}` with decimal
 revision and lowercase hex hash. Reads never initialize or migrate state.
 Archived reads retain the fold's current inactive-page restriction; deleted
 operands fail through the shared CLI resolver described above.
@@ -2449,19 +2473,23 @@ claim of globally current membership.
 
 The manifest is UTF-8 JSON with these fields:
 
-| Field            | Value / meaning                                                                                                       |
-| ---------------- | --------------------------------------------------------------------------------------------------------------------- |
-| `format`         | `tmt-colab-page-export`                                                                                               |
-| `version`        | JSON integer `1`                                                                                                      |
-| `spaceId`        | Pinned space ID                                                                                                       |
-| `pageId`         | Exported page UUID                                                                                                    |
-| `title`          | Exact admitted title                                                                                                  |
-| `exportedAtMs`   | Safe-integer UTC milliseconds                                                                                         |
-| `membershipHead` | `{revision, statementHash}`; decimal revision, lowercase hex SHA-256                                                  |
-| `epoch`          | Current snapshot epoch as canonical positive decimal text                                                             |
-| `plaintext`      | `true`                                                                                                                |
-| `discussions`    | `{included:true, scope:"current-epoch", format:"tmt-colab-conversations", version:1}`                                 |
-| `files`          | `page.html`, `conversations.json`, `conversations.md` as `{name, sizeBytes, sha256}`; bytes and lowercase hex SHA-256 |
+| Field               | Value / meaning                                                                                                       |
+| ------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| `format`            | `tmt-colab-page-export`                                                                                               |
+| `version`           | JSON integer `1`                                                                                                      |
+| `spaceId`           | Pinned space ID                                                                                                       |
+| `pageId`            | Exported page UUID                                                                                                    |
+| `title`             | Exact admitted title                                                                                                  |
+| `creationRecipient` | Optional complete `{machineId,agentId}` creation preference; omitted when absent                                      |
+| `exportedAtMs`      | Safe-integer UTC milliseconds                                                                                         |
+| `membershipHead`    | `{revision, statementHash}`; decimal revision, lowercase hex SHA-256                                                  |
+| `epoch`             | Current snapshot epoch as canonical positive decimal text                                                             |
+| `plaintext`         | `true`                                                                                                                |
+| `discussions`       | `{included:true, scope:"current-epoch", format:"tmt-colab-conversations", version:1}`                                 |
+| `files`             | `page.html`, `conversations.json`, `conversations.md` as `{name, sizeBytes, sha256}`; bytes and lowercase hex SHA-256 |
+
+Export copies the optional creation preference from the same captured admitted view
+before asynchronous work; it does not acquire or infer a new recipient.
 
 The manifest MUST NOT list its own digest: that would be circular. The CLI result
 names the resolved full `pageId` and lists all four files with their byte sizes and SHA-256. Export contains no roots,

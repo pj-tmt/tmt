@@ -90,7 +90,9 @@ function project(doc: Y.Doc, complete = true) {
         (part: { insert: unknown; attributes?: unknown }) =>
           typeof part.insert !== 'string' || part.attributes,
       ) ||
-    [...meta.keys()].some((key) => key !== 'title' && key !== 'publisherAgent') ||
+    [...meta.keys()].some(
+      (key) => key !== 'title' && key !== 'publisherAgent' && key !== 'creationRecipient',
+    ) ||
     (meta.has('title') && typeof meta.get('title') !== 'string')
   )
     throw new Error('Rejected content roots or unresolved dependencies');
@@ -98,6 +100,7 @@ function project(doc: Y.Doc, complete = true) {
     source: html.toString(),
     title: (meta.get('title') ?? '') as string,
     ...(meta.has('publisherAgent') ? { publisherAgent: meta.get('publisherAgent') as string } : {}),
+    ...(meta.has('creationRecipient') ? { creationRecipient: meta.get('creationRecipient') } : {}),
   };
   validateProjection(projection);
   return projection;

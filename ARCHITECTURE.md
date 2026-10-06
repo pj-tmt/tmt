@@ -1211,9 +1211,9 @@ core discovery or storage access.
   depends on Remote's served SDK (`/sdk/remote-v1.js`). Never `tmt-core`, `tmt-adapters`,
   `tmt-remote` or Office; core is reached through `$TMT_EXECUTABLE api` and the fixed,
   bounded `identity show --json` command at CLI page create/write. Its optional caller
-  name is publisher-asserted display/default metadata, never identity or authority. The
-  architecture guard enforces the dependency set, that only `tmt-colab` consumes the model,
-  and that only `decoder/child.rs` imports `yrs`.
+  name is publisher-asserted display-only metadata, never a creator binding or routing authority. The
+  architecture guard enforces the dependency set, model consumption only by `tmt-colab`, and `yrs` imports only by `decoder/child.rs`.
+  Creation may freeze an optional recipient hint from the existing bounded caller identity command and optional same-root Remote machine-status projection; it grants no authority, and absent creation provenance is never inferred from display labels or later state.
 - **Seams.** With Remote: the mount socket, `tmt-device-context`, the device-events callback
   and the browser SDK; the Ask agent sends through Remote's SDK operations helper as the
   paired owner device, with no native bridge, ledger or migration. The read-only Agents view

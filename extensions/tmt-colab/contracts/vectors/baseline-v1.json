@@ -40,5 +40,20 @@
     "sourceDigest": "47DEQpj8HBSa-_TImW-5JCeuQeRkm5NMpJWZG3hSuFU",
     "commitment": "mGkw2pk8MWpzxDgSXucHRQuKLJO4b1zEgxzI9c3uvj8",
     "publisherAgent": "agent-\ud83d\ude80"
+  },
+  {
+    "source": "<p>Created here</p>",
+    "title": "Creation recipient",
+    "clientId": 1159,
+    "publisherAgent": "creation-agent",
+    "creationRecipient": {
+      "machineId": "40000000-0000-4000-8000-000000000001",
+      "agentId": "50000000-0000-1000-8000-000000000001"
+    },
+    "update": "AQSHCQAEAQRodG1sEzxwPkNyZWF0ZWQgaGVyZTwvcD4oAQRtZXRhBXRpdGxlAXcSQ3JlYXRpb24gcmVjaXBpZW50KAEEbWV0YQ5wdWJsaXNoZXJBZ2VudAF3DmNyZWF0aW9uLWFnZW50KAEEbWV0YRFjcmVhdGlvblJlY2lwaWVudAF2AgltYWNoaW5lSWR3JDQwMDAwMDAwLTAwMDAtNDAwMC04MDAwLTAwMDAwMDAwMDAwMQdhZ2VudElkdyQ1MDAwMDAwMC0wMDAwLTEwMDAtODAwMC0wMDAwMDAwMDAwMDEA",
+    "alternateUpdate": "AQSHCQAEAQRodG1sEzxwPkNyZWF0ZWQgaGVyZTwvcD4oAQRtZXRhBXRpdGxlAXcSQ3JlYXRpb24gcmVjaXBpZW50KAEEbWV0YQ5wdWJsaXNoZXJBZ2VudAF3DmNyZWF0aW9uLWFnZW50KAEEbWV0YRFjcmVhdGlvblJlY2lwaWVudAF2AgdhZ2VudElkdyQ1MDAwMDAwMC0wMDAwLTEwMDAtODAwMC0wMDAwMDAwMDAwMDEJbWFjaGluZUlkdyQ0MDAwMDAwMC0wMDAwLTQwMDAtODAwMC0wMDAwMDAwMDAwMDEA",
+    "sourceDigest": "GoXZwmOSLtoevzAf9OTwj88lNOH7WkeFrsNFNzvOtf0",
+    "commitment": "EuCiVeEyCdO889lZrhPyT2B_r14aMhJsGAkxLn9l15g",
+    "alternateCommitment": "tuS7nAzUOwNG9MPMf_AZXbLgoldVorOXZHdpiEn_Vtk"
   }
 ]

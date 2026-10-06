@@ -666,6 +666,7 @@ fn own_maps_have_a_positive_control_and_array_substitution_rejects() {
 fn view<'a>(source: &'a [u8], title: &'a str) -> BaselineInput<'a> {
     use sha2::{Digest, Sha256};
     BaselineInput {
+        creation_recipient: None,
         source,
         title,
         publisher_agent: None,
@@ -694,15 +695,41 @@ fn baseline_exact_vectors_materialize_and_concurrent_clients_converge() {
             .unwrap()
             .try_into()
             .unwrap();
+        let recipient = vector.get("creationRecipient").map(|v| {
+            serde_json::from_value::<tmt_colab::decoder::CreationRecipient>(v.clone()).unwrap()
+        });
         let mut decoder = owner();
         let verified = decoder
             .verify_baseline(view(source.as_bytes(), title), &update, commitment, None)
             .unwrap();
         assert_eq!(verified.update, update);
         gone(verified.child_pid);
+        if let Some(alternate) = vector["alternateUpdate"].as_str() {
+            let mismatched = URL_SAFE_NO_PAD
+                .decode(vector["alternateCommitment"].as_str().unwrap())
+                .unwrap()
+                .try_into()
+                .unwrap();
+            assert!(matches!(
+                decoder.verify_baseline(view(source.as_bytes(), title), &update, mismatched, None),
+                Err(DecodeFault::Rejected)
+            ));
+            let alternate = URL_SAFE_NO_PAD.decode(alternate).unwrap();
+            let commitment = URL_SAFE_NO_PAD
+                .decode(vector["alternateCommitment"].as_str().unwrap())
+                .unwrap()
+                .try_into()
+                .unwrap();
+            let verified = decoder
+                .verify_baseline(view(source.as_bytes(), title), &alternate, commitment, None)
+                .unwrap();
+            assert_eq!(verified.update, alternate);
+            gone(verified.child_pid);
+        }
         let produced = decoder
             .produce_baseline(
                 BaselineInput {
+                    creation_recipient: recipient.as_ref(),
                     publisher_agent: vector["publisherAgent"].as_str(),
                     ..view(source.as_bytes(), title)
                 },
@@ -758,6 +785,7 @@ fn baseline_digest_commitment_and_materialization_mismatches_return_no_result() 
         .unwrap();
     gone(baseline.child_pid);
     let wrong_digest = BaselineInput {
+        creation_recipient: None,
         source: b"exact",
         title: "title",
         source_digest: [0; 32],
@@ -964,6 +992,7 @@ fn publisher_metadata_updates_and_unknown_cli_edits_clear_it() {
     let baseline = decoder
         .produce_baseline(
             BaselineInput {
+                creation_recipient: None,
                 publisher_agent: Some("publisher"),
                 ..view(b"before", "Title")
             },
@@ -1126,4 +1155,142 @@ fn merging_one_devices_updates_keeps_structs_that_depend_on_another_device() {
             .merge(Namespace::Content, &[b"not an update"], None)
             .is_err()
     );
+}
+
+#[test]
+fn creation_recipient_survives_chunked_baselines_and_known_or_unknown_source_edits() {
+    use tmt_colab::decoder::{ContentEdit, CreationRecipient};
+    let recipient = CreationRecipient {
+        machine_id: "40000000-0000-4000-8000-000000000001".into(),
+        agent_id: "50000000-0000-1000-8000-000000000001".into(),
+    };
+    let source = "<p>Unicode 🐈</p>".repeat(20_000);
+    let mut decoder = owner();
+    for hint in [Some(&recipient), None] {
+        let baseline = decoder
+            .produce_page(
+                BaselineInput {
+                    creation_recipient: hint,
+                    ..view(source.as_bytes(), "Title")
+                },
+                None,
+            )
+            .unwrap();
+        gone(baseline.child_pid);
+        assert!(baseline.update.len() > 256 * 1024);
+        assert!(!baseline.chunks.is_empty());
+        let doc = Doc::new();
+        for chunk in &baseline.chunks {
+            apply_baseline(&doc, chunk);
+        }
+        let merged = doc
+            .transact()
+            .encode_state_as_update_v1(&StateVector::default());
+        let expected = hint.map(|v| serde_json::to_value(v).unwrap());
+        let folded = decoder
+            .decode(
+                UpdateBatch {
+                    namespace: Namespace::Content,
+                    baseline: &merged,
+                    updates: &[],
+                },
+                Role::Editor,
+                None,
+            )
+            .unwrap();
+        assert_eq!(
+            folded.projection["meta"].get("creationRecipient"),
+            expected.as_ref()
+        );
+        gone(folded.child_pid);
+        for publisher in [Some("later-agent"), None] {
+            let prepared = decoder
+                .prepare(
+                    UpdateBatch {
+                        namespace: Namespace::Content,
+                        baseline: &merged,
+                        updates: &[],
+                    },
+                    ContentEdit {
+                        source: "later",
+                        publisher_agent: publisher,
+                    },
+                    None,
+                )
+                .unwrap();
+            let folded = decoder
+                .decode(
+                    UpdateBatch {
+                        namespace: Namespace::Content,
+                        baseline: &merged,
+                        updates: &[&prepared.merged],
+                    },
+                    Role::Editor,
+                    None,
+                )
+                .unwrap();
+            assert_eq!(
+                folded.projection["meta"].get("creationRecipient"),
+                expected.as_ref()
+            );
+            gone(prepared.child_pid);
+            gone(folded.child_pid);
+        }
+    }
+}
+
+#[test]
+fn creation_metadata_rejects_partial_unknown_nested_or_noncanonical_values() {
+    use std::collections::HashMap;
+    let pair = || {
+        HashMap::from([
+            (
+                "machineId".into(),
+                yrs::Any::String("40000000-0000-4000-8000-000000000001".into()),
+            ),
+            (
+                "agentId".into(),
+                yrs::Any::String("50000000-0000-1000-8000-000000000001".into()),
+            ),
+        ])
+    };
+    let mut partial = pair();
+    partial.remove("agentId");
+    let mut extra = pair();
+    extra.insert("extra".into(), yrs::Any::Bool(true));
+    let mut nested = pair();
+    nested.insert("agentId".into(), yrs::Any::Map(pair().into()));
+    let mut invalid = pair();
+    invalid.insert(
+        "machineId".into(),
+        yrs::Any::String("40000000-0000-1000-8000-000000000001".into()),
+    );
+    for value in [
+        yrs::Any::Null,
+        yrs::Any::Map(partial.into()),
+        yrs::Any::Map(extra.into()),
+        yrs::Any::Map(nested.into()),
+        yrs::Any::Map(invalid.into()),
+    ] {
+        let doc = Doc::new();
+        doc.get_or_insert_text("html");
+        let meta = doc.get_or_insert_map("meta");
+        meta.insert(&mut doc.transact_mut(), "title", "Title");
+        meta.insert(&mut doc.transact_mut(), "creationRecipient", value);
+        let update = doc
+            .transact()
+            .encode_state_as_update_v1(&StateVector::default());
+        assert!(matches!(
+            owner().decode(
+                UpdateBatch {
+                    namespace: Namespace::Content,
+                    baseline: &update,
+                    updates: &[]
+                },
+                Role::Editor,
+                None
+            ),
+            Err(DecodeFault::Rejected)
+        ));
+    }
 }

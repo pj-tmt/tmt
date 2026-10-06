@@ -33,6 +33,9 @@ struct Fixture {
 }
 impl Fixture {
     fn new() -> Self {
+        Self::with_creation_recipient(None)
+    }
+    fn with_creation_recipient(recipient: Option<&tmt_colab::decoder::CreationRecipient>) -> Self {
         static NEXT: AtomicUsize = AtomicUsize::new(0);
         let root = std::env::temp_dir().join(format!(
             "cp-{}-{}",
@@ -96,6 +99,23 @@ impl Fixture {
             .insert(&mut doc.transact_mut(), 0, "old 🐈\r\n");
         doc.get_or_insert_map("meta")
             .insert(&mut doc.transact_mut(), "title", "Exact title 🐈");
+        if let Some(recipient) = recipient {
+            let fields = std::collections::HashMap::from([
+                (
+                    "machineId".into(),
+                    yrs::Any::String(recipient.machine_id.as_str().into()),
+                ),
+                (
+                    "agentId".into(),
+                    yrs::Any::String(recipient.agent_id.as_str().into()),
+                ),
+            ]);
+            doc.get_or_insert_map("meta").insert(
+                &mut doc.transact_mut(),
+                "creationRecipient",
+                yrs::Any::Map(fields.into()),
+            );
+        }
         let update = doc
             .transact()
             .encode_state_as_update_v1(&StateVector::default());
@@ -788,4 +808,179 @@ fn a_page_takes_more_than_two_hundred_changes_when_its_device_combines() {
         )
         .unwrap();
     assert!(live <= 22, "{live} updates still stored");
+}
+
+#[test]
+fn frozen_creation_preference_survives_compaction_epoch_reload_and_export() {
+    let recipient = tmt_colab::decoder::CreationRecipient {
+        machine_id: "40000000-0000-4000-8000-000000000001".into(),
+        agent_id: "50000000-0000-1000-8000-000000000001".into(),
+    };
+    for hint in [Some(&recipient), None] {
+        let mut f = Fixture::with_creation_recipient(hint);
+        assert_eq!(f.read().creation_recipient.as_ref(), hint);
+        for i in 0..4 {
+            f.write(&format!("later source {i}"));
+        }
+        assert!(compact_now(&mut f, 2).is_some());
+        assert_eq!(f.read().creation_recipient.as_ref(), hint);
+        let reopened = Store::read(&f.layout).unwrap();
+        assert_eq!(
+            page::read(&reopened, &f.key, PAGE, &mut f.decoder())
+                .unwrap()
+                .creation_recipient
+                .as_ref(),
+            hint
+        );
+        reopened.close().unwrap();
+        Engine::with_decoder_config(support::decoder_config(BINARY.into()))
+            .unwrap()
+            .advance_epoch(
+                &mut f.store,
+                &f.key,
+                EpochAdvance {
+                    page: PAGE,
+                    operation_id: "40000000-0000-4000-8000-000000000088",
+                    expected_revision: 2,
+                },
+                NOW,
+            )
+            .unwrap();
+        f.write("after epoch");
+        assert_eq!(f.read().creation_recipient.as_ref(), hint);
+        let bundle =
+            tmt_colab::export::Bundle::capture(&f.store, &f.key, PAGE, &mut f.decoder(), NOW)
+                .unwrap();
+        let parent = f.root.join("exports");
+        fs::create_dir(&parent).unwrap();
+        let published = bundle.publish(&parent).unwrap();
+        let manifest: Value =
+            serde_json::from_slice(&fs::read(published.directory.join("manifest.json")).unwrap())
+                .unwrap();
+        assert_eq!(
+            manifest.get("creationRecipient"),
+            hint.map(|v| serde_json::to_value(v).unwrap()).as_ref()
+        );
+    }
+}
+
+#[test]
+fn creation_observes_each_public_snapshot_once_and_absence_never_blocks_creation() {
+    let identity =
+        json!({"identity":{"name":"creator","id":"50000000-0000-1000-8000-000000000001"}});
+    let running = json!({"running":true,"origin":"http://127.0.0.1:53253","path":"/r/abcdefghijkl2345","machineId":"40000000-0000-4000-8000-000000000001"});
+    for (caller, descriptor, success, expected) in [
+        (identity.clone(), running.clone(), true, true),
+        (
+            identity.clone(),
+            json!({"running":true,"origin":"http://127.0.0.1:53253","path":"/r/abcdefghijkl2345"}),
+            true,
+            false,
+        ),
+        (
+            identity.clone(),
+            json!({"running":false,"lastPort":null}),
+            true,
+            false,
+        ),
+        (
+            identity.clone(),
+            json!({"running":false,"unexpected":1}),
+            true,
+            false,
+        ),
+        (
+            identity.clone(),
+            json!({"error":{"code":"REMOTE_SERVE_OUTDATED"}}),
+            false,
+            false,
+        ),
+        (
+            json!({"identity":{"name":"creator"}}),
+            running.clone(),
+            true,
+            false,
+        ),
+        (
+            json!({"error":{"code":"IDENTITY_REQUIRED"}}),
+            running.clone(),
+            true,
+            false,
+        ),
+    ] {
+        let f = Fixture::new();
+        let script = format!(
+            r#"#!/usr/bin/python3
+import json, sys
+from pathlib import Path
+root = Path({root})
+args = sys.argv[1:]
+with (root / 'observations').open('a') as log:
+    log.write(' '.join(args) + '\n')
+if args == ['api']:
+    json.load(sys.stdin)
+    print(json.dumps({{'dataRoot': str(root)}}))
+elif args == ['identity', 'show', '--json']:
+    print({caller})
+elif args == ['remote', 'status', '--machine', '--json']:
+    print({descriptor})
+    sys.exit({exit})
+elif args == ['remote', 'devices', '--json']:
+    print('{{"devices":[]}}')
+else:
+    sys.exit(97)
+"#,
+            root = serde_json::to_string(f.root.to_str().unwrap()).unwrap(),
+            caller = serde_json::to_string(&caller.to_string()).unwrap(),
+            descriptor = serde_json::to_string(&descriptor.to_string()).unwrap(),
+            exit = if success { 0 } else { 1 },
+        );
+        tmt_test_support::write_executable(&f.root.join("core"), script.as_bytes(), 0o700).unwrap();
+        let output = f
+            .command()
+            .env_clear()
+            .env("TMT_EXECUTABLE", f.root.join("core"))
+            .env("HOME", &f.root)
+            .env("PATH", "/usr/bin:/bin")
+            .args(["page", "create", "--title", "Created", "--json"])
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let result: Value = serde_json::from_slice(&output.stdout).unwrap();
+        let page = page::read(
+            &f.store,
+            &f.key,
+            result["pageId"].as_str().unwrap(),
+            &mut f.decoder(),
+        )
+        .unwrap();
+        assert_eq!(page.creation_recipient.is_some(), expected);
+        if let Some(hint) = page.creation_recipient {
+            assert_eq!(hint.machine_id, running["machineId"].as_str().unwrap());
+            assert_eq!(hint.agent_id, identity["identity"]["id"].as_str().unwrap());
+        }
+        let observed = fs::read_to_string(f.root.join("observations")).unwrap();
+        assert_eq!(
+            observed
+                .lines()
+                .filter(|line| *line == "identity show --json")
+                .count(),
+            1
+        );
+        assert_eq!(
+            observed
+                .lines()
+                .filter(|line| *line == "remote status --machine --json")
+                .count(),
+            1
+        );
+        assert!(!observed.lines().any(|line| line == "remote status --json"));
+        assert!(
+            !observed.contains("serve") && !observed.contains("pair") && !observed.contains("talk")
+        );
+    }
 }

@@ -1,3 +1,4 @@
+import type { CreationRecipient } from './fold-protocol.js';
 import { decimal, digest, generatedId, requireValue, spaceId, text, time } from '@tmt/colab-client';
 import {
   projectConversations,
@@ -18,6 +19,7 @@ export const EXPORT_FILES: readonly ExportFile[] = [
 /** One bundle never exceeds this many bytes of conversations (both files together). */
 export const CONVERSATIONS_BYTES = 8 * 1024 * 1024;
 export interface ExportView {
+  creationRecipient?: CreationRecipient;
   spaceId: string;
   pageId: string;
   source: string;
@@ -41,7 +43,18 @@ export function hex(bytes: Uint8Array): string {
 /** Caller admission supplies the view. Copy everything before the first await;
  * hashing cannot mix a later projection/head into this plaintext bundle. */
 export async function prepareExport(input: ExportView): Promise<ExportBundle> {
-  const view = { ...input, membershipHead: { ...input.membershipHead } };
+  const view = {
+    ...input,
+    ...(input.creationRecipient === undefined
+      ? {}
+      : {
+          creationRecipient: {
+            machineId: input.creationRecipient.machineId,
+            agentId: input.creationRecipient.agentId,
+          },
+        }),
+    membershipHead: { ...input.membershipHead },
+  };
   const own = structuredClone(input.own);
   const keys = new Map(
     Object.entries(input.signingKeys).map(([writer, key]) => [writer, key.slice()]),
@@ -85,6 +98,9 @@ export async function prepareExport(input: ExportView): Promise<ExportBundle> {
       spaceId: view.spaceId,
       pageId: view.pageId,
       title: view.title,
+      ...(view.creationRecipient === undefined
+        ? {}
+        : { creationRecipient: view.creationRecipient }),
       exportedAtMs: view.exportedAtMs,
       membershipHead: {
         revision: view.membershipHead.revision,

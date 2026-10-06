@@ -41,6 +41,9 @@ export class Fold {
           'update',
           'own',
           ...(Object.hasOwn(event.data as object, 'publisherAgent') ? ['publisherAgent'] : []),
+          ...(Object.hasOwn(event.data as object, 'creationRecipient')
+            ? ['creationRecipient']
+            : []),
         ]);
         const value = event.data as unknown as FoldResult & { id: number; error?: string };
         if (!this.#pending || value.id !== this.#pending.id || value.error)
@@ -57,6 +60,7 @@ export class Fold {
               source: value.source,
               title: value.title,
               publisherAgent: value.publisherAgent,
+              creationRecipient: value.creationRecipient,
               own: value.own,
             }),
           ).length > STATE_BYTES
@@ -72,6 +76,9 @@ export class Fold {
           source: value.source,
           title: value.title,
           ...(value.publisherAgent === undefined ? {} : { publisherAgent: value.publisherAgent }),
+          ...(value.creationRecipient === undefined
+            ? {}
+            : { creationRecipient: value.creationRecipient }),
           own: value.own,
           update: value.update,
         });

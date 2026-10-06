@@ -1,6 +1,7 @@
+import { readFileSync } from 'node:fs';
 import { expect, it, vi } from 'vite-plus/test';
 import { Fold } from '../src/fold.js';
-import { WRITE_TAIL_BYTES } from '../src/fold-protocol.js';
+import { WRITE_TAIL_BYTES, validateProjection, type FoldCommand } from '../src/fold-protocol.js';
 
 it('terminates a stalled decoder and rejects further use without publishing output', async () => {
   vi.useFakeTimers();
@@ -97,4 +98,79 @@ it('bounds aggregate content and own input before posting to the Worker', async 
   ).rejects.toThrow('capacity');
   expect(worker.postMessage).not.toHaveBeenCalled();
   fold.close();
+});
+
+const recipient = {
+  machineId: '40000000-0000-4000-8000-000000000001',
+  agentId: '50000000-0000-1000-8000-000000000001',
+};
+it('admits only complete canonical creation preferences without inferring missing provenance', () => {
+  expect(() =>
+    validateProjection({ source: '', title: '', creationRecipient: recipient }),
+  ).not.toThrow();
+  expect(() => validateProjection({ source: '', title: '' })).not.toThrow();
+  for (const bad of [
+    null,
+    {},
+    { machineId: recipient.machineId },
+    { ...recipient, extra: true },
+    { ...recipient, machineId: recipient.agentId },
+    { ...recipient, agentId: '00000000-0000-0000-0000-000000000000' },
+    { ...recipient, agentId: 'ABCDEF00-0000-1000-8000-000000000001' },
+  ]) {
+    expect(() => validateProjection({ source: '', title: '', creationRecipient: bad })).toThrow();
+  }
+});
+it('the actual Worker preserves both independent baseline encodings through source edits', async () => {
+  const vectors = JSON.parse(
+    readFileSync(new URL('../../../contracts/vectors/baseline-v1.json', import.meta.url), 'utf8'),
+  );
+  const decode = (value: string) => new Uint8Array(Buffer.from(value, 'base64url'));
+  for (const vector of vectors) {
+    for (const alternate of vector.alternateUpdate ? [false, true] : [false]) {
+      vi.resetModules();
+      const surface = {
+        onmessage: null as unknown as (event: {
+          data: { id: number; command: FoldCommand };
+        }) => Promise<void>,
+        postMessage: vi.fn(),
+      };
+      vi.stubGlobal('self', surface);
+      try {
+        await import('../src/fold.worker.js');
+        const send = async (command: FoldCommand) => {
+          surface.postMessage.mockClear();
+          await surface.onmessage({ data: { id: 1, command } });
+          return surface.postMessage.mock.calls[0][0];
+        };
+        if (vector.alternateUpdate) {
+          const wrong = await send({
+            type: 'baseline',
+            title: vector.title,
+            sourceDigest: decode(vector.sourceDigest),
+            update: decode(alternate ? vector.alternateUpdate : vector.update),
+            commitment: decode(alternate ? vector.commitment : vector.alternateCommitment),
+          });
+          expect(wrong.error).toBe('Rejected content update');
+        }
+        const baseline = await send({
+          type: 'baseline',
+          title: vector.title,
+          sourceDigest: decode(vector.sourceDigest),
+          update: decode(alternate ? vector.alternateUpdate : vector.update),
+          commitment: decode(alternate ? vector.alternateCommitment : vector.commitment),
+        });
+        expect(baseline.error).toBeUndefined();
+        expect(baseline.creationRecipient).toEqual(vector.creationRecipient);
+        const edit = await send({ type: 'prepare', source: '<p>Later source</p>' });
+        expect(edit.error).toBeUndefined();
+        expect(edit.creationRecipient).toEqual(vector.creationRecipient);
+        const applied = await send({ type: 'apply', updates: [edit.update] });
+        expect(applied.source).toBe('<p>Later source</p>');
+        expect(applied.creationRecipient).toEqual(vector.creationRecipient);
+      } finally {
+        vi.unstubAllGlobals();
+      }
+    }
+  }
 });
