@@ -11,6 +11,8 @@ export const text = {
   messageSending: 'Sending…',
   messageKeys: 'Enter sends · Shift+Enter adds a line · Esc closes',
   messageRecipient: 'Recipient',
+  messageSelectRecipient: 'Choose recipient',
+  messageChangeRecipient: 'Change recipient',
   messageRecordedDeliveryFailed: 'Delivery failed. The recorded turn was kept.',
   messageRecordedUncertain:
     'The turn was recorded, but delivery is unavailable or uncertain. Check the thread before sending again.',

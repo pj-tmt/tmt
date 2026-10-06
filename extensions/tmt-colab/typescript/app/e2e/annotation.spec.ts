@@ -20,6 +20,8 @@ test('an accepted annotation stops saying awaiting at the observation deadline w
   const input = await mount(page, 'accepted');
   await page.clock.install();
   await input.fill('@Deterministic agent Explain this.');
+  await page.getByRole('button', { name: 'Choose recipient', exact: true }).click();
+  await input.press('Enter');
   await page.getByRole('button', { name: 'Ask agent', exact: true }).click();
   await expect(page.getByTestId('ask-state')).toHaveAttribute('data-state', 'accepted');
   await expect(page.getByTestId('ask-state')).toHaveText('waiting');
@@ -49,6 +51,8 @@ test('each accepted annotation reaches its own deadline while the conversation s
   const input = await mount(page, 'accepted');
   await page.clock.install();
   await input.fill('@Deterministic agent First question.');
+  await page.getByRole('button', { name: 'Choose recipient', exact: true }).click();
+  await input.press('Enter');
   await page.getByRole('button', { name: 'Ask agent', exact: true }).click();
   await expect(page.getByTestId('ask-state')).toHaveCount(1);
   await page.clock.fastForward(60 * 60 * 1000);
@@ -122,6 +126,8 @@ test('a saved turn whose preparation fails keeps its inline error and cannot sil
 }) => {
   const input = await mount(page, 'prepare-failure');
   await input.fill('@Deterministic agent Explain this.');
+  await page.getByRole('button', { name: 'Choose recipient', exact: true }).click();
+  await input.press('Enter');
   await page.getByRole('button', { name: 'Ask agent', exact: true }).click();
   await expect(page.getByRole('alert')).toContainText(
     'turn was recorded, but delivery is unavailable or uncertain',

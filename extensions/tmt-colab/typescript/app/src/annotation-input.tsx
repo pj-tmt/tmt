@@ -9,13 +9,6 @@ import type { ThreadBinding } from './thread-store.js';
 import { captureConversation, conversationAsks } from './thread-store.js';
 import type { DiscussionRef, QuoteSelector, ThreadView } from './thread-records.js';
 
-export function publishingDestination(agents: readonly AgentDestination[], publisher?: string) {
-  const matches = agents.filter(
-    (agent) =>
-      agent.agentName === publisher && agent.online === 'online' && agent.presence !== 'offline',
-  );
-  return matches.length === 1 ? matches[0] : undefined;
-}
 /** One trusted input. Enter is the explicit effect; disclosure never prepares or sends an intent. */
 export function AnnotationInput({
   binding,
@@ -24,7 +17,6 @@ export function AnnotationInput({
   thread,
   asks,
   title,
-  publisher,
   replier,
   initialValue,
   initialEdit,
@@ -41,7 +33,6 @@ export function AnnotationInput({
   thread?: ThreadView;
   asks: readonly PageAsk[];
   title: string;
-  publisher?: string;
   /** Chat only: the agent that answered last. */
   replier?: RecipientKey;
   /** A draft kept from an earlier close of the same selection. */
@@ -90,7 +81,6 @@ export function AnnotationInput({
   const prior = conversationAsks(thread, asks)
     .filter((ask) => ask.reply !== undefined)
     .map((ask) => ({ machine: ask.machine, agent: ask.agent }));
-  const publisherDestination = publishingDestination(agents ?? [], publisher);
   const decide = (intent: 'comment' | 'agent') =>
     messageRecipient({
       writable: !blocked && !!discussion,
@@ -99,7 +89,6 @@ export function AnnotationInput({
       selected: edit.recipient,
       replyRecipients: chat ? [] : prior,
       lastReplier: replier,
-      publisher: publisherDestination,
     });
   const decision = decide('agent');
   const destination = decision.kind === 'agent' ? decision.destination : undefined;
@@ -185,6 +174,9 @@ export function AnnotationInput({
         label={text.messageLabel}
         placeholder={text.messagePlaceholder}
         candidates={agents}
+        recipientPickerLabel={
+          destination ? text.messageChangeRecipient : text.messageSelectRecipient
+        }
         resetKey={resetKey}
         autoFocus
         disabled={busy || blocked || !!recorded || !discussion}

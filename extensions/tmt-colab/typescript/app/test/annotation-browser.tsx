@@ -128,7 +128,6 @@ export function mount(
             anchor={{ exact: 'Selected text', prefix: '', suffix: '' }}
             asks={records}
             title="Annotated page"
-            publisher={target.agentName}
             blocked={false}
             onDraft={(value) => {
               draft = value;

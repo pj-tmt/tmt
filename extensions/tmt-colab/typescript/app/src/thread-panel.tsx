@@ -256,7 +256,6 @@ function Thread({
   ask,
   title,
   asks,
-  publisher,
   close,
   blocked,
 }: {
@@ -267,7 +266,6 @@ function Thread({
   ask?: AskBinding;
   title: string;
   asks: readonly PageAsk[];
-  publisher?: string;
   close(): void;
   blocked: boolean;
 }) {
@@ -410,7 +408,6 @@ function Thread({
           thread={thread}
           asks={asks}
           title={title}
-          publisher={publisher}
           blocked={blocked || busy}
           cancel={close}
           committed={() => {}}
@@ -430,7 +427,6 @@ export function ThreadPanel({
   ask,
   asks,
   title,
-  publisher,
   blocked,
   active,
   select,
@@ -443,7 +439,6 @@ export function ThreadPanel({
   ask?: AskBinding;
   asks: readonly PageAsk[];
   title: string;
-  publisher?: string;
   blocked: boolean;
   active: string | null;
   select(ref: DiscussionRef | null): void;
@@ -535,7 +530,6 @@ export function ThreadPanel({
                   ask={ask}
                   asks={asks}
                   title={title}
-                  publisher={publisher}
                   close={() => select(null)}
                   blocked={blocked}
                 />

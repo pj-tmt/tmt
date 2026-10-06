@@ -60,28 +60,20 @@ it('requires an explicit choice for a conversation with multiple bound recipient
   });
 });
 
-it('uses admitted last-replier, publisher or sole default without a text prefix', () => {
+it('uses the admitted stable last replier without a text prefix', () => {
   expect(messageRecipient({ ...base, lastReplier: key })).toEqual({
-    kind: 'agent',
-    destination: agent,
-  });
-  expect(messageRecipient({ ...base, publisher: key })).toEqual({
-    kind: 'agent',
-    destination: agent,
-  });
-  expect(messageRecipient({ ...base, destinations: [agent] })).toEqual({
     kind: 'agent',
     destination: agent,
   });
 });
 
-it('uses publisher identity despite duplicate labels and requires a choice without an identity', () => {
+it('requires explicit selection when no creation or conversation identity is known', () => {
   const destinations = [agent, { ...another, agentName: agent.agentName }];
-  expect(messageRecipient({ ...base, destinations, publisher: key })).toEqual({
+  expect(messageRecipient({ ...base, destinations })).toEqual({ kind: 'choose' });
+  expect(messageRecipient({ ...base, destinations, selected: key })).toEqual({
     kind: 'agent',
     destination: agent,
   });
-  expect(messageRecipient({ ...base, destinations })).toEqual({ kind: 'choose' });
 });
 
 it('does not silently retarget an unavailable explicit or prior choice', () => {
@@ -112,4 +104,8 @@ it('refuses duplicate candidate identity instead of treating it as unique', () =
       kind: 'unavailable',
     },
   );
+});
+
+it('keeps an unknown creation identity undecided even when only one agent is reachable', () => {
+  expect(messageRecipient({ ...base, destinations: [agent] })).toEqual({ kind: 'choose' });
 });

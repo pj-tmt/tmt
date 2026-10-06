@@ -931,7 +931,6 @@ function Page() {
                 anchor={annotation.selector}
                 asks={view.asks ?? []}
                 title={view.title || snapshot.title}
-                publisher={view.publisherAgent}
                 blocked={!!liveError || state !== 'ready'}
                 initialEdit={annotation.restored}
                 onDraft={(_value, edit) => {
@@ -993,7 +992,6 @@ function Page() {
           binding={liveError === managementChanged ? undefined : snapshot.binding?.discussion}
           ask={liveError === managementChanged ? undefined : snapshot.binding?.ask}
           title={view.title || snapshot.title}
-          publisher={view.publisherAgent}
           asks={view.asks ?? []}
           active={activeThread}
           select={openThread}
@@ -1023,7 +1021,6 @@ function Page() {
             binding={liveError === managementChanged ? undefined : snapshot.binding?.ask}
             discussion={liveError === managementChanged ? undefined : snapshot.binding?.discussion}
             title={view.title || snapshot.title}
-            publisher={view.publisherAgent}
             blocked={!!liveError || state !== 'ready'}
             close={() => setPanel(null)}
           />

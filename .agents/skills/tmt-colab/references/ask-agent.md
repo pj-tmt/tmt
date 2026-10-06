@@ -112,8 +112,9 @@ modules in `extensions/tmt-colab/typescript/app/src` and `rust/tmt-colab/src/ask
 - **UI.** `annotation-input.tsx` uses the same Ask binding for direct explicit Enter
   sends; it freezes the current text and captured conversation references without a
   confirmation screen; no surface offers a "show what was sent" view. In Chat it
-  chooses a stable recipient independently of message bytes (last replier, else a
-  unique current admitted publisher candidate, else the only reachable agent).
+  chooses a stable recipient independently of message bytes from an explicit choice
+  or an admitted bound prior reply. Unknown creation identity requires a choice;
+  latest-publisher display names and a sole directory candidate are not creator bindings.
   No mention prefix is mandatory; ambiguity requires explicit selection. Choosing
   a recipient performs no preparation or dispatch. Plain comments remain available
   under content-write admission when discovery fails. `thread-panel.tsx`

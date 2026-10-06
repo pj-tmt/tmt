@@ -201,9 +201,11 @@ Comments, Chat, Source, Share and settings panels.
 
 The small input at a selection or an item: annotation, follow-up, quick reply.
 
-- The recipient is independent of the message. A unique admitted publisher or prior
-  replying agent can supply the default; ambiguous recipients require explicit selection.
-  There is no mandatory `@` prefix. Optional mention completion preserves the surrounding
+- The recipient is independent of the message. An admitted stable prior
+  reply can supply the default; creation defaults require a reliable canonical binding.
+  Unknown creation and ambiguity require explicit selection, never a name or sole-agent guess.
+  Choose/Change recipient selects without mutating message text. There is no mandatory
+  `@` prefix. Optional mention completion preserves the surrounding
   text and caret; changing or removing the token does not change the selected recipient.
 - Enter submits the parent's current message action; Shift+Enter adds a line, Esc
   closes the innermost candidate list before the composer. Typed text and the selected

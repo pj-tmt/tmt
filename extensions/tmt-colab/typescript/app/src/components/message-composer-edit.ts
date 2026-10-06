@@ -18,6 +18,8 @@ export type MessageComposerProps = {
   disabled: boolean;
   autoFocus?: boolean;
   candidates?: readonly AgentDestination[];
+  /** Optional explicit picker: selecting a stable key leaves plaintext unchanged. */
+  recipientPickerLabel?: string;
   /** An intentional parent replacement starts a fresh editing/history lifetime. */
   resetKey?: string | number;
   onSubmit?(event: KeyboardEvent): void;

@@ -12,7 +12,6 @@ export function ChatPanel({
   asks,
   binding,
   discussion,
-  publisher,
   title,
   blocked,
   close,
@@ -21,7 +20,6 @@ export function ChatPanel({
   asks: readonly PageAsk[];
   binding?: AskBinding;
   discussion?: ThreadBinding;
-  publisher?: string;
   title: string;
   blocked: boolean;
   close(): void;
@@ -81,7 +79,6 @@ export function ChatPanel({
         thread={own}
         asks={asks}
         title={title}
-        publisher={publisher}
         replier={replier}
         blocked={blocked || !!own?.deleted}
         cancel={close}

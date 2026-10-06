@@ -1211,8 +1211,8 @@ core discovery or storage access.
   depends on Remote's served SDK (`/sdk/remote-v1.js`). Never `tmt-core`, `tmt-adapters`,
   `tmt-remote` or Office; core is reached through `$TMT_EXECUTABLE api` and the fixed,
   bounded `identity show --json` command at CLI page create/write. Its optional caller
-  name is publisher-asserted display/default metadata, never identity or authority. The
-  architecture guard enforces the dependency set, that only `tmt-colab` consumes the model,
+  name is publisher-asserted display metadata, never a creator binding or routing authority.
+  The architecture guard enforces the dependency set, that only `tmt-colab` consumes the model,
   and that only `decoder/child.rs` imports `yrs`.
 - **Seams.** With Remote: the mount socket, `tmt-device-context`, the device-events callback
   and the browser SDK; the Ask agent sends through Remote's SDK operations helper as the
@@ -1231,6 +1231,12 @@ core discovery or storage access.
   dependency. Colab stops only a door it started, with its whole group, after closing its own
   socket. `tmt colab stop` reaches the serving process
   through a root-local route on that same owner-only socket (no signals, no new surface).
+- **Message editing.** The main app uses one Colab-local plaintext/history Lexical 0.52.0
+  composer for messages, separate from the source editor; reader/recovery entries remain
+  editor-free. Parent admission, stable recipient selection and frozen send capture stay
+  outside the editor. The [editing boundary](.agents/skills/tmt-colab/references/architecture-state.md#message-editing-boundary)
+  owns the dependency decision and exact draft/history contract. No CSP or native embedding
+  relaxation is required.
 - **Renderer invariant.** Parent chrome allows only self-hosted scripts and styles (no
   `unsafe-inline`). Author HTML runs only in `renderer.html` inside an opaque
   `sandbox allow-scripts` frame whose own policy permits inline scripts and styles but no

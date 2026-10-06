@@ -20,7 +20,6 @@ export function messageRecipient({
   selected,
   replyRecipients = [],
   lastReplier,
-  publisher,
 }: {
   writable: boolean;
   intent: 'comment' | 'agent';
@@ -30,7 +29,6 @@ export function messageRecipient({
   /** Stable keys supplied by the parent's existing admitted conversation projection. */
   replyRecipients?: readonly RecipientKey[];
   lastReplier?: RecipientKey;
-  publisher?: RecipientKey;
 }): MessageRecipientDecision {
   if (!writable) return { kind: 'blocked' };
   if (intent === 'comment') return { kind: 'comment' };
@@ -51,6 +49,5 @@ export function messageRecipient({
   if (bound.length > 1) return { kind: 'choose' };
   if (bound.length === 1) return byKey(bound[0]);
   if (lastReplier) return byKey(lastReplier);
-  if (publisher) return byKey(publisher);
-  return eligible.length === 1 ? { kind: 'agent', destination: eligible[0] } : { kind: 'choose' };
+  return { kind: 'choose' };
 }

@@ -60,13 +60,16 @@ sent as a routing instruction.
 `AnnotationInput` owns the plaintext draft, selected recipient, trusted action,
 current write/Ask admission and immutable send capture. `messageRecipient` is a pure
 parent presentation policy: plain comments resolve before agent discovery, while an
-explicit Ask uses a current stable destination. Publisher display-name metadata can
-supply a default only through one unique current admitted candidate. Prior replies
-use UUID/machine keys, never display labels. Ambiguous/stale choices do not silently
-retarget. `conversationAsks` owns comment/Ask association for display, reply defaults
+explicit Ask uses a current stable destination. Creation defaults require a canonical
+stable creation binding and a unique current admitted match; no such binding is currently projected. Latest publisher and
+original-author labels, or a sole directory candidate, never substitute for it.
+Prior replies use UUID/machine keys, never display labels. Ambiguous/stale choices
+do not silently retarget. `conversationAsks` owns comment/Ask association for display, reply defaults
 and captured conversation; the editor has no storage, ledger, notification or Remote
 capability. Content-write and Ask failures retain the existing draft/recorded-turn
 and uncertainty rules; recipient selection performs no preparation or dispatch.
+The explicit Choose/Change recipient picker preserves message bytes, including typed `@` text; mention
+completion remains optional.
 
 Candidate geometry is input-only in the shared Listbox: it uses viewport bounds and
 the native popover layer, remaining inside the current modal dialog's ownership.

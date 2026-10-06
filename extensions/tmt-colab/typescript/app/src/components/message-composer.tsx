@@ -55,9 +55,10 @@ function MessageField(props: MessageComposerProps) {
   current.current = props;
   const recipient = useRef(props.edit.recipient);
   recipient.current = props.edit.recipient;
-  const [{ query, open }, setSuggestions] = useState<{
+  const [{ query, open, explicit }, setSuggestions] = useState<{
     query?: ReturnType<typeof mentionQuery>;
     open: boolean;
+    explicit?: boolean;
   }>({ open: false });
   const setOpen = useCallback((open: boolean) => {
     setSuggestions((previous) => (previous.open === open ? previous : { ...previous, open }));
@@ -66,7 +67,10 @@ function MessageField(props: MessageComposerProps) {
   useEffect(() => {
     if (props.autoFocus) editor.focus();
   }, [editor, props.autoFocus]);
-  const candidates = fuzzyMessageCandidates(props.candidates ?? [], query?.query ?? '');
+  const candidates = fuzzyMessageCandidates(
+    props.candidates ?? [],
+    explicit ? '' : (query?.query ?? ''),
+  );
   const options = candidates.map((agent) => ({
     value: `${agent.machine}:${agent.agent}`,
     label: `@${agent.agentName} · ${agent.machineName}`,
@@ -140,7 +144,9 @@ function MessageField(props: MessageComposerProps) {
               : queryChanged || changed
                 ? nextQuery !== undefined
                 : previous.open;
-            return queryChanged || open !== previous.open ? { query: nextQuery, open } : previous;
+            return queryChanged || open !== previous.open || (changed && previous.explicit)
+              ? { query: nextQuery, open, explicit: changed ? false : previous.explicit }
+              : previous;
           });
         });
       },
@@ -156,7 +162,7 @@ function MessageField(props: MessageComposerProps) {
     const chosen = { machine: agent.machine, agent: agent.agent };
     recipient.current = chosen;
     // A picker without an @ query changes only the explicit recipient.
-    if (!query) {
+    if (explicit || !query) {
       props.onChange({ ...props.edit, recipient: chosen });
       setOpen(false);
       return;
@@ -176,54 +182,76 @@ function MessageField(props: MessageComposerProps) {
     setOpen(false);
   }
   return (
-    <Listbox
-      label={props.label}
-      options={options}
-      value={
-        props.edit.recipient ? `${props.edit.recipient.machine}:${props.edit.recipient.agent}` : ''
-      }
-      disabled={props.disabled}
-      onChange={choose}
-      inputTrigger={{
-        open: open && options.length > 0 && !props.disabled,
-        onOpenChange: setOpen,
-        render: (trigger) => (
-          <ContentEditable
-            {...trigger}
-            onKeyDown={undefined}
-            placeholder={null}
-            aria-placeholder={undefined}
-            className="message-composer-field"
-            aria-multiline="true"
-            aria-label={props.label}
-            ref={trigger.ref as Ref<HTMLDivElement>}
-            data-placeholder={props.placeholder}
-            onKeyDownCapture={(event) => {
-              const native = event.nativeEvent;
-              if (
-                !native.isTrusted ||
-                native.isComposing ||
-                editor.isComposing() ||
-                native.keyCode === 229 ||
-                props.disabled
-              )
-                return;
-              trigger.onKeyDown?.(event);
-              if (event.defaultPrevented) return;
-              if (event.key === 'Enter' && !event.shiftKey && props.onSubmit) {
-                event.preventDefault();
-                event.stopPropagation();
-                props.onSubmit(native);
-              } else if (event.key === 'Escape' && props.onCancel) {
-                event.preventDefault();
-                event.stopPropagation();
-                props.onCancel(native);
-              }
-            }}
-          />
-        ),
-      }}
-    />
+    <>
+      <Listbox
+        label={props.label}
+        options={options}
+        value={
+          props.edit.recipient
+            ? `${props.edit.recipient.machine}:${props.edit.recipient.agent}`
+            : ''
+        }
+        disabled={props.disabled}
+        onChange={choose}
+        inputTrigger={{
+          open: open && options.length > 0 && !props.disabled,
+          onOpenChange: setOpen,
+          render: (trigger) => (
+            <ContentEditable
+              {...trigger}
+              onKeyDown={undefined}
+              placeholder={null}
+              aria-placeholder={undefined}
+              className="message-composer-field"
+              aria-multiline="true"
+              aria-label={props.label}
+              ref={trigger.ref as Ref<HTMLDivElement>}
+              data-placeholder={props.placeholder}
+              onKeyDownCapture={(event) => {
+                const native = event.nativeEvent;
+                if (
+                  !native.isTrusted ||
+                  native.isComposing ||
+                  editor.isComposing() ||
+                  native.keyCode === 229 ||
+                  props.disabled
+                )
+                  return;
+                trigger.onKeyDown?.(event);
+                if (event.defaultPrevented) return;
+                if (event.key === 'Enter' && !event.shiftKey && props.onSubmit) {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  props.onSubmit(native);
+                } else if (event.key === 'Escape' && props.onCancel) {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  props.onCancel(native);
+                }
+              }}
+            />
+          ),
+        }}
+      />
+      {props.recipientPickerLabel && (
+        <button
+          type="button"
+          disabled={
+            props.disabled ||
+            !props.candidates?.some(
+              (candidate) => candidate.online === 'online' && candidate.presence !== 'offline',
+            )
+          }
+          onClick={(event) => {
+            if (!event.isTrusted) return;
+            editor.focus();
+            setSuggestions((previous) => ({ ...previous, open: true, explicit: true }));
+          }}
+        >
+          {props.recipientPickerLabel}
+        </button>
+      )}
+    </>
   );
 }
 
