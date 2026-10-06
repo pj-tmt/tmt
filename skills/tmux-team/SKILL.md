@@ -1,6 +1,6 @@
 ---
 name: tmux-team
-description: "Coordinate local agents with TMT: send `tmt talk` through a host pane (tmux, or Herdr after `tmt driver install herdr`) or local inbox, wait or detach, read `tmt result`, and answer with receipt-bound `tmt reply`."
+description: 'Coordinate local agents with TMT: send `tmt talk` through a host pane (tmux, or Herdr after `tmt driver install herdr`) or local inbox, wait or detach, read `tmt result`, and answer with receipt-bound `tmt reply`.'
 ---
 
 # tmux-team
@@ -162,7 +162,16 @@ Detached success is `{status:"sent",requestId,target,pane,identity?}`, not task
 completion. Completed talk adds the exact `response`, `bodyBytes` and
 `submittedAtMs` to request/target/pane correlation. Preserve that request ID.
 
-Identified offline recipients instead return queued with an offline notice.
+An identity with no recorded binding receives through inbox pull. Ordinary
+`talk` waits for its durable reply, using the same 180-second default,
+`defaults.timeout` / `defaults.pollInterval` and `--timeout`; `--detach` returns
+queued immediately. The recipient must actively inspect its inbox or use the
+bounded listener described in `tmt-inbox`. Timeout means no reply within that
+budget, leaves the request available for a late reply, and gives result plus
+exact recipient-UUID inbox/inspection commands. It does not start or wake an
+inactive agent.
+
+Identified offline recipients with a recorded endpoint instead return queued with an offline notice.
 Their request stays in Inbox; no automatic re-wake occurs when they come online.
 Confirmed live delivery does not leave duplicate incoming attention. Explicit
 `--inbox` remains queue-only. Detached or interrupted originators can receive

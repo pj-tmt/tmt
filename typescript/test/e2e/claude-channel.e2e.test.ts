@@ -1398,9 +1398,16 @@ exec ${[fixture.executables.peer.executable, ...fixture.executables.peer.args].m
       });
       await ready(fixture, boss, 'Boss');
       await waitForReady(fixture, 1);
-      // A recipient with no session: the request is kept in its inbox and a bounded
-      // observer notifies the originator when the timeout passes.
-      expect((await fixture.runJsonCli(['identity', 'create', 'Idle'])).code).toBe(0);
+      // A recorded endpoint disappears: its offline request retains the bounded
+      // background observer, distinct from a never-bound identity's foreground wait.
+      const idle = await fixture.createMockPane('idle-before-disappearance');
+      expect((await fixture.runJsonCli(['name', 'Idle', '-s'], { pane: idle.pane })).code).toBe(0);
+      fixture.tmux(['kill-pane', '-t', idle.pane]);
+      await fixture.waitFor(
+        () => !fixture.mockProcessIsRunning(idle.pid),
+        2_000,
+        'idle process exit'
+      );
 
       const trace = installTmuxTrace(fixture);
       const asked = await talk(fixture, 'Idle', 'offline question', ['--timeout', '2s'], boss.pane);

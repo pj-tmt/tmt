@@ -46,6 +46,8 @@ struct Correlation {
     /// Explicit queue-only selection, distinct from offline or claimed live routes.
     explicit_inbox: bool,
     offline: bool,
+    /// No recorded endpoint: an active recipient must pull from its inbox.
+    unbound: bool,
     /// The message reached a one-way channel that gives no receipt: it is
     /// neither confirmed nor safe to resend, and every later failure says so.
     delivery_uncertain: bool,
@@ -58,6 +60,7 @@ struct Prepared {
     previous_request_id: Option<String>,
     notify_originator: bool,
     wake: bool,
+    wait: bool,
 }
 struct Report {
     correlation: Correlation,
@@ -95,10 +98,16 @@ impl Correlation {
     }
     fn inspection(&self) -> String {
         if self.inbox {
-            format!(
-                "Inspect with 'tmt result {}'. Do not resend solely because the observer ended.",
+            let mut suggestion = format!(
+                "Inspect with 'tmt result {} --json'. The request stays queued for a later reply; do not resend solely because the observer ended.",
                 self.request_id
-            )
+            );
+            for hint in presentation::inbox_hints(self).into_iter().skip(1) {
+                suggestion.push(' ');
+                suggestion.push_str(&hint);
+                suggestion.push('.');
+            }
+            suggestion
         } else {
             format!(
                 "Inspect with 'tmt result {}' and 'tmt check {}' before deciding whether to retry.",
@@ -107,6 +116,9 @@ impl Correlation {
         }
     }
     fn recipient_recovery(&self) -> String {
+        if self.unbound {
+            return presentation::inbox_hints(self).join("; ");
+        }
         let recipient = self
             .identity
             .as_ref()
@@ -201,7 +213,7 @@ fn deliver(
     interrupt: Option<&Interrupt>,
 ) -> Result<Option<FinalResponse>, Failure> {
     let correlation = &mut prepared.correlation;
-    let wait = !input.options.detach && !correlation.offline;
+    let wait = prepared.wait;
     let timeout = input.options.timeout_seconds.unwrap_or(settings.timeout);
     let deadline = Instant::now() + Duration::from_secs_f64(timeout);
     if prepared.notify_originator {
@@ -228,7 +240,9 @@ fn deliver(
             )
             .map_err(|error| correlation.state_error(error, false))?;
     }
-    if prepared.wake {
+    // Publish pull-visible attention only after notification/waiter ownership
+    // is recorded; a listener can submit its final as soon as queue commits.
+    if prepared.wake || correlation.unbound {
         RequestService::new(&mut *storage, wall_time_ms)
             .queue(&prepared.attempt_id)
             .map_err(|error| correlation.state_error(error, false))?;
@@ -527,7 +541,7 @@ fn run(
             let _ = tmt_cli_style::message::warning(&mut stderr, terminal, &format!("Another recent request exists for '{}' (id: {previous}). Input processing is not serialized; durable results remain associated by request ID.", input.target), None);
         }
         let response = deliver(&mut storage, &mut prepared, &input, &settings, interrupt);
-        if response.is_ok() && prepared.notify_originator
+        if matches!(&response, Ok(None)) && prepared.notify_originator
             && prepared.correlation.offline && !input.options.detach
             && let Err(error) = crate::request_observer_command::start(&paths.database, &prepared.correlation.request_id) {
             let mut stderr = tmt_cli_style::stream::stderr();
@@ -657,7 +671,7 @@ pub(crate) const PRINTED_HINTS: &[crate::cli_style_tests::HintSpec] = &[
         &[],
     ),
     crate::cli_style_tests::HintSpec::core(
-        "Inspect with 'tmt result {}'. Do not resend solely because the observer ended.",
+        "Inspect with 'tmt result {} --json'. The request stays queued for a later reply; do not resend solely because the observer ended.",
         &["'."],
         &[],
     ),

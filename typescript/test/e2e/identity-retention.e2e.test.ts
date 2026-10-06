@@ -106,7 +106,12 @@ describe('committed identity retention', { concurrent: false }, () => {
         { name: 'Retained', presence: 'offline' },
       ]);
       const beforeEvents = fixture.events();
-      const inactive = await fixture.runJsonCli(['talk', 'Retained', 'must not be delivered']);
+      const inactive = await fixture.runJsonCli([
+        'talk',
+        'Retained',
+        'must not be delivered',
+        '--detach',
+      ]);
       expect(inactive.code).toBe(0);
       expect(inactive.json).toMatchObject({ status: 'queued', offline: true });
       expect(fixture.events()).toEqual(beforeEvents);
