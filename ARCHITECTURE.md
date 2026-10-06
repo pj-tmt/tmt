@@ -1173,7 +1173,7 @@ bind the session through a non-secret, cookie-device-checked `tmt-session` ident
 stripped at the door. Last transport close, idle expiry and authority loss reuse
 session-owned cleanup; grant-owned held work survives session end and cancels only on
 stop, revoke or grant expiry/revision change. Uncertain dispatch retains recovery.
-The `objects` backend is a library-only seam, not yet routed (#1852): [guide](.agents/skills/tmt-remote/references/object-backends.md).
+The `objects` backend and the `rust/crates/tmt-extension-objects` wire leaf (canonical identifiers and bounds only) are library-only, not yet routed (#1852): see the [Remote internals](.agents/skills/tmt-remote/references/architecture-internals.md) and [object-backends](.agents/skills/tmt-remote/references/object-backends.md) references.
 
 System-wide invariants:
 
