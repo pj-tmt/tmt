@@ -148,7 +148,7 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
         .jobs_focus
         .then(|| pane.list.selected().map(str::to_owned))
         .flatten();
-    let rows = project(&jobs, selected.as_deref(), now);
+    let rows = project(&jobs, selected.as_deref(), None, now);
     let empty = if app.cron.cron.is_some() {
         "(no jobs · n new)"
     } else {

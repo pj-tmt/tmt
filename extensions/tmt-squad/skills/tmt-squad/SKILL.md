@@ -163,6 +163,11 @@ Member and HOME lead groups, outlined panes and inline input/read bands use hori
 rules with blank side margins. Pane titles and focus cues retain their reserved
 positions. Ask-lead, settings, pickers and cron overlays keep square frames.
 
+View, Theme, action menus, the tab switcher and the cron list show `›` on the
+selected choice's first line when that line fits. In View, `●` still marks the saved view;
+in the switcher, `[x]` still marks picked tabs. Cursor movement changes neither
+mark nor a cron job's state. Config keeps its selected continuation cues.
+
 On a squad tab the lead is the first row, in the same columns as the members, with a
 dim `lead` after its name (cut first when the name cell is narrow), followed by
 the dim rule `── members · N ───` (`── members · 0 · none yet ──` for a squad
