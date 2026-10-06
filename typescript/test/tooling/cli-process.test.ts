@@ -873,6 +873,95 @@ it('diagnostic unconfirmed cleanup keeps the original errors and retained root',
   }
 });
 
+it.each(['EACCES', 'EPERM'])(
+  'diagnostic cwd %s denial stops inspection at discovery and recheck',
+  async (code) => {
+    for (const phase of ['discovery', 'recheck']) {
+      const platform = Object.getOwnPropertyDescriptor(process, 'platform')!;
+      const readdir = fs.readdirSync.bind(fs);
+      const readlink = fs.readlinkSync.bind(fs);
+      const read = fs.readFileSync.bind(fs);
+      const stat = fs.statSync.bind(fs);
+      const denied = Object.assign(new Error('Synthetic admitted cwd denial'), { code });
+      const output = vi.spyOn(console, 'error').mockImplementation(() => {});
+      const inspections: string[] = [];
+      let root = '';
+      let cwdReads = 0;
+      Object.defineProperty(process, 'platform', { value: 'linux' });
+      vi.spyOn(fs, 'readdirSync').mockImplementation((file, options) =>
+        String(file) === '/proc'
+          ? (['900005'] as unknown as ReturnType<typeof fs.readdirSync>)
+          : readdir(file, options)
+      );
+      vi.spyOn(fs, 'statSync').mockImplementation((file, options) => {
+        if (String(file).startsWith('/proc/')) {
+          inspections.push(String(file));
+          expect(String(file)).toBe('/proc/900005');
+          return { uid: process.getuid!() } as fs.Stats;
+        }
+        return stat(file, options);
+      });
+      vi.spyOn(fs, 'readlinkSync').mockImplementation((file, options) => {
+        if (String(file).startsWith('/proc/')) {
+          inspections.push(String(file));
+          expect(String(file)).toBe('/proc/900005/cwd');
+          cwdReads++;
+          if (phase === 'recheck' && cwdReads === 1) return fs.realpathSync(root);
+          throw denied;
+        }
+        return readlink(file, options);
+      });
+      vi.spyOn(fs, 'readFileSync').mockImplementation((file, options) => {
+        if (String(file).startsWith('/proc/')) {
+          inspections.push(String(file));
+          throw new Error('Diagnostic facts must not precede the admitted recheck');
+        }
+        return read(file, options);
+      });
+      const signals = vi.spyOn(process, 'kill').mockImplementation(() => {
+        throw new Error('No signal or presence probe is admitted after cwd denial');
+      });
+      syncBuiltinESMExports();
+      try {
+        const result = withSandbox(
+          (sandbox) => {
+            root = sandbox.root;
+            roots.push(root);
+            return 'callback completed';
+          },
+          { TMT_TEST_CLI: JSON.stringify({ executable: process.execPath, args: [] }) }
+        );
+        if (phase === 'discovery') {
+          await expect(result).resolves.toBe('callback completed');
+          expect(fs.existsSync(root)).toBe(false);
+          expect(output).not.toHaveBeenCalled();
+        } else {
+          const error = await result.catch((error: unknown) => error);
+          expect(error).toBeInstanceOf(AggregateError);
+          expect((error as AggregateError).errors).toContain(denied);
+          expect((error as Error).message).toContain('retained fixture');
+          expect(fs.existsSync(root)).toBe(true);
+          const diagnostic = JSON.parse(String(output.mock.calls[0][1]));
+          expect(diagnostic.residents).toEqual([
+            { pid: 900005, observation: 'identity unavailable' },
+          ]);
+          expect(diagnostic.residentCount).toBe(1);
+          expect(diagnostic.residentCleanup).toBe('not confirmed');
+          expect(diagnostic.cleanupFailed).toBe(true);
+        }
+        const expected = ['/proc/900005', '/proc/900005/cwd'];
+        expect(inspections).toEqual(phase === 'discovery' ? expected : [...expected, ...expected]);
+        expect(cwdReads).toBe(phase === 'discovery' ? 1 : 2);
+        expect(signals).not.toHaveBeenCalled();
+      } finally {
+        Object.defineProperty(process, 'platform', platform);
+        vi.restoreAllMocks();
+        syncBuiltinESMExports();
+      }
+    }
+  }
+);
+
 it.each(['observed', 'denied', 'replacement', 'reused'])(
   'diagnostic resident %s is scoped and retains terminal-cleanup observation',
   async (kind) => {
@@ -885,6 +974,7 @@ it.each(['observed', 'denied', 'replacement', 'reused'])(
     let root = '';
     let present = true;
     const facts: string[] = [];
+    const inspectionOrder: string[] = [];
     Object.defineProperty(process, 'platform', { value: 'linux' });
     vi.spyOn(fs, 'readdirSync').mockImplementation((file, options) =>
       String(file) === '/proc'
@@ -898,8 +988,10 @@ it.each(['observed', 'denied', 'replacement', 'reused'])(
     );
     vi.spyOn(fs, 'readlinkSync').mockImplementation((file, options) => {
       const name = String(file);
-      if (name === '/proc/900003/cwd')
+      if (name === '/proc/900003/cwd') {
+        inspectionOrder.push('cwd');
         return kind === 'replacement' && facts.length ? '/foreign/root' : fs.realpathSync(root);
+      }
       if (name === '/proc/900004/cwd') return '/foreign/root';
       if (name === '/proc/900003/exe') {
         facts.push(name);
@@ -911,6 +1003,7 @@ it.each(['observed', 'denied', 'replacement', 'reused'])(
       const name = String(file);
       if (name.startsWith('/proc/')) {
         facts.push(name);
+        inspectionOrder.push('stat');
         if (kind === 'denied') throw Object.assign(new Error('denied'), { code: 'EACCES' });
         return (
           '900003 (fixture with spaces) S 1 900003 900003 ' +
@@ -925,6 +1018,7 @@ it.each(['observed', 'denied', 'replacement', 'reused'])(
     const signals = vi.spyOn(process, 'kill').mockImplementation((pid, signal) => {
       expect(pid).toBe(900003);
       if (signal === 'SIGKILL') {
+        inspectionOrder.push('signal');
         present = false;
         return true;
       }
@@ -970,6 +1064,7 @@ it.each(['observed', 'denied', 'replacement', 'reused'])(
                     : 'no longer a sandbox resident',
             }
       );
+      expect(inspectionOrder.slice(0, 4)).toEqual(['cwd', 'cwd', 'signal', 'stat']);
       expect(facts.every((file) => file.startsWith('/proc/900003/'))).toBe(true);
       expect(JSON.stringify(diagnostic)).not.toContain('/foreign/root');
       expect(signals.mock.calls.every(([pid]) => pid === 900003)).toBe(true);

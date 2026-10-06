@@ -764,17 +764,26 @@ export async function withSandbox<T>(
     if (leaked.length) {
       leak = new Error(`Sandbox callback left live processes: ${leaked.join(', ')}.`);
       residentCount = leaked.length;
-      residents = leaked.slice(0, 8).map((pid) => residentIdentity(pid, processRoot));
+      residents = leaked.slice(0, 8).map((pid) => ({ pid, observation: 'identity unavailable' }));
       residentCleanup = 'not confirmed';
       for (const pid of leaked) {
         // Recheck cwd immediately before signalling; a recycled or moved PID is not ours.
-        if (sandboxProcesses(processRoot, pid).length === 0) continue;
+        if (sandboxProcesses(processRoot, pid).length === 0) {
+          const index = leaked.indexOf(pid);
+          if (index < residents.length)
+            residents[index] = { pid, observation: 'no longer a sandbox resident' };
+          continue;
+        }
         if (pid === process.pid) throw new Error('The test runner is still inside the sandbox.');
         try {
           process.kill(pid, 'SIGKILL');
         } catch (error) {
           if ((error as NodeJS.ErrnoException).code !== 'ESRCH') throw error;
         }
+        // Optional endpoint facts follow the existing recheck and signal, never preceding
+        // either or authorizing cleanup. A denied recheck leaves only pid/unavailable.
+        const index = leaked.indexOf(pid);
+        if (index < residents.length) residents[index] = residentIdentity(pid, processRoot);
       }
       const deadline = performance.now() + 1000;
       while (
