@@ -2979,7 +2979,7 @@ fn the_switcher_filters_every_tab_and_opens_the_chosen_one() {
         listed,
         [
             "› qt▏",
-            "[x]   quiet (hidden)",
+            "[x]›  quiet (hidden)",
             "1–1 of 1",
             "Space pick/unpick · Enter opens · Esc closes"
         ],
@@ -5006,6 +5006,85 @@ fn receiving_title_preserves_configured_accent_effects_and_semantic_notes_span()
             let border = &buffer[(title.x, title.y)];
             assert_eq!(border.symbol(), "─");
             assert_eq!(border.fg, app.look().role(Role::Dim).fg.unwrap_or_default());
+        }
+    }
+}
+
+#[test]
+fn switcher_cursor_moves_without_changing_picks_attention_or_query() {
+    use crate::board::picker_surface::evidence;
+    for (variant, look) in evidence::looks().into_iter().enumerate() {
+        for (width, height) in [(80, 30), (100, 30), (160, 30), (180, 30), (80, 8)] {
+            let mut app = board(json!([]));
+            app.tabs = vec!["alpha".into(), "beta".into()];
+            app.hidden = vec!["gamma".into()];
+            app.picks = crate::board::pick::Picks::parse(Some("alpha"), &app.switchable()).unwrap();
+            app.attention.insert(
+                "beta".into(),
+                Attention {
+                    waiting: 1,
+                    blocked: 2,
+                },
+            );
+            app.view.as_mut().unwrap().look = look;
+            app.switcher = Some(Switcher::default());
+            let picks = app.picks.clone();
+            for selected in ["alpha", "beta"] {
+                // Initial paint reconciles actual rows before selecting; subsequent
+                // movement goes through the board's consumed overlay event path.
+                if selected == "beta" {
+                    assert_eq!(
+                        app.key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE)),
+                        Effect::None
+                    );
+                }
+                let mut screen = Terminal::new(TestBackend::new(width, height)).unwrap();
+                screen
+                    .draw(|frame| {
+                        render_switcher(frame, &app, app.switcher.as_ref().unwrap(), frame.area())
+                    })
+                    .unwrap();
+                let surface = app.switcher.as_ref().unwrap().surface.borrow();
+                let buffer = screen.backend().buffer();
+                assert_eq!(surface.picker.list.selected(), Some(selected));
+                assert_eq!(surface.picker.query(), Some(""));
+                for id in ["alpha", "beta"] {
+                    let row = evidence::row(&surface, id);
+                    if row.height == 0 {
+                        continue;
+                    }
+                    assert_eq!(buffer[(row.x, row.y)].symbol(), "[");
+                    assert_eq!(
+                        buffer[(row.x + 1, row.y)].symbol(),
+                        if id == "alpha" { "x" } else { " " }
+                    );
+                    assert_eq!(
+                        buffer[(row.x + 3, row.y)].symbol(),
+                        if id == selected { "›" } else { " " }
+                    );
+                    assert_eq!(
+                        buffer[(row.x + 4, row.y)].symbol(),
+                        if id == "beta" { "◆" } else { " " }
+                    );
+                    assert_eq!(
+                        buffer[(row.x + 6, row.y)].symbol(),
+                        if id == "alpha" { "a" } else { "b" }
+                    );
+                }
+                evidence::capture(
+                    &format!("switcher-{width}x{height}-{variant}-{selected}"),
+                    buffer,
+                    &surface,
+                );
+            }
+            assert_eq!(app.picks, picks);
+            assert_eq!(
+                app.attention["beta"],
+                Attention {
+                    waiting: 1,
+                    blocked: 2
+                }
+            );
         }
     }
 }

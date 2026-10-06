@@ -2438,8 +2438,16 @@ The service never receives or decodes plaintext source.
 ### Unintegrated content-publication codecs (#1908)
 
 `publication.rs` exports pure native content-job, original-ID outcome and proposed local IPC
-codecs. They have no Store, keyring, registration, route or transport capability. Existing
-browser Save and CLI writes still publish through their single-update paths; the active
+codecs. They have no Store, keyring, registration, route or transport capability.
+The unintegrated #1928 `page::commit_publication` adapter authenticates the current root-local writer and commits a sealed
+content batch and its original terminal outcome in one immediate SQLite transaction.
+`page::publication_status` uses a caller-supplied current writer chain in a read-only snapshot;
+it never issues or repairs a certificate. Both return exact retained terminal JSON bytes. A complete
+original-key replay ignores stale effect epoch/head/base but still requires current authority.
+New effects reserve outcome capacity and use a content savepoint; admitted domain rejection
+rolls back all content/stream/receipt/device/time changes before recording rejection, while unexpected errors
+roll back the enclosing transaction. UNKNOWN is genuine absence and is never persisted.
+Existing browser Save and CLI writes still publish through their single-update paths; the active
 page-write version-1 DTO and route limits above are unchanged. Syntax and signature success
 neither authorizes effects nor proves a retained terminal outcome.
 
@@ -2456,8 +2464,8 @@ without re-encoding. SHA256 of those raw bytes is `packetHash`; `envelopeHash` i
 separate envelope hash domain. Every strict envelope must be update/content and match the
 manifest space/page/epoch/device/membership revision/sequence/length/hash. Sequences are
 contiguous with checked overflow; later `prevHash` values match the previous envelope hash.
-The first previous hash retains model syntax; current admitted device-head comparison belongs
-to the later transaction owner.
+The first previous hash retains model syntax; the native publication transaction uses the
+shared append owner to compare it with the actual admitted device head.
 
 The signature input is the existing four-byte-big-endian LP frame over, in order:
 `tmt-colab-publication-v1`, ASCII `1`, operationId, spaceId, pageId, epoch, streamId,
@@ -2493,11 +2501,15 @@ Reserved, uninstalled local DTOs are `{version:2,action:"write",signedJob,packet
 and `{version:2,action:"status",key}`. Write packet/chain are canonical base64url exact bytes;
 write requires complete native evidence with chainHash equal to SHA256(raw chain), plus job
 and envelope signatures under the supplied key. Chain issuer/certificate/local-keyring
-admission remains with the later native owner. Status is bounded 64 KiB original-ID lookup,
+admission is performed by the native library adapter. Status is bounded 64 KiB original-ID lookup,
 with no write fields or new effect. Version1 is rejected by these new codecs alone.
-No-op creates no job/ID/sequence; own/checkpoint/HTML/asset jobs are unsupported. Atomic
-transaction/scoped-ledger persistence, browser adoption, recovery/fold barriers, gzip parity
-and final caps remain unintegrated.
+No-op creates no job/ID/sequence; own/checkpoint/HTML/asset jobs are unsupported. Schema 6 scopes
+content outcomes in the existing globally unique owner_operations ledger without changing
+legacy rows. Terminal identities and exact outcome/digest/scope/identity bytes share the
+existing page count/byte budgets across epochs; exact replay adds no charge or page time.
+There is no expiry, eviction or pending UNKNOWN row. The native library has no broadcast or
+production caller. Local v2 IPC activation, Save/CLI/browser adoption, recovery/fold barriers,
+gzip parity and final caps remain unintegrated.
 
 ## Plaintext page export (#1309)
 

@@ -244,6 +244,15 @@ admitted scenes and clipped frame maps. Refresh follows stable selected identity
 resize/model replacement invalidates hits. Query edits select the first match;
 query/list and selection-only scope fields remain controller-specific.
 
+Choice cursors are caller-projected `›` cells from the reconciled selected row ID.
+View keeps saved `●` at mark cell 0 and cursor at cell 1. Theme uses zero-gap
+`[10,1,1fr]` tracks; menus keep the exact key width followed by one cursor cell.
+Switcher uses a fixed nonshrinking five-cell pick/cursor/attention prefix, and
+cron a six-cell state/cursor/ID prefix, both with zero inner and original outer
+gaps. Content starts and semantic marks stay fixed. The cron list supplies its
+cursor; the shared jobs half passes no cursor. These cues appear on the first
+admitted row line; Config retains its existing selected continuation marks.
+
 A controller returns `None` only for an unconsumed event: routing may offer it again
 to the overlay. Consumed moves and boundary presses return `Some`, including
 `PickerInput::Captured`. Settings group headings are disabled rows, read-only entries
