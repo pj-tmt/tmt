@@ -608,7 +608,7 @@ test('browser pages use local tokens in both schemes and fit desktop and mobile'
           expect(look).toMatchObject({
             paper: colorScheme === 'light' ? 'rgb(244, 246, 251)' : 'rgb(26, 27, 38)',
             sheet: colorScheme === 'light' ? 'rgb(255, 255, 255)' : 'rgb(22, 22, 30)',
-            text: colorScheme === 'light' ? 'rgb(52, 59, 88)' : 'rgb(192, 202, 245)',
+            text: colorScheme === 'light' ? 'rgb(23, 23, 23)' : 'rgb(216, 216, 216)',
             markAboveEyebrow: true,
             radius: '0px',
             overflow: false,
