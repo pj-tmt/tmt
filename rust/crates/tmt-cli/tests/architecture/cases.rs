@@ -1968,26 +1968,25 @@ fn refuses(
 fn extension_objects_is_a_strict_leaf_with_no_product_consumer_yet() {
     for kind in ["normal", "dev", "build"] {
         for target in [None, Some("cfg(unix)")] {
-            for allowed in ["base64"] {
-                assert!(
-                    policy::dependency_violations(&package(
-                        "tmt-extension-objects",
-                        vec![dependency(allowed, kind, target, None)]
-                    ))
-                    .is_empty(),
-                    "{allowed} {kind} {target:?}"
-                );
-                assert!(
-                    refuses(
-                        "tmt-extension-objects",
-                        allowed,
-                        kind,
-                        target,
-                        Some("alias")
-                    ),
-                    "renamed {allowed} {kind} {target:?}"
-                );
-            }
+            let allowed = "base64";
+            assert!(
+                policy::dependency_violations(&package(
+                    "tmt-extension-objects",
+                    vec![dependency(allowed, kind, target, None)]
+                ))
+                .is_empty(),
+                "{allowed} {kind} {target:?}"
+            );
+            assert!(
+                refuses(
+                    "tmt-extension-objects",
+                    allowed,
+                    kind,
+                    target,
+                    Some("alias")
+                ),
+                "renamed {allowed} {kind} {target:?}"
+            );
             // Includes crates the generic dev ledger permits elsewhere: the leaf is
             // strict for every dependency kind.
             for forbidden in [
