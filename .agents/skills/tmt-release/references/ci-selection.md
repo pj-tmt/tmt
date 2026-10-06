@@ -112,6 +112,16 @@ of the refused reference array and cannot bypass final listener/process observat
 The writer refuses cleanup admission at the existing observation/report boundary; a later
 report write cannot reset the refusal or grant cleanup authority.
 
+Ordinary terminals resolve against the full authoritative listed-name set before
+duplicate detection. With nonempty command/harness context and a nonzero count, one
+exact trailing ` - should panic` offers a stripped candidate alongside the exact raw
+name. Exactly one listed interpretation is required; both listed is ambiguous, and
+bare/decorated records for the same identity are duplicates. Status, ignored membership
+and summary counts remain exact. Alternate suffix spellings remain literal names when
+exactly listed; two trailing canonical markers are unsupported in eligible ordinary
+context, even for a listed repeated literal. Discovery stays literal, and missing
+ordinary context, zero blocks and rustdoc gain no decoration semantics.
+
 The manual workflow serializes producer, default Cargo baseline, restored whole
 harness consumer and separate rustdoc obligations on Ubuntu 24.04 with Rust 1.97.0,
 Node 22.23.2/pnpm 10.33.0. Baseline retains the original Remote listing and

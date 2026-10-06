@@ -409,8 +409,28 @@ export function parseExecution(text, expected, { ordinary, auxiliary = [], lineN
     }
     const terminal = /^test (.+) \.\.\. (ok|FAILED|ignored)(?:, .*)?$/.exec(line);
     if (terminal) {
-      assert(!summary && !dispositions.has(terminal[1]), 'Duplicate/late test record');
-      dispositions.set(terminal[1], terminal[2]);
+      assert(!summary, 'Duplicate/late test record');
+      const raw = terminal[1],
+        marker = ' - should panic',
+        candidates = expected.names.includes(raw) ? [raw] : [];
+      if (
+        expected.names.length > 0 &&
+        typeof ordinary?.commandId === 'string' &&
+        ordinary.commandId &&
+        typeof ordinary.harnessId === 'string' &&
+        ordinary.harnessId
+      ) {
+        assert(!raw.endsWith(marker + marker), 'Repeated ordinary panic decoration');
+        if (raw.endsWith(marker)) {
+          const stripped = raw.slice(0, -marker.length);
+          if (stripped && expected.names.includes(stripped)) candidates.push(stripped);
+        }
+      }
+      // Resolve against all listed names before checking previously seen records.
+      assert(candidates.length === 1, 'Ambiguous/unlisted test identity');
+      const name = candidates[0];
+      assert(!dispositions.has(name), 'Duplicate/late test record');
+      dispositions.set(name, terminal[2]);
       continue;
     }
     if (line.startsWith('{')) {

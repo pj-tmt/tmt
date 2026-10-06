@@ -89,6 +89,22 @@ const executed =
 // 544a7b002299b4c3c7a87c0a22333bd2111d675de72cbbaf0658f587d0c074df,
 // b27a4ae367f77508ce514e8374b238e89d37b502d139d3845016d78cc742bcdd.
 // These fixtures contain no original runtime payload values or temporary-path dependency.
+// Original command179 lines1944/1975 and baseline122-list entries31/62.
+// Terminal SHA256s: 4b0c01b5088a036ac5150516170cdf17a64b4c415e0de17add2583c775c4a071,
+// f2ddd2e3857d78899fb47eb0baaa4c813d27b2002e005528fa3c350738a28a19.
+// Small synthetic completion, not the original94-test block or runtime payload.
+const panicMarker = ' - should panic';
+const panicNames = [
+  'help::tests::a_command_without_examples_is_refused',
+  'table::tests::a_row_needs_one_cell_per_column',
+];
+const panicExecution =
+  'running 2 tests\n' +
+  panicNames.map((name) => `test ${name}${panicMarker} ... ok\n`).join('') +
+  'test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\n';
+const singleExecution =
+  'running 1 test\ntest alpha ... ok\ntest result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\n';
+
 const auxiliaryLines = ['{"note":"structural fixture"}', '{"error":{"code":"EXPECTED_FIXTURE"}}'];
 const ordinaryContext = { commandId: '000-fixture', harnessId: 'synthetic-harness' };
 const withAuxiliary = executed.replace(
@@ -234,6 +250,206 @@ describe('N=1 Cargo proof admission (synthetic formats, not Linux equivalence)',
     ])
       expect(() => proof.parseExecution(bad, list)).toThrow();
   });
+  it('resolves one ordinary panic decoration against the full listed set while preserving literal names', () => {
+    const expected = { names: [...panicNames], ignored: [] };
+    const original = clone(expected);
+    expect(proof.parseExecution(panicExecution, expected, { ordinary: ordinaryContext })).toEqual(
+      panicNames.map((name) => [name, 'ok'])
+    );
+    expect(expected).toEqual(original);
+    for (const ordinary of [
+      undefined,
+      null,
+      {},
+      { commandId: 'command' },
+      { harnessId: 'harness' },
+      { commandId: '', harnessId: 'harness' },
+      { commandId: 'command', harnessId: '' },
+      { commandId: 1, harnessId: 'harness' },
+      { commandId: 'command', harnessId: 1 },
+    ])
+      expect(() => proof.parseExecution(panicExecution, expected, { ordinary })).toThrow(
+        'unlisted'
+      );
+    for (const literal of [
+      `alpha${panicMarker}`,
+      'alpha - Should panic',
+      'alpha  - should panic',
+      'alpha - shouldpanic',
+      'alpha - should panic ',
+    ]) {
+      const execution = singleExecution.replace('test alpha ...', `test ${literal} ...`);
+      const list = proof.enumeration(
+        `${literal}: test\n1 test, 0 benchmarks\n`,
+        '0 tests, 0 benchmarks'
+      );
+      expect(list.names).toEqual([literal]);
+      for (const ordinary of [undefined, ordinaryContext])
+        expect(proof.parseExecution(execution, list, { ordinary })).toEqual([[literal, 'ok']]);
+    }
+    const ambiguous = { names: ['alpha', `alpha${panicMarker}`], ignored: [] };
+    for (const records of [
+      `test alpha ... ok\ntest alpha${panicMarker} ... ok`,
+      `test alpha${panicMarker} ... ok\ntest alpha ... ok`,
+    ])
+      expect(() =>
+        proof.parseExecution(
+          panicExecution.replace(
+            panicNames.map((name) => `test ${name}${panicMarker} ... ok`).join('\n'),
+            records
+          ),
+          ambiguous,
+          { ordinary: ordinaryContext }
+        )
+      ).toThrow('Ambiguous/unlisted');
+    const repeated = `alpha${panicMarker}${panicMarker}`;
+    const repeatedExecution = singleExecution.replace('test alpha ...', `test ${repeated} ...`);
+    expect(() =>
+      proof.parseExecution(
+        repeatedExecution,
+        { names: [repeated], ignored: [] },
+        {
+          ordinary: ordinaryContext,
+        }
+      )
+    ).toThrow('Repeated');
+    // No ordinary context adds no new semantics to a listed repeated literal.
+    expect(proof.parseExecution(repeatedExecution, { names: [repeated], ignored: [] })).toEqual([
+      [repeated, 'ok'],
+    ]);
+  });
+  it('retains exact duplicate, disposition, summary and zero obligations with ordinary decoration', () => {
+    const expected = proof.enumeration(listed, ignored);
+    const decorated = executed
+      .replace('test alpha ...', `test alpha${panicMarker} ...`)
+      .replace('test ignored ...', `test ignored${panicMarker} ...`);
+    expect(proof.parseExecution(decorated, expected, { ordinary: ordinaryContext })).toEqual(
+      proof.parseExecution(executed, expected)
+    );
+    expect(
+      proof.parseExecution(
+        withAuxiliary.replace('test alpha ...', `test alpha${panicMarker} ...`),
+        expected,
+        { ordinary: ordinaryContext }
+      )
+    ).toEqual(proof.parseExecution(executed, expected));
+    for (const records of [
+      `test alpha ... ok\ntest alpha${panicMarker} ... ok`,
+      `test alpha${panicMarker} ... ok\ntest alpha ... ok`,
+      `test alpha${panicMarker} ... ok\ntest alpha${panicMarker} ... ok`,
+    ])
+      expect(() =>
+        proof.parseExecution(
+          decorated.replace(`test alpha${panicMarker} ... ok`, records),
+          expected,
+          { ordinary: ordinaryContext }
+        )
+      ).toThrow('Duplicate/late');
+    for (const bad of [
+      decorated.replace(`test alpha${panicMarker} ... ok\n`, ''),
+      decorated.replace(`test alpha${panicMarker} ... ok`, `test extra${panicMarker} ... ok`),
+      decorated.replace(
+        `test alpha${panicMarker} ... ok`,
+        `test alpha${panicMarker} ... ok\ntest extra ... ok`
+      ),
+      decorated.replace('running 2 tests', 'running 1 test'),
+      decorated.replace(`test alpha${panicMarker} ... ok`, `test alpha${panicMarker} ... FAILED`),
+      decorated.replace(`test alpha${panicMarker} ... ok`, `test alpha${panicMarker} ... ignored`),
+      decorated.replace(
+        `test ignored${panicMarker} ... ignored, deliberate fixture`,
+        `test ignored${panicMarker} ... ok`
+      ),
+      decorated.replace('1 ignored', '0 ignored'),
+      decorated.replace('1 passed', '2 passed'),
+      decorated.replace('0 measured', '1 measured'),
+      decorated.replace('0 filtered out', '1 filtered out'),
+      decorated.replace('test result: ok.', 'test result: FAILED.'),
+      decorated.replace(/test result:[\s\S]*$/, ''),
+      decorated + decorated.slice(decorated.indexOf('test result:')),
+      decorated + `test alpha${panicMarker} ... ok\n`,
+      decorated.replace(
+        `test alpha${panicMarker} ...`,
+        `test alpha${panicMarker}${panicMarker} ...`
+      ),
+      ...[' - Should panic', '  - should panic', ' - shouldpanic', ' - should panic '].map(
+        (suffix) => decorated.replace(`test alpha${panicMarker} ...`, `test alpha${suffix} ...`)
+      ),
+    ])
+      expect(() => proof.parseExecution(bad, expected, { ordinary: ordinaryContext })).toThrow();
+    const zero = singleExecution
+      .replace('running 1 test', 'running 0 tests')
+      .replace('test alpha ...', `test alpha${panicMarker} ...`);
+    expect(() =>
+      proof.parseExecution(zero, { names: [], ignored: [] }, { ordinary: ordinaryContext })
+    ).toThrow();
+    const docName = 'crates/lib/src/lib.rs - fixture (line 1)';
+    expect(() =>
+      proof.parseExecution(
+        singleExecution.replace('test alpha ...', `test ${docName}${panicMarker} ...`),
+        { names: [docName], ignored: [] }
+      )
+    ).toThrow('unlisted');
+  });
+  it('uses identical baseline and direct ordinary identity routing without expanding Cargo or doc grammar', () => {
+    const f = fixture();
+    const inv = {
+      ...proof.admitInventory(f.artifacts, f.packages, f.manifests),
+      rustRoot: '/source/rust',
+      docLists: {} as Record<string, { ignored: boolean }>,
+    };
+    for (const harness of inv.harnesses) harness.list = { names: [...panicNames], ignored: [] };
+    const prefix =
+      f.artifacts.map((record) => JSON.stringify(record)).join('\n') +
+      '\n{"reason":"build-finished","success":true}\n';
+    const zero =
+      'running 0 tests\ntest result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\n';
+    const stdout =
+      prefix + panicExecution.repeat(inv.harnesses.length) + zero.repeat(inv.docs.length);
+    const stderr =
+      inv.harnesses
+        .map((harness: { executable: string }) => `   Running fixture (${harness.executable})\n`)
+        .join('') +
+      inv.docs.map((doc: { target: string }) => `   Doc-tests ${doc.target}\n`).join('');
+    const coverage = proof.cargoCoverage(stdout, stderr, inv, 'execution', false, {
+      commandId: '000-fixture',
+    });
+    expect(coverage.ordinary).toEqual(
+      inv.harnesses.map((harness: { id: string; list: unknown }) => ({
+        id: harness.id,
+        values: proof.parseExecution(panicExecution, harness.list, {
+          ordinary: { commandId: '000-direct', harnessId: harness.id },
+        }),
+      }))
+    );
+    expect(proof.cargoOutput(stdout, { mixed: true, execution: true }).records).toEqual([
+      ...f.artifacts,
+      { reason: 'build-finished', success: true },
+    ]);
+    expect(
+      coverage.docs.every(
+        (doc: { observed: { disposition: string } }) => doc.observed.disposition === 'zero'
+      )
+    ).toBe(true);
+    expect(() => proof.cargoCoverage(stdout, stderr, inv, 'execution')).toThrow('unlisted');
+    expect(() => proof.cargoCoverage(stdout, stderr, inv, 'list')).toThrow();
+    const doc = inv.docs[0];
+    const docName = `${path.posix.relative(inv.rustRoot, doc.cwd)}/src/lib.rs - fixture (line 1)`;
+    inv.docLists[docName] = { ignored: false };
+    const docBlock = singleExecution.replace('test alpha ...', `test ${docName}${panicMarker} ...`);
+    expect(() =>
+      proof.cargoCoverage(
+        prefix +
+          panicExecution.repeat(inv.harnesses.length) +
+          docBlock +
+          zero.repeat(inv.docs.length - 1),
+        stderr,
+        inv,
+        'execution',
+        false,
+        { commandId: '000-fixture' }
+      )
+    ).toThrow('Unsupported doctest name');
+  });
   it('retains ordinary auxiliary JSON provenance without creating coverage or interpreting partial-error payloads', () => {
     const expected = proof.enumeration(listed, ignored);
     const auxiliary: unknown[] = [];
@@ -255,9 +471,8 @@ describe('N=1 Cargo proof admission (synthetic formats, not Linux equivalence)',
       `${executed}${auxiliaryLines[0]}\n`,
       withAuxiliary.replace('test alpha ... ok\n', ''),
       withAuxiliary.replace('test alpha ... ok', 'test extra ... ok'),
-      // The retained reanalysis exposed this separate unsupported libtest decoration.
-      // Do not normalize a name outside this bounded JSON correction.
-      withAuxiliary.replace('test alpha ... ok', 'test alpha - should panic ... ok'),
+      // Ordinary single canonical decoration is admitted; repeated decoration stays red.
+      withAuxiliary.replace('test alpha ... ok', 'test alpha - should panic - should panic ... ok'),
       withAuxiliary.replace('test alpha ... ok', 'test alpha ... ok\ntest alpha ... ok'),
       withAuxiliary.replace('test alpha ... ok', 'test alpha ... FAILED'),
       withAuxiliary.replace('test ignored ... ignored, deliberate fixture', 'test ignored ... ok'),
