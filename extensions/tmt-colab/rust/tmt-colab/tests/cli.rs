@@ -78,7 +78,10 @@ impl Pilot {
             || "exit 9\n".to_owned(),
             |status| {
                 let sleep = delay.map_or(String::new(), |s| format!("sleep {s}\n"));
-                format!("{sleep}printf '%s\\n' {}\nexit 0\n", quote(status))
+                let (body, exit) = status
+                    .strip_prefix('!')
+                    .map_or((status, 0), |body| (body, 1));
+                format!("{sleep}printf '%s\\n' {}\nexit {exit}\n", quote(body))
             },
         );
         let script = format!(
@@ -3864,8 +3867,89 @@ fn page_commands_say_why_there_is_no_link_when_remote_answers_with_an_error() {
         let text = human(OTHER_ENVELOPE, &args);
         assert!(text.contains("Core did not answer."), "{args:?}: {text}");
     }
-    let created = human(OUTDATED_ENVELOPE, &["page", "create", "--title", "Again"]);
-    assert!(created.contains("older than this Colab"), "{created}");
+    pilot.opener(0);
+    let mut acquisitions = 0;
+    for envelope in [OUTDATED_ENVELOPE, OTHER_ENVELOPE] {
+        let core = pilot.creation_core(Some(envelope), None);
+        let out = pilot
+            .command()
+            .env("TMT_EXECUTABLE", &core)
+            .args(["page", "create", "--title", "Refused link", "--open"])
+            .output()
+            .unwrap();
+        acquisitions += 1;
+        pilot.assert_creation_acquisitions(acquisitions);
+        assert!(out.status.success(), "{out:?}");
+        assert!(out.stderr.is_empty());
+        let text = String::from_utf8(out.stdout).unwrap();
+        assert!(text.contains("PAGE CREATED"), "{text}");
+        assert!(text.contains("x/colab/p/"), "{text}");
+        assert!(
+            text.contains("Remote link unavailable from the creation snapshot"),
+            "{text}"
+        );
+        for forbidden in [
+            "older than",
+            "outdated",
+            "Stop",
+            "stop",
+            "restart",
+            "install",
+            "upgrade",
+            "pair",
+            "tmt remote serve",
+            "tmt colab serve",
+        ] {
+            assert!(!text.contains(forbidden), "{text}");
+        }
+        let out = pilot
+            .command()
+            .env("TMT_EXECUTABLE", &core)
+            .args([
+                "page",
+                "create",
+                "--title",
+                "Refused JSON link",
+                "--open",
+                "--json",
+            ])
+            .output()
+            .unwrap();
+        acquisitions += 1;
+        pilot.assert_creation_acquisitions(acquisitions);
+        assert!(out.status.success(), "{out:?}");
+        assert!(out.stderr.is_empty());
+        let created: Value = serde_json::from_slice(&out.stdout).unwrap();
+        assert!(created["link"].is_null());
+        assert!(created["shortLink"].is_null());
+        assert!(created["paired"].is_null());
+        assert_eq!(created["next"], json!([]));
+        let read = pilot.call(&[
+            "page",
+            "read",
+            created["pageId"].as_str().unwrap(),
+            "--json",
+        ]);
+        assert_eq!(read["source"], "");
+        assert!(read.get("creationRecipient").is_none());
+    }
+    pilot.assert_creation_acquisitions(4);
+    assert!(
+        pilot
+            .creation_calls()
+            .iter()
+            .all(|call| call == "remote status --machine --json")
+    );
+    assert!(pilot.opened().is_empty());
+    assert!(!pilot.root.join("serve.calls").exists());
+    assert!(!pilot.root.join("serve.pid").exists());
+    let pages = pilot.call(&["ls", "--json"]);
+    assert_eq!(pages["pages"].as_array().unwrap().len(), 5);
+    for page in pages["pages"].as_array().unwrap() {
+        let read = pilot.call(&["page", "read", page["pageId"].as_str().unwrap(), "--json"]);
+        assert_eq!(read["source"], "");
+        assert!(read.get("creationRecipient").is_none());
+    }
 }
 #[test]
 fn serve_says_the_outdated_instruction_once_in_the_warning_and_points_at_it_in_the_row() {
