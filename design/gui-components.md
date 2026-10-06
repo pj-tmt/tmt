@@ -64,10 +64,14 @@ for serving Remote HTML. Reuse the existing pinned implementations first; select
 Radix needs a separate dependency decision, with a concrete benefit and behavioral
 comparison, before installation or replacement.
 
-A candidate home is `design/browser-ui/`, with a private workspace package. This is
-an unapproved layout proposal: infra reviews the runtime responsibility/map, core
-reviews workspace/lockfile/dependency direction, and Colab/Remote review packaging
-before files are added there. The initial package issue is #1797.
+The reserved `design/browser-ui/` home is a private presentation leaf owned by
+tmt-ux. Products may depend on the leaf; it must not import product code. Core and
+the CLI must neither depend on nor embed it. This reserves the home and dependency
+direction; package files, exports and product adoption are not delivered. Before
+runtime files are added, Infra reviews the concrete runtime responsibility and
+shared component map, Core reviews workspace/lockfile/dependency changes, and
+Colab/Remote review packaging on the exact proposed head. Workspace registration
+and implementation remain planned. The initial package issue is #1797.
 
 The static entry must provide checked, deterministic token/component CSS that the
 native products embed at compile time. A Node build may generate assets in developer
