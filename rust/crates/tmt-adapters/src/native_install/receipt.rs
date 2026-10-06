@@ -19,7 +19,7 @@ pub(super) struct Receipt {
     pub archive_sha256: String,
     pub target: String,
     pub file_hashes: BTreeMap<String, String>,
-    pub provenance: Option<GitHubProvenance>,
+    pub provenance: Option<Provenance>,
 }
 
 fn inventory_changed() -> io::Error {
@@ -84,10 +84,58 @@ fn verify_skills(
     Ok(())
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub(super) struct GitHubProvenance {
     pub release_id: u64,
     pub manifest_sha256: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(tag = "kind", content = "evidence", deny_unknown_fields)]
+pub(super) enum Provenance {
+    #[serde(rename = "github-release")]
+    Release(GitHubProvenance),
+    #[serde(rename = "github-actions")]
+    Pr(Box<super::pr_receipt::PrProvenance>),
+}
+
+impl From<GitHubProvenance> for Provenance {
+    fn from(source: GitHubProvenance) -> Self {
+        Self::Release(source)
+    }
+}
+
+impl Provenance {
+    pub fn release(&self) -> Option<&GitHubProvenance> {
+        match self {
+            Self::Release(source) => Some(source),
+            Self::Pr(_) => None,
+        }
+    }
+    pub fn manifest_sha256(&self) -> &str {
+        match self {
+            Self::Release(source) => &source.manifest_sha256,
+            Self::Pr(source) => source.manifest_sha256(),
+        }
+    }
+    pub fn pr_identity(&self) -> io::Result<Option<tmt_core::native_install::PrCandidateIdentity>> {
+        match self {
+            Self::Release(_) => Ok(None),
+            Self::Pr(source) => source.identity().map(Some),
+        }
+    }
+    fn encode(&self) -> Value {
+        match self {
+            Self::Release(source) => json!({
+                "kind": "github-release", "repository": super::OFFICIAL_REPOSITORY,
+                "release_id": source.release_id, "manifest_sha256": source.manifest_sha256,
+            }),
+            Self::Pr(source) => {
+                json!({"kind": "github-actions", "repository": super::OFFICIAL_REPOSITORY, "evidence": source})
+            }
+        }
+    }
 }
 
 impl Receipt {
@@ -113,10 +161,7 @@ impl Receipt {
             "pinned_version": self.state.pinned_version.as_ref().map(ToString::to_string),
             "archive": self.archive_name, "archive_sha256": self.archive_sha256,
             "target": self.target, "file_sha256": self.file_hashes,
-            "source": self.provenance.as_ref().map_or_else(|| json!("local-archive"), |source| json!({
-                "kind": "github-release", "repository": super::OFFICIAL_REPOSITORY,
-                "release_id": source.release_id, "manifest_sha256": source.manifest_sha256,
-            }))
+            "source": self.provenance.as_ref().map_or_else(|| json!("local-archive"), Provenance::encode)
         }))
         .map_err(io::Error::other)
     }
@@ -160,7 +205,7 @@ impl Receipt {
         prefix: &Path,
         id: Uuid,
     ) -> io::Result<Self> {
-        let value: Value = serde_json::from_slice(bytes).map_err(io::Error::other)?;
+        let value: Value = super::pr_json::parse(bytes, skills_tree::receipt_limit(product))?;
         let text = |key: &str| {
             value[key]
                 .as_str()
@@ -198,6 +243,24 @@ impl Receipt {
         state.validate().map_err(io::Error::other)?;
         let provenance = if value["source"] == "local-archive" {
             None
+        } else if value["source"]["kind"] == "github-actions" {
+            let source = &value["source"];
+            if source.as_object().is_none_or(|fields| fields.len() != 3)
+                || source["repository"] != super::OFFICIAL_REPOSITORY
+            {
+                return Err(invalid("Invalid native PR provenance."));
+            }
+            let evidence: super::pr_receipt::PrProvenance =
+                serde_json::from_value(source["evidence"].clone())
+                    .map_err(|_| invalid("Invalid native PR provenance."))?;
+            evidence.validate(
+                product,
+                text("target")?,
+                &state,
+                text("archive")?,
+                text("archive_sha256")?,
+            )?;
+            Some(Provenance::Pr(Box::new(evidence)))
         } else {
             let source = &value["source"];
             if source.as_object().is_none_or(|fields| fields.len() != 4)
@@ -215,11 +278,18 @@ impl Receipt {
                 .filter(|hash| tmt_core::content_digest::is_sha256(hash))
                 .ok_or_else(|| invalid("Invalid native release provenance."))?
                 .into();
-            Some(GitHubProvenance {
+            Some(Provenance::Release(GitHubProvenance {
                 release_id,
                 manifest_sha256,
-            })
+            }))
         };
+        if matches!(state.channel, Channel::Pr(_))
+            != matches!(provenance.as_ref(), Some(Provenance::Pr(_)))
+        {
+            return Err(invalid(
+                "Native PR channel requires matching Actions provenance.",
+            ));
+        }
         let hashes = value["file_sha256"]
             .as_object()
             .ok_or_else(|| invalid("Missing installed file digests."))?;

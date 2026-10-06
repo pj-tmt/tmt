@@ -42,6 +42,7 @@ rcgen = { version = "=0.14.10", default-features = false, features = ["crypto", 
 semver = "=1.0.28"
 tar = { version = "=0.4.46", default-features = false }
 flate2 = { version = "=1.1.10", default-features = false, features = ["rust_backend"] }
+zip = { version = "=8.6.0", default-features = false, features = ["deflate-flate2"] }
 tmt-core = { path = "crates/tmt-core" }
 tmt-host-grammar = { path = "crates/tmt-host-grammar" }
 tmt-office-model = { path = "../extensions/tmt-office/rust/tmt-office-model" }

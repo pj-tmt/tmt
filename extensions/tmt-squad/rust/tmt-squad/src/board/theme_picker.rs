@@ -436,8 +436,8 @@ mod tests {
             );
             assert_eq!(
                 buffer[(find(1, " · 1 waiting"), 1)].fg,
-                expected,
-                "summary uses the preview, including retained tokens"
+                app.look().role(Role::Text).fg.unwrap_or_default(),
+                "summary uses previewed text while the mark keeps its retained token"
             );
             if override_text.is_empty() {
                 assert_eq!(expected, ratatui::style::Color::Reset);
