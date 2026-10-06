@@ -6,12 +6,15 @@ import { ASK_OBSERVATION_MS, type LedgerState } from './ask-records.js';
 import { ReadRefusedError } from './ask-remote.js';
 import type { RemoteAgent } from './ask-remote.js';
 import type { AskDestination } from './ask-intent.js';
+import type { AgentDirectoryObservation } from './live-ask.js';
 import { text } from './strings.js';
 import { ConversationTurn } from './components/conversation-turn.js';
 
 /** Capabilities stay in trusted parent chrome. The mounted adapter owns current
  * page/member/grant admission and returns the existing frozen/signing attempt. */
 export interface AskBinding {
+  /** Status-only read; never the effect-bearing Ask destination admission path. */
+  observeDestinations?(): Promise<AgentDirectoryObservation>;
   destinations(): Promise<(AskDestination & { presence?: RemoteAgent['presence'] })[]>;
   prepare(input: {
     quote: string;

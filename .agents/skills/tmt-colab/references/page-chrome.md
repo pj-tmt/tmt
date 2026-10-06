@@ -18,7 +18,7 @@ and includes the header, reader and state-card CSS; `/assets/chrome.css` serves 
 bytes even without an app build. `socket.rs` uses matching header slots and keeps
 the parent CSP free of inline style/script exemptions.
 
-`router.tsx` retains the active Source, Comments, Chat or Export overlay. At narrow
+`router.tsx` retains the active Source, Comments, Chat, Agents or Export overlay. At narrow
 widths the page actions move into an overflow menu. The existing display-only
 `local · <name>` label and sharing metadata move inside that menu on mobile.
 Page-list cards show their name (or `Untitled page`), a short mono ID and the
@@ -50,6 +50,14 @@ closing never dispatches, abandons or retries. Export closes its preparation and
 revokes download Blob URLs. Manage also portals outside the menu. Safety details
 remain available from Page information and blocked views; visibility never
 substitutes for writer admission.
+
+`agent-status-panel.tsx` presents the canonical read-only `LiveAsk` observation
+inside the Agents drawer. It reads only while opened or after explicit Recheck,
+retains transient directory failures as a labelled stale snapshot, and drops rows
+on ended/evicted/scope-denied or changed page/client admission. Session/directory
+faults never become offline presence. Pending results are fenced on close and
+binding replacement; this presentation has no message or recovery capability.
+The read owner and typed failure boundary are defined in [Ask agent](ask-agent.md).
 
 `e2e/chrome.spec.ts` compares header and state-card dimensions, font metrics, state colors and window-scroll
 containment across every screen at 1440/390 in light/dark, including responses

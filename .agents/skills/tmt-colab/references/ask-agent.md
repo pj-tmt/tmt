@@ -94,6 +94,16 @@ modules in `extensions/tmt-colab/typescript/app/src` and `rust/tmt-colab/src/ask
   store to the registration keys, the admitted own state and `Writer.submitOwn`. The
   observer runs only while the page is visible and has subscribers, and a Session end fails
   the Live connection.
+- **Read-only agent status.** `AskController` owns one current-context/signed-directory
+  read shared by Ask destination admission and `LiveAsk.observeDestinations`. The latter
+  returns `AgentDirectoryObservation`: a local check time and admitted presence rows,
+  or a session/directory phase with bounded session-end, verified eviction or refusal codes;
+  unexpected failures expose no raw diagnostics. Observation does not populate the Ask
+  preview cache, publish, dispatch or invoke Live's session recovery callback. It checks
+  current page admission and the same active connection before and after the read; a
+  closed/replaced facade refuses late results. Existing Ask destinations retain their
+  separate fail-closed session lifecycle response. No writer admission is required for
+  this read, and observing status never grants a send capability.
 - **Reading asks.** `pageAsks`/`readAskViews` run per admitted writer; other writers' asks
   verify with `Objects.ownSigningKey`, a display-only key captured from an authenticated,
   cut-admitted own envelope (revoked history stays inert and grants no authority). Slow

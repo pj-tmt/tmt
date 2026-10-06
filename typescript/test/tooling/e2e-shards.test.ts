@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vite-plus/test';
 import {
   FULL_E2E_SHARDS,
+  RETIRED_E2E_FILES,
   e2eShardFiles,
   listE2eFiles,
   loadShardWeights,
@@ -16,6 +17,11 @@ const { runPackedCommand } = await import(
 const repository = fileURLToPath(new URL('../../../', import.meta.url));
 
 describe('Docker E2E shards', () => {
+  it('retires only the two Office companion scenarios', () => {
+    expect(RETIRED_E2E_FILES).toEqual(['office-command.e2e.test.ts', 'office-consent.e2e.test.ts']);
+    expect(RETIRED_E2E_FILES.every((file) => files.includes(file))).toBe(true);
+  });
+
   const files = listE2eFiles();
   const weights = loadShardWeights();
   const sorted = (list: readonly string[]) => [...list].sort();
@@ -29,7 +35,10 @@ describe('Docker E2E shards', () => {
     }
     // The split CI actually runs.
     const [first, second] = e2eShardFiles('full', [], files);
-    expect(sorted([...first, ...second])).toEqual(files);
+    expect(sorted([...first, ...second])).toEqual(
+      files.filter((file) => !RETIRED_E2E_FILES.includes(file))
+    );
+    expect([...first, ...second].filter((file) => RETIRED_E2E_FILES.includes(file))).toEqual([]);
     expect(FULL_E2E_SHARDS).toBe(2);
   });
 
