@@ -1,4 +1,157 @@
 use super::*;
+
+#[test]
+fn invocation_phases_follow_existing_namespace_edit_merge_and_baseline_actions() {
+    for (namespace, edit, merge, expected) in [
+        (Namespace::Content, false, false, "content.decode"),
+        (Namespace::Own, false, false, "own.decode"),
+        (Namespace::Content, true, false, "content.edit"),
+        (Namespace::Content, false, true, "content.merge"),
+        (Namespace::Own, false, true, "own.merge"),
+    ] {
+        assert_eq!(
+            ChildCommand::decode(namespace, edit, merge).phase(),
+            expected
+        );
+    }
+    assert_eq!(ChildCommand::BaselineProduce.phase(), "baseline.produce");
+    assert_eq!(ChildCommand::BaselinePage.phase(), "baseline.page");
+    assert_eq!(ChildCommand::BaselineVerify.phase(), "baseline.verify");
+    assert_eq!(
+        ChildCommand::PrepareContent.phase(),
+        "content.prepare-content"
+    );
+}
+
+#[test]
+fn failure_record_is_finite_ascii_and_excludes_original_private_causes() {
+    use tmt_invoke::{FailureKind, InvokeError, Phase, Stream};
+    for command in [
+        ChildCommand::ContentDecode,
+        ChildCommand::OwnDecode,
+        ChildCommand::ContentMerge,
+        ChildCommand::OwnMerge,
+        ChildCommand::ContentEdit,
+        ChildCommand::BaselineProduce,
+        ChildCommand::BaselinePage,
+        ChildCommand::BaselineVerify,
+        ChildCommand::PrepareContent,
+    ] {
+        for kind in [
+            FailureKind::Spawn,
+            FailureKind::Deadline,
+            FailureKind::Interrupted,
+            FailureKind::OutputLimit(Stream::Stdout),
+            FailureKind::OutputLimit(Stream::Stderr),
+            FailureKind::Io(Phase::OpenPipes),
+            FailureKind::Io(Phase::Communicate),
+            FailureKind::Io(Phase::Wait),
+        ] {
+            for cleanup in [
+                Cleanup::NotStarted,
+                Cleanup::Confirmed,
+                Cleanup::CallerOwned,
+                Cleanup::Unconfirmed(std::io::Error::other("private-cleanup-🌱")),
+            ] {
+                let error = InvokeError {
+                    kind,
+                    cause: Some(std::io::Error::other("/private/source-key-🌱")),
+                    cleanup,
+                };
+                let mut record = Vec::new();
+                write_invocation_failure(
+                    &mut record,
+                    &error,
+                    InvocationObservation {
+                        command,
+                        input_bytes: usize::MAX,
+                        remaining: Duration::MAX,
+                        elapsed: Duration::MAX,
+                    },
+                );
+                assert!(record.is_ascii() && record.len() <= 512);
+                let line = String::from_utf8(record).unwrap();
+                assert_eq!(line.lines().count(), 1);
+                assert!(line.contains(&format!("phase={} ", command.phase())));
+                assert!(line.contains(&format!("input_bytes={} ", usize::MAX)));
+                assert!(line.contains(&format!("remaining_ns={} ", Duration::MAX.as_nanos())));
+                assert!(line.contains(&format!("invocation_ns={} ", Duration::MAX.as_nanos())));
+                assert!(
+                    !line.contains("private") && !line.contains("source") && !line.contains("key")
+                );
+                assert_eq!(
+                    error.cause.as_ref().unwrap().to_string(),
+                    "/private/source-key-🌱"
+                );
+            }
+        }
+    }
+    let mut record = Vec::new();
+    write_invocation_failure(
+        &mut record,
+        &tmt_invoke::InvokeError {
+            kind: FailureKind::Deadline,
+            cause: None,
+            cleanup: Cleanup::Confirmed,
+        },
+        InvocationObservation {
+            command: ChildCommand::OwnDecode,
+            input_bytes: 7,
+            remaining: Duration::ZERO,
+            elapsed: Duration::from_secs(2),
+        },
+    );
+    assert_eq!(record, b"colab decoder failure phase=own.decode input_bytes=7 remaining_ns=0 invocation_ns=2000000000 kind=deadline cleanup=confirmed\n");
+}
+
+#[test]
+fn failed_record_write_preserves_original_error_and_cleanup_fence() {
+    struct FailedWriter;
+    impl std::io::Write for FailedWriter {
+        fn write(&mut self, _: &[u8]) -> std::io::Result<usize> {
+            Err(std::io::Error::other("diagnostic unavailable"))
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            panic!("failure reporting must not flush");
+        }
+    }
+    for cleanup in [
+        Cleanup::NotStarted,
+        Cleanup::Confirmed,
+        Cleanup::CallerOwned,
+        Cleanup::Unconfirmed(std::io::Error::other("original-cleanup")),
+    ] {
+        let expected_blocked = cleanup_blocks(&cleanup);
+        let mut blocked = !expected_blocked;
+        let error = tmt_invoke::InvokeError {
+            kind: tmt_invoke::FailureKind::Deadline,
+            cause: Some(std::io::Error::other("original-cause")),
+            cleanup,
+        };
+        let result = invocation_failure(
+            &mut blocked,
+            error,
+            InvocationObservation {
+                command: ChildCommand::PrepareContent,
+                input_bytes: 2 * 1024 * 1024,
+                remaining: DEADLINE,
+                elapsed: DEADLINE,
+            },
+            || FailedWriter,
+        );
+        assert_eq!(blocked, expected_blocked);
+        let DecodeFault::Invoke(original) = result else {
+            panic!("original Invoke error replaced");
+        };
+        assert_eq!(original.kind, tmt_invoke::FailureKind::Deadline);
+        assert_eq!(original.cause.unwrap().to_string(), "original-cause");
+        assert_eq!(cleanup_blocks(&original.cleanup), expected_blocked);
+        if let Cleanup::Unconfirmed(cause) = original.cleanup {
+            assert_eq!(cause.to_string(), "original-cleanup");
+        }
+    }
+}
+
 #[test]
 fn input_role_denial_and_missing_program_leave_no_child() {
     let mut decoder = Decoder::new("/definitely-missing-tmt-colab".into()).unwrap();

@@ -137,9 +137,39 @@ pub struct PreparedContent {
 }
 #[derive(Clone, Copy)]
 enum ChildCommand {
-    Decode,
-    Baseline,
+    ContentDecode,
+    OwnDecode,
+    ContentMerge,
+    OwnMerge,
+    ContentEdit,
+    BaselineProduce,
+    BaselinePage,
+    BaselineVerify,
     PrepareContent,
+}
+impl ChildCommand {
+    fn decode(namespace: Namespace, edit: bool, merge_only: bool) -> Self {
+        match (namespace, edit, merge_only) {
+            (_, true, _) => Self::ContentEdit,
+            (Namespace::Content, false, true) => Self::ContentMerge,
+            (Namespace::Own, false, true) => Self::OwnMerge,
+            (Namespace::Content, false, false) => Self::ContentDecode,
+            (Namespace::Own, false, false) => Self::OwnDecode,
+        }
+    }
+    fn phase(&self) -> &'static str {
+        match self {
+            Self::ContentDecode => "content.decode",
+            Self::OwnDecode => "own.decode",
+            Self::ContentMerge => "content.merge",
+            Self::OwnMerge => "own.merge",
+            Self::ContentEdit => "content.edit",
+            Self::BaselineProduce => "baseline.produce",
+            Self::BaselinePage => "baseline.page",
+            Self::BaselineVerify => "baseline.verify",
+            Self::PrepareContent => "content.prepare-content",
+        }
+    }
 }
 /// Caller-owned invocation configuration. Production composition uses `new`;
 /// tests can inject a larger deadline without changing caps or cleanup ownership.
@@ -278,7 +308,12 @@ impl Decoder {
             return Err(DecodeFault::InvalidInput);
         }
         let hash = URL_SAFE_NO_PAD.encode(Sha256::digest(&input));
-        let output = self.invoke(&input, ChildCommand::Decode, stop, deadline)?;
+        let output = self.invoke(
+            &input,
+            ChildCommand::decode(batch.namespace, edit.is_some(), merge_only),
+            stop,
+            deadline,
+        )?;
         if !output.status.success() {
             return Err(DecodeFault::Rejected);
         }
@@ -463,6 +498,13 @@ impl Decoder {
                 Some((update.clone(), commitment.clone()))
             }
         };
+        let command = match &action {
+            BaselineAction::Produce { chunk_bytes: None } => ChildCommand::BaselineProduce,
+            BaselineAction::Produce {
+                chunk_bytes: Some(_),
+            } => ChildCommand::BaselinePage,
+            BaselineAction::Verify { .. } => ChildCommand::BaselineVerify,
+        };
         let input = serde_json::to_vec(&WireBaseline {
             version: 1,
             source: if matches!(action, BaselineAction::Produce { .. }) {
@@ -476,7 +518,7 @@ impl Decoder {
             action,
         })
         .map_err(|_| DecodeFault::InvalidInput)?;
-        let output = self.invoke(&input, ChildCommand::Baseline, stop, deadline)?;
+        let output = self.invoke(&input, command, stop, deadline)?;
         if !output.status.success() {
             return Err(DecodeFault::Rejected);
         }
@@ -530,10 +572,18 @@ impl Decoder {
         }
         let mut args = vec!["__decoder".into()];
         match command {
-            ChildCommand::Decode => {}
-            ChildCommand::Baseline => args.push("baseline".into()),
+            ChildCommand::ContentDecode
+            | ChildCommand::OwnDecode
+            | ChildCommand::ContentMerge
+            | ChildCommand::OwnMerge
+            | ChildCommand::ContentEdit => {}
+            ChildCommand::BaselineProduce
+            | ChildCommand::BaselinePage
+            | ChildCommand::BaselineVerify => args.push("baseline".into()),
             ChildCommand::PrepareContent => args.push("prepare-content".into()),
         }
+        let started = Instant::now();
+        let remaining = deadline.saturating_duration_since(started);
         tmt_invoke::invoke(
             Request {
                 program: &self.config.program,
@@ -549,9 +599,78 @@ impl Decoder {
             stop,
         )
         .map_err(|e| {
-            self.blocked = cleanup_blocks(&e.cleanup);
-            DecodeFault::Invoke(e)
+            invocation_failure(
+                &mut self.blocked,
+                e,
+                InvocationObservation {
+                    command,
+                    input_bytes: input.len(),
+                    remaining,
+                    elapsed: started.elapsed(),
+                },
+                tmt_cli_style::stream::stderr,
+            )
         })
+    }
+}
+struct InvocationObservation {
+    command: ChildCommand,
+    input_bytes: usize,
+    remaining: Duration,
+    elapsed: Duration,
+}
+fn invocation_failure<W: std::io::Write>(
+    blocked: &mut bool,
+    error: tmt_invoke::InvokeError,
+    observation: InvocationObservation,
+    writer: impl FnOnce() -> W,
+) -> DecodeFault {
+    *blocked = cleanup_blocks(&error.cleanup);
+    write_invocation_failure(&mut writer(), &error, observation);
+    DecodeFault::Invoke(error)
+}
+fn write_invocation_failure(
+    writer: &mut impl std::io::Write,
+    error: &tmt_invoke::InvokeError,
+    observation: InvocationObservation,
+) {
+    use std::io::{Cursor, Write};
+    use tmt_invoke::{FailureKind, Phase, Stream};
+    let kind = match error.kind {
+        FailureKind::Spawn => "spawn",
+        FailureKind::Deadline => "deadline",
+        FailureKind::Interrupted => "interrupted",
+        FailureKind::OutputLimit(Stream::Stdout) => "stdout-limit",
+        FailureKind::OutputLimit(Stream::Stderr) => "stderr-limit",
+        FailureKind::Io(Phase::OpenPipes) => "io-open-pipes",
+        FailureKind::Io(Phase::Communicate) => "io-communicate",
+        FailureKind::Io(Phase::Wait) => "io-wait",
+    };
+    let cleanup = match &error.cleanup {
+        Cleanup::NotStarted => "not-started",
+        Cleanup::Confirmed => "confirmed",
+        Cleanup::CallerOwned => "caller-owned",
+        Cleanup::Unconfirmed(_) => "unconfirmed",
+    };
+    let mut bytes = [0; 512];
+    let mut record = Cursor::new(bytes.as_mut_slice());
+    // Static labels and numbers only. A record/stream write failure is supplementary.
+    if writeln!(
+        record,
+        "colab decoder failure phase={} input_bytes={} remaining_ns={} invocation_ns={} kind={} cleanup={}",
+        observation.command.phase(),
+        observation.input_bytes,
+        observation.remaining.as_nanos(),
+        observation.elapsed.as_nanos(),
+        kind,
+        cleanup
+    )
+    .is_ok()
+    {
+        let length = record.position() as usize;
+        if let Some(record) = bytes.get(..length) {
+            let _ = writer.write_all(record);
+        }
     }
 }
 fn cleanup_blocks(cleanup: &Cleanup) -> bool {

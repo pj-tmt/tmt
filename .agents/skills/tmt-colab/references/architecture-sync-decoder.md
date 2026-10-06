@@ -49,6 +49,10 @@ and `limits.rs`; do not restate them.
   where a child may survive blocks it. Invalid output, panic or timeout returns no
   application result. `decoder::Config` carries the program and deadline; only tests inject
   a larger deadline (`tests/support`), and no option tunes the production deadline.
+  Invocation failures also emit a best-effort ASCII stderr record of at most 512 bytes,
+  containing only the private call phase, input size, remaining runner-entry budget,
+  invocation elapsed time, including cleanup, failure kind and cleanup category; original errors are unchanged.
+  The record bounds bytes, not write latency, and does not measure child CPU or internal phases.
 
 - `Decoder::prepare_content_batch` uses the private `__decoder prepare-content` entry to return
   an explicit no-op or ordered causal update batch. The child replays the batch from the supplied
