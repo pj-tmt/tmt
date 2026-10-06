@@ -199,6 +199,64 @@ const writes = (api: Api) =>
   vi.mocked(api.graphql).mock.calls.filter(([query]) => query.startsWith('mutation'));
 
 describe('full repository-state release sweep', () => {
+  it('reconciles the exact #1813 paths without publication and retains mixed containing-tag waits', () =>
+    history(({ directory, git, commit }) => {
+      const paths = [
+        `${map.components.find((c) => c.name === 'cli')!.neverShippedPaths[0].root}/development.md`,
+        `${map.components.find((c) => c.name === 'tmt-colab')!.neverShippedPaths[0].root}/cli.rs`,
+      ];
+      const never = commit(paths);
+      const mixed = commit([
+        ...paths,
+        'extensions/tmt-colab/rust/tmt-colab/src/main.rs',
+        'rust/crates/tmt-cli/src/main.rs',
+      ]);
+      const p = project([item(1812, 'Merged', 'stale release'), item(2)]);
+      const prs = new Map([
+        ['issue-1812', [closingPr(1813, never)]],
+        ['issue-2', [closingPr(2, mixed)]],
+      ]);
+      const releases: Release[] = [];
+      const api = stateApi(p, releases, prs);
+      const input = {
+        api,
+        repository,
+        git: gitEvidence({ cwd: directory }),
+        map,
+        workspace,
+        dryRun: true,
+      };
+      expect(affectedProducts(paths, map, workspace)).toEqual({ products: [], unpublished: [] });
+      expect(
+        affectedProducts(['.agents/skills/tmt-colab/references-other/guide.md'], map, workspace)
+          .products
+      ).toEqual(['cli']);
+      expect(() =>
+        affectedProducts(
+          ['unknown'],
+          parseComponentMap(JSON.stringify({ components: { cli: { owns: ['rust'] } } }))
+        )
+      ).toThrow('No component owns');
+      const preview = reconcile(input);
+      expect(preview.changed).toMatchObject([
+        { issue: `https://github.com/${repository}/issues/1812`, status: 'Done', text: '' },
+      ]);
+      expect(writes(api)).toHaveLength(0);
+      reconcile({ ...input, dryRun: false });
+      expect(p.items.get('issue-1812')!.status!.name).toBe('Done');
+      expect(p.items.get('issue-1812')!.released!.text).toBe('');
+      expect(reconcile(input).changed).toEqual([]);
+      git(['tag', 'tmt-colab-v0.1.0-alpha.1']);
+      releases.push(release('tmt-colab-v0.1.0-alpha.1'));
+      reconcile({ ...input, dryRun: false });
+      expect(p.items.get('issue-2')!.status!.name).toBe('Merged');
+      git(['tag', 'v5.0.0-alpha.1']);
+      releases.push(release('v5.0.0-alpha.1', 1));
+      reconcile({ ...input, dryRun: false });
+      expect(p.items.get('issue-2')!.status!.name).toBe('Released');
+      expect(reconcile(input).changed).toEqual([]);
+    }));
+
   it('repairs old/not-in-notes issues, waits for every product, repairs built-in drift, and reruns without writes', () =>
     history(({ directory, git, commit }) => {
       const docs = commit(['docs/fixture.md']);

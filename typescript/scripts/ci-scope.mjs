@@ -51,6 +51,78 @@ function parseScopedChecks(name, checks) {
   return { nativeTests: files('nativeTests'), e2eFiles: files('e2eFiles') };
 }
 
+function literalPath(value, label) {
+  if (
+    typeof value !== 'string' ||
+    !value ||
+    ['\\', '*', '?', '[', ']', ':'].some((symbol) => value.includes(symbol)) ||
+    [...value].some(
+      (character) => character.charCodeAt(0) < 32 || character.charCodeAt(0) === 127
+    ) ||
+    value.split('/').some((part) => !part || part === '.' || part === '..')
+  )
+    throw new Error(`${label} must be a normalized relative literal path.`);
+  return value;
+}
+
+function reason(value, label) {
+  if (typeof value !== 'string' || !value.trim()) throw new Error(`${label} needs a reason.`);
+  return value;
+}
+
+function declarationList(value, label, parse) {
+  if (value === undefined) return [];
+  if (!Array.isArray(value) || !value.length) throw new Error(`${label} must be a non-empty list.`);
+  return value.map((entry) => {
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry))
+      throw new Error(`${label} needs declaration objects.`);
+    return parse(entry);
+  });
+}
+
+function parseNeverShipped(name, value) {
+  const label = `components.${name}.neverShippedPaths`;
+  return declarationList(value, label, (entry) => ({
+    root: literalPath(entry.root, label),
+    reason: reason(entry.reason, label),
+    testOnlyReferences: declarationList(entry.testOnlyReferences, label, (reference) => ({
+      file: literalPath(reference.file, label),
+      reason: reason(reference.reason, label),
+    })),
+  }));
+}
+
+function parseGenerated(name, value) {
+  const label = `components.${name}.generatedInputs`;
+  const entries = declarationList(value, label, (entry) => {
+    const result = Object.fromEntries(
+      [
+        'includeSite',
+        'generator',
+        'buildScript',
+        'inputDirectory',
+        'packageRoot',
+        'releaseScript',
+      ].map((key) => [key, literalPath(entry[key], `${label}.${key}`)])
+    );
+    if (typeof entry.variable !== 'string' || !/^[A-Z][A-Z0-9_]*$/.test(entry.variable))
+      throw new Error(`${label} needs a literal environment variable name.`);
+    if (typeof entry.expression !== 'string' || !entry.expression.trim())
+      throw new Error(`${label} needs its exact include expression.`);
+    if (typeof entry.generatorBlob !== 'string' || !/^[a-f0-9]{40}$/.test(entry.generatorBlob))
+      throw new Error(`${label} needs the reviewed generator Git blob.`);
+    return {
+      ...result,
+      variable: entry.variable,
+      expression: entry.expression,
+      generatorBlob: entry.generatorBlob,
+      reason: reason(entry.reason, label),
+    };
+  });
+  if (entries.length > 1) throw new Error(`${label} permits only one canonical generator.`);
+  return entries;
+}
+
 /**
  * Parses and validates the component map. A malformed map throws, so the
  * selector job fails visibly instead of selecting the wrong work.
@@ -78,6 +150,8 @@ export function parseComponentMap(text) {
         : nonEmptyStrings(component.migrations, `components.${name}.migrations`),
     selectedBy: (component.selectedBy ?? []).map((glob) => ({ glob, pattern: globToRegExp(glob) })),
     scopedChecks: parseScopedChecks(name, component.scopedChecks),
+    neverShippedPaths: parseNeverShipped(name, component.neverShippedPaths),
+    generatedInputs: parseGenerated(name, component.generatedInputs),
   }));
   for (const component of components) {
     if (
@@ -130,6 +204,38 @@ export function parseComponentMap(text) {
     }
   }
   if (components.length === 0) throw new Error('The component map has no components.');
+  const declarationMap = { components };
+  const roots = [];
+  for (const component of components) {
+    if (
+      (component.neverShippedPaths.length || component.generatedInputs.length) &&
+      !component.package
+    )
+      throw new Error(`Component ${component.name} declarations need a Cargo package.`);
+    for (const declaration of component.neverShippedPaths) {
+      if (ownerOf(declaration.root, declarationMap) !== component.name)
+        throw new Error(`Never-shipped root ${declaration.root} belongs to another component.`);
+      for (const candidate of components) {
+        for (const root of candidate.owns) {
+          if (
+            root !== '.' &&
+            within(declaration.root, root) &&
+            ownerOf(root, declarationMap) !== component.name
+          )
+            throw new Error(`Never-shipped root ${declaration.root} contains another component.`);
+        }
+      }
+      if (roots.some((root) => within(root, declaration.root) || within(declaration.root, root)))
+        throw new Error(`Overlapping never-shipped root ${declaration.root}.`);
+      roots.push(declaration.root);
+      const files = declaration.testOnlyReferences.map(({ file }) => file);
+      if (
+        new Set(files).size !== files.length ||
+        files.some((file) => within(declaration.root, file))
+      )
+        throw new Error(`Invalid test-only references for ${declaration.root}.`);
+    }
+  }
   const ids = new Set();
   const rules = (map.rules ?? []).map((rule) => {
     if (typeof rule.id !== 'string' || ids.has(rule.id)) {

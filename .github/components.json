@@ -29,7 +29,13 @@
         "rust/crates/tmt-driver-herdr",
         "rust/crates/tmt-release-tool"
       ],
-      "migrations": ["rust/crates/tmt-adapters/src/storage/migrations.rs"]
+      "migrations": ["rust/crates/tmt-adapters/src/storage/migrations.rs"],
+      "neverShippedPaths": [
+        {
+          "root": ".agents/skills/tmt-colab/references",
+          "reason": "Repository development references, outside the canonical CLI and product skill bundles."
+        }
+      ]
     },
     "office": {
       "package": "tmt-office",
@@ -108,6 +114,32 @@
       "package": "tmt-colab",
       "skills": true,
       "owns": ["extensions/tmt-colab"],
+      "neverShippedPaths": [
+        {
+          "root": "extensions/tmt-colab/rust/tmt-colab/tests",
+          "reason": "Cargo integration tests and fixtures, outside canonical release inputs.",
+          "testOnlyReferences": [
+            {
+              "file": "extensions/tmt-colab/rust/tmt-colab/src/readers/test_support.rs",
+              "reason": "The parent declares this fixture helper immediately after #[cfg(test)]."
+            }
+          ]
+        }
+      ],
+      "generatedInputs": [
+        {
+          "includeSite": "extensions/tmt-colab/rust/tmt-colab/src/assets.rs",
+          "expression": "concat!(env!(\"OUT_DIR\"), \"/colab_assets.rs\")",
+          "generator": "extensions/tmt-colab/rust/tmt-colab/build/assets.rs",
+          "generatorBlob": "8a934c2344d9d0be29bee61d4a054213c2c8b109",
+          "buildScript": "extensions/tmt-colab/rust/tmt-colab/build.rs",
+          "variable": "TMT_COLAB_APP_DIR",
+          "inputDirectory": "extensions/tmt-colab/typescript/app/dist",
+          "packageRoot": "extensions/tmt-colab/typescript/app",
+          "releaseScript": "scripts/build-native-artifact.sh",
+          "reason": "The canonical release script builds the app and pins this directory before Cargo generates immutable asset snapshots."
+        }
+      ],
       "release": true,
       "bootstrapSha": "b9ea8cdfe477a596934a59a5b7eb066fbe755ebb",
       "initialVersion": "0.1.0-alpha.1",
