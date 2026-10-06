@@ -378,7 +378,7 @@ fn run(matches: &clap::ArgMatches) -> Result<(), RemoteError> {
                 "Door ready; pair a device with tmt remote pair",
                 None,
             )?;
-            writeln!(output, "{address}")?;
+            writeln!(output, "{}/", door.origin)?;
         }
         output.flush()?;
         drop(output);
