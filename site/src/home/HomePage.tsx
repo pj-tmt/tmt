@@ -39,7 +39,7 @@ function TopInstall() {
   const { home } = useStrings();
   const [copied, setCopied] = useState(false);
   return (
-    <div className="top-install">
+    <div className="top-install" id="install">
       <span>{home.install}</span>
       <code>{INSTALL}</code>
       <button
@@ -60,7 +60,7 @@ function TopInstall() {
   );
 }
 // Direct port of Ben's approved v9 study; all illustration data is authored,
-// static and illustrative. Actual MDX chapters remain separately routed.
+// static and illustrative. MDX chapters remain in source, outside public rendering.
 export function HomePage() {
   const { lang } = useLang();
   const { landing } = useStrings();
@@ -231,7 +231,7 @@ export function HomePage() {
         </div>
       </section>
 
-      <section className="study-product content rich-section">
+      <section id="squad" className="study-product content rich-section">
         <div className="section-heading">
           <div>
             <p className="eyebrow">02 / SQUAD</p>
@@ -246,6 +246,7 @@ export function HomePage() {
         </div>
         <div
           lang="en"
+          id="squad-demo"
           className="rich-mock squad-board"
           aria-label="Illustrative multiple-squad management dashboard"
         >
@@ -397,11 +398,11 @@ export function HomePage() {
             </aside>
           </div>
         </div>
-        <LocalLink className="study-chapter" to="/extensions/squad">
+        <LocalLink className="study-chapter" to="/" hash="squad-demo">
           Explore Squad <span>↗</span>
         </LocalLink>
       </section>
-      <section className="study-product content rich-section">
+      <section id="colab" className="study-product content rich-section">
         <div className="section-heading">
           <div>
             <p className="eyebrow">03 / COLAB</p>
@@ -420,6 +421,7 @@ export function HomePage() {
         </div>
         <div
           lang="en"
+          id="colab-demo"
           className="rich-mock document-board"
           aria-label="Concept illustration of browser annotation reaching a terminal agent and a reply returning to the same thread"
         >
@@ -542,7 +544,7 @@ export function HomePage() {
           </div>
         </div>
         <div className="section-tail">
-          <LocalLink className="study-chapter" to="/extensions/colab">
+          <LocalLink className="study-chapter" to="/" hash="colab-demo">
             Explore Colab <span>↗</span>
           </LocalLink>
           <small>IN PROGRESS</small>
@@ -555,7 +557,7 @@ export function HomePage() {
           <p className="eyebrow">02 / YOUR NEXT SESSION</p>
           <h2>{landing.nextTitle}</h2>
           <LocalLink className="button primary" to="/" hash="install">
-            <span>{landing.readGuide}</span>
+            <span>{landing.getStarted}</span>
             <img className="icon" src={asset1} alt="" />
           </LocalLink>
         </div>

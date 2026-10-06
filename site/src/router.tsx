@@ -5,39 +5,50 @@ import {
   createRouter,
   redirect,
 } from "@tanstack/react-router";
-import { pages } from "./chapters";
-import { Chapter, Layout } from "./components/Layout";
-import { languages, withLang } from "./lang/languages";
+import { Layout } from "./components/Layout";
+import { languages, splitLang, withLang } from "./lang/languages";
 
-const root = createRootRoute({ component: Layout, notFoundComponent: Chapter });
-
-// Every page exists once per language: English at its path, the others under
-// their language prefix. Untranslated pages render English content (see Chapter).
-export const routeTree = root.addChildren([
-  ...pages.map((page) =>
-    createRoute({
-      getParentRoute: () => root,
-      path: page.path === "/" ? "/zh" : `/zh${page.path}`,
-      beforeLoad: ({ location }) => {
-        throw redirect({
-          to: withLang("zh-hant", page.path),
-          hash: location.hash,
-          search: location.search,
-          replace: true,
-        });
-      },
-    }),
-  ),
-  ...languages.flatMap((language) =>
-    pages.map((page) =>
-      createRoute({
-        getParentRoute: () => root,
-        path: withLang(language.code, page.path),
-        component: Chapter,
-      }),
-    ),
-  ),
+const homeAnchors = new Set([
+  "top",
+  "install",
+  "workflow",
+  "squad",
+  "squad-demo",
+  "colab",
+  "colab-demo",
+  "start",
 ]);
+
+const root = createRootRoute({
+  component: Layout,
+  notFoundComponent: Layout,
+  beforeLoad: ({ location }) => {
+    const pathname = location.pathname.replace(/^\/zh(?=\/|$)/, "/zh-hant");
+    const { lang, path } = splitLang(pathname);
+    const home = withLang(lang, "/");
+    if (path !== "/" || pathname !== location.pathname) {
+      throw redirect({
+        to: home,
+        hash:
+          path === "/" && homeAnchors.has(location.hash)
+            ? location.hash
+            : path === "/extensions/squad"
+              ? "squad"
+              : path === "/extensions/colab"
+                ? "colab"
+                : undefined,
+        search: location.search,
+        replace: true,
+      });
+    }
+  },
+});
+
+export const routeTree = root.addChildren(
+  languages.map((language) =>
+    createRoute({ getParentRoute: () => root, path: withLang(language.code, "/") }),
+  ),
+);
 
 // A preview hosted at an unknown path (SITE_BASE=./) routes in the hash
 // instead, since only that host knows its own path.
