@@ -2,6 +2,15 @@ import { execFile } from "node:child_process";
 import type { Plugin } from "vite-plus";
 
 export const embedPrefix = "/__tmt_embed/";
+export function loopbackPeer(address: string | undefined): boolean {
+  if (address === "::1") return true;
+  const ipv4 = address?.replace(/^::ffff:/, "");
+  return (
+    !!ipv4 &&
+    /^127\.(?:\d{1,3}\.){2}\d{1,3}$/.test(ipv4) &&
+    ipv4.split(".").every((part) => Number(part) <= 255)
+  );
+}
 export function allowedRequest(host: string | undefined, origin: string | undefined): boolean {
   if (!host || !/^(127\.0\.0\.1|localhost):[0-9]+$/.test(host)) return false;
   return !origin || origin === `http://${host}`;
@@ -58,6 +67,7 @@ export function colabEmbedDev(run: (args: string[]) => Promise<unknown> = cli): 
           res.end(JSON.stringify(value));
         };
         if (
+          !loopbackPeer(req.socket.remoteAddress) ||
           !allowedRequest(req.headers.host, req.headers.origin) ||
           req.headers["x-tmt-embed"] !== "1"
         )

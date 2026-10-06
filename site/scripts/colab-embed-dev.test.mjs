@@ -1,7 +1,53 @@
 import assert from "node:assert/strict";
 import { createServer, request } from "node:http";
 import { test } from "node:test";
-import { allowedRequest, colabEmbedDev } from "./colab-embed-dev.ts";
+import { allowedRequest, colabEmbedDev, loopbackPeer } from "./colab-embed-dev.ts";
+
+test("loopback peers include IPv4-mapped sockets but exclude network addresses", () => {
+  for (const address of ["127.0.0.1", "127.12.34.56", "::1", "::ffff:127.0.0.1"])
+    assert.equal(loopbackPeer(address), true);
+  for (const address of [
+    undefined,
+    "192.168.1.8",
+    "::ffff:192.168.1.8",
+    "127.0.0.256",
+    "127.0.0.1.evil",
+    "::",
+  ])
+    assert.equal(loopbackPeer(address), false);
+});
+
+test("a network peer cannot execute CLI work with a spoofed loopback Host", async () => {
+  let calls = 0;
+  let middleware;
+  colabEmbedDev(async () => {
+    calls++;
+  }).configureServer({
+    middlewares: {
+      use(fn) {
+        middleware = fn;
+      },
+    },
+  });
+  const req = {
+    url: "/__tmt_embed/status",
+    method: "GET",
+    socket: { remoteAddress: "192.168.1.8" },
+    headers: { host: "localhost:5185", origin: "http://localhost:5185", "x-tmt-embed": "1" },
+  };
+  let body;
+  const res = {
+    statusCode: 0,
+    setHeader() {},
+    end(value) {
+      body = JSON.parse(value);
+    },
+  };
+  await middleware(req, res, () => assert.fail("bridge route must be handled"));
+  assert.equal(res.statusCode, 403);
+  assert.match(body.error, /Local handbook/);
+  assert.equal(calls, 0);
+});
 
 test("embed rejects non-loopback hosts and foreign origins", () => {
   assert.equal(allowedRequest("127.0.0.1:5185", "http://127.0.0.1:5185"), true);
