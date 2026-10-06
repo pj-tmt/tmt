@@ -12,6 +12,7 @@ const codeTargets = [
   'vitest.config.ts',
   'package.json',
   '../.github/workflows/ci.yml',
+  '../.github/workflows/workspace-proof.yml',
   '../.github/workflows/office-browser.yml',
   '../.github/components.json',
   '../.github/release-parity.json',

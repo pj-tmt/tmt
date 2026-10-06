@@ -8,8 +8,9 @@ workflow before changing selection or a gate. Required checks remain `Code quali
 cancelled or unexpectedly skipped jobs fail closed. Never accept empty test discovery.
 The publication commit gate accepts scope-skipped `Unit tests` only with the latest
 successful `Native package matrix` from the same GitHub Actions suite, completed
-no earlier than that skip; the aggregate validates its selection. The other required
-contexts must succeed. Held-draft recovery belongs to
+no earlier than that skip; the aggregate validates selection. Publication reuses this
+proof with check-suite provenance, never recomputing historical selection or accepting bare skips.
+Other required contexts must succeed. Held-draft recovery belongs to
 [main cuts](main-cuts.md#publication-gates-and-recovery).
 
 ## Diff and scope selection
@@ -64,6 +65,112 @@ verification still includes macOS. Follow the
 [runtime smoke matrix](../../tmt-e2e/references/runtime-smoke-matrix.md) for the
 Rosetta process wrapper, exact installed-byte architecture admission and advisory
 native Intel coverage.
+
+## Experimental workspace N=1 proof
+
+The existing CI dispatch entry has an opt-in `workspace_proof=true` route with an
+exact `proof_head`. It calls `workspace-proof.yml` and selects `none` for ordinary
+workers; normal PR, merge-group, main and seed coverage is unchanged. Infra must
+review the immutable-head launch plan before dispatch. Only original attempt 1 is
+admitted. This experiment is not a required check, rollout or performance result and
+never substitutes for required workers. `Native Rust workspace tests`, its four
+exclusions, 20-minute cap and outer gate positions remain unchanged until separately
+reviewed equivalence and rollout.
+
+`workspace-proof.mjs` owns N=1 artifact/list/disposition admission;
+`run-workspace-proof.mjs` owns bounded capture, observations and execution. The producer
+runs the retained build before one locked workspace no-run JSON compilation, then
+uses Cargo-owned metadata and `release-version parse` to admit targets. Remote
+must have a nonempty list from those exact workspace executables; architecture,
+Office command/model, ignored and zero-test harnesses remain explicit. Each doctest
+target needs observed normal-list, ignored-list and execution completion, including
+an explicit zero disposition. Ordered Cargo headers and Rustdoc source owners must
+admit exactly one consecutive partition of the actual blocks; Rust 2024 multi-block
+targets remain supported, while absent, duplicate-zero or ambiguous completion fails.
+Cargo-emitted whole output sets plus executable qualify artifact identity; exact
+feature vectors remain separate comparison payloads. Distinct variants stay separate,
+while duplicate identities or shared output ownership refuse admission before Maps.
+Harness assignment IDs keep their semantic target identity. Default/producer
+inventory equality and each observed doc output identity/feature match remain exact;
+unsupported output/profile differences refuse proof, without filename suffix parsing
+or feature union. No source or Markdown parser infers missing evidence. Unknown
+custom harnesses, required-feature target eligibility or output formats fail.
+
+Cargo JSON stays a strict prefix through one successful `build-finished`. Mixed
+execution can retain complete reasonless JSON objects only within an active nonzero
+ordinary admitted-harness block before its summary. Direct restored harnesses use
+the same explicit context; lists, zero-test and rustdoc blocks stay strict. Cargo
+envelope keys, malformed or ambiguous objects and unclassified text refuse admission.
+Auxiliary output is opaque: it never supplies a test terminal or sender/test identity,
+and diagnostic values are not compared across runs. Original streams retain the bytes;
+ordered command/harness-block, line, byte-count and hash references are reported separately
+from exact coverage. All emitted top-level Cargo envelope keys, including `executable`,
+are reserved. The existing 4000-entry bound caps auxiliary references. Each report write
+charges the actual pretty-printed auxiliary metadata representation to the unchanged
+role evidence budget. Exhaustion retains a bounded explicit red count/hash record instead
+of the refused reference array and cannot bypass final listener/process observation attempts.
+The writer refuses cleanup admission at the existing observation/report boundary; a later
+report write cannot reset the refusal or grant cleanup authority.
+
+Ordinary terminals resolve against the full authoritative listed-name set before
+duplicate detection. With nonempty command/harness context and a nonzero count, one
+exact trailing ` - should panic` offers a stripped candidate alongside the exact raw
+name. Exactly one listed interpretation is required; both listed is ambiguous, and
+bare/decorated records for the same identity are duplicates. Status, ignored membership
+and summary counts remain exact. Alternate suffix spellings remain literal names when
+exactly listed; two trailing canonical markers are unsupported in eligible ordinary
+context, even for a listed repeated literal. Discovery stays literal, and missing
+ordinary context, zero blocks and rustdoc gain no decoration semantics.
+
+The manual workflow serializes producer, default Cargo baseline, restored whole
+harness consumer and separate rustdoc obligations on Ubuntu 24.04 with Rust 1.97.0,
+Node 22.23.2/pnpm 10.33.0. Baseline retains the original Remote listing and
+workspace test-before-build order; its extra listing calls record obligations.
+The producer's frozen regular-file target/Cargo-source archive is restored only
+into absent roots at the same absolute paths. Source, toolchain/sysroot, GNU
+loader dependencies, executable hashes, reviewed environment and default versus
+separate-doc library features are bound to one source/run/attempt. Cargo cache
+lock/access bookkeeping is mutable; dependency sources and acceptance binaries
+are hash checked. Archive membership, missing/duplicate/extra names, changed
+ignore disposition, filtering, process/listener leaks and selected failed or
+cancelled jobs refuse aggregate success. Runtime closure, descendant cleanup and pinned output forms
+remain unproved until a separately admitted original Linux experiment passes; fixture counts alone
+cannot establish them. Every role keeps original streams/process reports on red.
+
+Bounds live in `LIMITS`:150,000 regular files, 5 GiB payload, 512 MiB per file,
+5 GiB plus bounded tar overhead, 32 MiB per command and 256 MiB total captured streams,
+4000 commands and 18 minutes inside each 20-minute job. The final minute is
+reserved for cleanup; command admission/capture settles before it, with at most five seconds for
+exit/pipe settlement. Missing close, probe denial or overflow retains partial
+streams with incomplete/unconfirmed evidence. Every role observes processes and
+listeners before execution and in finally, including original red paths. Final process
+observation follows the settled listener observer. Bounded stat/start/parent/group/session
+facts and available executable/cwd links, direct-child observations and command-time
+references are retained on red too; identity races, denied/vanished reads and limits are
+explicit. Global new or unconfirmed identities remain red even with host-looking names.
+No host command lines or environments are collected; own allowlisted argv is already
+in command records. Snapshots allow at most 4000 identities, 32 MiB output and a
+one-second observation window clipped to the existing phase deadline; stat fields are
+at most 4096 bytes and link facts 1024 characters. Observations count toward the existing
+256 MiB role evidence bound. Available facts diagnose a refusal, never infer custody. The runner
+never sends effectful numeric PID/PGID signals: Node event state, ancestry, snapshots
+and signal-zero probes cannot provide retained OS lifetime custody, even before
+the exit event. Stops settle only our handles and remain termination-unconfirmed;
+actual descendant termination is not claimed, and the outer job cap stays unchanged.
+A numerically present stale group remains red, without adoption or signalling.
+Sysroot and package-manager probes use the same captured-command/finally contract.
+Unconfirmed cleanup stays red and leaves runtime roots intact. Confirmed
+cleanup uses a bounded owned-root removal command before final report admission. Producer requires 12 GiB free before acquisition; baseline/doctest require 6 GiB.
+Consumer requires 6 GiB after download, with at most 512 MiB for copied-input
+sensitivity controls. Controls remove/corrupt private copies of the actual child,
+library, Cargo and source inputs; immutable originals remain untouched. They prove
+admission sensitivity, while real runtime necessity still requires the positive
+harness proof. GNU tar packs
+the verified files directly with hard-link dereferencing, avoiding a staging copy;
+the uncompressed transport has the same membership/hash checks as the payload.
+Only admitted cleanup permits bounded removal of owned target, Cargo home and runtime temp/home after retained reports;
+existing roots are rejected, never overwritten. A bound or format failure keeps
+the current worker and original red evidence. N=2/3 needs a later owner assignment.
 
 ## Cache ownership
 

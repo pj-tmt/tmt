@@ -644,12 +644,11 @@ declared roots, packaging and canonical generated inputs without cfg/reachabilit
 Required CI covers the component map, declaring crates and release build script; the Node
 Project sweep validates declarations and never executes captured source.
 
-Selected missing, failed, cancelled or unexpectedly skipped work cannot satisfy a
-required gate; empty test discovery never passes. Selection, worker, cache and
-advisory-browser details live in the
-[CI reference](.agents/skills/tmt-release/references/ci-selection.md).
-Publication reuses the native aggregate's scope-skip proof with check-suite
-provenance rather than recomputing historical selection or accepting bare skips.
+The [CI reference](.agents/skills/tmt-release/references/ci-selection.md) owns
+worker, cache, proof and publication gates. Selected missing, failed, cancelled or
+unexpectedly skipped work and empty test discovery never satisfy required gates.
+Opt-in proof has separate admission and observation owners and never substitutes
+for required workers.
 
 ## Runtime layers
 

@@ -16,6 +16,15 @@ on:
   schedule:
     - cron: '17 3 * * 1'
   workflow_dispatch:
+    inputs:
+      workspace_proof:
+        description: 'N=1 experiment only; requires Infra immutable-head launch approval'
+        type: boolean
+        default: false
+      proof_head:
+        description: 'Reviewed exact 40-character source SHA (must equal dispatched ref)'
+        type: string
+        default: ''
 
 env:
   CARGO_PROFILE_DEV_DEBUG: 0
@@ -41,7 +50,7 @@ jobs:
       native: ${{ steps.scope.outputs.native || steps.queue.outputs.native || steps.seed.outputs.native }}
       office: ${{ steps.scope.outputs.office || steps.queue.outputs.office || steps.seed.outputs.office }}
       native_office: ${{ steps.scope.outputs.native_office || steps.queue.outputs.native_office || steps.seed.outputs.native_office }}
-      native_scope: ${{ steps.scope.outputs.native_scope || steps.queue.outputs.native_scope || steps.seed.outputs.native_scope }}
+      native_scope: ${{ steps.proof.outputs.native_scope || steps.scope.outputs.native_scope || steps.queue.outputs.native_scope || steps.seed.outputs.native_scope }}
       native_notices: ${{ steps.scope.outputs.native_notices || steps.queue.outputs.native_notices || steps.seed.outputs.native_notices }}
       release_rehearsal: ${{ steps.rehearsal.outputs.release_rehearsal || 'false' }}
       release_rehearsal_products: ${{ steps.rehearsal.outputs.release_rehearsal_products || '[]' }}
@@ -55,6 +64,10 @@ jobs:
           VERIFY: ${{ github.event_name == 'pull_request' || github.event_name == 'merge_group' }}
           MACOS: ${{ github.event_name != 'merge_group' }}
         run: printf 'verify=%s\nmacos=%s\n' "$VERIFY" "$MACOS" >> "$GITHUB_OUTPUT"
+      - name: Isolate the manual N=1 proof from ordinary workers
+        if: github.event_name == 'workflow_dispatch' && inputs.workspace_proof
+        id: proof
+        run: echo 'native_scope=none' >> "$GITHUB_OUTPUT"
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
@@ -63,7 +76,7 @@ jobs:
         with:
           node-version: 22.23.2
       - name: Select the cache-seeding jobs
-        if: steps.event.outputs.verify != 'true'
+        if: steps.event.outputs.verify != 'true' && !inputs.workspace_proof
         id: seed
         # Office product verification is retired; all seed events cover retained products only.
         env:
@@ -138,7 +151,7 @@ jobs:
         working-directory: typescript
         run: |
           pnpm check:tooling
-          pnpm exec vp test run --config vitest.config.ts test/tooling/ci-scope.test.ts test/tooling/component-skills.test.ts test/tooling/release-cut.test.ts test/tooling/release-cut-live.test.ts test/tooling/release-source-at-ref.test.ts test/tooling/release-version-injection.test.ts test/tooling/release-workflow.test.ts test/tooling/release-parity.test.ts test/tooling/release-rehearsal.test.ts test/tooling/guide-budget.test.ts test/tooling/docker-workspace.test.ts
+          pnpm exec vp test run --config vitest.config.ts test/tooling/ci-scope.test.ts test/tooling/workspace-proof.test.ts test/tooling/component-skills.test.ts test/tooling/release-cut.test.ts test/tooling/release-cut-live.test.ts test/tooling/release-source-at-ref.test.ts test/tooling/release-version-injection.test.ts test/tooling/release-workflow.test.ts test/tooling/release-parity.test.ts test/tooling/release-rehearsal.test.ts test/tooling/guide-budget.test.ts test/tooling/docker-workspace.test.ts
       - name: Check conventional PR titles
         env:
           GITHUB_TOKEN: ${{ github.token }}
@@ -937,3 +950,10 @@ jobs:
           REHEARSAL_SELECTED: ${{ needs.changes.outputs.release_rehearsal }}
           REHEARSAL_RESULT: ${{ needs.release-rehearsal.result }}
         run: node typescript/scripts/ci-scope.mjs gate "$REHEARSAL_SELECTED" "$REHEARSAL_RESULT"
+
+  workspace-proof:
+    name: Experimental N=1 workspace proof
+    if: github.event_name == 'workflow_dispatch' && inputs.workspace_proof
+    uses: ./.github/workflows/workspace-proof.yml
+    with:
+      proof_head: ${{ inputs.proof_head }}
