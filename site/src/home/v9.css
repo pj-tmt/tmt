@@ -8,6 +8,7 @@
     --muted: #969696;
     --border: #292929;
     --accent: #c1f883;
+    --focus: #c1f883;
     font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
     letter-spacing: 0;
   }
@@ -40,7 +41,7 @@
   }
   button:focus-visible,
   a:focus-visible {
-    outline: 2px solid var(--accent);
+    outline: 2px solid var(--focus);
     outline-offset: 5px;
   }
   button:disabled {
@@ -2075,6 +2076,7 @@
 }
 :root[data-theme="light"] .v9-home {
   --bg: #fafafa;
+  --focus: #171717;
   --fg: #171717;
   --muted: #555;
   --border: #ccc;
@@ -2123,6 +2125,7 @@
 @media (prefers-color-scheme: light) {
   :root:not([data-theme]) .v9-home {
     --bg: #fafafa;
+    --focus: #171717;
     --fg: #171717;
     --muted: #555;
     --border: #ccc;
@@ -2167,4 +2170,10 @@
   :root:not([data-theme]) .v9-home :is(.site-header a:hover, footer a:hover) {
     color: #111;
   }
+}
+
+/* Focus remains visible on the retained dark illustration canvases. */
+.v9-home .top-install,
+.v9-home .terminal-demo {
+  --focus: #ededed;
 }
