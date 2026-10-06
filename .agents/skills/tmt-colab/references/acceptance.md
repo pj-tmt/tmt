@@ -61,6 +61,13 @@ browsers register: each paired device registers when it first opens the app.
 
 ## Cases
 
+`agent-status.spec.ts` reads the real admitted directory through the Agents drawer,
+checks its served asset hashes and CSP, and injects a labelled context-read refusal
+without sending or reopening. Set `COLAB_STATUS_ASSET_MANIFEST` to the build report
+containing the eleven `distAssets` paths and SHA256 digests; optional
+`COLAB_STATUS_NATIVE_CAPTURE_DIR` saves 1440/390 light/dark originals. Its injected
+refusal does not diagnose an existing browser's session failure.
+
 `one-command.spec.ts` (#1584) starts only `tmt-colab serve` (`startServe`): Colab starts the
 real `tmt-remote` door through the real core's public CLI, a paired device opens the printed
 link and a created page, and stopping Colab closes the door it started (`doorAnswers`).

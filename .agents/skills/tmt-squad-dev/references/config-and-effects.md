@@ -202,13 +202,12 @@ executable, never in the core skill bundle.
 
 ## HOME lead sends
 
-`send::leads` owns all-leads and picked-lead effects. The existing `App.input`
+`send::leads` owns all-leads and picked-lead audience validation; `send::dispatch` owns the shared frozen intent, private journal and acceptance recovery used by it and status announcements. The existing `App.input`
 keeps the opening user UUID and squad/lead occurrences; both submission and the
 send effect validate current authority. The public dispatch deduplicates recipient
 UUIDs. `send::new_operation` supplies a fresh UUID for explicit sends, shared with
 manual cron sends. Before dispatch, a private 0600 intent under
 `board-dispatches/<operation>.json` beside Squad configuration is synced. Confirmed
 acceptance removes it; uncertain acceptance retains it for manual inspection.
-One `dispatch.show` read can recover lost output; there is no create replay,
-automatic resend or wake retry. Feedback distinguishes each recipient's queued or
+One `dispatch.show` read can recover lost output. There is no automatic resend or wake retry. An explicit status notification retry first recovers uncertain acceptance; after the owned invocation has closed and a definitive missing receipt, it may create only the same frozen operation/intent again. Confirmed acceptance is never created again. Feedback distinguishes each recipient's queued or
 unavailable acceptance without claiming delivery or processing.

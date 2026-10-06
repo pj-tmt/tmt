@@ -146,7 +146,7 @@ through `reconnect(page)` in `acceptance/ask.spec.ts`.
 - `management.rs` holds strict DTOs and device-signature admission and adapts to the
   engine; it never writes authority tables or chooses baselines, cuts, wraps or epoch
   keys. The CLI (`cli_grammar.rs`, `cli_management.rs`, `inspection.rs`) is root-local:
-  `ls`, `show`, `share mode/link/member/history`, `retention`, `archive` and `delete`.
+  `ls`, `show`, `open`, `share mode/link/member/history`, `retention`, `archive` and `delete`.
   `cli_management::selection` adapts public CLI inputs to strict existing DTOs;
   its shared page resolver reuses the short-link helpers to admit unique UUID prefixes
   from the verified complete catalog, including retained deleted IDs, before
@@ -217,6 +217,9 @@ through `reconnect(page)` in `acceptance/ask.spec.ts`.
   JSON and `show` retain full IDs. Ask composition captures the catalog prefix in `Live`, preserving full
   signed scope, legacy source-link admission and unchanged reader links. See the contract for
   Remote's root-redirect dependency and exact URL/JSON shapes.
+- Explicit `open [PAGE]` reuses this catalog/link boundary and the shared opener without
+  starting services. JSON/no-open never launches; stopped Colab
+  reports the serving next step. This does not replace browser admission.
 
 ## Browser title hints
 

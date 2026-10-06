@@ -42,6 +42,32 @@ use std::collections::BTreeMap;
 use unicode_width::UnicodeWidthChar;
 
 #[test]
+fn home_pending_history_has_a_status_row_before_any_usage_is_available() {
+    for width in [80, 100, 160] {
+        let mut app = board(json!([]));
+        let view = app.view.as_mut().unwrap();
+        view.home = Some(crate::board::home::Home {
+            summary: Default::default(),
+            windows: crate::config::TokenRate::default().windows,
+            sections: Vec::new(),
+            squads: Vec::new(),
+            failures: Vec::new(),
+            incomplete: false,
+        });
+        view.history_pending = true;
+        let pending = draw(&app, width, 24);
+        assert!(pending[2].contains("Updating usage…"));
+        assert!(pending[1].contains("0 squads"));
+        app.view.as_mut().unwrap().history_pending = false;
+        assert!(
+            draw(&app, width, 24)
+                .iter()
+                .all(|line| !line.contains("Updating usage"))
+        );
+    }
+}
+
+#[test]
 fn waiting_rows_detail_and_ask_prompt_fit_each_width_and_theme() {
     for width in [160, 100, 80] {
         for (base, depth) in [
@@ -412,6 +438,7 @@ pub(super) fn board(sections: Value) -> App {
         attention: Default::default(),
         squad: Some("product".into()),
         view: Ok(View {
+            history_pending: false,
             ask_lead: crate::config::DEFAULT_ASK_LEAD.into(),
             home_replies: true,
             token_rate: None,
@@ -1143,6 +1170,7 @@ fn paned(board: crate::config::Board, notes: Notes) -> App {
             attention: Default::default(),
             squad: Some("product".into()),
             view: Ok(View {
+                history_pending: false,
                 ask_lead: crate::config::DEFAULT_ASK_LEAD.into(),
                 home_replies: true,
                 token_rate: None,
@@ -1349,6 +1377,7 @@ fn sent_feedback_sits_under_its_row_before_the_annotation_and_stays_clickable() 
     ]}]));
     app.view.as_mut().unwrap().look = Default::default();
     app.sent = Some(crate::board::app::RowFeedback {
+        sent: true,
         target: app.row_target(0).unwrap(),
         home: None,
     });
@@ -2989,7 +3018,7 @@ fn switching_squads_never_moves_a_tab_or_blanks_the_frame() {
     assert_eq!(before[0], during[0], "selection never changes label width");
     assert_eq!(before[0].trim_end(), "  product   reviews");
     assert!(
-        during[1].contains("loading"),
+        during[1].contains("Opening reviews"),
         "a slow switch shows a spinner"
     );
     assert!(
@@ -3471,6 +3500,29 @@ fn focused_notes_scroll_while_rows_keep_their_selection() {
     assert!(!screen.iter().any(|line| line.contains("line 01")));
     assert_eq!(app.selected, 0);
 }
+#[test]
+fn initial_loading_uses_the_resolved_theme_before_any_snapshot() {
+    for base in [tmt_cli_style::Base::Tmt, tmt_cli_style::Base::TmtLight] {
+        for depth in [tmt_cli_style::Depth::TrueColor, tmt_cli_style::Depth::None] {
+            let look = crate::look::Look {
+                theme: tmt_cli_style::Theme::new(base),
+                depth,
+            };
+            let mut app = App::new(Some("product".into()));
+            app.initial_look = Some(look);
+            app.loading_since = Some(std::time::Instant::now() - header::SPINNER_DELAY);
+            let line = summary_line(&app);
+            assert_eq!(line.spans[0].style, look.role(Role::Accent));
+            assert_eq!(line.spans[1].style, look.role(Role::Muted));
+            assert_eq!(line.spans[2].style, look.role(Role::Accent));
+            assert_eq!(
+                super::tabs::paint(&app, Rect::new(0, 0, 80, 1)).style,
+                look.role(Role::Accent).add_modifier(Modifier::BOLD)
+            );
+        }
+    }
+}
+
 #[test]
 fn loading_is_delayed_animated_and_absent_on_a_cached_switch() {
     let mut app = board(json!([]));
@@ -4381,6 +4433,11 @@ fn boxed_member_read_band_starts_answer_then_cycles_note_and_talk_without_losing
     );
     app.key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
     assert!(matches!(&app.input.as_ref().unwrap().compose, Compose::Talk { to } if to == "worker"));
+    app.key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+    assert!(matches!(
+        app.input.as_ref().unwrap().compose,
+        Compose::Status
+    ));
     app.key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
     assert!(
         matches!(&app.input.as_ref().unwrap().compose, Compose::Reply { request, .. } if request == "decision-q")

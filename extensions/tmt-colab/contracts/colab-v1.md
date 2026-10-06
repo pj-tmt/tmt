@@ -29,6 +29,15 @@ supply decoder, renderer, anchoring, door and TLS evidence. They leave productio
 containment and durable transport to the named slices.
 Baseline and hostile-corpus containment acceptance remain C0 review gates.
 
+## Planned local attachment storage
+
+The [local attachment storage proposal](storage-v1-proposal.md) owns the coordinated
+#1691/#1849 design for generic Remote storage and Colab references, read/history
+admission, safe consumers and limits. Its operations and native commands are
+proposed, not shipped by this contract. Existing membership, crypto, sync and
+renderer owners remain authoritative; no new core object API or reader credential
+is introduced.
+
 ## Channel boundary
 
 Colab is an app on remote. The [remote channel contract](../../../contracts/remote-channel-v1.md#extension-channel-api)
@@ -1376,6 +1385,26 @@ Owner-machine fallback is forbidden. Page authorization and Remote agent grants
 remain separate. Local v1 does not claim that cross-member or delayed-approval
 page-policy fence, offline automatic dispatch or native reply publication.
 
+### Admitted agent status (#1844)
+
+The trusted parent Agents view observes presence through the existing current
+Remote context and signed `agents.list` normalization owner. Active, offline and
+unknown are directory values, never inferred from a transport failure. Duplicate
+names retain machine and stable agent-ID presentation; labels confer no authority.
+Colab page admission, Remote session reads and directory reads are separate health
+observations. Known session-end categories and verified eviction/refusal codes remain distinct from unexpected
+unavailable reads; raw diagnostic messages and credentials are not displayed.
+
+Opening or explicitly rechecking this view is read-only: no Ask destination-cache
+admission, preparation, publication, dispatch, session reopen, pairing, grant change
+or automatic retry. Existing Ask actions retain their separate fail-closed lifecycle
+response. Current page/client generation fences late results. A transient directory
+failure can retain a last successful snapshot clearly marked stale with its check
+time; ended/evicted/scope-denied, lost admission or a replaced page/client clears the
+cached observation and pending read. Restoring the same admission requires a new read. An empty
+successful directory is separate from an unavailable read. The view does not change
+conversation drafts or admit a message recipient.
+
 ## Renderer and live anchors
 
 HTML runs in an opaque-origin iframe whose `src` is the same-mount
@@ -1908,6 +1937,18 @@ audience/history. Each link is on its own indented line under the row. `show` re
 page ID and prints rows of words (`title`, `link`, `pair`, `page`,
 `sharing`, `history`, `retention`, `membership`, `members`, `links`; `–` for none), never an
 embedded JSON object. `page create` keeps `url`'s role under the name `link`.
+
+`tmt colab open [PAGE]` explicitly opens the existing space home, or a page selected
+through the same verified catalog and UUID-prefix resolver as `show`. It requires
+running Colab and Remote services and never starts another service, pairs a browser,
+changes access or writes content. Explicit opening ignores the automatic-open setting
+and noninteractive-terminal suppression, using the shared `tmt-invoke` opener;
+`--no-open` and `--json` suppress launching. Missing, deleted and ambiguous pages refuse
+before opening. Archived pages remain eligible for read-only access. An unavailable
+service prints the current link/path and next step. Opener failure warns once and
+retains the link. JSON adds `spaceId`, full `pageId` (null for home), `running` and
+`opened: false` to the existing path/link/shortLink/paired/next facts; a stopped Colab
+adds `tmt colab serve` to `next`. Browser navigation still undergoes existing admission.
 
 ### Short owner-page aliases (#1688)
 

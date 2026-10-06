@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { dm, line, pad, type Line } from "./segments";
+import { FitWidth } from "./FitWidth";
 
 // One board frame in the squad walkthroughs.
 export type Row = [name: string, state: string, task: string, pr: string, waiting?: boolean];
@@ -11,7 +12,79 @@ export type BoardSpec = {
   mode?: "note" | "talk";
   typed?: string;
   reply?: Line[];
+  status?: { lines: { text: string; field?: number }[]; focus: number };
 };
+
+export type StatusStage =
+  | "initial"
+  | "chosen"
+  | "conflict"
+  | "fresh"
+  | "failed"
+  | "retry"
+  | "accepted"
+  | "unknown";
+
+// Illustrative frames, not mutations or native fixture output.
+export function statusBoard(stage: StatusStage): BoardSpec {
+  const checked = stage !== "initial" && stage !== "conflict";
+  const applied = ["failed", "retry", "accepted"].includes(stage);
+  const oldState = ["conflict", "fresh", "failed", "retry", "accepted"].includes(stage)
+    ? "review"
+    : "blocked";
+  const fields = [
+    { text: `[${checked ? "x" : " "}] Clear pending`, field: 0 },
+    { text: `  Old: " approve plan " → New: ${checked ? "(empty)" : "(unchanged)"}`, field: 0 },
+    {
+      text: `[${checked ? "x" : " "}] Replace state: ${stage === "initial" ? "" : "working"}`,
+      field: 1,
+    },
+    { text: `  Old: "${oldState}" → New: ${checked ? '"working"' : "(unchanged)"}`, field: 1 },
+    { text: `Reason: ${stage === "initial" ? "" : "Approval recorded"}`, field: 2 },
+    {
+      text:
+        stage === "failed" || stage === "retry"
+          ? "Retry notification only"
+          : stage === "accepted"
+            ? "Status applied"
+            : stage === "unknown"
+              ? "Outcome unknown — reopen only after"
+              : "Apply and notify",
+      field: 3,
+    },
+  ];
+  if (stage === "unknown") fields.push({ text: "inspecting metadata", field: 3 });
+  const notices: Partial<Record<StatusStage, string[]>> = {
+    conflict: ["Selected values changed; preview refreshed.", "Review and submit again."],
+    failed: ["Status updated; notification failed. …"],
+    retry: ["Status updated; notification failed. …"],
+    accepted: ["Status updated; notification accepted", "(queued, no reply required)."],
+    unknown: ["Apply outcome unknown; no notification sent", "or replay permitted. …"],
+  };
+  const lines: { text: string; field?: number }[] = [
+    ...fields,
+    ...(notices[stage] ?? []).map((text) => ({ text })),
+  ];
+  if (!applied && stage !== "unknown")
+    lines.push(
+      { text: "Requires a reply (separate from manual status)" },
+      { text: "Answer request req_11111111-1111-", field: 4 },
+      { text: "4111-8111-111111111111: Ship tonight?", field: 4 },
+      { text: "Answer request req_22222222-2222-", field: 5 },
+      { text: "4222-8222-222222222222: Choose API shape?", field: 5 },
+    );
+  return {
+    rows: [
+      ["auth-fix", applied ? "working" : oldState, "rotate session tokens", "#412 draft", true],
+      ["docs-sweep", "working", "one install guide", "#409 open"],
+    ],
+    sel: 0,
+    status: {
+      lines,
+      focus: stage === "chosen" ? 2 : ["fresh", "retry", "unknown"].includes(stage) ? 3 : 0,
+    },
+  };
+}
 
 export function boardLines(
   board: BoardSpec,
@@ -61,6 +134,20 @@ export function boardLines(
   if (leadSelected && board.expanded) pushBand("coordinate the squad");
   else push(line(dm("│   coordinate the squad")));
   const pushComposer = () => {
+    if (board.status) {
+      push(<span className="text-t-accent">{"│ Update status → product / auth-fix"}</span>);
+      board.status.lines.forEach(({ text, field }) => {
+        const focused = field === board.status?.focus;
+        push(
+          <span className={focused ? "text-t-accent" : undefined}>
+            {"│ " + (field === undefined ? "" : focused ? "› " : "  ") + text}
+          </span>,
+        );
+      });
+      push(line(dm("│ ↑↓ field · Enter choose · PgUp/PgDn")));
+      push(line(dm("│ Esc cancel · Tab answer/note/talk/status")));
+      return;
+    }
     if (!board.to) return;
     push(
       <span className="text-t-accent">
@@ -77,7 +164,7 @@ export function boardLines(
         </span>,
       ),
     );
-    push(line(dm("│ Enter send · Esc cancel · Tab note/talk")));
+    push(line(dm("│ Enter send · Esc cancel · Tab note/talk/status")));
   };
   if (leadSelected) pushComposer();
   push(line(dm("│ ── members · " + board.rows.length + " ──")));
@@ -254,7 +341,7 @@ export function SplitBoardSketch() {
           <b className="font-semibold text-t-accent">→ sol (product) · note · about auth-fix</b>
           {"\nkeep old tokens valid for a day"}
           <span className="inline-block w-[0.6em] bg-t-text"> </span>
-          {"\nEnter send · Esc cancel · Tab note/talk"}
+          {"\nEnter send · Esc cancel · Tab note/talk/status"}
         </div>
         <pre className={`${pre} border-b border-term-edge sm:border-r sm:border-b-0`}>
           {"    docs-sweep  "}
@@ -276,6 +363,22 @@ export function SplitBoardSketch() {
           {"\n- no new job runner this\n  quarter"}
         </pre>
       </div>
+    </div>
+  );
+}
+
+export function UpdateStatusSketch() {
+  return (
+    <div
+      role="img"
+      aria-label="Update status sketch: the complete auth-fix row and task precede the inline band. Both manual changes are checked, but Reason has the non-color focus cue. Two unanswered requests remain separate; docs-sweep follows the band."
+      className={sketch}
+    >
+      <FitWidth width={620}>
+        <div className="px-3.5 py-3 font-mono text-[12.5px] leading-[1.6] whitespace-pre">
+          {boardLines(statusBoard("chosen"), "", 0, false)}
+        </div>
+      </FitWidth>
     </div>
   );
 }

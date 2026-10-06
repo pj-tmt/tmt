@@ -1,7 +1,7 @@
 use super::*;
 use crate::action::Action;
 use crate::board::{
-    app::{App, Effect, Request, Snapshot},
+    app::{App, Compose, Effect, Request, Snapshot},
     home::paint,
 };
 use ratatui::{
@@ -537,6 +537,11 @@ fn middle_home_row_composes_inline_and_success_survives_answer_refresh() {
                 app.input.as_ref().unwrap().header(),
                 "→ worker-2 (a) · talk"
             );
+            press(&mut app, Tab);
+            assert!(matches!(
+                app.input.as_ref().unwrap().compose,
+                Compose::Status
+            ));
             press(&mut app, Tab);
             press(&mut app, Char('y'));
             assert!(

@@ -282,7 +282,7 @@ pub(in crate::board) fn render_squad(frame: &mut ratatui::Frame, app: &App, area
     });
     let reserved =
         crate::board::view::waiting::reserved_lines(app, app.selected, inner).unwrap_or_default();
-    let sent_row = app.sent.as_ref().and_then(|sent| {
+    let sent_row = app.sent.as_ref().filter(|sent| sent.sent).and_then(|sent| {
         (0..app.rows().len()).find(|index| app.row_target(*index).as_ref() == Some(&sent.target))
     });
     let mut before = Vec::new();

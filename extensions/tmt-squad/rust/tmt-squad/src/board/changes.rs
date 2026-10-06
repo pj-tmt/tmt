@@ -20,6 +20,12 @@ pub struct Stamp {
 }
 
 impl Stamp {
+    /// History is stored in core tables; unlike pane/notebook freshness it may
+    /// reuse a successful durable cursor within the same closed time bucket.
+    pub(super) fn history_cursor(&self) -> Option<u64> {
+        self.cursor.as_ref().and_then(Value::as_u64)
+    }
+
     /// A stamp with only a cursor, for tests of what reads it.
     #[cfg(test)]
     pub fn cursor(cursor: u64) -> Self {

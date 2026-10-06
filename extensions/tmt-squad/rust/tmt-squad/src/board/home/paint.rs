@@ -320,8 +320,11 @@ pub(super) fn render_at(frame: &mut Frame, app: &App, area: Rect, now: u64) {
             let before = lines.len();
             if selected_region.is_some() {
                 if app.sent.as_ref().is_some_and(|feedback| {
-                    feedback.target
-                        == crate::board::app::RowTarget::Home(entries[app.selected].target.clone())
+                    feedback.sent
+                        && feedback.target
+                            == crate::board::app::RowTarget::Home(
+                                entries[app.selected].target.clone(),
+                            )
                 }) {
                     lines.push(Line::styled("   ✓ sent", look.role(Role::Working)));
                 }

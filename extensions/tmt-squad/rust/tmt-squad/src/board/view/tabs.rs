@@ -523,6 +523,12 @@ fn unpicked(app: &App, budget: usize, look: Look, colors: &TabColors) -> Line<'s
 /// Prepare labels, admit a pure window, then paint its spans and exact hit cells.
 pub(super) fn paint(app: &App, area: Rect) -> Line<'static> {
     let look = app.look();
+    if app.view.is_none() && app.tabs.is_empty() {
+        return Line::styled(
+            "  Squad",
+            look.role(Role::Accent).add_modifier(Modifier::BOLD),
+        );
+    }
     let default = TabColors::default();
     let colors = app.view.as_ref().map_or(&default, |view| &view.tab_colors);
     let indices = app.picked_indices();
