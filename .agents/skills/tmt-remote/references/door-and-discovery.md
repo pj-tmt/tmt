@@ -8,7 +8,7 @@ this page holds how to run the door and what its implementation tests prove.
 ## Run the door
 
 Build core and put `rust/target/debug` on `PATH`, then `tmt remote serve`. Human startup
-returns after background handoff. Use `tmt remote status --json` and `tmt remote stop` to inspect
+returns after background handoff and links to the browser entry at `/`, not the protocol base. Use `tmt remote status --json` and `tmt remote stop` to inspect
 and end that same owner. `serve --foreground` keeps terminal ownership; exact bare `serve --json`
 also remains foreground for existing supervisors. Explicit `--background --json` detaches with
 the unchanged protocol descriptor. Direct invocation needs an absolute `TMT_EXECUTABLE` and never

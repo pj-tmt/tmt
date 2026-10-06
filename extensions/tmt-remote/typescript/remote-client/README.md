@@ -211,3 +211,13 @@ distinct end reason is available for 60 seconds, then a generic 404 still maps t
 transport; other tabs remain live. Recover previously unknown send outcomes by observing
 the original operation ID after reopening. Never retry a send automatically because its
 transport closed.
+
+## Remote browser entry
+
+The human `tmt remote serve` link opens `/`; the JSON `address` remains the signed protocol base.
+`landingPage()` is the entry bootstrap, using the same saved non-extractable key and machine pins.
+On load it checks local storage only: a saved pairing does not prove current access. Connect
+is explicit and opens one verified Session; errors stay unconfirmed. An opaque404 and unchanged
+descriptor recheck do not establish a signed refusal reason. No inventory or work is sent, and pairing
+never claims settings-admin designation. Run `tmt remote pair` locally, open the full code-bearing
+link in this browser, compare the displayed words with the terminal and confirm there.

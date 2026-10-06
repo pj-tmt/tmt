@@ -418,7 +418,15 @@ fn publish(value: &Value, json_output: bool, detached: bool) -> Result<(), Remot
         writeln!(
             output,
             "{}",
-            value["address"].as_str().expect("ready address")
+            format!(
+                "{}/",
+                value["address"]
+                    .as_str()
+                    .expect("ready address")
+                    .split_once("/r/")
+                    .expect("native protocol base")
+                    .0
+            )
         )?;
     }
     if detached && !json_output {

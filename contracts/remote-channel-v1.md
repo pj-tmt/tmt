@@ -547,6 +547,27 @@ obey the lifecycle and effect fence above. The actual settings/device page separ
 product native/browser acceptance, UX review and publication evidence; a shared presentation
 package or current-page adoption cannot satisfy those requirements.
 
+### Browser entry
+
+Human `serve` output links to the same-origin `/` browser entry. JSON readiness, status and SDK
+`address` retain the protocol `/r/<prefix>` base; navigating there still gets the generic refusal.
+The entry initially reads only this origin's saved browser record through the existing SDK owner.
+Absent local data means no saved pairing; validated data means saved pairing with access unchecked.
+Malformed or inaccessible data is unconfirmed. No descriptor, admission, inventory or work request
+runs merely to display that state. Complete identity/origin/address/key-pin validation and the
+existing non-extractable device-key consistency check precede an explicit connection attempt.
+
+Connect makes one fresh `session.open` attempt and verifies its signed result against the
+saved machine pin. A verified response confirms access at the displayed checked time, never
+administrator designation. An opaque404 with an unchanged current descriptor recheck is still
+not a signed refusal reason: access could not be verified, without inferring revocation, eviction
+or another permanent cause. Only a specifically verified refusal may report Access refused. Transport, changed or
+malformed descriptor and unverified response failures remain unconfirmed; a public descriptor
+cannot replace a machine trust pin. Async results and new admission/recheck requests are fenced
+to their page attempt, including after signing. Departure cannot undo an already dispatched request. No automatic
+re-pair, grant repair, work resend or session admission on page load exists. Owner pairing still
+uses the fragment-erasing bootstrap, fingerprint comparison and terminal confirmation.
+
 ### Local CLI discovery
 
 Local extensions such as Colab discover or supervise Remote through these public CLI JSON
