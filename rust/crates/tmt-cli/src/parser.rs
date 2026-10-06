@@ -305,6 +305,7 @@ fn translate(path: &[&str], m: &ArgMatches) -> Result<Invocation, String> {
             exact: text(m, "to"),
             unpin: flag(m, "unpin"),
             yes: flag(m, "yes"),
+            allow_schema_ahead: flag(m, "allow-schema-ahead"),
         },
         ["office", ..] => Invocation::Office {
             prefix: text(m, "prefix"),
@@ -321,9 +322,15 @@ fn translate(path: &[&str], m: &ArgMatches) -> Result<Invocation, String> {
             yes: flag(m, "yes"),
             prefix: text(m, "prefix"),
         },
+        ["__native-schema"] => Invocation::NativeSchema {
+            source_sha: required(m, "source-sha"),
+        },
         ["__native-install"] if text(m, "handoff-version").is_some() => {
             Invocation::NativeInstallHandoff {
                 probe: flag(m, "probe"),
+                version: required(m, "handoff-version")
+                    .parse()
+                    .expect("typed handoff version"),
             }
         }
         ["__native-install"] => Invocation::NativeInstall {

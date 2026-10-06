@@ -24,10 +24,13 @@ impl Fixture {
         let artifact =
             artifact::acquire_bytes(Product::Squad, &manifest, &name, &archive, TARGET).unwrap();
         let mut receipt = Receipt::new(&artifact, state("1.2.3", pinned.then_some("1.2.3")));
-        receipt.provenance = Some(GitHubProvenance {
-            release_id: 42,
-            manifest_sha256: artifact::digest(&manifest),
-        });
+        receipt.provenance = Some(
+            GitHubProvenance {
+                release_id: 42,
+                manifest_sha256: artifact::digest(&manifest),
+            }
+            .into(),
+        );
         let _lock = crate::file_lock::exclusive(&layout.root.join("install.lock")).unwrap();
         layout
             .publish(&artifact, &receipt, None, None, &mut || Ok(()))

@@ -205,6 +205,9 @@ fn repair_with(
                 },
             ));
         };
+        let provenance = provenance.release().ok_or_else(|| {
+            invalid("PR candidate repair cannot use a published release or local-archive fallback.")
+        })?;
         let downloaded = release::download_product(
             product,
             old.state.channel,
@@ -213,8 +216,11 @@ fn repair_with(
             Instant::now() + Duration::from_secs(60),
             get,
         )?;
-        if downloaded.provenance.release_id != provenance.release_id
-            || downloaded.provenance.manifest_sha256 != provenance.manifest_sha256
+        if downloaded
+            .provenance
+            .release()
+            .is_none_or(|source| source.release_id != provenance.release_id)
+            || downloaded.provenance.manifest_sha256() != provenance.manifest_sha256
         {
             return Err(invalid(
                 "The original release provenance does not match its receipt; repair was refused.",
@@ -259,8 +265,7 @@ fn repair_using(
     acquire: impl FnOnce(
         &Receipt,
         &Path,
-    )
-        -> io::Result<(artifact::Artifact, Option<super::receipt::GitHubProvenance>)>,
+    ) -> io::Result<(artifact::Artifact, Option<super::receipt::Provenance>)>,
 ) -> io::Result<RepairReport> {
     if product == Product::Cli {
         return Err(invalid("Repair is only supported for official extensions."));
