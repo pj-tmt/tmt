@@ -1185,9 +1185,9 @@ System-wide invariants:
 Remote's binary-private `serve` owner composes one serving algorithm: human starts detach through
 an exact native worker/private bounded handoff; bare `serve --json` stays foreground for supervisors.
 The existing lease/control/invocation owners govern lifetime and cleanup; uncertainty never authorizes
-successor signals or automatic restart. Local extensions discover through read-only `status --json`.
-The [local CLI discovery contract](contracts/remote-channel-v1.md#local-cli-discovery) owns both
-public shapes; Colab never reads Remote's private state.
+successor signals or automatic restart. Read-only status offers an explicit optional root-local machine
+observation, never authority or a second acquisition; ordinary discovery stays compatible. The
+[discovery contract](contracts/remote-channel-v1.md#local-cli-discovery) owns strict shapes/errors; Colab never reads Remote state.
 
 ## Colab extension
 
