@@ -11,6 +11,17 @@ at the same archived version refuses, even for a newer run. Equal-version bytes
 may change only on an explicit transition to a different channel. No synthetic
 PR version or build-metadata ordering is introduced.
 
+Target-aware online installation uses this same resolver. Published-release
+metadata discovery refuses a PR channel instead of searching ordinary tags.
+An unknown compiled producer authority reports `NATIVE_PR_CHANNEL_UNAVAILABLE`;
+missing credentials report `NATIVE_PR_AUTH_REQUIRED`. Unknown schema, schema
+ahead without consent and older-than-local schema at parent admission report
+`NATIVE_SCHEMA_UNKNOWN`, `NATIVE_SCHEMA_AHEAD` and `NATIVE_SCHEMA_DOWNGRADE`,
+respectively. A later child refusal retains its bounded protocol error message.
+Repair refuses
+a PR source until authenticated reacquisition is available; it cannot substitute
+a published release or unproven local archive.
+
 ## Acquisition and eligibility
 
 Only same-repository, open PRs in `pj-tmt/tmt` are eligible. The exact `rc-build`
@@ -121,6 +132,12 @@ the manifest schema against its own compiled export and uses the existing
 inventory, publisher, rollback, skills and finalization owners. Protocol-1
 requests, responses and normal release receipts remain unchanged. Unsupported
 candidates refuse safely; no old-process installer fallback is used.
+
+The native protocol fixture archives its actual development executable under
+its unchanged version on a PR channel. It tests the child, receipt and read-only
+database fences; it grants no producer trust or released-archive qualification.
+The existing synthetic-alpha fixture requirements still govern stable/alpha
+installation proofs.
 
 ## Bootstrap dependencies
 

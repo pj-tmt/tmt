@@ -395,3 +395,120 @@ fn local_newer_than_candidate_and_unknown_latest_alpha_refuse() {
     });
     assert!(fixture.download().is_err());
 }
+
+#[test]
+fn metadata_budget_refuses_before_the_next_request_and_bounds_total_bytes() {
+    let mut calls = 0;
+    {
+        let mut api = Api {
+            get: |_: &str, _: &str, _: usize, _: Instant| {
+                calls += 1;
+                Ok(b"{}".to_vec().into())
+            },
+            deadline: Instant::now() + Duration::from_secs(60),
+            requests: 0,
+            remaining: METADATA_LIMIT,
+        };
+        for _ in 0..32 {
+            api.metadata("pulls/234").unwrap();
+        }
+        assert!(
+            api.metadata("pulls/234")
+                .unwrap_err()
+                .to_string()
+                .contains("bound")
+        );
+    }
+    assert_eq!(calls, 32);
+    let mut calls = 0;
+    {
+        let mut api = Api {
+            get: |_: &str, _: &str, limit: usize, _: Instant| {
+                calls += 1;
+                assert_eq!(
+                    limit,
+                    if calls == 1 {
+                        METADATA_LIMIT
+                    } else {
+                        METADATA_LIMIT / 2
+                    }
+                );
+                let mut bytes = b"{}".to_vec();
+                bytes.resize(METADATA_LIMIT / 2, b' ');
+                Ok(bytes.into())
+            },
+            deadline: Instant::now() + Duration::from_secs(60),
+            requests: 0,
+            remaining: METADATA_LIMIT,
+        };
+        api.metadata("pulls/234").unwrap();
+        api.metadata("pulls/234").unwrap();
+        assert!(api.metadata("pulls/234").is_err());
+    }
+    assert_eq!(calls, 2);
+}
+
+#[test]
+fn failed_or_expired_newest_trusted_generation_never_downloads_an_older_catalog() {
+    let route = "actions/artifacts?name=tmt-pr-rc-catalog-v2-pr234&per_page=100&page=1";
+    for failure in ["run", "expired", "head"] {
+        let mut fixture = Fixture::new();
+        fixture.modify(route, false, |inventory| {
+            let mut older = inventory["artifacts"][0].clone();
+            older["id"] = 8200.into();
+            older["workflow_run"]["id"] = 9000.into();
+            inventory["artifacts"].as_array_mut().unwrap().push(older);
+            inventory["total_count"] = 2.into();
+        });
+        match failure {
+            "run" => fixture.modify("actions/runs/9001", false, |run| {
+                run["conclusion"] = "failure".into()
+            }),
+            "expired" => fixture.modify("actions/artifacts/8201", false, |entry| {
+                entry["expired"] = true.into()
+            }),
+            _ => fixture.modify("pulls/234", false, |pull| {
+                pull["head"]["sha"] = "b".repeat(40).into()
+            }),
+        }
+        assert!(fixture.download().is_err(), "{failure}");
+        assert!(
+            !fixture
+                .calls
+                .iter()
+                .any(|url| url.ends_with("/actions/runs/9000")
+                    || url.contains("/actions/artifacts/8200"))
+        );
+    }
+}
+
+#[test]
+fn excessive_generation_discovery_refuses_before_any_producer_or_payload_fetch() {
+    let mut fixture = Fixture::new();
+    fixture.modify(
+        "actions/artifacts?name=tmt-pr-rc-catalog-v2-pr234&per_page=100&page=1",
+        false,
+        |inventory| {
+            let prototype = inventory["artifacts"][0].clone();
+            inventory["artifacts"] = (0..9)
+                .map(|index| {
+                    let mut entry = prototype.clone();
+                    entry["id"] = (8201 + index).into();
+                    entry["workflow_run"]["id"] = (9001 + index).into();
+                    entry
+                })
+                .collect::<Vec<_>>()
+                .into();
+            inventory["total_count"] = 9.into();
+        },
+    );
+    assert!(
+        fixture
+            .download()
+            .err()
+            .unwrap()
+            .to_string()
+            .contains("run inventory exceeds its bound")
+    );
+    assert_eq!(fixture.calls.len(), 3);
+}

@@ -21,6 +21,15 @@ const METADATA_LIMIT: usize = 2 * 1024 * 1024;
 /// the reviewed producer contract, never inferred from a surviving artifact.
 pub(super) const APPROVED: &[wire::ApprovedProducer] = &[];
 
+#[derive(Debug)]
+pub(super) struct Unavailable(pub &'static str);
+impl std::fmt::Display for Unavailable {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(self.0)
+    }
+}
+impl std::error::Error for Unavailable {}
+
 pub(super) struct Policy<'a> {
     pub repository_id: u64,
     pub producers: &'a [wire::ApprovedProducer],
@@ -328,6 +337,33 @@ pub(super) struct Request<'a> {
     pub deadline: Instant,
 }
 
+/// Live acquisition uses the same compiled authority and local owner for first
+/// installation and later updates. Tests inject policy only at `download`.
+pub(super) fn download_current(
+    request: Request<'_>,
+    get: impl FnMut(&str, &str, usize, Instant) -> io::Result<Response>,
+) -> io::Result<DownloadedRelease> {
+    let product = request.product;
+    download(
+        request,
+        Policy {
+            repository_id: 1_118_285_740,
+            producers: APPROVED,
+        },
+        get,
+        || super::local_application_schema(product),
+        || {
+            u64::try_from(
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map_err(io::Error::other)?
+                    .as_millis(),
+            )
+            .map_err(io::Error::other)
+        },
+    )
+}
+
 pub(super) fn download(
     request: Request<'_>,
     policy: Policy<'_>,
@@ -344,9 +380,9 @@ pub(super) fn download(
         deadline,
     } = request;
     if policy.producers.is_empty() || policy.producers.len() > 16 {
-        return Err(invalid(
+        return Err(io::Error::other(Unavailable(
             "PR candidate publisher authority is unknown; no producer tuple is approved.",
-        ));
+        )));
     }
     let mut api = Api {
         get,

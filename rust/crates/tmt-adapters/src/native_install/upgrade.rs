@@ -72,6 +72,13 @@ impl UpgradeFailure {
                 "NATIVE_PR_AUTH_REQUIRED"
             }
             None if self.needs_new_installer() => "NATIVE_UPGRADE_INSTALLER_UNSUPPORTED",
+            None if self
+                .cause
+                .get_ref()
+                .is_some_and(|error| error.is::<super::pr_resolver::Unavailable>()) =>
+            {
+                "NATIVE_PR_CHANNEL_UNAVAILABLE"
+            }
             None => "NATIVE_UPGRADE_FAILED",
         }
     }
@@ -118,46 +125,32 @@ pub fn upgrade_product_with_schema_consent(
         request.unpin,
     )
     .map_err(io::Error::other)?;
-    if matches!(
-        selection,
-        UpgradeSelection::Fetch {
-            channel: Channel::Pr(_),
-            ..
-        }
-    ) {
-        let deadline = Instant::now() + Duration::from_secs(60);
-        let client = crate::release_http::Https::authenticated(
-            deadline,
-            &crate::process::UnixCommandRunner,
-        )?;
-        return upgrade_product_with_options(
-            product,
-            request,
-            verifier,
-            Acquisition {
-                selected: None,
-                allow_schema_ahead,
-                deadline,
-            },
-            checkpoint,
-            |url, accept, limit, deadline| {
-                if url.ends_with("/zip") {
-                    client.get_actions(url, limit, deadline)
-                } else {
-                    client.get(url, accept, limit, deadline)
-                }
-            },
-            install_cli,
-        );
-    }
-    let client = crate::release_http::Https::new();
-    upgrade_product_with(
+    let deadline = Instant::now() + Duration::from_secs(60);
+    let client = client_for_selection(&selection, deadline)?;
+    upgrade_product_with_options(
         product,
         request,
         verifier,
-        None,
+        Acquisition {
+            selected: None,
+            allow_schema_ahead,
+            deadline,
+        },
         checkpoint,
-        |url, accept, limit, deadline| client.get(url, accept, limit, deadline),
+        |url, accept, limit, deadline| {
+            if matches!(
+                selection,
+                UpgradeSelection::Fetch {
+                    channel: Channel::Pr(_),
+                    ..
+                }
+            ) && url.ends_with("/zip")
+            {
+                client.get_actions(url, limit, deadline)
+            } else {
+                client.get(url, accept, limit, deadline)
+            }
+        },
         install_cli,
     )
 }
@@ -190,18 +183,62 @@ pub fn upgrade_product_selected(
     let version = version
         .parse::<semver::Version>()
         .map_err(io::Error::other)?;
-    let client = crate::release_http::Https::new();
-    upgrade_product_with(
+    let current = super::inspect_product(product, request.executable)?;
+    let selection = select_upgrade(
+        &current.state,
+        request.channel,
+        request.exact,
+        request.unpin,
+    )
+    .map_err(io::Error::other)?;
+    let deadline = Instant::now() + Duration::from_secs(60);
+    let client = client_for_selection(&selection, deadline)?;
+    upgrade_product_with_options(
         product,
         request,
         verifier,
-        Some(&version),
+        Acquisition {
+            selected: Some(&version),
+            allow_schema_ahead: false,
+            deadline,
+        },
         checkpoint,
-        |url, accept, limit, deadline| client.get(url, accept, limit, deadline),
+        |url, accept, limit, deadline| {
+            if matches!(
+                selection,
+                UpgradeSelection::Fetch {
+                    channel: Channel::Pr(_),
+                    ..
+                }
+            ) && url.ends_with("/zip")
+            {
+                client.get_actions(url, limit, deadline)
+            } else {
+                client.get(url, accept, limit, deadline)
+            }
+        },
         install_cli,
     )
 }
 
+fn client_for_selection(
+    selection: &UpgradeSelection,
+    deadline: Instant,
+) -> io::Result<crate::release_http::Https> {
+    if matches!(
+        selection,
+        UpgradeSelection::Fetch {
+            channel: Channel::Pr(_),
+            ..
+        }
+    ) {
+        crate::release_http::Https::authenticated(deadline, &crate::process::UnixCommandRunner)
+    } else {
+        Ok(crate::release_http::Https::new())
+    }
+}
+
+#[cfg(test)]
 fn upgrade_product_with(
     product: super::Product,
     request: UpgradeRequest<'_>,
@@ -285,7 +322,7 @@ fn upgrade_product_with_options(
         });
     };
     let mut downloaded = if let Channel::Pr(pr) = channel {
-        super::pr_resolver::download(
+        super::pr_resolver::download_current(
             super::pr_resolver::Request {
                 product,
                 pr,
@@ -294,21 +331,7 @@ fn upgrade_product_with_options(
                 opt_in: allow_schema_ahead,
                 deadline,
             },
-            super::pr_resolver::Policy {
-                repository_id: 1_118_285_740,
-                producers: super::pr_resolver::APPROVED,
-            },
             &mut get,
-            || super::local_application_schema(product),
-            || {
-                u64::try_from(
-                    std::time::SystemTime::now()
-                        .duration_since(std::time::UNIX_EPOCH)
-                        .map_err(io::Error::other)?
-                        .as_millis(),
-                )
-                .map_err(io::Error::other)
-            },
         )?
     } else {
         release::download_product(
