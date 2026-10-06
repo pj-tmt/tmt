@@ -36,20 +36,20 @@ shadow cells. Avoid a colored card for every state or separate frames around
 each field. A focused pane is recognizable from its title and focus marker;
 selecting a row does not imply that pane currently receives keys.
 
-| Meaning             | Presentation target                                          | Non-color cue                                                   | Existing owner / next boundary                                     |
-| ------------------- | ------------------------------------------------------------ | --------------------------------------------------------------- | ------------------------------------------------------------------ |
-| Canvas              | Quiet background outside content blocks                      | Spacing and reading order                                       | Theme/screen adapter; proposed new surface roles need #1830 review |
-| Content surface     | Neutral block, shared by rows and reading panes              | Section title; one boundary when adjacent panes need separation | `Outline` / scene composition                                      |
-| Selected item       | One continuous background over the complete wrapped item     | Explicit selected-occurrence mark across the wrapped item       | `Look::row_span`, `selected_words`                                 |
-| Keyboard focus      | Distinct pane-title focus label; optional supported emphasis | Focused title with a distinct focus label                       | App focus, pane title / modal focus stack                          |
-| Waiting on the user | Warm attention mark; ordinary readable words                 | `◆` plus `waits on you`                                         | Acquired attention predicate; never checklist-derived              |
-| Working             | Green mark, quiet body text                                  | `●` plus `working`                                              | Admitted state; not a heartbeat                                    |
-| In review           | Review mark / role                                           | `◐` plus `in review`                                            | Admitted state; not waiting on Ben                                 |
-| Blocked or failed   | Error mark plus one actionable sentence                      | `✗` plus reason                                                 | Existing failure owner                                             |
-| Checklist complete  | Small success cue, retained item title                       | `[✓]` plus `done`                                               | Proposed presentation; allowed state from #1826                    |
-| Muted / unavailable | Secondary labels; readable inherited contrast                | `–`, empty phrase or explicit source label                      | Existing `muted` / `dim` roles                                     |
-| Disabled action     | Muted label with explicit unavailable reason                 | Disabled marker; activation refused                             | Existing admission/controller                                      |
-| Link                | Link role and underline where supported                      | Link label and effective open hint                              | Existing link validation / effects                                 |
+| Meaning             | Presentation target                                        | Non-color cue                                                   | Existing owner / next boundary                                     |
+| ------------------- | ---------------------------------------------------------- | --------------------------------------------------------------- | ------------------------------------------------------------------ |
+| Canvas              | Quiet background outside content blocks                    | Spacing and reading order                                       | Theme/screen adapter; proposed new surface roles need #1830 review |
+| Content surface     | Neutral block, shared by rows and reading panes            | Section title; one boundary when adjacent panes need separation | `Outline` / scene composition                                      |
+| Selected item       | Continuous background over admitted selected content cells | Occurrence cue on admitted selected continuation cells          | `Look::row_span`, `selected_words`                                 |
+| Keyboard focus      | Receiving-focus label in title, input or base footer       | Explicit receiving surface name                                 | App focus, pane title / modal focus stack                          |
+| Waiting on the user | Warm attention mark; ordinary readable words               | `◆` plus `waits on you`                                         | Acquired attention predicate; never checklist-derived              |
+| Working             | Green mark, quiet body text                                | `●` plus `working`                                              | Admitted state; not a heartbeat                                    |
+| In review           | Review mark / role                                         | `◐` plus `in review`                                            | Admitted state; not waiting on Ben                                 |
+| Blocked or failed   | Error mark plus one actionable sentence                    | `✗` plus reason                                                 | Existing failure owner                                             |
+| Checklist complete  | Small success cue, retained item title                     | `[✓]` plus `done`                                               | Proposed presentation; allowed state from #1826                    |
+| Muted / unavailable | Secondary labels; readable inherited contrast              | `–`, empty phrase or explicit source label                      | Existing `muted` / `dim` roles                                     |
+| Disabled action     | Muted label with explicit unavailable reason               | Disabled marker; activation refused                             | Existing admission/controller                                      |
+| Link                | Link role and underline where supported                    | Link label and effective open hint                              | Existing link validation / effects                                 |
 
 Do not place literal palette values in Squad painters or create a second palette
 in tmt-tui. Existing `Role` does not have canvas/content/band backgrounds: those
@@ -300,13 +300,35 @@ to #1829 and its PR rather than this living specification.
 ### First implementation handoff: selected occurrence and role mapping
 
 The first #1830 slice maps the existing selected-item, selected-word, semantic
-mark and receiving-focus roles. Preserve the measured occurrence and viewport
-intersection as the selected range; never extend across a pane boundary or
-covered input band. A visible occurrence marker belongs in the existing row
-prefix allocation, repeats on visible continuation lines, and does not replace
-state/attention marks. If that prefix cannot accommodate it, return the exact
-geometry conflict before changing row width or hits. Focus is identified at the
-receiving pane title or input header, not inferred from the selected fill.
+mark and receiving-focus roles. Selection paint, hit regions and scroll/reveal
+envelopes are distinct. Grid selection follows selected `Part.row` content cells
+and their physical wrapped continuations; annotation/sent feedback parts with
+`row=None` are excluded. Boxed members select the heading and member task cells;
+HOME boxed leads select the heading only. `RowPaint.starts..ends` and
+`LeadSpan.start..end` include other reservations and are not selection bounds.
+Intersect selected content with its pane and viewport. Exclude section labels,
+separators, borders, decoration, unselected HOME previews and composer/read-band
+reservations. Duplicate UUIDs do not share selection: the chosen occurrence is
+the only target. Any later expansion needs an explicit proposed fixture range.
+
+Place an occurrence cue only in an identified existing blank prefix cell of
+that selected physical content line. Preserve the grid waiting diamond at x=0,
+boxed border/padded semantic mark, HOME attention mark and configured widths.
+No blanket new gutter is proposed. Where an admitted blank cell does not exist,
+report the exact surface/line conflict before altering geometry or hit regions.
+
+Receiving focus uses the existing title on outlined panes and the existing
+input header while composing. For borderless Rows (boxed members or single-pane
+split) and HOME, use the existing base footer hint strip: prefix the hint text
+with `Focus: rows` or `Focus: HOME rows`. These are noninteractive labels, not new
+rows or hit regions. Preserve `? more` and `q quit`; drop lower-priority whole
+hints first. A selected-but-unfocused Rows pane must not claim receiving focus.
+Notice/link/input/modal ownership retains precedence; do not replace an error
+or active input to paint this label. Fixtures must name that temporary owning
+surface separately. If even the focus label plus mandatory hints cannot fit,
+record the exact narrow-width fallback for review rather than silently clipping
+keys or borrowing another pane's title. HOME sections remain sections of Rows,
+not independently focusable panes.
 
 Keep the existing real-background selected-word policy and no-background
 reverse/bold fallback in this first slice; explicit marks and labels must remain
