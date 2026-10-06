@@ -59,7 +59,7 @@ Docker build stages preserve those source paths, and their CI rules retain nativ
 The private design-tokens component attributes token changes to Colab through `releaseConsumers`.
 Release procedures belong to the
 [release skill](.agents/skills/tmt-release/SKILL.md), including the archive's
-product-neutral `rust/archive/NATIVE-INSTALL.md`.
+product-neutral `rust/archive/NATIVE-INSTALL.md`; [dev-only embed](site/README.md) stays site-owned.
 
 ## TypeScript workspace boundary
 
