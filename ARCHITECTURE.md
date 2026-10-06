@@ -1183,12 +1183,11 @@ System-wide invariants:
 - Enrolled panes are never pasted to; core's send-time guard decides, never terminal output.
 - The serve lease is inherited by invocation children, so restart cannot overlap an orphaned effect.
 
-Remote's binary-private `serve` owner composes one serving algorithm: human starts detach through
-an exact native worker/private bounded handoff; bare `serve --json` stays foreground for supervisors.
-The existing lease/control/invocation owners govern lifetime and cleanup; uncertainty never authorizes
-successor signals or automatic restart. Read-only status offers an explicit optional root-local machine
-observation, never authority or a second acquisition; ordinary discovery stays compatible. The
-[discovery contract](contracts/remote-channel-v1.md#local-cli-discovery) owns strict shapes/errors; Colab never reads Remote state.
+Remote's binary-private `serve` owner runs one algorithm: human starts detach through an exact native
+worker/private bounded handoff; bare `serve --json` stays foreground. Lease/control/invocation owners
+govern lifetime and cleanup; uncertainty never authorizes successor signals or automatic restart.
+Optional machine status observes one root, without authority or a second acquisition. The
+[discovery contract](contracts/remote-channel-v1.md#local-cli-discovery) owns compatible shapes/errors; Colab never reads Remote state.
 
 ## Colab extension
 
