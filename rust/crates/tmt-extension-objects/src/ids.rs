@@ -17,7 +17,8 @@ const BASE64URL: GeneralPurpose = GeneralPurpose::new(
         .with_decode_padding_mode(DecodePaddingMode::RequireNone)
         .with_decode_allow_trailing_bits(false),
 );
-/// Room the engine needs to decode the 43 characters of 32 bytes, with no spare for more.
+/// Output room for the engine: it sizes 43 characters at 33 bytes, one more than a
+/// `Bytes32` holds, so the exact-width check in `parse` is what refuses a 33-byte result.
 const BYTES32_BUFFER: usize = 33;
 
 fn lower_hex(byte: u8) -> Option<u8> {
@@ -123,7 +124,7 @@ impl Bytes32 {
         Self(bytes)
     }
     pub fn parse(text: &str) -> Result<Self, ErrorClass> {
-        // A fixed buffer bounds the work: longer input cannot be decoded into it.
+        // No `Vec` is sized from the input; input that decodes to more than the buffer is refused.
         let mut bytes = [0u8; BYTES32_BUFFER];
         let width = BASE64URL
             .decode_slice(text, &mut bytes)
