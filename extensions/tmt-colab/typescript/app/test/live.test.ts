@@ -203,6 +203,8 @@ it('exports admitted committed view/head and denies blocked, missing-key and clo
     expect(await bundle.blob('page.html').text()).toBe('verified');
     const manifest = JSON.parse(await bundle.blob('manifest.json').text());
     expect(manifest.title).toBe('Page');
+    expect(manifest).not.toHaveProperty('originalAuthor');
+    expect(manifest).not.toHaveProperty('publisherAgent');
     expect(manifest.membershipHead).toEqual({ revision: '2', statementHash: '0a'.repeat(32) });
     expect(manifest.epoch).toBe('1');
     expect(c.admission.validatePage).toHaveBeenCalledWith('private');
@@ -248,15 +250,39 @@ it('slow Ask verification keeps one latest view while source export reads the co
         }),
     );
     const c = connections.at(-1)!;
-    c.publish({ source: 'slow', title: 'Page' });
+    c.publish({
+      source: 'slow',
+      title: 'Page',
+      originalAuthor: 'Alice creator',
+      publisherAgent: 'Bob slow',
+    });
     await vi.waitFor(() => expect(release).toBeDefined());
-    for (let n = 0; n < 20; n++) c.publish({ source: `latest ${n}`, title: 'Page' });
-    expect(await (await live.export()).blob('page.html').text()).toBe('latest 19');
+    for (let n = 0; n < 20; n++)
+      c.publish({
+        source: `latest ${n}`,
+        title: 'Page',
+        originalAuthor: 'Alice creator',
+        publisherAgent: `Bob ${n}`,
+      });
+    const frozen = await live.export();
+    expect(await frozen.blob('page.html').text()).toBe('latest 19');
+    const manifest = JSON.parse(await frozen.blob('manifest.json').text());
+    expect(manifest.originalAuthor).toBe('Alice creator');
+    expect(manifest.publisherAgent).toBe('Bob 19');
     expect(seen).toEqual(['verified']);
     release();
-    expect((await live.snapshot()).source).toBe('latest 19');
+    const latest = await live.snapshot();
+    expect(latest.source).toBe('latest 19');
+    expect(latest.originalAuthor).toBe('Alice creator');
+    expect(latest.publisherAgent).toBe('Bob 19');
     expect(seen).toEqual(['verified', 'latest 19']);
     expect(asks.project).toHaveBeenCalledTimes(3);
+    c.publish({ source: 'next', title: 'Page', originalAuthor: 'Alice creator' });
+    await vi.waitFor(async () => expect((await live.snapshot()).source).toBe('next'));
+    expect((await live.snapshot()).originalAuthor).toBe('Alice creator');
+    expect((await live.snapshot()).publisherAgent).toBeUndefined();
+    expect(JSON.parse(await frozen.blob('manifest.json').text())).toEqual(manifest);
+    expect(await frozen.blob('page.html').text()).toBe('latest 19');
   } finally {
     live.close();
   }

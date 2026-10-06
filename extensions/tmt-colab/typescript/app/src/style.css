@@ -244,11 +244,15 @@ footer {
   cursor: pointer;
   list-style: none;
 }
-.page-information p {
+.page-information-panel {
   position: absolute;
   top: 100%;
   right: 0;
   width: min(320px, 90vw);
+  max-height: calc(100dvh - var(--page-bar-size) - 32px);
+  overflow: auto;
+  white-space: normal;
+  box-sizing: border-box;
   padding: 16px;
   background: var(--c-sheet);
   border: 1px solid var(--c-rule);
@@ -357,7 +361,7 @@ footer {
   .page-secondary .page-information summary {
     border: 0;
   }
-  .page-secondary .page-information p {
+  .page-secondary .page-information-panel {
     position: static;
     width: 100%;
     margin: 0;

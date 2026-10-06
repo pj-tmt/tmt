@@ -1,6 +1,11 @@
 /** English chrome catalog; page content and fixture text are not UI strings. */
 export const text = {
   unknownPageTitle: 'Untitled page',
+  originalAuthor: 'Original author',
+  unknownAuthor: 'Unknown author',
+  latestPublisher: 'Latest publisher',
+  authorAttributionNote:
+    'Names are publisher-provided labels, not proof of identity or permission.',
   askShort: 'Ask',
   comments: 'Comments',
   commentSelection: 'Comment on selection',

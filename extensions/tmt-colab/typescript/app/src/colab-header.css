@@ -38,13 +38,17 @@ body {
   font: var(--colab-header-wordmark-weight) var(--colab-header-wordmark-size) /
     var(--colab-header-wordmark-line-height) var(--f-display);
 }
-.colab-title {
+.colab-heading,
+.colab-header > .colab-title {
   flex: 1;
+  min-width: 0;
+  padding-left: var(--colab-header-gap);
+  border-left: 1px solid var(--c-rule);
+}
+.colab-title {
   min-width: 0;
   overflow: hidden;
   margin: 0;
-  padding-left: var(--colab-header-gap);
-  border-left: 1px solid var(--c-rule);
   color: var(--c-text);
   font: var(--colab-header-title-weight) var(--colab-header-title-size) /
     var(--colab-header-title-line-height) var(--f-display);
@@ -102,4 +106,29 @@ body {
 .status .lucide.status-dot {
   width: 8px;
   height: 8px;
+}
+
+.colab-caption {
+  overflow: hidden;
+  color: var(--c-muted);
+  font: 11px/1.2 var(--f-body);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.page-attribution {
+  margin: 0 0 12px;
+  font: 12px/1.4 var(--f-body);
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.page-attribution dt {
+  color: var(--c-muted);
+}
+.page-attribution dd {
+  margin: 0 0 8px;
+}
+.page-attribution-note {
+  color: var(--c-muted);
+  font: 12px/1.4 var(--f-body);
+  white-space: normal;
 }

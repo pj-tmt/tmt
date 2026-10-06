@@ -147,7 +147,7 @@ test('narrow desktop menu switches floating panels and keeps information readabl
   await expect(page.locator('.page-drawer[data-panel=source]')).not.toBeVisible();
   await page.getByRole('button', { name: 'More page actions' }).click();
   await page.getByText('Page information', { exact: true }).click();
-  const information = page.locator('.page-information p');
+  const information = page.locator('.page-information-panel');
   await expect(information).toBeVisible();
   const box = (await information.boundingBox())!;
   expect(box.x).toBeGreaterThanOrEqual(0);

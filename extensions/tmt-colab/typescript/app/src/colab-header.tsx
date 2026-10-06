@@ -5,12 +5,14 @@ import './colab-header.css';
 /** Shared chrome; screens supply content, never header geometry or typography. */
 export function ColabHeader({
   title,
+  caption,
   actions,
   home,
   headerRef,
   menuOpen,
 }: {
   title: string;
+  caption?: string;
   actions?: ReactNode;
   home?: (brand: ReactNode) => ReactNode;
   headerRef?: Ref<HTMLElement>;
@@ -25,9 +27,16 @@ export function ColabHeader({
   return (
     <header className="colab-header" ref={headerRef} data-menu-open={menuOpen}>
       {home ? home(brand) : <span className="colab-brand">{brand}</span>}
-      <h1 className="colab-title" title={title}>
-        {title}
-      </h1>
+      <div className="colab-heading">
+        <h1 className="colab-title" title={title}>
+          {title}
+        </h1>
+        {caption !== undefined && (
+          <div className="colab-caption" title={caption}>
+            {caption}
+          </div>
+        )}
+      </div>
       <div className="colab-actions">{actions}</div>
     </header>
   );

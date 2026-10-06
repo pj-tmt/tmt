@@ -2,11 +2,18 @@
 
 `colab-header.tsx` owns the shared fixed, one-row header for the page list,
 owner page, router errors, mounted lifecycle notices and reader states. Screens
-supply their title and actions; `colab-header.css` owns geometry, brand/title
+supply their title, optional caption and actions; `colab-header.css` owns geometry, brand/title
 hierarchy and flat actions. Header dimensions and typography come from
 `design/tokens/tokens.json` (the shared `header` group, which Remote's browser pages
 also use), including the shared compact viewport rule. Lucide
 icons use currentColor, square caps and miter joins.
+
+Owner and ready reader headers show the canonical original author below the title,
+with `Unknown author` for absent historical metadata. `page-attribution.tsx` presents
+that same field and the independently optional latest publisher in Page information.
+These are escaped publisher-provided display labels, never identity, permissions or
+Ask recipient selection. Header height and page geometry stay unchanged; long
+captions truncate with the full label in the tooltip and information panel.
 
 `notice-card.tsx` owns state-card markup for router errors, mounted lifecycle and
 reader notices. Its stylesheet also styles native guidance: centered square cards,

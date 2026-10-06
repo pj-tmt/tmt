@@ -1227,6 +1227,11 @@ core discovery or storage access.
   dependency. Colab stops only a door it started, with its whole group, after closing its own
   socket. `tmt colab stop` reaches the serving process
   through a root-local route on that same owner-only socket (no signals, no new surface).
+- **Author presentation.** Owner and ready reader chrome use the decoder's optional
+  original-author creation snapshot and independent latest-publisher label directly;
+  absent originals remain unknown. These publisher-asserted labels confer no identity,
+  permissions or Ask authority. [Page chrome](.agents/skills/tmt-colab/references/page-chrome.md)
+  owns their shared title/information presentation.
 - **Renderer invariant.** Parent chrome allows only self-hosted scripts and styles (no
   `unsafe-inline`). Author HTML runs only in `renderer.html` inside an opaque
   `sandbox allow-scripts` frame whose own policy permits inline scripts and styles but no
