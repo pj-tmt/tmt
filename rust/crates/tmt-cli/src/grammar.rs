@@ -185,6 +185,7 @@ pub fn grammar_for(drivers: &[&'static DriverDescriptor]) -> Command {
     .subcommand(installation::refresh_skills())
     .subcommand(installation::upgrade_extensions())
     .subcommand(installation::native_install())
+    .subcommand(installation::native_schema())
     .subcommand(installation::learn())
 }
 
@@ -234,8 +235,15 @@ fn extension_target(command: Command) -> Command {
 fn channel_option() -> Arg {
     Arg::new("channel")
         .long("channel")
-        .help("Select the release channel")
-        .value_parser(tmt_core::native_install::Channel::ALL.map(|channel| channel.as_str()))
+        .help("Select stable, alpha or an explicit PR channel (pr<N>)")
+        .value_parser(|value: &str| {
+            tmt_core::native_install::Channel::parse(value)
+                .filter(|channel| channel.as_str() == value)
+                .map(|_| value.to_owned())
+                .ok_or_else(|| {
+                    "Select stable, alpha or pr<N> with a positive bounded PR number.".to_owned()
+                })
+        })
 }
 
 /// A `tmt ls` filter; filters narrow the list, never a single identity.

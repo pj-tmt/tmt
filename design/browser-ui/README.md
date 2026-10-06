@@ -2,7 +2,9 @@
 
 `@tmt/browser-ui` is a private tmt-ux-owned leaf. Products may depend on it; it
 must not import product code. Core and the CLI must neither depend on nor embed
-it. This initial source checkpoint does not establish product adoption or release
+it. The all-file native input guard proves direct literal/manifest-relative inputs
+and local single-arm literal-forwarding wrappers at every literal call site;
+unproved macro scope, forwarding, aliases or expressions fail closed. This initial source checkpoint does not establish product adoption or release
 readiness. Workspace, lockfile, shared quality and static COPY integration is
 implemented in this branch under Infra ownership. Actual-head review, CI, delivery
 and product adoption remain pending.

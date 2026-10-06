@@ -965,7 +965,7 @@ fn rows_ignore_retired_notes_and_show_pending_sections_and_aligned_wide_text() {
     lead_sol(&mut app);
     let screen = draw(&app, 48, 12);
     // The tab line holds only the tabs; the summary has its own line.
-    assert_eq!(screen[0], "  product   reviews");
+    assert_eq!(screen[0], "  [product]   reviews");
     assert_eq!(screen[1], "lead sol · 2 members");
     assert_eq!(screen[2], "  MEMBER     STATE    TASK");
     // The lead is the first row; the rule names what follows.
@@ -1720,18 +1720,15 @@ fn light_body_chrome_and_selection_use_the_theme_and_no_color_keeps_focus() {
         let buffer = terminal.backend().buffer();
         let fg = |role| app.look().role(role).fg.unwrap_or_default();
         // Chrome uses the theme; unselected body keeps the terminal foreground.
-        for (x, y) in [(1, 1), (2, 2), (1, 6), (12, 0)] {
+        assert_eq!(buffer[(1, 1)].fg, fg(Role::Text));
+        for (x, y) in [(2, 2), (1, 6), (14, 0)] {
             assert_eq!(buffer[(x, y)].fg, fg(Role::Muted), "chrome {x},{y}");
         }
         assert_eq!(buffer[(2, 4)].fg, ratatui::style::Color::Reset);
         assert_eq!(buffer[(13, 5)].fg, fg(Role::Dim));
         assert_eq!(buffer[(22, 5)].fg, fg(Role::Dim));
         // The selected tab is a word on a real selection background: text.
-        let selected_tab = if app.look().selection().bg.is_some() {
-            Role::Text
-        } else {
-            Role::Accent
-        };
+        let selected_tab = Role::Text;
         assert_eq!(buffer[(1, 0)].fg, fg(selected_tab));
         assert!(buffer[(2, 0)].modifier.contains(Modifier::BOLD));
         let selected = &buffer[(2, 3)];
@@ -1749,7 +1746,7 @@ fn light_body_chrome_and_selection_use_the_theme_and_no_color_keeps_focus() {
 }
 
 #[test]
-fn selected_tabs_keep_foregrounds_and_geometry_with_selection_background() {
+fn selected_tabs_add_measured_name_brackets_and_keep_semantic_mark_styles() {
     for base in tmt_cli_style::Base::ALL {
         for depth in [
             tmt_cli_style::Depth::TrueColor,
@@ -1801,15 +1798,15 @@ fn selected_tabs_keep_foregrounds_and_geometry_with_selection_background() {
                     attention,
                     &TabColors::default(),
                 );
-                assert_eq!(selected.to_string(), text);
-                assert_eq!(selected.to_string(), unselected.to_string());
-                assert_eq!(selected.width(), unselected.width());
+                assert_eq!(selected.to_string(), text.replace("product", "[product]"));
+                assert_eq!(unselected.to_string(), text);
+                assert_eq!(selected.width(), unselected.width() + 2);
                 for (label, chosen) in [(selected, true), (unselected, false)] {
                     let normal = if chosen {
                         Style {
                             bg: selection.bg,
                             ..look
-                                .role(Role::Accent)
+                                .role(Role::Text)
                                 .add_modifier(Modifier::BOLD | selection.add_modifier)
                         }
                     } else {
@@ -1824,9 +1821,9 @@ fn selected_tabs_keep_foregrounds_and_geometry_with_selection_background() {
                         .unwrap();
                     let buffer = terminal.backend().buffer();
                     assert_eq!(
-                        buffer[(2, 0)].symbol(),
+                        buffer[(2 + u16::from(chosen), 0)].symbol(),
                         "p",
-                        "names always start after the two-cell slot"
+                        "the name follows the slot and the admitted opening bracket"
                     );
                     for x in 0..width {
                         let role = if x == 0 && attention.waiting > 0 {
@@ -1834,7 +1831,8 @@ fn selected_tabs_keep_foregrounds_and_geometry_with_selection_background() {
                         } else if (x == 0 && attention.blocked > 0)
                             || (attention.waiting > 0
                                 && attention.blocked > 0
-                                && (12..15).contains(&x))
+                                && (12 + u16::from(chosen) * 2..15 + u16::from(chosen) * 2)
+                                    .contains(&x))
                         {
                             Some(Role::Blocked)
                         } else {
@@ -1883,19 +1881,22 @@ fn tab_fallback_depends_on_background_even_with_an_accent_foreground() {
     };
     assert!(look.role(Role::Accent).fg.is_some());
     assert!(look.selection().bg.is_none());
-    for style in [
-        tab(
-            look,
-            "product",
-            true,
-            false,
-            Attention::default(),
-            &TabColors::default(),
-        )
-        .style,
-        pane_tab(look, "detail", true).style,
+    for (style, role) in [
+        (
+            tab(
+                look,
+                "product",
+                true,
+                false,
+                Attention::default(),
+                &TabColors::default(),
+            )
+            .style,
+            Role::Text,
+        ),
+        (pane_tab(look, "detail", true).style, Role::Accent),
     ] {
-        assert_eq!(style.fg, look.role(Role::Accent).fg);
+        assert_eq!(style.fg, look.role(role).fg);
         assert!(style.add_modifier.contains(Modifier::REVERSED));
     }
 }
@@ -2007,11 +2008,11 @@ fn nested_splits_draw_rows_beside_detail_over_notes() {
     let screen = draw(&app, 100, 23);
     // Rows take 60 of 100 columns; detail sits over notes in the rest.
     let right = |line: &str| line.chars().skip(60).collect::<String>();
-    assert!(screen[2].starts_with("┌ Focus: rows"), "{screen:#?}");
-    assert!(right(&screen[2]).starts_with("┌ detail"), "{screen:#?}");
+    assert!(screen[2].starts_with("─ Focus: rows"), "{screen:#?}");
+    assert!(right(&screen[2]).starts_with("─ detail"), "{screen:#?}");
     let notes_top = screen
         .iter()
-        .position(|line| right(line).starts_with("┌ notes · sol"))
+        .position(|line| right(line).starts_with("─ notes · sol"))
         .expect("notes block");
     // 40% of the 20 body lines is detail: notes start 8 lines below it.
     assert_eq!(notes_top, 2 + 8, "{screen:#?}");
@@ -2314,11 +2315,11 @@ fn split_panes_follow_direction_and_sizes() {
     );
     let screen = draw(&app, 100, 11);
     // 60% of 100 columns: the notes block starts at column 60.
-    let notes_at = screen[2].find("┌ notes · sol").expect("notes block title");
+    let notes_at = screen[2].find("─ notes · sol").expect("notes block title");
     assert_eq!(screen[2][..notes_at].chars().count(), 60, "{screen:#?}");
-    assert!(screen[2].starts_with("┌ Focus: rows"));
+    assert!(screen[2].starts_with("─ Focus: rows"));
     assert!(
-        screen.iter().any(|line| line.contains("│  Now")),
+        screen.iter().any(|line| line.contains("   Now")),
         "markdown heading"
     );
     assert!(screen.iter().any(|line| line.contains("◆ auth-fix")));
@@ -2336,7 +2337,7 @@ fn split_panes_follow_direction_and_sizes() {
     let screen = draw(&app, 70, 23);
     let detail_row = screen
         .iter()
-        .position(|line| line.starts_with("┌ detail"))
+        .position(|line| line.starts_with("─ detail"))
         .unwrap();
     assert_eq!(
         detail_row, 12,
@@ -2686,7 +2687,7 @@ fn tabs_carry_attention_by_color_and_count_and_the_summary_has_its_own_line() {
         .map(|x| buffer[(x, 0)].symbol().to_owned())
         .collect();
     // Counts say what the color says, so no meaning is color-only.
-    assert_eq!(tabs.trim_end(), "◆ product 1 ✗ 1 ✗ reviews 2");
+    assert_eq!(tabs.trim_end(), "◆ [product] 1 ✗ 1 ✗ reviews 2");
     let column = |name: &str| tabs[..tabs.find(name).unwrap()].chars().count() as u16;
     let product = &buffer[(column("product"), 0)];
     // Waiting wins over blocked; selection is bold without moving the tab.
@@ -2753,17 +2754,17 @@ fn attention_counts_keep_shared_marks_and_tab_width_without_color() {
     let colors = TabColors::default();
     let plain = tab(app.look(), "product", false, false, counts, &colors);
     let selected = tab(app.look(), "product", true, false, counts, &colors);
-    assert_eq!(selected.to_string(), "◆ product 2 ✗ 1");
-    assert_eq!(selected.to_string(), plain.to_string());
-    assert_eq!(selected.width(), "◆ product 2 ✗ 1".width());
+    assert_eq!(selected.to_string(), "◆ [product] 2 ✗ 1");
+    assert_eq!(plain.to_string(), "◆ product 2 ✗ 1");
+    assert_eq!(selected.width(), plain.width() + 2);
     assert_eq!(selected.style.fg, None);
-    assert!(draw(&app, 60, 8)[0].contains("◆ product 2 ✗ 1"));
+    assert!(draw(&app, 60, 8)[0].contains("◆ [product] 2 ✗ 1"));
     app.switcher = Some(Switcher::new("product".into()));
-    assert!(
-        draw(&app, 60, 8)
-            .iter()
-            .any(|line| line.contains("◆ product 2 ✗ 1"))
-    );
+    assert!(draw(&app, 60, 18).iter().any(|line| line.contains("[x]")
+        && line.contains("product")
+        && line.contains("◆")
+        && line.contains("2")
+        && line.contains("✗1")));
 }
 
 #[test]
@@ -2858,7 +2859,7 @@ fn the_leads_tab_is_labelled_leads_and_counts_squad_leads() {
         view: Ok(view),
     });
     let screen = draw(&app, 60, 6);
-    assert_eq!(screen[0], "  product   leads");
+    assert_eq!(screen[0], "  product   [leads]");
     assert_eq!(screen[1], "2 squad leads");
     assert_eq!(screen[2], "  SQUAD          LEAD           STATE      TASK");
     assert_eq!(screen[3], " >product        sol            working    plan");
@@ -2893,7 +2894,7 @@ fn tabs_move_with_shift_arrows_or_a_drag_and_the_order_is_saved() {
 
     // Drag: press on the first tab (showing it), release over the last.
     let screen = draw(&app, 60, 6);
-    assert_eq!(screen[0], "  reviews   leads   product");
+    assert_eq!(screen[0], "  reviews   leads   [product]");
     let mouse = |kind, column| MouseEvent {
         kind,
         column,
@@ -3018,9 +3019,12 @@ fn switching_squads_never_moves_a_tab_or_blanks_the_frame() {
         );
     }
     assert_eq!(app.current.as_deref(), Some("reviews"));
-    // Selection is a style, so the tab text is the same either way.
-    assert_eq!(before[0], during[0], "selection never changes label width");
-    assert_eq!(before[0].trim_end(), "  product   reviews");
+    // The shown owner remains selected until the requested view is ready.
+    assert_eq!(
+        before[0], during[0],
+        "pending requests do not move shown-tab brackets"
+    );
+    assert_eq!(before[0].trim_end(), "  [product]   reviews");
     assert!(
         during[1].contains("Opening reviews"),
         "a slow switch shows a spinner"
@@ -3516,9 +3520,9 @@ fn initial_loading_uses_the_resolved_theme_before_any_snapshot() {
             app.initial_look = Some(look);
             app.loading_since = Some(std::time::Instant::now() - header::SPINNER_DELAY);
             let line = summary_line(&app);
-            assert_eq!(line.spans[0].style, look.role(Role::Accent));
+            assert_eq!(line.spans[0].style, look.role(Role::Dim));
             assert_eq!(line.spans[1].style, look.role(Role::Muted));
-            assert_eq!(line.spans[2].style, look.role(Role::Accent));
+            assert_eq!(line.spans[2].style, look.role(Role::Text));
             assert_eq!(
                 super::tabs::paint(&app, Rect::new(0, 0, 80, 1)).style,
                 look.role(Role::Accent).add_modifier(Modifier::BOLD)
@@ -3676,7 +3680,7 @@ fn fold_render_restores_both_directions_and_keeps_the_mark_muted() {
             );
             app.view.as_mut().unwrap().look.theme = tmt_cli_style::Theme::new(base);
             let expanded = draw(&app, 80, 23);
-            assert!(expanded.iter().any(|line| line.contains("┌ detail")));
+            assert!(expanded.iter().any(|line| line.contains("─ detail")));
             fold(&mut app, Pane::Detail);
             let folded = draw(&app, 80, 23);
             let hit = *app
@@ -3694,7 +3698,7 @@ fn fold_render_restores_both_directions_and_keeps_the_mark_muted() {
                 assert_eq!(hit.area.x, 72);
                 let title = &folded[hit.area.y as usize];
                 assert_eq!(title.chars().nth(hit.area.x as usize - 1), Some(' '));
-                assert_eq!(title.chars().nth(hit.area.x as usize - 2), Some('┐'));
+                assert_eq!(title.chars().nth(hit.area.x as usize - 2), Some('─'));
             } else {
                 assert_eq!(hit.area.y, 22 - 1);
             }
@@ -4139,10 +4143,7 @@ fn inline_middle_row_band_moves_rows_masks_panes_and_fits_every_theme() {
                 assert!(screen[usize::from(band.y + 2)].contains("◆ “A long waiting"));
                 assert!(screen[usize::from(band.y + 2)].contains('…'));
                 assert!(screen[usize::from(band.y + 4)].contains("Enter send · Esc cancel"));
-                assert_eq!(
-                    screen[usize::from(band.y)],
-                    format!("┌{}┐", "─".repeat(usize::from(width) - 2))
-                );
+                assert_eq!(screen[usize::from(band.y)], "─".repeat(usize::from(width)));
                 assert_eq!(screen[usize::from(band.y)].width(), usize::from(width));
                 for y in band.y..band.bottom() {
                     assert!(!screen[usize::from(y)].contains("neighbor pane fragment"));
@@ -4866,4 +4867,145 @@ fn receiving_focus_labels_keep_title_footer_and_input_ownership_separate() {
         draw(&app, 80, 20).last().unwrap().trim(),
         "Error owns the footer"
     );
+}
+
+#[test]
+fn flat_custom_split_retains_inner_hits_and_focus_title_without_dimming_it() {
+    for width in [80, 100, 160, 180] {
+        for (base, depth) in [
+            ("tmt", tmt_cli_style::Depth::TrueColor),
+            ("tmt-light", tmt_cli_style::Depth::TrueColor),
+            ("terminal", tmt_cli_style::Depth::Ansi16),
+            ("tmt", tmt_cli_style::Depth::None),
+        ] {
+            let mut app = paned(
+                split(
+                    Direction::LeftRight,
+                    vec![Pane::Rows, Pane::Notes],
+                    vec![60, 40],
+                ),
+                Notes::Text("coordination".into()),
+            );
+            app.view.as_mut().unwrap().look = crate::look::Look {
+                theme: tmt_cli_style::Theme::new(tmt_cli_style::Base::parse(base).unwrap()),
+                depth,
+            };
+            app.set_body_width(width);
+            let buffer = board_buffer(&app, width, 23);
+            let titles = app.title_hits.borrow().clone();
+            let rows = titles
+                .iter()
+                .find(|hit| hit.pane == Pane::Rows)
+                .unwrap()
+                .area;
+            let notes = titles
+                .iter()
+                .find(|hit| hit.pane == Pane::Notes)
+                .unwrap()
+                .area;
+            assert!(!super::panes::borderless_rows(&app));
+            assert_eq!((rows.y, rows.height), (2, 1));
+            assert_eq!(notes.x, width * 60 / 100);
+            let dim = app.look().role(Role::Dim);
+            for x in [rows.x, rows.right() - 1] {
+                assert_eq!(buffer[(x, rows.y)].symbol(), "─");
+                assert_eq!(buffer[(x, rows.y)].fg, dim.fg.unwrap_or_default());
+                assert_eq!(buffer[(x, rows.y + 1)].symbol(), " ");
+            }
+            let title = &buffer[(rows.x + 2, rows.y)];
+            assert_eq!(title.symbol(), "F");
+            assert!(title.modifier.contains(Modifier::BOLD));
+            assert!(!title.modifier.contains(Modifier::DIM), "{base}/{depth:?}");
+            assert!(
+                app.hits.borrow().iter().all(|hit| hit.x > rows.x
+                    && hit.x + hit.width < rows.right()
+                    && hit.y > rows.y)
+            );
+            assert_eq!(app.scrolls.pane_at(rows.x, rows.y + 1), None);
+            assert_eq!(
+                app.scrolls.pane_at(rows.x + 1, rows.y + 1),
+                Some(Pane::Rows)
+            );
+            let original = draw(&app, width, 23);
+            click_title(&mut app, Pane::Notes);
+            draw(&app, width, 23);
+            assert_ne!(
+                app.scrolls.pane_at(notes.x + 1, notes.y + 1),
+                Some(Pane::Notes)
+            );
+            click_title(&mut app, Pane::Notes);
+            assert_eq!(
+                draw(&app, width, 23),
+                original,
+                "unfold restores exact frame"
+            );
+        }
+    }
+}
+
+#[test]
+fn receiving_title_preserves_configured_accent_effects_and_semantic_notes_span() {
+    for (base, depth) in [
+        ("tmt", tmt_cli_style::Depth::TrueColor),
+        ("tmt-light", tmt_cli_style::Depth::TrueColor),
+        ("terminal", tmt_cli_style::Depth::Ansi16),
+        ("tmt", tmt_cli_style::Depth::None),
+    ] {
+        for accent in [None, Some("dim")] {
+            let mut app = paned(
+                split(
+                    Direction::LeftRight,
+                    vec![Pane::Rows, Pane::Notes],
+                    vec![50, 50],
+                ),
+                Notes::Text("coordination".into()),
+            );
+            let mut settings = vec![("base", base)];
+            if let Some(accent) = accent {
+                settings.push(("accent", accent));
+            }
+            app.view.as_mut().unwrap().look = crate::look::Look {
+                theme: tmt_cli_style::Theme::parse("board.theme", settings).unwrap(),
+                depth,
+            };
+            app.view.as_mut().unwrap().document["squad"]["notesStaleness"] =
+                json!({"state": "stale", "ageMs": 2 * 3_600_000});
+            app.focus = 1;
+            assert_eq!(app.focused_pane(), Some(Pane::Notes));
+            let buffer = board_buffer(&app, 160, 23);
+            let title = app
+                .title_hits
+                .borrow()
+                .iter()
+                .find(|hit| hit.pane == Pane::Notes)
+                .unwrap()
+                .area;
+            let receiving = app.look().role(Role::Accent).add_modifier(Modifier::BOLD);
+            // The original receiving title inherited its receiving role, not
+            // the incidental frame. Styled age spans then patch that role.
+            let mut expected = ratatui::buffer::Cell::default();
+            expected.set_style(receiving);
+            let at = &buffer[(title.x + 2, title.y)];
+            assert_eq!(at.symbol(), "F");
+            assert_eq!(
+                (at.fg, at.bg, at.modifier),
+                (expected.fg, expected.bg, expected.modifier),
+                "{base}/{depth:?}/{accent:?}"
+            );
+            let line: String = (title.x..title.right())
+                .map(|x| buffer[(x, title.y)].symbol())
+                .collect();
+            let age_x = title.x + line[..line.find("stale 2h").unwrap()].chars().count() as u16;
+            expected.set_style(app.look().role(Role::Waiting));
+            let age = &buffer[(age_x, title.y)];
+            assert_eq!(
+                (age.fg, age.bg, age.modifier),
+                (expected.fg, expected.bg, expected.modifier),
+                "semantic span: {base}/{depth:?}/{accent:?}"
+            );
+            let border = &buffer[(title.x, title.y)];
+            assert_eq!(border.symbol(), "─");
+            assert_eq!(border.fg, app.look().role(Role::Dim).fg.unwrap_or_default());
+        }
+    }
 }

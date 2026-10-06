@@ -204,7 +204,7 @@ pub(super) fn inline_prompt(
         placement: Placement::Body,
     };
     let areas = modal.areas(band, [band.width, band.height], true, false);
-    modal.paint(areas, frame.buffer_mut(), &look.theme, look.depth);
+    modal.paint_flat(areas, frame.buffer_mut(), &look.theme, look.depth);
     if matches!(input.compose, crate::board::app::Compose::Status) {
         let content = Rect {
             height: areas.content.height + areas.position.height,

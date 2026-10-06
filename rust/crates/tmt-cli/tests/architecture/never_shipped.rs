@@ -4,7 +4,7 @@
 use proc_macro2::{TokenStream, TokenTree};
 use serde_json::Value;
 use std::{
-    collections::BTreeSet,
+    collections::{BTreeMap, BTreeSet},
     ffi::OsString,
     fs,
     path::{Component, Path, PathBuf},
@@ -436,6 +436,324 @@ fn browser_input(expr: &Expr, manifest: &Path) -> GuardResult<String> {
     }
 }
 
+// This is literal input substitution, not macro expansion. Only local, uniquely named
+// single-arm wrappers are proved; opaque forwarding and every other form refuse.
+struct LiteralWrapper {
+    parameters: Vec<String>,
+    body: TokenStream,
+}
+
+fn literal_wrapper(item: &syn::ItemMacro) -> GuardResult<LiteralWrapper> {
+    if !item.attrs.is_empty() {
+        return Err("unproved attributed/exported input wrapper".into());
+    }
+    let tokens: Vec<_> = item.mac.tokens.clone().into_iter().collect();
+    let [
+        TokenTree::Group(matcher),
+        TokenTree::Punct(eq),
+        TokenTree::Punct(arrow),
+        TokenTree::Group(body),
+        rest @ ..,
+    ] = tokens.as_slice()
+    else {
+        return Err("unproved input wrapper arm".into());
+    };
+    if eq.as_char() != '='
+        || arrow.as_char() != '>'
+        || !matches!(rest, [] | [TokenTree::Punct(_)])
+        || rest
+            .first()
+            .is_some_and(|t| !matches!(t, TokenTree::Punct(p) if p.as_char() == ';'))
+    {
+        return Err("unproved input wrapper arms".into());
+    }
+    let matcher: Vec<_> = matcher.stream().into_iter().collect();
+    let mut parameters = Vec::new();
+    let mut index = 0;
+    while index < matcher.len() {
+        let Some(
+            [
+                TokenTree::Punct(dollar),
+                TokenTree::Ident(name),
+                TokenTree::Punct(colon),
+                TokenTree::Ident(kind),
+            ],
+        ) = matcher.get(index..index + 4)
+        else {
+            return Err("unproved input wrapper matcher".into());
+        };
+        if dollar.as_char() != '$'
+            || colon.as_char() != ':'
+            || kind != "literal"
+            || parameters.contains(&name.to_string())
+        {
+            return Err("unproved input wrapper binding".into());
+        }
+        parameters.push(name.to_string());
+        index += 4;
+        if index < matcher.len() {
+            if !matches!(&matcher[index], TokenTree::Punct(p) if p.as_char() == ',') {
+                return Err("unproved input wrapper separator".into());
+            }
+            index += 1;
+        }
+    }
+    if parameters.is_empty() {
+        return Err("empty input wrapper matcher".into());
+    }
+    Ok(LiteralWrapper {
+        parameters,
+        body: body.stream(),
+    })
+}
+
+fn substitute_literals(
+    stream: TokenStream,
+    bindings: &BTreeMap<String, syn::LitStr>,
+) -> GuardResult<TokenStream> {
+    let tokens: Vec<_> = stream.into_iter().collect();
+    let mut output = TokenStream::new();
+    let mut index = 0;
+    while index < tokens.len() {
+        match &tokens[index] {
+            TokenTree::Punct(p) if p.as_char() == '$' => {
+                let Some(TokenTree::Ident(name)) = tokens.get(index + 1) else {
+                    return Err("unproved input wrapper repetition".into());
+                };
+                let value = bindings
+                    .get(&name.to_string())
+                    .ok_or("unproved input wrapper variable")?;
+                output.extend(
+                    value
+                        .token()
+                        .to_string()
+                        .parse::<TokenStream>()
+                        .map_err(|e| e.to_string())?,
+                );
+                index += 2;
+            }
+            TokenTree::Group(group) => {
+                output.extend([TokenTree::Group(proc_macro2::Group::new(
+                    group.delimiter(),
+                    substitute_literals(group.stream(), bindings)?,
+                ))]);
+                index += 1;
+            }
+            token => {
+                output.extend([token.clone()]);
+                index += 1;
+            }
+        }
+    }
+    Ok(output)
+}
+
+fn macro_occurrences(stream: TokenStream, name: &str) -> usize {
+    let tokens: Vec<_> = stream.into_iter().collect();
+    tokens.iter().enumerate().map(|(index, token)| match token {
+        TokenTree::Ident(ident) if ident == name => {
+            let call = matches!(tokens.get(index + 1), Some(TokenTree::Punct(p)) if p.as_char() == '!');
+            let definition = index >= 2
+                && matches!(&tokens[index - 1], TokenTree::Punct(p) if p.as_char() == '!')
+                && matches!(&tokens[index - 2], TokenTree::Ident(rule) if rule == "macro_rules");
+            usize::from(call || definition)
+        }
+        TokenTree::Group(group) => macro_occurrences(group.stream(), name),
+        _ => 0,
+    }).sum()
+}
+
+fn imported_wrapper(syntax: &syn::File, name: &str) -> bool {
+    struct Imports<'a> {
+        name: &'a str,
+        found: bool,
+    }
+    impl<'ast> Visit<'ast> for Imports<'_> {
+        fn visit_item_macro(&mut self, item: &'ast syn::ItemMacro) {
+            if item.mac.path.is_ident("macro_rules")
+                && item.ident.as_ref().is_some_and(|n| n == self.name)
+            {
+                return;
+            }
+            visit::visit_item_macro(self, item);
+        }
+        fn visit_macro(&mut self, node: &'ast syn::Macro) {
+            fn mentions(stream: TokenStream, name: &str) -> bool {
+                let tokens: Vec<_> = stream.into_iter().collect();
+                tokens.iter().enumerate().any(|(i, token)| match token {
+                    // `value.field` is an ordinary value projection, not a macro name.
+                    TokenTree::Ident(ident) if ident == name =>
+                        !matches!(tokens.get(i + 1), Some(TokenTree::Punct(dot)) if dot.as_char() == '.'),
+                    TokenTree::Group(group) => mentions(group.stream(), name),
+                    _ => false,
+                })
+            }
+            // An opaque template that manufactures a use declaration cannot prove
+            // wrapper identity through metavariable substitution.
+            let tokens = node.tokens.to_string();
+            let opaque_import =
+                tokens.split_whitespace().any(|t| t == "use") && tokens.contains('$');
+            if !node.path.is_ident(self.name)
+                && (opaque_import || mentions(node.tokens.clone(), self.name))
+            {
+                self.found = true;
+            }
+        }
+        fn visit_use_tree(&mut self, tree: &'ast syn::UseTree) {
+            match tree {
+                syn::UseTree::Name(n) if n.ident == self.name => self.found = true,
+                syn::UseTree::Rename(n) if n.ident == self.name || n.rename == self.name => {
+                    self.found = true
+                }
+                syn::UseTree::Path(n) if n.ident == self.name => self.found = true,
+                _ => visit::visit_use_tree(self, tree),
+            }
+        }
+    }
+    let mut visitor = Imports { name, found: false };
+    visitor.visit_file(syntax);
+    visitor.found
+}
+
+struct WrapperReferences<'a> {
+    wrappers: &'a BTreeMap<String, LiteralWrapper>,
+    references: References,
+    calls: BTreeMap<String, usize>,
+    error: Option<String>,
+}
+
+impl<'ast> Visit<'ast> for WrapperReferences<'_> {
+    fn visit_item_macro(&mut self, item: &'ast syn::ItemMacro) {
+        if item.mac.path.is_ident("macro_rules")
+            && item
+                .ident
+                .as_ref()
+                .is_some_and(|name| self.wrappers.contains_key(&name.to_string()))
+        {
+            return;
+        }
+        visit::visit_item_macro(self, item);
+    }
+    fn visit_attribute(&mut self, attr: &'ast syn::Attribute) {
+        self.references.visit_attribute(attr);
+    }
+    fn visit_macro(&mut self, node: &'ast syn::Macro) {
+        let name = node.path.segments.last().unwrap().ident.to_string();
+        let Some(wrapper) = self.wrappers.get(&name) else {
+            self.references.visit_macro(node);
+            return;
+        };
+        let result = (|| {
+            use syn::parse::Parser;
+            if !node.path.is_ident(&name) {
+                return Err("unproved qualified input wrapper".to_string());
+            }
+            let args = syn::punctuated::Punctuated::<syn::LitStr, syn::Token![,]>::parse_terminated
+                .parse2(node.tokens.clone())
+                .map_err(|e| format!("unproved literal wrapper arguments: {e}"))?;
+            if args.len() != wrapper.parameters.len() {
+                return Err("input wrapper argument count".into());
+            }
+            let bindings = wrapper.parameters.iter().cloned().zip(args).collect();
+            let body = substitute_literals(wrapper.body.clone(), &bindings)?;
+            // Reject further macro forwarding. Built-in include/concat/env inputs are
+            // still independently scanned and resolved by the existing owner below.
+            fn builtins(stream: TokenStream) -> GuardResult<()> {
+                let tokens: Vec<_> = stream.into_iter().collect();
+                for window in tokens.windows(2) {
+                    if let [TokenTree::Ident(name), TokenTree::Punct(bang)] = window
+                        && bang.as_char() == '!'
+                        && !include_name(&name.to_string())
+                        && name != "concat"
+                        && name != "env"
+                    {
+                        return Err("unproved input wrapper forwarding".into());
+                    }
+                }
+                for token in tokens {
+                    if let TokenTree::Group(g) = token {
+                        builtins(g.stream())?;
+                    }
+                }
+                Ok(())
+            }
+            builtins(body.clone())?;
+            self.references.tokens(body);
+            *self.calls.entry(name).or_default() += 1;
+            Ok(())
+        })();
+        if let Err(error) = result {
+            self.error = Some(error);
+        }
+    }
+}
+
+fn browser_references(
+    file: &Path,
+    sources: &[(PathBuf, syn::File, TokenStream)],
+) -> GuardResult<References> {
+    let (_, syntax, source_tokens) = sources.iter().find(|(path, _, _)| path == file).unwrap();
+    let mut wrappers = BTreeMap::new();
+    for item in &syntax.items {
+        if let syn::Item::Macro(item) = item
+            && item.mac.path.is_ident("macro_rules")
+        {
+            let mut references = References::default();
+            references.tokens(item.mac.tokens.clone());
+            if references.values.iter().any(|r| r.expression.contains('$')) {
+                let name = item
+                    .ident
+                    .as_ref()
+                    .ok_or("unnamed input wrapper")?
+                    .to_string();
+                if wrappers.insert(name, literal_wrapper(item)?).is_some() {
+                    return Err("ambiguous input wrapper definition".into());
+                }
+            }
+        }
+    }
+    for name in wrappers.keys() {
+        let tokens: Vec<_> = source_tokens.clone().into_iter().collect();
+        let definition = tokens.windows(3).position(|w| {
+            matches!(w,
+            [TokenTree::Ident(rule), TokenTree::Punct(bang), TokenTree::Ident(ident)]
+            if rule == "macro_rules" && bang.as_char() == '!' && ident == name)
+        });
+        let prefix = definition.ok_or("unproved local input wrapper definition")?;
+        if macro_occurrences(tokens[..prefix].iter().cloned().collect(), name) != 0 {
+            return Err("input wrapper use before local definition".into());
+        }
+    }
+    let mut visitor = WrapperReferences {
+        wrappers: &wrappers,
+        references: References::default(),
+        calls: BTreeMap::new(),
+        error: None,
+    };
+    visitor.visit_file(syntax);
+    if let Some(error) = visitor.error {
+        return Err(format!("{}: {error}", file.display()));
+    }
+    for name in wrappers.keys() {
+        let calls = visitor.calls.get(name).copied().unwrap_or(0);
+        // Every macro occurrence must be this definition or a directly visited
+        // local call. Ordinary same-named variables live in a different namespace. This refuses alias/export/cross-file/opaque uses and shadowing.
+        for (path, syntax, tokens) in sources {
+            let count = macro_occurrences(tokens.clone(), name);
+            if (path == file && (calls == 0 || count != calls + 1))
+                || (path != file && count != 0)
+                || imported_wrapper(syntax, name)
+            {
+                return Err(format!(
+                    "{}: unproved input wrapper scope/alias {name}",
+                    path.display()
+                ));
+            }
+        }
+    }
+    Ok(visitor.references)
+}
+
 pub fn browser_leaf_inputs(root: &Path, metadata: &Value) -> GuardResult<()> {
     let root = root.canonicalize().map_err(|e| e.to_string())?;
     let leaf = root.join("design/browser-ui");
@@ -454,18 +772,40 @@ pub fn browser_leaf_inputs(root: &Path, metadata: &Value) -> GuardResult<()> {
         }
         let mut files = Vec::new();
         rust_files(&crate_dir, &[], &mut files)?;
+        let sources = files
+            .iter()
+            .map(|file| {
+                let source = fs::read_to_string(file).map_err(|e| e.to_string())?;
+                Ok((
+                    file.clone(),
+                    syn::parse_file(&source).map_err(|e| format!("{}: {e}", file.display()))?,
+                    source.parse::<TokenStream>().map_err(|e| e.to_string())?,
+                ))
+            })
+            .collect::<GuardResult<Vec<_>>>()?;
         for file in files {
-            let syntax = syn::parse_file(&fs::read_to_string(&file).map_err(|e| e.to_string())?)
-                .map_err(|e| e.to_string())?;
-            let mut references = References::default();
-            references.visit_file(&syntax);
+            let references = browser_references(&file, &sources)?;
             for reference in references.values {
                 let name = match reference.target {
                     Some(name) => name,
                     None if include_name(&reference.kind) => {
-                        let expression = syn::parse_str::<Expr>(&reference.expression)
-                            .map_err(|e| e.to_string())?;
-                        browser_input(&expression, &crate_dir)?
+                        let expression =
+                            syn::parse_str::<Expr>(&reference.expression).map_err(|e| {
+                                format!(
+                                    "{}: {}({}): {e}",
+                                    file.display(),
+                                    reference.kind,
+                                    reference.expression
+                                )
+                            })?;
+                        browser_input(&expression, &crate_dir).map_err(|e| {
+                            format!(
+                                "{}: {}({}): {e}",
+                                file.display(),
+                                reference.kind,
+                                reference.expression
+                            )
+                        })?
                     }
                     None => {
                         return Err(format!(

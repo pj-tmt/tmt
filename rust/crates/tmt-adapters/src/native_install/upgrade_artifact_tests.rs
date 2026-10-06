@@ -254,7 +254,7 @@ fn cargo_dist_upgrade_refreshes_real_artifacts_and_preserves_conflicts() {
 
     let layout = Layout::existing(&prefix).unwrap();
     let receipt = layout.current().unwrap().unwrap();
-    let provenance = receipt.provenance.as_ref().unwrap();
+    let provenance = receipt.provenance.as_ref().unwrap().release().unwrap();
     assert_eq!(provenance.release_id, RELEASE_ID);
     assert_eq!(provenance.manifest_sha256, sha256(&new_manifest));
     assert_eq!(receipt.target, target);

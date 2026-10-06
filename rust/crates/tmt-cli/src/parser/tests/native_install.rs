@@ -1,6 +1,65 @@
 use super::*;
 
 #[test]
+fn compiled_schema_export_is_hidden_and_requires_exact_source_and_json() {
+    let sha = "a".repeat(40);
+    assert_eq!(
+        parsed(&["__native-schema", "--source-sha", &sha, "--json"]).invocation,
+        Invocation::NativeSchema {
+            source_sha: sha.clone()
+        }
+    );
+    for arguments in [
+        vec!["__native-schema", "--source-sha", &sha],
+        vec!["__native-schema", "--json"],
+        vec!["__native-schema", "--source-sha", "main", "--json"],
+        vec![
+            "__native-schema",
+            "--source-sha",
+            &sha,
+            "--prefix",
+            "/tmp",
+            "--json",
+        ],
+    ] {
+        assert_eq!(parse_error(&arguments).code, "USAGE_ERROR");
+    }
+    let help = crate::grammar::public_grammar(&crate::grammar::grammar(), true);
+    assert!(help.find_subcommand("__native-schema").is_none());
+}
+
+#[test]
+fn pr_channels_require_canonical_bounded_identifiers() {
+    for command in ["upgrade", "update"] {
+        for channel in ["pr1", "pr234", "pr2147483647"] {
+            assert!(matches!(
+                parsed(&[command, "--channel", channel]).invocation,
+                Invocation::Upgrade { channel: Some(tmt_core::native_install::Channel::Pr(number)), .. }
+                    if number.to_string() == channel[2..]
+            ));
+        }
+        for channel in [
+            "pr",
+            "pr0",
+            "pr01",
+            "pr-1",
+            "pr+1",
+            "pr2147483648",
+            "PR234",
+            "pr234 ",
+            " pr234",
+            "STABLE",
+            "Alpha",
+        ] {
+            assert_eq!(
+                parse_error(&[command, "--channel", channel]).code,
+                "USAGE_ERROR"
+            );
+        }
+    }
+}
+
+#[test]
 fn native_upgrade_alias_and_selection_share_one_typed_contract() {
     for command in ["upgrade", "update"] {
         let invocation = parsed(&[
@@ -20,6 +79,7 @@ fn native_upgrade_alias_and_selection_share_one_typed_contract() {
                 exact: Some("5.0.0-alpha.3".into()),
                 unpin: false,
                 yes: true,
+                allow_schema_ahead: false,
             }
         );
         assert_eq!(
@@ -28,7 +88,8 @@ fn native_upgrade_alias_and_selection_share_one_typed_contract() {
                 channel: None,
                 exact: None,
                 unpin: true,
-                yes: false
+                yes: false,
+                allow_schema_ahead: false
             }
         );
         assert_eq!(
@@ -140,14 +201,14 @@ fn versioned_installer_handoff_is_disjoint_from_offline_arguments() {
         }
         assert_eq!(
             parsed(&args).invocation,
-            Invocation::NativeInstallHandoff { probe }
+            Invocation::NativeInstallHandoff { probe, version: 1 }
         );
     }
     for args in [
         vec![
             "__native-install",
             "--handoff-version",
-            "2",
+            "3",
             "--probe",
             "--json",
         ],

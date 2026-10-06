@@ -23,6 +23,13 @@ composition. `board/mod.rs` receives input, snapshots and deferred events on one
 channel; snapshots wake painting directly. Redraws follow state/input/resize changes
 and changed clock text or spinner frames, rather than periodic full repainting.
 
+Member/HOME lead lists and outlined body panes use `Outline::paint_flat`: horizontal
+rules and blank side slots retain measured inner areas and title/fold hits.
+Incidental frame cells stay Dim; receiving titles keep their existing focus styles.
+Invisible walls do not change the actual borderless dispatch predicate. The shared
+inline input/read band uses `Modal::paint_flat`, retaining its complete opaque mask
+and covered-hit removal. Ask-lead, settings, pickers and cron overlays stay square.
+
 ## Rows, grid and identity
 
 - `rows::Rows` owns positional tracks and prefix coverage, including empty cells
@@ -146,7 +153,10 @@ is omitted; optional hints still fit whole through the existing owner.
 ## Tabs and retained views
 
 - `view::tabs` measures styled `tab_label` widths for windowing, overflow and hits;
-  selection adds no characters. `tabs::arrange` owns order/pins. Window admission
+  shown-name selection adds two measured bracket cells, with attention outside.
+  Its name fitting preserves both brackets and semantic suffixes when a name
+  grapheme fits; otherwise it omits the complete cue and uses the ordinary prefix
+  fallback (a one-cell leading attention mark wins over the ellipsis). `tabs::arrange` owns order/pins. Window admission
   uses measured group/overflow widths and preserves the current tab even when other
   pins must step aside. Adjacent squad-prefix groups are display-only; prefixes
   have no hit, suffixes retain canonical keys/indices. An opened globally hidden
