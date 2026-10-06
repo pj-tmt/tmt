@@ -174,3 +174,80 @@ it('the actual Worker preserves both independent baseline encodings through sour
     }
   }
 });
+
+it('rejects a present undefined creation recipient projection', () => {
+  expect(() =>
+    validateProjection({ source: '', title: '', creationRecipient: undefined }),
+  ).toThrow();
+});
+it('rejects encoded undefined creation metadata without changing committed Worker state', async () => {
+  vi.resetModules();
+  const surface = {
+    onmessage: null as unknown as (event: {
+      data: { id: number; command: FoldCommand };
+    }) => Promise<void>,
+    postMessage: vi.fn(),
+  };
+  vi.stubGlobal('self', surface);
+  const Y = await import('yjs');
+  const doc = new Y.Doc();
+  try {
+    await import('../src/fold.worker.js');
+    const send = async (command: FoldCommand) => {
+      surface.postMessage.mockClear();
+      await surface.onmessage({ data: { id: 1, command } });
+      return surface.postMessage.mock.calls[0][0];
+    };
+    doc.getText('html').insert(0, 'Committed source');
+    doc.getMap('meta').set('title', 'Committed title');
+    const initial = await send({ type: 'apply', updates: [Y.encodeStateAsUpdate(doc)] });
+    expect(initial.error).toBeUndefined();
+    expect(Object.hasOwn(initial, 'creationRecipient')).toBe(false);
+    const vector = Y.encodeStateVector(doc);
+    doc.getMap('meta').set('creationRecipient', undefined);
+    doc.getText('html').insert(0, 'Untrusted change ');
+    const update = Y.encodeStateAsUpdate(doc, vector);
+    const decoded = new Y.Doc();
+    try {
+      Y.applyUpdate(decoded, Y.encodeStateAsUpdate(doc));
+      expect(decoded.getMap('meta').has('creationRecipient')).toBe(true);
+      expect(decoded.getMap('meta').get('creationRecipient')).toBeUndefined();
+    } finally {
+      decoded.destroy();
+    }
+    const rejected = await send({ type: 'apply', updates: [update] });
+    expect(rejected.error).toBe('Rejected content update');
+    const unchanged = await send({ type: 'apply', updates: [] });
+    expect(unchanged.error).toBeUndefined();
+    expect(unchanged.source).toBe('Committed source');
+    expect(unchanged.title).toBe('Committed title');
+    expect(Object.hasOwn(unchanged, 'creationRecipient')).toBe(false);
+  } finally {
+    doc.destroy();
+    vi.unstubAllGlobals();
+  }
+});
+it('closes the parent fold for a successful reply with a present undefined creation recipient', async () => {
+  const worker = {
+    postMessage: vi.fn(),
+    terminate: vi.fn(),
+    onerror: null,
+    onmessage: null as unknown as (event: unknown) => void,
+  };
+  const fold = new Fold(worker as unknown as Worker);
+  const pending = fold.run({ type: 'apply', updates: [] });
+  const rejected = expect(pending).rejects.toThrow();
+  worker.onmessage({
+    data: {
+      id: 1,
+      source: 'Untrusted source',
+      title: '',
+      creationRecipient: undefined,
+      own: {},
+      update: new Uint8Array(),
+    },
+  });
+  await rejected;
+  expect(worker.terminate).toHaveBeenCalledOnce();
+  await expect(fold.run({ type: 'apply', updates: [] })).rejects.toThrow('unavailable');
+});

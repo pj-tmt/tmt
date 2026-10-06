@@ -132,7 +132,7 @@ export interface FoldResult extends Projection {
 export function validateProjection(value: unknown): asserts value is Projection {
   if (!value || typeof value !== 'object') throw new Error('Invalid decoder projection');
   const { source, title, publisherAgent, creationRecipient } = value as Projection;
-  if (creationRecipient !== undefined) validateCreationRecipient(creationRecipient);
+  if (Object.hasOwn(value, 'creationRecipient')) validateCreationRecipient(creationRecipient);
   if (
     typeof source !== 'string' ||
     typeof title !== 'string' ||
