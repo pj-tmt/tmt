@@ -1089,3 +1089,108 @@ it('disposed pending owner reconnect cannot install its late Registration or Con
     h.live.close();
   }
 });
+
+/** Reproduces Connection.close ordering: ready rejects before failed is called. */
+async function pendingSocketClose(replacing = false) {
+  const h = heldResync();
+  let resolveRead!: (rows: Awaited<ReturnType<RemoteClient['listAgents']>>) => void;
+  let rejectRead!: (error: Error) => void;
+  const read = new Promise<Awaited<ReturnType<RemoteClient['listAgents']>>>((resolve, reject) => {
+    resolveRead = resolve;
+    rejectRead = reject;
+  });
+  vi.mocked(h.remote.listAgents).mockImplementation(() => read);
+  await h.live.snapshot();
+  connectionPlans.push({ ready: h.ready, constructed: h.constructed, closed: () => {} });
+  connections
+    .at(-1)!
+    .failed(
+      replacing ? new SessionEndedError('REMOTE_SESSION_ENDED') : new Error('RESYNC_REQUIRED'),
+    );
+  await h.created;
+  const pending = connections.at(-1)!;
+  const rejected = h.live.snapshot().catch((error: unknown) => error);
+  const disconnected = new Error('Sync disconnected');
+  h.reject(disconnected);
+  pending.failed(disconnected);
+  return { ...h, pending, rejected, disconnected, read, resolveRead, rejectRead };
+}
+
+it.each(['ended', 'evicted', 'unknown', 'valid'] as const)(
+  'pending same-session ready rejection keeps the exact old-session diagnosis until %s',
+  async (outcome) => {
+    const h = await pendingSocketClose();
+    try {
+      expect(h.remote.listAgents).toHaveBeenCalledOnce();
+      expect(await h.rejected).toBe(h.disconnected);
+      expect(h.failed).not.toHaveBeenCalled();
+      expect(h.reconnect).not.toHaveBeenCalled();
+      h.pending.failed(h.disconnected);
+      expect(h.remote.listAgents).toHaveBeenCalledOnce();
+      const reason =
+        outcome === 'evicted'
+          ? new SessionEvictedError(8, 'https://example.test/remote/settings')
+          : outcome === 'ended'
+            ? new SessionEndedError('REMOTE_SESSION_ENDED')
+            : new Error('unverified read failure');
+      if (outcome === 'valid') h.resolveRead([]);
+      else h.rejectRead(reason);
+      await h.read.catch(() => []);
+      if (outcome === 'ended') {
+        expect(h.reconnect).toHaveBeenCalledExactlyOnceWith(h.first);
+        await h.live.snapshot();
+        expect(h.live.registration).toBe(h.second);
+        expect(h.failed).not.toHaveBeenCalled();
+      } else {
+        expect(h.failed).toHaveBeenCalledExactlyOnceWith(
+          outcome === 'evicted' ? reason : h.disconnected,
+        );
+        expect(h.reconnect).not.toHaveBeenCalled();
+        expect(h.live.registration).toBe(h.first);
+      }
+      expectNoRecoveryMutations(h.remote);
+    } finally {
+      h.live.close();
+      h.resolveRead([]);
+    }
+  },
+);
+
+it.each(['superseded', 'disposed'] as const)(
+  'late pending-socket diagnosis is ignored after its owner is %s',
+  async (state) => {
+    const h = await pendingSocketClose();
+    try {
+      expect(h.remote.listAgents).toHaveBeenCalledOnce();
+      await h.rejected;
+      if (state === 'disposed') h.live.close();
+      else {
+        asks.instances.at(-1)!.options.sessionEnded?.();
+        await h.live.snapshot();
+        expect(h.live.registration).toBe(h.second);
+      }
+      h.rejectRead(new SessionEvictedError(8, 'https://example.test/remote/settings'));
+      await h.read.catch(() => []);
+      expect(h.failed).not.toHaveBeenCalled();
+      expect(h.reconnect).toHaveBeenCalledTimes(state === 'disposed' ? 0 : 1);
+      expectNoRecoveryMutations(h.remote);
+    } finally {
+      h.live.close();
+      h.resolveRead([]);
+    }
+  },
+);
+
+it('already-replacing ready rejection is terminal without an old-session diagnosis or recursive replacement', async () => {
+  const h = await pendingSocketClose(true);
+  try {
+    expect(await h.rejected).toBe(h.disconnected);
+    expect(h.remote.listAgents).not.toHaveBeenCalled();
+    expect(h.failed).toHaveBeenCalledExactlyOnceWith(h.disconnected);
+    expect(h.reconnect).toHaveBeenCalledOnce();
+    expectNoRecoveryMutations(h.remote);
+  } finally {
+    h.live.close();
+    h.resolveRead([]);
+  }
+});

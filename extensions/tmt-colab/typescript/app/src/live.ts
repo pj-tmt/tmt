@@ -194,7 +194,9 @@ export class Live implements PageBinding {
     this.#opening = open;
     const current = this.#open(open);
     void current.catch((error) => {
-      if (this.#owns(open))
+      // Connection.close rejects ready before its failure callback starts the
+      // exact old-session diagnosis. That one read owns the pending outcome.
+      if (this.#owns(open) && this.#diagnosing !== open)
         this.#block(error instanceof Error ? error : new Error('Sync unavailable'));
     });
     return current;
@@ -296,7 +298,7 @@ export class Live implements PageBinding {
       error.message === 'Sync disconnected' &&
       remote &&
       typeof remote.listAgents === 'function' &&
-      !open.pending
+      !(open.pending && open.replaceSession)
     ) {
       if (this.#diagnosing === open) return;
       this.#diagnosing = open;
