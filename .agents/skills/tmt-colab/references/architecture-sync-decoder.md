@@ -53,7 +53,9 @@ and `limits.rs`; do not restate them.
   containing only the private call phase, input size, remaining runner-entry budget,
   invocation elapsed time, including cleanup, failure kind and cleanup category; original errors are unchanged.
   Decode-request failures also include parent wire-construction, JSON-serialization and input-hash
-  wall intervals; other commands omit these fields. The samples consume the original deadline.
+  wall intervals; JSON serialization includes incremental hashing, and the hash interval includes
+  the existing stream guard plus digest finalization and encoding. Other commands omit these
+  fields. The samples consume the original deadline.
   The record bounds bytes, not write latency, and does not measure CPU, scheduling or child phases.
 
 - `Decoder::prepare_content_batch` uses the private `__decoder prepare-content` entry to return
