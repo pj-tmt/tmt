@@ -7,7 +7,8 @@ use std::{
 };
 
 // First execution of a published fixture is preparation, not listener startup.
-// Thirty seconds bounds a hung preparation; the product budgets remain unchanged.
+// Monitored reads/exit share a thirty-second deadline; product budgets remain
+// unchanged. This deadline does not preempt synchronous OS spawn or cleanup.
 const PREPARATION_TIMEOUT: Duration = Duration::from_secs(30);
 
 fn command(root: &Path, ready: bool) -> RuntimeCommand {
@@ -57,9 +58,6 @@ fn preparation(
         Instant::now() < deadline,
         "fixture preparation deadline expired"
     );
-    reader
-        .set_read_timeout(Some(deadline.saturating_duration_since(Instant::now())))
-        .unwrap();
     let child = TestChild::new(
         Command::new(&command.executable)
             .arg("--tmt-fixture-prepare")
@@ -75,7 +73,19 @@ fn preparation(
     );
     let mut output = BufReader::new(reader);
     let mut line = String::new();
+    // Spawn may consume the budget. Refuse with the child already owned, and
+    // derive the read timeout from the remaining absolute budget, not its age
+    // before spawn. TestChild stops/reaps on every refused or panicking path.
+    let remaining = deadline
+        .checked_duration_since(Instant::now())
+        .filter(|remaining| !remaining.is_zero())
+        .expect("fixture preparation deadline expired after spawn");
+    output.get_ref().set_read_timeout(Some(remaining)).unwrap();
     output.read_line(&mut line).unwrap();
+    assert!(
+        Instant::now() < deadline,
+        "fixture preparation first line arrived after deadline"
+    );
     assert_eq!(line, "preparation-entered\n");
     (child, output)
 }
