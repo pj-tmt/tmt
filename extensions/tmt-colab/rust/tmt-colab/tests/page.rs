@@ -1056,19 +1056,41 @@ mod native_publication {
     #[test]
     fn native_publication_commits_exact_bytes_and_reopens_original_replay() {
         let mut f = Fixture::new();
+        f.sql()
+            .execute("UPDATE pages SET last_update_at_ms=1000", [])
+            .unwrap();
+        f.store = Store::open(&f.layout).unwrap().with_clock(|| Ok(NOW + 7));
+        let foreign: Vec<u8> = f
+            .sql()
+            .query_row(
+                "SELECT payload FROM receipts WHERE stream=?",
+                [DEVICE],
+                |r| r.get(0),
+            )
+            .unwrap();
         let j = job(&f, 1);
         let result = commit(&mut f, &j).unwrap();
         assert_eq!(result.accepted, Accepted::New);
         assert_eq!(terminals(&f), 1);
-        assert!(
+        assert_eq!(
             f.sql()
                 .query_row(
                     "SELECT last_update_at_ms FROM pages WHERE page=?",
                     [PAGE],
                     |r| r.get::<_, i64>(0)
                 )
-                .unwrap()
-                > 0
+                .unwrap(),
+            (NOW + 7) as i64
+        );
+        assert_eq!(
+            f.sql()
+                .query_row(
+                    "SELECT payload FROM receipts WHERE stream=?",
+                    [DEVICE],
+                    |r| r.get::<_, Vec<u8>>(0)
+                )
+                .unwrap(),
+            foreign
         );
         assert!(
             matches!(&result.record.outcome,Outcome::Committed{final_position,native_evidence,..}
@@ -1114,6 +1136,9 @@ mod native_publication {
     #[test]
     fn native_publication_late_capacity_rolls_back_measured_first_append() {
         let mut f = Fixture::new();
+        f.sql()
+            .execute("UPDATE pages SET last_update_at_ms=1000", [])
+            .unwrap();
         let j = job(&f, 2);
         let before = effects(&f);
         let calls = std::sync::Arc::new(AtomicUsize::new(0));
@@ -1340,6 +1365,14 @@ mod native_publication {
             assert!(status(&f, &j).is_err());
             assert!(commit(&mut f, &j).is_err());
         }
+        f.sql()
+            .execute_batch("ALTER TABLE owner_operations RENAME TO unavailable_original_operations")
+            .unwrap();
+        assert!(
+            status(&f, &j).is_err(),
+            "a failed SQL read is not UNKNOWN absence"
+        );
+        assert!(commit(&mut f, &j).is_err());
     }
     #[test]
     fn native_publication_count_reservation_and_lookup_at_capacity() {
