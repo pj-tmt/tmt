@@ -11,7 +11,7 @@ use crate::config::{BoardMode, Pane};
 use ratatui::{
     Frame,
     layout::Rect,
-    style::Modifier,
+    style::{Modifier, Style},
     text::{Line, Span},
 };
 use tmt_cli_style::Role;
@@ -99,9 +99,11 @@ fn render_members(frame: &mut Frame, app: &App, area: Rect) {
             title,
             border: look.role(Role::Dim),
             title_style: if Some(pane) == focused && board.panes.len() > 1 {
-                look.role(Role::Accent)
+                // Receiving titles start from their own role, so incidental
+                // frame effects cannot replace a configured Accent effect.
+                Style::reset()
+                    .patch(look.role(Role::Accent))
                     .add_modifier(Modifier::BOLD)
-                    .remove_modifier(Modifier::DIM)
             } else {
                 look.role(Role::Muted)
             },

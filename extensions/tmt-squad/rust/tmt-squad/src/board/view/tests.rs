@@ -4942,3 +4942,70 @@ fn flat_custom_split_retains_inner_hits_and_focus_title_without_dimming_it() {
         }
     }
 }
+
+#[test]
+fn receiving_title_preserves_configured_accent_effects_and_semantic_notes_span() {
+    for (base, depth) in [
+        ("tmt", tmt_cli_style::Depth::TrueColor),
+        ("tmt-light", tmt_cli_style::Depth::TrueColor),
+        ("terminal", tmt_cli_style::Depth::Ansi16),
+        ("tmt", tmt_cli_style::Depth::None),
+    ] {
+        for accent in [None, Some("dim")] {
+            let mut app = paned(
+                split(
+                    Direction::LeftRight,
+                    vec![Pane::Rows, Pane::Notes],
+                    vec![50, 50],
+                ),
+                Notes::Text("coordination".into()),
+            );
+            let mut settings = vec![("base", base)];
+            if let Some(accent) = accent {
+                settings.push(("accent", accent));
+            }
+            app.view.as_mut().unwrap().look = crate::look::Look {
+                theme: tmt_cli_style::Theme::parse("board.theme", settings).unwrap(),
+                depth,
+            };
+            app.view.as_mut().unwrap().document["squad"]["notesStaleness"] =
+                json!({"state": "stale", "ageMs": 2 * 3_600_000});
+            app.focus = 1;
+            assert_eq!(app.focused_pane(), Some(Pane::Notes));
+            let buffer = board_buffer(&app, 160, 23);
+            let title = app
+                .title_hits
+                .borrow()
+                .iter()
+                .find(|hit| hit.pane == Pane::Notes)
+                .unwrap()
+                .area;
+            let receiving = app.look().role(Role::Accent).add_modifier(Modifier::BOLD);
+            // The original receiving title inherited its receiving role, not
+            // the incidental frame. Styled age spans then patch that role.
+            let mut expected = ratatui::buffer::Cell::default();
+            expected.set_style(receiving);
+            let at = &buffer[(title.x + 2, title.y)];
+            assert_eq!(at.symbol(), "F");
+            assert_eq!(
+                (at.fg, at.bg, at.modifier),
+                (expected.fg, expected.bg, expected.modifier),
+                "{base}/{depth:?}/{accent:?}"
+            );
+            let line: String = (title.x..title.right())
+                .map(|x| buffer[(x, title.y)].symbol())
+                .collect();
+            let age_x = title.x + line[..line.find("stale 2h").unwrap()].chars().count() as u16;
+            expected.set_style(app.look().role(Role::Waiting));
+            let age = &buffer[(age_x, title.y)];
+            assert_eq!(
+                (age.fg, age.bg, age.modifier),
+                (expected.fg, expected.bg, expected.modifier),
+                "semantic span: {base}/{depth:?}/{accent:?}"
+            );
+            let border = &buffer[(title.x, title.y)];
+            assert_eq!(border.symbol(), "─");
+            assert_eq!(border.fg, app.look().role(Role::Dim).fg.unwrap_or_default());
+        }
+    }
+}
