@@ -2,6 +2,7 @@
 
 use std::{
     cell::Cell,
+    ffi::OsStr,
     io,
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
@@ -15,6 +16,55 @@ use ureq::{
 const MAX_REDIRECTS: usize = 3;
 const MAX_RESPONSE_HEADER: usize = 64 * 1024;
 const USER_AGENT: &str = "tmt";
+const TOKEN_LIMIT: usize = 16 * 1024;
+
+#[derive(Debug)]
+pub(crate) struct MissingAuth;
+impl std::fmt::Display for MissingAuth {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("PR channels require GitHub Actions read authentication: run gh auth login for github.com or supply GITHUB_TOKEN for this invocation.")
+    }
+}
+impl std::error::Error for MissingAuth {}
+
+fn valid_token(token: &str) -> bool {
+    !token.is_empty()
+        && token.len() <= TOKEN_LIMIT
+        && token.bytes().all(|byte| byte.is_ascii_graphic())
+}
+
+fn invocation_token(
+    existing: Option<String>,
+    deadline: Instant,
+    runner: &impl crate::process::CommandRunner,
+) -> io::Result<String> {
+    if let Some(token) = existing {
+        return valid_token(&token)
+            .then_some(token)
+            .ok_or_else(|| io::Error::other(MissingAuth));
+    }
+    let output = runner
+        .execute(crate::process::CommandRequest {
+            program: OsStr::new("gh"),
+            args: &[
+                "auth".into(),
+                "token".into(),
+                "--hostname".into(),
+                "github.com".into(),
+            ],
+            input: &[],
+            deadline: deadline.min(Instant::now() + Duration::from_secs(10)),
+            max_output_bytes: TOKEN_LIMIT,
+        })
+        .map_err(|_| io::Error::other(MissingAuth))?;
+    // Credential bytes and gh diagnostics never enter a durable/public error.
+    let token = std::str::from_utf8(&output.stdout)
+        .ok()
+        .map(|token| token.trim_end_matches(['\r', '\n']))
+        .filter(|token| valid_token(token))
+        .ok_or_else(|| io::Error::other(MissingAuth))?;
+    Ok(token.to_owned())
+}
 
 const ALLOWED_HOSTS: &[&str] = &[
     "api.github.com",
@@ -52,6 +102,14 @@ pub(crate) struct Https {
 }
 
 impl Https {
+    pub(crate) fn authenticated(
+        deadline: Instant,
+        runner: &impl crate::process::CommandRunner,
+    ) -> io::Result<Self> {
+        let mut client = Self::new();
+        client.token = Some(invocation_token(client.token.take(), deadline, runner)?);
+        Ok(client)
+    }
     pub(crate) fn new() -> Self {
         let config = Agent::config_builder()
             .https_only(true)
@@ -98,6 +156,37 @@ impl Https {
         accept: &str,
         maximum: usize,
         deadline: Instant,
+    ) -> io::Result<Response> {
+        self.get_inner(url, accept, maximum, deadline, false)
+    }
+
+    pub(crate) fn get_actions(
+        &self,
+        url: &str,
+        maximum: usize,
+        deadline: Instant,
+    ) -> io::Result<Response> {
+        let initial = validate_url(url)?;
+        if self.token.is_none()
+            || !is_api(&initial)
+            || !initial
+                .path()
+                .starts_with("/repos/pj-tmt/tmt/actions/artifacts/")
+            || !initial.path().ends_with("/zip")
+            || initial.query().is_some()
+        {
+            return Err(invalid_url());
+        }
+        self.get_inner(url, "application/vnd.github+json", maximum, deadline, true)
+    }
+
+    fn get_inner(
+        &self,
+        url: &str,
+        accept: &str,
+        maximum: usize,
+        deadline: Instant,
+        actions_redirects: bool,
     ) -> io::Result<Response> {
         #[cfg(test)]
         let mut current = validate_url_with_loopback(url, self.allow_loopback)?;
@@ -181,9 +270,9 @@ impl Https {
                     .to_str()
                     .map_err(|_| invalid_response("redirect location is invalid"))?;
                 #[cfg(test)]
-                let next = validate_url_with_loopback(location, self.allow_loopback);
+                let next = validate_url_inner(location, self.allow_loopback, actions_redirects);
                 #[cfg(not(test))]
-                let next = validate_url(location);
+                let next = validate_url_inner(location, false, actions_redirects);
                 current =
                     next.map_err(|_| invalid_response("redirect location is not approved"))?;
                 redirects += 1;
@@ -306,15 +395,19 @@ impl RateLimit {
 }
 
 fn validate_url(value: &str) -> io::Result<Uri> {
-    validate_url_inner(value, false)
+    validate_url_inner(value, false, false)
 }
 
 #[cfg(test)]
 fn validate_url_with_loopback(value: &str, allow_loopback: bool) -> io::Result<Uri> {
-    validate_url_inner(value, allow_loopback)
+    validate_url_inner(value, allow_loopback, false)
 }
 
-fn validate_url_inner(value: &str, allow_loopback: bool) -> io::Result<Uri> {
+fn validate_url_inner(
+    value: &str,
+    allow_loopback: bool,
+    actions_redirects: bool,
+) -> io::Result<Uri> {
     if value.contains('#') {
         return Err(invalid_url());
     }
@@ -335,6 +428,15 @@ fn validate_url_inner(value: &str, allow_loopback: bool) -> io::Result<Uri> {
         && !ALLOWED_HOSTS
             .iter()
             .any(|allowed| host.eq_ignore_ascii_case(allowed))
+        && !(actions_redirects
+            && host
+                .strip_suffix(".blob.core.windows.net")
+                .is_some_and(|account| {
+                    (3..=24).contains(&account.len())
+                        && account
+                            .bytes()
+                            .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit())
+                }))
     {
         return Err(invalid_url());
     }
@@ -388,6 +490,92 @@ fn invalid_response(message: &'static str) -> io::Error {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    struct TokenRunner {
+        calls: Cell<usize>,
+        output: &'static [u8],
+    }
+    impl crate::process::CommandRunner for TokenRunner {
+        fn execute(
+            &self,
+            request: crate::process::CommandRequest<'_>,
+        ) -> Result<crate::process::CommandOutput, crate::process::CommandError> {
+            self.calls.set(self.calls.get() + 1);
+            assert_eq!(request.program, OsStr::new("gh"));
+            assert_eq!(
+                request.args,
+                ["auth", "token", "--hostname", "github.com"].map(std::ffi::OsString::from)
+            );
+            assert!(request.input.is_empty());
+            assert_eq!(request.max_output_bytes, TOKEN_LIMIT);
+            Ok(crate::process::CommandOutput {
+                stdout: self.output.to_vec(),
+                stderr: b"private diagnostic".to_vec(),
+            })
+        }
+    }
+
+    #[test]
+    fn authentication_borrows_one_token_without_gh_when_supplied() {
+        let runner = TokenRunner {
+            calls: Cell::new(0),
+            output: b"gh-fixture-token\n",
+        };
+        let deadline = Instant::now() + Duration::from_secs(1);
+        assert_eq!(
+            invocation_token(Some("env-fixture-token".into()), deadline, &runner).unwrap(),
+            "env-fixture-token"
+        );
+        assert_eq!(runner.calls.get(), 0);
+        assert_eq!(
+            invocation_token(None, deadline, &runner).unwrap(),
+            "gh-fixture-token"
+        );
+        assert_eq!(runner.calls.get(), 1);
+    }
+
+    #[test]
+    fn missing_or_malformed_credentials_never_echo_private_bytes() {
+        for output in [
+            b"".as_slice(),
+            b"secret token\n",
+            b"\xffprivate-secret",
+            b"one\ntwo",
+        ] {
+            let runner = TokenRunner {
+                calls: Cell::new(0),
+                output,
+            };
+            let error = invocation_token(None, Instant::now() + Duration::from_secs(1), &runner)
+                .unwrap_err();
+            assert!(error.get_ref().unwrap().is::<MissingAuth>());
+            assert!(!error.to_string().contains("private-secret"));
+            assert!(!error.to_string().contains("private diagnostic"));
+        }
+        let runner = TokenRunner {
+            calls: Cell::new(0),
+            output: b"fallback-token",
+        };
+        assert!(invocation_token(Some("secret\nheader".into()), Instant::now(), &runner).is_err());
+        assert_eq!(runner.calls.get(), 0);
+    }
+
+    #[test]
+    fn actions_blob_redirect_permission_does_not_broaden_normal_release_hosts() {
+        let url = "https://productionresultssa1.blob.core.windows.net/artifact?sig=fixture";
+        assert!(validate_url(url).is_err());
+        let uri = validate_url_inner(url, false, true).unwrap();
+        assert!(!is_api(&uri));
+        for url in [
+            "http://productionresultssa1.blob.core.windows.net/archive",
+            "https://user@productionresultssa1.blob.core.windows.net/archive",
+            "https://productionresultssa1.blob.core.windows.net:8443/archive",
+            "https://productionresultssa1.blob.core.windows.net.evil.example/archive",
+            "https://nested.account.blob.core.windows.net/archive",
+        ] {
+            assert!(validate_url_inner(url, false, true).is_err());
+        }
+    }
 
     #[test]
     fn accepts_only_canonical_https_hosts() {

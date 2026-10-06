@@ -10,7 +10,8 @@ use std::{
     time::{Duration, Instant},
 };
 use tmt_core::native_install::{
-    Channel, InstalledVersion, UpgradeSelection, plan_version, select_upgrade,
+    Channel, InstalledVersion, PrVersionContext, UpgradeSelection, plan_candidate_version,
+    select_upgrade,
 };
 
 pub struct UpgradeRequest<'a> {
@@ -53,6 +54,27 @@ impl From<io::Error> for UpgradeFailure {
     }
 }
 impl UpgradeFailure {
+    pub fn code(&self) -> &'static str {
+        use tmt_core::native_install::SchemaError;
+        match self
+            .cause
+            .get_ref()
+            .and_then(|error| error.downcast_ref::<SchemaError>())
+        {
+            Some(SchemaError::Unknown) => "NATIVE_SCHEMA_UNKNOWN",
+            Some(SchemaError::AheadOfAlpha) => "NATIVE_SCHEMA_AHEAD",
+            Some(SchemaError::DataDowngrade) => "NATIVE_SCHEMA_DOWNGRADE",
+            None if self
+                .cause
+                .get_ref()
+                .is_some_and(|error| error.is::<crate::release_http::MissingAuth>()) =>
+            {
+                "NATIVE_PR_AUTH_REQUIRED"
+            }
+            None if self.needs_new_installer() => "NATIVE_UPGRADE_INSTALLER_UNSUPPORTED",
+            None => "NATIVE_UPGRADE_FAILED",
+        }
+    }
     pub fn needs_new_installer(&self) -> bool {
         self.cause
             .get_ref()
@@ -76,6 +98,58 @@ pub fn upgrade_product(
     verifier: Option<ReleaseVerifier<'_>>,
     checkpoint: impl FnMut() -> io::Result<()>,
 ) -> Result<UpgradeReport, UpgradeFailure> {
+    upgrade_product_with_schema_consent(product, request, false, verifier, checkpoint)
+}
+
+/// Schema-ahead consent is invocation-owned, never inherited from a receipt.
+pub fn upgrade_product_with_schema_consent(
+    product: super::Product,
+    request: UpgradeRequest<'_>,
+    allow_schema_ahead: bool,
+    verifier: Option<ReleaseVerifier<'_>>,
+    checkpoint: impl FnMut() -> io::Result<()>,
+) -> Result<UpgradeReport, UpgradeFailure> {
+    // Preserve the pinned no-network path, including no gh credential lookup.
+    let current = super::inspect_product(product, request.executable)?;
+    let selection = select_upgrade(
+        &current.state,
+        request.channel,
+        request.exact,
+        request.unpin,
+    )
+    .map_err(io::Error::other)?;
+    if matches!(
+        selection,
+        UpgradeSelection::Fetch {
+            channel: Channel::Pr(_),
+            ..
+        }
+    ) {
+        let deadline = Instant::now() + Duration::from_secs(60);
+        let client = crate::release_http::Https::authenticated(
+            deadline,
+            &crate::process::UnixCommandRunner,
+        )?;
+        return upgrade_product_with_options(
+            product,
+            request,
+            verifier,
+            Acquisition {
+                selected: None,
+                allow_schema_ahead,
+                deadline,
+            },
+            checkpoint,
+            |url, accept, limit, deadline| {
+                if url.ends_with("/zip") {
+                    client.get_actions(url, limit, deadline)
+                } else {
+                    client.get(url, accept, limit, deadline)
+                }
+            },
+            install_cli,
+        );
+    }
     let client = crate::release_http::Https::new();
     upgrade_product_with(
         product,
@@ -133,7 +207,7 @@ fn upgrade_product_with(
     request: UpgradeRequest<'_>,
     verifier: Option<ReleaseVerifier<'_>>,
     selected: Option<&semver::Version>,
-    mut checkpoint: impl FnMut() -> io::Result<()>,
+    checkpoint: impl FnMut() -> io::Result<()>,
     get: impl FnMut(&str, &str, usize, Instant) -> io::Result<crate::release_http::Response>,
     install_cli: impl FnOnce(
         &super::ManagedInstallation,
@@ -143,6 +217,47 @@ fn upgrade_product_with(
         &mut dyn FnMut() -> io::Result<()>,
     ) -> io::Result<InstallReport>,
 ) -> Result<UpgradeReport, UpgradeFailure> {
+    upgrade_product_with_options(
+        product,
+        request,
+        verifier,
+        Acquisition {
+            selected,
+            allow_schema_ahead: false,
+            deadline: Instant::now() + Duration::from_secs(60),
+        },
+        checkpoint,
+        get,
+        install_cli,
+    )
+}
+
+struct Acquisition<'a> {
+    selected: Option<&'a semver::Version>,
+    allow_schema_ahead: bool,
+    deadline: Instant,
+}
+
+fn upgrade_product_with_options(
+    product: super::Product,
+    request: UpgradeRequest<'_>,
+    verifier: Option<ReleaseVerifier<'_>>,
+    acquisition: Acquisition<'_>,
+    mut checkpoint: impl FnMut() -> io::Result<()>,
+    mut get: impl FnMut(&str, &str, usize, Instant) -> io::Result<crate::release_http::Response>,
+    install_cli: impl FnOnce(
+        &super::ManagedInstallation,
+        &release::DownloadedRelease,
+        Channel,
+        tmt_core::native_install::PinAction,
+        &mut dyn FnMut() -> io::Result<()>,
+    ) -> io::Result<InstallReport>,
+) -> Result<UpgradeReport, UpgradeFailure> {
+    let Acquisition {
+        selected,
+        allow_schema_ahead,
+        deadline,
+    } = acquisition;
     checkpoint()?;
     let current = super::inspect_product(product, request.executable)?;
     let selection = select_upgrade(
@@ -169,16 +284,67 @@ fn upgrade_product_with(
             skipped_pinned: true,
         });
     };
-    let downloaded = release::download_product(
-        product,
+    let mut downloaded = if let Channel::Pr(pr) = channel {
+        super::pr_resolver::download(
+            super::pr_resolver::Request {
+                product,
+                pr,
+                exact: selected.or(exact.as_ref()),
+                target: &current.target,
+                opt_in: allow_schema_ahead,
+                deadline,
+            },
+            super::pr_resolver::Policy {
+                repository_id: 1_118_285_740,
+                producers: super::pr_resolver::APPROVED,
+            },
+            &mut get,
+            || super::local_application_schema(product),
+            || {
+                u64::try_from(
+                    std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .map_err(io::Error::other)?
+                        .as_millis(),
+                )
+                .map_err(io::Error::other)
+            },
+        )?
+    } else {
+        release::download_product(
+            product,
+            channel,
+            selected.or(exact.as_ref()),
+            &current.target,
+            deadline,
+            &mut get,
+        )?
+    };
+    downloaded.explicit_channel = request.channel.is_some();
+    if matches!(current.state.channel, Channel::Pr(_)) && !matches!(channel, Channel::Pr(_)) {
+        let schema = super::manifest_application_schema(product, &downloaded.manifest)?;
+        let local = super::local_application_schema(product)?;
+        super::pr_receipt::admit_databases(product, &schema, &schema, &local, false)?;
+    }
+    let current_identity = current
+        .provenance
+        .as_ref()
+        .map(super::receipt::Provenance::pr_identity)
+        .transpose()?
+        .flatten();
+    let candidate_identity = downloaded.provenance.pr_identity()?;
+    let plan = plan_candidate_version(
+        Some(&current.state),
+        &downloaded.version,
         channel,
-        selected.or(exact.as_ref()),
-        &current.target,
-        Instant::now() + Duration::from_secs(60),
-        get,
-    )?;
-    let plan = plan_version(Some(&current.state), &downloaded.version, channel, pin)
-        .map_err(io::Error::other)?;
+        pin,
+        PrVersionContext {
+            current: current_identity.as_ref(),
+            candidate: candidate_identity.as_ref(),
+            explicit_channel: downloaded.explicit_channel,
+        },
+    )
+    .map_err(io::Error::other)?;
     checkpoint()?;
     let result = if product == super::Product::Cli {
         install_cli(&current, &downloaded, channel, pin, &mut checkpoint)
@@ -199,6 +365,15 @@ fn upgrade_product_with(
                 expected: Some(current.id),
                 provenance: Some(downloaded.provenance),
                 verifier,
+                explicit_channel: downloaded.explicit_channel,
+                schema: if current_identity.is_some() {
+                    Some(super::manifest_application_schema(
+                        product,
+                        &downloaded.manifest,
+                    )?)
+                } else {
+                    None
+                },
             },
             &artifact,
             &mut checkpoint,

@@ -304,6 +304,7 @@ fn tls_material() -> (Arc<ServerConfig>, Vec<u8>) {
     let certified = generate_simple_self_signed(vec![
         "127.0.0.1".to_owned(),
         "api.github.com".to_owned(),
+        "productionresultssa1.blob.core.windows.net".to_owned(),
         "objects.githubusercontent.com".to_owned(),
     ])
     .expect("generate test TLS certificate");
@@ -558,7 +559,11 @@ impl ureq::unversioned::resolver::Resolver for LocalResolver {
     ) -> Result<ureq::unversioned::resolver::ResolvedSocketAddrs, ureq::Error> {
         assert!(matches!(
             uri.host(),
-            Some("api.github.com" | "objects.githubusercontent.com")
+            Some(
+                "api.github.com"
+                    | "objects.githubusercontent.com"
+                    | "productionresultssa1.blob.core.windows.net"
+            )
         ));
         let mut addresses = self.empty();
         addresses.push(self.0);
@@ -748,6 +753,40 @@ fn token_is_scoped_to_api_hop_and_optional() {
         assert!(!requests[1].to_ascii_lowercase().contains("authorization"));
         assert!(!requests[1].contains("fixture-secret"));
     }
+}
+
+#[test]
+fn actions_download_requires_auth_and_never_forwards_it_to_signed_blob_redirects() {
+    let (_server, mut client, requests) = scripted(vec![
+        Response::redirect(
+            "https://productionresultssa1.blob.core.windows.net/artifact?sig=fixture".to_owned(),
+        ),
+        Response::ok("zip"),
+    ]);
+    let url = "https://api.github.com/repos/pj-tmt/tmt/actions/artifacts/42/zip";
+    assert!(
+        client
+            .get_actions(url, 64, Instant::now() + Duration::from_secs(1))
+            .is_err()
+    );
+    assert!(requests.lock().unwrap().is_empty());
+    client.token = Some("fixture-secret".to_owned());
+    assert_eq!(
+        client
+            .get_actions(url, 64, Instant::now() + Duration::from_secs(2))
+            .unwrap()
+            .body,
+        b"zip"
+    );
+    let requests = requests.lock().unwrap();
+    assert_eq!(requests.len(), 2);
+    assert!(
+        requests[0]
+            .to_ascii_lowercase()
+            .contains("authorization: bearer fixture-secret")
+    );
+    assert!(!requests[1].to_ascii_lowercase().contains("authorization"));
+    assert!(!requests[1].contains("fixture-secret"));
 }
 
 #[test]

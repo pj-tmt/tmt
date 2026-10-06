@@ -2,7 +2,8 @@
 
 use super::{
     ActivatedInstallation, InstallReport, ManagedInstallation, artifact, invalid,
-    receipt::GitHubProvenance, release::DownloadedRelease,
+    receipt::{GitHubProvenance, Provenance},
+    release::DownloadedRelease,
 };
 use crate::{
     bounded_file,
@@ -21,6 +22,8 @@ use uuid::Uuid;
 
 pub const VERSION: u32 = 1;
 pub const LIMIT: usize = 16 * 1024;
+pub const PR_VERSION: u32 = 2;
+pub const PR_LIMIT: usize = 64 * 1024;
 pub const UNSUPPORTED: &str = "This release needs a newer installer: rerun install.sh with: curl -fsSL https://github.com/pj-tmt/tmt/releases/latest/download/install.sh | sh";
 
 #[derive(Debug)]
@@ -61,8 +64,30 @@ struct Response {
     error: Option<String>,
 }
 
+/// Protocol 1 remains frozen. Protocol 2 wraps the same local byte transfer
+/// with acquisition provenance and explicit channel intent, without teaching
+/// an older executable to interpret unknown evidence.
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PrRequest {
+    protocol: u32,
+    transfer: Request,
+    provenance: Provenance,
+    explicit_channel: bool,
+}
+
 pub fn probe() -> serde_json::Value {
     serde_json::json!({"protocol": VERSION})
+}
+pub fn probe_version(version: u32) -> serde_json::Value {
+    serde_json::json!({"protocol": version})
+}
+pub fn input_limit(version: u32) -> usize {
+    if version == PR_VERSION {
+        PR_LIMIT
+    } else {
+        LIMIT
+    }
 }
 
 /// Only the candidate calls this. Revalidate local bytes and the complete
@@ -71,12 +96,49 @@ pub fn install(
     input: &[u8],
     checkpoint: impl FnMut() -> io::Result<()>,
 ) -> (serde_json::Value, bool) {
+    install_version(VERSION, input, checkpoint)
+}
+
+pub fn install_version(
+    version: u32,
+    input: &[u8],
+    checkpoint: impl FnMut() -> io::Result<()>,
+) -> (serde_json::Value, bool) {
     let result = (|| {
-        if input.len() > LIMIT {
+        if input.len() > input_limit(version) {
             return Err(invalid("Installer handoff exceeds its bound."));
         }
-        let request: Request = serde_json::from_slice(input).map_err(io::Error::other)?;
-        if request.protocol != VERSION || request.release_id == 0 {
+        let (request, provenance, explicit_channel) = match version {
+            VERSION => {
+                let request: Request = super::pr_json::parse(input, LIMIT)?;
+                let provenance = GitHubProvenance {
+                    release_id: request.release_id,
+                    manifest_sha256: request.manifest_sha256.clone(),
+                }
+                .into();
+                (request, provenance, true)
+            }
+            PR_VERSION => {
+                let request: PrRequest = super::pr_json::parse(input, PR_LIMIT)?;
+                if request.protocol != PR_VERSION {
+                    return Err(invalid("Unsupported PR installer handoff."));
+                }
+                (
+                    request.transfer,
+                    request.provenance,
+                    request.explicit_channel,
+                )
+            }
+            _ => return Err(invalid("Unsupported native installer handoff.")),
+        };
+        if request.protocol != VERSION
+            || (version == VERSION && request.release_id == 0)
+            || provenance.manifest_sha256() != request.manifest_sha256
+            || provenance
+                .release()
+                .is_some_and(|release| release.release_id != request.release_id)
+            || (matches!(provenance, Provenance::Pr(_)) && request.release_id != 0)
+        {
             return Err(invalid("Unsupported native installer handoff."));
         }
         if !request.archive.is_absolute()
@@ -123,6 +185,29 @@ pub fn install(
         {
             return Err(invalid("Installer handoff release mismatch."));
         }
+        if version == PR_VERSION {
+            let schema = super::manifest_application_schema(super::Product::Cli, &manifest)?;
+            if serde_json::to_value(&schema).map_err(io::Error::other)?
+                != super::compiled_application_schema(&schema.source_sha)?
+            {
+                return Err(invalid(
+                    "Candidate manifest schema does not match this compiled binary and source closure.",
+                ));
+            }
+            if let Provenance::Pr(proof) = &provenance {
+                proof.verify_manifest(&manifest)?;
+            } else {
+                // A return to a published channel cannot downgrade local data.
+                let local = super::local_application_schema(super::Product::Cli)?;
+                super::pr_receipt::admit_databases(
+                    super::Product::Cli,
+                    &schema,
+                    &schema,
+                    &local,
+                    false,
+                )?;
+            }
+        }
         super::activate(
             super::ActivationRequest {
                 product: super::Product::Cli,
@@ -132,11 +217,17 @@ pub fn install(
                 expected: Some(
                     Uuid::parse_str(&request.expected_current).map_err(io::Error::other)?,
                 ),
-                provenance: Some(GitHubProvenance {
-                    release_id: request.release_id,
-                    manifest_sha256: request.manifest_sha256,
-                }),
+                provenance: Some(provenance),
                 verifier: None,
+                explicit_channel,
+                schema: if version == PR_VERSION {
+                    Some(super::manifest_application_schema(
+                        super::Product::Cli,
+                        &manifest,
+                    )?)
+                } else {
+                    None
+                },
             },
             &artifact,
             checkpoint,
@@ -155,7 +246,7 @@ pub fn install(
     let failed = error.is_some();
     (
         serde_json::to_value(Response {
-            protocol: VERSION,
+            protocol: version,
             installation,
             error,
         })
@@ -197,6 +288,14 @@ pub(super) fn upgrade(
     mut checkpoint: impl FnMut() -> io::Result<()>,
     runner: &impl CommandRunner,
 ) -> io::Result<InstallReport> {
+    let version = if matches!(downloaded.provenance, Provenance::Pr(_))
+        || matches!(current.state.channel, Channel::Pr(_))
+    {
+        PR_VERSION
+    } else {
+        VERSION
+    };
+    let limit = input_limit(version);
     let artifact = artifact::acquire_candidate(
         &downloaded.manifest,
         &downloaded.archive_name,
@@ -204,7 +303,7 @@ pub(super) fn upgrade(
         &current.target,
     )?;
     if artifact.version != downloaded.version
-        || artifact::digest(&downloaded.manifest) != downloaded.provenance.manifest_sha256
+        || artifact::digest(&downloaded.manifest) != downloaded.provenance.manifest_sha256()
     {
         return Err(invalid(
             "Candidate does not match the verified release metadata.",
@@ -244,23 +343,23 @@ pub(super) fn upgrade(
                 args: &[
                     "__native-install".into(),
                     "--handoff-version".into(),
-                    VERSION.to_string().into(),
+                    version.to_string().into(),
                     "--probe".into(),
                     "--json".into(),
                 ],
                 input: &[],
                 deadline: Instant::now() + Duration::from_secs(10),
-                max_output_bytes: LIMIT,
+                max_output_bytes: limit,
             })
             .map_err(|error| io::Error::other(Unsupported(Some(error))))?;
         if !probe.stderr.is_empty()
             || serde_json::from_slice::<serde_json::Value>(&probe.stdout).ok()
-                != Some(self::probe())
+                != Some(probe_version(version))
         {
             return Err(io::Error::other(Unsupported(None)));
         }
         checkpoint()?;
-        let input = serde_json::to_vec(&Request {
+        let transfer = Request {
             protocol: VERSION,
             archive,
             manifest,
@@ -268,7 +367,7 @@ pub(super) fn upgrade(
             target: current.target.clone(),
             version: downloaded.version.to_string(),
             archive_sha256: artifact.sha256,
-            manifest_sha256: downloaded.provenance.manifest_sha256.clone(),
+            manifest_sha256: downloaded.provenance.manifest_sha256().into(),
             channel: channel.as_str().into(),
             pin: match pin {
                 PinAction::Preserve => "preserve",
@@ -277,10 +376,23 @@ pub(super) fn upgrade(
             }
             .into(),
             expected_current: current.id.to_string(),
-            release_id: downloaded.provenance.release_id,
-        })
+            release_id: downloaded
+                .provenance
+                .release()
+                .map_or(0, |proof| proof.release_id),
+        };
+        let input = if version == PR_VERSION {
+            serde_json::to_vec(&PrRequest {
+                protocol: version,
+                transfer,
+                provenance: downloaded.provenance.clone(),
+                explicit_channel: downloaded.explicit_channel,
+            })
+        } else {
+            serde_json::to_vec(&transfer)
+        }
         .map_err(io::Error::other)?;
-        if input.len() > LIMIT {
+        if input.len() > limit {
             return Err(invalid("Installer handoff exceeds its bound."));
         }
         let result = runner.execute(CommandRequest {
@@ -288,12 +400,12 @@ pub(super) fn upgrade(
             args: &[
                 "__native-install".into(),
                 "--handoff-version".into(),
-                VERSION.to_string().into(),
+                version.to_string().into(),
                 "--json".into(),
             ],
             input: &input,
             deadline: Instant::now() + Duration::from_secs(60),
-            max_output_bytes: LIMIT,
+            max_output_bytes: limit,
         });
         let (output, failed) = match result {
             Ok(output) => (output, false),
@@ -316,7 +428,7 @@ pub(super) fn upgrade(
         };
         let response = parse_response(&output.stdout)?;
         if !output.stderr.is_empty()
-            || response.protocol != VERSION
+            || response.protocol != version
             || failed != response.error.is_some()
         {
             return Err(invalid(

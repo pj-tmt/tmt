@@ -37,11 +37,13 @@ fn downloaded(extra: bool) -> DownloadedRelease {
         manifest = serde_json::to_vec(&value).unwrap();
     }
     DownloadedRelease {
+        explicit_channel: false,
         version: "1.2.4".parse().unwrap(),
         provenance: GitHubProvenance {
             release_id: 42,
             manifest_sha256: artifact::digest(&manifest),
-        },
+        }
+        .into(),
         manifest,
         archive,
         archive_name,
@@ -146,6 +148,8 @@ fn new_companion_is_judged_by_candidate_and_old_reader_never_reopens_new_invento
                     expected: Some(old.id),
                     provenance: Some(downloaded.provenance.clone()),
                     verifier: None,
+                    explicit_channel: true,
+                    schema: None,
                 },
                 &artifact,
                 || Ok(()),
@@ -349,7 +353,11 @@ fn append_unsafe(downloaded: &mut DownloadedRelease, name: &str, kind: tar::Entr
     manifest["artifacts"][&downloaded.archive_name]["checksums"]["sha256"] =
         artifact::digest(&downloaded.archive).into();
     downloaded.manifest = serde_json::to_vec(&manifest).unwrap();
-    downloaded.provenance.manifest_sha256 = artifact::digest(&downloaded.manifest);
+    downloaded.provenance = GitHubProvenance {
+        release_id: 42,
+        manifest_sha256: artifact::digest(&downloaded.manifest),
+    }
+    .into();
 }
 
 #[test]

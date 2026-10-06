@@ -85,6 +85,8 @@ fn install_release_with(
             expected: None,
             provenance: Some(downloaded.provenance),
             verifier,
+            explicit_channel: true,
+            schema: None,
         },
         &artifact,
         checkpoint,

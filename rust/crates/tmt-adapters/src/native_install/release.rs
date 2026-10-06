@@ -1,6 +1,9 @@
 //! Canonical GitHub release discovery, separate from cargo-dist archive policy.
 
-use super::{OFFICIAL_REPOSITORY, artifact, invalid, receipt::GitHubProvenance};
+use super::{
+    OFFICIAL_REPOSITORY, artifact, invalid,
+    receipt::{GitHubProvenance, Provenance},
+};
 use semver::Version;
 use serde_json::Value;
 use std::{io, time::Instant};
@@ -36,7 +39,8 @@ pub(super) struct DownloadedRelease {
     pub manifest: Vec<u8>,
     pub archive: Vec<u8>,
     pub archive_name: String,
-    pub provenance: GitHubProvenance,
+    pub provenance: Provenance,
+    pub explicit_channel: bool,
 }
 
 #[cfg(test)]
@@ -113,6 +117,7 @@ pub(super) fn download_product(
         &mut get,
     )?;
     Ok(DownloadedRelease {
+        explicit_channel: false,
         version,
         archive_name,
         archive,
@@ -120,7 +125,8 @@ pub(super) fn download_product(
         provenance: GitHubProvenance {
             release_id,
             manifest_sha256: manifest_asset.digest,
-        },
+        }
+        .into(),
     })
 }
 
@@ -238,6 +244,57 @@ pub(super) fn discover_latest(
 
 const MAX_REF_PAGES: usize = 10;
 const MAX_RELEASE_LOOKUPS: usize = 32;
+
+/// Schema evidence comes from the latest immutable published alpha's actual
+/// manifest. An absent field is unknown, never reconstructed from this binary.
+pub(super) fn schema_evidence(
+    product: super::Product,
+    target: &str,
+    deadline: Instant,
+    get: &mut impl FnMut(&str, &str, usize, Instant) -> io::Result<crate::release_http::Response>,
+) -> io::Result<super::pr_receipt::AlphaEvidence> {
+    let (document, version) = discover_latest(product, Channel::Alpha, deadline, get)?;
+    if document["draft"] != false
+        || document["immutable"] != true
+        || !document["prerelease"]
+            .as_bool()
+            .is_some_and(|flag| product.accepts_prerelease_flag(&version, flag))
+    {
+        return Err(invalid(
+            "Latest-alpha schema requires an immutable published release.",
+        ));
+    }
+    let release_id = document["id"]
+        .as_u64()
+        .filter(|id| super::pr_catalog::positive(*id))
+        .ok_or_else(|| invalid("Invalid alpha release identity."))?;
+    let asset = asset(&document, MANIFEST_NAME, artifact::MANIFEST_LIMIT)?;
+    let manifest = fetch_asset(
+        &format!("https://api.github.com/repos/{OFFICIAL_REPOSITORY}/releases"),
+        &asset,
+        artifact::MANIFEST_LIMIT,
+        deadline,
+        get,
+    )?;
+    let value: Value = super::pr_json::parse(&manifest, artifact::MANIFEST_LIMIT)?;
+    if artifact::select(product, &manifest, target)?.1 != version {
+        return Err(invalid(
+            "Alpha manifest version disagrees with the published release.",
+        ));
+    }
+    let schema = value
+        .get("tmt_application_schema")
+        .ok_or_else(|| io::Error::other(tmt_core::native_install::SchemaError::Unknown))?;
+    let schema: super::pr_catalog::ApplicationSchema = serde_json::from_value(schema.clone())
+        .map_err(|_| io::Error::other(tmt_core::native_install::SchemaError::Unknown))?;
+    schema.validate(product.as_str(), &schema.source_sha)?;
+    Ok(super::pr_receipt::AlphaEvidence {
+        release_id,
+        version: version.to_string(),
+        manifest_sha256: asset.digest,
+        application_schema: schema,
+    })
+}
 
 fn discovery_bound() -> io::Error {
     invalid("Release discovery exceeds its bound; select an exact version with --to.")

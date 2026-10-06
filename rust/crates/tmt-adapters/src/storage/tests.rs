@@ -9,6 +9,99 @@ struct Fixture {
     database: PathBuf,
 }
 
+#[test]
+fn compiled_schema_export_matches_actual_source_bytes_and_the_storage_owner() {
+    let compiled = Storage::compiled_schema();
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .ancestors()
+        .nth(3)
+        .unwrap();
+    let fixture = Fixture::new();
+    let mut storage = Storage::open(&fixture.database).unwrap();
+    assert_eq!(compiled.version, storage.health().unwrap().schema_version);
+    assert!(compiled.sources.len() <= 64);
+    for source in &compiled.sources {
+        assert_eq!(
+            source.sha256,
+            tmt_core::content_digest::sha256(&fs::read(root.join(source.path)).unwrap()),
+            "{}",
+            source.path
+        );
+    }
+    let record = crate::native_install::compiled_application_schema(&"a".repeat(40)).unwrap();
+    assert_eq!(record["databases"][0]["domain"], "tmt-core-db");
+    assert_eq!(record["databases"][0]["version"], compiled.version);
+    assert_eq!(
+        record["source_files"].as_array().unwrap().len(),
+        compiled.sources.len()
+    );
+    assert!(crate::native_install::compiled_application_schema("main").is_err());
+    storage.close().unwrap();
+}
+
+#[test]
+fn application_schema_observation_does_not_create_or_guess_missing_history() {
+    let fixture = Fixture::new();
+    assert!(Storage::application_schema(&fixture.database).is_err());
+    assert!(!fixture.database.parent().unwrap().exists());
+    fs::create_dir_all(fixture.database.parent().unwrap()).unwrap();
+    let connection = Connection::open(&fixture.database).unwrap();
+    connection.execute_batch("PRAGMA user_version = 99; CREATE TABLE sentinel(value TEXT); INSERT INTO sentinel VALUES ('retained');").unwrap();
+    assert!(Storage::application_schema(&fixture.database).is_err());
+    assert_eq!(
+        connection
+            .query_row("SELECT value FROM sentinel", [], |row| row
+                .get::<_, String>(0))
+            .unwrap(),
+        "retained"
+    );
+    assert_eq!(
+        connection
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_schema WHERE name = '_migrations'",
+                [],
+                |row| row.get::<_, u32>(0)
+            )
+            .unwrap(),
+        0
+    );
+}
+
+#[test]
+fn application_schema_observation_reads_wal_and_future_versions_without_migration() {
+    let fixture = Fixture::new();
+    let mut storage = Storage::open(&fixture.database).unwrap();
+    let connection = storage.connection().unwrap();
+    // This intentionally contradicts the application record: user_version is
+    // not Core's schema owner, and the newest committed history is still in WAL.
+    connection.execute_batch("PRAGMA wal_autocheckpoint = 0; PRAGMA user_version = 1; INSERT INTO _migrations VALUES (49, 'future migration', 'now');").unwrap();
+    assert_eq!(Storage::application_schema(&fixture.database).unwrap(), 49);
+    assert_eq!(
+        connection
+            .query_row("PRAGMA user_version", [], |row| row.get::<_, u32>(0))
+            .unwrap(),
+        1
+    );
+    assert_eq!(storage.health().unwrap().schema_version, 49);
+    storage.close().unwrap();
+    assert_eq!(Storage::application_schema(&fixture.database).unwrap(), 49);
+}
+
+#[test]
+fn application_schema_observation_refuses_gaps_and_changed_known_migrations() {
+    let fixture = Fixture::new();
+    let mut storage = Storage::open(&fixture.database).unwrap();
+    assert_eq!(Storage::application_schema(&fixture.database).unwrap(), 48);
+    let connection = storage.connection().unwrap();
+    connection
+        .execute_batch("INSERT INTO _migrations VALUES (50, 'gap', 'now');")
+        .unwrap();
+    assert!(Storage::application_schema(&fixture.database).is_err());
+    connection.execute_batch("DELETE FROM _migrations WHERE version = 50; UPDATE _migrations SET name = 'unverified' WHERE version = 1;").unwrap();
+    assert!(Storage::application_schema(&fixture.database).is_err());
+    storage.close().unwrap();
+}
+
 impl Fixture {
     fn new() -> Self {
         let directory = TestDirectory::new();
