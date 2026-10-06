@@ -612,8 +612,10 @@ impl Inner {
 
     /// Create-only publication of a `committing` original, shared by the commit
     /// and by reconciliation. A destination that already exists is accepted only
-    /// when its actual length and SHA-256 equal the original; anything else is
-    /// closed as `unknown` and never overwritten.
+    /// when it is the original's own admitted inode (device and inode equal to the
+    /// staged name's, and, on reconciliation, its length and SHA-256 equal the
+    /// original's); equal bytes in another inode and anything else is closed as
+    /// `unknown` and never overwritten.
     fn publish(
         &self,
         extension: &str,
@@ -621,21 +623,28 @@ impl Inner {
         verified: bool,
         io: &IoBudget<'_>,
     ) -> BackendResult<Receipt> {
-        let tree = self.write_tree(extension)?;
-        let staging = tree.staging(true)?.ok_or(BackendError::Unavailable)?;
-        let directory = tree
-            .namespace(&row.spec.key.namespace, true)?
-            .ok_or(BackendError::Unavailable)?;
+        let (staging, directory) = self.admitted(|| {
+            let tree = self.write_tree(extension)?;
+            let staging = tree.staging(true)?.ok_or(BackendError::Unavailable)?;
+            let directory = tree
+                .namespace(&row.spec.key.namespace, true)?
+                .ok_or(BackendError::Unavailable)?;
+            Ok((staging, directory))
+        })?;
         let (staged_name, final_name) = (hex(&row.spec.intent.0), hex(&row.spec.key.object.0));
         loop {
             io.check()?;
-            let destination = directory.open_file(&final_name, 2).map_err(fs)?;
-            let staged = staging.open_file(&staged_name, 2).map_err(fs)?;
+            let (destination, staged) = self.admitted(|| {
+                Ok((
+                    directory.open_file(&final_name, 2).map_err(fs)?,
+                    staging.open_file(&staged_name, 2).map_err(fs)?,
+                ))
+            })?;
             match (destination, staged) {
                 (Some(destination), Some(staged)) => {
                     // Only one allocation under two names settles as a crash window;
                     // equal bytes in another inode are a second body.
-                    if !tree::same_file(&destination, &staged).map_err(fs)? {
+                    if !self.admitted(|| tree::same_file(&destination, &staged).map_err(fs))? {
                         return Err(self.unknown(extension, row, &[&destination, &staged], io));
                     }
                     if !verified && !self.holds_original(&destination, row, io)? {
@@ -686,6 +695,18 @@ impl Inner {
         }
         io.check()?;
         Ok(receipt(row))
+    }
+
+    /// Examining what a possibly published original retains: if that cannot be done,
+    /// its allocation is unknown, so the shared accounting fails closed (new adoption
+    /// stops, the original stays unsettled and readiness refuses after a restart).
+    /// The caller still reports the error; nothing is followed, removed or estimated.
+    fn admitted<T>(&self, examine: impl FnOnce() -> BackendResult<T>) -> BackendResult<T> {
+        let result = examine();
+        if result.is_err() {
+            self.ledger.fail_accounting();
+        }
+        result
     }
 
     /// The destination holds exactly the original's length and SHA-256.

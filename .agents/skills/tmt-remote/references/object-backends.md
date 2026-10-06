@@ -57,9 +57,11 @@ admits it is #1852's.
    acknowledgment. An unacknowledged tail is cut back at readiness.
 3. `commit`: full reread and SHA-256 verification, transaction `staging -> committing`,
    create-only hard link, directory sync, transaction `committed` (the receipt), then
-   staging-name removal. A destination that already exists is accepted only when its
-   length and digest equal the original; anything else closes the original as
-   `unknown` (charged for every distinct body) and is never overwritten.
+   staging-name removal. A destination that already exists is accepted only when it is
+   the original's own inode (device and inode equal to the staging name's, verified
+   again on reconciliation); anything else, including identical bytes in another inode,
+   closes the original as `unknown` (charged for every distinct body) and is never
+   overwritten.
 4. `discard` and expiry: `staging -> discarding|expiring`, remove the staging name, sync,
    then release payload and entry. `committing`, `committed` and `unknown` conflict.
 5. `remove_namespace`: commit the fence, drain in-flight holders, mark rows `removing`,
@@ -93,7 +95,8 @@ is larger). The charge is never lowered, nothing is overwritten, unlinked or rel
 it may exceed a limit because the bytes already exist: the ordinary checks then refuse later
 adoption in exactly the namespace, extension or installation limit it exceeds, and no other
 scope is full. A destination without its staging name is not a recovery (the staging name is
-removed only after the receipt). If an allocation cannot be measured or represented, the
+removed only after the receipt). If an allocation cannot be examined (an unadmittable tree, destination or staged name),
+measured, represented or recorded (the budget ended first), the
 original stays unsettled, every handle of that `LocalFs` refuses new adoption (observation of
 existing originals continues), and a restart refuses readiness while the unsettled original or
 an unrepresentable aggregate remains. There is no manual resolution command.

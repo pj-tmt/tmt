@@ -602,6 +602,122 @@ fn a_failed_measurement_stops_adoption_through_every_live_handle_until_restart()
     assert!(backend(&local).begin(&fresh, &io()).is_ok());
 }
 
+/// Common to the cases whose observed allocation could not be recorded: the original
+/// stays unsettled and its charge unchanged, nothing new is adopted through any live
+/// handle (a new original or a new tombstone), observation continues, and a restart
+/// settles it before admitting work.
+fn assert_accounting_fenced(env: &Env, local: &LocalFs<'_>, sp: &BeginSpec, payload: &[u8]) {
+    let b = backend(local);
+    assert_eq!(env.row(sp.intent.0[0]).0, "committing", "unsettled");
+    assert_eq!(
+        env.row(sp.intent.0[0]).1,
+        payload_charge(payload.len() as u64) as i64,
+        "the one-body reservation is unchanged"
+    );
+    let fresh = spec(9, 9, 9, b"x");
+    let beta = local.handle(ExtensionId::new("beta").unwrap());
+    for handle in [&b, &beta] {
+        assert_eq!(handle.begin(&fresh, &io()), Err(BackendError::Unavailable));
+    }
+    assert_eq!(
+        b.remove_namespace(NamespaceId([8; 32]), &io()),
+        Err(BackendError::Unavailable),
+        "a new tombstone is an allocation too"
+    );
+    assert_eq!(
+        b.status(sp.intent, &io()).unwrap().state,
+        TransferState::Unknown,
+        "status stays observational"
+    );
+}
+
+#[test]
+fn a_spent_budget_after_a_successful_measurement_still_fences_adoption() {
+    static CANCEL: AtomicBool = AtomicBool::new(false);
+    let env = Env::new();
+    let payload = bytes(C + 3, 25);
+    let mut wrong = payload.clone();
+    wrong[0] ^= 1;
+    let sp = spec(1, 1, 1, &payload);
+    let local = env.open();
+    let b = backend(&local);
+    send_all(&b, &sp, &payload);
+    // A conflicting destination appears; both bodies measure, then the budget is spent
+    // before the larger charge can be recorded.
+    let (path, body) = (env.blob(1, 1), wrong.clone());
+    local.observe(Arc::new(move |point| {
+        match point {
+            Milestone::CommitAdopted => plant(&path, &body),
+            Milestone::Measure => CANCEL.store(true, Ordering::SeqCst),
+            _ => {}
+        }
+        true
+    }));
+    let spent = IoBudget {
+        deadline: Instant::now() + Duration::from_secs(60),
+        cancelled: &CANCEL,
+    };
+    assert_eq!(b.commit(sp.intent, &spent), Err(BackendError::Cancelled));
+    CANCEL.store(false, Ordering::SeqCst);
+    assert_accounting_fenced(&env, &local, &sp, &payload);
+    assert_eq!(fs::read(env.blob(1, 1)).unwrap(), wrong, "not overwritten");
+    drop(b);
+    drop(local);
+    let local = env.open();
+    assert_eq!(env.row(1).0, "unknown");
+    assert_eq!(
+        env.row(1).1,
+        2 * payload_charge(payload.len() as u64) as i64,
+        "a restart charges both retained bodies"
+    );
+    assert!(backend(&local).begin(&spec(9, 9, 9, b"x"), &io()).is_ok());
+}
+
+#[test]
+fn an_unadmittable_destination_fences_adoption_and_readiness_without_touching_it() {
+    let env = Env::new();
+    let payload = bytes(C + 3, 26);
+    let sp = spec(1, 1, 1, &payload);
+    let outside = env.root.join("outside-canary");
+    fs::write(&outside, b"outside").unwrap();
+    fs::set_permissions(&outside, fs::Permissions::from_mode(0o600)).unwrap();
+    let local = env.open();
+    let b = backend(&local);
+    send_all(&b, &sp, &payload);
+    // The destination name is a symlink out of the tree: it cannot be admitted, so its
+    // allocation cannot be known.
+    let (link, target) = (env.blob(1, 1), outside.clone());
+    local.observe(Arc::new(move |point| {
+        if point == Milestone::CommitAdopted {
+            fs::DirBuilder::new()
+                .recursive(true)
+                .mode(0o700)
+                .create(link.parent().unwrap())
+                .unwrap();
+            std::os::unix::fs::symlink(&target, &link).unwrap();
+        }
+        true
+    }));
+    assert_eq!(b.commit(sp.intent, &io()), Err(BackendError::Unavailable));
+    assert_accounting_fenced(&env, &local, &sp, &payload);
+    assert_eq!(fs::read(&outside).unwrap(), b"outside");
+    assert_eq!(
+        fs::metadata(&outside).unwrap().permissions().mode() & 0o777,
+        0o600
+    );
+    assert!(fs::symlink_metadata(env.blob(1, 1)).unwrap().is_symlink());
+    assert!(env.stage(1).exists(), "the staged body is kept");
+    drop(b);
+    drop(local);
+    // A restart cannot admit it either, so readiness is refused with nothing changed.
+    match LocalFs::open(&env.serving, Quotas::contract(), system_clock(), &io()) {
+        Ok(_) => panic!("readiness must refuse a destination it cannot admit"),
+        Err(error) => assert_eq!(error.code, "REMOTE_OBJECTS_UNAVAILABLE"),
+    }
+    assert_eq!(env.row(1).0, "committing");
+    assert_eq!(fs::read(&outside).unwrap(), b"outside");
+}
+
 #[test]
 fn an_unrepresentable_aggregate_is_unavailable_live_and_refuses_readiness_after_restart() {
     let env = Env::new();

@@ -821,7 +821,13 @@ impl Ledger {
             .map_err(db)?;
             Ok(())
         });
-        if result == Err(BackendError::Unavailable) {
+        // The caller already observed bodies this charge could not record: whatever
+        // refused it (storage, a spent budget or an unrepresentable sum), nothing new
+        // may be adopted until a restart settles the original.
+        if matches!(
+            result,
+            Err(BackendError::Unavailable | BackendError::Cancelled | BackendError::Deadline)
+        ) {
             self.fail_accounting();
         }
         result

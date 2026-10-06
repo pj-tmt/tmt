@@ -322,3 +322,62 @@ fn an_unknown_charge_never_drops_and_an_unrepresentable_one_stops_adoption() {
     drop(ledger);
     drop(serving);
 }
+
+#[test]
+fn a_settlement_the_budget_refuses_still_stops_adoption() {
+    use std::sync::atomic::AtomicBool;
+    let spent = AtomicBool::new(true);
+    let expired = std::time::Instant::now() - std::time::Duration::from_secs(1);
+    let cases: [(&str, IoBudget<'_>, BackendError); 2] = [
+        (
+            "cancelled",
+            IoBudget {
+                deadline: std::time::Instant::now() + std::time::Duration::from_secs(60),
+                cancelled: &spent,
+            },
+            BackendError::Cancelled,
+        ),
+        (
+            "deadline",
+            IoBudget {
+                deadline: expired,
+                cancelled: &NEVER,
+            },
+            BackendError::Deadline,
+        ),
+    ];
+    for (name, budget, expected) in cases {
+        let guard = Root::new(name);
+        let serving = Layout::open(&guard.0).unwrap().serve_lock().unwrap();
+        let ledger = Ledger::open(&serving).unwrap();
+        let spec = |n: u8| BeginSpec {
+            intent: IntentId([n; 32]),
+            key: BlobKey {
+                namespace: NamespaceId([1; 32]),
+                object: OpaqueKey([n; 32]),
+            },
+            payload_sha256: [0; 32],
+            payload_bytes: 10,
+            binding: vec![],
+        };
+        ledger
+            .adopt("alpha", &spec(1), 10, &Quotas::contract(), &io())
+            .unwrap();
+        assert_eq!(
+            ledger.settle_unknown("alpha", &IntentId([1; 32]), 3 * 4096, &budget),
+            Err(expected)
+        );
+        let row = ledger
+            .row("alpha", &IntentId([1; 32]), &io())
+            .unwrap()
+            .unwrap();
+        assert_eq!(row.phase, Phase::Staging, "{name}: the row is untouched");
+        assert_eq!(
+            ledger
+                .adopt("alpha", &spec(2), 10, &Quotas::contract(), &io())
+                .err(),
+            Some(BackendError::Unavailable),
+            "{name}: the observation that could not be recorded stops adoption"
+        );
+    }
+}
