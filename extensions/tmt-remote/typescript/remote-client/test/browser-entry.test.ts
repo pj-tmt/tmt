@@ -22,6 +22,10 @@ async function fixture(mode = 'success') {
   const blocked = new Promise<void>((resolve) => {
     release = resolve;
   });
+  let arrive = () => {};
+  const reached = new Promise<void>((resolve) => {
+    arrive = resolve;
+  });
   let click: () => void | Promise<void> = () => {};
   let hide = () => {};
   let done: () => void;
@@ -78,11 +82,29 @@ async function fixture(mode = 'success') {
       });
     }
     admissions++;
+    if (mode === 'pending-admission') {
+      arrive();
+      await blocked;
+      return new Response('', { status: 404 });
+    }
+    if (mode === 'signing') return new Response('', { status: 404 });
     if (mode === 'refused' || mode === 'stale') return new Response('', { status: 404 });
     door.tamper.signature = mode === 'unverified';
     return door.fetch(url, init);
   });
+  if (mode === 'signing') {
+    const sign = crypto.subtle.sign.bind(crypto.subtle);
+    vi.spyOn(crypto.subtle, 'sign').mockImplementation(async (algorithm, key, data) => {
+      const signature = await sign(algorithm, key, data);
+      if (new TextDecoder().decode(data).includes('session.open')) {
+        arrive();
+        await blocked;
+      }
+      return signature;
+    });
+  }
   return {
+    reached,
     device,
     nodes,
     button,
@@ -214,3 +236,27 @@ test('a departed page cannot paint a late connection result or continue admissio
     vi.unstubAllGlobals();
   }
 });
+
+for (const mode of ['signing', 'pending-admission']) {
+  test(`departure during ${mode} prevents new requests after the pending boundary`, async () => {
+    const f = await fixture(mode);
+    try {
+      await landingPage();
+      const attempt = f.click();
+      await f.reached;
+      const status = f.nodes.get('status')!.textContent;
+      f.hide();
+      f.release();
+      await attempt;
+      assert.deepEqual(f.counts(), {
+        mounts: 1,
+        admissions: mode === 'signing' ? 0 : 1,
+      });
+      assert.equal(f.nodes.get('access-status')!.textContent, 'Connecting…');
+      assert.equal(f.nodes.get('status')!.textContent, status);
+    } finally {
+      vi.restoreAllMocks();
+      vi.unstubAllGlobals();
+    }
+  });
+}

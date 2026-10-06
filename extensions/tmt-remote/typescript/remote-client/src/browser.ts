@@ -219,12 +219,14 @@ export async function landingPage(): Promise<void> {
             local.key,
             current.windowId,
             async (url, init) => {
+              if (!currentPage()) throw new Error('Remote page attempt ended.');
               const response = await fetch(url, init);
               refused = response.status === 404;
               return response;
             },
           );
         } catch (error) {
+          if (!currentPage()) return;
           if (!refused) throw error;
           const latest = await door();
           if (!currentPage()) return;

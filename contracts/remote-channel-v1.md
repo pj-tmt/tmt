@@ -531,7 +531,8 @@ administrator designation. An opaque404 with an unchanged current descriptor rec
 not a signed refusal reason: access could not be verified, without inferring revocation, eviction
 or another permanent cause. Only a specifically verified refusal may report Access refused. Transport, changed or
 malformed descriptor and unverified response failures remain unconfirmed; a public descriptor
-cannot replace a machine trust pin. Async results are fenced to their page attempt. No automatic
+cannot replace a machine trust pin. Async results and new admission/recheck requests are fenced
+to their page attempt, including after signing. Departure cannot undo an already dispatched request. No automatic
 re-pair, grant repair, work resend or session admission on page load exists. Owner pairing still
 uses the fragment-erasing bootstrap, fingerprint comparison and terminal confirmation.
 

@@ -26,7 +26,8 @@ or malformed storage remain distinct; saved data never proves current access.
 Connect opens one fresh Session only on user action. Signed verification establishes
 access with its checked time; an unchanged descriptor recheck after opaque404 remains
 unconfirmed, not a signed refusal reason or evidence of revocation. Transport, stale descriptor or unverified reply remains unconfirmed.
-Page-attempt fencing prevents late results repainting a departed page. No work/inventory/grant
+Page-attempt fencing prevents late results repainting a departed page and new admission/recheck
+requests after departure, including signing continuations. Already dispatched requests cannot be undone. No work/inventory/grant
 repair, automatic re-pair or settings designation is performed. Pair success offers an ordinary
 link back to `/`; its existing fragment erasure and terminal confirmation are unchanged.
 
