@@ -473,13 +473,21 @@ async function main(role, directory) {
         result.status === expectedStatus,
       `Proof command failed: ${id}; original streams/process retained`
     );
-    return { stdout: fs.readFileSync(outFile, 'utf8'), stderr: fs.readFileSync(errFile, 'utf8') };
+    return {
+      id,
+      stdout: fs.readFileSync(outFile, 'utf8'),
+      stderr: fs.readFileSync(errFile, 'utf8'),
+    };
   }
   const run = async (label, args, options) =>
     command(label, cargo, args[0]?.startsWith('+') ? args.slice(1) : args, options);
   const json = (name, value) => {
     const bytes = JSON.stringify(value, null, name.startsWith('processes-') ? undefined : 2) + '\n';
     fs.writeFileSync(path.join(output, name), bytes);
+    if (name === `${role}.json` && value.auxiliaryOutput?.length) {
+      evidenceBytes += Buffer.byteLength(JSON.stringify(value.auxiliaryOutput));
+      assert(evidenceBytes <= LIMITS.evidenceBytes, 'Auxiliary evidence bound');
+    }
     if (name.startsWith('processes-')) {
       evidenceBytes += Buffer.byteLength(bytes);
       assert(
@@ -489,7 +497,7 @@ async function main(role, directory) {
     }
   };
   const artifactIds = JSON.parse(process.env.PROOF_ARTIFACT_IDS ?? '{}');
-  let report = { role, artifactIds, complete: false, cleanupVerified: false };
+  let report = { role, artifactIds, complete: false, cleanupVerified: false, auxiliaryOutput: [] };
   let processesBefore, listenersBefore;
   try {
     processesBefore = processSnapshot({ deadline: workDeadline });
@@ -853,7 +861,17 @@ async function main(role, directory) {
           'baseline-execution',
           cargoArgs('test', ['--message-format=json'])
         );
-        const coverage = cargoCoverage(execution.stdout, execution.stderr, inventory, 'execution');
+        const coverage = cargoCoverage(
+          execution.stdout,
+          execution.stderr,
+          inventory,
+          'execution',
+          false,
+          {
+            commandId: execution.id,
+            auxiliary: report.auxiliaryOutput,
+          }
+        );
         for (const harness of inventory.harnesses)
           exact(
             hashFile(harness.executable).sha256,
@@ -1002,7 +1020,13 @@ async function main(role, directory) {
         );
         // Cargo does not turn successful-test stderr diagnostics into a failure.
         // Both streams remain hashed originals; stdout coverage and actual status are strict.
-        execution.push({ id: harness.id, values: parseExecution(result.stdout, harness.list) });
+        execution.push({
+          id: harness.id,
+          values: parseExecution(result.stdout, harness.list, {
+            ordinary: { commandId: result.id, harnessId: harness.id },
+            auxiliary: report.auxiliaryOutput,
+          }),
+        });
       }
       // Tests must not change a frozen executable, fixture, or dependency payload.
       for (const [name, destination] of [

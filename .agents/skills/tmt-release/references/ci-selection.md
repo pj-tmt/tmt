@@ -96,6 +96,17 @@ unsupported output/profile differences refuse proof, without filename suffix par
 or feature union. No source or Markdown parser infers missing evidence. Unknown
 custom harnesses, required-feature target eligibility or output formats fail.
 
+Cargo JSON stays a strict prefix through one successful `build-finished`. Mixed
+execution can retain complete reasonless JSON objects only within an active nonzero
+ordinary admitted-harness block before its summary. Direct restored harnesses use
+the same explicit context; lists, zero-test and rustdoc blocks stay strict. Cargo
+envelope keys, malformed or ambiguous objects and unclassified text refuse admission.
+Auxiliary output is opaque: it never supplies a test terminal or sender/test identity,
+and diagnostic values are not compared across runs. Original streams retain the bytes;
+ordered command/harness-block, line, byte-count and hash references are reported separately
+from exact coverage. The existing 4000-entry bound caps auxiliary references, and each
+metadata report write counts toward the unchanged role evidence budget.
+
 The manual workflow serializes producer, default Cargo baseline, restored whole
 harness consumer and separate rustdoc obligations on Ubuntu 24.04 with Rust 1.97.0,
 Node 22.23.2/pnpm 10.33.0. Baseline retains the original Remote listing and

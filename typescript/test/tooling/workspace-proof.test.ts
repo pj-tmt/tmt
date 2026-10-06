@@ -82,6 +82,20 @@ const ignored = 'ignored: test\n1 test, 0 benchmarks\n';
 const executed =
   'running 2 tests\ntest alpha ... ok\ntest ignored ... ignored, deliberate fixture\n\ntest result: ok. 1 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.01s\n';
 
+// Structural regression for original37422909075/attempt1 at8627, command179.
+// Stdout SHA256 e881bc802451a8fab73843f1df63b8f9cd6c0fdca0fe5f80f3b280c4c5944f48.
+// Reasonless JSON at1586/1587/1588, after build-finished at402, inside215-test block.
+// Original line hashes: 683f27986aa5b590d25bd8edfd29874d8c9ee0d15ec1faaadd3406c5605bdb86,
+// 544a7b002299b4c3c7a87c0a22333bd2111d675de72cbbaf0658f587d0c074df,
+// b27a4ae367f77508ce514e8374b238e89d37b502d139d3845016d78cc742bcdd.
+// These fixtures contain no original runtime payload values or temporary-path dependency.
+const auxiliaryLines = ['{"note":"structural fixture"}', '{"error":{"code":"EXPECTED_FIXTURE"}}'];
+const ordinaryContext = { commandId: '000-fixture', harnessId: 'synthetic-harness' };
+const withAuxiliary = executed.replace(
+  'test alpha ... ok',
+  `${auxiliaryLines.join('\n')}\ntest alpha ... ok`
+);
+
 describe('N=1 Cargo proof admission (synthetic formats, not Linux equivalence)', () => {
   it('owns exactly the retained workspace selection and one no-run compilation', () => {
     expect(proof.cargoArgs('test', ['--no-run', '--message-format=json'])).toEqual([
@@ -219,6 +233,171 @@ describe('N=1 Cargo proof admission (synthetic formats, not Linux equivalence)',
       `${executed}unclassified child output\n`,
     ])
       expect(() => proof.parseExecution(bad, list)).toThrow();
+  });
+  it('retains ordinary auxiliary JSON provenance without creating coverage or interpreting partial-error payloads', () => {
+    const expected = proof.enumeration(listed, ignored);
+    const auxiliary: unknown[] = [];
+    expect(
+      proof.parseExecution(withAuxiliary, expected, { ordinary: ordinaryContext, auxiliary })
+    ).toEqual(proof.parseExecution(executed, expected));
+    expect(auxiliary).toEqual(
+      auxiliaryLines.map((line, index) => ({
+        ...ordinaryContext,
+        line: index + 2,
+        bytes: Buffer.byteLength(line),
+        sha256: proof.digest(line),
+      }))
+    );
+    // An ordinary caller needs admitted block context; first-layer routing alone is insufficient.
+    expect(() => proof.parseExecution(withAuxiliary, expected)).toThrow('outside ordinary');
+    for (const text of [
+      `${auxiliaryLines[0]}\n${executed}`,
+      `${executed}${auxiliaryLines[0]}\n`,
+      withAuxiliary.replace('test alpha ... ok\n', ''),
+      withAuxiliary.replace('test alpha ... ok', 'test extra ... ok'),
+      // The retained reanalysis exposed this separate unsupported libtest decoration.
+      // Do not normalize a name outside this bounded JSON correction.
+      withAuxiliary.replace('test alpha ... ok', 'test alpha - should panic ... ok'),
+      withAuxiliary.replace('test alpha ... ok', 'test alpha ... ok\ntest alpha ... ok'),
+      withAuxiliary.replace('test alpha ... ok', 'test alpha ... FAILED'),
+      withAuxiliary.replace('test ignored ... ignored, deliberate fixture', 'test ignored ... ok'),
+      withAuxiliary.replace('0 filtered', '1 filtered'),
+      withAuxiliary.replace('running 2 tests', 'running 1 test'),
+      withAuxiliary.replace('test result: ok.', 'test result: FAILED.'),
+      withAuxiliary.replace(/test result:[\s\S]*$/, ''),
+    ])
+      expect(() => proof.parseExecution(text, expected, { ordinary: ordinaryContext })).toThrow();
+    const zero =
+      'running 0 tests\n' +
+      auxiliaryLines[0] +
+      '\n' +
+      'test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s';
+    expect(() =>
+      proof.parseExecution(zero, { names: [], ignored: [] }, { ordinary: ordinaryContext })
+    ).toThrow('outside ordinary');
+    expect(() => proof.parseList(`${auxiliaryLines[0]}\n${listed}`)).toThrow();
+    for (const line of [
+      '{not-json}',
+      '{\n}',
+      '[]',
+      '{"reason":"unknown"}',
+      '{"reason":null}',
+      '{"package_id":"fixture"}',
+      '{"target":{}}',
+      '{"profile":{}}',
+      '{"features":[]}',
+      '{"filenames":[]}',
+      '{"linked_paths":[]}',
+      '{"success":true}',
+      '{"message":{}}',
+      'unclassified text',
+    ])
+      expect(() =>
+        proof.parseExecution(
+          executed.replace('test alpha ... ok', `${line}\ntest alpha ... ok`),
+          expected,
+          { ordinary: ordinaryContext }
+        )
+      ).toThrow();
+    expect(() =>
+      proof.parseExecution(
+        executed.replace(
+          'test alpha ... ok',
+          `${(auxiliaryLines[0] + '\n').repeat(proof.LIMITS.commands + 1)}test alpha ... ok`
+        ),
+        expected,
+        { ordinary: ordinaryContext }
+      )
+    ).toThrow('record bound');
+  });
+  it('keeps genuine Cargo records and binary/doc obligations exact across mixed runtime JSON', () => {
+    const f = fixture();
+    const inv = {
+      ...proof.admitInventory(f.artifacts, f.packages, f.manifests),
+      rustRoot: '/source/rust',
+      docLists: {},
+    };
+    for (const harness of inv.harnesses) harness.list = proof.enumeration(listed, ignored);
+    const prefix =
+      f.artifacts.map((record) => JSON.stringify(record)).join('\n') +
+      '\n{"reason":"build-finished","success":true}\n';
+    const zero =
+      'running 0 tests\ntest result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\n';
+    const stdout =
+      prefix +
+      inv.harnesses
+        .map((_harness: unknown, index: number) => (index === 0 ? withAuxiliary : executed))
+        .join('') +
+      zero.repeat(inv.docs.length);
+    const stderr =
+      inv.harnesses
+        .map((harness: { executable: string }) => `   Running fixture (${harness.executable})\n`)
+        .join('') +
+      inv.docs.map((doc: { target: string }) => `   Doc-tests ${doc.target}\n`).join('');
+    const routed = proof.cargoOutput(stdout, { mixed: true, execution: true });
+    expect(routed.records).toEqual([...f.artifacts, { reason: 'build-finished', success: true }]);
+    expect(() =>
+      proof.parseExecution(proof.sections(routed.text, 'execution')[0], inv.harnesses[0].list)
+    ).toThrow('outside ordinary');
+    const coverage = proof.cargoCoverage(stdout, stderr, inv, 'execution', false, {
+      commandId: '000-fixture',
+    });
+    expect(coverage.ordinary).toEqual(
+      inv.harnesses.map((harness: { id: string; list: unknown }) => ({
+        id: harness.id,
+        values: proof.parseExecution(executed, harness.list),
+      }))
+    );
+    expect(coverage.auxiliary).toEqual(
+      auxiliaryLines.map((line) => ({
+        commandId: '000-fixture',
+        harnessId: inv.harnesses[0].id,
+        line: stdout.split('\n').indexOf(line) + 1,
+        bytes: Buffer.byteLength(line),
+        sha256: proof.digest(line),
+      }))
+    );
+    expect(
+      coverage.docs.every(
+        (doc: { observed: { complete: boolean; disposition: string } }) =>
+          doc.observed.complete && doc.observed.disposition === 'zero'
+      )
+    ).toBe(true);
+    for (const source of [
+      stdout.replace('{"reason":"build-finished","success":true}\n', ''),
+      stdout.replace('"success":true', '"success":false'),
+      prefix + '{"reason":"build-finished","success":true}\n' + stdout.slice(prefix.length),
+      auxiliaryLines[0] + '\n' + stdout,
+      stdout.replace(prefix, prefix.replace('{"reason":"build-finished","success":true}\n', '')) +
+        '{"reason":"build-finished","success":true}\n',
+      stdout + '{"reason":"compiler-message","message":{}}\n',
+    ])
+      expect(() =>
+        proof.cargoCoverage(source, stderr, inv, 'execution', false, { commandId: '000-fixture' })
+      ).toThrow();
+    expect(() => proof.cargoOutput(stdout, { mixed: true })).toThrow();
+    expect(() => proof.cargoCoverage(stdout, stderr, inv, 'list')).toThrow();
+    for (const headers of [
+      stderr.replace(inv.harnesses[0].executable, '/source/unadmitted'),
+      stderr + `   Running fixture (${inv.harnesses[0].executable})\n`,
+      stderr.replace(/   Running[^\n]+\n/, ''),
+      stderr.replace(/   Doc-tests[^\n]+\n/, ''),
+      stderr + `   Doc-tests ${inv.docs[0].target}\n`,
+    ])
+      expect(() =>
+        proof.cargoCoverage(stdout, headers, inv, 'execution', false, { commandId: '000-fixture' })
+      ).toThrow();
+    // Rustdoc remains strict even after a valid Cargo prefix; no auxiliary zero/target inference.
+    const docStdout =
+      prefix +
+      zero.replace('running 0 tests', `running 0 tests\n${auxiliaryLines[0]}`) +
+      zero.repeat(inv.docs.length - 1);
+    const docHeaders = stderr.slice(stderr.indexOf('   Doc-tests'));
+    expect(() =>
+      proof.cargoCoverage(docStdout, docHeaders, inv, 'execution', false, {
+        commandId: '000-fixture',
+      })
+    ).toThrow('outside ordinary');
   });
   it('compares shared library features, never repairing a different doc graph', () => {
     expect(() => proof.compareDocFeatures([['lib', ['a']]], [['lib', ['a']]])).not.toThrow();

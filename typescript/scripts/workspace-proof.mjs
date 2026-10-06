@@ -91,12 +91,50 @@ export function validateFiles(files) {
   assert(bytes <= LIMITS.bytes, 'Closure byte count');
   return bytes;
 }
-export function cargoOutput(stdout, { mixed = false } = {}) {
+// Cargo's envelope is reserved even after compilation. Diagnostics are opaque,
+// not a product schema or an authenticated indication of which test emitted them.
+function opaqueRuntimeJSON(line) {
+  let value;
+  try {
+    value = JSON.parse(line);
+  } catch {
+    assert.fail('Ambiguous runtime JSON');
+  }
+  assert(value && typeof value === 'object' && !Array.isArray(value), 'Runtime JSON object');
+  for (const key of [
+    'reason',
+    'package_id',
+    'manifest_path',
+    'target',
+    'profile',
+    'features',
+    'filenames',
+    'fresh',
+    'linked_libs',
+    'linked_paths',
+    'cfgs',
+    'env',
+    'out_dir',
+    'message',
+    'success',
+  ])
+    assert(!Object.hasOwn(value, key), 'Cargo-shaped runtime JSON');
+}
+export function cargoOutput(stdout, { mixed = false, execution = false } = {}) {
   assert(Buffer.byteLength(stdout) <= LIMITS.outputBytes, 'Cargo output bound');
   const records = [],
-    text = [];
-  for (const line of stdout.split('\n')) {
+    text = [],
+    lineNumbers = [];
+  let finished = false;
+  for (const [index, line] of stdout.split('\n').entries()) {
     if (line.startsWith('{')) {
+      if (finished) {
+        assert(mixed && execution, 'Unexpected runtime JSON');
+        opaqueRuntimeJSON(line);
+        text.push(line);
+        lineNumbers.push(index + 1);
+        continue;
+      }
       let record;
       try {
         record = JSON.parse(line);
@@ -113,17 +151,19 @@ export function cargoOutput(stdout, { mixed = false } = {}) {
         'Unknown Cargo record'
       );
       records.push(record);
+      if (record.reason === 'build-finished') finished = record.success === true;
     } else if (line.trim()) {
-      assert(mixed, 'Unexpected non-JSON Cargo output');
+      assert(mixed && finished, 'Unexpected non-JSON Cargo output');
       text.push(line);
+      lineNumbers.push(index + 1);
     }
   }
-  const finished = records.filter((record) => record.reason === 'build-finished');
+  const completion = records.filter((record) => record.reason === 'build-finished');
   assert(
-    finished.length === 1 && finished[0].success === true && records.at(-1) === finished[0],
+    completion.length === 1 && completion[0].success === true && records.at(-1) === completion[0],
     'Cargo compilation did not finish successfully'
   );
-  return { records, text: text.join('\n') };
+  return { records, text: text.join('\n'), lineNumbers };
 }
 export function unitKey(record) {
   return canonical([
@@ -343,13 +383,20 @@ export function enumeration(normal, ignored) {
   );
   return { names, ignored: ignoredNames };
 }
-export function parseExecution(text, expected) {
-  const lines = text.split('\n').filter(Boolean);
-  const started = /^running (\d+) tests?$/.exec(lines.shift() ?? '');
+export function parseExecution(text, expected, { ordinary, auxiliary = [], lineNumbers } = {}) {
+  assert(Buffer.byteLength(text) <= LIMITS.outputBytes, 'Execution output bound');
+  const lines = text
+    .split('\n')
+    .map((value, index) => ({
+      value,
+      line: lineNumbers ? lineNumbers[index] : index + 1,
+    }))
+    .filter(({ value }) => value);
+  const started = /^running (\d+) tests?$/.exec(lines.shift()?.value ?? '');
   assert(started && Number(started[1]) === expected.names.length, 'Incomplete execution start');
   const dispositions = new Map();
   let summary;
-  for (const line of lines) {
+  for (const { value: line, line: originalLine } of lines) {
     const result =
       /^test result: (ok|FAILED)\. (\d+) passed; (\d+) failed; (\d+) ignored; (\d+) measured; (\d+) filtered out; finished in [0-9.]+s$/.exec(
         line
@@ -363,6 +410,30 @@ export function parseExecution(text, expected) {
     if (terminal) {
       assert(!summary && !dispositions.has(terminal[1]), 'Duplicate/late test record');
       dispositions.set(terminal[1], terminal[2]);
+      continue;
+    }
+    if (line.startsWith('{')) {
+      assert(
+        ordinary &&
+          !summary &&
+          expected.names.length > 0 &&
+          typeof ordinary.harnessId === 'string' &&
+          ordinary.harnessId &&
+          typeof ordinary.commandId === 'string' &&
+          ordinary.commandId &&
+          Number.isSafeInteger(originalLine) &&
+          originalLine > 0,
+        'Runtime JSON outside ordinary execution'
+      );
+      opaqueRuntimeJSON(line);
+      assert(auxiliary.length < LIMITS.commands, 'Auxiliary record bound');
+      auxiliary.push({
+        commandId: ordinary.commandId,
+        harnessId: ordinary.harnessId,
+        line: originalLine,
+        bytes: Buffer.byteLength(line),
+        sha256: digest(line),
+      });
       continue;
     }
     assert(
@@ -406,9 +477,23 @@ export function sections(text, mode) {
   assert(pending.length === 0, 'Truncated/unknown Cargo test output');
   return result;
 }
-export function cargoCoverage(stdout, stderr, inventory, mode, ignored = false) {
-  const parsed = cargoOutput(stdout, { mixed: true });
+export function cargoCoverage(
+  stdout,
+  stderr,
+  inventory,
+  mode,
+  ignored = false,
+  { commandId, auxiliary = [] } = {}
+) {
+  const parsed = cargoOutput(stdout, { mixed: true, execution: mode === 'execution' });
   const blocks = sections(parsed.text, mode);
+  let offset = 0;
+  const blockLines = blocks.map((block) => {
+    const length = block.split('\n').length;
+    const lines = parsed.lineNumbers.slice(offset, offset + length);
+    offset += length;
+    return lines;
+  });
   const paths = [...stderr.matchAll(/^\s*Running .*\(([^\n()]+)\)$/gm)].map((match) =>
     path.resolve(inventory.rustRoot, match[1])
   );
@@ -422,7 +507,13 @@ export function cargoCoverage(stdout, stderr, inventory, mode, ignored = false) 
     return {
       id: harness.id,
       values:
-        mode === 'list' ? parseList(blocks[index]) : parseExecution(blocks[index], harness.list),
+        mode === 'list'
+          ? parseList(blocks[index])
+          : parseExecution(blocks[index], harness.list, {
+              ordinary: { commandId, harnessId: harness.id },
+              auxiliary,
+              lineNumbers: blockLines[index],
+            }),
     };
   });
   const headers = [...stderr.matchAll(/^\s*Doc-tests (\S+)\s*$/gm)].map((match) => match[1]);
@@ -505,6 +596,7 @@ export function cargoCoverage(stdout, stderr, inventory, mode, ignored = false) 
     ordinary: ordinary.sort((a, b) => a.id.localeCompare(b.id)),
     docs: docValues,
     libraryFeatures: features,
+    auxiliary,
   };
 }
 // Cargo serializes target invocations. Rustdoc may emit several blocks per target.
