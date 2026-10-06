@@ -213,6 +213,34 @@ describe('CI area selection', () => {
       expect(leaf).toContain(`pnpm --filter @tmt/browser-ui --fail-if-no-match ${command}`);
     expect(leaf).toContain('test/tooling/browser-ui-boundary.test.ts');
     expect(leaf).not.toMatch(/continue-on-error|\n\s+if:/);
+    const unit = ci.split('\n  unit-tests:\n')[1].split('\n  docker-e2e-shard-1:\n')[0];
+    const install = 'pnpm --filter @tmt/browser-ui install --frozen-lockfile --ignore-scripts';
+    const admitsGuardInputs = (text: string): boolean => {
+      const step = text
+        .split('      - name: Install locked browser presentation guard inputs\n')[1]
+        ?.split('      - name:')[0];
+      const installAt = text.indexOf(install);
+      const testsAt = text.indexOf('pnpm test:run');
+      return (
+        !!step?.includes('working-directory: typescript') &&
+        step.includes(`run: ${install}`) &&
+        !/continue-on-error|\n\s+if:/.test(step) &&
+        installAt >= 0 &&
+        testsAt > installAt
+      );
+    };
+    expect(admitsGuardInputs(unit)).toBe(true);
+    const withoutInstall = unit.replace(
+      install,
+      'pnpm --filter tmux-team install --frozen-lockfile'
+    );
+    expect(admitsGuardInputs(withoutInstall)).toBe(false);
+    const installStep =
+      '      - name: Install locked browser presentation guard inputs\n' +
+      unit
+        .split('      - name: Install locked browser presentation guard inputs\n')[1]
+        .split('      - name:')[0];
+    expect(admitsGuardInputs(unit.replace(installStep, '') + installStep)).toBe(false);
   });
 
   it('selects the add-on workflow only for shell/tool inputs without narrowing look-alikes', () => {
