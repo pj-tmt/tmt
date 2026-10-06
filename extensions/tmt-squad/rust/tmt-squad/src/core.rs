@@ -21,6 +21,8 @@ const OUTPUT_LIMIT: usize = 16 * 1024 * 1024;
 pub struct SquadError {
     pub code: String,
     pub message: String,
+    /// Transaction conflict snapshot supplied by the public metadata API.
+    pub current: Option<Box<Value>>,
     /// Where `message` splits into what failed and the next step.
     hint: Option<(usize, usize)>,
 }
@@ -31,6 +33,7 @@ impl SquadError {
             code: code.into(),
             message: message.into(),
             hint: None,
+            current: None,
         }
     }
 
@@ -41,6 +44,7 @@ impl SquadError {
             code: code.into(),
             message: format!("{what}{separator}{hint}"),
             hint: Some((what.len(), what.len() + separator.len())),
+            current: None,
         }
     }
 
@@ -183,7 +187,11 @@ impl Core {
         }
         let error = &document["error"];
         match (error["code"].as_str(), error["message"].as_str()) {
-            (Some(code), Some(message)) => Err(SquadError::new(code, message)),
+            (Some(code), Some(message)) => {
+                let mut failure = SquadError::new(code, message);
+                failure.current = error.get("current").cloned().map(Box::new);
+                Err(failure)
+            }
             _ => Err(unavailable("tmt failed without a structured error.")),
         }
     }

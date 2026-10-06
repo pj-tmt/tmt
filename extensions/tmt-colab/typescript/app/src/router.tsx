@@ -36,8 +36,10 @@ import { ShareDialog } from './share-dialog.js';
 import { mountRenderer } from './renderer.js';
 import type { RenderState, SelectionRect } from './renderer.js';
 import { text } from './strings.js';
+import { SessionEvictedError } from './ask-remote.js';
 import { ExportPanel } from './export-panel.js';
 import { PageDrawer } from './page-drawer.js';
+import { AgentStatusPanel } from './agent-status-panel.js';
 import { ChatPanel } from './chat-panel.js';
 import { isChatThread } from './thread-records.js';
 
@@ -443,7 +445,9 @@ function Page() {
   const snapshot = page.useLoaderData();
   const backendName = transport.backendName?.trim();
   const backendLabel = backendName ? `local · ${backendName}` : 'local';
-  const [panel, setPanel] = useState<'source' | 'comments' | 'chat' | 'export' | null>(null);
+  const [panel, setPanel] = useState<'source' | 'comments' | 'chat' | 'export' | 'agents' | null>(
+    null,
+  );
   const [menu, setMenu] = useState(false);
   const [chatOpened, setChatOpened] = useState(false);
   const toolbar = useRef<HTMLElement>(null);
@@ -491,6 +495,7 @@ function Page() {
   const [draft, setDraft] = useState(snapshot.source),
     [saving, setSaving] = useState(false);
   const [liveError, setLiveError] = useState<string | null>(null),
+    [eviction, setEviction] = useState<SessionEvictedError | null>(null),
     [editError, setEditError] = useState<string | null>(null);
   useEffect(() => {
     dirty.current = false;
@@ -506,6 +511,7 @@ function Page() {
       threads: snapshot.threads,
     });
     setLiveError(null);
+    setEviction(null);
     setEditError(null);
     const unsubscribe = snapshot.binding?.subscribe(
       (value) => {
@@ -517,7 +523,10 @@ function Page() {
           setDraft(value.source);
         }
       },
-      (error) => setLiveError(error.message),
+      (error) => {
+        setLiveError(error.message);
+        setEviction(error instanceof SessionEvictedError ? error : null);
+      },
     );
     return () => {
       unsubscribe?.();
@@ -785,6 +794,15 @@ function Page() {
                 Chat
               </button>
               <button
+                data-testid="agents-toggle"
+                aria-expanded={panel === 'agents'}
+                onClick={(event) => {
+                  if (event.isTrusted) toggle('agents');
+                }}
+              >
+                {text.agentStatus}
+              </button>
+              <button
                 data-testid="comments-toggle"
                 aria-expanded={panel === 'comments'}
                 onClick={(event) => {
@@ -839,8 +857,25 @@ function Page() {
           <div className="frame-host" ref={host} />
           {(state === 'navigation' || state === 'failed') && (
             <NoticeCard state="blocked" eyebrow={text.product} title={text.blocked}>
-              <p>{liveError ?? (state === 'navigation' ? text.navigation : text.failed)}</p>
-              <p>{text.limit}</p>
+              {eviction ? (
+                <>
+                  <p>{text.sessionEvicted(eviction.limit)}</p>
+                  <p>
+                    {text.sessionLimitCommand}{' '}
+                    <code>tmt remote settings sessions-per-device {eviction.limit + 1}</code>
+                  </p>
+                  {eviction.settingsUrl && (
+                    <p>
+                      <a href={eviction.settingsUrl}>{text.remoteSettings}</a>
+                    </p>
+                  )}
+                </>
+              ) : (
+                <>
+                  <p>{liveError ?? (state === 'navigation' ? text.navigation : text.failed)}</p>
+                  <p>{text.limit}</p>
+                </>
+              )}
               {liveError === 'Sync disconnected' && snapshot.binding?.reconnect && (
                 <button
                   disabled={reconnecting}
@@ -963,6 +998,19 @@ function Page() {
           active={activeThread}
           select={openThread}
           blocked={!!liveError || state !== 'ready'}
+        />
+      </PageDrawer>
+      <PageDrawer
+        open={panel === 'agents'}
+        title={text.agentStatus}
+        kind="agents"
+        close={() => setPanel(null)}
+      >
+        <AgentStatusPanel
+          open={panel === 'agents'}
+          binding={snapshot.binding?.ask}
+          page={snapshot.id}
+          admitted={!!snapshot.binding && !liveError}
         />
       </PageDrawer>
       <PageDrawer open={panel === 'chat'} title="Chat" kind="chat" close={() => setPanel(null)}>

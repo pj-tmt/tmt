@@ -1,0 +1,64 @@
+---
+source: site/src/chapters/design.mdx
+sourceRevision: 962e2bd12fcd3a3e827acacdc076b2dbc7082c24
+title: 一套外觀，處處一致
+---
+
+import { DesignPlayground } from "../../demos/DesignPlayground";
+import { Cmd } from "../../components/Cmd";
+import { Tag } from "../../components/marks";
+import { MarkList, TokenPreview, TokenTable, TypePreview } from "../../components/samples";
+import { components as Mdx } from "../../components/mdx";
+
+無論是命令列、Squad board 或這個網站，tmt 都應該看起來像同一個產品。這一頁是共用的設計指南。數值來自同一份 [`design/tokens/tokens.json`](https://github.com/pj-tmt/tmt/blob/main/design/tokens/tokens.json)；網站樣式與這裡的表格都直接讀取它，不另外複製數值。
+
+<Mdx.h3 id="interactive-design-guidebook-mdx">MDX 互動式設計指南</Mdx.h3>
+
+[瀏覽器指南](https://github.com/pj-tmt/tmt/blob/main/design/gui-style.md) 定義頁首、卡片、控制項、浮層、焦點與恢復提示。[CLI 指南](https://github.com/pj-tmt/tmt/blob/main/design/cli-style.md) 定義終端機輸出。先在這裡操作範例，再查看完整規範。
+
+<Mdx.h3 id="try-the-components">試用元件</Mdx.h3>
+
+切換 Light、Dark 和 Ready、Waiting、Stopped。輸入草稿後切換狀態，文字會保留。用 Tab 查看焦點；只有 Ready 且已輸入文字時 Preview 才能使用，否則會顯示原因。Preview 只在這一頁顯示輸入內容。
+
+<DesignPlayground />
+
+這是 **設計範例**，不是實際的 Colab 或 Remote 連線。標籤維持英文，與產品用語一致。Colab 和 Remote 有各自已發布的元件；[#1797](https://github.com/pj-tmt/tmt/issues/1797) 的共用元件套件仍是 **規劃中**。範例不展示配對、權限、Ask 傳遞或重新連線。[元件規格 PR](https://github.com/pj-tmt/tmt/pull/1798) 記錄了元件清單與抽離範圍。
+
+<Mdx.h3 id="principles">原則</Mdx.h3>
+
+- **顏色表達意義。** 畫面大部分保持中性，只有需要你處理、正在工作或卡住的內容才突出顯示。
+- **不能只靠顏色。** 每個狀態也要用符號或文字表示，例如 `◆2` 或 `blocked`，讓 `NO_COLOR`、管線、螢幕閱讀器與色覺差異都不影響理解。
+- **終端機決定色調。** 命令列的 token 指向終端機的 16 種顏色之一，由使用者的主題決定實際色調。網站與全螢幕 board 的 truecolor 主題使用下方的精確數值。
+- **共用一套含義。** token 在各處代表相同意義。無論是 board 的分頁、`tmt ls` 的一列或網站標籤，`waiting` 都表示需要你處理。
+
+<Mdx.h3 id="color-tokens">色彩 token</Mdx.h3>
+
+<TokenPreview />
+
+<TokenTable />
+
+命令列自己的 token 名稱（`accent`、`ok`、`warn`、`error`、`dim` 與 driver 顏色）也對應這些顏色：`ok` 對應 `working`，`warn` 對應 `waiting`，`error` 對應 `blocked`，Claude 與 Codex 的 driver 顏色分別對應 `review` 與 `link`。完整列表見 [design/cli-style.md](https://github.com/pj-tmt/tmt/blob/main/design/cli-style.md)。終端機主題也從同一份檔案讀取數值，兩者不一致時測試會失敗。
+
+<Mdx.h3 id="surfaces">背景層</Mdx.h3>
+
+背景層只用在網頁；終端機始終保留自己的背景。
+
+<TokenTable group="surface" />
+
+<Mdx.h3 id="type">字型</Mdx.h3>
+
+<TypePreview />
+
+標題使用展示字型，內文使用正文字型；讀者輸入與終端機輸出使用等寬字型。指令依照實際輸入的格式顯示，包含 `$` 提示符號與淡化的 `# 註解`：
+
+<Cmd>{`$ tmt sq board --squad product   # 讀者可複製使用的指令`}</Cmd>
+
+<Mdx.h3 id="marks">符號</Mdx.h3>
+
+CLI、board 與這個網站使用同一組符號表達狀態：
+
+<MarkList />
+
+<Mdx.h3 id="shipped-and-planned">已發布與規劃中</Mdx.h3>
+
+尚未發布的內容都帶有 <Tag kind="planned">規劃中</Tag> 標籤，或明確說明的提示。handbook 會介紹 tmt 未來的方向，但不會把規劃寫成現在就能使用的功能。

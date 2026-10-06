@@ -2,6 +2,41 @@ use super::super::rate::tests::input;
 use super::*;
 
 #[test]
+fn delayed_seed_uses_fresh_receipt_and_failed_receipt_preserves_history() {
+    use super::super::rate::tests::{fixture_seeds, historical_input, history_fixture};
+    let fixture = history_fixture();
+    let seeds = fixture_seeds(&fixture);
+    let fresh = historical_input(&fixture, true);
+    let mut opening = historical_input(&fixture, false);
+    opening
+        .resumes
+        .insert("a".into(), fixture["observations"][0].clone());
+    let now = Instant::now();
+    for failed in [false, true] {
+        let mut meter = Meter::new(TokenRate::default(), &opening, now);
+        meter.origin_ms = 22_500;
+        // The worker publishes the opening roster first, then the seed and a
+        // post-history observation. It must never replay opening's old receipt.
+        meter.seed(&opening, &seeds, now, false);
+        meter.sample(if failed { Err(()) } else { Ok(&fresh) }, now);
+        assert_eq!(
+            meter.member("a", 0, now).unwrap().tokens,
+            if failed { 21 } else { 30 }
+        );
+        if !failed {
+            meter.sample(Ok(&fresh), now + Duration::from_secs(5));
+            assert_eq!(
+                meter
+                    .member("a", 0, now + Duration::from_secs(5))
+                    .unwrap()
+                    .tokens,
+                30
+            );
+        }
+    }
+}
+
+#[test]
 fn cubic_frames_settle_exactly_and_retarget_from_displayed_digits() {
     let now = Instant::now();
     let mut meter = Meter::new(TokenRate::default(), &input(100), now);

@@ -4,11 +4,15 @@ import { FrozenAsk, type AdmittedSelection, type AskDestination } from './ask-in
 import {
   refusalReason,
   SessionEndedError,
+  SessionEvictedError,
   ReadRefusedError,
   sessionEndedReason,
+  sessionEviction,
   type RemoteClient,
   type RemoteAgent,
   type RemoteContext,
+  type RemoteRefusalCode,
+  type SessionEndCode,
   type ResultState,
   type SendState,
 } from './ask-remote.js';
@@ -19,12 +23,22 @@ export interface AskDestinations {
   context: RemoteContext;
   machines: { id: string; name: string; online: 'online'; agents: RemoteAgent[] }[];
 }
+export type DirectoryReadPhase = 'session' | 'directory';
+export type DirectoryReadFailure = {
+  kind: 'unavailable';
+  phase: DirectoryReadPhase;
+  failure: 'ended' | 'evicted' | 'refused' | 'unavailable';
+  code?: RemoteRefusalCode | 'REMOTE_REFUSED' | SessionEndCode;
+};
+export type AskDirectoryObservation =
+  | { kind: 'ready'; checkedAt: number; snapshot: AskDestinations }
+  | DirectoryReadFailure;
 export interface AskControllerOptions {
   store: AskRecordStore;
   remote: RemoteClient;
   key: CryptoKey;
   selection(): AdmittedSelection;
-  sessionEnded?(): void;
+  sessionEnded?(error?: SessionEvictedError): void;
 }
 /** Trusted parent composition: explicit Send is the only Remote write. All
  * state/result reads operate on the current device's admitted immutable ledger.
@@ -35,33 +49,66 @@ export class AskController {
   #sending = new Map<string, { preview: FrozenAsk; task: Promise<AskLedgerView> }>();
   #observing: Promise<void> | null = null;
   #ended = false;
-  #endSession() {
+  #endSession(error?: SessionEvictedError) {
     if (this.#ended) return;
     this.#ended = true;
-    this.options.sessionEnded?.();
+    this.options.sessionEnded?.(error);
   }
   constructor(private options: AskControllerOptions) {}
-  async destinations(): Promise<AskDestinations> {
+  /** One current-session/list normalization owner. Observation never updates the
+   * Ask destination cache or invokes the session lifecycle callback. */
+  async #readDestinations(phase: (value: DirectoryReadPhase) => void): Promise<AskDestinations> {
     const { remote, store } = this.options;
+    phase('session');
     requireValue(!this.#ended);
-    let context: RemoteContext, agents: RemoteAgent[];
-    try {
-      context = await remote.context();
-      agents = await remote.listAgents();
-    } catch (error) {
-      if (error instanceof SessionEndedError) this.#endSession();
-      throw error;
-    }
-    requireValue(
-      context.deviceId === store.scope.deviceId &&
-        (context.expiresAtMs === null || Date.now() < context.expiresAtMs),
-    );
-
-    this.#destinations = {
+    const context = await remote.context();
+    const validate = () =>
+      requireValue(
+        !this.#ended &&
+          context.deviceId === store.scope.deviceId &&
+          (context.expiresAtMs === null || Date.now() < context.expiresAtMs),
+      );
+    validate();
+    phase('directory');
+    const agents = await remote.listAgents();
+    phase('session');
+    validate();
+    return {
       context,
       machines: [{ id: context.machineId, name: 'This machine', online: 'online', agents }],
     };
-    return structuredClone(this.#destinations);
+  }
+  async observeDestinations(): Promise<AskDirectoryObservation> {
+    let phase: DirectoryReadPhase = 'session';
+    try {
+      const snapshot = await this.#readDestinations((value) => {
+        phase = value;
+      });
+      return { kind: 'ready', checkedAt: Date.now(), snapshot: structuredClone(snapshot) };
+    } catch (error) {
+      if (error instanceof SessionEvictedError)
+        return { kind: 'unavailable', phase, failure: 'evicted', code: 'REMOTE_SESSION_EVICTED' };
+      if (error instanceof SessionEndedError)
+        return {
+          kind: 'unavailable',
+          phase,
+          failure: error.code === 'REMOTE_SEQUENCE_UNAVAILABLE' ? 'unavailable' : 'ended',
+          code: error.code,
+        };
+      if (error instanceof ReadRefusedError)
+        return { kind: 'unavailable', phase, failure: 'refused', code: error.code };
+      return { kind: 'unavailable', phase, failure: 'unavailable' };
+    }
+  }
+  async destinations(): Promise<AskDestinations> {
+    try {
+      this.#destinations = await this.#readDestinations(() => {});
+      return structuredClone(this.#destinations);
+    } catch (error) {
+      if (error instanceof SessionEvictedError) this.#endSession(error);
+      else if (error instanceof SessionEndedError) this.#endSession();
+      throw error;
+    }
   }
   /** Synchronous capture; no await can replace the parent's chosen source. */
   prepare(destination: AskDestination, options: Parameters<typeof FrozenAsk.capture>[2] = {}) {
@@ -112,7 +159,8 @@ export class AskController {
       const { remote, store, key } = this.options;
       let started = false,
         adopted = false,
-        sessionEnd = false;
+        sessionEnd = false,
+        evicted: SessionEvictedError | null = null;
       try {
         requireValue(!this.#ended);
         const current = await remote.context(),
@@ -152,6 +200,7 @@ export class AskController {
           message: decodeText(preview.finalBytes()),
         });
         requireValue(result.operationId === id);
+        evicted = sessionEviction(result) ?? null;
         sessionEnd =
           (result.state === 'uncertain' && sessionEndedReason(result.reason)) ||
           (result.state === 'refused' && result.reason === 'REMOTE_SESSION_ENDED');
@@ -169,16 +218,26 @@ export class AskController {
         );
         return updated;
       } catch (error) {
-        if (error instanceof SessionEndedError) sessionEnd = true;
+        if (error instanceof SessionEvictedError) {
+          sessionEnd = true;
+          evicted = error;
+        } else if (error instanceof SessionEndedError) sessionEnd = true;
         if (!adopted) throw error;
-        return store.state(
+        return await store.state(
           id,
           started || sessionEnd ? 'uncertain' : 'failed',
           null,
-          sessionEnd ? 'REMOTE_SESSION_ENDED' : started ? 'REMOTE_UNCERTAIN' : 'SEND_UNAVAILABLE',
+          evicted
+            ? 'REMOTE_SESSION_EVICTED'
+            : sessionEnd
+              ? 'REMOTE_SESSION_ENDED'
+              : started
+                ? 'REMOTE_UNCERTAIN'
+                : 'SEND_UNAVAILABLE',
         );
       } finally {
-        if (sessionEnd) this.#endSession();
+        if (evicted) this.#endSession(evicted);
+        else if (sessionEnd) this.#endSession();
       }
     });
     this.#sending.set(id, { preview, task });
@@ -198,21 +257,27 @@ export class AskController {
         try {
           state = await remote.operation(id);
         } catch (error) {
-          if (error instanceof SessionEndedError) {
+          if (error instanceof SessionEvictedError) this.#endSession(error);
+          else if (error instanceof SessionEndedError) {
             if (error.code === 'REMOTE_SEQUENCE_UNAVAILABLE')
               await store.state(id, 'uncertain', view.requestId, error.code);
             this.#endSession();
           }
           throw error;
         }
+        requireValue(state.operationId === id);
         if (state.state === 'refused') {
+          const eviction = sessionEviction(state);
+          if (eviction) {
+            this.#endSession(eviction);
+            throw eviction;
+          }
           if (state.reason === 'REMOTE_SESSION_ENDED') {
             this.#endSession();
             throw new SessionEndedError('REMOTE_SESSION_ENDED');
           }
           throw new ReadRefusedError(refusalReason(state.reason));
         }
-        requireValue(state.operationId === id);
         view = await store.state(
           id,
           state.state,
@@ -234,7 +299,8 @@ export class AskController {
       try {
         result = await remote.result(view.requestId);
       } catch (error) {
-        if (error instanceof SessionEndedError) this.#endSession();
+        if (error instanceof SessionEvictedError) this.#endSession(error);
+        else if (error instanceof SessionEndedError) this.#endSession();
         throw error;
       }
       requireValue(result.requestId === view.requestId);

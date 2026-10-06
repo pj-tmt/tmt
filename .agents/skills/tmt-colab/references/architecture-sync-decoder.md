@@ -26,6 +26,9 @@ and `limits.rs`; do not restate them.
 - Browser side: `admission.ts` admits statements and envelopes, `fold.worker.ts` folds, and
   `writer.ts` persists exact ciphertext before sending and retries those stored bytes,
   never resealing. One lifetime Web Lock owns each device stream; other tabs relay updates.
+  Own publication completes only after the submitting tab's connection has admitted and
+  folded its records. A relay acknowledgement alone cannot authorize dependent discussion
+  or Ask reads; a bounded catchup failure ends the connection without another send.
 
 ## Isolated decoder
 

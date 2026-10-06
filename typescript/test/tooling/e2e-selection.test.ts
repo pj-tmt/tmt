@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vite-plus/test';
-import { e2eShardFiles, listE2eFiles } from '../../scripts/e2e-shards.mjs';
+import { e2eShardFiles, listE2eFiles, RETIRED_E2E_FILES } from '../../scripts/e2e-shards.mjs';
 
 const typescript = fileURLToPath(new URL('../../', import.meta.url));
 const dockerfile = readFileSync(path.join(typescript, 'test/e2e/Dockerfile'), 'utf8');
@@ -122,7 +122,9 @@ describe('what the Docker E2E shards select', () => {
     expect(new Set([...selected[0], ...selected[1]]).size).toBe(
       selected[0].length + selected[1].length
     );
-    expect([...selected[0], ...selected[1]].sort()).toEqual(anchored(listE2eFiles()));
+    expect([...selected[0], ...selected[1]].sort()).toEqual(
+      anchored(listE2eFiles().filter((file) => !RETIRED_E2E_FILES.includes(file)))
+    );
   });
 
   it('selects one file for a name that is a substring of others', () => {

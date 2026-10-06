@@ -6,7 +6,6 @@ use crate::requests::age;
 use ratatui::{
     Frame,
     layout::Rect,
-    style::Modifier,
     text::{Line, Span},
 };
 use tmt_cli_style::Role;
@@ -106,11 +105,24 @@ pub(in crate::board) fn time_marks(app: &App, now: u64) -> Vec<String> {
 /// The second header line: the shown squad's summary or delayed loading indicator.
 pub(super) fn summary_line(app: &App) -> Line<'_> {
     let look = app.look();
-    if let Some(frame) = spinner_frame(app, std::time::Instant::now()) {
-        return Line::from(Span::styled(
-            format!("{} loading", SPINNER[frame]),
-            look.role(Role::Accent).add_modifier(Modifier::BOLD),
-        ));
+    if app.loading_since.is_some() {
+        let target = app
+            .current
+            .as_deref()
+            .map(crate::tabs::label)
+            .unwrap_or("your squads");
+        let frame = spinner_frame(app, std::time::Instant::now());
+        return Line::from(vec![
+            Span::styled(
+                frame.map_or(" ", |frame| SPINNER[frame]),
+                look.role(Role::Accent),
+            ),
+            Span::styled("  Opening ", look.role(Role::Muted)),
+            Span::styled(
+                tmt_cli_style::table::escape(target),
+                look.role(Role::Accent),
+            ),
+        ]);
     }
     let Some(view) = app.view.as_ref().filter(|_| !app.loading()) else {
         return Line::default();
@@ -207,7 +219,11 @@ pub(super) fn render_meter_status(frame: &mut Frame, app: &App, area: Rect) {
             .as_ref()
             .is_some_and(|meter| meter.digits().is_none())
     {
-        let text = "no usage reported yet";
+        let text = if app.view.as_ref().is_some_and(|view| view.history_pending) {
+            "Updating usage…"
+        } else {
+            "no usage reported yet"
+        };
         let width = area.width.min(text.len() as u16);
         strip::paint_left(
             frame.buffer_mut(),

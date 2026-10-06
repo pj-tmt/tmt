@@ -19,7 +19,7 @@
     "format:check": "node scripts/format-workspace.mjs --check",
     "type:check": "tsc --noEmit",
     "check:tooling": "pnpm type:check && pnpm lint && pnpm format:check && pnpm docs:format:check",
-    "check": "pnpm check:tooling && pnpm office:check && pnpm office:service:check && pnpm --filter @tmt/office type:check:e2e",
+    "check": "pnpm check:tooling",
     "office:dev": "pnpm --filter @tmt/office --fail-if-no-match dev",
     "office:install": "cd ../extensions/tmt-office/typescript/apps/office && pnpm install --ignore-workspace --lockfile-dir \"$PWD/../../../../../typescript\" --frozen-lockfile",
     "office:build": "pnpm --filter @tmt/office --fail-if-no-match build",

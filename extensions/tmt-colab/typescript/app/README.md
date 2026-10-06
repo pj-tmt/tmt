@@ -46,15 +46,19 @@ Remote's verified device-name prefix, while the transport excludes it because
 Remote adds it. Re-check and the visible-page observer read the original operation;
 uncertain asks may be abandoned without retrying dispatch.
 
-A paired browser has one active Colab tab per mount in v1. Loading a tab or
-choosing Use here announces takeover through BroadcastChannel before registration
-opens a Remote session. A Web Lock holds ownership until existing Remote calls
-finish. Inactive tabs close their page bindings and observers and show a calm
-notice; they never reopen or reconnect themselves.
+A paired browser may keep several Colab tabs open on the same or different pages.
+Each tab opens its own Remote session and binds its mounted sync WebSockets with
+the SDK's `transportUrl`; the tabs share one paired device and the existing
+writer election keeps its stream ordered. Closing a tab aborts only its own page
+bindings and observers. Remote's session limit defaults to eight tabs; an evicted
+tab shows the active limit and how to raise it.
 
 Registration retains the verified Remote session. Tunnel disconnects and resyncs
-reopen sync using that same session and Remote adapter, rebuilding only the Ask
-controller. An explicit Remote session fault triggers coalesced mounted session
+first read the old Remote session's verified status. Ordinary session end
+silently opens a fresh session and reattaches the page; limit eviction stops
+this tab and shows the limit, settings link when supplied, and CLI command.
+Other tunnel resyncs reuse the same session and Remote adapter, rebuilding only
+the Ask controller. A verified Remote session fault triggers coalesced mounted session
 replacement, verifies the same device and space owner, then rebuilds the
 Remote adapter and Ask controller before opening sync. Closing the old controller
 invalidates its preview actions; the new controller observes unresolved original
@@ -62,8 +66,8 @@ IDs after catchup. Normal context, agent-list, send and result calls never reope
 the session.
 
 If Remote loses its in-memory sessions and door cookies, private guidance loads
-one public, standalone `assets/recovery.js` build entry. It reuses the tab claim
-and Web Lock before the served SDK checks its paired key and reopens. Successful
+one public, standalone `assets/recovery.js` build entry. The served SDK checks
+this tab's paired key and reopens its own session. Successful
 recovery reloads; absent keys or failed reopening show plain pairing guidance.
 A mount-scoped session-storage marker prevents a recovery reload loop and clears
 only after authenticated boot succeeds. An active page blocked by a sync

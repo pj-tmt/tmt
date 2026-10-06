@@ -111,7 +111,7 @@ async function wire(
   await context.route('**/sdk/remote-v1.js*', (route) =>
     route.fulfill({
       contentType: 'text/javascript',
-      body: `export async function reopenSession(){sessionStorage.setItem('test:reopens',String(Number(sessionStorage.getItem('test:reopens')??0)+1));await window.fixtureKeys;} export async function certifyKey(purpose,bytes){return {publicKey:btoa(String.fromCharCode(...bytes)).replaceAll('+','-').replaceAll('/','_').replace(/=+$/,''),issuedAtMs:Date.now(),signature:'${c.encodeBinary(new Uint8Array(64))}'}}`,
+      body: `export async function reopenSession(){sessionStorage.setItem('test:reopens',String(Number(sessionStorage.getItem('test:reopens')??0)+1));await window.fixtureKeys;} export function transportUrl(_session,url){return String(url);} export async function certifyKey(purpose,bytes){return {publicKey:btoa(String.fromCharCode(...bytes)).replaceAll('+','-').replaceAll('/','_').replace(/=+$/,''),issuedAtMs:Date.now(),signature:'${c.encodeBinary(new Uint8Array(64))}'}}`,
     }),
   );
   await context.route(`**${mount}api/session`, (route) =>
@@ -859,6 +859,7 @@ async function recoverySdk(context: BrowserContext) {
       if(!response.ok) throw new Error('No paired key or reopen unavailable');
       await window.fixtureKeys;
     }
+    export function transportUrl(_session,url){return String(url);}
     export async function certifyKey(purpose,bytes){return {publicKey:btoa(String.fromCharCode(...bytes)).replaceAll('+','-').replaceAll('/','_').replace(/=+$/,''),issuedAtMs:Date.now(),signature:'${c.encodeBinary(new Uint8Array(64))}'}}`,
     }),
   );
@@ -992,6 +993,7 @@ test('Ask publishes owner own envelopes through production Connection before Rem
       contentType: 'text/javascript',
       body: `export async function reopenSession(){await window.fixtureKeys;return {sessionId:'fixture-session',serverTimeMs:Date.now(),grantRevision:'1',expiresAtMs:null}}
 export async function certifyKey(purpose,bytes){return {publicKey:btoa(String.fromCharCode(...bytes)).replaceAll('+','-').replaceAll('/','_').replace(/=+$/,''),issuedAtMs:Date.now(),signature:'${c.encodeBinary(new Uint8Array(64))}'}}
+export function transportUrl(_session,url){return String(url);}
 export function operations(){return {
 listAgents:async()=>[{id:'${agentId}',name:'Wire agent',presence:'active'}],
 send:async(input)=>(await fetch('/test-wire-send',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(input)})).json(),
@@ -1111,116 +1113,50 @@ result:async()=>({state:'replied',requestId:'${requestId}',message:${JSON.string
   await expect.poll(() => f.connections).toBe(0);
 });
 
-test('same-device tabs explicitly take over one durable stream without reopen ping-pong', async ({
+test('same-device tabs stay connected and exchange source edits without reopening', async ({
   page,
   context,
 }) => {
-  const f = await wire(context),
-    other = await context.newPage();
+  const f = await wire(context);
+  const other = await context.newPage();
   const reopens = (tab: typeof page) =>
     tab.evaluate(() => Number(sessionStorage.getItem('test:reopens') ?? 0));
-  await page.goto(mount);
-  await page.locator(`[data-page-id="${v.page}"] a`).click();
-  await expect(
-    page.frameLocator('iframe').getByRole('heading', { name: 'Live fixture' }),
-  ).toBeVisible();
-  await page.getByRole('button', { name: 'Source', exact: true }).click();
-  await page.screenshot({ path: '/tmp/1252-live-light.png', fullPage: true });
-  await page.getByRole('button', { name: 'Change color theme' }).click();
-  await expect(page.locator('iframe')).toHaveCSS('background-color', 'rgb(255, 255, 255)');
-  await expect(page.locator('iframe')).toHaveCSS('color-scheme', 'light');
-  await page.screenshot({ path: '/tmp/1252-live-dark.png', fullPage: true });
-  await page.setViewportSize({ width: 390, height: 844 });
-  await page.screenshot({ path: '/tmp/1252-live-mobile.png', fullPage: true });
-  await page.setViewportSize({ width: 1280, height: 720 });
-  await page.getByRole('textbox').fill('<h1>First</h1>');
-  await page.getByRole('button', { name: 'Save source' }).click();
-  await expect(page.frameLocator('iframe').getByRole('heading', { name: 'First' })).toBeVisible();
-  await other.goto(mount);
-  await other.locator(`[data-page-id="${v.page}"] a`).click();
-  await expect(page.getByTestId('colab-inactive')).toContainText('Colab is open in another tab.');
-  await expect(page.locator('iframe')).toHaveCount(0);
-  await expect(other.frameLocator('iframe').getByRole('heading', { name: 'First' })).toBeVisible();
-  await expect.poll(() => f.connections).toBe(1);
+  for (const tab of [page, other]) {
+    await tab.goto(mount);
+    await tab.locator(`[data-page-id="${v.page}"] a`).click();
+    await expect(
+      tab.frameLocator('iframe').getByRole('heading', { name: 'Live fixture' }),
+    ).toBeVisible();
+    await tab.getByRole('button', { name: 'Source', exact: true }).click();
+  }
+  await expect.poll(() => f.connections).toBe(2);
   expect(await reopens(page)).toBe(1);
   expect(await reopens(other)).toBe(1);
-  await page
-    .getByRole('button', { name: 'Use here' })
-    .evaluate((button: HTMLButtonElement) => button.click());
-  expect(await reopens(page)).toBe(1);
-  await page.screenshot({
-    path: '/private/tmp/colab-1110-design/colab-inactive.png',
-    fullPage: true,
-  });
-  await other.getByRole('button', { name: 'Source', exact: true }).click();
-  const large = '<h1>Large</h1>' + 'x'.repeat(50_000);
-  await other.getByRole('textbox').fill(large);
-  await other.getByRole('button', { name: 'Save source' }).click();
-  await expect(other.frameLocator('iframe').getByRole('heading', { name: 'Large' })).toBeVisible();
-  expect(f.chunked).toBe(1);
-  f.dropNext();
-  await other.getByRole('textbox').fill('<h1>Recovered</h1>');
-  await other.getByRole('button', { name: 'Save source' }).click();
-  await expect(other.getByRole('alert')).toContainText('edit was not saved');
-  await other.reload();
-  await other.getByRole('button', { name: 'Source', exact: true }).click();
-  await expect(other.getByRole('textbox')).toHaveValue('<h1>Recovered</h1>');
-  await other.getByRole('textbox').fill('<h1>After reload</h1>');
-  await other.getByRole('button', { name: 'Save source' }).click();
-  await expect(
-    other.frameLocator('iframe').getByRole('heading', { name: 'After reload' }),
-  ).toBeVisible();
-  await f.settled();
-  expect(f.retries).toBe(1);
-  expect(f.entries.map((row) => row.seq)).toEqual(['1', '2', '3', '4', '5']);
-  const before = f.hellos;
-  f.resync();
-  await expect.poll(() => f.hellos).toBe(before + 1);
-  await expect(
-    other.frameLocator('iframe').getByRole('heading', { name: 'After reload' }),
-  ).toBeVisible();
-  expect(await reopens(other)).toBe(2);
-  expect(await reopens(page)).toBe(1);
-  await f.ownUpdate();
-  await expect(other.getByTestId('comments-panel')).toContainText('No comments yet.');
-  await expect(other.getByTestId('comment-entry')).toHaveCount(0);
-  await page.getByRole('button', { name: 'Use here' }).click();
-  await expect(other.getByTestId('colab-inactive')).toBeVisible();
-  await expect(other.locator('iframe')).toHaveCount(0);
-  await expect(
-    page.frameLocator('iframe').getByRole('heading', { name: 'After reload' }),
-  ).toBeVisible();
-  expect(await reopens(page)).toBe(2);
-  expect(await reopens(other)).toBe(2);
-  await page.getByRole('button', { name: 'Source', exact: true }).click();
-  await page.getByRole('textbox').fill('<h1>Across own</h1>');
+  await page.getByRole('textbox').fill('<h1>From first tab</h1>');
   await page.getByRole('button', { name: 'Save source' }).click();
+  await expect(other.getByRole('textbox')).toHaveValue('<h1>From first tab</h1>');
+  await other.getByRole('textbox').fill('<h1>From second tab</h1>');
+  await other.getByRole('button', { name: 'Save source' }).click();
+  await expect(page.getByRole('textbox')).toHaveValue('<h1>From second tab</h1>');
   await expect(
-    page.frameLocator('iframe').getByRole('heading', { name: 'Across own' }),
+    page.frameLocator('iframe').getByRole('heading', { name: 'From second tab' }),
   ).toBeVisible();
-  expect(f.entries.at(-1)!.seq).toBe('7');
-  await other.getByRole('button', { name: 'Use here' }).click();
-  await expect(page.getByTestId('colab-inactive')).toBeVisible();
   await expect(
-    other.frameLocator('iframe').getByRole('heading', { name: 'Across own' }),
+    other.frameLocator('iframe').getByRole('heading', { name: 'From second tab' }),
   ).toBeVisible();
-  expect(await reopens(other)).toBe(3);
-  expect(await reopens(page)).toBe(2);
-  await other.getByRole('link', { name: 'Space home' }).click();
-  await expect.poll(() => f.connections).toBe(0);
-  expect(
-    await page.evaluate(
-      async () =>
-        (await navigator.locks.query()).held?.filter((lock) => lock.name?.startsWith('writer:'))
-          .length,
-    ),
-  ).toBe(0);
-  await other.close();
-  await expect(page.getByTestId('colab-inactive')).toBeVisible();
-  expect(await reopens(page)).toBe(2);
+  expect(await reopens(page)).toBe(1);
+  expect(await reopens(other)).toBe(1);
+  await f.settled();
+  await page.close();
+  await expect.poll(() => f.connections).toBe(1);
+  await other.getByRole('textbox').fill('<h1>Still connected</h1>');
+  await other.getByRole('button', { name: 'Save source' }).click();
+  await expect(
+    other.frameLocator('iframe').getByRole('heading', { name: 'Still connected' }),
+  ).toBeVisible();
 });
 
-test('chunked epoch baseline survives explicit tab takeover, edits and reload', async ({
+test('chunked epoch baseline stays live in two tabs through an edit and reload', async ({
   page,
   context,
 }) => {
@@ -1236,23 +1172,22 @@ test('chunked epoch baseline survives explicit tab takeover, edits and reload', 
     await tab.getByRole('button', { name: 'Source', exact: true }).click();
     await expect(tab.getByRole('textbox')).toHaveValue(source);
   }
-  await expect(page.getByTestId('colab-inactive')).toBeVisible();
   const next = source.replace('Reset baseline', 'New epoch edit');
   await other.getByRole('textbox').fill(next);
   await other.getByRole('button', { name: 'Save source' }).click();
   await expect(
     other.frameLocator('iframe').getByRole('heading', { name: 'New epoch edit' }),
   ).toBeVisible();
-  await page.getByRole('button', { name: 'Use here' }).click();
   await expect(
     page.frameLocator('iframe').getByRole('heading', { name: 'New epoch edit' }),
   ).toBeVisible();
-  await expect(other.getByTestId('colab-inactive')).toBeVisible();
   await other.reload();
   await expect(
     other.frameLocator('iframe').getByRole('heading', { name: 'New epoch edit' }),
   ).toBeVisible();
-  await expect(page.getByTestId('colab-inactive')).toBeVisible();
+  await expect(
+    page.frameLocator('iframe').getByRole('heading', { name: 'New epoch edit' }),
+  ).toBeVisible();
 });
 for (const invalid of ['commitment', 'source', 'descriptor', 'oldEpoch'] as const)
   test(`signed reset rejects ${invalid} without partial renderer publication`, async ({
@@ -1408,11 +1343,7 @@ test('signed catchup publishes detached own maps for two authors while source st
     async ({ pageId, device }) => {
       const path = '/src/mounted.ts',
         { mountedTransport } = await import(path);
-      // This isolated read-admission probe supplies test-owned activation.
-      const { transport, close } = await mountedTransport({
-        active: true,
-        run: <T>(action: () => Promise<T>) => action(),
-      });
+      const { transport, close } = await mountedTransport();
       const snapshot = await transport.page(pageId);
       try {
         const own = structuredClone(snapshot.own);

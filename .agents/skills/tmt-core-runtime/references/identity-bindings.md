@@ -136,7 +136,10 @@ in `contracts/`.
   reading and commits against the captured snapshot. It never infers activity.
 - `storage::consumption_history` keeps five-second buckets for two hours (at most 1,440 closed
   plus one open per identity), stores no transcript content or absolute path, and commits cursor,
-  counter and history in one transaction. Public bounds:
+  counter and history in one transaction. A history read keeps one snapshot and reads each
+  identity's entire retained range, even for a shorter display window: older rows still determine
+  availability, the latest watermark and corruption refusal. Ordered rows are shared by all
+  requested windows; disjoint output buckets consume them once per window. Public bounds:
   [extension API](../../../../contracts/extension-api.md#consumption-history).
 
 ## Hooks, setup and uninstall

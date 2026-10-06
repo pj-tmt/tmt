@@ -637,6 +637,13 @@ private non-Rust consumers are additive. `cargo-workspace.mjs` supplies resolved
 Cargo metadata; version inheritance/editing has its own private release-tool owner.
 CI scope, ownership, binary consumption and version inheritance are separate contracts.
 
+Project-only never-shipped path declarations are defined in the
+[release-tracking reference](.agents/skills/tmt-release/references/native-release.md#project-release-tracking).
+The separate `tmt-cli` architecture guard checks all Rust files and macro tokens outside
+declared roots, packaging and canonical generated inputs without cfg/reachability inference.
+Required CI covers the component map, declaring crates and release build script; the Node
+Project sweep validates declarations and never executes captured source.
+
 Selected missing, failed, cancelled or unexpectedly skipped work cannot satisfy a
 required gate; empty test discovery never passes. Selection, worker, cache and
 advisory-browser details live in the
@@ -1149,8 +1156,10 @@ admission. Remote's root `/p/<id>` alias redirects to Colab's mounted `p/<id>` r
 Colab owns short-ID resolution, while the door session cookie stays scoped to the mount space.
 [`contracts/remote-channel-v1.md`](contracts/remote-channel-v1.md) owns
 the wire, pairing, session, operations and extension channel API. Remote owns the
-static root landing and pairing-page errors as well as the pairing ceremony;
-protocol refusals and mounted extension responses retain their own representation.
+static browser entry and pairing ceremony; human serve links name `/`, while protocol addresses
+retain their route prefix. Saved pairing is local evidence, not live authority: only an explicit
+connection check opens a signed Session. No state display sends work or designates an administrator.
+Protocol refusals and mounted extension responses retain their own representation.
 [Planned Remote settings administration](contracts/remote-channel-v1.md#remote-settings-browser-authority)
 uses a separate local-owner designation from paired channel trust; its browser/SDK surface is not
 implemented. Remote owns that authority, while shared browser components own presentation only.
@@ -1173,10 +1182,12 @@ System-wide invariants:
 - Enrolled panes are never pasted to; core's send-time guard decides, never terminal output.
 - The serve lease is inherited by invocation children, so restart cannot overlap an orphaned effect.
 
-Local extensions discover a running Remote through read-only `tmt remote status --json`
-or supervise `tmt remote serve --json` and consume its bound descriptor. The
-[local CLI discovery contract](contracts/remote-channel-v1.md#local-cli-discovery)
-owns both shapes; Colab never reads Remote's private state.
+Remote's binary-private `serve` owner composes one serving algorithm: human starts detach through
+an exact native worker/private bounded handoff; bare `serve --json` stays foreground for supervisors.
+The existing lease/control/invocation owners govern lifetime and cleanup; uncertainty never authorizes
+successor signals or automatic restart. Local extensions discover through read-only `status --json`.
+The [local CLI discovery contract](contracts/remote-channel-v1.md#local-cli-discovery) owns both
+public shapes; Colab never reads Remote's private state.
 
 ## Colab extension
 
@@ -1205,7 +1216,10 @@ core discovery or storage access.
   and that only `decoder/child.rs` imports `yrs`.
 - **Seams.** With Remote: the mount socket, `tmt-device-context`, the device-events callback
   and the browser SDK; the Ask agent sends through Remote's SDK operations helper as the
-  paired owner device, with no native bridge, ledger or migration. After a Remote restart,
+  paired owner device, with no native bridge, ledger or migration. The read-only Agents view
+  reuses that current context and directory owner without admitting Ask destinations or
+  invoking session recovery; [Ask modules](.agents/skills/tmt-colab/references/ask-agent.md)
+  define the observation boundary. After a Remote restart,
   Colab's public recovery entry reopens the paired device's session once, through the same
   tab claim; all other app assets stay owner-gated. With core: `Product::Colab` registers
   the executable with the installer, and the app is served from `serve --app-dir`, else
@@ -1226,6 +1240,10 @@ core discovery or storage access.
   author HTML and passes no application capability. Parent highlight messages carry only
   anchor IDs and quote selectors; discussion bodies and display labels never enter author code.
   This contains author code; page self-navigation can still leak a request.
+- **Planned attachments.** The [local storage proposal](extensions/tmt-colab/contracts/storage-v1-proposal.md)
+  keeps generic backend/channel/quota/origin ownership in Remote and authenticated references,
+  crypto/history/read admission and consumers in Colab. No core object API, new reader credential
+  or runtime implementation is claimed; archive/history/native acceptance remains required.
 - **Plaintext invariant.** Page source and export are root-local: only the isolated decoder
   child decodes Yjs, no route serves plaintext, and the browser Worker is resource
   containment, not a security sandbox.

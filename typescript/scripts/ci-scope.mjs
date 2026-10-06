@@ -51,6 +51,78 @@ function parseScopedChecks(name, checks) {
   return { nativeTests: files('nativeTests'), e2eFiles: files('e2eFiles') };
 }
 
+function literalPath(value, label) {
+  if (
+    typeof value !== 'string' ||
+    !value ||
+    ['\\', '*', '?', '[', ']', ':'].some((symbol) => value.includes(symbol)) ||
+    [...value].some(
+      (character) => character.charCodeAt(0) < 32 || character.charCodeAt(0) === 127
+    ) ||
+    value.split('/').some((part) => !part || part === '.' || part === '..')
+  )
+    throw new Error(`${label} must be a normalized relative literal path.`);
+  return value;
+}
+
+function reason(value, label) {
+  if (typeof value !== 'string' || !value.trim()) throw new Error(`${label} needs a reason.`);
+  return value;
+}
+
+function declarationList(value, label, parse) {
+  if (value === undefined) return [];
+  if (!Array.isArray(value) || !value.length) throw new Error(`${label} must be a non-empty list.`);
+  return value.map((entry) => {
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry))
+      throw new Error(`${label} needs declaration objects.`);
+    return parse(entry);
+  });
+}
+
+function parseNeverShipped(name, value) {
+  const label = `components.${name}.neverShippedPaths`;
+  return declarationList(value, label, (entry) => ({
+    root: literalPath(entry.root, label),
+    reason: reason(entry.reason, label),
+    testOnlyReferences: declarationList(entry.testOnlyReferences, label, (reference) => ({
+      file: literalPath(reference.file, label),
+      reason: reason(reference.reason, label),
+    })),
+  }));
+}
+
+function parseGenerated(name, value) {
+  const label = `components.${name}.generatedInputs`;
+  const entries = declarationList(value, label, (entry) => {
+    const result = Object.fromEntries(
+      [
+        'includeSite',
+        'generator',
+        'buildScript',
+        'inputDirectory',
+        'packageRoot',
+        'releaseScript',
+      ].map((key) => [key, literalPath(entry[key], `${label}.${key}`)])
+    );
+    if (typeof entry.variable !== 'string' || !/^[A-Z][A-Z0-9_]*$/.test(entry.variable))
+      throw new Error(`${label} needs a literal environment variable name.`);
+    if (typeof entry.expression !== 'string' || !entry.expression.trim())
+      throw new Error(`${label} needs its exact include expression.`);
+    if (typeof entry.generatorBlob !== 'string' || !/^[a-f0-9]{40}$/.test(entry.generatorBlob))
+      throw new Error(`${label} needs the reviewed generator Git blob.`);
+    return {
+      ...result,
+      variable: entry.variable,
+      expression: entry.expression,
+      generatorBlob: entry.generatorBlob,
+      reason: reason(entry.reason, label),
+    };
+  });
+  if (entries.length > 1) throw new Error(`${label} permits only one canonical generator.`);
+  return entries;
+}
+
 /**
  * Parses and validates the component map. A malformed map throws, so the
  * selector job fails visibly instead of selecting the wrong work.
@@ -78,6 +150,8 @@ export function parseComponentMap(text) {
         : nonEmptyStrings(component.migrations, `components.${name}.migrations`),
     selectedBy: (component.selectedBy ?? []).map((glob) => ({ glob, pattern: globToRegExp(glob) })),
     scopedChecks: parseScopedChecks(name, component.scopedChecks),
+    neverShippedPaths: parseNeverShipped(name, component.neverShippedPaths),
+    generatedInputs: parseGenerated(name, component.generatedInputs),
   }));
   for (const component of components) {
     if (
@@ -130,6 +204,38 @@ export function parseComponentMap(text) {
     }
   }
   if (components.length === 0) throw new Error('The component map has no components.');
+  const declarationMap = { components };
+  const roots = [];
+  for (const component of components) {
+    if (
+      (component.neverShippedPaths.length || component.generatedInputs.length) &&
+      !component.package
+    )
+      throw new Error(`Component ${component.name} declarations need a Cargo package.`);
+    for (const declaration of component.neverShippedPaths) {
+      if (ownerOf(declaration.root, declarationMap) !== component.name)
+        throw new Error(`Never-shipped root ${declaration.root} belongs to another component.`);
+      for (const candidate of components) {
+        for (const root of candidate.owns) {
+          if (
+            root !== '.' &&
+            within(declaration.root, root) &&
+            ownerOf(root, declarationMap) !== component.name
+          )
+            throw new Error(`Never-shipped root ${declaration.root} contains another component.`);
+        }
+      }
+      if (roots.some((root) => within(root, declaration.root) || within(declaration.root, root)))
+        throw new Error(`Overlapping never-shipped root ${declaration.root}.`);
+      roots.push(declaration.root);
+      const files = declaration.testOnlyReferences.map(({ file }) => file);
+      if (
+        new Set(files).size !== files.length ||
+        files.some((file) => within(declaration.root, file))
+      )
+        throw new Error(`Invalid test-only references for ${declaration.root}.`);
+    }
+  }
   const ids = new Set();
   const rules = (map.rules ?? []).map((rule) => {
     if (typeof rule.id !== 'string' || ids.has(rule.id)) {
@@ -226,8 +332,8 @@ export function ownerOf(path, map = componentMap()) {
 /**
  * What each changed path selects and why, for the run summary. The first
  * matching rule of the component map decides native work; unknown inputs keep
- * full native verification. Frozen Office verification follows ownership only,
- * with shared dependencies covered by weekly/manual runs.
+ * full native verification. Office product verification is retired independently
+ * of ownership and release attribution.
  */
 export function explainCiSelection(paths, map = componentMap()) {
   return paths.map((path) => {
@@ -239,7 +345,7 @@ export function explainCiSelection(paths, map = componentMap()) {
       rule: rule?.id ?? 'unmapped',
       why:
         rule?.why ??
-        'Unmapped input retains full native verification; frozen Office follows ownership.',
+        'Unmapped input retains full native verification; Office product checks are retired.',
       native: rule ? rule.consumers.includes('native') : true,
       office,
       nativeOffice: office,
@@ -287,22 +393,9 @@ export function selectNativeNotices(paths) {
   );
 }
 
-// Office-local browser harnesses/build files are already component-owned. These
-// are the browser-specific machinery inputs outside that component; shared
-// dependency and generic fixture changes rely on the weekly/manual safety net.
-const OFFICE_BROWSER_INPUTS = new Set([
-  '.github/workflows/office-browser.yml',
-  '.dockerignore',
-  'typescript/scripts/verify-office-emulators.mjs',
-]);
-
-/**
- * Frozen Office PR verification follows ownership plus Office-specific machinery,
- * not shared inputs or core dependencies. Weekly/manual runs cover every partition.
- * Empty or unknown paths select no browser work; required CI stays conservative.
- */
-export function selectOfficeBrowser(paths, map = componentMap()) {
-  return paths.some((path) => ownerOf(path, map) === 'office' || OFFICE_BROWSER_INPUTS.has(path));
+/** Office product verification is retired for every event; ownership and release attribution remain. */
+export function selectOfficeBrowser(_paths, _map = componentMap()) {
+  return false;
 }
 
 // Keep the advisory harness narrower than required native CI. Ownership comes
@@ -586,19 +679,19 @@ export function runCiScope(args, { cwd, stdout, stderr, summaryFile }) {
     }
   }
   selection ??= { paths: [], areas: selectCiAreas([]), nativeScope: selectNativeScope([]) };
-  if (full) selection.areas = { native: true, office: true, nativeOffice: true };
+  if (full) selection.areas = { native: true, office: false, nativeOffice: false };
   if (queue) {
     selection.areas = { ...selection.areas, office: false, nativeOffice: false };
     selection.rows = selection.rows?.map((row) => ({ ...row, office: false, nativeOffice: false }));
   }
-  const officeBrowser = full || (!queue && !seed && selectOfficeBrowser(selection.paths));
+  const officeBrowser = selectOfficeBrowser(selection.paths);
   const colabHarness = !queue && !seed && !full && selectColabHarness(selection.paths);
   const nativeNotices = !seed && (full || selectNativeNotices(selection.paths));
   const evidence =
     (full || seed || fallback
-      ? `### CI selection\n\n${fallback ?? (full ? 'Weekly/manual full verification; no path filtering.' : 'Main cache seed; Office verification is frozen.')}\n`
+      ? `### CI selection\n\n${fallback ?? (full ? 'Weekly/manual retained-product verification; Office retired.' : 'Main cache seed; Office product verification is retired.')}\n`
       : renderSelectionEvidence({ base, head, range, ...selection })) +
-    `\nOffice browser PR selection (Office ownership or verification machinery): ${officeBrowser}.\n` +
+    `\nOffice browser selection (retired product): ${officeBrowser}.\n` +
     `\nColab browser PR selection (client, model, vectors or harness workflow): ${colabHarness}.\n` +
     `\nNative dependency notices selection: ${nativeNotices}.\n`;
   stderr.write(evidence);

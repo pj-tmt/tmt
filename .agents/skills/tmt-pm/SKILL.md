@@ -17,7 +17,7 @@ owns the procedure only.
   maintainer approves it. The PM never creates a tracker.
 - **Child issue**: one outcome with acceptance criteria and normally one
   reviewable PR (about 1,500 changed lines or fewer). Leads and the PM may
-  open children under an existing tracker.
+  open children as direct native sub-issues of an existing tracker.
 - **Split** a child when its progress is invisible: several PRs, several
   squads, or a long open period without movement. Propose each split to the
   owning lead first; open the children after the lead agrees.
@@ -25,7 +25,7 @@ owns the procedure only.
 ## Pass and leaders sync
 
 1. **Read state in one batch.** Make one GraphQL query for Project items
-   (Status, Squad, Owner, Agents, parent, updatedAt) and one for open PRs
+   (Status, Squad, Owner, Agents, native parent, updatedAt) and one for open PRs
    (head, checks, mergeable, updatedAt) and the merge queue. Read `tmt ls`
    for active members. Do not query items one by one.
 2. **Detect.**
