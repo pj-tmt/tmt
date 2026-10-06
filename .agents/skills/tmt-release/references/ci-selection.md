@@ -106,12 +106,17 @@ cannot establish them. Every role keeps original streams/process reports on red.
 Bounds live in `LIMITS`:150,000 regular files, 5 GiB payload, 512 MiB per file,
 5 GiB plus bounded tar overhead, 32 MiB per command and 256 MiB total captured streams,
 4000 commands and 18 minutes inside each 20-minute job. The final minute is
-reserved for cleanup; commands stop before it and allow at most five seconds for
-exit/pipe settlement. Missing close, signal denial or overflow retains partial
+reserved for cleanup; command admission/capture settles before it, with at most five seconds for
+exit/pipe settlement. Missing close, probe denial or overflow retains partial
 streams with incomplete/unconfirmed evidence. Every role observes processes and
-listeners before execution and in finally, including original red paths. Only the
-spawn-owned group may be signalled; snapshots detect leaks but never grant PID
-ownership. Unconfirmed cleanup stays red and leaves runtime roots intact. Confirmed
+listeners before execution and in finally, including original red paths. The runner
+never sends effectful numeric PID/PGID signals: Node event state, ancestry, snapshots
+and signal-zero probes cannot provide retained OS lifetime custody, even before
+the exit event. Stops settle only our handles and remain termination-unconfirmed;
+actual descendant termination is not claimed, and the outer job cap stays unchanged.
+A numerically present stale group remains red, without adoption or signalling.
+Sysroot and package-manager probes use the same captured-command/finally contract.
+Unconfirmed cleanup stays red and leaves runtime roots intact. Confirmed
 cleanup uses a bounded owned-root removal command before final report admission. Producer requires 12 GiB free before acquisition; baseline/doctest require 6 GiB.
 Consumer requires 6 GiB after download, with at most 512 MiB for copied-input
 sensitivity controls. Controls remove/corrupt private copies of the actual child,

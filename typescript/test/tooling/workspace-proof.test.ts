@@ -495,45 +495,144 @@ describe('bounded command and role cleanup', () => {
       expect(Number.isSafeInteger(result.pid) && result.pid > 0).toBe(true);
       expect(result.processGroup).toBe(-result.pid);
       expect(readFileSync(path.join(temp, 'out'), 'utf8')).toMatch(/^owned-listener:\d+\n$/);
-      const overflow = await transport.captureCommand(
-        process.execPath,
-        ['-e', "process.stdout.write('x'.repeat(10000)); setInterval(()=>{},1000);"],
-        {
-          cwd: temp,
-          environment: {},
-          outFile: path.join(temp, 'overflow-out'),
-          errFile: path.join(temp, 'overflow-err'),
-          executionMs: 2000,
-          settlementMs: 200,
-          outputBytes: 32,
-        }
-      );
-      expect(overflow.reason).toBe('output bound');
-      expect(overflow.cleanup).toBe(true);
-      expect(overflow.complete).toBe(false);
-      expect(overflow.outputComplete).toBe(false);
-      expect(overflow.signal).toBe('SIGKILL');
-      expect(readFileSync(path.join(temp, 'overflow-out'), 'utf8')).toBe('x'.repeat(32));
-      const timeout = await transport.captureCommand(
-        process.execPath,
-        ['-e', 'setInterval(()=>{},1000)'],
-        {
-          cwd: temp,
-          environment: {},
-          outFile: path.join(temp, 'timeout-out'),
-          errFile: path.join(temp, 'timeout-err'),
-          executionMs: 100,
-          settlementMs: 200,
-        }
-      );
-      expect(timeout.reason).toBe('deadline');
-      expect(timeout.cleanup).toBe(true);
-      expect(timeout.signal).toBe('SIGKILL');
     } finally {
       rmSync(temp, { recursive: true, force: true });
     }
   });
-  it('bounds missing exit/close, signal denial and surviving groups with partial evidence', async () => {
+  it('never signals numerically present groups across terminal, unconfirmed or late event paths', async () => {
+    const temp = mkdtempSync(path.join(tmpdir(), 'tmt-proof-lifetime-'));
+    class Child extends EventEmitter {
+      pid = 700123;
+      stdin = new PassThrough();
+      stdout = new PassThrough();
+      stderr = new PassThrough();
+      unref() {}
+    }
+    try {
+      for (const kind of [
+        'exit-close-present',
+        'exit-open-timeout',
+        'exit-open-overflow',
+        'unconfirmed-timeout',
+        'unconfirmed-overflow',
+        'unconfirmed-error-then-close-absent',
+        'late-duplicate',
+        'close-before-exit',
+      ]) {
+        const child = new Child();
+        const signals: [number, string | number][] = [];
+        const result = await transport.captureCommand('injected-only', [], {
+          cwd: temp,
+          environment: {},
+          outFile: path.join(temp, `${kind}-out`),
+          errFile: path.join(temp, `${kind}-err`),
+          executionMs: 10,
+          settlementMs: 20,
+          outputBytes: 32,
+          launch: () => {
+            queueMicrotask(() => {
+              if (!kind.startsWith('unconfirmed') && kind !== 'close-before-exit')
+                child.emit('exit', 0, null);
+              child.stdout.write(kind.endsWith('overflow') ? 'x'.repeat(100) : 'original evidence');
+              if (
+                [
+                  'exit-close-present',
+                  'late-duplicate',
+                  'close-before-exit',
+                  'unconfirmed-overflow',
+                  'unconfirmed-error-then-close-absent',
+                ].includes(kind)
+              ) {
+                if (kind === 'unconfirmed-error-then-close-absent')
+                  child.emit('error', new Error('injected custody loss'));
+                if (
+                  kind === 'unconfirmed-overflow' ||
+                  kind === 'unconfirmed-error-then-close-absent'
+                )
+                  child.emit('exit', 0, null);
+                child.stdout.end();
+                child.stderr.end();
+                setImmediate(() => {
+                  child.emit('close', 0, null);
+                  if (kind === 'late-duplicate' || kind === 'close-before-exit')
+                    setImmediate(() => {
+                      child.emit('exit', 99, 'SIGTERM');
+                      child.emit('close', 99, 'SIGTERM');
+                      child.emit('error', new Error('late error'));
+                      child.emit('error', new Error('duplicate late error'));
+                      child.stdout.emit('error', new Error('late pipe error'));
+                    });
+                });
+              }
+            });
+            return child;
+          },
+          // Numerical presence is deliberately not an ownership guarantee.
+          signal: (pid: number, signal: string | number) => {
+            signals.push([pid, signal]);
+            if (kind === 'unconfirmed-error-then-close-absent')
+              throw Object.assign(new Error('absent'), { code: 'ESRCH' });
+          },
+        });
+        const frozen = clone(result);
+        await new Promise((resolve) => setImmediate(resolve));
+        expect(result).toEqual(frozen);
+        expect(signals).toEqual([[-child.pid, 0]]);
+        expect(result.cleanup).toBe(false);
+        expect(result.reason).toBeTruthy();
+        expect(result.elapsedMs).toBeLessThan(1000);
+        if (kind.endsWith('overflow')) {
+          expect(result.reason).toBe('output bound');
+          expect(result.terminationUnconfirmed).toBe(true);
+          expect(readFileSync(path.join(temp, `${kind}-out`), 'utf8')).toBe('x'.repeat(32));
+        }
+        if (kind === 'unconfirmed-error-then-close-absent')
+          expect(result).toMatchObject({
+            groupAbsent: true,
+            complete: true,
+            terminationUnconfirmed: true,
+            cleanup: false,
+            reason: 'spawn: injected custody loss',
+          });
+        if (kind === 'close-before-exit') expect(result.exitObserved).toBe(false);
+        const owned = path.join(temp, `${kind}-runtime`);
+        mkdirSync(owned);
+        const report = {
+          role: 'baseline',
+          failure: 'original failed command',
+          complete: true,
+          runtimeRootsRemoved: false,
+        };
+        const calls: string[] = [];
+        await transport.finalizeRole({
+          report,
+          records: [result],
+          processesBefore: [],
+          listenersBefore: '',
+          roots: [owned],
+          deadline: performance.now() + 1000,
+          snapshot: () => [],
+          command: async (label: string) => {
+            calls.push(label);
+            return { stdout: '' };
+          },
+          json: () => {},
+        });
+        expect(report).toMatchObject({
+          complete: false,
+          runtimeRootsRemoved: false,
+          failure: 'original failed command',
+        });
+        expect(calls).toEqual(['listeners-after']);
+        expect(readFileSync(path.join(temp, `${kind}-out`)).length).toBeGreaterThan(0);
+        // This root remains available until our fixture's owned cleanup in finally.
+        writeFileSync(path.join(owned, 'retained'), 'preserved');
+      }
+    } finally {
+      rmSync(temp, { recursive: true, force: true });
+    }
+  });
+  it('bounds missing exit/close, probe denial and surviving groups with partial evidence', async () => {
     const temp = mkdtempSync(path.join(tmpdir(), 'tmt-proof-injected-'));
     class Child extends EventEmitter {
       pid = 123456;
@@ -543,7 +642,7 @@ describe('bounded command and role cleanup', () => {
       unref() {}
     }
     try {
-      for (const kind of ['missing-close', 'missing-exit', 'signal-denied', 'surviving-group']) {
+      for (const kind of ['missing-close', 'missing-exit', 'probe-denied', 'surviving-group']) {
         const child = new Child();
         const signals: [number, string | number][] = [];
         const result = await transport.captureCommand('injected-only', [], {
@@ -567,8 +666,8 @@ describe('bounded command and role cleanup', () => {
           },
           signal: (pid: number, signal: string | number) => {
             signals.push([pid, signal]);
-            if (kind === 'signal-denied')
-              throw Object.assign(new Error('owned signal denied'), { code: 'EPERM' });
+            if (kind === 'probe-denied')
+              throw Object.assign(new Error('numeric probe denied'), { code: 'EPERM' });
             if (kind !== 'surviving-group')
               throw Object.assign(new Error('absent'), { code: 'ESRCH' });
           },
@@ -579,11 +678,11 @@ describe('bounded command and role cleanup', () => {
         expect(readFileSync(path.join(temp, `${kind}-out`), 'utf8')).toBe(
           'original partial stream'
         );
-        expect(signals.every(([pid]) => pid === -child.pid)).toBe(true);
+        expect(signals.every(([pid, signal]) => pid === -child.pid && signal === 0)).toBe(true);
         expect(child.stdout.destroyed && child.stderr.destroyed && child.stdin.destroyed).toBe(
           true
         );
-        if (kind === 'signal-denied') expect(result.signalError).toBe('owned signal denied');
+        if (kind === 'probe-denied') expect(result.signalError).toBe('numeric probe denied');
         if (kind === 'missing-close')
           expect(result).toMatchObject({
             exitObserved: true,

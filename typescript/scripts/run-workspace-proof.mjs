@@ -7,7 +7,6 @@ import os from 'node:os';
 import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { readCargoWorkspace, cargoWorkspaceCommand } from './cargo-workspace.mjs';
-import { runPackedCommand } from './packed-command.mjs';
 import {
   LIMITS,
   TOOLCHAIN,
@@ -153,8 +152,9 @@ export async function unpackClosure(file, expectedHash, files, destination) {
   }
 }
 
-// Only the group created by this spawn is a signalling authority. Snapshot PIDs
-// are detection evidence, never an ownership list. Close waits for inherited pipes.
+// Numeric PID/PGID presence is detection only, never retained OS lifetime custody.
+// Node exit events can lag termination; no effectful numeric signal is safe here.
+// Stops bound our pipe wait and stay red; they do not claim descendant termination.
 export async function captureCommand(
   executable,
   args,
@@ -183,7 +183,8 @@ export async function captureCommand(
   let exitObserved = false,
     closeObserved = false,
     streamsComplete = false,
-    outputComplete = true;
+    outputComplete = true,
+    terminationUnconfirmed = false;
   let code = null,
     termination = null;
   try {
@@ -219,13 +220,9 @@ export async function captureCommand(
       const stop = (why) => {
         if (settled) return;
         reason ??= why;
-        if (child.pid) {
-          try {
-            signal(-child.pid, 'SIGKILL');
-          } catch (error) {
-            if (error.code !== 'ESRCH') signalError ??= error.message;
-          }
-        }
+        // Even before an exit event, this API has no retained OS lifetime handle.
+        // Do not promote a JS flag or numerical probe into signalling authority.
+        terminationUnconfirmed = true;
         boundSettlement();
       };
       const executionTimer = setTimeout(() => stop('deadline'), executionMs);
@@ -252,8 +249,9 @@ export async function captureCommand(
         stream.on('error', (error) => {
           if (error.code !== 'EPIPE') stop(error.message);
         });
-      child.once('error', (error) => stop(`spawn: ${error.message}`));
+      child.on('error', (error) => stop(`spawn: ${error.message}`));
       child.once('exit', (status, receivedSignal) => {
+        if (settled) return;
         exitObserved = true;
         code = status;
         termination = receivedSignal;
@@ -261,6 +259,7 @@ export async function captureCommand(
         boundSettlement();
       });
       child.once('close', (status, receivedSignal) => {
+        if (settled) return;
         closeObserved = true;
         code = status;
         termination = receivedSignal;
@@ -282,18 +281,11 @@ export async function captureCommand(
       if (error.code === 'ESRCH') groupAbsent = true;
       else signalError ??= error.message;
     }
-    if (!groupAbsent) {
-      reason ??= 'surviving/unconfirmed process group';
-      try {
-        signal(-child.pid, 'SIGKILL');
-      } catch (error) {
-        if (error.code !== 'ESRCH') signalError ??= error.message;
-      }
-    }
+    if (!groupAbsent) reason ??= 'surviving/unconfirmed numerical process group';
   }
   const settled = exitObserved && closeObserved && streamsComplete;
   const complete = settled && outputComplete;
-  const cleanup = settled && groupAbsent && !signalError;
+  const cleanup = settled && groupAbsent && !signalError && !terminationUnconfirmed;
   if (!complete) reason ??= 'unconfirmed exit/pipe settlement';
   return {
     pid: child?.pid ?? null,
@@ -302,6 +294,7 @@ export async function captureCommand(
     signal: termination,
     reason,
     signalError,
+    terminationUnconfirmed,
     exitObserved,
     closeObserved,
     streamsComplete,
@@ -364,39 +357,14 @@ async function main(role, directory) {
     RUSTUP_HOME: process.env.RUSTUP_HOME ?? '/home/runner/.rustup',
     RUSTUP_TOOLCHAIN: TOOLCHAIN,
   };
-  const toolchain = runPackedCommand('rustup', ['run', TOOLCHAIN, 'rustc', '--print', 'sysroot'], {
-    cwd: rustRoot,
-    env: setupEnv,
-  }).trim();
-  const cargo = path.join(toolchain, 'bin/cargo');
-  const env = {
-    PATH: `${toolchain}/bin:${path.dirname(process.execPath)}:/usr/local/bin:/usr/bin:/bin`,
-    HOME: home,
-    TMPDIR: temporary,
-    LANG: 'C.UTF-8',
-    TZ: 'UTC',
-    RUSTUP_HOME: process.env.RUSTUP_HOME ?? '/home/runner/.rustup',
-    RUSTUP_TOOLCHAIN: TOOLCHAIN,
-    CARGO_HOME: cargoHome,
-    CARGO_TARGET_DIR: target,
-    CARGO_BUILD_JOBS: '2',
-    CARGO_PROFILE_DEV_DEBUG: '0',
-    CARGO_INCREMENTAL: '0',
-    CARGO_TERM_COLOR: 'never',
-    CARGO_NET_OFFLINE: 'true',
-    CARGO: cargo,
-    LD_LIBRARY_PATH: [
-      path.join(target, 'debug/deps'),
-      path.join(target, 'debug'),
-      path.join(toolchain, 'lib'),
-      path.join(toolchain, 'lib/rustlib/x86_64-unknown-linux-gnu/lib'),
-    ].join(':'),
-  };
+  let toolchain, cargo;
+  let env = setupEnv;
   assert(
     /^\d+$/.test(process.env.GITHUB_RUN_ID ?? '') && process.env.GITHUB_RUN_ATTEMPT === '1',
     'Only one original workflow attempt is admitted'
   );
   assert(/^[a-f0-9]{40}$/.test(process.env.PROOF_HEAD ?? ''), 'Exact proof source SHA required');
+
   for (const dir of [target, cargoHome, home, temporary])
     assert(!fs.existsSync(dir), 'Job-owned roots must be fresh; never discard an existing cache');
   for (const dir of [home, temporary]) {
@@ -416,6 +384,7 @@ async function main(role, directory) {
       network = false,
       expectedStatus = 0,
       extraEnv = {},
+      baseEnv = env,
       timeoutMs = LIMITS.commandMs,
       cleanupPhase = false,
     } = {}
@@ -428,7 +397,11 @@ async function main(role, directory) {
     const id = `${String(sequence++).padStart(3, '0')}-${label}`,
       outFile = path.join(output, `${id}.stdout`),
       errFile = path.join(output, `${id}.stderr`);
-    const environment = { ...env, ...extraEnv, ...(network ? { CARGO_NET_OFFLINE: 'false' } : {}) };
+    const environment = {
+      ...baseEnv,
+      ...extraEnv,
+      ...(network ? { CARGO_NET_OFFLINE: 'false' } : {}),
+    };
     const result = await captureCommand(executable, args, {
       cwd,
       environment,
@@ -479,6 +452,38 @@ async function main(role, directory) {
     processesBefore = processSnapshot();
     json('processes-before.json', processesBefore);
     listenersBefore = (await command('listeners-before', '/usr/bin/ss', ['-H', '-ltnup'])).stdout;
+    const sysroot = await command(
+      'sysroot',
+      'rustup',
+      ['run', TOOLCHAIN, 'rustc', '--print', 'sysroot'],
+      { timeoutMs: 10_000 }
+    );
+    assert(!sysroot.stderr, 'Unexpected sysroot diagnostics');
+    toolchain = sysroot.stdout.trim();
+    cargo = path.join(toolchain, 'bin/cargo');
+    env = {
+      PATH: `${toolchain}/bin:${path.dirname(process.execPath)}:/usr/local/bin:/usr/bin:/bin`,
+      HOME: home,
+      TMPDIR: temporary,
+      LANG: 'C.UTF-8',
+      TZ: 'UTC',
+      RUSTUP_HOME: process.env.RUSTUP_HOME ?? '/home/runner/.rustup',
+      RUSTUP_TOOLCHAIN: TOOLCHAIN,
+      CARGO_HOME: cargoHome,
+      CARGO_TARGET_DIR: target,
+      CARGO_BUILD_JOBS: '2',
+      CARGO_PROFILE_DEV_DEBUG: '0',
+      CARGO_INCREMENTAL: '0',
+      CARGO_TERM_COLOR: 'never',
+      CARGO_NET_OFFLINE: 'true',
+      CARGO: cargo,
+      LD_LIBRARY_PATH: [
+        path.join(target, 'debug/deps'),
+        path.join(target, 'debug'),
+        path.join(toolchain, 'lib'),
+        path.join(toolchain, 'lib/rustlib/x86_64-unknown-linux-gnu/lib'),
+      ].join(':'),
+    };
     const source = (
       await command('source', 'git', ['rev-parse', 'HEAD'], { cwd: root })
     ).stdout.trim();
@@ -510,6 +515,12 @@ async function main(role, directory) {
           .stdout,
       };
     assert(versions.rustc.version.includes(`rustc ${TOOLCHAIN} `), 'Pinned Rust version mismatch');
+    const packageManager = await command('pnpm-version', 'pnpm', ['--version'], {
+      cwd: root,
+      baseEnv: setupEnv,
+      timeoutMs: 10_000,
+    });
+    assert(!packageManager.stderr, 'Unexpected package-manager diagnostics');
     const identity = {
       systemTools: Object.fromEntries(
         SYSTEM_TOOLS.map((file) => [file, hashFile(fs.realpathSync(file))])
@@ -518,10 +529,7 @@ async function main(role, directory) {
         node: process.version,
         executable: fs.realpathSync(process.execPath),
         nodeHash: hashFile(fs.realpathSync(process.execPath)).sha256,
-        packageManager: runPackedCommand('pnpm', ['--version'], {
-          cwd: root,
-          env: setupEnv,
-        }).trim(),
+        packageManager: packageManager.stdout.trim(),
       },
       source,
       tree: (
