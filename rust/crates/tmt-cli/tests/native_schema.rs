@@ -80,10 +80,12 @@ fn native_export_has_exact_compiled_source_closure_without_storage_or_credential
     assert_eq!(value["schema_version"], 1);
     assert_eq!(value["product"], "cli");
     assert_eq!(value["databases"][0]["domain"], "tmt-core-db");
-    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+    // Native test binaries can be copied from the build stage into a new checkout.
+    let working_directory = std::env::current_dir().unwrap();
+    let root = working_directory
         .ancestors()
-        .nth(3)
-        .unwrap();
+        .find(|root| root.join("rust/Cargo.toml").is_file())
+        .expect("runtime checkout source tree");
     for file in value["source_files"].as_array().unwrap() {
         let bytes = fs::read(root.join(file["path"].as_str().unwrap())).unwrap();
         assert_eq!(file["sha256"], tmt_core::content_digest::sha256(&bytes));

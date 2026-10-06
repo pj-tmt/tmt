@@ -1,4 +1,7 @@
-use std::{fs, path::PathBuf};
+use std::{
+    fs,
+    path::{Path, PathBuf},
+};
 
 use crate::test_support::TestDirectory;
 
@@ -12,10 +15,8 @@ struct Fixture {
 #[test]
 fn compiled_schema_export_matches_actual_source_bytes_and_the_storage_owner() {
     let compiled = Storage::compiled_schema();
-    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .ancestors()
-        .nth(3)
-        .unwrap();
+    let working_directory = std::env::current_dir().unwrap();
+    let root = schema_source_root(&working_directory).expect("runtime checkout source tree");
     let fixture = Fixture::new();
     let mut storage = Storage::open(&fixture.database).unwrap();
     assert_eq!(compiled.version, storage.health().unwrap().schema_version);
@@ -37,6 +38,49 @@ fn compiled_schema_export_matches_actual_source_bytes_and_the_storage_owner() {
     );
     assert!(crate::native_install::compiled_application_schema("main").is_err());
     storage.close().unwrap();
+}
+
+// Docker builds under /native and runs the copied test binary under /workspace.
+// The byte oracle must read the runtime checkout, not a compiled absolute path.
+fn schema_source_root(working_directory: &Path) -> Option<&Path> {
+    working_directory
+        .ancestors()
+        .find(|root| root.join("rust/Cargo.toml").is_file())
+}
+
+#[test]
+fn compiled_schema_byte_oracle_uses_relocated_runtime_sources_and_detects_changes() {
+    let working_directory = std::env::current_dir().unwrap();
+    let original = schema_source_root(&working_directory).unwrap();
+    let directory = TestDirectory::new();
+    let runtime_root = directory.path.join("workspace");
+    let nested = runtime_root.join("rust/crates/tmt-adapters");
+    fs::create_dir_all(&nested).unwrap();
+    fs::write(runtime_root.join("rust/Cargo.toml"), b"fixture marker").unwrap();
+    assert!(schema_source_root(&directory.path.join("native/rust")).is_none());
+    assert_eq!(schema_source_root(&nested), Some(runtime_root.as_path()));
+    let sources = Storage::compiled_schema().sources;
+    for source in &sources {
+        let path = runtime_root.join(source.path);
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::copy(original.join(source.path), &path).unwrap();
+        assert_eq!(
+            source.sha256,
+            tmt_core::content_digest::sha256(&fs::read(path).unwrap()),
+            "{}",
+            source.path
+        );
+    }
+    let changed = &sources[0];
+    fs::write(
+        runtime_root.join(changed.path),
+        b"changed after compilation",
+    )
+    .unwrap();
+    assert_ne!(
+        changed.sha256,
+        tmt_core::content_digest::sha256(&fs::read(runtime_root.join(changed.path)).unwrap())
+    );
 }
 
 #[test]
