@@ -789,3 +789,908 @@ fn a_page_takes_more_than_two_hundred_changes_when_its_device_combines() {
         .unwrap();
     assert!(live <= 22, "{live} updates still stored");
 }
+
+// Native publication fixtures are pure library/SQLite checks: no decoder or CLI process.
+mod native_publication {
+    use super::*;
+    use rusqlite::{OptionalExtension, params};
+    use tmt_colab::{publication::*, store::owner::Cut};
+    use tmt_colab_model::{crypto, framing};
+    fn hex(bytes: &[u8]) -> String {
+        bytes.iter().map(|b| format!("{b:02x}")).collect()
+    }
+    fn signer(f: &Fixture, label: &[u8]) -> SigningKey {
+        let seed = fs::read(f.layout.directory.join("owner.key")).unwrap();
+        SigningKey::from_bytes(&crypto::derive_key(
+            &seed,
+            &[],
+            &framing::frame(&[label, f.key.space_id.as_bytes()]).unwrap(),
+        ))
+    }
+    fn device(f: &Fixture) -> String {
+        let seed = fs::read(f.layout.directory.join("owner.key")).unwrap();
+        let mut id = crypto::derive_key(
+            &seed,
+            &[],
+            &framing::frame(&[b"tmt-colab-cli-device-id-v1", f.key.space_id.as_bytes()]).unwrap(),
+        );
+        id[6] = (id[6] & 15) | 64;
+        id[8] = (id[8] & 63) | 128;
+        let h = hex(&id[..16]);
+        format!(
+            "{}-{}-{}-{}-{}",
+            &h[..8],
+            &h[8..12],
+            &h[12..16],
+            &h[16..20],
+            &h[20..]
+        )
+    }
+    fn chain(f: &Fixture, issued: u64) -> Vec<u8> {
+        let member = f.key.management_member().unwrap();
+        let seed = fs::read(f.layout.directory.join("owner.key")).unwrap();
+        let enc = crypto::derive_key(
+            &seed,
+            &[],
+            &framing::frame(&[
+                b"tmt-colab-cli-encryption-seed-v1",
+                f.key.space_id.as_bytes(),
+            ])
+            .unwrap(),
+        );
+        let enc = wrap::RecipientKey::from_seed(&enc).unwrap().public_key();
+        let local = signer(f, b"tmt-colab-cli-signing-seed-v1");
+        let input = certificate::input(&certificate::Certificate {
+            space: &f.key.space_id,
+            issuer_kind: "member",
+            issuer_id: &member.id,
+            device_id: &device(f),
+            signing_key: local.verifying_key().as_bytes(),
+            encryption_key: &enc,
+            membership_revision: "1",
+            issued_at: issued,
+            expires_at: issued + 86_400_000,
+        })
+        .unwrap();
+        let issuer: Vec<u8> = f
+            .sql()
+            .query_row(
+                "SELECT hash FROM membership_log WHERE revision='00000000000000000001'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        serde_json::to_vec(&json!({"version":1,"issuerStatement":values::encode_binary(&issuer),
+            "deviceCertificate":values::encode_binary(&input),"issuerSignature":values::encode_binary(&signer(f,b"tmt-colab-management-signing-seed-v1").sign(&input).to_bytes())})).unwrap()
+    }
+    // Independent token oracle from public Cut framing and durable SQL state; never calls page::read.
+    fn revision(f: &Fixture) -> String {
+        let db = f.sql();
+        let head = f
+            .store
+            .owner_head(&f.key.space_id, &f.key.owner_public())
+            .unwrap()
+            .unwrap();
+        let epoch: String = db
+            .query_row("SELECT epoch FROM pages WHERE page=?", [PAGE], |r| r.get(0))
+            .unwrap();
+        let streams = db
+            .prepare("SELECT stream FROM streams WHERE page=? AND epoch=? ORDER BY stream")
+            .unwrap()
+            .query_map(params![PAGE, epoch], |r| r.get::<_, String>(0))
+            .unwrap()
+            .map(|r| r.unwrap())
+            .collect::<Vec<_>>();
+        let mut cuts = vec![];
+        for namespace in ["content", "own"] {
+            for stream in &streams {
+                let tail: Option<(String,Vec<u8>)> = db.query_row("SELECT seq,hash FROM receipts WHERE page=? AND epoch=? AND stream=? AND namespace=? ORDER BY seq DESC LIMIT 1",
+                params![PAGE,epoch,stream,namespace],|r|Ok((r.get(0)?,r.get(1)?))).optional().unwrap();
+                let (seq, hash) = tail.map_or((0, [0; 32]), |(s, h)| {
+                    (s.parse().unwrap(), h.try_into().unwrap())
+                });
+                cuts.push(
+                    Cut {
+                        page: PAGE.into(),
+                        epoch: epoch.parse().unwrap(),
+                        stream: stream.clone(),
+                        namespace: namespace.into(),
+                        checkpoint_seq: 0,
+                        checkpoint_hash: None,
+                        tail_seq: seq,
+                        tail_hash: hash,
+                    }
+                    .payload()
+                    .unwrap(),
+                );
+            }
+        }
+        format!(
+            "v1:{}",
+            hex(&crypto::digest(
+                &framing::frame(&[
+                    b"tmt-colab-page-revision-v1",
+                    f.key.space_id.as_bytes(),
+                    PAGE.as_bytes(),
+                    head.revision.to_string().as_bytes(),
+                    &head.hash,
+                    epoch.as_bytes(),
+                    &serde_json::to_vec(&cuts).unwrap()
+                ])
+                .unwrap()
+            ))
+        )
+    }
+    struct Job {
+        signed: SignedJob,
+        packet: Vec<u8>,
+        chain: Vec<u8>,
+    }
+    fn resign(f: &Fixture, manifest: Manifest) -> SignedJob {
+        let signature = values::encode_binary(
+            &signer(f, b"tmt-colab-cli-signing-seed-v1")
+                .sign(&manifest.signature_input().unwrap())
+                .to_bytes(),
+        );
+        SignedJob {
+            manifest,
+            signature,
+        }
+    }
+    fn job(f: &Fixture, operation: u32) -> Job {
+        sealed_job(f, operation, &[vec![1; 8], vec![2; 8]])
+    }
+    fn sealed_job(f: &Fixture, operation: u32, updates: &[Vec<u8>]) -> Job {
+        let chain = chain(f, NOW);
+        let head = f
+            .store
+            .owner_head(&f.key.space_id, &f.key.owner_public())
+            .unwrap()
+            .unwrap();
+        let stream = device(f);
+        let mut packet = vec![];
+        let mut entries = vec![];
+        let mut previous = [0; 32];
+        for (index, update) in updates.iter().enumerate() {
+            let seq = index + 1;
+            let envelope = object::seal(
+                &object::Context {
+                    space: f.key.space_id.clone(),
+                    page: PAGE.into(),
+                    epoch: "1".into(),
+                    kind: "update".into(),
+                    namespace: "content".into(),
+                    author_device: stream.clone(),
+                    membership_revision: head.revision.to_string(),
+                    stream_seq: seq.to_string(),
+                    prev_hash: previous,
+                },
+                &[11; 32],
+                &signer(f, b"tmt-colab-cli-signing-seed-v1"),
+                update,
+            )
+            .unwrap();
+            previous = envelope.hash().unwrap();
+            // Preserve legal unusual whitespace: the stored payload must be these bytes, not to_json().
+            let bytes = format!(
+                " {}\n",
+                String::from_utf8(envelope.to_json().unwrap()).unwrap()
+            )
+            .into_bytes();
+            entries.push(PublicationEntry {
+                namespace: PublicationKind::Content,
+                seq: seq.to_string(),
+                envelope_hash: values::encode_binary(&previous),
+                envelope_bytes: bytes.len(),
+            });
+            packet.extend(bytes);
+        }
+        let manifest = Manifest {
+            version: 1,
+            operation_id: format!("40000000-0000-4000-8000-{operation:012}"),
+            space_id: f.key.space_id.clone(),
+            page_id: PAGE.into(),
+            epoch: "1".into(),
+            stream_id: stream,
+            kind: PublicationKind::Content,
+            membership_head: MembershipHead {
+                revision: head.revision.to_string(),
+                statement_hash: hex(&head.hash),
+            },
+            base_revision: revision(f),
+            entries,
+            packet_bytes: packet.len(),
+            packet_hash: values::encode_binary(&crypto::digest(&packet)),
+            native_evidence: Some(NativeEvidence {
+                source_sha256: hex(&crypto::digest(b"fixture opaque content")),
+                memory_limit: tmt_colab::decoder::MemoryLimit::Unavailable,
+                chain_hash: values::encode_binary(&crypto::digest(&chain)),
+            }),
+        };
+        Job {
+            signed: resign(f, manifest),
+            packet,
+            chain,
+        }
+    }
+    fn commit(f: &mut Fixture, j: &Job) -> tmt_colab::Result<page::PublicationCommitted> {
+        page::commit_publication(&mut f.store, &f.key, &j.signed, &j.packet, &j.chain, NOW)
+    }
+    fn status(f: &Fixture, j: &Job) -> tmt_colab::Result<page::PublicationRecord> {
+        page::publication_status(&f.store, &f.key, &j.signed.key().unwrap(), &j.chain, NOW)
+    }
+    fn effects(f: &Fixture) -> Vec<String> {
+        let db = f.sql();
+        ["pages", "streams", "receipts", "devices", "checkpoints"]
+            .into_iter()
+            .map(|t| {
+                let mut q = db
+                    .prepare(&format!("SELECT * FROM {t} ORDER BY 1,2"))
+                    .unwrap();
+                let n = q.column_count();
+                q.query_map([], |r| {
+                    Ok((0..n)
+                        .map(|i| format!("{:?}", r.get_ref(i).unwrap()))
+                        .collect::<Vec<_>>()
+                        .join("|"))
+                })
+                .unwrap()
+                .map(|r| r.unwrap())
+                .collect::<Vec<_>>()
+                .join("\n")
+            })
+            .collect()
+    }
+    fn terminals(f: &Fixture) -> i64 {
+        f.sql()
+            .query_row(
+                "SELECT count(*) FROM owner_operations WHERE publication_kind IS NOT NULL",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap()
+    }
+    fn rejected(record: &page::PublicationRecord, code: Rejection) {
+        assert!(matches!(&record.outcome,Outcome::Rejected {code:actual,..} if *actual==code));
+    }
+    #[test]
+    fn native_publication_commits_exact_bytes_and_reopens_original_replay() {
+        let mut f = Fixture::new();
+        f.sql()
+            .execute("UPDATE pages SET last_update_at_ms=1000", [])
+            .unwrap();
+        f.store = Store::open(&f.layout).unwrap().with_clock(|| Ok(NOW + 7));
+        let foreign: Vec<u8> = f
+            .sql()
+            .query_row(
+                "SELECT payload FROM receipts WHERE stream=?",
+                [DEVICE],
+                |r| r.get(0),
+            )
+            .unwrap();
+        let j = job(&f, 1);
+        let result = commit(&mut f, &j).unwrap();
+        assert_eq!(result.accepted, Accepted::New);
+        assert_eq!(terminals(&f), 1);
+        assert_eq!(
+            f.sql()
+                .query_row(
+                    "SELECT last_update_at_ms FROM pages WHERE page=?",
+                    [PAGE],
+                    |r| r.get::<_, i64>(0)
+                )
+                .unwrap(),
+            (NOW + 7) as i64
+        );
+        assert_eq!(
+            f.sql()
+                .query_row(
+                    "SELECT payload FROM receipts WHERE stream=?",
+                    [DEVICE],
+                    |r| r.get::<_, Vec<u8>>(0)
+                )
+                .unwrap(),
+            foreign
+        );
+        assert!(
+            matches!(&result.record.outcome,Outcome::Committed{final_position,native_evidence,..}
+            if final_position.seq=="2" && final_position.envelope_hash==j.signed.manifest.entries[1].envelope_hash
+            && native_evidence==&j.signed.manifest.native_evidence)
+        );
+        let bytes = f
+            .sql()
+            .prepare("SELECT payload FROM receipts WHERE stream=? ORDER BY seq")
+            .unwrap()
+            .query_map([device(&f)], |r| r.get::<_, Vec<u8>>(0))
+            .unwrap()
+            .flat_map(|r| r.unwrap())
+            .collect::<Vec<_>>();
+        assert_eq!(bytes, j.packet);
+        assert!(
+            matches!(&result.record.outcome,Outcome::Committed {count:2,committed_revision,..} if *committed_revision==revision(&f))
+        );
+        let before = effects(&f);
+        f.store = Store::open(&f.layout)
+            .unwrap()
+            .with_clock(|| panic!("replay sampled clock"));
+        let replay = commit(&mut f, &j).unwrap();
+        assert_eq!(replay.accepted, Accepted::Replay);
+        assert_eq!(replay.record.bytes, result.record.bytes);
+        assert_eq!(status(&f, &j).unwrap().bytes, result.record.bytes);
+        assert_eq!(effects(&f), before);
+        assert_eq!(terminals(&f), 1);
+        // A renewed supplied authority is observational; original evidence remains byte-identical.
+        assert_eq!(
+            page::publication_status(
+                &f.store,
+                &f.key,
+                &j.signed.key().unwrap(),
+                &chain(&f, NOW + 1),
+                NOW + 1
+            )
+            .unwrap()
+            .bytes,
+            result.record.bytes
+        );
+    }
+    #[test]
+    fn native_publication_late_capacity_rolls_back_measured_first_append() {
+        let mut f = Fixture::new();
+        f.sql()
+            .execute("UPDATE pages SET last_update_at_ms=1000", [])
+            .unwrap();
+        let j = job(&f, 2);
+        let before = effects(&f);
+        let calls = std::sync::Arc::new(AtomicUsize::new(0));
+        let clock = calls.clone();
+        f.store = Store::open(&f.layout).unwrap().with_clock(move || {
+            clock.fetch_add(1, Ordering::SeqCst);
+            Ok(NOW + 7)
+        });
+        // Controlled storage perturbation after the first insert, not a weakened preflight or invalid packet.
+        f.sql().execute_batch(&format!("CREATE TRIGGER late_capacity AFTER INSERT ON receipts WHEN NEW.stream='{}' AND NEW.seq='00000000000000000001'
+            BEGIN INSERT INTO checkpoints(page,epoch,stream,namespace,seq,hash,digest,head,payload,pinned)
+            VALUES(NEW.page,NEW.epoch,NEW.stream,'own','00000000000000000000',X'01',X'02',X'03',zeroblob({}),0); END;",device(&f),tmt_colab::limits::PAGE_BYTES)).unwrap();
+        let result = commit(&mut f, &j).unwrap();
+        rejected(&result.record, Rejection::Capacity);
+        assert_eq!(
+            calls.load(Ordering::SeqCst),
+            1,
+            "must reach a verified first append before the second admission fails"
+        );
+        assert_eq!(effects(&f), before);
+        assert_eq!(terminals(&f), 1);
+        f.store = Store::open(&f.layout).unwrap();
+        assert_eq!(
+            commit(&mut f, &j).unwrap().record.bytes,
+            result.record.bytes
+        );
+        assert_eq!(effects(&f), before);
+    }
+    #[test]
+    fn native_publication_unexpected_sql_and_clock_errors_leave_unknown() {
+        for failure in [
+            "content",
+            "outcome",
+            "clock_invalid",
+            "clock_capacity",
+            "clock_gap",
+        ] {
+            let mut f = Fixture::new();
+            let j = job(&f, 3);
+            let before = effects(&f);
+            match failure {
+                "content" => f.sql().execute_batch("CREATE TRIGGER fail_content BEFORE INSERT ON receipts BEGIN SELECT RAISE(ABORT,'content fixture'); END").unwrap(),
+                "outcome" => f.sql().execute_batch("CREATE TRIGGER fail_outcome BEFORE INSERT ON owner_operations BEGIN SELECT RAISE(ABORT,'outcome fixture'); END").unwrap(),
+                "clock_invalid" => f.store=Store::open(&f.layout).unwrap().with_clock(||Err(tmt_colab::store::Fault::Invalid)),
+                "clock_capacity" => f.store=Store::open(&f.layout).unwrap().with_clock(||Err(tmt_colab::store::Fault::Capacity)),
+                _ => f.store=Store::open(&f.layout).unwrap().with_clock(||Err(tmt_colab::store::Fault::Gap)),
+            }
+            let error = commit(&mut f, &j).err().expect(failure);
+            if failure.starts_with("clock") {
+                let tmt_colab::store::Fault::Clock(cause) =
+                    error.downcast_ref::<tmt_colab::store::Fault>().unwrap()
+                else {
+                    panic!("lost clock provenance")
+                };
+                assert!(matches!(
+                    (failure, cause.as_ref()),
+                    ("clock_invalid", tmt_colab::store::Fault::Invalid)
+                        | ("clock_capacity", tmt_colab::store::Fault::Capacity)
+                        | ("clock_gap", tmt_colab::store::Fault::Gap)
+                ));
+                assert!(std::error::Error::source(error.as_ref()).is_some());
+            }
+            assert_eq!(effects(&f), before);
+            assert_eq!(terminals(&f), 0);
+            assert!(matches!(
+                status(&f, &j).unwrap().outcome,
+                Outcome::Unknown { .. }
+            ));
+        }
+    }
+    #[test]
+    fn native_publication_stale_rejection_replay_and_changed_keys() {
+        let mut f = Fixture::new();
+        let mut j = job(&f, 4);
+        j.signed.manifest.base_revision = format!("v1:{}", "0".repeat(64));
+        j.signed = resign(&f, j.signed.manifest);
+        let before = effects(&f);
+        let first = commit(&mut f, &j).unwrap();
+        rejected(&first.record, Rejection::StaleBase);
+        assert_eq!(effects(&f), before);
+        f.store = Store::open(&f.layout).unwrap();
+        assert_eq!(commit(&mut f, &j).unwrap().record.bytes, first.record.bytes);
+        for field in ["digest", "space", "page", "epoch", "stream"] {
+            let mut changed = j.signed.key().unwrap();
+            match field {
+                "digest" => changed.job_digest = values::encode_binary(&[9; 32]),
+                "space" => {
+                    changed.space_id = crypto::space_id(
+                        SigningKey::from_bytes(&[6; 32]).verifying_key().as_bytes(),
+                    )
+                    .unwrap()
+                }
+                "page" => changed.page_id = "10000000-0000-4000-8000-000000000002".into(),
+                "epoch" => changed.original_epoch = "2".into(),
+                _ => changed.stream_id = DEVICE.into(),
+            }
+            assert!(
+                page::publication_status(&f.store, &f.key, &changed, &j.chain, NOW).is_err(),
+                "{field}"
+            );
+        }
+        assert_eq!(terminals(&f), 1);
+        assert_eq!(effects(&f), before);
+    }
+    #[test]
+    fn native_publication_legacy_collision_and_legacy_refusal_of_scoped_identity() {
+        let mut f = Fixture::new();
+        let j = job(&f, 5);
+        let original = j.signed.key().unwrap();
+        f.sql()
+            .execute(
+                "INSERT INTO owner_operations(id,digest,outcome) VALUES(?,?,?)",
+                params![
+                    original.operation_id,
+                    values::binary(&original.job_digest, 32).unwrap(),
+                    b"legacy".as_slice()
+                ],
+            )
+            .unwrap();
+        let before = effects(&f);
+        assert!(commit(&mut f, &j).is_err());
+        assert!(status(&f, &j).is_err());
+        assert_eq!(effects(&f), before);
+        f.sql()
+            .execute(
+                "DELETE FROM owner_operations WHERE id=?",
+                [&original.operation_id],
+            )
+            .unwrap();
+        commit(&mut f, &j).unwrap();
+        let head = f
+            .store
+            .owner_head(&f.key.space_id, &f.key.owner_public())
+            .unwrap()
+            .unwrap();
+        assert!(
+            f.store
+                .owner_transaction(
+                    &f.key.space_id,
+                    &f.key.owner_public(),
+                    Mutation {
+                        operation_id: &original.operation_id,
+                        digest: values::binary(&original.job_digest, 32)
+                            .unwrap()
+                            .try_into()
+                            .unwrap(),
+                        expected_revision: head.revision
+                    },
+                    |_| panic!("scoped collision entered legacy apply")
+                )
+                .is_err()
+        );
+    }
+    #[test]
+    fn native_publication_status_refuses_expired_revoked_and_malformed_storage() {
+        let mut f = Fixture::new();
+        let j = job(&f, 6);
+        commit(&mut f, &j).unwrap();
+        assert!(
+            page::publication_status(
+                &f.store,
+                &f.key,
+                &j.signed.key().unwrap(),
+                &j.chain,
+                NOW + 86_400_000
+            )
+            .is_err()
+        );
+        let before = f.bytes();
+        assert!(
+            page::publication_status(&f.store, &f.key, &j.signed.key().unwrap(), b"{}", NOW)
+                .is_err()
+        );
+        assert_eq!(f.bytes(), before);
+        let record: Vec<u8> = f
+            .sql()
+            .query_row("SELECT record FROM devices WHERE id=?", [device(&f)], |r| {
+                r.get(0)
+            })
+            .unwrap();
+        let mut d: Device = serde_json::from_slice(&record).unwrap();
+        d.revoked = true;
+        f.sql()
+            .execute(
+                "UPDATE devices SET record=? WHERE id=?",
+                params![serde_json::to_vec(&d).unwrap(), device(&f)],
+            )
+            .unwrap();
+        assert!(status(&f, &j).is_err());
+        assert!(commit(&mut f, &j).is_err());
+        d.revoked = false;
+        f.sql()
+            .execute(
+                "UPDATE devices SET record=? WHERE id=?",
+                params![serde_json::to_vec(&d).unwrap(), device(&f)],
+            )
+            .unwrap();
+        let mut missing_evidence = status(&f, &j).unwrap().outcome;
+        if let Outcome::Committed {
+            native_evidence, ..
+        } = &mut missing_evidence
+        {
+            *native_evidence = None;
+        }
+        let missing_evidence = missing_evidence
+            .to_json(&j.signed.key().unwrap(), None)
+            .unwrap();
+        for malformed in [
+            missing_evidence,
+            b"{}".to_vec(),
+            Outcome::Unknown {
+                key: j.signed.key().unwrap(),
+            }
+            .to_json(&j.signed.key().unwrap(), None)
+            .unwrap(),
+            vec![b' '; JSON_BYTES + 1],
+        ] {
+            f.sql()
+                .execute(
+                    "UPDATE owner_operations SET outcome=? WHERE id=?",
+                    params![malformed, j.signed.manifest.operation_id],
+                )
+                .unwrap();
+            assert!(status(&f, &j).is_err());
+            assert!(commit(&mut f, &j).is_err());
+        }
+        f.sql()
+            .execute_batch("ALTER TABLE owner_operations RENAME TO unavailable_original_operations")
+            .unwrap();
+        assert!(
+            status(&f, &j).is_err(),
+            "a failed SQL read is not UNKNOWN absence"
+        );
+        assert!(commit(&mut f, &j).is_err());
+    }
+    #[test]
+    fn native_publication_count_reservation_and_lookup_at_capacity() {
+        let mut f = Fixture::new();
+        // 99,999 retained receipts leave one terminal identity, but no room for a two-entry batch.
+        f.sql().execute_batch(&format!("WITH RECURSIVE n(x) AS(SELECT 2 UNION ALL SELECT x+1 FROM n WHERE x<{})
+            INSERT INTO receipts(page,epoch,stream,seq,namespace,hash,digest,payload)
+            SELECT '{}','1','{}',printf('%020d',x),'content',zeroblob(32),zeroblob(32),NULL FROM n;",tmt_colab::limits::PAGE_RECEIPTS-1,PAGE,DEVICE)).unwrap();
+        let j = job(&f, 7);
+        let before = effects(&f);
+        let rejected_result = commit(&mut f, &j).unwrap();
+        rejected(&rejected_result.record, Rejection::Capacity);
+        assert_eq!(effects(&f), before);
+        assert_eq!(status(&f, &j).unwrap().bytes, rejected_result.record.bytes);
+        assert_eq!(commit(&mut f, &j).unwrap().accepted, Accepted::Replay);
+        let fresh = job(&f, 8);
+        assert!(commit(&mut f, &fresh).is_err());
+        assert!(matches!(
+            status(&f, &fresh).unwrap().outcome,
+            Outcome::Unknown { .. }
+        ));
+        assert_eq!(terminals(&f), 1);
+    }
+    #[test]
+    fn native_publication_byte_reservation_uses_actual_outcome_charge() {
+        let mut f = Fixture::new();
+        let j = job(&f, 9);
+        let k = j.signed.key().unwrap();
+        let receipt_bytes: i64 = f
+            .sql()
+            .query_row("SELECT sum(length(payload)) FROM receipts", [], |r| {
+                r.get(0)
+            })
+            .unwrap();
+        let overhead = k.operation_id.len()
+            + 32
+            + 7
+            + k.space_id.len()
+            + k.page_id.len()
+            + k.original_epoch.len()
+            + k.stream_id.len();
+        let filler = tmt_colab::limits::PAGE_BYTES - receipt_bytes as usize - overhead - JSON_BYTES;
+        f.sql()
+            .execute(
+                "INSERT INTO baselines VALUES(?,'00000000000000000001',X'01',zeroblob(?))",
+                params![PAGE, filler as i64],
+            )
+            .unwrap();
+        let result = commit(&mut f, &j).unwrap();
+        rejected(&result.record, Rejection::Capacity);
+        let charged:i64=f.sql().query_row("SELECT length(outcome)+length(digest)+length(CAST(id AS BLOB))+length(CAST(publication_kind AS BLOB))+length(CAST(space AS BLOB))+length(CAST(page AS BLOB))+length(CAST(original_epoch AS BLOB))+length(CAST(original_stream AS BLOB)) FROM owner_operations WHERE publication_kind IS NOT NULL",[],|r|r.get(0)).unwrap();
+        assert_eq!(charged as usize, overhead + result.record.bytes.len());
+        assert!(result.record.bytes.len() < JSON_BYTES);
+        let before = effects(&f);
+        assert_eq!(
+            commit(&mut f, &j).unwrap().record.bytes,
+            result.record.bytes
+        );
+        assert_eq!(effects(&f), before);
+        f.sql()
+            .execute(
+                "UPDATE baselines SET envelope=zeroblob(?)",
+                [
+                    (tmt_colab::limits::PAGE_BYTES - receipt_bytes as usize - charged as usize)
+                        as i64,
+                ],
+            )
+            .unwrap();
+        let fresh = job(&f, 10);
+        assert!(commit(&mut f, &fresh).is_err());
+        assert!(matches!(
+            status(&f, &fresh).unwrap().outcome,
+            Outcome::Unknown { .. }
+        ));
+        assert_eq!(status(&f, &j).unwrap().bytes, result.record.bytes);
+    }
+    fn policy(f: &mut Fixture, action: &str, operation: &str) {
+        let head = f
+            .store
+            .owner_head(&f.key.space_id, &f.key.owner_public())
+            .unwrap()
+            .unwrap();
+        f.store
+            .owner_transaction(
+                &f.key.space_id,
+                &f.key.owner_public(),
+                Mutation {
+                    operation_id: operation,
+                    digest: [7; 32],
+                    expected_revision: head.revision,
+                },
+                |tx| {
+                    let statement = f.key.sign_statement(
+                        tx.head(),
+                        action,
+                        &serde_json::to_vec(&json!({"pageId":PAGE})).unwrap(),
+                    )?;
+                    tx.append_statement(&statement)?;
+                    Ok(b"signed policy fixture".to_vec())
+                },
+            )
+            .unwrap();
+    }
+    #[test]
+    fn native_publication_retains_original_after_signed_archive_and_deleted_data() {
+        let mut f = Fixture::new();
+        let j = job(&f, 11);
+        let original = commit(&mut f, &j).unwrap().record.bytes;
+        policy(
+            &mut f,
+            "page.archive",
+            "50000000-0000-4000-8000-000000000001",
+        );
+        assert_eq!(commit(&mut f, &j).unwrap().record.bytes, original);
+        let fresh = job(&f, 12);
+        let before = effects(&f);
+        rejected(
+            &commit(&mut f, &fresh).unwrap().record,
+            Rejection::PageInactive,
+        );
+        assert_eq!(effects(&f), before);
+        policy(
+            &mut f,
+            "page.delete",
+            "50000000-0000-4000-8000-000000000002",
+        );
+        // Independent deleted-data fixture matching the existing deletion owner's table order.
+        f.sql()
+            .execute_batch(
+                "DELETE FROM receipts; DELETE FROM checkpoints; DELETE FROM streams;
+            DELETE FROM baselines; DELETE FROM wraps; DELETE FROM epoch_secrets;",
+            )
+            .unwrap();
+        let before = effects(&f);
+        assert_eq!(commit(&mut f, &j).unwrap().accepted, Accepted::Replay);
+        assert_eq!(status(&f, &j).unwrap().bytes, original);
+        assert_eq!(effects(&f), before);
+        assert_eq!(terminals(&f), 2);
+        assert_eq!(
+            f.sql()
+                .query_row("SELECT count(*) FROM pages", [], |r| r.get::<_, i64>(0))
+                .unwrap(),
+            1
+        );
+    }
+    #[test]
+    fn native_publication_absence_is_read_only_and_bad_authentication_is_not_rejection() {
+        for failure in ["packet", "signature", "evidence", "chain"] {
+            let mut f = Fixture::new();
+            let mut j = job(&f, 13);
+            let before = f.bytes();
+            assert!(matches!(
+                status(&f, &j).unwrap().outcome,
+                Outcome::Unknown { .. }
+            ));
+            assert_eq!(f.bytes(), before, "status issued or persisted authority");
+            match failure {
+                "packet" => j.packet[0] ^= 1,
+                "signature" => j.signed.signature = values::encode_binary(&[0; 64]),
+                "evidence" => {
+                    j.signed.manifest.native_evidence = None;
+                    j.signed = resign(&f, j.signed.manifest);
+                }
+                _ => j.chain.push(b' '),
+            }
+            let before = effects(&f);
+            let error = commit(&mut f, &j).err().expect(failure);
+            if failure.starts_with("clock") {
+                let tmt_colab::store::Fault::Clock(cause) =
+                    error.downcast_ref::<tmt_colab::store::Fault>().unwrap()
+                else {
+                    panic!("lost clock provenance")
+                };
+                assert!(matches!(
+                    (failure, cause.as_ref()),
+                    ("clock_invalid", tmt_colab::store::Fault::Invalid)
+                        | ("clock_capacity", tmt_colab::store::Fault::Capacity)
+                        | ("clock_gap", tmt_colab::store::Fault::Gap)
+                ));
+                assert!(std::error::Error::source(error.as_ref()).is_some());
+            }
+            assert_eq!(effects(&f), before);
+            assert_eq!(terminals(&f), 0);
+        }
+    }
+    #[test]
+    fn native_publication_stored_scope_and_noncanonical_terminal_bytes() {
+        let mut f = Fixture::new();
+        let j = job(&f, 14);
+        let first = commit(&mut f, &j).unwrap();
+        let exact = format!(" \n{}\n", String::from_utf8(first.record.bytes).unwrap()).into_bytes();
+        f.sql()
+            .execute(
+                "UPDATE owner_operations SET outcome=? WHERE id=?",
+                params![exact, j.signed.manifest.operation_id],
+            )
+            .unwrap();
+        assert_eq!(commit(&mut f, &j).unwrap().record.bytes, exact);
+        assert_eq!(status(&f, &j).unwrap().bytes, exact);
+        f.sql()
+            .execute(
+                "UPDATE owner_operations SET original_epoch='01' WHERE id=?",
+                [&j.signed.manifest.operation_id],
+            )
+            .unwrap();
+        assert!(status(&f, &j).is_err());
+        assert!(commit(&mut f, &j).is_err());
+    }
+    #[test]
+    fn native_publication_large_causal_packet_preserves_exact_borrowed_updates() {
+        let mut f = Fixture::new();
+        let doc = Doc::new();
+        let html = doc.get_or_insert_text("html");
+        let mut updates = vec![];
+        let text = "🌱".repeat(48 * 1024); // 192KiB UTF-8 per causal edit; existing preparation geometry.
+        let mut offset = 0;
+        for _ in 0..8 {
+            let mut tx = doc.transact_mut();
+            let prior = tx.state_vector();
+            html.insert(&mut tx, offset, &text);
+            offset += 96 * 1024;
+            updates.push(tx.encode_state_as_update_v1(&prior));
+        }
+        assert!(updates.iter().map(Vec::len).sum::<usize>() >= 1536 * 1024);
+        let j = sealed_job(&f, 15, &updates);
+        let result = commit(&mut f, &j).unwrap();
+        assert!(matches!(
+            result.record.outcome,
+            Outcome::Committed { count: 8, .. }
+        ));
+        let stored = f
+            .sql()
+            .prepare("SELECT payload FROM receipts WHERE stream=? ORDER BY seq")
+            .unwrap()
+            .query_map([device(&f)], |r| r.get::<_, Vec<u8>>(0))
+            .unwrap()
+            .map(|r| r.unwrap())
+            .collect::<Vec<_>>();
+        assert_eq!(stored.concat(), j.packet);
+        let reader = Doc::new();
+        reader.get_or_insert_text("html");
+        let public = signer(&f, b"tmt-colab-cli-signing-seed-v1")
+            .verifying_key()
+            .to_bytes();
+        for (bytes, update) in stored.iter().zip(&updates) {
+            let envelope = object::Envelope::from_json(bytes).unwrap();
+            let header = object::Header::decode(envelope.header()).unwrap();
+            let raw = object::open(&envelope, &header.context, &[11; 32], &public).unwrap();
+            assert_eq!(&raw, update);
+            reader
+                .transact_mut()
+                .apply_update(Update::decode_v1(&raw).unwrap())
+                .unwrap();
+        }
+        use yrs::GetString;
+        assert_eq!(
+            reader
+                .get_or_insert_text("html")
+                .get_string(&reader.transact()),
+            text.repeat(8)
+        );
+    }
+    #[test]
+    fn native_publication_new_identity_cannot_adopt_receipt_replay() {
+        let mut f = Fixture::new();
+        let j = job(&f, 16);
+        commit(&mut f, &j).unwrap();
+        let mut manifest = j.signed.manifest.clone();
+        manifest.operation_id = "40000000-0000-4000-8000-000000000017".into();
+        manifest.base_revision = revision(&f);
+        let changed = Job {
+            signed: resign(&f, manifest),
+            packet: j.packet.clone(),
+            chain: j.chain.clone(),
+        };
+        let before = effects(&f);
+        rejected(
+            &commit(&mut f, &changed).unwrap().record,
+            Rejection::StreamGap,
+        );
+        assert_eq!(effects(&f), before);
+        assert_eq!(terminals(&f), 2);
+    }
+    #[test]
+    fn native_publication_original_epoch_can_be_stale_only_for_exact_replay() {
+        let mut f = Fixture::new();
+        let j = job(&f, 18);
+        let original = commit(&mut f, &j).unwrap().record.bytes;
+        f.sql()
+            .execute("UPDATE pages SET epoch='2' WHERE page=?", [PAGE])
+            .unwrap();
+        let before = effects(&f);
+        assert_eq!(commit(&mut f, &j).unwrap().record.bytes, original);
+        assert_eq!(status(&f, &j).unwrap().bytes, original);
+        let mut manifest = j.signed.manifest.clone();
+        manifest.operation_id = "40000000-0000-4000-8000-000000000019".into();
+        let changed = Job {
+            signed: resign(&f, manifest),
+            packet: j.packet.clone(),
+            chain: j.chain.clone(),
+        };
+        rejected(
+            &commit(&mut f, &changed).unwrap().record,
+            Rejection::StaleBase,
+        );
+        assert_eq!(effects(&f), before);
+    }
+    #[test]
+    fn native_publication_missing_effect_state_is_durable_only_after_admission() {
+        let mut f = Fixture::new();
+        let j = job(&f, 20);
+        // Independent missing-content-state fixture; retained owner authority still admits this writer.
+        f.sql().execute_batch("DELETE FROM receipts; DELETE FROM streams; DELETE FROM wraps; DELETE FROM epoch_secrets; DELETE FROM pages").unwrap();
+        let before = effects(&f);
+        let result = commit(&mut f, &j).unwrap();
+        rejected(&result.record, Rejection::StateMissing);
+        assert_eq!(effects(&f), before);
+        assert_eq!(terminals(&f), 1);
+        assert_eq!(status(&f, &j).unwrap().bytes, result.record.bytes);
+    }
+}

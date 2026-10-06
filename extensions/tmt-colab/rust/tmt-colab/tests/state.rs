@@ -937,7 +937,11 @@ fn schema_four_migration_does_not_backfill_or_let_replay_establish_a_time() {
             Ok((r.get(0)?, r.get(1)?, r.get(2)?))
         })
         .unwrap();
-    db.execute_batch("ALTER TABLE pages DROP COLUMN last_update_at_ms; PRAGMA user_version=4")
+    db.execute_batch("ALTER TABLE owner_operations RENAME TO current_owner_operations;
+        CREATE TABLE owner_operations(id TEXT PRIMARY KEY, digest BLOB NOT NULL, outcome BLOB NOT NULL);
+        INSERT INTO owner_operations(id,digest,outcome) SELECT id,digest,outcome FROM current_owner_operations;
+        DROP TABLE current_owner_operations;
+        ALTER TABLE pages DROP COLUMN last_update_at_ms; PRAGMA user_version=4")
         .unwrap();
     let raw = fs::read(layout.directory.join("space.db")).unwrap();
     assert!(matches!(
@@ -958,7 +962,7 @@ fn schema_four_migration_does_not_backfill_or_let_replay_establish_a_time() {
     assert_eq!(
         db.query_row("PRAGMA user_version", [], |r| r.get::<_, i64>(0))
             .unwrap(),
-        5
+        6
     );
     let after: (Vec<u8>, Vec<u8>, Vec<u8>) = db
         .query_row("SELECT hash,digest,payload FROM receipts", [], |r| {
@@ -984,5 +988,116 @@ fn schema_four_migration_does_not_backfill_or_let_replay_establish_a_time() {
             .get::<_, i64>(0))
             .unwrap(),
         3000
+    );
+}
+
+// Independent quota oracle includes a rejected original identity from a retained other epoch.
+fn scoped_rejection(db: &rusqlite::Connection, layout: &Layout) -> usize {
+    use tmt_colab::publication::{JobKey, Outcome, Rejection};
+    let key = JobKey {
+        operation_id: "40000000-0000-4000-8000-000000000001".into(),
+        job_digest: tmt_colab_model::values::encode_binary(&[7; 32]),
+        space_id: Keyring::open(layout).unwrap().space_id,
+        page_id: "10000000-0000-4000-8000-000000000001".into(),
+        original_epoch: "2".into(),
+        stream_id: "30000000-0000-4000-8000-000000000001".into(),
+    };
+    let outcome = Outcome::Rejected {
+        key: key.clone(),
+        code: Rejection::Capacity,
+    }
+    .to_json(&key, None)
+    .unwrap();
+    db.execute("INSERT INTO owner_operations(id,digest,outcome,publication_kind,space,page,original_epoch,original_stream) VALUES(?,?,?,'content',?,?,?,?)",
+        rusqlite::params![key.operation_id,[7u8;32].as_slice(),outcome,key.space_id,key.page_id,key.original_epoch,key.stream_id]).unwrap();
+    // Compute from individual stored values in Rust, rather than repeating the production aggregate.
+    db.query_row("SELECT id,digest,outcome,publication_kind,space,page,original_epoch,original_stream FROM owner_operations WHERE publication_kind IS NOT NULL",[],|r| {
+        Ok((0..8).map(|i|match r.get_ref(i).unwrap() {rusqlite::types::ValueRef::Text(b)|rusqlite::types::ValueRef::Blob(b)=>b.len(),_=>panic!("non-byte quota value")}).sum())
+    }).unwrap()
+}
+fn publication_scope() -> StreamScope<'static> {
+    StreamScope {
+        page: "10000000-0000-4000-8000-000000000001",
+        epoch: 1,
+        stream: "30000000-0000-4000-8000-000000000001",
+    }
+}
+#[test]
+fn native_publication_scoped_bytes_charge_ordinary_append_at_exact_boundary() {
+    let f = Fixture::new();
+    let layout = f.layout();
+    let mut store = Store::open(&layout).unwrap();
+    let scope = publication_scope();
+    store.create_page(scope.page).unwrap();
+    let first = Envelope {
+        scope,
+        ..envelope(1, Namespace::Own)
+    };
+    store.append(&first).unwrap();
+    let db = rusqlite::Connection::open(layout.directory.join("space.db")).unwrap();
+    let outcome_bytes = scoped_rejection(&db, &layout);
+    let next = Envelope {
+        scope,
+        ..envelope(2, Namespace::Content)
+    };
+    let filler =
+        tmt_colab::limits::PAGE_BYTES - first.bytes.len() - outcome_bytes - next.bytes.len();
+    db.execute("INSERT INTO checkpoints(page,epoch,stream,namespace,seq,hash,digest,head,payload,pinned) VALUES(?,'1',?,'own','00000000000000000001',X'01',X'02',X'03',zeroblob(?),0)",rusqlite::params![scope.page,scope.stream,filler as i64]).unwrap();
+    assert_eq!(store.append(&next).unwrap(), Accepted::New);
+    let oracle_total = filler + first.bytes.len() + next.bytes.len() + outcome_bytes;
+    assert_eq!(oracle_total, tmt_colab::limits::PAGE_BYTES);
+    assert!(matches!(
+        store.append(&Envelope {
+            scope,
+            ..envelope(3, Namespace::Own)
+        }),
+        Err(Fault::Capacity)
+    ));
+    assert!(store.payload(scope, 3).unwrap().is_none());
+    assert_eq!(
+        db.query_row(
+            "SELECT count(*) FROM owner_operations WHERE publication_kind IS NOT NULL",
+            [],
+            |r| r.get::<_, i64>(0)
+        )
+        .unwrap(),
+        1
+    );
+}
+#[test]
+fn native_publication_scoped_count_charges_pruned_receipts_and_other_epoch() {
+    let f = Fixture::new();
+    let layout = f.layout();
+    let mut store = Store::open(&layout).unwrap();
+    let scope = publication_scope();
+    store.create_page(scope.page).unwrap();
+    store
+        .append(&Envelope {
+            scope,
+            ..envelope(1, Namespace::Own)
+        })
+        .unwrap();
+    let db = rusqlite::Connection::open(layout.directory.join("space.db")).unwrap();
+    scoped_rejection(&db, &layout);
+    db.execute_batch(&format!("WITH RECURSIVE n(x) AS(SELECT 2 UNION ALL SELECT x+1 FROM n WHERE x<{})
+        INSERT INTO receipts(page,epoch,stream,seq,namespace,hash,digest,payload) SELECT '{}','1','{}',printf('%020d',x),'own',zeroblob(32),zeroblob(32),NULL FROM n;",tmt_colab::limits::PAGE_RECEIPTS-1,scope.page,scope.stream)).unwrap();
+    let counts:(i64,i64)=db.query_row("SELECT (SELECT count(*) FROM receipts),(SELECT count(*) FROM owner_operations WHERE publication_kind IS NOT NULL)",[],|r|Ok((r.get(0)?,r.get(1)?))).unwrap();
+    assert_eq!(counts, (99999, 1));
+    assert!(matches!(
+        store.append(&Envelope {
+            scope,
+            namespace: Namespace::Own,
+            seq: 100000,
+            hash: [0; 32],
+            previous: [0; 32],
+            bytes: b"new opaque content"
+        }),
+        Err(Fault::Capacity)
+    ));
+    assert!(store.payload(scope, 100000).unwrap().is_none());
+    assert_eq!(
+        db.query_row("SELECT count(*) FROM receipts", [], |r| r.get::<_, i64>(0))
+            .unwrap(),
+        99999
     );
 }
