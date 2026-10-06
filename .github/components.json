@@ -78,6 +78,11 @@
       "owns": ["extensions/tmt-colab/typescript/app"],
       "release": false
     },
+    "browser-ui": {
+      "owns": ["design/browser-ui"],
+      "release": false,
+      "releaseConsumers": ["tmt-colab", "tmt-remote"]
+    },
     "design-tokens": {
       "owns": ["design/tokens"],
       "release": false,
@@ -173,6 +178,12 @@
     }
   },
   "rules": [
+    {
+      "id": "browser-ui",
+      "consumers": ["native"],
+      "why": "The private presentation leaf retains conservative full native verification. Registration does not establish product embedding or activation; Office web jobs do not consume this isolated leaf.",
+      "paths": ["design/browser-ui/**"]
+    },
     {
       "id": "design-tokens",
       "consumers": ["native"],
