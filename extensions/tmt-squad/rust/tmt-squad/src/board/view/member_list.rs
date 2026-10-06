@@ -192,6 +192,23 @@ pub(in crate::board) fn build(key: &Key) -> Block {
     data["bottom"] = json!(chrome.bottom);
     data["left"] = json!(chrome.left);
     data["right"] = json!(chrome.right);
+    for lead in data["leads"].as_array_mut().into_iter().flatten() {
+        if lead["id"].as_str() != selected {
+            continue;
+        }
+        if let Some(mark) = lead["mark"].as_str() {
+            lead["mark"] = json!(look.selected_prefix(mark, true));
+        }
+        if key.data["members"] == true {
+            for line in lead["after"].as_array_mut().into_iter().flatten() {
+                if line["id"] == "task"
+                    && let Some(text) = line["text"].as_str()
+                {
+                    line["text"] = json!(look.selected_prefix(text, true));
+                }
+            }
+        }
+    }
     let painted = scene::paint(
         FILE,
         template(),

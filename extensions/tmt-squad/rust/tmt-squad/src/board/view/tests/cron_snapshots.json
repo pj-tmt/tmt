@@ -9,7 +9,7 @@
       "  MEMBER     STATE    TASK",
       "  sol  lead  –        –",
       "── members · 3 ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
-      "  alpha      working  task one                                                                                                                    cron Mon 00:30",
+      " >alpha      working  task one                                                                                                                    cron Mon 00:30",
       "  bravo      idle     task two",
       "  carol      idle     task three",
       "",
@@ -27,7 +27,7 @@
       "── cron · 1 ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────── no clock · tmt sq cron run",
       "● c0   someone          job for u1                                                                                       every 30m              Mon 10-05 00:30",
       "",
-      "↑↓ move  ⏎ open  a write  t talk  e expand  A ask lead  / search  ◆ needs to know who you are: tmt squad me <name>  ? more  q quit"
+      "Focus: rows  ↑↓ move  ⏎ open  a write  t talk  e expand  A ask lead  / search  ◆ needs to know who you are: tmt squad me <name>  ? more  q quit"
     ],
     "hits": "[Hit { y: 3, x: 0, width: 160, row: 0 }, Hit { y: 5, x: 0, width: 160, row: 1 }, Hit { y: 6, x: 0, width: 160, row: 2 }, Hit { y: 7, x: 0, width: 160, row: 3 }]"
   },
@@ -41,7 +41,7 @@
       "  MEMBER     STATE    TASK",
       "  sol  lead  –        –",
       "── members · 3 ─────────────────────────────────────────────────────────────────────────────────────",
-      "  alpha      working  task one                                                        cron Mon 00:30",
+      " >alpha      working  task one                                                        cron Mon 00:30",
       "  bravo      idle     task two",
       "  carol      idle     task three",
       "",
@@ -59,7 +59,7 @@
       "── cron · 1 ──────────────────────────────────────────────────────────── no clock · tmt sq cron run",
       "● c0   someone          job for u1                           every 30m              Mon 10-05 00:30",
       "",
-      "↑↓ move  ⏎ open  a write  t talk  e expand  A ask lead  / search  ? more  q quit"
+      "Focus: rows  ↑↓ move  ⏎ open  a write  t talk  e expand  A ask lead  / search  ? more  q quit"
     ],
     "hits": "[Hit { y: 3, x: 0, width: 100, row: 0 }, Hit { y: 5, x: 0, width: 100, row: 1 }, Hit { y: 6, x: 0, width: 100, row: 2 }, Hit { y: 7, x: 0, width: 100, row: 3 }]"
   },
@@ -73,7 +73,7 @@
       "  MEMBER     STATE    TASK",
       "  sol  lead  –        –",
       "── members · 3 ─────────────────────────────────────────────────────────────────",
-      "  alpha      working  task one                                    cron Mon 00:30",
+      " >alpha      working  task one                                    cron Mon 00:30",
       "  bravo      idle     task two",
       "  carol      idle     task three",
       "",
@@ -91,7 +91,7 @@
       "── cron · 1 ──────────────────────────────────────── no clock · tmt sq cron run",
       "● c0   someone          job for u1       every 30m              Mon 10-05 00:30",
       "",
-      "↑↓ move  ⏎ open  a write  t talk  e expand  A ask lead  / search  ? more  q quit"
+      "Focus: rows  ↑↓ move  ⏎ open  a write  t talk  e expand  ? more  q quit"
     ],
     "hits": "[Hit { y: 3, x: 0, width: 80, row: 0 }, Hit { y: 5, x: 0, width: 80, row: 1 }, Hit { y: 6, x: 0, width: 80, row: 2 }, Hit { y: 7, x: 0, width: 80, row: 3 }]"
   },
@@ -105,7 +105,7 @@
       "  MEMBER     STATE    TASK",
       "  sol  lead  –        –",
       "── members · 3 ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
-      "  alpha      working  task one                                                                                                                    cron Mon 00:30",
+      " >alpha      working  task one                                                                                                                    cron Mon 00:30",
       "  bravo      idle     task two",
       "  carol      idle     task three",
       "",
@@ -137,7 +137,7 @@
       "  MEMBER     STATE    TASK",
       "  sol  lead  –        –",
       "── members · 3 ─────────────────────────────────────────────────────────────────────────────────────",
-      "  alpha      working  task one                                                        cron Mon 00:30",
+      " >alpha      working  task one                                                        cron Mon 00:30",
       "  bravo      idle     task two",
       "  carol      idle     task three",
       "",
@@ -169,7 +169,7 @@
       "  MEMBER     STATE    TASK",
       "  sol  lead  –        –",
       "── members · 3 ─────────────────────────────────────────────────────────────────",
-      "  alpha      working  task one                                    cron Mon 00:30",
+      " >alpha      working  task one                                    cron Mon 00:30",
       "  bravo      idle     task two",
       "  carol      idle     task three",
       "",

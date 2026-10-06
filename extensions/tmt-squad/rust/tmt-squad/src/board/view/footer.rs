@@ -137,7 +137,12 @@ pub(super) fn hints(app: &App, width: usize) -> String {
         return crate::board::cronboard::jobs_hints(width);
     }
     if let Some(view) = app.view.as_ref().filter(|view| view.home.is_some()) {
-        return crate::board::home::hints_of(view, width, app.tabs_overflow.get());
+        return crate::board::home::hints_of(
+            view,
+            width,
+            app.tabs_overflow.get(),
+            super::panes::receiving_pane(app) == Some(Pane::Rows),
+        );
     }
     let bindings = app.bindings();
     // One hint per action the effective bindings give the footer, ranked by
@@ -195,10 +200,16 @@ pub(super) fn hints(app: &App, width: usize) -> String {
     if app.view.as_ref().is_some_and(|view| view.me.is_none()) {
         hints.push(crate::status::UNKNOWN_YOU.to_owned());
     }
+    let focus = (super::panes::receiving_pane(app) == Some(Pane::Rows)
+        && super::panes::borderless_rows(app)
+        && width >= 27)
+        .then_some("Focus: rows");
     let reserved = ["? more", "q quit"];
     let tail = reserved.join("  ");
     if let Some(waiting) = waiting_summary(app) {
-        let minimum = std::iter::once(waiting.base.as_str())
+        let minimum = focus
+            .into_iter()
+            .chain(std::iter::once(waiting.base.as_str()))
             .chain(hints.iter().take(row_actions).map(String::as_str))
             .chain(reserved)
             .collect::<Vec<_>>()
@@ -218,7 +229,7 @@ pub(super) fn hints(app: &App, width: usize) -> String {
             reserved[0].to_owned()
         };
     }
-    let mut shown = String::new();
+    let mut shown = focus.unwrap_or_default().to_owned();
     for hint in hints {
         let next = if shown.is_empty() {
             hint

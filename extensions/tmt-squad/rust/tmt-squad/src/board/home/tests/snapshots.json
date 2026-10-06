@@ -9,7 +9,7 @@
       "",
       "── leads · latest from each · t hides replies ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
       "┌──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐",
-      "│   lead-a                     a                                                                                                                             – │",
+      "│>  lead-a                     a                                                                                                                             – │",
       "└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘",
       "→ all leads  A to write · @ to pick",
       "",
@@ -26,7 +26,7 @@
       "",
       "",
       "",
-      "↑↓ move  ⏎ open  a write  e expand  A ask lead  / search  ? more  q quit"
+      "Focus: HOME rows  ↑↓ move  ⏎ open  a write  e expand  A ask lead  / search  ? more  q quit"
     ],
     "hits": "[Hit { y: 6, x: 1, width: 158, row: 0 }, Hit { y: 8, x: 0, width: 160, row: 1 }, Hit { y: 11, x: 0, width: 160, row: 2 }]"
   },
@@ -40,7 +40,7 @@
       "",
       "── leads · latest from each · t hides replies ──────────────────────────────────────────────────────",
       "┌──────────────────────────────────────────────────────────────────────────────────────────────────┐",
-      "│   lead-a                     a                                                                 – │",
+      "│>  lead-a                     a                                                                 – │",
       "└──────────────────────────────────────────────────────────────────────────────────────────────────┘",
       "→ all leads  A to write · @ to pick",
       "",
@@ -57,7 +57,7 @@
       "",
       "",
       "",
-      "↑↓ move  ⏎ open  a write  e expand  A ask lead  / search  ? more  q quit"
+      "Focus: HOME rows  ↑↓ move  ⏎ open  a write  e expand  A ask lead  / search  ? more  q quit"
     ],
     "hits": "[Hit { y: 6, x: 1, width: 98, row: 0 }, Hit { y: 8, x: 0, width: 100, row: 1 }, Hit { y: 11, x: 0, width: 100, row: 2 }]"
   },
@@ -71,7 +71,7 @@
       "",
       "── leads · latest from each · t hides replies ──────────────────────────────────",
       "┌──────────────────────────────────────────────────────────────────────────────┐",
-      "│   lead-a                                                                   – │",
+      "│>  lead-a                                                                   – │",
       "└──────────────────────────────────────────────────────────────────────────────┘",
       "→ all leads  A to write · @ to pick",
       "",
@@ -88,7 +88,7 @@
       "",
       "",
       "",
-      "↑↓ move  ⏎ open  a write  e expand  A ask  / search  ? more  q quit"
+      "Focus: HOME rows  ↑↓ move  ⏎ open  a write  e expand  A ask  ? more  q quit"
     ],
     "hits": "[Hit { y: 6, x: 1, width: 78, row: 0 }, Hit { y: 8, x: 0, width: 80, row: 1 }, Hit { y: 11, x: 0, width: 80, row: 2 }]"
   },
@@ -100,7 +100,7 @@
       "",
       "",
       "── ◆ needs you · 1 ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
-      " ◆ worker                  a                                                                                                                            just now",
+      ">◆ worker                  a                                                                                                                            just now",
       "",
       "── ✗ blocked · 1 ───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
       " ✗ worker                  a",
@@ -119,7 +119,7 @@
       "",
       "",
       "",
-      "↑↓ move  ⏎ open  a write  e expand  A ask lead  / search  ? more  q quit"
+      "Focus: HOME rows  ↑↓ move  ⏎ open  a write  e expand  A ask lead  / search  ? more  q quit"
     ],
     "hits": "[Hit { y: 4, x: 0, width: 160, row: 0 }, Hit { y: 7, x: 0, width: 160, row: 1 }, Hit { y: 11, x: 1, width: 158, row: 2 }, Hit { y: 13, x: 0, width: 160, row: 3 }, Hit { y: 16, x: 0, width: 160, row: 4 }]"
   },
@@ -131,7 +131,7 @@
       "",
       "",
       "── ◆ needs you · 1 ─────────────────────────────────────────────────────────────────────────────────",
-      " ◆ worker                  a                                                                just now",
+      ">◆ worker                  a                                                                just now",
       "",
       "── ✗ blocked · 1 ───────────────────────────────────────────────────────────────────────────────────",
       " ✗ worker                  a",
@@ -150,7 +150,7 @@
       "",
       "",
       "",
-      "↑↓ move  ⏎ open  a write  e expand  A ask lead  / search  ? more  q quit"
+      "Focus: HOME rows  ↑↓ move  ⏎ open  a write  e expand  A ask lead  / search  ? more  q quit"
     ],
     "hits": "[Hit { y: 4, x: 0, width: 100, row: 0 }, Hit { y: 7, x: 0, width: 100, row: 1 }, Hit { y: 11, x: 1, width: 98, row: 2 }, Hit { y: 13, x: 0, width: 100, row: 3 }, Hit { y: 16, x: 0, width: 100, row: 4 }]"
   },
@@ -162,7 +162,7 @@
       "",
       "",
       "── ◆ needs you · 1 ─────────────────────────────────────────────────────────────",
-      " ◆ worker                  a                                            just now",
+      ">◆ worker                  a                                            just now",
       "",
       "── ✗ blocked · 1 ───────────────────────────────────────────────────────────────",
       " ✗ worker                  a",
@@ -181,7 +181,7 @@
       "",
       "",
       "",
-      "↑↓ move  ⏎ open  a write  e expand  A ask  / search  ? more  q quit"
+      "Focus: HOME rows  ↑↓ move  ⏎ open  a write  e expand  A ask  ? more  q quit"
     ],
     "hits": "[Hit { y: 4, x: 0, width: 80, row: 0 }, Hit { y: 7, x: 0, width: 80, row: 1 }, Hit { y: 11, x: 1, width: 78, row: 2 }, Hit { y: 13, x: 0, width: 80, row: 3 }, Hit { y: 16, x: 0, width: 80, row: 4 }]"
   },
@@ -194,7 +194,7 @@
       "── ◆ needs you · 0 · nothing waits on you ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
       "",
       "── ✗ blocked · 1 ───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
-      " ✗ worker                  a",
+      ">✗ worker                  a",
       "",
       "── leads · latest from each · t hides replies ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
       "┌──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐",
@@ -212,7 +212,7 @@
       "",
       "",
       "",
-      "↑↓ move  ⏎ open  a write  e expand  A ask lead  / search  ? more  q quit"
+      "Focus: HOME rows  ↑↓ move  ⏎ open  a write  e expand  A ask lead  / search  ? more  q quit"
     ],
     "hits": "[Hit { y: 5, x: 0, width: 160, row: 0 }, Hit { y: 9, x: 1, width: 158, row: 1 }, Hit { y: 11, x: 0, width: 160, row: 2 }, Hit { y: 14, x: 0, width: 160, row: 3 }]"
   },
@@ -225,7 +225,7 @@
       "── ◆ needs you · 0 · nothing waits on you ──────────────────────────────────────────────────────────",
       "",
       "── ✗ blocked · 1 ───────────────────────────────────────────────────────────────────────────────────",
-      " ✗ worker                  a",
+      ">✗ worker                  a",
       "",
       "── leads · latest from each · t hides replies ──────────────────────────────────────────────────────",
       "┌──────────────────────────────────────────────────────────────────────────────────────────────────┐",
@@ -243,7 +243,7 @@
       "",
       "",
       "",
-      "↑↓ move  ⏎ open  a write  e expand  A ask lead  / search  ? more  q quit"
+      "Focus: HOME rows  ↑↓ move  ⏎ open  a write  e expand  A ask lead  / search  ? more  q quit"
     ],
     "hits": "[Hit { y: 5, x: 0, width: 100, row: 0 }, Hit { y: 9, x: 1, width: 98, row: 1 }, Hit { y: 11, x: 0, width: 100, row: 2 }, Hit { y: 14, x: 0, width: 100, row: 3 }]"
   },
@@ -256,7 +256,7 @@
       "── ◆ needs you · 0 · nothing waits on you ──────────────────────────────────────",
       "",
       "── ✗ blocked · 1 ───────────────────────────────────────────────────────────────",
-      " ✗ worker                  a",
+      ">✗ worker                  a",
       "",
       "── leads · latest from each · t hides replies ──────────────────────────────────",
       "┌──────────────────────────────────────────────────────────────────────────────┐",
@@ -274,7 +274,7 @@
       "",
       "",
       "",
-      "↑↓ move  ⏎ open  a write  e expand  A ask  / search  ? more  q quit"
+      "Focus: HOME rows  ↑↓ move  ⏎ open  a write  e expand  A ask  ? more  q quit"
     ],
     "hits": "[Hit { y: 5, x: 0, width: 80, row: 0 }, Hit { y: 9, x: 1, width: 78, row: 1 }, Hit { y: 11, x: 0, width: 80, row: 2 }, Hit { y: 14, x: 0, width: 80, row: 3 }]"
   },
@@ -288,7 +288,7 @@
       "",
       "── leads · latest from each · t hides replies ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────",
       "┌──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐",
-      "│   lead-0                     squad-00                                                                                                                      – │",
+      "│>  lead-0                     squad-00                                                                                                                      – │",
       "│   lead-1                     squad-01                                                                                                                      – │",
       "│   lead-10                    squad-10                                                                                                                      – │",
       "│   lead-11                    squad-11                                                                                                                      – │",
@@ -305,7 +305,7 @@
       "└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘",
       "→ all leads  A to write · @ to pick",
       "                                                                                                                                                       16 more ↓",
-      "↑↓ move  ⏎ open  a write  e expand  A ask lead  / search  ? more  q quit"
+      "Focus: HOME rows  ↑↓ move  ⏎ open  a write  e expand  A ask lead  / search  ? more  q quit"
     ],
     "hits": "[Hit { y: 6, x: 1, width: 158, row: 0 }, Hit { y: 7, x: 1, width: 158, row: 1 }, Hit { y: 8, x: 1, width: 158, row: 2 }, Hit { y: 9, x: 1, width: 158, row: 3 }, Hit { y: 10, x: 1, width: 158, row: 4 }, Hit { y: 11, x: 1, width: 158, row: 5 }, Hit { y: 12, x: 1, width: 158, row: 6 }, Hit { y: 13, x: 1, width: 158, row: 7 }, Hit { y: 14, x: 1, width: 158, row: 8 }, Hit { y: 15, x: 1, width: 158, row: 9 }, Hit { y: 16, x: 1, width: 158, row: 10 }, Hit { y: 17, x: 1, width: 158, row: 11 }, Hit { y: 18, x: 1, width: 158, row: 12 }, Hit { y: 19, x: 1, width: 158, row: 13 }, Hit { y: 21, x: 0, width: 160, row: 14 }]"
   },
@@ -319,7 +319,7 @@
       "",
       "── leads · latest from each · t hides replies ──────────────────────────────────────────────────────",
       "┌──────────────────────────────────────────────────────────────────────────────────────────────────┐",
-      "│   lead-0                     squad-00                                                          – │",
+      "│>  lead-0                     squad-00                                                          – │",
       "│   lead-1                     squad-01                                                          – │",
       "│   lead-10                    squad-10                                                          – │",
       "│   lead-11                    squad-11                                                          – │",
@@ -336,7 +336,7 @@
       "└──────────────────────────────────────────────────────────────────────────────────────────────────┘",
       "→ all leads  A to write · @ to pick",
       "                                                                                           16 more ↓",
-      "↑↓ move  ⏎ open  a write  e expand  A ask lead  / search  ? more  q quit"
+      "Focus: HOME rows  ↑↓ move  ⏎ open  a write  e expand  A ask lead  / search  ? more  q quit"
     ],
     "hits": "[Hit { y: 6, x: 1, width: 98, row: 0 }, Hit { y: 7, x: 1, width: 98, row: 1 }, Hit { y: 8, x: 1, width: 98, row: 2 }, Hit { y: 9, x: 1, width: 98, row: 3 }, Hit { y: 10, x: 1, width: 98, row: 4 }, Hit { y: 11, x: 1, width: 98, row: 5 }, Hit { y: 12, x: 1, width: 98, row: 6 }, Hit { y: 13, x: 1, width: 98, row: 7 }, Hit { y: 14, x: 1, width: 98, row: 8 }, Hit { y: 15, x: 1, width: 98, row: 9 }, Hit { y: 16, x: 1, width: 98, row: 10 }, Hit { y: 17, x: 1, width: 98, row: 11 }, Hit { y: 18, x: 1, width: 98, row: 12 }, Hit { y: 19, x: 1, width: 98, row: 13 }, Hit { y: 21, x: 0, width: 100, row: 14 }]"
   },
@@ -350,7 +350,7 @@
       "",
       "── leads · latest from each · t hides replies ──────────────────────────────────",
       "┌──────────────────────────────────────────────────────────────────────────────┐",
-      "│   lead-0                                                                   – │",
+      "│>  lead-0                                                                   – │",
       "│   lead-1                                                                   – │",
       "│   lead-10                                                                  – │",
       "│   lead-11                                                                  – │",
@@ -367,7 +367,7 @@
       "└──────────────────────────────────────────────────────────────────────────────┘",
       "→ all leads  A to write · @ to pick",
       "                                                                       16 more ↓",
-      "↑↓ move  ⏎ open  a write  e expand  A ask  / search  ? more  q quit"
+      "Focus: HOME rows  ↑↓ move  ⏎ open  a write  e expand  A ask  ? more  q quit"
     ],
     "hits": "[Hit { y: 6, x: 1, width: 78, row: 0 }, Hit { y: 7, x: 1, width: 78, row: 1 }, Hit { y: 8, x: 1, width: 78, row: 2 }, Hit { y: 9, x: 1, width: 78, row: 3 }, Hit { y: 10, x: 1, width: 78, row: 4 }, Hit { y: 11, x: 1, width: 78, row: 5 }, Hit { y: 12, x: 1, width: 78, row: 6 }, Hit { y: 13, x: 1, width: 78, row: 7 }, Hit { y: 14, x: 1, width: 78, row: 8 }, Hit { y: 15, x: 1, width: 78, row: 9 }, Hit { y: 16, x: 1, width: 78, row: 10 }, Hit { y: 17, x: 1, width: 78, row: 11 }, Hit { y: 18, x: 1, width: 78, row: 12 }, Hit { y: 19, x: 1, width: 78, row: 13 }, Hit { y: 21, x: 0, width: 80, row: 14 }]"
   }

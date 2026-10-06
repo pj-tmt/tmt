@@ -17,6 +17,35 @@ use ratatui::{
 use tmt_cli_style::Role;
 use tmt_tui::components::{Outline, strip};
 
+/// The existing pane is receiving keys only while no input or overlay owns them.
+pub(super) fn receiving_pane(app: &App) -> Option<Pane> {
+    if app.input.is_some()
+        || app.searching
+        || app.help
+        || app.menu.is_some()
+        || app.settings.is_some()
+        || app.view_picker.is_some()
+        || app.theme_picker.is_some()
+        || app.switcher.is_some()
+        || app.cron_list.is_some()
+    {
+        None
+    } else {
+        app.focused_pane()
+    }
+}
+
+/// Match the existing dispatch paths that paint Rows without an outer title.
+pub(super) fn borderless_rows(app: &App) -> bool {
+    app.view.as_ref().is_some_and(|view| view.home.is_some())
+        || app.effective_board().is_some_and(|board| {
+            board.members
+                || (board.mode == BoardMode::Split
+                    && board.panes == [Pane::Rows]
+                    && app.collapsed_panes().is_empty())
+        })
+}
+
 /// Split mode tiles the configured panes; tabs mode shows the focused pane
 /// under a tab bar. The focused pane's border is highlighted.
 pub(super) fn render_body(frame: &mut Frame, app: &App, area: Rect) {
@@ -47,15 +76,16 @@ fn render_members(frame: &mut Frame, app: &App, area: Rect) {
         return;
     }
     let board = app.effective_board().expect("loaded view has a board");
-    let focused = app.focused_pane();
+    let focused = receiving_pane(app);
     let pane_block = |pane: Pane| {
+        let focus = if Some(pane) == focused { "Focus: " } else { "" };
         let title = match pane {
             // The lead's notes nobody updated for a while say how long.
             Pane::Notes => {
                 let lead = view.document["squad"]["lead"]["name"]
                     .as_str()
                     .unwrap_or("no lead");
-                let mut title = vec![Span::raw(format!(" notes · {lead} "))];
+                let mut title = vec![Span::raw(format!(" {focus}notes · {lead} "))];
                 if let Some(age) =
                     crate::staleness::label(&view.document["squad"]["notesStaleness"])
                 {
@@ -63,7 +93,7 @@ fn render_members(frame: &mut Frame, app: &App, area: Rect) {
                 }
                 Line::from(title)
             }
-            other => Line::from(format!(" {} ", other.title())),
+            other => Line::from(format!(" {focus}{} ", other.title())),
         };
         let style = if Some(pane) == focused && board.panes.len() > 1 {
             look.role(Role::Accent).add_modifier(Modifier::BOLD)
