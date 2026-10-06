@@ -88,12 +88,261 @@ impl Fixture {
             .wait_with_output()
             .unwrap()
     }
+    fn json(&mut self, args: &[&str]) -> serde_json::Value {
+        let output = self.run(args);
+        assert!(output.status.success(), "{output:?}");
+        assert!(output.stderr.is_empty(), "{output:?}");
+        serde_json::from_slice(&output.stdout).unwrap()
+    }
 }
 impl Drop for Fixture {
     fn drop(&mut self) {
         support::stop(&mut self.child);
         fs::remove_dir_all(&self.root).unwrap();
     }
+}
+
+#[test]
+fn native_withdrawal_preserves_history_excludes_inbox_and_enforces_reply_races() {
+    let mut fixture = Fixture::new();
+    for name in ["Sender", "Receiver", "Stranger"] {
+        fixture.json(&["identity", "create", name, "--json"]);
+    }
+    let sent = fixture.json(&[
+        "talk",
+        "Receiver",
+        "original prompt",
+        "--inbox",
+        "--detach",
+        "--identity",
+        "Sender",
+        "--json",
+    ]);
+    let id = sent["requestId"].as_str().unwrap();
+    let incoming = fixture.json(&[
+        "x",
+        "show",
+        id,
+        "--incoming",
+        "--identity",
+        "Receiver",
+        "--json",
+    ]);
+    let receipt = incoming["exchange"]["reply"]["receipt"].as_str().unwrap();
+    let wrong_owner = fixture.run(&[
+        "x",
+        "withdraw",
+        id,
+        "--reason",
+        "obsolete",
+        "--identity",
+        "Stranger",
+        "--json",
+    ]);
+    assert_eq!(wrong_owner.status.code(), Some(5));
+    assert_eq!(
+        serde_json::from_slice::<serde_json::Value>(&wrong_owner.stdout).unwrap()["error"]["code"],
+        "REQUEST_ORIGINATOR_MISMATCH"
+    );
+    assert_eq!(
+        fixture.json(&["inbox", "--identity", "Receiver", "--json"])["items"]
+            .as_array()
+            .unwrap()
+            .len(),
+        1
+    );
+    let withdrawn = fixture.json(&[
+        "x",
+        "withdraw",
+        id,
+        "--reason",
+        "already merged",
+        "--identity",
+        "Sender",
+        "--json",
+    ]);
+    assert_eq!(withdrawn["status"], "withdrawn");
+    assert_eq!(withdrawn["changed"], true);
+    assert_eq!(withdrawn["reason"], "already merged");
+    assert!(withdrawn["withdrawnAtMs"].as_u64().unwrap() > 0);
+    let repeated = fixture.json(&[
+        "x",
+        "withdraw",
+        id,
+        "--reason",
+        "already merged",
+        "--identity",
+        "Sender",
+        "--json",
+    ]);
+    assert_eq!(repeated["changed"], false);
+    assert_eq!(repeated["withdrawnAtMs"], withdrawn["withdrawnAtMs"]);
+    let conflict = fixture.run(&[
+        "x",
+        "withdraw",
+        id,
+        "--reason",
+        "different",
+        "--identity",
+        "Sender",
+        "--json",
+    ]);
+    assert_eq!(conflict.status.code(), Some(5));
+    assert_eq!(
+        serde_json::from_slice::<serde_json::Value>(&conflict.stdout).unwrap()["error"]["code"],
+        "REQUEST_WITHDRAWAL_CONFLICT"
+    );
+    let result = fixture.json(&["result", id, "--json"]);
+    assert_eq!(result["status"], "withdrawn");
+    assert_eq!(result["reason"], "already merged");
+    assert_eq!(result["withdrawnAtMs"], withdrawn["withdrawnAtMs"]);
+    assert!(result.get("response").is_none());
+    let shown = fixture.json(&["x", "show", id, "--identity", "Sender", "--json"]);
+    assert_eq!(shown["exchange"]["final"]["status"], "withdrawn");
+    assert_eq!(
+        shown["exchange"]["final"]["withdrawnAtMs"],
+        withdrawn["withdrawnAtMs"]
+    );
+    assert_eq!(shown["exchange"]["prompt"]["message"], "original prompt");
+    assert_eq!(shown["exchange"]["settled"], true);
+    assert_eq!(
+        fixture.json(&["inbox", "--identity", "Receiver", "--json"])["items"],
+        serde_json::json!([])
+    );
+    let shown_incoming = fixture.json(&[
+        "x",
+        "show",
+        id,
+        "--incoming",
+        "--identity",
+        "Receiver",
+        "--json",
+    ]);
+    assert!(shown_incoming["exchange"].get("reply").is_none());
+    let late_reply = fixture.run(&[
+        "reply",
+        id,
+        "--receipt",
+        receipt,
+        "--message",
+        "done",
+        "--json",
+    ]);
+    assert_eq!(late_reply.status.code(), Some(5));
+    assert_eq!(
+        serde_json::from_slice::<serde_json::Value>(&late_reply.stdout).unwrap()["error"]["code"],
+        "REQUEST_WITHDRAWN"
+    );
+    let human = fixture.run(&["result", id]);
+    assert!(human.status.success());
+    assert!(
+        String::from_utf8(human.stdout)
+            .unwrap()
+            .contains("already merged")
+    );
+
+    let second = fixture.json(&[
+        "talk",
+        "Receiver",
+        "another prompt",
+        "--inbox",
+        "--detach",
+        "--identity",
+        "Sender",
+        "--json",
+    ]);
+    let second_id = second["requestId"].as_str().unwrap();
+    let incoming = fixture.json(&[
+        "x",
+        "show",
+        second_id,
+        "--incoming",
+        "--identity",
+        "Receiver",
+        "--json",
+    ]);
+    let receipt = incoming["exchange"]["reply"]["receipt"].as_str().unwrap();
+    fixture.json(&[
+        "reply",
+        second_id,
+        "--receipt",
+        receipt,
+        "--message",
+        "final body",
+        "--json",
+    ]);
+    let late_withdraw = fixture.run(&[
+        "x",
+        "withdraw",
+        second_id,
+        "--reason",
+        "obsolete",
+        "--identity",
+        "Sender",
+        "--json",
+    ]);
+    assert_eq!(late_withdraw.status.code(), Some(5));
+    assert_eq!(
+        serde_json::from_slice::<serde_json::Value>(&late_withdraw.stdout).unwrap()["error"]["code"],
+        "REQUEST_ALREADY_FINAL"
+    );
+    assert_eq!(
+        fixture.json(&["result", second_id, "--json"])["response"],
+        "final body"
+    );
+
+    fixture.seed("anonymous-withdrawal", RequestKind::Request, None);
+    let anonymous = fixture.run(&[
+        "x",
+        "withdraw",
+        "anonymous-withdrawal",
+        "--reason",
+        "obsolete",
+        "--identity",
+        "Sender",
+        "--json",
+    ]);
+    assert_eq!(anonymous.status.code(), Some(5));
+    assert_eq!(
+        serde_json::from_slice::<serde_json::Value>(&anonymous.stdout).unwrap()["error"]["code"],
+        "REQUEST_ORIGINATOR_MISMATCH"
+    );
+    let caller = fixture.run(&["x", "withdraw", id, "--reason", "obsolete", "--json"]);
+    assert!(
+        !caller.status.success(),
+        "anonymous caller must supply a verified or explicit identity"
+    );
+
+    let oracle =
+        rusqlite::Connection::open(support::state_dir(&fixture.root).join("tmux-team.db")).unwrap();
+    let state: (Option<i64>, Option<i64>, String, String) = oracle.query_row(
+        "SELECT response_submitted_at_ms, withdrawn_at_ms, withdrawal_reason, message_text FROM request_attempts WHERE request_id=?", [id],
+        |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))).unwrap();
+    assert_eq!(
+        state,
+        (
+            None,
+            Some(withdrawn["withdrawnAtMs"].as_i64().unwrap()),
+            "already merged".into(),
+            "original prompt".into()
+        )
+    );
+    let finals: i64 = oracle
+        .query_row(
+            "SELECT COUNT(*) FROM request_responses WHERE request_id=?",
+            [id],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(finals, 0);
+    let help = fixture.run(&["x", "withdraw", "--help"]);
+    assert!(help.status.success());
+    let help = String::from_utf8(help.stdout).unwrap();
+    assert!(
+        help.contains("Only the recorded originator")
+            && help.contains("--reason")
+            && help.contains("does not cancel work")
+    );
 }
 
 #[test]

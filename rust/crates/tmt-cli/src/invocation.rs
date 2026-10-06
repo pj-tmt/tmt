@@ -372,6 +372,10 @@ pub enum RoleOperation {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum ExchangeOperation {
+    Withdraw {
+        request_id: String,
+        reason: String,
+    },
     List {
         limit: Option<u64>,
         after: Option<u64>,

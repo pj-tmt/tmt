@@ -611,6 +611,13 @@ fn translate(path: &[&str], m: &ArgMatches) -> Result<Invocation, String> {
                 incoming: flag(m, "incoming"),
             },
         },
+        ["x", "withdraw"] => Invocation::Exchange {
+            identity: text(m, "identity"),
+            operation: ExchangeOperation::Withdraw {
+                request_id: required(m, "request-id"),
+                reason: required(m, "reason"),
+            },
+        },
         ["x", "ackall"] => Invocation::Exchange {
             identity: text(m, "identity"),
             operation: ExchangeOperation::Ackall {

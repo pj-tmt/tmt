@@ -138,6 +138,18 @@ impl Correlation {
     }
 
     fn state_error(&self, error: RequestError<StorageError>, possible_delivery: bool) -> Failure {
+        if matches!(
+            error,
+            RequestError::Response(tmt_core::request::ResponseRejection::Withdrawn)
+        ) {
+            return self
+                .error(
+                    "REQUEST_WITHDRAWN",
+                    "Request was withdrawn by its originator.",
+                    5,
+                )
+                .with_request(self.request_id.clone(), Some("withdrawn"));
+        }
         let error = match error {
             RequestError::Repository(storage) => {
                 return self
@@ -466,6 +478,11 @@ fn deliver(
                             Ok(Some(*response))
                         }
                         tmt_core::request::ResponseLookup::Unavailable => Ok(None),
+                        tmt_core::request::ResponseLookup::Withdrawn(_) => {
+                            Err(tmt_core::request::RequestError::Response(
+                                tmt_core::request::ResponseRejection::Withdrawn,
+                            ))
+                        }
                         tmt_core::request::ResponseLookup::NotRequired => {
                             Err(tmt_core::request::RequestError::StateInvalid)
                         }

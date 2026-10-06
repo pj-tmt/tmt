@@ -27,6 +27,7 @@ use tmt_core::{
 };
 
 enum Report {
+    Withdrawn(String, tmt_core::request::Withdrawal),
     NotRequired(String),
     Submitted(
         FinalResponse,
@@ -96,6 +97,7 @@ pub(crate) fn response_failure(
         return unavailable(error);
     };
     let (status, message) = match reason {
+        ResponseRejection::Withdrawn => (5, "Request was withdrawn by its originator."),
         ResponseRejection::NotRequired => (1, "Announcements do not accept replies."),
         ResponseRejection::InputInvalid => (1, "Response input is invalid."),
         ResponseRejection::InputTooLarge => (1, "Response body exceeds the UTF-8 byte limit."),
@@ -201,6 +203,9 @@ fn run_at(paths: Option<&ConfigPaths>, request: Invocation) -> Result<Report, Fa
             .get_response_by_prefix(&request_id)
             .map_err(|error| response_failure(error, &paths.global_dir, false))
             .and_then(|(resolved_id, record)| match record {
+                ResponseLookup::Withdrawn(withdrawal) => {
+                    Ok(Report::Withdrawn(resolved_id, withdrawal))
+                }
                 ResponseLookup::Available(response) => Ok(Report::Completed(*response)),
                 ResponseLookup::NotRequired => Ok(Report::NotRequired(resolved_id.clone())),
                 ResponseLookup::Unavailable => Err(Failure::new(
@@ -229,6 +234,11 @@ pub fn execute(request: Invocation, mode: OutputMode) -> io::Result<u8> {
     let terminal = stdout.terminal();
     match report {
         report if mode.json => writeln!(stdout, "{}", document(&report))?,
+        Report::Withdrawn(request_id, withdrawal) => writeln!(
+            stdout,
+            "Request '{request_id}' withdrawn at {}: {}",
+            withdrawal.withdrawn_at_ms, withdrawal.reason
+        )?,
         Report::NotRequired(request_id) => writeln!(
             stdout,
             "Announcement '{request_id}' does not require a response."
@@ -258,6 +268,9 @@ fn write_result(output: &mut impl Write, request_id: &str, body: &str) -> io::Re
 
 fn document(report: &Report) -> serde_json::Value {
     match report {
+        Report::Withdrawn(request_id, withdrawal) => {
+            json!({"status":"withdrawn", "requestId":request_id, "reason":withdrawal.reason, "withdrawnAtMs":withdrawal.withdrawn_at_ms})
+        }
         Report::NotRequired(request_id) => {
             json!({"status": "not_required", "requestId": request_id})
         }

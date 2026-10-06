@@ -111,6 +111,7 @@ function expectNativeSchema(
     { version: 45, name: 'remember runtime channel preference for exact resume' },
     { version: 46, name: 'retain bounded consumption sources and timestamped history' },
     { version: 47, name: 'index originator results by final submission time' },
+    { version: 48, name: 'retain originator withdrawal of unanswered requests' },
   ];
   expect(migrated.migrations.slice(8)).toEqual(additions);
   expect(migrated.tables.map(({ name }) => name)).toEqual(
@@ -416,11 +417,25 @@ function expectNativeSchema(
       recipient_attention_acknowledged_revision: 0,
       wake_state: 'not_attempted',
       host: null,
+      withdrawn_at_ms: null,
+      withdrawal_reason: null,
     }))
   );
   expect(newAttempts.columns.map(({ name }) => name)).toContain('route_kind');
   expect(newAttempts.columns.map(({ name }) => name)).toContain('request_kind');
   expect(newAttempts.columns.map(({ name }) => name)).toContain('room_id');
+  for (const [name, type] of [
+    ['withdrawn_at_ms', 'INTEGER'],
+    ['withdrawal_reason', 'TEXT'],
+  ]) {
+    expect(newAttempts.columns.find((column) => column.name === name)).toMatchObject({
+      name,
+      type,
+      notnull: 0,
+      dflt_value: null,
+      pk: 0,
+    });
+  }
   expect(newAttempts.columns.find(({ name }) => name === 'wake_state')).toMatchObject({
     name: 'wake_state',
     type: 'TEXT',
