@@ -85,3 +85,8 @@ pub const OBJECT_FENCE_BYTES: u64 = 4096 + 512;
 pub const OBJECT_TREE_BASE_BYTES: u64 = 5 * 4096;
 /// Installation-wide charge for ledger bootstrap pages and the rollback journal's peak.
 pub const OBJECT_LEDGER_BASE_BYTES: u64 = 256 * 1024;
+
+/// Absolute private background startup admission deadline, before cleanup.
+pub const SERVE_STARTUP: Duration = Duration::from_secs(35);
+/// Maximum complete private handoff frame and fixed local diagnostic record.
+pub const SERVE_RECORD_BYTES: usize = 4096;

@@ -1,6 +1,6 @@
 //! Remote's private subtree `<dataRoot>/remote/`, using the extension-state leaf:
 //! an owned 0700 directory, owned 0600 regular files opened without following
-//! symlinks, create-only machine key publication and one foreground serve lock.
+//! symlinks, create-only machine key publication and one serving lifecycle lock.
 //! No core database, configuration or provider setting is touched.
 use crate::error::RemoteError;
 use ed25519_dalek::SigningKey;
@@ -8,7 +8,7 @@ use std::{fs::File, ops::Deref, path::Path};
 use tmt_extension_state::Error as StateError;
 
 /// Private file names; anything else is refused.
-const FILES: [&str; 7] = [
+const FILES: [&str; 8] = [
     "machine.key",
     "key.lock",
     "serve.lock",
@@ -16,6 +16,7 @@ const FILES: [&str; 7] = [
     "objects.db",
     "settings.json",
     "settings.lock",
+    "serve-error.json",
 ];
 
 fn unsafe_directory() -> RemoteError {
@@ -138,7 +139,7 @@ impl Layout {
     pub fn file(&self, name: &str) -> Result<File, RemoteError> {
         self.shared.file(name).map_err(state_error)
     }
-    /// One foreground remote per data root; held for the life of `serve`.
+    /// One Remote serving owner per data root; held for the life of `serve`.
     /// The returned [`Serving`] is the only way to open remote state, so a
     /// second process cannot open the database while serve runs.
     pub fn serve_lock(&self) -> Result<Serving, RemoteError> {
