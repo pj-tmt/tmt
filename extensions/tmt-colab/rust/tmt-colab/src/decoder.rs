@@ -288,6 +288,7 @@ impl Decoder {
         {
             return Err(DecodeFault::InvalidInput);
         }
+        let before_wire = Instant::now();
         let wire = WireBatch {
             version: 1,
             namespace: batch.namespace,
@@ -295,24 +296,29 @@ impl Decoder {
             publisher_agent: edit
                 .as_ref()
                 .and_then(|v| v.publisher_agent.map(str::to_owned)),
-            baseline: URL_SAFE_NO_PAD.encode(batch.baseline),
-            updates: batch
-                .updates
-                .iter()
-                .map(|v| URL_SAFE_NO_PAD.encode(v))
-                .collect(),
+            baseline: EncodedBytes(batch.baseline),
+            updates: batch.updates.iter().map(|v| EncodedBytes(v)).collect(),
             merge_only,
         };
+        let after_wire = Instant::now();
         let input = serde_json::to_vec(&wire).map_err(|_| DecodeFault::InvalidInput)?;
+        let after_json = Instant::now();
         if input.len() > STREAM_BYTES {
             return Err(DecodeFault::InvalidInput);
         }
         let hash = URL_SAFE_NO_PAD.encode(Sha256::digest(&input));
+        let after_hash = Instant::now();
         let output = self.invoke(
             &input,
             ChildCommand::decode(batch.namespace, edit.is_some(), merge_only),
             stop,
             deadline,
+            Some(ParentTiming::from_samples([
+                before_wire,
+                after_wire,
+                after_json,
+                after_hash,
+            ])),
         )?;
         if !output.status.success() {
             return Err(DecodeFault::Rejected);
@@ -422,7 +428,7 @@ impl Decoder {
         };
         let input = serde_json::to_vec(&wire).map_err(|_| DecodeFault::InvalidInput)?;
         let hash = URL_SAFE_NO_PAD.encode(Sha256::digest(&input));
-        let output = self.invoke(&input, ChildCommand::PrepareContent, stop, deadline)?;
+        let output = self.invoke(&input, ChildCommand::PrepareContent, stop, deadline, None)?;
         if !output.status.success() {
             return Err(DecodeFault::Rejected);
         }
@@ -518,7 +524,7 @@ impl Decoder {
             action,
         })
         .map_err(|_| DecodeFault::InvalidInput)?;
-        let output = self.invoke(&input, command, stop, deadline)?;
+        let output = self.invoke(&input, command, stop, deadline, None)?;
         if !output.status.success() {
             return Err(DecodeFault::Rejected);
         }
@@ -566,6 +572,7 @@ impl Decoder {
         command: ChildCommand,
         stop: Option<&AtomicBool>,
         deadline: Instant,
+        parent_timing: Option<ParentTiming>,
     ) -> Result<tmt_invoke::Output, DecodeFault> {
         if input.len() > STREAM_BYTES {
             return Err(DecodeFault::InvalidInput);
@@ -607,10 +614,26 @@ impl Decoder {
                     input_bytes: input.len(),
                     remaining,
                     elapsed: started.elapsed(),
+                    parent_timing,
                 },
                 tmt_cli_style::stream::stderr,
             )
         })
+    }
+}
+#[derive(Clone, Copy)]
+struct ParentTiming {
+    wire: Duration,
+    json: Duration,
+    hash: Duration,
+}
+impl ParentTiming {
+    fn from_samples([before_wire, after_wire, after_json, after_hash]: [Instant; 4]) -> Self {
+        Self {
+            wire: after_wire.duration_since(before_wire),
+            json: after_json.duration_since(after_wire),
+            hash: after_hash.duration_since(after_json),
+        }
     }
 }
 struct InvocationObservation {
@@ -618,6 +641,7 @@ struct InvocationObservation {
     input_bytes: usize,
     remaining: Duration,
     elapsed: Duration,
+    parent_timing: Option<ParentTiming>,
 }
 fn invocation_failure<W: std::io::Write>(
     blocked: &mut bool,
@@ -655,16 +679,28 @@ fn write_invocation_failure(
     let mut bytes = [0; 512];
     let mut record = Cursor::new(bytes.as_mut_slice());
     // Static labels and numbers only. A record/stream write failure is supplementary.
-    if writeln!(
-        record,
-        "colab decoder failure phase={} input_bytes={} remaining_ns={} invocation_ns={} kind={} cleanup={}",
-        observation.command.phase(),
-        observation.input_bytes,
-        observation.remaining.as_nanos(),
-        observation.elapsed.as_nanos(),
-        kind,
-        cleanup
-    )
+    if (|| -> std::io::Result<()> {
+        write!(
+            record,
+            "colab decoder failure phase={} input_bytes={} remaining_ns={} invocation_ns={} kind={} cleanup={}",
+            observation.command.phase(),
+            observation.input_bytes,
+            observation.remaining.as_nanos(),
+            observation.elapsed.as_nanos(),
+            kind,
+            cleanup
+        )?;
+        if let Some(parent) = observation.parent_timing {
+            write!(
+                record,
+                " wire_ns={} json_ns={} hash_ns={}",
+                parent.wire.as_nanos(),
+                parent.json.as_nanos(),
+                parent.hash.as_nanos()
+            )?;
+        }
+        writeln!(record)
+    })()
     .is_ok()
     {
         let length = record.position() as usize;
@@ -676,17 +712,26 @@ fn write_invocation_failure(
 fn cleanup_blocks(cleanup: &Cleanup) -> bool {
     !matches!(cleanup, Cleanup::NotStarted | Cleanup::Confirmed)
 }
+struct EncodedBytes<'a>(&'a [u8]);
+impl Serialize for EncodedBytes<'_> {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.collect_str(&base64::display::Base64Display::new(
+            self.0,
+            &URL_SAFE_NO_PAD,
+        ))
+    }
+}
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct WireBatch {
+struct WireBatch<B = String> {
     version: u8,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     source: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     publisher_agent: Option<String>,
     namespace: Namespace,
-    baseline: String,
-    updates: Vec<String>,
+    baseline: B,
+    updates: Vec<B>,
     /// Merge the updates and return them, without projecting the document: a device's own
     /// stream may depend on structs another device wrote, so alone it is not a complete page.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]

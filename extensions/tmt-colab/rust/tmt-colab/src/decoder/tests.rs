@@ -67,6 +67,11 @@ fn failure_record_is_finite_ascii_and_excludes_original_private_causes() {
                         input_bytes: usize::MAX,
                         remaining: Duration::MAX,
                         elapsed: Duration::MAX,
+                        parent_timing: Some(ParentTiming {
+                            wire: Duration::MAX,
+                            json: Duration::MAX,
+                            hash: Duration::MAX,
+                        }),
                     },
                 );
                 assert!(record.is_ascii() && record.len() <= 512);
@@ -99,6 +104,7 @@ fn failure_record_is_finite_ascii_and_excludes_original_private_causes() {
             input_bytes: 7,
             remaining: Duration::ZERO,
             elapsed: Duration::from_secs(2),
+            parent_timing: None,
         },
     );
     assert_eq!(record, b"colab decoder failure phase=own.decode input_bytes=7 remaining_ns=0 invocation_ns=2000000000 kind=deadline cleanup=confirmed\n");
@@ -136,6 +142,11 @@ fn failed_record_write_preserves_original_error_and_cleanup_fence() {
                 input_bytes: 2 * 1024 * 1024,
                 remaining: DEADLINE,
                 elapsed: DEADLINE,
+                parent_timing: Some(ParentTiming {
+                    wire: Duration::MAX,
+                    json: Duration::MAX,
+                    hash: Duration::MAX,
+                }),
             },
             || FailedWriter,
         );
@@ -485,4 +496,172 @@ fn edited_projection_preserves_full_metadata_publisher_set_clear_and_noop() {
     }
     assert_eq!(base["html"], "old 🐈");
     assert_eq!(base["meta"]["publisherAgent"], "old");
+}
+
+#[test]
+fn borrowed_binary_wire_matches_fixed_own_content_edit_and_merge_bytes() {
+    let baseline = [0, 1, 2];
+    let first = [255];
+    for (namespace, source, publisher, merge, expected) in [
+        (
+            Namespace::Own,
+            None,
+            None,
+            false,
+            r#"{"version":1,"namespace":"own","baseline":"AAEC","updates":["_w",""]}"#,
+        ),
+        (
+            Namespace::Content,
+            Some("x🐈\n\"\\"),
+            Some("agent"),
+            false,
+            r#"{"version":1,"source":"x🐈\n\"\\","publisher_agent":"agent","namespace":"content","baseline":"AAEC","updates":["_w",""]}"#,
+        ),
+        (
+            Namespace::Content,
+            Some(""),
+            None,
+            false,
+            r#"{"version":1,"source":"","namespace":"content","baseline":"AAEC","updates":["_w",""]}"#,
+        ),
+        (
+            Namespace::Own,
+            None,
+            None,
+            true,
+            r#"{"version":1,"namespace":"own","baseline":"AAEC","updates":["_w",""],"merge_only":true}"#,
+        ),
+    ] {
+        let wire = WireBatch {
+            version: 1,
+            source: source.map(str::to_owned),
+            publisher_agent: publisher.map(str::to_owned),
+            namespace,
+            baseline: EncodedBytes(&baseline),
+            updates: vec![EncodedBytes(&first), EncodedBytes(&[])],
+            merge_only: merge,
+        };
+        let bytes = serde_json::to_vec(&wire).unwrap();
+        assert_eq!(bytes, expected.as_bytes());
+        assert_eq!(Sha256::digest(&bytes), Sha256::digest(expected.as_bytes()));
+        if namespace == Namespace::Own && !merge {
+            // Independent Python hashlib digest of the fixed literal above.
+            assert_eq!(
+                Sha256::digest(&bytes).as_slice(),
+                &[
+                    0xa3, 0x19, 0x5c, 0x00, 0x40, 0x4a, 0x75, 0x77, 0xc1, 0x01, 0x28, 0xc0, 0x5c,
+                    0xb8, 0x9c, 0x89, 0xfa, 0x32, 0xf6, 0xea, 0xeb, 0x29, 0xff, 0xb3, 0xf7, 0xea,
+                    0x51, 0x2f, 0x05, 0x63, 0xb1, 0x53,
+                ]
+            );
+        }
+        let owned: WireBatch = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(owned.baseline, "AAEC");
+        assert_eq!(owned.updates, ["_w", ""]);
+        assert_eq!(serde_json::to_vec(&owned).unwrap(), bytes);
+        for malformed in [
+            expected.replacen("\"version\":1", "\"version\":1,\"extra\":0", 1),
+            expected.replacen("\"version\":1", "\"version\":1,\"version\":1", 1),
+            expected.replacen("\"baseline\":\"AAEC\"", "\"baseline\":null", 1),
+            expected.replacen("\"updates\":[\"_w\",\"\"]", "\"updates\":[null]", 1),
+            expected.replacen("\"updates\":[\"_w\",\"\"]", "\"updates\":0", 1),
+        ] {
+            assert!(serde_json::from_str::<WireBatch>(&malformed).is_err());
+        }
+    }
+    // The original optional fields accept explicit null and serialize by omission.
+    let explicit_null = r#"{"version":1,"source":null,"publisher_agent":null,"namespace":"own","baseline":"","updates":[]}"#;
+    let wire: WireBatch = serde_json::from_str(explicit_null).unwrap();
+    assert_eq!(
+        serde_json::to_string(&wire).unwrap(),
+        r#"{"version":1,"namespace":"own","baseline":"","updates":[]}"#
+    );
+}
+
+#[test]
+fn encoded_bytes_match_canonical_vectors_chunk_edges_and_raw_containment() {
+    for (raw, encoded) in [
+        (&b""[..], ""),
+        (&[0][..], "AA"),
+        (&[0, 1][..], "AAE"),
+        (&[0, 1, 2][..], "AAEC"),
+        (&[255][..], "_w"),
+        ("🐈".as_bytes(), "8J-QiA"),
+    ] {
+        assert_eq!(
+            serde_json::to_string(&EncodedBytes(raw)).unwrap(),
+            format!("\"{encoded}\"")
+        );
+    }
+    for length in [767, 768, 769, 1535, 1536, 1537, STATE_BYTES] {
+        let raw = (0..length).map(|i| (i % 256) as u8).collect::<Vec<_>>();
+        let encoded = serde_json::to_vec(&EncodedBytes(&raw)).unwrap();
+        let old = serde_json::to_vec(&URL_SAFE_NO_PAD.encode(&raw)).unwrap();
+        assert_eq!(encoded, old, "length={length}");
+        let text: String = serde_json::from_slice(&encoded).unwrap();
+        assert_eq!(binary(&text, length).unwrap(), raw);
+        assert!(matches!(
+            binary(&text, length - 1),
+            Err(DecodeFault::InvalidInput)
+        ));
+    }
+}
+
+#[test]
+fn parent_wall_intervals_are_ordered_optional_finite_and_private() {
+    let start = Instant::now();
+    let timing = ParentTiming::from_samples([
+        start,
+        start + Duration::from_nanos(7),
+        start + Duration::from_nanos(18),
+        start + Duration::from_nanos(31),
+    ]);
+    assert_eq!(
+        (timing.wire, timing.json, timing.hash),
+        (
+            Duration::from_nanos(7),
+            Duration::from_nanos(11),
+            Duration::from_nanos(13)
+        )
+    );
+    let error = tmt_invoke::InvokeError {
+        kind: tmt_invoke::FailureKind::Deadline,
+        cause: Some(std::io::Error::other("/private/content-and-key-🐈")),
+        cleanup: Cleanup::Confirmed,
+    };
+    for timing in [
+        timing,
+        ParentTiming {
+            wire: Duration::MAX,
+            json: Duration::MAX,
+            hash: Duration::MAX,
+        },
+    ] {
+        let mut record = Vec::new();
+        write_invocation_failure(
+            &mut record,
+            &error,
+            InvocationObservation {
+                command: ChildCommand::OwnDecode,
+                input_bytes: usize::MAX,
+                remaining: Duration::MAX,
+                elapsed: Duration::MAX,
+                parent_timing: Some(timing),
+            },
+        );
+        assert!(record.is_ascii() && record.len() <= 512);
+        let record = String::from_utf8(record).unwrap();
+        assert_eq!(record.lines().count(), 1);
+        assert!(record.ends_with(&format!(
+            " wire_ns={} json_ns={} hash_ns={}\n",
+            timing.wire.as_nanos(),
+            timing.json.as_nanos(),
+            timing.hash.as_nanos()
+        )));
+        assert!(!record.contains("private") && !record.contains("content-and-key"));
+        assert_eq!(
+            error.cause.as_ref().unwrap().to_string(),
+            "/private/content-and-key-🐈"
+        );
+    }
 }

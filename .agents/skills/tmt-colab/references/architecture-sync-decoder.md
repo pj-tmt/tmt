@@ -52,7 +52,9 @@ and `limits.rs`; do not restate them.
   Invocation failures also emit a best-effort ASCII stderr record of at most 512 bytes,
   containing only the private call phase, input size, remaining runner-entry budget,
   invocation elapsed time, including cleanup, failure kind and cleanup category; original errors are unchanged.
-  The record bounds bytes, not write latency, and does not measure child CPU or internal phases.
+  Decode-request failures also include parent wire-construction, JSON-serialization and input-hash
+  wall intervals; other commands omit these fields. The samples consume the original deadline.
+  The record bounds bytes, not write latency, and does not measure CPU, scheduling or child phases.
 
 - `Decoder::prepare_content_batch` uses the private `__decoder prepare-content` entry to return
   an explicit no-op or ordered causal update batch. The child replays the batch from the supplied
