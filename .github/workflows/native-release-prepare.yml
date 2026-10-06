@@ -70,6 +70,8 @@ jobs:
           path: release-source
       - name: Set up Node.js and pnpm
         uses: ./.github/actions/setup-tooling
+        with:
+          architecture: ${{ inputs.product == 'cli' && matrix.target == 'x86_64-apple-darwin' && 'x64' || '' }}
       - name: Install embedded Office build dependencies
         if: inputs.product == 'office'
         working-directory: release-source/typescript
@@ -137,6 +139,17 @@ jobs:
           if [ "$PRODUCT" = cli ]; then binary=tmt; fi
           node "$GITHUB_WORKSPACE/typescript/scripts/release-version-injection.mjs" artifact "$PWD" "$RUNNER_TEMP/release-version-state.json" \
             "$RUNNER_TEMP/plan.json" "$RUNNER_TEMP/$TARGET-dist-manifest.json" "$RUNNER_TEMP/injected-archive/tmt-$PRODUCT-$TARGET/$binary"
+      - name: Capture compiled CLI schema from the verified target archive
+        if: inputs.product == 'cli'
+        env:
+          TARGET: ${{ matrix.target }}
+        run: |
+          scripts/run-native-verification.sh "$TARGET" <<'SCHEMA'
+          node "$GITHUB_WORKSPACE/typescript/scripts/native-application-schema.mjs" capture \
+            "$PWD" "$RUNNER_TEMP/release-version-state.json" "$TARGET" \
+            "$RUNNER_TEMP/injected-archive/tmt-cli-$TARGET/tmt" "target/distrib/tmt-cli-$TARGET.tar.gz" \
+            "target/distrib/$TARGET-application-schema.json"
+          SCHEMA
       - name: Recheck version-only source after this stage
         uses: ./.github/actions/inject-release-version
         with:
@@ -152,6 +165,7 @@ jobs:
             release-source/target/distrib/*.sha256
             release-source/target/distrib/*-dist-manifest.json
             release-source/target/distrib/*-notices.txt
+            release-source/target/distrib/*-application-schema.json
           if-no-files-found: error
           retention-days: 7
 
@@ -229,6 +243,10 @@ jobs:
           node "$GITHUB_WORKSPACE/typescript/scripts/release-version-injection.mjs" manifests "$PWD" "$RUNNER_TEMP/release-version-state.json" \
             "$RUNNER_TEMP/plan.json" "$RUNNER_TEMP/dist-manifest.json"
           cp "$RUNNER_TEMP/dist-manifest.json" target/distrib/dist-manifest.json
+          if [ "$PRODUCT" = cli ]; then
+            node "$GITHUB_WORKSPACE/typescript/scripts/native-application-schema.mjs" assemble \
+              "$PWD" "$RUNNER_TEMP/release-version-state.json" target/distrib
+          fi
           # How this product's GitHub release must be published (#333): only the
           # CLI becomes the repository's latest release.
           node typescript/scripts/release-policy.mjs --product "$PRODUCT" > target/distrib/release-publication.json
@@ -258,6 +276,7 @@ jobs:
             release-source/target/distrib/tmt-installer.sh
             release-source/target/distrib/install.sh
             release-source/target/distrib/*-notices.txt
+            release-source/target/distrib/*-application-schema.json
           if-no-files-found: error
           retention-days: 7
 
@@ -332,11 +351,13 @@ jobs:
           started=$SECONDS
           node typescript/scripts/release-policy.mjs --product "$PRODUCT" | cmp - target/distrib/release-publication.json
           if [ "$PRODUCT" = cli ]; then
-            node typescript/scripts/verify-native-artifact.mjs \
+            node "$GITHUB_WORKSPACE/typescript/scripts/verify-native-artifact.mjs" \
               --manifest target/distrib/dist-manifest.json \
               --archive "target/distrib/tmt-cli-$TARGET.tar.gz" --target "$TARGET" \
               --skill skills/tmux-team/SKILL.md --license LICENSE \
-              --notices "target/distrib/$TARGET-notices.txt"
+              --notices "target/distrib/$TARGET-notices.txt" --source-root "$PWD" \
+              --schema-snapshot "$RUNNER_TEMP/release-version-state.json" \
+              --schema-evidence "target/distrib/$TARGET-application-schema.json"
             node typescript/scripts/verify-native-bootstrap.mjs \
               --manifest target/distrib/dist-manifest.json \
               --archive "target/distrib/tmt-cli-$TARGET.tar.gz" --target "$TARGET" \

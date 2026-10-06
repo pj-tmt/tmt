@@ -15,6 +15,91 @@ const bundle = read('.github/workflows/native-release-bundle.yml');
 const prepare = read('.github/workflows/native-release-prepare.yml');
 const smokeWorkflow = read('.github/workflows/native-release-smoke.yml');
 
+describe('compiled CLI schema preparation order', () => {
+  const blocks = (source: string) => ({
+    build: source.split('  build:\n')[1].split('  assemble:\n')[0],
+    assemble: source.split('  assemble:\n')[1].split('  verify:\n')[0],
+    verify: source.split('  verify:\n')[1].split('  upgrade-fetch:\n')[0],
+  });
+  function requireSchemaOrder(source: string) {
+    const { build, assemble, verify } = blocks(source);
+    expect(build).toContain(
+      "inputs.product == 'cli' && matrix.target == 'x86_64-apple-darwin' && 'x64'"
+    );
+    const capture = build.indexOf('name: Capture compiled CLI schema');
+    expect(capture).toBeGreaterThan(
+      build.indexOf('name: Verify plan, archive and binary versions')
+    );
+    expect(build.indexOf('scripts/run-native-verification.sh "$TARGET"', capture)).toBeGreaterThan(
+      capture
+    );
+    expect(build.indexOf('native-application-schema.mjs" capture', capture)).toBeGreaterThan(
+      capture
+    );
+    expect(capture).toBeLessThan(build.indexOf('name: Recheck version-only source'));
+    expect(build).toContain('release-source/target/distrib/*-application-schema.json');
+    const merge = assemble.indexOf('dist build --tag');
+    const attach = assemble.indexOf('native-application-schema.mjs" assemble');
+    expect(attach).toBeGreaterThan(merge);
+    expect(attach).toBeLessThan(assemble.indexOf('generate-native-bootstrap.mjs'));
+    expect(attach).toBeLessThan(assemble.indexOf('uses: actions/upload-artifact@v4'));
+    expect(assemble).toContain('release-source/target/distrib/*-application-schema.json');
+    expect(verify).toContain(
+      'node "$GITHUB_WORKSPACE/typescript/scripts/verify-native-artifact.mjs"'
+    );
+    expect(verify).toContain('--schema-snapshot "$RUNNER_TEMP/release-version-state.json"');
+    expect(verify).toContain('--schema-evidence "target/distrib/$TARGET-application-schema.json"');
+    expect(verify).toContain('--source-root "$PWD"');
+    expect(verify.indexOf('scripts/run-native-verification.sh "$TARGET"')).toBeLessThan(
+      verify.indexOf('--schema-snapshot')
+    );
+    expect(verify).not.toContain('native-application-schema.mjs" assemble');
+  }
+  it('captures on matching hosts, inserts after cargo-dist merge and verifies without rewriting', () => {
+    requireSchemaOrder(prepare);
+    const source = read('typescript/scripts/verify-native-artifact.mjs');
+    expect(source).toContain('verifyApplicationSchema({');
+    expect(source).toContain('Final schema manifest changed during verification');
+    expect(source.indexOf('verifyApplicationSchema({')).toBeLessThan(
+      source.indexOf('await verifyNativeRuntime({')
+    );
+    expect(source.indexOf('Final schema manifest changed during verification')).toBeGreaterThan(
+      source.indexOf('await verifyNativeRuntime({')
+    );
+    expect(source).toContain("'schema-snapshot': { type: 'string' }");
+  });
+  it.each(['capture', 'carrier', 'evidence', 'snapshot', 'source', 'rosetta'])(
+    'detects removal of the %s obligation',
+    (guard) => {
+      const changed = prepare.replace(
+        {
+          capture: 'name: Capture compiled CLI schema',
+          carrier: 'native-application-schema.mjs" assemble',
+          evidence: '--schema-evidence',
+          snapshot: '--schema-snapshot',
+          source: '--source-root "$PWD"',
+          rosetta: "inputs.product == 'cli' && matrix.target == 'x86_64-apple-darwin' && 'x64'",
+        }[guard]!,
+        'REMOVED'
+      );
+      expect(changed).not.toBe(prepare);
+      expect(() => requireSchemaOrder(changed)).toThrow();
+    }
+  );
+  it('refuses a carrier inserted after bootstrap generation', () => {
+    const line =
+      'node "$GITHUB_WORKSPACE/typescript/scripts/native-application-schema.mjs" assemble';
+    const changed = prepare
+      .replace(line, 'REMOVED')
+      .replace(
+        'node typescript/scripts/generate-native-bootstrap.mjs',
+        `node typescript/scripts/generate-native-bootstrap.mjs\n          ${line}`
+      );
+    expect(changed).not.toBe(prepare);
+    expect(() => requireSchemaOrder(changed)).toThrow();
+  });
+});
+
 describe('independent release-tag concurrency guard', () => {
   it('keys every publishing pipeline concurrency group on the allocated tag', () => {
     const directory = path.join(repository, '.github/workflows');

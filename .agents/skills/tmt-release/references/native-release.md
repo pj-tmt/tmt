@@ -360,6 +360,33 @@ script and verifies the public download before the README advertises it.
 Replacing npm/pnpm is a fresh installation without data-transfer machinery; never
 delete old state or silently uninstall another manager.
 
+## Compiled CLI schema preparation
+
+New CLI preparation requires Core's accepted `__native-schema --source-sha <cut> --json`
+exporter. A source predating it refuses explicitly; existing published schema-less archive
+readers retain their compatibility. The schema carrier supplies no producer trust
+tuple, RC catalog, cleanup qualification or publishing authorization. Exporter integration and
+separately authorized four-host proof are delivery gates; tooling fixtures prove no native archive.
+
+The existing target jobs export from their verified archive's CLI with matching-host/Rosetta
+execution and no extra build. `native-application-schema.mjs` checks the strict compact v1 record
+against the exact-cut version snapshot: the complete direct `storage/schema/*.sql` inventory,
+`storage/migrations.rs` and `storage/migrations/host_names.rs`, including the separate indexes input.
+Unknown/omitted/extra closure inputs refuse; changing that declared closure requires Core review.
+Core owns domain/version semantics; SQL counts and the descriptive caller SHA prove neither.
+Version-only manifest/lock edits remain with the existing injection owner. Export runs with an
+empty PATH and isolated HOME/cwd/config, no credentials, and refuses observed state writes;
+this observation is not an OS sandbox or proof of no external effects. Red roots are retained.
+
+Target evidence binds captured source, binary/output and unchanged archive hashes. After the
+ordinary global cargo-dist merge, all four records must agree before the carrier adds
+`tmt_application_schema`, still within the 4 MiB final manifest bound. Bootstrap generation and
+final upload follow; final matching-host archive verification independently exports the extracted
+CLI and compares the whole field and target evidence. It refuses a changed manifest through the
+end of runtime verification. Sidecars remain preparation evidence, not a new release asset policy.
+No extension schema is inferred, published manifest rewritten or PR binary executed with writer
+credentials. Source/tooling proof and actual integrated native preparation remain separate gates.
+
 ## Packed verifier cleanup
 
 Packed verifiers use bounded synchronous subprocesses and own their isolated process
