@@ -68,9 +68,10 @@ The reserved `design/browser-ui/` home is a private presentation leaf owned by
 tmt-ux. Products may depend on the leaf; it must not import product code. Core and
 the CLI must neither depend on nor embed it. This reserves the home and dependency
 direction; package files, exports and product adoption are not delivered. Before
-runtime files are added, Infra reviews the concrete runtime responsibility and
-shared component map, Core reviews workspace/lockfile/dependency changes, and
-Colab/Remote review packaging on the exact proposed head. Workspace registration
+initial leaf implementation, Infra reviews the concrete responsibility and
+component-map proposal. Resulting workspace, lockfile and dependency changes
+receive Core review, and packaging changes receive Colab/Remote review at the
+actual implementation head before delivery/adoption. Workspace registration
 and implementation remain planned. The initial package issue is #1797.
 
 The static entry must provide checked, deterministic token/component CSS that the
