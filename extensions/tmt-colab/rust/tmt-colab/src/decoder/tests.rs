@@ -133,3 +133,81 @@ fn injected_deadline_preserves_production_defaults_and_cleanup_fence() {
         Err(DecodeFault::InvalidInput)
     ));
 }
+
+#[test]
+fn content_batch_parent_rejects_structure_bounds_correlation_and_projection_substitution() {
+    let expected = serde_json::json!({"html":"new","meta":{"title":"T"}});
+    let valid = serde_json::json!({
+        "version":1,"input_hash":"binding","batch":{"kind":"updates","updates":[URL_SAFE_NO_PAD.encode([1])]},
+        "projection":expected,"memory_limit":memory_limit(),"pid":1
+    });
+    let mut invalid = Vec::new();
+    for (key, value) in [
+        ("version", serde_json::json!(2)),
+        ("input_hash", serde_json::json!("wrong")),
+        ("pid", serde_json::json!(0)),
+        ("extra", serde_json::json!(true)),
+        (
+            "memory_limit",
+            serde_json::json!(if memory_limit() == MemoryLimit::Enforced {
+                MemoryLimit::Unavailable
+            } else {
+                MemoryLimit::Enforced
+            }),
+        ),
+        (
+            "projection",
+            serde_json::json!({"html":"wrong","meta":{"title":"T"}}),
+        ),
+        (
+            "projection",
+            serde_json::json!({"html":"new","meta":{"title":"wrong"}}),
+        ),
+        (
+            "projection",
+            serde_json::json!({"html":"new","meta":{"title":"T","publisherAgent":"wrong"}}),
+        ),
+    ] {
+        let mut value2 = valid.clone();
+        value2[key] = value;
+        invalid.push(value2);
+    }
+    for updates in [
+        Vec::new(),
+        vec![String::new()],
+        vec!["AA==".to_owned()],
+        vec![URL_SAFE_NO_PAD.encode(vec![0; UPDATE_BYTES + 1])],
+        vec!["AQ".to_owned(); WRITE_TAIL_UPDATES + 1],
+        vec![URL_SAFE_NO_PAD.encode(vec![0; UPDATE_BYTES]); 17],
+    ] {
+        let mut value = valid.clone();
+        value["batch"]["updates"] = serde_json::json!(updates);
+        invalid.push(value);
+    }
+    let mut noop = valid.clone();
+    noop["batch"] = serde_json::json!({"kind":"noop"});
+    invalid.push(noop.clone());
+    noop["batch"]["updates"] = serde_json::json!([]);
+    invalid.push(noop);
+    let mut extra = valid.clone();
+    extra["batch"]["extra"] = serde_json::json!(true);
+    invalid.push(extra);
+    for value in invalid {
+        assert!(
+            serde_json::from_value::<WirePreparedContent>(value)
+                .and_then(
+                    |wire| admit_prepared_content(wire, "binding", &expected, false)
+                        .map_err(serde::de::Error::custom)
+                )
+                .is_err()
+        );
+    }
+    let result = admit_prepared_content(
+        serde_json::from_value(valid).unwrap(),
+        "binding",
+        &expected,
+        false,
+    )
+    .unwrap();
+    assert_eq!(result.batch, ContentBatch::Updates(vec![vec![1]]));
+}
