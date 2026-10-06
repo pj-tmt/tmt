@@ -23,6 +23,14 @@ export interface LiveSessionOwner {
   reconnect(previous: Registration): Promise<LiveSession>;
 }
 
+interface LiveOpen {
+  replaceSession: boolean;
+  pending: boolean;
+  registration: Registration;
+  remote: RemoteClient | null;
+  connection: Connection | null;
+}
+
 /** Mounted update-only page binding. A fresh reconnect reconstructs from seq 1;
  * unsupported history is a blocking failure rather than a partial projection. */
 export class Live implements PageBinding {
@@ -33,15 +41,15 @@ export class Live implements PageBinding {
   #refreshOlderAsks = true;
   #views = Promise.resolve();
   #processingViews = false;
-  #pendingView: { value: PageView; admission: Admission } | null = null;
+  #pendingView: { value: PageView; admission: Admission; open: LiveOpen } | null = null;
   #admitted: PageView = { source: '', title: '' };
   #connection: Connection | null = null;
   #current: Promise<Connection>;
   #writer: Writer;
   #closed = false;
-  #connecting = false;
+  #opening: LiveOpen | null = null;
   #attempts = 0;
-  #diagnosing = false;
+  #diagnosing: LiveOpen | null = null;
   #projection: PageView = { source: '', title: '' };
   #listeners = new Set<{ publish(value: PageView): void; failed(error: Error): void }>();
   #error: Error | null = null;
@@ -54,7 +62,8 @@ export class Live implements PageBinding {
     remote: RemoteClient | null = null,
     private sessionOwner?: LiveSessionOwner,
   ) {
-    this.#current = this.#open();
+    this.#remote = remote;
+    this.#current = this.#startOpen();
     this.#writer = new Writer(
       `writer:${bootstrap.space}:${page.pageId}:${page.epoch}:${registration.deviceId}`,
       () => this.#current,
@@ -69,7 +78,7 @@ export class Live implements PageBinding {
       own: () => this.#admitted.own ?? {},
       connection: () => this.#current,
       publish: (records) => this.#writer.submitOwnRecords(records),
-      available: () => !this.#closed && !this.#error && !this.#connecting,
+      available: () => !this.#closed && !this.#error && !this.#opening?.pending,
     });
     this.#replaceAsk(remote);
     if (typeof document !== 'undefined')
@@ -82,7 +91,7 @@ export class Live implements PageBinding {
     this.#remote = remote;
     this.ask?.close();
     const { bootstrap, page, registration } = this;
-    this.ask = remote
+    const facade: LiveAsk | undefined = remote
       ? new LiveAsk({
           remote,
           space: bootstrap.space,
@@ -115,11 +124,12 @@ export class Live implements PageBinding {
           connection: () => this.#current,
           observe: () => this.#observe(),
           sessionEnded: (error) => {
-            if (!this.#connecting && !this.#closed && !this.#error)
+            if (this.ask === facade && this.registration === registration)
               this.#failed(error ?? new SessionEndedError('REMOTE_SESSION_ENDED'));
           },
         })
       : undefined;
+    this.ask = facade;
   }
   #abort = () => this.close();
   #visibility = () => {
@@ -133,7 +143,7 @@ export class Live implements PageBinding {
   #observe() {
     if (
       this.#closed ||
-      this.#connecting ||
+      this.#opening?.pending ||
       !this.ask ||
       this.#error ||
       this.#observation ||
@@ -164,13 +174,40 @@ export class Live implements PageBinding {
           this.#observe();
       });
   }
-  async #open(replaceSession = false): Promise<Connection> {
-    this.#connecting = true;
+  #owns(open: LiveOpen) {
+    return (
+      !this.#closed &&
+      !this.#error &&
+      this.#opening === open &&
+      this.registration === open.registration &&
+      this.#remote === open.remote
+    );
+  }
+  #startOpen(replaceSession = false) {
+    const open: LiveOpen = {
+      replaceSession,
+      pending: true,
+      registration: this.registration,
+      remote: this.#remote,
+      connection: null,
+    };
+    this.#opening = open;
+    const current = this.#open(open);
+    void current.catch((error) => {
+      if (this.#owns(open))
+        this.#block(error instanceof Error ? error : new Error('Sync unavailable'));
+    });
+    return current;
+  }
+  async #open(open: LiveOpen): Promise<Connection> {
+    let ready = false;
     try {
-      if (replaceSession && this.sessionOwner) {
-        const session = await this.sessionOwner.reconnect(this.registration);
-        if (this.#closed) throw new Error('Page closed');
-        this.registration = session.registration;
+      if (open.replaceSession) {
+        if (!this.sessionOwner) throw new Error('Session replacement unavailable');
+        const session = await this.sessionOwner.reconnect(open.registration);
+        requireValue(this.#owns(open));
+        this.registration = open.registration = session.registration;
+        open.remote = session.remote;
         this.#replaceAsk(session.remote);
       }
       const a = new Admission(
@@ -178,33 +215,38 @@ export class Live implements PageBinding {
         this.page.pageId,
         this.page.epoch,
         this.bootstrap.owner,
-        this.registration,
+        open.registration,
       );
       await a.restore();
-      if (this.#closed) throw new Error('Page closed');
-      const c = (this.#connection = new Connection(
+      requireValue(this.#owns(open));
+      const c = new Connection(
         a,
         this.mount,
         this.page.sharing,
         (value) => {
-          if (this.#closed) return;
+          if (!this.#owns(open)) return;
           this.#admitted = structuredClone(value);
-          this.#pendingView = { value: this.#admitted, admission: a };
+          this.#pendingView = { value: this.#admitted, admission: a, open };
           if (!this.#processingViews) {
             this.#processingViews = true;
             this.#views = Promise.resolve().then(() => this.#publishViews());
           }
         },
         (error) => {
-          if (this.#connection === c) this.#failed(error);
+          if (this.#owns(open) && open.connection === c) this.#failed(error);
         },
-      ));
+      );
+      this.#connection = open.connection = c;
       await c.ready;
+      requireValue(this.#owns(open));
       this.#attempts = 0;
+      ready = true;
       return c;
     } finally {
-      this.#connecting = false;
-      this.#observe();
+      if (ready && this.#owns(open)) {
+        open.pending = false;
+        this.#observe();
+      }
     }
   }
   async #publishViews(): Promise<void> {
@@ -212,108 +254,120 @@ export class Live implements PageBinding {
       // At most one active and one latest pending snapshot: slow crypto never
       // builds an unbounded queue of detached own documents.
       while (this.#pendingView && !this.#closed) {
-        const { value, admission } = this.#pendingView;
+        const { value, admission, open } = this.#pendingView;
         this.#pendingView = null;
-        const connection = this.#connection;
-        if (!connection || connection.admission !== admission) continue;
-        const asks = await pageAsks(value.own ?? {}, admission, (writer) =>
-          connection.objects.ownSigningKey(writer),
-        );
-        if (this.#closed || this.#connection?.admission !== admission || this.#pendingView)
-          continue;
-        await this.sessionOwner?.rememberTitle?.(
-          this.page.pageId,
-          value.title,
-          admission.registration,
-        );
-        if (this.#closed || this.#connection?.admission !== admission || this.#pendingView)
-          continue;
-        const threads = readThreads(
-          value.own ?? {},
-          {
-            spaceId: admission.space,
-            pageId: admission.page,
-            epoch: admission.epoch,
-          },
-          (writer) => connection.objects.ownSigningKey(writer),
-        );
-        this.#projection = { ...value, asks, threads };
-        this.#listeners.forEach((v) => v.publish(structuredClone(this.#projection)));
-        this.#observe();
+        const connection = open.connection;
+        if (!this.#owns(open) || !connection || connection.admission !== admission) continue;
+        try {
+          const asks = await pageAsks(value.own ?? {}, admission, (writer) =>
+            connection.objects.ownSigningKey(writer),
+          );
+          if (!this.#owns(open) || this.#pendingView) continue;
+          await this.sessionOwner?.rememberTitle?.(
+            this.page.pageId,
+            value.title,
+            open.registration,
+          );
+          if (!this.#owns(open) || this.#pendingView) continue;
+          const threads = readThreads(
+            value.own ?? {},
+            { spaceId: admission.space, pageId: admission.page, epoch: admission.epoch },
+            (writer) => connection.objects.ownSigningKey(writer),
+          );
+          this.#projection = { ...value, asks, threads };
+          this.#listeners.forEach((v) => v.publish(structuredClone(this.#projection)));
+          this.#observe();
+        } catch (error) {
+          if (this.#owns(open))
+            this.#block(error instanceof Error ? error : new Error('Ask data unavailable'));
+        }
       }
-    } catch (error) {
-      if (!this.#closed)
-        this.#block(error instanceof Error ? error : new Error('Ask data unavailable'));
     } finally {
       this.#processingViews = false;
     }
   }
   #failed(error: Error) {
-    if (this.#closed || this.#error) return;
+    const open = this.#opening;
+    if (!open || !this.#owns(open)) return;
     // Mounted WebSocket close does not carry Remote's signed reason. Read once
     // against the old session before deciding whether to reopen or show eviction.
+    const remote = open.remote;
     if (
       error.message === 'Sync disconnected' &&
-      this.#remote &&
-      typeof this.#remote.listAgents === 'function' &&
-      !this.#connecting
+      remote &&
+      typeof remote.listAgents === 'function' &&
+      !open.pending
     ) {
-      if (this.#diagnosing) return;
-      this.#diagnosing = true;
-      void this.#remote
+      if (this.#diagnosing === open) return;
+      this.#diagnosing = open;
+      void remote
         .listAgents()
         .then(
-          () => this.#recoverFailure(error),
-          (reason: unknown) =>
-            this.#recoverFailure(
-              reason instanceof SessionEvictedError || reason instanceof SessionEndedError
-                ? reason
-                : error,
-            ),
+          () => {
+            if (this.#owns(open)) this.#recoverFailure(error);
+          },
+          (reason: unknown) => {
+            if (this.#owns(open))
+              this.#recoverFailure(
+                reason instanceof SessionEvictedError || reason instanceof SessionEndedError
+                  ? reason
+                  : error,
+              );
+          },
         )
         .finally(() => {
-          this.#diagnosing = false;
+          if (this.#diagnosing === open) this.#diagnosing = null;
         });
       return;
     }
     this.#recoverFailure(error);
   }
   #recoverFailure(error: Error) {
-    if (this.#closed || this.#error) return;
-    if (error instanceof SessionEvictedError) {
-      this.#block(error);
-      return;
-    }
+    const open = this.#opening;
+    if (!open || !this.#owns(open)) return;
     const sessionEnded =
       error instanceof SessionEndedError || error.message === 'Remote session ended';
     if (
-      !this.#connecting &&
+      error instanceof SessionEvictedError ||
+      (sessionEnded && (!this.sessionOwner || (open.pending && open.replaceSession))) ||
+      (open.pending && !sessionEnded)
+    ) {
+      this.#block(error);
+      return;
+    }
+    if (
       this.#attempts++ < 3 &&
       (sessionEnded ||
         ['Sync disconnected', 'RESYNC_REQUIRED', 'Fresh membership catchup required'].includes(
           error.message,
         ))
     ) {
+      // Retire this attempt before close callbacks or late readiness can run.
+      this.#opening = null;
       this.#observation?.abort();
       this.#observation = null;
       this.ask?.close();
       this.ask = undefined;
+      this.#pendingView = null;
       this.#listeners.forEach((v) => v.publish(structuredClone(this.#projection)));
-      const previous = this.#connection;
       this.#connection = null;
-      previous?.close();
+      open.connection?.close();
       // A tunnel resync retains the verified Session and Remote port. Only a
       // session fault may replace them and end other mounted tunnels.
       if (!sessionEnded) this.#replaceAsk(this.#remote);
-      this.#current = this.#open(sessionEnded);
-      void this.#current.catch((next) => this.#block(next instanceof Error ? next : error));
+      this.#current = this.#startOpen(sessionEnded);
     } else this.#block(error);
   }
   #block(error: Error) {
+    const connection = this.#connection;
+    this.#opening = null;
+    this.#connection = null;
+    this.#pendingView = null;
+    this.#error = error;
     this.#observation?.abort();
     this.ask?.close();
     this.#writer.close();
-    this.#error = error;
+    connection?.close();
     this.#listeners.forEach((v) => v.failed(error));
   }
   async snapshot(): Promise<PageSnapshot> {
@@ -392,6 +446,7 @@ export class Live implements PageBinding {
   close() {
     if (this.#closed) return;
     this.#closed = true;
+    this.#opening = null;
     this.#observation?.abort();
     if (typeof document !== 'undefined')
       document.removeEventListener('visibilitychange', this.#visibility);
