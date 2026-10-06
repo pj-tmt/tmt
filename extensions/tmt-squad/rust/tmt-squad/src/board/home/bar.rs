@@ -106,16 +106,20 @@ fn count_pieces(counts: &Counts, words: bool) -> Vec<Piece> {
         ("○", counts.idle, Role::Dim, "idle"),
     ]
     .into_iter()
-    .map(|(mark, count, role, label)| {
+    .flat_map(|(mark, count, role, label)| {
         let suffix = if words {
             format!(" {label}")
         } else {
             String::new()
         };
-        (
-            format!("{mark} {count}{suffix}  "),
-            Some(if count == 0 { Role::Dim } else { role }),
-        )
+        [
+            (
+                mark.to_owned(),
+                Some(if count == 0 { Role::Dim } else { role }),
+            ),
+            (format!(" {count}{suffix}"), Some(Role::Text)),
+            ("  ".into(), Some(Role::Dim)),
+        ]
     })
     .collect()
 }
@@ -169,10 +173,10 @@ pub(super) fn summary_in(
             home.squads.len(),
             home.summary.members
         ),
-        None,
+        Some(Role::Text),
     )];
     wide.extend(count_pieces(&home.summary, true));
-    let mut narrow = vec![(format!("{} squads  ", home.squads.len()), None)];
+    let mut narrow = vec![(format!("{} squads  ", home.squads.len()), Some(Role::Text))];
     narrow.extend(count_pieces(&home.summary, false));
     let key = Key {
         width,
@@ -251,14 +255,7 @@ fn usage_pieces(usage: &HomeHeaderUsage<'_>, width: u16, wide: bool) -> Vec<Piec
     let mut pieces: Vec<Piece> = vec![
         (windows, Some(Role::Text)),
         (" · ".into(), Some(Role::Dim)),
-        (
-            top,
-            Some(if usage.top.is_some() {
-                Role::Accent
-            } else {
-                Role::Dim
-            }),
-        ),
+        (top, Some(Role::Text)),
     ];
     if let Some(unreported) = unreported {
         let used: usize = pieces.iter().map(|(text, _)| text.width()).sum();
@@ -289,7 +286,7 @@ fn usage_pieces(usage: &HomeHeaderUsage<'_>, width: u16, wide: bool) -> Vec<Piec
             pieces.push((models, Some(Role::Text)));
         }
         pieces.push((" · ".into(), Some(Role::Dim)));
-        pieces.push((unreported, Some(Role::Dim)));
+        pieces.push((unreported, Some(Role::Text)));
     }
     pieces
 }
