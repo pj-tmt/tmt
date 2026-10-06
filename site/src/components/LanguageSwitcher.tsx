@@ -67,7 +67,7 @@ export function LanguageSwitcher({
         id={id}
         hidden={!open}
         aria-label={ui.language}
-        className={`absolute top-full z-20 m-0 min-w-36 list-none border border-term-edge bg-term p-1 font-mono text-[13px] leading-normal font-normal shadow-[3px_3px_0_var(--c-text)] ${bar ? "right-0" : "left-0"}`}
+        className={`absolute top-full z-20 m-0 min-w-36 list-none border border-term-edge bg-term p-1 font-mono text-[13px] leading-normal font-normal ${bar ? "right-0" : "left-0"}`}
       >
         {languages.map((language) => (
           <li key={language.code}>

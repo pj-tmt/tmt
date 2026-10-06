@@ -274,10 +274,7 @@ export function PaneDemo({
   const step = steps[player.index];
   return (
     <div ref={root} className="my-5 w-full" role="group" aria-label={label}>
-      <div
-        aria-hidden="true"
-        className="overflow-hidden border border-term-edge bg-term shadow-[6px_6px_0_var(--c-accent)]"
-      >
+      <div aria-hidden="true" className="overflow-hidden border border-term-edge bg-term">
         <FitWidth width={640}>
           <div className="grid h-[400px] grid-cols-2 grid-rows-2 font-mono text-xs leading-[1.55] text-t-text">
             {layout.map((pane, index) => {

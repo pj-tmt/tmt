@@ -1,22 +1,18 @@
 import type { ReactNode } from "react";
-import { MarkLegend } from "../chapter-scenes/MarkLegend";
+import { BoardStepScene } from "./journey-scenes";
 import { ColabPage } from "../chapter-scenes/ColabPage";
-import { MeetRoom } from "../chapter-scenes/MeetRoom";
-import { MessageTravel } from "../chapter-scenes/MessageTravel";
 import { Inline } from "../components/Inline";
 import { LocalLink } from "../components/LocalLink";
 import { Tag } from "../components/marks";
 import { pages } from "../chapters";
 import { useStrings } from "../lang/useStrings";
 
-type Key = "working" | "squad" | "colab" | "meet";
+type Key = "squad" | "colab";
 
 // Where each tour section links, and the scene it borrows from that chapter.
 const TOUR: { key: Key; path: string; scene: () => ReactNode }[] = [
-  { key: "working", path: "/working", scene: () => <MessageTravel /> },
-  { key: "squad", path: "/extensions/squad", scene: () => <MarkLegend /> },
+  { key: "squad", path: "/extensions/squad", scene: () => <BoardStepScene /> },
   { key: "colab", path: "/extensions/colab", scene: () => <ColabPage /> },
-  { key: "meet", path: "/extensions/meet", scene: () => <MeetRoom /> },
 ];
 
 // One edge-to-edge band of the home page: an eyebrow, a large claim, one
@@ -35,11 +31,9 @@ export function Band({
   children: ReactNode;
 }) {
   return (
-    <section id={id} className="border-t border-rule py-14">
-      <div className="font-mono text-xs leading-none font-semibold tracking-[0.06em] text-accent before:text-dim before:content-['##_']">
-        {eyebrow}
-      </div>
-      <h2 className="mt-2.5 mb-4 font-mono text-[clamp(26px,3.6vw,40px)] leading-[1.05] font-bold tracking-[-0.02em] text-balance">
+    <section id={id} className="home-band">
+      <div className="home-eyebrow">{eyebrow}</div>
+      <h2 className="home-band-title">
         <Inline text={title} />
         {status && <Tag kind={status.kind}>{status.label}</Tag>}
       </h2>
@@ -88,15 +82,10 @@ export function Showcase() {
 export function BandHead({ name }: { name: "start" | "install" }) {
   const section = useStrings().home.showcase.sections[name];
   return (
-    <div className="mt-0 border-t border-rule pt-14">
-      <div className="font-mono text-xs leading-none font-semibold tracking-[0.06em] text-accent before:text-dim before:content-['##_']">
-        {section.eyebrow}
-      </div>
+    <div className="home-band-head">
+      <div className="home-eyebrow">{section.eyebrow}</div>
       {"title" in section && (
-        <h2
-          id={`${name}-band`}
-          className="mt-2.5 mb-4 font-mono text-[clamp(26px,3.6vw,40px)] leading-[1.05] font-bold tracking-[-0.02em] text-balance"
-        >
+        <h2 id={`${name}-band`} className="home-band-title">
           <Inline text={section.title} />
         </h2>
       )}

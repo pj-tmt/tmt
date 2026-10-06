@@ -9,7 +9,7 @@ export function Concepts() {
     <div className="my-6">
       <ol className="m-0 grid list-none grid-cols-1 gap-3 p-0 md:grid-cols-3">
         {concepts.items.map((item, k) => (
-          <li key={item.name} className="min-w-0 border border-rule bg-sheet p-3.5">
+          <li key={item.name} className="min-w-0 border-t border-rule pt-5 pb-3">
             <div className="font-mono text-xs text-dim">{k + 1}</div>
             <b className="block font-mono text-lg text-text">{item.name}</b>
             <p className="mt-1.5 mb-0 text-[15px] leading-snug text-muted">

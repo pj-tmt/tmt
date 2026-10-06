@@ -10,6 +10,7 @@ import { useLang } from "../lang/useLang";
 import { useStrings } from "../lang/useStrings";
 import { applyTheme, themeAtom } from "../state/theme";
 import { LocalLink } from "./LocalLink";
+import { HomePage } from "../home/Hero";
 import { Tag } from "./marks";
 import { StatusBar } from "./StatusBar";
 
@@ -168,11 +169,11 @@ export function Layout() {
       <StatusBar current={current} />
       {current.path === "/" ? (
         // Home is one wide, edge-to-edge tour: no contents column, no pager.
-        <main className="mx-auto max-w-[1180px] min-w-0 px-4 pb-16">
+        <main className="handbook-home">
           <Outlet />
         </main>
       ) : (
-        <div className="mx-auto grid max-w-[900px] grid-cols-1 px-4 pb-16 xl:max-w-[1120px] xl:grid-cols-[minmax(0,860px)_200px] xl:gap-12">
+        <div className="handbook-chapter-layout">
           <main className="min-w-0">
             <Outlet />
             <Pager current={current} />
@@ -180,6 +181,10 @@ export function Layout() {
           <Toc current={current} />
         </div>
       )}
+      <footer className="handbook-footer">
+        <LocalLink to="/">tmt</LocalLink>
+        <a href="https://github.com/pj-tmt/tmt">GitHub ↗</a>
+      </footer>
     </>
   );
 }
@@ -187,22 +192,34 @@ export function Layout() {
 // The page body: the chapter's border rule and title, then its content.
 export function Chapter() {
   const { lang, current, title, Content, translated } = useCurrent();
-  const { chrome } = useStrings();
+  const { chrome, home } = useStrings();
+  const location = useLocation();
   const crumbs: Record<string, string> = chrome.crumbs;
   const statusLabels: Record<string, string> = chrome.status;
   const fallback = lang !== "en" && !translated;
   const note = fallback && <NotTranslated />;
   if (current.path === "/")
     return (
-      <section className="pt-14 pb-2">
+      <section className="home-content">
         {note}
-        <div lang={fallback ? "en" : undefined}>
-          <Content />
-        </div>
+        {location.hash === "install" ? (
+          <div lang={fallback ? "en" : undefined}>
+            <Content />
+          </div>
+        ) : (
+          <>
+            <HomePage />
+            <p className="home-guide">
+              <LocalLink to="/" hash="install">
+                {home.install} →
+              </LocalLink>
+            </p>
+          </>
+        )}
       </section>
     );
   return (
-    <section className="pt-10">
+    <section className="handbook-chapter">
       <div className="flex items-center gap-2.5 font-mono text-xs leading-none text-muted before:w-7 before:border-t before:border-rule after:flex-1 after:border-t after:border-rule">
         <span className="text-text">{current.index}</span>
         <span>{crumbs[current.file] ?? current.crumb}</span>
@@ -212,9 +229,7 @@ export function Chapter() {
           </Tag>
         )}
       </div>
-      <h2 className="mt-4.5 mb-3.5 font-mono text-[clamp(26px,3.6vw,40px)] leading-[1.08] font-bold tracking-[-0.02em] text-balance">
-        {title}
-      </h2>
+      <h2 className="chapter-title">{title}</h2>
       {note}
       <div lang={fallback ? "en" : undefined}>
         <Content />
