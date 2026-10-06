@@ -14,6 +14,7 @@ use std::sync::Arc;
 const SDK: &str = include_str!("../assets/remote-v1.js");
 const BOOTSTRAP: &str = include_str!("../assets/pair.js");
 const PAGE: &str = include_str!("../assets/pair.html");
+const ENTRY: &str = include_str!("../assets/landing.js");
 const LANDING: &str = include_str!("../assets/landing.html");
 const ERROR: &str = include_str!("../assets/error.html");
 const STYLE: &str = include_str!("../assets/pages.css");
@@ -66,6 +67,7 @@ impl Pages {
                     path,
                     "/" | "/pair"
                         | "/sdk/pair.js"
+                        | "/sdk/landing.js"
                         | "/sdk/pair-offer"
                         | "/sdk/remote-v1.js"
                         | "/sdk/pages.css"
@@ -113,6 +115,7 @@ impl Pages {
                 asset("text/javascript; charset=utf-8", SDK, None)
             }
             "/sdk/pair.js" => asset("text/javascript; charset=utf-8", BOOTSTRAP, None),
+            "/sdk/landing.js" => asset("text/javascript; charset=utf-8", ENTRY, None),
             "/sdk/pair-offer" => {
                 let Some(descriptor) = self
                     .pairing

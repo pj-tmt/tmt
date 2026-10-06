@@ -1156,8 +1156,10 @@ admission. Remote's root `/p/<id>` alias redirects to Colab's mounted `p/<id>` r
 Colab owns short-ID resolution, while the door session cookie stays scoped to the mount space.
 [`contracts/remote-channel-v1.md`](contracts/remote-channel-v1.md) owns
 the wire, pairing, session, operations and extension channel API. Remote owns the
-static root landing and pairing-page errors as well as the pairing ceremony;
-protocol refusals and mounted extension responses retain their own representation.
+static browser entry and pairing ceremony; human serve links name `/`, while protocol addresses
+retain their route prefix. Saved pairing is local evidence, not live authority: only an explicit
+connection check opens a signed Session. No state display sends work or designates an administrator.
+Protocol refusals and mounted extension responses retain their own representation.
 [Planned Remote settings administration](contracts/remote-channel-v1.md#remote-settings-browser-authority)
 uses a separate local-owner designation from paired channel trust; its browser/SDK surface is not
 implemented. Remote owns that authority, while shared browser components own presentation only.
@@ -1171,6 +1173,7 @@ bind the session through a non-secret, cookie-device-checked `tmt-session` ident
 stripped at the door. Last transport close, idle expiry and authority loss reuse
 session-owned cleanup; grant-owned held work survives session end and cancels only on
 stop, revoke or grant expiry/revision change. Uncertain dispatch retains recovery.
+The `objects` backend is a library-only seam, not yet routed (#1852): [guide](.agents/skills/tmt-remote/references/object-backends.md).
 
 System-wide invariants:
 
@@ -1180,10 +1183,12 @@ System-wide invariants:
 - Enrolled panes are never pasted to; core's send-time guard decides, never terminal output.
 - The serve lease is inherited by invocation children, so restart cannot overlap an orphaned effect.
 
-Local extensions discover a running Remote through read-only `tmt remote status --json`
-or supervise `tmt remote serve --json` and consume its bound descriptor. The
-[local CLI discovery contract](contracts/remote-channel-v1.md#local-cli-discovery)
-owns both shapes; Colab never reads Remote's private state.
+Remote's binary-private `serve` owner composes one serving algorithm: human starts detach through
+an exact native worker/private bounded handoff; bare `serve --json` stays foreground for supervisors.
+The existing lease/control/invocation owners govern lifetime and cleanup; uncertainty never authorizes
+successor signals or automatic restart. Local extensions discover through read-only `status --json`.
+The [local CLI discovery contract](contracts/remote-channel-v1.md#local-cli-discovery) owns both
+public shapes; Colab never reads Remote's private state.
 
 ## Colab extension
 
@@ -1242,5 +1247,4 @@ core discovery or storage access.
   or runtime implementation is claimed; archive/history/native acceptance remains required.
 - **Plaintext invariant.** Page source and export are root-local: only the isolated decoder
   child decodes Yjs, no route serves plaintext, and the browser Worker is resource
-  containment, not a security sandbox. Private causal content-batch preparation returns deltas
-  without publishing them; browser Save and CLI write still use their single-update paths.
+  containment, not a security sandbox. Private causal content-batch preparation returns deltas without publishing them; browser Save and CLI write still use their single-update paths.

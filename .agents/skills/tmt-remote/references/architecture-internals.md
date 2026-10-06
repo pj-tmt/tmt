@@ -3,17 +3,18 @@
 Module owners (put a change in the existing owner; `canonical`, `crypto`, `wire`
 and `transport` have no I/O, clock, storage or `CoreClient` access):
 
-| Module                              | Owns                                                                                                                                                                           |
-| ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `main`, `core`                      | Foreground composition and the two startup calls; `CoreClient` runs only fixed public `api`, `list --json`, `identity list --json`, `check <name> --json` via `TMT_EXECUTABLE` |
-| `http`, `routes`, `site`, `limits`  | Loopback door framing and bounds, `/r/` binding routes, route dispatch; every bound is named in `limits`                                                                       |
-| `wire`, `canonical`, `crypto`       | Strict JSON admission with exact payload bytes, framing/fingerprint codecs, signature and HMAC verification                                                                    |
-| `session`, `admission`, `transport` | `session.open`, one normal message in flight per session, durable sequence consumption, envelope hand-off                                                                      |
-| `journal`, `budgets`, `audit`       | Metadata streams and recovery ownership, persisted budgets, audit written in the owning transaction                                                                            |
-| `operations`, `approval`            | Dispatch/read operations over the public core API; local held-operation confirmation on the control socket                                                                     |
-| `authority`, `store`, `state`       | Typed grants, `remote.db` and schema history, layout/machine key/serve lock                                                                                                    |
-| `pairing`, `control`, `devices`     | One pairing offer per run, owner-only control socket for discovery/stop and device list/revoke/rename                                                                          |
-| `mount`, `pages`                    | Extension mounts (allowlisted extensions only), static landing/pairing/error pages and embedded stylesheet/SDK assets                                                          |
+| Module                                 | Owns                                                                                                                                                                                                        |
+| -------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `main`, binary-private `serve`, `core` | CLI dispatch, one foreground/background composition and the two startup calls; `CoreClient` runs only fixed public `api`, `list --json`, `identity list --json`, `check <name> --json` via `TMT_EXECUTABLE` |
+| `http`, `routes`, `site`, `limits`     | Loopback door framing and bounds, `/r/` binding routes, route dispatch; every bound is named in `limits`                                                                                                    |
+| `wire`, `canonical`, `crypto`          | Strict JSON admission with exact payload bytes, framing/fingerprint codecs, signature and HMAC verification                                                                                                 |
+| `session`, `admission`, `transport`    | `session.open`, one normal message in flight per session, durable sequence consumption, envelope hand-off                                                                                                   |
+| `journal`, `budgets`, `audit`          | Metadata streams and recovery ownership, persisted budgets, audit written in the owning transaction                                                                                                         |
+| `operations`, `approval`               | Dispatch/read operations over the public core API; local held-operation confirmation on the control socket                                                                                                  |
+| `authority`, `store`, `state`          | Typed grants, `remote.db` and schema history, layout/machine key/serve lock                                                                                                                                 |
+| `pairing`, `control`, `devices`        | One pairing offer per run, owner-only control socket for discovery/stop and device list/revoke/rename                                                                                                       |
+| `mount`, `pages`                       | Extension mounts (allowlisted extensions only), static landing/pairing/error pages and embedded stylesheet/SDK assets                                                                                       |
+| `objects`                              | Object backend trait and `LocalFs`: the `objects.db` ledger and extension-private payload trees under the serve lease; no route, config or consumer yet                                                     |
 
 Rules that are easy to get wrong:
 
@@ -56,6 +57,10 @@ Rules that are easy to get wrong:
 - **Embedded SDK asset.** The door embeds `assets/remote-v1.js` built from
   `remote-client/src`; rebuild and commit it as described in
   [sdk-operations.md](sdk-operations.md#embedded-client-and-crypto-fixtures).
+- **Object backend.** `objects` has one metadata and accounting owner (`objects.db`),
+  opened with the `Serving` proof; bodies live under `<dataRoot>/<extension>/objects/`
+  and are reached only through no-follow directory handles. Read
+  [object-backends.md](object-backends.md) before changing it.
 - **Parked add-on.** `typescript/browser-addon` is a demo shell with no crypto,
   pairing or network; it is not a working channel (#1056).
 

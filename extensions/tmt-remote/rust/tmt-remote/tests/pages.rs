@@ -211,6 +211,33 @@ fn static_pages_and_styles_are_exact_and_refusals_remain_generic() {
         r#"<span class="header-mark">tmt</span><span class="header-wordmark">Remote</span>"#
     ));
     assert!(landing.body.contains("aria-hidden=\"true\">○</span>"));
+    assert!(landing.body.contains("/sdk/landing.js"));
+    for text in [
+        "pairing-status",
+        "access-status",
+        "tmt remote pair",
+        "four words",
+        "confirm in the terminal",
+    ] {
+        assert!(landing.body.contains(text), "{text}");
+    }
+    let entry = get(&h, "/sdk/landing.js", "");
+    assert_eq!(entry.status, 200);
+    assert_eq!(entry.body, include_str!("../assets/landing.js"));
+    assert_eq!(entry.header("cache-control"), Some("no-store"));
+    assert_eq!(
+        entry.header("content-type"),
+        Some("text/javascript; charset=utf-8")
+    );
+    assert_eq!(
+        get(&h, "/sdk/landing.js", "Origin: https://example.com\r\n").status,
+        403
+    );
+    assert_eq!(
+        h.grants(),
+        0,
+        "static entry never enrolls or admits a browser"
+    );
     assert_eq!(
         landing.header("content-type"),
         Some("text/html; charset=utf-8")
