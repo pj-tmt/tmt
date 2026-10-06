@@ -371,7 +371,7 @@ the command again is safe.
 The existing global-file `defaults.timeout` and `defaults.pollInterval` configure
 this foreground observation; polling defaults to one second and each wait is
 clipped to the remaining monotonic budget. `--timeout` overrides the configured
-deadline. A timeout for an unbound recipient reports that the agent has not
+deadline. A timeout for ordinary `talk` to an unbound recipient reports that the agent has not
 responded within the budget, retains exit 4 / `TIMEOUT`, and gives the exact
 `tmt result <request-id> --json`, recipient-UUID inbox pull and
 `tmt x show <request-id> --incoming --identity <recipient UUID> --json` commands.

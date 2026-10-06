@@ -854,7 +854,7 @@ replay authorization. Final bodies are immutable and terminal text is never
 completion evidence. Reads never acknowledge; originator and recipient
 acknowledgment are independent. `RequestRoute` separates unbound pane delivery from
 the durable identity inbox, which settles `queued`. Unbound identity delivery uses
-the foreground observer and recipient pull. Reply notice windows are composed by
+the foreground observer and recipient pull. Reply notice windows are persisted and composed by
 `request::notification` and `delivery::notices`, with finite detached workers owned
 by `process::detached`. See the [request contract](contracts/request-response-v1.md)
 for behavior and limits; module rules: [storage and requests reference](.agents/skills/tmt-core-runtime/references/requests-storage.md).

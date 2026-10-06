@@ -97,7 +97,7 @@ impl Correlation {
         }
     }
     fn inspection(&self) -> String {
-        if self.inbox {
+        if self.unbound {
             let mut suggestion = format!(
                 "Inspect with 'tmt result {} --json'. The request stays queued for a later reply; do not resend solely because the observer ended.",
                 self.request_id
@@ -108,6 +108,11 @@ impl Correlation {
                 suggestion.push('.');
             }
             suggestion
+        } else if self.inbox {
+            format!(
+                "Inspect with 'tmt result {}'. Do not resend solely because the observer ended.",
+                self.request_id
+            )
         } else {
             format!(
                 "Inspect with 'tmt result {}' and 'tmt check {}' before deciding whether to retry.",
@@ -672,6 +677,11 @@ pub(crate) const PRINTED_HINTS: &[crate::cli_style_tests::HintSpec] = &[
     ),
     crate::cli_style_tests::HintSpec::core(
         "Inspect with 'tmt result {} --json'. The request stays queued for a later reply; do not resend solely because the observer ended.",
+        &["'."],
+        &[],
+    ),
+    crate::cli_style_tests::HintSpec::core(
+        "Inspect with 'tmt result {}'. Do not resend solely because the observer ended.",
         &["'."],
         &[],
     ),
