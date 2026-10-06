@@ -29,6 +29,9 @@ struct Pilot {
     root: PathBuf,
     child: Option<Child>,
     background: bool,
+    pending_launcher: bool,
+    cleanup_observed: Option<Arc<AtomicBool>>,
+    private_workers: Vec<PrivateWorker>,
 }
 impl Pilot {
     fn new() -> Self {
@@ -42,6 +45,9 @@ impl Pilot {
             root,
             child: None,
             background: false,
+            pending_launcher: false,
+            cleanup_observed: None,
+            private_workers: Vec::new(),
         };
         let root = pilot.root.display();
         executable_fixture::write_executable(
@@ -66,9 +72,98 @@ impl Pilot {
             .env("TMT_EXECUTABLE", self.root.join("core"));
         cmd
     }
+    fn background_output(&mut self, options: &[&str]) -> std::process::Output {
+        if let Some(child) = &mut self.child {
+            assert!(
+                child.try_wait().unwrap().is_some(),
+                "never replace an unreaped fixture child"
+            );
+        }
+        self.background = true;
+        self.pending_launcher = true;
+        self.child = Some(
+            self.command()
+                .args(["serve", "--background", "--json"])
+                .args(options)
+                .stdout(fs::File::create(self.root.join("launcher.json")).unwrap())
+                .stderr(fs::File::create(self.root.join("launcher.stderr")).unwrap())
+                .spawn()
+                .unwrap(),
+        );
+        let status = reap_until(
+            self.child.as_mut().unwrap(),
+            Instant::now() + STARTUP + Duration::from_secs(45),
+        )
+        .expect("background launcher did not complete within startup/cleanup bound");
+        let stdout = fs::read(self.root.join("launcher.json")).unwrap();
+        let stderr = fs::read(self.root.join("launcher.stderr")).unwrap();
+        let value: Value = serde_json::from_slice(&stdout).unwrap();
+        // These completed parent results imply either completed handoff or the
+        // worker's cleanup confirmation plus reap. Ambiguity keeps the guard.
+        if (status.success() && value["state"] == "ready")
+            || matches!(
+                value["error"]["code"].as_str(),
+                Some(
+                    "REMOTE_ALREADY_SERVING"
+                        | "REMOTE_STATE_UNSAFE"
+                        | "REMOTE_PORT_BUSY"
+                        | "REMOTE_STARTUP_CANCELLED"
+                )
+            )
+        {
+            self.pending_launcher = false;
+        }
+        std::process::Output {
+            status,
+            stdout,
+            stderr,
+        }
+    }
+    // A launcher result is proof only after its own production cancellation
+    // owner reports confirmed pre-Accept cleanup and the exact child is reaped.
+    fn cancel_launcher(&mut self) -> Option<std::process::Output> {
+        // Any missing/malformed completion may include an accepted service.
+        // Attempt its existing stop owner, while retaining uncertainty.
+        let previously_admitted = self.background;
+        self.background = true;
+        let child = self.child.as_mut()?;
+        if matches!(child.try_wait(), Ok(None)) {
+            let _ = nix::sys::signal::kill(
+                nix::unistd::Pid::from_raw(child.id() as i32),
+                nix::sys::signal::Signal::SIGTERM,
+            );
+        }
+        let status = reap_until(child, Instant::now() + Duration::from_secs(45))?;
+        let stdout = fs::read(self.root.join("launcher.json")).ok()?;
+        let stderr = fs::read(self.root.join("launcher.stderr")).ok()?;
+        let value: Value = serde_json::from_slice(&stdout).ok()?;
+        if status.success() || value["error"]["code"] != "REMOTE_STARTUP_CANCELLED" {
+            // An accepted/ambiguous result is not pre-state cleanup evidence.
+            // Stop can handle a possibly admitted service, but uncertainty still
+            // retains the root rather than implying all invocations are gone.
+            return None;
+        }
+        eprintln!(
+            "owned launcher reaped with {}: {}",
+            value["error"]["code"], status
+        );
+        self.pending_launcher = false;
+        self.background = previously_admitted;
+        Some(std::process::Output {
+            status,
+            stdout,
+            stderr,
+        })
+    }
 }
 impl Drop for Pilot {
     fn drop(&mut self) {
+        let mut confirmed = !self.pending_launcher || self.cancel_launcher().is_some();
+        for worker in &mut self.private_workers {
+            if !worker.accepted {
+                confirmed &= worker.cancel_and_reap();
+            }
+        }
         if self.background {
             // A detached worker is not owned by the reaped launcher PID. Stop
             // only this admitted disposable root and confirm lease/socket cleanup.
@@ -114,21 +209,40 @@ impl Drop for Pilot {
                 })
                 .unwrap_or(false);
             if !clean || !released || self.root.join("state/remote/control.sock").exists() {
-                eprintln!(
-                    "background fixture cleanup unconfirmed; retained {}",
-                    self.root.display()
-                );
-                if !std::thread::panicking() {
-                    panic!("owned background fixture did not confirm cleanup");
-                }
-                return;
+                confirmed = false;
+            }
+        }
+        for worker in &mut self.private_workers {
+            if worker.accepted {
+                confirmed &= reap_until(&mut worker.child, Instant::now() + Duration::from_secs(2))
+                    .is_some();
             }
         }
         if let Some(mut child) = self.child.take() {
-            let _ = child.kill();
-            let _ = child.wait();
+            if matches!(child.try_wait(), Ok(None)) {
+                let _ = child.kill();
+            }
+            confirmed &= reap_until(&mut child, Instant::now() + Duration::from_secs(1)).is_some();
         }
-        fs::remove_dir_all(&self.root).unwrap();
+        if confirmed {
+            if let Some(observed) = &self.cleanup_observed {
+                eprintln!(
+                    "fixture cleanup confirmed before root removal: {}",
+                    self.root.display()
+                );
+                observed.store(true, Ordering::SeqCst);
+            }
+            if fs::remove_dir_all(&self.root).is_ok() {
+                return;
+            }
+        }
+        eprintln!(
+            "fixture cleanup unconfirmed; retained {}",
+            self.root.display()
+        );
+        if !std::thread::panicking() {
+            panic!("owned fixture did not confirm cleanup");
+        }
     }
 }
 fn exchange(socket: &str, request: &str) -> String {
@@ -911,6 +1025,12 @@ fn device_events_follow_cli_rename_and_replay_an_offline_revoke_on_restart() {
 /// Keep each started child in the fixture before reading readiness, including
 /// on assertion failure. Readiness is an output event, not a fixed delay.
 fn start_door(pilot: &mut Pilot, options: &[&str], human: bool) -> String {
+    let detached =
+        options.contains(&"--background") || (human && !options.contains(&"--foreground"));
+    if detached {
+        pilot.background = true;
+        pilot.pending_launcher = true;
+    }
     let mut command = pilot.command();
     command.arg("serve").args(options);
     if !human {
@@ -944,12 +1064,31 @@ fn start_door(pilot: &mut Pilot, options: &[&str], human: bool) -> String {
     });
     let result = receiver.recv_timeout(STARTUP);
     if result.is_err() {
+        if detached {
+            // No completed readiness receipt: request startup cancellation.
+            // Human output cannot prove private cleanup, so keep uncertainty.
+            let _ = pilot.cancel_launcher();
+        }
         let child = pilot.child.as_mut().unwrap();
-        let _ = child.kill();
-        child.wait().unwrap();
+        if matches!(child.try_wait(), Ok(None)) {
+            let _ = child.kill();
+        }
+        assert!(
+            reap_until(child, Instant::now() + Duration::from_secs(1)).is_some(),
+            "readiness failure did not reap the owned child; retain the fixture root"
+        );
     }
     reader.join().unwrap();
-    result.unwrap()
+    let output = result.unwrap();
+    if detached
+        && ((human && output.contains("Manage this door:"))
+            || (!human
+                && serde_json::from_str::<Value>(&output)
+                    .is_ok_and(|value| value["state"] == "ready")))
+    {
+        pilot.pending_launcher = false;
+    }
+    output
 }
 fn status_json(pilot: &Pilot) -> Value {
     let result = pilot.command().args(["status", "--json"]).output().unwrap();
@@ -1552,41 +1691,127 @@ fn session_limit_settings_show_source_and_preserve_open() {
 }
 
 // Exercise the actual binary-private startup owner, not a replacement algorithm.
-fn startup_worker(pilot: &mut Pilot) -> UnixStream {
-    let (parent, worker) = UnixStream::pair().unwrap();
-    pilot.background = true;
-    pilot.child = Some(
-        pilot
-            .command()
-            .args(["serve", "--foreground", "--worker", "--port", "0"])
-            .stdin(Stdio::from(std::os::fd::OwnedFd::from(worker)))
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .spawn()
-            .unwrap(),
-    );
-    parent.set_read_timeout(Some(STARTUP)).unwrap();
-    parent
+struct PrivateWorker {
+    child: Child,
+    stream: UnixStream,
+    failed_cleanup: bool,
+    accepted: bool,
 }
-fn startup_record(stream: &mut UnixStream) -> (u8, Value) {
+impl PrivateWorker {
+    fn record(&mut self) -> (u8, Value) {
+        let (tag, value) = read_startup_record(&mut self.stream, Instant::now() + STARTUP).unwrap();
+        if tag == 2 {
+            self.failed_cleanup = value["cleanupConfirmed"] == true;
+        }
+        (tag, value)
+    }
+    fn cancel_and_reap(&mut self) -> bool {
+        let deadline = Instant::now() + Duration::from_secs(45);
+        let _ = self.stream.set_write_timeout(Some(Duration::from_secs(1)));
+        let _ = self.stream.write_all(&[5]);
+        let _ = self.stream.shutdown(std::net::Shutdown::Write);
+        while !self.failed_cleanup {
+            match read_startup_record(&mut self.stream, deadline) {
+                Ok((2, value)) => {
+                    self.failed_cleanup = value["cleanupConfirmed"] == true;
+                    break;
+                }
+                Ok(_) => {}
+                Err(_) => break,
+            }
+        }
+        let exited = reap_until(&mut self.child, deadline).is_some();
+        if !exited && matches!(self.child.try_wait(), Ok(None)) {
+            // This is only an unreaped owned child. Forced exit cannot confirm
+            // its separately grouped invocation cleanup, so retain the root.
+            let _ = self.child.kill();
+            let _ = reap_until(&mut self.child, Instant::now() + Duration::from_secs(1));
+        }
+        eprintln!(
+            "private worker {} cleanup receipt={} reaped={}",
+            self.child.id(),
+            self.failed_cleanup,
+            exited
+        );
+        self.failed_cleanup && exited
+    }
+}
+fn reap_until(child: &mut Child, deadline: Instant) -> Option<std::process::ExitStatus> {
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) => return Some(status),
+            Ok(None) if Instant::now() < deadline => std::thread::sleep(Duration::from_millis(10)),
+            _ => return None,
+        }
+    }
+}
+fn startup_worker(pilot: &mut Pilot) -> usize {
+    let (parent, worker) = UnixStream::pair().unwrap();
+    let child = pilot
+        .command()
+        .args(["serve", "--foreground", "--worker", "--port", "0"])
+        .stdin(Stdio::from(std::os::fd::OwnedFd::from(worker)))
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .unwrap();
+    // Store both handles before any assertion or blocking read. Pilot owns
+    // cancellation, the terminal Failed receipt and reap before root deletion.
+    pilot.private_workers.push(PrivateWorker {
+        child,
+        stream: parent,
+        failed_cleanup: false,
+        accepted: false,
+    });
+    pilot.private_workers.len() - 1
+}
+fn read_startup_record(stream: &mut UnixStream, deadline: Instant) -> std::io::Result<(u8, Value)> {
+    fn read_until(
+        stream: &mut UnixStream,
+        mut bytes: &mut [u8],
+        deadline: Instant,
+    ) -> std::io::Result<()> {
+        while !bytes.is_empty() {
+            let left = deadline
+                .checked_duration_since(Instant::now())
+                .filter(|left| !left.is_zero())
+                .ok_or_else(|| std::io::Error::from(std::io::ErrorKind::TimedOut))?;
+            // Poll bounds the complete frame, including a partial header/body;
+            // a socket timeout alone would renew its allowance on each read.
+            use std::os::fd::AsFd;
+            let mut descriptors = [nix::poll::PollFd::new(
+                stream.as_fd(),
+                nix::poll::PollFlags::POLLIN,
+            )];
+            let timeout =
+                nix::poll::PollTimeout::try_from(left.min(Duration::from_millis(100))).unwrap();
+            if nix::poll::poll(&mut descriptors, timeout)? == 0 {
+                continue;
+            }
+            let count = stream.read(bytes)?;
+            if count == 0 {
+                return Err(std::io::ErrorKind::UnexpectedEof.into());
+            }
+            bytes = &mut bytes[count..];
+        }
+        Ok(())
+    }
     let mut header = [0; 5];
-    stream.read_exact(&mut header).unwrap();
+    read_until(stream, &mut header, deadline)?;
     let length = u32::from_be_bytes(header[1..].try_into().unwrap()) as usize;
-    assert!(length <= 4096);
+    if length + header.len() > 4096 {
+        return Err(std::io::ErrorKind::InvalidData.into());
+    }
     let mut bytes = vec![0; length];
-    stream.read_exact(&mut bytes).unwrap();
-    (header[0], serde_json::from_slice(&bytes).unwrap())
+    read_until(stream, &mut bytes, deadline)?;
+    Ok((header[0], serde_json::from_slice(&bytes)?))
 }
 
 #[test]
 fn background_json_is_clean_duplicate_does_not_clear_diagnostics_or_stop_original() {
     let mut pilot = Pilot::new();
     pilot.background = true;
-    let output = pilot
-        .command()
-        .args(["serve", "--background", "--json", "--port", "0"])
-        .output()
-        .unwrap();
+    let output = pilot.background_output(&["--port", "0"]);
     assert!(output.status.success());
     assert!(output.stderr.is_empty());
     assert_eq!(
@@ -1606,11 +1831,7 @@ fn background_json_is_clean_duplicate_does_not_clear_diagnostics_or_stop_origina
     );
     assert_eq!(fs::read(&diagnostic).unwrap(), b"");
     fs::write(&diagnostic, b"previous diagnostic fixture").unwrap();
-    let duplicate = pilot
-        .command()
-        .args(["serve", "--background", "--json"])
-        .output()
-        .unwrap();
+    let duplicate = pilot.background_output(&[]);
     assert!(!duplicate.status.success());
     assert!(duplicate.stderr.is_empty());
     let error: Value = serde_json::from_slice(&duplicate.stdout).unwrap();
@@ -1641,16 +1862,17 @@ fn background_json_is_clean_duplicate_does_not_clear_diagnostics_or_stop_origina
 #[test]
 fn ready_cancel_closes_owned_resources_and_preserves_machine_key() {
     let mut pilot = Pilot::new();
-    let mut stream = startup_worker(&mut pilot);
-    let (tag, ready) = startup_record(&mut stream);
+    let index = startup_worker(&mut pilot);
+    let worker = &mut pilot.private_workers[index];
+    let (tag, ready) = worker.record();
     assert_eq!(tag, 1);
     let key = fs::read(pilot.root.join("state/remote/machine.key")).unwrap();
-    stream.write_all(&[5]).unwrap();
-    let (tag, failed) = startup_record(&mut stream);
+    worker.stream.write_all(&[5]).unwrap();
+    let (tag, failed) = worker.record();
     assert_eq!(tag, 2);
     assert_eq!(failed["cleanupConfirmed"], true);
     assert_eq!(failed["code"], "REMOTE_STARTUP_CANCELLED");
-    let status = pilot.child.as_mut().unwrap().wait().unwrap();
+    let status = reap_until(&mut worker.child, Instant::now() + Duration::from_secs(45)).unwrap();
     assert!(!status.success());
     assert_eq!(status_json(&pilot)["running"], false);
     let (origin, _, _) = address_parts(ready["address"].as_str().unwrap());
@@ -1670,29 +1892,37 @@ fn ready_cancel_closes_owned_resources_and_preserves_machine_key() {
 #[test]
 fn lost_accepted_acknowledgment_keeps_the_actual_service_running() {
     let mut pilot = Pilot::new();
-    let mut stream = startup_worker(&mut pilot);
-    let (_, ready) = startup_record(&mut stream);
-    let worker = nix::unistd::Pid::from_raw(pilot.child.as_ref().unwrap().id() as i32);
+    let index = startup_worker(&mut pilot);
+    let startup = &mut pilot.private_workers[index];
+    let (_, ready) = startup.record();
+    let worker = nix::unistd::Pid::from_raw(startup.child.id() as i32);
     assert_eq!(nix::unistd::getsid(Some(worker)).unwrap(), worker);
     assert_ne!(nix::unistd::getsid(None).unwrap(), worker);
     // Refuse the acknowledgment, but buffer Accept before EOF. No re-execution.
-    stream.shutdown(std::net::Shutdown::Read).unwrap();
-    stream.write_all(&[3]).unwrap();
-    stream.shutdown(std::net::Shutdown::Write).unwrap();
-    drop(stream);
+    startup.stream.shutdown(std::net::Shutdown::Read).unwrap();
+    startup.stream.write_all(&[3]).unwrap();
+    startup.accepted = true;
+    pilot.background = true;
+    startup.stream.shutdown(std::net::Shutdown::Write).unwrap();
     let (origin, _, _) = address_parts(ready["address"].as_str().unwrap());
     let socket = origin.strip_prefix("http://").unwrap();
     assert!(
         exchange(socket, &format!("GET / HTTP/1.1\r\nHost: {socket}\r\n\r\n"))
             .contains("<!doctype html>")
     );
-    assert!(pilot.child.as_mut().unwrap().try_wait().unwrap().is_none());
+    assert!(
+        pilot.private_workers[index]
+            .child
+            .try_wait()
+            .unwrap()
+            .is_none()
+    );
     let status = status_json(&pilot);
     let (origin, path, _) = address_parts(ready["address"].as_str().unwrap());
     assert_eq!(status["origin"], origin);
     assert_eq!(status["path"], path);
     assert_eq!(stop_json(&pilot), serde_json::json!({"stopped":true}));
-    wait_stopped(pilot.child.as_mut().unwrap());
+    wait_stopped(&mut pilot.private_workers[index].child);
     assert!(!pilot.root.join("state/remote/control.sock").exists());
 }
 
@@ -1707,11 +1937,8 @@ fn unsafe_diagnostic_and_busy_port_refuse_without_replacing_files() {
     let foreign = pilot.root.join("foreign");
     fs::write(&foreign, b"must stay exact").unwrap();
     std::os::unix::fs::symlink(&foreign, &diagnostic).unwrap();
-    let result = pilot
-        .command()
-        .args(["serve", "--background", "--json"])
-        .output()
-        .unwrap();
+    // The launcher guard is installed before an unexpected acceptance can unwind.
+    let result = pilot.background_output(&[]);
     assert!(!result.status.success());
     let error: Value = serde_json::from_slice(&result.stdout).unwrap();
     assert_eq!(error["error"]["code"], "REMOTE_STATE_UNSAFE");
@@ -1719,11 +1946,7 @@ fn unsafe_diagnostic_and_busy_port_refuse_without_replacing_files() {
     fs::remove_file(&diagnostic).unwrap();
     let occupied = TcpListener::bind("127.0.0.1:0").unwrap();
     let port = occupied.local_addr().unwrap().port().to_string();
-    let result = pilot
-        .command()
-        .args(["serve", "--background", "--json", "--port", &port])
-        .output()
-        .unwrap();
+    let result = pilot.background_output(&["--port", &port]);
     assert!(!result.status.success());
     let error: Value = serde_json::from_slice(&result.stdout).unwrap();
     assert_eq!(error["error"]["code"], "REMOTE_PORT_BUSY");
@@ -1743,21 +1966,17 @@ fn unsafe_diagnostic_and_busy_port_refuse_without_replacing_files() {
 fn failed_private_start_record_is_bounded_and_reports_cleanup() {
     let mut pilot = Pilot::new();
     start_door(&mut pilot, &[], false);
-    let (mut stream, worker) = UnixStream::pair().unwrap();
-    stream.set_read_timeout(Some(STARTUP)).unwrap();
-    let mut duplicate = pilot
-        .command()
-        .args(["serve", "--foreground", "--worker"])
-        .stdin(Stdio::from(std::os::fd::OwnedFd::from(worker)))
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn()
-        .unwrap();
-    let (tag, failed) = startup_record(&mut stream);
+    let index = startup_worker(&mut pilot);
+    let duplicate = &mut pilot.private_workers[index];
+    let (tag, failed) = duplicate.record();
     assert_eq!(tag, 2, "{failed}");
     assert_eq!(failed["code"], "REMOTE_ALREADY_SERVING", "{failed}");
     assert_eq!(failed["cleanupConfirmed"], true, "{failed}");
-    assert!(!duplicate.wait().unwrap().success());
+    assert!(
+        !reap_until(&mut duplicate.child, Instant::now() + STARTUP)
+            .unwrap()
+            .success()
+    );
     stop_json(&pilot);
     wait_stopped(pilot.child.as_mut().unwrap());
 }
@@ -1782,48 +2001,15 @@ fn explicit_modes_refuse_conflict_and_foreground_preserves_terminal_ownership() 
 #[test]
 fn launcher_cancellation_reaps_a_real_pending_discovery_invocation() {
     let mut pilot = Pilot::new();
-    let barrier = pilot.root.join("barrier");
-    nix::unistd::mkfifo(
-        &barrier,
-        nix::sys::stat::Mode::S_IRUSR | nix::sys::stat::Mode::S_IWUSR,
-    )
-    .unwrap();
-    executable_fixture::write_executable(&pilot.root.join("core"), &format!(
-        "cat > '{root}/input'\nprintf '%s' \"$$\" > '{root}/pending.pid'\nread -r release < '{root}/barrier'\n",
-        root=pilot.root.display())).unwrap();
-    pilot.child = Some(
-        pilot
-            .command()
-            .args(["serve", "--background", "--json"])
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-            .unwrap(),
-    );
-    let deadline = Instant::now() + STARTUP;
-    let pending = loop {
-        if let Ok(pid) = fs::read_to_string(pilot.root.join("pending.pid"))
-            && let Ok(pid) = pid.parse::<i32>()
-        {
-            break pid;
-        }
-        assert!(
-            Instant::now() < deadline,
-            "actual invocation did not reach its barrier"
-        );
-        std::thread::sleep(Duration::from_millis(10));
-    };
+    let pending = start_pending_launcher(&mut pilot);
     assert!(
         fs::read_to_string(pilot.root.join("input"))
             .unwrap()
             .contains("capabilities")
     );
-    nix::sys::signal::kill(
-        nix::unistd::Pid::from_raw(pilot.child.as_ref().unwrap().id() as i32),
-        nix::sys::signal::Signal::SIGTERM,
-    )
-    .unwrap();
-    let output = pilot.child.take().unwrap().wait_with_output().unwrap();
+    let output = pilot
+        .cancel_launcher()
+        .expect("confirmed launcher cancellation and reap");
     assert!(!output.status.success());
     let error: Value = serde_json::from_slice(&output.stdout).unwrap();
     assert!(
@@ -1882,10 +2068,14 @@ fn startup_endpoint_is_not_inherited_by_actual_core_and_eof_reaps_pending_core()
             .contains("/dev/fd/0")
     );
     gate.write_all(b"continue\n").unwrap();
-    assert!(pilot.child.as_mut().unwrap().wait().unwrap().success());
+    assert!(
+        reap_until(pilot.child.as_mut().unwrap(), Instant::now() + STARTUP)
+            .unwrap()
+            .success()
+    );
     fs::remove_file(pilot.root.join("pending.pid")).unwrap();
     fs::remove_file(pilot.root.join("inherited-sockets")).unwrap();
-    let stream = startup_worker(&mut pilot);
+    let index = startup_worker(&mut pilot);
     let deadline = Instant::now() + STARTUP;
     let pending = loop {
         if let Ok(pid) = fs::read_to_string(pilot.root.join("pending.pid"))
@@ -1900,18 +2090,13 @@ fn startup_endpoint_is_not_inherited_by_actual_core_and_eof_reaps_pending_core()
         std::thread::sleep(Duration::from_millis(10));
     };
     assert!(!pilot.root.join("inherited-sockets").exists());
-    drop(stream);
-    let worker = pilot.child.as_mut().unwrap();
-    let status = loop {
-        if let Some(status) = worker.try_wait().unwrap() {
-            break status;
-        }
-        assert!(
-            Instant::now() < deadline,
-            "EOF did not clean the actual pending worker"
-        );
-        std::thread::sleep(Duration::from_millis(10));
-    };
+    let worker = &mut pilot.private_workers[index];
+    worker.stream.shutdown(std::net::Shutdown::Write).unwrap();
+    let (tag, failed) = worker.record();
+    assert_eq!(tag, 2);
+    assert_eq!(failed["cleanupConfirmed"], true);
+    let status =
+        reap_until(&mut worker.child, deadline).expect("EOF cleaned the actual pending worker");
     assert!(!status.success());
     assert_eq!(
         nix::sys::signal::kill(nix::unistd::Pid::from_raw(pending), None),
@@ -1928,6 +2113,7 @@ fn background_serving_survives_departure_of_its_real_terminal() {
     // script owns a disposable PTY. Its exit closes that terminal, rather than
     // simulating departure solely by closing a pipe or painting a status label.
     pilot.background = true;
+    pilot.pending_launcher = true;
     let mut terminal = Command::new("/usr/bin/script");
     terminal.env_clear();
     for (name, value) in pilot.command().get_envs() {
@@ -1971,6 +2157,8 @@ fn background_serving_survives_departure_of_its_real_terminal() {
             && output.contains("tmt remote status")
             && output.contains("tmt remote stop")
     );
+    // The exact PTY launcher exited successfully and published full readiness.
+    pilot.pending_launcher = false;
     let status = status_json(&pilot);
     assert_eq!(status["running"], true);
     let socket = status["origin"]
@@ -1984,4 +2172,210 @@ fn background_serving_survives_departure_of_its_real_terminal() {
     );
     assert_eq!(stop_json(&pilot), serde_json::json!({"stopped":true}));
     assert_eq!(status_json(&pilot)["running"], false);
+}
+
+// Deliberately unwind after actual core discovery has entered its barrier.
+// The PID is an observation only, never authority to signal a descendant.
+#[test]
+fn pending_launcher_assertion_unwind_confirms_cleanup_before_root_removal() {
+    let mut pilot = Pilot::new();
+    let root = pilot.root.clone();
+    let confirmed = Arc::new(AtomicBool::new(false));
+    pilot.cleanup_observed = Some(confirmed.clone());
+    let pending = start_pending_launcher(&mut pilot);
+    assert!(
+        std::panic::catch_unwind(std::panic::AssertUnwindSafe(move || {
+            let _owned = pilot;
+            panic!("deliberate pending launcher fixture failure");
+        }))
+        .is_err()
+    );
+    let deadline = Instant::now() + Duration::from_secs(45);
+    while nix::sys::signal::kill(nix::unistd::Pid::from_raw(pending), None)
+        != Err(nix::errno::Errno::ESRCH)
+    {
+        assert!(
+            Instant::now() < deadline,
+            "pending invocation cleanup unconfirmed; retained evidence at {}",
+            root.display()
+        );
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    assert!(
+        confirmed.load(Ordering::SeqCst),
+        "root removal needs confirmed startup cancellation plus owned launcher reap"
+    );
+    assert!(!root.exists());
+}
+fn pending_core(pilot: &Pilot) {
+    let barrier = pilot.root.join("barrier");
+    nix::unistd::mkfifo(
+        &barrier,
+        nix::sys::stat::Mode::S_IRUSR | nix::sys::stat::Mode::S_IWUSR,
+    )
+    .unwrap();
+    executable_fixture::write_executable(&pilot.root.join("core"), &format!(
+        "cat > '{root}/input'\nprintf '%s' \"$$\" > '{root}/pending.pid'\nread -r release < '{root}/barrier'\n", root=pilot.root.display())).unwrap();
+}
+fn start_pending_launcher(pilot: &mut Pilot) -> i32 {
+    pending_core(pilot);
+    pilot.pending_launcher = true;
+    pilot.child = Some(
+        pilot
+            .command()
+            .args(["serve", "--background", "--json"])
+            .stdout(fs::File::create(pilot.root.join("launcher.json")).unwrap())
+            .stderr(fs::File::create(pilot.root.join("launcher.stderr")).unwrap())
+            .spawn()
+            .unwrap(),
+    );
+    let deadline = Instant::now() + STARTUP;
+    loop {
+        if let Ok(pid) = fs::read_to_string(pilot.root.join("pending.pid"))
+            && let Ok(pid) = pid.parse::<i32>()
+        {
+            return pid;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "actual invocation did not reach its barrier"
+        );
+        std::thread::sleep(Duration::from_millis(10));
+    }
+}
+
+#[test]
+fn private_worker_assertion_unwind_cancels_pending_core_and_reaps_before_removal() {
+    let mut pilot = Pilot::new();
+    let root = pilot.root.clone();
+    let confirmed = Arc::new(AtomicBool::new(false));
+    pilot.cleanup_observed = Some(confirmed.clone());
+    pending_core(&pilot);
+    let index = startup_worker(&mut pilot);
+    let worker_pid = pilot.private_workers[index].child.id() as i32;
+    let deadline = Instant::now() + STARTUP;
+    let pending = loop {
+        if let Ok(pid) = fs::read_to_string(root.join("pending.pid"))
+            && let Ok(pid) = pid.parse::<i32>()
+        {
+            break pid;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "private worker did not reach actual core barrier"
+        );
+        std::thread::sleep(Duration::from_millis(10));
+    };
+    assert!(
+        std::panic::catch_unwind(std::panic::AssertUnwindSafe(move || {
+            let _owned = pilot;
+            panic!("deliberate private worker fixture failure");
+        }))
+        .is_err()
+    );
+    assert!(confirmed.load(Ordering::SeqCst));
+    for pid in [pending, worker_pid] {
+        assert_eq!(
+            nix::sys::signal::kill(nix::unistd::Pid::from_raw(pid), None),
+            Err(nix::errno::Errno::ESRCH)
+        );
+    }
+    assert!(!root.exists());
+}
+#[test]
+fn duplicate_private_worker_assertion_unwind_reaps_duplicate_and_stops_original() {
+    let mut pilot = Pilot::new();
+    let root = pilot.root.clone();
+    let confirmed = Arc::new(AtomicBool::new(false));
+    pilot.cleanup_observed = Some(confirmed.clone());
+    let ready: Value =
+        serde_json::from_str(&start_door(&mut pilot, &["--port", "0"], false)).unwrap();
+    let (origin, _, _) = address_parts(ready["address"].as_str().unwrap());
+    let socket = origin.strip_prefix("http://").unwrap().to_owned();
+    // Existing admitted root stop owns the original service; the separate
+    // private guard owns the duplicate, installed before its first frame read.
+    pilot.background = true;
+    let index = startup_worker(&mut pilot);
+    let duplicate_pid = pilot.private_workers[index].child.id() as i32;
+    assert!(
+        std::panic::catch_unwind(std::panic::AssertUnwindSafe(move || {
+            let _owned = pilot;
+            panic!("deliberate duplicate worker assertion failure");
+        }))
+        .is_err()
+    );
+    assert!(confirmed.load(Ordering::SeqCst));
+    assert_eq!(
+        nix::sys::signal::kill(nix::unistd::Pid::from_raw(duplicate_pid), None),
+        Err(nix::errno::Errno::ESRCH)
+    );
+    assert!(TcpStream::connect(socket).is_err());
+    assert!(!root.exists());
+}
+#[test]
+fn unexpected_accepted_background_assertion_unwind_stops_before_removal() {
+    let mut pilot = Pilot::new();
+    let root = pilot.root.clone();
+    let confirmed = Arc::new(AtomicBool::new(false));
+    pilot.cleanup_observed = Some(confirmed.clone());
+    let output = pilot.background_output(&["--port", "0"]);
+    assert!(output.status.success());
+    let ready: Value = serde_json::from_slice(&output.stdout).unwrap();
+    let (origin, _, _) = address_parts(ready["address"].as_str().unwrap());
+    let socket = origin.strip_prefix("http://").unwrap().to_owned();
+    assert!(
+        std::panic::catch_unwind(std::panic::AssertUnwindSafe(move || {
+            let _owned = pilot;
+            panic!("deliberate expected-refusal assertion after accepted startup");
+        }))
+        .is_err()
+    );
+    assert!(confirmed.load(Ordering::SeqCst));
+    assert!(TcpStream::connect(socket).is_err());
+    assert!(!root.exists());
+}
+
+#[test]
+fn missing_private_cleanup_receipt_retains_root_without_double_panic() {
+    let mut pilot = Pilot::new();
+    let root = pilot.root.clone();
+    let observed = Arc::new(AtomicBool::new(false));
+    pilot.cleanup_observed = Some(observed.clone());
+    let index = startup_worker(&mut pilot);
+    let worker = &mut pilot.private_workers[index];
+    let (_, ready) = worker.record();
+    worker.stream.write_all(&[5]).unwrap();
+    // Deliberately consume the real completion outside the guard. Exit alone
+    // must not replace a missing guard receipt, even with no control socket.
+    let (tag, completion) =
+        read_startup_record(&mut worker.stream, Instant::now() + STARTUP).unwrap();
+    assert_eq!(tag, 2);
+    assert_eq!(completion["cleanupConfirmed"], true);
+    assert!(reap_until(&mut worker.child, Instant::now() + STARTUP).is_some());
+    assert!(
+        std::panic::catch_unwind(std::panic::AssertUnwindSafe(move || {
+            let _owned = pilot;
+            panic!("deliberate failure without guard cleanup receipt");
+        }))
+        .is_err()
+    );
+    assert!(!observed.load(Ordering::SeqCst));
+    assert!(
+        root.exists(),
+        "missing receipt must retain diagnostic state"
+    );
+    let (origin, _, _) = address_parts(ready["address"].as_str().unwrap());
+    assert!(TcpStream::connect(origin.strip_prefix("http://").unwrap()).is_err());
+    // The test, unlike the deliberately deprived guard, retained the actual
+    // worker completion plus reap above. Only now remove its retained artifact.
+    let layout = tmt_remote::state::Layout::existing(&root.join("state"))
+        .unwrap()
+        .unwrap();
+    drop(layout.existing_serve_lock().unwrap());
+    assert!(!root.join("state/remote/control.sock").exists());
+    eprintln!(
+        "independent real completion and reap verified; removing retained artifact {}",
+        root.display()
+    );
+    fs::remove_dir_all(root).unwrap();
 }
