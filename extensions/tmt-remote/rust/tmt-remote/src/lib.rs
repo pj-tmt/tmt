@@ -14,6 +14,7 @@ pub mod http;
 pub mod journal;
 pub mod limits;
 pub mod mount;
+pub mod objects;
 pub mod open;
 pub mod operations;
 pub mod pages;
