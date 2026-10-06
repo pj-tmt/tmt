@@ -50,6 +50,12 @@ and `limits.rs`; do not restate them.
   application result. `decoder::Config` carries the program and deadline; only tests inject
   a larger deadline (`tests/support`), and no option tunes the production deadline.
 
+- `Decoder::prepare_content_batch` uses the private `__decoder prepare-content` entry to return
+  an explicit no-op or ordered causal update batch. The child replays the batch from the supplied
+  admitted base and verifies the expected content projection; the parent checks input/output
+  correlation, strict shape, bounds and expected metadata without parsing Yjs. The batch is
+  preparation only: existing CLI publication still uses its single-update path.
+
 ## Page source and export
 
 - `page.rs` reads and writes admitted source locally: it prepares through the fold and
@@ -98,3 +104,9 @@ and `limits.rs`; do not restate them.
 - Parent chrome policy and renderer policy are two constants in `assets.rs` (`POLICY`,
   `RENDERER_POLICY`); change them only with the colab-v1 renderer section and the
   `renderer.spec.ts` browser checks.
+- `Fold.prepareContent` uses the private `prepare-content` Worker command to return an explicit
+  no-op or bounded ordered content deltas with the expected projection. Preparation leaves
+  committed Worker state unchanged, and the parent validates the typed result against its
+  admitted base. This interface has no signing or transport capability; browser Save still uses
+  its existing single-update path until the separately reviewed atomic integration replaces that
+  caller.

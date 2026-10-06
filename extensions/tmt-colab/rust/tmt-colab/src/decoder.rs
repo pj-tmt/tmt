@@ -137,6 +137,24 @@ pub struct Decoded {
     pub memory_limit: MemoryLimit,
     pub child_pid: u32,
 }
+/// Plaintext causal preparation only; publication remains the caller's responsibility.
+#[derive(Debug, PartialEq, Eq)]
+pub enum ContentBatch {
+    Noop,
+    Updates(Vec<Vec<u8>>),
+}
+pub struct PreparedContent {
+    pub batch: ContentBatch,
+    pub projection: Value,
+    pub memory_limit: MemoryLimit,
+    pub child_pid: u32,
+}
+#[derive(Clone, Copy)]
+enum ChildCommand {
+    Decode,
+    Baseline,
+    PrepareContent,
+}
 /// Caller-owned invocation configuration. Production composition uses `new`;
 /// tests can inject a larger deadline without changing caps or cleanup ownership.
 #[derive(Clone, Debug)]
@@ -274,7 +292,7 @@ impl Decoder {
             return Err(DecodeFault::InvalidInput);
         }
         let hash = URL_SAFE_NO_PAD.encode(Sha256::digest(&input));
-        let output = self.invoke(&input, false, stop, deadline)?;
+        let output = self.invoke(&input, ChildCommand::Decode, stop, deadline)?;
         if !output.status.success() {
             return Err(DecodeFault::Rejected);
         }
@@ -337,6 +355,59 @@ impl Decoder {
             stop,
             Instant::now() + self.config.deadline,
         )
+    }
+    /// Prepare bounded deltas against the exact admitted content projection. The
+    /// parent checks correlation and projection; only the child parses Yjs.
+    pub fn prepare_content_batch(
+        &mut self,
+        batch: UpdateBatch<'_>,
+        expected_base: &Value,
+        edit: ContentEdit<'_>,
+        stop: Option<&AtomicBool>,
+    ) -> Result<PreparedContent, DecodeFault> {
+        if self.blocked {
+            return Err(DecodeFault::CleanupBlocked);
+        }
+        let deadline = Instant::now() + self.config.deadline;
+        if batch.namespace != Namespace::Content
+            || edit.source.len() > BASELINE_BYTES
+            || edit
+                .publisher_agent
+                .is_some_and(|v| !valid_publisher_agent(v))
+            || batch.updates.len() > UPDATES
+            || batch
+                .updates
+                .iter()
+                .map(|v| v.len())
+                .try_fold(batch.baseline.len(), usize::checked_add)
+                .is_none_or(|n| n > STATE_BYTES)
+        {
+            return Err(DecodeFault::InvalidInput);
+        }
+        validate_projection(Namespace::Content, expected_base)
+            .map_err(|_| DecodeFault::InvalidInput)?;
+        let expected = edited_projection(expected_base, edit);
+        let wire = WireContentPreparation {
+            version: 1,
+            baseline: URL_SAFE_NO_PAD.encode(batch.baseline),
+            updates: batch
+                .updates
+                .iter()
+                .map(|v| URL_SAFE_NO_PAD.encode(v))
+                .collect(),
+            expected_base: expected_base.clone(),
+            source: edit.source.to_owned(),
+            publisher_agent: edit.publisher_agent.map(str::to_owned),
+        };
+        let input = serde_json::to_vec(&wire).map_err(|_| DecodeFault::InvalidInput)?;
+        let hash = URL_SAFE_NO_PAD.encode(Sha256::digest(&input));
+        let output = self.invoke(&input, ChildCommand::PrepareContent, stop, deadline)?;
+        if !output.status.success() {
+            return Err(DecodeFault::Rejected);
+        }
+        let reply: WirePreparedContent =
+            serde_json::from_slice(&output.stdout).map_err(|_| DecodeFault::InvalidOutput)?;
+        admit_prepared_content(reply, &hash, &expected, expected == *expected_base)
     }
     /// Produces once from a fresh document and checks materialization in the child.
     pub fn produce_baseline(
@@ -423,7 +494,7 @@ impl Decoder {
             action,
         })
         .map_err(|_| DecodeFault::InvalidInput)?;
-        let output = self.invoke(&input, true, stop, deadline)?;
+        let output = self.invoke(&input, ChildCommand::Baseline, stop, deadline)?;
         if !output.status.success() {
             return Err(DecodeFault::Rejected);
         }
@@ -468,7 +539,7 @@ impl Decoder {
     fn invoke(
         &mut self,
         input: &[u8],
-        baseline: bool,
+        command: ChildCommand,
         stop: Option<&AtomicBool>,
         deadline: Instant,
     ) -> Result<tmt_invoke::Output, DecodeFault> {
@@ -476,8 +547,10 @@ impl Decoder {
             return Err(DecodeFault::InvalidInput);
         }
         let mut args = vec!["__decoder".into()];
-        if baseline {
-            args.push("baseline".into());
+        match command {
+            ChildCommand::Decode => {}
+            ChildCommand::Baseline => args.push("baseline".into()),
+            ChildCommand::PrepareContent => args.push("prepare-content".into()),
         }
         tmt_invoke::invoke(
             Request {
@@ -528,6 +601,90 @@ struct WireResult {
     projection: Value,
     memory_limit: MemoryLimit,
     pid: u32,
+}
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct WireContentPreparation {
+    version: u8,
+    baseline: String,
+    updates: Vec<String>,
+    expected_base: Value,
+    source: String,
+    publisher_agent: Option<String>,
+}
+#[derive(Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "lowercase", deny_unknown_fields)]
+enum WireContentBatch {
+    Noop,
+    Updates { updates: Vec<String> },
+}
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct WirePreparedContent {
+    version: u8,
+    input_hash: String,
+    batch: WireContentBatch,
+    projection: Value,
+    memory_limit: MemoryLimit,
+    pid: u32,
+}
+fn edited_projection(base: &Value, edit: ContentEdit<'_>) -> Value {
+    let mut expected = base.clone();
+    expected["html"] = Value::String(edit.source.into());
+    let meta = expected["meta"]
+        .as_object_mut()
+        .expect("validated content metadata");
+    if let Some(agent) = edit.publisher_agent {
+        meta.insert("publisherAgent".into(), Value::String(agent.into()));
+    } else {
+        meta.remove("publisherAgent");
+    }
+    expected
+}
+fn admit_prepared_content(
+    reply: WirePreparedContent,
+    input_hash: &str,
+    expected: &Value,
+    noop: bool,
+) -> Result<PreparedContent, DecodeFault> {
+    if reply.version != 1
+        || reply.input_hash != input_hash
+        || reply.pid == 0
+        || reply.memory_limit != memory_limit()
+        || reply.projection != *expected
+        || serde_json::to_vec(&reply.projection)
+            .map_err(|_| DecodeFault::InvalidOutput)?
+            .len()
+            > STATE_BYTES
+    {
+        return Err(DecodeFault::InvalidOutput);
+    }
+    validate_projection(Namespace::Content, &reply.projection)?;
+    let batch = match reply.batch {
+        WireContentBatch::Noop if noop => ContentBatch::Noop,
+        WireContentBatch::Updates { updates } if !noop => {
+            if updates.is_empty() || updates.len() > WRITE_TAIL_UPDATES {
+                return Err(DecodeFault::InvalidOutput);
+            }
+            let updates = updates
+                .iter()
+                .map(|v| binary(v, UPDATE_BYTES).map_err(|_| DecodeFault::InvalidOutput))
+                .collect::<Result<Vec<_>, _>>()?;
+            if updates.iter().any(Vec::is_empty)
+                || updates.iter().map(Vec::len).sum::<usize>() > WRITE_TAIL_BYTES
+            {
+                return Err(DecodeFault::InvalidOutput);
+            }
+            ContentBatch::Updates(updates)
+        }
+        _ => return Err(DecodeFault::InvalidOutput),
+    };
+    Ok(PreparedContent {
+        batch,
+        projection: reply.projection,
+        memory_limit: reply.memory_limit,
+        child_pid: reply.pid,
+    })
 }
 // A full baseline is not a 256 KiB stream update. Allow source, title and
 // bounded update-v1 framing, within the decoder's stream cap.
