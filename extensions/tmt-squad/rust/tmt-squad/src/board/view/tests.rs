@@ -2008,11 +2008,11 @@ fn nested_splits_draw_rows_beside_detail_over_notes() {
     let screen = draw(&app, 100, 23);
     // Rows take 60 of 100 columns; detail sits over notes in the rest.
     let right = |line: &str| line.chars().skip(60).collect::<String>();
-    assert!(screen[2].starts_with("┌ Focus: rows"), "{screen:#?}");
-    assert!(right(&screen[2]).starts_with("┌ detail"), "{screen:#?}");
+    assert!(screen[2].starts_with("─ Focus: rows"), "{screen:#?}");
+    assert!(right(&screen[2]).starts_with("─ detail"), "{screen:#?}");
     let notes_top = screen
         .iter()
-        .position(|line| right(line).starts_with("┌ notes · sol"))
+        .position(|line| right(line).starts_with("─ notes · sol"))
         .expect("notes block");
     // 40% of the 20 body lines is detail: notes start 8 lines below it.
     assert_eq!(notes_top, 2 + 8, "{screen:#?}");
@@ -2315,11 +2315,11 @@ fn split_panes_follow_direction_and_sizes() {
     );
     let screen = draw(&app, 100, 11);
     // 60% of 100 columns: the notes block starts at column 60.
-    let notes_at = screen[2].find("┌ notes · sol").expect("notes block title");
+    let notes_at = screen[2].find("─ notes · sol").expect("notes block title");
     assert_eq!(screen[2][..notes_at].chars().count(), 60, "{screen:#?}");
-    assert!(screen[2].starts_with("┌ Focus: rows"));
+    assert!(screen[2].starts_with("─ Focus: rows"));
     assert!(
-        screen.iter().any(|line| line.contains("│  Now")),
+        screen.iter().any(|line| line.contains("   Now")),
         "markdown heading"
     );
     assert!(screen.iter().any(|line| line.contains("◆ auth-fix")));
@@ -2337,7 +2337,7 @@ fn split_panes_follow_direction_and_sizes() {
     let screen = draw(&app, 70, 23);
     let detail_row = screen
         .iter()
-        .position(|line| line.starts_with("┌ detail"))
+        .position(|line| line.starts_with("─ detail"))
         .unwrap();
     assert_eq!(
         detail_row, 12,
@@ -3680,7 +3680,7 @@ fn fold_render_restores_both_directions_and_keeps_the_mark_muted() {
             );
             app.view.as_mut().unwrap().look.theme = tmt_cli_style::Theme::new(base);
             let expanded = draw(&app, 80, 23);
-            assert!(expanded.iter().any(|line| line.contains("┌ detail")));
+            assert!(expanded.iter().any(|line| line.contains("─ detail")));
             fold(&mut app, Pane::Detail);
             let folded = draw(&app, 80, 23);
             let hit = *app
@@ -3698,7 +3698,7 @@ fn fold_render_restores_both_directions_and_keeps_the_mark_muted() {
                 assert_eq!(hit.area.x, 72);
                 let title = &folded[hit.area.y as usize];
                 assert_eq!(title.chars().nth(hit.area.x as usize - 1), Some(' '));
-                assert_eq!(title.chars().nth(hit.area.x as usize - 2), Some('┐'));
+                assert_eq!(title.chars().nth(hit.area.x as usize - 2), Some('─'));
             } else {
                 assert_eq!(hit.area.y, 22 - 1);
             }
@@ -4143,10 +4143,7 @@ fn inline_middle_row_band_moves_rows_masks_panes_and_fits_every_theme() {
                 assert!(screen[usize::from(band.y + 2)].contains("◆ “A long waiting"));
                 assert!(screen[usize::from(band.y + 2)].contains('…'));
                 assert!(screen[usize::from(band.y + 4)].contains("Enter send · Esc cancel"));
-                assert_eq!(
-                    screen[usize::from(band.y)],
-                    format!("┌{}┐", "─".repeat(usize::from(width) - 2))
-                );
+                assert_eq!(screen[usize::from(band.y)], "─".repeat(usize::from(width)));
                 assert_eq!(screen[usize::from(band.y)].width(), usize::from(width));
                 for y in band.y..band.bottom() {
                     assert!(!screen[usize::from(y)].contains("neighbor pane fragment"));
@@ -4870,4 +4867,78 @@ fn receiving_focus_labels_keep_title_footer_and_input_ownership_separate() {
         draw(&app, 80, 20).last().unwrap().trim(),
         "Error owns the footer"
     );
+}
+
+#[test]
+fn flat_custom_split_retains_inner_hits_and_focus_title_without_dimming_it() {
+    for width in [80, 100, 160, 180] {
+        for (base, depth) in [
+            ("tmt", tmt_cli_style::Depth::TrueColor),
+            ("tmt-light", tmt_cli_style::Depth::TrueColor),
+            ("terminal", tmt_cli_style::Depth::Ansi16),
+            ("tmt", tmt_cli_style::Depth::None),
+        ] {
+            let mut app = paned(
+                split(
+                    Direction::LeftRight,
+                    vec![Pane::Rows, Pane::Notes],
+                    vec![60, 40],
+                ),
+                Notes::Text("coordination".into()),
+            );
+            app.view.as_mut().unwrap().look = crate::look::Look {
+                theme: tmt_cli_style::Theme::new(tmt_cli_style::Base::parse(base).unwrap()),
+                depth,
+            };
+            app.set_body_width(width);
+            let buffer = board_buffer(&app, width, 23);
+            let titles = app.title_hits.borrow().clone();
+            let rows = titles
+                .iter()
+                .find(|hit| hit.pane == Pane::Rows)
+                .unwrap()
+                .area;
+            let notes = titles
+                .iter()
+                .find(|hit| hit.pane == Pane::Notes)
+                .unwrap()
+                .area;
+            assert!(!super::panes::borderless_rows(&app));
+            assert_eq!((rows.y, rows.height), (2, 1));
+            assert_eq!(notes.x, width * 60 / 100);
+            let dim = app.look().role(Role::Dim);
+            for x in [rows.x, rows.right() - 1] {
+                assert_eq!(buffer[(x, rows.y)].symbol(), "─");
+                assert_eq!(buffer[(x, rows.y)].fg, dim.fg.unwrap_or_default());
+                assert_eq!(buffer[(x, rows.y + 1)].symbol(), " ");
+            }
+            let title = &buffer[(rows.x + 2, rows.y)];
+            assert_eq!(title.symbol(), "F");
+            assert!(title.modifier.contains(Modifier::BOLD));
+            assert!(!title.modifier.contains(Modifier::DIM), "{base}/{depth:?}");
+            assert!(
+                app.hits.borrow().iter().all(|hit| hit.x > rows.x
+                    && hit.x + hit.width < rows.right()
+                    && hit.y > rows.y)
+            );
+            assert_eq!(app.scrolls.pane_at(rows.x, rows.y + 1), None);
+            assert_eq!(
+                app.scrolls.pane_at(rows.x + 1, rows.y + 1),
+                Some(Pane::Rows)
+            );
+            let original = draw(&app, width, 23);
+            click_title(&mut app, Pane::Notes);
+            draw(&app, width, 23);
+            assert_ne!(
+                app.scrolls.pane_at(notes.x + 1, notes.y + 1),
+                Some(Pane::Notes)
+            );
+            click_title(&mut app, Pane::Notes);
+            assert_eq!(
+                draw(&app, width, 23),
+                original,
+                "unfold restores exact frame"
+            );
+        }
+    }
 }
