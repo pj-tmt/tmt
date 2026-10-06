@@ -71,7 +71,8 @@ checked CSS, static class names and isolated Header, Notice, Field, Action and
 Toggle; [the package contract](browser-ui/README.md) owns its entries, generation
 commands and host metric inputs. Product adoption is not delivered. Infra has
 reviewed the concrete responsibility and component-map proposal; shared workspace,
-lockfile and verification integration remains pending. Resulting workspace,
+lockfile, quality and static COPY integration is implemented in this branch.
+Actual-head review, CI and delivery remain pending. Resulting workspace,
 lockfile and dependency changes receive Core review, and packaging changes receive
 Colab/Remote review at the actual implementation head before delivery/adoption.
 

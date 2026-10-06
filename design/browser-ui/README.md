@@ -3,8 +3,9 @@
 `@tmt/browser-ui` is a private tmt-ux-owned leaf. Products may depend on it; it
 must not import product code. Core and the CLI must neither depend on nor embed
 it. This initial source checkpoint does not establish product adoption or release
-readiness. Workspace, lockfile, shared quality and packaging integration is owned
-by Infra and remains pending at this checkpoint.
+readiness. Workspace, lockfile, shared quality and static COPY integration is
+implemented in this branch under Infra ownership. Actual-head review, CI, delivery
+and product adoption remain pending.
 
 ## Entries and generation
 
@@ -47,7 +48,7 @@ z-index, body offset, scrolling and full attribution disclosure remain host-owne
 | `toggle-focus-offset`, `toggle-padding`                                                 | Colab 2px and 7px 8px 0                                                                                 |
 | `notice-mark-size`                                                                      | Colab 18px; Remote 30px                                                                                 |
 | `eyebrow-line-height`                                                                   | Host's existing line height                                                                             |
-| `notice-heading-size`, `notice-heading-weight`, `notice-heading-tracking`               | Colab clamp(26px, 4vw, 36px), 700, -0.03em; Remote clamp(28px, 5vw, 36px), 650, -0.025em; settings 25px |
+| `notice-heading-size`, `notice-heading-weight`, `notice-heading-tracking`               | Colab clamp(26px, 4vw, 36px), 700, -0.03em; Remote clamp(28px, 4vw, 36px), 650, -0.025em; settings 25px |
 | `notice-body-size`, `notice-body-line-height`                                           | Colab 16px / 1.55; Remote 17px / 1.6                                                                    |
 | `notice-action-gap`, `notice-action-margin`                                             | Remote 12px and 24px; form placement remains host-owned                                                 |
 | `action-padding`, `action-min-height`                                                   | Colab 7px 12px with existing height; Remote 10px 22px and 44px                                          |
