@@ -108,7 +108,7 @@ fn waiting_rows_detail_and_ask_prompt_fit_each_width_and_theme() {
                 .unwrap();
             assert!(!pending_only.contains("12m"), "pending-only has no age");
             assert!(screen.last().unwrap().contains("◆ 3 waiting"));
-            assert!(screen.last().unwrap().contains("A ask lead"));
+            assert_eq!(screen.last().unwrap().contains("A ask lead"), width >= 100);
             assert!(
                 app.hits
                     .borrow()
@@ -176,7 +176,8 @@ fn waiting_hint_uses_rebound_key_and_drops_oldest_before_actions() {
         crate::action::Action::parse("ask-lead").unwrap(),
     );
     assert!(hints(&app, 160).contains("oldest auth-fix 12m"));
-    assert!(hints(&app, 100).contains("z ask lead"));
+    assert!(hints(&app, 120).contains("z ask lead"));
+    assert!(!hints(&app, 100).contains("z ask lead"));
     assert!(!hints(&app, 50).contains("oldest"));
     assert!(!hints(&app, 80).contains("oldest"));
     assert!(hints(&app, 100).contains("r reply"));
@@ -193,7 +194,10 @@ fn footer_omits_whole_hints_instead_of_clipping_words() {
     let mut app = App::new(Some("product".into()));
     app.apply(crate::board::app::tests::snapshot("product", json!([])));
     let full = hints(&app, usize::MAX);
-    assert!(full.starts_with("↑↓ move  A ask lead  / search"), "{full}");
+    assert!(
+        full.starts_with("Focus: rows  ↑↓ move  A ask lead  / search"),
+        "{full}"
+    );
     for width in [0, 1, 6, 20, 40, 80, 100, 108, 112, 120, 160] {
         let shown = hints(&app, width);
         assert!(shown.width() <= width);
@@ -214,7 +218,7 @@ fn footer_omits_whole_hints_instead_of_clipping_words() {
 /// The shown hints without the reserved tail.
 fn shown_hints(text: &str) -> Vec<&str> {
     text.split("  ")
-        .filter(|hint| !hint.is_empty() && !["q quit", "? more"].contains(hint))
+        .filter(|hint| !hint.is_empty() && !["q quit", "? more", "Focus: rows"].contains(hint))
         .collect()
 }
 
@@ -267,8 +271,8 @@ fn footer_orders_hints_by_priority_and_always_keeps_quit_and_more() {
     ] {
         assert!(!full.contains(hint), "{hint}: {full}");
     }
-    // Opening, writing, replying and talking survive an 80-cell footer.
-    let narrow = hints(&app, 80);
+    // Focus and mandatory hints remain while optional actions fit whole.
+    let narrow = hints(&app, 100);
     assert!(
         narrow.contains("⏎ open  a write  r reply  t talk"),
         "{narrow}"
@@ -771,8 +775,8 @@ fn legacy_four_column_grid_draws_exactly_as_before_at_every_width() {
             [
                 "  MEMBER         STATE      TASK    PR",
                 "NEEDS ME",
-                "◆ auth-fix       blocked    rotate… https://git…",
-                "    approve",
+                "◆>auth-fix       blocked    rotate… https://git…",
+                " >  approve",
                 "EVERYONE",
                 "  文件-sweep-lo… working    整理安… –",
                 "  perf           –          –       –",
@@ -784,8 +788,8 @@ fn legacy_four_column_grid_draws_exactly_as_before_at_every_width() {
             [
                 "  MEMBER         STATE      TASK                PR",
                 "NEEDS ME",
-                "◆ auth-fix       blocked    rotate session tok… https://git…",
-                "    approve",
+                "◆>auth-fix       blocked    rotate session tok… https://git…",
+                " >  approve",
                 "EVERYONE",
                 "  文件-sweep-lo… working    整理安装指南和常见… –",
                 "  perf           –          –                   –",
@@ -797,8 +801,8 @@ fn legacy_four_column_grid_draws_exactly_as_before_at_every_width() {
             [
                 "  MEMBER         STATE      TASK                                    PR",
                 "NEEDS ME",
-                "◆ auth-fix       blocked    rotate session tokens without logging … https://git…",
-                "    approve",
+                "◆>auth-fix       blocked    rotate session tokens without logging … https://git…",
+                " >  approve",
                 "EVERYONE",
                 "  文件-sweep-lo… working    整理安装指南和常见问题                  –",
                 "  perf           –          –                                       –",
@@ -810,8 +814,8 @@ fn legacy_four_column_grid_draws_exactly_as_before_at_every_width() {
             [
                 "  MEMBER         STATE      TASK                                                                            PR",
                 "NEEDS ME",
-                "◆ auth-fix       blocked    rotate session tokens without logging everyone out                              https://git…",
-                "    approve",
+                "◆>auth-fix       blocked    rotate session tokens without logging everyone out                              https://git…",
+                " >  approve",
                 "EVERYONE",
                 "  文件-sweep-lo… working    整理安装指南和常见问题                                                          –",
                 "  perf           –          –                                                                               –",
@@ -828,7 +832,7 @@ fn legacy_four_column_grid_draws_exactly_as_before_at_every_width() {
 fn a_narrow_preset_board_drops_the_link_instead_of_clipping() {
     let screen = draw(&preset_board(), 44, 11);
     assert_eq!(screen[2], "  MEMBER         STATE      TASK");
-    assert_eq!(screen[4], "◆ auth-fix       blocked    rotate session …");
+    assert_eq!(screen[4], "◆>auth-fix       blocked    rotate session …");
     assert!(screen[2..10].iter().all(|line| line.width() <= 44));
 }
 
@@ -862,9 +866,9 @@ lines = [
     );
     assert_eq!(
         wide[3],
-        "◆ auth-fix   blocked   rotate session tokens           #4242"
+        "◆>auth-fix   blocked   rotate session tokens           #4242"
     );
-    assert_eq!(wide[4], "             approve the rollout plan");
+    assert_eq!(wide[4], " >           approve the rollout plan");
     // Nothing to show on the second line: the row keeps one line.
     assert_eq!(
         wide[5],
@@ -873,8 +877,8 @@ lines = [
     // Narrow: the prioritized column steps aside and the span shrinks.
     let narrow = draw(&app, 36, 9);
     assert_eq!(narrow[2], "  MEMBER     STATE     TASK");
-    assert_eq!(narrow[3], "◆ auth-fix   blocked   rotate sessi…");
-    assert_eq!(narrow[4], "             approve the rollout pl…");
+    assert_eq!(narrow[3], "◆>auth-fix   blocked   rotate sessi…");
+    assert_eq!(narrow[4], " >           approve the rollout pl…");
 }
 
 #[test]
@@ -892,8 +896,8 @@ columns = [{ name = "member", width = "30%" },
 "#,
     );
     let screen = draw(&app, 20, 10);
-    assert_eq!(screen[3], "  a     alpha beta");
-    assert_eq!(screen[4], "        gamma delta");
+    assert_eq!(screen[3], " >a     alpha beta");
+    assert_eq!(screen[4], " >      gamma delta");
     assert_eq!(*app.row_starts.borrow(), [1, 3, 5, 7]);
     let hits: Vec<_> = app
         .hits
@@ -949,7 +953,7 @@ fn middle_truncation_keeps_both_ends_of_a_link() {
     app.view.as_mut().unwrap().rows = rows_from(
         "[p.rows]\ncolumns = [{ name = \"member\", width = 6 }, { name = \"link\", width = 20, truncate = \"middle\" }]\n",
     );
-    assert_eq!(draw(&app, 40, 4)[2], "  docs   https://gi…pull/4242");
+    assert_eq!(draw(&app, 40, 4)[2], " >docs   https://gi…pull/4242");
 }
 
 #[test]
@@ -965,7 +969,7 @@ fn rows_ignore_retired_notes_and_show_pending_sections_and_aligned_wide_text() {
     assert_eq!(screen[1], "lead sol · 2 members");
     assert_eq!(screen[2], "  MEMBER     STATE    TASK");
     // The lead is the first row; the rule names what follows.
-    assert_eq!(screen[3], "  sol  lead  working  coordinate");
+    assert_eq!(screen[3], " >sol  lead  working  coordinate");
     assert_eq!(screen[4], format!("── members · 2 {}", "─".repeat(33)));
     assert_eq!(screen[5], "NEEDS ME");
     assert_eq!(screen[6], "◆ auth-fix   blocked  rotate session tokens");
@@ -973,7 +977,7 @@ fn rows_ignore_retired_notes_and_show_pending_sections_and_aligned_wide_text() {
     assert_eq!(screen[8], "EVERYONE");
     assert_eq!(screen[9], "  文件-sweep working  整理安装指南");
     assert!(screen.iter().all(|line| !line.contains("needs a call")));
-    assert!(screen[11].starts_with("◆ 1 waiting"));
+    assert!(screen[11].starts_with("Focus: rows  ◆ 1 waiting"));
 }
 
 #[test]
@@ -989,13 +993,13 @@ fn the_lead_tag_sits_in_the_name_cell_and_is_the_first_thing_cut() {
     };
     // Room for the tag: it follows the name by two cells; other rows are unchanged.
     let screen = draw_lead(10);
-    assert_eq!(screen[3], "  sol  lead  working");
+    assert_eq!(screen[3], " >sol  lead  working");
     assert_eq!(screen[5], "  docs       working");
     // Narrow cell: the tag shrinks (ellipsis) before the name does, then goes.
-    assert_eq!(draw_lead(8)[3], "  sol  le… working");
-    assert_eq!(draw_lead(7)[3], "  sol  l… working");
-    assert_eq!(draw_lead(6)[3], "  sol    working");
-    assert_eq!(draw_lead(3)[3], "  sol working");
+    assert_eq!(draw_lead(8)[3], " >sol  le… working");
+    assert_eq!(draw_lead(7)[3], " >sol  l… working");
+    assert_eq!(draw_lead(6)[3], " >sol    working");
+    assert_eq!(draw_lead(3)[3], " >sol working");
 }
 
 #[test]
@@ -1562,11 +1566,11 @@ fn team_pending_line_style_snapshots_and_unstyled_control() {
     // Literal text/style snapshots of the real rendered pending span, including padding.
     const TRUE_COLOR: &str = r#""                               approve rollout                                  "
 [(2, "Reset/Reset/Reset/NONE/None"), (17, "Rgb(122, 131, 174)/Reset/Reset/NONE/None"), (1, "Reset/Reset/Reset/NONE/None"), (10, "Rgb(122, 131, 174)/Reset/Reset/NONE/None"), (1, "Reset/Reset/Reset/NONE/None"), (49, "Rgb(255, 158, 100)/Reset/Reset/NONE/None")]
-"                               approve rollout                                  "
+" >                             approve rollout                                  "
 [(80, "Rgb(192, 202, 245)/Rgb(51, 70, 124)/Reset/NONE/None")]"#;
     const ANSI16: &str = r#""                               approve rollout                                  "
 [(2, "Reset/Reset/Reset/NONE/None"), (17, "Reset/Reset/Reset/DIM/None"), (1, "Reset/Reset/Reset/NONE/None"), (10, "Reset/Reset/Reset/DIM/None"), (1, "Reset/Reset/Reset/NONE/None"), (49, "Yellow/Reset/Reset/NONE/None")]
-"                               approve rollout                                  "
+" >                             approve rollout                                  "
 [(31, "Reset/Reset/Reset/REVERSED/None"), (49, "Reset/Reset/Reset/BOLD | REVERSED/None")]"#;
     let config: toml_edit::DocumentMut = "[squad.product]\nlayout='team'\n".parse().unwrap();
     let path = std::env::temp_dir().join(format!("tmt-line-style-{}.toml", std::process::id()));
@@ -2003,7 +2007,7 @@ fn nested_splits_draw_rows_beside_detail_over_notes() {
     let screen = draw(&app, 100, 23);
     // Rows take 60 of 100 columns; detail sits over notes in the rest.
     let right = |line: &str| line.chars().skip(60).collect::<String>();
-    assert!(screen[2].starts_with("┌ rows"), "{screen:#?}");
+    assert!(screen[2].starts_with("┌ Focus: rows"), "{screen:#?}");
     assert!(right(&screen[2]).starts_with("┌ detail"), "{screen:#?}");
     let notes_top = screen
         .iter()
@@ -2312,7 +2316,7 @@ fn split_panes_follow_direction_and_sizes() {
     // 60% of 100 columns: the notes block starts at column 60.
     let notes_at = screen[2].find("┌ notes · sol").expect("notes block title");
     assert_eq!(screen[2][..notes_at].chars().count(), 60, "{screen:#?}");
-    assert!(screen[2].starts_with("┌ rows"));
+    assert!(screen[2].starts_with("┌ Focus: rows"));
     assert!(
         screen.iter().any(|line| line.contains("│  Now")),
         "markdown heading"
@@ -2857,7 +2861,7 @@ fn the_leads_tab_is_labelled_leads_and_counts_squad_leads() {
     assert_eq!(screen[0], "  product   leads");
     assert_eq!(screen[1], "2 squad leads");
     assert_eq!(screen[2], "  SQUAD          LEAD           STATE      TASK");
-    assert_eq!(screen[3], "  product        sol            working    plan");
+    assert_eq!(screen[3], " >product        sol            working    plan");
 }
 
 #[test]
@@ -4471,4 +4475,395 @@ fn boxed_member_band_follows_its_occurrence_through_exchange_reordering_without_
     assert!(app.input_band.get().is_some());
     app.view.as_mut().unwrap().document["sections"][0]["rows"][0]["id"] = json!("REPLACED");
     assert!(!app.message_valid());
+}
+
+/// Read-only runtime evidence for the immutable #1829 first-slice packet.
+/// The packet and output directory are explicit task-owned inputs; this never
+/// updates repository parity or performs acquisition/actions.
+#[test]
+#[ignore = "explicit pinned selection/focus evidence capture"]
+fn capture_selection_focus_packet() {
+    let packet_path = std::env::var("TMT_SELECTION_PACKET").expect("pinned packet path");
+    let output = std::env::var("TMT_SELECTION_OUTPUT").expect("task-owned output path");
+    let packet: Value = serde_json::from_slice(&std::fs::read(packet_path).unwrap()).unwrap();
+    crate::status::with_now_ms(packet["clock"]["fixedNowMs"].as_u64().unwrap(), || {
+        let mut captures = Vec::new();
+        for case in packet["cases"].as_array().unwrap() {
+            for (base, depth) in [
+                ("tmt", tmt_cli_style::Depth::TrueColor),
+                ("tmt-light", tmt_cli_style::Depth::TrueColor),
+                ("terminal", tmt_cli_style::Depth::Ansi16),
+                ("tmt", tmt_cli_style::Depth::None),
+            ] {
+                let members = packet["members"].as_array().unwrap().iter().map(|member| {
+                let waiting = if member["requestIds"].as_array().unwrap().is_empty() { json!([]) } else {
+                    json!([{"requestId": packet["request"]["id"], "preview": packet["request"]["preview"],
+                        "preparedAtMs": packet["clock"]["requestCreatedAtMs"]}])
+                };
+                row(member["name"].as_str().unwrap(), member["state"].as_str().unwrap(),
+                    member["task"].as_str().unwrap(), json!({"id":member["uuid"], "squad":"ux-demo",
+                        "waitingOnYou":waiting, "state":member["state"]}))
+            }).collect::<Vec<_>>();
+                let mut app = board(json!([{"title":"primary", "rows":members[1..]},
+                {"title":"repeat", "rows":[members[1].clone()]}]));
+                app.current = Some("ux-demo".into());
+                app.tabs = vec!["ux-demo".into()];
+                let width = case["viewport"]["columns"].as_u64().unwrap() as u16;
+                let height = case["viewport"]["rows"].as_u64().unwrap() as u16;
+                let view_name = case["view"].as_str().unwrap_or("single");
+                let view = app.view.as_mut().unwrap();
+                view.document["squad"]["name"] = json!("ux-demo");
+                view.document["squad"]["lead"] = members[0].clone();
+                view.me = Some("fixture-user".into());
+                view.me_id = Some(packet["scope"]["actorUUID"].as_str().unwrap().into());
+                view.rows = rows_from(
+                    r#"[p.rows]
+columns = [{name = "member", width = 18}, {name = "task", grow = 1, overflow = "wrap", max_lines = 8}]
+"#,
+                );
+                let settings = if view_name == "single" || view_name == "HOME" {
+                    None
+                } else {
+                    Some(crate::view::ViewName::parse(view_name).unwrap())
+                };
+                if let Some(settings) = settings {
+                    let settings = settings.settings();
+                    let split =
+                        crate::split::read(settings.get("layout").unwrap(), "fixture.layout")
+                            .unwrap();
+                    view.board = crate::config::Board {
+                        members: view_name == "members",
+                        mode: BoardMode::Split,
+                        panes: split.panes(),
+                        split,
+                        collapsed: settings
+                            .get("collapsed")
+                            .and_then(toml_edit::Item::as_array)
+                            .into_iter()
+                            .flatten()
+                            .map(|v| Pane::parse(v.as_str().unwrap()).unwrap())
+                            .collect(),
+                        fold_below: settings
+                            .get("fold_below")
+                            .map(|v| crate::config::FoldBelow {
+                                width: v["width"].as_integer().unwrap() as u16,
+                                panes: v["panes"]
+                                    .as_array()
+                                    .unwrap()
+                                    .iter()
+                                    .map(|v| Pane::parse(v.as_str().unwrap()).unwrap())
+                                    .collect(),
+                            }),
+                    };
+                }
+                view.notes = Notes::Text(if case["selectedLink"].is_object() {
+                    format!(
+                        "[{}]({})",
+                        case["selectedLink"]["label"].as_str().unwrap(),
+                        case["selectedLink"]["target"].as_str().unwrap()
+                    )
+                } else {
+                    "Fixture coordination notes\nKeep the saved bindings.".into()
+                });
+                view.bindings = crate::action::preset(true, &view.board.panes);
+                view.look = crate::look::Look {
+                    theme: tmt_cli_style::Theme::new(tmt_cli_style::Base::parse(base).unwrap()),
+                    depth,
+                };
+                if view_name == "HOME" || case["id"].as_str().unwrap().contains("HOME") {
+                    use crate::board::{
+                        home::{Home, MemberRow, MemberSection},
+                        home_leads::{Kind, Lead, LeadPreview},
+                    };
+                    view.home = Some(Home {
+                        summary: crate::board::home::Counts {
+                            members: 4,
+                            waiting: 1,
+                            blocked: 1,
+                            working: 2,
+                            ..Default::default()
+                        },
+                        windows: crate::config::TokenWindow::DEFAULTS,
+                        sections: vec![MemberSection {
+                            key: "needs-you".into(),
+                            rows: vec![MemberRow {
+                                squad: "ux-demo".into(),
+                                member: members[1].clone(),
+                                lead: Some("ux-demo-lead".into()),
+                                age: Some(crate::board::home::Age {
+                                    source: crate::board::home::AgeSource::Request,
+                                    since_ms: packet["clock"]["requestCreatedAtMs"]
+                                        .as_u64()
+                                        .unwrap(),
+                                }),
+                            }],
+                        }],
+                        squads: vec![crate::board::home::SquadLine {
+                            squad: "ux-demo".into(),
+                            lead: Some(members[0].clone()),
+                            counts: crate::board::home::Counts {
+                                members: 4,
+                                waiting: 1,
+                                blocked: 1,
+                                working: 2,
+                                ..Default::default()
+                            },
+                            members: crate::board::home::Counts {
+                                members: 3,
+                                waiting: 1,
+                                blocked: 1,
+                                working: 1,
+                                ..Default::default()
+                            },
+                        }],
+                        failures: Vec::new(),
+                        incomplete: false,
+                    });
+                    view.exchanges = vec![Lead {
+                        squad: "ux-demo".into(),
+                        row: members[0].clone(),
+                        failure: None,
+                        exchange: case
+                            .get("syntheticLeadExchange")
+                            .map(|exchange| LeadPreview {
+                                kind: Kind::Reply,
+                                request: None,
+                                since_ms: Some(exchange["sinceMs"].as_u64().unwrap()),
+                                preview: exchange["preview"].as_str().unwrap().into(),
+                                status: "retained".into(),
+                            }),
+                    }];
+                    view.bindings = crate::action::all_preset();
+                    app.current = Some(crate::tabs::ALL.into());
+                    app.tabs = vec![crate::tabs::ALL.into()];
+                } else {
+                    view.exchanges = crate::board::home_leads::members(
+                        &view.document,
+                        None,
+                        packet["clock"]["fixedNowMs"].as_u64().unwrap(),
+                    );
+                }
+                let tab = app.current.clone().unwrap();
+                let mut snapshot = crate::board::app::tests::snapshot(&tab, json!([]));
+                snapshot.view = Ok(app.view.take().unwrap());
+                snapshot.tabs = app.tabs.clone();
+                app = App::new(Some(tab));
+                app.apply(snapshot);
+                if app.view.as_ref().unwrap().home.is_some() {
+                    let leads = app.view.as_ref().unwrap().exchanges.clone();
+                    app.apply_home_leads(crate::board::home_leads::Read::for_test(
+                        packet["scope"]["actorUUID"].as_str().unwrap(),
+                        leads,
+                    ));
+                }
+                app.set_body_width(width);
+                app.select(1);
+                if case["receivingFocus"] == "notes" {
+                    // Focus view's Notes is initially folded: use the existing focus
+                    // transition so its configured body is expanded before painting.
+                    if app.effective_board().unwrap().members {
+                        app.focus = app
+                            .effective_board()
+                            .unwrap()
+                            .panes
+                            .iter()
+                            .position(|p| *p == Pane::Notes)
+                            .unwrap();
+                    } else {
+                        app.perform(&crate::action::Action::parse("notes").unwrap());
+                    }
+                }
+                if let Some(composer) = case.get("composer").filter(|v| v.is_object()) {
+                    app.key(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE));
+                    app.input.as_mut().expect("answer composer").text =
+                        composer["draft"].as_str().unwrap().into();
+                }
+                if case["id"] == "grid-decoration-exclusions-100x30" {
+                    app.view.as_mut().unwrap().document["sections"][0]["rows"][0]["annotation"] = json!({"to":case["renderOnlyFeedback"]["annotation"]["to"], "text":case["renderOnlyFeedback"]["annotation"]["text"]});
+                    app.sent = Some(crate::board::app::RowFeedback {
+                        target: app.row_target(app.selected).unwrap(),
+                        sent: true,
+                        home: None,
+                    });
+                }
+                if case["selectedLink"].is_object() {
+                    board_buffer(&app, width, height);
+                    let view = app.view.as_ref().unwrap();
+                    let derived = view.derived.borrow();
+                    let link = derived.notes.as_ref().unwrap().links.first().unwrap();
+                    app.note_link = Some((link.target.clone(), link.offset));
+                }
+                let document = app.view.as_ref().unwrap().document.clone();
+                let buffer = board_buffer(&app, width, height);
+                let cells = buffer
+                    .content
+                    .iter()
+                    .map(|cell| {
+                        json!({"symbol":cell.symbol(),
+                "fg":format!("{:?}",cell.fg), "bg":format!("{:?}",cell.bg),
+                "modifier":format!("{:?}",cell.modifier)})
+                    })
+                    .collect::<Vec<_>>();
+                captures.push(
+                    json!({"case":case["id"], "base":base, "depth":format!("{depth:?}"),
+                "width":width, "height":height, "cells":cells,
+                "document":document, "hits":format!("{:?}",app.hits.borrow()),
+                "starts":*app.row_starts.borrow(), "titles":format!("{:?}",app.title_hits.borrow()),
+                "band":format!("{:?}",app.input_band.get()), "selected":app.selected,
+                "focus":format!("{:?}",app.focused_pane()),
+                "footer26":hints(&app,26), "footer27":hints(&app,27),
+                "footer31":hints(&app,31), "footer32":hints(&app,32)}),
+                );
+            }
+        }
+        std::fs::write(output, serde_json::to_vec(&captures).unwrap()).unwrap();
+    });
+}
+
+#[test]
+fn occurrence_cues_follow_content_and_clip_without_changing_hits_or_feedback() {
+    let member = row(
+        "duplicate",
+        "working",
+        "alpha beta gamma delta epsilon",
+        json!({
+        "id":"same-id", "waitingOnYou":[{"requestId":"fixture", "preview":"Question?"}],
+        "annotation":{"to":"fixture", "text":"decoration stays separate"}}),
+    );
+    let mut app = board(json!([{"title":"primary", "rows":[member.clone()]},
+        {"title":"repeat", "rows":[member]}]));
+    app.view.as_mut().unwrap().rows = rows_from(
+        r#"[p.rows]
+columns = [{name="member", width=12}, {name="task", width=12, overflow="wrap", max_lines=8}]
+"#,
+    );
+    app.sent = Some(crate::board::app::RowFeedback {
+        target: app.row_target(0).unwrap(),
+        sent: true,
+        home: None,
+    });
+    let document = app.view.as_ref().unwrap().document.clone();
+    for (base, depth) in [
+        (tmt_cli_style::Base::Tmt, tmt_cli_style::Depth::TrueColor),
+        (
+            tmt_cli_style::Base::TmtLight,
+            tmt_cli_style::Depth::TrueColor,
+        ),
+        (tmt_cli_style::Base::Terminal, tmt_cli_style::Depth::Ansi16),
+        (tmt_cli_style::Base::Tmt, tmt_cli_style::Depth::None),
+    ] {
+        app.view.as_mut().unwrap().look = crate::look::Look {
+            theme: tmt_cli_style::Theme::new(base),
+            depth,
+        };
+        board_buffer(&app, 50, 24);
+        let view = app.view.as_ref().unwrap();
+        let derived = view.derived.borrow();
+        let scene = &derived.grid.as_ref().unwrap().scene;
+        let area = Rect::new(0, 0, 50, 24);
+        let mut selected = ratatui::buffer::Buffer::empty(area);
+        let hits = scene.paint(&mut selected, area, 0, 0, app.look());
+        let mut other = ratatui::buffer::Buffer::empty(area);
+        assert_eq!(
+            format!("{hits:?}"),
+            format!("{:?}", scene.paint(&mut other, area, 0, 1, app.look()))
+        );
+        let lines = detail_text(&selected);
+        assert!(
+            lines.iter().filter(|line| line.starts_with(" >")).count() >= 3,
+            "wrapped content and automatic question each carry a cue"
+        );
+        assert!(
+            lines[scene.starts[0]].starts_with("◆>"),
+            "attention diamond stays at x0"
+        );
+        assert!(
+            lines[scene.starts[1]].starts_with("◆ "),
+            "duplicate occurrence remains unselected"
+        );
+        for (y, line) in lines.iter().enumerate() {
+            if line.contains("✓ sent")
+                || line.contains("decoration stays")
+                || line.contains("PRIMARY")
+            {
+                assert_ne!(selected[(1, y as u16)].symbol(), ">");
+                assert_eq!(selected[(1, y as u16)], other[(1, y as u16)]);
+            }
+        }
+        for y in 0..24 {
+            for x in 0..50 {
+                if selected[(x, y)].symbol() != other[(x, y)].symbol() {
+                    assert_eq!(x, 1, "only the existing prefix changes text");
+                    assert!([" ", ">"].contains(&selected[(x, y)].symbol()));
+                }
+            }
+        }
+        // A one-cell clip admits the diamond but has no occurrence-cue cell.
+        let clip = Rect::new(0, 0, 1, 24);
+        let mut narrow = ratatui::buffer::Buffer::empty(clip);
+        let narrow_hits = scene.paint(&mut narrow, clip, 0, 0, app.look());
+        assert_eq!(narrow[(0, scene.starts[0] as u16)].symbol(), "◆");
+        assert!(narrow.content.iter().all(|cell| cell.symbol() != ">"));
+        assert!(narrow_hits.iter().all(|hit| hit.x == 0 && hit.width == 1));
+        // Scrolling clips content, rather than painting the reveal envelope.
+        let mut scrolled = ratatui::buffer::Buffer::empty(Rect::new(0, 0, 50, 2));
+        let visible = scene.paint(
+            &mut scrolled,
+            Rect::new(0, 0, 50, 2),
+            scene.starts[0] + 1,
+            0,
+            app.look(),
+        );
+        assert_eq!(scrolled[(1, 0)].symbol(), ">");
+        assert!(visible.iter().all(|hit| hit.y < 2 && hit.row == 0));
+        assert_eq!(view.document, document);
+    }
+}
+
+#[test]
+fn receiving_focus_labels_keep_title_footer_and_input_ownership_separate() {
+    let mut app =
+        board(json!([{"title":null,"rows":[row("selected","working","task",json!({}))]}]));
+    assert_eq!(hints(&app, 27), "Focus: rows  ? more  q quit");
+    assert!(!hints(&app, 26).contains("Focus:"));
+    assert!(hints(&app, 26).ends_with("? more  q quit"));
+    app.view.as_mut().unwrap().board = split(
+        Direction::LeftRight,
+        vec![Pane::Rows, Pane::Notes],
+        vec![60, 40],
+    );
+    app.view.as_mut().unwrap().notes = Notes::Text("coordination".into());
+    let outlined = draw(&app, 80, 20);
+    assert!(outlined.iter().any(|line| line.contains("Focus: rows")));
+    assert!(!outlined.last().unwrap().contains("Focus:"));
+    app.focus = 1;
+    let unfocused = draw(&app, 80, 20);
+    assert!(unfocused.iter().any(|line| line.contains("Focus: notes")));
+    assert!(!unfocused.iter().any(|line| line.contains("Focus: rows")));
+    assert!(
+        unfocused.iter().any(|line| line.contains(" >selected")),
+        "selection persists outside receiving pane"
+    );
+    app.focus = 0;
+    app.help = true;
+    assert!(!hints(&app, 80).contains("Focus:"));
+    app.help = false;
+    app.searching = true;
+    assert!(
+        !draw(&app, 80, 20)
+            .iter()
+            .any(|line| line.contains("Focus:"))
+    );
+    app.searching = false;
+    app.notice = Some("Notice owns the footer".into());
+    assert_eq!(
+        draw(&app, 80, 20).last().unwrap().trim(),
+        "Notice owns the footer"
+    );
+    app.notice = None;
+    app.error = Some("Error owns the footer".into());
+    assert_eq!(
+        draw(&app, 80, 20).last().unwrap().trim(),
+        "Error owns the footer"
+    );
 }

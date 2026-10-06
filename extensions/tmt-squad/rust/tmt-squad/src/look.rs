@@ -135,6 +135,20 @@ impl Default for Look {
 }
 
 impl Look {
+    /// Identify a selected occurrence in an existing leading blank. Callers
+    /// supply only admitted content prefixes, never hit or reveal envelopes.
+    pub(crate) fn selected_prefix<'a>(
+        &self,
+        prefix: &'a str,
+        selected: bool,
+    ) -> std::borrow::Cow<'a, str> {
+        if selected && let Some(rest) = prefix.strip_prefix(' ') {
+            std::borrow::Cow::Owned(format!(">{rest}"))
+        } else {
+            std::borrow::Cow::Borrowed(prefix)
+        }
+    }
+
     /// The board draws on a terminal; `NO_COLOR` still turns color off.
     pub fn new(theme: Theme) -> Self {
         Self {
@@ -230,6 +244,22 @@ mod tests {
             .iter()
             .map(|(key, value)| ((*key).to_owned(), (*value).to_owned()))
             .collect()
+    }
+
+    #[test]
+    fn occurrence_prefix_preserves_occupied_marks_and_existing_width() {
+        let look = Look::default();
+        for prefix in [" ◆ ", "   task", " ", "◆ ", "", ">"] {
+            assert_eq!(look.selected_prefix(prefix, false), prefix);
+            let selected = look.selected_prefix(prefix, true);
+            assert_eq!(selected.chars().count(), prefix.chars().count());
+            if let Some(rest) = prefix.strip_prefix(' ') {
+                assert!(selected.starts_with('>'));
+                assert_eq!(&selected[1..], rest);
+            } else {
+                assert_eq!(selected, prefix, "occupied prefix is not admitted");
+            }
+        }
     }
 
     #[test]

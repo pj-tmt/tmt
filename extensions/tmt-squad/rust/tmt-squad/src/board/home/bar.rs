@@ -337,7 +337,7 @@ pub(super) fn usage_in(
 
 /// The key line: whole hints drop from the end until the line and the two exit
 /// hints fit (a fit, not a step); `A ask lead` shortens to `A ask` below `md`.
-fn key_line(width: usize, overflow: bool, long_ask: bool) -> String {
+fn key_line(width: usize, overflow: bool, long_ask: bool, receiving: bool) -> String {
     // The other keys (tabs, replies, cron, refresh, ...) are in `?` help;
     // `s switch` comes back only while the tab line hides tabs.
     let mut optional = vec![
@@ -351,10 +351,11 @@ fn key_line(width: usize, overflow: bool, long_ask: bool) -> String {
     if overflow {
         optional.push("s switch");
     }
+    let focus = (receiving && width >= 32).then_some("Focus: HOME rows");
     loop {
-        let text = optional
-            .iter()
-            .copied()
+        let text = focus
+            .into_iter()
+            .chain(optional.iter().copied())
             .chain(["? more", "q quit"])
             .collect::<Vec<_>>()
             .join("  ");
@@ -367,11 +368,16 @@ fn key_line(width: usize, overflow: bool, long_ask: bool) -> String {
 
 #[cfg(test)]
 pub(crate) fn hints(width: usize, overflow: bool) -> String {
-    hints_in(&mut Kept::default(), width, overflow)
+    hints_in(&mut Kept::default(), width, overflow, true)
 }
 
 /// The key line, painted again only when its key changed.
-pub(super) fn hints_in(slot: &mut Kept<String>, width: usize, overflow: bool) -> String {
+pub(super) fn hints_in(
+    slot: &mut Kept<String>,
+    width: usize,
+    overflow: bool,
+    receiving: bool,
+) -> String {
     static TEMPLATE: OnceLock<Template<()>> = OnceLock::new();
     const FILE: &str = "squad.home.keys.xml";
     let template = TEMPLATE.get_or_init(|| {
@@ -397,8 +403,8 @@ pub(super) fn hints_in(slot: &mut Kept<String>, width: usize, overflow: bool) ->
         look: Look::default(),
         selected: None,
         data: json!({
-            "long": key_line(usize::from(width), overflow, true),
-            "short": key_line(usize::from(width), overflow, false),
+            "long": key_line(usize::from(width), overflow, true, receiving),
+            "short": key_line(usize::from(width), overflow, false, receiving),
         }),
     };
     slot.get(key, |key| {

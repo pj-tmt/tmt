@@ -41,8 +41,13 @@ pub(crate) fn usage_of(
     )
 }
 
-pub(crate) fn hints_of(view: &View, width: usize, overflow: bool) -> String {
-    super::bar::hints_in(&mut view.derived.borrow_mut().home.hints, width, overflow)
+pub(crate) fn hints_of(view: &View, width: usize, overflow: bool, receiving: bool) -> String {
+    super::bar::hints_in(
+        &mut view.derived.borrow_mut().home.hints,
+        width,
+        overflow,
+        receiving,
+    )
 }
 
 /// The strips painted from nothing, for tests of the strips themselves.
