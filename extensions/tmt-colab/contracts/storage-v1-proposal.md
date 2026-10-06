@@ -130,7 +130,7 @@ Retain the object-safe synchronous `ObjectBackend` and LocalFs sketch in the exi
 
 ### Generic backend interface sketch
 
-The following Remote-owned Rust sketch specifies one service-injected interface. It is a design sketch, not compiled crate exports. Its context/ID types carry opaque installed-extension ownership and immutable intent bindings; only the admitted service invokes it.
+The following signature projection aligns with the reviewed Remote backend library. The object channel, callbacks, configuration and Colab consumers remain proposed and unintegrated. Remote owns the actual types in `objects.rs`; this sketch omits derives and validation helpers. Opaque IDs and immutable input bindings carry no authority; only the admitted service invokes the backend.
 
 ```rust
 use std::sync::atomic::AtomicBool;
@@ -152,6 +152,12 @@ pub struct BeginSpec {
     pub payload_bytes: u64,
     pub binding: Vec<u8>, // service-generated immutable input binding, <=2 KiB
 }
+pub struct OriginalIntent {
+    pub spec: BeginSpec,
+    pub adopted_at_ms: u64,
+    pub expires_at_ms: u64,
+}
+// A receipt attests only committed raw storage bytes.
 pub struct Receipt {
     pub intent: IntentId,
     pub key: BlobKey,
@@ -163,11 +169,17 @@ pub struct Progress { pub intent: IntentId, pub next_index: u32, pub received: u
 pub enum BeginResult { Pending(Progress), Committed(Receipt), Terminal(TransferState) }
 pub enum TransferState { Pending(Progress), Committed(Receipt), Expired,
     Unavailable, Unknown, Discarded, NotObserved }
+pub struct Transfer { pub state: TransferState, pub original: Option<OriginalIntent> }
 pub struct ReadPart { pub offset: u64, pub total_bytes: u64, pub bytes: Vec<u8> }
-pub struct Usage { pub charged_bytes: u64, pub entries: u32, pub active_uploads: u32 }
-pub struct BackendCaps { pub max_payload_bytes: u64, pub max_chunk_bytes: u32 }
+pub struct Usage { pub charged_bytes: u64, pub entries: u32,
+    pub active_uploads: u32, pub retained_identities: u32 }
+pub struct BackendCaps { pub max_payload_bytes: u64, pub chunk_bytes: u32 }
 pub struct IoBudget<'a> { pub deadline: Instant, pub cancelled: &'a AtomicBool }
-pub enum BackendError { Invalid, Conflict, Missing, Unavailable, Cancelled, Deadline }
+pub enum Limit { NamespaceBytes, ExtensionBytes, InstallationBytes,
+    NamespaceEntries, ExtensionEntries, InstallationEntries, ActiveIntents,
+    RetainedExtension, RetainedInstallation }
+pub enum BackendError { Invalid, Conflict, Missing, Unavailable, Cancelled, Deadline,
+    Capacity(Limit) }
 pub type BackendResult<T> = Result<T, BackendError>;
 
 pub trait ObjectBackend: Send + Sync {
@@ -182,7 +194,7 @@ pub trait ObjectBackend: Send + Sync {
     fn commit(&self, intent: IntentId, io: &IoBudget<'_>)
         -> BackendResult<Receipt>;
     fn status(&self, intent: IntentId, io: &IoBudget<'_>)
-        -> BackendResult<TransferState>;
+        -> BackendResult<Transfer>;
     fn stat(&self, key: BlobKey, io: &IoBudget<'_>) -> BackendResult<Receipt>;
     fn read(&self, key: BlobKey, offset: u64, count: u32, io: &IoBudget<'_>)
         -> BackendResult<ReadPart>;
@@ -191,6 +203,12 @@ pub trait ObjectBackend: Send + Sync {
         -> BackendResult<()>;
 }
 ```
+
+One trusted `LocalFs` installation coordinator borrows Remote's held `Serving` lease and shares metadata/accounting and in-flight guards across extension-bound `LocalHandle` values. A validated `ExtensionId` name is not installed identity or admission; #1852 must obtain it from trusted registration and compose one coordinator, not reopen it per request. The trait handle's `usage(None)` means its extension, not the installation. Installation usage stays on the trusted coordinator; configuration readers receive only the admitted namespace projection. Other backends must provide the same shared accounting and trait semantics without Colab provider branches.
+
+`BeginSpec` freezes caller input. `OriginalIntent` adds adoption time and staging expiry once at durable adoption; later requests compare the same frozen input, not a new caller clock or renewed deadline. `status` returns `Transfer`: compare its retained original's exact key/raw digest/length/binding before projecting its state under current original-principal admission. An absent original is `NotObserved`, not proof of no effect. Neither an original record nor a non-committed state is a committed receipt. `Capacity(Limit)` refuses a new adoption; it is not a terminal outcome of a previously adopted uncertain transfer and never permits retry or replacement identity.
+
+`BackendCaps.chunk_bytes` defines canonical parts: exact full parts followed by the final remainder. A zero-byte generic raw payload commits without a part; Colab still supplies and validates its sealed envelope and independent plaintext/media limits. Every successful I/O result, including retained-original and usage fast paths, rechecks its budget after controlled ledger/I/O work before disclosure. Cancellation/deadline preserves any effect, charge and original state. Startup `LocalFs::open` reconciliation and an explicit owning-service `reconcile` call are separate from observational status; consumers do not invoke repair, timers, mutation retries or completed-object GC.
 
 Generic method inputs and semantics remain:
 
@@ -220,7 +238,7 @@ Colab's proposed effective consumer limits are 8 MiB plaintext per file, 12 MiB 
 
 LocalFs adapts existing extension-state private/no-follow publication invariants to a bounded dynamic object tree; the existing fixed `Layout` is not already a blob store. Stage only the immutable original principal/intent, namespace/key, raw digest/length, bounded policy binding and acknowledged chunk checkpoint. Sync payload and checkpoint before acknowledging a part. Startup reconciliation removes unacknowledged partial tails and settles only that original intent before readiness. A status call observes, never performs that reconciliation or a commit.
 
-Commit rereads the bounded serialized payload, verifies SHA-256/length and syncs it. Publish create-only using owned temporary-file/hard-link/directory-sync invariants, then record the matching index/receipt before acknowledgment. An existing destination is success only when its actual original receipt/digest/length agree; otherwise conflict/corruption refuses. File publication before receipt is a possible effect that recovery reconciles by the same original ID, never replacing a file or allocating another intent. Retained intent input binds the original deadline as well as its principal/namespace/policy/bytes; later requests cannot renew it. Changed input under that original ID conflicts.
+Commit rereads the bounded serialized payload, verifies SHA-256/length and syncs it. Publish create-only using owned temporary-file/hard-link/directory-sync invariants, then record the matching index/receipt before acknowledgment. An existing publication name is recoverable only as the original's own admitted device/inode, with the original raw digest/length verified on reconciliation; equal bytes in another inode are not that publication. Unknown distinct bodies remain conservatively charged and are not overwritten or removed. If allocation cannot be examined, measured or recorded, the original stays unsettled and the shared coordinator refuses new adoption; observation of original IDs remains available, and restart must settle or refuse readiness. File publication before receipt remains a possible effect reconciled by the same original ID, never a replacement file or intent. Backend adoption computes/persists staging expiry once; the retained original binds that metadata to the frozen principal/namespace/policy/bytes. Later requests cannot renew it, and changed frozen input conflicts.
 
 Serialize commit/discard and namespace deletion against the original intent/fence. Retain ID/tombstone records outside removable payload trees; deletion cannot make an old ID reusable. Cleanup-pending physical data stays charged until no-follow removal and directory sync confirm it gone. Quota/policy loss can leave an unattached encrypted object; it does not authorize a content reference or stale disclosure. Pending/committed/expired/discarded/unavailable/unknown/not-observed remain distinct; absent, expiry and deadline do not prove a possibly published effect had none.
 
