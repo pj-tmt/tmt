@@ -7,6 +7,7 @@ fn correlation() -> Correlation {
     Correlation {
         data_dir: std::env::temp_dir().join("tmt-talk-test"),
         offline: false,
+        unbound: false,
         request_id: "request-talk".into(),
         target: "worker".into(),
         pane: "%1".into(),

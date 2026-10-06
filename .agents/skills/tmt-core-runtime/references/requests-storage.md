@@ -67,6 +67,12 @@ configuration. The owner map is in
 - Listeners use an indexed watermark and one bounded snapshot; `exchange_command` owns the
   monotonic deadline and trailing debounce; polls do no tmux inventory, cleanup or held
   transaction, and there is no daemon or event bus.
+- Delivery availability distinguishes an active unbound identity from an offline recorded
+  endpoint. `talk_command::preparation` captures one waiter decision; unbound destinations
+  use the existing foreground observer by default, without a host wake. Notification/waiter
+  ownership precedes pull-visible queue publication, so an immediate recipient final cannot
+  race notification registration. A timeout releases that waiter and leaves the queue intact;
+  recorded offline endpoints retain their separate bounded background-observer policy.
 - `reply_receipt` is the one receipt codec: bounded and validated before storage effects, with
   malformed receipt, stale revision, unknown identity and uncertain transport as distinct failures.
   Talk renders `<tmt-reply from="…">` with the resolved originator's display name or `unknown`:

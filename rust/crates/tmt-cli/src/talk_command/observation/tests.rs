@@ -69,6 +69,7 @@ fn correlation() -> Correlation {
     Correlation {
         data_dir: std::env::temp_dir().join("tmt-observer-test"),
         offline: false,
+        unbound: false,
         request_id: "request-observe".into(),
         target: "worker".into(),
         pane: "%1".into(),
@@ -394,4 +395,77 @@ fn a_timeout_after_an_unacknowledged_write_reports_uncertain_delivery_and_no_res
     .unwrap_err();
     assert!(confirmed.document().get("deliveryState").is_none());
     assert!(!confirmed.message.contains("uncertain"));
+}
+
+#[test]
+fn an_unbound_recipient_times_out_with_result_and_exact_recipient_inspection_commands() {
+    let runtime = FakeRuntime::new();
+    let mut recipient = correlation();
+    recipient.unbound = true;
+    recipient.inbox = true;
+    recipient.offline = true;
+    recipient.pane.clear();
+    recipient.identity = Some(Identity {
+        id: "49000000-0000-4000-8000-000000000001".into(),
+        name: "Worker's Team".into(),
+        canonical_name: "worker's team".into(),
+        lifetime: tmt_core::identity::Lifetime::Saved,
+        created_at: "created".into(),
+        updated_at: "updated".into(),
+    });
+    let failure = observe(
+        || Ok(None),
+        &recipient,
+        runtime.at(1_000),
+        1.0,
+        0.4,
+        &runtime,
+    )
+    .unwrap_err();
+    assert_failure(
+        &failure,
+        "TIMEOUT",
+        4,
+        "worker has not responded within 1s; the request is still queued for inbox pull",
+    );
+    assert_eq!(runtime.waited_ms(), [400, 800, 1_000]);
+    let document = failure.document();
+    assert_eq!(document["status"], "timeout");
+    assert!(document.get("pane").is_none());
+    let suggestion = document["error"]["suggestion"].as_str().unwrap();
+    assert!(suggestion.contains("tmt result request-observe --json"));
+    assert!(
+        suggestion.contains("tmt inbox --identity '49000000-0000-4000-8000-000000000001' --json")
+    );
+    assert!(suggestion.contains("tmt x show request-observe --incoming --identity '49000000-0000-4000-8000-000000000001' --json"));
+    assert!(suggestion.contains("do not resend"));
+    assert!(!suggestion.contains("tmt resume"));
+}
+
+#[test]
+fn an_unbound_recipient_returns_the_exact_reply_after_a_bounded_poll() {
+    let runtime = FakeRuntime::new();
+    let mut recipient = correlation();
+    recipient.unbound = true;
+    recipient.inbox = true;
+    let mut expected = response("exact inbox reply\n");
+    expected.route = tmt_core::request::RequestRoute::Inbox {
+        recipient_identity_id: "recipient".into(),
+    };
+    let reads = Cell::new(0);
+    let actual = observe(
+        || {
+            reads.set(reads.get() + 1);
+            Ok((reads.get() == 2).then(|| expected.clone()))
+        },
+        &recipient,
+        runtime.at(1_000),
+        1.0,
+        0.25,
+        &runtime,
+    )
+    .unwrap();
+    assert_eq!(actual, expected);
+    assert_eq!(reads.get(), 2);
+    assert_eq!(runtime.waited_ms(), [250]);
 }

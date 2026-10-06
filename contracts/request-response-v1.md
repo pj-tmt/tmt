@@ -6,8 +6,9 @@ sending. Terminal capture and `check` are diagnostics, not authoritative
 completion or full-body retrieval. Socket denial is confirmed with OS permission
 evidence rather than localized error wording; tmux child locales are preserved,
 including UTF-8 character handling for capture and send. Identified destinations use a durable Inbox
-route with one live-delivery attempt. Explicit `talk --inbox` queues without
-that attempt. Neither implies a daemon, remote transport or authentication.
+route with at most one live-delivery attempt when an endpoint is recorded.
+Unbound identities and explicit `talk --inbox` queue without that attempt.
+Neither implies a daemon, remote transport or authentication.
 
 A cooperating agent submits its complete final body successfully, then may show
 a short truthful summary of work, verification and unresolved items. Submission
@@ -384,6 +385,17 @@ terminal output to determine completion. `send` follows the same semantics.
 The recipient must cooperate by invoking reply; idle output, fake markers,
 process exit and human summaries do not complete a request.
 
+An active identity with no recorded host binding receives by inbox pull. Ordinary
+`talk` queues and waits for its durable reply without needing tmux, Herdr or a
+host driver; `--detach` returns the queued acceptance immediately. Outside a
+verified host pane, use `--identity <originator>` to identify the sender explicitly.
+The receiving
+agent must actively inspect `tmt inbox --identity <recipient> --json` or run the
+bounded `tmt x listen --identity <recipient>` waiter, then inspect the exact
+request and submit its receipt-bound reply. This does not wake or launch an
+inactive agent. Publishing recipient attention follows notification/waiter
+registration, so a listener's immediate reply is valid.
+
 Timeout defaults to 180 seconds unless configured, accepts finite positive
 seconds or ms/s suffixes, and is bounded to 24 hours. Explicit timeout and
 detach are mutually exclusive. The monotonic deadline starts immediately before
@@ -396,6 +408,16 @@ remain retrievable. Interruption during `--delay`, before preparation, reports
 `INTERRUPTED` (exit 1) without request correlation: no message was sent, so running
 the command again is safe.
 
+The existing global-file `defaults.timeout` and `defaults.pollInterval` configure
+this foreground observation; polling defaults to one second and each wait is
+clipped to the remaining monotonic budget. `--timeout` overrides the configured
+deadline. A timeout for ordinary `talk` to an unbound recipient reports that the agent has not
+responded within the budget, retains exit 4 / `TIMEOUT`, and gives the exact
+`tmt result <request-id> --json`, recipient-UUID inbox pull and
+`tmt x show <request-id> --incoming --identity <recipient UUID> --json` commands.
+It does not claim the agent is dead or that the request was never received, and
+does not start a background timeout observer, cancel the request or resend it.
+
 Detached explicit `talk --inbox` accepts the queue with exit 0 and JSON
 `{status:"queued",requestId,target,identity,recipientIdentityId,notification:"not_attempted",waitingFor:"recipient_inbox_pull"}`.
 No live notification was attempted, even for an enrolled, ready recipient. The
@@ -404,7 +426,7 @@ Human output states this and supplies `tmt inbox --identity '<recipient UUID>' -
 a correlated `tmt x show <request-id> --incoming --identity '<recipient UUID>' --json`,
 and `tmt result <request-id>`. The recipient commands are for that recipient's
 own identity. A completed response does not carry the pending notification or
-waiting fields. Ordinary offline queueing retains `offline:true` and the same
+waiting fields. Detached unbound and recorded offline queueing retain `offline:true` and the same
 unattempted-notification/pull fields, with a recipient pull and repair suggestion; ordinary live
 and uncertain handoffs do not claim that notification was unattempted.
 
@@ -425,7 +447,7 @@ Unavailable or uncertain delivery remains queued; uncertainty still returns
 `DELIVERY_UNCERTAIN`, not permission to resend. A recipient whose host reports
 its agent as waiting on its user (an approval or a question) refuses the
 prompt: `talk` returns `DELIVERY_AWAITING_APPROVAL` (exit 1), nothing reached
-the pane, the request stays queued, and nothing types around the agent. Offline recipients produce an
+the pane, the request stays queued, and nothing types around the agent. Offline recipients with a recorded endpoint produce an
 immediate `queued` result with `offline:true`, without waiting or pasting into a
 shell. Rebinding or coming online never triggers automatic re-wake. Explicit
 `--inbox` and unbound direct-pane behavior remain distinct.
@@ -456,7 +478,7 @@ agent readiness is unverified, not proof of a running provider. The tmux driver
 cannot detect provider approval or attention states. A driver that reports
 denial, pending approval, acceptance or uncertainty never permits host fallback.
 
-A non-detached request to an offline recipient starts one bounded timeout observer, detached
+A non-detached request to an offline recorded endpoint starts one bounded timeout observer, detached
 from terminal streams and the caller's session. It holds no database lock while
 waiting, exits on a final or its deadline, and may claim one timeout hint:
 `▚ … <recipient> · <original request preview> · no reply yet · <duration> · tmt result <id>`.
