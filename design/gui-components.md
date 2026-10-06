@@ -64,15 +64,16 @@ for serving Remote HTML. Reuse the existing pinned implementations first; select
 Radix needs a separate dependency decision, with a concrete benefit and behavioral
 comparison, before installation or replacement.
 
-The reserved `design/browser-ui/` home is a private presentation leaf owned by
+The `design/browser-ui/` home contains a private presentation leaf owned by
 tmt-ux. Products may depend on the leaf; it must not import product code. Core and
-the CLI must neither depend on nor embed it. This reserves the home and dependency
-direction; package files, exports and product adoption are not delivered. Before
-initial leaf implementation, Infra reviews the concrete responsibility and
-component-map proposal. Resulting workspace, lockfile and dependency changes
-receive Core review, and packaging changes receive Colab/Remote review at the
-actual implementation head before delivery/adoption. Workspace registration
-and implementation remain planned. The initial package issue is #1797.
+the CLI must neither depend on nor embed it. The initial #1797 source implements
+checked CSS, static class names and isolated Header, Notice, Field, Action and
+Toggle; [the package contract](browser-ui/README.md) owns its entries, generation
+commands and host metric inputs. Product adoption is not delivered. Infra has
+reviewed the concrete responsibility and component-map proposal; shared workspace,
+lockfile and verification integration remains pending. Resulting workspace,
+lockfile and dependency changes receive Core review, and packaging changes receive
+Colab/Remote review at the actual implementation head before delivery/adoption.
 
 The static entry must provide checked, deterministic token/component CSS that the
 native products embed at compile time. A Node build may generate assets in developer

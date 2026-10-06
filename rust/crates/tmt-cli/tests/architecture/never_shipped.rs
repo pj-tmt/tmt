@@ -406,11 +406,98 @@ fn generator(
     Ok((site, expression))
 }
 
+// Resolve only literal include inputs and the manifest-relative concat form.
+// Unknown expressions fail closed; do not execute a build script to discover inputs.
+fn browser_input(expr: &Expr, manifest: &Path) -> GuardResult<String> {
+    match expr {
+        Expr::Lit(value) => match &value.lit {
+            Lit::Str(value) => Ok(value.value()),
+            _ => Err("non-string browser input".into()),
+        },
+        Expr::Macro(value) if value.mac.path.is_ident("env") => {
+            let name = syn::parse2::<syn::LitStr>(value.mac.tokens.clone())
+                .map_err(|_| "nonliteral browser input environment")?;
+            if name.value() == "CARGO_MANIFEST_DIR" {
+                Ok(manifest.to_string_lossy().into())
+            } else {
+                Err("unproved browser input environment".into())
+            }
+        }
+        Expr::Macro(value) if value.mac.path.is_ident("concat") => {
+            use syn::parse::Parser;
+            let args = syn::punctuated::Punctuated::<Expr, syn::Token![,]>::parse_terminated
+                .parse2(value.mac.tokens.clone())
+                .map_err(|e| e.to_string())?;
+            args.iter()
+                .map(|arg| browser_input(arg, manifest))
+                .collect()
+        }
+        _ => Err("unproved browser input expression".into()),
+    }
+}
+
+pub fn browser_leaf_inputs(root: &Path, metadata: &Value) -> GuardResult<()> {
+    let root = root.canonicalize().map_err(|e| e.to_string())?;
+    let leaf = root.join("design/browser-ui");
+    for package in metadata["packages"]
+        .as_array()
+        .ok_or("missing Cargo packages")?
+    {
+        let manifest = PathBuf::from(text(package, "manifest_path")?);
+        let crate_dir = manifest
+            .parent()
+            .ok_or("missing Core crate directory")?
+            .canonicalize()
+            .map_err(|e| e.to_string())?;
+        if !crate_dir.starts_with(root.join("rust/crates")) {
+            continue;
+        }
+        let mut files = Vec::new();
+        rust_files(&crate_dir, &[], &mut files)?;
+        for file in files {
+            let syntax = syn::parse_file(&fs::read_to_string(&file).map_err(|e| e.to_string())?)
+                .map_err(|e| e.to_string())?;
+            let mut references = References::default();
+            references.visit_file(&syntax);
+            for reference in references.values {
+                let name = match reference.target {
+                    Some(name) => name,
+                    None if include_name(&reference.kind) => {
+                        let expression = syn::parse_str::<Expr>(&reference.expression)
+                            .map_err(|e| e.to_string())?;
+                        browser_input(&expression, &crate_dir)?
+                    }
+                    None => {
+                        return Err(format!(
+                            "unproved Core/CLI {} in {}",
+                            reference.kind,
+                            file.display()
+                        ));
+                    }
+                };
+                let target = normalized(&root, file.parent().unwrap(), &name)?;
+                // Also reject an indirect filesystem alias into the presentation home.
+                if overlap(&target, &leaf)
+                    || target.canonicalize().is_ok_and(|p| overlap(&p, &leaf))
+                {
+                    return Err(format!(
+                        "Core/CLI must not embed browser-ui: {} ({})",
+                        file.display(),
+                        reference.kind
+                    ));
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
 pub fn check(root: &Path, metadata: &Value) -> GuardResult<()> {
     let map: Value = serde_json::from_str(
         &fs::read_to_string(root.join(".github/components.json")).map_err(|e| e.to_string())?,
     )
     .map_err(|e| e.to_string())?;
+    browser_leaf_inputs(root, metadata)?;
     check_map(root, metadata, &map)
 }
 

@@ -42,7 +42,7 @@ ownership comes separately from [`.github/components.json`](.github/components.j
 | `scripts/`                | Shared shell/build/development helpers                                               |
 | `skills/`                 | Canonical bundled user-agent guidance                                                |
 | `site/`                   | User handbook and translations                                                       |
-| `design/`                 | Tokens/CLI; [reserved browser-ui](design/gui-components.md); no Core/CLI dep/embed   |
+| `design/`                 | Tokens/CLI; [private browser-ui](design/gui-components.md); no Core/CLI dep/embed    |
 
 New homes or exceptions need infra review and coordinated map/allowlist changes;
 ignored local outputs are outside the tracked-file map. The

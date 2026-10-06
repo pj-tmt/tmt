@@ -2265,3 +2265,69 @@ fn colab_model_consumers_are_confined_to_colab_package() {
         );
     }
 }
+
+#[test]
+fn browser_ui_is_forbidden_across_core_dependency_kinds_paths_and_renames() {
+    for owner in ["tmt-core", "tmt-cli", "tmt-adapters", "tmt-cli-style"] {
+        for kind in [Value::Null, json!("normal"), json!("build"), json!("dev")] {
+            for target in [Value::Null, json!("cfg(unix)")] {
+                for rename in [Value::Null, json!("hidden_presentation")] {
+                    for dependency in [
+                        json!({"name":"browser-ui", "kind":kind, "target":target, "rename":rename}),
+                        json!({"name":"neutral-name", "path":"/repository/design/browser-ui", "kind":kind, "target":target, "rename":rename}),
+                    ] {
+                        let mut value = package(owner, vec![dependency]);
+                        value["manifest_path"] =
+                            json!(format!("/repository/rust/crates/{owner}/Cargo.toml"));
+                        assert!(
+                            policy::dependency_violations(&value)
+                                .iter()
+                                .any(|v| v.contains("must neither depend on nor embed"))
+                        );
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn core_browser_embedding_guard_inspects_includes_paths_and_nested_macro_tokens() {
+    let fixture = FixtureDirectory::new();
+    let root = fixture.root();
+    fs::create_dir_all(root.join("rust/crates/tmt-cli/src")).unwrap();
+    fs::create_dir_all(root.join("design/browser-ui/generated")).unwrap();
+    fs::write(
+        root.join("design/browser-ui/generated/static.css"),
+        "checked bytes",
+    )
+    .unwrap();
+    let metadata = json!({"packages":[{"name":"tmt-cli","manifest_path":root.join("rust/crates/tmt-cli/Cargo.toml")}]});
+    let source = root.join("rust/crates/tmt-cli/src/main.rs");
+    for code in [
+        "const CSS: &str = include_str!(\"../../../../design/browser-ui/generated/static.css\");",
+        "wrapper!({ inner!({ include_bytes!(\"../../../../design/browser-ui/generated/static.css\"); }); });",
+        "include!(concat!(env!(\"CARGO_MANIFEST_DIR\"), \"/../../../design/browser-ui/generated/static.css\"));",
+        "#[path = \"../../../../design/browser-ui/generated/static.css\"] mod hidden;",
+    ] {
+        fs::write(&source, code).unwrap();
+        let failure = super::never_shipped::browser_leaf_inputs(root, &metadata).unwrap_err();
+        assert!(failure.contains("must not embed browser-ui"), "{failure}");
+    }
+    fs::write(&source, "include_str!(env!(\"UNKNOWN_INPUT\"));").unwrap();
+    assert!(
+        super::never_shipped::browser_leaf_inputs(root, &metadata)
+            .unwrap_err()
+            .contains("unproved")
+    );
+    fs::write(&source, "const TOKENS: &str = include_str!(\"../../../../design/tokens/tokens.json\"); const COPY: &str = \"include_str!(browser-ui)\";").unwrap();
+    assert!(super::never_shipped::browser_leaf_inputs(root, &metadata).is_ok());
+    fs::create_dir_all(root.join("extensions/tmt-colab/rust/tmt-colab/src")).unwrap();
+    fs::write(
+        root.join("extensions/tmt-colab/rust/tmt-colab/src/main.rs"),
+        "include_str!(\"../../../../../design/browser-ui/generated/static.css\");",
+    )
+    .unwrap();
+    let product = json!({"packages":[{"name":"tmt-colab","manifest_path":root.join("extensions/tmt-colab/rust/tmt-colab/Cargo.toml")}]});
+    assert!(super::never_shipped::browser_leaf_inputs(root, &product).is_ok());
+}
