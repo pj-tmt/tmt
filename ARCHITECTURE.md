@@ -1233,6 +1233,10 @@ core discovery or storage access.
   author HTML and passes no application capability. Parent highlight messages carry only
   anchor IDs and quote selectors; discussion bodies and display labels never enter author code.
   This contains author code; page self-navigation can still leak a request.
+- **Planned attachments.** The [local storage proposal](extensions/tmt-colab/contracts/storage-v1-proposal.md)
+  keeps generic backend/channel/quota/origin ownership in Remote and authenticated references,
+  crypto/history/read admission and consumers in Colab. No core object API, new reader credential
+  or runtime implementation is claimed; archive/history/native acceptance remains required.
 - **Plaintext invariant.** Page source and export are root-local: only the isolated decoder
   child decodes Yjs, no route serves plaintext, and the browser Worker is resource
   containment, not a security sandbox.

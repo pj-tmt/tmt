@@ -29,6 +29,15 @@ supply decoder, renderer, anchoring, door and TLS evidence. They leave productio
 containment and durable transport to the named slices.
 Baseline and hostile-corpus containment acceptance remain C0 review gates.
 
+## Planned local attachment storage
+
+The [local attachment storage proposal](storage-v1-proposal.md) owns the coordinated
+#1691/#1849 design for generic Remote storage and Colab references, read/history
+admission, safe consumers and limits. Its operations and native commands are
+proposed, not shipped by this contract. Existing membership, crypto, sync and
+renderer owners remain authoritative; no new core object API or reader credential
+is introduced.
+
 ## Channel boundary
 
 Colab is an app on remote. The [remote channel contract](../../../contracts/remote-channel-v1.md#extension-channel-api)
