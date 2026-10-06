@@ -1159,15 +1159,10 @@ the wire, pairing, session, operations and extension channel API. Remote owns th
 static root landing and pairing-page errors as well as the pairing ceremony;
 protocol refusals and mounted extension responses retain their own representation.
 [Remote settings administration](contracts/remote-channel-v1.md#remote-settings-browser-authority)
-uses a separate local-owner designation from paired channel trust. The #1769 native/SDK draft's
-`management` owner composes the existing JSON settings writer and transaction-local device writers;
-Store owns designation and bounded immutable receipts, with device cleanup/events after commit.
-JSON settings and SQLite receipts are separate durability boundaries; uncertain writes are never
-reapplied by receipt lookup. Every read retains live-grant admission, including original-ID recovery;
-no historical-key exception exists. The `/settings` static draft reuses Remote page tokens and
-composes the SDK for admitted forms, frozen outcomes and original-ID reading; its separate page
-bundle imports the single served SDK. Shared presentation adoption and feature acceptance remain
-pending. Remote owns authority, while shared browser components own presentation only.
+separates local effect designation from paired trust. Every read, including original-ID recovery,
+requires a live grant; uncertain effects are never reapplied. Remote owns authority; shared components
+own presentation. The feature remains a draft with shared adoption and acceptance pending;
+[Remote internals](.agents/skills/tmt-remote/references/door-and-discovery.md#management-implementation-draft) own implementation details.
 The door serves the browser SDK `remote-v1.js` (built from `remote-client`), which
 gives mounted pages `reopenSession`, `operations(session)` and `certifyKey`; its README owns
 the caller-facing recovery rules. The
