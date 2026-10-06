@@ -153,6 +153,18 @@ cost or text volume. `board::rate` owns evidence, `board::meter` presentation an
   window (normally 1h). Missing stays absent; zero stays zero; partial flags
   propagate to share; a zero denominator has no share. Consumers format this
   projection without sampling or recomputing totals.
+- HOME presentation: `home::counters` retains disposable digits keyed to the
+  recorded user, exact squad room/lead UUID or header roster, policy and window.
+  It reuses `meter::Counter` easing; `App::home_usage` and `home_header_usage`
+  remain raw evidence for aggregation, shares, top/model attribution and coverage.
+  First usable evidence, unavailable transitions and reduced motion settle;
+  owner/window changes get fresh digits. Tab handoff and failed HOME reads discard
+  presentation. HOME painters supply admitted token cells after their existing
+  column budget and scroll clipping; covered composer cells and hidden body
+  overlays stop their motion. The existing session tick/wait wakes only for
+  changed fitted visible digits, with no public read, independent timer or
+  renderer. Missing `–`, measured zero and `~` labels keep their meaning; hidden
+  counters settle and re-enter without counting from stale digits.
 - Presentation: cubic digits count for at most 600 ms at 250 ms frame spacing;
   retargeting starts from displayed digits, and window switches/reduced motion
   settle immediately. Eight bucket-aligned bars derive from the same rings: blank

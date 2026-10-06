@@ -304,6 +304,7 @@ fn session<T: Into<ActionOutcome>>(
         }
         let now = Instant::now();
         dirty |= app.meter.as_mut().is_some_and(|meter| meter.tick(now));
+        dirty |= app.home_counters.borrow_mut().tick(now);
         let next_spinner = view::spinner_frame(app, now);
         let next_marks = view::time_marks(app, crate::status::now_ms());
         dirty |= next_spinner != spinner || next_marks != marks;
@@ -329,6 +330,9 @@ fn session<T: Into<ActionOutcome>>(
             .as_ref()
             .and_then(|meter| meter.wait(Instant::now()))
         {
+            wait = wait.min(motion);
+        }
+        if let Some(motion) = app.home_counters.borrow().wait(Instant::now()) {
             wait = wait.min(motion);
         }
         if let Some(interval) = interval {
