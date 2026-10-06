@@ -135,15 +135,44 @@ export function unitKey(record) {
     record.profile,
   ]);
 }
+// Cargo owns output identities; one semantic target can emit several feature variants.
+export function artifactKey(record) {
+  assert(
+    record.profile &&
+      typeof record.profile.test === 'boolean' &&
+      Array.isArray(record.features) &&
+      record.features.every((feature) => typeof feature === 'string') &&
+      Array.isArray(record.filenames) &&
+      record.filenames.length > 0 &&
+      record.filenames.every((file) => typeof file === 'string' && path.isAbsolute(file)) &&
+      (record.executable === null ||
+        (typeof record.executable === 'string' && record.filenames.includes(record.executable))),
+    'Incomplete Cargo artifact record'
+  );
+  unique(record.features, 'feature');
+  return canonical([
+    ...JSON.parse(unitKey(record)),
+    unique(record.filenames, 'artifact filename'),
+    record.executable,
+  ]);
+}
+function artifactRecords(records) {
+  const artifacts = records.filter((record) => record.reason === 'compiler-artifact');
+  unique(artifacts.map(artifactKey), 'Cargo artifact output identity');
+  unique(
+    artifacts.flatMap((record) => record.filenames),
+    'Cargo artifact output ownership'
+  );
+  return artifacts;
+}
 export function libraryFeatures(records) {
-  const values = records
+  const values = artifactRecords(records)
     .filter(
       (record) =>
-        record.reason === 'compiler-artifact' &&
         !record.profile.test &&
         record.target.kind.some((kind) => ['lib', 'rlib', 'proc-macro'].includes(kind))
     )
-    .map((record) => [unitKey(record), unique(record.features, 'feature')]);
+    .map((record) => [artifactKey(record), unique(record.features, 'feature')]);
   unique(
     values.map(([key]) => key),
     'library unit'
@@ -151,6 +180,11 @@ export function libraryFeatures(records) {
   return values.sort(([a], [b]) => a.localeCompare(b));
 }
 export function compareDocFeatures(baseline, docs) {
+  for (const values of [baseline, docs])
+    unique(
+      values.map(([key]) => key),
+      'library output identity'
+    );
   const base = new Map(baseline);
   assert(docs.length > 0, 'Missing doctest library units');
   for (const [key, features] of docs) {
@@ -168,21 +202,8 @@ export function admitInventory(records, packages, manifests) {
   const selected = packages.filter((pkg) => !EXCLUSIONS.includes(pkg.name));
   const byId = new Map(packages.map((pkg) => [pkg.id, pkg]));
   assert(!byId.has(undefined) && byId.size === packages.length, 'Missing Cargo package identity');
-  const artifacts = records.filter((record) => record.reason === 'compiler-artifact');
+  const artifacts = artifactRecords(records);
   for (const artifact of artifacts) {
-    assert(
-      artifact.profile &&
-        typeof artifact.profile.test === 'boolean' &&
-        Array.isArray(artifact.features) &&
-        artifact.features.every((feature) => typeof feature === 'string') &&
-        Array.isArray(artifact.filenames) &&
-        artifact.filenames.length > 0 &&
-        artifact.filenames.every((file) => typeof file === 'string' && path.isAbsolute(file)) &&
-        (artifact.executable === null ||
-          (typeof artifact.executable === 'string' &&
-            artifact.filenames.includes(artifact.executable))),
-      'Incomplete Cargo artifact record'
-    );
     const pkg = byId.get(artifact.package_id);
     if (pkg)
       assert(
@@ -195,10 +216,6 @@ export function admitInventory(records, packages, manifests) {
         'Unknown workspace artifact target'
       );
   }
-  unique(
-    artifacts.map((record) => canonical([unitKey(record), record.features])),
-    'Cargo artifact unit'
-  );
   const harnesses = [],
     support = [],
     docs = [];
@@ -257,9 +274,9 @@ export function admitInventory(records, packages, manifests) {
         disposition: runnable ? 'harness' : kind === 'bench' ? 'not-default' : 'compile-support',
         units: units
           .map((record) => ({
-            key: unitKey(record),
-            features: record.features,
-            files: record.filenames,
+            key: artifactKey(record),
+            features: unique(record.features, 'feature'),
+            files: unique(record.filenames, 'artifact filename'),
             executable: record.executable,
           }))
           .sort((a, b) => a.key.localeCompare(b.key)),

@@ -56,6 +56,27 @@ function fixture() {
   );
   return { packages, artifacts, manifests };
 }
+
+// Original Rust 1.97.0 run37415761814/attempt1 at4c: compiler output SHA-256
+// 40c76c18fb6ecfd3a56e85af4554b8c5fbc57061225105c2bcb65dd69619fe91.
+// Unmodified JSON lines 6, 293, 12, 296; filename suffixes are opaque Cargo output.
+const observedLibraryLines = [
+  '{"reason":"compiler-artifact","package_id":"registry+https://github.com/rust-lang/crates.io-index#proc-macro2@1.0.107","manifest_path":"/home/runner/work/_temp/tmt-workspace-proof/cargo/registry/src/index.crates.io-1949cf8c6b5b557f/proc-macro2-1.0.107/Cargo.toml","target":{"kind":["lib"],"crate_types":["lib"],"name":"proc_macro2","src_path":"/home/runner/work/_temp/tmt-workspace-proof/cargo/registry/src/index.crates.io-1949cf8c6b5b557f/proc-macro2-1.0.107/src/lib.rs","edition":"2021","doc":true,"doctest":true,"test":true},"profile":{"opt_level":"0","debuginfo":0,"debug_assertions":true,"overflow_checks":true,"test":false},"features":["default","proc-macro"],"filenames":["/home/runner/work/tmt/tmt/rust/target/debug/deps/libproc_macro2-00a6a713480bc610.rlib","/home/runner/work/tmt/tmt/rust/target/debug/deps/libproc_macro2-00a6a713480bc610.rmeta"],"executable":null,"fresh":true}',
+  '{"reason":"compiler-artifact","package_id":"registry+https://github.com/rust-lang/crates.io-index#proc-macro2@1.0.107","manifest_path":"/home/runner/work/_temp/tmt-workspace-proof/cargo/registry/src/index.crates.io-1949cf8c6b5b557f/proc-macro2-1.0.107/Cargo.toml","target":{"kind":["lib"],"crate_types":["lib"],"name":"proc_macro2","src_path":"/home/runner/work/_temp/tmt-workspace-proof/cargo/registry/src/index.crates.io-1949cf8c6b5b557f/proc-macro2-1.0.107/src/lib.rs","edition":"2021","doc":true,"doctest":true,"test":true},"profile":{"opt_level":"0","debuginfo":0,"debug_assertions":true,"overflow_checks":true,"test":false},"features":[],"filenames":["/home/runner/work/tmt/tmt/rust/target/debug/deps/libproc_macro2-3f9d9c2a259da544.rlib","/home/runner/work/tmt/tmt/rust/target/debug/deps/libproc_macro2-3f9d9c2a259da544.rmeta"],"executable":null,"fresh":false}',
+  '{"reason":"compiler-artifact","package_id":"registry+https://github.com/rust-lang/crates.io-index#syn@2.0.119","manifest_path":"/home/runner/work/_temp/tmt-workspace-proof/cargo/registry/src/index.crates.io-1949cf8c6b5b557f/syn-2.0.119/Cargo.toml","target":{"kind":["lib"],"crate_types":["lib"],"name":"syn","src_path":"/home/runner/work/_temp/tmt-workspace-proof/cargo/registry/src/index.crates.io-1949cf8c6b5b557f/syn-2.0.119/src/lib.rs","edition":"2021","doc":true,"doctest":true,"test":true},"profile":{"opt_level":"0","debuginfo":0,"debug_assertions":true,"overflow_checks":true,"test":false},"features":["clone-impls","default","derive","extra-traits","fold","full","parsing","printing","proc-macro","visit"],"filenames":["/home/runner/work/tmt/tmt/rust/target/debug/deps/libsyn-82c88abb48bc493d.rlib","/home/runner/work/tmt/tmt/rust/target/debug/deps/libsyn-82c88abb48bc493d.rmeta"],"executable":null,"fresh":true}',
+  '{"reason":"compiler-artifact","package_id":"registry+https://github.com/rust-lang/crates.io-index#syn@2.0.119","manifest_path":"/home/runner/work/_temp/tmt-workspace-proof/cargo/registry/src/index.crates.io-1949cf8c6b5b557f/syn-2.0.119/Cargo.toml","target":{"kind":["lib"],"crate_types":["lib"],"name":"syn","src_path":"/home/runner/work/_temp/tmt-workspace-proof/cargo/registry/src/index.crates.io-1949cf8c6b5b557f/syn-2.0.119/src/lib.rs","edition":"2021","doc":true,"doctest":true,"test":true},"profile":{"opt_level":"0","debuginfo":0,"debug_assertions":true,"overflow_checks":true,"test":false},"features":["full","parsing","visit"],"filenames":["/home/runner/work/tmt/tmt/rust/target/debug/deps/libsyn-a78854222b1ce8e9.rlib","/home/runner/work/tmt/tmt/rust/target/debug/deps/libsyn-a78854222b1ce8e9.rmeta"],"executable":null,"fresh":false}',
+];
+const observedLibraries = () => observedLibraryLines.map((line) => JSON.parse(line));
+const processIdentity = (pid = '100', start = '10') => ({
+  pid,
+  start,
+  status: 'observed',
+  ppid: '1',
+  pgid: pid,
+  session: pid,
+  state: 'S',
+});
+
 const listed = 'alpha: test\nignored: test\n\n2 tests, 0 benchmarks\n';
 const ignored = 'ignored: test\n1 test, 0 benchmarks\n';
 const executed =
@@ -99,7 +120,12 @@ describe('N=1 Cargo proof admission (synthetic formats, not Linux equivalence)',
       proof.admitInventory(
         [
           ...f.artifacts,
-          { ...f.artifacts[0], target: { ...f.packages[0].targets[0], name: 'extra' } },
+          {
+            ...f.artifacts[0],
+            target: { ...f.packages[0].targets[0], name: 'extra' },
+            executable: '/source/extra',
+            filenames: ['/source/extra'],
+          },
         ],
         f.packages,
         f.manifests
@@ -201,6 +227,81 @@ describe('N=1 Cargo proof admission (synthetic formats, not Linux equivalence)',
     );
     expect(() => proof.compareDocFeatures([['lib', ['a']]], [['other', ['a']]])).toThrow('absent');
     expect(() => proof.compareDocFeatures([['lib', ['a']]], [])).toThrow('Missing');
+  });
+  it('retains both real Cargo output variants and exact feature pairing without replacing harness IDs', () => {
+    const records = observedLibraries();
+    const values = proof.libraryFeatures(records);
+    expect(values).toHaveLength(4);
+    expect(proof.libraryFeatures([...records].reverse())).toEqual(values);
+    for (const record of records) {
+      const [key, features] = values.find(([key]: [string]) =>
+        JSON.parse(key)[6].includes(record.filenames[0])
+      );
+      expect(JSON.parse(key).slice(0, 6)).toEqual(JSON.parse(proof.unitKey(record)));
+      expect(JSON.parse(key)[6]).toEqual([...record.filenames].sort());
+      expect(features).toEqual([...record.features].sort());
+      expect(() => proof.compareDocFeatures(values, [[key, features]])).not.toThrow();
+    }
+    const fixtureRecords = fixture();
+    const harness = proof.admitInventory(
+      fixtureRecords.artifacts,
+      fixtureRecords.packages,
+      fixtureRecords.manifests
+    ).harnesses[0];
+    expect(harness.id).toBe(
+      proof.unitKey(
+        fixtureRecords.artifacts.find((record) => record.executable === harness.executable)
+      )
+    );
+    for (const mutated of [
+      records.slice(1),
+      [...records, { ...records[0], filenames: ['/changed/extra.rlib'] }],
+      records.map((record, index) => (index === 0 ? { ...record, features: ['changed'] } : record)),
+      records.map((record, index) =>
+        index === 0 ? { ...record, filenames: ['/changed/output.rlib'] } : record
+      ),
+      records.map((record, index) => ({
+        ...record,
+        features: records[index < 2 ? 1 - index : index].features,
+      })),
+    ])
+      expect(() =>
+        proof.exact(
+          proof.libraryFeatures(mutated),
+          values,
+          'Default/producer target or feature mismatch'
+        )
+      ).toThrow('mismatch');
+    for (const mutated of [
+      [...records, records[0]],
+      [...records, { ...records[0], features: ['conflicting'] }],
+      [...records, { ...records[0], filenames: [records[0].filenames[0]] }],
+      records.map((record, index) => (index === 0 ? { ...record, filenames: [] } : record)),
+      records.map((record, index) =>
+        index === 0 ? { ...record, features: ['same', 'same'] } : record
+      ),
+    ])
+      expect(() => proof.libraryFeatures(mutated)).toThrow();
+    const changed = proof.libraryFeatures([{ ...records[0], features: ['changed'] }]);
+    expect(() => proof.compareDocFeatures(values, changed)).toThrow('feature');
+    expect(() => proof.compareDocFeatures(values.slice(1), [values[0]])).toThrow('absent');
+    expect(() => proof.compareDocFeatures(values, [values[0], values[0]])).toThrow('Duplicate');
+    expect(() => proof.compareDocFeatures([...values, values[0]], [values[0]])).toThrow(
+      'Duplicate'
+    );
+    // Proper zero completion cannot stand in for a missing primary library record.
+    expect(() =>
+      proof.cargoCoverage(
+        '{"reason":"build-finished","success":true}\n0 tests, 0 benchmarks\n',
+        '   Doc-tests proc_macro2\n',
+        {
+          harnesses: [],
+          rustRoot: '/source/rust',
+          docs: [{ id: records[0].package_id, package: 'proc_macro2', target: 'proc_macro2' }],
+        },
+        'list'
+      )
+    ).toThrow('Missing doctest primary');
   });
   it('attributes multiple Rust 2024 doctest blocks and explicit zero obligations', () => {
     const inv = {
@@ -398,13 +499,18 @@ describe('bounded command and role cleanup', () => {
   it('admits cleanup for every role and preserves original red or unconfirmed cleanup without removing live roots', async () => {
     const temp = mkdtempSync(path.join(tmpdir(), 'tmt-proof-finalize-'));
     try {
-      for (const role of proof.ROLES) {
+      for (const role of [...proof.ROLES, 'aggregate']) {
         for (const outcome of [
           'success',
           'original-red',
           'survivor',
+          'raced',
+          'denied',
+          'vanished',
           'unconfirmed',
           'listeners',
+          'listener-command',
+          'evidence-write',
           'deadline',
           'removal',
         ]) {
@@ -420,7 +526,7 @@ describe('bounded command and role cleanup', () => {
             cleanupFailure: '',
           };
           const writes: Record<string, unknown>[] = [];
-          const before = [{ pid: '100', start: '10' }];
+          const before = [processIdentity()];
           const calls: string[] = [];
           await transport.finalizeRole({
             report,
@@ -431,7 +537,11 @@ describe('bounded command and role cleanup', () => {
             deadline: 100,
             now: () => (outcome === 'deadline' ? 101 : 1),
             snapshot: () =>
-              outcome === 'survivor' ? [...before, { pid: '200', start: '20' }] : before,
+              outcome === 'survivor'
+                ? [...before, processIdentity('200', '20')]
+                : ['raced', 'denied', 'vanished'].includes(outcome)
+                  ? [{ ...before[0], status: outcome }]
+                  : before,
             command: async (
               label: string,
               _executable: string,
@@ -439,17 +549,34 @@ describe('bounded command and role cleanup', () => {
               options: { cleanupPhase: boolean }
             ) => {
               calls.push(label);
+              if (outcome === 'listener-command' && label === 'listeners-after')
+                throw new Error('listener observer failed');
               expect(options.cleanupPhase).toBe(true);
               if (label === 'remove-owned-roots' && outcome !== 'removal')
                 rmSync(args.at(-1)!, { recursive: true });
               return { stdout: outcome === 'listeners' ? 'leaked listener' : '' };
             },
-            json: (_name: string, value: Record<string, unknown>) => writes.push(clone(value)),
+            json: (name: string, value: Record<string, unknown>) => {
+              if (outcome === 'evidence-write' && name === 'processes-after.json')
+                throw new Error('bounded observation writer failed');
+              writes.push(clone(value));
+            },
           });
           expect(writes[0].complete).toBe(false);
           expect(report.complete).toBe(outcome === 'success');
           expect(report.failure).toBe(outcome === 'original-red' ? 'original command red' : null);
-          if (['survivor', 'unconfirmed', 'listeners'].includes(outcome)) {
+          if (
+            [
+              'survivor',
+              'raced',
+              'denied',
+              'vanished',
+              'unconfirmed',
+              'listeners',
+              'listener-command',
+              'evidence-write',
+            ].includes(outcome)
+          ) {
             expect(report.cleanupVerified).toBe(false);
             expect(calls).toEqual(['listeners-after']);
             expect(readFileSync(path.join(owned, 'retained'), 'utf8')).toBe('owned runtime');
@@ -459,6 +586,180 @@ describe('bounded command and role cleanup', () => {
             expect(report.cleanupFailure).toBeTruthy();
         }
       }
+    } finally {
+      rmSync(temp, { recursive: true, force: true });
+    }
+  });
+  it('retains original role deltas and observes the final listener window before refusing root removal', async () => {
+    for (const [role, survivor] of [
+      ['producer', processIdentity('5574', '34494')],
+      ['aggregate', processIdentity('2581', '4651')],
+    ]) {
+      const report = {
+        role,
+        failure: 'original role red',
+        complete: true,
+        cleanupVerified: false,
+        runtimeRootsRemoved: false,
+        processObservations: { new: [] as unknown[], commands: [] as unknown[], after: '' },
+      };
+      const records = [
+        {
+          id: '000-own-command',
+          cleanup: true,
+          observations: { beganAt: 1, spawnedAt: 2, settledAt: 3 },
+        },
+      ];
+      const calls: string[] = [];
+      await transport.finalizeRole({
+        report,
+        records,
+        processesBefore: [processIdentity()],
+        listenersBefore: '',
+        roots: ['/injected-not-removed'],
+        deadline: 100,
+        now: () => 1,
+        snapshot: () => {
+          expect(calls).toEqual(['listeners-after']);
+          return [processIdentity(), survivor];
+        },
+        command: async (label: string) => {
+          calls.push(label);
+          return { stdout: '' };
+        },
+        json: () => {},
+      });
+      expect(calls).toEqual(['listeners-after']);
+      expect(report).toMatchObject({
+        failure: 'original role red',
+        complete: false,
+        cleanupVerified: false,
+        runtimeRootsRemoved: false,
+      });
+      expect(report.processObservations.new).toEqual([survivor]);
+      expect(report.processObservations.commands).toEqual([
+        { id: records[0].id, sha256: proof.digest(proof.canonical(records[0].observations)) },
+      ]);
+      expect(report.processObservations.after).toBe(
+        proof.digest(proof.canonical([processIdentity(), survivor]))
+      );
+    }
+  });
+  it('records consistent bounded process facts without host cmdline/environment or ancestry authority', () => {
+    const temp = mkdtempSync(path.join(tmpdir(), 'tmt-proof-proc-'));
+    const stat = (start = '10', parent = '1') =>
+      `100 (owned name) S ${parent} 100 100 ${Array(15).fill('0').join(' ')} ${start} 0`;
+    try {
+      mkdirSync(path.join(temp, '100'));
+      const links: string[] = [];
+      const readLink = (file: string) => {
+        links.push(path.basename(file));
+        return '/owned';
+      };
+      const positive = transport.observeProcess('100', {
+        directory: temp,
+        readStat: () => stat(),
+        readLink,
+        now: () => 1,
+        deadline: 10,
+      });
+      expect(positive).toMatchObject({
+        pid: '100',
+        start: '10',
+        ppid: '1',
+        pgid: '100',
+        session: '100',
+        state: 'S',
+        status: 'observed',
+        exe: { status: 'observed', value: '/owned' },
+        cwd: { status: 'observed', value: '/owned' },
+      });
+      expect(links).toEqual(['exe', 'cwd']);
+      for (const kind of [
+        'reused',
+        'reparented',
+        'denied',
+        'vanished',
+        'missing',
+        'field-bound',
+        'deadline',
+      ]) {
+        let reads = 0;
+        const observed = transport.processSnapshot({
+          directory: temp,
+          readLink,
+          deadline: kind === 'deadline' ? 1 : 10,
+          now: () => 1,
+          readStat: () => {
+            if (kind === 'denied' || kind === 'vanished')
+              throw Object.assign(new Error(kind), {
+                code: kind === 'denied' ? 'EACCES' : 'ENOENT',
+              });
+            return kind === 'missing'
+              ? '100 (missing) S'
+              : kind === 'field-bound'
+                ? 'x'.repeat(4097)
+                : ++reads === 1
+                  ? stat()
+                  : stat(kind === 'reused' ? '11' : '10', kind === 'reparented' ? '2' : '1');
+          },
+        });
+        expect(observed.some((entry: { status: string }) => entry.status !== 'observed')).toBe(
+          true
+        );
+        expect(() => transport.admitCleanup([positive], observed, '', '')).toThrow('identity');
+      }
+      for (const exe of ['/usr/bin/host-looking', '/owned/test-child']) {
+        const survivor = {
+          ...positive,
+          pid: '200',
+          start: '20',
+          exe: { status: 'observed', value: exe },
+          ppid: '1',
+        };
+        expect(() => transport.admitCleanup([positive], [positive, survivor], '', '')).toThrow(
+          'New/unattributed'
+        );
+      }
+      const deniedFact = transport.observeProcess('100', {
+        readStat: () => stat(),
+        readLink: () => {
+          throw Object.assign(new Error('denied'), { code: 'EPERM' });
+        },
+        now: () => 1,
+        deadline: 10,
+      });
+      expect(deniedFact).toMatchObject({
+        status: 'observed',
+        exe: { status: 'denied' },
+        cwd: { status: 'denied' },
+      });
+      expect(() => transport.admitCleanup([], [deniedFact], '', '')).toThrow('New/unattributed');
+      for (let index = 1; index < 3600; index++) mkdirSync(path.join(temp, String(index + 100)));
+      // Three-byte UTF-8 link facts exercise the byte bound within the character limit.
+      const outputBound = transport.processSnapshot({
+        directory: temp,
+        now: () => 1,
+        deadline: 10,
+        readStat: (file: string) =>
+          stat('10', '1'.repeat(3000)).replace('100 (', `${path.basename(path.dirname(file))} (`),
+        readLink: () => '/' + '界'.repeat(1023),
+      });
+      expect(outputBound.at(-1)).toMatchObject({
+        status: 'unconfirmed',
+        reason: 'Process observation output bound',
+      });
+      expect(() => transport.admitCleanup([], outputBound, '', '')).toThrow('identity');
+      for (let index = 3600; index <= proof.LIMITS.commands; index++)
+        mkdirSync(path.join(temp, String(index + 100)));
+      expect(transport.processSnapshot({ directory: temp, now: () => 1, deadline: 10 })).toEqual([
+        {
+          status: 'unconfirmed',
+          pid: null,
+          start: null,
+          reason: 'Process observation record bound',
+        },
+      ]);
     } finally {
       rmSync(temp, { recursive: true, force: true });
     }
@@ -481,7 +782,7 @@ describe('bounded command and role cleanup', () => {
           settlementMs: 200,
         }
       );
-      expect(result).toMatchObject({
+      expect(result, readFileSync(path.join(temp, 'err'), 'utf8')).toMatchObject({
         status: 0,
         signal: null,
         complete: true,
@@ -529,6 +830,7 @@ describe('bounded command and role cleanup', () => {
           executionMs: 10,
           settlementMs: 20,
           outputBytes: 32,
+          observe: (pid: string) => ({ pid, status: 'injected-unconfirmed' }),
           launch: () => {
             queueMicrotask(() => {
               if (!kind.startsWith('unconfirmed') && kind !== 'close-before-exit')
@@ -652,6 +954,7 @@ describe('bounded command and role cleanup', () => {
           errFile: path.join(temp, `${kind}-err`),
           executionMs: 20,
           settlementMs: 20,
+          observe: (pid: string) => ({ pid, status: 'injected-unconfirmed' }),
           launch: () => {
             queueMicrotask(() => {
               child.stdout.write('original partial stream');
@@ -696,13 +999,13 @@ describe('bounded command and role cleanup', () => {
     }
   });
   it('rejects missing, duplicate, reused or surviving identities and changed listeners without signalling', () => {
-    const before = [{ pid: '100', start: '10' }];
+    const before = [processIdentity()];
     expect(transport.admitCleanup(before, before, 'listener', 'listener')).toBe(true);
     for (const after of [
-      [...before, { pid: '200', start: '20' }],
-      [{ pid: '100', start: '11' }],
+      [...before, processIdentity('200', '20')],
+      [processIdentity('100', '11')],
       [before[0], before[0]],
-      [{ pid: '100', start: undefined }],
+      [{ ...processIdentity(), start: undefined }],
     ])
       expect(() => transport.admitCleanup(before, after, '', '')).toThrow();
     expect(() => transport.admitCleanup(undefined, before, '', '')).toThrow();
@@ -729,7 +1032,13 @@ describe('bounded frozen transport', () => {
       const report = {
         role: 'baseline',
         commands: [record],
-        processObservations: { before: proof.digest('[]'), after: proof.digest('[]') },
+        processObservations: {
+          before: proof.digest('[]'),
+          after: proof.digest('[]'),
+          new: [],
+          unconfirmed: [],
+          commands: [{ id: record.id, sha256: proof.digest('null') }],
+        },
       };
       for (const name of [
         'baseline.json',
@@ -743,9 +1052,21 @@ describe('bounded frozen transport', () => {
         writeFileSync(path.join(temp, `processes-${phase}.json`), '[]');
       writeFileSync(path.join(temp, '000-test.process.json'), JSON.stringify(record));
       transport.verifyReportFiles(temp, report);
+      expect(() =>
+        transport.verifyReportFiles(temp, {
+          ...report,
+          processObservations: { ...report.processObservations, new: [processIdentity()] },
+        })
+      ).toThrow('delta');
+      expect(() =>
+        transport.verifyReportFiles(temp, {
+          ...report,
+          processObservations: { ...report.processObservations, commands: [] },
+        })
+      ).toThrow('reference');
       writeFileSync(
         path.join(temp, 'processes-after.json'),
-        JSON.stringify([{ pid: '200', start: '20' }])
+        JSON.stringify([processIdentity('200', '20')])
       );
       expect(() => transport.verifyReportFiles(temp, report)).toThrow('observation hash');
       writeFileSync(path.join(temp, 'processes-after.json'), '[]');

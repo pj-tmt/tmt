@@ -170,10 +170,19 @@ export async function captureCommand(
     evidenceBytes = LIMITS.evidenceBytes,
     launch = spawn,
     signal = process.kill.bind(process),
+    observe = observeProcess,
   }
 ) {
   assert(executionMs > 0 && settlementMs > 0, 'No command settlement budget');
   const began = performance.now();
+  const observationDeadline = began + executionMs + settlementMs;
+  const observations = {
+    beganAt: began,
+    spawnedAt: null,
+    settledAt: null,
+    spawn: null,
+    settlement: null,
+  };
   const out = fs.openSync(outFile, 'wx'),
     err = fs.openSync(errFile, 'wx');
   let child,
@@ -194,6 +203,11 @@ export async function captureCommand(
       detached: true,
       stdio: ['pipe', 'pipe', 'pipe'],
     });
+    observations.spawnedAt = performance.now();
+    if (child.pid)
+      observations.spawn = observe(String(child.pid), {
+        deadline: Math.min(observationDeadline, performance.now() + 1000),
+      });
     await new Promise((resolve) => {
       let settled = false,
         settlementTimer;
@@ -225,7 +239,10 @@ export async function captureCommand(
         terminationUnconfirmed = true;
         boundSettlement();
       };
-      const executionTimer = setTimeout(() => stop('deadline'), executionMs);
+      const executionTimer = setTimeout(
+        () => stop('deadline'),
+        Math.max(1, executionMs - (performance.now() - began))
+      );
       function capture(fd, chunk) {
         if (settled) return;
         const available = Math.max(0, Math.min(outputBytes, evidenceBytes) - bytes);
@@ -273,6 +290,11 @@ export async function captureCommand(
     fs.closeSync(out);
     fs.closeSync(err);
   }
+  observations.settledAt = performance.now();
+  if (child?.pid)
+    observations.settlement = observe(String(child.pid), {
+      deadline: Math.min(observationDeadline, performance.now() + 1000),
+    });
   let groupAbsent = !child?.pid;
   if (child?.pid) {
     try {
@@ -288,6 +310,7 @@ export async function captureCommand(
   const cleanup = settled && groupAbsent && !signalError && !terminationUnconfirmed;
   if (!complete) reason ??= 'unconfirmed exit/pipe settlement';
   return {
+    observations,
     pid: child?.pid ?? null,
     processGroup: child?.pid ? -child.pid : null,
     status: code,
@@ -313,7 +336,16 @@ export function admitCleanup(before, after, listenersBefore, listenersAfter) {
   assert(Array.isArray(before) && Array.isArray(after), 'Missing process observations');
   for (const snapshot of [before, after]) {
     assert(
-      snapshot.every((entry) => /^\d+$/.test(entry.pid) && /^\d+$/.test(entry.start)),
+      snapshot.length <= LIMITS.commands &&
+        snapshot.every(
+          (entry) =>
+            entry &&
+            entry.status === 'observed' &&
+            ['pid', 'start', 'ppid', 'pgid', 'session'].every(
+              (field) => typeof entry[field] === 'string' && /^\d+$/.test(entry[field])
+            ) &&
+            /^[A-Z]$/.test(entry.state)
+        ),
       'Unconfirmed process identity'
     );
     assert(
@@ -325,7 +357,7 @@ export function admitCleanup(before, after, listenersBefore, listenersAfter) {
     after.every((entry) =>
       before.some((old) => old.pid === entry.pid && old.start === entry.start)
     ),
-    'New surviving process after harness execution'
+    'New/unattributed surviving process after role execution'
   );
   exact(listenersAfter, listenersBefore, 'Leaked/changed listener');
   return true;
@@ -417,7 +449,6 @@ async function main(role, directory) {
       ),
       evidenceBytes: LIMITS.evidenceBytes - evidenceBytes,
     });
-    evidenceBytes += result.capturedBytes;
     const record = {
       id,
       executable,
@@ -429,10 +460,13 @@ async function main(role, directory) {
       network,
       ...result,
     };
+    const processBytes = JSON.stringify(record, null, 2);
+    evidenceBytes += result.capturedBytes + Buffer.byteLength(processBytes);
     records.push(record);
-    fs.writeFileSync(path.join(output, `${id}.process.json`), JSON.stringify(record, null, 2));
+    fs.writeFileSync(path.join(output, `${id}.process.json`), processBytes);
     assert(
-      !result.reason &&
+      evidenceBytes <= LIMITS.evidenceBytes &&
+        !result.reason &&
         result.complete &&
         result.cleanup &&
         result.signal === null &&
@@ -443,14 +477,24 @@ async function main(role, directory) {
   }
   const run = async (label, args, options) =>
     command(label, cargo, args[0]?.startsWith('+') ? args.slice(1) : args, options);
-  const json = (name, value) =>
-    fs.writeFileSync(path.join(output, name), JSON.stringify(value, null, 2) + '\n');
+  const json = (name, value) => {
+    const bytes = JSON.stringify(value, null, name.startsWith('processes-') ? undefined : 2) + '\n';
+    fs.writeFileSync(path.join(output, name), bytes);
+    if (name.startsWith('processes-')) {
+      evidenceBytes += Buffer.byteLength(bytes);
+      assert(
+        Buffer.byteLength(bytes) <= LIMITS.outputBytes && evidenceBytes <= LIMITS.evidenceBytes,
+        'Process observation evidence bound'
+      );
+    }
+  };
   const artifactIds = JSON.parse(process.env.PROOF_ARTIFACT_IDS ?? '{}');
   let report = { role, artifactIds, complete: false, cleanupVerified: false };
   let processesBefore, listenersBefore;
   try {
-    processesBefore = processSnapshot();
+    processesBefore = processSnapshot({ deadline: workDeadline });
     json('processes-before.json', processesBefore);
+    admitCleanup(processesBefore, processesBefore, '', '');
     listenersBefore = (await command('listeners-before', '/usr/bin/ss', ['-H', '-ltnup'])).stdout;
     const sysroot = await command(
       'sysroot',
@@ -1070,23 +1114,31 @@ export async function finalizeRole({
   report.runtimeRootsRemoved = false;
   json(`${report.role}.json`, report);
   try {
-    const processesAfter = snapshot();
-    json('processes-after.json', processesAfter);
-    const listenersAfter = (
-      await command('listeners-after', '/usr/bin/ss', ['-H', '-ltnup'], {
-        cleanupPhase: true,
-        timeoutMs: 10_000,
-      })
-    ).stdout;
+    let listenersAfter, processesAfter;
+    try {
+      listenersAfter = (
+        await command('listeners-after', '/usr/bin/ss', ['-H', '-ltnup'], {
+          cleanupPhase: true,
+          timeoutMs: 10_000,
+        })
+      ).stdout;
+    } finally {
+      // Include the last listener observer in the role window, also on its red path.
+      processesAfter = snapshot({ deadline: deadline - LIMITS.settlementMs });
+      report.processObservations = {
+        before: digest(canonical(processesBefore ?? null)),
+        after: digest(canonical(processesAfter)),
+        ...processObservationDelta(processesBefore, processesAfter),
+        commands: commandObservationReferences(records),
+      };
+      json('processes-after.json', processesAfter);
+      json(`${report.role}.json`, report);
+    }
     report.cleanupVerified =
       admitCleanup(processesBefore, processesAfter, listenersBefore, listenersAfter) &&
       records.length > 0 &&
       records.every((record) => record.cleanup === true);
     assert(report.cleanupVerified, 'Command/role cleanup unconfirmed');
-    report.processObservations = {
-      before: digest(canonical(processesBefore)),
-      after: digest(canonical(processesAfter)),
-    };
     // The command caller bounds this removal; no unbounded synchronous tree walk.
     await command('remove-owned-roots', '/usr/bin/rm', ['-rf', '--', ...roots], {
       cwd: path.dirname(fileURLToPath(import.meta.url)),
@@ -1105,8 +1157,24 @@ export async function finalizeRole({
     report.complete = false;
   } finally {
     report.commands = records;
+    if (report.processObservations)
+      report.processObservations.commands = commandObservationReferences(records);
     json(`${report.role}.json`, report);
   }
+}
+function processObservationDelta(before, after) {
+  return {
+    new: after.filter(
+      (entry) => !before?.some((old) => old.pid === entry.pid && old.start === entry.start)
+    ),
+    unconfirmed: [...(before ?? []), ...after].filter((entry) => entry.status !== 'observed'),
+  };
+}
+function commandObservationReferences(records) {
+  return records.map((record) => ({
+    id: record.id,
+    sha256: digest(canonical(record.observations ?? null)),
+  }));
 }
 
 /** Sensitivity of admission using copies of the actual immutable runtime inputs.
@@ -1194,6 +1262,7 @@ export function verifyReportFiles(directory, report) {
     new Set(report.commands.map((command) => command.id)).size === report.commands.length,
     'Duplicate command identity'
   );
+  const snapshots = {};
   for (const phase of ['before', 'after']) {
     const observations = JSON.parse(
       fs.readFileSync(path.join(directory, `processes-${phase}.json`), 'utf8')
@@ -1203,7 +1272,16 @@ export function verifyReportFiles(directory, report) {
       report.processObservations?.[phase],
       'Process observation hash mismatch'
     );
+    snapshots[phase] = observations;
   }
+  const delta = processObservationDelta(snapshots.before, snapshots.after);
+  for (const field of ['new', 'unconfirmed'])
+    exact(report.processObservations?.[field], delta[field], 'Process observation delta mismatch');
+  exact(
+    report.processObservations?.commands,
+    commandObservationReferences(report.commands),
+    'Command observation reference mismatch'
+  );
   for (const record of report.commands) {
     assert(/^\d{3,4}-[a-z-]+$/.test(record.id), 'Unsafe command identity');
     for (const stream of ['stdout', 'stderr']) {
@@ -1310,21 +1388,134 @@ function cargoPackageEnv(pkg, inventory, sysroot, target) {
     LD_LIBRARY_PATH: [...new Set(loaderPaths)].join(':'),
   };
 }
-function processSnapshot() {
-  return fs
-    .readdirSync('/proc')
-    .filter((name) => /^\d+$/.test(name))
-    .flatMap((pid) => {
+// Facts from /proc are bounded observations, never retained lifetime handles.
+// Do not read host cmdline/environ; our command record already owns allowlisted argv.
+function boundedStat(file) {
+  const fd = fs.openSync(file, 'r');
+  try {
+    const buffer = Buffer.alloc(4097);
+    const bytes = fs.readSync(fd, buffer, 0, buffer.length, 0);
+    assert(bytes <= 4096, 'Process stat field bound');
+    return buffer.subarray(0, bytes).toString('utf8');
+  } finally {
+    fs.closeSync(fd);
+  }
+}
+export function observeProcess(
+  pid,
+  {
+    directory = '/proc',
+    readStat = boundedStat,
+    readLink = fs.readlinkSync,
+    now = () => performance.now(),
+    deadline = now() + 1000,
+  } = {}
+) {
+  const beganAt = now();
+  const missing = (error) => ({
+    status: ['ENOENT', 'ESRCH'].includes(error.code)
+      ? 'vanished'
+      : ['EACCES', 'EPERM'].includes(error.code)
+        ? 'denied'
+        : 'unconfirmed',
+    code: error.code ?? null,
+    reason: error.message.slice(0, 1024),
+  });
+  try {
+    assert(/^\d+$/.test(pid) && now() < deadline, 'Process observation deadline/identity');
+    const statFile = path.join(directory, pid, 'stat');
+    const parse = (stat) => {
+      assert(
+        Buffer.byteLength(stat) <= 4096 && stat.startsWith(`${pid} (`),
+        'Process stat identity/bound'
+      );
+      const fields = stat
+        .slice(stat.lastIndexOf(')') + 2)
+        .trim()
+        .split(/\s+/);
+      assert(
+        fields.length >= 20 &&
+          /^[A-Z]$/.test(fields[0]) &&
+          [1, 2, 3, 19].every((index) => /^\d+$/.test(fields[index])),
+        'Unconfirmed process stat fields'
+      );
+      return {
+        state: fields[0],
+        ppid: fields[1],
+        pgid: fields[2],
+        session: fields[3],
+        start: fields[19],
+      };
+    };
+    const before = parse(readStat(statFile));
+    const facts = {};
+    for (const field of ['exe', 'cwd']) {
+      assert(now() < deadline, 'Process observation deadline');
       try {
-        const stat = fs.readFileSync(`/proc/${pid}/stat`, 'utf8');
-        const fields = stat.slice(stat.lastIndexOf(')') + 2).split(' ');
-        return [{ pid, start: fields[19] }];
+        const value = readLink(path.join(directory, pid, field));
+        assert(
+          typeof value === 'string' && value.length <= 1024 && path.isAbsolute(value),
+          'Process link field bound'
+        );
+        facts[field] = { status: 'observed', value };
       } catch (error) {
-        if (error.code === 'ENOENT' || error.code === 'ESRCH') return [];
-        throw error;
+        facts[field] = missing(error);
+        if (!['vanished', 'denied'].includes(facts[field].status)) throw error;
       }
-    })
-    .sort((a, b) => Number(a.pid) - Number(b.pid));
+    }
+    const after = parse(readStat(statFile));
+    assert(now() < deadline, 'Process observation deadline');
+    const consistent = ['start', 'ppid', 'pgid', 'session'].every(
+      (field) => before[field] === after[field]
+    );
+    return {
+      pid,
+      status: consistent ? 'observed' : 'raced',
+      previous: consistent ? null : before,
+      ...after,
+      ...facts,
+      beganAt,
+      endedAt: now(),
+    };
+  } catch (error) {
+    return { pid, ...missing(error), beganAt, endedAt: now() };
+  }
+}
+export function processSnapshot({
+  directory = '/proc',
+  now = () => performance.now(),
+  deadline = now() + 1000,
+  readStat = boundedStat,
+  readLink = fs.readlinkSync,
+} = {}) {
+  const entries = [];
+  // Clamp the diagnostic window inside the caller's existing work/cleanup reserve.
+  const ends = Math.min(deadline, now() + 1000);
+  try {
+    assert(now() < ends, 'Process observation deadline');
+    const pids = fs
+      .readdirSync(directory)
+      .filter((name) => /^\d+$/.test(name))
+      .sort((a, b) => Number(a) - Number(b));
+    assert(pids.length <= LIMITS.commands, 'Process observation record bound');
+    let bytes = 3;
+    for (const pid of pids) {
+      assert(now() < ends, 'Process observation deadline');
+      const entry = observeProcess(pid, { directory, now, deadline: ends, readStat, readLink });
+      bytes += Buffer.byteLength(JSON.stringify(entry)) + 1;
+      assert(bytes <= LIMITS.outputBytes - 2048, 'Process observation output bound');
+      entries.push(entry);
+    }
+  } catch (error) {
+    // Retain partial observations with an explicit refusal, rather than dropping them.
+    entries.push({
+      status: 'unconfirmed',
+      pid: null,
+      start: null,
+      reason: error.message.slice(0, 1024),
+    });
+  }
+  return entries;
 }
 function toolFiles(root) {
   const files = [];
