@@ -5,6 +5,7 @@ import type { OwnState } from '../src/fold-protocol.js';
 import { decodeAsk } from '../src/ask-records.js';
 import type { CommentContext } from '../src/thread-store.js';
 import { LiveAsk, pageAsks } from '../src/live-ask.js';
+import { ReadRefusedError, SessionEndedError, SessionEvictedError } from '../src/ask-remote.js';
 import { destination, id, pageLink, RemoteDouble } from './ask-fixtures.js';
 const records = new Map<string, unknown>();
 vi.mock('../src/storage.js', () => ({
@@ -34,6 +35,7 @@ async function fixture(
   ])) as CryptoKeyPair;
   const publicKey = new Uint8Array(await crypto.subtle.exportKey('raw', pair.publicKey));
   const remote = new RemoteDouble();
+  const sessionEnded = vi.fn();
   const own: OwnState = {};
   let active = true;
   let denied = false;
@@ -69,6 +71,7 @@ async function fixture(
     key: pair.privateKey,
     publicKey,
     remote,
+    sessionEnded,
     own: () => own,
     commentContext,
     async publish(root, key, value) {
@@ -90,6 +93,7 @@ async function fixture(
   return {
     ask,
     remote,
+    sessionEnded,
     own,
     input,
     admission,
@@ -233,4 +237,111 @@ it('comment Ask freezes verified IDs and body rather than caller substitutes, wi
   expect(decodeAsk(record.signed)).toMatchObject({ thread: id(9), messageIds: [id(11)] });
   expect(f.remote.sends).toHaveLength(1);
   f.ask.close();
+});
+
+it('status observes admitted presence without admitting an Ask preview or publishing', async () => {
+  const f = await fixture();
+  vi.spyOn(f.remote, 'listAgents').mockResolvedValue([
+    { id: id(6), name: 'Same name', presence: 'active' },
+  ]);
+  const observed = await f.ask.observeDestinations();
+  expect(observed.kind).toBe('ready');
+  if (observed.kind !== 'ready') throw new Error('Expected admitted directory');
+  expect(observed.destinations).toEqual([
+    expect.objectContaining({
+      agent: id(6),
+      agentName: 'Same name',
+      presence: 'active',
+      machine: id(5),
+    }),
+  ]);
+  expect(observed.checkedAt).toBeGreaterThan(0);
+  await expect(f.ask.prepare(f.input)).rejects.toThrow();
+  expect(f.own).toEqual({});
+  expect(f.remote.sends).toEqual([]);
+  expect(f.sessionEnded).not.toHaveBeenCalled();
+});
+
+for (const phase of ['session', 'directory'] as const) {
+  for (const [error, failure, code] of [
+    [new SessionEndedError('REMOTE_SESSION_ENDED'), 'ended', 'REMOTE_SESSION_ENDED'],
+    [
+      new SessionEndedError('REMOTE_SEQUENCE_UNAVAILABLE'),
+      'unavailable',
+      'REMOTE_SEQUENCE_UNAVAILABLE',
+    ],
+    [new SessionEvictedError(3), 'evicted', 'REMOTE_SESSION_EVICTED'],
+    [new ReadRefusedError('REMOTE_SCOPE_DENIED'), 'refused', 'REMOTE_SCOPE_DENIED'],
+    [new Error('private transport diagnostics'), 'unavailable', undefined],
+  ] as const) {
+    it(`status reports ${phase} ${failure} (${code ?? 'transport'}) without recovery; Ask retains its session policy`, async () => {
+      const f = await fixture();
+      if (phase === 'session') vi.spyOn(f.remote, 'context').mockRejectedValue(error);
+      else vi.spyOn(f.remote, 'listAgents').mockRejectedValue(error);
+      expect(await f.ask.observeDestinations()).toEqual({
+        kind: 'unavailable',
+        phase,
+        failure,
+        ...(code ? { code } : {}),
+      });
+      expect(f.sessionEnded).not.toHaveBeenCalled();
+      expect(f.remote.sends).toEqual([]);
+      expect(f.own).toEqual({});
+      await expect(f.ask.destinations()).rejects.toBe(error);
+      expect(f.sessionEnded).toHaveBeenCalledTimes(
+        error instanceof SessionEndedError || error instanceof SessionEvictedError ? 1 : 0,
+      );
+    });
+  }
+}
+
+it('status rejects a different admitted device before reading the directory', async () => {
+  const f = await fixture();
+  const original = await f.remote.context();
+  vi.spyOn(f.remote, 'context').mockResolvedValue({ ...original, deviceId: id(99) });
+  const list = vi.spyOn(f.remote, 'listAgents');
+  expect(await f.ask.observeDestinations()).toEqual({
+    kind: 'unavailable',
+    phase: 'session',
+    failure: 'unavailable',
+  });
+  expect(list).not.toHaveBeenCalled();
+  expect(f.sessionEnded).not.toHaveBeenCalled();
+  expect(f.remote.sends).toEqual([]);
+});
+
+it('closing the parent generation fences a pending status result', async () => {
+  const f = await fixture();
+  let release!: (agents: Awaited<ReturnType<typeof f.remote.listAgents>>) => void;
+  vi.spyOn(f.remote, 'listAgents').mockImplementation(
+    () =>
+      new Promise((resolve) => {
+        release = resolve;
+      }),
+  );
+  const observation = f.ask.observeDestinations();
+  await vi.waitFor(() => expect(release).toBeDefined());
+  f.ask.close();
+  release(await new RemoteDouble().listAgents());
+  await expect(observation).rejects.toThrow();
+  expect(f.sessionEnded).not.toHaveBeenCalled();
+  expect(f.remote.sends).toEqual([]);
+  expect(f.own).toEqual({});
+});
+
+it('page admission refuses status before Remote reads and never uses writer authority', async () => {
+  const f = await fixture();
+  const context = vi.spyOn(f.remote, 'context');
+  const directory = vi.spyOn(f.remote, 'listAgents');
+  const author = vi.spyOn(f.admission, 'author');
+  await f.ask.observeDestinations();
+  expect(author).not.toHaveBeenCalled();
+  context.mockClear();
+  directory.mockClear();
+  f.deny();
+  await expect(f.ask.observeDestinations()).rejects.toThrow('Denied');
+  expect(context).not.toHaveBeenCalled();
+  expect(directory).not.toHaveBeenCalled();
+  expect(f.sessionEnded).not.toHaveBeenCalled();
+  expect(f.remote.sends).toEqual([]);
 });

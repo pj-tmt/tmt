@@ -1,0 +1,67 @@
+.agent-status-health {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px 12px;
+  margin: 0 0 16px;
+}
+.agent-status-health dt,
+.agent-status-note,
+.agent-status-checked,
+.agent-status-list p,
+.agent-status-list code {
+  color: var(--c-muted);
+}
+.agent-status-health dd {
+  margin: 0;
+}
+.agent-status-code {
+  overflow-wrap: anywhere;
+}
+.agent-status-stale {
+  color: var(--c-waiting);
+}
+.agent-status-list {
+  margin: 16px 0;
+  padding: 0;
+  list-style: none;
+}
+.agent-status-list li {
+  padding: 14px 0;
+  border-top: 1px solid var(--c-rule);
+}
+.agent-status-list li > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: baseline;
+}
+.agent-status-list strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.agent-status-list p {
+  margin: 4px 0;
+}
+.agent-status-list code {
+  font: 11px var(--f-mono);
+  overflow-wrap: anywhere;
+}
+.agent-status-presence {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+  white-space: nowrap;
+}
+[data-presence='active'] .agent-status-presence {
+  color: var(--c-working);
+}
+[data-presence='offline'] .agent-status-presence {
+  color: var(--c-muted);
+}
+[data-presence='unknown'] .agent-status-presence {
+  color: var(--c-waiting);
+}
+.agent-status-note {
+  margin-top: 20px;
+  font-size: 12px;
+}

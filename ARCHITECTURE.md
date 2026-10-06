@@ -1212,7 +1212,10 @@ core discovery or storage access.
   and that only `decoder/child.rs` imports `yrs`.
 - **Seams.** With Remote: the mount socket, `tmt-device-context`, the device-events callback
   and the browser SDK; the Ask agent sends through Remote's SDK operations helper as the
-  paired owner device, with no native bridge, ledger or migration. After a Remote restart,
+  paired owner device, with no native bridge, ledger or migration. The read-only Agents view
+  reuses that current context and directory owner without admitting Ask destinations or
+  invoking session recovery; [Ask modules](.agents/skills/tmt-colab/references/ask-agent.md)
+  define the observation boundary. After a Remote restart,
   Colab's public recovery entry reopens the paired device's session once, through the same
   tab claim; all other app assets stay owner-gated. With core: `Product::Colab` registers
   the executable with the installer, and the app is served from `serve --app-dir`, else
