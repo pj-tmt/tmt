@@ -194,6 +194,17 @@ fn percent(share: &UsageShare) -> String {
     )
 }
 
+/// Accepted evidence owns the numeric budget, independently of animation.
+fn usage_number(usage: &HomeHeaderUsage<'_>, index: usize) -> String {
+    usage.totals[index].map_or_else(
+        || "–".into(),
+        |reading| {
+            let number = crate::source::tokens(reading.tokens as f64);
+            format!("{}{number}", if reading.partial { "~" } else { "" })
+        },
+    )
+}
+
 /// One step of the usage line. `wide` is the `lg` step: it adds the first window,
 /// the models and the members without data. The member name shrinks until the
 /// step fits `width`; that is a fit, not a step.
@@ -206,17 +217,17 @@ fn usage_pieces(
     let width = usize::from(width);
     let windows = (usize::from(!wide)..3)
         .map(|index| {
+            let accepted = usage_number(usage, index);
             let number = digits.map_or_else(
-                || {
-                    usage.totals[index].map_or_else(
-                        || "–".into(),
-                        |reading| {
-                            let number = crate::source::tokens(reading.tokens as f64);
-                            format!("{}{number}", if reading.partial { "~" } else { "" })
-                        },
-                    )
+                || accepted.clone(),
+                |digits| {
+                    let budget = accepted.width();
+                    if digits[index].width() > budget {
+                        accepted.clone()
+                    } else {
+                        format!("{:>budget$}", digits[index])
+                    }
                 },
-                |digits| digits[index].clone(),
             );
             format!("{} {number}", usage.windows[index].label())
         })
@@ -433,11 +444,7 @@ pub(super) fn hints_in(slot: &mut Kept<String>, width: usize, overflow: bool) ->
 }
 
 /// Numeric cells of the admitted header branch, before viewport placement.
-pub(super) fn usage_slots(
-    usage: &HomeHeaderUsage<'_>,
-    digits: &[String; 3],
-    width: u16,
-) -> Vec<(usize, u16, u16)> {
+pub(super) fn usage_slots(usage: &HomeHeaderUsage<'_>, width: u16) -> Vec<(usize, u16, u16)> {
     if width < tmt_cli_style::breakpoint::MD.cells {
         return Vec::new();
     }
@@ -445,7 +452,7 @@ pub(super) fn usage_slots(
     (usize::from(width < tmt_cli_style::breakpoint::LG.cells)..3)
         .map(|index| {
             x += usage.windows[index].label().len() as u16 + 1;
-            let length = digits[index].width() as u16;
+            let length = usage_number(usage, index).width() as u16;
             let result = (index, x, length.min(width.saturating_sub(x)));
             x += length + " · ".width() as u16;
             result

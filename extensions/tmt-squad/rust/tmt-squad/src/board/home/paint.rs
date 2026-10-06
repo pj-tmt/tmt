@@ -34,7 +34,14 @@ pub(crate) fn usage_of(
     look: Look,
 ) -> Option<Line<'static>> {
     let view = app.view.as_ref().unwrap();
-    let digits = app.home_header_digits(usage, std::time::Instant::now());
+    let mut digits = app.home_header_digits(usage, std::time::Instant::now());
+    let slots = super::bar::usage_slots(usage, width);
+    for &(index, _, cell) in &slots {
+        digits[index] = app
+            .home_counters
+            .borrow_mut()
+            .admitted_digits(&app.home_header_counter_key(index), cell);
+    }
     let line = super::bar::usage_in(
         &mut view.derived.borrow_mut().home.usage,
         usage,
@@ -43,12 +50,12 @@ pub(crate) fn usage_of(
         Some(&digits),
     );
     if line.is_some() && !view.history_pending {
-        for (index, x, cell) in super::bar::usage_slots(usage, &digits, width) {
+        for (index, x, cell) in slots {
             app.home_counters.borrow_mut().visible(
                 &app.home_header_counter_key(index),
                 Rect::new(x, 0, cell, 1),
                 String::new(),
-                tmt_cli_style::grid::Align::Left,
+                tmt_cli_style::grid::Align::Right,
                 false,
             );
         }

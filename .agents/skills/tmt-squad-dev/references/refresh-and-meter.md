@@ -160,7 +160,11 @@ cost or text volume. `board::rate` owns evidence, `board::meter` presentation an
   First usable evidence, unavailable transitions and reduced motion settle;
   owner/window changes get fresh digits. Tab handoff and failed HOME reads discard
   presentation. HOME painters supply admitted token cells after their existing
-  column budget and scroll clipping; covered composer cells and hidden body
+  column budget and scroll clipping. The header budgets each numeric cell from
+  the accepted reading, right-aligning animated digits without moving later
+  labels, shares, models or unreported text. A displayed value that cannot fit
+  that admitted budget settles immediately; settled formatting stays unchanged.
+  Covered composer cells and hidden body
   overlays stop their motion. The existing session tick/wait wakes only for
   changed fitted visible digits, with no public read, independent timer or
   renderer. Missing `–`, measured zero and `~` labels keep their meaning; hidden

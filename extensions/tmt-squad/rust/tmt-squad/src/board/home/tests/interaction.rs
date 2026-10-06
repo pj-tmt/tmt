@@ -930,6 +930,151 @@ pub(super) fn header_usage() -> crate::board::app::HomeHeaderUsage<'static> {
 }
 
 #[test]
+fn animated_header_boundaries_keep_all_non_counter_cells_and_settled_bytes() {
+    use crate::board::{
+        home::{bar, counters::Counters},
+        view::scene::Kept,
+    };
+    use ratatui::{buffer::Buffer, layout::Rect};
+    use std::time::{Duration, Instant};
+    use tmt_cli_style::{Depth, Theme, grid::Align, theme::Base};
+    use tmt_tui::components::strip;
+
+    for width in [100, 160] {
+        for (base, depth) in [
+            ("tmt", Depth::TrueColor),
+            ("tmt-light", Depth::TrueColor),
+            ("tmt", Depth::None),
+        ] {
+            let look = crate::look::Look {
+                theme: Theme::new(Base::parse(base).unwrap()),
+                depth,
+            };
+            for partial in [false, true] {
+                for (from, to) in [
+                    (9, 100),
+                    (100, 9),
+                    (99_000, 110_000),
+                    (110_000, 99_000),
+                    (998_000, 1_000_000),
+                    (1_000_000, 998_000),
+                    (9_000_000, 10_000_000),
+                    (10_000_000, 9_000_000),
+                ] {
+                    let now = Instant::now();
+                    let mut state = Counters::default();
+                    let mut slot = Kept::default();
+                    let mut usage = header_usage();
+                    usage.totals = [Some(crate::board::rate::Reading {
+                        tokens: from,
+                        partial,
+                        span: 20_000,
+                    }); 3];
+                    let area = Rect::new(0, 0, width, 1);
+                    let draw = |state: &mut Counters,
+                                slot: &mut Kept<_>,
+                                usage: &crate::board::app::HomeHeaderUsage<'_>,
+                                time| {
+                        state.begin();
+                        let mut digits = std::array::from_fn(|index| {
+                            state.digits(
+                                format!("header-{index}"),
+                                usage.totals[index],
+                                false,
+                                time,
+                            )
+                        });
+                        for (index, x, budget) in bar::usage_slots(usage, width) {
+                            let key = format!("header-{index}");
+                            digits[index] = state.admitted_digits(&key, budget);
+                            state.visible(
+                                &key,
+                                Rect::new(x, 0, budget, 1),
+                                String::new(),
+                                Align::Right,
+                                false,
+                            );
+                        }
+                        let line = bar::usage_in(slot, usage, width, look, Some(&digits)).unwrap();
+                        let mut buffer = Buffer::empty(area);
+                        strip::paint_left(&mut buffer, area, line);
+                        state.finish(None, false);
+                        buffer
+                    };
+                    draw(&mut state, &mut slot, &usage, now);
+                    usage.totals = usage.totals.map(|reading| {
+                        reading.map(|reading| crate::board::rate::Reading {
+                            tokens: to,
+                            ..reading
+                        })
+                    });
+                    let raw = usage.totals;
+                    let start = now + Duration::from_secs(1);
+                    let first = draw(&mut state, &mut slot, &usage, start);
+                    let builds = slot.builds;
+                    let cells = bar::usage_slots(&usage, width);
+                    let mut settled = Buffer::empty(area);
+                    strip::paint_left(
+                        &mut settled,
+                        area,
+                        paint::usage(&usage, width, look).unwrap(),
+                    );
+                    if crate::source::tokens(from as f64).len()
+                        <= crate::source::tokens(to as f64).len()
+                    {
+                        assert_ne!(
+                            first, settled,
+                            "admitted values still animate within their cells"
+                        );
+                    }
+                    for ms in [249, 250, 500, 600] {
+                        let time = start + Duration::from_millis(ms);
+                        state.tick(time);
+                        let frame = draw(&mut state, &mut slot, &usage, time);
+                        if ms == 249 {
+                            assert_eq!(
+                                slot.builds, builds,
+                                "unchanged fitted digits reuse the header scene"
+                            );
+                        }
+                        for x in 0..width {
+                            if !cells
+                                .iter()
+                                .any(|&(_, left, cell)| (left..left + cell).contains(&x))
+                            {
+                                assert_eq!(
+                                    frame[(x, 0)],
+                                    first[(x, 0)],
+                                    "non-counter cell x={x}, {width}/{base}/{partial}: {from}->{to} at {ms}ms"
+                                );
+                            }
+                        }
+                        assert_eq!(usage.totals, raw, "paint never changes accepted evidence");
+                        if ms == 600 {
+                            assert_eq!(
+                                frame, settled,
+                                "settled bytes and styles retain the existing renderer"
+                            );
+                        }
+                    }
+                    assert!(state.wait(start + Duration::from_millis(600)).is_none());
+                    // A narrower accepted cell refuses an oversized old display
+                    // immediately, rather than truncating it or shifting neighbours.
+                    if crate::source::tokens(from as f64).len()
+                        > crate::source::tokens(to as f64).len()
+                    {
+                        assert_eq!(
+                            first, settled,
+                            "shrinking numeric budgets settle before painting"
+                        );
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[test]
 fn header_usage_formats_thresholds_real_labels_and_partial_missing_values() {
     let app = board(&[]);
     let mut usage = header_usage();

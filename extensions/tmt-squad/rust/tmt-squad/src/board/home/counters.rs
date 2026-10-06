@@ -77,6 +77,18 @@ impl Counters {
         field.counter.digits(field.partial)
     }
 
+    /// Fit motion to the painter's admitted numeric budget.
+    /// An animated value that outgrows that cell settles instead of moving its
+    /// neighbours or showing a truncated token total.
+    pub(crate) fn admitted_digits(&mut self, key: &str, width: u16) -> String {
+        let field = self.fields.get_mut(key).expect("requested counter cell");
+        let digits = field.counter.digits(field.partial);
+        if unicode_width::UnicodeWidthStr::width(digits.as_str()) > usize::from(width) {
+            field.counter.stop();
+        }
+        field.counter.digits(field.partial)
+    }
+
     /// The painter supplies its admitted cell after normal geometry/scrolling.
     pub(crate) fn visible(
         &mut self,
