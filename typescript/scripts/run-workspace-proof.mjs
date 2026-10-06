@@ -442,9 +442,10 @@ async function main(role, directory) {
     );
     // Setup/acquisition belongs to callers, never to offline metadata or test execution.
     const free = fs.statfsSync('/home/runner/work');
+    const freeRequired = (role === 'producer' ? 12 : 6) * 1024 ** 3;
     assert(
-      Number(free.bavail) * Number(free.bsize) >= 12 * 1024 ** 3,
-      'At least 12 GiB free disk required'
+      Number(free.bavail) * Number(free.bsize) >= freeRequired,
+      `Insufficient owned proof disk: requires ${freeRequired} bytes free (consumer archive already downloaded)`
     );
     let bundle;
     if (role === 'consumer') {
@@ -749,6 +750,19 @@ async function main(role, directory) {
         bundle.linkage,
         'Runtime dependency mismatch'
       );
+      const child = inventory.support
+        .find((item) => item.package === 'tmt-cli' && item.target.kind.includes('bin'))
+        .units.find((unit) => unit.executable && !JSON.parse(unit.key).at(-1).test).executable;
+      const library = bundle.linkage.find(
+        (item) => item.resolved.startsWith('/usr/lib/') || item.resolved.startsWith('/lib/')
+      ).resolved;
+      report.controls = inputControls(path.join(temporary, 'controls'), {
+        child,
+        library,
+        cargo,
+        source: path.join(root, '.github/components.json'),
+      });
+      json('controls.json', report.controls);
       const processesBefore = processSnapshot();
       json('processes-before.json', processesBefore);
       const before = (await command('listeners-before', '/usr/bin/ss', ['-H', '-ltnup'])).stdout;
@@ -900,12 +914,78 @@ async function main(role, directory) {
     }
   }
 }
+/** Sensitivity of admission using copies of the actual immutable runtime inputs.
+ * This does not run failing harnesses or claim per-input causal necessity. */
+export function inputControls(directory, inputs) {
+  assert(!fs.existsSync(directory), 'Controls require absent owned directory');
+  assert(
+    Object.values(inputs).reduce((bytes, file) => bytes + hashFile(file).size, 0) <=
+      LIMITS.controlBytes,
+    'Control-copy byte bound'
+  );
+  fs.mkdirSync(directory);
+  try {
+    return Object.entries(inputs).map(([kind, original]) => {
+      const root = path.join(directory, kind);
+      fs.mkdirSync(root);
+      const file = path.join(root, 'required');
+      const restore = () => {
+        fs.copyFileSync(original, file, fs.constants.COPYFILE_EXCL);
+        fs.chmodSync(file, hashFile(original).mode);
+      };
+      restore();
+      const expected = [{ path: 'required', ...hashFile(file) }];
+      verifyTree(root, expected);
+      const refuses = () => {
+        let failure;
+        try {
+          verifyTree(root, expected);
+        } catch (error) {
+          failure = error;
+        }
+        assert(
+          failure instanceof assert.AssertionError &&
+            /Closure file count|Missing\/extra\/changed closure input/.test(failure.message),
+          'Control did not fail for missing/hash-mismatched input'
+        );
+      };
+      fs.rmSync(file);
+      refuses();
+      restore();
+      verifyTree(root, expected);
+      const fd = fs.openSync(file, 'r+');
+      try {
+        const byte = Buffer.alloc(1);
+        const count = fs.readSync(fd, byte, 0, 1, 0);
+        byte[0] = count ? byte[0] ^ 1 : 1;
+        fs.writeSync(fd, byte, 0, 1, 0);
+      } finally {
+        fs.closeSync(fd);
+      }
+      refuses();
+      fs.rmSync(file);
+      restore();
+      verifyTree(root, expected);
+      return {
+        kind,
+        original,
+        inputHash: expected[0].sha256,
+        positive: true,
+        missing: true,
+        changedHash: true,
+        restored: true,
+      };
+    });
+  } finally {
+    fs.rmSync(directory, { recursive: true });
+  }
+}
 export function verifyReportFiles(directory, report) {
   const additional =
     report.role === 'producer'
       ? ['inventory.json', 'bundle.json']
       : report.role === 'consumer'
-        ? ['processes-before.json', 'processes-after.json']
+        ? ['processes-before.json', 'processes-after.json', 'controls.json']
         : [];
   const expected = [`${report.role}.json`, 'source-files.json', 'metadata.raw.json', ...additional];
   assert(

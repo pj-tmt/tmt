@@ -14,6 +14,7 @@ export const LIMITS = Object.freeze({
   files: 150_000,
   bytes: 5 * 1024 ** 3,
   fileBytes: 512 * 1024 ** 2,
+  controlBytes: 512 * 1024 ** 2,
   archiveBytes: 5 * 1024 ** 3 + 150_000 * 4096,
   outputBytes: 32 * 1024 ** 2,
   evidenceBytes: 256 * 1024 ** 2,
@@ -573,6 +574,22 @@ export function aggregate(reports, results) {
   );
   exact(byRole.baseline.docs, byRole.doctest.docs, 'Default/separate doctest obligation mismatch');
   compareDocFeatures(byRole.baseline.libraryFeatures, byRole.doctest.libraryFeatures);
+  exact(
+    byRole.consumer.controls.map((control) => control.kind).sort(),
+    ['cargo', 'child', 'library', 'source'],
+    'Missing/duplicate runtime input controls'
+  );
+  assert(
+    byRole.consumer.controls.every(
+      (control) =>
+        control.positive &&
+        control.missing &&
+        control.changedHash &&
+        control.restored &&
+        /^[a-f0-9]{64}$/.test(control.inputHash)
+    ),
+    'Runtime input sensitivity failed'
+  );
   assert(
     byRole.consumer.closureVerified && byRole.consumer.cleanupVerified,
     'Runtime closure/cleanup not proved'

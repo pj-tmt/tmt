@@ -244,6 +244,14 @@ describe('N=1 Cargo proof admission (synthetic formats, not Linux equivalence)',
       execution: [{ id: 'binary', values: [['case', 'ok']] }],
       docs: ['doc'],
       libraryFeatures: [['lib', ['a']]],
+      controls: ['cargo', 'child', 'library', 'source'].map((kind) => ({
+        kind,
+        positive: true,
+        missing: true,
+        changedHash: true,
+        restored: true,
+        inputHash: 'a'.repeat(64),
+      })),
       closureVerified: true,
       cleanupVerified: true,
     }));
@@ -318,6 +326,22 @@ describe('bounded frozen transport', () => {
       mkdirSync(source);
       for (const name of ['child', 'fixture', 'cargo', 'library'])
         writeFileSync(path.join(source, name), `real fixture bytes ${name}`);
+      const sensitivity = transport.inputControls(
+        path.join(temp, 'controls'),
+        Object.fromEntries(
+          ['child', 'fixture', 'cargo', 'library'].map((name) => [name, path.join(source, name)])
+        )
+      );
+      expect(
+        sensitivity.every(
+          (control: {
+            positive: boolean;
+            missing: boolean;
+            changedHash: boolean;
+            restored: boolean;
+          }) => control.positive && control.missing && control.changedHash && control.restored
+        )
+      ).toBe(true);
       const files = transport.treeFiles(source),
         archive = path.join(temp, 'closure.tar');
       const hash = await transport.packClosure(source, archive, files);

@@ -100,8 +100,12 @@ cannot establish them. Every role keeps original streams/process reports on red.
 
 Bounds live in `LIMITS`:150,000 regular files, 5 GiB payload, 512 MiB per file,
 5 GiB plus bounded tar overhead, 32 MiB per command and 256 MiB total captured streams,
-4000 commands and 18 minutes inside each 20-minute job. Each heavy role requires 12 GiB free
-before acquisition/restoration. GNU tar packs
+4000 commands and 18 minutes inside each 20-minute job. Producer requires 12 GiB free before acquisition; baseline/doctest require 6 GiB.
+Consumer requires 6 GiB after download, with at most 512 MiB for copied-input
+sensitivity controls. Controls remove/corrupt private copies of the actual child,
+library, Cargo and source inputs; immutable originals remain untouched. They prove
+admission sensitivity, while real runtime necessity still requires the positive
+harness proof. GNU tar packs
 the verified files directly with hard-link dereferencing, avoiding a staging copy;
 the uncompressed transport has the same membership/hash checks as the payload.
 Owned target, Cargo home and runtime temp/home are removed after retained reports;
