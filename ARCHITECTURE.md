@@ -1173,6 +1173,7 @@ bind the session through a non-secret, cookie-device-checked `tmt-session` ident
 stripped at the door. Last transport close, idle expiry and authority loss reuse
 session-owned cleanup; grant-owned held work survives session end and cancels only on
 stop, revoke or grant expiry/revision change. Uncertain dispatch retains recovery.
+The `objects` backend is a library-only seam, not yet routed (#1852): [guide](.agents/skills/tmt-remote/references/object-backends.md).
 
 System-wide invariants:
 
@@ -1229,8 +1230,7 @@ core discovery or storage access.
   in its own process group, reading pairing from `tmt remote devices --json`. This optional
   edge (Colab → Remote) uses the public CLI only: no Remote state files and no crate
   dependency. Colab stops only a door it started, with its whole group, after closing its own
-  socket. `tmt colab stop` reaches the serving process
-  through a root-local route on that same owner-only socket (no signals, no new surface).
+  socket. `tmt colab stop` reaches the serving process through a root-local route on that same owner-only socket (no signals, no new surface).
 - **Message editing.** One plaintext/history Lexical 0.52.0 composer follows the [editing boundary](.agents/skills/tmt-colab/references/architecture-state.md#message-editing-boundary), which owns dependencies, drafts and parent admission.
 - **Renderer invariant.** Parent chrome allows only self-hosted scripts and styles (no
   `unsafe-inline`). Author HTML runs only in `renderer.html` inside an opaque

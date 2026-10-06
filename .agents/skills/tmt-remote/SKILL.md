@@ -22,6 +22,9 @@ with Colab; [tmt-colab](../tmt-colab/SKILL.md) links here for it.
   browser opening and `settings`.
 - [references/browser-pages.md](references/browser-pages.md): the `/pair#CODE` page,
   the embedded stylesheet and header-token drift tests.
+- [references/object-backends.md](references/object-backends.md): the object backend
+  trait, the `LocalFs` ledger and private payload trees, effect order, charge formula
+  and how to add an adapter and run its conformance suite.
 - [references/sdk-operations.md](references/sdk-operations.md): the `remote-client`
   package gates, the embedded `remote-v1.js` asset (rebuild and commit it after any
   `remote-client/src` change; CI fails on a difference), crypto fixtures and the
