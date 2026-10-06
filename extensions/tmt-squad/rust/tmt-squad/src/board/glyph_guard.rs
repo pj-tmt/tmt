@@ -41,8 +41,8 @@ pub(crate) fn glyph_error(text: &str) -> Option<String> {
         .chain(['◐', '✎'])
         .collect::<std::collections::BTreeSet<_>>();
     for line in text.lines() {
-        // Selection occupies one existing prefix blank. Recognize only the three
-        // admitted local row prefixes; surrounding canvas/pane text is not a prefix.
+        // Selection occupies one existing prefix blank. Recognize only the admitted
+        // local row prefixes; surrounding canvas/pane text is not a prefix.
         let prefix = line.chars().take(4).collect::<Vec<_>>();
         let grid_cue = prefix.len() >= 2
             && states.contains(&prefix[0])
@@ -69,7 +69,8 @@ pub(crate) fn glyph_error(text: &str) -> Option<String> {
                 && !character.is_ascii()
                 && previous.is_some_and(|previous| !previous.is_whitespace())
                 && !((column == 1 && prefix.first() == Some(&'>'))
-                    || (column == 2 && prefix.starts_with(&['│', '>'])))
+                    || (column == 2
+                        && (prefix.starts_with(&['│', '>']) || prefix.starts_with(&[' ', '>']))))
             {
                 return Some(format!("state mark {character:?} needs a leading space"));
             }
@@ -122,19 +123,23 @@ fn selection_prefix_exceptions_are_local_single_cell_and_keep_other_guards() {
         ("◆ row", "◆>row"),
         (" ◆ row", ">◆ row"),
         ("│ ◆ row", "│>◆ row"),
+        ("  ◆ row", " >◆ row"),
     ] {
         assert_eq!(before.width(), after.width());
         assert_eq!(glyph_error(after), None);
     }
-    assert_eq!(glyph_error("◆>row\n>◆ row\n│>◆ row"), None);
+    assert_eq!(glyph_error("◆>row\n>◆ row\n│>◆ row\n >◆ row"), None);
     for bad in [
         " ◆>row",
         "label>◆ row",
         "◆>>row",
         ">>◆ row",
         "│>>◆ row",
+        " >>◆ row",
+        "  >◆ row",
         ">◆row",
         "│>◆row",
+        " >◆row",
         "◆>row ✗bad",
         "◆>row\nlabel>◆ row",
         ">◆ row\n◆✗",

@@ -56,3 +56,64 @@ fn an_area_larger_than_the_buffer_is_clipped_not_a_panic() {
     outline(Line::raw("t")).paint(Rect::new(0, 0, 9, 9), &mut buffer);
     outline(Line::raw("t")).paint(Rect::new(20, 20, 3, 3), &mut buffer);
 }
+
+#[test]
+fn flat_frame_keeps_title_styles_inner_content_and_square_defaults() {
+    let area = Rect::new(0, 0, 10, 4);
+    let mut buffer = Buffer::empty(area);
+    buffer.set_string(0, 1, "Xkeep    X", Style::new().fg(Color::Green));
+    let outline = outline(Line::from(vec![
+        Span::raw(" ab "),
+        Span::styled("c ", Style::new().fg(Color::Red)),
+    ]));
+    outline.paint_flat(area, &mut buffer);
+    assert_eq!(
+        rows(&buffer),
+        ["─ ab c ───", " keep     ", "          ", "──────────"]
+    );
+    assert_eq!(
+        buffer[(0, 1)].fg,
+        Color::Blue,
+        "blank former wall is styled"
+    );
+    assert_eq!(buffer[(1, 1)].fg, Color::Green, "content is not filled");
+    assert_eq!(outline.inner(area), Rect::new(1, 1, 8, 2));
+    assert!(buffer[(2, 0)].modifier.contains(Modifier::BOLD));
+    assert_eq!(buffer[(5, 0)].fg, Color::Red);
+    outline.paint(area, &mut buffer);
+    assert_eq!(rows(&buffer)[0], "┌ ab c ──┐", "default remains square");
+}
+
+#[test]
+fn flat_frame_changes_only_edge_symbols_when_clipped_or_tiny() {
+    for buffer_area in [Rect::new(0, 0, 12, 6), Rect::new(3, 2, 5, 3)] {
+        for area in [
+            Rect::new(0, 0, 12, 6),
+            Rect::new(2, 1, 10, 5),
+            Rect::new(4, 3, 1, 1),
+            Rect::new(4, 3, 2, 2),
+            Rect::new(20, 20, 3, 3),
+            Rect::new(4, 3, 0, 0),
+        ] {
+            let mut square = Buffer::empty(buffer_area);
+            square.set_style(buffer_area, Style::new().bg(Color::Yellow));
+            let mut flat = square.clone();
+            let outline = outline(Line::raw("a\x1bb"));
+            outline.paint(area, &mut square);
+            outline.paint_flat(area, &mut flat);
+            for (before, after) in square.content.iter().zip(&flat.content) {
+                let mut expected = before.clone();
+                match before.symbol() {
+                    "┌" | "┐" | "└" | "┘" => {
+                        expected.set_symbol("─");
+                    }
+                    "│" => {
+                        expected.set_symbol(" ");
+                    }
+                    _ => {}
+                }
+                assert_eq!(&expected, after, "{buffer_area:?}/{area:?}");
+            }
+        }
+    }
+}

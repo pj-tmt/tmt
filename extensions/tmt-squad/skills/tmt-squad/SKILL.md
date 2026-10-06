@@ -159,6 +159,10 @@ user's board shows it as ✎ until you do. Never edit the user's notes for it.
 
 ## Board appearance
 
+Member and HOME lead groups, outlined panes and inline input/read bands use horizontal
+rules with blank side margins. Pane titles and focus cues retain their reserved
+positions. Ask-lead, settings, pickers and cron overlays keep square frames.
+
 On a squad tab the lead is the first row, in the same columns as the members, with a
 dim `lead` after its name (cut first when the name cell is narrow), followed by
 the dim rule `── members · N ───` (`── members · 0 · none yet ──` for a squad
@@ -374,7 +378,7 @@ send shows its error and does not show `✓ sent` or retry automatically.
 ## Home dashboard
 
 The built-in `all` board shows counts, needs-you members and a blocked subgroup,
-then boxed leads, cron and squads. Squads occupy one full-width column at every width, with one compact table row
+then grouped leads, cron and squads. Squads occupy one full-width column at every width, with one compact table row
 per squad. Member counts align within their table column rather than at the terminal edge. A row shows squad attention, lead/model and non-lead member marks in urgency
 order (◆ ✗ ◐ ● ○) and a member count. Each mark has a trailing space. Members
 with unknown/custom states appear as `N other`. Sampled token windows and the lead's share follow the member count.
@@ -407,8 +411,8 @@ age; blocked ages say `observed` to identify the task/state observation. Questio
 appear in the inline composer after `a`. Quiet needs-you takes one line, and empty
 blocked disappears. Public `tmt sq ls --tab all --json` and text retain the aggregate document.
 
-Leads show the latest exchange with you in one full-width square
-box. Each header has a bold name, its squad from 100 columns, and an event age
+Leads show the latest exchange with you in one full-width group between horizontal
+rules, with blank side margins. Each header has a bold name, its squad from 100 columns, and an event age
 at the right. The second line previews the message: ◆ means the lead asks you,
 … means you asked and no reply has been submitted, and ✓ means the lead replied.
 Reply wording does not change that mark. A lead with no exchange has a blank mark
@@ -425,7 +429,7 @@ PgUp/PgDn scroll that body; `e` or Esc collapses it, and `a` opens an answer or
 note to that lead in the same place. Reading sends and acknowledges nothing.
 Only one band can be open.
 
-The `→ all leads` footer sits outside the box. `A` writes to all current leads;
+The `→ all leads` footer sits outside the group. `A` writes to all current leads;
 `@` picks one lead. Both use the ordinary composer. The recipient identities
 are frozen when it opens, deduplicated for dispatch and checked again before
 sending. A changed sender or lead audience sends nothing. Feedback reports
@@ -574,7 +578,7 @@ extension consent.
 
 `tmt sq view ls` (or bare `tmt sq view`) lists factory pane arrangements:
 `members`, `team`, `focus`, `notes`, `detail` and `wide`. The default `members`
-view uses one boxed list; the other views use the configured row grid and pane
+view uses one grouped list; the other views use the configured row grid and pane
 arrangements. Workflow states, rows, providers, reminders, the token meter
 and theme keep their settings; crew, pr-queue and minimal remain workflow layouts.
 
@@ -617,7 +621,7 @@ Agents change views only when requested.
 
 ## Squad member list
 
-Squad tabs default to one boxed list with the lead first, its `lead` tag, then
+Squad tabs default to one grouped list with the lead first, its `lead` tag, then
 `── members · N ──`. Each member has a mark/name/state/model/age line and a task
 line. Waiting members (`◆`) come first, with the oldest questions first; other
 exchanges follow newest first, and members without exchanges sort by name.
@@ -633,7 +637,7 @@ There is one band at a time. Reading works without recording yourself; writing
 requires `tmt sq me`. Custom bindings also control the expanded band.
 
 Use `l` to choose `team` for the previous detail/replies side panes, or edit
-`board.view` to `team` in `,` settings. `members` restores the boxed list.
+`board.view` to `team` in `,` settings. `members` restores the grouped list.
 Hand-written `board.layout` or `panes` keeps its configured composition.
 
 ## Fold board panes
