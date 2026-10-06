@@ -1231,12 +1231,7 @@ core discovery or storage access.
   dependency. Colab stops only a door it started, with its whole group, after closing its own
   socket. `tmt colab stop` reaches the serving process
   through a root-local route on that same owner-only socket (no signals, no new surface).
-- **Message editing.** The main app uses one Colab-local plaintext/history Lexical 0.52.0
-  composer for messages, separate from the source editor; reader/recovery entries remain
-  editor-free. Parent admission, stable recipient selection and frozen send capture stay
-  outside the editor. The [editing boundary](.agents/skills/tmt-colab/references/architecture-state.md#message-editing-boundary)
-  owns the dependency decision and exact draft/history contract. No CSP or native embedding
-  relaxation is required.
+- **Message editing.** One plaintext/history Lexical 0.52.0 composer follows the [editing boundary](.agents/skills/tmt-colab/references/architecture-state.md#message-editing-boundary), which owns dependencies, drafts and parent admission.
 - **Renderer invariant.** Parent chrome allows only self-hosted scripts and styles (no
   `unsafe-inline`). Author HTML runs only in `renderer.html` inside an opaque
   `sandbox allow-scripts` frame whose own policy permits inline scripts and styles but no
