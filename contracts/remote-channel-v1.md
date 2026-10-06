@@ -1314,7 +1314,8 @@ actual request still requires its proof/signature.
 
 ## Current implementation and migration
 
-Implemented today: a foreground deny-all door, pure `local-v1` canonical envelope framing,
+Implemented today: a loopback door with human background startup and foreground JSON compatibility,
+pure `local-v1` canonical envelope framing,
 `tmt-device-pair-v1` enrollment and possession builders, pairing-code text decoding, four-word
 fingerprints over the pinned list (bitcoin/bips `ce1862ac` `bip-0039/english.txt`, SHA-256
 `2f5eed53a4727b4bf8880d8f3f199efc90e58503646d9ff8eff3a2ed3b24dbda`, committed as
