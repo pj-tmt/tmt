@@ -169,7 +169,7 @@ fn each_theme_renders_a_role_for_the_stream_s_depth() {
     // The selection is a background, or reverse video without a color.
     assert_eq!(
         tmt.style(Role::Selection, Depth::TrueColor).get_bg_color(),
-        Some(Color::Rgb(RgbColor(0x33, 0x46, 0x7C)))
+        Some(Color::Rgb(RgbColor(0x2B, 0x2B, 0x2B)))
     );
     assert_eq!(
         tmt.style(Role::Selection, Depth::TrueColor).get_fg_color(),
@@ -297,7 +297,7 @@ fn screens_get_the_same_style() {
     let waiting = screen::style(&tmt, Role::Waiting, Depth::TrueColor);
     assert_eq!(waiting.fg, Some(ScreenColor::Rgb(0xFF, 0x9E, 0x64)));
     let selected = screen::style(&tmt, Role::Selection, Depth::TrueColor);
-    assert_eq!(selected.bg, Some(ScreenColor::Rgb(0x33, 0x46, 0x7C)));
+    assert_eq!(selected.bg, Some(ScreenColor::Rgb(0x2B, 0x2B, 0x2B)));
     let dim = screen::style(&tmt, Role::Dim, Depth::Ansi16);
     assert_eq!(dim.fg, None);
     assert!(dim.add_modifier.contains(Modifier::DIM));
