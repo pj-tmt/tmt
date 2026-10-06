@@ -182,6 +182,7 @@
           "name:Require candidate Rosetta tooling",
           "name:Set up Node.js and pnpm",
           "name:Install verification dependencies",
+          "name:Install trusted CLI verification dependencies",
           "name:Install pinned Rust for version-only resolution",
           "id:version",
           "uses:actions/download-artifact@v4",
@@ -190,7 +191,7 @@
           "name:Execute final archive and bootstrap with the matching target process",
           "name:Recheck version-only source after this stage"
         ],
-        "sha256": "ac846c74806e5e8b2bc1c8d1b13f138f2674c015288b508ec2b534c188a14e9d",
+        "sha256": "d7b1a474a2152f595731fcdfd19d5ad11d921b8b78acca6ab297f5873e4b99b9",
         "preMerge": [
           {
             "workflow": "ci.yml",

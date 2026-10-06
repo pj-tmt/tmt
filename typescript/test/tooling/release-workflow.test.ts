@@ -21,6 +21,44 @@ describe('compiled CLI schema preparation order', () => {
     assemble: source.split('  assemble:\n')[1].split('  verify:\n')[0],
     verify: source.split('  verify:\n')[1].split('  upgrade-fetch:\n')[0],
   });
+  const trustedInstallName = 'name: Install trusted CLI verification dependencies';
+  const trustedInstallCommand =
+    'pnpm --filter tmux-team --fail-if-no-match install --frozen-lockfile --ignore-scripts';
+  function requireTrustedCliPreparation(source: string) {
+    const { verify } = blocks(source);
+    const steps = verify.split(/\n      - /).slice(1);
+    const installs = steps.filter((step) => step.startsWith(trustedInstallName + '\n'));
+    expect(installs).toHaveLength(1);
+    const install = installs[0];
+    expect(install.split('\n')).toContain("        if: inputs.product == 'cli'");
+    expect(install.split('\n')).toContain('        working-directory: typescript');
+    expect(install.split('\n')).toContain(`        run: ${trustedInstallCommand}`);
+    const setup = steps.findIndex((step) => step.startsWith('name: Set up Node.js and pnpm\n'));
+    const preparation = steps.indexOf(install);
+    const final = steps.findIndex((step) =>
+      step.startsWith(
+        'name: Execute final archive and bootstrap with the matching target process\n'
+      )
+    );
+    expect(setup).toBeGreaterThanOrEqual(0);
+    expect(preparation).toBeGreaterThan(setup);
+    expect(final).toBeGreaterThan(preparation);
+    expect(steps[final]).toContain(
+      'node "$GITHUB_WORKSPACE/typescript/scripts/verify-native-artifact.mjs"'
+    );
+    const candidate = steps.find((step) =>
+      step.startsWith('name: Install verification dependencies\n')
+    );
+    expect(candidate?.split('\n')).toContain(
+      '        working-directory: release-source/typescript'
+    );
+    expect(candidate?.split('\n')).toContain(
+      '        run: pnpm install --frozen-lockfile --ignore-scripts'
+    );
+    const activation = read('.github/actions/setup-tooling/action.yml');
+    expect(activation).toContain('default: 22.23.2');
+    expect(activation).toContain('default: 10.33.0');
+  }
   function requireSchemaOrder(source: string) {
     const { build, assemble, verify } = blocks(source);
     expect(build).toContain(
@@ -68,6 +106,43 @@ describe('compiled CLI schema preparation order', () => {
     );
     expect(source).toContain("'schema-snapshot': { type: 'string' }");
   });
+  it('prepares pinned trusted tooling for CLI verification while retaining candidate dependencies', () => {
+    requireTrustedCliPreparation(prepare);
+  });
+  it.each(['missing', 'wrong-checkout', 'late', 'condition', 'filter', 'frozen', 'scripts'])(
+    'detects %s trusted CLI dependency preparation',
+    (mutation) => {
+      const { verify } = blocks(prepare);
+      const step = verify
+        .split(/\n      - /)
+        .find((entry) => entry.startsWith(trustedInstallName + '\n'))!;
+      const declaration = '      - ' + step;
+      let changed: string;
+      if (mutation === 'missing') changed = verify.replace(declaration, '');
+      else if (mutation === 'late') {
+        changed = verify
+          .replace(declaration, '')
+          .replace(
+            '      - name: Recheck version-only source after this stage\n',
+            declaration + '      - name: Recheck version-only source after this stage\n'
+          );
+      } else {
+        const [before, after] = {
+          'wrong-checkout': [
+            'working-directory: typescript',
+            'working-directory: release-source/typescript',
+          ],
+          condition: ["inputs.product == 'cli'", "inputs.product == 'colab'"],
+          filter: ['--filter tmux-team', '--filter @tmt/colab-app'],
+          frozen: ['--frozen-lockfile', '--no-frozen-lockfile'],
+          scripts: ['--ignore-scripts', '--enable-scripts'],
+        }[mutation]!;
+        changed = verify.replace(declaration, declaration.replace(before, after));
+      }
+      expect(changed).not.toBe(verify);
+      expect(() => requireTrustedCliPreparation(prepare.replace(verify, changed))).toThrow();
+    }
+  );
   it.each(['capture', 'carrier', 'evidence', 'snapshot', 'source', 'rosetta'])(
     'detects removal of the %s obligation',
     (guard) => {
