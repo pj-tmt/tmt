@@ -43,6 +43,9 @@ fn execute() -> Result<(), DecodeFault> {
     if std::env::args().nth(2).as_deref() == Some("baseline") {
         return baseline(&input);
     }
+    if std::env::args().nth(2).as_deref() == Some("prepare-content") {
+        return prepare_content(&input);
+    }
     let wire: WireBatch = serde_json::from_slice(&input).map_err(|_| DecodeFault::InvalidInput)?;
     if wire.version != 1
         || wire.updates.len() > UPDATES
@@ -121,19 +124,7 @@ fn execute() -> Result<(), DecodeFault> {
             return Err(DecodeFault::InvalidInput);
         }
         let old = before["html"].as_str().ok_or(DecodeFault::Rejected)?;
-        let start = old
-            .chars()
-            .zip(source.chars())
-            .take_while(|(a, b)| a == b)
-            .map(|(c, _)| c.len_utf8())
-            .sum::<usize>();
-        let end = old[start..]
-            .chars()
-            .rev()
-            .zip(source[start..].chars().rev())
-            .take_while(|(a, b)| a == b)
-            .map(|(c, _)| c.len_utf8())
-            .sum::<usize>();
+        let (start, end) = content_diff(old, source);
         let vector = doc.transact().state_vector();
         let text = doc.get_or_insert_text("html");
         let meta = doc.get_or_insert_map("meta");
@@ -182,6 +173,161 @@ fn execute() -> Result<(), DecodeFault> {
         pid: std::process::id(),
     };
     write_reply(&reply)
+}
+fn content_diff(old: &str, source: &str) -> (usize, usize) {
+    let start = old
+        .chars()
+        .zip(source.chars())
+        .take_while(|(a, b)| a == b)
+        .map(|(c, _)| c.len_utf8())
+        .sum::<usize>();
+    let end = old[start..]
+        .chars()
+        .rev()
+        .zip(source[start..].chars().rev())
+        .take_while(|(a, b)| a == b)
+        .map(|(c, _)| c.len_utf8())
+        .sum::<usize>();
+    (start, end)
+}
+fn content_document(baseline: &[u8], updates: &[Vec<u8>]) -> Result<Doc, DecodeFault> {
+    let doc = Doc::new();
+    doc.get_or_insert_text("html");
+    doc.get_or_insert_map("meta");
+    for bytes in std::iter::once(baseline)
+        .filter(|v| !v.is_empty())
+        .chain(updates.iter().map(Vec::as_slice))
+    {
+        doc.transact_mut()
+            .apply_update(Update::decode_v1(bytes).map_err(|_| DecodeFault::Rejected)?)
+            .map_err(|_| DecodeFault::Rejected)?;
+    }
+    Ok(doc)
+}
+fn replay_content(
+    baseline: &[u8],
+    admitted: &[Vec<u8>],
+    updates: &[Vec<u8>],
+    expected: &Value,
+) -> Result<(), DecodeFault> {
+    let replay = content_document(baseline, admitted)?;
+    for bytes in updates {
+        replay
+            .transact_mut()
+            .apply_update(Update::decode_v1(bytes).map_err(|_| DecodeFault::Rejected)?)
+            .map_err(|_| DecodeFault::Rejected)?;
+        project(&replay, Namespace::Content)?; // Reject unresolved causal prefixes, not only the final state.
+    }
+    if project(&replay, Namespace::Content)? != *expected {
+        return Err(DecodeFault::Rejected);
+    }
+    Ok(())
+}
+fn prepare_content(input: &[u8]) -> Result<(), DecodeFault> {
+    let wire: WireContentPreparation =
+        serde_json::from_slice(input).map_err(|_| DecodeFault::InvalidInput)?;
+    if wire.version != 1
+        || wire.source.len() > BASELINE_BYTES
+        || wire.updates.len() > UPDATES
+        || wire
+            .publisher_agent
+            .as_deref()
+            .is_some_and(|v| !valid_publisher_agent(v))
+    {
+        return Err(DecodeFault::InvalidInput);
+    }
+    let baseline = binary(&wire.baseline, STATE_BYTES)?;
+    let admitted = wire
+        .updates
+        .iter()
+        .map(|v| binary(v, STATE_BYTES))
+        .collect::<Result<Vec<_>, _>>()?;
+    if baseline.len() + admitted.iter().map(Vec::len).sum::<usize>() > STATE_BYTES {
+        return Err(DecodeFault::InvalidInput);
+    }
+    let doc = content_document(&baseline, &admitted)?;
+    let before = project(&doc, Namespace::Content)?;
+    if before != wire.expected_base {
+        return Err(DecodeFault::Rejected);
+    }
+    let edit = ContentEdit {
+        source: &wire.source,
+        publisher_agent: wire.publisher_agent.as_deref(),
+    };
+    let expected = edited_projection(&before, edit);
+    let mut updates = Vec::new();
+    if expected != before {
+        let old = before["html"].as_str().ok_or(DecodeFault::Rejected)?;
+        let (start, end) = content_diff(old, &wire.source);
+        let mut rest = &wire.source[start..wire.source.len() - end];
+        let html = doc.get_or_insert_text("html");
+        let meta = doc.get_or_insert_map("meta");
+        let mut first = true;
+        let mut offset = start;
+        while first || !rest.is_empty() {
+            let mut cut = rest.len().min(CREATE_CHUNK_BYTES);
+            while !rest.is_char_boundary(cut) {
+                cut -= 1;
+            }
+            let (piece, tail) = rest.split_at(cut);
+            let mut tx = doc.transact_mut();
+            if first {
+                let remove = old.len() - start - end;
+                if remove > 0 {
+                    html.remove_range(&mut tx, start as u32, remove as u32);
+                }
+                if before["meta"]["publisherAgent"].as_str() != edit.publisher_agent {
+                    if let Some(agent) = edit.publisher_agent {
+                        meta.insert(&mut tx, "publisherAgent", agent);
+                    } else {
+                        meta.remove(&mut tx, "publisherAgent");
+                    }
+                }
+            }
+            if !piece.is_empty() {
+                html.insert(&mut tx, offset as u32, piece);
+            }
+            updates.push(tx.encode_update_v1());
+            offset += piece.len();
+            rest = tail;
+            first = false;
+        }
+        if updates.len() > WRITE_TAIL_UPDATES
+            || updates.iter().any(|v| v.len() > UPDATE_BYTES)
+            || updates.iter().map(Vec::len).sum::<usize>() > WRITE_TAIL_BYTES
+        {
+            return Err(DecodeFault::Rejected);
+        }
+    }
+    let projection = project(&doc, Namespace::Content)?;
+    if projection != expected
+        || doc
+            .transact()
+            .encode_state_as_update_v1(&StateVector::default())
+            .len()
+            > STATE_BYTES
+        || serde_json::to_vec(&projection)
+            .map_err(|_| DecodeFault::Rejected)?
+            .len()
+            > STATE_BYTES
+    {
+        return Err(DecodeFault::Rejected);
+    }
+    replay_content(&baseline, &admitted, &updates, &expected)?;
+    write_reply(&WirePreparedContent {
+        version: 1,
+        input_hash: URL_SAFE_NO_PAD.encode(Sha256::digest(input)),
+        batch: if updates.is_empty() {
+            WireContentBatch::Noop
+        } else {
+            WireContentBatch::Updates {
+                updates: updates.iter().map(|v| URL_SAFE_NO_PAD.encode(v)).collect(),
+            }
+        },
+        projection,
+        memory_limit: memory_limit(),
+        pid: std::process::id(),
+    })
 }
 // Capture only materialized typed records, allowing existing checkpoint steps
 // with pending dependencies. A later update cannot replace or remove a record.
@@ -469,5 +615,35 @@ mod baseline_tests {
                 vector["commitment"]
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod content_preparation_tests {
+    use super::*;
+    #[test]
+    fn causal_replay_rejects_unordered_unresolved_and_wrong_projection_with_a_positive_control() {
+        let doc = Doc::with_client_id(123);
+        let html = doc.get_or_insert_text("html");
+        doc.get_or_insert_map("meta")
+            .insert(&mut doc.transact_mut(), "title", "T");
+        html.insert(&mut doc.transact_mut(), 0, "old");
+        let baseline = doc
+            .transact()
+            .encode_state_as_update_v1(&StateVector::default());
+        let mut first = doc.transact_mut();
+        html.remove_range(&mut first, 0, 3);
+        html.insert(&mut first, 0, "A");
+        let a = first.encode_update_v1();
+        drop(first);
+        let mut second = doc.transact_mut();
+        html.insert(&mut second, 1, "B");
+        let b = second.encode_update_v1();
+        drop(second);
+        let expected = serde_json::json!({"html":"AB","meta":{"title":"T"}});
+        replay_content(&baseline, &[], &[a.clone(), b.clone()], &expected).unwrap();
+        assert!(replay_content(&baseline, &[], &[b.clone(), a.clone()], &expected).is_err());
+        assert!(replay_content(&baseline, &[], &[b], &expected).is_err());
+        assert!(replay_content(&baseline, &[], &[a], &expected).is_err());
     }
 }
