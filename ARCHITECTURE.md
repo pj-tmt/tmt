@@ -41,7 +41,7 @@ ownership comes separately from [`.github/components.json`](.github/components.j
 | `contracts/`              | Core public contracts and normative fixtures                                         |
 | `scripts/`                | Shared shell/build/development helpers                                               |
 | `skills/`                 | Canonical bundled user-agent guidance                                                |
-| `site/`                   | User handbook and translations                                                       |
+| `site/`                   | Public Home, retained handbook sources and translations                              |
 | `design/`                 | Tokens/CLI; [private browser-ui](design/gui-components.md); no Core/CLI dep/embed    |
 
 New homes or exceptions need infra review and coordinated map/allowlist changes;
@@ -1247,4 +1247,4 @@ core discovery or storage access.
   or runtime implementation is claimed; archive/history/native acceptance remains required.
 - **Plaintext invariant.** Page source and export are root-local: only the isolated decoder
   child decodes Yjs, no route serves plaintext, and the browser Worker is resource
-  containment, not a security sandbox. Private causal content-batch preparation returns deltas without publishing them; browser Save and CLI write still use their single-update paths.
+  containment, not a security sandbox. Private causal content-batch preparation returns deltas; pure [content-publication codecs](extensions/tmt-colab/contracts/colab-v1.md#unintegrated-content-publication-codecs-1908) validate sealed intent without publishing. Browser Save and CLI write still use their single-update paths.

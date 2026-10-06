@@ -58,7 +58,9 @@ fn home_footer_keeps_search_after_row_actions_when_it_fits() {
         assert!(!hints.contains("t replies"), "{width}: {hints}");
         if width >= 100 {
             assert!(
-                hints.starts_with("↑↓ move  ⏎ open  a write  e expand  A ask lead  / search"),
+                hints.starts_with(
+                    "Focus: HOME rows  ↑↓ move  ⏎ open  a write  e expand  A ask lead  / search"
+                ),
                 "{width}: {hints}"
             );
         }

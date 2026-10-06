@@ -40,33 +40,47 @@ pub(crate) fn glyph_error(text: &str) -> Option<String> {
         .flat_map(|mark| mark.symbol().chars())
         .chain(['◐', '✎'])
         .collect::<std::collections::BTreeSet<_>>();
-    let mut chars = text.chars().peekable();
-    let mut previous: Option<char> = None;
-    while let Some(character) = chars.next() {
-        let structural = STRUCTURAL_GLYPHS.iter().any(|(glyphs, reason)| {
-            assert!(!reason.is_empty());
-            glyphs.contains(character)
-        });
-        let ambiguous = character.width() != character.width_cjk();
-        // Presentation sequences catch text-default emoji such as the stopwatch;
-        // wide glyphs also reject default emoji in these fixed English labels.
-        let emoji = matches!(character, '\u{fe0f}' | '\u{20e3}')
-            || !character.is_ascii()
-                && (character.width() == Some(2)
-                    || format!("{character}\u{fe0f}").width() > character.width().unwrap_or(0));
-        if (emoji || ambiguous) && !structural && !marks.contains(&character) {
-            return Some(format!("unregistered decorative glyph {character:?}"));
+    for line in text.lines() {
+        // Selection occupies one existing prefix blank. Recognize only the three
+        // admitted local row prefixes; surrounding canvas/pane text is not a prefix.
+        let prefix = line.chars().take(4).collect::<Vec<_>>();
+        let grid_cue = prefix.len() >= 2
+            && states.contains(&prefix[0])
+            && prefix[1] == '>'
+            && prefix.get(2) != Some(&'>');
+        let mut chars = line.chars().enumerate().peekable();
+        let mut previous: Option<char> = None;
+        while let Some((column, character)) = chars.next() {
+            let structural = STRUCTURAL_GLYPHS.iter().any(|(glyphs, reason)| {
+                assert!(!reason.is_empty());
+                glyphs.contains(character)
+            });
+            let ambiguous = character.width() != character.width_cjk();
+            // Presentation sequences catch text-default emoji such as the stopwatch;
+            // wide glyphs also reject default emoji in these fixed English labels.
+            let emoji = matches!(character, '\u{fe0f}' | '\u{20e3}')
+                || !character.is_ascii()
+                    && (character.width() == Some(2)
+                        || format!("{character}\u{fe0f}").width() > character.width().unwrap_or(0));
+            if (emoji || ambiguous) && !structural && !marks.contains(&character) {
+                return Some(format!("unregistered decorative glyph {character:?}"));
+            }
+            if states.contains(&character)
+                && !character.is_ascii()
+                && previous.is_some_and(|previous| !previous.is_whitespace())
+                && !((column == 1 && prefix.first() == Some(&'>'))
+                    || (column == 2 && prefix.starts_with(&['│', '>'])))
+            {
+                return Some(format!("state mark {character:?} needs a leading space"));
+            }
+            if states.contains(&character)
+                && chars.peek().map(|(_, c)| *c) != Some(' ')
+                && !(column == 0 && grid_cue)
+            {
+                return Some(format!("state mark {character:?} needs a trailing space"));
+            }
+            previous = Some(character);
         }
-        if states.contains(&character)
-            && !character.is_ascii()
-            && previous.is_some_and(|previous| !previous.is_whitespace())
-        {
-            return Some(format!("state mark {character:?} needs a leading space"));
-        }
-        if states.contains(&character) && chars.peek() != Some(&' ') {
-            return Some(format!("state mark {character:?} needs a trailing space"));
-        }
-        previous = Some(character);
     }
     None
 }
@@ -98,5 +112,34 @@ fn glyph_guard_rejects_unregistered_ambiguous_and_emoji_decorations_and_unspaced
         "2 other",
     ] {
         assert_eq!(glyph_error(good), None, "positive control {good:?}");
+    }
+}
+
+#[test]
+fn selection_prefix_exceptions_are_local_single_cell_and_keep_other_guards() {
+    use unicode_width::UnicodeWidthStr;
+    for (before, after) in [
+        ("◆ row", "◆>row"),
+        (" ◆ row", ">◆ row"),
+        ("│ ◆ row", "│>◆ row"),
+    ] {
+        assert_eq!(before.width(), after.width());
+        assert_eq!(glyph_error(after), None);
+    }
+    assert_eq!(glyph_error("◆>row\n>◆ row\n│>◆ row"), None);
+    for bad in [
+        " ◆>row",
+        "label>◆ row",
+        "◆>>row",
+        ">>◆ row",
+        "│>>◆ row",
+        ">◆row",
+        "│>◆row",
+        "◆>row ✗bad",
+        "◆>row\nlabel>◆ row",
+        ">◆ row\n◆✗",
+        "│>◆ row\n😀 decoration",
+    ] {
+        assert!(glyph_error(bad).is_some(), "negative control {bad:?}");
     }
 }

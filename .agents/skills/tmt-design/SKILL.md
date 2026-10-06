@@ -6,23 +6,24 @@ description: Build, check and translate the handbook site in `site/` (Vite, MDX,
 # Handbook site
 
 Static site in `site/` with its own lockfile outside the TypeScript workspace.
-Chapters are `site/src/chapters/*.mdx`, registered with the page tree in
-`site/src/chapters/index.ts`; a chapter opens with one animated scene
-(`site/src/scenes/`, `site/src/chapter-scenes/`) whose words live in `site/src/lang/strings.ts`.
-Scenes advance only while on screen and rest on one complete frame under
-`prefers-reduced-motion`: new scenes must keep that. `index.html` asks Google Fonts for
-the token mono family's glyphs of the marks `●○◌◆✗✓↻▸◐` (the latin subset has none);
-the family lacks `○✗✓↻`, which fall back to the system monospace font; colors, fonts and marks come from
-`design/tokens/tokens.json`. Anything not in a release is marked planned. Merging a
-change under `site/**` or `design/tokens/**` to `main` deploys to GitHub Pages
-(`.github/workflows/site.yml`; the repository is public). PRs never deploy.
+The public site renders only the v9 Home (`home/HomePage.tsx`), including installation,
+workflow and Squad/Colab illustrations. Layout owns theme, language and anchor scrolling;
+the router normalizes old chapter/unknown paths to the localized Home. Retained MDX,
+chapter components and translations are source-only for future refinement: the public
+entry point does not import or render them. Do not restore chapter exposure implicitly.
+`scripts/spa-routes.mjs` publishes four Home entries with Home-only alternates/canonicals,
+noindex redirect stubs for historical chapter/zh paths, and a noindex Home-app 404 fallback.
+
+Merging `site/**` or `design/tokens/**` to `main` deploys to GitHub Pages
+(`.github/workflows/site.yml`); PRs never deploy. Existing tokens and source-only chapter
+scene behavior remain owned here. No handbook prose is authored by OpenAI members.
 
 ```sh
 cd site
 pnpm install --frozen-lockfile
 pnpm dev                        # http://127.0.0.1:5173/tmt/
 pnpm check                      # types, Vite+ lint/format, MDX imports, translation sync
-pnpm build                      # dist/ for Pages, one index.html per route
+pnpm build                      # four public Homes and historical redirect stubs
 SITE_BASE=/ pnpm build          # root path or custom domain
 SITE_BASE=./ VITE_SITE_HISTORY=hash pnpm exec vp build   # preview at an unknown path
 ```
@@ -38,9 +39,9 @@ allowed once `languageExceptions` in `.github/repository-layout.json` lists its
 directory, and [AGENTS](../../../AGENTS.md#repository-content-language) owns the
 exception (front matter, keys, code, comments, tests and commits stay English).
 
-- Every page exists at its path and under `/ja/`, `/zh-hant/` and `/zh-hans/`; published
-  `/zh/` redirects to `/zh-hant/` preserving page, query and anchor, and the language
-  dropdown sets `<html lang>` (`zh-hant` is `zh-Hant`, `zh-hans` is `zh-Hans`).
+- Public Home exists at `/`, `/ja/`, `/zh-hant/` and `/zh-hans/`; `/zh/` redirects
+  to Traditional Chinese Home. Historical chapter URLs resolve to Home in the same
+  locale. The language dropdown sets `<html lang>` and preserves Home anchors.
 - A translation's front matter is kept out of the page and exported as `frontmatter`;
   `scripts/mdx-imports.mjs` checks translated pages too.
 - A page `site/src/chapters/<page>.mdx` is translated as
@@ -60,8 +61,8 @@ exception (front matter, keys, code, comments, tests and commits stay English).
   `driver`, `harness`, `board`, `colab`, `meet` (窗格 pane, 終端機 terminal, 擴充套件
   extension, 卡住 blocked, 恢復 resume). `zh-hans` is translated directly from English
   with Mainland usage (文件, 设置, 程序, 服务器, 默认).
-- `scripts/spa-routes.mjs` writes each language's route files with `<html lang>` and
-  `hreflang` alternates; `SITE_ORIGIN` makes them fully qualified.
+- `scripts/spa-routes.mjs` writes Home-only `<html lang>` and `hreflang` alternates;
+  `SITE_ORIGIN` makes them fully qualified. Retained chapters do not get alternates.
 
 ## Reviewing translations
 

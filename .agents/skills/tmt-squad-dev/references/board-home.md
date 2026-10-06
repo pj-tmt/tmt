@@ -69,7 +69,9 @@ look and selected block. Ages, cron text, input reservation, sent feedback, sear
 and usage must reach bound data before key comparison; decoration may read only
 look and selected block. Local placement lets a shifted section reuse its block.
 Selection repaints the departed/entered sections; width/look changes rebuild affected
-scenes, and a new snapshot starts empty. The key strip paints without look decoration.
+scenes, and a new snapshot starts empty. The key strip paints without look decoration;
+its bound long/short strings include receiving focus, so suppression and restoration
+use the existing cache key rather than a separate invalidation owner.
 
 `home/tests/cache.rs` compares retained frames with fresh frames. `home/tests/oracle.rs`
 records whole-frame cells/styles/hits around `sm`, `md` and `lg` boundaries;

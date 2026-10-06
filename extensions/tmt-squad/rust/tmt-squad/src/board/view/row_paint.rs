@@ -61,6 +61,8 @@ struct Part {
     root: bool,
     /// The leading `◆`: waiting-colored where there is color, plain in NO_COLOR.
     marker: bool,
+    /// An admitted one-cell blank prefix; only the selected occurrence names it.
+    cue: bool,
     emphasize: bool,
     align: Align,
 }
@@ -110,6 +112,7 @@ impl RowPaint {
             row: parent.and_then(|index| self.parts[index].row),
             root: false,
             marker: false,
+            cue: false,
             emphasize: false,
             align: Align::Left,
         });
@@ -378,6 +381,14 @@ impl RowPaint {
                 );
                 self.parts[marker].marker = mark;
                 self.parts[marker].emphasize = mark;
+                let cue = self.label(
+                    Some(" ".into()),
+                    (1, y + visual, 1, 1),
+                    None,
+                    TextFlow::Clip,
+                    Some(root),
+                );
+                self.parts[cue].cue = true;
             }
             if first && height > 0 {
                 // Its age mark: the first candidate that fits after the cells.
@@ -412,6 +423,16 @@ impl RowPaint {
                     Some(root),
                 );
                 self.parts[index].emphasize = true;
+                // The automatic decision continuation already has four blank
+                // prefix cells. Reuse x=1 without changing its x=4 text start.
+                let cue = self.label(
+                    Some(" ".into()),
+                    (1, y, 1, 1),
+                    None,
+                    TextFlow::Clip,
+                    Some(root),
+                );
+                self.parts[cue].cue = true;
                 if let Some(age) = &extra.request_age {
                     self.row_end(root, std::slice::from_ref(age), 4 + room, y, width);
                 }
@@ -527,17 +548,31 @@ impl RowPaint {
             width: u32::from(body.width),
             height: u32::from(body.height),
         };
-        let cells = self
+        let nodes = self
             .parts
             .iter()
             .map(|part| {
+                if part.cue && part.row == Some(selected) {
+                    let mut node = part.node.clone();
+                    node.text = Some(look.selected_prefix(" ", true).into_owned());
+                    std::borrow::Cow::Owned(node)
+                } else {
+                    std::borrow::Cow::Borrowed(&part.node)
+                }
+            })
+            .collect::<Vec<_>>();
+        let cells = self
+            .parts
+            .iter()
+            .zip(&nodes)
+            .map(|(part, node)| {
                 let rect = BoxRect {
                     x: part.rect.x + bounds.x,
                     y: part.rect.y + bounds.y - offset as i32,
                     ..part.rect
                 };
                 Cell {
-                    node: &part.node,
+                    node,
                     parent: part.parent,
                     rect,
                     content: rect,

@@ -69,6 +69,12 @@ and changed clock text or spinner frames, rather than periodic full repainting.
   text or end label. The lead tag stays inside the member cell, cuts before the
   name, disappears below two cells and reserves no width on other rows. Age/cron
   room is reserved only if it hides no additional column; cron drops before age.
+- Occurrence selection reuses the existing blank prefix: grid x=1 (keeping the
+  attention diamond at x=0), or the boxed heading/task indentation. Only selected
+  `Part.row` content and measured continuations receive `>`; hit/reveal ranges,
+  annotation, sent feedback, borders and input/read reservations do not define
+  selected paint. Duplicate occurrences remain independent. HOME boxed leads
+  select their heading only; member boxes also select their task line.
 - Selection words: `Look::selected_words` is the one owner of what a real selection
   background (`tmt`, `tmt-light`) does to colors. `render_frame` runs it last, over the
   finished buffer: on a cell with the selection background, `muted`, `dim`, `accent`, `link` and the
@@ -100,6 +106,14 @@ and changed clock text or spinner frames, rather than periodic full repainting.
   selection and the token-window row keeps its live session value. Failed saves
   publish no new quick-row values. Presets bind `t` to `home-replies` and no `r`, `T`, `l`, `w` or `talk`;
   fixtures that exercise those actions use `action::with_action_keys`.
+
+Receiving focus is explicit in the existing outlined pane title. Borderless Rows
+uses `Focus: rows` in the base footer; HOME uses `Focus: HOME rows`. Selection
+persists when another pane receives keys. Input/read, search and every existing
+overlay/menu suppress the base claim; notice, selected-link and error footer
+precedence remains unchanged. The full prefix plus mandatory `? more  q quit`
+needs 27 cells for Rows or 32 for HOME. Below that minimum the entire new prefix
+is omitted; optional hints still fit whole through the existing owner.
 
 ## Composition, folds and scrolling
 

@@ -61,6 +61,12 @@ cron_service` and the native `squad.test.ts` cron cases cover actor permission, 
   scene change keeps the frozen parity capture and compares the old and new renderers on
   literal buffers, styles and hits (themes, depths, widths, selection, stale, waiting, cron labels,
   annotation) before the old one goes.
+- Pinned selection/focus evidence uses the ignored `capture_selection_focus_packet`
+  test with explicit `TMT_SELECTION_PACKET` and `TMT_SELECTION_OUTPUT` paths.
+  The existing `status::with_now_ms` test-only scoped override freezes integrated
+  draws on that thread, restores nested/unwound scopes and leaves worker/production
+  clocks unchanged. These buffers are deterministic renderer evidence, not a
+  frozen live-terminal clock or permission to regenerate parity.
 - Frame cost: the `#[ignore]` harness `board/view/tests/frame_timing.rs` times one 160x50 frame
   of crew rows, team rows, home with attention sections only (meter on) and home with every
   section through `Terminal::draw`, split by the phases of
@@ -83,7 +89,10 @@ cron_service` and the native `squad.test.ts` cron cases cover actor permission, 
   reveal, clipped hits and resize without target drift. Capture quiet/waiting/blocked/many
   squads with isolated state. The board glyph guard reads registered marks from
   `design/tokens/tokens.json`, rejects Ambiguous and emoji-presentation decorations,
-  and requires spaces before and after state marks, including overflow tab labels. Structural exceptions have explicit
+  and requires spaces before and after state marks, including overflow tab labels.
+  Only the admitted local selection prefixes (`◆>`, `>◆ ` and `│>◆ `, with the
+  existing semantic mark) substitute one adjacent blank; embedded or misplaced
+  cues do not relax spacing. Structural exceptions have explicit
   reasons in the guard; dynamic names, tasks and notebooks are outside its scope.
   Decode cell/style/hit differences from current main parity before requesting approval
   for any fixture regeneration; an approved regeneration has its own attributed commit.
