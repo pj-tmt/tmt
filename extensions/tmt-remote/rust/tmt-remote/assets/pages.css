@@ -1,8 +1,8 @@
 /* Palette and font stacks from design/tokens/tokens.json; no font requests. */
 :root {
   color-scheme: light dark;
-  --c-text: #343b58;
-  --c-muted: #5a6390;
+  --c-text: #171717;
+  --c-muted: #626262;
   --c-accent: #1f5fbf;
   --c-waiting: #965027;
   --c-working: #4f6a33;
@@ -35,8 +35,8 @@
 }
 @media (prefers-color-scheme: dark) {
   :root {
-    --c-text: #c0caf5;
-    --c-muted: #9aa5ce;
+    --c-text: #d8d8d8;
+    --c-muted: #b0b0b0;
     --c-accent: #7aa2f7;
     --c-waiting: #ff9e64;
     --c-working: #9ece6a;

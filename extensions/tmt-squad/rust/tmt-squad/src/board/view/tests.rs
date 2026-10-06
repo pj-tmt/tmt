@@ -1565,9 +1565,9 @@ fn declarative_style_preserves_stale_row_inheritance() {
 fn team_pending_line_style_snapshots_and_unstyled_control() {
     // Literal text/style snapshots of the real rendered pending span, including padding.
     const TRUE_COLOR: &str = r#""                               approve rollout                                  "
-[(2, "Reset/Reset/Reset/NONE/None"), (17, "Rgb(122, 131, 174)/Reset/Reset/NONE/None"), (1, "Reset/Reset/Reset/NONE/None"), (10, "Rgb(122, 131, 174)/Reset/Reset/NONE/None"), (1, "Reset/Reset/Reset/NONE/None"), (49, "Rgb(255, 158, 100)/Reset/Reset/NONE/None")]
+[(2, "Reset/Reset/Reset/NONE/None"), (17, "Rgb(133, 133, 133)/Reset/Reset/NONE/None"), (1, "Reset/Reset/Reset/NONE/None"), (10, "Rgb(133, 133, 133)/Reset/Reset/NONE/None"), (1, "Reset/Reset/Reset/NONE/None"), (49, "Rgb(255, 158, 100)/Reset/Reset/NONE/None")]
 " >                             approve rollout                                  "
-[(80, "Rgb(192, 202, 245)/Rgb(51, 70, 124)/Reset/NONE/None")]"#;
+[(80, "Rgb(216, 216, 216)/Rgb(43, 43, 43)/Reset/NONE/None")]"#;
     const ANSI16: &str = r#""                               approve rollout                                  "
 [(2, "Reset/Reset/Reset/NONE/None"), (17, "Reset/Reset/Reset/DIM/None"), (1, "Reset/Reset/Reset/NONE/None"), (10, "Reset/Reset/Reset/DIM/None"), (1, "Reset/Reset/Reset/NONE/None"), (49, "Yellow/Reset/Reset/NONE/None")]
 " >                             approve rollout                                  "
