@@ -598,7 +598,31 @@ impl MaterializationInput {
         let state =
             checked_bytes(std::iter::once(baseline.len()).chain(updates.iter().map(Vec::len)))?;
         if edit.is_some() {
-            self.admit_deltas(page, 1, 0)?;
+            // Legacy edits refuse an already full retained tail before decoding. Batch
+            // preparation decides Noop first and admits only its actual added deltas.
+            let detail = if self.tail_count >= crate::decoder::WRITE_TAIL_UPDATES {
+                Some(format!(
+                    "it has {} changes, the most one page can hold",
+                    count(self.tail_count)
+                ))
+            } else if self.tail_bytes >= crate::decoder::WRITE_TAIL_BYTES {
+                Some(format!(
+                    "its changes add up to {}; one page holds at most {}",
+                    size(self.tail_bytes),
+                    size(crate::decoder::WRITE_TAIL_BYTES)
+                ))
+            } else if baseline.len() > crate::decoder::BASELINE_BYTES {
+                Some(format!(
+                    "its content is {}, the most one page can hold is {}",
+                    size(baseline.len()),
+                    size(crate::decoder::BASELINE_BYTES)
+                ))
+            } else {
+                None
+            };
+            if let Some(detail) = detail {
+                return Err(OwnerFault::too_large_to_edit(page, detail).into());
+            }
         }
         if state > crate::decoder::STATE_BYTES {
             return Err(OwnerFault::too_large(
