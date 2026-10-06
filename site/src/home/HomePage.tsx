@@ -162,8 +162,7 @@ export function HomePage() {
           <div className="workflow-summary">
             <p>{landing.workflowDescription}</p>
             <p className="workflow-reach">
-              Across agent apps and terminals. Add Remote to connect from another machine.{" "}
-              <LocalLink to="/extensions/remote">Learn about Remote ↗</LocalLink>
+              Across agent apps and terminals. Add Remote to connect from another machine.
             </p>
           </div>
         </div>
