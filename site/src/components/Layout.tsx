@@ -10,7 +10,7 @@ import { useLang } from "../lang/useLang";
 import { useStrings } from "../lang/useStrings";
 import { applyTheme, themeAtom } from "../state/theme";
 import { LocalLink } from "./LocalLink";
-import { HomePage } from "../home/Hero";
+import { HomePage } from "../home/HomePage";
 import { Tag } from "./marks";
 import { StatusBar } from "./StatusBar";
 
@@ -164,6 +164,7 @@ export function Layout() {
     else window.scrollTo(0, 0);
   }, [current, title, lang, translated, location.hash]);
 
+  if (current.path === "/" && location.hash !== "install") return <HomePage />;
   return (
     <>
       <StatusBar current={current} />
@@ -192,8 +193,7 @@ export function Layout() {
 // The page body: the chapter's border rule and title, then its content.
 export function Chapter() {
   const { lang, current, title, Content, translated } = useCurrent();
-  const { chrome, home } = useStrings();
-  const location = useLocation();
+  const { chrome } = useStrings();
   const crumbs: Record<string, string> = chrome.crumbs;
   const statusLabels: Record<string, string> = chrome.status;
   const fallback = lang !== "en" && !translated;
@@ -202,20 +202,9 @@ export function Chapter() {
     return (
       <section className="home-content">
         {note}
-        {location.hash === "install" ? (
-          <div lang={fallback ? "en" : undefined}>
-            <Content />
-          </div>
-        ) : (
-          <>
-            <HomePage />
-            <p className="home-guide">
-              <LocalLink to="/" hash="install">
-                {home.install} →
-              </LocalLink>
-            </p>
-          </>
-        )}
+        <div lang={fallback ? "en" : undefined}>
+          <Content />
+        </div>
       </section>
     );
   return (
