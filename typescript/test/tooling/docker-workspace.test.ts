@@ -415,3 +415,95 @@ COPY --from=other /data/policy.json data/policy.json`)
     'fixture.Dockerfile [0]: scripts/nested/helper.mjs -> scripts/value.js (expected /workspace/scripts/value.js)'
   );
 });
+
+// E2E/artifact prepare the admitted static input. Office has no reader yet and
+// remains covered by the actual embedded-input closure above, without speculative COPY.
+it('preserves prepared browser CSS in E2E and artifact native stages', () => {
+  const input = 'design/browser-ui/generated/static.css';
+  for (const [file, name, destination] of nativeStages.slice(0, 2)) {
+    const text = readSource(file);
+    const locations = (source: string) => {
+      const stage = dockerStages(source).find((stage) => stage.name === name);
+      return stage ? copyLocations(stage.copies, input) : [];
+    };
+    const expected = `${destination}/${input}`;
+    expect(locations(text)).toContain(expected);
+    const stripped = text
+      .split('\n')
+      .filter((line) => !line.startsWith(`COPY ${input} `))
+      .join('\n');
+    expect(locations(stripped)).not.toContain(expected);
+    const misplaced = text.replace(
+      new RegExp(`COPY ${input} [^\n]+`),
+      `COPY ${input} /wrong/static.css`
+    );
+    expect(locations(misplaced)).not.toContain(expected);
+  }
+});
+
+// A filtered root install still reads the registered leaf's manifest. Inspect
+// only inputs available before that RUN, not later COPY or another stage.
+function missingBrowserManifest(text: string): string[] {
+  const failures: string[] = [];
+  const input = 'design/browser-ui/package.json';
+  let prefix = '';
+  for (const line of instructions(text)) {
+    if (
+      /^RUN .*pnpm --filter tmux-team install|^RUN scripts\/build-native-artifact\.sh/.test(line)
+    ) {
+      const stage = dockerStages(prefix).at(-1)!;
+      const workspace = copyLocations(stage.copies, 'typescript/pnpm-workspace.yaml');
+      expect(workspace.length, 'workspace input for filtered root install').toBeGreaterThan(0);
+      for (const location of workspace) {
+        const expected = path.posix.resolve(path.posix.dirname(location), '../', input);
+        if (!copyLocations(stage.copies, input).includes(expected))
+          failures.push(`${stage.name}: ${expected}`);
+      }
+    }
+    prefix += `${line}\n`;
+  }
+  return failures;
+}
+
+it('copies the new workspace manifest before filtered root installs and artifact preparation', () => {
+  const files = dockerfiles.filter((file) =>
+    /pnpm --filter tmux-team install/.test(readSource(file))
+  );
+  expect(files.sort()).toEqual([
+    'extensions/tmt-office/typescript/services/office/Dockerfile',
+    'typescript/test/e2e/Dockerfile',
+    'typescript/test/native/artifact.Dockerfile',
+  ]);
+  for (const file of files) {
+    const text = readSource(file);
+    expect(missingBrowserManifest(text), file).toEqual([]);
+    const absent = text.replace(/^COPY .*design\/browser-ui\/package\.json.*\n/gm, '');
+    expect(missingBrowserManifest(absent).length, file).toBeGreaterThan(0);
+    const misplaced = text.replace(
+      /^(COPY .*design\/browser-ui\/package\.json) \S+$/gm,
+      '$1 /wrong/package.json'
+    );
+    expect(missingBrowserManifest(misplaced).length, file).toBeGreaterThan(0);
+  }
+});
+
+it('refuses late and cross-stage workspace manifest copies', () => {
+  const prefix = `FROM node AS base
+WORKDIR /workspace
+COPY typescript/pnpm-workspace.yaml typescript/
+`;
+  const copy = 'COPY design/browser-ui/package.json design/browser-ui/package.json\n';
+  const install = 'RUN cd typescript && pnpm --filter tmux-team install --frozen-lockfile\n';
+  expect(missingBrowserManifest(prefix + copy + install)).toEqual([]);
+  expect(missingBrowserManifest(prefix + install + copy)).toEqual([
+    'base: /workspace/design/browser-ui/package.json',
+  ]);
+  expect(
+    missingBrowserManifest(
+      prefix +
+        copy +
+        'FROM node AS other\nWORKDIR /workspace\nCOPY typescript/pnpm-workspace.yaml typescript/\n' +
+        install
+    )
+  ).toEqual(['other: /workspace/design/browser-ui/package.json']);
+});
