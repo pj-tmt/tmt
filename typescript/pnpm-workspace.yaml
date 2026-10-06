@@ -1,4 +1,5 @@
 packages:
+  - ../design/browser-ui
   - ../extensions/tmt-colab/typescript/app
   - ../extensions/tmt-colab/typescript/colab-client
   - ../extensions/tmt-remote/typescript/remote-client

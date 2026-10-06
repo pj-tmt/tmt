@@ -23,6 +23,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends dbus git gnome-
 RUN npm install --global pnpm@10.33.0 && mkdir -p /workspace/typescript /workspace/extensions/tmt-office/typescript/apps/office /workspace/extensions/tmt-office/typescript/services/office/functions && chown -R node:node /workspace
 WORKDIR /workspace/typescript
 COPY --chown=node:node typescript/package.json typescript/pnpm-lock.yaml typescript/pnpm-workspace.yaml ./
+COPY --chown=node:node design/browser-ui/package.json /workspace/design/browser-ui/package.json
 COPY --chown=node:node extensions/tmt-office/typescript/apps/office/package.json /workspace/extensions/tmt-office/typescript/apps/office/package.json
 COPY --chown=node:node extensions/tmt-office/typescript/services/office/functions/package.json /workspace/extensions/tmt-office/typescript/services/office/functions/package.json
 USER node

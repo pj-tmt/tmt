@@ -139,6 +139,13 @@ jobs:
         run: |
           pnpm check:tooling
           pnpm exec vp test run --config vitest.config.ts test/tooling/ci-scope.test.ts test/tooling/component-skills.test.ts test/tooling/release-cut.test.ts test/tooling/release-cut-live.test.ts test/tooling/release-source-at-ref.test.ts test/tooling/release-version-injection.test.ts test/tooling/release-workflow.test.ts test/tooling/release-parity.test.ts test/tooling/release-rehearsal.test.ts test/tooling/guide-budget.test.ts test/tooling/docker-workspace.test.ts
+      - name: Verify isolated browser presentation leaf
+        working-directory: typescript
+        run: |
+          pnpm --filter @tmt/browser-ui install --frozen-lockfile --ignore-scripts
+          pnpm --filter @tmt/browser-ui --fail-if-no-match check
+          pnpm --filter @tmt/browser-ui --fail-if-no-match test
+          pnpm exec vp test run --config vitest.config.ts test/tooling/browser-ui-boundary.test.ts
       - name: Check conventional PR titles
         env:
           GITHUB_TOKEN: ${{ github.token }}

@@ -65,6 +65,16 @@ verification still includes macOS. Follow the
 Rosetta process wrapper, exact installed-byte architecture admission and advisory
 native Intel coverage.
 
+The private browser presentation leaf is verified inside `Code quality`: its
+frozen-lock tool install ignores lifecycle scripts, and nonempty filtered check/test
+commands cover generated CSS equality, type/lint/format and package tests. The tooling
+import guard keeps production inside the leaf and the static entry free of React.
+Its component rule retains full native verification; this is not product adoption
+or broader advisory browser coverage. E2E/artifact stages prepare checked CSS, and
+all three native stages retain the actual Rust embedded-input guard. Office receives
+only the manifest required by the existing filtered root install until a real
+native reader needs CSS; Office product execution remains disabled.
+
 ## Cache ownership
 
 Rust dependency caches use the pinned `Swatinem/rust-cache` action with one
