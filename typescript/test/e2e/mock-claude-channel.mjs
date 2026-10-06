@@ -16,6 +16,8 @@
 //   MOCK_REQUEST_ON_WAKE=1 on a request wake, read the durable request row at that
 //                          moment (read-only SQL on MOCK_DB, no TMT command)
 //   MOCK_DB                the TMT database, for MOCK_RESULT_ON_HINT and MOCK_REQUEST_ON_WAKE
+//   MOCK_TURN_TRANSCRIPT   private telemetry fixture; prompt follows SessionStart,
+//                          then `<log>.stop-turn` explicitly releases one Stop
 // Control files next to the log: `<log>.kill-server` kills the channel server
 // (a crash while the session lives), `<log>.quit` ends the mock cleanly.
 
@@ -39,6 +41,7 @@ const log = (event) =>
 const handshake = process.env.MOCK_HANDSHAKE ?? 'complete';
 const { peer } = resolveCliExecutables();
 const peerCompletions = new Set();
+let stopping = false;
 
 // A mock-owned hook/reply can write fixture state after its caller disappears.
 // Retain close receipts until graceful shutdown has settled every peer.
@@ -49,6 +52,23 @@ function execPeer(args, callback) {
   void closed.then(() => peerCompletions.delete(closed));
   return child;
 }
+
+function emitHook(payload, event) {
+  if (stopping) return Promise.reject(new Error('fixture shutdown already started'));
+  return new Promise((resolve, reject) => {
+    const child = execPeer(['__hook', 'claude'], (error, stdout, stderr) => {
+      if (error || stderr) reject(error ?? new Error(stderr));
+      else {
+        log({ event, stdout });
+        resolve();
+      }
+    });
+    child.stdin.end(JSON.stringify(payload));
+  });
+}
+
+let turnReady = false;
+let turnSubmitted = false;
 
 let server;
 let serverClosed;
@@ -158,9 +178,24 @@ readline
   .on('line', (line) => log({ event: 'paste', line }));
 
 const control = setInterval(() => {
+  if (fs.existsSync(`${logPath}.quit`)) stopping = true;
   if (fs.existsSync(`${logPath}.kill-server`)) {
     fs.rmSync(`${logPath}.kill-server`);
     server?.kill('SIGKILL');
+  }
+  if (!stopping && turnReady && !turnSubmitted && fs.existsSync(`${logPath}.stop-turn`)) {
+    turnSubmitted = true;
+    void emitHook(
+      {
+        hook_event_name: 'Stop',
+        session_id: process.env.MOCK_SESSION_ID,
+        transcript_path: process.env.MOCK_TURN_TRANSCRIPT,
+      },
+      'turn-recorded'
+    ).catch((error) => {
+      log({ event: 'hook-error', message: error.message });
+      process.exitCode = 1;
+    });
   }
   if (fs.existsSync(`${logPath}.quit`)) {
     clearInterval(control);
@@ -178,7 +213,7 @@ const control = setInterval(() => {
 log({ event: 'started', args });
 
 // Opt-in lifecycle scenario: the native parent is the real observed runtime.
-// Wait for its admission, then emit the provider's resumed-start payload.
+// Wait for its admission, then emit the provider's start payload.
 if (process.env.MOCK_SESSION_ID) {
   const deadline = Date.now() + 10_000;
   const attach = async () => {
@@ -194,20 +229,18 @@ if (process.env.MOCK_SESSION_ID) {
     }
     const payload = {
       hook_event_name: 'SessionStart',
-      source: 'resume',
+      source: args.includes('--resume') ? 'resume' : 'startup',
       session_id: process.env.MOCK_SESSION_ID,
       model: 'model-a',
+      ...(process.env.MOCK_TURN_TRANSCRIPT
+        ? { transcript_path: process.env.MOCK_TURN_TRANSCRIPT }
+        : {}),
     };
-    await new Promise((resolve, reject) => {
-      const child = execPeer(['__hook', 'claude'], (error, stdout, stderr) => {
-        if (error || stderr) reject(error ?? new Error(stderr));
-        else {
-          log({ event: 'hook-recorded', stdout });
-          resolve();
-        }
-      });
-      child.stdin.end(JSON.stringify(payload));
-    });
+    await emitHook(payload, 'hook-recorded');
+    if (process.env.MOCK_TURN_TRANSCRIPT) {
+      await emitHook({ ...payload, hook_event_name: 'UserPromptSubmit' }, 'prompt-recorded');
+      turnReady = true;
+    }
   };
   attach().catch((error) => {
     log({ event: 'hook-error', message: error.message });
