@@ -3,6 +3,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import "./colab-embed.css";
 import { isColabShortcut, isImeConfirmation } from "./keyboard";
+import { restoreSendOperation, retainSendOperation } from "./send-operation";
+import type { SendOperation } from "./send-operation";
 
 type Anchor = { path: string; quote: string; page: string };
 type Turn = {
@@ -70,8 +72,11 @@ async function api(path: string, data?: unknown): Promise<Record<string, unknown
   });
   const value = await response.json();
   if (!response.ok || (value.error && value.status !== "unavailable"))
-    throw new Error(
-      typeof value.error === "string" ? value.error : "TMT could not complete this action",
+    throw Object.assign(
+      new Error(
+        typeof value.error === "string" ? value.error : "TMT could not complete this action",
+      ),
+      { status: response.status },
     );
   return value;
 }
@@ -98,13 +103,8 @@ export function ColabEmbed() {
   const composer = useRef<HTMLTextAreaElement>(null);
   const messages = useRef<HTMLDivElement>(null);
   // Consume a draft synchronously: React's busy render can follow another key event.
-  const submission = useRef<{
-    key: string;
-    operationId: string;
-    message: string;
-    pending: boolean;
-    done: boolean;
-  } | null>(null);
+  const submission = useRef<SendOperation | null>(restoreSendOperation(localStorage));
+  const commentSubmission = useRef<string | null>(null);
   const toggleMode = useCallback(() => {
     if (busy || submission.current?.pending) return;
     setMode((enabled) => !enabled);
@@ -224,7 +224,10 @@ export function ColabEmbed() {
             : node;
       const anchor = { path: elementPath(node), quote, page: location.pathname };
       const existing = threads.find(
-        (item) => item.anchor.path === anchor.path && item.anchor.quote === quote,
+        (item) =>
+          item.anchor.page === anchor.page &&
+          item.anchor.path === anchor.path &&
+          item.anchor.quote === quote,
       );
       if (existing) setActive(existing.id);
       else {
@@ -280,18 +283,16 @@ export function ColabEmbed() {
     if (!thread || !thread.draft.trim() || busy) return;
     const body = thread.draft.trim();
     const key = `${thread.id}:${toAgent ? agent : "comment"}:${body}`;
-    if (submission.current?.pending || (submission.current?.key === key && submission.current.done))
+    if (
+      submission.current?.pending ||
+      (toAgent && submission.current?.key === key && submission.current.done) ||
+      (!toAgent && commentSubmission.current === key)
+    )
       return;
     const author = "You";
     const turn: Turn = { id: crypto.randomUUID(), author, body };
     if (!toAgent) {
-      submission.current = {
-        key,
-        operationId: crypto.randomUUID(),
-        message: "",
-        pending: false,
-        done: true,
-      };
+      commentSubmission.current = key;
       setThreads((items) =>
         items.map((item) =>
           item.id === thread.id ? { ...item, turns: [...item.turns, turn], draft: "" } : item,
@@ -301,6 +302,12 @@ export function ColabEmbed() {
     }
     if (!agent) {
       setError("Choose an agent in Connection first.");
+      return;
+    }
+    if (submission.current && !submission.current.done && submission.current.key !== key) {
+      setError(
+        "The previous send has no receipt. Restore its draft and recipient to retry the same operation. Check TMT in the terminal before restarting the preview.",
+      );
       return;
     }
     const attempt =
@@ -317,6 +324,7 @@ export function ColabEmbed() {
         .map((item) => `${item.author}: ${item.body}`)
         .join("\n")}\nYou: ${body}`;
       submission.current.message ||= message;
+      retainSendOperation(localStorage, attempt);
       const result = await api("send", {
         agent,
         message: attempt.message,
@@ -341,6 +349,7 @@ export function ColabEmbed() {
             : item,
         ),
       );
+      retainSendOperation(localStorage, attempt);
     } catch (fault) {
       setError(fault instanceof Error ? fault.message : String(fault));
     } finally {
@@ -386,7 +395,7 @@ export function ColabEmbed() {
           await checkReply(thread.id, turn);
         } catch (fault) {
           if (!cancelled) setError(fault instanceof Error ? fault.message : String(fault));
-          return;
+          if (fault instanceof Error && "status" in fault && fault.status === 404) return;
         }
       }
       if (!cancelled) timer = setTimeout(refresh, 3000);
@@ -634,7 +643,15 @@ export function ColabEmbed() {
               disabled={busy}
               placeholder="Discuss this part…"
               onChange={(event) => {
-                if (!submission.current?.pending) submission.current = null;
+                commentSubmission.current = null;
+                if (submission.current?.done && !submission.current.pending) {
+                  submission.current = null;
+                  try {
+                    retainSendOperation(localStorage, null);
+                  } catch {
+                    setError("Browser storage is full. Keep this page open to retain send state.");
+                  }
+                }
                 update(thread.id, { draft: event.target.value });
               }}
               onCompositionStart={(event) => {

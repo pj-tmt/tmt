@@ -2,6 +2,28 @@ import assert from "node:assert/strict";
 import { createServer, request } from "node:http";
 import { test } from "node:test";
 import { allowedRequest, colabEmbedDev, loopbackPeer } from "./colab-embed-dev.ts";
+import {
+  operationStorageKey,
+  restoreSendOperation,
+  retainSendOperation,
+} from "../src/components/colab-embed/send-operation.ts";
+
+test("send recovery rejects invalid storage and refuses a write failure", () => {
+  for (const value of ["broken", "null", "{}", '{"operationId":"invalid"}'])
+    assert.equal(restoreSendOperation({ getItem: () => value }), null);
+  assert.throws(
+    () =>
+      retainSendOperation(
+        {
+          setItem: () => {
+            throw new Error("Storage full");
+          },
+        },
+        {},
+      ),
+    /Storage full/,
+  );
+});
 
 test("loopback peers include IPv4-mapped sockets but exclude network addresses", () => {
   for (const address of ["127.0.0.1", "127.12.34.56", "::1", "::ffff:127.0.0.1"])
@@ -121,10 +143,23 @@ test("development bridge fences explicit sends and owned reply receipts", async 
     assert.equal((await call("status", undefined, { "X-Tmt-Embed": "" })).code, 403);
     assert.equal((await call("result/req_foreign")).code, 404);
     assert.equal(calls.length, 0);
+    const storage = new Map();
+    const browserStorage = {
+      getItem: (key) => storage.get(key) ?? null,
+      setItem: (key, value) => storage.set(key, value),
+    };
+    const operation = {
+      key: "thread:agent:hello",
+      operationId: "10000000-0000-4000-8000-000000000001",
+      message: "hello",
+      pending: true,
+      done: false,
+    };
+    retainSendOperation(browserStorage, operation);
     const sent = await call("send", {
       agent: "00000000-0000-4000-8000-000000000001",
-      message: "hello",
-      operationId: "10000000-0000-4000-8000-000000000001",
+      message: operation.message,
+      operationId: operation.operationId,
     });
     assert.equal(sent.data.requestId, "req_test");
     assert.deepEqual(calls[1], [
@@ -135,10 +170,17 @@ test("development bridge fences explicit sends and owned reply receipts", async 
       "--identity",
       "test-sender",
     ]);
+    // Lose the acknowledgement, then recreate browser state as reload/HMR does.
+    const recovered = restoreSendOperation(browserStorage);
+    assert.equal(recovered.pending, false);
+    assert.equal(recovered.done, false);
+    assert.equal(recovered.operationId, operation.operationId);
+    assert.equal(recovered.message, "hello");
+    assert.equal(storage.has(operationStorageKey), true);
     const retry = await call("send", {
       agent: "00000000-0000-4000-8000-000000000001",
-      message: "hello",
-      operationId: "10000000-0000-4000-8000-000000000001",
+      message: recovered.message,
+      operationId: recovered.operationId,
     });
     assert.equal(retry.data.requestId, sent.data.requestId);
     assert.equal(calls.filter((args) => args[0] === "talk").length, 1);
@@ -168,8 +210,10 @@ test("development bridge fences explicit sends and owned reply receipts", async 
       message: "uncertain",
       operationId: "10000000-0000-4000-8000-000000000003",
     };
+    retainSendOperation(browserStorage, { ...operation, ...uncertain });
     assert.equal((await call("send", uncertain)).code, 502);
-    assert.equal((await call("send", uncertain)).code, 502);
+    const recoveredUncertain = restoreSendOperation(browserStorage);
+    assert.equal((await call("send", { ...uncertain, ...recoveredUncertain })).code, 502);
     assert.equal(calls.filter((args) => args[0] === "talk" && args[2] === "uncertain").length, 1);
     assert.equal((await call("result/req_test")).data.response, "Verified reply");
   } finally {

@@ -21,7 +21,12 @@ Missing anchors remain in the annotation list. The Connection view lists local
 agents and opens the existing Remote entry for user-controlled device pairing.
 
 Repeated activation and HTTP retries share one bounded server-session send
-operation. An uncertain failure never redispatches that operation.
+operation, retained before dispatch across browser reload/HMR. An uncertain failure
+never redispatches that operation within the same server session. A temporary reply
+lookup failure remains visible and does not stop subsequent automatic checks.
+Editing an unacknowledged send cannot allocate a replacement operation; restore
+its original draft and recipient to retry. Inspect TMT in the terminal before
+restarting a preview with an unacknowledged operation.
 
 Explicit Ask actions use the configured sender and installed TMT CLI through a
 loopback-only, same-origin Vite middleware. Open discussions automatically check for replies every three seconds;
