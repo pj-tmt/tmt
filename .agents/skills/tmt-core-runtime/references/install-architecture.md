@@ -117,6 +117,13 @@ publication and verification procedures are in the [tmt-release skill](../../tmt
 
 ## CLI self-upgrade
 
+- Parameterized `pr<N>` channels, current-head resolver, eligibility epoch, application-schema
+  admission and protocol 2 are defined once in [the PR channel contract](../../../../contracts/native-pr-channel.md).
+  `pr_catalog`, `pr_json`, `pr_zip`, `pr_resolver` and `pr_receipt` are acquisition/receipt
+  modules within the existing native installer; they do not create another publisher. Ordinary
+  release provenance and protocol 1 remain readable. The CLI receipt bound is 64 KiB, including
+  the two bounded schema source closures and captured admission evidence.
+
 - The running binary verifies release metadata, product/tag/target identity, manifest and archive
   digests and bounded archive safety (canonical relative paths, regular files, no links,
   duplicates or special permissions, bounded sizes and entry count) before executing any

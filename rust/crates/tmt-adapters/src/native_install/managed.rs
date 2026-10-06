@@ -16,6 +16,7 @@ pub struct ManagedInstallation {
     pub target: String,
     pub(super) prefix: PathBuf,
     pub(super) id: Uuid,
+    pub(super) provenance: Option<super::receipt::Provenance>,
 }
 
 impl ManagedInstallation {
@@ -70,6 +71,7 @@ fn inspect_layout(layout: Layout) -> io::Result<ManagedInstallation> {
         target: current.target,
         prefix: layout.prefix,
         id: current.id,
+        provenance: current.provenance,
     })
 }
 

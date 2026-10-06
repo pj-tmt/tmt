@@ -168,6 +168,7 @@ pub enum Invocation {
         exact: Option<String>,
         unpin: bool,
         yes: bool,
+        allow_schema_ahead: bool,
     },
     NativeRefreshSkills {
         managed: bool,
@@ -186,6 +187,10 @@ pub enum Invocation {
     },
     NativeInstallHandoff {
         probe: bool,
+        version: u32,
+    },
+    NativeSchema {
+        source_sha: String,
     },
     NativeInstall {
         product: tmt_core::native_install::Product,

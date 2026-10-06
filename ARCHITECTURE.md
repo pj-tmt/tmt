@@ -968,9 +968,9 @@ release, and the active executable is the authority for a managed update: receip
 anchor to the installation prefix, not to configuration roots. Verification precedes
 execution, publication runs the release verifier before the receipt so a rejection
 keeps the previous release, and failure or cancellation never leaves a half-published
-current release. CLI self-upgrade hands a verified candidate its own
-`__native-install` under the
-[handoff contract](contracts/native-install-handoff-v1.md) and then lets that CLI
+current release. CLI self-upgrade delegates to the verified candidate under the
+[handoff contract](contracts/native-install-handoff-v1.md); persisted PR channels,
+compiled schema export and admission are owned by the [PR channel contract](contracts/native-pr-channel.md). The candidate then lets that CLI
 run the consented extension phase; there is no rollback or second installer.
 `tmt extension install|upgrade|rm|ls` is the public surface for extensions and
 requires consent. Acquisition, receipts, companions, skills trees, repair and the
