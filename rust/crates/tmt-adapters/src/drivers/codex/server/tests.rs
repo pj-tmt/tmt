@@ -216,7 +216,8 @@ fn owned_process_and_private_files_are_cleaned_after_success() {
         fs::metadata(generation.join("capability")).unwrap().mode() & 0o777,
         0o600
     );
-    let pid = server.incarnation.pid();
+    let pid = u32::try_from(server.incarnation.pid())
+        .expect("owned fixture server PID must fit the native child PID range");
     server.stop().unwrap();
     assert!(!generation.exists());
     assert_eq!(
