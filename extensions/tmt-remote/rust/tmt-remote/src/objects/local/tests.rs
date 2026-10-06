@@ -457,8 +457,10 @@ fn a_corrupt_destination_closes_the_original_as_unknown_and_is_never_overwritten
         assert_eq!(usage.entries, 1, "unknown stays charged");
         assert_eq!(
             usage.charged_bytes,
-            2 * payload_charge(payload.len() as u64)
-                + limits::OBJECT_RECORD_BYTES
+            retained_charge(
+                payload_charge(payload.len() as u64),
+                &[env.blob(1, 1), env.stage(1)]
+            ) + limits::OBJECT_RECORD_BYTES
                 + limits::OBJECT_FENCE_BYTES
                 + limits::OBJECT_TREE_BASE_BYTES,
             "two distinct bodies are retained, so both are charged"
@@ -498,7 +500,10 @@ fn a_corrupt_destination_closes_the_original_as_unknown_and_is_never_overwritten
         assert_eq!(env.row(1).0, "unknown");
         assert_eq!(
             env.row(1).1,
-            2 * payload_charge(payload.len() as u64) as i64
+            retained_charge(
+                payload_charge(payload.len() as u64),
+                &[env.blob(1, 1), env.stage(1)]
+            ) as i64
         );
         assert_eq!(
             backend(&local).status(sp.intent, &io()).unwrap().state,
@@ -597,9 +602,31 @@ fn a_failed_measurement_stops_adoption_through_every_live_handle_until_restart()
     assert_eq!(env.row(1).0, "unknown");
     assert_eq!(
         env.row(1).1,
-        2 * payload_charge(payload.len() as u64) as i64
+        retained_charge(
+            payload_charge(payload.len() as u64),
+            &[env.blob(1, 1), env.stage(1)]
+        ) as i64
     );
     assert!(backend(&local).begin(&fresh, &io()).is_ok());
+}
+
+/// What the retained bodies occupy, from fixture metadata alone: each distinct inode
+/// once, at the larger of its length and its allocated blocks, each rounded up to 4 KiB.
+/// A filesystem may allocate beyond the length, so a logical-length expectation would
+/// hold on one filesystem only.
+fn retained_charge(reservation: u64, paths: &[PathBuf]) -> u64 {
+    use std::os::unix::fs::MetadataExt;
+    let round = |bytes: u64| bytes.div_ceil(4096) * 4096;
+    let mut seen = Vec::new();
+    let mut total = 0;
+    for path in paths {
+        let metadata = fs::metadata(path).unwrap();
+        if !seen.contains(&(metadata.dev(), metadata.ino())) {
+            seen.push((metadata.dev(), metadata.ino()));
+            total += round(metadata.blocks() * 512).max(round(metadata.len()));
+        }
+    }
+    reservation.max(total)
 }
 
 /// Common to the cases whose observed allocation could not be recorded: the original
@@ -667,7 +694,10 @@ fn a_spent_budget_after_a_successful_measurement_still_fences_adoption() {
     assert_eq!(env.row(1).0, "unknown");
     assert_eq!(
         env.row(1).1,
-        2 * payload_charge(payload.len() as u64) as i64,
+        retained_charge(
+            payload_charge(payload.len() as u64),
+            &[env.blob(1, 1), env.stage(1)]
+        ) as i64,
         "a restart charges both retained bodies"
     );
     assert!(backend(&local).begin(&spec(9, 9, 9, b"x"), &io()).is_ok());

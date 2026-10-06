@@ -1013,6 +1013,37 @@ fn phase_and_charge(root: &Root) -> (String, i64) {
         .unwrap()
 }
 
+/// What the retained bodies occupy, from fixture metadata alone (never the production
+/// measurement): each distinct inode once, at the larger of its length and its allocated
+/// blocks, each rounded up to 4 KiB. A filesystem may allocate beyond the length (for
+/// example speculative preallocation), so an expectation built from the logical lengths
+/// would hold on one filesystem only. The text names every inode for a failing run.
+fn retained_bodies(paths: &[PathBuf]) -> (i64, String) {
+    let round = |bytes: u64| bytes.div_ceil(4096) * 4096;
+    let (mut seen, mut total, mut notes) = (Vec::new(), 0u64, String::new());
+    for path in paths {
+        let metadata = fs::metadata(path).unwrap();
+        if seen.contains(&(metadata.dev(), metadata.ino())) {
+            continue;
+        }
+        seen.push((metadata.dev(), metadata.ino()));
+        let allocated = round(metadata.blocks() * 512).max(round(metadata.len()));
+        total += allocated;
+        notes += &format!(
+            " [{}: len {} blocks {} -> {allocated}]",
+            path.display(),
+            metadata.len(),
+            metadata.blocks()
+        );
+    }
+    (total as i64, notes)
+}
+/// The `unknown` charge: the reservation, or the retained bodies when they exceed it.
+fn unknown_charge(reservation: u64, paths: &[PathBuf]) -> (i64, String) {
+    let (retained, notes) = retained_bodies(paths);
+    ((reservation as i64).max(retained), notes)
+}
+
 #[test]
 fn an_unknown_original_is_charged_for_every_distinct_body_it_retains() {
     use tmt_remote::{limits, objects::Limit};
@@ -1040,9 +1071,19 @@ fn an_unknown_original_is_charged_for_every_distinct_body_it_retains() {
         },
         |root, local, _| {
             let alpha = handle(local, "alpha");
+            let bodies = [
+                final_path(root, "alpha", 1, 1),
+                staging_path(root, "alpha", 1),
+            ];
+            let (expected, notes) = unknown_charge(reservation, &bodies);
             assert_eq!(
                 phase_and_charge(root),
-                ("unknown".into(), 2 * reservation as i64)
+                ("unknown".into(), expected),
+                "two distinct bodies:{notes}"
+            );
+            assert!(
+                expected >= 2 * reservation as i64,
+                "both bodies are charged"
             );
             assert_eq!(
                 alpha
@@ -1088,15 +1129,54 @@ fn an_unknown_original_is_charged_for_every_distinct_body_it_retains() {
             write_private(staging, &payload);
         },
         |root, local, _| {
+            let bodies = [
+                final_path(root, "alpha", 1, 1),
+                staging_path(root, "alpha", 1),
+            ];
+            let (expected, notes) = unknown_charge(reservation, &bodies);
             assert_eq!(
                 phase_and_charge(root),
-                (
-                    "unknown".into(),
-                    (reservation + conformance::round(3 * MIB)) as i64
-                )
+                ("unknown".into(), expected),
+                "the larger destination is charged at its real size:{notes}"
             );
+            assert!(expected >= (reservation + conformance::round(3 * MIB)) as i64);
             let (physical, charged) = physical_vs_charge(root, local, empty);
             assert!(physical <= charged, "{physical} B vs {charged} B");
+        },
+    );
+    // A sparse destination allocates less than its length: it is still charged by its
+    // length, on every filesystem (the larger of length and allocation).
+    damaged_commit(
+        &payload,
+        Quotas::contract(),
+        |dest, staging| {
+            use std::os::unix::fs::OpenOptionsExt;
+            let hole = dest.with_extension("sparse");
+            let sparse = fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .mode(0o600)
+                .open(&hole)
+                .unwrap();
+            sparse.set_len(3 * MIB as u64).unwrap();
+            fs::rename(&hole, dest).unwrap();
+            write_private(staging, &payload);
+        },
+        |root, _, _| {
+            let bodies = [
+                final_path(root, "alpha", 1, 1),
+                staging_path(root, "alpha", 1),
+            ];
+            let (expected, notes) = unknown_charge(reservation, &bodies);
+            assert_eq!(
+                phase_and_charge(root),
+                ("unknown".into(), expected),
+                "sparse destination:{notes}"
+            );
+            assert!(
+                expected >= (reservation + conformance::round(3 * MIB)) as i64,
+                "the length is the floor of a sparse body's charge"
+            );
         },
     );
     // Identical bytes in a different inode are not one allocation: content equality
@@ -1106,9 +1186,19 @@ fn an_unknown_original_is_charged_for_every_distinct_body_it_retains() {
         Quotas::contract(),
         |_, staging| write_private(staging, &payload),
         |root, local, _| {
+            let bodies = [
+                final_path(root, "alpha", 1, 1),
+                staging_path(root, "alpha", 1),
+            ];
+            let (expected, notes) = unknown_charge(reservation, &bodies);
             assert_eq!(
                 phase_and_charge(root),
-                ("unknown".into(), 2 * reservation as i64)
+                ("unknown".into(), expected),
+                "identical bytes, two inodes:{notes}"
+            );
+            assert!(
+                expected >= 2 * reservation as i64,
+                "both bodies are charged"
             );
             let (physical, charged) = physical_vs_charge(root, local, empty);
             assert!(physical <= charged, "{physical} B vs {charged} B");
@@ -1120,9 +1210,11 @@ fn an_unknown_original_is_charged_for_every_distinct_body_it_retains() {
         Quotas::contract(),
         |_, _| {},
         |root, local, _| {
+            let (expected, notes) = unknown_charge(reservation, &[final_path(root, "alpha", 1, 1)]);
             assert_eq!(
                 phase_and_charge(root),
-                ("unknown".into(), reservation as i64)
+                ("unknown".into(), expected),
+                "one body:{notes}"
             );
             assert_eq!(fs::read(final_path(root, "alpha", 1, 1)).unwrap(), payload);
             let (physical, charged) = physical_vs_charge(root, local, empty);
