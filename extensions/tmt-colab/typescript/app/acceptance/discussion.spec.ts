@@ -44,7 +44,10 @@ test('a same-request annotation reply submitted while observation is paused is r
     const page = await openPage(door, browser, created);
     await selectInRenderer(page, '#quote');
     await page.getByTestId('selection-ask').click();
-    const input = page.getByRole('combobox', { name: 'Message', exact: true });
+    const input = await inputFor(
+      page.getByRole('dialog', { name: 'Annotate selection' }),
+      agent.name,
+    );
     await expect(input).toHaveText('', { useInnerText: true });
     await input.fill('Explain this passage.');
     await page.getByRole('button', { name: 'Ask agent', exact: true }).click();
@@ -196,7 +199,7 @@ test('paired writers retain anchored annotation conversations, direct exact send
     await selectInRenderer(first, '#quote');
     await first.getByTestId('selection-ask').click();
     const compose = first.locator('.annotation-new');
-    const input = compose.getByRole('combobox', { name: 'Message' });
+    const input = await inputFor(compose, agent.name);
     await expect(input).toHaveText('', { useInnerText: true });
     const over = `@${agent.name} ${'é'.repeat(8193)}`;
     await input.fill(over);
@@ -387,6 +390,89 @@ test('paired writers retain anchored annotation conversations, direct exact send
     expect(agent.received()).toHaveLength(2);
     expect(world.coreCalls().filter((call) => call.operation === 'dispatch.create')).toHaveLength(
       2,
+    );
+  });
+});
+
+test('composer records plain annotations and replies without a recipient, then sends one explicitly selected no-prefix Ask', async () => {
+  await withWorld(async (world) => {
+    const door = await startDoor(world, await freePort());
+    const agent = await world.startAgent('composer-agent', { gated: true });
+    const browser = await pairBrowser(world, 'composer-author');
+    const created = createPage(
+      world,
+      'Composer acceptance',
+      '<p id="quote">Frozen original quote.</p>',
+      agent.pane,
+    );
+    const page = await openPage(door, browser, created);
+    await selectInRenderer(page, '#quote');
+    await page.getByTestId('selection-ask').click();
+    const compose = page.getByRole('dialog', { name: 'Annotate selection' });
+    const input = compose.getByRole('combobox', { name: 'Message', exact: true });
+    const plain = 'Plain annotation without a recipient.\nSecond line.';
+    await input.fill(plain);
+    await compose.getByRole('button', { name: 'Post comment', exact: true }).click();
+    await comments(page);
+    await page.getByTestId('annotation-row').filter({ hasText: 'Frozen original quote.' }).click();
+    const thread = page.getByTestId('comment-thread').first();
+    const original = thread
+      .getByTestId('comment-entry')
+      .filter({ hasText: 'Plain annotation without a recipient.' });
+    await expect(original.locator('.comment-body')).toHaveText(plain);
+    await expect(thread.locator('blockquote').first()).toHaveText('Frozen original quote.');
+    expect(agent.received()).toHaveLength(0);
+    expect(world.coreCalls().filter((call) => call.operation === 'dispatch.create')).toHaveLength(
+      0,
+    );
+    await edit(original, 'Edited plain annotation.');
+    const reply = thread.getByRole('combobox', { name: 'Message', exact: true });
+    await reply.fill('Plain reply without a recipient.');
+    await thread.getByRole('button', { name: 'Post reply', exact: true }).click();
+    await expect(thread.getByTestId('comment-entry')).toHaveCount(2);
+    expect(agent.received()).toHaveLength(0);
+    expect(world.coreCalls().filter((call) => call.operation === 'dispatch.create')).toHaveLength(
+      0,
+    );
+    const question = 'Explain this exact quote, with no mandatory prefix.';
+    await reply.fill(question);
+    await inputFor(thread, agent.name);
+    await expect(reply).toHaveText(question, { useInnerText: true });
+    expect(agent.received()).toHaveLength(0);
+    expect(world.coreCalls().filter((call) => call.operation === 'dispatch.create')).toHaveLength(
+      0,
+    );
+    const directory = process.env.COLAB_1817_CAPTURE_DIR;
+    if (directory) {
+      mkdirSync(directory, { recursive: true });
+      for (const width of [1440, 390]) {
+        await page.setViewportSize({ width, height: 900 });
+        for (const theme of ['light', 'dark']) {
+          await page.evaluate((theme) => (document.documentElement.dataset.theme = theme), theme);
+          await reply.scrollIntoViewIfNeeded();
+          await page.screenshot({
+            path: path.join(directory, `native-composer-${width}-${theme}.png`),
+          });
+        }
+      }
+    }
+    await thread.getByRole('button', { name: 'Ask agent', exact: true }).click();
+    await until(() => agent.received().length === 1, 'one explicitly selected annotation Ask');
+    expect(agent.received()[0].message).toContain(question);
+    expect(agent.received()[0].message).toContain('Frozen original quote.');
+    expect(agent.received()[0].message).not.toContain(`@${agent.name}`);
+    expect(world.coreCalls().filter((call) => call.operation === 'dispatch.create')).toHaveLength(
+      1,
+    );
+    writeFileSync(path.join(agent.gate, `${agent.received()[0].requestId}.release`), '');
+    await expect(thread.getByTestId('ask-reply')).toBeVisible();
+    await page.reload();
+    await comments(page);
+    await page.getByTestId('annotation-row').filter({ hasText: 'Frozen original quote.' }).click();
+    await expect(page.getByTestId('comment-thread').first().getByTestId('ask-reply')).toBeVisible();
+    expect(agent.received()).toHaveLength(1);
+    expect(world.coreCalls().filter((call) => call.operation === 'dispatch.create')).toHaveLength(
+      1,
     );
   });
 });

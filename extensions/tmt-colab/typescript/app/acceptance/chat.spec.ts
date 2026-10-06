@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
+import path from 'node:path';
 import { expect, test } from '@playwright/test';
 import { pairBrowser, restartColab, startDoor } from './harness/browser.js';
 import {
@@ -17,6 +18,9 @@ import { disposeActiveWorlds, withWorld } from './harness/with-world.js';
 test.afterEach(disposeActiveWorlds);
 test('page-visible device Chat threads send exact bytes once, preserve drafts, keep overlay geometry and survive reload/restart', async () => {
   await withWorld(async (world) => {
+    const captureDirectory =
+      process.env.COLAB_1817_CAPTURE_DIR ?? path.join(world.root, 'captures');
+    fs.mkdirSync(captureDirectory, { recursive: true });
     const door = await startDoor(world, await freePort());
     const agent = await world.startAgent('chat-agent', { gated: true });
     const firstBrowser = await pairBrowser(world, 'chat-author');
@@ -49,7 +53,9 @@ test('page-visible device Chat threads send exact bytes once, preserve drafts, k
         )
         .toBe(true);
       await first.evaluate(() => window.scrollTo(0, 0));
-      await first.screenshot({ path: `/tmp/1645-native-${width}-light-long-top.png` });
+      await first.screenshot({
+        path: path.join(captureDirectory, `1645-native-${width}-light-long-top.png`),
+      });
       await first.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
       const windowScrollTop = await first.evaluate(() => document.scrollingElement!.scrollTop);
       const frameScrollTop = await first
@@ -59,7 +65,9 @@ test('page-visible device Chat threads send exact bytes once, preserve drafts, k
       expect(windowScrollTop).toBeGreaterThan(1000);
       expect(frameScrollTop).toBe(0);
       await expect(first.frameLocator('iframe').locator('#scroll-end')).toBeInViewport();
-      await first.screenshot({ path: `/tmp/1645-native-${width}-light-long-scrolled.png` });
+      await first.screenshot({
+        path: path.join(captureDirectory, `1645-native-${width}-light-long-scrolled.png`),
+      });
       console.log(
         JSON.stringify({ width, windowScrollTop, frameScrollTop, marker: 'END OF PAGE' }),
       );
@@ -85,7 +93,7 @@ test('page-visible device Chat threads send exact bytes once, preserve drafts, k
     await expect(panel).toContainText('Visible to everyone with page access.');
     await expect(panel.getByRole('button', { name: 'Delete thread', exact: true })).toHaveCount(0);
     expect(await first.locator('iframe').boundingBox()).toEqual(before);
-    const opening = `@${agent.name} <script>private Chat turn</script> Explain this page.`;
+    const opening = '<script>private Chat turn</script> Explain this page.';
     await input.fill(opening);
     await first.getByRole('button', { name: 'Close Chat', exact: true }).click();
     await openChat(first);
@@ -139,11 +147,15 @@ test('page-visible device Chat threads send exact bytes once, preserve drafts, k
       for (const theme of ['light', 'dark']) {
         await first.evaluate((theme) => (document.documentElement.dataset.theme = theme), theme);
         await input.fill(`@${agent.name} A retained follow-up draft.`);
-        await first.screenshot({ path: `/tmp/1645-native-${width}-${theme}-chat.png` });
+        await first.screenshot({
+          path: path.join(captureDirectory, `1645-native-${width}-${theme}-chat.png`),
+        });
         const menu = first.getByRole('button', { name: 'Message actions' }).first();
         await menu.click();
         await expect(first.getByRole('menuitem')).toBeVisible();
-        await first.screenshot({ path: `/tmp/1690-native-${width}-${theme}-menu.png` });
+        await first.screenshot({
+          path: path.join(captureDirectory, `1690-native-${width}-${theme}-menu.png`),
+        });
         await menu.press('Escape');
         await expect(first.getByRole('menuitem')).toHaveCount(0);
         await input.fill('@');
@@ -159,7 +171,9 @@ test('page-visible device Chat threads send exact bytes once, preserve drafts, k
             }),
           )
           .toBe(true);
-        await first.screenshot({ path: `/tmp/1645-native-${width}-${theme}-autocomplete.png` });
+        await first.screenshot({
+          path: path.join(captureDirectory, `1645-native-${width}-${theme}-autocomplete.png`),
+        });
         await option.click();
         await expect(input).toHaveText(`@${agent.name} `, { useInnerText: true });
         await input.fill('@');

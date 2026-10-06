@@ -88,16 +88,19 @@ export async function selectInRenderer(page: Page, selector: string): Promise<vo
   await expect(page.getByTestId('selection-ask')).toBeVisible();
 }
 
-/** Choose an annotation recipient through the shared parent input listbox. */
+/** Select an admitted recipient without inserting a mention or changing the draft. */
 export async function annotationInput(container: Locator, agent: string) {
   const input = container.getByRole('combobox', { name: 'Message', exact: true });
-  await input.fill('');
-  await input.fill('@');
-  await container
+  const draft = await input.innerText();
+  await container.getByRole('button', { name: /^(Choose|Change) recipient$/, exact: true }).click();
+  const candidate = container
     .page()
     .getByRole('option')
-    .filter({ hasText: `@${agent} ·` })
-    .click();
+    .filter({ hasText: `@${agent} ·` });
+  // The harness creates unique agent names. Ambiguous display labels fail, never choose first.
+  await expect(candidate).toHaveCount(1);
+  await candidate.click();
+  await expect(input).toHaveText(draft, { useInnerText: true });
   return input;
 }
 
@@ -123,7 +126,8 @@ export async function composeChat(
   await openChat(page);
   const panel = page.getByTestId('chat-panel');
   const input = await annotationInput(panel, agent.name);
-  await input.fill(`@${agent.name} ${question}`);
+  await input.fill(question);
+  await expect(input).toHaveText(question, { useInnerText: true });
   const turn = agent.received().length;
   return {
     delivered() {
