@@ -37,6 +37,7 @@ use tmt_remote::{
 
 use tmt_remote::limits::{SERVE_RECORD_BYTES as FRAME_BYTES, SERVE_STARTUP as STARTUP};
 const PULSE: Duration = Duration::from_millis(20);
+const FRAME_HEADER: usize = 5;
 const READY: u8 = 1;
 const FAILED: u8 = 2;
 const ACCEPT: u8 = 3;
@@ -133,7 +134,7 @@ fn read_exact_until(
 }
 fn write_frame(stream: &mut UnixStream, tag: u8, value: &Value) -> Result<(), RemoteError> {
     let payload = serde_json::to_vec(value).map_err(|_| startup_error())?;
-    if payload.len() > FRAME_BYTES {
+    if payload.len() > FRAME_BYTES - FRAME_HEADER {
         return Err(startup_error());
     }
     let mut frame = Vec::with_capacity(5 + payload.len());
@@ -153,7 +154,7 @@ fn read_frame(
         return Err(startup_error());
     }
     let length = u32::from_be_bytes(header[1..].try_into().expect("four bytes")) as usize;
-    if length == 0 || length > FRAME_BYTES {
+    if length == 0 || length > FRAME_BYTES - FRAME_HEADER {
         return Err(startup_error());
     }
     let mut payload = vec![0; length];
@@ -178,16 +179,25 @@ struct Ready {
 impl Ready {
     fn validate(value: Value) -> Result<Self, RemoteError> {
         let ready: Self = serde_json::from_value(value).map_err(|_| startup_error())?;
+        let (origin, symbols) = ready.address.split_once("/r/").ok_or_else(startup_error)?;
+        let port = origin
+            .strip_prefix("http://127.0.0.1:")
+            .ok_or_else(startup_error)?;
+        if !port
+            .parse::<u16>()
+            .is_ok_and(|n| n != 0 && n.to_string() == port)
+            || !tmt_remote::canonical::route_prefix(&format!("/r/{symbols}"))
+        {
+            return Err(startup_error());
+        }
         if ready.profile != "local-v1"
             || ready.binding != "loopback-http"
             || ready.state != "ready"
             || ready.startup_core_calls != 2
             || ready.address.len() > 256
             || !ready.address.starts_with("http://127.0.0.1:")
-            || ready.machine_id.len() != 36
-            || !ready.machine_id.is_ascii()
-            || ready.window_id.len() != 36
-            || !ready.window_id.is_ascii()
+            || !tmt_remote::canonical::is_core_id(&ready.machine_id)
+            || !tmt_remote::canonical::is_core_id(&ready.window_id)
         {
             return Err(startup_error());
         }
@@ -231,6 +241,7 @@ struct Handoff {
     stream: Option<UnixStream>,
     monitor: Option<JoinHandle<bool>>,
     stop: Arc<AtomicBool>,
+    deadline: Instant,
 }
 impl Handoff {
     fn new(stream: UnixStream, stop: Arc<AtomicBool>) -> Result<Self, RemoteError> {
@@ -262,10 +273,21 @@ impl Handoff {
             stream: Some(stream),
             monitor: Some(monitor),
             stop,
+            deadline,
         })
     }
     fn ready(&mut self, value: &Value) -> Result<(), RemoteError> {
         fence(&self.stop)?;
+        let remaining = self
+            .deadline
+            .checked_duration_since(Instant::now())
+            .filter(|left| !left.is_zero())
+            .ok_or_else(startup_error)?;
+        self.stream
+            .as_ref()
+            .expect("startup endpoint")
+            .set_write_timeout(Some(remaining))
+            .map_err(|_| startup_error())?;
         write_frame(
             self.stream.as_mut().expect("startup endpoint"),
             READY,
@@ -282,11 +304,9 @@ impl Handoff {
         }
         // The command may have been accepted while a real shutdown signal raced.
         // Preserve that signal. A lost Accepted write never revokes the handoff.
-        let _ = self
-            .stream
-            .take()
-            .expect("startup endpoint")
-            .write_all(&[ACCEPTED]);
+        let mut stream = self.stream.take().expect("startup endpoint");
+        let _ = stream.set_write_timeout(Some(PULSE));
+        let _ = stream.write_all(&[ACCEPTED]);
         Ok(())
     }
     fn finish(&mut self) {
@@ -377,22 +397,21 @@ pub(super) fn run(arguments: &clap::ArgMatches) -> Result<(), RemoteError> {
         let mut handoff = Handoff::new(stream, Arc::clone(&stop))?;
         let result = foreground(port, json_output, &stop, Some(&mut handoff));
         handoff.finish();
-        if let Err(error) = &result {
-            if let Some(stream) = handoff.stream.as_mut() {
-                let message = if error.message.len() <= 1024
-                    && !error.message.chars().any(char::is_control)
-                {
+        if let Err(error) = &result
+            && let Some(stream) = handoff.stream.as_mut()
+        {
+            let message =
+                if error.message.len() <= 1024 && !error.message.chars().any(char::is_control) {
                     error.message.clone()
                 } else {
                     "Remote startup failed.".into()
                 };
-                let _ = write_frame(
-                    stream,
-                    FAILED,
-                    &json!({"code":error.code,
+            let _ = write_frame(
+                stream,
+                FAILED,
+                &json!({"code":error.code,
                     "message":message,"hint":error.hint,"cleanupConfirmed":error.code != "REMOTE_CORE_UNCERTAIN"}),
-                );
-            }
+            );
         }
         return result;
     }
@@ -417,16 +436,13 @@ fn publish(value: &Value, json_output: bool, detached: bool) -> Result<(), Remot
         )?;
         writeln!(
             output,
-            "{}",
-            format!(
-                "{}/",
-                value["address"]
-                    .as_str()
-                    .expect("ready address")
-                    .split_once("/r/")
-                    .expect("native protocol base")
-                    .0
-            )
+            "{}/",
+            value["address"]
+                .as_str()
+                .expect("ready address")
+                .split_once("/r/")
+                .expect("native protocol base")
+                .0
         )?;
     }
     if detached && !json_output {
@@ -473,6 +489,13 @@ fn background(
         }
         let ready = Ready::validate(value)?;
         fence(stop)?;
+        let remaining = deadline
+            .checked_duration_since(Instant::now())
+            .filter(|left| !left.is_zero())
+            .ok_or_else(startup_error)?;
+        parent
+            .set_write_timeout(Some(remaining))
+            .map_err(|_| startup_error())?;
         // ONE byte: a successful write is the exact irreversible handoff cutoff.
         parent.write_all(&[ACCEPT]).map_err(|_| startup_error())?;
         Ok(ready)
@@ -480,6 +503,7 @@ fn background(
     let ready = match result {
         Ok(ready) => ready,
         Err(error) => {
+            let _ = parent.set_write_timeout(Some(PULSE));
             let _ = parent.write_all(&[CANCEL]);
             let _ = parent.shutdown(std::net::Shutdown::Write);
             let cleanup_deadline = Instant::now() + tmt_remote::limits::STOP_WAIT;
@@ -571,7 +595,7 @@ fn foreground(
     mut handoff: Option<&mut Handoff>,
 ) -> Result<(), RemoteError> {
     let core = CoreClient::discover()?;
-    let capabilities = core.capabilities(&stop)?;
+    let capabilities = core.capabilities(stop)?;
     if capabilities["version"] != 1
         || capabilities["limits"]["outputBytes"]
             .as_u64()
@@ -606,11 +630,13 @@ fn foreground(
         serving.retain_for_invocations()?;
         fence(stop)?;
         let machine_key = MachineKey::open(&layout)?;
+        fence(stop)?;
         let mut store = Store::open(&serving)?;
         let machine = store.machine()?;
         let requested = port;
         let remembered = store.remembered_port()?;
         let selected = requested.or(remembered).unwrap_or(0);
+        fence(stop)?;
         let door = Door::bind(selected).map_err(|error| {
             if requested.is_none() && remembered.is_some() && error.code == "REMOTE_PORT_BUSY" {
                 RemoteError::new(
@@ -643,7 +669,7 @@ fn foreground(
             Arc::clone(&store),
             session::IDLE,
         ));
-        let operations = Arc::new(Operations::new(core, Arc::clone(&stop), input_limit));
+        let operations = Arc::new(Operations::new(core, Arc::clone(stop), input_limit));
         let routes = Routes::new(input_limit, machine.route_prefix.clone())?
             .with_pairing(Arc::clone(&pairing))
             .with_sessions(Arc::clone(&sessions))
@@ -654,11 +680,13 @@ fn foreground(
             Arc::clone(&sessions),
             operations,
         ));
+        fence(stop)?;
         approval.cancel_pending()?;
         let devices = Arc::new(Devices::new(
             Arc::clone(&store),
             Some(Arc::clone(&sessions)),
         ));
+        fence(stop)?;
         let control = Control::start(
             &serving,
             Arc::clone(&pairing),
@@ -668,7 +696,7 @@ fn foreground(
                 prefix: machine.route_prefix.clone(),
             },
             Some(Arc::clone(&approval)),
-            Arc::clone(&stop),
+            Arc::clone(stop),
         )?;
         let site = Arc::new(Site {
             routes,
@@ -688,6 +716,7 @@ fn foreground(
                 .with_pairing(pairing),
             ),
         });
+        fence(stop)?;
         let events = devices.start_events(Arc::clone(&site.mounts))?;
         fence(stop)?;
         store
@@ -701,7 +730,7 @@ fn foreground(
         } else {
             publish(&ready, json_output, false)?;
         }
-        let result = door.run(&stop, site as Arc<dyn Handler>);
+        let result = door.run(stop, site as Arc<dyn Handler>);
         // Stopping cancels any pending pairing before state is released.
         control.stop();
         approval.cancel_pending()?;

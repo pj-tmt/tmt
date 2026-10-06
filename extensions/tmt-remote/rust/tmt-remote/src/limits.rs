@@ -52,5 +52,5 @@ pub const SESSION_IDLE: Duration = Duration::from_secs(12 * 60 * 60);
 
 /// Absolute private background startup admission deadline, before cleanup.
 pub const SERVE_STARTUP: Duration = Duration::from_secs(35);
-/// Maximum private handoff payload and fixed local diagnostic record.
+/// Maximum complete private handoff frame and fixed local diagnostic record.
 pub const SERVE_RECORD_BYTES: usize = 4096;

@@ -1588,6 +1588,14 @@ fn background_json_is_clean_duplicate_does_not_clear_diagnostics_or_stop_origina
         .output()
         .unwrap();
     assert!(output.status.success());
+    assert!(output.stderr.is_empty());
+    assert_eq!(
+        fs::read_to_string(pilot.root.join("calls"))
+            .unwrap()
+            .lines()
+            .count(),
+        2
+    );
     let ready: Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(ready["startupCoreCalls"], 2);
     assert_eq!(ready["state"], "ready");
@@ -1604,6 +1612,7 @@ fn background_json_is_clean_duplicate_does_not_clear_diagnostics_or_stop_origina
         .output()
         .unwrap();
     assert!(!duplicate.status.success());
+    assert!(duplicate.stderr.is_empty());
     let error: Value = serde_json::from_slice(&duplicate.stdout).unwrap();
     assert_eq!(
         error["error"]["code"],
@@ -1793,10 +1802,10 @@ fn launcher_cancellation_reaps_a_real_pending_discovery_invocation() {
     );
     let deadline = Instant::now() + STARTUP;
     let pending = loop {
-        if let Ok(pid) = fs::read_to_string(pilot.root.join("pending.pid")) {
-            if let Ok(pid) = pid.parse::<i32>() {
-                break pid;
-            }
+        if let Ok(pid) = fs::read_to_string(pilot.root.join("pending.pid"))
+            && let Ok(pid) = pid.parse::<i32>()
+        {
+            break pid;
         }
         assert!(
             Instant::now() < deadline,
@@ -1842,13 +1851,47 @@ fn startup_endpoint_is_not_inherited_by_actual_core_and_eof_reaps_pending_core()
     executable_fixture::write_executable(&pilot.root.join("core"), &format!(
         "cat > '{root}/input'\nfor fd in /dev/fd/*; do if test -S \"$fd\"; then printf '%s\\n' \"$fd\" >> '{root}/inherited-sockets'; fi; done\nprintf '%s' \"$$\" > '{root}/pending.pid'\nread -r release < '{root}/barrier'\n",
         root=pilot.root.display())).unwrap();
+    // Positive control: this exact inspector detects a socket deliberately
+    // attached as fake-core stdin. It must not silently always report no sockets.
+    let mut gate = fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(&barrier)
+        .unwrap();
+    let (positive, socket) = UnixStream::pair().unwrap();
+    positive.shutdown(std::net::Shutdown::Write).unwrap();
+    pilot.child = Some(
+        Command::new(pilot.root.join("core"))
+            .stdin(Stdio::from(std::os::fd::OwnedFd::from(socket)))
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap(),
+    );
+    let deadline = Instant::now() + STARTUP;
+    while !pilot.root.join("pending.pid").exists() {
+        assert!(
+            Instant::now() < deadline,
+            "socket inspector positive control did not reach barrier"
+        );
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    assert!(
+        fs::read_to_string(pilot.root.join("inherited-sockets"))
+            .unwrap()
+            .contains("/dev/fd/0")
+    );
+    gate.write_all(b"continue\n").unwrap();
+    assert!(pilot.child.as_mut().unwrap().wait().unwrap().success());
+    fs::remove_file(pilot.root.join("pending.pid")).unwrap();
+    fs::remove_file(pilot.root.join("inherited-sockets")).unwrap();
     let stream = startup_worker(&mut pilot);
     let deadline = Instant::now() + STARTUP;
     let pending = loop {
-        if let Ok(pid) = fs::read_to_string(pilot.root.join("pending.pid")) {
-            if let Ok(pid) = pid.parse::<i32>() {
-                break pid;
-            }
+        if let Ok(pid) = fs::read_to_string(pilot.root.join("pending.pid"))
+            && let Ok(pid) = pid.parse::<i32>()
+        {
+            break pid;
         }
         assert!(
             Instant::now() < deadline,
