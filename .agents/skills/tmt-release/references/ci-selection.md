@@ -8,8 +8,9 @@ workflow before changing selection or a gate. Required checks remain `Code quali
 cancelled or unexpectedly skipped jobs fail closed. Never accept empty test discovery.
 The publication commit gate accepts scope-skipped `Unit tests` only with the latest
 successful `Native package matrix` from the same GitHub Actions suite, completed
-no earlier than that skip; the aggregate validates its selection. The other required
-contexts must succeed. Held-draft recovery belongs to
+no earlier than that skip; the aggregate validates selection. Publication reuses this
+proof with check-suite provenance, never recomputing historical selection or accepting bare skips.
+Other required contexts must succeed. Held-draft recovery belongs to
 [main cuts](main-cuts.md#publication-gates-and-recovery).
 
 ## Diff and scope selection
@@ -71,9 +72,10 @@ The existing CI dispatch entry has an opt-in `workspace_proof=true` route with a
 exact `proof_head`. It calls `workspace-proof.yml` and selects `none` for ordinary
 workers; normal PR, merge-group, main and seed coverage is unchanged. Infra must
 review the immutable-head launch plan before dispatch. Only original attempt 1 is
-admitted. This experiment is not a required check, rollout or performance result;
-`Native Rust workspace tests`, its four exclusions, 20-minute cap and outer gate
-positions remain unchanged until separately reviewed equivalence and rollout.
+admitted. This experiment is not a required check, rollout or performance result and
+never substitutes for required workers. `Native Rust workspace tests`, its four
+exclusions, 20-minute cap and outer gate positions remain unchanged until separately
+reviewed equivalence and rollout.
 
 `workspace-proof.mjs` owns N=1 artifact/list/disposition admission;
 `run-workspace-proof.mjs` owns bounded capture, observations and execution. The producer
