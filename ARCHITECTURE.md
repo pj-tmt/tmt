@@ -648,6 +648,8 @@ Selected missing, failed, cancelled or unexpectedly skipped work cannot satisfy 
 required gate; empty test discovery never passes. Selection, worker, cache and
 advisory-browser details live in the
 [CI reference](.agents/skills/tmt-release/references/ci-selection.md).
+The opt-in N=1 workspace proof has a separate admission/custody owner and never
+substitutes for required workers; its bounded launch contract is in that reference.
 Publication reuses the native aggregate's scope-skip proof with check-suite
 provenance rather than recomputing historical selection or accepting bare skips.
 

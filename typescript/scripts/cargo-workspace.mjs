@@ -2,26 +2,30 @@
 import { dirname, relative, resolve } from 'node:path';
 import { runPackedCommand } from './packed-command.mjs';
 
+/** One offline/locked command contract, also used by bounded asynchronous capture. */
+export function cargoWorkspaceCommand(root) {
+  root = resolve(root);
+  return {
+    executable: 'cargo',
+    args: [
+      'metadata',
+      '--quiet',
+      '--format-version',
+      '1',
+      '--offline',
+      '--locked',
+      '--manifest-path',
+      resolve(root, 'rust/Cargo.toml'),
+    ],
+    options: { cwd: resolve(root, 'rust'), env: process.env, timeoutMs: 60_000 },
+  };
+}
+
 /** Read an exported repository root, without Git or network access. */
 export function readCargoWorkspace(root, { runner = runPackedCommand } = {}) {
   root = resolve(root);
-  const metadata = JSON.parse(
-    runner(
-      'cargo',
-      [
-        'metadata',
-        // Suppress informational package-cache lock waits; errors remain strict.
-        '--quiet',
-        '--format-version',
-        '1',
-        '--offline',
-        '--locked',
-        '--manifest-path',
-        resolve(root, 'rust/Cargo.toml'),
-      ],
-      { cwd: resolve(root, 'rust'), env: process.env, timeoutMs: 60_000 }
-    )
-  );
+  const { executable, args, options } = cargoWorkspaceCommand(root);
+  const metadata = JSON.parse(runner(executable, args, options));
   const members = new Set(metadata.workspace_members);
   const crates = metadata.packages.filter((p) => members.has(p.id));
   if (!crates.length || crates.length !== members.size)
@@ -41,6 +45,8 @@ export function readCargoWorkspace(root, { runner = runPackedCommand } = {}) {
       if (!dependencies[kind].includes(name)) dependencies[kind].push(name);
     }
     return {
+      id: crate.id,
+      targets: crate.targets,
       name: crate.name,
       version: crate.version,
       manifestPath: crate.manifest_path,

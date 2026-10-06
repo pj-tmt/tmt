@@ -65,6 +65,49 @@ verification still includes macOS. Follow the
 Rosetta process wrapper, exact installed-byte architecture admission and advisory
 native Intel coverage.
 
+## Experimental workspace N=1 proof
+
+The existing CI dispatch entry has an opt-in `workspace_proof=true` route with an
+exact `proof_head`. It calls `workspace-proof.yml` and selects `none` for ordinary
+workers; normal PR, merge-group, main and seed coverage is unchanged. Infra must
+review the immutable-head launch plan before dispatch. Only original attempt 1 is
+admitted. This experiment is not a required check, rollout or performance result;
+`Native Rust workspace tests`, its four exclusions, 20-minute cap and outer gate
+positions remain unchanged until separately reviewed equivalence and rollout.
+
+`workspace-proof.mjs` owns N=1 artifact/list/disposition admission;
+`run-workspace-proof.mjs` owns bounded capture, custody and execution. The producer
+runs the retained build before one locked workspace no-run JSON compilation, then
+uses Cargo-owned metadata and `release-version parse` to admit targets. Remote
+must have a nonempty list from those exact workspace executables; architecture,
+Office command/model, ignored and zero-test harnesses remain explicit. Unknown
+custom harnesses, required-feature target eligibility or output formats fail.
+
+The manual workflow serializes producer, default Cargo baseline, restored whole
+harness consumer and separate rustdoc obligations on Ubuntu 24.04 with Rust 1.97.0,
+Node 22.23.2/pnpm 10.33.0. Baseline retains the original Remote listing and
+workspace test-before-build order; its extra listing calls record obligations.
+The producer's frozen regular-file target/Cargo-source archive is restored only
+into absent roots at the same absolute paths. Source, toolchain/sysroot, GNU
+loader dependencies, executable hashes, reviewed environment and default versus
+separate-doc library features are bound to one source/run/attempt. Cargo cache
+lock/access bookkeeping is mutable; dependency sources and acceptance binaries
+are hash checked. Archive membership, missing/duplicate/extra names, changed
+ignore disposition, filtering, process/listener leaks and selected failed or
+cancelled jobs refuse aggregate success. Runtime custody and pinned output forms
+remain unproved until the original Linux experiment passes; fixture counts alone
+cannot establish them. Every role keeps original streams/process reports on red.
+
+Bounds live in `LIMITS`:150,000 regular files, 5 GiB payload, 512 MiB per file,
+5 GiB plus bounded tar overhead, 32 MiB per command and 256 MiB total captured streams,
+4000 commands and 18 minutes inside each 20-minute job. Each heavy role requires 12 GiB free
+before acquisition/restoration. GNU tar packs
+the verified files directly with hard-link dereferencing, avoiding a staging copy;
+the uncompressed transport has the same membership/hash checks as the payload.
+Owned target, Cargo home and runtime temp/home are removed after retained reports;
+existing roots are rejected, never overwritten. A bound or format failure keeps
+the current worker and original red evidence. N=2/3 needs a later owner assignment.
+
 ## Cache ownership
 
 Rust dependency caches use the pinned `Swatinem/rust-cache` action with one

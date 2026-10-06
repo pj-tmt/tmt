@@ -1,0 +1,238 @@
+# Called only by the existing CI manual opt-in; never on ordinary PRs or merge groups.
+name: Experimental workspace N=1 proof
+on:
+  workflow_call:
+    inputs:
+      proof_head:
+        required: true
+        type: string
+permissions:
+  contents: read
+concurrency:
+  group: workspace-proof-${{ github.run_id }}
+  cancel-in-progress: false
+jobs:
+  producer:
+    outputs:
+      report_artifact_id: ${{ steps.report.outputs.artifact-id }}
+      closure_artifact_id: ${{ steps.closure.outputs.artifact-id }}
+    name: N1 producer (build then compile)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: ./.github/actions/setup-tooling
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.97.0
+      - name: Prepare proof tooling
+        working-directory: typescript
+        run: pnpm --filter tmux-team install --frozen-lockfile
+      - name: Build, compile, enumerate and freeze
+        env:
+          PROOF_HEAD: ${{ inputs.proof_head }}
+        run: node typescript/scripts/run-workspace-proof.mjs producer /home/runner/work/_temp/tmt-workspace-proof-out
+      - name: Retain original producer report and streams
+        id: report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: workspace-proof-${{ github.run_id }}-${{ github.run_attempt }}-${{ inputs.proof_head }}-producer
+          path: |
+            /home/runner/work/_temp/tmt-workspace-proof-out
+            !/home/runner/work/_temp/tmt-workspace-proof-out/closure.tar
+          if-no-files-found: error
+          retention-days: 7
+      - name: Transfer frozen runtime closure
+        id: closure
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: workspace-proof-${{ github.run_id }}-${{ github.run_attempt }}-${{ inputs.proof_head }}-closure
+          path: /home/runner/work/_temp/tmt-workspace-proof-out/closure.tar
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 7
+  baseline:
+    outputs:
+      report_artifact_id: ${{ steps.report.outputs.artifact-id }}
+    name: N1 default Cargo baseline
+    # The single seat runs the heavy roles serially, not four independent heavy workers.
+    needs: producer
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: ./.github/actions/setup-tooling
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.97.0
+      - name: Prepare proof tooling
+        working-directory: typescript
+        run: pnpm --filter tmux-team install --frozen-lockfile
+      - name: Run original default coverage and retained build
+        env:
+          PROOF_HEAD: ${{ inputs.proof_head }}
+        run: node typescript/scripts/run-workspace-proof.mjs baseline /home/runner/work/_temp/tmt-workspace-proof-out
+      - name: Retain original baseline report and streams
+        id: report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: workspace-proof-${{ github.run_id }}-${{ github.run_attempt }}-${{ inputs.proof_head }}-baseline
+          path: /home/runner/work/_temp/tmt-workspace-proof-out
+          if-no-files-found: error
+          retention-days: 7
+  consumer:
+    outputs:
+      report_artifact_id: ${{ steps.report.outputs.artifact-id }}
+    name: N1 restored whole-harness consumer
+    needs: [producer, baseline]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: ./.github/actions/setup-tooling
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.97.0
+      - name: Prepare proof tooling
+        working-directory: typescript
+        run: pnpm --filter tmux-team install --frozen-lockfile
+      - uses: actions/download-artifact@v4
+        with:
+          artifact-ids: ${{ needs.producer.outputs.report_artifact_id }}
+          merge-multiple: true
+          path: /home/runner/work/_temp/tmt-workspace-proof-out/producer
+      - uses: actions/download-artifact@v4
+        with:
+          artifact-ids: ${{ needs.producer.outputs.closure_artifact_id }}
+          merge-multiple: true
+          path: /home/runner/work/_temp/tmt-workspace-proof-out/producer
+      - name: Restore, attest and execute N=1
+        env:
+          PROOF_ARTIFACT_IDS: '{"producer":"${{ needs.producer.outputs.report_artifact_id }}","closure":"${{ needs.producer.outputs.closure_artifact_id }}"}'
+          PROOF_HEAD: ${{ inputs.proof_head }}
+        run: node typescript/scripts/run-workspace-proof.mjs consumer /home/runner/work/_temp/tmt-workspace-proof-out
+      - name: Retain original consumer report and streams
+        id: report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: workspace-proof-${{ github.run_id }}-${{ github.run_attempt }}-${{ inputs.proof_head }}-consumer
+          path: |
+            /home/runner/work/_temp/tmt-workspace-proof-out
+            !/home/runner/work/_temp/tmt-workspace-proof-out/producer/**
+            !/home/runner/work/_temp/tmt-workspace-proof-out/restored/**
+          if-no-files-found: error
+          retention-days: 7
+  doctest:
+    outputs:
+      report_artifact_id: ${{ steps.report.outputs.artifact-id }}
+    name: N1 separate rustdoc obligations
+    needs: [producer, consumer]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: ./.github/actions/setup-tooling
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.97.0
+      - name: Prepare proof tooling
+        working-directory: typescript
+        run: pnpm --filter tmux-team install --frozen-lockfile
+      - uses: actions/download-artifact@v4
+        with:
+          artifact-ids: ${{ needs.producer.outputs.report_artifact_id }}
+          merge-multiple: true
+          path: /home/runner/work/_temp/tmt-workspace-proof-out/producer
+      - name: Enumerate and execute separate doctests
+        env:
+          PROOF_ARTIFACT_IDS: '{"producer":"${{ needs.producer.outputs.report_artifact_id }}"}'
+          PROOF_HEAD: ${{ inputs.proof_head }}
+        run: node typescript/scripts/run-workspace-proof.mjs doctest /home/runner/work/_temp/tmt-workspace-proof-out
+      - name: Retain original doctest report and streams
+        id: report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: workspace-proof-${{ github.run_id }}-${{ github.run_attempt }}-${{ inputs.proof_head }}-doctest
+          path: |
+            /home/runner/work/_temp/tmt-workspace-proof-out
+            !/home/runner/work/_temp/tmt-workspace-proof-out/producer/**
+          if-no-files-found: error
+          retention-days: 7
+  aggregate:
+    name: N1 equivalence admission (experimental)
+    needs: [producer, baseline, consumer, doctest]
+    if: always()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: ./.github/actions/setup-tooling
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.97.0
+      - name: Download producer report
+        if: always() && needs.producer.outputs.report_artifact_id != ''
+        uses: actions/download-artifact@v4
+        with:
+          artifact-ids: ${{ needs.producer.outputs.report_artifact_id }}
+          merge-multiple: true
+          path: /home/runner/work/_temp/tmt-workspace-proof-out/producer
+      - name: Download baseline report
+        if: always() && needs.baseline.outputs.report_artifact_id != ''
+        uses: actions/download-artifact@v4
+        with:
+          artifact-ids: ${{ needs.baseline.outputs.report_artifact_id }}
+          merge-multiple: true
+          path: /home/runner/work/_temp/tmt-workspace-proof-out/baseline
+      - name: Download consumer report
+        if: always() && needs.consumer.outputs.report_artifact_id != ''
+        uses: actions/download-artifact@v4
+        with:
+          artifact-ids: ${{ needs.consumer.outputs.report_artifact_id }}
+          merge-multiple: true
+          path: /home/runner/work/_temp/tmt-workspace-proof-out/consumer
+      - name: Download doctest report
+        if: always() && needs.doctest.outputs.report_artifact_id != ''
+        uses: actions/download-artifact@v4
+        with:
+          artifact-ids: ${{ needs.doctest.outputs.report_artifact_id }}
+          merge-multiple: true
+          path: /home/runner/work/_temp/tmt-workspace-proof-out/doctest
+      - name: Admit exact original job results and reports
+        if: always()
+        env:
+          PROOF_ARTIFACT_IDS: '{"producer":"${{ needs.producer.outputs.report_artifact_id }}","closure":"${{ needs.producer.outputs.closure_artifact_id }}","baseline":"${{ needs.baseline.outputs.report_artifact_id }}","consumer":"${{ needs.consumer.outputs.report_artifact_id }}","doctest":"${{ needs.doctest.outputs.report_artifact_id }}"}'
+          PROOF_HEAD: ${{ inputs.proof_head }}
+          PROOF_RESULTS: '{"producer":"${{ needs.producer.result }}","baseline":"${{ needs.baseline.result }}","consumer":"${{ needs.consumer.result }}","doctest":"${{ needs.doctest.result }}"}'
+        run: node typescript/scripts/run-workspace-proof.mjs aggregate /home/runner/work/_temp/tmt-workspace-proof-out
+      - name: Retain aggregate evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: workspace-proof-${{ github.run_id }}-${{ github.run_attempt }}-${{ inputs.proof_head }}-aggregate
+          path: |
+            /home/runner/work/_temp/tmt-workspace-proof-out/*.json
+            /home/runner/work/_temp/tmt-workspace-proof-out/*.stdout
+            /home/runner/work/_temp/tmt-workspace-proof-out/*.stderr
+          if-no-files-found: error
+          retention-days: 7
