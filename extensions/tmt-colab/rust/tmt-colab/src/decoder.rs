@@ -301,12 +301,12 @@ impl Decoder {
             merge_only,
         };
         let after_wire = Instant::now();
-        let input = serde_json::to_vec(&wire).map_err(|_| DecodeFault::InvalidInput)?;
+        let input = SerializedInput::serialize(&wire)?;
         let after_json = Instant::now();
-        if input.len() > STREAM_BYTES {
+        if input.bytes.len() > STREAM_BYTES {
             return Err(DecodeFault::InvalidInput);
         }
-        let hash = URL_SAFE_NO_PAD.encode(Sha256::digest(&input));
+        let (input, hash) = input.finish();
         let after_hash = Instant::now();
         let output = self.invoke(
             &input,
@@ -426,8 +426,7 @@ impl Decoder {
             source: edit.source,
             publisher_agent: edit.publisher_agent,
         };
-        let input = serde_json::to_vec(&wire).map_err(|_| DecodeFault::InvalidInput)?;
-        let hash = URL_SAFE_NO_PAD.encode(Sha256::digest(&input));
+        let (input, hash) = SerializedInput::serialize(&wire)?.finish();
         let output = self.invoke(&input, ChildCommand::PrepareContent, stop, deadline, None)?;
         if !output.status.success() {
             return Err(DecodeFault::Rejected);
@@ -711,6 +710,33 @@ fn write_invocation_failure(
 }
 fn cleanup_blocks(cleanup: &Cleanup) -> bool {
     !matches!(cleanup, Cleanup::NotStarted | Cleanup::Confirmed)
+}
+struct SerializedInput {
+    bytes: Vec<u8>,
+    hash: Sha256,
+}
+impl SerializedInput {
+    fn serialize(value: &(impl Serialize + ?Sized)) -> Result<Self, DecodeFault> {
+        let mut input = Self {
+            bytes: Vec::with_capacity(128),
+            hash: Sha256::new(),
+        };
+        serde_json::to_writer(&mut input, value).map_err(|_| DecodeFault::InvalidInput)?;
+        Ok(input)
+    }
+    fn finish(self) -> (Vec<u8>, String) {
+        (self.bytes, URL_SAFE_NO_PAD.encode(self.hash.finalize()))
+    }
+}
+impl std::io::Write for SerializedInput {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+        self.bytes.extend_from_slice(bytes);
+        self.hash.update(bytes);
+        Ok(bytes.len())
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
 }
 struct EncodedBytes<'a>(&'a [u8]);
 impl Serialize for EncodedBytes<'_> {

@@ -440,13 +440,17 @@ fn borrowed_preparation_wire_preserves_exact_bytes_hash_and_strict_owned_parse()
             source,
             publisher_agent: publisher,
         };
-        let bytes = serde_json::to_vec(&borrowed).unwrap();
+        let (bytes, hash) = SerializedInput::serialize(&borrowed).unwrap().finish();
         let oracle = if publisher.is_some() {
             expected.replace("\"publisher_agent\":null", "\"publisher_agent\":\"agent\"")
         } else {
             expected.into()
         };
         assert_eq!(bytes, oracle.as_bytes());
+        assert_eq!(
+            hash,
+            URL_SAFE_NO_PAD.encode(Sha256::digest(oracle.as_bytes()))
+        );
         let owned: WireContentPreparation = serde_json::from_slice(&bytes).unwrap();
         assert_eq!(owned.expected_base, base);
         assert_eq!(owned.source, source);
@@ -541,8 +545,12 @@ fn borrowed_binary_wire_matches_fixed_own_content_edit_and_merge_bytes() {
             updates: vec![EncodedBytes(&first), EncodedBytes(&[])],
             merge_only: merge,
         };
-        let bytes = serde_json::to_vec(&wire).unwrap();
+        let (bytes, hash) = SerializedInput::serialize(&wire).unwrap().finish();
         assert_eq!(bytes, expected.as_bytes());
+        assert_eq!(
+            hash,
+            URL_SAFE_NO_PAD.encode(Sha256::digest(expected.as_bytes()))
+        );
         assert_eq!(Sha256::digest(&bytes), Sha256::digest(expected.as_bytes()));
         if namespace == Namespace::Own && !merge {
             // Independent Python hashlib digest of the fixed literal above.
@@ -595,9 +603,12 @@ fn encoded_bytes_match_canonical_vectors_chunk_edges_and_raw_containment() {
     }
     for length in [767, 768, 769, 1535, 1536, 1537, STATE_BYTES] {
         let raw = (0..length).map(|i| (i % 256) as u8).collect::<Vec<_>>();
-        let encoded = serde_json::to_vec(&EncodedBytes(&raw)).unwrap();
+        let (encoded, hash) = SerializedInput::serialize(&EncodedBytes(&raw))
+            .unwrap()
+            .finish();
         let old = serde_json::to_vec(&URL_SAFE_NO_PAD.encode(&raw)).unwrap();
         assert_eq!(encoded, old, "length={length}");
+        assert_eq!(hash, URL_SAFE_NO_PAD.encode(Sha256::digest(&old)));
         let text: String = serde_json::from_slice(&encoded).unwrap();
         assert_eq!(binary(&text, length).unwrap(), raw);
         assert!(matches!(
@@ -664,4 +675,62 @@ fn parent_wall_intervals_are_ordered_optional_finite_and_private() {
             "/private/content-and-key-🐈"
         );
     }
+}
+
+#[test]
+fn incremental_input_hash_matches_independent_digest_across_write_partitions() {
+    use std::io::Write;
+    let literal = br#"{"version":1,"namespace":"own","baseline":"AAEC","updates":["_w",""]}"#;
+    let digest = [
+        0xa3, 0x19, 0x5c, 0x00, 0x40, 0x4a, 0x75, 0x77, 0xc1, 0x01, 0x28, 0xc0, 0x5c, 0xb8, 0x9c,
+        0x89, 0xfa, 0x32, 0xf6, 0xea, 0xeb, 0x29, 0xff, 0xb3, 0xf7, 0xea, 0x51, 0x2f, 0x05, 0x63,
+        0xb1, 0x53,
+    ];
+    for chunk in [1, 2, 3, 7, 16, 64, 128] {
+        let mut input = SerializedInput {
+            bytes: Vec::with_capacity(128),
+            hash: Sha256::new(),
+        };
+        assert_eq!(input.bytes.capacity(), 128);
+        assert_eq!(input.write(&[]).unwrap(), 0);
+        for part in literal.chunks(chunk) {
+            assert_eq!(input.write(part).unwrap(), part.len());
+        }
+        input.flush().unwrap();
+        let (bytes, hash) = input.finish();
+        assert_eq!(bytes, literal);
+        assert_eq!(hash, URL_SAFE_NO_PAD.encode(digest));
+    }
+}
+
+#[test]
+fn serialization_failure_discards_partial_input_and_digest() {
+    struct FailAfterElement;
+    impl Serialize for FailAfterElement {
+        fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+            use serde::ser::SerializeSeq;
+            let mut sequence = serializer.serialize_seq(Some(2))?;
+            sequence.serialize_element("partial 🐈")?;
+            Err(serde::ser::Error::custom(
+                "deliberate serialization failure",
+            ))
+        }
+    }
+    // Partial JSON is actually emitted; neither completed bytes nor hash are returned.
+    let mut old = Vec::new();
+    assert!(serde_json::to_writer(&mut old, &FailAfterElement).is_err());
+    assert_eq!(old, "[\"partial 🐈\"".as_bytes());
+    assert!(matches!(
+        SerializedInput::serialize(&FailAfterElement),
+        Err(DecodeFault::InvalidInput)
+    ));
+    // Failure does not affect another request or its private initial capacity.
+    let input = SerializedInput::serialize(&serde_json::json!({"ok":true})).unwrap();
+    assert_eq!(input.bytes.capacity(), 128);
+    let (bytes, hash) = input.finish();
+    assert_eq!(bytes, br#"{"ok":true}"#);
+    assert_eq!(
+        hash,
+        URL_SAFE_NO_PAD.encode(Sha256::digest(br#"{"ok":true}"#))
+    );
 }
