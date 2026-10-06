@@ -229,7 +229,9 @@ test('page-visible device Chat threads send exact bytes once, preserve drafts, k
     await expect(first.getByTestId('annotation-row')).toHaveCount(0);
     await expect(first.getByRole('button', { name: 'Delete thread', exact: true })).toHaveCount(0);
     await first.getByRole('button', { name: '+ Comment on page', exact: true }).click();
-    await first.getByLabel('Post comment', { exact: true }).fill('Ordinary page comment');
+    await first
+      .getByRole('combobox', { name: 'Post comment', exact: true })
+      .fill('Ordinary page comment');
     await first.getByRole('button', { name: 'Post comment', exact: true }).click();
     await expect(first.getByTestId('annotation-row')).toHaveCount(1);
     await first.reload();
