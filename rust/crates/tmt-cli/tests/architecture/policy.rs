@@ -89,6 +89,7 @@ pub fn dependency_violations(package: &Value) -> Vec<String> {
             "toml_edit",
             "tar",
             "flate2",
+            "zip", // PR Actions transport: fixed bounded in-memory members; no path extraction
             "tmt-core",
             "rusqlite",
             "serde_json",

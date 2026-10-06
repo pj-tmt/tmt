@@ -1,0 +1,199 @@
+{
+  "schema_version": 1,
+  "kind": "tmt-pr-rc-catalog",
+  "repository": "pj-tmt/tmt",
+  "pr": 234,
+  "head_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "producer": {
+    "workflow_id": 701,
+    "workflow_path": ".github/workflows/pr-rc.yml",
+    "workflow_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "tooling_sha": "cccccccccccccccccccccccccccccccccccccccc",
+    "run_id": 9001,
+    "run_attempt": 1
+  },
+  "published_at_ms": 1791291600000,
+  "expires_at_ms": 1791550800000,
+  "candidates": [
+    {
+      "product": "cli",
+      "target": "aarch64-apple-darwin",
+      "version": "5.0.0-alpha.92",
+      "application_schema": {
+        "schema_version": 1,
+        "product": "cli",
+        "source_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "databases": [
+          {
+            "domain": "tmt-core-db",
+            "version": 48
+          }
+        ],
+        "source_files": [
+          {
+            "path": "rust/crates/tmt-adapters/src/storage/migrations.rs",
+            "sha256": "c4233a609629bc28c964b6be5da3daca31377098a8d0370c9d2cce98d7cedd44"
+          }
+        ]
+      },
+      "payload_artifact": {
+        "id": 8101,
+        "name": "tmt-pr-rc-payload-v1-pr234-cli-aarch64-apple-darwin-9001-a1",
+        "zip_sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+        "zip_bytes": 9000000
+      },
+      "dist_manifest": {
+        "name": "dist-manifest.json",
+        "sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "bytes": 12000
+      },
+      "archive": {
+        "name": "tmt-cli-aarch64-apple-darwin.tar.gz",
+        "sha256": "5555555555555555555555555555555555555555555555555555555555555555",
+        "bytes": 8000000
+      },
+      "verification": {
+        "prepare_run_id": 8001,
+        "prepare_run_attempt": 1,
+        "prepare_tooling_sha": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+        "source_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "complete": true
+      }
+    },
+    {
+      "product": "cli",
+      "target": "aarch64-unknown-linux-musl",
+      "version": "5.0.0-alpha.92",
+      "application_schema": {
+        "schema_version": 1,
+        "product": "cli",
+        "source_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "databases": [
+          {
+            "domain": "tmt-core-db",
+            "version": 48
+          }
+        ],
+        "source_files": [
+          {
+            "path": "rust/crates/tmt-adapters/src/storage/migrations.rs",
+            "sha256": "c4233a609629bc28c964b6be5da3daca31377098a8d0370c9d2cce98d7cedd44"
+          }
+        ]
+      },
+      "payload_artifact": {
+        "id": 8102,
+        "name": "tmt-pr-rc-payload-v1-pr234-cli-aarch64-unknown-linux-musl-9001-a1",
+        "zip_sha256": "2222222222222222222222222222222222222222222222222222222222222222",
+        "zip_bytes": 9000000
+      },
+      "dist_manifest": {
+        "name": "dist-manifest.json",
+        "sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "bytes": 12000
+      },
+      "archive": {
+        "name": "tmt-cli-aarch64-unknown-linux-musl.tar.gz",
+        "sha256": "6666666666666666666666666666666666666666666666666666666666666666",
+        "bytes": 8000000
+      },
+      "verification": {
+        "prepare_run_id": 8001,
+        "prepare_run_attempt": 1,
+        "prepare_tooling_sha": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+        "source_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "complete": true
+      }
+    },
+    {
+      "product": "cli",
+      "target": "x86_64-apple-darwin",
+      "version": "5.0.0-alpha.92",
+      "application_schema": {
+        "schema_version": 1,
+        "product": "cli",
+        "source_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "databases": [
+          {
+            "domain": "tmt-core-db",
+            "version": 48
+          }
+        ],
+        "source_files": [
+          {
+            "path": "rust/crates/tmt-adapters/src/storage/migrations.rs",
+            "sha256": "c4233a609629bc28c964b6be5da3daca31377098a8d0370c9d2cce98d7cedd44"
+          }
+        ]
+      },
+      "payload_artifact": {
+        "id": 8103,
+        "name": "tmt-pr-rc-payload-v1-pr234-cli-x86_64-apple-darwin-9001-a1",
+        "zip_sha256": "3333333333333333333333333333333333333333333333333333333333333333",
+        "zip_bytes": 9000000
+      },
+      "dist_manifest": {
+        "name": "dist-manifest.json",
+        "sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "bytes": 12000
+      },
+      "archive": {
+        "name": "tmt-cli-x86_64-apple-darwin.tar.gz",
+        "sha256": "7777777777777777777777777777777777777777777777777777777777777777",
+        "bytes": 8000000
+      },
+      "verification": {
+        "prepare_run_id": 8001,
+        "prepare_run_attempt": 1,
+        "prepare_tooling_sha": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+        "source_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "complete": true
+      }
+    },
+    {
+      "product": "cli",
+      "target": "x86_64-unknown-linux-musl",
+      "version": "5.0.0-alpha.92",
+      "application_schema": {
+        "schema_version": 1,
+        "product": "cli",
+        "source_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "databases": [
+          {
+            "domain": "tmt-core-db",
+            "version": 48
+          }
+        ],
+        "source_files": [
+          {
+            "path": "rust/crates/tmt-adapters/src/storage/migrations.rs",
+            "sha256": "c4233a609629bc28c964b6be5da3daca31377098a8d0370c9d2cce98d7cedd44"
+          }
+        ]
+      },
+      "payload_artifact": {
+        "id": 8104,
+        "name": "tmt-pr-rc-payload-v1-pr234-cli-x86_64-unknown-linux-musl-9001-a1",
+        "zip_sha256": "4444444444444444444444444444444444444444444444444444444444444444",
+        "zip_bytes": 9000000
+      },
+      "dist_manifest": {
+        "name": "dist-manifest.json",
+        "sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "bytes": 12000
+      },
+      "archive": {
+        "name": "tmt-cli-x86_64-unknown-linux-musl.tar.gz",
+        "sha256": "8888888888888888888888888888888888888888888888888888888888888888",
+        "bytes": 8000000
+      },
+      "verification": {
+        "prepare_run_id": 8001,
+        "prepare_run_attempt": 1,
+        "prepare_tooling_sha": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+        "source_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "complete": true
+      }
+    }
+  ]
+}

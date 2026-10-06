@@ -315,12 +315,14 @@ fn dispatch(parsed: invocation::Parsed) -> io::Result<u8> {
             exact,
             unpin,
             yes,
+            allow_schema_ahead,
         } => {
-            return native_upgrade_command::execute(
+            return native_upgrade_command::execute_with_schema_consent(
                 channel,
                 exact.as_deref(),
                 unpin,
                 yes,
+                allow_schema_ahead,
                 parsed.mode,
             );
         }
@@ -336,8 +338,11 @@ fn dispatch(parsed: invocation::Parsed) -> io::Result<u8> {
         Invocation::Office { prefix, operation } => {
             return office_facade::execute(prefix, operation, parsed.mode);
         }
-        Invocation::NativeInstallHandoff { probe } => {
-            return native_install_command::handoff(probe, parsed.mode);
+        Invocation::NativeInstallHandoff { probe, version } => {
+            return native_install_command::handoff(version, probe, parsed.mode);
+        }
+        Invocation::NativeSchema { source_sha } => {
+            return native_install_command::schema(&source_sha, parsed.mode);
         }
         Invocation::NativeInstall {
             product,

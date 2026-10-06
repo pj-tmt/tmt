@@ -15,8 +15,9 @@ use std::{
 /// The release directory holding `skills/<name>/<path>`.
 pub(super) const ROOT: &str = "skills";
 
-/// The receipt bound for the CLI, whose releases never carry skills.
-pub(super) const CLI_RECEIPT_BYTES: usize = 16 * 1024;
+/// The CLI has no skills; its PR receipt carries two bounded application-schema
+/// source closures (at most 64 paths/digests each) and one admission snapshot.
+pub(super) const CLI_RECEIPT_BYTES: usize = 64 * 1024;
 
 /// The largest receipt entry for one skill file: its quoted key
 /// (`skills/<name ≤ 64>/<path ≤ 512>`), a SHA-256 digest and JSON punctuation
@@ -136,7 +137,7 @@ mod tests {
 
     #[test]
     fn only_extension_receipts_get_room_for_the_largest_skill_tree() {
-        assert_eq!(receipt_limit(Product::Cli), 16 * 1024);
+        assert_eq!(receipt_limit(Product::Cli), 64 * 1024);
         let largest_entry = format!(
             "    \"skills/{}/{}\": \"{}\",\n",
             "n".repeat(64),
@@ -147,7 +148,7 @@ mod tests {
         for product in [Product::Office, Product::Squad] {
             assert_eq!(
                 receipt_limit(product),
-                16 * 1024 + MAXIMUM_SKILLS * MAXIMUM_FILES * RECEIPT_ENTRY_BYTES
+                64 * 1024 + MAXIMUM_SKILLS * MAXIMUM_FILES * RECEIPT_ENTRY_BYTES
             );
         }
     }
