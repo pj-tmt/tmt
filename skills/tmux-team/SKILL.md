@@ -445,8 +445,8 @@ may explicitly select the same identity; this is not authentication.
 Create returns `{identity:{id,name,canonicalName,lifetime},created}`; show returns
 `{identity:{id,name,canonicalName,lifetime}}`; ls returns `{identities:[...]}` in
 canonical-name order, including unbound identities. It does not report presence.
-Use ordinary `tmt ls` for verified active pane destinations. A new identity
-receives ordinary talk in Inbox while offline; `--inbox` explicitly suppresses
+Use ordinary `tmt ls` for verified active pane destinations. A new unbound identity
+receives ordinary talk through Inbox with the foreground wait; `--inbox` suppresses
 live delivery even after binding with `add`, `name` or `this`.
 
 Use shared identity metadata for exact local discovery:
@@ -481,12 +481,12 @@ with `NAME_ALREADY_ACTIVE` (exit 5).
 
 ### Committed identity retention
 
-Once identity creation commits, a later binding failure does not delete the
-identity. A valid new name tried on an occupied pane can therefore return
-`PANE_ALREADY_BOUND` (exit 5) while leaving that name unbound in SQLite.
-It is not an active `ls`/`talk` destination, but explicit `role --identity`
-and `preamble` commands can access it. A later successful bind reuses its UUID
-and profiles. Invalid names and missing preflight panes create no identity.
+An existing identity survives a refused binding with its UUID and profiles.
+If unbound, `ls` shows it as offline and ordinary `talk` uses Inbox with the
+foreground wait. Explicit `role --identity` and `preamble` remain available;
+a later successful bind reuses its UUID and profiles. A newly created temporary
+identity is retired on proven bind refusal; uncertain publication preserves it.
+Invalid names and missing preflight panes create no identity.
 Do not treat a failed bind as permission to delete data or try unrelated names.
 
 ### Pane bindings and commands
