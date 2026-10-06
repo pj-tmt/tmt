@@ -965,7 +965,7 @@ fn rows_ignore_retired_notes_and_show_pending_sections_and_aligned_wide_text() {
     lead_sol(&mut app);
     let screen = draw(&app, 48, 12);
     // The tab line holds only the tabs; the summary has its own line.
-    assert_eq!(screen[0], "  product   reviews");
+    assert_eq!(screen[0], "  [product]   reviews");
     assert_eq!(screen[1], "lead sol · 2 members");
     assert_eq!(screen[2], "  MEMBER     STATE    TASK");
     // The lead is the first row; the rule names what follows.
@@ -1720,18 +1720,15 @@ fn light_body_chrome_and_selection_use_the_theme_and_no_color_keeps_focus() {
         let buffer = terminal.backend().buffer();
         let fg = |role| app.look().role(role).fg.unwrap_or_default();
         // Chrome uses the theme; unselected body keeps the terminal foreground.
-        for (x, y) in [(1, 1), (2, 2), (1, 6), (12, 0)] {
+        assert_eq!(buffer[(1, 1)].fg, fg(Role::Text));
+        for (x, y) in [(2, 2), (1, 6), (14, 0)] {
             assert_eq!(buffer[(x, y)].fg, fg(Role::Muted), "chrome {x},{y}");
         }
         assert_eq!(buffer[(2, 4)].fg, ratatui::style::Color::Reset);
         assert_eq!(buffer[(13, 5)].fg, fg(Role::Dim));
         assert_eq!(buffer[(22, 5)].fg, fg(Role::Dim));
         // The selected tab is a word on a real selection background: text.
-        let selected_tab = if app.look().selection().bg.is_some() {
-            Role::Text
-        } else {
-            Role::Accent
-        };
+        let selected_tab = Role::Text;
         assert_eq!(buffer[(1, 0)].fg, fg(selected_tab));
         assert!(buffer[(2, 0)].modifier.contains(Modifier::BOLD));
         let selected = &buffer[(2, 3)];
@@ -1749,7 +1746,7 @@ fn light_body_chrome_and_selection_use_the_theme_and_no_color_keeps_focus() {
 }
 
 #[test]
-fn selected_tabs_keep_foregrounds_and_geometry_with_selection_background() {
+fn selected_tabs_add_measured_name_brackets_and_keep_semantic_mark_styles() {
     for base in tmt_cli_style::Base::ALL {
         for depth in [
             tmt_cli_style::Depth::TrueColor,
@@ -1801,15 +1798,15 @@ fn selected_tabs_keep_foregrounds_and_geometry_with_selection_background() {
                     attention,
                     &TabColors::default(),
                 );
-                assert_eq!(selected.to_string(), text);
-                assert_eq!(selected.to_string(), unselected.to_string());
-                assert_eq!(selected.width(), unselected.width());
+                assert_eq!(selected.to_string(), text.replace("product", "[product]"));
+                assert_eq!(unselected.to_string(), text);
+                assert_eq!(selected.width(), unselected.width() + 2);
                 for (label, chosen) in [(selected, true), (unselected, false)] {
                     let normal = if chosen {
                         Style {
                             bg: selection.bg,
                             ..look
-                                .role(Role::Accent)
+                                .role(Role::Text)
                                 .add_modifier(Modifier::BOLD | selection.add_modifier)
                         }
                     } else {
@@ -1824,9 +1821,9 @@ fn selected_tabs_keep_foregrounds_and_geometry_with_selection_background() {
                         .unwrap();
                     let buffer = terminal.backend().buffer();
                     assert_eq!(
-                        buffer[(2, 0)].symbol(),
+                        buffer[(2 + u16::from(chosen), 0)].symbol(),
                         "p",
-                        "names always start after the two-cell slot"
+                        "the name follows the slot and the admitted opening bracket"
                     );
                     for x in 0..width {
                         let role = if x == 0 && attention.waiting > 0 {
@@ -1834,7 +1831,8 @@ fn selected_tabs_keep_foregrounds_and_geometry_with_selection_background() {
                         } else if (x == 0 && attention.blocked > 0)
                             || (attention.waiting > 0
                                 && attention.blocked > 0
-                                && (12..15).contains(&x))
+                                && (12 + u16::from(chosen) * 2..15 + u16::from(chosen) * 2)
+                                    .contains(&x))
                         {
                             Some(Role::Blocked)
                         } else {
@@ -1883,19 +1881,22 @@ fn tab_fallback_depends_on_background_even_with_an_accent_foreground() {
     };
     assert!(look.role(Role::Accent).fg.is_some());
     assert!(look.selection().bg.is_none());
-    for style in [
-        tab(
-            look,
-            "product",
-            true,
-            false,
-            Attention::default(),
-            &TabColors::default(),
-        )
-        .style,
-        pane_tab(look, "detail", true).style,
+    for (style, role) in [
+        (
+            tab(
+                look,
+                "product",
+                true,
+                false,
+                Attention::default(),
+                &TabColors::default(),
+            )
+            .style,
+            Role::Text,
+        ),
+        (pane_tab(look, "detail", true).style, Role::Accent),
     ] {
-        assert_eq!(style.fg, look.role(Role::Accent).fg);
+        assert_eq!(style.fg, look.role(role).fg);
         assert!(style.add_modifier.contains(Modifier::REVERSED));
     }
 }
@@ -2686,7 +2687,7 @@ fn tabs_carry_attention_by_color_and_count_and_the_summary_has_its_own_line() {
         .map(|x| buffer[(x, 0)].symbol().to_owned())
         .collect();
     // Counts say what the color says, so no meaning is color-only.
-    assert_eq!(tabs.trim_end(), "◆ product 1 ✗ 1 ✗ reviews 2");
+    assert_eq!(tabs.trim_end(), "◆ [product] 1 ✗ 1 ✗ reviews 2");
     let column = |name: &str| tabs[..tabs.find(name).unwrap()].chars().count() as u16;
     let product = &buffer[(column("product"), 0)];
     // Waiting wins over blocked; selection is bold without moving the tab.
@@ -2753,17 +2754,17 @@ fn attention_counts_keep_shared_marks_and_tab_width_without_color() {
     let colors = TabColors::default();
     let plain = tab(app.look(), "product", false, false, counts, &colors);
     let selected = tab(app.look(), "product", true, false, counts, &colors);
-    assert_eq!(selected.to_string(), "◆ product 2 ✗ 1");
-    assert_eq!(selected.to_string(), plain.to_string());
-    assert_eq!(selected.width(), "◆ product 2 ✗ 1".width());
+    assert_eq!(selected.to_string(), "◆ [product] 2 ✗ 1");
+    assert_eq!(plain.to_string(), "◆ product 2 ✗ 1");
+    assert_eq!(selected.width(), plain.width() + 2);
     assert_eq!(selected.style.fg, None);
-    assert!(draw(&app, 60, 8)[0].contains("◆ product 2 ✗ 1"));
+    assert!(draw(&app, 60, 8)[0].contains("◆ [product] 2 ✗ 1"));
     app.switcher = Some(Switcher::new("product".into()));
-    assert!(
-        draw(&app, 60, 8)
-            .iter()
-            .any(|line| line.contains("◆ product 2 ✗ 1"))
-    );
+    assert!(draw(&app, 60, 18).iter().any(|line| line.contains("[x]")
+        && line.contains("product")
+        && line.contains("◆")
+        && line.contains("2")
+        && line.contains("✗1")));
 }
 
 #[test]
@@ -2858,7 +2859,7 @@ fn the_leads_tab_is_labelled_leads_and_counts_squad_leads() {
         view: Ok(view),
     });
     let screen = draw(&app, 60, 6);
-    assert_eq!(screen[0], "  product   leads");
+    assert_eq!(screen[0], "  product   [leads]");
     assert_eq!(screen[1], "2 squad leads");
     assert_eq!(screen[2], "  SQUAD          LEAD           STATE      TASK");
     assert_eq!(screen[3], " >product        sol            working    plan");
@@ -2893,7 +2894,7 @@ fn tabs_move_with_shift_arrows_or_a_drag_and_the_order_is_saved() {
 
     // Drag: press on the first tab (showing it), release over the last.
     let screen = draw(&app, 60, 6);
-    assert_eq!(screen[0], "  reviews   leads   product");
+    assert_eq!(screen[0], "  reviews   leads   [product]");
     let mouse = |kind, column| MouseEvent {
         kind,
         column,
@@ -3018,9 +3019,12 @@ fn switching_squads_never_moves_a_tab_or_blanks_the_frame() {
         );
     }
     assert_eq!(app.current.as_deref(), Some("reviews"));
-    // Selection is a style, so the tab text is the same either way.
-    assert_eq!(before[0], during[0], "selection never changes label width");
-    assert_eq!(before[0].trim_end(), "  product   reviews");
+    // The shown owner remains selected until the requested view is ready.
+    assert_eq!(
+        before[0], during[0],
+        "pending requests do not move shown-tab brackets"
+    );
+    assert_eq!(before[0].trim_end(), "  [product]   reviews");
     assert!(
         during[1].contains("Opening reviews"),
         "a slow switch shows a spinner"
@@ -3516,9 +3520,9 @@ fn initial_loading_uses_the_resolved_theme_before_any_snapshot() {
             app.initial_look = Some(look);
             app.loading_since = Some(std::time::Instant::now() - header::SPINNER_DELAY);
             let line = summary_line(&app);
-            assert_eq!(line.spans[0].style, look.role(Role::Accent));
+            assert_eq!(line.spans[0].style, look.role(Role::Dim));
             assert_eq!(line.spans[1].style, look.role(Role::Muted));
-            assert_eq!(line.spans[2].style, look.role(Role::Accent));
+            assert_eq!(line.spans[2].style, look.role(Role::Text));
             assert_eq!(
                 super::tabs::paint(&app, Rect::new(0, 0, 80, 1)).style,
                 look.role(Role::Accent).add_modifier(Modifier::BOLD)

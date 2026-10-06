@@ -169,8 +169,8 @@ the lead like any row. A squad without a lead keeps its member rows as they
 are. Text `ls` lists the lead first in its own `LEAD` section before `MEMBERS`;
 `--json` is unchanged.
 
-The home tab is the `▚ tmt` accent block, with ◆ waiting and ✗ blocked
-counts inside. Its command/config name remains `all`. With neither `tabs.order`
+The home tab is `▚ tmt`, with ◆ waiting and ✗ blocked counts outside
+the shown-name brackets (`▚ [tmt]`). Its command/config name remains `all`. With neither `tabs.order`
 nor `tabs.pin` configured, home is pinned first, followed by leads and squads.
 An explicit order or pin, including an empty array, keeps the existing ordering
 policy; hide always applies. Opening the board writes no configuration.
@@ -208,7 +208,13 @@ blocked, then quiet, retaining arrangement order within each tier. Names remain
 full unless a visible group prefix makes them unambiguous. If configured pins
 leave no room for the current tab, pins step aside from the end, except the
 current pin; their stored order stays unchanged. A label wider than the available
-cells is shortened with `…`. Hidden tabs opened through the switcher remain
+cells is shortened with `…`. The shown name keeps matched brackets; attention
+marks and counts stay outside. At the minimum name width, a clipped grapheme
+can replace the ellipsis so the cue still identifies a name. If the fixed slots
+and one name grapheme plus both brackets cannot fit, the complete bracket cue
+is omitted and the ordinary prefix is fitted; at one cell a leading attention
+mark wins over the ellipsis. This narrow fallback cannot identify the shown tab
+without selection styling. Hidden tabs opened through the switcher remain
 selected and marked `(hidden)`, without a drag target. There are no number keys.
 
 `ctrl-r` refreshes the board in squad, leads and all views, including while
@@ -223,15 +229,19 @@ hides tabs. A `talk` or `reply` binding of your own keeps its hint. Rebind in `[
 or `[tabs.all.bind]` for all. F5 has no default action; an explicit
 `f5 = "refresh"` binding remains supported.
 
-The board uses the shared TMT design tokens: `muted` for readable tabs, labels
-and key hints, `accent` plus bold for focus, and `dim` for secondary values and
-borders. Only a tab's leading attention mark and appended blocked `✗n` use bold
-waiting/blocked colors; names and primary counts keep accent/bold when selected
-and muted otherwise. The fixed mark slot keeps each name's starting column stable.
-Selection uses the theme's `selection` background for rows and selected squad/pane tabs,
-retaining each cell's state/provider color and each tab's foreground; a terminal without a background color uses reverse video,
-including `NO_COLOR`. Colors decorate the words and marks; never infer state
-from color alone. The CLI theme is `theme.base` in the global `config.json`;
+Ordinary canvas, content and chrome inherit the terminal background. The board
+uses shared TMT tokens: `text` for shown tab names, primary counts and
+partial/unavailable explanations, `muted` for context and key hints, and `dim`
+for separators and incidental metadata. HOME summary state glyphs keep their
+semantic roles; their words and counts use `text`. Tab marks retain configured
+waiting/blocked colors, independently of neutral names. Shown top-level names
+use matched brackets and the theme's `selection` background with bold, including
+HOME. Requested targets are underlined and say `Opening`; the shown document
+keeps selection until the request loads or fails. A terminal without a selection
+background uses reverse video, including `NO_COLOR`. On a real selection
+background the final word policy uses readable `text`, while semantic marks
+retain their colors. User theme and tab-color overrides still apply. Colors
+reinforce words and marks; never infer state from color alone. The CLI theme is `theme.base` in the global `config.json`;
 `tmt config show` shows its value and file. Board themes layer that resolved
 theme, then `[board.theme]`, then `[squad.<name>.theme]` in `squad.toml`.
 `auto` works in both `squad.toml` theme layers and both picker scopes; the global

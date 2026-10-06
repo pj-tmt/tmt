@@ -146,7 +146,10 @@ is omitted; optional hints still fit whole through the existing owner.
 ## Tabs and retained views
 
 - `view::tabs` measures styled `tab_label` widths for windowing, overflow and hits;
-  selection adds no characters. `tabs::arrange` owns order/pins. Window admission
+  shown-name selection adds two measured bracket cells, with attention outside.
+  Its name fitting preserves both brackets and semantic suffixes when a name
+  grapheme fits; otherwise it omits the complete cue and uses the ordinary prefix
+  fallback (a one-cell leading attention mark wins over the ellipsis). `tabs::arrange` owns order/pins. Window admission
   uses measured group/overflow widths and preserves the current tab even when other
   pins must step aside. Adjacent squad-prefix groups are display-only; prefixes
   have no hit, suffixes retain canonical keys/indices. An opened globally hidden

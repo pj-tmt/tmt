@@ -18,7 +18,7 @@ export function Layout() {
   useEffect(() => applyTheme(theme), [theme]);
   useEffect(() => {
     document.documentElement.lang = languageOf(lang).htmlLang;
-    document.title = "tmt Handbook";
+    document.title = "Terminal Tunnel";
   }, [lang]);
   useEffect(() => {
     if (arrived.current) return;

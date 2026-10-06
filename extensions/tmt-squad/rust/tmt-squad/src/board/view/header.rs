@@ -100,8 +100,6 @@ pub(in crate::board) fn time_marks(app: &App, now: u64) -> Vec<String> {
     marks
 }
 
-/// One pane tab (tabs mode), the same width selected or not: the selected
-/// one is bracketed, the others padded.
 /// The second header line: the shown squad's summary or delayed loading indicator.
 pub(super) fn summary_line(app: &App) -> Line<'_> {
     let look = app.look();
@@ -115,13 +113,10 @@ pub(super) fn summary_line(app: &App) -> Line<'_> {
         return Line::from(vec![
             Span::styled(
                 frame.map_or(" ", |frame| SPINNER[frame]),
-                look.role(Role::Accent),
+                look.role(Role::Dim),
             ),
             Span::styled("  Opening ", look.role(Role::Muted)),
-            Span::styled(
-                tmt_cli_style::table::escape(target),
-                look.role(Role::Accent),
-            ),
+            Span::styled(tmt_cli_style::table::escape(target), look.role(Role::Text)),
         ]);
     }
     let Some(view) = app.view.as_ref().filter(|_| !app.loading()) else {
@@ -164,7 +159,7 @@ pub(super) fn summary_line(app: &App) -> Line<'_> {
     } else {
         format!("{lead} · {}", plural(count, "member", "members"))
     };
-    let mut spans = vec![Span::styled(summary, look.role(Role::Muted))];
+    let mut spans = vec![Span::styled(summary, look.role(Role::Text))];
     let waiting = app
         .current
         .as_ref()
@@ -173,7 +168,7 @@ pub(super) fn summary_line(app: &App) -> Line<'_> {
     if waiting > 0 {
         spans.push(Span::styled(
             format!(" · {waiting} waiting on you"),
-            look.named(&view.tab_colors.waiting),
+            look.role(Role::Text),
         ));
     }
     if view.document["olderRequestsNotShown"] == true {
@@ -191,7 +186,7 @@ pub(super) fn summary_line(app: &App) -> Line<'_> {
     if view.document["partial"] == true {
         spans.push(Span::styled(
             " · partial: failed reads",
-            look.role(Role::Waiting),
+            look.role(Role::Text),
         ));
     }
     Line::from(spans)
@@ -232,7 +227,7 @@ pub(super) fn render_meter_status(frame: &mut Frame, app: &App, area: Rect) {
                 width,
                 ..area
             },
-            Line::styled(text, look.role(Role::Dim)),
+            Line::styled(text, look.role(Role::Text)),
         );
     }
 }
