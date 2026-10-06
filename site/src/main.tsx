@@ -13,3 +13,9 @@ createRoot(document.getElementById("root")!).render(
     </Provider>
   </StrictMode>,
 );
+
+if (import.meta.env.DEV && import.meta.env.VITE_COLAB_EMBED === "1") {
+  void import("./components/colab-embed/ColabEmbed").then(({ mountColabEmbed }) =>
+    mountColabEmbed(),
+  );
+}

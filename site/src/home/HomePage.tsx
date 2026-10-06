@@ -7,10 +7,9 @@ import { useLang } from "../lang/useLang";
 import { useStrings } from "../lang/useStrings";
 import { themeAtom, type ThemeChoice } from "../state/theme";
 import "./v9.css";
-import traditionalChinese from "../i18n/zh-hant/strings.json";
 import asset0 from "./assets/v9-0.svg";
 import asset1 from "./assets/v9-1.svg";
-import asset2 from "./assets/v9-2.png";
+import { HeroTunnel } from "./HeroTunnel";
 import asset3 from "./assets/v9-3.svg";
 import asset4 from "./assets/v9-4.svg";
 import asset5 from "./assets/v9-5.svg";
@@ -35,19 +34,27 @@ function HomeControls() {
     </div>
   );
 }
-function TopInstall() {
+function TopInstall({
+  command = INSTALL,
+  label,
+  id,
+}: {
+  command?: string;
+  label?: string;
+  id?: string;
+}) {
   const { home } = useStrings();
   const [copied, setCopied] = useState(false);
   return (
-    <div className="top-install" id="install">
-      <span>{home.install}</span>
-      <code>{INSTALL}</code>
+    <div className="top-install" id={id}>
+      <span>{label ?? home.install}</span>
+      <code>{command}</code>
       <button
         type="button"
         aria-label="Copy command"
         onClick={async () => {
           try {
-            await navigator.clipboard.writeText(INSTALL);
+            await navigator.clipboard.writeText(command);
             setCopied(true);
           } catch {
             setCopied(false);
@@ -78,7 +85,7 @@ export function HomePage() {
       <header className="site-header content">
         <LocalLink to="/" hash="top" className="wordmark">
           <img src={asset0} alt="" width="33" height="33" />
-          <span>tmt</span>
+          <span>Terminal Tunnel</span>
         </LocalLink>
         <nav aria-label="Primary navigation">
           <LocalLink to="/" hash="workflow">
@@ -100,17 +107,17 @@ export function HomePage() {
       </header>
 
       <section className="hero" id="top">
-        <img className="hero-art" src={asset2} alt="" fetchPriority="high" />
+        <HeroTunnel />
         <div className="hero-inner content">
-          <TopInstall />
+          <TopInstall id="install" />
           <p className="eyebrow">
             <span className="signal"></span>
             <span>{landing.eyebrow}</span>
           </p>
           <h1>
-            tmt
+            Terminal
             <br />
-            Handbook<span className="title-period">.</span>
+            Tunnel<span className="title-period">.</span>
           </h1>
           <p className="hero-statement">{landing.statement}</p>
           <p className="hero-description">{landing.description}</p>
@@ -136,12 +143,12 @@ export function HomePage() {
 
       <section className="compatibility">
         <div className="content compatibility-inner">
-          <span>{landing.environment}</span>
+          <span>Your agents. Your tools. Your machines.</span>
           <div>
             <span>Codex</span>
             <span>Claude Code</span>
             <span>Gemini</span>
-            <span className="muted">+ your CLI</span>
+            <span className="muted">and more</span>
           </div>
         </div>
       </section>
@@ -152,7 +159,13 @@ export function HomePage() {
             <p className="eyebrow">01 / THE WORKFLOW</p>
             <h2>{landing.workflowTitle}</h2>
           </div>
-          <p>{landing.workflowDescription}</p>
+          <div className="workflow-summary">
+            <p>{landing.workflowDescription}</p>
+            <p className="workflow-reach">
+              Across agent apps and terminals. Add Remote to connect from another machine.{" "}
+              <LocalLink to="/extensions/remote">Learn about Remote ↗</LocalLink>
+            </p>
+          </div>
         </div>
         <div className="terminal-demo">
           <div className="terminal-top">
@@ -165,6 +178,14 @@ export function HomePage() {
             <span className="example-label">{landing.exampleSession}</span>
           </div>
           <div className="terminal-body" lang="en">
+            <p className="workflow-step">
+              01 / Give your agent an identity · in the reviewer terminal
+            </p>
+            <div className="terminal-command">
+              <span className="prompt">$</span>
+              <span>tmt this reviewer</span>
+            </div>
+            <p className="workflow-step">02 / Send a request · from another agent terminal</p>
             <div className="terminal-command">
               <span className="prompt">$</span>
               <span>
@@ -189,6 +210,7 @@ export function HomePage() {
                 Keep working. Pick up the result when you're ready.
               </span>
             </div>
+            <p className="workflow-step">03 / Pick up the reply</p>
             <div className="terminal-command">
               <span className="prompt">$</span>
               <span>
@@ -229,18 +251,21 @@ export function HomePage() {
             <p>{landing.closeLoopDescription}</p>
           </article>
         </div>
+        <div className="workflow-install">
+          <h3>Install TMT</h3>
+          <p>Give your agent a name. Start a conversation.</p>
+          <TopInstall />
+        </div>
       </section>
 
       <section id="squad" className="study-product content rich-section">
-        <div className="section-heading">
+        <div className="section-heading squad-heading">
           <div>
             <p className="eyebrow">02 / SQUAD</p>
             <h2>
-              Your teams.
-              <br />
-              One clear view.
+              <span>Squad</span>
+              <span className="squad-heading-line">Your teams. One clear view.</span>
             </h2>
-            <div className="product-subtitle">tmt squad</div>
           </div>
           <p>A lead briefs the other agents and keeps the board current.</p>
         </div>
@@ -401,22 +426,21 @@ export function HomePage() {
         <LocalLink className="study-chapter" to="/" hash="squad-demo">
           Explore Squad <span>↗</span>
         </LocalLink>
+        <TopInstall command="tmt extension install squad" label="Install Squad" />
       </section>
       <section id="colab" className="study-product content rich-section">
-        <div className="section-heading">
+        <div className="section-heading colab-heading">
           <div>
             <p className="eyebrow">03 / COLAB</p>
             <h2>
-              Annotate here.
-              <br />
-              Reach any agent.
+              <span>Colab</span>
+              <span className="squad-heading-line">Annotate here. Reach any agent.</span>
             </h2>
-            <div className="product-subtitle">tmt colab</div>
           </div>
-          <p lang="zh-Hant">
-            {traditionalChinese.ownerPreview.colabDescription}
+          <p>
+            A self-hosted alternative to Claude Artifacts, across agents and environments.
             <br />
-            <small>{traditionalChinese.ownerPreview.colabSubline}</small>
+            <small>Shared documents. In-context discussions. Your infrastructure.</small>
           </p>
         </div>
         <div
@@ -459,7 +483,7 @@ export function HomePage() {
                 Check the mobile layout before release.<sup>1</sup>
               </p>
               <div className="annotation-tooltip">
-                ↗ Annotate <span>⌘ ↵</span>
+                ◇ Discuss <span>01</span>
               </div>
               <p className="editing-line">
                 Keep the preview focused.<span className="edit-caret"></span>
@@ -481,7 +505,7 @@ export function HomePage() {
             </article>
             <aside className="document-comments">
               <div className="panel-label">
-                ANNOTATION <span>01</span>
+                ◇ Discussion <span>✓ &nbsp; ×</span>
               </div>
               <div className="comment-anchor">↳ Check the mobile layout before release.</div>
               <div className="comment-entry">
@@ -494,13 +518,6 @@ export function HomePage() {
                     <span className="agent-mention">@reviewer</span> Can you check this at 390px?
                   </p>
                 </div>
-              </div>
-              <div className="recipient-chip">
-                <span>→ reviewer</span>
-                <small>Codex · laptop terminal</small>
-              </div>
-              <div className="thread-state">
-                ↗ Request sent <span>7f3a1c</span>
               </div>
               <div className="comment-entry agent-entry">
                 <span className="comment-avatar">A</span>
@@ -549,6 +566,7 @@ export function HomePage() {
           </LocalLink>
           <small>IN PROGRESS</small>
         </div>
+        <TopInstall command="tmt extension install colab --skills" label="Install Colab" />
       </section>
 
       <section id="start" className="start-section">
@@ -565,7 +583,7 @@ export function HomePage() {
       <footer className="content">
         <LocalLink to="/" hash="top" className="wordmark">
           <img src={asset0} alt="" width="25" height="25" />
-          <span>tmt</span>
+          <span>Terminal Tunnel</span>
         </LocalLink>
         <span>{landing.footer}</span>
         <a href="https://github.com/pj-tmt/tmt" target="_blank" rel="noreferrer">
