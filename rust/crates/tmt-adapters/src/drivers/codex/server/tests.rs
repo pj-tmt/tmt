@@ -228,10 +228,13 @@ fn owned_process_and_private_files_are_cleaned_after_success() {
 }
 
 #[test]
-fn bypassing_held_preparation_expires_the_real_startup_deadline() {
+fn held_server_readiness_expires_startup_after_first_exec_preparation() {
     let fixture = TestDirectory::new();
     let root = fixture.path.canonicalize().unwrap();
     let command = command(&root, true);
+    // Complete first execution of this exact executable before installing the
+    // server-readiness gate. prepare also proves the probe has no server effects.
+    prepare(&command, &root);
     let gate = root.join("preparation-gate");
     nix::unistd::mkfifo(
         &gate,
@@ -240,8 +243,8 @@ fn bypassing_held_preparation_expires_the_real_startup_deadline() {
     .unwrap();
     let options = LaunchOptions::parse(&command, &root).unwrap();
     let generation = root.join("generation");
-    // The identical published executable can enter, but cannot perform server
-    // effects until preparation is released. Bypass only the preparation call.
+    // Hold server readiness after first-exec preparation. This synthetic gate
+    // tests the product deadline, not historical Darwin assessment behavior.
     let error = OwnedServer::start(
         &command,
         &options,
@@ -249,8 +252,8 @@ fn bypassing_held_preparation_expires_the_real_startup_deadline() {
         Instant::now() + Duration::from_secs(2),
     )
     .err()
-    .expect("bypassed preparation must exhaust listener startup");
-    eprintln!("bypassed preparation start-return: {error:?}");
+    .expect("held server readiness must exhaust listener startup after preparation");
+    eprintln!("held server readiness after preparation start-return: {error:?}");
     assert_eq!(error.kind(), io::ErrorKind::TimedOut);
     assert_eq!(error.error.to_string(), "Codex listener startup timed out");
     assert!(error.cleanup_confirmed());
@@ -263,8 +266,8 @@ fn bypassing_held_preparation_expires_the_real_startup_deadline() {
     assert!(!generation.exists());
     assert!(!root.join("cwd-proof").exists());
     assert!(!root.join("announcement-proof").exists());
-    // Release is selected only after the original startup deadline and exact
-    // reap. There is no successor start and no retry after this negative.
+    // Remove the held gate only after the original startup deadline and exact
+    // reap. There is no release to a live server, successor start or retry.
     fs::remove_file(&gate).unwrap();
 }
 
