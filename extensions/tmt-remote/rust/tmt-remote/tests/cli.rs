@@ -915,6 +915,42 @@ fn wait_stopped(child: &mut Child) {
     }
 }
 #[test]
+fn human_serve_link_opens_landing_while_protocol_address_stays_separate() {
+    let mut pilot = Pilot::new();
+    let output = start_door(&mut pilot, &["--port", "0"], true);
+    let url = output
+        .lines()
+        .find(|line| line.starts_with("http://"))
+        .unwrap();
+    let status = status_json(&pilot);
+    let origin = status["origin"].as_str().unwrap();
+    let prefix = status["path"].as_str().unwrap();
+    assert_eq!(
+        url,
+        format!("{origin}/"),
+        "human output must name the browser entry"
+    );
+    let calls_before = fs::read(pilot.root.join("calls")).unwrap();
+    let socket = origin.strip_prefix("http://").unwrap();
+    let page = exchange(socket, &format!("GET / HTTP/1.1\r\nHost: {socket}\r\n\r\n"));
+    assert!(page.starts_with("HTTP/1.1 200"));
+    assert!(page.contains("text/html; charset=utf-8"));
+    assert!(page.contains("tmt remote pair"));
+    let protocol = exchange(
+        socket,
+        &format!("GET {prefix} HTTP/1.1\r\nHost: {socket}\r\n\r\n"),
+    );
+    assert!(protocol.starts_with("HTTP/1.1 404"));
+    assert!(protocol.ends_with("{}"));
+    assert_eq!(
+        fs::read(pilot.root.join("calls")).unwrap(),
+        calls_before,
+        "entry and protocol reads must not invoke core"
+    );
+    terminate(pilot.child.take().unwrap());
+    assert!(!pilot.root.join("state/remote/control.sock").exists());
+}
+#[test]
 fn control_stop_closes_listeners_releases_state_and_is_idempotent() {
     for _ in 0..2 {
         let mut pilot = Pilot::new();

@@ -8,7 +8,8 @@ this page holds how to run the door and what its implementation tests prove.
 ## Run the door
 
 Build core, put `rust/target/debug` on `PATH`, then `tmt remote serve` (or `--json`
-for the bound descriptor). Direct invocation requires an absolute `TMT_EXECUTABLE`;
+for the bound protocol descriptor). Human output links to the browser entry at `/`, not the
+protocol base. Direct invocation requires an absolute `TMT_EXECUTABLE`;
 it never searches for another core. Ctrl-C/SIGTERM or `tmt remote stop` closes
 listeners, sockets and workers while keeping stored pairings and grants. Limits
 are named in `src/limits.rs`.
