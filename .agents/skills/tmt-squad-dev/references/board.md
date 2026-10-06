@@ -23,6 +23,13 @@ composition. `board/mod.rs` receives input, snapshots and deferred events on one
 channel; snapshots wake painting directly. Redraws follow state/input/resize changes
 and changed clock text or spinner frames, rather than periodic full repainting.
 
+Member/HOME lead lists and outlined body panes use `Outline::paint_flat`: horizontal
+rules and blank side slots retain measured inner areas and title/fold hits.
+Incidental frame cells stay Dim; receiving titles keep their existing focus styles.
+Invisible walls do not change the actual borderless dispatch predicate. The shared
+inline input/read band uses `Modal::paint_flat`, retaining its complete opaque mask
+and covered-hit removal. Ask-lead, settings, pickers and cron overlays stay square.
+
 ## Rows, grid and identity
 
 - `rows::Rows` owns positional tracks and prefix coverage, including empty cells
