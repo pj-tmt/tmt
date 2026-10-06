@@ -61,6 +61,11 @@ and `limits.rs`; do not restate them.
 - `page.rs` reads and writes admitted source locally: it prepares through the fold and
   decoder, and the opaque token binds the owner head, page epoch and every namespace
   position, because content appends do not advance the membership log.
+- Unintegrated `page::prepare_publication` uses one admitted `fold::Snapshot` and its extracted
+  materialization input owner for exact base/full metadata/own projections and causal decoder inputs.
+  It returns Noop before ID/sequence/seal/certificate work, or a frozen signed content packet and
+  chain through the existing local Keyring writer. Both single-edit and batch gzip admission include
+  all own bytes in the checked raw fastpath; current Save/CLI/v1 callers remain unchanged.
 - `page/compact.rs` combines the local device's own stream after a write (best effort, repeatable):
   it opens only that stream's objects through `Snapshot::open_object`, merges them in the decoder
   child (`Decoder::merge`, no projection, since one device's stream can depend on another's structs),
