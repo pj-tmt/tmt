@@ -8,11 +8,12 @@ use std::{fs::File, ops::Deref, path::Path};
 use tmt_extension_state::Error as StateError;
 
 /// Private file names; anything else is refused.
-const FILES: [&str; 6] = [
+const FILES: [&str; 7] = [
     "machine.key",
     "key.lock",
     "serve.lock",
     "remote.db",
+    "objects.db",
     "settings.json",
     "settings.lock",
 ];
