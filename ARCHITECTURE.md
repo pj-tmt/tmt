@@ -42,22 +42,13 @@ ownership comes separately from [`.github/components.json`](.github/components.j
 | `scripts/`                | Shared shell/build/development helpers                                               |
 | `skills/`                 | Canonical bundled user-agent guidance                                                |
 | `site/`                   | User handbook and translations                                                       |
-| `design/`                 | Shared visual tokens, CLI style guidance and reserved browser presentation leaf      |
+| `design/`                 | Tokens/CLI; [reserved browser-ui](design/gui-components.md); no Core/CLI dep/embed   |
 
 New homes or exceptions need infra review and coordinated map/allowlist changes;
 ignored local outputs are outside the tracked-file map. The
 [layout skill](.agents/skills/tmt-layout/SKILL.md) owns add/move procedures and the
 tracked-file guard. Handbook language exceptions belong to
 [AGENTS](AGENTS.md#repository-content-language) and the allowlist.
-
-The reserved `design/browser-ui/` home is a private presentation leaf owned by
-tmt-ux. Its planned initial scope is checked static CSS, Header, Notice, Field,
-Action and Toggle; no package files or product adoption are present. Products
-may depend on this leaf; it may not import product routers, stores, SDKs or
-extension code. Core/CLI must neither depend on nor embed it. The single token
-owner remains unchanged; native consumers use checked bytes without Node during
-Cargo. Workspace, dependency, CI and embedding changes require their owning
-exact-head reviews before implementation/adoption.
 
 Shared visual tokens have one owner, `design/tokens/tokens.json`, maintained by
 the design lead. Its Vite projection, Rust CLI theme tests and native Colab guidance consume the same
