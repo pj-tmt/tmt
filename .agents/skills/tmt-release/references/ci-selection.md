@@ -80,7 +80,12 @@ positions remain unchanged until separately reviewed equivalence and rollout.
 runs the retained build before one locked workspace no-run JSON compilation, then
 uses Cargo-owned metadata and `release-version parse` to admit targets. Remote
 must have a nonempty list from those exact workspace executables; architecture,
-Office command/model, ignored and zero-test harnesses remain explicit. Unknown
+Office command/model, ignored and zero-test harnesses remain explicit. Each doctest
+target needs observed normal-list, ignored-list and execution completion, including
+an explicit zero disposition. Ordered Cargo headers and Rustdoc source owners must
+admit exactly one consecutive partition of the actual blocks; Rust 2024 multi-block
+targets remain supported, while absent, duplicate-zero or ambiguous completion fails.
+No source or Markdown parser infers missing evidence. Unknown
 custom harnesses, required-feature target eligibility or output formats fail.
 
 The manual workflow serializes producer, default Cargo baseline, restored whole
@@ -100,7 +105,14 @@ cannot establish them. Every role keeps original streams/process reports on red.
 
 Bounds live in `LIMITS`:150,000 regular files, 5 GiB payload, 512 MiB per file,
 5 GiB plus bounded tar overhead, 32 MiB per command and 256 MiB total captured streams,
-4000 commands and 18 minutes inside each 20-minute job. Producer requires 12 GiB free before acquisition; baseline/doctest require 6 GiB.
+4000 commands and 18 minutes inside each 20-minute job. The final minute is
+reserved for cleanup; commands stop before it and allow at most five seconds for
+exit/pipe settlement. Missing close, signal denial or overflow retains partial
+streams with incomplete/unconfirmed evidence. Every role observes processes and
+listeners before execution and in finally, including original red paths. Only the
+spawn-owned group may be signalled; snapshots detect leaks but never grant PID
+ownership. Unconfirmed cleanup stays red and leaves runtime roots intact. Confirmed
+cleanup uses a bounded owned-root removal command before final report admission. Producer requires 12 GiB free before acquisition; baseline/doctest require 6 GiB.
 Consumer requires 6 GiB after download, with at most 512 MiB for copied-input
 sensitivity controls. Controls remove/corrupt private copies of the actual child,
 library, Cargo and source inputs; immutable originals remain untouched. They prove

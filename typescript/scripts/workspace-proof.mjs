@@ -20,6 +20,8 @@ export const LIMITS = Object.freeze({
   evidenceBytes: 256 * 1024 ** 2,
   commands: 4000,
   commandMs: 18 * 60_000,
+  cleanupMs: 60_000,
+  settlementMs: 5_000,
 });
 export const ROLES = ['baseline', 'producer', 'consumer', 'doctest'];
 export function digest(value) {
@@ -409,11 +411,12 @@ export function cargoCoverage(stdout, stderr, inventory, mode, ignored = false) 
   const headers = [...stderr.matchAll(/^\s*Doc-tests (\S+)\s*$/gm)].map((match) => match[1]);
   unique(headers, 'doctest header');
   exact(
-    headers.sort(),
+    [...headers].sort(),
     inventory.docs.map((doc) => doc.target).sort(),
     'Missing/extra doctest target'
   );
   const docs = new Map(inventory.docs.map((doc) => [doc.package, []]));
+  const observed = [];
   for (const block of blocks.slice(paths.length)) {
     const values = mode === 'list' ? parseList(block) : executionNames(block);
     const names = mode === 'list' ? values : values.names;
@@ -430,6 +433,9 @@ export function cargoCoverage(stdout, stderr, inventory, mode, ignored = false) 
       assert(owners.length === 1, 'Ambiguous doctest source owner');
       return owners[0].package;
     });
+    const owners = [...new Set(members)];
+    assert(owners.length <= 1, 'Mixed doctest block owners');
+    observed.push({ owner: owners[0], zero: names.length === 0 });
     if (mode === 'execution') {
       const expected = {
         names: [...names].sort(),
@@ -441,6 +447,10 @@ export function cargoCoverage(stdout, stderr, inventory, mode, ignored = false) 
       docs.get(members[index]).push(mode === 'list' ? name : [name, values.dispositions.get(name)])
     );
   }
+  const completion = docCompletion(
+    observed,
+    headers.map((header) => inventory.docs.find((doc) => doc.target === header).package)
+  );
   if (mode === 'execution')
     exact(
       [...docs.values()]
@@ -460,6 +470,7 @@ export function cargoCoverage(stdout, stderr, inventory, mode, ignored = false) 
         package: pkg,
         values: values.sort((a, b) => canonical(a).localeCompare(canonical(b))),
         ignored,
+        observed: completion.get(pkg),
       };
     })
     .sort((a, b) => a.package.localeCompare(b.package));
@@ -476,13 +487,51 @@ export function cargoCoverage(stdout, stderr, inventory, mode, ignored = false) 
   return {
     ordinary: ordinary.sort((a, b) => a.id.localeCompare(b.id)),
     docs: docValues,
-    zeroDocSections: blocks
-      .slice(paths.length)
-      .filter((block) =>
-        mode === 'list' ? parseList(block).length === 0 : executionNames(block).names.length === 0
-      ).length,
     libraryFeatures: features,
   };
+}
+// Cargo serializes target invocations. Rustdoc may emit several blocks per target.
+// Keep header order and require exactly one consecutive partition of all blocks;
+// zero blocks have no source owner and cannot silently stand in for missing evidence.
+function docCompletion(blocks, packages) {
+  if (!packages.length) {
+    assert(!blocks.length, 'Extra doctest completion');
+    return new Map();
+  }
+  let states = new Map([[-1, { ways: 1, node: null }]]);
+  for (const block of blocks) {
+    const next = new Map();
+    for (const [index, state] of states) {
+      for (const owner of index < 0 ? [0] : [index, index + 1]) {
+        if (owner >= packages.length || (block.owner && block.owner !== packages[owner])) continue;
+        const previous = next.get(owner);
+        next.set(owner, {
+          ways: Math.min(2, (previous?.ways ?? 0) + state.ways),
+          node: { owner, zero: block.zero, previous: state.node },
+        });
+      }
+    }
+    states = next;
+  }
+  const final = states.get(packages.length - 1);
+  assert(final?.ways === 1, 'Missing/ambiguous doctest target completion');
+  const groups = packages.map(() => []);
+  for (let node = final.node; node; node = node.previous) groups[node.owner].push(node.zero);
+  assert(
+    groups.every((group) => !group.every(Boolean) || group.length === 1),
+    'Duplicate zero doctest completion'
+  );
+  return new Map(
+    packages.map((pkg, index) => [
+      pkg,
+      {
+        complete: true,
+        blocks: groups[index].length,
+        zeroBlocks: groups[index].filter(Boolean).length,
+        disposition: groups[index].every(Boolean) ? 'zero' : 'nonzero',
+      },
+    ])
+  );
 }
 function executionNames(block) {
   const dispositions = new Map(
@@ -500,6 +549,40 @@ export function assignment(harnesses) {
   );
   assert(ids.length > 0, 'Empty N=1 assignment');
   return [{ index: 0, ids }];
+}
+function admitDocReport(report) {
+  const packages = report.inventory.docs.map((doc) => doc.package).sort();
+  unique(packages, 'doctest report target');
+  for (const phase of ['normal', 'ignored', 'execution']) {
+    const entries = report.docs?.[phase];
+    assert(Array.isArray(entries), 'Missing doctest phase evidence');
+    exact(
+      entries.map((entry) => entry.package).sort(),
+      packages,
+      'Missing/duplicate/extra doctest disposition'
+    );
+    for (const entry of entries) {
+      const observed = entry.observed;
+      assert(
+        observed?.complete === true &&
+          Number.isSafeInteger(observed.blocks) &&
+          observed.blocks > 0 &&
+          Number.isSafeInteger(observed.zeroBlocks) &&
+          observed.zeroBlocks >= 0 &&
+          observed.zeroBlocks <= observed.blocks &&
+          Array.isArray(entry.values),
+        'Unconfirmed doctest completion'
+      );
+      const zero = entry.values.length === 0;
+      assert(
+        observed.disposition === (zero ? 'zero' : 'nonzero') &&
+          (!zero || (observed.blocks === 1 && observed.zeroBlocks === 1)) &&
+          (zero || observed.zeroBlocks < observed.blocks),
+        'Invalid doctest zero disposition'
+      );
+      exact(entry.ignored, phase === 'ignored', 'Misattributed doctest phase');
+    }
+  }
 }
 export function aggregate(reports, results) {
   exact(Object.keys(results).sort(), [...ROLES].sort(), 'Missing/extra job result');
@@ -530,7 +613,9 @@ export function aggregate(reports, results) {
   const byRole = Object.fromEntries(reports.map((report) => [report.role, report]));
   for (const report of reports) {
     assert(
-      report.complete === true && report.runtimeRootsRemoved === true,
+      report.complete === true &&
+        report.runtimeRootsRemoved === true &&
+        report.cleanupVerified === true,
       'Incomplete report/root cleanup'
     );
     exact(
@@ -539,6 +624,8 @@ export function aggregate(reports, results) {
       'Source/attempt/platform/toolchain/environment mismatch'
     );
   }
+  admitDocReport(byRole.baseline);
+  admitDocReport(byRole.doctest);
   exact(byRole.consumer.bundleHash, byRole.producer.bundleHash, 'Runtime payload hash mismatch');
   for (const report of reports)
     assert(
@@ -546,7 +633,17 @@ export function aggregate(reports, results) {
         report.commands.length > 0 &&
         report.commands.every(
           (command) =>
-            command.status === 0 && command.signal === null && command.cleanup && !command.reason
+            command.status === 0 &&
+            command.signal === null &&
+            command.complete === true &&
+            command.exitObserved === true &&
+            command.closeObserved === true &&
+            command.streamsComplete === true &&
+            command.outputComplete === true &&
+            command.groupAbsent === true &&
+            command.cleanup === true &&
+            !command.reason &&
+            !command.signalError
         ),
       'Missing/failed process evidence'
     );

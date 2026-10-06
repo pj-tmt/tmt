@@ -27,9 +27,19 @@ import {
   aggregate,
 } from './workspace-proof.mjs';
 
-const SYSTEM_TOOLS = ['tar', 'ldd', 'readelf', 'ss', 'git', 'bash', 'sh', 'cc', 'ld', 'as'].map(
-  (tool) => `/usr/bin/${tool}`
-);
+const SYSTEM_TOOLS = [
+  'tar',
+  'ldd',
+  'readelf',
+  'ss',
+  'git',
+  'bash',
+  'sh',
+  'cc',
+  'ld',
+  'as',
+  'rm',
+].map((tool) => `/usr/bin/${tool}`);
 
 export function hashFile(file) {
   const fd = fs.openSync(file, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
@@ -143,6 +153,191 @@ export async function unpackClosure(file, expectedHash, files, destination) {
   }
 }
 
+// Only the group created by this spawn is a signalling authority. Snapshot PIDs
+// are detection evidence, never an ownership list. Close waits for inherited pipes.
+export async function captureCommand(
+  executable,
+  args,
+  {
+    cwd,
+    environment,
+    input,
+    outFile,
+    errFile,
+    executionMs,
+    settlementMs = LIMITS.settlementMs,
+    outputBytes = LIMITS.outputBytes,
+    evidenceBytes = LIMITS.evidenceBytes,
+    launch = spawn,
+    signal = process.kill.bind(process),
+  }
+) {
+  assert(executionMs > 0 && settlementMs > 0, 'No command settlement budget');
+  const began = performance.now();
+  const out = fs.openSync(outFile, 'wx'),
+    err = fs.openSync(errFile, 'wx');
+  let child,
+    bytes = 0,
+    reason = null,
+    signalError = null;
+  let exitObserved = false,
+    closeObserved = false,
+    streamsComplete = false,
+    outputComplete = true;
+  let code = null,
+    termination = null;
+  try {
+    child = launch(executable, args, {
+      cwd,
+      env: environment,
+      detached: true,
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+    await new Promise((resolve) => {
+      let settled = false,
+        settlementTimer;
+      const finish = () => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(executionTimer);
+        clearTimeout(settlementTimer);
+        streamsComplete = closeObserved && child.stdout.readableEnded && child.stderr.readableEnded;
+        // Closing our pipe handles does not establish that an escaped child died.
+        child.stdin.destroy();
+        child.stdout.destroy();
+        child.stderr.destroy();
+        child.unref();
+        resolve();
+      };
+      const boundSettlement = () => {
+        if (settled) return;
+        settlementTimer ??= setTimeout(() => {
+          reason ??= 'unconfirmed exit/pipe settlement';
+          finish();
+        }, settlementMs);
+      };
+      const stop = (why) => {
+        if (settled) return;
+        reason ??= why;
+        if (child.pid) {
+          try {
+            signal(-child.pid, 'SIGKILL');
+          } catch (error) {
+            if (error.code !== 'ESRCH') signalError ??= error.message;
+          }
+        }
+        boundSettlement();
+      };
+      const executionTimer = setTimeout(() => stop('deadline'), executionMs);
+      function capture(fd, chunk) {
+        if (settled) return;
+        const available = Math.max(0, Math.min(outputBytes, evidenceBytes) - bytes);
+        const kept = chunk.subarray(0, available);
+        try {
+          if (kept.length) fs.writeSync(fd, kept);
+        } catch (error) {
+          outputComplete = false;
+          stop(`stream capture: ${error.message}`);
+          return;
+        }
+        bytes += kept.length;
+        if (chunk.length > available) {
+          outputComplete = false;
+          stop('output bound');
+        }
+      }
+      child.stdout.on('data', (chunk) => capture(out, chunk));
+      child.stderr.on('data', (chunk) => capture(err, chunk));
+      for (const stream of [child.stdin, child.stdout, child.stderr])
+        stream.on('error', (error) => {
+          if (error.code !== 'EPIPE') stop(error.message);
+        });
+      child.once('error', (error) => stop(`spawn: ${error.message}`));
+      child.once('exit', (status, receivedSignal) => {
+        exitObserved = true;
+        code = status;
+        termination = receivedSignal;
+        // Even a successful exit cannot wait indefinitely for inherited pipes.
+        boundSettlement();
+      });
+      child.once('close', (status, receivedSignal) => {
+        closeObserved = true;
+        code = status;
+        termination = receivedSignal;
+        finish();
+      });
+      child.stdin.end(input);
+    });
+  } catch (error) {
+    reason ??= `spawn/capture: ${error.message}`;
+  } finally {
+    fs.closeSync(out);
+    fs.closeSync(err);
+  }
+  let groupAbsent = !child?.pid;
+  if (child?.pid) {
+    try {
+      signal(-child.pid, 0);
+    } catch (error) {
+      if (error.code === 'ESRCH') groupAbsent = true;
+      else signalError ??= error.message;
+    }
+    if (!groupAbsent) {
+      reason ??= 'surviving/unconfirmed process group';
+      try {
+        signal(-child.pid, 'SIGKILL');
+      } catch (error) {
+        if (error.code !== 'ESRCH') signalError ??= error.message;
+      }
+    }
+  }
+  const settled = exitObserved && closeObserved && streamsComplete;
+  const complete = settled && outputComplete;
+  const cleanup = settled && groupAbsent && !signalError;
+  if (!complete) reason ??= 'unconfirmed exit/pipe settlement';
+  return {
+    pid: child?.pid ?? null,
+    processGroup: child?.pid ? -child.pid : null,
+    status: code,
+    signal: termination,
+    reason,
+    signalError,
+    exitObserved,
+    closeObserved,
+    streamsComplete,
+    outputComplete,
+    complete,
+    groupAbsent,
+    cleanup,
+    capturedBytes: bytes,
+    elapsedMs: performance.now() - began,
+    stdout: hashFile(outFile),
+    stderr: hashFile(errFile),
+  };
+}
+
+export function admitCleanup(before, after, listenersBefore, listenersAfter) {
+  assert(Array.isArray(before) && Array.isArray(after), 'Missing process observations');
+  for (const snapshot of [before, after]) {
+    assert(
+      snapshot.every((entry) => /^\d+$/.test(entry.pid) && /^\d+$/.test(entry.start)),
+      'Unconfirmed process identity'
+    );
+    assert(
+      new Set(snapshot.map((entry) => entry.pid)).size === snapshot.length,
+      'Duplicate process observation'
+    );
+  }
+  assert(
+    after.every((entry) =>
+      before.some((old) => old.pid === entry.pid && old.start === entry.start)
+    ),
+    'New surviving process after harness execution'
+  );
+  exact(listenersAfter, listenersBefore, 'Leaked/changed listener');
+  return true;
+}
+
 async function main(role, directory) {
   assert(ROLES.includes(role) || role === 'aggregate', 'Unknown proof role');
   assert(process.platform === 'linux' && process.arch === 'x64', 'Proof requires Linux x86_64');
@@ -155,7 +350,9 @@ async function main(role, directory) {
   );
   fs.mkdirSync(output, { recursive: true });
   const started = performance.now(),
-    deadline = started + LIMITS.commandMs;
+    deadline = started + LIMITS.commandMs,
+    workDeadline = deadline - LIMITS.cleanupMs,
+    cleanupDeadline = deadline - LIMITS.settlementMs;
   const ownedBase = '/home/runner/work/_temp/tmt-workspace-proof';
   const cargoHome = `${ownedBase}/cargo`,
     target = path.join(rustRoot, 'target'),
@@ -220,79 +417,34 @@ async function main(role, directory) {
       expectedStatus = 0,
       extraEnv = {},
       timeoutMs = LIMITS.commandMs,
+      cleanupPhase = false,
     } = {}
   ) {
     assert(
-      performance.now() < deadline && sequence < LIMITS.commands,
+      performance.now() < (cleanupPhase ? cleanupDeadline : workDeadline) - LIMITS.settlementMs &&
+        sequence < LIMITS.commands,
       'Proof phase deadline/command count'
     );
     const id = `${String(sequence++).padStart(3, '0')}-${label}`,
       outFile = path.join(output, `${id}.stdout`),
       errFile = path.join(output, `${id}.stderr`);
-    const out = fs.openSync(outFile, 'wx'),
-      err = fs.openSync(errFile, 'wx');
-    const began = performance.now();
-    let bytes = 0,
-      reason;
     const environment = { ...env, ...extraEnv, ...(network ? { CARGO_NET_OFFLINE: 'false' } : {}) };
-    const child = spawn(executable, args, {
+    const result = await captureCommand(executable, args, {
       cwd,
-      env: environment,
-      detached: true,
-      stdio: ['pipe', 'pipe', 'pipe'],
+      environment,
+      input,
+      outFile,
+      errFile,
+      executionMs: Math.max(
+        1,
+        Math.min(
+          timeoutMs,
+          (cleanupPhase ? cleanupDeadline : workDeadline) - performance.now() - LIMITS.settlementMs
+        )
+      ),
+      evidenceBytes: LIMITS.evidenceBytes - evidenceBytes,
     });
-    const stop = (why) => {
-      reason ??= why;
-      if (child.pid) {
-        try {
-          process.kill(-child.pid, 'SIGKILL');
-        } catch (error) {
-          if (error.code !== 'ESRCH') reason = error.message;
-        }
-      }
-    };
-    const timer = setTimeout(
-      () => stop('deadline'),
-      Math.max(1, Math.min(timeoutMs, deadline - performance.now()))
-    );
-    function capture(fd, chunk) {
-      bytes += chunk.length;
-      evidenceBytes += chunk.length;
-      if (bytes > LIMITS.outputBytes || evidenceBytes > LIMITS.evidenceBytes) {
-        stop('output bound');
-        return;
-      }
-      fs.writeSync(fd, chunk);
-    }
-    child.stdout.on('data', (chunk) => capture(out, chunk));
-    child.stderr.on('data', (chunk) => capture(err, chunk));
-    const result = await new Promise((resolve) => {
-      child.once('error', (error) => {
-        reason = error.message;
-        resolve({ code: null, signal: null });
-      });
-      child.once('close', (code, signal) => resolve({ code, signal }));
-      child.stdin.on('error', (error) => {
-        if (error.code !== 'EPIPE') stop(error.message);
-      });
-      child.stdin.end(input);
-    });
-    clearTimeout(timer);
-    fs.closeSync(out);
-    fs.closeSync(err);
-    let cleanup = true;
-    if (child.pid) {
-      try {
-        process.kill(-child.pid, 0);
-        cleanup = false;
-        stop('surviving process group');
-      } catch (error) {
-        if (error.code !== 'ESRCH') {
-          cleanup = false;
-          reason ??= error.message;
-        }
-      }
-    }
+    evidenceBytes += result.capturedBytes;
     const record = {
       id,
       executable,
@@ -302,18 +454,16 @@ async function main(role, directory) {
       input:
         input === undefined ? null : { bytes: Buffer.byteLength(input), sha256: digest(input) },
       network,
-      status: result.code,
-      signal: result.signal,
-      reason,
-      cleanup,
-      elapsedMs: performance.now() - began,
-      stdout: hashFile(outFile),
-      stderr: hashFile(errFile),
+      ...result,
     };
     records.push(record);
     fs.writeFileSync(path.join(output, `${id}.process.json`), JSON.stringify(record, null, 2));
     assert(
-      !reason && cleanup && result.signal === null && result.code === expectedStatus,
+      !result.reason &&
+        result.complete &&
+        result.cleanup &&
+        result.signal === null &&
+        result.status === expectedStatus,
       `Proof command failed: ${id}; original streams/process retained`
     );
     return { stdout: fs.readFileSync(outFile, 'utf8'), stderr: fs.readFileSync(errFile, 'utf8') };
@@ -323,8 +473,12 @@ async function main(role, directory) {
   const json = (name, value) =>
     fs.writeFileSync(path.join(output, name), JSON.stringify(value, null, 2) + '\n');
   const artifactIds = JSON.parse(process.env.PROOF_ARTIFACT_IDS ?? '{}');
-  let report = { role, artifactIds, complete: false };
+  let report = { role, artifactIds, complete: false, cleanupVerified: false };
+  let processesBefore, listenersBefore;
   try {
+    processesBefore = processSnapshot();
+    json('processes-before.json', processesBefore);
+    listenersBefore = (await command('listeners-before', '/usr/bin/ss', ['-H', '-ltnup'])).stdout;
     const source = (
       await command('source', 'git', ['rev-parse', 'HEAD'], { cwd: root })
     ).stdout.trim();
@@ -661,11 +815,6 @@ async function main(role, directory) {
         );
         report.execution = coverage.ordinary;
         report.docs = {
-          zeroSections: [
-            normal.zeroDocSections,
-            ignoredCoverage.zeroDocSections,
-            coverage.zeroDocSections,
-          ],
           normal: normal.docs,
           ignored: ignoredCoverage.docs,
           execution: coverage.docs,
@@ -763,9 +912,6 @@ async function main(role, directory) {
         source: path.join(root, '.github/components.json'),
       });
       json('controls.json', report.controls);
-      const processesBefore = processSnapshot();
-      json('processes-before.json', processesBefore);
-      const before = (await command('listeners-before', '/usr/bin/ss', ['-H', '-ltnup'])).stdout;
       const execution = [];
       for (const harness of inventory.harnesses) {
         exact(hashFile(harness.executable).sha256, harness.sha256, 'Executable hash mismatch');
@@ -806,21 +952,6 @@ async function main(role, directory) {
         // Both streams remain hashed originals; stdout coverage and actual status are strict.
         execution.push({ id: harness.id, values: parseExecution(result.stdout, harness.list) });
       }
-      exact(
-        (await command('listeners-after', '/usr/bin/ss', ['-H', '-ltnup'])).stdout,
-        before,
-        'Leaked/changed listener'
-      );
-      const processesAfter = processSnapshot();
-      json('processes-after.json', processesAfter);
-      assert(
-        processesAfter.every((process) =>
-          processesBefore.some(
-            (before) => before.pid === process.pid && before.start === process.start
-          )
-        ),
-        'New surviving process after test execution'
-      );
       // Tests must not change a frozen executable, fixture, or dependency payload.
       for (const [name, destination] of [
         ['target', target],
@@ -854,7 +985,6 @@ async function main(role, directory) {
       report.inventoryHash = digest(canonical(inventory));
       report.assignment = assignment(inventory.harnesses);
       report.closureVerified = true;
-      report.cleanupVerified = true;
     }
     if (role === 'doctest') {
       // Separate graph, cold target: only the same workspace --doc selection, never feature repair.
@@ -883,11 +1013,6 @@ async function main(role, directory) {
       const coverage = cargoCoverage(execution.stdout, execution.stderr, inventory, 'execution');
       exact(coverage.ordinary, [], 'Doctest worker executed an ordinary binary');
       report.docs = {
-        zeroSections: [
-          normalCoverage.zeroDocSections,
-          ignoredCoverage.zeroDocSections,
-          coverage.zeroDocSections,
-        ],
         normal: normalCoverage.docs,
         ignored: ignoredCoverage.docs,
         execution: coverage.docs,
@@ -896,24 +1021,86 @@ async function main(role, directory) {
     }
     if (inventory) report.inventory = inventoryComparison(inventory);
     report.complete = true;
+  } catch (error) {
+    report.complete = false;
+    report.failure = error.message;
+    throw error;
   } finally {
-    report.commands = records;
     report.elapsedMs = performance.now() - started;
-    report.runtimeRootsRemoved = false;
-    try {
-      // Only these fixed job-owned roots are removed, including on a red original attempt.
-      for (const dir of [target, cargoHome, home, temporary, path.join(output, 'restored')])
-        fs.rmSync(dir, { recursive: true, force: true });
-      assert(
-        [target, cargoHome, home, temporary].every((dir) => !fs.existsSync(dir)),
-        'Owned root cleanup incomplete'
-      );
-      report.runtimeRootsRemoved = true;
-    } finally {
-      json(`${role}.json`, report);
-    }
+    await finalizeRole({
+      report,
+      records,
+      processesBefore,
+      listenersBefore,
+      roots: [target, cargoHome, home, temporary, path.join(output, 'restored')],
+      deadline,
+      command,
+      json,
+    });
+    report.elapsedMs = performance.now() - started;
+    json(`${role}.json`, report);
+    if (!report.complete) process.exitCode = 1;
   }
 }
+// One cleanup boundary for every role, including a failed command or admission.
+// Observations only detect; no PID from a snapshot is used for signalling.
+export async function finalizeRole({
+  report,
+  records,
+  processesBefore,
+  listenersBefore,
+  roots,
+  deadline,
+  command,
+  json,
+  snapshot = processSnapshot,
+  now = () => performance.now(),
+}) {
+  report.complete = false;
+  report.cleanupVerified = false;
+  report.commands = records;
+  report.runtimeRootsRemoved = false;
+  json(`${report.role}.json`, report);
+  try {
+    const processesAfter = snapshot();
+    json('processes-after.json', processesAfter);
+    const listenersAfter = (
+      await command('listeners-after', '/usr/bin/ss', ['-H', '-ltnup'], {
+        cleanupPhase: true,
+        timeoutMs: 10_000,
+      })
+    ).stdout;
+    report.cleanupVerified =
+      admitCleanup(processesBefore, processesAfter, listenersBefore, listenersAfter) &&
+      records.length > 0 &&
+      records.every((record) => record.cleanup === true);
+    assert(report.cleanupVerified, 'Command/role cleanup unconfirmed');
+    report.processObservations = {
+      before: digest(canonical(processesBefore)),
+      after: digest(canonical(processesAfter)),
+    };
+    // The command caller bounds this removal; no unbounded synchronous tree walk.
+    await command('remove-owned-roots', '/usr/bin/rm', ['-rf', '--', ...roots], {
+      cwd: path.dirname(fileURLToPath(import.meta.url)),
+      cleanupPhase: true,
+      timeoutMs: 30_000,
+    });
+    assert(
+      roots.every((dir) => !fs.existsSync(dir)),
+      'Owned root cleanup incomplete'
+    );
+    report.runtimeRootsRemoved = true;
+    assert(now() < deadline, 'Report finalization deadline');
+    report.complete = !report.failure;
+  } catch (error) {
+    report.cleanupFailure = error.message;
+    report.complete = false;
+  } finally {
+    report.commands = records;
+    json(`${report.role}.json`, report);
+  }
+}
+
 /** Sensitivity of admission using copies of the actual immutable runtime inputs.
  * This does not run failing harnesses or claim per-input causal necessity. */
 export function inputControls(directory, inputs) {
@@ -985,13 +1172,30 @@ export function verifyReportFiles(directory, report) {
     report.role === 'producer'
       ? ['inventory.json', 'bundle.json']
       : report.role === 'consumer'
-        ? ['processes-before.json', 'processes-after.json', 'controls.json']
+        ? ['controls.json']
         : [];
-  const expected = [`${report.role}.json`, 'source-files.json', 'metadata.raw.json', ...additional];
+  const expected = [
+    `${report.role}.json`,
+    'source-files.json',
+    'metadata.raw.json',
+    'processes-before.json',
+    'processes-after.json',
+    ...additional,
+  ];
   assert(
     new Set(report.commands.map((command) => command.id)).size === report.commands.length,
     'Duplicate command identity'
   );
+  for (const phase of ['before', 'after']) {
+    const observations = JSON.parse(
+      fs.readFileSync(path.join(directory, `processes-${phase}.json`), 'utf8')
+    );
+    exact(
+      digest(canonical(observations)),
+      report.processObservations?.[phase],
+      'Process observation hash mismatch'
+    );
+  }
   for (const record of report.commands) {
     assert(/^\d{3,4}-[a-z-]+$/.test(record.id), 'Unsafe command identity');
     for (const stream of ['stdout', 'stderr']) {

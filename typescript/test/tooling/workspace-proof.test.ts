@@ -1,4 +1,6 @@
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, symlinkSync } from 'node:fs';
+import { EventEmitter } from 'node:events';
+import { PassThrough } from 'node:stream';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -217,9 +219,63 @@ describe('N=1 Cargo proof admission (synthetic formats, not Linux equivalence)',
     const stdout = `${finish}crates/lib/src/lib.rs - first (line 1): test\n1 test, 0 benchmarks\ncrates/lib/src/lib.rs - second (line 9): test\n1 test, 0 benchmarks\n0 tests, 0 benchmarks\n`;
     const stderr = '   Doc-tests lib\n   Doc-tests zero\n';
     expect(proof.cargoCoverage(stdout, stderr, inv, 'list').docs).toEqual([
-      { package: 'lib', values: Object.keys(inv.docLists), ignored: false },
-      { package: 'zero', values: [], ignored: false },
+      {
+        package: 'lib',
+        values: Object.keys(inv.docLists),
+        ignored: false,
+        observed: { complete: true, blocks: 2, zeroBlocks: 0, disposition: 'nonzero' },
+      },
+      {
+        package: 'zero',
+        values: [],
+        ignored: false,
+        observed: { complete: true, blocks: 1, zeroBlocks: 1, disposition: 'zero' },
+      },
     ]);
+    for (const output of [
+      stdout.replace('0 tests, 0 benchmarks\n', ''),
+      stdout + '0 tests, 0 benchmarks\n',
+      stdout.replace('crates/lib/src/lib.rs - first', 'crates/zero/src/lib.rs - first'),
+    ])
+      expect(() => proof.cargoCoverage(output, stderr, inv, 'list')).toThrow();
+    const execution = `${finish}running 1 test\ntest crates/lib/src/lib.rs - first (line 1) ... ok\ntest result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\nrunning 1 test\ntest crates/lib/src/lib.rs - second (line 9) ... ok\ntest result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\nrunning 0 tests\ntest result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\n`;
+    expect(
+      proof.cargoCoverage(execution, stderr, inv, 'execution').docs[1].observed.disposition
+    ).toBe('zero');
+    expect(() =>
+      proof.cargoCoverage(
+        execution.replace(/running 0 tests[\s\S]*$/, ''),
+        stderr,
+        inv,
+        'execution'
+      )
+    ).toThrow('completion');
+    const ignored = `${finish}0 tests, 0 benchmarks\n0 tests, 0 benchmarks\n`;
+    expect(
+      proof
+        .cargoCoverage(ignored, stderr, inv, 'list', true)
+        .docs.every(
+          (doc: { observed: { disposition: string } }) => doc.observed.disposition === 'zero'
+        )
+    ).toBe(true);
+    expect(() =>
+      proof.cargoCoverage(ignored.replace('0 tests, 0 benchmarks\n', ''), stderr, inv, 'list', true)
+    ).toThrow('completion');
+    const zero = { ...inv, docs: [inv.docs[1]] };
+    expect(() => proof.cargoCoverage(finish, '   Doc-tests zero\n', zero, 'list')).toThrow(
+      'completion'
+    );
+    expect(() =>
+      proof.cargoCoverage(
+        `${finish}0 tests, 0 benchmarks\n0 tests, 0 benchmarks\n`,
+        '   Doc-tests zero\n',
+        zero,
+        'list'
+      )
+    ).toThrow('Duplicate zero');
+    expect(() => proof.cargoCoverage(stdout, stderr + '   Doc-tests zero\n', inv, 'list')).toThrow(
+      'Duplicate'
+    );
     expect(() =>
       proof.cargoCoverage(stdout, stderr.replace('   Doc-tests zero\n', ''), inv, 'list')
     ).toThrow('target');
@@ -236,13 +292,37 @@ describe('N=1 Cargo proof admission (synthetic formats, not Linux equivalence)',
       complete: true,
       runtimeRootsRemoved: true,
       identity: { source: 'head', attempt: '1' },
-      commands: [{ status: 0, signal: null, cleanup: true }],
-      inventory: { harnesses: [{ id: 'binary' }] },
+      commands: [
+        {
+          status: 0,
+          signal: null,
+          cleanup: true,
+          complete: true,
+          exitObserved: true,
+          closeObserved: true,
+          streamsComplete: true,
+          outputComplete: true,
+          groupAbsent: true,
+        },
+      ],
+      inventory: { harnesses: [{ id: 'binary' }], docs: [{ package: 'zero' }] },
       inventoryHash: 'a'.repeat(64),
       bundleHash: 'b'.repeat(64),
       assignment: [{ index: 0, ids: ['binary'] }],
       execution: [{ id: 'binary', values: [['case', 'ok']] }],
-      docs: ['doc'],
+      docs: Object.fromEntries(
+        ['normal', 'ignored', 'execution'].map((phase) => [
+          phase,
+          [
+            {
+              package: 'zero',
+              values: [],
+              ignored: phase === 'ignored',
+              observed: { complete: true, blocks: 1, zeroBlocks: 1, disposition: 'zero' },
+            },
+          ],
+        ])
+      ),
       libraryFeatures: [['lib', ['a']]],
       controls: ['cargo', 'child', 'library', 'source'].map((kind) => ({
         kind,
@@ -257,6 +337,19 @@ describe('N=1 Cargo proof admission (synthetic formats, not Linux equivalence)',
     }));
     const results = Object.fromEntries(good.map((report) => [report.role, 'success']));
     expect(proof.aggregate(good, results).complete).toBe(true);
+    for (const field of [
+      'complete',
+      'exitObserved',
+      'closeObserved',
+      'streamsComplete',
+      'outputComplete',
+      'groupAbsent',
+      'cleanup',
+    ]) {
+      const changed = clone(good);
+      Object.assign(changed[0].commands[0], { [field]: false });
+      expect(() => proof.aggregate(changed, results)).toThrow('process evidence');
+    }
     for (const status of ['failure', 'cancelled', 'skipped', 'missing'])
       expect(() => proof.aggregate(good, { ...results, consumer: status })).toThrow('proof job');
     for (const reports of [good.slice(1), [...good, good[0]]])
@@ -277,12 +370,244 @@ describe('N=1 Cargo proof admission (synthetic formats, not Linux equivalence)',
       ['consumer', 'assignment', []],
       ['consumer', 'execution', ['binary/extra']],
       ['consumer', 'cleanupVerified', false],
+      ['producer', 'cleanupVerified', false],
+      ['baseline', 'cleanupVerified', false],
+      ['doctest', 'cleanupVerified', false],
+      ['baseline', 'commands', [{ status: 0, signal: null, cleanup: true }]],
       ['doctest', 'docs', []],
+      ['baseline', 'docs', { normal: [], ignored: [], execution: [] }],
+      [
+        'doctest',
+        'docs',
+        Object.fromEntries(
+          ['normal', 'ignored', 'execution'].map((phase) => [
+            phase,
+            [{ package: 'zero', values: [], ignored: phase === 'ignored' }],
+          ])
+        ),
+      ],
       ['doctest', 'libraryFeatures', [['lib', ['wrong']]]],
       ['producer', 'complete', false],
       ['baseline', 'commands', [{ status: 1, signal: null, cleanup: true }]],
     ] as const)
       expect(() => proof.aggregate(mutate(role, field, value), results)).toThrow();
+  });
+});
+
+describe('bounded command and role cleanup', () => {
+  it('admits cleanup for every role and preserves original red or unconfirmed cleanup without removing live roots', async () => {
+    const temp = mkdtempSync(path.join(tmpdir(), 'tmt-proof-finalize-'));
+    try {
+      for (const role of proof.ROLES) {
+        for (const outcome of [
+          'success',
+          'original-red',
+          'survivor',
+          'unconfirmed',
+          'listeners',
+          'deadline',
+          'removal',
+        ]) {
+          const owned = path.join(temp, `${role}-${outcome}`);
+          mkdirSync(owned);
+          writeFileSync(path.join(owned, 'retained'), 'owned runtime');
+          const report = {
+            role,
+            complete: true,
+            failure: outcome === 'original-red' ? 'original command red' : null,
+            cleanupVerified: false,
+            runtimeRootsRemoved: false,
+            cleanupFailure: '',
+          };
+          const writes: Record<string, unknown>[] = [];
+          const before = [{ pid: '100', start: '10' }];
+          const calls: string[] = [];
+          await transport.finalizeRole({
+            report,
+            records: [{ cleanup: outcome !== 'unconfirmed' }],
+            processesBefore: before,
+            listenersBefore: '',
+            roots: [owned],
+            deadline: 100,
+            now: () => (outcome === 'deadline' ? 101 : 1),
+            snapshot: () =>
+              outcome === 'survivor' ? [...before, { pid: '200', start: '20' }] : before,
+            command: async (
+              label: string,
+              _executable: string,
+              args: string[],
+              options: { cleanupPhase: boolean }
+            ) => {
+              calls.push(label);
+              expect(options.cleanupPhase).toBe(true);
+              if (label === 'remove-owned-roots' && outcome !== 'removal')
+                rmSync(args.at(-1)!, { recursive: true });
+              return { stdout: outcome === 'listeners' ? 'leaked listener' : '' };
+            },
+            json: (_name: string, value: Record<string, unknown>) => writes.push(clone(value)),
+          });
+          expect(writes[0].complete).toBe(false);
+          expect(report.complete).toBe(outcome === 'success');
+          expect(report.failure).toBe(outcome === 'original-red' ? 'original command red' : null);
+          if (['survivor', 'unconfirmed', 'listeners'].includes(outcome)) {
+            expect(report.cleanupVerified).toBe(false);
+            expect(calls).toEqual(['listeners-after']);
+            expect(readFileSync(path.join(owned, 'retained'), 'utf8')).toBe('owned runtime');
+          }
+          if (outcome === 'removal') expect(report.runtimeRootsRemoved).toBe(false);
+          if (outcome !== 'success' && outcome !== 'original-red')
+            expect(report.cleanupFailure).toBeTruthy();
+        }
+      }
+    } finally {
+      rmSync(temp, { recursive: true, force: true });
+    }
+  });
+  it('records actual owned Node exit, streams and ephemeral listener closure', async () => {
+    const temp = mkdtempSync(path.join(tmpdir(), 'tmt-proof-command-'));
+    try {
+      const result = await transport.captureCommand(
+        process.execPath,
+        [
+          '-e',
+          "const s=require('node:net').createServer(); s.listen(0,'127.0.0.1',()=>{ console.log('owned-listener:'+s.address().port); s.close(); });",
+        ],
+        {
+          cwd: temp,
+          environment: {},
+          outFile: path.join(temp, 'out'),
+          errFile: path.join(temp, 'err'),
+          executionMs: 2000,
+          settlementMs: 200,
+        }
+      );
+      expect(result).toMatchObject({
+        status: 0,
+        signal: null,
+        complete: true,
+        cleanup: true,
+        exitObserved: true,
+        closeObserved: true,
+        streamsComplete: true,
+        outputComplete: true,
+        groupAbsent: true,
+      });
+      expect(Number.isSafeInteger(result.pid) && result.pid > 0).toBe(true);
+      expect(result.processGroup).toBe(-result.pid);
+      expect(readFileSync(path.join(temp, 'out'), 'utf8')).toMatch(/^owned-listener:\d+\n$/);
+      const overflow = await transport.captureCommand(
+        process.execPath,
+        ['-e', "process.stdout.write('x'.repeat(10000)); setInterval(()=>{},1000);"],
+        {
+          cwd: temp,
+          environment: {},
+          outFile: path.join(temp, 'overflow-out'),
+          errFile: path.join(temp, 'overflow-err'),
+          executionMs: 2000,
+          settlementMs: 200,
+          outputBytes: 32,
+        }
+      );
+      expect(overflow.reason).toBe('output bound');
+      expect(overflow.cleanup).toBe(true);
+      expect(overflow.complete).toBe(false);
+      expect(overflow.outputComplete).toBe(false);
+      expect(overflow.signal).toBe('SIGKILL');
+      expect(readFileSync(path.join(temp, 'overflow-out'), 'utf8')).toBe('x'.repeat(32));
+      const timeout = await transport.captureCommand(
+        process.execPath,
+        ['-e', 'setInterval(()=>{},1000)'],
+        {
+          cwd: temp,
+          environment: {},
+          outFile: path.join(temp, 'timeout-out'),
+          errFile: path.join(temp, 'timeout-err'),
+          executionMs: 100,
+          settlementMs: 200,
+        }
+      );
+      expect(timeout.reason).toBe('deadline');
+      expect(timeout.cleanup).toBe(true);
+      expect(timeout.signal).toBe('SIGKILL');
+    } finally {
+      rmSync(temp, { recursive: true, force: true });
+    }
+  });
+  it('bounds missing exit/close, signal denial and surviving groups with partial evidence', async () => {
+    const temp = mkdtempSync(path.join(tmpdir(), 'tmt-proof-injected-'));
+    class Child extends EventEmitter {
+      pid = 123456;
+      stdin = new PassThrough();
+      stdout = new PassThrough();
+      stderr = new PassThrough();
+      unref() {}
+    }
+    try {
+      for (const kind of ['missing-close', 'missing-exit', 'signal-denied', 'surviving-group']) {
+        const child = new Child();
+        const signals: [number, string | number][] = [];
+        const result = await transport.captureCommand('injected-only', [], {
+          cwd: temp,
+          environment: {},
+          outFile: path.join(temp, `${kind}-out`),
+          errFile: path.join(temp, `${kind}-err`),
+          executionMs: 20,
+          settlementMs: 20,
+          launch: () => {
+            queueMicrotask(() => {
+              child.stdout.write('original partial stream');
+              if (kind !== 'missing-exit') child.emit('exit', 0, null);
+              if (kind === 'surviving-group') {
+                child.stdout.end();
+                child.stderr.end();
+                setImmediate(() => child.emit('close', 0, null));
+              }
+            });
+            return child;
+          },
+          signal: (pid: number, signal: string | number) => {
+            signals.push([pid, signal]);
+            if (kind === 'signal-denied')
+              throw Object.assign(new Error('owned signal denied'), { code: 'EPERM' });
+            if (kind !== 'surviving-group')
+              throw Object.assign(new Error('absent'), { code: 'ESRCH' });
+          },
+        });
+        expect(result.elapsedMs).toBeLessThan(1000);
+        expect(result.cleanup).toBe(false);
+        expect(result.reason).toBeTruthy();
+        expect(readFileSync(path.join(temp, `${kind}-out`), 'utf8')).toBe(
+          'original partial stream'
+        );
+        expect(signals.every(([pid]) => pid === -child.pid)).toBe(true);
+        expect(child.stdout.destroyed && child.stderr.destroyed && child.stdin.destroyed).toBe(
+          true
+        );
+        if (kind === 'signal-denied') expect(result.signalError).toBe('owned signal denied');
+        if (kind === 'missing-close')
+          expect(result).toMatchObject({
+            exitObserved: true,
+            closeObserved: false,
+            complete: false,
+          });
+        if (kind === 'missing-exit') expect(result.exitObserved).toBe(false);
+      }
+    } finally {
+      rmSync(temp, { recursive: true, force: true });
+    }
+  });
+  it('rejects missing, duplicate, reused or surviving identities and changed listeners without signalling', () => {
+    const before = [{ pid: '100', start: '10' }];
+    expect(transport.admitCleanup(before, before, 'listener', 'listener')).toBe(true);
+    for (const after of [
+      [...before, { pid: '200', start: '20' }],
+      [{ pid: '100', start: '11' }],
+      [before[0], before[0]],
+      [{ pid: '100', start: undefined }],
+    ])
+      expect(() => transport.admitCleanup(before, after, '', '')).toThrow();
+    expect(() => transport.admitCleanup(undefined, before, '', '')).toThrow();
+    expect(() => transport.admitCleanup(before, before, '', 'leaked')).toThrow('listener');
   });
 });
 
@@ -302,11 +627,29 @@ describe('bounded frozen transport', () => {
         writeFileSync(path.join(temp, `000-test.${stream}`), stream);
         record[stream] = transport.hashFile(path.join(temp, `000-test.${stream}`));
       }
-      const report = { role: 'baseline', commands: [record] };
-      for (const name of ['baseline.json', 'source-files.json', 'metadata.raw.json'])
+      const report = {
+        role: 'baseline',
+        commands: [record],
+        processObservations: { before: proof.digest('[]'), after: proof.digest('[]') },
+      };
+      for (const name of [
+        'baseline.json',
+        'source-files.json',
+        'metadata.raw.json',
+        'processes-before.json',
+        'processes-after.json',
+      ])
         writeFileSync(path.join(temp, name), '{}');
+      for (const phase of ['before', 'after'])
+        writeFileSync(path.join(temp, `processes-${phase}.json`), '[]');
       writeFileSync(path.join(temp, '000-test.process.json'), JSON.stringify(record));
       transport.verifyReportFiles(temp, report);
+      writeFileSync(
+        path.join(temp, 'processes-after.json'),
+        JSON.stringify([{ pid: '200', start: '20' }])
+      );
+      expect(() => transport.verifyReportFiles(temp, report)).toThrow('observation hash');
+      writeFileSync(path.join(temp, 'processes-after.json'), '[]');
       writeFileSync(path.join(temp, '000-test.stdout'), 'tampered');
       expect(() => transport.verifyReportFiles(temp, report)).toThrow('stream hash');
       writeFileSync(path.join(temp, '000-test.stdout'), 'stdout');
