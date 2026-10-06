@@ -24,7 +24,7 @@ export function MarkLegend() {
       <p className="mb-3 text-[15px] leading-normal text-muted">{marks.intro}</p>
       <ul
         aria-label={marks.label}
-        className="m-0 grid list-none grid-cols-2 gap-px overflow-hidden border border-term-edge bg-term-edge p-0 shadow-[6px_6px_0_var(--c-accent)] sm:grid-cols-4"
+        className="m-0 grid list-none grid-cols-2 gap-px overflow-hidden border border-term-edge bg-term-edge p-0 sm:grid-cols-4"
       >
         {marks.items.map((item) => (
           <li

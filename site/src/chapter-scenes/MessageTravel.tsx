@@ -41,7 +41,7 @@ export function MessageTravel() {
       <div
         role="img"
         aria-label={travel.label}
-        className="relative overflow-hidden border border-term-edge shadow-[6px_6px_0_var(--c-accent)]"
+        className="relative overflow-hidden border border-term-edge"
       >
         <div aria-hidden="true" className="grid grid-cols-1 gap-px bg-term-edge md:grid-cols-3">
           <Pane name={travel.lead} tag="claude" tone="text-t-review" rows={leadRows} step={index} />

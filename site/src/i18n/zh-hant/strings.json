@@ -241,5 +241,31 @@
       "meetArrow": "舉手的人（↑）依序等待 · 由你點名",
       "planned": "規劃中"
     }
+  },
+  "landing": {
+    "howItWorks": "運作方式",
+    "quickStart": "開始使用",
+    "eyebrow": "讓 AGENTS 直接對話",
+    "statement": "各自獨立的 agents。\n一起完成的工作。",
+    "description": "在自己的環境架設。串起你的 coding agents。交辦工作、收回結果，不必離開 terminal。",
+    "getStarted": "開始使用",
+    "seeWorkflow": "看看工作流程",
+    "environment": "你的 agents。你的工作環境。",
+    "workflowTitle": "少一點複製貼上。\n多一點真正的進展。",
+    "workflowDescription": "交辦任務，繼續手上的工作。\n結果會循著原路回來。",
+    "exampleSession": "示意工作階段",
+    "keepToolsTitle": "工具照用。",
+    "keepToolsDescription": "Agents 留在各自的 terminal，保留各自的工作脈絡。",
+    "handoffTitle": "交接到位。",
+    "handoffDescription": "用名字找到 agent，直接交辦，不必手動搬運訊息。",
+    "closeLoopTitle": "結果有回音。",
+    "closeLoopDescription": "任務與回覆保持對應。已送出，不代表已完成。",
+    "nextTitle": "打開 terminal。\n讓團隊接上線。",
+    "readGuide": "閱讀開始使用指南",
+    "footer": "獨立的 agents。接得起來的工作。"
+  },
+  "ownerPreview": {
+    "colabDescription": "開放式的 Claude Artifact，跨越環境和 harness",
+    "colabSubline": "self-host · 共編的文件輔助工具"
   }
 }
