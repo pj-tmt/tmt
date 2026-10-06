@@ -100,7 +100,7 @@ export async function annotationInput(container: Locator, agent: string) {
   // The harness creates unique agent names. Ambiguous display labels fail, never choose first.
   await expect(candidate).toHaveCount(1);
   await candidate.click();
-  await expect(input).toHaveText(draft, { useInnerText: true });
+  await expect.poll(() => input.innerText()).toBe(draft);
   return input;
 }
 
@@ -125,9 +125,10 @@ export async function composeChat(
 ): Promise<ComposedChat> {
   await openChat(page);
   const panel = page.getByTestId('chat-panel');
-  const input = await annotationInput(panel, agent.name);
+  const input = panel.getByRole('combobox', { name: 'Message', exact: true });
   await input.fill(question);
-  await expect(input).toHaveText(question, { useInnerText: true });
+  await expect.poll(() => input.innerText()).toBe(question);
+  await annotationInput(panel, agent.name);
   const turn = agent.received().length;
   return {
     delivered() {

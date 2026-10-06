@@ -1,6 +1,7 @@
 import { expect, test, type Locator, type Page } from '@playwright/test';
 import { text } from '../src/strings.js';
 import { mkdirSync, writeFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import path from 'node:path';
 import { pairBrowser, restartColab, startDoor } from './harness/browser.js';
 import {
@@ -419,25 +420,42 @@ test('composer records plain annotations and replies without a recipient, then s
     const original = thread
       .getByTestId('comment-entry')
       .filter({ hasText: 'Plain annotation without a recipient.' });
-    await expect(original.locator('.comment-body')).toHaveText(plain);
-    await expect(thread.locator('blockquote').first()).toHaveText('Frozen original quote.');
+    const threadId = (await thread.getAttribute('data-thread-id'))!;
+    const originalId = (await original.getAttribute('data-message-id'))!;
+    await expect.poll(() => original.locator('.comment-body').textContent()).toBe(plain);
+    await expect
+      .poll(() => thread.locator('blockquote').first().textContent())
+      .toBe('Frozen original quote.');
     expect(agent.received()).toHaveLength(0);
     expect(world.coreCalls().filter((call) => call.operation === 'dispatch.create')).toHaveLength(
       0,
     );
-    await edit(original, 'Edited plain annotation.');
+    const edited = 'Edited plain annotation.\n  Exact spacing stays.  ';
+    await edit(original, edited);
+    const originalById = thread.locator(`[data-message-id="${originalId}"]`);
+    await expect.poll(() => originalById.locator('.comment-body').textContent()).toBe(edited);
     const reply = thread.getByRole('combobox', { name: 'Message', exact: true });
-    await reply.fill('Plain reply without a recipient.');
+    const plainReply = 'Plain reply without a recipient.\n  Retained bytes.  ';
+    await reply.fill(plainReply);
     await thread.getByRole('button', { name: 'Post reply', exact: true }).click();
     await expect(thread.getByTestId('comment-entry')).toHaveCount(2);
+    const replyEntry = thread
+      .getByTestId('comment-entry')
+      .filter({ hasText: 'Plain reply without a recipient.' });
+    const replyId = (await replyEntry.getAttribute('data-message-id'))!;
+    await expect.poll(() => replyEntry.locator('.comment-body').textContent()).toBe(plainReply);
     expect(agent.received()).toHaveLength(0);
     expect(world.coreCalls().filter((call) => call.operation === 'dispatch.create')).toHaveLength(
       0,
     );
-    const question = 'Explain this exact quote, with no mandatory prefix.';
+    const question =
+      'Explain this exact quote, with no mandatory prefix.\n  Keep these spaces and this line.  ';
     await reply.fill(question);
     await inputFor(thread, agent.name);
-    await expect(reply).toHaveText(question, { useInnerText: true });
+    await expect.poll(() => reply.innerText()).toBe(question);
+    // Choose, then Change the same admitted recipient; both preserve multiline bytes.
+    await inputFor(thread, agent.name);
+    await expect.poll(() => reply.innerText()).toBe(question);
     expect(agent.received()).toHaveLength(0);
     expect(world.coreCalls().filter((call) => call.operation === 'dispatch.create')).toHaveLength(
       0,
@@ -456,20 +474,76 @@ test('composer records plain annotations and replies without a recipient, then s
         }
       }
     }
+    world.armNextBarrier('after');
     await thread.getByRole('button', { name: 'Ask agent', exact: true }).click();
+    const parked = await world.barrierEntered();
+    const entry = thread.getByTestId('ask-entry');
+    await expect(entry).toHaveCount(1);
+    const operationId = (await entry.getAttribute('data-operation-id'))!;
+    expect(parked.operationId).toBe(operationId);
     await until(() => agent.received().length === 1, 'one explicitly selected annotation Ask');
-    expect(agent.received()[0].message).toContain(question);
+    const received = agent.received()[0];
+    const requestId = received.requestId as string;
+    expect(requestId).toMatch(/^req_[0-9a-f-]+$/);
+    expect(received.identityId).toBe(agent.id);
+    expect(typeof received.message).toBe('string');
+    const delivered = received.message as string;
+    expect(delivered.slice(-question.length)).toBe(question);
+    const askComment = thread
+      .getByTestId('comment-entry')
+      .filter({ hasText: 'Explain this exact quote, with no mandatory prefix.' });
+    const askMessageId = (await askComment.getAttribute('data-message-id'))!;
+    await expect.poll(() => askComment.locator('.comment-body').textContent()).toBe(question);
     expect(agent.received()[0].message).toContain('Frozen original quote.');
     expect(agent.received()[0].message).not.toContain(`@${agent.name}`);
     expect(world.coreCalls().filter((call) => call.operation === 'dispatch.create')).toHaveLength(
       1,
     );
-    writeFileSync(path.join(agent.gate, `${agent.received()[0].requestId}.release`), '');
-    await expect(thread.getByTestId('ask-reply')).toBeVisible();
+    expect(
+      world
+        .coreCalls()
+        .filter((call) => call.operation === 'dispatch.create')
+        .map((call) => call.operationId),
+    ).toEqual([operationId]);
+    expect(agent.received(requestId)).toHaveLength(1);
+    world.releaseBarrier();
+    await expect(entry).toHaveAttribute('data-ledger-state', 'accepted');
+    writeFileSync(path.join(agent.gate, `${requestId}.release`), '');
+    const expectedReply = `ask-reply:${createHash('sha256').update(delivered).digest('hex').slice(0, 16)}`;
+    await expect.poll(() => entry.getByTestId('ask-reply').textContent()).toBe(expectedReply);
+    await until(
+      () => agent.rows().some((row) => row.event === 'replied' && row.requestId === requestId),
+      'reply for the original request',
+    );
     await page.reload();
     await comments(page);
-    await page.getByTestId('annotation-row').filter({ hasText: 'Frozen original quote.' }).click();
-    await expect(page.getByTestId('comment-thread').first().getByTestId('ask-reply')).toBeVisible();
+    await page.locator(`[data-testid=annotation-row][data-thread-id="${threadId}"]`).click();
+    const restored = page.locator(`[data-testid=comment-thread][data-thread-id="${threadId}"]`);
+    await expect
+      .poll(() => restored.locator(`[data-message-id="${originalId}"] .comment-body`).textContent())
+      .toBe(edited);
+    await expect
+      .poll(() => restored.locator(`[data-message-id="${replyId}"] .comment-body`).textContent())
+      .toBe(plainReply);
+    await expect
+      .poll(() =>
+        restored.locator(`[data-message-id="${askMessageId}"] .comment-body`).textContent(),
+      )
+      .toBe(question);
+    await expect
+      .poll(() => restored.locator('blockquote').first().textContent())
+      .toBe('Frozen original quote.');
+    const restoredAsk = restored.locator(
+      `[data-testid=ask-entry][data-operation-id="${operationId}"]`,
+    );
+    await expect.poll(() => restoredAsk.getByTestId('ask-reply').textContent()).toBe(expectedReply);
+    expect(agent.received(requestId)).toHaveLength(1);
+    expect(
+      world
+        .coreCalls()
+        .filter((call) => call.operation === 'dispatch.create')
+        .map((call) => call.operationId),
+    ).toEqual([operationId]);
     expect(agent.received()).toHaveLength(1);
     expect(world.coreCalls().filter((call) => call.operation === 'dispatch.create')).toHaveLength(
       1,
