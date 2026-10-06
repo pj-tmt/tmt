@@ -447,11 +447,18 @@ pub enum WriteAction {
 pub enum StatusAction {
     Status,
 }
+fn raw_signed_job<'de, D: Deserializer<'de>>(d: D) -> std::result::Result<SignedJob, D::Error> {
+    // Borrow the original nested object: reserialization would discard bytes inside its cap.
+    let raw = <&'de serde_json::value::RawValue>::deserialize(d)?;
+    SignedJob::from_json(raw.get().as_bytes())
+        .map_err(|_| serde::de::Error::custom("invalid or oversized signed job"))
+}
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct LocalWrite {
     pub version: u8,
     pub action: WriteAction,
+    #[serde(deserialize_with = "raw_signed_job")]
     pub signed_job: SignedJob,
     pub packet: String,
     pub chain: String,

@@ -747,6 +747,62 @@ fn outcome_and_local_dto_nested_objects_reject_structural_ambiguity() {
             vec!["signedJob", "manifest", "entries", "0"],
             vec!["signedJob", "manifest", "nativeEvidence"],
         ],
-        &|raw| LocalWrite::from_json(raw, &public()).is_ok(),
+        &|raw| {
+            let admitted = LocalWrite::from_json(raw, &public()).is_ok();
+            assert_eq!(admitted, serde_json::from_slice::<LocalWrite>(raw).is_ok());
+            admitted
+        },
     );
+}
+
+// Padding is INSIDE the nested object, so it belongs to SignedJob's raw byte budget.
+fn nested_job_input(size: usize) -> Vec<u8> {
+    let f = fixture(3);
+    let job = bytes(&f["signedJob"]);
+    let mut raw = vec![b'{'];
+    raw.resize(1 + size - job.len(), b' ');
+    raw.extend_from_slice(&job[1..]);
+    assert_eq!(raw.len(), size);
+    assert_eq!(
+        serde_json::from_slice::<Value>(&raw).unwrap(),
+        f["signedJob"]
+    );
+    assert_eq!(SignedJob::from_json(&raw).is_ok(), size <= JSON_BYTES);
+    let input = raw_node(
+        &f["localWrite"],
+        &["signedJob"],
+        std::str::from_utf8(&raw).unwrap(),
+    );
+    assert!(input.len() < LOCAL_WRITE_BYTES);
+    eprintln!(
+        "nested-job bytes={size}, outer bytes={}, input SHA256={}",
+        input.len(),
+        hex(&crypto::digest(&input))
+    );
+    input
+}
+
+#[test]
+fn local_write_from_json_bounds_the_original_nested_signed_job_bytes() {
+    assert!(LocalWrite::from_json(&nested_job_input(JSON_BYTES), &public()).is_ok());
+    assert!(LocalWrite::from_json(&nested_job_input(JSON_BYTES + 1), &public()).is_err());
+}
+
+#[test]
+fn local_write_derived_deserialize_bounds_the_original_nested_signed_job_bytes() {
+    assert!(serde_json::from_slice::<LocalWrite>(&nested_job_input(JSON_BYTES)).is_ok());
+    assert!(serde_json::from_slice::<LocalWrite>(&nested_job_input(JSON_BYTES + 1)).is_err());
+}
+
+#[test]
+fn primary_oversized_nested_job_counterexample_is_rejected_without_changing_its_fields() {
+    let normalized = bytes(&fixture(3)["signedJob"]);
+    let input = nested_job_input(normalized.len() + JSON_BYTES + 1);
+    // Exact source-traced input retained by the primary; only internal object whitespace differs.
+    assert_eq!(
+        hex(&crypto::digest(&input)),
+        "067ec5632f1f19b0aed91024215b12bfedee4d379eab73a7186c0901cbd1ccb3"
+    );
+    assert!(LocalWrite::from_json(&input, &public()).is_err());
+    assert!(serde_json::from_slice::<LocalWrite>(&input).is_err());
 }
