@@ -2480,7 +2480,31 @@ sort = ["-name"]
         recipientId: ids.docs,
         prompt: { message: '[product · docs] add examples' },
       });
-      expect((await roomRequests()).length).toBe(3);
+      const withdraw = async (requestId: string, who: string) => {
+        const result = await runCli(sandbox, [
+          'x',
+          'withdraw',
+          requestId,
+          '--identity',
+          who,
+          '--reason',
+          'obsolete',
+          '--json',
+        ]);
+        expect(result.status, result.stdout).toBe(0);
+        const history = await prompt(requestId);
+        expect(history.final).toMatchObject({
+          status: 'withdrawn',
+          reason: 'obsolete',
+          withdrawnAtMs: expect.any(Number),
+        });
+        expect(history.final).not.toHaveProperty('submittedAtMs');
+        return history;
+      };
+      const obsolete = await annotate('Sol', 'auth-fix', 'obsolete annotation');
+      const withdrawn = await withdraw(obsolete.requestId, 'Ben');
+      expect(withdrawn.prompt.message).toBe('[product · auth-fix] obsolete annotation');
+      expect((await roomRequests()).length).toBe(4);
 
       // The marker is derived from request state on every read.
       const marker = async () => {
@@ -2524,7 +2548,7 @@ sort = ["-name"]
 
       // Waiting on you comes from tmt inbox; the board's r is tmt answer.
       const asks: string[] = [];
-      for (const question of ['approve the plan?', 'which database?']) {
+      for (const question of ['approve the plan?', 'which database?', 'obsolete question']) {
         const asked = await runCli(sandbox, [
           'talk',
           'Ben',
@@ -2537,6 +2561,8 @@ sort = ["-name"]
         ]);
         asks.push(JSON.parse(asked.stdout).requestId);
       }
+      const obsoleteAsk = asks.pop()!;
+      const withdrawnAsk = await withdraw(obsoleteAsk, 'auth-fix');
       const waiting = async () =>
         (
           await squad(sandbox, ['ls', '--squad', 'product'])
@@ -2579,6 +2605,10 @@ sort = ["-name"]
           'auth-fix',
           body,
         ]);
+      const refused = await board(obsoleteAsk, 'cannot answer withdrawal');
+      expect(refused.status, refused.stdout).toBe(5);
+      expect(JSON.parse(refused.stdout).error.code).toBe('REQUEST_WITHDRAWN');
+      expect(await prompt(obsoleteAsk)).toEqual(withdrawnAsk);
       const chosen = await board(asks[0], '-postgres');
       expect(chosen.status, chosen.stdout).toBe(0);
       expect(JSON.parse(chosen.stdout)).toMatchObject({ requestId: asks[0], status: 'submitted' });
@@ -2591,6 +2621,8 @@ sort = ["-name"]
       expect((await incoming('Ben', asks[1])).acknowledged, 'answering never acknowledges').toBe(
         false
       );
+
+      expect(await prompt(obsolete.requestId)).toEqual(withdrawn);
 
       expect(await notebook(), 'no notebook was created or written').toBe('NOTEBOOK_NOT_FOUND');
       const projection = async () =>
