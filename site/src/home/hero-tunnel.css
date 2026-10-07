@@ -134,13 +134,13 @@
   max-width: 640px;
 }
 
-/* Two identities and a complete exchange remain visible in every frame. */
+/* The static final frame shows the answer back in the sender's terminal. */
 .v9-home .hero-tunnel {
   position: absolute;
   z-index: 2;
   top: 205px;
   left: calc(50% + 20px);
-  width: min(500px, 43vw);
+  width: min(600px, 43vw);
   margin: 0;
   color: var(--c-text);
   font: 12px/1.5 var(--f-mono);
@@ -151,15 +151,16 @@
   color: var(--c-muted);
   letter-spacing: 0.08em;
 }
-.v9-home .tunnel-terminals {
+.v9-home .tunnel-scene {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  gap: 28px;
+  grid-template-columns: minmax(0, 1fr) 160px minmax(0, 1fr);
+  align-items: center;
 }
 .v9-home .tunnel-terminal {
   position: relative;
   z-index: 1;
   min-width: 0;
+  min-height: 310px;
   border: 1px solid var(--c-term-edge);
   background: var(--c-term);
   color: var(--t-text);
@@ -183,7 +184,6 @@
   font-size: 9px;
 }
 .v9-home .tunnel-terminal-body {
-  min-height: 154px;
   padding: 16px 12px;
 }
 .v9-home .tunnel-terminal p {
@@ -194,40 +194,46 @@
   font-weight: 600;
   font-size: 12px;
 }
-.v9-home .terminal-reviewer .tunnel-harness {
-  display: inline-block;
-  border: 1px solid var(--t-muted);
-  padding: 2px 6px;
-}
-.v9-home .terminal-builder .tunnel-harness {
-  padding: 3px 0;
-}
 .v9-home .tunnel-terminal .tunnel-context {
   margin-top: 8px;
   color: var(--t-muted);
   font-size: 10px;
 }
 .v9-home .tunnel-terminal .tunnel-prompt {
-  margin-top: 18px;
+  margin-top: 22px;
   font-size: 12px;
 }
-.v9-home .terminal-builder .tunnel-prompt {
-  border-left: 2px solid var(--t-muted);
-  padding-left: 8px;
+.v9-home .tunnel-returned {
+  margin-top: 24px;
+  animation: tunnel-arrival 4.8s ease-in-out both;
+}
+.v9-home .tunnel-status {
+  color: var(--t-muted);
+  font-size: 10px;
+}
+.v9-home .tunnel-terminal .tunnel-answer {
+  margin-top: 6px;
+  font-size: 12px;
+}
+.v9-home .tunnel-terminal .tunnel-submitted {
+  margin-top: 24px;
 }
 .v9-home .tunnel-exchange {
   position: relative;
-  aspect-ratio: 480 / 180;
+  height: 260px;
 }
 .v9-home .tunnel-path {
   display: block;
   width: 100%;
   height: 100%;
 }
+.v9-home .tunnel-mobile-flow {
+  display: none;
+}
 .v9-home .tunnel-path ellipse {
   fill: none;
-  stroke: var(--c-rule);
-  stroke-width: 1;
+  stroke: var(--c-muted);
+  stroke-width: 2;
 }
 .v9-home .tunnel-route {
   fill: none;
@@ -259,12 +265,12 @@
     opacity: 1;
   }
   40% {
-    transform: translateX(424px);
+    transform: translateX(156px);
     opacity: 1;
   }
   44%,
   100% {
-    transform: translateX(424px);
+    transform: translateX(156px);
     opacity: 0;
   }
 }
@@ -278,47 +284,70 @@
     opacity: 1;
   }
   80% {
-    transform: translateX(-424px);
+    transform: translateX(-156px);
     opacity: 1;
   }
   84%,
   100% {
-    transform: translateX(-424px);
+    transform: translateX(-156px);
     opacity: 0;
+  }
+}
+@keyframes tunnel-arrival {
+  0%,
+  80% {
+    opacity: 0;
+  }
+  100% {
+    opacity: 1;
   }
 }
 .v9-home .tunnel-message {
   position: absolute;
   left: 50%;
-  transform: translate(-50%, -50%);
-  display: flex;
-  align-items: baseline;
-  gap: 12px;
-  padding: 4px 8px;
-  white-space: nowrap;
+  transform: translateX(-50%);
+  display: grid;
+  text-align: center;
+  padding: 4px;
   background: var(--bg);
-  border: 1px solid var(--c-rule);
-  font-size: 11px;
+  font-size: 10px;
 }
 .v9-home .tunnel-message code {
   color: var(--c-muted);
   font: inherit;
   font-size: 9px;
+  white-space: nowrap;
 }
 .v9-home .tunnel-request-label {
-  top: 34.44%;
+  bottom: calc(50% + 28px);
 }
 .v9-home .tunnel-reply-label {
-  top: 66.67%;
+  top: calc(50% + 28px);
 }
 .v9-home .tunnel-footnote {
-  margin: 8px 0 0;
+  margin: 24px 0 0;
   font-size: 10px;
   color: var(--c-muted);
 }
-@media (min-width: 761px) {
-  .v9-home .hero {
-    min-height: 730px;
+@media (min-width: 761px) and (max-width: 1050px) {
+  .v9-home .tunnel-scene {
+    grid-template-columns: minmax(0, 1fr) 70px minmax(0, 1fr);
+  }
+  .v9-home .tunnel-terminal header {
+    padding: 8px 6px;
+  }
+  .v9-home .tunnel-terminal-body {
+    padding: 14px 6px;
+  }
+  .v9-home .tunnel-identity {
+    font-size: 11px;
+  }
+  .v9-home .tunnel-terminal header span:last-child {
+    display: none;
+  }
+  .v9-home .tunnel-terminal .tunnel-prompt,
+  .v9-home .tunnel-terminal .tunnel-answer {
+    font-size: 10px;
   }
 }
 @media (max-width: 760px) {
@@ -330,32 +359,84 @@
     max-width: 500px;
     margin: 0 auto 36px;
   }
-  .v9-home .tunnel-terminals {
-    gap: 16px;
+  .v9-home .tunnel-scene {
+    grid-template-columns: minmax(0, 1fr);
   }
-  .v9-home .tunnel-terminal header {
-    padding: 8px;
+  .v9-home .tunnel-terminal {
+    min-height: 0;
   }
-  .v9-home .tunnel-terminal-body {
-    padding: 14px 8px;
+  .v9-home .tunnel-exchange {
+    height: 160px;
   }
-  .v9-home .tunnel-identity {
-    font-size: 13px;
+  .v9-home .tunnel-desktop-flow {
+    display: none;
   }
-  .v9-home .tunnel-terminal .tunnel-prompt {
-    font-size: 11px;
+  .v9-home .tunnel-mobile-flow {
+    display: block;
   }
-  .v9-home .tunnel-message {
-    gap: 8px;
+  .v9-home .tunnel-request-label {
+    bottom: auto;
+    top: 50%;
+    left: calc(50% - 56px);
+    transform: translate(-50%, -50%);
+  }
+  .v9-home .tunnel-reply-label {
+    top: 50%;
+    left: calc(50% + 56px);
+    transform: translate(-50%, -50%);
+  }
+  .v9-home .tunnel-packet {
+    animation-name: tunnel-request-vertical;
+  }
+  .v9-home .tunnel-reply {
+    animation-name: tunnel-reply-vertical;
+  }
+}
+@keyframes tunnel-request-vertical {
+  0%,
+  8% {
+    transform: translateY(0);
+    opacity: 0;
+  }
+  12% {
+    opacity: 1;
+  }
+  40% {
+    transform: translateY(156px);
+    opacity: 1;
+  }
+  44%,
+  100% {
+    transform: translateY(156px);
+    opacity: 0;
+  }
+}
+@keyframes tunnel-reply-vertical {
+  0%,
+  48% {
+    transform: translateY(0);
+    opacity: 0;
+  }
+  52% {
+    opacity: 1;
+  }
+  80% {
+    transform: translateY(-156px);
+    opacity: 1;
+  }
+  84%,
+  100% {
+    transform: translateY(-156px);
+    opacity: 0;
   }
 }
 @media (prefers-reduced-motion: reduce) {
   .v9-home .tunnel-packet {
     animation: none;
-    transform: translateX(424px);
+    opacity: 0;
   }
-  .v9-home .tunnel-reply {
-    transform: translateX(-424px);
+  .v9-home .tunnel-returned {
+    animation: none;
   }
 }
 

@@ -1,6 +1,22 @@
 import { useStrings } from "../lang/useStrings";
 import "./hero-tunnel.css";
 
+function PortalRings({ vertical = false }: { vertical?: boolean }) {
+  return (
+    <g
+      transform={
+        vertical
+          ? "translate(80 130) rotate(90) scale(.8) translate(-245 -282)"
+          : "translate(130 80) scale(.8) translate(-245 -282)"
+      }
+    >
+      <ellipse cx="245" cy="282" rx="118" ry="66" />
+      <ellipse cx="245" cy="282" rx="86" ry="48" />
+      <ellipse cx="245" cy="282" rx="53" ry="30" />
+    </g>
+  );
+}
+
 /** Illustrative cross-harness exchange, not a live delivery indicator. */
 export function HeroTunnel() {
   const { tunnel } = useStrings().landing;
@@ -8,10 +24,10 @@ export function HeroTunnel() {
   return (
     <figure className="hero-tunnel" aria-label={tunnel.label}>
       <figcaption className="tunnel-caption">{tunnel.caption}</figcaption>
-      <div className="tunnel-terminals">
-        <article className="tunnel-terminal terminal-reviewer">
+      <div className="tunnel-scene">
+        <article className="tunnel-terminal terminal-builder">
           <header>
-            <span className="tunnel-identity">{handoff.reviewer}</span>
+            <span className="tunnel-identity">{handoff.builder}</span>
             <span>01</span>
           </header>
           <div className="tunnel-terminal-body">
@@ -21,11 +37,44 @@ export function HeroTunnel() {
               <span aria-hidden="true">❯ </span>
               {tunnel.question}
             </p>
+            <div className="tunnel-returned">
+              <p className="tunnel-status">
+                <span aria-hidden="true">← </span>
+                {handoff.reviewer}:
+              </p>
+              <p className="tunnel-answer">{tunnel.answer}</p>
+            </div>
           </div>
         </article>
-        <article className="tunnel-terminal terminal-builder">
+        <div className="tunnel-exchange">
+          <svg className="tunnel-path tunnel-desktop-flow" viewBox="0 0 160 260" aria-hidden="true">
+            <PortalRings vertical />
+            <path className="tunnel-route" d="M0 110 H160" />
+            <path className="tunnel-route tunnel-return" d="M160 150 H0" />
+            <path className="tunnel-arrow" d="m152 105 7 5-7 5 M8 145 l-7 5 7 5" />
+            <rect className="tunnel-packet" x="0" y="108" width="4" height="4" />
+            <rect className="tunnel-packet tunnel-reply" x="156" y="148" width="4" height="4" />
+          </svg>
+          <svg className="tunnel-path tunnel-mobile-flow" viewBox="0 0 260 160" aria-hidden="true">
+            <PortalRings />
+            <path className="tunnel-route" d="M110 0 V160" />
+            <path className="tunnel-route tunnel-return" d="M150 160 V0" />
+            <path className="tunnel-arrow" d="m105 152 5 7 5-7 M145 8 l5-7 5 7" />
+            <rect className="tunnel-packet" x="108" y="0" width="4" height="4" />
+            <rect className="tunnel-packet tunnel-reply" x="148" y="156" width="4" height="4" />
+          </svg>
+          <div className="tunnel-message tunnel-request-label">
+            <span>{handoff.request}</span>
+            <code>tmt talk</code>
+          </div>
+          <div className="tunnel-message tunnel-reply-label">
+            <span>{handoff.reply}</span>
+            <code>tmt reply</code>
+          </div>
+        </div>
+        <article className="tunnel-terminal terminal-reviewer">
           <header>
-            <span className="tunnel-identity">{handoff.builder}</span>
+            <span className="tunnel-identity">{handoff.reviewer}</span>
             <span>02</span>
           </header>
           <div className="tunnel-terminal-body">
@@ -33,36 +82,14 @@ export function HeroTunnel() {
             <p className="tunnel-context">~/project</p>
             <p className="tunnel-prompt">
               <span aria-hidden="true">› </span>
-              {tunnel.answer}
+              {tunnel.received}
+            </p>
+            <p className="tunnel-status tunnel-submitted">
+              <span aria-hidden="true">↩ </span>
+              {tunnel.submitted}
             </p>
           </div>
         </article>
-      </div>
-      <div className="tunnel-exchange">
-        <svg className="tunnel-path" viewBox="0 0 480 180" aria-hidden="true">
-          <g transform="translate(0 -192)">
-            <ellipse cx="245" cy="282" rx="118" ry="66" />
-            <ellipse cx="245" cy="282" rx="86" ry="48" />
-            <ellipse cx="245" cy="282" rx="53" ry="30" />
-          </g>
-          <path className="tunnel-route" d="M28 0 V62 H452 V0" />
-          <path className="tunnel-route tunnel-return" d="M452 0 V120 H28 V0" />
-          <path className="tunnel-arrow" d="m440 57 7 5-7 5 M40 115 l-7 5 7 5" />
-          <rect className="tunnel-packet" x="26" y="60" width="4" height="4" />
-          <rect className="tunnel-packet tunnel-reply" x="450" y="118" width="4" height="4" />
-        </svg>
-        <div className="tunnel-message tunnel-request-label">
-          <span>
-            {handoff.request} <span aria-hidden="true">→</span>
-          </span>
-          <code>tmt talk</code>
-        </div>
-        <div className="tunnel-message tunnel-reply-label">
-          <span>
-            <span aria-hidden="true">←</span> {handoff.reply}
-          </span>
-          <code>tmt reply</code>
-        </div>
       </div>
       <p className="tunnel-footnote">{tunnel.note}</p>
     </figure>
