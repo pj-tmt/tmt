@@ -287,13 +287,17 @@ explicit room choice. Default scope is Open / Squad-wide / archived excluded.
 The unfiltered total uses the same archive scope as the matched count. Item Enter
 opens details; explicit named controls perform edits, assignment, completion,
 archive, delete and full inventory reorder. Archived items expose Restore/Delete.
-Delete starts on Cancel and requires all exact identities/revisions and both
+Delete uses Review delete / Confirm delete, with its title in text colour and
+muted UUID/revision context outside the selectable choices. Details keeps IDs
+muted; single-line Body previews show only the first line, followed by an ellipsis
+when more follows. Delete starts on Cancel and requires all exact identities/revisions and both
 controls to fit in current shared geometry. Clipped/stale hits cannot submit.
 
 The existing refresh worker queues checklist jobs without collapsing writes. Its
 lane retains Service actor/context for a controller and exact room, with a separate
 shutdown cancellation token so board-read preemption cannot erase a started write.
-Controller/serial/room keys fence every result. Conflict/refusal retains intent and
+Controller/serial/room keys fence every result. UUID allocation reuses the same
+`id::new_v4` helper as explicit sends; each caller retains its own error mapping. Conflict/refusal retains intent and
 fields; Refresh observes and Review explicitly adopts current expectations before
 fresh Confirm. Original Unknown targets remain unknown after reads and subsequent
 acknowledgements. Closing retains drafts and stable base return context; explicit

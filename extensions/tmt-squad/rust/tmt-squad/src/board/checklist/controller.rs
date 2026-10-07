@@ -193,7 +193,7 @@ impl Controller {
         self.readable.set(false);
         *self.reading.borrow_mut() = picker_surface::State::new(None, vec![], None);
         if let Some(id) = selected {
-            let rows = self.rows();
+            let rows = self.choice_rows();
             let mut panel = self.panel.borrow_mut();
             panel.reconcile(
                 rows.iter()
@@ -207,7 +207,7 @@ impl Controller {
         }
     }
     fn reconcile(&self) {
-        let rows = self.rows();
+        let rows = self.choice_rows();
         let state = if self.screen == Screen::List {
             &self.list
         } else {

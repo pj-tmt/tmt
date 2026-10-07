@@ -6,7 +6,6 @@ use crate::{
     core::Core,
     squad::Squad,
 };
-use std::io::Read;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct Key {
@@ -49,21 +48,7 @@ fn failure(code: Code, message: impl ToString) -> Error {
     }
 }
 fn uuid() -> Result<Id, Error> {
-    let mut bytes = [0u8; 16];
-    std::fs::File::open("/dev/urandom")
-        .and_then(|mut file| file.read_exact(&mut bytes))
-        .map_err(|error| failure(Code::StorageError, error))?;
-    bytes[6] = (bytes[6] & 15) | 64;
-    bytes[8] = (bytes[8] & 63) | 128;
-    let hex: String = bytes.iter().map(|byte| format!("{byte:02x}")).collect();
-    Id::parse(&format!(
-        "{}-{}-{}-{}-{}",
-        &hex[..8],
-        &hex[8..12],
-        &hex[12..16],
-        &hex[16..20],
-        &hex[20..]
-    ))
+    Id::parse(&crate::id::new_v4().map_err(|error| failure(Code::StorageError, error))?)
 }
 impl Lane {
     #[cfg(test)]
@@ -82,7 +67,7 @@ impl Lane {
             .as_ref()
             .is_none_or(|(owner, id, _)| *owner != key.controller || id != room)
         {
-            let config = Config::load(core).map_err(|error| failure(Code::Forbidden, error))?;
+            let config = Config::load(core).map_err(|error| failure(Code::StorageError, error))?;
             self.session = Some((
                 key.controller,
                 room.clone(),

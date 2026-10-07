@@ -8,8 +8,10 @@ use ratatui::{Frame, layout::Rect};
 use serde_json::json;
 use tmt_tui::components::ListRow;
 const FILE: &str = "squad.checklist.xml";
-const MARKUP: &str = r#"<tmt-view version="1"><tmt-modal id="checklist" title="Checklist" placement="center" class="w-100 h-30"><tmt-scroll id="body"><tmt-list id="choices" bind="$.rows" empty="(no matching items)"><tmt-row class="flex-row gap-1"><tmt-text bind="row.cursor" class="w-1 shrink-0"/><tmt-text bind="row.label" token="text" wrap="true"/></tmt-row></tmt-list></tmt-scroll><tmt-text slot="query" bind="$.query" token="accent" wrap="true"/><tmt-text slot="status" bind="$.status" token="waiting" wrap="true"/><tmt-text slot="footer" bind="$.footer" token="muted" class="truncate"/></tmt-modal></tmt-view>"#;
-const READING: &str = r#"<tmt-view version="1"><tmt-modal id="checklist" title="Checklist" placement="center" class="w-100 h-30"><tmt-scroll id="body"><tmt-repeat each="$.notes" as="note"><tmt-text bind="note.text" token="text" wrap="true"/></tmt-repeat></tmt-scroll><tmt-text slot="query" bind="$.query" token="accent" wrap="true"/><tmt-text slot="status" bind="$.status" token="waiting" wrap="true"/><tmt-text slot="footer" bind="$.footer" token="muted" class="truncate"/></tmt-modal></tmt-view>"#;
+const MARKUP: &str = r#"<tmt-view version="1"><tmt-modal id="checklist" title="Checklist" placement="center" class="w-100 h-30"><tmt-scroll id="body"><tmt-list id="choices" bind="$.rows" empty="(no matching items)"><tmt-row class="flex-row gap-1"><tmt-text bind="row.cursor" class="w-1 shrink-0"/><tmt-text bind="row.label" token-bind="row.role" wrap="true"/></tmt-row></tmt-list></tmt-scroll><tmt-text slot="query" bind="$.query" token="accent" wrap="true"/><tmt-text slot="status" bind="$.status" token="waiting" wrap="true"/><tmt-text slot="footer" bind="$.footer" token="muted" class="truncate"/></tmt-modal></tmt-view>"#;
+const READING: &str = r#"<tmt-view version="1"><tmt-modal id="checklist" title="Checklist" placement="center" class="w-100 h-30"><tmt-scroll id="body"><tmt-repeat each="$.notes" as="note"><tmt-text id-bind="note.id" bind="note.text" token-bind="note.role" wrap="true"/></tmt-repeat></tmt-scroll><tmt-text slot="query" bind="$.query" token="accent" wrap="true"/><tmt-text slot="status" bind="$.status" token="waiting" wrap="true"/><tmt-text slot="footer" bind="$.footer" token="muted" class="truncate"/></tmt-modal></tmt-view>"#;
+const CONFIRM: &str = r#"<tmt-view version="1"><tmt-modal id="checklist" title="Checklist" placement="center" class="w-100 h-30"><tmt-scroll id="body"><tmt-repeat each="$.notes" as="note"><tmt-text id-bind="note.id" bind="note.text" token-bind="note.role" wrap="true"/></tmt-repeat><tmt-list id="choices" bind="$.rows" empty="(no matching items)"><tmt-row class="flex-row gap-1"><tmt-text bind="row.cursor" class="w-1 shrink-0"/><tmt-text bind="row.label" token-bind="row.role" wrap="true"/></tmt-row></tmt-list></tmt-scroll><tmt-text slot="query" bind="$.query" token="accent" wrap="true"/><tmt-text slot="status" bind="$.status" token="waiting" wrap="true"/><tmt-text slot="footer" bind="$.footer" token="muted" class="truncate"/></tmt-modal></tmt-view>"#;
+
 impl Controller {
     pub(in crate::board) fn render(&self, frame: &mut Frame, look: Look, body: Rect) {
         let reading = self.screen == Screen::Unknown
@@ -20,26 +22,40 @@ impl Controller {
                 .and_then(|c| c.room.name.as_deref())
                 .unwrap_or("choose room")
         );
-        let key = format!("{title}/{reading}");
+        let confirm = self.screen == Screen::Confirm;
+        let form = self.screen == Screen::Form;
+        let key = format!("{title}/{reading}/{confirm}/{form}");
         let mut cached = self.template.borrow_mut();
         if cached.as_ref().is_none_or(|(old, _)| old != &key) {
             let escaped = tmt_cli_style::table::escape(&title)
                 .replace('&', "&amp;")
                 .replace('<', "&lt;")
                 .replace('"', "&quot;");
-            let markup = if reading { READING } else { MARKUP }
-                .replace("title=\"Checklist\"", &format!("title=\"{escaped}\""));
-            *cached = Some((
-                key,
-                picker_surface::compile(
-                    FILE,
-                    &markup,
-                    picker_surface::schema(&["cursor", "label"]),
-                ),
-            ));
+            let markup = if confirm {
+                CONFIRM
+            } else if reading {
+                READING
+            } else {
+                MARKUP
+            };
+            let markup = if form {
+                markup.replace(
+                    "token-bind=\"row.role\" wrap=\"true\"",
+                    "token-bind=\"row.role\" class=\"truncate\"",
+                )
+            } else {
+                markup.into()
+            };
+            let markup = markup.replace("title=\"Checklist\"", &format!("title=\"{escaped}\""));
+            *cached = Some((key, picker_surface::compile(FILE, &markup, schema())));
         }
         let template = &cached.as_ref().unwrap().1;
-        let rows = self.rows();
+        let all_rows = self.rows();
+        let notes: Vec<_> = all_rows
+            .iter()
+            .filter(|row| reading || confirm && row.disabled)
+            .collect();
+        let rows = self.choice_rows();
         let mut state = if reading {
             self.reading.borrow_mut()
         } else if self.screen == Screen::List {
@@ -60,7 +76,7 @@ impl Controller {
         } else {
             state.picker.list.selected()
         };
-        let rows_value:Vec<_>=rows.iter().map(|r|json!({"id":r.id,"disabled":r.disabled,"label":r.label,"cursor":if selected==Some(r.id.as_str()){"›"}else{""}})).collect();
+        let rows_value:Vec<_>=rows.iter().map(|r|json!({"id":r.id,"disabled":r.disabled,"label":r.label,"role":if r.muted{"muted"}else{"text"},"cursor":if selected==Some(r.id.as_str()){"›"}else{""}})).collect();
         let status = if self.pending.is_some() {
             "Loading…".into()
         } else if let Some(error) = &self.failure {
@@ -73,7 +89,7 @@ impl Controller {
             self.notice.clone().unwrap_or_default()
         };
         let list = self.screen == Screen::List;
-        let value = json!({"rows":rows_value,"query":self.heading(),"status":status,"notes":if reading{rows.iter().flat_map(|r|r.label.split('\n').enumerate().map(|(index,text)|json!({"id":format!("{}:{index}",r.id),"text":text}))).collect::<Vec<_>>()}else{vec![]},
+        let value = json!({"rows":rows_value,"query":self.heading(),"status":status,"notes":notes.iter().flat_map(|r|r.label.split('\n').enumerate().map(|(index,text)|json!({"id":format!("{}:{index}",r.id),"text":text,"role":if r.muted{"muted"}else{"text"}}))).collect::<Vec<_>>(),
             "footer":if list{format!("{}Filter · {}Actions · Tab focus · Enter opens · Esc board",if self.focus==1{"›"}else{" "},if self.focus==2{"›"}else{" "})}else if self.screen==Screen::Unknown{"↑↓ / PgUp/PgDn read · Esc list".into()}else if matches!(self.screen,Screen::Details(_)){"↑↓ / PgUp/PgDn read · Tab actions · Esc list".into()}else if self.screen==Screen::Form{"Tab fields · type / Ctrl-U clear · Esc retains".into()}else{"↑↓ / Tab choose · Enter select · Esc list".into()}});
         if reading {
             state.render_modal(FILE, template, value, frame, look, body);
@@ -91,25 +107,44 @@ impl Controller {
         }
         self.controls.set(controls);
         // All exact-target lines and Cancel/Confirm must fit simultaneously.
-        let readable = self.screen == Screen::Confirm
-            && state
-                .frame
-                .as_ref()
-                .and_then(|m| m.list.as_ref())
-                .is_some_and(|map| {
-                    rows.iter()
-                        .filter(|r| {
-                            r.id.starts_with("target-")
-                                || matches!(r.id.as_str(), "cancel" | "confirm")
+        let readable = confirm
+            && state.frame.as_ref().is_some_and(|map| {
+                map.areas.content.width >= 38
+                    && notes.iter().all(|row| {
+                        row.label.split('\n').enumerate().all(|(index, text)| {
+                            let id = format!("{}:{index}", row.id);
+                            let height = tmt_tui::text::measure(
+                                text,
+                                tmt_tui::style::TextFlow::Wrap,
+                                tmt_tui::geometry::Space::Cells(map.areas.content.width),
+                            )[1];
+                            map.hits
+                                .iter()
+                                .any(|hit| hit.id.last() == Some(&id) && hit.rect.height == height)
                         })
-                        .all(|r| {
-                            map.geometry.iter().find(|g| g.id == r.id).is_some_and(|g| {
-                                usize::from(g.visible.height) == g.lines.len()
-                                    && g.visible.width >= 38
+                    })
+                    && map.list.as_ref().is_some_and(|list| {
+                        ["cancel", "confirm"].iter().all(|id| {
+                            list.geometry.iter().any(|row| {
+                                row.id == *id
+                                    && usize::from(row.visible.height) == row.lines.len()
+                                    && row.visible.width >= 38
                             })
                         })
-                });
+                    })
+            });
         self.readable.set(readable);
+    }
+    fn deleting(&self) -> bool {
+        self.submit.as_ref().is_some_and(|request| {
+            matches!(
+                request.action,
+                Action::Item {
+                    mutation: Mutation::Delete { .. },
+                    ..
+                }
+            )
+        })
     }
     fn heading(&self) -> String {
         if self.screen == Screen::Rooms {
@@ -130,6 +165,7 @@ impl Controller {
                     Screen::Members(Some(_)) => "Assign to member",
                     Screen::Members(None) => "Member filter",
                     Screen::Form => "Authored fields",
+                    Screen::Confirm if self.deleting() => "Review delete",
                     Screen::Confirm => "Review exact update",
                     Screen::Reorder => "Full inventory order (including archived)",
                     Screen::OrderActions(_) => "Move item",
@@ -219,6 +255,12 @@ impl Controller {
             .as_ref()
             .map(|title| format!("\nTitle: {title}"))
             .unwrap_or_default()
+    }
+    pub(super) fn choice_rows(&self) -> Vec<Row> {
+        self.rows()
+            .into_iter()
+            .filter(|row| self.screen != Screen::Confirm || !row.disabled)
+            .collect()
     }
     pub(super) fn rows(&self) -> Vec<Row> {
         let mut rows = Vec::new();
@@ -316,13 +358,11 @@ impl Controller {
             Screen::Details(id) => {
                 if let Some(v) = self.item(id) {
                     let item = &v.item;
+                    rows.push(Row::text("detail-title", item.content.title.clone()));
                     rows.push(Row::text(
-                        "detail-title",
+                        "detail-state",
                         format!(
-                            "{}\nItem {} · revision {}\n{} · {}{}",
-                            item.content.title,
-                            id.as_str(),
-                            item.revision,
+                            "{} · {}{}",
                             if item.completion == Completion::Open {
                                 "Open"
                             } else {
@@ -332,8 +372,12 @@ impl Controller {
                             if item.archived { " · archived" } else { "" }
                         ),
                     ));
+                    rows.push(Row::context(
+                        "detail-item",
+                        format!("Item {} · revision {}", id.as_str(), item.revision),
+                    ));
                     if let Some(current) = self.current() {
-                        rows.push(Row::text(
+                        rows.push(Row::context(
                             "detail-context",
                             format!(
                                 "Room {}\nChecklist {} · inventory revision {}",
@@ -393,7 +437,7 @@ impl Controller {
                     rows.extend(
                         [
                             ("title", format!("Title: {}", draft.title)),
-                            ("body", format!("Body: {}", draft.body)),
+                            ("body", format!("Body: {}", body_preview(&draft.body))),
                             ("reference", format!("Reference: {}", draft.reference)),
                         ]
                         .map(|(id, label)| Row::choice(id, label)),
@@ -411,11 +455,16 @@ impl Controller {
             }
             Screen::Confirm => {
                 rows.push(Row::choice("cancel", "Cancel"));
+                if let Some(title) = &self.target_label {
+                    rows.push(Row::text("target-title", title.clone()));
+                }
                 rows.extend(
                     self.target_text()
                         .lines()
+                        .skip(1)
+                        .filter(|line| !line.starts_with("Title: "))
                         .enumerate()
-                        .map(|(i, line)| Row::text(format!("target-{i}"), line)),
+                        .map(|(i, line)| Row::context(format!("target-{i}"), line)),
                 );
                 let content = match self.submit.as_ref().map(|r| &r.action) {
                     Some(Action::Create { content, .. }) => Some(format!(
@@ -446,7 +495,11 @@ impl Controller {
                         (
                             "confirm",
                             if self.reviewed {
-                                "Confirm update"
+                                if self.deleting() {
+                                    "Confirm delete"
+                                } else {
+                                    "Confirm update"
+                                }
                             } else {
                                 "Confirm disabled until fresh review"
                             },
@@ -499,4 +552,26 @@ fn assignee(view: &crate::checklist::ItemView) -> String {
             }
         ),
     }
+}
+
+fn body_preview(body: &str) -> String {
+    let (first, more) = body
+        .split_once('\n')
+        .map_or((body, false), |(first, _)| (first, true));
+    format!(
+        "{}{}",
+        first.trim_end_matches('\r'),
+        if more { "…" } else { "" }
+    )
+}
+fn schema() -> tmt_tui::binding::Schema {
+    use tmt_tui::binding::Schema;
+    let mut schema = picker_surface::schema(&["cursor", "label", "role"]);
+    if let Schema::Object(fields) = &mut schema
+        && let Some(Schema::Collection(notes)) = fields.get_mut("notes")
+        && let Schema::Object(fields) = notes.as_mut()
+    {
+        fields.insert("role".into(), Schema::Scalar);
+    }
+    schema
 }

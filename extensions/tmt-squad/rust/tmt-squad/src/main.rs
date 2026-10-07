@@ -20,6 +20,7 @@ mod effects;
 mod filter;
 mod hook_protocol;
 mod hotkeys;
+mod id;
 mod layout;
 mod links;
 mod look;

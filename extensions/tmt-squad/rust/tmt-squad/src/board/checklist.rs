@@ -36,6 +36,7 @@ struct Row {
     id: String,
     label: String,
     disabled: bool,
+    muted: bool,
 }
 impl Row {
     fn choice(id: impl Into<String>, label: impl Into<String>) -> Self {
@@ -43,6 +44,13 @@ impl Row {
             id: id.into(),
             label: label.into(),
             disabled: false,
+            muted: false,
+        }
+    }
+    fn context(id: impl Into<String>, label: impl Into<String>) -> Self {
+        Self {
+            muted: true,
+            ..Self::text(id, label)
         }
     }
     fn text(id: impl Into<String>, label: impl Into<String>) -> Self {

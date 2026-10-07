@@ -18,7 +18,7 @@ fn pick(c: &mut Controller, id: &str) -> Effect {
     if matches!(c.screen, Screen::Details(_)) && c.focus == 0 {
         c.input(&key(KeyCode::Tab), None);
     }
-    let rows = c.rows();
+    let rows = c.choice_rows();
     let state = if c.screen == Screen::List {
         &c.list
     } else {
@@ -393,4 +393,91 @@ fn long_details_have_keyboard_reading_focus_before_actions() {
     assert_eq!(c.panel.borrow().picker.list.selected(), Some("edit"));
     c.input(&key(KeyCode::Enter), None);
     assert_eq!(c.screen, Screen::Form);
+}
+
+#[test]
+fn delete_facts_are_separate_from_choices_and_body_preview_has_no_literal_newline() {
+    let f = Fixture::new();
+    seed(&f, ITEM, InventoryExpectation::Absent);
+    let mut c = controller(&f);
+    c.screen = Screen::Details(id(ITEM));
+    pick(&mut c, "delete");
+    assert_eq!(
+        c.choice_rows()
+            .iter()
+            .map(|row| row.id.as_str())
+            .collect::<Vec<_>>(),
+        ["cancel", "confirm", "refresh", "review"]
+    );
+    assert_eq!(c.choice_rows()[1].label, "Confirm delete");
+    assert!(
+        c.rows()
+            .iter()
+            .filter(|row| row.id.starts_with("target-") && row.id != "target-title")
+            .all(|row| row.muted && row.disabled)
+    );
+    for look in picker_surface::evidence::looks() {
+        let mut terminal = Terminal::new(TestBackend::new(100, 30)).unwrap();
+        terminal
+            .draw(|frame| c.render(frame, look, frame.area()))
+            .unwrap();
+        let state = c.panel.borrow();
+        let map = state.frame.as_ref().unwrap();
+        for (id, role) in [
+            ("target-title:0", tmt_cli_style::Role::Text),
+            ("target-0:0", tmt_cli_style::Role::Muted),
+        ] {
+            let hit = map
+                .hits
+                .iter()
+                .find(|hit| hit.id.last().is_some_and(|last| last == id))
+                .unwrap();
+            assert_eq!(
+                terminal.backend().buffer()[(hit.rect.x, hit.rect.y)].fg,
+                look.role(role).fg.unwrap_or(ratatui::style::Color::Reset)
+            );
+            assert!(
+                map.list
+                    .as_ref()
+                    .unwrap()
+                    .geometry
+                    .iter()
+                    .all(|row| row.id != id)
+            );
+        }
+    }
+    for (width, height) in [(80, 30), (100, 30), (80, 8)] {
+        render(&c, width, height);
+        assert_eq!(c.readable.get(), height == 30);
+        assert_eq!(c.panel.borrow().picker.list.rows().len(), 4);
+    }
+    c.screen = Screen::Details(id(ITEM));
+    c.submit = None;
+    pick(&mut c, "edit");
+    let body = c.rows().into_iter().find(|row| row.id == "body").unwrap();
+    assert_eq!(body.label, "Body: Body…");
+    assert!(!body.label.contains("\\n"));
+    assert_eq!(c.draft.as_ref().unwrap().body, "Body\nsecond line");
+}
+
+#[test]
+fn configuration_read_failure_is_storage_error_in_the_worker_lane() {
+    let f = Fixture::new();
+    let mut lane = load::Lane::default();
+    let completed = lane.complete(
+        &f.core,
+        load::Task {
+            key: load::Key {
+                controller: 1,
+                serial: 1,
+                room: Some(id(ROOM)),
+            },
+            job: load::Job::Read,
+        },
+    );
+    let load::Outcome::Read(Err(error)) = completed.outcome else {
+        panic!("fixture refuses config lookup")
+    };
+    assert_eq!(error.code, Code::StorageError);
+    assert!(error.current.is_none());
 }
