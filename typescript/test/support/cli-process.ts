@@ -2,7 +2,10 @@ import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import assert from 'node:assert/strict';
 import {
+  closeSync,
   mkdirSync,
+  openSync,
+  readSync,
   mkdtempSync,
   readFileSync,
   readdirSync,
@@ -44,6 +47,7 @@ type CliDiagnostic = {
     signal?: string | null;
   }[];
   omittedEvents: number;
+  preTermination?: object;
   cleanup?: { closeObserved: boolean; remainingGroups: number[]; failed: boolean };
   partialOutput?: { stdout: DiagnosticArgument; stderr: DiagnosticArgument; observedBytes: number };
 };
@@ -524,6 +528,7 @@ function startRun(sandbox: Sandbox, args: readonly string[], options: CliRunOpti
     const timer = setTimeout(() => {
       failure ??= new Error(`CLI subprocess exceeded the ${deadlineMs} millisecond test bound.`);
       record('deadline');
+      diagnostic.preTermination = preTerminationObservation(cliGroup, sandbox.root);
       beginCleanup();
     }, deadlineMs);
     record('deadline-armed');
@@ -693,10 +698,24 @@ function sandboxProcesses(root: string, pid?: number): number[] {
     .map(({ pid }) => pid);
 }
 
-function residentIdentity(pid: number, root: string): object {
+function residentIdentity(pid: number, root: string, preTermination = false): object {
   try {
+    // Fixed proc facts only; one read bounds both allocation and observation work.
+    const readFact = (name: 'stat' | 'wchan', limit: number): string => {
+      const fd = openSync(`/proc/${pid}/${name}`, 'r');
+      try {
+        const buffer = Buffer.alloc(limit + 1);
+        const bytes = readSync(fd, buffer);
+        if (bytes > limit) throw new Error('process fact exceeds diagnostic bound');
+        return buffer.subarray(0, bytes).toString('utf8');
+      } finally {
+        closeSync(fd);
+      }
+    };
     const identity = (): string[] => {
-      const text = readFileSync(`/proc/${pid}/stat`, 'utf8');
+      const text = preTermination
+        ? readFact('stat', 8192)
+        : readFileSync(`/proc/${pid}/stat`, 'utf8');
       if (!text.startsWith(`${pid} (`)) throw new Error('stat PID differs');
       if (Buffer.byteLength(text) > 8192) throw new Error('stat exceeds diagnostic bound');
       const end = text.lastIndexOf(')');
@@ -708,7 +727,9 @@ function residentIdentity(pid: number, root: string): object {
         end < 0 ||
         fields.length < 20 ||
         !/^[A-Za-z]$/.test(fields[0]) ||
-        ![1, 2, 3, 19].every((index) => /^\d{1,20}$/.test(fields[index]))
+        ![1, 2, 3, 19, ...(preTermination ? [11, 12] : [])].every((index) =>
+          /^\d{1,20}$/.test(fields[index])
+        )
       )
         throw new Error('invalid stat');
       return fields;
@@ -718,8 +739,22 @@ function residentIdentity(pid: number, root: string): object {
     if (cwd !== root && !cwd.startsWith(`${root}${path.sep}`))
       return { pid, observation: 'no longer a sandbox resident' };
     const executable = readlinkSync(`/proc/${pid}/exe`);
+    const wchan = preTermination ? readFact('wchan', 64).trim() : undefined;
+    if (preTermination && (Buffer.byteLength(executable) > 256 || !/^[A-Za-z0-9_]*$/.test(wchan!)))
+      return { pid, observation: 'endpoint facts unavailable' };
     const after = identity();
     if (before[19] !== after[19]) return { pid, observation: 'identity changed' };
+    if (preTermination)
+      return {
+        pid,
+        observation: 'endpoint identity observed',
+        ppid: after[1],
+        pgid: after[2],
+        executable,
+        state: after[0],
+        cpuTicks: { user: after[11], system: after[12] },
+        wchan,
+      };
     return {
       pid,
       observation: 'endpoint identity observed',
@@ -733,6 +768,34 @@ function residentIdentity(pid: number, root: string): object {
     };
   } catch {
     return { pid, observation: 'identity unavailable' };
+  }
+}
+
+// Optional observation never supplies process ownership, signalling or cleanup evidence.
+function preTerminationObservation(cliPid: number | undefined, root: string): object {
+  if (process.platform !== 'linux') return { observation: 'unavailable on this platform' };
+  const observed: object[] = [];
+  try {
+    const processRoot = realpathSync(root);
+    const candidates = sandboxProcesses(processRoot)
+      .filter((pid) => pid !== cliPid)
+      .slice(0, 8);
+    const pids = [...(cliPid === undefined ? [] : [cliPid]), ...candidates];
+    for (const pid of pids) {
+      try {
+        // Same-user cwd admission is rechecked before reading any endpoint facts.
+        if (sandboxProcesses(processRoot, pid).length === 0) {
+          observed.push({ pid, observation: 'no longer a sandbox resident' });
+          continue;
+        }
+        observed.push(residentIdentity(pid, processRoot, true));
+      } catch {
+        observed.push({ pid, observation: 'admission recheck unavailable' });
+      }
+    }
+    return { observation: 'snapshot', cliPid: cliPid ?? null, processes: observed };
+  } catch {
+    return { observation: 'discovery unavailable', processes: observed };
   }
 }
 
