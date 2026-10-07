@@ -329,6 +329,50 @@ export function prepareRCCheckpoint({ writer, sourceSha, previous, snapshot, req
   return { bytes, digest: hash(bytes), charges: validateCheckpoint(checkpoint).charges };
 }
 
+function recordedChainCharges(recorded, checkpoint) {
+  requireEvidence(
+    Array.isArray(recorded) &&
+      recorded.length < LIMIT.checkpoints &&
+      new Set(recorded.map((entry) => entry.id)).size === recorded.length,
+    'Recorded checkpoint count/IDs.'
+  );
+  for (let index = 0; index < recorded.length; index++) {
+    const record = recorded[index];
+    requireEvidence(
+      integer(record.id) && record.digest === hash(record.bytes),
+      'Recorded checkpoint digest/ID mismatch.'
+    );
+    const decoded = decodeRCCheckpoint(record.bytes);
+    requireEvidence(
+      decoded.writer.repository === checkpoint.writer.repository &&
+        decoded.writer.ownerId === checkpoint.writer.ownerId &&
+        canonical(decoded.writer.producer) === canonical(checkpoint.writer.producer),
+      'Recorded checkpoint writer/tooling mismatch.'
+    );
+    if (index > 0) {
+      const prior = recorded[index - 1];
+      retainReservations(decodeRCCheckpoint(prior.bytes), decoded);
+      requireEvidence(
+        decoded.predecessor?.id === prior.id &&
+          decoded.predecessor?.digest === prior.digest &&
+          decoded.revision === decodeRCCheckpoint(prior.bytes).revision + 1,
+        'Recorded checkpoint chain/fork mismatch.'
+      );
+    }
+  }
+  const predecessor = recorded.at(-1);
+  if (predecessor) retainReservations(decodeRCCheckpoint(predecessor.bytes), checkpoint);
+  requireEvidence(
+    predecessor
+      ? checkpoint.predecessor?.id === predecessor.id &&
+          checkpoint.predecessor.digest === predecessor.digest &&
+          checkpoint.revision === decodeRCCheckpoint(predecessor.bytes).revision + 1
+      : checkpoint.predecessor === null && checkpoint.revision === 1,
+    'Expected predecessor/revision mismatch.'
+  );
+  return validateCheckpoint(checkpoint).charges;
+}
+
 /** Injected candidate ports only. Custody capture is external evidence, never CAS. */
 export async function commitRCCheckpoint({ candidate, recorded, bootstrap, ports, startedAtMs }) {
   // Capture caller-owned bytes before any asynchronous port can mutate aliases.
@@ -348,12 +392,13 @@ export async function commitRCCheckpoint({ candidate, recorded, bootstrap, ports
     if (retained !== null) {
       recovery = retained;
       checkpoint = decodeRCCheckpoint(retained.candidate.bytes);
-      charges = validateCheckpoint(checkpoint).charges;
+      charges = recordedChainCharges(retained.recorded, checkpoint);
       return {
         mode: 'unarmed',
         status: 'frozen',
         reason: 'Unresolved checkpoint operation requires qualified recovery.',
         recovery,
+        recorded: recovery.recorded,
         charges,
         evidence,
         requests,
@@ -361,17 +406,11 @@ export async function commitRCCheckpoint({ candidate, recorded, bootstrap, ports
       };
     }
     checkpoint = decodeRCCheckpoint(candidate.bytes);
-    charges = validateCheckpoint(checkpoint).charges;
+    charges = recordedChainCharges(recorded, checkpoint);
     requireEvidence(candidate.digest === hash(candidate.bytes), 'Candidate digest mismatch.');
     requireEvidence(
       canonical(candidate.charges) === canonical(charges),
       'Candidate accounting mismatch.'
-    );
-    requireEvidence(
-      Array.isArray(recorded) &&
-        recorded.length < LIMIT.checkpoints &&
-        new Set(recorded.map((entry) => entry.id)).size === recorded.length,
-      'Recorded checkpoint count/IDs.'
     );
     const captured = structuredClone(await ports.custody.capture());
     fields(captured, ['writer', 'reference', 'concurrencyDomain', 'cancelInProgress']);
@@ -513,39 +552,7 @@ export async function commitRCCheckpoint({ candidate, recorded, bootstrap, ports
       }
       return rows;
     };
-    for (let index = 0; index < recorded.length; index++) {
-      const record = recorded[index];
-      requireEvidence(
-        integer(record.id) && record.digest === hash(record.bytes),
-        'Recorded checkpoint digest/ID mismatch.'
-      );
-      const decoded = decodeRCCheckpoint(record.bytes);
-      requireEvidence(
-        decoded.writer.repository === checkpoint.writer.repository &&
-          decoded.writer.ownerId === checkpoint.writer.ownerId &&
-          canonical(decoded.writer.producer) === canonical(checkpoint.writer.producer),
-        'Recorded checkpoint writer/tooling mismatch.'
-      );
-      if (index > 0) {
-        const prior = recorded[index - 1];
-        requireEvidence(
-          decoded.predecessor?.id === prior.id &&
-            decoded.predecessor?.digest === prior.digest &&
-            decoded.revision === decodeRCCheckpoint(prior.bytes).revision + 1,
-          'Recorded checkpoint chain/fork mismatch.'
-        );
-      }
-    }
     const predecessor = recorded.at(-1);
-    if (predecessor) retainReservations(decodeRCCheckpoint(predecessor.bytes), checkpoint);
-    requireEvidence(
-      predecessor
-        ? checkpoint.predecessor?.id === predecessor.id &&
-            checkpoint.predecessor.digest === predecessor.digest &&
-            checkpoint.revision === decodeRCCheckpoint(predecessor.bytes).revision + 1
-        : checkpoint.predecessor === null && checkpoint.revision === 1,
-      'Expected predecessor/revision mismatch.'
-    );
     if (!predecessor) {
       fields(bootstrap, ['writer', 'admissionReference', 'emptySnapshotDigest']);
       requireEvidence(
@@ -613,6 +620,7 @@ export async function commitRCCheckpoint({ candidate, recorded, bootstrap, ports
     const remaining = [...recorded, successor];
     for (const old of recorded) {
       recovery.pruningId = old.id;
+      recovery.statusId = null;
       await save('before-inactive-status');
       const statusResponse = await call(
         'POST',
@@ -623,6 +631,7 @@ export async function commitRCCheckpoint({ candidate, recorded, bootstrap, ports
       const status = parseFinite(statusResponse.body, LIMIT.reconciliationBytes);
       requireEvidence(integer(status.id), 'Inactive status lacks returned ID.');
       recovery.statusId = status.id;
+      await save('after-returned-status-id');
       const statuses = await list(`${ROOT}/${old.id}/statuses`, LIMIT.inventoryRecords);
       const verified = statuses.find((entry) => entry.id === status.id);
       requireEvidence(
@@ -658,6 +667,7 @@ export async function commitRCCheckpoint({ candidate, recorded, bootstrap, ports
     return {
       mode: 'unarmed',
       status: 'readback-confirmed',
+      recorded,
       successor,
       charges,
       evidence,
@@ -681,6 +691,7 @@ export async function commitRCCheckpoint({ candidate, recorded, bootstrap, ports
       status: recovery ? 'frozen' : 'refused',
       reason,
       recovery,
+      recorded: recovery?.recorded ?? recorded,
       charges,
       evidence,
       requests,

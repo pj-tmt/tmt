@@ -451,7 +451,10 @@ excess nesting and oversized representations. Immutable bytes bind the official
 repository, writer/approved tooling, exact run/attempt, source revision, predecessor
 ID/digest, complete snapshot digest and bounded terminal records. Accounting and
 reservation admission reuse `planRCResources`/`rcGenerationKey`; previous generations,
-unmatched uncertainty and terminal records cannot disappear during succession.
+unmatched uncertainty and terminal records cannot disappear at any recorded transition
+or candidate succession. An inconsistent history is refused before transport effects;
+complete original records remain available and accounting is unknown, never the
+smaller candidate-only total.
 Qualified release/terminal compaction remains unsupported rather than inferred.
 
 A captured externally qualified exclusive-writer context and complete bounded
@@ -467,7 +470,9 @@ Unrelated deployments/environments are never mutation targets. This proves no
 artifact settlement, physical storage reclamation or billing reduction.
 
 An injected durable intent is saved before create/status/delete and at independent
-returned-ID/readback/inactive/delete boundaries. Unknown outcomes stop later effects;
+returned-ID/readback/inactive/delete boundaries. Each actual returned inactive-status
+ID and raw response is saved before asynchronous readback; status identity is reset
+for each predecessor. Unknown outcomes stop later effects;
 recovery preserves the complete candidate, recorded IDs, custody and raw evidence,
 freezes allocations and never retries POST or infers an empty ledger. Completed
 exact-ID evidence also remains durable until an independently qualified handoff. Recovery

@@ -316,6 +316,7 @@ describe('injected Deployment candidate protocol', () => {
       'after-returned-id',
       'after-readback',
       'before-inactive-status',
+      'after-returned-status-id',
       'after-inactive-status',
       'before-delete',
       'after-delete',
@@ -570,7 +571,7 @@ describe('finite recovery, overlap and independent guard sensitivity', () => {
     const result = await run(f, candidate(), [old(), { ...old(), id: 92 }, { ...old(), id: 93 }]);
     expect(result.reason).toBe('Recorded checkpoint count/IDs.');
     expect(f.calls).toEqual([]);
-    expect(result.charges).toEqual(expectedCharges);
+    expect(result.charges).toBeNull();
   });
   it('validates the full recorded chain rather than only a head digest or numeric maximum', async () => {
     const fork = reserved();
@@ -589,7 +590,7 @@ describe('finite recovery, overlap and independent guard sensitivity', () => {
     const result = await run(f, next, [old(), second]);
     expect(result.reason).toBe('Recorded checkpoint chain/fork mismatch.');
     expect(f.calls).toEqual([]);
-    expect(result.charges).toEqual(expectedCharges);
+    expect(result.charges).toBeNull();
   });
   it('never drops unmatched uncertainty or terminal records to manufacture a new ledger', () => {
     const snapshot = empty().snapshot;
@@ -745,5 +746,293 @@ describe('supplied accounting cannot erase planner charges', () => {
     expect(result.reason).toBe('Candidate accounting mismatch.');
     expect(result.charges).toEqual(expectedCharges);
     expect(f.calls).toEqual([]);
+  });
+});
+
+// Independent historical payload construction deliberately bypasses adapter admission.
+// Each record is individually valid; only full-chain conservation distinguishes loss.
+function historicalChain(kind: 'unknown' | 'generation' | 'terminal', lose = false) {
+  const canonicalFixture = (value: unknown): string => {
+    if (value === null || typeof value !== 'object') return JSON.stringify(value);
+    if (Array.isArray(value)) return `[${value.map(canonicalFixture).join(',')}]`;
+    const object = value as Record<string, unknown>;
+    return `{${Object.keys(object)
+      .sort()
+      .map((key) => `${JSON.stringify(key)}:${canonicalFixture(object[key])}`)
+      .join(',')}}`;
+  };
+  const first = empty();
+  if (kind === 'unknown')
+    first.snapshot.unknown = [
+      { reference: 'unknown/original-lost-upload', bytes: 1000000, artifacts: 1 },
+    ];
+  if (kind === 'generation') first.snapshot.generations = reserved().snapshot.generations;
+  if (kind === 'terminal') {
+    first.terminal = [{ generationKey: GENERATION_KEY, reference: 'terminal/original' }];
+    first.snapshot.journal.terminalEntries = 1;
+  }
+  const charged =
+    kind === 'unknown'
+      ? { bytes: 1393216, artifacts: 1 }
+      : kind === 'generation'
+        ? expectedCharges
+        : { bytes: 393216, artifacts: 0 };
+  const record = (
+    checkpoint: RCCheckpoint,
+    id: number,
+    charges: RCCheckpointCandidate['charges']
+  ): RCCheckpointRecord => {
+    checkpoint.snapshotDigest = digest(canonicalFixture(checkpoint.snapshot));
+    const data = bytes(canonicalFixture(checkpoint));
+    return { id, bytes: data, digest: digest(data), charges: structuredClone(charges) };
+  };
+  const r1 = record(first, 91, charged);
+  const second = lose ? empty() : structuredClone(first);
+  second.revision = 2;
+  second.predecessor = { id: 91, digest: r1.digest };
+  const candidateCharges = lose ? { bytes: 393216, artifacts: 0 } : charged;
+  const r2 = record(second, 92, candidateCharges);
+  const third = structuredClone(second);
+  third.revision = 3;
+  third.predecessor = { id: 92, digest: r2.digest };
+  const proposal = record(third, 42, candidateCharges);
+  const payload = (r: RCCheckpointRecord) => new TextDecoder().decode(r.bytes);
+  const steps: Step[] = [
+    {
+      method: 'GET',
+      path: `${root}?per_page=100&page=1`,
+      status: 200,
+      value: [unrelated, deployment(91, payload(r1)), deployment(92, payload(r2))],
+    },
+    { method: 'GET', path: `${root}/91`, status: 200, value: deployment(91, payload(r1)) },
+    { method: 'GET', path: `${root}/92`, status: 200, value: deployment(92, payload(r2)) },
+    {
+      method: 'POST',
+      path: root,
+      status: 201,
+      value: deployment(42, payload(proposal)),
+      body: {
+        ref: 'a'.repeat(40),
+        task: environment,
+        auto_merge: false,
+        required_contexts: [],
+        payload: payload(proposal),
+        environment,
+        description: 'Unarmed PR RC checkpoint candidate',
+        transient_environment: false,
+        production_environment: false,
+      },
+    },
+    { method: 'GET', path: `${root}/42`, status: 200, value: deployment(42, payload(proposal)) },
+    {
+      method: 'GET',
+      path: `${root}?per_page=100&page=1`,
+      status: 200,
+      value: [
+        unrelated,
+        deployment(91, payload(r1)),
+        deployment(92, payload(r2)),
+        deployment(42, payload(proposal)),
+      ],
+    },
+  ];
+  for (const [index, oldRecord] of [r1, r2].entries()) {
+    const status = {
+      ...inactive,
+      id: 51 + index,
+      deployment_url: `https://api.github.com${root}/${oldRecord.id}`,
+    };
+    const remaining = index === 0 ? [r1, r2, proposal] : [r2, proposal];
+    const rows = remaining.map((r) => deployment(r.id, payload(r)));
+    steps.push(
+      {
+        method: 'POST',
+        path: `${root}/${oldRecord.id}/statuses`,
+        status: 201,
+        value: status,
+        body: { state: 'inactive', auto_inactive: false, environment },
+      },
+      {
+        method: 'GET',
+        path: `${root}/${oldRecord.id}/statuses?per_page=100&page=1`,
+        status: 200,
+        value: [status],
+      },
+      {
+        method: 'GET',
+        path: `${root}?per_page=100&page=1`,
+        status: 200,
+        value: [unrelated, ...rows],
+      },
+      {
+        method: 'GET',
+        path: `${root}/${oldRecord.id}`,
+        status: 200,
+        value: deployment(oldRecord.id, payload(oldRecord)),
+      },
+      { method: 'DELETE', path: `${root}/${oldRecord.id}`, status: 204, value: null },
+      {
+        method: 'GET',
+        path: `${root}/${oldRecord.id}`,
+        status: 404,
+        value: { message: 'Not Found' },
+      },
+      {
+        method: 'GET',
+        path: `${root}?per_page=100&page=1`,
+        status: 200,
+        value: [unrelated, ...remaining.slice(1).map((r) => deployment(r.id, payload(r)))],
+      }
+    );
+  }
+  return { recorded: [r1, r2], proposal, charged, steps };
+}
+
+describe('R1 every recorded transition conserves original accounting evidence', () => {
+  it.each(['unknown', 'generation', 'terminal'] as const)(
+    'refuses historical %s loss with unknown accounting and all original records',
+    async (kind) => {
+      const chain = historicalChain(kind, true);
+      const f = fixture(chain.steps);
+      const before = structuredClone(chain.recorded);
+      const result = await run(f, chain.proposal, chain.recorded);
+      expect(result.status).toBe('refused');
+      expect(result.reason).toContain(
+        kind === 'terminal'
+          ? 'Terminal record dropped'
+          : 'Previous unresolved reservation changed or dropped'
+      );
+      expect(result.charges).toBeNull();
+      expect(result.recorded).toEqual(before);
+      expect(chain.recorded).toEqual(before);
+      expect(result.evidence).toEqual([]);
+      expect(result.requests).toBe(0);
+      expect(f.calls).toEqual([]);
+      // The individually valid candidate's smaller total cannot become a conservative aggregate.
+      expect(chain.proposal.charges).toEqual({ bytes: 393216, artifacts: 0 });
+    }
+  );
+  it.each(['unknown', 'generation', 'terminal'] as const)(
+    'admits the full valid %s chain with unchanged planner charges and exact two-predecessor protocol',
+    async (kind) => {
+      const chain = historicalChain(kind);
+      const f = fixture(chain.steps);
+      const result = await run(f, chain.proposal, chain.recorded);
+      expect(result.status).toBe('readback-confirmed');
+      expect(result.charges).toEqual(chain.charged);
+      expect(result.recorded).toEqual(chain.recorded);
+      expect(result.successor?.id).toBe(42);
+      expect(f.calls).toHaveLength(20);
+      expect(f.calls.filter((call) => call.method === 'DELETE').map((call) => call.path)).toEqual([
+        `${root}/91`,
+        `${root}/92`,
+      ]);
+      const statuses = f.saved.filter((state) => state.phase === 'before-inactive-status');
+      expect(statuses.map((state) => [state.pruningId, state.statusId])).toEqual([
+        [91, null],
+        [92, null],
+      ]);
+      expect(
+        f.saved
+          .filter((state) => state.phase === 'after-returned-status-id')
+          .map((state) => [state.pruningId, state.statusId])
+      ).toEqual([
+        [91, 51],
+        [92, 52],
+      ]);
+    }
+  );
+  it('keeps valid known charges after an uncertain create and rejects retained inconsistent histories without claiming a candidate total', async () => {
+    const chain = historicalChain('unknown');
+    const f = fixture(chain.steps);
+    f.setMutation((response, index) => {
+      if (index === 3) response.status = 503;
+    });
+    const failed = await run(f, chain.proposal, chain.recorded);
+    expect(failed.status).toBe('frozen');
+    expect(failed.charges).toEqual({ bytes: 1393216, artifacts: 1 });
+    expect(failed.recorded).toEqual(chain.recorded);
+    expect(f.calls).toHaveLength(4);
+    const recovered = await run(f, chain.proposal, chain.recorded);
+    expect(recovered.charges).toEqual(failed.charges);
+    expect(f.calls).toHaveLength(4);
+    const inconsistent = historicalChain('unknown', true);
+    const retained = structuredClone(f.durable!);
+    retained.recorded = inconsistent.recorded;
+    retained.candidate = inconsistent.proposal;
+    f.ports.recovery.load = async () => structuredClone(retained);
+    const refused = await run(f, chain.proposal, chain.recorded);
+    expect(refused.status).toBe('frozen');
+    expect(refused.charges).toBeNull();
+    expect(refused.recorded).toEqual(inconsistent.recorded);
+    expect(refused.recovery?.evidence).toEqual(retained.evidence);
+    expect(f.calls).toHaveLength(4);
+  });
+});
+
+describe('R2 actual returned inactive status is durable before readback', () => {
+  it('persists the returned ID and complete raw response at a distinct crash boundary before any readback or delete', async () => {
+    const f = fixture();
+    f.setCrash('after-returned-status-id');
+    const result = await run(f);
+    expect(result.status).toBe('frozen');
+    expect(f.calls).toHaveLength(6);
+    expect(f.durable?.phase).toBe('after-returned-status-id');
+    expect(f.durable?.statusId).toBe(51);
+    expect(f.durable?.pruningId).toBe(91);
+    const response = f.durable!.evidence.find(
+      (entry) => entry.method === 'POST' && entry.path === `${root}/91/statuses`
+    )!.response;
+    expect(response.status).toBe(201);
+    expect(new TextDecoder().decode(response.body)).toBe(JSON.stringify(inactive));
+    expect(f.durable?.candidate.bytes).toEqual(bytes(RESERVED));
+    expect(f.durable?.recorded).toEqual([old()]);
+    expect(result.charges).toEqual(expectedCharges);
+    f.setCrash(null);
+    const count = f.calls.length;
+    const recovered = await run(f);
+    expect(recovered.status).toBe('frozen');
+    expect(recovered.recovery?.statusId).toBe(51);
+    expect(recovered.charges).toEqual(expectedCharges);
+    expect(f.calls).toHaveLength(count);
+  });
+  it('observes durable ID/raw response while readback is pending, before catch or later save can repair the window', async () => {
+    const f = fixture();
+    const transport = f.ports.transport;
+    let enter!: () => void;
+    let rejectRead!: (reason: Error) => void;
+    const entered = new Promise<void>((resolve) => {
+      enter = resolve;
+    });
+    f.ports.transport = (request) => {
+      if (request.path !== `${root}/91/statuses?per_page=100&page=1`) return transport(request);
+      enter();
+      return new Promise((_, reject) => {
+        rejectRead = reject;
+      });
+    };
+    const pending = run(f);
+    await entered;
+    // Snapshot and assert before releasing the readback: no catch has run at this point.
+    const observed = structuredClone(f.durable!);
+    expect(observed.phase).toBe('after-returned-status-id');
+    expect(observed.statusId).toBe(51);
+    expect(observed.pruningId).toBe(91);
+    expect(observed.evidence.at(-1)?.path).toBe(`${root}/91/statuses`);
+    expect(new TextDecoder().decode(observed.evidence.at(-1)!.response.body)).toBe(
+      JSON.stringify(inactive)
+    );
+    expect(observed.candidate.bytes).toEqual(bytes(RESERVED));
+    expect(observed.recorded).toEqual([old()]);
+    rejectRead(new Error('Independently released status readback failure'));
+    const result = await pending;
+    expect(result.status).toBe('frozen');
+    expect(result.charges).toEqual(expectedCharges);
+    expect(result.reason).toBe('Independently released status readback failure');
+    expect(result.requests).toBe(7);
+    expect(f.calls.some((call) => call.method === 'DELETE')).toBe(false);
+    expect(
+      f.calls.filter((call) => call.method === 'POST' && call.path.endsWith('/statuses'))
+    ).toHaveLength(1);
   });
 });

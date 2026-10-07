@@ -51,6 +51,7 @@ export interface RCCheckpointRecovery {
     | 'after-returned-id'
     | 'after-readback'
     | 'before-inactive-status'
+    | 'after-returned-status-id'
     | 'after-inactive-status'
     | 'before-delete'
     | 'after-delete'
@@ -85,7 +86,10 @@ export interface RCCheckpointResult {
   status: 'frozen' | 'refused' | 'readback-confirmed';
   reason?: string;
   successor?: RCCheckpointRecord;
+  /** Null means complete recorded-chain accounting could not be established, never zero. */
   charges: RCPlan['charges'];
+  /** Original complete records remain available even when chain admission refuses. */
+  recorded: RCCheckpointRecord[];
   recovery: RCCheckpointRecovery | null;
   evidence: RCCheckpointEvidence[];
   requests: number;
