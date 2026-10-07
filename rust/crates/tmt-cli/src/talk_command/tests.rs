@@ -174,10 +174,17 @@ fn explicit_and_offline_pending_inbox_report_pull_without_live_notification() {
         submitted_at_ms: 1,
         response_expires_at_ms: 2,
     };
-    let completed = presentation::json_document(queued, Some(response));
-    assert_eq!(completed["status"], "completed");
-    assert!(completed.get("notification").is_none());
-    assert!(completed.get("waitingFor").is_none());
+    for focus in [None, Some(1000)] {
+        let mut queued = queued.clone();
+        queued.focus_until_ms = focus;
+        // A final racing late Focus admission is completed, never still waiting
+        // for a checklist or inbox pull.
+        let completed = presentation::json_document(queued, Some(response.clone()));
+        assert_eq!(completed["status"], "completed");
+        assert!(completed.get("notification").is_none());
+        assert!(completed.get("waitingFor").is_none());
+        assert!(completed.get("focus").is_none());
+    }
 }
 
 #[test]

@@ -38,13 +38,13 @@ pub(super) fn json_document(
         if correlation.offline {
             value["suggestion"] = correlation.recipient_recovery().into();
         }
-    }
-    if let Some(until) = correlation.focus_until_ms {
-        value["focus"] = true.into();
-        value["focusUntilMs"] = until.into();
-        value["remainingMs"] = until.saturating_sub(wall_time_ms()).into();
-        value["notification"] = "held".into();
-        value["waitingFor"] = "focus_checklist".into();
+        if let Some(until) = correlation.focus_until_ms {
+            value["focus"] = true.into();
+            value["focusUntilMs"] = until.into();
+            value["remainingMs"] = until.saturating_sub(wall_time_ms()).into();
+            value["notification"] = "held".into();
+            value["waitingFor"] = "focus_checklist".into();
+        }
     }
     if correlation.delivery_uncertain {
         value["deliveryState"] = "uncertain".into();

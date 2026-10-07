@@ -584,7 +584,10 @@ fn focus_set_after_reply_enqueue_fences_frame_and_joined_input_claims() {
                 .unwrap()
         );
         assert_eq!(
-            service(&mut f).focus_policies(&[sender.clone()]).unwrap()[0].held_count,
+            service(&mut f)
+                .focus_policies(std::slice::from_ref(&sender))
+                .unwrap()[0]
+                .held_count,
             0
         );
         let claimed = if joined {
@@ -623,7 +626,9 @@ fn focus_reads_do_not_housekeep_acknowledge_or_renew_retained_data() {
         .get_attempt("attempt-read")
         .unwrap()
         .unwrap();
-    service(&mut f).focus_policies(&[target.clone()]).unwrap();
+    service(&mut f)
+        .focus_policies(std::slice::from_ref(&target))
+        .unwrap();
     service(&mut f)
         .focus_checklist_items(&target, None, 0, 1)
         .unwrap();
