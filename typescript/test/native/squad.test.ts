@@ -3984,11 +3984,13 @@ describe('Ops path migration with unchanged Squad commands', () => {
       for (const args of [
         ['squad', '--help'],
         ['squad', 'cron', '--help'],
-        ['squad', 'skill'],
+        ['squad', 'skill', 'show'],
       ]) {
-        expect((await runCli(sandbox, args)).status).toBe(0);
+        const result = await runCli(sandbox, args);
+        expect(result.status, result.stderr).toBe(0);
       }
-      expect((await runCli(sandbox, ['squad', '__complete', 'cron'])).status).toBe(0);
+      const direct = { ...sandbox, cli: { executable: squadExecutable, args: [] } };
+      expect((await runCli(direct, ['__complete', '--', 'cron', ''])).status).toBe(0);
       expect(readFileSync(old, 'utf8')).toBe(bytes);
       expect(existsSync(path.join(sandbox.globalDir, 'ops.toml'))).toBe(false);
       expect(existsSync(path.join(sandbox.globalDir, '.ops-paths.lock'))).toBe(false);

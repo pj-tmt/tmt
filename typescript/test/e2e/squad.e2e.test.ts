@@ -122,10 +122,18 @@ describe('squad on a private tmux server', { concurrent: false }, () => {
       );
       expect(fs.existsSync(config)).toBe(false);
       expect(fs.existsSync(ops)).toBe(false);
-      const pending = expectJsonResult<{ jobs: { id: string; message: string }[] }>(
-        await squadCli(fixture, ['cron', 'ls', '--squad', 'product'])
-      );
-      expect(pending.jobs[0]).toMatchObject(added.job);
+      const pending = await squadCli<{ jobs: { id: string; message: string }[] }>(fixture, [
+        'cron',
+        'ls',
+        '--squad',
+        'product',
+      ]);
+      expect(pending.code, pending.stderr || pending.stdout).toBe(0);
+      expect(pending.json).toBeDefined();
+      expect(pending.stderr.match(/Ops migration deferred/g)).toHaveLength(1);
+      expect(pending.stderr).toContain('PID 123 in pane %41');
+      expect(pending.stderr).toContain('kill -TERM 123');
+      expect(pending.json!.jobs[0]).toMatchObject(added.job);
       fixture.tmux(['send-keys', '-t', shell.pane, 'q']);
       await fixture.waitForCapture(
         (screen) => screen.includes('MIGRATION_BOARD_EXIT=0'),
@@ -135,7 +143,7 @@ describe('squad on a private tmux server', { concurrent: false }, () => {
       const migrated = expectJsonResult<{ jobs: { id: string; message: string }[] }>(
         await squadCli(fixture, ['cron', 'ls', '--squad', 'product'])
       );
-      expect(migrated.jobs).toEqual(pending.jobs);
+      expect(migrated.jobs).toEqual(pending.json!.jobs);
       expect(fs.readFileSync(config)).toEqual(beforeConfig);
       expect(fs.readFileSync(path.join(ops, 'cron', 'jobs.json'))).toEqual(beforeJobs);
       expect(fs.existsSync(path.join(fixture.globalDir, 'squad'))).toBe(false);
