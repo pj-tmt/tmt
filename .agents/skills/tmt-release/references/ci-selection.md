@@ -84,6 +84,20 @@ shared seed-event classification (`verify=false`) and main ref. PRs, merge group
 and other workers only restore. Dev debug information and incremental compilation
 are disabled in CI; release profiles keep their manifest policy.
 
+CI cache consumers and `colab-browser.yml` use `scripts/install-ci-rust.sh` to
+retain only the requested host toolchain before restore, preserving components,
+targets and manifest-driven MSRV. The helper removes runner-image extras only in
+disposable Actions jobs. `native-intel.yml` keeps its Intel-host
+`runtime-${TARGET}` setup; `native-release-upgrade-prove.yml` keeps its distinct
+`RUSTUP_TOOLCHAIN` and source-scoped `CARGO_TARGET_DIR` environment.
+`remote-pairing.yml`, `project-release.yml`, `native-release-bundle.yml`, metadata
+gates in `native-release-prepare.yml` and `release.yml` retain their environment
+families without CI's dev-debug setting. Release builds in
+`native-release-prepare.yml` and `release-version-injection.yml` keep separate
+product/target keys. Cache keys retain compiler, platform, environment and
+manifest identities; an exact hit does not certify complete feature/profile
+population.
+
 Main seeding runs on selected Cargo/workflow changes, weekly and manually. It has
 no diff and selects full native scope; the Rust aggregate validates its workers
 while outer verification gates remain skipped. Feature-branch dispatches only
