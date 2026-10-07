@@ -36,6 +36,8 @@ use tmt_extension_objects::{
 pub(super) enum Pause {
     /// Before serving a dequeued request, including an early refusal.
     BeforeRequest,
+    /// After the callback entry check, before admitting its frame.
+    BeforeAdmitWrite,
     /// After the acquire decision, before the disclose callback.
     BetweenAdmissions,
     /// After the disclose decision, before the result is sent.
@@ -496,7 +498,16 @@ pub(super) fn ask(
             context,
             operation,
         });
-        bus.send_until(&admit, limit).map_err(ChannelEnd::Bus)?;
+        #[cfg(test)]
+        if let Some(hook) = &hub.hook {
+            hook(Pause::BeforeAdmitWrite, limit);
+        }
+        match bus.send_until(&admit, limit) {
+            Ok(()) => {}
+            // The writer refused before admission: no callback is outstanding.
+            Err(Fault::Timeout(Stage::Write)) if bus.fault().is_none() => return Ok(None),
+            Err(fault) => return Err(ChannelEnd::Bus(fault)),
+        }
         *last
     };
     let mut decisions = locked(&hub.decisions);
@@ -504,13 +515,13 @@ pub(super) fn ask(
         if hub.stopped() {
             return Err(ChannelEnd::Stopped);
         }
+        if let Some(decision) = decisions.remove(&id) {
+            return Ok(Some(decision));
+        }
         let left = limit
             .checked_duration_since(Instant::now())
             .filter(|left| !left.is_zero())
             .ok_or(ChannelEnd::CallbackTimeout)?;
-        if let Some(decision) = decisions.remove(&id) {
-            return Ok(Some(decision));
-        }
         decisions = hub
             .decided
             .wait_timeout(decisions, left.min(SLICE))
@@ -534,8 +545,9 @@ fn send_result(
     });
     bus.send(&result).map_err(ChannelEnd::Bus)
 }
-/// Observational results share the request's remaining write budget. A spent
-/// budget sends nothing; ending the channel releases its outstanding request.
+/// Data results share the request's remaining write budget. If the writer refuses
+/// before admission, answer only unavailable under the normal write bound and
+/// keep serving. An admitted write failure still ends the channel.
 pub(super) fn send_until(
     hub: &Hub,
     bus: &Bus,
@@ -546,7 +558,7 @@ pub(super) fn send_until(
     if hub.stopped() {
         return Err(ChannelEnd::Stopped);
     }
-    bus.send_until(
+    let sent = bus.send_until(
         &Frame::Result(ResultFrame {
             generation: hub.generation,
             request_id: request.request_id,
@@ -555,8 +567,13 @@ pub(super) fn send_until(
             outcome,
         }),
         deadline,
-    )
-    .map_err(ChannelEnd::Bus)
+    );
+    match sent {
+        Err(Fault::Timeout(Stage::Write)) if bus.fault().is_none() => {
+            send_result(hub, bus, request, Outcome::Failure(ErrorCode::Unavailable))
+        }
+        other => other.map_err(ChannelEnd::Bus),
+    }
 }
 /// The transfer a request names, which its result repeats.
 fn transfer_of(call: &Call) -> Option<Uuid4> {

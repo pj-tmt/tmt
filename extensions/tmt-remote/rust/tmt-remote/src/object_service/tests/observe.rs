@@ -425,8 +425,20 @@ fn observation_metadata_change_during_disclose_suppresses_the_snapshot() {
     assert_eq!(result(&peer).outcome, Outcome::Failure(ErrorCode::NotFound));
 }
 
+/// A reached boundary holds only the first request; its successor has a full budget.
+fn hold_first(service: &ObjectService<'_>, boundary: Pause) {
+    let first = Arc::new(AtomicBool::new(true));
+    service.set_hook(Some(Arc::new(move |pause, deadline| {
+        if pause == boundary && first.swap(false, Ordering::AcqRel) {
+            while Instant::now() < deadline {
+                thread::yield_now();
+            }
+        }
+    })));
+}
+
 #[test]
-fn observation_absolute_deadline_sends_no_late_result() {
+fn observation_absolute_deadline_is_unavailable_without_data_and_channel_lives() {
     let env = Env::new();
     let peer = Peer::start(&env, "alpha", Answer::Expect);
     let service = env
@@ -438,16 +450,12 @@ fn observation_absolute_deadline_sends_no_late_result() {
             },
         )
         .unwrap();
-    service.set_hook(Some(Arc::new(|pause, deadline| {
-        if pause == Pause::BeforeResult {
-            while Instant::now() < deadline {
-                thread::yield_now();
-            }
-        }
-    })));
+    hold_first(&service, Pause::BeforeResult);
     service.activate(&env.mounts(&ALPHA), "alpha").unwrap();
     let original = spec(Context::LocalExtension, 7, b"hello");
     seed(&service, &original, b"hello", true);
+    let ledger = fs::read(env.ledger()).unwrap();
+    let payload = payload_snapshot(&env.directory("alpha"));
     request(
         &peer,
         1,
@@ -458,20 +466,20 @@ fn observation_absolute_deadline_sends_no_late_result() {
     decide(&peer, acquire.callback_id.get(), 1, Decision::Allow);
     let disclose = callback(&peer);
     decide(&peer, disclose.callback_id.get(), 1, Decision::Allow);
-    with_bus(&peer, |bus| {
-        assert!(
-            bus.recv(Some(Instant::now() + Duration::from_secs(5)))
-                .is_err()
-        )
-    });
-    assert_eq!(
-        ended_soon(&service, "alpha"),
-        ChannelEnd::Bus(Fault::Timeout(tmt_extension_objects::Stage::Write))
+    let spent = result(&peer);
+    assert_eq!(spent.request_id, counter(1));
+    assert_eq!(spent.outcome, Outcome::Failure(ErrorCode::Unavailable));
+    assert_eq!(fs::read(env.ledger()).unwrap(), ledger);
+    assert_eq!(payload_snapshot(&env.directory("alpha")), payload);
+    let (_, next) = allowed(&peer, 2, read_input(&original, 0, 5));
+    assert!(
+        matches!(next, Outcome::Success(Success::Read { bytes, .. }) if bytes.as_bytes() == b"hello")
     );
+    assert_eq!(service.ended("alpha"), None);
 }
 
 #[test]
-fn observation_spent_mounted_denial_sends_no_late_frame() {
+fn observation_spent_mounted_denial_is_unavailable_and_channel_lives() {
     let env = Env::new();
     let peer = Peer::start(&env, "alpha", Answer::Expect);
     let service = env
@@ -483,15 +491,10 @@ fn observation_spent_mounted_denial_sends_no_late_frame() {
             },
         )
         .unwrap();
-    service.set_hook(Some(Arc::new(|pause, deadline| {
-        if pause == Pause::BeforeRequest {
-            while Instant::now() < deadline {
-                thread::yield_now();
-            }
-        }
-    })));
+    hold_first(&service, Pause::BeforeRequest);
     service.activate(&env.mounts(&ALPHA), "alpha").unwrap();
     let before = fs::read(env.ledger()).unwrap();
+    let payload = payload_snapshot(&env.directory("alpha"));
     let original = spec(Context::LocalExtension, 7, b"hello");
     request(
         &peer,
@@ -499,16 +502,49 @@ fn observation_spent_mounted_denial_sends_no_late_frame() {
         Origin::Mounted(transfer()),
         status_input(&original),
     );
-    // This invalid origin has no callback; its denial must not renew a spent budget.
-    with_bus(&peer, |bus| {
-        assert!(
-            bus.recv(Some(Instant::now() + Duration::from_secs(5)))
-                .is_err()
-        )
-    });
-    assert_eq!(
-        ended_soon(&service, "alpha"),
-        ChannelEnd::Bus(Fault::Timeout(tmt_extension_objects::Stage::Write))
-    );
+    // No callback or denied/data frame may renew this spent request budget.
+    let spent = result(&peer);
+    assert_eq!(spent.request_id, counter(1));
+    assert_eq!(spent.outcome, Outcome::Failure(ErrorCode::Unavailable));
     assert_eq!(fs::read(env.ledger()).unwrap(), before);
+    assert_eq!(payload_snapshot(&env.directory("alpha")), payload);
+    let (_, next) = allowed(&peer, 2, status_input(&original));
+    assert_eq!(
+        next,
+        Outcome::Success(Success::State(WireState::NotObserved))
+    );
+    assert_eq!(service.ended("alpha"), None);
+}
+
+#[test]
+fn observation_callback_spent_before_write_is_unavailable_and_channel_lives() {
+    let env = Env::new();
+    let peer = Peer::start(&env, "alpha", Answer::Expect);
+    let service = env
+        .service(
+            &ALPHA,
+            ServiceBounds {
+                request: Duration::from_millis(400),
+                ..bounds()
+            },
+        )
+        .unwrap();
+    hold_first(&service, Pause::BeforeAdmitWrite);
+    service.activate(&env.mounts(&ALPHA), "alpha").unwrap();
+    let original = spec(Context::LocalExtension, 7, b"hello");
+    let before = fs::read(env.ledger()).unwrap();
+    let payload = payload_snapshot(&env.directory("alpha"));
+    request(&peer, 1, Origin::LocalExtension, status_input(&original));
+    // The result is the first frame: the pre-admission refusal sent no callback.
+    let spent = result(&peer);
+    assert_eq!(spent.request_id, counter(1));
+    assert_eq!(spent.outcome, Outcome::Failure(ErrorCode::Unavailable));
+    assert_eq!(fs::read(env.ledger()).unwrap(), before);
+    assert_eq!(payload_snapshot(&env.directory("alpha")), payload);
+    let (_, next) = allowed(&peer, 2, status_input(&original));
+    assert_eq!(
+        next,
+        Outcome::Success(Success::State(WireState::NotObserved))
+    );
+    assert_eq!(service.ended("alpha"), None);
 }

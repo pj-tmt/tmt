@@ -56,8 +56,9 @@ four upload methods are `unavailable`, with no callback or effect; they belong t
 remembered. `observe.rs` owns observational `status` and bounded raw-byte `read`: each asks for acquire and disclose,
 compares the exact captured context at every boundary, rechecks the observed backend metadata after disclose, and
 clips the result write by the remaining absolute request time. The bus preserves first-prefix time through decoding
-and queueing. A spent observational budget sends nothing and ends the channel; a sent callback unanswered at its bound
-(5 s within the request's remaining time) also ends it. Existing config pre-callback expiry returns `unavailable`.
+and queueing. Config and observations use one expiry rule: no late data; a spent request with no outstanding callback
+returns bare `unavailable` under the normal write bound and the channel keeps serving. A sent callback unanswered at
+its bound (5 s within the request's remaining time), or a frame write failing after admission, ends the channel.
 Status derives a domain-separated, length-framed identity from installed extension, caller transfer UUID and trusted
 principal: authenticated owner device (stable across sessions/revisions), installed local extension, or actual
 non-owner connection origin (no cross-origin recovery). It compares retained namespace and frozen policy bytes and
