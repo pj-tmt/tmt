@@ -140,7 +140,7 @@
   z-index: 2;
   top: 205px;
   left: calc(50% + 20px);
-  width: min(600px, 43vw);
+  right: max(53px, calc((100% - 1160px) / 2 + 5px));
   margin: 0;
   color: var(--c-text);
   font: 12px/1.5 var(--f-mono);
@@ -160,7 +160,6 @@
   position: relative;
   z-index: 1;
   min-width: 0;
-  min-height: 310px;
   border: 1px solid var(--c-term-edge);
   background: var(--c-term);
   color: var(--t-text);
@@ -184,7 +183,7 @@
   font-size: 9px;
 }
 .v9-home .tunnel-terminal-body {
-  padding: 16px 12px;
+  padding: 16px 12px 28px;
 }
 .v9-home .tunnel-terminal p {
   margin: 0;
@@ -330,6 +329,9 @@
   color: var(--c-muted);
 }
 @media (min-width: 761px) and (max-width: 1050px) {
+  .v9-home .hero-tunnel {
+    right: 37px;
+  }
   .v9-home .tunnel-scene {
     grid-template-columns: minmax(0, 1fr) 70px minmax(0, 1fr);
   }
@@ -355,15 +357,13 @@
     position: relative;
     top: auto;
     left: auto;
+    right: auto;
     width: calc(100% - 40px);
     max-width: 500px;
     margin: 0 auto 36px;
   }
   .v9-home .tunnel-scene {
     grid-template-columns: minmax(0, 1fr);
-  }
-  .v9-home .tunnel-terminal {
-    min-height: 0;
   }
   .v9-home .tunnel-exchange {
     height: 160px;
