@@ -53,6 +53,14 @@ fn channel_or_unknown(entry: &BindingEntry) -> bool {
 
 /// A preparation failure affects only the advisory hint, never durable acceptance.
 pub fn prepare(storage: &mut Storage, hint: &OriginatorHint) -> Result<Prepared, StorageError> {
+    match RequestService::new(&mut *storage, wall_time_ms)
+        .hold_originator_notice(&hint.request_id, hint.kind)
+    {
+        Ok(true) => return Ok(Prepared::Immediate(WakeState::Unavailable)),
+        Err(tmt_core::request::RequestError::Repository(error)) => return Err(error),
+        Err(_) => return Ok(Prepared::Immediate(WakeState::Claimed)),
+        Ok(false) => {}
+    }
     if hint.kind != HintKind::Reply {
         return Ok(Prepared::Immediate(delivery::notify(storage, hint)));
     }

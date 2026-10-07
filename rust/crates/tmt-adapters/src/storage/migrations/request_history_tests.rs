@@ -32,7 +32,7 @@ fn withdrawal_migration_rolls_back_columns_and_cursor_trigger_together() {
         .execute_batch("DROP TRIGGER reject_withdrawal")
         .unwrap();
     let mut storage = Storage::open(&path).unwrap();
-    assert_eq!(storage.health().unwrap().schema_version, 48);
+    assert_eq!(storage.health().unwrap().schema_version, 49);
     assert_eq!(oracle.query_row("SELECT COUNT(*) FROM pragma_table_info('request_attempts') WHERE name IN ('withdrawn_at_ms','withdrawal_reason')", [], |row| row.get::<_, i64>(0)).unwrap(), 2);
     storage.close().unwrap();
 }
@@ -77,7 +77,7 @@ fn request_history_indexes_commit_together_without_rewriting_requests() {
         .execute_batch("DROP TRIGGER reject_history_indexes;")
         .unwrap();
     let mut storage = Storage::open(&path).unwrap();
-    assert_eq!(storage.health().unwrap().schema_version, 48);
+    assert_eq!(storage.health().unwrap().schema_version, 49);
     assert_eq!(indexes(), 3);
     assert_eq!(oracle.query_row("SELECT message_text,room_id FROM request_attempts WHERE request_id='history-request'", [],
         |row| Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?))).unwrap(), ("old prompt".into(), None));
@@ -119,7 +119,7 @@ fn originator_results_index_migration_rolls_back_and_preserves_existing_requests
         .execute_batch("DROP TRIGGER reject_results_index")
         .unwrap();
     let mut storage = Storage::open(&path).unwrap();
-    assert_eq!(storage.health().unwrap().schema_version, 48);
+    assert_eq!(storage.health().unwrap().schema_version, 49);
     assert_eq!(
         oracle
             .query_row("SELECT value FROM change_cursor", [], |row| row

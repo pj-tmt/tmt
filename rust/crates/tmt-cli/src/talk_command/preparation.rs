@@ -104,7 +104,7 @@ pub(super) fn prepare(
             },
         );
     let (request_id, attempt_id) = request_ids();
-    let correlation = Correlation {
+    let mut correlation = Correlation {
         data_dir: data_dir.to_path_buf(),
         request_id,
         target: input.target.clone(),
@@ -120,6 +120,7 @@ pub(super) fn prepare(
         offline,
         unbound,
         delivery_uncertain: false,
+        focus_until_ms: None,
     };
     if let Some(room) = &room
         && !correlation
@@ -171,6 +172,16 @@ pub(super) fn prepare(
     } else {
         None
     };
+    if !input.options.inbox
+        && let Some(identity) = &correlation.identity
+    {
+        tmt_adapters::focus::flush_idle(
+            storage,
+            &identity.id,
+            Duration::from_secs_f64(settings.paste_enter_delay_ms / 1000.0),
+        )
+        .map_err(|e| correlation.state_error(e, true))?;
+    }
     let route = match (&correlation.identity, &observed) {
         (Some(identity), _) => RequestRoute::Inbox {
             recipient_identity_id: identity.id.clone(),
@@ -217,12 +228,41 @@ pub(super) fn prepare(
             }),
     };
     let mut service = RequestService::new(storage, wall_time_ms);
+    let delivery = tmt_core::request::focus::DeliveryPolicy {
+        urgent: input.options.urgent,
+        kind: input.options.focus_kind,
+        automatic: !input.options.inbox,
+    };
+    let timeout = input.options.timeout_seconds.unwrap_or(settings.timeout);
+    let notification =
+        notify_originator.then(|| tmt_core::request::notification::NotificationPolicy {
+            deadline_ms: wall_time_ms() + (timeout * 1000.0).ceil() as u64,
+            timeout_ms: (timeout * 1000.0).ceil() as u64,
+            waiter: None,
+        });
     let prepared = if input.options.inbox {
-        service.enqueue(request, attempt_id.clone(), settings.retention_days)
+        service.enqueue_delivery(
+            request,
+            attempt_id.clone(),
+            settings.retention_days,
+            delivery,
+        )
     } else {
-        service.prepare(request, attempt_id.clone(), settings.retention_days)
+        service.prepare_delivery(
+            request,
+            attempt_id.clone(),
+            settings.retention_days,
+            delivery,
+            notification,
+        )
     }
     .map_err(|error| correlation.state_error(error, false))?;
+    correlation.focus_until_ms = prepared.focus_until_ms;
+    if prepared.focus_until_ms.is_some() {
+        correlation.inbox = true;
+        correlation.offline = false;
+        correlation.unbound = false;
+    }
     let receipt = encode_route_receipt(&correlation.request_id, &attempt_id, &route);
     let message = if prepared.inject_preamble {
         preamble.map_or_else(

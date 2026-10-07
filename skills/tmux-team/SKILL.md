@@ -155,12 +155,30 @@ tmt talk reviewer "Review this patch" --timeout 300 --json
 tmt talk reviewer "Run the agreed tests" --detach --json
 tmt talk reviewer "Review this patch" --identity coordinator --json
 tmt result <request-id> --json
-tmt check reviewer 200  # diagnostics only
+tmt check reviewer 200  # capture; may deliver a due Focus checklist
 ```
 
 Detached success is `{status:"sent",requestId,target,pane,identity?}`, not task
 completion. Completed talk adds the exact `response`, `bodyBytes` and
 `submittedAtMs` to request/target/pane correlation. Preserve that request ID.
+
+Focus holds non-owner, non-urgent automatic requests and result notices in a
+single durable checklist. Held talk returns queued immediately with remaining
+time; JSON adds `focus:true`, `focusUntilMs`, `remainingMs`, `notification:"held"`
+and `waitingFor:"focus_checklist"`. Preserve the request ID; do not resend just
+because it was held. `--urgent` bypasses Focus only, and `--kind decision|review|fyi`
+records its checklist purpose (default `fyi`). The pinned recorded owner UUID
+also bypasses. All channel, host and pending-approval guards still apply.
+Explicit `--inbox` stays pull-only. Existing `tmt focus` still switches panes.
+
+There is no core timer, worker or periodic flush. An admitted provider turn
+boundary may hand off one checklist during Focus. After expiry or off, the next
+ordinary talk/check touching a verified idle recipient may hand off one backlog
+checklist. Without hooks or traffic it remains pending; an optional Squad cron
+reminder is outside core. A checklist contains original receipt-bound reply
+commands for eligible requests and result inspection commands for finals.
+Use the printed sealed-checklist API read/cursor for overflow; an uncertain
+handoff is never replay permission. Reads and delivery do not acknowledge X.
 
 An identity with no recorded binding receives through inbox pull. Ordinary
 `talk` waits for its durable reply, using the same 180-second default,

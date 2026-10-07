@@ -112,6 +112,7 @@ function expectNativeSchema(
     { version: 46, name: 'retain bounded consumption sources and timestamped history' },
     { version: 47, name: 'index originator results by final submission time' },
     { version: 48, name: 'retain originator withdrawal of unanswered requests' },
+    { version: 49, name: 'hold focus delivery and seal ordered checklists' },
   ];
   expect(migrated.migrations.slice(8)).toEqual(additions);
   expect(migrated.tables.map(({ name }) => name)).toEqual(
@@ -145,6 +146,10 @@ function expectNativeSchema(
       'office_whiteboard_snapshot_images',
       'request_recipient_attention_identities',
       'request_notifications',
+      'request_delivery_policies',
+      'focus_policies',
+      'focus_items',
+      'focus_checklists',
       'reply_notice_batches',
       'reply_notices',
     ].sort()

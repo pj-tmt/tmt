@@ -660,3 +660,47 @@ status never affects the command. All observers of one command share a 500 ms
 deadline. Calls to `tmt` made while `TMT_HOOK_DELIVERY` is set emit no further
 observations. Replacing or re-permissioning the executable suspends delivery
 until it is enabled again.
+
+## Focus policy and checklist
+
+All operations below use version 1 and name neither envelope `identity` nor
+`originator`. This is a trusted same-user process seam, not authentication.
+Squad owns user/lead authorization and duration syntax; it passes the recorded
+owner UUID. Provider adapters must admit their exact launch's turn boundary before
+claiming. Core never reads Squad configuration or installs provider-global hooks.
+
+| Operation                | Input                                                                                                 | Result                                                         |
+| ------------------------ | ----------------------------------------------------------------------------------------------------- | -------------------------------------------------------------- |
+| `focus.policy.set`       | `identityId`, `ownerIdentityId`, `setterIdentityId`, `expectedRevision`, `untilMs`                    | policy view                                                    |
+| `focus.policy.clear`     | same UUID/revision fields, without `untilMs`                                                          | cleared policy view                                            |
+| `focus.policy.show`      | `identities`: 1–256 active UUIDs                                                                      | `policies`: views in input order                               |
+| `focus.checklist.read`   | `identityId`, optional `checklistId`, `limit` (default 32, 1–128), `after` (default 0)                | bounded ordered page                                           |
+| `focus.checklist.claim`  | `identityId`, `opportunity`: `turn_boundary` or `idle`                                                | `claimed:false` or a sealed checklist, page and bounded `text` |
+| `focus.checklist.settle` | `identityId`, `checklistId`, `attemptToken`, `outcome`: `delivered`, `definitely_unsent`, `uncertain` | `changed`, `state`                                             |
+
+UUIDs must be canonical and active; revision/expiry/cursors are nonnegative JS-safe
+integers, a set expiry is strictly future, absent revision is 0. A clear advances
+the revision and stores expiry 0. Unknown fields (including `everyMs`) are refused.
+Views contain `identityId`, `revision`, `active`, `focusUntilMs`, `remainingMs`,
+`heldCount`, pinned `ownerIdentityId` and `setterIdentityId`, and `activeChecklist`
+(null or an unsettled claim). Held count includes that active sealed membership.
+Policy conflicts return `FOCUS_REVISION_CONFLICT`; refresh before another write.
+
+A read without a checklist ID shows unclaimed references. A sealed read includes
+its retained membership regardless of settlement; later arrivals stay outside it.
+Each item includes `sequence`, `requestId`, `kind`, `source`, `createdAtMs`, sender
+UUID/name, `urgent`, bounded `preview`, optional `replyCommand`/`inspectCommand`,
+and a bounded `resultPreview` for finals. Page fields are `identityId`,
+`checklistId`, `activeChecklist`, `items`, `total` (remaining from this cursor),
+`remaining`, `nextAfter` (null at the end). Continue with the same scope and the
+returned sequence cursor. Canonical retention still applies.
+
+A successful claim returns `{claimed:true,checklist,page,text}`; the checklist
+contains `checklistId`, `identityId`, `attemptToken`, `throughSequence`, `state`,
+`createdAtMs`. A competing or empty claim returns no transport permission. The
+`idle` path verifies actual live idle evidence and refuses while Focus is active;
+`turn_boundary` relies on the admitted provider adapter. No core scheduler exists.
+Settlement is exact-token and idempotent; an opposite terminal outcome returns
+`FOCUS_STATE_INVALID`, a wrong scope/token `FOCUS_ATTEMPT_MISMATCH`.
+A crash after claim remains unknown until inspected; no elapsed time reopens it.
+See the [delivery contract](request-response-v1.md#focus-delivery-windows).
