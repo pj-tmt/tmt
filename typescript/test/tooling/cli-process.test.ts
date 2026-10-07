@@ -1206,3 +1206,193 @@ it('diagnostic long private fixture values remain hashed within the report budge
     f.restore();
   }
 });
+
+it.each([
+  'selected',
+  'launcher',
+  'discovery-denied',
+  'discovery-denied-EPERM',
+  'recheck-denied',
+  'recheck-denied-EACCES',
+  'endpoint-denied',
+  'endpoint-denied-EPERM',
+  'disappeared',
+  'reused',
+  'foreign',
+  'stat-overflow',
+  'wchan-overflow',
+  'exe-overflow',
+])('diagnostic pre-termination %s preserves the original deadline and cleanup', async (kind) => {
+  const f = diagnosticFixture();
+  const platform = Object.getOwnPropertyDescriptor(process, 'platform')!;
+  const readdir = fs.readdirSync.bind(fs);
+  const stat = fs.statSync.bind(fs);
+  const readlink = fs.readlinkSync.bind(fs);
+  const open = fs.openSync.bind(fs);
+  const read = fs.readSync.bind(fs);
+  const close = fs.closeSync.bind(fs);
+  const endpoints: string[] = [];
+  const files = new Map<number, string>();
+  let root = '';
+  let killed = false;
+  let nextFd = 900100;
+  let cliCwdReads = 0;
+  let cliStatReads = 0;
+  const residentPids = Array.from({ length: 12 }, (_, index) => 900010 + index);
+  const signal = f.signals.getMockImplementation()!;
+  f.signals.mockImplementation((pid, sig) => {
+    if (sig === 'SIGKILL') killed = true;
+    return signal(pid, sig);
+  });
+  Object.defineProperty(process, 'platform', { value: 'linux' });
+  vi.spyOn(fs, 'readdirSync').mockImplementation((file, options) => {
+    if (String(file) !== '/proc') return readdir(file, options);
+    if (kind.startsWith('discovery-denied') && !killed)
+      throw Object.assign(new Error('denied discovery'), {
+        code: kind.endsWith('EPERM') ? 'EPERM' : 'EACCES',
+      });
+    return (killed ? [] : ['900002', ...residentPids.map(String)]) as unknown as ReturnType<
+      typeof fs.readdirSync
+    >;
+  });
+  vi.spyOn(fs, 'statSync').mockImplementation((file, options) =>
+    /^\/proc\/\d+$/.test(String(file))
+      ? ({ uid: process.getuid!() } as fs.Stats)
+      : stat(file, options)
+  );
+  vi.spyOn(fs, 'readlinkSync').mockImplementation((file, options) => {
+    const name = String(file);
+    if (name.endsWith('/cwd') && name.startsWith('/proc/')) {
+      if (name === '/proc/900002/cwd') {
+        cliCwdReads++;
+        if (kind.startsWith('recheck-denied') && cliCwdReads === 2)
+          throw Object.assign(new Error('denied recheck'), {
+            code: kind.endsWith('EACCES') ? 'EACCES' : 'EPERM',
+          });
+        if (kind === 'foreign') return '/foreign/root';
+      }
+      return root;
+    }
+    if (name.startsWith('/proc/') && name.endsWith('/exe')) {
+      endpoints.push(name);
+      if (kind === 'exe-overflow') return '/owned/' + 'x'.repeat(256);
+      return kind === 'launcher' ? '/owned/runtime-caller-fixture' : '/owned/tmt';
+    }
+    return readlink(file, options);
+  });
+  vi.spyOn(fs, 'openSync').mockImplementation((file, flags, mode) => {
+    const name = String(file);
+    if (!name.startsWith('/proc/')) return open(file, flags, mode);
+    expect(killed).toBe(false);
+    endpoints.push(name);
+    if (kind.startsWith('endpoint-denied'))
+      throw Object.assign(new Error('denied endpoint'), {
+        code: kind.endsWith('EPERM') ? 'EPERM' : 'EACCES',
+      });
+    if (kind === 'disappeared') throw Object.assign(new Error('gone'), { code: 'ENOENT' });
+    const fd = nextFd++;
+    files.set(fd, name);
+    return fd;
+  });
+  vi.spyOn(fs, 'readSync').mockImplementation((fd, buffer, options) => {
+    const name = files.get(fd);
+    if (name === undefined) return read(fd, buffer, options);
+    if (!Buffer.isBuffer(buffer)) throw new Error('Expected bounded byte buffer');
+    const offset = options?.offset ?? 0;
+    const length = options?.length ?? buffer.length - offset;
+    const pid = name.split('/')[2];
+    if (name.endsWith('/stat') && pid === '900002') cliStatReads++;
+    const fields = Array(20).fill('0');
+    Object.assign(fields, {
+      0: 'S',
+      1: '1',
+      2: pid,
+      3: pid,
+      11: '17',
+      12: '3',
+      19: kind === 'reused' && pid === '900002' && cliStatReads > 1 ? '54321' : '12345',
+    });
+    const text = name.endsWith('/wchan')
+      ? kind === 'wchan-overflow'
+        ? 'x'.repeat(65)
+        : 'do_wait\n'
+      : kind === 'stat-overflow'
+        ? 'x'.repeat(8193)
+        : `${pid} (fixture) ${fields.join(' ')}`;
+    const bytes = Buffer.from(text);
+    const count = Math.min(bytes.length, length);
+    buffer.set(bytes.subarray(0, count), offset);
+    return count;
+  });
+  vi.spyOn(fs, 'closeSync').mockImplementation((fd) => {
+    if (!files.delete(fd)) close(fd);
+  });
+  syncBuiltinESMExports();
+  try {
+    await withSandbox(
+      async (sandbox) => {
+        root = fs.realpathSync(sandbox.root);
+        const result = runCli(sandbox, ['upgrade', '--json']).catch((error: unknown) => error);
+        await vi.advanceTimersByTimeAsync(4999);
+        expect(endpoints).toEqual([]);
+        await vi.advanceTimersByTimeAsync(11);
+        expect(await result).toMatchObject({
+          message: 'CLI subprocess exceeded the 5000 millisecond test bound.',
+        });
+        const report = JSON.parse(String(f.diagnostics.mock.calls[0][1]));
+        expect(report.deadlineMs).toBe(5000);
+        expect(report.cleanup).toEqual({ closeObserved: true, remainingGroups: [], failed: false });
+        const snapshot = report.preTermination;
+        if (kind.startsWith('discovery-denied')) {
+          expect(snapshot.observation).toBe('discovery unavailable');
+          expect(endpoints).toEqual([]);
+        } else {
+          expect(snapshot).toMatchObject({ observation: 'snapshot', cliPid: 900002 });
+          expect(snapshot.processes).toHaveLength(9);
+          const cli = snapshot.processes[0];
+          if (kind === 'selected' || kind === 'launcher') {
+            expect(cli).toEqual({
+              pid: 900002,
+              observation: 'endpoint identity observed',
+              ppid: '1',
+              pgid: '900002',
+              executable: kind === 'launcher' ? '/owned/runtime-caller-fixture' : '/owned/tmt',
+              state: 'S',
+              cpuTicks: { user: '17', system: '3' },
+              wchan: 'do_wait',
+            });
+            expect(snapshot.processes[1].pgid).toBe('900010');
+          } else {
+            expect(cli).toEqual({
+              pid: 900002,
+              observation: kind.startsWith('recheck-denied')
+                ? 'admission recheck unavailable'
+                : kind === 'reused'
+                  ? 'identity changed'
+                  : kind === 'foreign'
+                    ? 'no longer a sandbox resident'
+                    : kind === 'exe-overflow'
+                      ? 'endpoint facts unavailable'
+                      : 'identity unavailable',
+            });
+          }
+          expect(new Set(endpoints.map((name) => name.split('/')[2])).size).toBeLessThanOrEqual(9);
+          expect(endpoints.some((name) => name.startsWith('/proc/900018/'))).toBe(false);
+          if (kind.startsWith('recheck-denied') || kind === 'foreign')
+            expect(endpoints.some((name) => name.startsWith('/proc/900002/'))).toBe(false);
+        }
+        expect(files.size).toBe(0);
+        expect(JSON.stringify(report)).not.toContain('/foreign/root');
+        expect(Buffer.byteLength(String(f.diagnostics.mock.calls[0][1]))).toBeLessThanOrEqual(
+          16384
+        );
+        expect(f.signals.mock.calls.every(([pid]) => [-900001, -900002].includes(pid))).toBe(true);
+        expect(f.spawn).toHaveBeenCalledOnce();
+      },
+      { TMT_TEST_CLI: JSON.stringify({ executable: process.execPath, args: [] }) }
+    );
+  } finally {
+    Object.defineProperty(process, 'platform', platform);
+    f.restore();
+  }
+});
