@@ -1,9 +1,10 @@
-//! Overlay box geometry and opaque chrome from Full-screen interaction/Overlays.
+//! Overlay geometry and opaque chrome from Full-screen interaction/Overlays.
+use super::outline::{Frame, frame_block};
 use ratatui::{
     buffer::Buffer,
     layout::Rect,
     text::Line,
-    widgets::{Block, Borders, Clear, Widget},
+    widgets::{Clear, Widget},
 };
 use tmt_cli_style::{Depth, Role, Theme, breakpoint, table::escape, theme::screen};
 
@@ -106,13 +107,27 @@ impl Modal {
     }
 
     pub fn paint(&self, areas: ModalAreas, buffer: &mut Buffer, theme: &Theme, depth: Depth) {
+        self.paint_frame(areas, buffer, theme, depth, Frame::Square);
+    }
+
+    /// Flat rules retain the square modal's areas, clearing and opaque mask.
+    pub fn paint_flat(&self, areas: ModalAreas, buffer: &mut Buffer, theme: &Theme, depth: Depth) {
+        self.paint_frame(areas, buffer, theme, depth, Frame::Flat);
+    }
+
+    fn paint_frame(
+        &self,
+        areas: ModalAreas,
+        buffer: &mut Buffer,
+        theme: &Theme,
+        depth: Depth,
+        frame: Frame,
+    ) {
         let area = areas.outer.intersection(buffer.area);
         Clear.render(area, buffer);
         // Establish an opaque text style even on blank cells and with NO_COLOR.
         buffer.set_style(area, screen::style(theme, Role::Text, depth));
-        let mut border = Block::new()
-            .borders(Borders::ALL)
-            .border_style(screen::style(theme, Role::Dim, depth));
+        let mut border = frame_block(frame).border_style(screen::style(theme, Role::Dim, depth));
         if !self.title.is_empty() {
             border = border.title(Line::styled(
                 format!(" {} ", escape(&self.title)),

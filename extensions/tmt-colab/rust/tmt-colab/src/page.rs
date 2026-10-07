@@ -434,3 +434,196 @@ pub fn commit(
         accepted,
     })
 }
+
+/// Exact terminal bytes are retained for recovery; Outcome remains the single wire model.
+pub struct PublicationRecord {
+    pub outcome: crate::publication::Outcome,
+    pub bytes: Vec<u8>,
+}
+pub struct PublicationCommitted {
+    pub record: PublicationRecord,
+    /// New terminal result (including rejection), or exact original-operation replay.
+    pub accepted: Accepted,
+}
+fn publication_authority(
+    tx: &OwnerTransaction<'_>,
+    key: &Keyring,
+    original: &crate::publication::JobKey,
+    chain: &certificate::Chain,
+    now: u64,
+) -> Result<bool> {
+    values::time(now)?;
+    let head = tx.head().ok_or(Fault::Missing)?;
+    let issuer = tx.statement(1)?.ok_or(Fault::Missing)?.hash()?;
+    let device = key.local_writer()?.0;
+    if original.space_id != key.space_id
+        || original.stream_id != device
+        || local_chain(chain, key, head, &issuer, now)? <= now
+    {
+        return Err(Fault::Denied.into());
+    }
+    let (states, _) = fold::verify_log(&tx.log()?, key, &original.page_id)?;
+    let authority = states.last().ok_or(Fault::Missing)?;
+    if authority.revoked_devices.contains(&device) || tx.device(&device)?.is_some_and(|d| d.revoked)
+    {
+        return Err(Fault::Denied.into());
+    }
+    Ok(authority.policy.writable())
+}
+fn publication_rejection(
+    error: &(dyn std::error::Error + Send + Sync + 'static),
+) -> Option<crate::publication::Rejection> {
+    use crate::{publication::Rejection, store::Fault as StoreFault};
+    match error.downcast_ref::<StoreFault>() {
+        Some(StoreFault::Gap) => Some(Rejection::StreamGap),
+        Some(StoreFault::Capacity) => Some(Rejection::Capacity),
+        Some(StoreFault::StaleEpoch) => Some(Rejection::StaleBase),
+        _ => match error.downcast_ref::<crate::store::owner::OwnerFault>() {
+            Some(crate::store::owner::OwnerFault::Capacity) => Some(Rejection::Capacity),
+            _ => None, // Clock, SQL, malformed state and changed intent remain outer errors.
+        },
+    }
+}
+/// Unintegrated native adapter: verifies exact sealed bytes, then atomically retains one original result.
+pub fn commit_publication(
+    store: &mut Store,
+    key: &Keyring,
+    job: &crate::publication::SignedJob,
+    packet: &[u8],
+    chain: &[u8],
+    now: u64,
+) -> Result<PublicationCommitted> {
+    use crate::publication::{Outcome, Position, Rejection};
+    let original = job.key()?;
+    let evidence = job
+        .manifest
+        .native_evidence
+        .as_ref()
+        .ok_or(Fault::Invalid)?;
+    if chain.len() > 16 * 1024
+        || evidence.chain_hash != values::encode_binary(&crypto::digest(chain))
+    {
+        return Err(Fault::Invalid.into());
+    }
+    let certificate = certificate::Chain::from_json(chain)?;
+    let (_, signing_key, _) = key.local_writer()?;
+    let entries = job.verify_packet(packet, &signing_key)?;
+    store.owner_read(&key.space_id, &key.owner_public(), |tx| {
+        publication_authority(tx, key, &original, &certificate, now).map(|_| ())
+    })?;
+    let mut accepted = Accepted::Replay;
+    let bytes = store.device_transaction(&key.space_id, &key.owner_public(), |tx| {
+        let writable = publication_authority(tx, key, &original, &certificate, now)?;
+        if let Some(saved) = tx.saved_publication(&original, Some(job))? {
+            return Ok(saved);
+        }
+        // Reserve terminal room before deciding any admitted effect rejection.
+        tx.admit_publication(&original, 0, 0)?;
+        let effect = tx.content_savepoint(|tx| {
+            if !writable {
+                return Ok(Err(Rejection::PageInactive));
+            }
+            let Some(epoch) = tx.page_epoch(&original.page_id)? else {
+                return Ok(Err(Rejection::StateMissing));
+            };
+            let head = tx.head().ok_or(Fault::Missing)?;
+            if epoch != original.original_epoch
+                || job.manifest.membership_head.revision != head.revision.to_string()
+                || job.manifest.membership_head.statement_hash != hex(&head.hash)
+                || job.manifest.base_revision != current_token(tx, key, &original.page_id)?
+            {
+                return Ok(Err(Rejection::StaleBase));
+            }
+            tx.admit_publication(&original, packet.len(), entries.len())?;
+            tx.put_device(&Device {
+                chain: chain.to_vec(),
+                revoked: false,
+            })?;
+            let epoch = values::decimal(&original.original_epoch, false)?;
+            for entry in &entries {
+                let context = &entry.header.context;
+                let result = tx.append_content(&Envelope {
+                    scope: StreamScope {
+                        page: &original.page_id,
+                        epoch,
+                        stream: &original.stream_id,
+                    },
+                    namespace: Namespace::Content,
+                    seq: values::decimal(&context.stream_seq, false)?,
+                    hash: entry.envelope.hash()?,
+                    previous: context.prev_hash,
+                    bytes: entry.bytes,
+                })?;
+                // Only the original outcome row grants replay; a fresh identity cannot adopt old content.
+                if result != Accepted::New {
+                    return Err(crate::store::Fault::Gap.into());
+                }
+            }
+            let last = entries.last().ok_or(Fault::Invalid)?;
+            Ok(Ok(Outcome::Committed {
+                key: original.clone(),
+                count: entries.len(),
+                final_position: Position {
+                    seq: last.header.context.stream_seq.clone(),
+                    envelope_hash: values::encode_binary(&last.envelope.hash()?),
+                },
+                committed_revision: current_token(tx, key, &original.page_id)?,
+                native_evidence: Some(evidence.clone()),
+            }))
+        });
+        let outcome = match effect {
+            Ok(Ok(committed)) => committed,
+            Ok(Err(code)) => Outcome::Rejected {
+                key: original.clone(),
+                code,
+            },
+            Err(error) => match publication_rejection(error.as_ref()) {
+                Some(code) => Outcome::Rejected {
+                    key: original.clone(),
+                    code,
+                },
+                None => return Err(error),
+            },
+        };
+        let bytes = outcome.to_json(&original, Some(job))?;
+        tx.save_publication(&original, job, &bytes)?;
+        accepted = Accepted::New;
+        Ok(bytes)
+    })?;
+    Ok(PublicationCommitted {
+        record: PublicationRecord {
+            outcome: Outcome::from_json(&bytes, &original, Some(job))?,
+            bytes,
+        },
+        accepted,
+    })
+}
+/// Observational original-key lookup; never issues or persists a certificate or UNKNOWN.
+pub fn publication_status(
+    store: &Store,
+    key: &Keyring,
+    original: &crate::publication::JobKey,
+    chain: &[u8],
+    now: u64,
+) -> Result<PublicationRecord> {
+    use crate::publication::Outcome;
+    original.validate()?;
+    if chain.len() > 16 * 1024 {
+        return Err(Fault::Invalid.into());
+    }
+    let certificate = certificate::Chain::from_json(chain)?;
+    store.owner_read(&key.space_id, &key.owner_public(), |tx| {
+        publication_authority(tx, key, original, &certificate, now)?;
+        let bytes = match tx.saved_publication(original, None)? {
+            Some(bytes) => bytes,
+            None => Outcome::Unknown {
+                key: original.clone(),
+            }
+            .to_json(original, None)?,
+        };
+        Ok(PublicationRecord {
+            outcome: Outcome::from_json(&bytes, original, None)?,
+            bytes,
+        })
+    })
+}

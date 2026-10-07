@@ -182,3 +182,64 @@ impl State {
         }
     }
 }
+
+#[cfg(test)]
+pub(super) mod evidence {
+    use super::*;
+    use ratatui::buffer::Buffer;
+    use serde_json::json;
+    use tmt_cli_style::{Base, Depth, Theme};
+
+    pub fn looks() -> [Look; 4] {
+        [
+            (Base::Tmt, Depth::TrueColor),
+            (Base::TmtLight, Depth::TrueColor),
+            (Base::Terminal, Depth::Ansi16),
+            (Base::Tmt, Depth::None),
+        ]
+        .map(|(base, depth)| Look {
+            theme: Theme::new(base),
+            depth,
+        })
+    }
+
+    /// Optional task-owned evidence; normal regression runs write nothing.
+    pub fn capture(name: &str, buffer: &Buffer, state: &State) {
+        let Ok(directory) = std::env::var("TMT_OVERLAY_CUE_OUTPUT") else {
+            return;
+        };
+        let map = state.frame.as_ref().expect("painted surface");
+        let value = json!({
+            "width": buffer.area.width, "height": buffer.area.height,
+            "cells": buffer.content.iter().map(|cell| json!({"symbol":cell.symbol(),
+                "fg":format!("{:?}", cell.fg), "bg":format!("{:?}", cell.bg),
+                "modifier":format!("{:?}", cell.modifier)})).collect::<Vec<_>>(),
+            "hits": map.hits.iter().map(|hit| json!({"id":hit.id,
+                "row":hit.row_id,"rect":[hit.rect.x,hit.rect.y,hit.rect.width,hit.rect.height]})).collect::<Vec<_>>(),
+            "list":format!("{:?}",map.list), "selected":state.picker.list.selected(),
+            "query":state.picker.query(),
+        });
+        let directory = std::path::Path::new(&directory);
+        std::fs::create_dir_all(directory).unwrap();
+        std::fs::write(
+            directory.join(format!("{name}.json")),
+            serde_json::to_vec(&value).unwrap(),
+        )
+        .unwrap();
+    }
+
+    pub fn row(state: &State, id: &str) -> Rect {
+        state
+            .frame
+            .as_ref()
+            .unwrap()
+            .list
+            .as_ref()
+            .unwrap()
+            .geometry
+            .iter()
+            .find(|row| row.id == id)
+            .expect("stable row geometry")
+            .visible
+    }
+}

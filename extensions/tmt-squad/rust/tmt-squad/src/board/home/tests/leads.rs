@@ -91,7 +91,7 @@ fn lead_rows_and_footer_share_one_cursor_and_hidden_previews_remove_separators()
                 .count(),
             2
         );
-        assert!(text[at("→ all leads") - 1].starts_with('└'));
+        assert!(text[at("→ all leads") - 1].starts_with('─'));
         assert_eq!(glyph_error(&text.join("\n")), None);
         assert!(
             text.last().unwrap().contains("? more"),
@@ -142,12 +142,9 @@ fn leads_without_exchanges_have_one_hit_line_and_one_blank_after_the_last_exchan
             .unwrap();
         // One blank boxed line keeps `no reply yet` / the question apart from the
         // first lead without an exchange; nothing separates lead from lead below it.
-        assert!(
-            text[preview + 1].starts_with('│')
-                && text[preview + 1].trim_matches(['│', ' ']).is_empty()
-        );
+        assert!(text[preview + 1].chars().all(|c| c == ' '));
         assert!(text[preview + 2].contains("lead-b"));
-        assert!(text[preview + 3].starts_with('└'));
+        assert!(text[preview + 3].starts_with('─'));
         let target = app
             .home_entries()
             .iter()
@@ -163,12 +160,17 @@ fn leads_without_exchanges_have_one_hit_line_and_one_blank_after_the_last_exchan
         );
         app.home_leads.leads[0].exchange = None;
         let text = lines(&draw(&app, width, 40));
-        let heading = text
-            .iter()
-            .position(|line| line.contains("lead-a") && line.starts_with('│'))
-            .unwrap();
+        let heading = usize::from(
+            app.hits
+                .borrow()
+                .iter()
+                .find(|hit| hit.row == app.selected)
+                .unwrap()
+                .y,
+        );
+        assert!(text[heading].contains("lead-a"));
         assert!(text[heading + 1].contains("lead-b"));
-        assert!(text[heading + 2].starts_with('└'));
+        assert!(text[heading + 2].starts_with('─'));
         for entry in app
             .home_entries()
             .iter()
@@ -224,17 +226,13 @@ fn expanded_body_and_answer_share_the_full_inner_band_at_every_width_and_theme()
                 1
             );
             assert!(text[usize::from(band.y + 1)].contains("First complete line"));
-            assert!(
-                text[usize::from(band.y + 2)]
-                    .chars()
-                    .all(|c| c == ' ' || c == '│')
-            );
+            assert!(text[usize::from(band.y + 2)].chars().all(|c| c == ' '));
             assert!(text[usize::from(band.y + 3)].contains("Second complete line"));
             assert!(!text.join("\n").contains("\\n"));
             assert!(
                 text[usize::from(band.bottom() - 2)].contains("e collapse · a reply to lead-a")
             );
-            assert!(text[usize::from(band.y)].starts_with("│┌"));
+            assert!(text[usize::from(band.y)].starts_with(" ─"));
             assert!(
                 app.hits
                     .borrow()

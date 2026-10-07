@@ -11,7 +11,7 @@ use crate::config::{BoardMode, Pane};
 use ratatui::{
     Frame,
     layout::Rect,
-    style::Modifier,
+    style::{Modifier, Style},
     text::{Line, Span},
 };
 use tmt_cli_style::Role;
@@ -95,16 +95,15 @@ fn render_members(frame: &mut Frame, app: &App, area: Rect) {
             }
             other => Line::from(format!(" {focus}{} ", other.title())),
         };
-        let style = if Some(pane) == focused && board.panes.len() > 1 {
-            look.role(Role::Accent).add_modifier(Modifier::BOLD)
-        } else {
-            look.role(Role::Dim)
-        };
         Outline {
             title,
-            border: style,
+            border: look.role(Role::Dim),
             title_style: if Some(pane) == focused && board.panes.len() > 1 {
-                look.role(Role::Accent).add_modifier(Modifier::BOLD)
+                // Receiving titles start from their own role, so incidental
+                // frame effects cannot replace a configured Accent effect.
+                Style::reset()
+                    .patch(look.role(Role::Accent))
+                    .add_modifier(Modifier::BOLD)
             } else {
                 look.role(Role::Muted)
             },
@@ -155,7 +154,7 @@ fn render_members(frame: &mut Frame, app: &App, area: Rect) {
             }
             let outline = pane_block(focused);
             let inner = outline.inner(rest);
-            outline.paint(rest, frame.buffer_mut());
+            outline.paint_flat(rest, frame.buffer_mut());
             render_pane(frame, app, focused, inner);
         }
     }
@@ -204,7 +203,7 @@ fn render_split(
         } else {
             let outline = pane_block(pane);
             let inner = outline.inner(area);
-            outline.paint(area, frame.buffer_mut());
+            outline.paint_flat(area, frame.buffer_mut());
             if !inner.is_empty() {
                 render_pane(frame, app, pane, inner);
             }

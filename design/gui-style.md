@@ -12,14 +12,16 @@ are recorded in the [browser component contracts](gui-components.md).
 `extensions/tmt-colab/typescript/app/src`; the other descriptions include
 approved design targets that have not shipped yet. Remote's pairing and door
 pages follow the same token, header and card rules in their own `pages.css`.
-Office has not adopted this style. A shared component package and the
-implementation basis column are a **proposal**. A future package and any new
-dependencies require architecture and dependency review.
+Office has not adopted this style. The initial private browser leaf contains
+isolated presentation source; shared integration and product adoption remain
+pending. The implementation basis column still includes proposals beyond that
+leaf. See the [package contract](browser-ui/README.md) for the bounded subset.
 
 ## Principles
 
-1. **Square and flat.** Corners are square everywhere. Depth is a hard offset
-   shadow in a solid token color, never a blur.
+1. **Square and flat.** Corners are square everywhere. The initial browser leaf
+   uses opaque surfaces and no shadows. Existing product shadows await owning
+   adoption; they are not a fallback for the new leaf.
 2. **Edge to edge.** The page fills the window. There is exactly one window
    scrollbar; no region under the header scrolls on its own, except an overlay's
    body.
