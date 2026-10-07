@@ -98,8 +98,8 @@ and covered-hit removal. Ask-lead, settings, pickers and cron overlays stay squa
   fields, including task/model in the default member box and width-dependent
   job/grid cells. `e` toggles stable row occurrences;
   several can expand. Refresh prunes disappeared rows and obsolete request bodies.
-  Detail participates in the list height and parent hits, with no input-band or
-  selection background. Labels/gutter, three-line fields and six-line Markdown
+  Detail participates in the list height and parent hits, with no composer, input-band
+  or selection background. Labels/gutter, three-line fields and six-line Markdown
   replies share wrapping and roles across every adapter. Existing scroll owners
   reveal the minimum row/block range, clipping tall blocks with their overflow cue.
   Full bodies arrive only through the existing cancellable worker/request cache,

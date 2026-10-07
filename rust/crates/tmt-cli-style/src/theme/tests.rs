@@ -297,7 +297,7 @@ fn screens_get_the_same_style() {
     let waiting = screen::style(&tmt, Role::Waiting, Depth::TrueColor);
     assert_eq!(waiting.fg, Some(ScreenColor::Rgb(0xFF, 0x9E, 0x64)));
     let selected = screen::style(&tmt, Role::Selection, Depth::TrueColor);
-    assert_eq!(selected.bg, Some(ScreenColor::Rgb(0x2B, 0x2B, 0x2B)));
+    assert_eq!(selected.bg, Some(ScreenColor::Rgb(0x4A, 0x4A, 0x4A)));
     let dim = screen::style(&tmt, Role::Dim, Depth::Ansi16);
     assert_eq!(dim.fg, None);
     assert!(dim.add_modifier.contains(Modifier::DIM));

@@ -1,5 +1,11 @@
 # Squad configuration and effects
 
+## CLI entry and public JSON
+
+Bare `tmt squad` lists members with an explicit board hint; only `board` admits the
+interactive view. Bare `--json` equals `ls --json`. Display-ready documents exclude
+board-only home/meter/`usage.*` data.
+
 ## `squad.toml` reading and writing
 
 - `squad.toml` sits beside the global config that `tmt config show` reports. It is the

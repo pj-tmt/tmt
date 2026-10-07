@@ -422,7 +422,7 @@ describe('squad on a private tmux server', { concurrent: false }, () => {
         await fixture.waitForCapture((screen) => screen.includes('hidden by filters'), shell.pane);
         fixture.tmux(['send-keys', '-t', shell.pane, 'Escape']);
         await fixture.waitForCapture(
-          (screen) => !screen.includes('Checklist') && screen.includes('Focus: rows'),
+          (screen) => !screen.includes('Checklist') && screen.includes('(no members)'),
           shell.pane
         );
         fixture.tmux(['send-keys', '-t', shell.pane, 'q']);
