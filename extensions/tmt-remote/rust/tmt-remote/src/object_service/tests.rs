@@ -963,7 +963,9 @@ fn an_extension_that_closes_its_end_finishes_the_channel() {
     let env = Env::new();
     let (service, peer) = running(&env, bounds());
     let bus = service.bus("alpha").unwrap();
-    peer.buses.lock().unwrap().remove(0).close();
+    peer.established(1);
+    let theirs = peer.buses.lock().unwrap().remove(0);
+    theirs.close();
     // The dispatcher sees the end, every thread ends, and the last one drops the bus.
     let started = Instant::now();
     while service.ended("alpha").is_none() {
@@ -1026,5 +1028,80 @@ fn the_installation_budget_is_shared_by_every_channel() {
     // The bus shuts the socket down before the dispatcher records why it ended.
     let ended = ended_soon(&service, "beta");
     assert_eq!(ended, ChannelEnd::Bus(Fault::Correlation(Reason::Capacity)));
+    assert_eq!(service.ended("alpha"), None);
+}
+
+#[test]
+fn a_request_whose_time_is_spent_before_a_callback_is_unavailable_and_the_channel_lives() {
+    let env = Env::new();
+    // A zero request bound: the time is spent when a worker takes the request.
+    let (service, peer) = running(
+        &env,
+        ServiceBounds {
+            request: Duration::ZERO,
+            ..bounds()
+        },
+    );
+    for id in 1..=2 {
+        ask_config(&peer, id, Origin::LocalExtension);
+        // The first and only frame is the result: no callback was sent.
+        assert_eq!(
+            result(&peer),
+            config_result(&peer, id, Outcome::Failure(ErrorCode::Unavailable))
+        );
+    }
+    assert_eq!(service.ended("alpha"), None);
+    assert!(service.active("alpha").is_some());
+}
+
+#[test]
+fn time_spent_between_acquire_and_disclose_is_unavailable_with_no_second_callback() {
+    let env = Env::new();
+    let peer = Peer::start(&env, "alpha", Answer::Expect);
+    let service = env
+        .service(
+            &ALPHA,
+            ServiceBounds {
+                request: Duration::from_millis(400),
+                ..bounds()
+            },
+        )
+        .unwrap();
+    // Only the first request is held until its own deadline has passed.
+    let first = Arc::new(AtomicBool::new(true));
+    service.set_hook(Some(Arc::new(move |deadline: Instant| {
+        if first.swap(false, Ordering::AcqRel) {
+            while Instant::now() < deadline {
+                thread::yield_now();
+            }
+        }
+    })));
+    service.activate(&env.mounts(&ALPHA), "alpha").unwrap();
+    ask_config(&peer, 1, Origin::LocalExtension);
+    assert_eq!(callback(&peer).boundary, Checkpoint::Acquire);
+    decide(&peer, 1, 1, Decision::Allow);
+    // The disclose callback is never sent: the next frame is the result.
+    assert_eq!(
+        result(&peer),
+        config_result(&peer, 1, Outcome::Failure(ErrorCode::Unavailable))
+    );
+    // The channel keeps serving: the next request has its full time and is answered.
+    ask_config(&peer, 2, Origin::LocalExtension);
+    let acquire = callback(&peer);
+    assert_eq!(
+        (acquire.boundary, acquire.callback_id),
+        (Checkpoint::Acquire, counter(2))
+    );
+    decide(&peer, 2, 2, Decision::Allow);
+    let disclose = callback(&peer);
+    assert_eq!(
+        (disclose.boundary, disclose.callback_id),
+        (Checkpoint::Disclose, counter(3))
+    );
+    decide(&peer, 3, 2, Decision::Allow);
+    assert_eq!(
+        result(&peer),
+        config_result(&peer, 2, Outcome::Success(Success::Config(local_config())))
+    );
     assert_eq!(service.ended("alpha"), None);
 }

@@ -37,8 +37,11 @@ identifier, capabilities and `Quotas`; no usage, ledger row, path or secret): it
 `acquire` admission, then for `disclose` admission naming the projection, and refuses on
 anything but an allow. A mounted origin is answered `denied` and the other six methods
 `unavailable`, with no callback and no effect; they belong to later slices. No decision is
-remembered. A callback unanswered at its bound (5 s, within the request's 30 s) ends the
-channel without a result: the ledger refuses a result while a callback is outstanding.
+remembered. A request whose 30 s is spent before a callback is sent (queued too long, or used
+up between acquire and disclose) is answered `unavailable` with no further callback and the
+channel keeps serving. A sent callback unanswered at its bound (5 s, within the request's
+remaining time) ends the channel without a result: the ledger refuses a result while a
+callback is outstanding.
 `shutdown`, `Drop` and replacement end the channel: threads are joined and the last one
 drops the bus, which closes the socket. All of this is library code, not routed and not
 reachable in production.

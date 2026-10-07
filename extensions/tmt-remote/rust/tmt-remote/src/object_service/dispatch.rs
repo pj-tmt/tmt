@@ -25,6 +25,12 @@ use tmt_extension_objects::{
     Success, Uuid4,
 };
 
+/// A test-only pause between the two admissions of a request.
+#[cfg(test)]
+pub(super) type Hook = Option<Arc<dyn Fn(Instant) + Send + Sync>>;
+#[cfg(not(test))]
+pub(super) type Hook = ();
+
 /// Workers per channel. A request waits for its callbacks, so more than one is needed for
 /// requests not to queue behind each other; the bus holds at most eight outstanding.
 const WORKERS: usize = 2;
@@ -58,6 +64,8 @@ struct Hub {
     source: ConfigSource,
     callback: Duration,
     request: Duration,
+    #[cfg_attr(not(test), allow(dead_code))]
+    hook: Hook,
     stop: AtomicBool,
     ended: Mutex<Option<ChannelEnd>>,
     queue: Mutex<VecDeque<Work>>,
@@ -94,12 +102,14 @@ impl Running {
         bus: Bus,
         source: ConfigSource,
         bounds: &ServiceBounds,
+        hook: Hook,
     ) -> Result<Self, Fault> {
         let hub = Arc::new(Hub {
             generation: bus.generation(),
             source,
             callback: bounds.callback,
             request: bounds.request,
+            hook,
             stop: AtomicBool::new(false),
             ended: Mutex::new(None),
             queue: Mutex::new(VecDeque::new()),
@@ -245,28 +255,39 @@ fn config(hub: &Hub, bus: &Bus, request: &Request, deadline: Instant) -> Result<
         Decision::Deny => Some(ErrorCode::Denied),
         Decision::Unavailable => Some(ErrorCode::Unavailable),
     };
-    let acquire = ask(
+    let spent = || Outcome::Failure(ErrorCode::Unavailable);
+    let Some(acquire) = ask(
         hub,
         bus,
         request,
         Checkpoint::Acquire,
         operation(None),
         deadline,
-    )?;
+    )?
+    else {
+        return send_result(hub, bus, request, spent());
+    };
     if let Some(code) = refusal(acquire) {
         return send_result(hub, bus, request, Outcome::Failure(code));
     }
     let projection = Projection::Local;
     let config = hub.source.project(projection);
     let disclosure = Some(Disclosure::Config { projection });
-    let disclose = ask(
+    #[cfg(test)]
+    if let Some(hook) = &hub.hook {
+        hook(deadline);
+    }
+    let Some(disclose) = ask(
         hub,
         bus,
         request,
         Checkpoint::Disclose,
         operation(disclosure),
         deadline,
-    )?;
+    )?
+    else {
+        return send_result(hub, bus, request, spent());
+    };
     if let Some(code) = refusal(disclose) {
         return send_result(hub, bus, request, Outcome::Failure(code));
     }
@@ -274,7 +295,9 @@ fn config(hub: &Hub, bus: &Bus, request: &Request, deadline: Instant) -> Result<
 }
 
 /// Send one admission callback and wait for its decision, within the callback bound and
-/// the request's own deadline. No answer in time ends the channel.
+/// the request's own deadline. `None` means the request's time was already spent, so no
+/// callback was sent and the request is simply unavailable; a callback that is sent and
+/// not answered in time ends the channel.
 fn ask(
     hub: &Hub,
     bus: &Bus,
@@ -282,8 +305,12 @@ fn ask(
     boundary: Checkpoint,
     operation: Operation,
     deadline: Instant,
-) -> Result<Decision, ChannelEnd> {
-    let limit = deadline.min(Instant::now() + hub.callback);
+) -> Result<Option<Decision>, ChannelEnd> {
+    let now = Instant::now();
+    if now >= deadline {
+        return Ok(None);
+    }
+    let limit = deadline.min(now + hub.callback);
     let id = {
         let mut last = locked(&hub.issuer);
         *last += 1;
@@ -303,7 +330,7 @@ fn ask(
     let mut decisions = locked(&hub.decisions);
     loop {
         if let Some(decision) = decisions.remove(&id) {
-            return Ok(decision);
+            return Ok(Some(decision));
         }
         if hub.stopped() {
             return Err(ChannelEnd::Stopped);

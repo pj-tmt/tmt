@@ -133,6 +133,9 @@ pub struct ObjectService<'s> {
     /// Outstanding entries shared by every bus of the installation.
     budget: Budget,
     state: Mutex<State>,
+    /// Pauses a worker between a request's two admissions, so a test can spend its time.
+    #[cfg(test)]
+    hook: Mutex<dispatch::Hook>,
 }
 
 impl<'s> ObjectService<'s> {
@@ -190,6 +193,8 @@ impl<'s> ObjectService<'s> {
                 stopped: false,
                 slots,
             }),
+            #[cfg(test)]
+            hook: Mutex::new(None),
         }))
     }
 
@@ -260,7 +265,15 @@ impl<'s> ObjectService<'s> {
             Some(self.budget.clone()),
         )
         .map_err(ActivateError::Channel)?;
-        Running::start(bus, source, &self.bounds).map_err(ActivateError::Channel)
+        #[cfg(test)]
+        let hook = self
+            .hook
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .clone();
+        #[cfg(not(test))]
+        let hook = ();
+        Running::start(bus, source, &self.bounds, hook).map_err(ActivateError::Channel)
     }
     fn finish_setup(
         &self,
@@ -309,6 +322,15 @@ impl<'s> ObjectService<'s> {
         let state = self.locked();
         let slot = state.slots.iter().find(|slot| slot.name == name)?;
         slot.active.as_ref().map(Running::bus)
+    }
+
+    /// Install the pause that runs between a request's two admissions on later channels.
+    #[cfg(test)]
+    fn set_hook(&self, hook: dispatch::Hook) {
+        *self
+            .hook
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = hook;
     }
 
     /// Stop: later activations are refused, and every channel is ended: its threads are
