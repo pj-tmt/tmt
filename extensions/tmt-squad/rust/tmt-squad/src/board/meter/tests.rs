@@ -2,7 +2,7 @@ use super::super::rate::tests::input;
 use super::*;
 
 #[test]
-fn bar_readout_uses_retained_slice_rate_and_bucket_end_age() {
+fn bar_readout_uses_retained_slice_total_and_bucket_end_age() {
     let now = Instant::now();
     let mut meter = crate::status::with_now_ms(100_000_000, || {
         Meter::new(
@@ -15,13 +15,23 @@ fn bar_readout_uses_retained_slice_rate_and_bucket_end_age() {
             now,
         )
     });
-    assert_eq!(meter.bar_readout(7, now).as_deref(), Some("– · 0m ago"));
+    assert_eq!(meter.bar_readout(7, now).as_deref(), Some("– · now"));
+    // The latest five-second bucket ends five seconds after this fixture origin.
+    meter.trend[7] = Some(18_000.0);
+    assert_eq!(
+        meter
+            .bar_readout(7, now + Duration::from_secs(185))
+            .as_deref(),
+        Some("18k tok · 3m ago"),
+        "the bar uses the same token formatter as the live meter"
+    );
+    meter.trend[7] = None;
     meter.sample(Ok(&input(200)), now + Duration::from_secs(10));
     assert_eq!(
         meter
             .bar_readout(7, now + Duration::from_secs(10))
             .as_deref(),
-        Some("15 tok/s · 0m ago")
+        Some("150 tok · now")
     );
     assert_eq!(
         meter
@@ -34,7 +44,7 @@ fn bar_readout_uses_retained_slice_rate_and_bucket_end_age() {
         meter
             .bar_readout(7, now + Duration::from_secs(20))
             .as_deref(),
-        Some("0 tok/s · 0m ago")
+        Some("0 tok · now")
     );
     meter.select(TokenWindow::parse("24h").unwrap(), now);
     // Select is constrained to configured windows; test a configured long slice.

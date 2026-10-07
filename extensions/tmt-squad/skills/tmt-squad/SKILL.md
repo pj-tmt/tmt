@@ -995,9 +995,9 @@ saves the shared choice, updates the effective label and posts the window in the
 explains the totals, best-effort coverage, switch order and `tok` configuration.
 Whole-hour labels use `h`, so 60m displays as `1h`.
 Hover highlights the whole meter group. Hovering one bar temporarily replaces the
-number and label with that slice's token rate and age, e.g. `1.2k tok/s · 3m ago`;
-observed zero reads `0 tok/s`, and no evidence reads `–`. Ages measure from the
-slice's end, in minutes below one hour and hours thereafter. The readout keeps
+number and label with that slice's token total and age, e.g. `18k tok · 3m ago`;
+observed zero reads `0 tok`, and no evidence reads `–`. Ages measure from the
+slice's end: `now` below one minute, minutes below one hour, then hours. The readout keeps
 its fixed width and the hovered bar uses text colour. Leaving restores live text;
 there is no popup. Keyboard operation remains available without mouse motion.
 

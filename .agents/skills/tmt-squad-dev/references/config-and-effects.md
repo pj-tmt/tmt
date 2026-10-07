@@ -103,7 +103,8 @@ remain opt-in overrides. The comma menu derives its `≠` marks and deduplicated
 count from actual squad keys, not inherited source labels. Its selected override
 alone offers `r reset`; `Config::reset_setting` removes exactly that key through
 the existing validated CAS writer, preserving siblings and comments. Failure
-keeps the effective state and existing diagnostic. Quick theme/view/window rows
+keeps the effective state and existing diagnostic. Reset drops only an empty
+immediate parent table whose header has no comments. Quick theme/view/window rows
 share the full settings entry's provenance. Workflow and geometry edits retain
 their required squad scope.
 

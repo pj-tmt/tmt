@@ -606,7 +606,7 @@ fn template(
 ) -> tmt_tui::components::surface::Template<()> {
     // Groups are disabled rows; setting identity and selection remain owned by the list.
     let markup = format!(
-        r#"<tmt-view version="1"><tmt-modal id="settings" title="settings · Enter edit · * read-only" placement="body"><tmt-scroll id="body"><tmt-text bind="$.query" token="dim" class="truncate-middle"/><tmt-repeat each="$.overrides" as="override"><tmt-text bind="override.text" token="muted" class="truncate"/></tmt-repeat><tmt-text token="dim" class="truncate">Full values: tmt sq config show --json (--squad/--tab)</tmt-text><tmt-repeat each="$.notes" as="note"><tmt-text bind="note.text" token="waiting" wrap="true"/></tmt-repeat><tmt-list id="choices" bind="$.rows" empty="(no settings)"><tmt-row class="flex-col"><tmt-repeat each="row.lines" as="line"><tmt-row id-bind="line.id" class="grid grid-cols-[2_{key_width}_1fr_{source_width}] gap-x-2 shrink-0"><tmt-text id="mark" bind="line.mark"/><tmt-text id="name" bind="line.name" token="accent" class="truncate-middle"/><tmt-text id="value" bind="line.value" token="text" wrap="true"/><tmt-text bind="line.source" token="dim" class="truncate-middle"/></tmt-row></tmt-repeat><tmt-repeat each="row.description" as="description"><tmt-row class="grid grid-cols-[2_{key_width}_1fr_{source_width}] gap-x-2 shrink-0"><tmt-text/><tmt-text/><tmt-text bind="description.text" token="muted" wrap="true" class="col-span-2"/></tmt-row></tmt-repeat><tmt-repeat each="row.heading" as="heading"><tmt-text bind="heading.text" token="dim" class="shrink-0"/></tmt-repeat></tmt-row></tmt-list></tmt-scroll><tmt-text slot="status" bind="$.status" token="{role}" wrap="true"/><tmt-text slot="footer" bind="$.footer" token="muted"/></tmt-modal></tmt-view>"#
+        r#"<tmt-view version="1"><tmt-modal id="settings" title="settings · Enter edit · * read-only" placement="body"><tmt-scroll id="body"><tmt-text bind="$.query" token="dim" class="truncate-middle"/><tmt-repeat each="$.overrides" as="override"><tmt-text bind="override.text" token="muted" class="truncate"/></tmt-repeat><tmt-text token="dim" class="truncate">Full values: tmt sq config show --json (--squad/--tab)</tmt-text><tmt-repeat each="$.notes" as="note"><tmt-text bind="note.text" token="waiting" wrap="true"/></tmt-repeat><tmt-list id="choices" bind="$.rows" empty="(no settings)"><tmt-row class="flex-col"><tmt-repeat each="row.lines" as="line"><tmt-row id-bind="line.id" class="grid grid-cols-[1_1_{key_width}_1fr_{source_width}] gap-x-1 shrink-0"><tmt-text bind="line.cursor"/><tmt-text id="mark" bind="line.mark"/><tmt-text id="name" bind="line.name" token="accent" class="truncate-middle"/><tmt-text id="value" bind="line.value" token="text" wrap="true"/><tmt-text bind="line.source" token="dim" class="truncate-middle"/></tmt-row></tmt-repeat><tmt-repeat each="row.description" as="description"><tmt-row class="grid grid-cols-[1_1_{key_width}_1fr_{source_width}] gap-x-1 shrink-0"><tmt-text/><tmt-text/><tmt-text/><tmt-text bind="description.text" token="muted" wrap="true" class="col-span-2"/></tmt-row></tmt-repeat><tmt-repeat each="row.heading" as="heading"><tmt-text bind="heading.text" token="dim" class="shrink-0"/></tmt-repeat></tmt-row></tmt-list></tmt-scroll><tmt-text slot="status" bind="$.status" token="{role}" wrap="true"/><tmt-text slot="footer" bind="$.footer" token="muted"/></tmt-modal></tmt-view>"#
     );
     let scalar_row = |fields: &[&str]| {
         Schema::Collection(Box::new(Schema::Object(
@@ -637,7 +637,7 @@ fn template(
             ("disabled".into(), Schema::Boolean),
             (
                 "lines".into(),
-                scalar_row(&["id", "mark", "name", "value", "source"]),
+                scalar_row(&["id", "cursor", "mark", "name", "value", "source"]),
             ),
             ("description".into(), scalar_row(&["text"])),
             ("heading".into(), scalar_row(&["text"])),
@@ -706,7 +706,7 @@ pub(super) fn render(frame: &mut Frame, overlay: &Overlay, look: Look, body: Rec
         .unwrap_or(0)
         .min(row_width / 4);
     let source_width = (row_width / 3).min(42);
-    // Three gaps include the selection marker's track. Shared geometry owns
+    // Two one-cell mark tracks and four one-cell gaps. Shared geometry owns
     // the actual grid fitting at tiny widths.
     let value_width = row_width
         .saturating_sub(key_width + source_width + 6)
@@ -728,14 +728,13 @@ pub(super) fn render(frame: &mut Frame, overlay: &Overlay, look: Look, body: Rec
         let id = pick_row_id(pick);
         let overridden =
             Overlay::pick_key(pick.id).is_some_and(|key| overlay.overrides.contains(key));
-        let mark = if overridden {
-            "≠"
-        } else if selected.as_deref() == Some(&id) {
+        let mark = if overridden { "≠" } else { "" };
+        let cursor = if selected.as_deref() == Some(&id) {
             "›"
         } else {
             ""
         };
-        rows.push(json!({"id":id, "disabled":false, "lines":[{"id":"line:0", "mark":mark, "name":pick.name, "value":escape(&pick.value), "source":if overridden { "this squad · r reset" } else {pick.hint}}], "description":[], "heading":[]}));
+        rows.push(json!({"id":id, "disabled":false, "lines":[{"id":"line:0", "cursor":cursor, "mark":mark, "name":pick.name, "value":escape(&pick.value), "source":if overridden { "this squad · r reset" } else {pick.hint}}], "description":[], "heading":[]}));
     }
     let mut previous = None;
     for entry in &overlay.settings.entries {
@@ -760,7 +759,7 @@ pub(super) fn render(frame: &mut Frame, overlay: &Overlay, look: Look, body: Rec
         } else {
             entry.source.as_str()
         };
-        let lines: Vec<_> = value_lines(&escape(&value), value_width, entry.value.is_array() || entry.value.is_object()).into_iter().enumerate().map(|(index,value)| json!({"id":format!("line:{index}"), "mark":if index == 0 && overridden {"≠"} else if selected.as_deref() == Some(&entry.key) {"›"} else {""}, "name":if index == 0 {name.as_str()} else {""}, "value":value, "source":if index == 0 {source} else {""}})).collect();
+        let lines: Vec<_> = value_lines(&escape(&value), value_width, entry.value.is_array() || entry.value.is_object()).into_iter().enumerate().map(|(index,value)| json!({"id":format!("line:{index}"), "cursor":if selected.as_deref() == Some(&entry.key) {"›"} else {""}, "mark":if index == 0 && overridden {"≠"} else {""}, "name":if index == 0 {name.as_str()} else {""}, "value":value, "source":if index == 0 {source} else {""}})).collect();
         rows.push(json!({"id":entry.key, "disabled":false, "lines":lines, "description":entry.description.as_ref().map(|text| vec![json!({"text":text})]).unwrap_or_default(), "heading":[]}));
     }
     let key = ReferenceStyle {
@@ -778,7 +777,7 @@ pub(super) fn render(frame: &mut Frame, overlay: &Overlay, look: Look, body: Rec
     let template = &cache.as_ref().unwrap().template;
     let reset_hint = overlay.selected_override();
     let mut state = overlay.surface.borrow_mut();
-    state.render(FILE, template, json!({"rows":rows, "overrides": if overlay.overrides.is_empty() { vec![] } else { vec![json!({"text":format!("{} {} differ from all boards", overlay.overrides.len(), if overlay.overrides.len() == 1 {"setting"} else {"settings"})})] }, "query":format!("{} {} · {}",overlay.settings.context.as_deref().unwrap_or("board defaults"), overlay.settings.host, overlay.display_path), "notes":overlay.settings.notices.iter().enumerate().map(|(index,text)| json!({"id":format!("notice:{index}"),"text":text})).collect::<Vec<_>>(), "status":overlay.notice.as_ref().map(|notice| notice.display(width as u16, &overlay.settings.path)).unwrap_or_default(), "footer":if reset_hint {"↑↓ select · Enter edit · r reset · PgUp/PgDn page · Esc close"} else {"↑↓ select · Enter edit · PgUp/PgDn page · Esc close"}, "tracks":[key_width,source_width], "role":notice_role(overlay.notice.as_ref())}), frame, look, body);
+    state.render(FILE, template, json!({"rows":rows, "overrides": if overlay.overrides.is_empty() { vec![] } else { vec![json!({"text":format!("{} {} from all boards", overlay.overrides.len(), if overlay.overrides.len() == 1 {"setting differs"} else {"settings differ"})})] }, "query":format!("{} {} · {}",overlay.settings.context.as_deref().unwrap_or("board defaults"), overlay.settings.host, overlay.display_path), "notes":overlay.settings.notices.iter().enumerate().map(|(index,text)| json!({"id":format!("notice:{index}"),"text":text})).collect::<Vec<_>>(), "status":overlay.notice.as_ref().map(|notice| notice.display(width as u16, &overlay.settings.path)).unwrap_or_default(), "footer":if reset_hint {"↑↓ select · Enter edit · r reset · PgUp/PgDn page · Esc close"} else {"↑↓ select · Enter edit · PgUp/PgDn page · Esc close"}, "tracks":[key_width,source_width], "role":notice_role(overlay.notice.as_ref())}), frame, look, body);
     if let Some(map) = &state.frame {
         for hit in &map.hits {
             let Some(id) = hit.row_id.as_ref() else {
@@ -1773,6 +1772,111 @@ mod tests {
             .map(|cells| cells.iter().map(|cell| cell.symbol()).collect::<String>())
             .find(|line| line.contains(name))
             .unwrap()
+    }
+
+    #[test]
+    fn selected_override_keeps_cursor_and_mark_columns_in_every_color_depth() {
+        use tmt_cli_style::Depth;
+        let f = fixture("override-cursor-mark", "");
+        std::fs::write(
+            &f.path,
+            "[board]\nview = 'members'\n[squad.product.board]\nview = 'team'\n",
+        )
+        .unwrap();
+        let overlay = Overlay::open(
+            Config::read(f.path.clone()).unwrap(),
+            Some("product"),
+            None,
+            None,
+        )
+        .unwrap();
+        for depth in [Depth::TrueColor, Depth::Ansi16, Depth::None] {
+            let look = Look {
+                theme: tmt_cli_style::Theme::default(),
+                depth,
+            };
+            for (id, name) in [("pick:view", "View"), ("board.view", "view")] {
+                for selected in [false, true] {
+                    overlay
+                        .surface
+                        .borrow_mut()
+                        .select(if selected { id } else { "pick:actions" });
+                    let mut terminal = Terminal::new(TestBackend::new(100, 40)).unwrap();
+                    terminal
+                        .draw(|frame| render(frame, &overlay, look, frame.area()))
+                        .unwrap();
+                    let cells = terminal
+                        .backend()
+                        .buffer()
+                        .content
+                        .chunks(100)
+                        .find(|cells| {
+                            let line: String = cells.iter().map(|cell| cell.symbol()).collect();
+                            line.contains(name) && line.contains("this squad")
+                        })
+                        .unwrap();
+                    let words: Vec<_> = name.chars().map(|ch| ch.to_string()).collect();
+                    let name_x = cells
+                        .windows(words.len())
+                        .position(|cells| {
+                            cells
+                                .iter()
+                                .zip(&words)
+                                .all(|(cell, word)| cell.symbol() == word)
+                        })
+                        .unwrap();
+                    let leading = name_x - 4;
+                    assert_eq!(
+                        cells[leading].symbol(),
+                        if selected { "›" } else { " " },
+                        "{depth:?} {id} selected={selected}: cursor stays in column 1"
+                    );
+                    assert_eq!(
+                        cells[leading + 2].symbol(),
+                        "≠",
+                        "{depth:?} {id} selected={selected}: override stays in column 3"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn override_count_uses_singular_plural_and_disappears_after_last_reset() {
+        let f = fixture("override-count-grammar", "");
+        std::fs::write(
+            &f.path,
+            "[squad.product.board]\nview = 'team'\n[squad.product.theme]\nbase = 'mono'\n",
+        )
+        .unwrap();
+        let mut overlay = Overlay::open(
+            Config::read(f.path.clone()).unwrap(),
+            Some("product"),
+            None,
+            None,
+        )
+        .unwrap();
+        let text = |overlay: &Overlay| {
+            let mut terminal = Terminal::new(TestBackend::new(100, 40)).unwrap();
+            terminal
+                .draw(|frame| render(frame, overlay, Look::default(), frame.area()))
+                .unwrap();
+            terminal
+                .backend()
+                .buffer()
+                .content
+                .iter()
+                .map(|cell| cell.symbol())
+                .collect::<String>()
+        };
+        assert!(text(&overlay).contains("2 settings differ from all boards"));
+        overlay.surface.borrow_mut().select("pick:theme");
+        assert!(overlay.reset());
+        assert_eq!(overlay.overrides.len(), 1);
+        assert!(text(&overlay).contains("1 setting differs from all boards"));
+        overlay.surface.borrow_mut().select("pick:view");
+        assert!(overlay.reset());
+        assert!(!text(&overlay).contains("from all boards"));
     }
 
     #[test]

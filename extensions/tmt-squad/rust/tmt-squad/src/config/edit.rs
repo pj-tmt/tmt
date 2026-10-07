@@ -250,6 +250,19 @@ impl Config {
                 .ok_or_else(|| invalid("This setting's parent must be a table."))?;
         }
         table.remove(parts.last().unwrap());
+        if parts.len() > 1 && table.is_empty() {
+            let mut parent = draft.document["squad"][squad].as_table_like_mut().unwrap();
+            for part in &parts[..parts.len() - 2] {
+                parent = parent
+                    .get_mut(part)
+                    .and_then(Item::as_table_like_mut)
+                    .expect("validated setting parent");
+            }
+            let key = parts[parts.len() - 2];
+            if parent.get(key).is_some_and(empty_table_without_comments) {
+                parent.remove(key);
+            }
+        }
         draft.validate_setting_draft(Some(squad), false)?;
         self.write(|document| *document = draft.document)?;
         Ok(true)

@@ -3802,11 +3802,12 @@ impl App {
             return Effect::None;
         };
         self.notice = None;
-        self.select(hit.row().unwrap());
-        let double = self.last_click.is_some_and(|(row, at)| {
-            row == hit.row().unwrap() && now.duration_since(at) <= DOUBLE_CLICK
+        let row = hit.row().unwrap();
+        self.select(row);
+        let double = self.last_click.is_some_and(|(previous, at)| {
+            previous == row && now.duration_since(at) <= DOUBLE_CLICK
         });
-        self.last_click = (!double).then_some((hit.row().unwrap(), now));
+        self.last_click = (!double).then_some((row, now));
         let event = if double { "double-click" } else { "click" };
         match self.bindings().remove(event) {
             Some(action) => self.perform(&action),

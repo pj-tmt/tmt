@@ -429,10 +429,6 @@ impl Rate {
             .saturating_add(1)
             .saturating_mul(SLOT_MS)
     }
-    pub fn bar_seconds(window: TokenWindow) -> f64 {
-        ((window.milliseconds() / SLOT_MS).div_ceil(8) * SLOT_MS) as f64 / 1000.0
-    }
-
     pub fn trend(&self, now: u64, window: TokenWindow) -> [Option<f64>; 8] {
         let bar_slots = (window.milliseconds() / SLOT_MS).div_ceil(8);
         let end = now / SLOT_MS;

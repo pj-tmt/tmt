@@ -255,20 +255,22 @@ impl Meter {
         let value = self.trend.get(index)?;
         let end = Rate::bar_end(self.trend_ms, self.window, index);
         let minutes = self.milliseconds(now).saturating_sub(end) / 60_000;
-        let age = if minutes < 60 {
+        let age = if minutes == 0 {
+            "now".into()
+        } else if minutes < 60 {
             format!("{minutes}m ago")
         } else {
             format!("{}h ago", minutes / 60)
         };
         let value = value.and_then(|tokens| {
             crate::source::render_value(
-                &serde_json::json!(tokens / Rate::bar_seconds(self.window)),
+                &serde_json::json!(tokens),
                 crate::source::Format::Tokens,
                 0,
             )
         });
         Some(match value {
-            Some(value) => format!("{value} tok/s · {age}"),
+            Some(value) => format!("{value} tok · {age}"),
             None => format!("– · {age}"),
         })
     }

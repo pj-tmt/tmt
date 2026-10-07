@@ -136,7 +136,7 @@ cost or text volume. `board::rate` owns evidence, `board::meter` presentation an
   and individual bars. Moved events repaint only on target changes; leaving,
   keyboard operation, resize and modal input clear hover. The whole group uses
   selection background. A hovered bar uses text colour and replaces the fixed
-  number/label slot with its rate and bucket-end age (minutes below 1h, then hours).
+  number/label slot with its total and bucket-end age (`now` below 1m, minutes below 1h, then hours).
   Readouts reuse the token formatter and already retained Rate evidence, with no
   acquisition in paint/input; absent evidence stays distinct from measured zero.
 - Row projection: `App::project_usage` derives a board-only document from immutable
@@ -168,7 +168,7 @@ cost or text volume. `board::rate` owns evidence, `board::meter` presentation an
   settle immediately. Eight bucket-aligned bars derive from the same rings: blank
   means no evidence, ▁ measured zero, and ▂–█ nonzero. A right-aligned
   number/unit/window/trend group reserves a fixed 24-cell readout slot when bars
-  fit, accommodating both live totals and slice rate/age without shifting. It
+  fit, accommodating both live totals and slice total/age without shifting. It
   drops the trend, then shortens the unit. It preserves the selected label by
   clipping lead/attention text when necessary; it hides only when the terminal
   cannot fit the compact meter itself. Its status row stays reserved while enabled

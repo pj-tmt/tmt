@@ -113,7 +113,7 @@ fn meter_pointer_targets_retain_geometry_and_modal_keyboard_isolation() {
     let text: String = (area.x..area.right())
         .map(|x| terminal.backend().buffer()[(x, area.y)].symbol())
         .collect();
-    assert!(text.contains("– · 0m ago"), "{text}");
+    assert!(text.contains("– · now"), "{text}");
     let selected = app.look().selection();
     for x in area.x..area.right() {
         assert_eq!(

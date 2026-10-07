@@ -309,7 +309,7 @@ pub(super) fn model(app: &App) -> KeyHelp {
         meter.entries.push(entry(
             "hover",
             "hover bar",
-            "read that slice's token rate and age in place; leaving restores live total",
+            "read that slice's token total and age in place; leaving restores live total",
         ));
         sections.insert(0, meter);
     }
