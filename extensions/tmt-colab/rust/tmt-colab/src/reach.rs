@@ -5,6 +5,7 @@ use serde_json::{Value, json};
 
 pub struct Reach {
     lookup: Lookup,
+    unavailable_hint: &'static str,
     pages: Vec<String>,
     /// Read only while a door runs: there is nothing to pair with otherwise.
     pairing: Option<Pairing>,
@@ -16,6 +17,16 @@ impl Reach {
         let pairing = matches!(lookup, Lookup::Running(_)).then(Pairing::lookup);
         Self {
             lookup,
+            unavailable_hint: Door::INSTALL_HINT,
+            pairing,
+            pages: Vec::new(),
+        }
+    }
+    pub fn from_creation(observation: crate::door::CreationObservation) -> Self {
+        let pairing = matches!(observation.lookup, Lookup::Running(_)).then(Pairing::lookup);
+        Self {
+            lookup: observation.lookup,
+            unavailable_hint: "Remote link unavailable from the creation snapshot",
             pairing,
             pages: Vec::new(),
         }
@@ -55,9 +66,15 @@ impl Reach {
         if let Some(id) = self.short_id(path) {
             return self
                 .short_link(path)
-                .unwrap_or_else(|| Door::hint(&self.lookup, &format!("x/colab/p/{id}")));
+                .unwrap_or_else(|| self.hint(&format!("x/colab/p/{id}")));
         }
-        Door::hint(&self.lookup, path)
+        self.hint(path)
+    }
+    fn hint(&self, path: &str) -> String {
+        match self.lookup {
+            Lookup::Unknown => format!("{path} ({})", self.unavailable_hint),
+            _ => Door::hint(&self.lookup, path),
+        }
     }
     /// The explicit pairing step, while a door runs and no browser is known to be paired.
     pub fn step(&self) -> Option<&'static str> {
@@ -83,5 +100,40 @@ impl Reach {
             Some(_) => json!(["tmt remote pair"]),
             None => json!([]),
         };
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn unavailable_creation_is_neutral_and_never_supplies_a_link_or_next_action() {
+        let path = Reach::path("space", "10000000-0000-4000-8000-000000000001");
+        let creation = Reach::from_creation(crate::door::CreationObservation {
+            lookup: Lookup::Unknown,
+            machine_id: None,
+        });
+        let text = creation.text(&path);
+        assert!(text.contains("Remote link unavailable from the creation snapshot"));
+        assert!(!text.contains("install") && !text.contains("serve") && !text.contains("pair"));
+        let mut value = json!({});
+        creation.annotate(&mut value, &path);
+        assert_eq!(value["link"], Value::Null);
+        assert_eq!(value["shortLink"], Value::Null);
+        assert_eq!(value["paired"], Value::Null);
+        assert_eq!(value["next"], json!([]));
+        let ordinary = Reach {
+            lookup: Lookup::Unknown,
+            pages: Vec::new(),
+            pairing: None,
+            unavailable_hint: Door::INSTALL_HINT,
+        };
+        assert!(ordinary.text(&path).contains(Door::INSTALL_HINT));
+        let stopped = Reach::from_creation(crate::door::CreationObservation {
+            lookup: Lookup::Stopped(None),
+            machine_id: None,
+        });
+        assert!(stopped.text(&path).contains("run tmt colab serve"));
+        assert_eq!(stopped.step(), None);
     }
 }

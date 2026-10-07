@@ -1,5 +1,5 @@
 import { validateDiscussionRecord } from './thread-records.js';
-import { exactKeys, generatedId, requireValue, text } from '@tmt/colab-client';
+import { coreId, exactKeys, generatedId, requireValue, text } from '@tmt/colab-client';
 /** Plaintext-only decoder protocol. No CryptoKeys or transport capabilities. */
 // Mirror decoder.rs: UPDATE_BYTES, WRITE_TAIL_UPDATES, WRITE_TAIL_BYTES, UPDATES, STATE_BYTES and
 // BASELINE_UPDATE_BYTES. Read admission is wider; prepare/check still use write limits.
@@ -33,7 +33,19 @@ export interface OwnRecord {
   key: string;
   value: JsonValue;
 }
+export interface CreationRecipient {
+  machineId: string;
+  agentId: string;
+}
+export function validateCreationRecipient(value: unknown): asserts value is CreationRecipient {
+  requireValue(value !== null && typeof value === 'object');
+  exactKeys(value, ['machineId', 'agentId']);
+  requireValue(typeof value.machineId === 'string' && typeof value.agentId === 'string');
+  generatedId(value.machineId);
+  coreId(value.agentId);
+}
 export interface Projection {
+  creationRecipient?: CreationRecipient;
   source: string;
   title: string;
   publisherAgent?: string;
@@ -120,7 +132,8 @@ export interface FoldResult extends Projection {
 }
 export function validateProjection(value: unknown): asserts value is Projection {
   if (!value || typeof value !== 'object') throw new Error('Invalid decoder projection');
-  const { source, title, publisherAgent } = value as Projection;
+  const { source, title, publisherAgent, creationRecipient } = value as Projection;
+  if (Object.hasOwn(value, 'creationRecipient')) validateCreationRecipient(creationRecipient);
   if (
     typeof source !== 'string' ||
     typeof title !== 'string' ||
@@ -168,6 +181,9 @@ export function sameContent(a: ContentSnapshot, b: ContentSnapshot): boolean {
     a.source === b.source &&
     a.title === b.title &&
     a.publisherAgent === b.publisherAgent &&
+    Object.hasOwn(a, 'creationRecipient') === Object.hasOwn(b, 'creationRecipient') &&
+    a.creationRecipient?.machineId === b.creationRecipient?.machineId &&
+    a.creationRecipient?.agentId === b.creationRecipient?.agentId &&
     JSON.stringify(a.own) === JSON.stringify(b.own)
   );
 }

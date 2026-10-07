@@ -98,6 +98,8 @@ struct Manifest<'a> {
     space_id: &'a str,
     page_id: &'a str,
     title: &'a str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    creation_recipient: Option<&'a crate::decoder::CreationRecipient>,
     exported_at_ms: u64,
     membership_head: MembershipHead,
     epoch: String,
@@ -179,6 +181,7 @@ impl Bundle {
             space_id: &key.space_id,
             page_id: page,
             title: &view.title,
+            creation_recipient: view.creation_recipient.as_ref(),
             exported_at_ms: now,
             membership_head: MembershipHead {
                 revision: snapshot.authority.head.revision.to_string(),

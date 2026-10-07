@@ -1,6 +1,7 @@
+import { readFileSync } from 'node:fs';
 import { expect, it, vi } from 'vite-plus/test';
 import { Fold } from '../src/fold.js';
-import { WRITE_TAIL_BYTES } from '../src/fold-protocol.js';
+import { WRITE_TAIL_BYTES, validateProjection, type FoldCommand } from '../src/fold-protocol.js';
 
 it('terminates a stalled decoder and rejects further use without publishing output', async () => {
   vi.useFakeTimers();
@@ -102,6 +103,158 @@ it('bounds aggregate content and own input before posting to the Worker', async 
   fold.close();
 });
 
+const recipient = {
+  machineId: '40000000-0000-4000-8000-000000000001',
+  agentId: '50000000-0000-1000-8000-000000000001',
+};
+it('admits only complete canonical creation preferences without inferring missing provenance', () => {
+  expect(() =>
+    validateProjection({ source: '', title: '', creationRecipient: recipient }),
+  ).not.toThrow();
+  expect(() => validateProjection({ source: '', title: '' })).not.toThrow();
+  for (const bad of [
+    null,
+    {},
+    { machineId: recipient.machineId },
+    { ...recipient, extra: true },
+    { ...recipient, machineId: recipient.agentId },
+    { ...recipient, agentId: '00000000-0000-0000-0000-000000000000' },
+    { ...recipient, agentId: 'ABCDEF00-0000-1000-8000-000000000001' },
+  ]) {
+    expect(() => validateProjection({ source: '', title: '', creationRecipient: bad })).toThrow();
+  }
+});
+it('the actual Worker preserves both independent baseline encodings through source edits', async () => {
+  const vectors = JSON.parse(
+    readFileSync(new URL('../../../contracts/vectors/baseline-v1.json', import.meta.url), 'utf8'),
+  );
+  const decode = (value: string) => new Uint8Array(Buffer.from(value, 'base64url'));
+  for (const vector of vectors) {
+    for (const alternate of vector.alternateUpdate ? [false, true] : [false]) {
+      vi.resetModules();
+      const surface = {
+        onmessage: null as unknown as (event: {
+          data: { id: number; command: FoldCommand };
+        }) => Promise<void>,
+        postMessage: vi.fn(),
+      };
+      vi.stubGlobal('self', surface);
+      try {
+        await import('../src/fold.worker.js');
+        const send = async (command: FoldCommand) => {
+          surface.postMessage.mockClear();
+          await surface.onmessage({ data: { id: 1, command } });
+          return surface.postMessage.mock.calls[0][0];
+        };
+        if (vector.alternateUpdate) {
+          const wrong = await send({
+            type: 'baseline',
+            title: vector.title,
+            sourceDigest: decode(vector.sourceDigest),
+            update: decode(alternate ? vector.alternateUpdate : vector.update),
+            commitment: decode(alternate ? vector.commitment : vector.alternateCommitment),
+          });
+          expect(wrong.error).toBe('Rejected content update');
+        }
+        const baseline = await send({
+          type: 'baseline',
+          title: vector.title,
+          sourceDigest: decode(vector.sourceDigest),
+          update: decode(alternate ? vector.alternateUpdate : vector.update),
+          commitment: decode(alternate ? vector.alternateCommitment : vector.commitment),
+        });
+        expect(baseline.error).toBeUndefined();
+        expect(baseline.creationRecipient).toEqual(vector.creationRecipient);
+        const edit = await send({ type: 'prepare', source: '<p>Later source</p>' });
+        expect(edit.error).toBeUndefined();
+        expect(edit.creationRecipient).toEqual(vector.creationRecipient);
+        const applied = await send({ type: 'apply', updates: [edit.update] });
+        expect(applied.source).toBe('<p>Later source</p>');
+        expect(applied.creationRecipient).toEqual(vector.creationRecipient);
+      } finally {
+        vi.unstubAllGlobals();
+      }
+    }
+  }
+});
+
+it('rejects a present undefined creation recipient projection', () => {
+  expect(() =>
+    validateProjection({ source: '', title: '', creationRecipient: undefined }),
+  ).toThrow();
+});
+it('rejects encoded undefined creation metadata without changing committed Worker state', async () => {
+  vi.resetModules();
+  const surface = {
+    onmessage: null as unknown as (event: {
+      data: { id: number; command: FoldCommand };
+    }) => Promise<void>,
+    postMessage: vi.fn(),
+  };
+  vi.stubGlobal('self', surface);
+  const Y = await import('yjs');
+  const doc = new Y.Doc();
+  try {
+    await import('../src/fold.worker.js');
+    const send = async (command: FoldCommand) => {
+      surface.postMessage.mockClear();
+      await surface.onmessage({ data: { id: 1, command } });
+      return surface.postMessage.mock.calls[0][0];
+    };
+    doc.getText('html').insert(0, 'Committed source');
+    doc.getMap('meta').set('title', 'Committed title');
+    const initial = await send({ type: 'apply', updates: [Y.encodeStateAsUpdate(doc)] });
+    expect(initial.error).toBeUndefined();
+    expect(Object.hasOwn(initial, 'creationRecipient')).toBe(false);
+    const vector = Y.encodeStateVector(doc);
+    doc.getMap('meta').set('creationRecipient', undefined);
+    doc.getText('html').insert(0, 'Untrusted change ');
+    const update = Y.encodeStateAsUpdate(doc, vector);
+    const decoded = new Y.Doc();
+    try {
+      Y.applyUpdate(decoded, Y.encodeStateAsUpdate(doc));
+      expect(decoded.getMap('meta').has('creationRecipient')).toBe(true);
+      expect(decoded.getMap('meta').get('creationRecipient')).toBeUndefined();
+    } finally {
+      decoded.destroy();
+    }
+    const rejected = await send({ type: 'apply', updates: [update] });
+    expect(rejected.error).toBe('Rejected content update');
+    const unchanged = await send({ type: 'apply', updates: [] });
+    expect(unchanged.error).toBeUndefined();
+    expect(unchanged.source).toBe('Committed source');
+    expect(unchanged.title).toBe('Committed title');
+    expect(Object.hasOwn(unchanged, 'creationRecipient')).toBe(false);
+  } finally {
+    doc.destroy();
+    vi.unstubAllGlobals();
+  }
+});
+it('closes the parent fold for a successful reply with a present undefined creation recipient', async () => {
+  const worker = {
+    postMessage: vi.fn(),
+    terminate: vi.fn(),
+    onerror: null,
+    onmessage: null as unknown as (event: unknown) => void,
+  };
+  const fold = new Fold(worker as unknown as Worker);
+  const pending = fold.run({ type: 'apply', updates: [] });
+  const rejected = expect(pending).rejects.toThrow();
+  worker.onmessage({
+    data: {
+      id: 1,
+      source: 'Untrusted source',
+      title: '',
+      creationRecipient: undefined,
+      own: {},
+      update: new Uint8Array(),
+    },
+  });
+  await rejected;
+  expect(worker.terminate).toHaveBeenCalledOnce();
+  await expect(fold.run({ type: 'apply', updates: [] })).rejects.toThrow('unavailable');
+});
+
 it('admits only correlated bounded content batches with the exact expected projection', async () => {
   const base = { source: 'old', title: 'T', publisherAgent: 'P', own: {} };
   const valid = {
@@ -189,4 +342,54 @@ it('keeps the batch preparation deadline and rejects unsupported source before w
   await rejection;
   expect(worker.terminate).toHaveBeenCalledOnce();
   vi.useRealTimers();
+});
+
+it('preserves admitted creation preferences in parent preparation and rejects changed replies', async () => {
+  const base = { source: 'old', title: 'T', own: {}, creationRecipient: recipient };
+  for (const replacement of [
+    'valid',
+    'absent',
+    undefined,
+    { ...recipient, machineId: '40000000-0000-4000-8000-000000000002' },
+    { ...recipient, agentId: '50000000-0000-1000-8000-000000000002' },
+  ]) {
+    const worker = {
+      postMessage: vi.fn(),
+      terminate: vi.fn(),
+      onerror: null,
+      onmessage: null as unknown as (event: unknown) => void,
+    };
+    const fold = new Fold(worker as unknown as Worker);
+    const pending = fold.prepareContent('new', base);
+    const outcome = replacement === 'valid' ? pending : expect(pending).rejects.toThrow();
+    const projection =
+      replacement === 'absent'
+        ? { source: 'new', title: 'T', own: {} }
+        : {
+            ...base,
+            source: 'new',
+            creationRecipient: replacement === 'valid' ? recipient : replacement,
+          };
+    worker.onmessage({
+      data: {
+        id: 1,
+        type: 'prepared-content',
+        kind: 'updates',
+        projection,
+        updates: [new Uint8Array([1])],
+      },
+    });
+    if (replacement === 'valid') {
+      expect((await pending).projection.creationRecipient).toEqual(recipient);
+      const noop = fold.prepareContent('old', base);
+      worker.onmessage({
+        data: { id: 2, type: 'prepared-content', kind: 'noop', projection: base },
+      });
+      expect((await noop).projection.creationRecipient).toEqual(recipient);
+      fold.close();
+    } else {
+      await outcome;
+      expect(worker.terminate).toHaveBeenCalledOnce();
+    }
+  }
 });

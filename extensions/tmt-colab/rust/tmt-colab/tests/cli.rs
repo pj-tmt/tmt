@@ -62,6 +62,74 @@ impl Pilot {
         .unwrap();
         core_fixture::link(&self.root, "core-door", core_fixture::Program::Door)
     }
+    /// Creation's optional machine projection; ordinary support remains available to detect fallback.
+    fn creation_core(&self, status: Option<&str>, delay: Option<u32>) -> PathBuf {
+        let path = self.root.join("core-creation");
+        let snapshot = status.map_or_else(
+            || "exit 9\n".to_owned(),
+            |status| {
+                let sleep = delay.map_or(String::new(), |s| format!("sleep {s}\n"));
+                let (body, exit) = status
+                    .strip_prefix('!')
+                    .map_or((status, 0), |body| (body, 1));
+                format!("{sleep}printf '%s\\n' {}\nexit {exit}\n", quote(body))
+            },
+        );
+        let script = format!(
+            r#"#!/bin/sh
+if [ "$1" = remote ]; then
+printf '%s\n' "$*" >> {calls}
+fi
+case "$*" in
+'remote status --machine --json')
+{snapshot};;
+'remote status --json')
+printf '%s\n' {ordinary}
+exit 0
+;;
+'remote devices --json')
+printf '%s\n' '{{"devices":[]}}'
+exit 0
+;;
+esac
+exec {core} "$@"
+"#,
+            calls = quote(self.root.join("creation-remote.calls").to_str().unwrap()),
+            ordinary = quote(DOOR),
+            core = quote(self.root.join("core").to_str().unwrap()),
+        );
+        tmt_test_support::write_executable(&path, script.as_bytes(), 0o700).unwrap();
+        path
+    }
+    fn command_with_creation_door(&self, status: &str) -> Command {
+        let mut cmd = self.command();
+        cmd.env("TMT_EXECUTABLE", self.creation_core(Some(status), None));
+        cmd
+    }
+    fn creation_calls(&self) -> Vec<String> {
+        fs::read_to_string(self.root.join("creation-remote.calls"))
+            .unwrap_or_default()
+            .lines()
+            .map(str::to_owned)
+            .collect()
+    }
+    fn assert_creation_acquisitions(&self, count: usize) {
+        let calls = self.creation_calls();
+        assert_eq!(
+            calls
+                .iter()
+                .filter(|s| *s == "remote status --machine --json")
+                .count(),
+            count,
+            "{calls:?}"
+        );
+        assert!(
+            calls
+                .iter()
+                .all(|s| s == "remote status --machine --json" || s == "remote devices --json"),
+            "unexpected call or fallback: {calls:?}"
+        );
+    }
     fn command_with_door(&self, status: &str) -> Command {
         let mut cmd = self.command();
         cmd.env("TMT_EXECUTABLE", self.door_core(status, None));
@@ -1641,12 +1709,13 @@ fn create_supports_empty_source_and_stdin_and_refuses_invalid_input_before_state
     assert!(human.stderr.is_empty());
     let message = String::from_utf8(human.stdout).unwrap();
     assert!(message.contains("PAGE CREATED"));
-    // Without a running door the path stays relative and says how to get a full link.
+    // An unsupported creation projection leaves a neutral relative path.
     assert!(message.contains("x/colab/p/"));
-    assert!(message.contains("(Browser access needs the Remote extension"));
+    assert!(message.contains("(Remote link unavailable from the creation snapshot"));
     assert!(!message.contains("start tmt remote serve"));
     assert!(!message.contains("tmt remote pair printed"));
 }
+const CREATION_DOOR: &str = r#"{"running":true,"origin":"http://127.0.0.1:53253","path":"/r/abcdefghijkl2345","machineId":"40000000-0000-4000-8000-000000000001"}"#;
 const DOOR: &str = r#"{"running":true,"origin":"http://127.0.0.1:53253","path":"/r/3e2c69f7"}"#;
 #[test]
 fn reader_links_print_a_full_url_only_while_a_door_runs() {
@@ -1690,13 +1759,20 @@ fn reader_links_print_a_full_url_only_while_a_door_runs() {
 #[test]
 fn created_pages_keep_full_json_links_and_print_short_links_only_while_a_door_runs() {
     let pilot = Pilot::new(None);
+    pilot.opener(0);
     let json = |status: &str| -> Value {
+        let before = pilot
+            .creation_calls()
+            .iter()
+            .filter(|s| *s == "remote status --machine --json")
+            .count();
         let out = pilot
-            .command_with_door(status)
+            .command_with_creation_door(status)
             .args(["page", "create", "--title", "Linked", "--json"])
             .output()
             .unwrap();
         assert!(out.status.success(), "{out:?}");
+        pilot.assert_creation_acquisitions(before + 1);
         serde_json::from_slice(&out.stdout).unwrap()
     };
     // No door (the fixture core has no remote status): relative path, no url.
@@ -1707,9 +1783,26 @@ fn created_pages_keep_full_json_links_and_print_short_links_only_while_a_door_ru
         "not json",
         r#"{"running":true,"origin":"http://127.0.0.1:1/x","path":"/r/ab"}"#,
     ] {
-        assert!(json(status).get("url").is_none(), "{status}");
+        let value = json(status);
+        assert!(
+            value["link"].is_null() && value["shortLink"].is_null(),
+            "{status}"
+        );
+        assert!(value["paired"].is_null());
+        assert_eq!(value["next"], json!([]));
     }
-    let created = json(DOOR);
+    let created = json(CREATION_DOOR);
+    assert!(
+        pilot
+            .call(&[
+                "page",
+                "read",
+                created["pageId"].as_str().unwrap(),
+                "--json"
+            ])
+            .get("creationRecipient")
+            .is_none()
+    );
     let path = created["path"].as_str().unwrap();
     assert!(path.starts_with("x/colab/#space="));
     assert_eq!(
@@ -1722,10 +1815,10 @@ fn created_pages_keep_full_json_links_and_print_short_links_only_while_a_door_ru
     assert!(plain["shortLink"].is_null());
     assert_eq!(
         created["link"],
-        format!("http://127.0.0.1:53253/r/3e2c69f7/{path}")
+        format!("http://127.0.0.1:53253/r/abcdefghijkl2345/{path}")
     );
     let human = pilot
-        .command_with_door(DOOR)
+        .command_with_creation_door(CREATION_DOOR)
         .args(["page", "create", "--title", "Human link"])
         .output()
         .unwrap();
@@ -1736,9 +1829,9 @@ fn created_pages_keep_full_json_links_and_print_short_links_only_while_a_door_ru
     let text = String::from_utf8(human.stdout).unwrap();
     assert!(text.contains("http://127.0.0.1:53253/p/"), "{text}");
     assert!(!text.contains("start tmt remote serve"));
-    // A stopped door says how to get one; an extra field never breaks the answer.
+    // A stopped opt-in is exact; an extra field is malformed rather than evidence of stopping.
     let stopped = pilot
-        .command_with_door(r#"{"running":false,"lastPort":53253,"future":1}"#)
+        .command_with_creation_door(r#"{"running":false,"lastPort":53253}"#)
         .args(["page", "create", "--title", "Stopped"])
         .output()
         .unwrap();
@@ -1747,12 +1840,80 @@ fn created_pages_keep_full_json_links_and_print_short_links_only_while_a_door_ru
         text.contains("(run tmt colab serve to get a full link)"),
         "{text}"
     );
+    let malformed = pilot
+        .command_with_creation_door(r#"{"running":false,"lastPort":53253,"future":1}"#)
+        .args(["page", "create", "--title", "Malformed stopped"])
+        .output()
+        .unwrap();
+    assert!(malformed.status.success());
+    let text = String::from_utf8(malformed.stdout).unwrap();
+    assert!(
+        text.contains("Remote link unavailable from the creation snapshot"),
+        "{text}"
+    );
+    assert!(!text.contains("run tmt colab serve"));
+    // An older command still offers ordinary status; creation must never fall back to it.
+    fs::write(
+        pilot.root.join("publisher"),
+        r#"{"identity":{"name":"creator","id":"50000000-0000-1000-8000-000000000001"}}"#,
+    )
+    .unwrap();
+    let old = pilot
+        .command()
+        .env("TMT_EXECUTABLE", pilot.creation_core(None, None))
+        .args(["page", "create", "--title", "Old CLI", "--open", "--json"])
+        .output()
+        .unwrap();
+    assert!(old.status.success());
+    let old: Value = serde_json::from_slice(&old.stdout).unwrap();
+    assert!(old["link"].is_null() && old["shortLink"].is_null() && old["paired"].is_null());
+    assert_eq!(old["next"], json!([]));
+    assert!(
+        pilot
+            .call(&["page", "read", old["pageId"].as_str().unwrap(), "--json"])
+            .get("creationRecipient")
+            .is_none()
+    );
+    let old_human = pilot
+        .command()
+        .env("TMT_EXECUTABLE", pilot.creation_core(None, None))
+        .args(["page", "create", "--title", "Old CLI human", "--open"])
+        .output()
+        .unwrap();
+    assert!(old_human.status.success());
+    let text = String::from_utf8(old_human.stdout).unwrap();
+    assert!(
+        text.contains("Remote link unavailable from the creation snapshot"),
+        "{text}"
+    );
+    for instruction in [
+        "install",
+        "upgrade",
+        "restart",
+        "tmt colab serve",
+        "tmt remote pair",
+    ] {
+        assert!(!text.contains(instruction), "{text}");
+    }
+    assert!(pilot.opened().is_empty());
+    pilot.assert_creation_acquisitions(9);
+    assert_eq!(
+        pilot
+            .creation_calls()
+            .iter()
+            .filter(|s| *s == "remote devices --json")
+            .count(),
+        2
+    );
 }
 #[test]
 fn a_door_that_does_not_answer_in_time_falls_back_to_the_relative_path() {
     let pilot = Pilot::new(None);
     let mut cmd = pilot.command();
-    cmd.env("TMT_EXECUTABLE", pilot.door_core(DOOR, Some(8)));
+    cmd.env(
+        "TMT_EXECUTABLE",
+        pilot.creation_core(Some(CREATION_DOOR), Some(8)),
+    );
     // Capture to a file and wait on the process itself: a parallel test's child can inherit a pipe
     // end and delay its EOF, which says nothing about this command's own duration.
     let capture = pilot.root.join("slow.out");
@@ -1763,6 +1924,17 @@ fn a_door_that_does_not_answer_in_time_falls_back_to_the_relative_path() {
         .status()
         .unwrap();
     assert!(status.success());
+    pilot.assert_creation_acquisitions(1);
+    assert!(
+        pilot
+            .creation_calls()
+            .iter()
+            .all(|s| s != "remote devices --json")
+    );
+    assert!(
+        started.elapsed() >= Duration::from_secs(2),
+        "opt-in deadline was not exercised"
+    );
     assert!(
         started.elapsed() < Duration::from_secs(7),
         "{:?}",
@@ -1770,7 +1942,9 @@ fn a_door_that_does_not_answer_in_time_falls_back_to_the_relative_path() {
     );
     let out = fs::read(&capture).unwrap();
     let created: Value = serde_json::from_slice(&out).unwrap();
-    assert!(created.get("url").is_none());
+    assert!(created["link"].is_null() && created["shortLink"].is_null());
+    assert!(created["paired"].is_null());
+    assert_eq!(created["next"], json!([]));
     assert!(
         created["path"]
             .as_str()
@@ -3158,7 +3332,7 @@ fn page_create_opens_its_page_only_with_a_door_and_never_for_json() {
     let create = |door: Option<&str>, extra: &[&str]| {
         let mut cmd = pilot.command();
         if let Some(status) = door {
-            cmd.env("TMT_EXECUTABLE", pilot.door_core(status, None));
+            cmd.env("TMT_EXECUTABLE", pilot.creation_core(Some(status), None));
         }
         let out = cmd
             .args(["page", "create", "--title", "T"])
@@ -3169,11 +3343,12 @@ fn page_create_opens_its_page_only_with_a_door_and_never_for_json() {
         String::from_utf8(out.stdout).unwrap()
     };
     // Not without --open (no terminal), not without a door, not for --json.
-    create(Some(DOOR), &[]);
+    create(Some(CREATION_DOOR), &[]);
     create(None, &["--open"]);
-    create(Some(DOOR), &["--open", "--json"]);
+    create(Some(CREATION_DOOR), &["--open", "--json"]);
     assert!(pilot.opened().is_empty());
-    let text = create(Some(DOOR), &["--open"]);
+    let text = create(Some(CREATION_DOOR), &["--open"]);
+    pilot.assert_creation_acquisitions(3);
     let opened = pilot.opened();
     assert_eq!(opened.len(), 1);
     assert!(opened[0].starts_with("http://127.0.0.1:53253/p/"));
@@ -3924,7 +4099,10 @@ fn unreadable_settings_never_fail_a_committed_page_create_or_a_ready_serve() {
     fs::create_dir(colab.join("settings.json")).unwrap();
     let out = pilot
         .command()
-        .env("TMT_EXECUTABLE", pilot.door_core(DOOR, None))
+        .env(
+            "TMT_EXECUTABLE",
+            pilot.creation_core(Some(CREATION_DOOR), None),
+        )
         .args(["page", "create", "--title", "Kept", "--open"])
         .output()
         .unwrap();
@@ -3947,6 +4125,7 @@ fn unreadable_settings_never_fail_a_committed_page_create_or_a_ready_serve() {
             .len(),
         1
     );
+    pilot.assert_creation_acquisitions(1);
     // Serve is just as unaffected, and `--open` still works with the defaults.
     let mut serving = Serving::start(
         &pilot,
@@ -4081,8 +4260,89 @@ fn page_commands_say_why_there_is_no_link_when_remote_answers_with_an_error() {
         let text = human(OTHER_ENVELOPE, &args);
         assert!(text.contains("Core did not answer."), "{args:?}: {text}");
     }
-    let created = human(OUTDATED_ENVELOPE, &["page", "create", "--title", "Again"]);
-    assert!(created.contains("older than this Colab"), "{created}");
+    pilot.opener(0);
+    let mut acquisitions = 0;
+    for envelope in [OUTDATED_ENVELOPE, OTHER_ENVELOPE] {
+        let core = pilot.creation_core(Some(envelope), None);
+        let out = pilot
+            .command()
+            .env("TMT_EXECUTABLE", &core)
+            .args(["page", "create", "--title", "Refused link", "--open"])
+            .output()
+            .unwrap();
+        acquisitions += 1;
+        pilot.assert_creation_acquisitions(acquisitions);
+        assert!(out.status.success(), "{out:?}");
+        assert!(out.stderr.is_empty());
+        let text = String::from_utf8(out.stdout).unwrap();
+        assert!(text.contains("PAGE CREATED"), "{text}");
+        assert!(text.contains("x/colab/p/"), "{text}");
+        assert!(
+            text.contains("Remote link unavailable from the creation snapshot"),
+            "{text}"
+        );
+        for forbidden in [
+            "older than",
+            "outdated",
+            "Stop",
+            "stop",
+            "restart",
+            "install",
+            "upgrade",
+            "pair",
+            "tmt remote serve",
+            "tmt colab serve",
+        ] {
+            assert!(!text.contains(forbidden), "{text}");
+        }
+        let out = pilot
+            .command()
+            .env("TMT_EXECUTABLE", &core)
+            .args([
+                "page",
+                "create",
+                "--title",
+                "Refused JSON link",
+                "--open",
+                "--json",
+            ])
+            .output()
+            .unwrap();
+        acquisitions += 1;
+        pilot.assert_creation_acquisitions(acquisitions);
+        assert!(out.status.success(), "{out:?}");
+        assert!(out.stderr.is_empty());
+        let created: Value = serde_json::from_slice(&out.stdout).unwrap();
+        assert!(created["link"].is_null());
+        assert!(created["shortLink"].is_null());
+        assert!(created["paired"].is_null());
+        assert_eq!(created["next"], json!([]));
+        let read = pilot.call(&[
+            "page",
+            "read",
+            created["pageId"].as_str().unwrap(),
+            "--json",
+        ]);
+        assert_eq!(read["source"], "");
+        assert!(read.get("creationRecipient").is_none());
+    }
+    pilot.assert_creation_acquisitions(4);
+    assert!(
+        pilot
+            .creation_calls()
+            .iter()
+            .all(|call| call == "remote status --machine --json")
+    );
+    assert!(pilot.opened().is_empty());
+    assert!(!pilot.root.join("serve.calls").exists());
+    assert!(!pilot.root.join("serve.pid").exists());
+    let pages = pilot.call(&["ls", "--json"]);
+    assert_eq!(pages["pages"].as_array().unwrap().len(), 5);
+    for page in pages["pages"].as_array().unwrap() {
+        let read = pilot.call(&["page", "read", page["pageId"].as_str().unwrap(), "--json"]);
+        assert_eq!(read["source"], "");
+        assert!(read.get("creationRecipient").is_none());
+    }
 }
 #[test]
 fn serve_says_the_outdated_instruction_once_in_the_warning_and_points_at_it_in_the_row() {
