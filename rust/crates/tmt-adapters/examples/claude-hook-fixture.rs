@@ -37,6 +37,15 @@ fn main() {
     if args.first().is_some_and(|arg| arg == "app-server") {
         args.remove(0);
     }
+    // Legacy scripted scenarios retain their three positional paths. Session
+    // launch settings are provider options, not an extra scenario/report path.
+    // The model-free channel peer above executes the generated hooks instead.
+    if args.len() >= 2 && args[args.len() - 2] == "--settings" {
+        let settings: serde_json::Value =
+            serde_json::from_str(args.last().unwrap().to_str().unwrap()).unwrap();
+        assert!(settings.is_object(), "session settings must be an object");
+        args.truncate(args.len() - 2);
+    }
     let listen = args.last().is_some_and(|value| value == "--listen");
     if listen {
         args.pop();

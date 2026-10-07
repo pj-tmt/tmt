@@ -359,11 +359,13 @@ describe('Claude channel delivery', { concurrent: false }, () => {
         path.join(fixture.wrapperDir, 'claude'),
         `#!/bin/sh\nprintf started > ${quote(started)}\n`
       );
-      const result = await fixture.runJsonCli<Record<string, unknown>>(
+      // run is a human/TTY command and rejects --json before launch effects.
+      const result = await fixture.runCli(
         ['run', '--no-channel', 'claude', '--settings', '{"disableAllHooks":true}'],
         { pane }
       );
-      expect(failureCode(result)).toBe('LAUNCH_HOOKS_UNAVAILABLE');
+      expect(result.code).toBe(1);
+      expect(result.stderr).toContain('Could not compose session-only hooks');
       expect(fs.existsSync(started)).toBe(false);
       expect(
         sql(fixture, (db) =>
