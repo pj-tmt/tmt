@@ -83,8 +83,11 @@ impl Delivery {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Availability {
     Ready,
+    /// An active identity with no recorded host endpoint receives by inbox pull.
+    Unbound,
     Offline,
     Unavailable,
 }
@@ -204,7 +207,7 @@ pub fn status(storage: &mut Storage, identity: &str) -> Result<Availability, Sto
         .as_ref()
         .map(|binding| Host::for_server(&binding.server))
     else {
-        return Ok(Availability::Offline);
+        return Ok(Availability::Unbound);
     };
     let mut session = host.session();
     match session.status(&entry) {
@@ -262,7 +265,7 @@ fn send_messages(
 ) -> Result<Attempt, StorageError> {
     match status(storage, identity)? {
         Availability::Ready => {}
-        Availability::Offline => return Ok(Delivery::Offline.into()),
+        Availability::Unbound | Availability::Offline => return Ok(Delivery::Offline.into()),
         Availability::Unavailable => return Ok(Delivery::Unavailable.into()),
     }
     let Some(entry) = current(storage, identity)? else {
@@ -763,6 +766,36 @@ pub fn gone_waiter(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_active_unbound_identity_receives_by_inbox_without_a_host_endpoint() {
+        let directory = crate::test_support::TestDirectory::new();
+        let mut storage = Storage::open(directory.path.join("state/tmt.db")).unwrap();
+        for (name, lifetime) in [
+            ("saved", tmt_core::identity::Lifetime::Saved),
+            ("temporary", tmt_core::identity::Lifetime::Temporary),
+        ] {
+            let identity = tmt_core::identity::create_or_resolve(&mut storage, name, lifetime)
+                .unwrap()
+                .identity;
+            assert_eq!(
+                status(&mut storage, &identity.id).unwrap(),
+                Availability::Unbound
+            );
+            assert!(matches!(
+                send(&mut storage, &identity.id, "queued only", Duration::ZERO)
+                    .unwrap()
+                    .delivery,
+                Delivery::Offline
+            ));
+        }
+        // A missing row is not evidence of an active inbox recipient.
+        assert_eq!(
+            status(&mut storage, "missing").unwrap(),
+            Availability::Offline
+        );
+        storage.close().unwrap();
+    }
 
     struct Evidence(Result<bool, ChannelFault>);
 

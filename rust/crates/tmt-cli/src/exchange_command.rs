@@ -18,12 +18,13 @@ use tmt_adapters::{
 use tmt_core::{
     identity::Identity,
     request::{
-        RequestError, RequestService,
+        RequestError, RequestService, WithdrawalRejection, WithdrawnRequest,
         attention::{Acknowledged, ExchangeDetail, ExchangePage, FinalState},
     },
 };
 
 enum ResultKind {
+    Withdraw(WithdrawnRequest),
     List(ExchangePage),
     Show {
         detail: ExchangeDetail,
@@ -44,6 +45,14 @@ fn unavailable(error: impl Error + 'static) -> Failure {
 
 fn request_failure(error: RequestError<StorageError>) -> Failure {
     let (code, status) = match &error {
+        RequestError::Withdrawal(reason) => (
+            reason.code(),
+            match reason {
+                WithdrawalRejection::InputInvalid => 1,
+                WithdrawalRejection::NotFound => 3,
+                _ => 5,
+            },
+        ),
         RequestError::Attention(reason) => (
             reason.code(),
             match reason {
@@ -88,6 +97,9 @@ fn run_selected(
         })?;
         let mut service = RequestService::new(&mut storage, wall_time_ms);
         let result = match operation {
+            ExchangeOperation::Withdraw { request_id, reason } => service
+                .withdraw_request(&identity.id, &request_id, &reason)
+                .map(ResultKind::Withdraw),
             ExchangeOperation::List { limit, after } => service
                 .list_exchanges(&identity.id, limit, after)
                 .map(ResultKind::List),
@@ -101,21 +113,25 @@ fn run_selected(
                     service.show_exchange(&identity.id, &request_id)
                 };
                 detail.and_then(|detail| {
-                    let receipt =
-                        if incoming && detail.exchange.final_state != FinalState::NotRequired {
-                            let context = service.get_context(&request_id)?.ok_or(
-                                RequestError::Attention(
+                    let receipt = if incoming
+                        && !matches!(
+                            detail.exchange.final_state,
+                            FinalState::NotRequired | FinalState::Withdrawn(_)
+                        ) {
+                        let context =
+                            service
+                                .get_context(&request_id)?
+                                .ok_or(RequestError::Attention(
                                     tmt_core::request::attention::AttentionRejection::NotFound,
-                                ),
-                            )?;
-                            Some(encode_route_receipt(
-                                &request_id,
-                                &context.attempt.attempt_id,
-                                &context.attempt.route,
-                            ))
-                        } else {
-                            None
-                        };
+                                ))?;
+                        Some(encode_route_receipt(
+                            &request_id,
+                            &context.attempt.attempt_id,
+                            &context.attempt.route,
+                        ))
+                    } else {
+                        None
+                    };
                     Ok(ResultKind::Show { detail, receipt })
                 })
             }

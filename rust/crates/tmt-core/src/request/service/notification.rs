@@ -85,6 +85,7 @@ impl<R: RequestRepository, C: Fn() -> u64> RequestService<'_, R, C> {
                     AttemptStatus::Prepared | AttemptStatus::Queued
                 )
                 || attempt.response_submitted_at_ms.is_some()
+                || attempt.withdrawal.is_some()
                 || now >= attempt.retention_expires_at_ms
             {
                 return Err(RequestError::StateInvalid);
@@ -202,7 +203,11 @@ pub(super) fn claim<E>(
     let Some(mut value) = records.notification(&attempt.request_id)? else {
         return Ok(None);
     };
-    if now >= attempt.retention_expires_at_ms || value.observed || attempt.wait_active {
+    if now >= attempt.retention_expires_at_ms
+        || value.observed
+        || attempt.wait_active
+        || attempt.withdrawal.is_some()
+    {
         return Ok(None);
     }
     if kind == HintKind::Timeout && now < value.policy.deadline_ms {

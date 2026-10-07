@@ -10,6 +10,134 @@ import {
 } from '../support/cli-process.js';
 
 describe('native configuration process boundary', () => {
+  it('sets every CLI theme base globally while preserving token overrides and opaque keys', async () => {
+    await withSandbox(async (sandbox) => {
+      fs.mkdirSync(sandbox.globalDir, { recursive: true });
+      const original = {
+        theme: { base: 'terminal', waiting: '#e0a458', muted: 'bright black' },
+        defaults: { timeout: 30, future: [1, 'keep'] },
+        preambleMode: 'disabled',
+        future: { arbitrary: [true, null, { nested: 'keep' }] },
+      };
+      fs.writeFileSync(sandbox.globalConfig, JSON.stringify(original));
+      const local = '{"$config":{"preambleEvery":7},"future":"untouched"}';
+      fs.writeFileSync(sandbox.localConfig, local);
+      for (const base of ['tmt', 'tmt-light', 'terminal', 'mono']) {
+        const set = await runCli(sandbox, [
+          'config',
+          'set',
+          '--global',
+          'theme.base',
+          base,
+          '--json',
+        ]);
+        expect(set.status).toBe(0);
+        expect(parseWholeStdout(set)).toEqual({ ok: true });
+        expect(JSON.parse(fs.readFileSync(sandbox.globalConfig, 'utf8'))).toEqual({
+          ...original,
+          theme: { ...original.theme, base },
+        });
+        const show = await runCli(sandbox, ['config', 'show', '--json']);
+        expect(show.status).toBe(0);
+        expect(parseWholeStdout(show)).toMatchObject({
+          resolved: { theme: { base, waiting: '#e0a458' } },
+          sources: { theme: 'global' },
+        });
+        const human = await runCli(sandbox, ['config', 'show']);
+        expect(human.status).toBe(0);
+        const row = human.stdout
+          .split('\n')
+          .find((line) => line.trimStart().startsWith('theme.base'));
+        expect(row?.trim().split(/\s{2,}/)).toEqual([
+          'theme.base',
+          base,
+          'global',
+          'global CLI',
+          'tmt, tmt-light, terminal, mono',
+        ]);
+        expect(fs.readFileSync(sandbox.localConfig, 'utf8')).toBe(local);
+        expect(fs.existsSync(sandbox.database)).toBe(false);
+      }
+    });
+  });
+
+  it('lists valid bases on invalid writes and leaves both configuration files unchanged', async () => {
+    await withSandbox(async (sandbox) => {
+      for (const base of ['unknown', 'auto', 'TMT', 'tmt ', '']) {
+        const before = fileSnapshot(sandbox.root);
+        const args = ['config', 'set', '--global', 'theme.base', base];
+        const human = await runCli(sandbox, args);
+        expect(human.status).toBe(1);
+        expect(human.stdout).toBe('');
+        expect(human.stderr).toBe(
+          `error: Invalid value for theme.base: ${base}\nhint: Valid bases: tmt, tmt-light, terminal, mono\n`
+        );
+        const json = await runCli(sandbox, [...args, '--json']);
+        expect(json.status).toBe(1);
+        expect(expectError(json, 'ERROR')).toEqual({
+          error: {
+            code: 'ERROR',
+            message: `Invalid value for theme.base: ${base}.`,
+            suggestion: 'Valid bases: tmt, tmt-light, terminal, mono',
+          },
+        });
+        expect(fileSnapshot(sandbox.root)).toEqual(before);
+      }
+      fs.mkdirSync(sandbox.globalDir, { recursive: true });
+      fs.writeFileSync(
+        sandbox.globalConfig,
+        '{"theme":{"base":"mono","waiting":"blue"},"future":1}'
+      );
+      fs.writeFileSync(
+        sandbox.localConfig,
+        '{"$config":{"preambleEvery":7},"theme":{"base":"tmt"}}'
+      );
+      const before = fileSnapshot(sandbox.root);
+      for (const args of [
+        ['config', 'set', 'theme.base', 'tmt'],
+        ['config', 'set', '--global', 'theme.base', 'auto'],
+        ['config', 'set', '--global', 'theme.waiting', 'red'],
+        ['config', 'rm', 'theme.base'],
+      ]) {
+        const result = await runCli(sandbox, [...args, '--json']);
+        expect(result.status).toBe(1);
+        expectError(result, 'ERROR');
+        expect(fileSnapshot(sandbox.root)).toEqual(before);
+      }
+      expect((await runCli(sandbox, ['config', 'rm', '--json'])).status).toBe(0);
+      expect(fs.readFileSync(sandbox.globalConfig, 'utf8')).toBe(
+        before['xdg/tmux-team/config.json']
+      );
+      expect(JSON.parse(fs.readFileSync(sandbox.localConfig, 'utf8'))).toEqual({
+        theme: { base: 'tmt' },
+      });
+    });
+  });
+
+  it('creates an absent theme and refuses malformed containers without overwriting them', async () => {
+    await withSandbox(async (sandbox) => {
+      const args = ['config', 'set', '--global', 'theme.base', 'tmt-light', '--json'];
+      expect((await runCli(sandbox, args)).status).toBe(0);
+      expect(JSON.parse(fs.readFileSync(sandbox.globalConfig, 'utf8'))).toEqual({
+        theme: { base: 'tmt-light' },
+      });
+      expect(parseWholeStdout(await runCli(sandbox, ['config', 'show', '--json']))).toMatchObject({
+        resolved: { theme: { base: 'tmt-light' } },
+        sources: { theme: 'global' },
+        themeError: null,
+      });
+      for (const theme of [null, 'mono', 3, ['tmt']]) {
+        fs.writeFileSync(sandbox.globalConfig, JSON.stringify({ theme, future: 'keep' }));
+        const before = fileSnapshot(sandbox.root);
+        const result = await runCli(sandbox, args);
+        expect(result.status).toBe(1);
+        expectError(result, 'CONFIG_ERROR');
+        expect(fileSnapshot(sandbox.root)).toEqual(before);
+        expect((await runCli(sandbox, ['config', 'show', '--json'])).status).toBe(0);
+      }
+    });
+  });
+
   it('shows the pane badge on by default and keeps an explicit off', async () => {
     await withSandbox(async (sandbox) => {
       const badge = async () => {

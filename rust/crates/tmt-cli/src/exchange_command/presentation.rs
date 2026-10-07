@@ -16,6 +16,9 @@ use tmt_core::request::{
 
 fn final_document<T>(state: &FinalState<T>, content: impl FnOnce(&T) -> Option<Value>) -> Value {
     match state {
+        FinalState::Withdrawn(withdrawal) => {
+            json!({"status":"withdrawn", "reason":withdrawal.reason, "withdrawnAtMs":withdrawal.withdrawn_at_ms})
+        }
         FinalState::NotRequired => json!({"status": "not_required"}),
         FinalState::NotSubmitted => json!({"status": "not_submitted"}),
         FinalState::Expired {
@@ -89,6 +92,13 @@ fn prompt_document(prompt: &RequestPrompt) -> Value {
 pub(super) fn document(report: &Report) -> Value {
     let mut value = json!({"identity": identity_document(&report.identity)});
     match &report.result {
+        ResultKind::Withdraw(result) => {
+            value["status"] = json!("withdrawn");
+            value["requestId"] = json!(result.request_id);
+            value["reason"] = json!(result.withdrawal.reason);
+            value["withdrawnAtMs"] = json!(result.withdrawal.withdrawn_at_ms);
+            value["changed"] = json!(result.changed);
+        }
         ResultKind::List(page) => {
             value["items"] = page
                 .items
@@ -124,6 +134,20 @@ pub(super) fn publish(report: Report, mode: OutputMode) -> io::Result<u8> {
     }
     let terminal = stdout.terminal();
     match &report.result {
+        ResultKind::Withdraw(result) => message::success(
+            &mut stdout,
+            terminal,
+            &format!(
+                "{} {}: {}",
+                if result.changed {
+                    "Withdrew"
+                } else {
+                    "Already withdrew"
+                },
+                result.request_id,
+                result.withdrawal.reason
+            ),
+        )?,
         ResultKind::List(page) => {
             if page.items.is_empty() {
                 writeln!(stdout, "No unacknowledged exchanges.")?;
@@ -195,6 +219,13 @@ pub(super) fn publish(report: Report, mode: OutputMode) -> io::Result<u8> {
             if let FinalState::Retained { content, .. } = &item.final_state {
                 writeln!(stdout, "{}", terminal.paint(Token::Title, "FINAL"))?;
                 write_exact(&mut stdout, content)?;
+            }
+            if let FinalState::Withdrawn(withdrawal) = &item.final_state {
+                writeln!(
+                    stdout,
+                    "Withdrawn at {}: {}",
+                    withdrawal.withdrawn_at_ms, withdrawal.reason
+                )?;
             }
             if let Some(receipt) = receipt {
                 message::hint(

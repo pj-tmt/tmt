@@ -539,6 +539,15 @@ encodings, queries and fragments MUST reject with 400. No request path is
 normalized, joined to a filesystem directory or given a SPA fallback. Existing
 API routes and registered-owner `/sync` admission/transport are unchanged.
 
+App and reader chrome consume `@tmt/browser-ui/react`, `/static` and `/static.css`.
+Native guidance embeds the same checked `design/browser-ui/generated/static.css` at
+compile time, with Colab-owned host metrics and viewport styles. Cargo and installed
+serving MUST NOT run Node or generate CSS. The same-origin `/assets/chrome.css` response
+uses `text/css; charset=utf-8`, including when the optional app build is absent. Shared
+presentation owns no routing, admission, page state or action/recovery capability.
+Guidance MUST render its recovery status/script only when the admitted app inventory
+actually contains `/assets/recovery.js`; without it, pairing/build guidance stays visible.
+
 Vite output MUST use relative URLs beneath `/r/<prefix>/x/colab/`, with no
 third-party requests. The current app declares installed/system font fallbacks;
 no external font service is used. App and native guidance responses share this
@@ -1106,6 +1115,7 @@ encoding byte order; declare all schema root types before projection.
 | Per-page decoder concurrency                 | 1                             |
 | Rust decoder batch deadline                  | 2 seconds                     |
 | Updates after checkpoints a write accepts    | 200 updates, 4 MiB            |
+| CLI page write, whole source                 | 2 MiB; within the tail above  |
 | Native compaction trigger, per device stream | 50 updates or 1 MiB           |
 | New page source, per published update        | 192 KiB of text               |
 | Page budget (browser load, gzipped)          | 5,000,000 bytes               |
@@ -1246,7 +1256,7 @@ agent uses the same send path for annotation turns and page Chat. On explicit En
 the parent freezes the admitted quote/comment, page title, canonical mounted HTTP(S)
 page URL and chosen agent/machine before signing.
 Credentialed URLs and malformed Unicode refuse. Paused rendering or later edits
-cannot replace frozen text. The one plain @ input sends without a confirmation screen
+cannot replace frozen text. The shared plaintext message input sends without a confirmation screen
 or an on-demand delivered-message view. The own stream retains frozen bytes and
 destination UUIDs. The pane states that asks and replies are visible to everyone with page access.
 
@@ -1539,14 +1549,19 @@ The Annotate control beside a selection opens one plain trusted-parent input in 
 small anchored popover at that span. Its placement is cosmetic; the captured quote
 selector owns the thread anchor. Enter sends, Shift+Enter inserts a newline, and Esc closes the input (an unsent draft is kept). There
 is no confirmation screen or automatic send. The popover closes with its ×, with Escape from anywhere
-inside it, with a press outside it, and with a selection cleared by a page click while nothing beyond
-the prefilled `@agent` is typed; none of these interrupts a send in flight. Typed text is kept in memory
-for the page and restored, with a "Draft kept" note, when the same selection is annotated again. `@` opens the shared styled keyboard
+inside it, with a press outside it, and with a selection cleared by a page click while
+no nonblank message is typed; none of these interrupts a send in flight. Typed text is kept in memory
+for the page together with the selected recipient and restored, with a "Draft kept" note, when the same selection is annotated again. Optional `@` completion opens the shared styled keyboard
 listbox. The optional publishing name supplies a default only when it matches one
 unique reachable `agents.list` entry; unknown or ambiguous names supply no default.
 The current verified Remote grant and agent/machine UUIDs own routing and admission.
+Recipient state is independent of message bytes; a mention prefix is never mandatory.
+Replies continue a uniquely bound prior UUID/machine under current admission; ambiguity
+requires explicit selection. Choosing a recipient never prepares or dispatches. Plain
+annotation/comments can record under current content-write admission without Ask or
+agent discovery; notification is an explicit bounded action, never fan-out.
 
-Send captures the composed text, selected destination and existing conversation
+Ask captures the composed text, selected destination and existing conversation
 references, publishes the current comment through the existing own stream, then
 freezes and signs the exact Ask with its real thread and message IDs. Prior user
 comments and verified agent replies are included as quoted data, in the existing
@@ -1570,7 +1585,7 @@ remain attributed to their agent. Overlay geometry does not reflow page content.
 
 The header Chat action replaces the standalone Ask action. Chat opens a fixed right
 parent overlay (a full-screen mobile sheet) without resizing or reflowing the page.
-Messages scroll inside it; one shared @ input remains at the bottom. Closing retains
+Messages scroll inside it; one shared plaintext message input remains at the bottom. Closing retains
 the draft and admitted history. Enter explicitly captures, freezes, signs and sends;
 there is no confirmation screen or automatic send. Composed text remains in the
 conversation; frozen transport bytes stay in the Ask record. The pane states that the conversation is visible to
@@ -2395,14 +2410,22 @@ Archived reads retain the fold's current inactive-page restriction; deleted
 operands fail through the shared CLI resolver described above.
 
 `tmt colab page write <page> --file <path|-> [--expected-revision <token>] [--json]`
-retains the title and prepares a minimal text delta in the isolated child against
-admitted Yjs structs. It does not recreate the shared document, execute HTML,
-advance membership or restore discussion/authority state. Source is bounded to
-2 MiB, one change (one update) to 256 KiB, and composed decoder input/output to the stream cap. A
-replacement that needs more than one update refuses with `COLAB_CAPACITY` naming the 256 KiB
-one change can carry; existing
-fold/count/deadline/cleanup limits still apply. Stdin has a five-second EOF deadline.
-Invalid UTF-8, capacity and inactive-page writes reject without mutation.
+retains the title and prepares the replacement as an ordered batch of text deltas in the
+isolated child against admitted Yjs structs (`page::prepare_publication`). It does not
+recreate the shared document, execute HTML, advance membership or restore
+discussion/authority state. Source is bounded to 2 MiB. Each update is at most 256 KiB, and
+the batch added to the tail retained since the last checkpoint is at most 200 updates and
+4 MiB, the effective CLI write limit (limits table); composed decoder input/output and the
+5,000,000-byte gzipped page budget still apply, as do the deadline and cleanup limits.
+A source over 2 MiB refuses with `COLAB_CAPACITY` naming its size and the 2 MiB limit; a
+batch past the tail or page budget refuses with `COLAB_CAPACITY` naming the page and the
+size or count it would reach. The 2 MiB source cap is the most a write accepts; whether a
+replacement fits also depends on the retained tail. A fully different 1.5 MiB source replaces
+a page of that size repeatedly, while a fully different 2 MiB replacement of a freshly created
+2 MiB page is refused for the 4 MiB tail. A source equal to the page's current source publishes
+nothing: it exits 0 with `changed:false` and the captured revision. Stdin has a
+five-second EOF deadline. Invalid UTF-8, capacity, stale-base and inactive-page writes
+reject without mutating page content.
 
 The opaque `revision` is `v1:` plus lowercase hex SHA-256 of framed domain
 `tmt-colab-page-revision-v1`, space, page, decimal membership revision, head hash,
@@ -2425,39 +2448,157 @@ This device is not a Remote registration and grants no browser session or agent
 operation authority. Private material stays in Keyring.
 
 After preparation releases the read snapshot, the caller tries the serve lifecycle
-lock. Holding it selects the offline existing-state writer; a held lock selects the
-running serve through the existing owned 0600 Unix socket. One device transaction
-checks the pinned chain,
-base/head/epoch/positions, then commits the device chain, signed encrypted content
-append and exact operation receipt together. Existing create-only append/quota/
-conflict semantics are reused. Exact frozen retries return the original receipt,
-without re-signing or overwriting later content. Changed bytes conflict. JSON
-success is `{spaceId,pageId,epoch,membershipHead,revision,streamId,seq,envelopeHash,
-sourceSha256,memoryLimit}`; hashes use lowercase hex except the model envelope hash,
-which is canonical base64url.
+lock. Holding it selects the offline existing-state writer: `page::commit_publication`,
+then a best-effort combine of this device's own tail. A held lock selects the running
+serve through the existing owned 0600 Unix socket. One device transaction checks the
+pinned chain and the frozen base/head/epoch/positions, then commits the device chain,
+every signed encrypted append of the batch and the scoped terminal outcome together, or
+records a terminal rejection and no content; a commit never splits a batch. Exact frozen
+retries return the original outcome bytes without re-signing, re-appending or overwriting
+later content; changed bytes conflict. JSON success is
+`{spaceId,pageId,epoch,membershipHead,revision,sourceSha256,memoryLimit,changed}` plus,
+when `changed` is true, `{operationId,streamId,count,seq,envelopeHash}`. `revision` is the
+page revision read, after the write and its best-effort combine, by the writer while no
+other writer can run (the serve under its sync lock, or this process under the serve
+lifecycle lock): the token a next `--expected-revision` carries. The retained outcome's
+`committedRevision` is the one before the combine, and a reply lost to doubt reports it, so
+a next write then refuses stale instead of losing an update. `seq` and `envelopeHash` are
+the batch's last position. Hashes use
+lowercase hex except the model envelope hash, which is canonical base64url. A rejected
+outcome exits 1 with its code: `COLAB_STALE_BASE`, `COLAB_CAPACITY`, `COLAB_PAGE_INACTIVE`,
+`COLAB_STATE_MISSING` or `COLAB_STREAM_GAP` (this device's stream moved on; read again).
 
-Serving writes use POST `/.tmt/colab/local/page-write`. Its strict prepared DTO is
-`{version,operationId,spaceId,pageId,epoch,membershipHead,baseRevision,sourceSha256,
-memoryLimit,chain,envelope}`; version is 1, operationId is a frozen UUIDv4, and
-chain/envelope are canonical base64url. The request contains no plaintext source,
-private key or epoch key. Forwarded device-context or event headers are DENIED;
-wrong methods/upgrades and unknown/duplicate fields reject. The reserved router
-shares management's local-header denial. One body-cap rule gives this route
-512 KiB and retains 64 KiB for other HTTP routes. Acquisition, frame, queue and
-response bounds remain in force; the client bounds its response and absolute read
-deadline. An IPC failure or uncertain response never falls back to an offline
-writer, changes the operation identity or automatically resends.
+Serving writes use POST `/.tmt/colab/local/page-publish` with the version-2 write DTO
+`{version:2,action:"write",signedJob,packet,chain}` (publication section below). The
+server verifies the job and every envelope against its own local writer key, never a
+request-selected one, prepares one broadcast per entry before the transaction, commits
+through `commit_publication` and replies 200 with `{outcome,revision}`: the exact retained
+outcome JSON, committed or rejected, and for a committed outcome the page revision read
+under the sync lock after the combine. A failure before any effect (denied, invalid, unavailable,
+capacity) uses the `{error:{code,message}}` envelope with a 4xx/5xx status. Forwarded
+device-context or event headers are DENIED; wrong methods/upgrades and unknown/duplicate
+fields reject. The reserved router shares management's local-header denial. The route's
+body cap is the standalone write bound (`LOCAL_WRITE_BYTES`); other HTTP routes keep
+64 KiB. Acquisition, frame, queue and response bounds remain in force; the client bounds
+its response and absolute read deadline. A publish reply waits up to `PUBLISH_REPLY` from the end of
+the client's send: up to the acquisition bound before the serve has read the request, then
+`PUBLISH_COMBINE` (four decoder deadlines) because the serve combines this device's own
+tail before it answers, then a response interval. The serve publishes no combine later than
+`PUBLISH_COMBINE` after it has read the request; a later combine is abandoned without
+publishing. A reply is therefore never followed by a change to the page it reports, and an
+immediately following write is prepared against the page it was told about.
+
+An IPC failure never falls back to an offline writer, changes the operation identity or
+resends. A failure before the request was fully written is a plain `COLAB_UNAVAILABLE`:
+the server acts only on a complete body. After that, a lost, malformed, mismatched or late
+reply leaves the original operation in doubt, and the CLI reads one original-key status
+(`page::publication_status`, read-only, with the frozen chain; no new route) from its own
+store snapshot. A retained committed or rejected outcome resolves the write as above.
+With none, the CLI exits 1 with `COLAB_OUTCOME_UNKNOWN` naming the original operation ID.
+Unknown is observational absence, not proof that nothing was published. There is no
+durable job file: a retry is a fresh preparation from a new snapshot. If the first batch
+landed, an identical source is a no-op and `--expected-revision` refuses with
+`COLAB_STALE_BASE`; a late commit of the first batch rechecks its own frozen base, so it
+cannot double-apply over newer content.
 
 Serving locks sync before Registration and prepares bounded transport before the
-transaction. A new committed append queues a `broadcast` with the normal scoped
-position/envelope fields and `chains:[{deviceId,chain}]`; the chain identifies the
-local author and is repeated to permit certificate renewal. The browser admits
-chains on its serialized executor before envelope authentication and Worker
-application. Larger envelopes use the existing reference and lazy chunk transfer,
-with the chain retained on the completed broadcast. Exact replay returns the
-original receipt without another broadcast. Slow or revoked peers use existing
-resync/admission failure behavior; queue failure does not undo a durable receipt.
-The service never receives or decodes plaintext source.
+transaction. A new committed batch queues, per entry in sequence order, a `broadcast`
+with the normal scoped position/envelope fields and `chains:[{deviceId,chain}]`; the chain
+identifies the local author and is repeated to permit certificate renewal. The browser
+admits chains on its serialized executor before envelope authentication and Worker
+application. Larger envelopes use the existing reference and lazy chunk transfer, with the
+chain retained on the completed broadcast. Each entry takes one send-queue slot and each
+chunked entry one more; a batch that needs more than `SEND_QUEUE_FRAMES` ends subscribed
+peers with the existing slow-peer `RESYNC_REQUIRED` close, and they catch up through
+normal resync. Exact replay and rejected outcomes broadcast nothing. Queue failure does not
+undo a durable outcome. The service never receives or decodes plaintext source.
+
+### Content publication (#1908, #1928, #1934)
+
+`publication.rs` exports pure native content-job, original-ID outcome and proposed local IPC
+codecs. They have no Store, keyring, registration, route or transport capability.
+The #1928 `page::commit_publication` adapter authenticates the current root-local writer and commits a sealed
+content batch and its original terminal outcome in one immediate SQLite transaction.
+`page::publication_status` uses a caller-supplied current writer chain in a read-only snapshot;
+it never issues or repairs a certificate. Both return exact retained terminal JSON bytes. A complete
+original-key replay ignores stale effect epoch/head/base but still requires current authority.
+New effects reserve outcome capacity and use a content savepoint; admitted domain rejection
+rolls back all content/stream/receipt/device/time changes before recording rejection, while unexpected errors
+roll back the enclosing transaction. UNKNOWN is genuine absence and is never persisted.
+The #1934 `page::prepare_publication` library captures one authenticated snapshot
+for its genesis issuer, owner head, epoch, cuts, devices and complete content/own projections.
+It reuses isolated causal preparation and returns explicit Noop with captured base and memory
+profile, or a frozen Write with one signed job, exact ordered sealed envelope packet and chain.
+Noop precedes operation ID, sequence, encryption and certificate issuance; publisher-only changes
+are writes. Write preparation preserves foreign state and metadata, admits combined retained tail
+and new deltas, and signs through the existing private local Keyring writer. Native evidence binds
+source digest, actual decoder memory profile and the exact chain hash. Preparation has no durable
+effect or authority promotion; later commit rechecks current authority and the frozen base.
+Both native single-edit and batch preparation include all own bytes in the checked whole-state
+raw fastpath and use one gzip stream at the unchanged 5,000,000-byte budget. `tmt colab page write`
+and the serving route above are its production callers. Browser Save still publishes through
+its single-update path and does not use these types; there is no durable caller recovery.
+Syntax and signature success neither authorizes effects nor proves a retained terminal outcome.
+
+All new DTOs use camelCase, reject unknown/duplicate fields at every nested boundary, and
+reject explicit null for optional `nativeEvidence`. IDs/counters/hashes reuse the model's
+canonical UUIDv4, space ID, positive-u64 decimal, lowercase hex32 and base64url rules.
+The content manifest is `{version:1,operationId,spaceId,pageId,epoch,streamId,kind:"content",
+membershipHead:{revision,statementHash},baseRevision,entries,packetBytes,packetHash}` plus
+optional `{sourceSha256,memoryLimit,chainHash}` native evidence. `baseRevision` is `v1:` plus
+lowercase hex32. Each entry is `{namespace:"content",seq,envelopeHash,envelopeBytes}`;
+byte/count fields are positive unsigned JSON integers. `SignedJob` is `{manifest,signature}`.
+The packet is the exact concatenation of original envelope JSON slices in entry order,
+without re-encoding. SHA256 of those raw bytes is `packetHash`; `envelopeHash` is the model's
+separate envelope hash domain. Every strict envelope must be update/content and match the
+manifest space/page/epoch/device/membership revision/sequence/length/hash. Sequences are
+contiguous with checked overflow; later `prevHash` values match the previous envelope hash.
+The first previous hash retains model syntax; the native publication transaction uses the
+shared append owner to compare it with the actual admitted device head.
+
+The signature input is the existing four-byte-big-endian LP frame over, in order:
+`tmt-colab-publication-v1`, ASCII `1`, operationId, spaceId, pageId, epoch, streamId,
+ASCII `content`, membership revision, statementHash ASCII, baseRevision ASCII, entries blob,
+packetBytes decimal ASCII, decoded packetHash32, native evidence blob. Entries blob starts
+with u32-BE count then concatenates each entry's LP `[namespace,seq,decoded envelopeHash32,
+envelopeBytes decimal ASCII]`. Native blob is byte0 when absent, or byte1 followed by LP
+`[sourceSha256 ASCII,exact decoder memoryLimit spelling,decoded chainHash32]` when present.
+`jobDigest` is canonical base64url32 of SHA256(signature input). Job and every envelope
+signature are verified with the caller-supplied admitted public key using the strict model
+helpers; manifest data never selects an authority key.
+
+Entries are 1..decoder::WRITE_TAIL_UPDATES; each envelope JSON is at most limits::UPDATE_BYTES,
+each decoded ciphertext minus its 16-byte tag is at most decoder::UPDATE_BYTES, and their
+sum is at most decoder::WRITE_TAIL_BYTES. For N entries the packet cap is
+`min(N*limits::UPDATE_BYTES,((WRITE_TAIL_BYTES+N*2048)*4/3)+N*2048)` with checked arithmetic.
+Entry lengths sum to packetBytes and the complete actual packet length; trailing bytes reject.
+SignedJob and outcome JSON are at most 64 KiB; chain bytes at most 16 KiB. The standalone local
+write JSON bound is `4*ceil(MAX_PACKET_BYTES/3)+65536+4*ceil(16384/3)+2048`, where
+MAX_PACKET_BYTES uses N=WRITE_TAIL_UPDATES. These are codec bounds, not increased runtime
+acquisition/route/source limits or final whole-state gzip acceptance.
+
+`JobKey` is exactly `{operationId,jobDigest,spaceId,pageId,originalEpoch,streamId}`.
+Outcomes always bind that complete original key: `{status:"unknown",key}`;
+`{status:"rejected",key,code}` where code is exactly COLAB_STALE_BASE, COLAB_CAPACITY,
+COLAB_PAGE_INACTIVE, COLAB_STATE_MISSING or COLAB_STREAM_GAP; or
+`{status:"committed",key,count,finalPosition:{seq,envelopeHash},committedRevision}` plus
+optional complete nativeEvidence. A supplied expected job pins count/finalPosition/evidence;
+committedRevision uses the same v1 token grammar. Variant-inappropriate fields reject.
+Unknown is observational absence of a retained terminal outcome, never proof of no effect.
+
+The local write DTO `{version:2,action:"write",signedJob,packet,chain}` is served at
+`/.tmt/colab/local/page-publish`; `{version:2,action:"status",key}` stays reserved and
+uninstalled, because the CLI reads status from its own store snapshot. Write packet/chain are canonical base64url exact bytes;
+write requires complete native evidence with chainHash equal to SHA256(raw chain), plus job
+and envelope signatures under the supplied key. Chain issuer/certificate/local-keyring
+admission is performed by the native library adapter. Status is bounded 64 KiB original-ID lookup,
+with no write fields or new effect. Version 1 is rejected by these codecs alone.
+No-op creates no job/ID/sequence; own/checkpoint/HTML/asset jobs are unsupported. Schema 6 scopes
+content outcomes in the existing globally unique owner_operations ledger without changing
+legacy rows. Terminal identities and exact outcome/digest/scope/identity bytes share the
+existing page count/byte budgets across epochs; exact replay adds no charge or page time.
+There is no expiry, eviction or pending UNKNOWN row. Browser Save/Writer adoption,
+recovery/fold barriers and gzip parity remain unintegrated.
 
 ## Plaintext page export (#1309)
 

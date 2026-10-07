@@ -1320,6 +1320,10 @@ fn default_port_and_exact_live_status_survive_restart_without_status_mutations()
             serde_json::json!({"running":false,"lastPort":port})
         );
         assert_eq!(
+            machine_status_json(&pilot),
+            serde_json::json!({"running":false,"lastPort":port})
+        );
+        assert_eq!(
             stopped_files(&pilot),
             files,
             "status changed state bytes, mtimes or inventory"
@@ -1492,8 +1496,13 @@ fn status_and_stop_refuse_unsafe_state_and_unresponsive_or_malformed_control() {
     terminate(pilot.child.take().unwrap());
     let directory = pilot.root.join("state/remote");
     let refuse = |expected: &str| {
-        for command in ["status", "stop"] {
-            let result = pilot.command().args([command, "--json"]).output().unwrap();
+        for args in [
+            vec!["status", "--json"],
+            vec!["status", "--machine", "--json"],
+            vec!["stop", "--json"],
+        ] {
+            let command = args[0];
+            let result = pilot.command().args(args).output().unwrap();
             assert!(
                 !result.status.success(),
                 "{command} accepted state expected to fail with {expected}"
@@ -1570,45 +1579,12 @@ fn status_and_stop_refuse_unsafe_state_and_unresponsive_or_malformed_control() {
             } else {
                 expected
             };
-            let listener = UnixListener::bind(directory.join("control.sock")).unwrap();
-            fs::set_permissions(
-                directory.join("control.sock"),
-                fs::Permissions::from_mode(0o600),
-            )
-            .unwrap();
-            let (finish, finished) = mpsc::channel();
-            let peer = std::thread::spawn(move || {
-                use std::os::fd::AsFd;
-                let mut events = [nix::poll::PollFd::new(
-                    listener.as_fd(),
-                    nix::poll::PollFlags::POLLIN,
-                )];
-                assert!(
-                    nix::poll::poll(&mut events, 15_000u16).unwrap() > 0,
-                    "control command never connected"
-                );
-                let (mut stream, _) = listener.accept().unwrap();
-                let mut request = String::new();
-                BufReader::new(stream.try_clone().unwrap())
-                    .read_line(&mut request)
-                    .unwrap();
-                assert_eq!(
-                    serde_json::from_str::<Value>(&request).unwrap(),
-                    serde_json::json!({"op":command})
-                );
-                if let Some(reply) = reply {
-                    stream.write_all(reply.as_bytes()).unwrap();
-                } else {
-                    let _ = finished.recv_timeout(Duration::from_secs(15));
-                }
-            });
-            let before = Instant::now();
-            let result = pilot.command().args([command, "--json"]).output().unwrap();
-            let elapsed = before.elapsed();
-            let _ = finish.send(());
-            peer.join().unwrap();
-            fs::remove_file(directory.join("control.sock")).unwrap();
-            assert!(elapsed < Duration::from_secs(10));
+            let result = control_reply(
+                &pilot,
+                &[command, "--json"],
+                serde_json::json!({"op":command}),
+                reply,
+            );
             assert!(
                 !result.status.success(),
                 "{command} accepted state expected to fail with {expected}"
@@ -2378,4 +2354,283 @@ fn missing_private_cleanup_receipt_retains_root_without_double_panic() {
         root.display()
     );
     fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn machine_projection_uses_the_exact_live_control_owner() {
+    let mut pilot = Pilot::new();
+    let ready: Value =
+        serde_json::from_str(&start_door(&mut pilot, &["--port", "0"], false)).unwrap();
+    let (origin, path, _) = address_parts(ready["address"].as_str().unwrap());
+    let mut stream = UnixStream::connect(pilot.root.join("state/remote/control.sock")).unwrap();
+    stream
+        .set_read_timeout(Some(Duration::from_secs(5)))
+        .unwrap();
+    writeln!(
+        stream,
+        "{}",
+        serde_json::json!({"op":"status","machine":true})
+    )
+    .unwrap();
+    let mut line = String::new();
+    BufReader::new(stream).read_line(&mut line).unwrap();
+    let answer: Value = serde_json::from_str(&line).unwrap();
+    assert_eq!(
+        answer,
+        serde_json::json!({"running":true,"origin":origin,"path":path,"machineId":ready["machineId"]})
+    );
+}
+
+fn machine_status_json(pilot: &Pilot) -> Value {
+    let result = pilot
+        .command()
+        .args(["status", "--machine", "--json"])
+        .output()
+        .unwrap();
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stdout)
+    );
+    assert!(result.stderr.is_empty());
+    serde_json::from_slice(&result.stdout).unwrap()
+}
+// The existing one-shot owner-only peer fixture, shared by ordinary and optional
+// projections. Scoped joins also cover command/read/assertion unwind.
+fn control_reply(
+    pilot: &Pilot,
+    args: &[&str],
+    expected_request: Value,
+    reply: Option<&str>,
+) -> std::process::Output {
+    let socket = pilot.root.join("state/remote/control.sock");
+    let listener = UnixListener::bind(&socket).unwrap();
+    fs::set_permissions(&socket, fs::Permissions::from_mode(0o600)).unwrap();
+    let (finish, finished) = mpsc::channel();
+    let before = Instant::now();
+    let output = std::thread::scope(|scope| {
+        let peer = scope.spawn(move || {
+            use std::os::fd::AsFd;
+            let mut events = [nix::poll::PollFd::new(
+                listener.as_fd(),
+                nix::poll::PollFlags::POLLIN,
+            )];
+            assert!(
+                nix::poll::poll(&mut events, 15_000u16).unwrap() > 0,
+                "control command never connected"
+            );
+            let (mut stream, _) = listener.accept().unwrap();
+            stream
+                .set_read_timeout(Some(Duration::from_secs(5)))
+                .unwrap();
+            let mut request = String::new();
+            BufReader::new(stream.try_clone().unwrap())
+                .read_line(&mut request)
+                .unwrap();
+            assert_eq!(
+                serde_json::from_str::<Value>(&request).unwrap(),
+                expected_request
+            );
+            if let Some(reply) = reply {
+                stream.write_all(reply.as_bytes()).unwrap();
+            } else {
+                let _ = finished.recv_timeout(Duration::from_secs(15));
+            }
+        });
+        let result = pilot.command().args(args).output();
+        let _ = finish.send(());
+        peer.join().unwrap();
+        result.unwrap()
+    });
+    fs::remove_file(socket).unwrap();
+    assert!(before.elapsed() < Duration::from_secs(10));
+    output
+}
+#[test]
+fn machine_status_is_root_local_and_never_initializes_a_stopped_machine() {
+    let mut machines = Vec::new();
+    for _ in 0..2 {
+        let mut pilot = Pilot::new();
+        assert_eq!(
+            machine_status_json(&pilot),
+            serde_json::json!({"running":false,"lastPort":null})
+        );
+        assert!(!pilot.root.join("state").exists());
+        assert!(
+            fs::read_to_string(pilot.root.join("input"))
+                .unwrap()
+                .contains("storage.root")
+        );
+        let ready: Value =
+            serde_json::from_str(&start_door(&mut pilot, &["--port", "0"], false)).unwrap();
+        let (origin, path, port) = address_parts(ready["address"].as_str().unwrap());
+        let database = fs::read(pilot.root.join("state/remote/remote.db")).unwrap();
+        let key = fs::read(pilot.root.join("state/remote/machine.key")).unwrap();
+        let calls = fs::read_to_string(pilot.root.join("calls"))
+            .unwrap()
+            .lines()
+            .count();
+        assert_eq!(
+            machine_status_json(&pilot),
+            serde_json::json!({"running":true,"origin":origin,"path":path,"machineId":ready["machineId"]})
+        );
+        assert_eq!(
+            fs::read_to_string(pilot.root.join("calls"))
+                .unwrap()
+                .lines()
+                .count(),
+            calls + 1
+        );
+        assert!(
+            fs::read_to_string(pilot.root.join("input"))
+                .unwrap()
+                .contains("storage.root")
+        );
+        assert_eq!(
+            status_json(&pilot),
+            serde_json::json!({"running":true,"origin":origin,"path":path})
+        );
+        assert_eq!(
+            fs::read(pilot.root.join("state/remote/remote.db")).unwrap(),
+            database
+        );
+        assert_eq!(
+            fs::read(pilot.root.join("state/remote/machine.key")).unwrap(),
+            key
+        );
+        machines.push(ready["machineId"].clone());
+        terminate(pilot.child.take().unwrap());
+        let files = stopped_files(&pilot);
+        assert_eq!(
+            machine_status_json(&pilot),
+            serde_json::json!({"running":false,"lastPort":port})
+        );
+        assert_eq!(stopped_files(&pilot), files);
+    }
+    assert_ne!(machines[0], machines[1]);
+    let pilot = Pilot::new();
+    let refused = pilot
+        .command()
+        .args(["status", "--machine"])
+        .output()
+        .unwrap();
+    assert!(!refused.status.success());
+    assert!(!pilot.root.join("calls").exists());
+    assert!(!pilot.root.join("state").exists());
+    let help = pilot.command().args(["status", "--help"]).output().unwrap();
+    assert!(
+        help.status.success()
+            && String::from_utf8(help.stdout)
+                .unwrap()
+                .contains("--machine")
+    );
+    assert!(!pilot.root.join("calls").exists());
+}
+#[test]
+fn machine_status_preserves_unsupported_errors_and_strict_projection_shapes() {
+    let mut pilot = Pilot::new();
+    start_door(&mut pilot, &["--port", "0"], false);
+    terminate(pilot.child.take().unwrap());
+    let before = stopped_files(&pilot);
+    for (code, message) in [
+        ("REMOTE_CONTROL_UNSUPPORTED", "Unknown control operation."),
+        ("REMOTE_INPUT_INVALID", "Unknown control operation."),
+        ("REMOTE_INPUT_INVALID", "Revoke needs a clientId."),
+        ("REMOTE_NOT_RUNNING", "reported error"),
+    ] {
+        let expected = serde_json::json!({"error":{"code":code,"message":message}});
+        let reply = format!("{expected}\n");
+        let result = control_reply(
+            &pilot,
+            &["status", "--machine", "--json"],
+            serde_json::json!({"op":"status","machine":true}),
+            Some(&reply),
+        );
+        assert!(!result.status.success() && result.stderr.is_empty());
+        assert_eq!(
+            serde_json::from_slice::<Value>(&result.stdout).unwrap(),
+            expected
+        );
+    }
+    let valid = serde_json::json!({"running":true,"origin":"http://127.0.0.1:12345","path":"/r/k7qxm4tz2pbwn6rh","machineId":"00000000-0000-4000-8000-000000000001"});
+    let reply = format!("{valid}\n");
+    let positive = control_reply(
+        &pilot,
+        &["status", "--machine", "--json"],
+        serde_json::json!({"op":"status","machine":true}),
+        Some(&reply),
+    );
+    assert!(positive.status.success() && positive.stderr.is_empty());
+    assert_eq!(
+        serde_json::from_slice::<Value>(&positive.stdout).unwrap(),
+        valid
+    );
+    // The same otherwise valid four-key document is still refused by the legacy
+    // ordinary projection, whose exact shape must not be loosened.
+    let ordinary = control_reply(
+        &pilot,
+        &["status", "--json"],
+        serde_json::json!({"op":"status"}),
+        Some(&reply),
+    );
+    assert!(!ordinary.status.success());
+    assert_eq!(
+        serde_json::from_slice::<Value>(&ordinary.stdout).unwrap()["error"]["code"],
+        "REMOTE_IO"
+    );
+    let mut malformed = Vec::new();
+    for id in [
+        Value::Null,
+        serde_json::json!(""),
+        serde_json::json!("00000000-0000-0000-0000-000000000000"),
+        serde_json::json!("00000000-0000-1000-8000-000000000001"),
+        serde_json::json!("00000000-0000-4000-7000-000000000001"),
+        serde_json::json!("00000000-0000-4000-8000-00000000000A"),
+        serde_json::json!("00000000-0000-4000-8000-00000000000"),
+    ] {
+        let mut value = valid.clone();
+        value["machineId"] = id;
+        malformed.push(value);
+    }
+    let mut value = valid.clone();
+    value.as_object_mut().unwrap().remove("machineId");
+    malformed.push(value);
+    let mut value = valid.clone();
+    value["extra"] = serde_json::json!(true);
+    malformed.push(value);
+    let mut value = valid.clone();
+    value["origin"] = serde_json::json!("http://127.0.0.1:12345/");
+    malformed.push(value);
+    let mut value = valid.clone();
+    value["path"] = serde_json::json!("/r/INVALID");
+    malformed.push(value);
+    malformed.push(serde_json::json!({"running":false,"lastPort":null}));
+    for value in malformed {
+        let reply = format!("{value}\n");
+        let result = control_reply(
+            &pilot,
+            &["status", "--machine", "--json"],
+            serde_json::json!({"op":"status","machine":true}),
+            Some(&reply),
+        );
+        assert!(!result.status.success(), "accepted {value}");
+        assert_eq!(
+            serde_json::from_slice::<Value>(&result.stdout).unwrap()["error"]["code"],
+            "REMOTE_IO"
+        );
+    }
+    for reply in [None, Some("{\"running\":true")] {
+        let result = control_reply(
+            &pilot,
+            &["status", "--machine", "--json"],
+            serde_json::json!({"op":"status","machine":true}),
+            reply,
+        );
+        assert!(!result.status.success());
+        assert_eq!(
+            serde_json::from_slice::<Value>(&result.stdout).unwrap()["error"]["code"],
+            "REMOTE_IO"
+        );
+    }
+    assert_eq!(stopped_files(&pilot), before);
 }

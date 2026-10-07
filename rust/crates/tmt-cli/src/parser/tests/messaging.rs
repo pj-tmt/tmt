@@ -1,6 +1,46 @@
 use super::*;
 
 #[test]
+fn withdrawal_requires_reason_and_keeps_originator_selection_command_local() {
+    assert_eq!(
+        parsed(&[
+            "x",
+            "withdraw",
+            "req-owned",
+            "--reason",
+            "Already resolved",
+            "--identity",
+            "Owner",
+            "--json"
+        ])
+        .invocation,
+        Invocation::Exchange {
+            identity: Some("Owner".into()),
+            operation: ExchangeOperation::Withdraw {
+                request_id: "req-owned".into(),
+                reason: "Already resolved".into()
+            },
+        }
+    );
+    assert_eq!(
+        parse_error(&["x", "withdraw", "req-owned"]).code,
+        "USAGE_ERROR"
+    );
+    assert_eq!(
+        parse_error(&[
+            "x",
+            "withdraw",
+            "req-owned",
+            "--reason",
+            "obsolete",
+            "--incoming"
+        ])
+        .code,
+        "USAGE_ERROR"
+    );
+}
+
+#[test]
 fn timing_values_accept_exact_boundaries_and_reject_invalid_values() {
     let timeout = parsed(&["talk", "peer", "hello", "--timeout", "86400s"]);
     assert_eq!(

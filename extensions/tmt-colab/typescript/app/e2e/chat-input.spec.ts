@@ -9,50 +9,74 @@ async function run(page: Page, method: string, argument?: unknown) {
 async function composer(page: Page, options: object) {
   await page.goto('/');
   await run(page, 'mountComposer', options);
-  return page.getByRole('combobox', { name: 'Message to agent', exact: true });
+  return page.getByRole('combobox', { name: 'Message', exact: true });
 }
 
-test('the composer starts with the agent that replied last, else the publisher, else the only agent', async ({
+test('only a stable reply or explicit choice supplies a recipient; unknown creation stays undecided', async ({
   page,
 }) => {
-  let input = await composer(page, {
-    agents: ['Alpha', 'Beta'],
-    publisher: 'Alpha',
-    replier: 'Beta',
-  });
-  await expect(input).toHaveValue('@Beta ');
-  input = await composer(page, { agents: ['Alpha', 'Beta'], publisher: 'Alpha' });
-  await expect(input).toHaveValue('@Alpha ');
-  input = await composer(page, { agents: ['Solo'] });
-  await expect(input).toHaveValue('@Solo ');
-  // Two reachable agents and nothing to choose by: no guess.
-  input = await composer(page, { agents: ['Alpha', 'Beta'] });
-  await expect(input).toHaveValue('');
-  // A name that is not reachable falls through to the next source.
-  input = await composer(page, { agents: ['Alpha', 'Beta'], publisher: 'Alpha', replier: 'Gone' });
-  await expect(input).toHaveValue('@Alpha ');
+  let input = await composer(page, { agents: ['Alpha', 'Beta'], replier: 'Beta' });
+  await expect(input).toHaveText('', { useInnerText: true });
+  await expect(page.locator('.annotation-hint')).toContainText(['Enter sends', 'Recipient: Beta']);
+  for (const agents of [['Solo'], ['Alpha', 'Beta']]) {
+    input = await composer(page, { agents });
+    await expect(input).toHaveText('', { useInnerText: true });
+    await input.fill('Keep this exact draft.');
+    await input.press('Enter');
+    await expect(page.getByRole('alert')).toHaveText('Choose a recipient to ask an agent.');
+    expect((await run(page, 'proof')).createChats).toBe(0);
+    await expect(input).toHaveText('Keep this exact draft.', { useInnerText: true });
+  }
 });
 
-test('Enter without a recipient says what to add, opens the list and sends nothing', async ({
+test('an ambiguous recipient requires selection without mandatory mention insertion', async ({
   page,
 }) => {
   const input = await composer(page, { agents: ['Alpha', 'Beta'] });
   await input.fill('hello there');
   await input.press('Enter');
-  await expect(page.getByRole('alert')).toHaveText('Add @agent to choose who gets this');
-  await expect(input).toHaveAttribute('aria-expanded', 'true');
+  await expect(page.getByRole('alert')).toHaveText('Choose a recipient to ask an agent.');
   expect((await run(page, 'proof')).createChats).toBe(0);
-  await input.fill('@Alpha ');
-  await expect(page.getByRole('alert')).toHaveCount(0);
+  await page.getByRole('button', { name: 'Choose recipient', exact: true }).click();
   await input.press('Enter');
-  await expect(page.getByRole('alert')).toHaveText('Write a message for @Alpha');
+  await expect(input).toHaveText('hello there', { useInnerText: true });
+  await expect(page.getByRole('alert')).toHaveCount(0);
+  expect((await run(page, 'proof')).createChats).toBe(0);
+  await input.press('Enter');
+  await expect.poll(async () => (await run(page, 'proof')).createChats).toBe(1);
+});
+
+test('changing a recipient with typed mention text preserves bytes and performs no send', async ({
+  page,
+}) => {
+  const input = await composer(page, { agents: ['Alpha', 'Beta'], selected: 0 });
+  await input.fill('Before @Alpha after.\nKeep this trailing line.\n');
+  const draft = await input.innerText();
+  await page.getByRole('button', { name: 'Change recipient', exact: true }).click();
+  await page.getByRole('option', { name: '@Beta · My machine', exact: true }).click();
+  await expect(input).toHaveText(draft, { useInnerText: true });
+  await expect(page.locator('.annotation-hint').last()).toContainText('Recipient: Beta');
+  expect((await run(page, 'proof')).createChats).toBe(0);
+});
+
+test('an unmatched typed mention never prevents explicit no-mutation recipient selection', async ({
+  page,
+}) => {
+  const input = await composer(page, { agents: ['Alpha', 'Beta'] });
+  await input.fill('Keep this @not-a-candidate');
+  const choose = page.getByRole('button', { name: 'Choose recipient', exact: true });
+  await expect(choose).toBeEnabled();
+  await choose.click();
+  await page.getByRole('option', { name: '@Beta · My machine', exact: true }).click();
+  await expect(input).toHaveText('Keep this @not-a-candidate', { useInnerText: true });
+  await expect(page.locator('.annotation-hint').last()).toContainText('Recipient: Beta');
   expect((await run(page, 'proof')).createChats).toBe(0);
 });
 
 test('Enter that ends an IME composition commits it and only the next Enter sends', async ({
   page,
 }) => {
-  const input = await composer(page, { agents: ['Alpha'] });
+  const input = await composer(page, { agents: ['Alpha'], selected: 0 });
   await input.focus();
   const client = await page.context().newCDPSession(page);
   await client.send('Input.imeSetComposition', {
@@ -63,7 +87,7 @@ test('Enter that ends an IME composition commits it and only the next Enter send
   await input.press('Enter');
   await client.send('Input.insertText', { text: '你好' });
   expect((await run(page, 'proof')).createChats).toBe(0);
-  await expect(input).toHaveValue(/^@Alpha 你好/);
+  await expect(input).toHaveText(/^你好/, { useInnerText: true });
   await input.press('Enter');
   await expect.poll(async () => (await run(page, 'proof')).createChats).toBe(1);
 });

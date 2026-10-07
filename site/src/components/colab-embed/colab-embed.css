@@ -1,0 +1,273 @@
+#tmt-colab-embed {
+  font: 14px/1.5 var(--f-body);
+  color: var(--c-text);
+}
+#tmt-colab-embed * {
+  box-sizing: border-box;
+}
+#tmt-colab-embed button,
+#tmt-colab-embed a {
+  font: inherit;
+  color: var(--c-accent);
+  cursor: pointer;
+  background: none;
+  border: 0;
+  padding: 8px;
+  text-decoration: none;
+}
+#tmt-colab-embed button:hover,
+#tmt-colab-embed a:hover {
+  text-decoration: underline;
+}
+#tmt-colab-embed button:focus-visible,
+#tmt-colab-embed a:focus-visible,
+#tmt-colab-embed textarea:focus-visible {
+  outline: 2px solid var(--c-accent);
+  outline-offset: 2px;
+}
+#tmt-colab-embed button:disabled {
+  color: var(--c-muted);
+  cursor: default;
+}
+#tmt-colab-embed .ce-controls {
+  position: fixed;
+  right: 24px;
+  bottom: 24px;
+  z-index: 10010;
+  display: flex;
+  padding: 4px;
+  gap: 4px;
+  background: var(--c-sheet);
+  border: 1px solid var(--c-text);
+  box-shadow: 4px 4px 0 var(--c-accent);
+  font-family: var(--f-mono);
+}
+#tmt-colab-embed .ce-on {
+  background: var(--c-accent-soft);
+}
+#tmt-colab-embed .ce-instructions {
+  position: fixed;
+  bottom: 88px;
+  right: 24px;
+  max-width: calc(100vw - 32px);
+  padding: 8px 12px;
+  background: var(--c-sheet);
+  border: 1px solid var(--c-rule);
+  z-index: 10008;
+  font-size: 12px;
+}
+#tmt-colab-embed .ce-marker {
+  z-index: 10001;
+  min-width: 32px;
+  height: 32px;
+  padding: 4px;
+  border: 1px solid var(--c-accent);
+  background: var(--c-sheet);
+  box-shadow: 4px 4px 0 var(--c-accent);
+}
+#tmt-colab-embed .ce-resolved {
+  color: var(--c-muted);
+  box-shadow: 4px 4px 0 var(--c-rule);
+}
+#tmt-colab-embed .ce-panel {
+  position: fixed;
+  z-index: 10005;
+  width: min(400px, calc(100vw - 16px));
+  max-height: min(640px, calc(100vh - 120px));
+  overflow: auto;
+  padding: 16px;
+  background: var(--c-sheet);
+  border: 1px solid var(--c-text);
+  box-shadow: 4px 4px 0 var(--c-accent);
+}
+#tmt-colab-embed .ce-setup {
+  right: 24px;
+  bottom: 136px;
+}
+#tmt-colab-embed header {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid var(--c-rule);
+  padding: 12px 16px;
+  margin: -16px -16px 12px;
+  position: sticky;
+  top: -16px;
+  z-index: 1;
+  background: var(--c-sheet);
+}
+#tmt-colab-embed p {
+  margin: 8px 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+#tmt-colab-embed blockquote {
+  margin: 12px 0;
+  padding: 8px 12px;
+  border-left: 2px solid var(--c-accent);
+  background: var(--c-accent-soft);
+  overflow-wrap: anywhere;
+  max-height: 96px;
+  overflow: auto;
+}
+#tmt-colab-embed .ce-muted,
+#tmt-colab-embed small {
+  color: var(--c-muted);
+}
+#tmt-colab-embed label {
+  display: block;
+  margin: 12px 0 8px;
+  font-weight: 600;
+}
+#tmt-colab-embed textarea {
+  width: 100%;
+  min-height: 88px;
+  resize: vertical;
+  font: inherit;
+  color: var(--c-text);
+  background: var(--c-paper);
+  border: 1px solid var(--c-rule);
+  padding: 8px;
+  border-radius: 0;
+}
+#tmt-colab-embed .ce-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 8px;
+}
+#tmt-colab-embed .ce-primary {
+  background: var(--c-accent);
+  color: var(--c-sheet);
+}
+#tmt-colab-embed article {
+  padding: 12px 0;
+  border-bottom: 1px solid var(--c-rule);
+}
+#tmt-colab-embed .ce-thread-link,
+#tmt-colab-embed .ce-field {
+  display: block;
+  width: 100%;
+  text-align: left;
+  border: 1px solid var(--c-rule);
+  margin-top: 8px;
+}
+#tmt-colab-embed .ce-thread-link small {
+  display: block;
+}
+#tmt-colab-embed .ce-agent-list {
+  max-height: 192px;
+  overflow: auto;
+  border: 1px solid var(--c-rule);
+}
+#tmt-colab-embed .ce-agent-list button {
+  display: block;
+  width: 100%;
+  text-align: left;
+}
+#tmt-colab-embed .ce-agent-list button[aria-pressed="true"] {
+  background: var(--c-accent-soft);
+}
+#tmt-colab-embed .ce-warning {
+  color: var(--c-waiting);
+}
+#tmt-colab-embed .ce-error {
+  position: fixed;
+  left: 16px;
+  bottom: 16px;
+  z-index: 10020;
+  max-width: min(480px, calc(100vw - 32px));
+  background: var(--c-sheet);
+  border: 1px solid var(--c-blocked);
+  padding: 12px;
+  box-shadow: 4px 4px 0 var(--c-blocked);
+}
+@media (max-width: 479px) {
+  #tmt-colab-embed .ce-setup {
+    right: 8px;
+  }
+  #tmt-colab-embed .ce-controls {
+    right: 16px;
+    bottom: 16px;
+  }
+}
+#tmt-colab-embed .ce-hover {
+  pointer-events: none;
+  z-index: 10000;
+  border: 2px solid var(--c-accent);
+  background: var(--c-accent-soft);
+  opacity: 0.35;
+}
+
+#tmt-colab-embed .ce-header-actions {
+  display: flex;
+  gap: 4px;
+}
+#tmt-colab-embed .ce-icon-action {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+#tmt-colab-embed .ce-icon-action svg {
+  stroke-linecap: square;
+  stroke-linejoin: miter;
+}
+#tmt-colab-embed .ce-tooltip {
+  display: none;
+  position: absolute;
+  top: 100%;
+  right: 0;
+  padding: 4px 8px;
+  font-size: 12px;
+  white-space: nowrap;
+  border: 1px solid var(--c-rule);
+  background: var(--c-sheet);
+  color: var(--c-text);
+  pointer-events: none;
+}
+#tmt-colab-embed .ce-icon-action:hover .ce-tooltip,
+#tmt-colab-embed .ce-icon-action:focus-visible .ce-tooltip {
+  display: block;
+}
+
+#tmt-colab-embed .ce-controls button {
+  width: 40px;
+  height: 40px;
+}
+#tmt-colab-embed .ce-controls .ce-tooltip {
+  top: auto;
+  bottom: calc(100% + 12px);
+}
+
+#tmt-colab-embed .ce-discussion {
+  display: flex;
+  flex-direction: column;
+  height: min(560px, calc(100vh - 120px));
+  padding: 0;
+  overflow: hidden;
+}
+#tmt-colab-embed .ce-discussion header {
+  position: relative;
+  top: auto;
+  margin: 0;
+  flex-shrink: 0;
+}
+#tmt-colab-embed .ce-messages {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 0 16px 12px;
+}
+#tmt-colab-embed .ce-composer {
+  flex-shrink: 0;
+  padding: 0 16px 12px;
+  border-top: 1px solid var(--c-rule);
+  background: var(--c-sheet);
+}
+#tmt-colab-embed .ce-composer textarea {
+  display: block;
+  height: 88px;
+  resize: none;
+}

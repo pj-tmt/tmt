@@ -1,22 +1,21 @@
 # Page chrome (#1586)
 
-`colab-header.tsx` owns the shared fixed, one-row header for the page list,
-owner page, router errors, mounted lifecycle notices and reader states. Screens
-supply their title and actions; `colab-header.css` owns geometry, brand/title
-hierarchy and flat actions. Header dimensions and typography come from
-`design/tokens/tokens.json` (the shared `header` group, which Remote's browser pages
-also use), including the shared compact viewport rule. Lucide
-icons use currentColor, square caps and miter joins.
+`colab-header.tsx` and `notice-card.tsx` adapt Colab content to the private
+`@tmt/browser-ui/react` Header/Notice exports. Router chrome uses the shared Action/Toggle
+and static classes; original trusted activation events remain Colab-owned. App and reader
+entry points import `/static.css`. Header/card geometry, opaque square surfaces, mark plus
+visible state word and shadow-free presentation belong to that leaf; its
+[package contract](../../../../design/browser-ui/README.md) owns generation and host inputs.
+`colab-header.css` supplies Colab safe areas, fixed viewport placement, body offset and host
+metrics; `notice-card.css` retains product page positioning and inherited state-label type. Legacy product color/font
+variable names alias the shared browser roles rather than projecting another palette.
 
-`notice-card.tsx` owns state-card markup for router errors, mounted lifecycle and
-reader notices. Its stylesheet also styles native guidance: centered square cards,
-mark plus word, shared type, and hard shadows in the state's color. Recovery actions
-stay inside the card; inactive/ended use muted, opening uses waiting, failures use blocked.
-
-Native pairing/build guidance stays static. `chrome.rs` projects the same tokens
-and includes the header, reader and state-card CSS; `/assets/chrome.css` serves those immutable
-bytes even without an app build. `socket.rs` uses matching header slots and keeps
-the parent CSP free of inline style/script exemptions.
+Native pairing/build guidance stays static. `chrome.rs` compile-time embeds the same checked
+CSS and Colab host/reader/notice layout styles; `/assets/chrome.css` serves those immutable
+bytes even without an app build. `socket.rs` uses shared static header/notice slots, escapes
+product text, and keeps the parent CSP free of inline style/script exemptions. Guidance
+loads the admitted build's recovery entry only when present; otherwise its details remain
+visible. Neither Cargo nor installed serving runs Node or fetches external assets.
 
 `router.tsx` retains the active Source, Comments, Chat, Agents or Export overlay. At narrow
 widths the page actions move into an overflow menu. The existing display-only
@@ -59,8 +58,8 @@ faults never become offline presence. Pending results are fenced on close and
 binding replacement; this presentation has no message or recovery capability.
 The read owner and typed failure boundary are defined in [Ask agent](ask-agent.md).
 
-`e2e/chrome.spec.ts` compares header and state-card dimensions, font metrics, state colors and window-scroll
-containment across every screen at 1440/390 in light/dark, including responses
+`e2e/chrome.spec.ts` compares header and state-card dimensions, font metrics, state words/colors and window-scroll
+containment across every screen at 1440/390/320 in light/dark, including responses
 from the native no-app socket fixture. Short-screen midpoint checks add an inert
 scroll probe; their top captures show the natural notice layout.
 `e2e/layout.spec.ts` covers window-scrolled 1440/390 light/dark short/long captures,

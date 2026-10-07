@@ -16,7 +16,7 @@ async function mount(page: Page, long: boolean) {
     const path = '/test/page-layout-browser.tsx';
     (await import(path)).mount(html);
   }, source(long));
-  await expect(page.locator('.colab-header:visible .status')).toContainText('Live preview');
+  await expect(page.locator('.tmt-ui-header:visible .status')).toContainText('Live preview');
   await expect(page.frameLocator('iframe').locator('h1')).toBeVisible();
 }
 for (const width of [1440, 390])
@@ -28,7 +28,7 @@ for (const width of [1440, 390])
         document.documentElement.dataset.theme = theme;
       }, theme);
       await mount(page, false);
-      const bar = page.locator('.colab-header:visible'),
+      const bar = page.locator('.tmt-ui-header:visible'),
         frame = page.locator('iframe');
       await expect(frame).toHaveAttribute('sandbox', 'allow-scripts');
       await expect(frame).toHaveAttribute('referrerpolicy', 'no-referrer');
@@ -85,9 +85,9 @@ for (const width of [1440, 390])
       await page.screenshot({ path: `/tmp/1586-${width}-${theme}-long-scrolled.png` });
       const beforePanel = await frame.boundingBox(),
         scrollBeforePanel = await page.evaluate(() => window.scrollY);
-      await expect(page.locator('.colab-header:visible .colab-actions > .page-backend')).toHaveText(
-        'local · Studio Mac',
-      );
+      await expect(
+        page.locator('.tmt-ui-header:visible .tmt-ui-actions > .page-backend'),
+      ).toHaveText('local · Studio Mac');
       if (width === 390) await page.getByRole('button', { name: 'More page actions' }).click();
       await page.getByTestId('comments-toggle').click();
       const comments = page.locator('.page-drawer[data-panel=comments]');

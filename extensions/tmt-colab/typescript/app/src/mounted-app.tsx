@@ -1,3 +1,4 @@
+import { BrowserAction } from '@tmt/browser-ui/react';
 import { useEffect, useState } from 'react';
 import { RouterProvider } from '@tanstack/react-router';
 import { mountUrl } from './bootstrap.js';
@@ -67,7 +68,12 @@ export function MountedNotice({ state }: { state: 'loading' | 'failed' | 'ready'
           title={state === 'failed' ? text.error : text.registering}
           actions={
             state === 'failed' ? (
-              <button onClick={() => location.reload()}>{text.reload}</button>
+              <BrowserAction
+                type="button"
+                variant="text"
+                label={text.reload}
+                onActivate={() => location.reload()}
+              />
             ) : undefined
           }
         >

@@ -1,4 +1,7 @@
-use std::{fs, path::PathBuf};
+use std::{
+    fs,
+    path::{Path, PathBuf},
+};
 
 use crate::test_support::TestDirectory;
 
@@ -7,6 +10,140 @@ use super::*;
 struct Fixture {
     directory: TestDirectory,
     database: PathBuf,
+}
+
+#[test]
+fn compiled_schema_export_matches_actual_source_bytes_and_the_storage_owner() {
+    let compiled = Storage::compiled_schema();
+    let working_directory = std::env::current_dir().unwrap();
+    let root = schema_source_root(&working_directory).expect("runtime checkout source tree");
+    let fixture = Fixture::new();
+    let mut storage = Storage::open(&fixture.database).unwrap();
+    assert_eq!(compiled.version, storage.health().unwrap().schema_version);
+    assert!(compiled.sources.len() <= 64);
+    for source in &compiled.sources {
+        assert_eq!(
+            source.sha256,
+            tmt_core::content_digest::sha256(&fs::read(root.join(source.path)).unwrap()),
+            "{}",
+            source.path
+        );
+    }
+    let record = crate::native_install::compiled_application_schema(&"a".repeat(40)).unwrap();
+    assert_eq!(record["databases"][0]["domain"], "tmt-core-db");
+    assert_eq!(record["databases"][0]["version"], compiled.version);
+    assert_eq!(
+        record["source_files"].as_array().unwrap().len(),
+        compiled.sources.len()
+    );
+    assert!(crate::native_install::compiled_application_schema("main").is_err());
+    storage.close().unwrap();
+}
+
+// Docker builds under /native and runs the copied test binary under /workspace.
+// The byte oracle must read the runtime checkout, not a compiled absolute path.
+fn schema_source_root(working_directory: &Path) -> Option<&Path> {
+    working_directory
+        .ancestors()
+        .find(|root| root.join("rust/Cargo.toml").is_file())
+}
+
+#[test]
+fn compiled_schema_byte_oracle_uses_relocated_runtime_sources_and_detects_changes() {
+    let working_directory = std::env::current_dir().unwrap();
+    let original = schema_source_root(&working_directory).unwrap();
+    let directory = TestDirectory::new();
+    let runtime_root = directory.path.join("workspace");
+    let nested = runtime_root.join("rust/crates/tmt-adapters");
+    fs::create_dir_all(&nested).unwrap();
+    fs::write(runtime_root.join("rust/Cargo.toml"), b"fixture marker").unwrap();
+    assert!(schema_source_root(&directory.path.join("native/rust")).is_none());
+    assert_eq!(schema_source_root(&nested), Some(runtime_root.as_path()));
+    let sources = Storage::compiled_schema().sources;
+    for source in &sources {
+        let path = runtime_root.join(source.path);
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::copy(original.join(source.path), &path).unwrap();
+        assert_eq!(
+            source.sha256,
+            tmt_core::content_digest::sha256(&fs::read(path).unwrap()),
+            "{}",
+            source.path
+        );
+    }
+    let changed = &sources[0];
+    fs::write(
+        runtime_root.join(changed.path),
+        b"changed after compilation",
+    )
+    .unwrap();
+    assert_ne!(
+        changed.sha256,
+        tmt_core::content_digest::sha256(&fs::read(runtime_root.join(changed.path)).unwrap())
+    );
+}
+
+#[test]
+fn application_schema_observation_does_not_create_or_guess_missing_history() {
+    let fixture = Fixture::new();
+    assert!(Storage::application_schema(&fixture.database).is_err());
+    assert!(!fixture.database.parent().unwrap().exists());
+    fs::create_dir_all(fixture.database.parent().unwrap()).unwrap();
+    let connection = Connection::open(&fixture.database).unwrap();
+    connection.execute_batch("PRAGMA user_version = 99; CREATE TABLE sentinel(value TEXT); INSERT INTO sentinel VALUES ('retained');").unwrap();
+    assert!(Storage::application_schema(&fixture.database).is_err());
+    assert_eq!(
+        connection
+            .query_row("SELECT value FROM sentinel", [], |row| row
+                .get::<_, String>(0))
+            .unwrap(),
+        "retained"
+    );
+    assert_eq!(
+        connection
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_schema WHERE name = '_migrations'",
+                [],
+                |row| row.get::<_, u32>(0)
+            )
+            .unwrap(),
+        0
+    );
+}
+
+#[test]
+fn application_schema_observation_reads_wal_and_future_versions_without_migration() {
+    let fixture = Fixture::new();
+    let mut storage = Storage::open(&fixture.database).unwrap();
+    let connection = storage.connection().unwrap();
+    // This intentionally contradicts the application record: user_version is
+    // not Core's schema owner, and the newest committed history is still in WAL.
+    connection.execute_batch("PRAGMA wal_autocheckpoint = 0; PRAGMA user_version = 1; INSERT INTO _migrations VALUES (49, 'future migration', 'now');").unwrap();
+    assert_eq!(Storage::application_schema(&fixture.database).unwrap(), 49);
+    assert_eq!(
+        connection
+            .query_row("PRAGMA user_version", [], |row| row.get::<_, u32>(0))
+            .unwrap(),
+        1
+    );
+    assert_eq!(storage.health().unwrap().schema_version, 49);
+    storage.close().unwrap();
+    assert_eq!(Storage::application_schema(&fixture.database).unwrap(), 49);
+}
+
+#[test]
+fn application_schema_observation_refuses_gaps_and_changed_known_migrations() {
+    let fixture = Fixture::new();
+    let mut storage = Storage::open(&fixture.database).unwrap();
+    assert_eq!(Storage::application_schema(&fixture.database).unwrap(), 48);
+    let connection = storage.connection().unwrap();
+    connection
+        .execute_batch("INSERT INTO _migrations VALUES (50, 'gap', 'now');")
+        .unwrap();
+    assert!(Storage::application_schema(&fixture.database).is_err());
+    connection.execute_batch("DELETE FROM _migrations WHERE version = 50; UPDATE _migrations SET name = 'unverified' WHERE version = 1;").unwrap();
+    assert!(Storage::application_schema(&fixture.database).is_err());
+    storage.close().unwrap();
 }
 
 impl Fixture {
@@ -27,7 +164,7 @@ fn open_enforces_connection_features_and_private_files() {
         storage.health().unwrap(),
         StorageHealth {
             path: fixture.database.clone(),
-            schema_version: 47,
+            schema_version: 48,
             journal_mode: "wal",
             foreign_keys: true,
             busy_timeout_ms: 5000,
@@ -165,7 +302,7 @@ fn concurrent_openers_commit_each_migration_only_once() {
     initial.pragma_update(None, "journal_mode", "WAL").unwrap();
     initial.close().unwrap();
     for result in concurrent_opens(&fixture) {
-        assert_eq!(result.unwrap(), 47);
+        assert_eq!(result.unwrap(), 48);
     }
     assert_complete_history(&fixture);
 }
@@ -175,7 +312,7 @@ fn cold_open_race_initializes_wal_for_every_caller() {
     for _ in 0..4 {
         let fixture = Fixture::new();
         for result in concurrent_opens(&fixture) {
-            assert_eq!(result.unwrap(), 47);
+            assert_eq!(result.unwrap(), 48);
         }
         assert_complete_history(&fixture);
     }
@@ -211,7 +348,7 @@ fn assert_complete_history(fixture: &Fixture) {
     let count: i64 = verification
         .query_row("SELECT COUNT(*) FROM _migrations", [], |row| row.get(0))
         .unwrap();
-    assert_eq!(count, 47);
+    assert_eq!(count, 48);
     let check: String = verification
         .query_row("PRAGMA integrity_check", [], |row| row.get(0))
         .unwrap();

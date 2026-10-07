@@ -31,6 +31,80 @@ pub const CONFIG: &CommandSpec = spec!(
     "config", "Inspect effective Squad board settings",
     ["Inspect board defaults and their sources" => "tmt squad config show"]
 );
+pub const CHECKLIST: &CommandSpec = spec!(
+    "checklist", "Operate manually authored room-owned checklists",
+    details = "Explicit UUIDs and exact revisions; no actor override or implicit dispatch. Outcome Unknown never authorizes blind replay.",
+    ["Read a checklist" => "tmt squad checklist ls --room 44444444-4444-4444-8444-444444444444"]
+);
+
+pub const CHECKLIST_LS: &CommandSpec = spec!(
+    "ls", "List checklist items without initializing storage",
+    details = "Archive, completion and assignee filters project the authored inventory; they never replace it.",
+    ["Read an exact room" => "tmt squad checklist ls --room 44444444-4444-4444-8444-444444444444"]
+);
+
+pub const CHECKLIST_SHOW: &CommandSpec = spec!(
+    "show", "Show one exact checklist item",
+    ["Inspect one item" => "tmt squad checklist show --room 44444444-4444-4444-8444-444444444444 --checklist 55555555-5555-4555-8555-555555555555 --item 66666666-6666-4666-8666-666666666666"]
+);
+
+pub const CHECKLIST_CREATE: &CommandSpec = spec!(
+    "create", "Create an open item with supplied frozen UUIDs",
+    details = "An initial assignee requires manager permission, including self-assignment. References are inert HTTP(S) provenance.",
+    ["Create the first unassigned item" => "tmt squad checklist create 'Review the queue' --room 44444444-4444-4444-8444-444444444444 --checklist 55555555-5555-4555-8555-555555555555 --item 66666666-6666-4666-8666-666666666666 --expect-inventory absent"]
+);
+
+pub const CHECKLIST_EDIT: &CommandSpec = spec!(
+    "edit", "Edit only supplied title, body or reference fields",
+    ["Edit against a reviewed revision" => "tmt squad checklist edit --room 44444444-4444-4444-8444-444444444444 --checklist 55555555-5555-4555-8555-555555555555 --item 66666666-6666-4666-8666-666666666666 --expect-revision 1 --title 'Review the release'"]
+);
+
+pub const CHECKLIST_ASSIGN: &CommandSpec = spec!(
+    "assign", "Assign an unarchived item to an exact active member UUID",
+    details = "Requires manager permission.",
+    ["Choose an active member" => "tmt squad checklist assign --room 44444444-4444-4444-8444-444444444444 --checklist 55555555-5555-4555-8555-555555555555 --item 66666666-6666-4666-8666-666666666666 --expect-revision 1 --assignee 77777777-7777-4777-8777-777777777777"]
+);
+
+pub const CHECKLIST_UNASSIGN: &CommandSpec = spec!(
+    "unassign", "Clear assignment without resolving the former assignee",
+    details = "Requires manager permission.",
+    ["Clear an assignment" => "tmt squad checklist unassign --room 44444444-4444-4444-8444-444444444444 --checklist 55555555-5555-4555-8555-555555555555 --item 66666666-6666-4666-8666-666666666666 --expect-revision 1"]
+);
+
+pub const CHECKLIST_COMPLETE: &CommandSpec = spec!(
+    "complete", "Complete an unarchived item without dispatch or attention changes",
+    ["Acknowledge revision seven as revision eight" => "tmt squad checklist complete --room 44444444-4444-4444-8444-444444444444 --checklist 55555555-5555-4555-8555-555555555555 --item 66666666-6666-4666-8666-666666666666 --expect-revision 7"]
+);
+
+pub const CHECKLIST_REOPEN: &CommandSpec = spec!(
+    "reopen", "Reopen an unarchived item",
+    ["Reopen against its exact revision" => "tmt squad checklist reopen --room 44444444-4444-4444-8444-444444444444 --checklist 55555555-5555-4555-8555-555555555555 --item 66666666-6666-4666-8666-666666666666 --expect-revision 8"]
+);
+
+pub const CHECKLIST_ARCHIVE: &CommandSpec = spec!(
+    "archive", "Archive an item while retaining content, completion and order",
+    details = "Requires manager permission; archived items must be explicitly restored before editing.",
+    ["Archive one item" => "tmt squad checklist archive --room 44444444-4444-4444-8444-444444444444 --checklist 55555555-5555-4555-8555-555555555555 --item 66666666-6666-4666-8666-666666666666 --expect-revision 8"]
+);
+
+pub const CHECKLIST_RESTORE: &CommandSpec = spec!(
+    "restore", "Restore an archived item without changing completion or order",
+    details = "Requires manager permission.",
+    ["Restore one item" => "tmt squad checklist restore --room 44444444-4444-4444-8444-444444444444 --checklist 55555555-5555-4555-8555-555555555555 --item 66666666-6666-4666-8666-666666666666 --expect-revision 9"]
+);
+
+pub const CHECKLIST_DELETE: &CommandSpec = spec!(
+    "delete", "Delete an exact item and retain its minimal tombstone",
+    details = "Requires manager permission and matching item/revision confirmation. UUIDs cannot be reused; Unknown remains Unknown after readback.",
+    ["Confirm the exact item and revision" => "tmt squad checklist delete --room 44444444-4444-4444-8444-444444444444 --checklist 55555555-5555-4555-8555-555555555555 --item 66666666-6666-4666-8666-666666666666 --expect-revision 9 --expect-inventory 1 --confirm-item 66666666-6666-4666-8666-666666666666 --confirm-revision 9"]
+);
+
+pub const CHECKLIST_REORDER: &CommandSpec = spec!(
+    "reorder", "Reorder all nondeleted items including archived items",
+    details = "Requires manager permission; a filtered item array is not the authored inventory.",
+    ["Submit the full reviewed order" => "tmt squad checklist reorder --room 44444444-4444-4444-8444-444444444444 --checklist 55555555-5555-4555-8555-555555555555 --expect-inventory 1 --order '[\"66666666-6666-4666-8666-666666666666\"]'"]
+);
+
 pub const CRON: &CommandSpec = spec!(
     "cron", "Manage time-based Squad jobs",
     details = "Writes require the recorded user or the squad's lead. Change announcements are best effort. Jobs are stored separately from squad.toml; no run results or catch-up.",

@@ -12,6 +12,24 @@ fn invalid_setting(message: String) -> Failure {
     Failure::new("ERROR", message, 1)
 }
 
+fn cli_theme_bases() -> String {
+    tmt_cli_style::Base::ALL
+        .into_iter()
+        .filter(|base| *base != tmt_cli_style::Base::Auto)
+        .map(tmt_cli_style::Base::name)
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+fn editable_theme_base(value: &str) -> Result<tmt_cli_style::Base, Failure> {
+    tmt_cli_style::Base::parse(value)
+        .filter(|base| *base != tmt_cli_style::Base::Auto)
+        .ok_or_else(|| {
+            invalid_setting(format!("Invalid value for theme.base: {value}."))
+                .suggestion(format!("Valid bases: {}", cli_theme_bases()))
+        })
+}
+
 struct Shown {
     loaded: ResolvedSettings,
     theme: Vec<(String, String)>,
@@ -55,10 +73,20 @@ fn run(request: ConfigRequest) -> Result<Report, Failure> {
         }
         ConfigRequest::Set { key, value, global } => {
             let scope = if global { Scope::Global } else { Scope::Local };
-            files.set(
-                Setting::edit(&key, &value, scope).map_err(invalid_setting)?,
-                scope,
-            )?;
+            if key == "theme.base" {
+                if !global {
+                    return Err(invalid_setting(
+                        "theme.base can only be set in global config with --global.".into(),
+                    ));
+                }
+                let base = editable_theme_base(&value)?;
+                files.set_theme_base(base.name())?;
+            } else {
+                files.set(
+                    Setting::edit(&key, &value, scope).map_err(invalid_setting)?,
+                    scope,
+                )?;
+            }
             let destination = if global {
                 "global config"
             } else {
@@ -293,8 +321,7 @@ fn show_text(
             Cell::styled(key.expected(), Token::Dim),
         ]);
     }
-    // The theme is set in the global file only; without a base the command
-    // line keeps the terminal's own colors.
+    // Without an explicit base the command line keeps the terminal's own colors.
     let base = theme
         .iter()
         .find(|(key, _)| key == "base")
@@ -308,8 +335,8 @@ fn show_text(
         Cell::from("theme.base"),
         Cell::from(base),
         Cell::styled(source, Token::Dim),
-        Cell::from("global file only"),
-        Cell::styled("tmt, tmt-light, terminal or mono", Token::Dim),
+        Cell::from("global CLI"),
+        Cell::styled(cli_theme_bases(), Token::Dim),
     ]);
     for (key, value) in theme.iter().filter(|(key, _)| key != "base") {
         table.row([
@@ -358,6 +385,26 @@ pub(crate) const PRINTED_HINTS: &[crate::cli_style_tests::HintSpec] =
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn editable_theme_bases_reuse_the_style_registry_without_board_auto() {
+        assert_eq!(cli_theme_bases(), "tmt, tmt-light, terminal, mono");
+        for base in tmt_cli_style::Base::ALL {
+            let parsed = editable_theme_base(base.name());
+            if base == tmt_cli_style::Base::Auto {
+                assert!(parsed.is_err());
+            } else {
+                assert_eq!(parsed.unwrap(), base);
+            }
+        }
+        for name in ["unknown", "TMT", "tmt ", ""] {
+            let error = editable_theme_base(name).unwrap_err().document();
+            assert_eq!(
+                error["error"]["suggestion"],
+                "Valid bases: tmt, tmt-light, terminal, mono"
+            );
+        }
+    }
 
     #[test]
     fn global_auto_has_a_short_error_and_action_hint() {

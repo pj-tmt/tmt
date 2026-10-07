@@ -1,8 +1,7 @@
 import type { ReactNode } from "react";
 import tokens from "../../../design/tokens/tokens.json";
 
-const termBlock =
-  "my-5 w-full overflow-hidden border border-term-edge bg-term text-t-text shadow-[6px_6px_0_var(--c-accent)]";
+const termBlock = "my-5 w-full overflow-hidden border border-term-edge bg-term text-t-text";
 
 export function LsSample() {
   const dm = "text-t-dim";

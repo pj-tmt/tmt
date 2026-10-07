@@ -17,6 +17,11 @@ pub use managed::{
 mod artifact_tests;
 #[cfg(test)]
 mod interrupt_tests;
+mod pr_catalog;
+mod pr_json;
+mod pr_receipt;
+mod pr_resolver;
+mod pr_zip;
 mod publication;
 #[cfg(test)]
 mod publication_tests;
@@ -34,7 +39,7 @@ pub use uses::{
 mod upgrade;
 pub use upgrade::{
     UpgradeFailure, UpgradeReport, UpgradeRequest, upgrade, upgrade_product,
-    upgrade_product_selected,
+    upgrade_product_selected, upgrade_product_with_schema_consent,
 };
 #[cfg(test)]
 mod test_support;
@@ -43,9 +48,40 @@ use std::{
     io,
     path::{Path, PathBuf},
 };
-use tmt_core::native_install::{Channel, PinAction, plan_version};
+use tmt_core::native_install::{Channel, PinAction, PrVersionContext, plan_candidate_version};
 
 const OFFICIAL_REPOSITORY: &str = "pj-tmt/tmt";
+
+/// Model-free schema export for the reviewed publisher. The supplied source
+/// identity must be verified against every compiled source digest by that owner.
+/// This performs no storage initialization, migration or acquisition.
+pub fn compiled_application_schema(source_sha: &str) -> io::Result<serde_json::Value> {
+    if !pr_catalog::git_sha(source_sha) {
+        return Err(invalid(
+            "Schema export requires an exact lowercase source SHA.",
+        ));
+    }
+    let compiled = crate::storage::Storage::compiled_schema();
+    let record = pr_catalog::ApplicationSchema {
+        schema_version: 1,
+        product: "cli".into(),
+        source_sha: source_sha.into(),
+        databases: vec![pr_catalog::DatabaseSchema {
+            domain: "tmt-core-db".into(),
+            version: compiled.version,
+        }],
+        source_files: compiled
+            .sources
+            .into_iter()
+            .map(|source| pr_catalog::SourceFile {
+                path: source.path.into(),
+                sha256: source.sha256,
+            })
+            .collect(),
+    };
+    record.validate("cli", source_sha)?;
+    serde_json::to_value(record).map_err(io::Error::other)
+}
 /// Names recorded before the organization transfer (#1021) and rename (#334).
 /// Read-only compatibility: lookups and new receipts use the current repository.
 const LEGACY_REPOSITORIES: [&str; 2] = ["wkh237/tmt", "wkh237/tmux-team"];
@@ -118,7 +154,7 @@ pub fn install_product(
 fn install_observed(
     request: InstallRequest<'_>,
     expected: Option<uuid::Uuid>,
-    provenance: Option<receipt::GitHubProvenance>,
+    provenance: Option<receipt::Provenance>,
     checkpoint: impl FnMut() -> io::Result<()>,
 ) -> io::Result<InstallReport> {
     install_product_observed(
@@ -135,7 +171,7 @@ fn install_product_observed(
     product: Product,
     request: InstallRequest<'_>,
     expected: Option<uuid::Uuid>,
-    provenance: Option<receipt::GitHubProvenance>,
+    provenance: Option<receipt::Provenance>,
     verifier: Option<ReleaseVerifier<'_>>,
     mut checkpoint: impl FnMut() -> io::Result<()>,
 ) -> io::Result<InstallReport> {
@@ -151,6 +187,8 @@ fn install_product_observed(
             expected,
             provenance,
             verifier,
+            explicit_channel: true,
+            schema: None,
         },
         &artifact,
         checkpoint,
@@ -163,14 +201,28 @@ struct ActivationRequest<'a> {
     channel: tmt_core::native_install::Channel,
     pin: tmt_core::native_install::PinAction,
     expected: Option<uuid::Uuid>,
-    provenance: Option<receipt::GitHubProvenance>,
+    provenance: Option<receipt::Provenance>,
     verifier: Option<ReleaseVerifier<'a>>,
+    explicit_channel: bool,
+    schema: Option<pr_catalog::ApplicationSchema>,
 }
 
 fn activate(
     request: ActivationRequest<'_>,
     artifact: &artifact::Artifact,
+    checkpoint: impl FnMut() -> io::Result<()>,
+) -> io::Result<InstallReport> {
+    let product = request.product;
+    activate_with_local_schema(request, artifact, checkpoint, || {
+        local_application_schema(product)
+    })
+}
+
+fn activate_with_local_schema(
+    request: ActivationRequest<'_>,
+    artifact: &artifact::Artifact,
     mut checkpoint: impl FnMut() -> io::Result<()>,
+    mut local_schema: impl FnMut() -> io::Result<Vec<pr_catalog::DatabaseSchema>>,
 ) -> io::Result<InstallReport> {
     if request.product.requires_release_verifier() && request.verifier.is_none() {
         return Err(io::Error::new(
@@ -178,8 +230,33 @@ fn activate(
             "This product's releases require a verifier; refusing publication.",
         ));
     }
-    plan_version(None, &artifact.version, request.channel, request.pin)
-        .map_err(io::Error::other)?;
+    let candidate_identity = request
+        .provenance
+        .as_ref()
+        .map(receipt::Provenance::pr_identity)
+        .transpose()?
+        .flatten();
+    let preliminary = plan_candidate_version(
+        None,
+        &artifact.version,
+        request.channel,
+        request.pin,
+        PrVersionContext {
+            current: None,
+            candidate: candidate_identity.as_ref(),
+            explicit_channel: true,
+        },
+    )
+    .map_err(io::Error::other)?;
+    if let Some(receipt::Provenance::Pr(proof)) = &request.provenance {
+        proof.validate(
+            request.product,
+            &artifact.target,
+            &preliminary.state,
+            &artifact.name,
+            &artifact.sha256,
+        )?;
+    }
     checkpoint()?;
     let layout = publication::Layout::open_product(request.prefix, request.product)?;
     let _lock = crate::file_lock::exclusive(&layout.root.join("install.lock"))?;
@@ -192,16 +269,30 @@ fn activate(
         ));
     }
     layout.check_links(current.is_some())?;
-    let plan = plan_version(
+    let current_identity = current
+        .as_ref()
+        .and_then(|receipt| receipt.provenance.as_ref())
+        .map(receipt::Provenance::pr_identity)
+        .transpose()?
+        .flatten();
+    let plan = plan_candidate_version(
         current.as_ref().map(|receipt| &receipt.state),
         &artifact.version,
         request.channel,
         request.pin,
+        PrVersionContext {
+            current: current_identity.as_ref(),
+            candidate: candidate_identity.as_ref(),
+            explicit_channel: request.explicit_channel,
+        },
     )
     .map_err(io::Error::other)?;
     if let Some(current) = &current
         && (current.target != artifact.target
             || (current.state.version == artifact.version
+                && !(request.explicit_channel
+                    && current.state.channel != request.channel
+                    && (current_identity.is_some() || candidate_identity.is_some()))
                 && (current.archive_sha256 != artifact.sha256
                     || current.archive_name != artifact.name
                     || current.file_hashes != artifact.file_hashes())))
@@ -209,6 +300,23 @@ fn activate(
         return Err(invalid(
             "Installed target or equal-version artifact integrity does not match.",
         ));
+    }
+    if let Some(receipt::Provenance::Pr(proof)) = &request.provenance {
+        let local = local_schema()?;
+        pr_receipt::admit_databases(
+            request.product,
+            &proof.candidate.application_schema,
+            &proof.admission.latest_alpha.application_schema,
+            &local,
+            proof.admission.schema_ahead_opt_in,
+        )?;
+    } else if current_identity.is_some() {
+        let schema = request
+            .schema
+            .as_ref()
+            .ok_or_else(|| io::Error::other(tmt_core::native_install::SchemaError::Unknown))?;
+        let local = local_schema()?;
+        pr_receipt::admit_databases(request.product, schema, schema, &local, false)?;
     }
     let active_id = if plan.changed {
         let mut receipt = receipt::Receipt::new(artifact, plan.state);
@@ -257,6 +365,38 @@ fn activate(
         active_id,
         plan.changed,
     ))
+}
+
+fn local_application_schema(product: Product) -> io::Result<Vec<pr_catalog::DatabaseSchema>> {
+    if product != Product::Cli {
+        return Err(io::Error::other(
+            tmt_core::native_install::SchemaError::Unknown,
+        ));
+    }
+    let paths = crate::config::ConfigPaths::discover().map_err(io::Error::other)?;
+    let version = crate::storage::Storage::application_schema(&paths.database)
+        .map_err(|_| io::Error::other(tmt_core::native_install::SchemaError::Unknown))?;
+    Ok(vec![pr_catalog::DatabaseSchema {
+        domain: "tmt-core-db".into(),
+        version,
+    }])
+}
+
+fn manifest_application_schema(
+    product: Product,
+    bytes: &[u8],
+) -> io::Result<pr_catalog::ApplicationSchema> {
+    let unknown = || io::Error::other(tmt_core::native_install::SchemaError::Unknown);
+    let value: serde_json::Value = pr_json::parse(bytes, artifact::MANIFEST_LIMIT)?;
+    let schema: pr_catalog::ApplicationSchema = serde_json::from_value(
+        value
+            .get("tmt_application_schema")
+            .ok_or_else(unknown)?
+            .clone(),
+    )
+    .map_err(|_| unknown())?;
+    schema.validate(product.as_str(), &schema.source_sha)?;
+    Ok(schema)
 }
 
 fn installed_report(

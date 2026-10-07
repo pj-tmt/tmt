@@ -171,10 +171,16 @@ pub(super) fn response_lookup<E>(
     {
         return Ok(ResponseLookup::Available(Box::new(response)));
     }
-    if records.find_request(request_id)?.is_some_and(|attempt| {
-        attempt.kind == RequestKind::Announcement && now < attempt.retention_expires_at_ms
-    }) {
-        return Ok(ResponseLookup::NotRequired);
+    if let Some(attempt) = records
+        .find_request(request_id)?
+        .filter(|attempt| now < attempt.retention_expires_at_ms)
+    {
+        if let Some(withdrawal) = attempt.withdrawal {
+            return Ok(ResponseLookup::Withdrawn(withdrawal));
+        }
+        if attempt.kind == RequestKind::Announcement {
+            return Ok(ResponseLookup::NotRequired);
+        }
     }
     Ok(ResponseLookup::Unavailable)
 }
@@ -222,6 +228,9 @@ pub(super) fn prefix_range<E>(input: &str) -> Result<Option<(String, String)>, R
 /// acceptance and the open-request read share this one rule, so the inbox
 /// never offers a request that an answer would refuse.
 pub(super) fn first_final_refusal(attempt: &RequestAttempt, now: u64) -> Option<ResponseRejection> {
+    if attempt.withdrawal.is_some() {
+        return Some(ResponseRejection::Withdrawn);
+    }
     if attempt.kind == RequestKind::Announcement {
         return Some(ResponseRejection::NotRequired);
     }

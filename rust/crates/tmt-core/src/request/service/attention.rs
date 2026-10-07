@@ -45,6 +45,9 @@ pub(super) fn final_state<T, E>(
     now: u64,
     content: Option<T>,
 ) -> Result<FinalState<T>, RequestError<E>> {
+    if let Some(withdrawal) = &record.attempt.withdrawal {
+        return Ok(FinalState::Withdrawn(withdrawal.clone()));
+    }
     if record.attempt.kind == RequestKind::Announcement {
         return Ok(FinalState::NotRequired);
     }
@@ -88,9 +91,10 @@ fn exchange<T>(record: AttentionRecord, final_state: FinalState<T>) -> Exchange<
         final_state,
         revision: record.revision,
         acknowledged,
-        settled: acknowledged
-            && (record.attempt.kind == RequestKind::Announcement
-                || record.attempt.response_submitted_at_ms.is_some()),
+        settled: record.attempt.withdrawal.is_some()
+            || acknowledged
+                && (record.attempt.kind == RequestKind::Announcement
+                    || record.attempt.response_submitted_at_ms.is_some()),
         retention_expires_at_ms: record.attempt.retention_expires_at_ms,
     }
 }

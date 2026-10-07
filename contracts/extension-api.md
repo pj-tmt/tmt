@@ -423,6 +423,10 @@ Ordinary recipient/room history lists default to 20 items (maximum 50). Pass `ne
 unchanged as the next request's `before`. Concurrent new requests above that cursor
 will appear on a fresh first page; final-state changes can appear when detail is
 reread. This is not a live change feed. Reads never mark incoming work as read.
+Ordinary history and detail include `final:{status:"withdrawn",reason,withdrawnAtMs}`
+after [originator withdrawal](request-response-v1.md#originator-withdrawal).
+This terminal state is not a recipient final or approval; consumers waiting on
+a person exclude it. Original prompt/history and delivery status remain intact.
 For submitted replies across rooms and recipients, call `requests.list` with
 `{"originatorId":"<canonical UUID>","view":"results"}`. Both fields are required
 and cannot be combined with `recipientId` or `roomId`. The default limit is 8;

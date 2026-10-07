@@ -24,6 +24,7 @@ use serde_json::Value;
 use tmt_cli_style::{Role, mark::Mark};
 use unicode_width::UnicodeWidthStr;
 
+mod checklist;
 mod cron;
 mod frame_timing;
 mod help;
@@ -108,7 +109,7 @@ fn waiting_rows_detail_and_ask_prompt_fit_each_width_and_theme() {
                 .unwrap();
             assert!(!pending_only.contains("12m"), "pending-only has no age");
             assert!(screen.last().unwrap().contains("◆ 3 waiting"));
-            assert!(screen.last().unwrap().contains("A ask lead"));
+            assert_eq!(screen.last().unwrap().contains("A ask lead"), width >= 100);
             assert!(
                 app.hits
                     .borrow()
@@ -176,7 +177,8 @@ fn waiting_hint_uses_rebound_key_and_drops_oldest_before_actions() {
         crate::action::Action::parse("ask-lead").unwrap(),
     );
     assert!(hints(&app, 160).contains("oldest auth-fix 12m"));
-    assert!(hints(&app, 100).contains("z ask lead"));
+    assert!(hints(&app, 120).contains("z ask lead"));
+    assert!(!hints(&app, 100).contains("z ask lead"));
     assert!(!hints(&app, 50).contains("oldest"));
     assert!(!hints(&app, 80).contains("oldest"));
     assert!(hints(&app, 100).contains("r reply"));
@@ -193,7 +195,10 @@ fn footer_omits_whole_hints_instead_of_clipping_words() {
     let mut app = App::new(Some("product".into()));
     app.apply(crate::board::app::tests::snapshot("product", json!([])));
     let full = hints(&app, usize::MAX);
-    assert!(full.starts_with("↑↓ move  A ask lead  / search"), "{full}");
+    assert!(
+        full.starts_with("Focus: rows  ↑↓ move  A ask lead  / search"),
+        "{full}"
+    );
     for width in [0, 1, 6, 20, 40, 80, 100, 108, 112, 120, 160] {
         let shown = hints(&app, width);
         assert!(shown.width() <= width);
@@ -214,7 +219,7 @@ fn footer_omits_whole_hints_instead_of_clipping_words() {
 /// The shown hints without the reserved tail.
 fn shown_hints(text: &str) -> Vec<&str> {
     text.split("  ")
-        .filter(|hint| !hint.is_empty() && !["q quit", "? more"].contains(hint))
+        .filter(|hint| !hint.is_empty() && !["q quit", "? more", "Focus: rows"].contains(hint))
         .collect()
 }
 
@@ -267,8 +272,8 @@ fn footer_orders_hints_by_priority_and_always_keeps_quit_and_more() {
     ] {
         assert!(!full.contains(hint), "{hint}: {full}");
     }
-    // Opening, writing, replying and talking survive an 80-cell footer.
-    let narrow = hints(&app, 80);
+    // Focus and mandatory hints remain while optional actions fit whole.
+    let narrow = hints(&app, 100);
     assert!(
         narrow.contains("⏎ open  a write  r reply  t talk"),
         "{narrow}"
@@ -973,7 +978,7 @@ fn rows_ignore_retired_notes_and_show_pending_sections_and_aligned_wide_text() {
     assert_eq!(screen[8], "EVERYONE");
     assert_eq!(screen[9], "  文件-sweep working  整理安装指南");
     assert!(screen.iter().all(|line| !line.contains("needs a call")));
-    assert!(screen[11].starts_with("◆ 1 waiting"));
+    assert!(screen[11].starts_with("Focus: rows  ◆ 1 waiting"));
 }
 
 #[test]
@@ -1561,9 +1566,9 @@ fn declarative_style_preserves_stale_row_inheritance() {
 fn team_pending_line_style_snapshots_and_unstyled_control() {
     // Literal text/style snapshots of the real rendered pending span, including padding.
     const TRUE_COLOR: &str = r#""                               approve rollout                                  "
-[(2, "Reset/Reset/Reset/NONE/None"), (17, "Rgb(122, 131, 174)/Reset/Reset/NONE/None"), (1, "Reset/Reset/Reset/NONE/None"), (10, "Rgb(122, 131, 174)/Reset/Reset/NONE/None"), (1, "Reset/Reset/Reset/NONE/None"), (49, "Rgb(255, 158, 100)/Reset/Reset/NONE/None")]
+[(2, "Reset/Reset/Reset/NONE/None"), (17, "Rgb(133, 133, 133)/Reset/Reset/NONE/None"), (1, "Reset/Reset/Reset/NONE/None"), (10, "Rgb(133, 133, 133)/Reset/Reset/NONE/None"), (1, "Reset/Reset/Reset/NONE/None"), (49, "Rgb(255, 158, 100)/Reset/Reset/NONE/None")]
 "                               approve rollout                                  "
-[(80, "Rgb(192, 202, 245)/Rgb(51, 70, 124)/Reset/NONE/None")]"#;
+[(80, "Rgb(216, 216, 216)/Rgb(43, 43, 43)/Reset/NONE/None")]"#;
     const ANSI16: &str = r#""                               approve rollout                                  "
 [(2, "Reset/Reset/Reset/NONE/None"), (17, "Reset/Reset/Reset/DIM/None"), (1, "Reset/Reset/Reset/NONE/None"), (10, "Reset/Reset/Reset/DIM/None"), (1, "Reset/Reset/Reset/NONE/None"), (49, "Yellow/Reset/Reset/NONE/None")]
 "                               approve rollout                                  "
@@ -1716,18 +1721,15 @@ fn light_body_chrome_and_selection_use_the_theme_and_no_color_keeps_focus() {
         let buffer = terminal.backend().buffer();
         let fg = |role| app.look().role(role).fg.unwrap_or_default();
         // Chrome uses the theme; unselected body keeps the terminal foreground.
-        for (x, y) in [(1, 1), (2, 2), (1, 6), (12, 0)] {
+        assert_eq!(buffer[(1, 1)].fg, fg(Role::Text));
+        for (x, y) in [(2, 2), (1, 6), (14, 0)] {
             assert_eq!(buffer[(x, y)].fg, fg(Role::Muted), "chrome {x},{y}");
         }
         assert_eq!(buffer[(2, 4)].fg, ratatui::style::Color::Reset);
         assert_eq!(buffer[(13, 5)].fg, fg(Role::Dim));
         assert_eq!(buffer[(22, 5)].fg, fg(Role::Dim));
         // The selected tab is a word on a real selection background: text.
-        let selected_tab = if app.look().selection().bg.is_some() {
-            Role::Text
-        } else {
-            Role::Accent
-        };
+        let selected_tab = Role::Text;
         assert_eq!(buffer[(1, 0)].fg, fg(selected_tab));
         assert!(buffer[(2, 0)].modifier.contains(Modifier::BOLD));
         let selected = &buffer[(2, 3)];
@@ -1745,7 +1747,7 @@ fn light_body_chrome_and_selection_use_the_theme_and_no_color_keeps_focus() {
 }
 
 #[test]
-fn selected_tabs_keep_foregrounds_and_geometry_with_selection_background() {
+fn selected_tabs_keep_undecorated_names_and_semantic_mark_styles() {
     for base in tmt_cli_style::Base::ALL {
         for depth in [
             tmt_cli_style::Depth::TrueColor,
@@ -1798,14 +1800,14 @@ fn selected_tabs_keep_foregrounds_and_geometry_with_selection_background() {
                     &TabColors::default(),
                 );
                 assert_eq!(selected.to_string(), text);
-                assert_eq!(selected.to_string(), unselected.to_string());
+                assert_eq!(unselected.to_string(), text);
                 assert_eq!(selected.width(), unselected.width());
                 for (label, chosen) in [(selected, true), (unselected, false)] {
                     let normal = if chosen {
                         Style {
                             bg: selection.bg,
                             ..look
-                                .role(Role::Accent)
+                                .role(Role::Text)
                                 .add_modifier(Modifier::BOLD | selection.add_modifier)
                         }
                     } else {
@@ -1822,7 +1824,7 @@ fn selected_tabs_keep_foregrounds_and_geometry_with_selection_background() {
                     assert_eq!(
                         buffer[(2, 0)].symbol(),
                         "p",
-                        "names always start after the two-cell slot"
+                        "the undecorated name follows the reserved slot"
                     );
                     for x in 0..width {
                         let role = if x == 0 && attention.waiting > 0 {
@@ -1855,9 +1857,9 @@ fn selected_tabs_keep_foregrounds_and_geometry_with_selection_background() {
             }
             let selected = pane_tab(look, "detail", true);
             let unselected = pane_tab(look, "detail", false);
-            assert_eq!(selected.content, "[detail]");
+            assert_eq!(selected.content, "detail");
             assert_eq!(unselected.content, " detail ");
-            assert_eq!(selected.width(), unselected.width());
+            assert_eq!(selected.width() + 2, unselected.width());
             assert_eq!(selected.style.fg, look.role(Role::Accent).fg);
             assert_eq!(selected.style.bg, selection.bg);
             assert!(selected.style.add_modifier.contains(Modifier::BOLD));
@@ -1879,19 +1881,22 @@ fn tab_fallback_depends_on_background_even_with_an_accent_foreground() {
     };
     assert!(look.role(Role::Accent).fg.is_some());
     assert!(look.selection().bg.is_none());
-    for style in [
-        tab(
-            look,
-            "product",
-            true,
-            false,
-            Attention::default(),
-            &TabColors::default(),
-        )
-        .style,
-        pane_tab(look, "detail", true).style,
+    for (style, role) in [
+        (
+            tab(
+                look,
+                "product",
+                true,
+                false,
+                Attention::default(),
+                &TabColors::default(),
+            )
+            .style,
+            Role::Text,
+        ),
+        (pane_tab(look, "detail", true).style, Role::Accent),
     ] {
-        assert_eq!(style.fg, look.role(Role::Accent).fg);
+        assert_eq!(style.fg, look.role(role).fg);
         assert!(style.add_modifier.contains(Modifier::REVERSED));
     }
 }
@@ -2003,11 +2008,11 @@ fn nested_splits_draw_rows_beside_detail_over_notes() {
     let screen = draw(&app, 100, 23);
     // Rows take 60 of 100 columns; detail sits over notes in the rest.
     let right = |line: &str| line.chars().skip(60).collect::<String>();
-    assert!(screen[2].starts_with("┌ rows"), "{screen:#?}");
-    assert!(right(&screen[2]).starts_with("┌ detail"), "{screen:#?}");
+    assert!(screen[2].starts_with("─ Focus: rows"), "{screen:#?}");
+    assert!(right(&screen[2]).starts_with("─ detail"), "{screen:#?}");
     let notes_top = screen
         .iter()
-        .position(|line| right(line).starts_with("┌ notes · sol"))
+        .position(|line| right(line).starts_with("─ notes · sol"))
         .expect("notes block");
     // 40% of the 20 body lines is detail: notes start 8 lines below it.
     assert_eq!(notes_top, 2 + 8, "{screen:#?}");
@@ -2310,11 +2315,11 @@ fn split_panes_follow_direction_and_sizes() {
     );
     let screen = draw(&app, 100, 11);
     // 60% of 100 columns: the notes block starts at column 60.
-    let notes_at = screen[2].find("┌ notes · sol").expect("notes block title");
+    let notes_at = screen[2].find("─ notes · sol").expect("notes block title");
     assert_eq!(screen[2][..notes_at].chars().count(), 60, "{screen:#?}");
-    assert!(screen[2].starts_with("┌ rows"));
+    assert!(screen[2].starts_with("─ Focus: rows"));
     assert!(
-        screen.iter().any(|line| line.contains("│  Now")),
+        screen.iter().any(|line| line.contains("   Now")),
         "markdown heading"
     );
     assert!(screen.iter().any(|line| line.contains("◆ auth-fix")));
@@ -2332,7 +2337,7 @@ fn split_panes_follow_direction_and_sizes() {
     let screen = draw(&app, 70, 23);
     let detail_row = screen
         .iter()
-        .position(|line| line.starts_with("┌ detail"))
+        .position(|line| line.starts_with("─ detail"))
         .unwrap();
     assert_eq!(
         detail_row, 12,
@@ -2750,16 +2755,16 @@ fn attention_counts_keep_shared_marks_and_tab_width_without_color() {
     let plain = tab(app.look(), "product", false, false, counts, &colors);
     let selected = tab(app.look(), "product", true, false, counts, &colors);
     assert_eq!(selected.to_string(), "◆ product 2 ✗ 1");
-    assert_eq!(selected.to_string(), plain.to_string());
-    assert_eq!(selected.width(), "◆ product 2 ✗ 1".width());
+    assert_eq!(plain.to_string(), "◆ product 2 ✗ 1");
+    assert_eq!(selected.width(), plain.width());
     assert_eq!(selected.style.fg, None);
     assert!(draw(&app, 60, 8)[0].contains("◆ product 2 ✗ 1"));
     app.switcher = Some(Switcher::new("product".into()));
-    assert!(
-        draw(&app, 60, 8)
-            .iter()
-            .any(|line| line.contains("◆ product 2 ✗ 1"))
-    );
+    assert!(draw(&app, 60, 18).iter().any(|line| line.contains("[x]")
+        && line.contains("product")
+        && line.contains("◆")
+        && line.contains("2")
+        && line.contains("✗1")));
 }
 
 #[test]
@@ -2974,7 +2979,7 @@ fn the_switcher_filters_every_tab_and_opens_the_chosen_one() {
         listed,
         [
             "› qt▏",
-            "[x]   quiet (hidden)",
+            "[x]›  quiet (hidden)",
             "1–1 of 1",
             "Space pick/unpick · Enter opens · Esc closes"
         ],
@@ -3014,8 +3019,11 @@ fn switching_squads_never_moves_a_tab_or_blanks_the_frame() {
         );
     }
     assert_eq!(app.current.as_deref(), Some("reviews"));
-    // Selection is a style, so the tab text is the same either way.
-    assert_eq!(before[0], during[0], "selection never changes label width");
+    // The shown owner remains selected until the requested view is ready.
+    assert_eq!(
+        before[0], during[0],
+        "pending requests retain shown-tab names and positions"
+    );
     assert_eq!(before[0].trim_end(), "  product   reviews");
     assert!(
         during[1].contains("Opening reviews"),
@@ -3039,7 +3047,7 @@ fn tabs_show_one_pane_and_tab_moves_focus() {
     let mut app = paned(tabs, Notes::Missing);
     let screen = draw(&app, 70, 11);
     assert!(
-        screen[2].starts_with("[rows]  replies   notes"),
+        screen[2].starts_with("rows  replies   notes"),
         "{screen:#?}"
     );
     assert!(screen.iter().any(|line| line.contains("auth-fix")));
@@ -3048,9 +3056,9 @@ fn tabs_show_one_pane_and_tab_moves_focus() {
     };
     tab(&mut app);
     let screen = draw(&app, 70, 11);
-    // Same columns as before the switch: only the brackets move.
+    // The selected pane loses only its brackets; other pane padding stays.
     assert!(
-        screen[2].starts_with(" rows  [replies]  notes"),
+        screen[2].starts_with(" rows  replies  notes"),
         "{screen:#?}"
     );
     assert!(
@@ -3512,9 +3520,9 @@ fn initial_loading_uses_the_resolved_theme_before_any_snapshot() {
             app.initial_look = Some(look);
             app.loading_since = Some(std::time::Instant::now() - header::SPINNER_DELAY);
             let line = summary_line(&app);
-            assert_eq!(line.spans[0].style, look.role(Role::Accent));
+            assert_eq!(line.spans[0].style, look.role(Role::Dim));
             assert_eq!(line.spans[1].style, look.role(Role::Muted));
-            assert_eq!(line.spans[2].style, look.role(Role::Accent));
+            assert_eq!(line.spans[2].style, look.role(Role::Text));
             assert_eq!(
                 super::tabs::paint(&app, Rect::new(0, 0, 80, 1)).style,
                 look.role(Role::Accent).add_modifier(Modifier::BOLD)
@@ -3672,7 +3680,7 @@ fn fold_render_restores_both_directions_and_keeps_the_mark_muted() {
             );
             app.view.as_mut().unwrap().look.theme = tmt_cli_style::Theme::new(base);
             let expanded = draw(&app, 80, 23);
-            assert!(expanded.iter().any(|line| line.contains("┌ detail")));
+            assert!(expanded.iter().any(|line| line.contains("─ detail")));
             fold(&mut app, Pane::Detail);
             let folded = draw(&app, 80, 23);
             let hit = *app
@@ -3690,7 +3698,7 @@ fn fold_render_restores_both_directions_and_keeps_the_mark_muted() {
                 assert_eq!(hit.area.x, 72);
                 let title = &folded[hit.area.y as usize];
                 assert_eq!(title.chars().nth(hit.area.x as usize - 1), Some(' '));
-                assert_eq!(title.chars().nth(hit.area.x as usize - 2), Some('┐'));
+                assert_eq!(title.chars().nth(hit.area.x as usize - 2), Some('─'));
             } else {
                 assert_eq!(hit.area.y, 22 - 1);
             }
@@ -4135,10 +4143,7 @@ fn inline_middle_row_band_moves_rows_masks_panes_and_fits_every_theme() {
                 assert!(screen[usize::from(band.y + 2)].contains("◆ “A long waiting"));
                 assert!(screen[usize::from(band.y + 2)].contains('…'));
                 assert!(screen[usize::from(band.y + 4)].contains("Enter send · Esc cancel"));
-                assert_eq!(
-                    screen[usize::from(band.y)],
-                    format!("┌{}┐", "─".repeat(usize::from(width) - 2))
-                );
+                assert_eq!(screen[usize::from(band.y)], "─".repeat(usize::from(width)));
                 assert_eq!(screen[usize::from(band.y)].width(), usize::from(width));
                 for y in band.y..band.bottom() {
                     assert!(!screen[usize::from(y)].contains("neighbor pane fragment"));
@@ -4471,4 +4476,723 @@ fn boxed_member_band_follows_its_occurrence_through_exchange_reordering_without_
     assert!(app.input_band.get().is_some());
     app.view.as_mut().unwrap().document["sections"][0]["rows"][0]["id"] = json!("REPLACED");
     assert!(!app.message_valid());
+}
+
+/// Read-only runtime evidence for the immutable #1829 first-slice packet.
+/// The packet and output directory are explicit task-owned inputs; this never
+/// updates repository parity or performs acquisition/actions.
+#[test]
+#[ignore = "explicit pinned selection/focus evidence capture"]
+fn capture_selection_focus_packet() {
+    let packet_path = std::env::var("TMT_SELECTION_PACKET").expect("pinned packet path");
+    let output = std::env::var("TMT_SELECTION_OUTPUT").expect("task-owned output path");
+    let packet: Value = serde_json::from_slice(&std::fs::read(packet_path).unwrap()).unwrap();
+    crate::status::with_now_ms(packet["clock"]["fixedNowMs"].as_u64().unwrap(), || {
+        let mut captures = Vec::new();
+        for case in packet["cases"].as_array().unwrap() {
+            for (base, depth) in [
+                ("tmt", tmt_cli_style::Depth::TrueColor),
+                ("tmt-light", tmt_cli_style::Depth::TrueColor),
+                ("terminal", tmt_cli_style::Depth::Ansi16),
+                ("tmt", tmt_cli_style::Depth::None),
+            ] {
+                let members = packet["members"].as_array().unwrap().iter().map(|member| {
+                let waiting = if member["requestIds"].as_array().unwrap().is_empty() { json!([]) } else {
+                    json!([{"requestId": packet["request"]["id"], "preview": packet["request"]["preview"],
+                        "preparedAtMs": packet["clock"]["requestCreatedAtMs"]}])
+                };
+                row(member["name"].as_str().unwrap(), member["state"].as_str().unwrap(),
+                    member["task"].as_str().unwrap(), json!({"id":member["uuid"], "squad":"ux-demo",
+                        "waitingOnYou":waiting, "state":member["state"]}))
+            }).collect::<Vec<_>>();
+                let mut app = board(json!([{"title":"primary", "rows":members[1..]},
+                {"title":"repeat", "rows":[members[1].clone()]}]));
+                app.current = Some("ux-demo".into());
+                app.tabs = vec!["ux-demo".into()];
+                let width = case["viewport"]["columns"].as_u64().unwrap() as u16;
+                let height = case["viewport"]["rows"].as_u64().unwrap() as u16;
+                let view_name = case["view"].as_str().unwrap_or("single");
+                let view = app.view.as_mut().unwrap();
+                view.document["squad"]["name"] = json!("ux-demo");
+                view.document["squad"]["lead"] = members[0].clone();
+                view.me = Some("fixture-user".into());
+                view.me_id = Some(packet["scope"]["actorUUID"].as_str().unwrap().into());
+                view.rows = rows_from(
+                    r#"[p.rows]
+columns = [{name = "member", width = 18}, {name = "task", grow = 1, overflow = "wrap", max_lines = 8}]
+"#,
+                );
+                let settings = if view_name == "single" || view_name == "HOME" {
+                    None
+                } else {
+                    Some(crate::view::ViewName::parse(view_name).unwrap())
+                };
+                if let Some(settings) = settings {
+                    let settings = settings.settings();
+                    let split =
+                        crate::split::read(settings.get("layout").unwrap(), "fixture.layout")
+                            .unwrap();
+                    view.board = crate::config::Board {
+                        members: view_name == "members",
+                        mode: BoardMode::Split,
+                        panes: split.panes(),
+                        split,
+                        collapsed: settings
+                            .get("collapsed")
+                            .and_then(toml_edit::Item::as_array)
+                            .into_iter()
+                            .flatten()
+                            .map(|v| Pane::parse(v.as_str().unwrap()).unwrap())
+                            .collect(),
+                        fold_below: settings
+                            .get("fold_below")
+                            .map(|v| crate::config::FoldBelow {
+                                width: v["width"].as_integer().unwrap() as u16,
+                                panes: v["panes"]
+                                    .as_array()
+                                    .unwrap()
+                                    .iter()
+                                    .map(|v| Pane::parse(v.as_str().unwrap()).unwrap())
+                                    .collect(),
+                            }),
+                    };
+                }
+                view.notes = Notes::Text(if case["selectedLink"].is_object() {
+                    format!(
+                        "[{}]({})",
+                        case["selectedLink"]["label"].as_str().unwrap(),
+                        case["selectedLink"]["target"].as_str().unwrap()
+                    )
+                } else {
+                    "Fixture coordination notes\nKeep the saved bindings.".into()
+                });
+                view.bindings = crate::action::preset(true, &view.board.panes);
+                view.look = crate::look::Look {
+                    theme: tmt_cli_style::Theme::new(tmt_cli_style::Base::parse(base).unwrap()),
+                    depth,
+                };
+                if view_name == "HOME" || case["id"].as_str().unwrap().contains("HOME") {
+                    use crate::board::{
+                        home::{Home, MemberRow, MemberSection},
+                        home_leads::{Kind, Lead, LeadPreview},
+                    };
+                    view.home = Some(Home {
+                        summary: crate::board::home::Counts {
+                            members: 4,
+                            waiting: 1,
+                            blocked: 1,
+                            working: 2,
+                            ..Default::default()
+                        },
+                        windows: crate::config::TokenWindow::DEFAULTS,
+                        sections: vec![MemberSection {
+                            key: "needs-you".into(),
+                            rows: vec![MemberRow {
+                                squad: "ux-demo".into(),
+                                member: members[1].clone(),
+                                lead: Some("ux-demo-lead".into()),
+                                age: Some(crate::board::home::Age {
+                                    source: crate::board::home::AgeSource::Request,
+                                    since_ms: packet["clock"]["requestCreatedAtMs"]
+                                        .as_u64()
+                                        .unwrap(),
+                                }),
+                            }],
+                        }],
+                        squads: vec![crate::board::home::SquadLine {
+                            squad: "ux-demo".into(),
+                            lead: Some(members[0].clone()),
+                            counts: crate::board::home::Counts {
+                                members: 4,
+                                waiting: 1,
+                                blocked: 1,
+                                working: 2,
+                                ..Default::default()
+                            },
+                            members: crate::board::home::Counts {
+                                members: 3,
+                                waiting: 1,
+                                blocked: 1,
+                                working: 1,
+                                ..Default::default()
+                            },
+                        }],
+                        failures: Vec::new(),
+                        incomplete: false,
+                    });
+                    view.exchanges = vec![Lead {
+                        squad: "ux-demo".into(),
+                        row: members[0].clone(),
+                        failure: None,
+                        exchange: case
+                            .get("syntheticLeadExchange")
+                            .map(|exchange| LeadPreview {
+                                kind: Kind::Reply,
+                                request: None,
+                                since_ms: Some(exchange["sinceMs"].as_u64().unwrap()),
+                                preview: exchange["preview"].as_str().unwrap().into(),
+                                status: "retained".into(),
+                            }),
+                    }];
+                    view.bindings = crate::action::all_preset();
+                    app.current = Some(crate::tabs::ALL.into());
+                    app.tabs = vec![crate::tabs::ALL.into()];
+                } else {
+                    view.exchanges = crate::board::home_leads::members(
+                        &view.document,
+                        None,
+                        packet["clock"]["fixedNowMs"].as_u64().unwrap(),
+                    );
+                }
+                let tab = app.current.clone().unwrap();
+                let mut snapshot = crate::board::app::tests::snapshot(&tab, json!([]));
+                snapshot.view = Ok(app.view.take().unwrap());
+                snapshot.tabs = app.tabs.clone();
+                app = App::new(Some(tab));
+                app.apply(snapshot);
+                if app.view.as_ref().unwrap().home.is_some() {
+                    let leads = app.view.as_ref().unwrap().exchanges.clone();
+                    app.apply_home_leads(crate::board::home_leads::Read::for_test(
+                        packet["scope"]["actorUUID"].as_str().unwrap(),
+                        leads,
+                    ));
+                }
+                app.set_body_width(width);
+                app.select(1);
+                if case["receivingFocus"] == "notes" {
+                    // Focus view's Notes is initially folded: use the existing focus
+                    // transition so its configured body is expanded before painting.
+                    if app.effective_board().unwrap().members {
+                        app.focus = app
+                            .effective_board()
+                            .unwrap()
+                            .panes
+                            .iter()
+                            .position(|p| *p == Pane::Notes)
+                            .unwrap();
+                    } else {
+                        app.perform(&crate::action::Action::parse("notes").unwrap());
+                    }
+                }
+                if let Some(composer) = case.get("composer").filter(|v| v.is_object()) {
+                    app.key(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE));
+                    app.input.as_mut().expect("answer composer").text =
+                        composer["draft"].as_str().unwrap().into();
+                }
+                if case["id"] == "grid-decoration-exclusions-100x30" {
+                    app.view.as_mut().unwrap().document["sections"][0]["rows"][0]["annotation"] = json!({"to":case["renderOnlyFeedback"]["annotation"]["to"], "text":case["renderOnlyFeedback"]["annotation"]["text"]});
+                    app.sent = Some(crate::board::app::RowFeedback {
+                        target: app.row_target(app.selected).unwrap(),
+                        sent: true,
+                        home: None,
+                    });
+                }
+                if case["selectedLink"].is_object() {
+                    board_buffer(&app, width, height);
+                    let view = app.view.as_ref().unwrap();
+                    let derived = view.derived.borrow();
+                    let link = derived.notes.as_ref().unwrap().links.first().unwrap();
+                    app.note_link = Some((link.target.clone(), link.offset));
+                }
+                let document = app.view.as_ref().unwrap().document.clone();
+                let buffer = board_buffer(&app, width, height);
+                let cells = buffer
+                    .content
+                    .iter()
+                    .map(|cell| {
+                        json!({"symbol":cell.symbol(),
+                "fg":format!("{:?}",cell.fg), "bg":format!("{:?}",cell.bg),
+                "modifier":format!("{:?}",cell.modifier)})
+                    })
+                    .collect::<Vec<_>>();
+                captures.push(
+                    json!({"case":case["id"], "base":base, "depth":format!("{depth:?}"),
+                "width":width, "height":height, "cells":cells,
+                "document":document, "hits":format!("{:?}",app.hits.borrow()),
+                "starts":*app.row_starts.borrow(), "titles":format!("{:?}",app.title_hits.borrow()),
+                "band":format!("{:?}",app.input_band.get()), "selected":app.selected,
+                "focus":format!("{:?}",app.focused_pane()),
+                "footer26":hints(&app,26), "footer27":hints(&app,27),
+                "footer31":hints(&app,31), "footer32":hints(&app,32)}),
+                );
+            }
+        }
+        std::fs::write(output, serde_json::to_vec(&captures).unwrap()).unwrap();
+    });
+}
+
+#[test]
+fn occurrence_selection_keeps_prefix_blanks_content_hits_and_feedback() {
+    let member = row(
+        "duplicate",
+        "working",
+        "alpha beta gamma delta epsilon",
+        json!({
+        "id":"same-id", "waitingOnYou":[{"requestId":"fixture", "preview":"Question?"}],
+        "annotation":{"to":"fixture", "text":"decoration stays separate"}}),
+    );
+    let mut app = board(json!([{"title":"primary", "rows":[member.clone()]},
+        {"title":"repeat", "rows":[member]}]));
+    app.view.as_mut().unwrap().rows = rows_from(
+        r#"[p.rows]
+columns = [{name="member", width=12}, {name="task", width=12, overflow="wrap", max_lines=8}]
+"#,
+    );
+    app.sent = Some(crate::board::app::RowFeedback {
+        target: app.row_target(0).unwrap(),
+        sent: true,
+        home: None,
+    });
+    let document = app.view.as_ref().unwrap().document.clone();
+    for (base, depth) in [
+        (tmt_cli_style::Base::Tmt, tmt_cli_style::Depth::TrueColor),
+        (
+            tmt_cli_style::Base::TmtLight,
+            tmt_cli_style::Depth::TrueColor,
+        ),
+        (tmt_cli_style::Base::Terminal, tmt_cli_style::Depth::Ansi16),
+        (tmt_cli_style::Base::Tmt, tmt_cli_style::Depth::None),
+    ] {
+        app.view.as_mut().unwrap().look = crate::look::Look {
+            theme: tmt_cli_style::Theme::new(base),
+            depth,
+        };
+        board_buffer(&app, 50, 24);
+        let view = app.view.as_ref().unwrap();
+        let derived = view.derived.borrow();
+        let scene = &derived.grid.as_ref().unwrap().scene;
+        let area = Rect::new(0, 0, 50, 24);
+        let mut selected = ratatui::buffer::Buffer::empty(area);
+        let hits = scene.paint(&mut selected, area, 0, 0, app.look());
+        let mut other = ratatui::buffer::Buffer::empty(area);
+        assert_eq!(
+            format!("{hits:?}"),
+            format!("{:?}", scene.paint(&mut other, area, 0, 1, app.look()))
+        );
+        let lines = detail_text(&selected);
+        assert!(
+            lines
+                .iter()
+                .filter(|line| line.starts_with("  ") && !line.trim().is_empty())
+                .count()
+                >= 3,
+            "wrapped content and automatic question retain their prefix blanks"
+        );
+        assert!(
+            lines[scene.starts[0]].starts_with("◆ "),
+            "attention diamond stays at x0"
+        );
+        assert!(
+            lines[scene.starts[1]].starts_with("◆ "),
+            "duplicate occurrence remains unselected"
+        );
+        for (y, line) in lines.iter().enumerate() {
+            if line.contains("✓ sent")
+                || line.contains("decoration stays")
+                || line.contains("PRIMARY")
+            {
+                assert_ne!(selected[(1, y as u16)].symbol(), ">");
+                assert_eq!(selected[(1, y as u16)], other[(1, y as u16)]);
+            }
+        }
+        for y in 0..24 {
+            if hits.iter().any(|hit| hit.y == y) {
+                assert_eq!(selected[(1, y)].symbol(), " ", "reserved row prefix at {y}");
+            }
+            for x in 0..50 {
+                assert_eq!(
+                    selected[(x, y)].symbol(),
+                    other[(x, y)].symbol(),
+                    "selection changes styles only at {x},{y}"
+                );
+            }
+        }
+        // A one-cell clip admits the diamond without exposing a prefix cell.
+        let clip = Rect::new(0, 0, 1, 24);
+        let mut narrow = ratatui::buffer::Buffer::empty(clip);
+        let narrow_hits = scene.paint(&mut narrow, clip, 0, 0, app.look());
+        assert_eq!(narrow[(0, scene.starts[0] as u16)].symbol(), "◆");
+        assert!(narrow.content.iter().all(|cell| cell.symbol() != ">"));
+        assert!(narrow_hits.iter().all(|hit| hit.x == 0 && hit.width == 1));
+        // Scrolling clips content, rather than painting the reveal envelope.
+        let mut scrolled = ratatui::buffer::Buffer::empty(Rect::new(0, 0, 50, 2));
+        let visible = scene.paint(
+            &mut scrolled,
+            Rect::new(0, 0, 50, 2),
+            scene.starts[0] + 1,
+            0,
+            app.look(),
+        );
+        assert_eq!(scrolled[(1, 0)].symbol(), " ");
+        assert!(visible.iter().all(|hit| hit.y < 2 && hit.row == 0));
+        assert_eq!(view.document, document);
+    }
+}
+
+#[test]
+fn receiving_focus_labels_keep_title_footer_and_input_ownership_separate() {
+    let mut app =
+        board(json!([{"title":null,"rows":[row("selected","working","task",json!({}))]}]));
+    assert_eq!(hints(&app, 27), "Focus: rows  ? more  q quit");
+    assert!(!hints(&app, 26).contains("Focus:"));
+    assert!(hints(&app, 26).ends_with("? more  q quit"));
+    app.view.as_mut().unwrap().board = split(
+        Direction::LeftRight,
+        vec![Pane::Rows, Pane::Notes],
+        vec![60, 40],
+    );
+    app.view.as_mut().unwrap().notes = Notes::Text("coordination".into());
+    let outlined = draw(&app, 80, 20);
+    assert!(outlined.iter().any(|line| line.contains("Focus: rows")));
+    assert!(!outlined.last().unwrap().contains("Focus:"));
+    app.focus = 1;
+    let unfocused = draw(&app, 80, 20);
+    assert!(unfocused.iter().any(|line| line.contains("Focus: notes")));
+    assert!(!unfocused.iter().any(|line| line.contains("Focus: rows")));
+    let y = unfocused
+        .iter()
+        .position(|line| line.contains("  selected"))
+        .unwrap() as u16;
+    let buffer = board_buffer(&app, 80, 20);
+    assert_eq!(buffer[(1, y)].symbol(), " ");
+    assert_eq!(
+        buffer[(2, y)].bg,
+        app.look().selection().bg.unwrap_or_default()
+    );
+    assert_eq!(
+        buffer[(2, y)].modifier.contains(Modifier::REVERSED),
+        app.look().selection().bg.is_none()
+    );
+    app.focus = 0;
+    app.help = true;
+    assert!(!hints(&app, 80).contains("Focus:"));
+    app.help = false;
+    app.searching = true;
+    assert!(
+        !draw(&app, 80, 20)
+            .iter()
+            .any(|line| line.contains("Focus:"))
+    );
+    app.searching = false;
+    app.notice = Some("Notice owns the footer".into());
+    assert_eq!(
+        draw(&app, 80, 20).last().unwrap().trim(),
+        "Notice owns the footer"
+    );
+    app.notice = None;
+    app.error = Some("Error owns the footer".into());
+    assert_eq!(
+        draw(&app, 80, 20).last().unwrap().trim(),
+        "Error owns the footer"
+    );
+}
+
+#[test]
+fn flat_custom_split_retains_inner_hits_and_focus_title_without_dimming_it() {
+    for width in [80, 100, 160, 180] {
+        for (base, depth) in [
+            ("tmt", tmt_cli_style::Depth::TrueColor),
+            ("tmt-light", tmt_cli_style::Depth::TrueColor),
+            ("terminal", tmt_cli_style::Depth::Ansi16),
+            ("tmt", tmt_cli_style::Depth::None),
+        ] {
+            let mut app = paned(
+                split(
+                    Direction::LeftRight,
+                    vec![Pane::Rows, Pane::Notes],
+                    vec![60, 40],
+                ),
+                Notes::Text("coordination".into()),
+            );
+            app.view.as_mut().unwrap().look = crate::look::Look {
+                theme: tmt_cli_style::Theme::new(tmt_cli_style::Base::parse(base).unwrap()),
+                depth,
+            };
+            app.set_body_width(width);
+            let buffer = board_buffer(&app, width, 23);
+            let titles = app.title_hits.borrow().clone();
+            let rows = titles
+                .iter()
+                .find(|hit| hit.pane == Pane::Rows)
+                .unwrap()
+                .area;
+            let notes = titles
+                .iter()
+                .find(|hit| hit.pane == Pane::Notes)
+                .unwrap()
+                .area;
+            assert!(!super::panes::borderless_rows(&app));
+            assert_eq!((rows.y, rows.height), (2, 1));
+            assert_eq!(notes.x, width * 60 / 100);
+            let dim = app.look().role(Role::Dim);
+            for x in [rows.x, rows.right() - 1] {
+                assert_eq!(buffer[(x, rows.y)].symbol(), "─");
+                assert_eq!(buffer[(x, rows.y)].fg, dim.fg.unwrap_or_default());
+                assert_eq!(buffer[(x, rows.y + 1)].symbol(), " ");
+            }
+            let title = &buffer[(rows.x + 2, rows.y)];
+            assert_eq!(title.symbol(), "F");
+            assert!(title.modifier.contains(Modifier::BOLD));
+            assert!(!title.modifier.contains(Modifier::DIM), "{base}/{depth:?}");
+            assert!(
+                app.hits.borrow().iter().all(|hit| hit.x > rows.x
+                    && hit.x + hit.width < rows.right()
+                    && hit.y > rows.y)
+            );
+            assert_eq!(app.scrolls.pane_at(rows.x, rows.y + 1), None);
+            assert_eq!(
+                app.scrolls.pane_at(rows.x + 1, rows.y + 1),
+                Some(Pane::Rows)
+            );
+            let original = draw(&app, width, 23);
+            click_title(&mut app, Pane::Notes);
+            draw(&app, width, 23);
+            assert_ne!(
+                app.scrolls.pane_at(notes.x + 1, notes.y + 1),
+                Some(Pane::Notes)
+            );
+            click_title(&mut app, Pane::Notes);
+            assert_eq!(
+                draw(&app, width, 23),
+                original,
+                "unfold restores exact frame"
+            );
+        }
+    }
+}
+
+#[test]
+fn receiving_title_preserves_configured_accent_effects_and_semantic_notes_span() {
+    for (base, depth) in [
+        ("tmt", tmt_cli_style::Depth::TrueColor),
+        ("tmt-light", tmt_cli_style::Depth::TrueColor),
+        ("terminal", tmt_cli_style::Depth::Ansi16),
+        ("tmt", tmt_cli_style::Depth::None),
+    ] {
+        for accent in [None, Some("dim")] {
+            let mut app = paned(
+                split(
+                    Direction::LeftRight,
+                    vec![Pane::Rows, Pane::Notes],
+                    vec![50, 50],
+                ),
+                Notes::Text("coordination".into()),
+            );
+            let mut settings = vec![("base", base)];
+            if let Some(accent) = accent {
+                settings.push(("accent", accent));
+            }
+            app.view.as_mut().unwrap().look = crate::look::Look {
+                theme: tmt_cli_style::Theme::parse("board.theme", settings).unwrap(),
+                depth,
+            };
+            app.view.as_mut().unwrap().document["squad"]["notesStaleness"] =
+                json!({"state": "stale", "ageMs": 2 * 3_600_000});
+            app.focus = 1;
+            assert_eq!(app.focused_pane(), Some(Pane::Notes));
+            let buffer = board_buffer(&app, 160, 23);
+            let title = app
+                .title_hits
+                .borrow()
+                .iter()
+                .find(|hit| hit.pane == Pane::Notes)
+                .unwrap()
+                .area;
+            let receiving = app.look().role(Role::Accent).add_modifier(Modifier::BOLD);
+            // The original receiving title inherited its receiving role, not
+            // the incidental frame. Styled age spans then patch that role.
+            let mut expected = ratatui::buffer::Cell::default();
+            expected.set_style(receiving);
+            let at = &buffer[(title.x + 2, title.y)];
+            assert_eq!(at.symbol(), "F");
+            assert_eq!(
+                (at.fg, at.bg, at.modifier),
+                (expected.fg, expected.bg, expected.modifier),
+                "{base}/{depth:?}/{accent:?}"
+            );
+            let line: String = (title.x..title.right())
+                .map(|x| buffer[(x, title.y)].symbol())
+                .collect();
+            let age_x = title.x + line[..line.find("stale 2h").unwrap()].chars().count() as u16;
+            expected.set_style(app.look().role(Role::Waiting));
+            let age = &buffer[(age_x, title.y)];
+            assert_eq!(
+                (age.fg, age.bg, age.modifier),
+                (expected.fg, expected.bg, expected.modifier),
+                "semantic span: {base}/{depth:?}/{accent:?}"
+            );
+            let border = &buffer[(title.x, title.y)];
+            assert_eq!(border.symbol(), "─");
+            assert_eq!(border.fg, app.look().role(Role::Dim).fg.unwrap_or_default());
+        }
+    }
+}
+
+#[test]
+fn switcher_cursor_moves_without_changing_picks_attention_or_query() {
+    use crate::board::picker_surface::evidence;
+    for (variant, look) in evidence::looks().into_iter().enumerate() {
+        for (width, height) in [(80, 30), (100, 30), (160, 30), (180, 30), (80, 8)] {
+            let mut app = board(json!([]));
+            app.tabs = vec!["alpha".into(), "beta".into()];
+            app.hidden = vec!["gamma".into()];
+            app.picks = crate::board::pick::Picks::parse(Some("alpha"), &app.switchable()).unwrap();
+            app.attention.insert(
+                "beta".into(),
+                Attention {
+                    waiting: 1,
+                    blocked: 2,
+                },
+            );
+            app.view.as_mut().unwrap().look = look;
+            app.switcher = Some(Switcher::default());
+            let picks = app.picks.clone();
+            for selected in ["alpha", "beta"] {
+                // Initial paint reconciles actual rows before selecting; subsequent
+                // movement goes through the board's consumed overlay event path.
+                if selected == "beta" {
+                    assert_eq!(
+                        app.key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE)),
+                        Effect::None
+                    );
+                }
+                let mut screen = Terminal::new(TestBackend::new(width, height)).unwrap();
+                screen
+                    .draw(|frame| {
+                        render_switcher(frame, &app, app.switcher.as_ref().unwrap(), frame.area())
+                    })
+                    .unwrap();
+                let surface = app.switcher.as_ref().unwrap().surface.borrow();
+                let buffer = screen.backend().buffer();
+                assert_eq!(surface.picker.list.selected(), Some(selected));
+                assert_eq!(surface.picker.query(), Some(""));
+                for id in ["alpha", "beta"] {
+                    let row = evidence::row(&surface, id);
+                    if row.height == 0 {
+                        continue;
+                    }
+                    assert_eq!(buffer[(row.x, row.y)].symbol(), "[");
+                    assert_eq!(
+                        buffer[(row.x + 1, row.y)].symbol(),
+                        if id == "alpha" { "x" } else { " " }
+                    );
+                    assert_eq!(
+                        buffer[(row.x + 3, row.y)].symbol(),
+                        if id == selected { "›" } else { " " }
+                    );
+                    assert_eq!(
+                        buffer[(row.x + 4, row.y)].symbol(),
+                        if id == "beta" { "◆" } else { " " }
+                    );
+                    assert_eq!(
+                        buffer[(row.x + 6, row.y)].symbol(),
+                        if id == "alpha" { "a" } else { "b" }
+                    );
+                }
+                evidence::capture(
+                    &format!("switcher-{width}x{height}-{variant}-{selected}"),
+                    buffer,
+                    &surface,
+                );
+            }
+            assert_eq!(app.picks, picks);
+            assert_eq!(
+                app.attention["beta"],
+                Attention {
+                    waiting: 1,
+                    blocked: 2
+                }
+            );
+        }
+    }
+}
+
+#[test]
+fn boxed_duplicate_selection_keeps_heading_task_blanks_targets_and_drafts() {
+    crate::status::with_now_ms(1_900_000_000_000, || {
+        for width in [80, 100, 160, 180] {
+            for (base, depth) in [
+                (tmt_cli_style::Base::Tmt, tmt_cli_style::Depth::TrueColor),
+                (
+                    tmt_cli_style::Base::TmtLight,
+                    tmt_cli_style::Depth::TrueColor,
+                ),
+                (tmt_cli_style::Base::Terminal, tmt_cli_style::Depth::Ansi16),
+                (tmt_cli_style::Base::Tmt, tmt_cli_style::Depth::None),
+            ] {
+                let member = row(
+                    "duplicate",
+                    "working",
+                    "authored > task [draft]",
+                    json!({"id":"SAME"}),
+                );
+                let mut app = boxed_members(json!([
+                    {"title":"first", "rows":[member.clone()]},
+                    {"title":"second", "rows":[member]}
+                ]));
+                app.view.as_mut().unwrap().look = crate::look::Look {
+                    theme: tmt_cli_style::Theme::new(base),
+                    depth,
+                };
+                let document = app.view.as_ref().unwrap().document.clone();
+                let targets = [app.row_target(1).unwrap(), app.row_target(2).unwrap()];
+                assert_ne!(targets[0], targets[1]);
+                app.selected = 1;
+                let first = board_buffer(&app, width, 24);
+                let hits = format!("{:?}", app.hits.borrow());
+                let starts = app.row_starts.borrow().clone();
+                app.selected = 2;
+                let second = board_buffer(&app, width, 24);
+                assert_eq!(format!("{:?}", app.hits.borrow()), hits);
+                assert_eq!(*app.row_starts.borrow(), starts);
+                for (a, b) in first.content.iter().zip(&second.content) {
+                    assert_eq!(a.symbol(), b.symbol(), "selection preserves authored text");
+                }
+                for (index, buffer) in [(1, &first), (2, &second)] {
+                    let y = app
+                        .hits
+                        .borrow()
+                        .iter()
+                        .find(|hit| hit.row == index)
+                        .unwrap()
+                        .y;
+                    for line in [y, y + 1] {
+                        let blank = &buffer[(1, line)];
+                        assert_eq!(blank.symbol(), " ");
+                        assert_eq!(blank.bg, app.look().selection().bg.unwrap_or_default());
+                        assert_eq!(
+                            blank.modifier.contains(Modifier::REVERSED),
+                            app.look().selection().bg.is_none()
+                        );
+                    }
+                    assert!(
+                        detail_text(buffer)[usize::from(y + 1)].contains("authored > task [draft]")
+                    );
+                }
+                assert_eq!(app.row_target(1).as_ref(), Some(&targets[0]));
+                assert_eq!(app.row_target(2).as_ref(), Some(&targets[1]));
+                app.key(KeyEvent::new(KeyCode::Char('e'), KeyModifiers::NONE));
+                let reading = board_buffer(&app, width, 24);
+                let band = app.input_band.get().unwrap();
+                assert_eq!(reading[(1, band.y - 1)].symbol(), " ");
+                assert!(matches!(
+                    app.input.as_ref().unwrap().compose,
+                    crate::board::app::Compose::ReadRow { .. }
+                ));
+                assert!(
+                    !app.hits
+                        .borrow()
+                        .iter()
+                        .any(|hit| (band.y..band.bottom()).contains(&hit.y))
+                );
+                app.key(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE));
+                app.input.as_mut().unwrap().text = "Keep > [draft]".into();
+                board_buffer(&app, width, 24);
+                app.key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+                board_buffer(&app, width, 24);
+                assert_eq!(app.input.as_ref().unwrap().text, "Keep > [draft]");
+                assert_eq!(app.view.as_ref().unwrap().document, document);
+            }
+        }
+    });
 }

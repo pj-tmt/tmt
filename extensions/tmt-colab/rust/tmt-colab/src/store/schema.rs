@@ -48,6 +48,20 @@ const MIGRATIONS: &[&str] = &[
         CHECK(last_update_at_ms IS NULL OR
             (typeof(last_update_at_ms)='integer' AND last_update_at_ms>=0 AND last_update_at_ms<=9007199254740991));
     "#,
+    // Schema 6: original content publication outcomes; legacy operations stay unscoped.
+    r#"
+    ALTER TABLE owner_operations ADD COLUMN publication_kind TEXT;
+    ALTER TABLE owner_operations ADD COLUMN space TEXT;
+    ALTER TABLE owner_operations ADD COLUMN page TEXT;
+    ALTER TABLE owner_operations ADD COLUMN original_epoch TEXT;
+    ALTER TABLE owner_operations ADD COLUMN original_stream TEXT
+        CHECK((publication_kind IS NULL AND space IS NULL AND page IS NULL
+            AND original_epoch IS NULL AND original_stream IS NULL) OR
+            (publication_kind IS NOT NULL AND publication_kind='content'
+            AND typeof(space)='text' AND typeof(page)='text'
+            AND typeof(original_epoch)='text' AND typeof(original_stream)='text'));
+    CREATE INDEX owner_operations_page ON owner_operations(page) WHERE publication_kind IS NOT NULL;
+    "#,
 ];
 pub(super) const CURRENT_VERSION: u32 = MIGRATIONS.len() as u32;
 

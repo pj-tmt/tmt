@@ -482,7 +482,10 @@ describe('full repository-state release sweep', () => {
       };
       expect(affectedProducts([file], before)).toEqual({ products: ['cli'], unpublished: [] });
       expect(affectedProducts([file], map, workspace)).toEqual({
-        products: ['cli', 'colab', 'remote', 'squad'],
+        products:
+          leaf === 'tmt-invoke'
+            ? ['cli', 'colab', 'driver-herdr', 'remote', 'squad']
+            : ['cli', 'colab', 'remote', 'squad'],
         unpublished: [],
       });
       expect(affectedProducts([`rust/crates/${leaf}-other/src/lib.rs`], map)).toEqual({
@@ -519,20 +522,36 @@ describe('full repository-state release sweep', () => {
         expect(reconcile(input).rows[0]).toMatchObject({
           status: 'Merged',
           text: 'tmt-squad 0.1.0-alpha.1',
-          waiting: ['Awaiting cli', 'Awaiting colab', 'Awaiting remote'],
+          waiting:
+            leaf === 'tmt-invoke'
+              ? ['Awaiting cli', 'Awaiting colab', 'Awaiting driver-herdr', 'Awaiting remote']
+              : ['Awaiting cli', 'Awaiting colab', 'Awaiting remote'],
         });
         releases.push(release('v5.0.0-alpha.2', 1));
         expect(reconcile(input).rows[0]).toMatchObject({
           status: 'Merged',
-          waiting: ['Awaiting colab', 'Awaiting remote'],
+          waiting:
+            leaf === 'tmt-invoke'
+              ? ['Awaiting colab', 'Awaiting driver-herdr', 'Awaiting remote']
+              : ['Awaiting colab', 'Awaiting remote'],
         });
         for (const product of ['remote', 'colab']) {
           const tag = `tmt-${product}-v0.1.0-alpha.1`;
           git(['tag', tag]);
           releases.push(release(tag, 2));
         }
+        if (leaf === 'tmt-invoke') {
+          expect(reconcile(input).rows[0]).toMatchObject({
+            status: 'Merged',
+            waiting: ['Awaiting driver-herdr'],
+          });
+          const tag = 'tmt-driver-herdr-v0.1.0-alpha.1';
+          git(['tag', tag]);
+          releases.push(release(tag, 3));
+        }
         const row = reconcile(input).rows[0];
         expect(row.status).toBe('Released');
+        if (leaf === 'tmt-invoke') expect(row.text).toContain('tmt-driver-herdr 0.1.0-alpha.1');
         expect(row.text).toContain('tmt-cli 5.0.0-alpha.2');
         expect(row.text).toContain('tmt-squad 0.1.0-alpha.1');
         expect(row.waiting).toEqual([]);

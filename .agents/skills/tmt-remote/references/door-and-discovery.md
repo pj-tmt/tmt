@@ -48,7 +48,15 @@ Pre-schema-5 state reports no remembered port. Unsafe files, malformed/silent
 control replies and a held lease without reachable serve return errors. A serve
 that answers the operation as unknown (alpha.1's `REMOTE_INPUT_INVALID` or the
 current `REMOTE_CONTROL_UNSUPPORTED`) maps to `REMOTE_SERVE_OUTDATED` for both
-status and stop, in `control::request_operation`.
+ordinary status and stop, in `control::request_operation`. The optional
+`status --machine --json` projection instead preserves the original unsupported code/message
+without that restart advice, using the same control request/framing owner. Its exact four-key
+live reply adds `Pairing::machine_id`, already captured by serve; it never opens Store or an offer.
+The existing canonical UUIDv4 validator and origin/prefix rules validate that projection. Ordinary
+live status keeps exactly three keys, and both projections keep the same two-key stopped result.
+No HTTP descriptor or second status acquisition supplies a replacement hint; the
+[owning contract](../../../../contracts/remote-channel-v1.md#local-cli-discovery) defines its
+best-effort observation and use-time authority limits.
 
 Stop sends one control request to set serve's SIGTERM shutdown flag, then waits for
 the lifecycle lease and verifies socket cleanup while holding that lease. It never
@@ -67,7 +75,9 @@ same-origin restarts, occupied-port refusal and recovery, explicit port choices,
 standalone human URLs, control stop and repeated idle stop, real paired-grant
 survival across stop/serve, and listener/socket/child cleanup. State cases cover
 non-creating reads, legacy schema without migration, damaged remembered ports,
-and bounded lease-release confirmation.
+and bounded lease-release confirmation. Optional machine cases compare the owned readiness
+machine across isolated roots, preserve stopped bytes/mtimes/inventory, reject partial/invalid
+IDs and distinguish original unsupported refusals from ordinary outdated-serve advice.
 Readiness is the serve output event; no real account, model or core database is used.
 
 ## Browser opening and settings

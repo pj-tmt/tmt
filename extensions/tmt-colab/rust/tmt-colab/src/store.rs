@@ -55,6 +55,8 @@ pub enum Fault {
     Conflict,
     Capacity,
     Sql(rusqlite::Error),
+    /// Preserve clock provenance so domain admission never treats it as rejection.
+    Clock(Box<Fault>),
 }
 impl std::fmt::Display for Fault {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -96,7 +98,15 @@ impl Fault {
         }
     }
 }
-impl std::error::Error for Fault {}
+impl std::error::Error for Fault {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Clock(error) => Some(error.as_ref()),
+            Self::Sql(error) => Some(error),
+            _ => None,
+        }
+    }
+}
 impl From<rusqlite::Error> for Fault {
     fn from(e: rusqlite::Error) -> Self {
         Self::Sql(e)
@@ -516,6 +526,16 @@ fn unfrozen(c: &Connection, s: StreamScope<'_>) -> StoreResult<()> {
     Ok(())
 }
 pub(super) fn capacity(c: &Connection, page: &str, added: usize, receipt: bool) -> StoreResult<()> {
+    admit_page(c, page, added, usize::from(receipt))
+}
+
+/// Shared page budget: retained identities survive pruning and epoch changes.
+pub(super) fn admit_page(
+    c: &Connection,
+    page: &str,
+    added: usize,
+    identities: usize,
+) -> StoreResult<()> {
     let (bytes, count): (i64, i64) = c.query_row(
         "SELECT COALESCE(sum(length(payload)),0),count(*) FROM receipts WHERE page=?",
         [page],
@@ -531,12 +551,25 @@ pub(super) fn capacity(c: &Connection, page: &str, added: usize, receipt: bool) 
         [page],
         |r| r.get(0),
     )?;
-    if bytes
-        .saturating_add(baselines)
-        .saturating_add(checkpoints)
-        .saturating_add(added as i64)
-        > limits::PAGE_BYTES as i64
-        || (receipt && count >= limits::PAGE_RECEIPTS as i64)
+    let (outcomes, operations): (i64, i64) = c.query_row(
+        "SELECT COALESCE(sum(length(outcome)+length(digest)+length(CAST(id AS BLOB))+
+         length(CAST(publication_kind AS BLOB))+length(CAST(space AS BLOB))+length(CAST(page AS BLOB))+
+         length(CAST(original_epoch AS BLOB))+length(CAST(original_stream AS BLOB))),0),count(*)
+         FROM owner_operations WHERE page=? AND publication_kind IS NOT NULL",
+        [page], |r| Ok((r.get(0)?, r.get(1)?)),
+    )?;
+    let total = [bytes, checkpoints, baselines, outcomes]
+        .into_iter()
+        .try_fold(0usize, |n, v| {
+            n.checked_add(usize::try_from(v).map_err(|_| Fault::Invalid)?)
+                .ok_or(Fault::Capacity)
+        })?;
+    let count = usize::try_from(count)
+        .map_err(|_| Fault::Invalid)?
+        .checked_add(usize::try_from(operations).map_err(|_| Fault::Invalid)?)
+        .ok_or(Fault::Capacity)?;
+    if total.checked_add(added).ok_or(Fault::Capacity)? > limits::PAGE_BYTES
+        || count.checked_add(identities).ok_or(Fault::Capacity)? > limits::PAGE_RECEIPTS
     {
         return Err(Fault::Capacity);
     }
@@ -639,7 +672,7 @@ fn append_in(
         ],
     )?;
     if envelope.namespace == Namespace::Content {
-        let now = clock()?;
+        let now = clock().map_err(|e| Fault::Clock(Box::new(e)))?;
         tmt_colab_model::values::time(now).map_err(|_| Fault::Invalid)?;
         tx.execute("UPDATE pages SET last_update_at_ms=CASE WHEN last_update_at_ms IS NULL OR last_update_at_ms<?1 THEN ?1 ELSE last_update_at_ms END WHERE page=?2",
             params![now as i64, s.page])?;

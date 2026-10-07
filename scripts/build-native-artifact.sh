@@ -61,8 +61,8 @@ if [ "$notices_only" = false ]; then
     cli) tag="v$version" ;;
     *) tag="tmt-$product-v$version" ;;
   esac
-  # The CLI carries the independently owned binary through the first standalone
-  # Herdr release. Build it once from its package, then let cargo-dist include it
+  # The CLI retains its independently owned companion until released-package
+  # acquisition (#1084). Build it once from its package, then let cargo-dist include it
   # without a second bin target.
   if [ "$product" = cli ]; then
     cargo build --locked -p tmt-driver-herdr --bin tmt-driver-herdr \

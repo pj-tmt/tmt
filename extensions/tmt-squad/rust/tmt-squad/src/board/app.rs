@@ -244,11 +244,13 @@ pub enum Effect {
     SaveView,
     CancelView,
     Act(Request),
+    Checklist(super::checklist::load::Task),
 }
 
 /// What a menu entry does: run a binding, or reply to one open request.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Choice {
+    Checklist,
     Action(Action),
     /// Confirms a cron control picked from a menu.
     Cron(super::cronboard::CronRequest),
@@ -511,6 +513,7 @@ pub(super) enum Overlay {
     Theme,
     Switcher,
     CronList,
+    Checklist,
 }
 impl Overlay {
     fn id(self) -> tmt_tui::app::ComponentId {
@@ -522,6 +525,7 @@ impl Overlay {
                 Self::Theme => "theme-picker",
                 Self::Switcher => "switcher",
                 Self::CronList => "cron-list",
+                Self::Checklist => "checklist",
             }
             .into(),
         ]
@@ -582,6 +586,8 @@ pub struct TitleHit {
 
 #[derive(Default)]
 pub struct App {
+    pub(super) checklist: Option<super::checklist::Controller>,
+    pub(super) checklist_generation: u64,
     pub(super) initial_look: Option<crate::look::Look>,
     pub(super) note_link: Option<(String, usize)>,
     pub(super) link_hits: RefCell<Vec<(ratatui::layout::Rect, usize)>>,
@@ -2016,6 +2022,9 @@ impl App {
     /// the action with a notice; nothing runs half-filled. While a switch
     /// loads, the rows on screen are another squad's, so nothing acts on them.
     pub fn perform(&mut self, action: &Action) -> Effect {
+        if action.verb == Verb::Menu {
+            return self.context_menu();
+        }
         if action.verb == Verb::PickTab {
             self.switcher = Some(Switcher::default());
             self.reconcile_switcher(false);
@@ -2126,39 +2135,6 @@ impl App {
         let view = self.view.as_ref().expect("a selected row has a view");
         let request = match action.verb {
             Verb::Talk | Verb::Annotate | Verb::Reply => return self.compose(action, &row),
-            Verb::Menu => {
-                let mut entries: Vec<MenuEntry> = self
-                    .bindings()
-                    .into_iter()
-                    .filter(|(event, action)| {
-                        !matches!(event.as_str(), "click" | "double-click")
-                            && !matches!(
-                                action.verb,
-                                Verb::Menu | Verb::NextPane | Verb::TokenWindow
-                            )
-                    })
-                    .map(|(key, action)| MenuEntry {
-                        key,
-                        label: action.text.clone(),
-                        choice: Choice::Action(action),
-                    })
-                    .collect();
-                // Stable: bindings of one verb keep their key order.
-                entries.sort_by_key(|entry| match &entry.choice {
-                    Choice::Action(action) => action.order(),
-                    _ => u8::MAX,
-                });
-                self.menu = Some(Menu {
-                    row_send: None,
-                    link: None,
-                    prefill: String::new(),
-                    title: row["name"].as_str().unwrap_or_default().to_owned(),
-                    entries,
-                    selected: 0,
-                    surface: Default::default(),
-                });
-                return Effect::None;
-            }
             Verb::Tab => {
                 return match row["squad"].as_str() {
                     Some(squad) => self.go(squad.to_owned()),
@@ -2191,6 +2167,46 @@ impl App {
             Ok(request) => Effect::Act(request),
             Err(reason) => self.say(format!("{}: {reason}.", action.verb.name())),
         }
+    }
+
+    pub(super) fn context_menu(&mut self) -> Effect {
+        let row = self.selected_row();
+        let mut entries: Vec<MenuEntry> = self
+            .bindings()
+            .into_iter()
+            .filter(|(event, action)| {
+                !matches!(event.as_str(), "click" | "double-click")
+                    && !matches!(action.verb, Verb::Menu | Verb::NextPane | Verb::TokenWindow)
+                    && (row.is_some() || !action.verb.acts_on_member())
+            })
+            .map(|(key, action)| MenuEntry {
+                key,
+                label: action.text.clone(),
+                choice: Choice::Action(action),
+            })
+            .collect();
+        entries.sort_by_key(|entry| match &entry.choice {
+            Choice::Action(action) => action.order(),
+            _ => u8::MAX,
+        });
+        entries.push(MenuEntry {
+            key: String::new(),
+            label: "Checklist".into(),
+            choice: Choice::Checklist,
+        });
+        self.menu = Some(Menu {
+            row_send: None,
+            link: None,
+            prefill: String::new(),
+            title: row
+                .and_then(|row| row["name"].as_str())
+                .unwrap_or("Actions")
+                .to_owned(),
+            entries,
+            selected: 0,
+            surface: Default::default(),
+        });
+        Effect::None
     }
 
     /// The lead `jump lead` goes to: the squad's own lead on its tab; on the
@@ -2477,6 +2493,7 @@ impl App {
 
     pub(super) fn choose(&mut self, choice: Choice) -> Effect {
         match choice {
+            Choice::Checklist => self.open_checklist(),
             Choice::Action(action) => self.perform(&action),
             Choice::Cron(request) => Effect::Act(Request::Cron(request)),
             Choice::Dismiss => Effect::None,
@@ -3136,7 +3153,9 @@ impl App {
     }
 
     fn overlay(&self) -> Option<Overlay> {
-        if self.help {
+        if self.checklist_shown() {
+            Some(Overlay::Checklist)
+        } else if self.help {
             Some(Overlay::Help)
         } else if self.settings.is_some() {
             Some(Overlay::Settings)
@@ -3160,6 +3179,7 @@ impl App {
         event: &Event,
     ) -> Option<Effect> {
         match overlay {
+            Overlay::Checklist => self.checklist_event(event),
             Overlay::Help => {
                 let input = self.help_state.borrow_mut().input(event);
                 match input? {
@@ -3187,6 +3207,11 @@ impl App {
                             self.settings_preview();
                             self.settings = None;
                             Effect::CancelSettings
+                        }
+                        super::settings::Input::Pick("actions") => {
+                            self.settings_preview();
+                            self.settings = None;
+                            self.context_menu()
                         }
                         super::settings::Input::Pick("window") => {
                             self.cycle_token_window();
@@ -3483,6 +3508,9 @@ impl App {
     }
 
     pub(super) fn invalidate_overlay_frames(&self) {
+        if let Some(checklist) = &self.checklist {
+            checklist.invalidate();
+        }
         if let Some(settings) = &self.settings {
             settings.surface.borrow_mut().invalidate();
         }
@@ -5183,7 +5211,8 @@ pub(crate) mod tests {
                 "T",
                 ",",
                 "ctrl-r",
-                "backspace"
+                "backspace",
+                ""
             ]
         );
     }
@@ -6528,6 +6557,66 @@ mod link_tests {
         app.menu_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
         app.view.as_mut().unwrap().document["sections"][0]["rows"][0]["waitingOnYou"] = json!([]);
         assert_eq!(enter(&mut app), Effect::None);
+    }
+    #[test]
+    fn answer_selection_uses_core_inbox_after_withdrawal_and_preserves_manual_state() {
+        let mut app = app("tmt:answer/auth-fix?text=answer");
+        let view = app.view.as_mut().unwrap();
+        let row = &mut view.document["sections"][0]["rows"][0];
+        row["pending"] = json!("independent decision");
+        let state = row["state"].clone();
+        let room = crate::requests::Window {
+            items: vec![json!({
+                "requestId":"withdrawn", "kind":"request", "recipientId":"ME",
+                "sender":{"identityId":"auth-fix"}, "preview":"obsolete question",
+                "final":{"status":"withdrawn", "reason":"obsolete", "withdrawnAtMs":20}
+            })],
+            complete: true,
+        };
+        // Core's inbox has already excluded the withdrawal. Squad must use that
+        // projection rather than deriving answer candidates from room history.
+        let mut inbox = crate::requests::Window {
+            items: vec![json!({"requestId":"open", "from":{"identityId":"auth-fix"},
+                "preview":"current question", "preparedAtMs":10})],
+            complete: true,
+        };
+        crate::requests::apply(&mut view.document, "product", "ME", &room, &inbox);
+        assert_eq!(
+            view.document["sections"][0]["rows"][0]["waitingOnYou"],
+            json!([{"requestId":"open", "preview":"current question", "preparedAtMs":10}])
+        );
+        app.activate_link();
+        assert!(app.menu.is_none(), "one Core-open request needs no picker");
+        assert_eq!(
+            enter(&mut app),
+            Effect::Act(Request::Reply {
+                me: "Ben".into(),
+                request: "open".into(),
+                from: "auth-fix".into(),
+                text: "answer".into()
+            })
+        );
+        app.activate_link();
+        assert!(
+            app.input.is_some(),
+            "reopen the still-current answer before refresh"
+        );
+        inbox.items.clear();
+        let view = app.view.as_mut().unwrap();
+        crate::requests::apply(&mut view.document, "product", "ME", &room, &inbox);
+        let row = &view.document["sections"][0]["rows"][0];
+        assert_eq!(row["waitingOnYou"], json!([]));
+        assert_eq!(row["pending"], "independent decision");
+        assert_eq!(row["state"], state);
+        assert!(
+            crate::attention::waits_on_you(row),
+            "manual pending remains independent"
+        );
+        assert_eq!(
+            enter(&mut app),
+            Effect::None,
+            "stale answer cannot be submitted"
+        );
     }
     #[test]
     fn all_member_verbs_refuse_nonmembers_and_a_retained_loading_frame() {

@@ -102,7 +102,7 @@ fn template() -> &'static Template<()> {
     TEMPLATE.get_or_init(|| scene::compile(FILE, MARKUP, &schema()))
 }
 
-/// The box's four border strings. `Outline` owns the square glyphs; the section
+/// The box's four border strings. `Outline` owns the flat glyphs; the section
 /// reads them from a painted scratch buffer and styles them itself.
 struct Chrome {
     top: String,
@@ -120,7 +120,7 @@ impl Chrome {
             border: look.role(Role::Dim),
             title_style: look.role(Role::Dim),
         }
-        .paint(area, &mut buffer);
+        .paint_flat(area, &mut buffer);
         let row = |y| {
             (0..width)
                 .map(|x| buffer[(x, y)].symbol().to_owned())

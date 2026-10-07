@@ -232,12 +232,15 @@ device context, not a second credential model: every request and upgrade recheck
 revocation and expiry, and a state-changing operation still needs a fresh device signature over
 its exact intent. Door sessions live only in the running remote and do not survive restart.
 Revocation, grant expiry/revision change and stop end all device sessions and tokens.
-`limits::SESSION_IDLE` is 12 hours without activity for a session that has had a transport;
-`limits::SESSION_UNATTACHED_IDLE` is 60 seconds without activity for a session that has never
-had one. Traffic and authenticated requests count as activity. Maintenance runs even without new
-requests: the door's existing 100 ms event loop runs session maintenance at most once per
+`limits::SESSION_IDLE` is 12 hours without activity while a session has a live transport;
+`limits::SESSION_UNATTACHED_IDLE` is a 60-second inactivity grace for every session without
+a live transport, including one that previously attached. Last-transport close starts fresh
+grace; traffic and authenticated requests count as activity. Reattaching within the grace
+resumes the same session. Detached sessions still count against the per-device cap until expiry.
+Maintenance runs even without new requests: the door's existing 100 ms event loop runs session maintenance at most once per
 `limits::SESSION_MAINTENANCE_INTERVAL` (one second). Request paths still check session expiry
-themselves; last-transport closure ends authority immediately. Maintenance prunes persisted
+themselves. Explicit end, revoke, grant expiry/revision change, eviction and stop remain immediate.
+Maintenance prunes persisted
 session rows only when an old run or expired end notice needs removal.
 
 The SDK's `transportUrl(session, mountedWebSocketUrl)` adds exactly `?tmt-session=<sessionId>`
@@ -251,17 +254,17 @@ current door's mount space, without other query parameters or fragments. Existin
 without the parameter attach to the cookie's session.
 
 Opening another session leaves existing sessions and tunnels live. The last upgraded transport
-closing (including tab close or a dropped transport while backgrounded/asleep) ends its session;
-other tabs stay live. A failed upgrade is not an established transport. Ending closes remaining
-tunnels while held work survives the session end, bound to the device grant. Only stop, revoke,
+closing (including tab close or a dropped transport while backgrounded/asleep) starts the
+session's reattach grace; other tabs stay live. A failed upgrade is not an established transport.
+Ending closes remaining tunnels while held work survives the session end, bound to the device grant. Only stop, revoke,
 and grant expiry/revision change cancel held work. Dispatching and uncertain work retain their
 original operation IDs, frozen intent and recovery behavior. A limit eviction uses
 `REMOTE_SESSION_EVICTED` with the active positive `limit` and optional `settingsUrl`; the door
 omits the URL until #1769 adds the Remote settings page. The SDK exposes `RefusalError.limit`
 and optional `settingsUrl`, also on send/operation refused states. Absent/null URLs mean
 command-only guidance; when present, Colab shows the settings link plus `tmt remote settings
-sessions-per-device <n>`. The SDK normalizes the URL and requires the door's origin. Transport
-close/idle expiry uses `REMOTE_SESSION_ENDED`. After verifying the device signature and current
+sessions-per-device <n>`. The SDK normalizes the URL and requires the door's origin. Session
+idle expiry uses `REMOTE_SESSION_ENDED`. After verifying the device signature and current
 grant, Remote can sign the distinct end reason for `limits::SESSION_END_NOTICE` (60 seconds);
 afterward admission is the generic 404, also exposed by the SDK as `REMOTE_SESSION_ENDED`.
 Reopening is silent: the page sends another signed `session.open` from its stored device key,
@@ -593,7 +596,41 @@ live serve return the standard `{"error":{"code":"REMOTE_…","message":"…"}}`
 nonzero exit. A running serve that predates `status` or `stop` (alpha.1 answered
 `REMOTE_INPUT_INVALID` "Unknown control operation."; later serves answer
 `REMOTE_CONTROL_UNSUPPORTED`) yields `REMOTE_SERVE_OUTDATED` from either command: it must be
-stopped by hand (Ctrl-C in its terminal) and started again, since `stop` cannot reach it. Status contains no other fields, secrets, cookies or device inventory.
+stopped by hand (Ctrl-C in its terminal) and started again, since `stop` cannot reach it.
+Ordinary status contains no other fields, secrets, cookies or device inventory.
+
+`tmt remote status --machine --json` selects an optional root-local observation; `--machine`
+requires `--json`. It sends exactly `{"op":"status","machine":true}` through the same owner-only
+control request, instead of the ordinary exact `{"op":"status"}`. A running supporting serve
+returns exactly:
+
+```text
+{"running":true,"origin":"http://127.0.0.1:<port>","path":"/r/k7qxm4tz2pbwn6rh","machineId":"<canonical non-nil UUIDv4>"}
+```
+
+All four values come from that connected serving owner; `machineId` is the immutable machine
+already captured for this run. Discovery does not open or initialize Store, read a machine key,
+create a pairing offer or acquire an HTTP descriptor/Session. Ordinary parsing remains exactly
+three keys; the opt-in parser requires exactly four, with the same origin/path validation and
+canonical lowercase non-nil UUIDv4/variant validation for `machineId`. Partial, malformed or extra
+fields fail closed. Stopped/absent inspection remains exactly the two-key document above, without
+`machineId` even when stored state remembers one; legacy state is not migrated.
+
+An old command rejects `--machine` before state work. Against an old live serve, the optional
+projection preserves the standard nonzero error document and its original unsupported code/message:
+`REMOTE_CONTROL_UNSUPPORTED`, or the exact legacy `REMOTE_INPUT_INVALID` / "Unknown control operation."
+It does not rewrite that optional refusal to stop/restart, installation or repair advice.
+Other connected peer errors stay errors; malformed/silent replies and unsafe/unavailable state
+never imply stopped or a machine ID. No preceding ordinary status or second acquisition is required.
+
+This observation uses the invoking executable and inherited core-root context, and grants no
+routing or management authority. A consumer may omit its whole optional machine/identity hint
+when unsupported, stopped, timed out or unavailable; it must not prevent creation, backfill
+historical absence or infer another identity from labels/current agents. A creation hint is not
+an atomic identity-directory/grant proof: use-time routing still requires both stored IDs to match
+the authenticated current machine and a unique admitted agent under the current live grant.
+The first supporting release is recorded after delivery, not inferred from an installed receipt
+or a guessed minimum; a selected new CLI does not prove an old loaded door supports this projection.
 
 `tmt remote stop --json` asks the running serve to shut down through its owner-only control
 socket, then waits up to 40 seconds after acknowledgment for the lifecycle lease to be released
@@ -954,6 +991,107 @@ The owner's machine never executes it, and page membership adds no operation sco
 extension records the ask and the reply in the shared resource, attributed to the asking member and
 to the answering agent and machine. Everyone who can see that resource sees them, like comments.
 Visibility is the extension's rule, not a remote grant.
+
+### Object channel frames
+
+**Status:** library wire schema only. `rust/crates/tmt-extension-objects` implements and tests the five frame kinds below
+(request, result, admit, admission and origin-state), all decoded and encoded by the same checks; no route, channel,
+handshake, callback executor or backend is shipped (#1852). The leaf decodes every kind: which side may send which, and
+every generation, high-water, ordering and outstanding-request rule, belong to the later channel. Requests, results
+and admission replies carry no principal, role, permit, retry or scope: `method`, the result tag and the callback
+identifiers are correlation only. An admit `context` states the owner device and grant revision as Remote established
+them, for the extension's own decision; a browser or caller never selects it, and nothing in a context, identifier,
+digest or origin grants authority or proves who may use a value.
+
+**Framing.** A frame is a 4-byte big-endian length (2 to 65,536) and that many bytes of one strict UTF-8 JSON object
+without duplicate member names (compared after decoding escapes), unknown or missing members, trailing bytes, nesting
+deeper than 8, or any number that is not an unsigned integer of at most 2^53-1 without sign, fraction or exponent.
+Counters are canonical decimal strings spanning `u64`. UUIDs are lowercase version 4. Bytes are unpadded base64url
+(canonical: no padding, standard alphabet or nonzero trailing bits), digests 64 lowercase hex digits, and every value
+re-encodes to the same text. Structure faults (unknown or missing member, wrong JSON type, unknown `kind`, `method`,
+origin kind, context kind, disclosure class or result tag) and value faults (a spelling, range or association outside its grammar) are distinct
+classes. Encoding applies the same checks, in the canonical member order shown.
+
+**Request** `{"version":1,"kind":"request","generation":<uuid>,"requestId":<counter>,"origin":<origin>,"method":<method>,"input":<input>}`,
+with `origin` either `{"kind":"local-extension"}` or `{"kind":"mounted","originId":<uuid>}`.
+
+| `method`          | `input` members, in order                                                                                  |
+| ----------------- | ---------------------------------------------------------------------------------------------------------- |
+| `objects.config`  | `namespace`, `policyInput`                                                                                 |
+| `objects.begin`   | `transferId`, `namespace`, `opaqueKey`, `policyInput`, `payloadSha256`, `payloadBytes`                     |
+| `objects.part`    | `transferId`, `index`, `bytes`                                                                             |
+| `objects.commit`  | `transferId`                                                                                               |
+| `objects.status`  | `transferId`, `namespace`, `policyInput`                                                                   |
+| `objects.read`    | `namespace`, `opaqueKey`, `policyInput`, `payloadSha256`, `payloadBytes`, `offset`, `count`                |
+| `objects.discard` | `transferId`                                                                                               |
+
+`namespace` and `opaqueKey` are 32 bytes (43 characters). `policyInput` is opaque, at most 2,048 decoded bytes (the
+bound of the backend's policy binding). `payloadBytes` is at most 12,582,912. `bytes` of a part is 1 to 32,768 decoded
+bytes. `index` is any `u32`: it does not depend on the transport ceiling of 32,768 or on a smaller backend part size
+(3,071 or u32 max are valid; 2^32 is not), and the backend alone enforces part order, full parts and the final
+remainder. `count` is 1 to 32,768, and `offset` is below `payloadBytes` (an empty payload reads from 0).
+
+**Result** `{"version":1,"kind":"result","generation":<uuid>,"requestId":<counter>,"method":<method>[,"transferId":<uuid>],"ok":{...}|"error":{...}}`
+has exactly one of `ok` and `error`. `transferId` repeats the original transfer on every result and error of `begin`,
+`part`, `commit`, `status` and `discard`, and is absent for `config` and `read`. `ok` carries a `result` tag:
+
+| `result`    | Further members                                                                                      | Answers                  |
+| ----------- | ---------------------------------------------------------------------------------------------------- | ------------------------ |
+| `config`    | `projection` (`browser` or `local`), `backend`, `capabilities`, `limits`                               | `config`                 |
+| `pending`   | `nextIndex`, `received`, and `expiresAtMs` only for `status`                                          | `begin`, `status`        |
+| `progress`  | `nextIndex`, `received`                                                                              | `part`                   |
+| `committed` | `opaqueKey`, `payloadSha256`, `payloadBytes`                                                         | `begin`, `commit`, `status` |
+| `state`     | `state`: `expired`, `discarded`, `unavailable`, `unknown`, `notObserved` (`discard` answers only `discarded`) | `begin`, `status`, `discard` |
+| `read`      | `offset`, `totalBytes`, `bytes` (0 to 32,768 decoded bytes, within `totalBytes`)                       | `read`                   |
+
+A pending `status` answer carries the actual stored expiry; a pending `begin` answer has none and never invents one.
+`config` shows the server-selected backend (`{"id","source":"default","editable":false}`), its three boolean
+`capabilities` (`immutableCreate`, `chunkedRead`, `recoverByOriginalId`) and `limits`: `payloadBytes` and `chunkBytes`
+(the backend's canonical part size, never clamped to the transport) for `browser`, plus `namespaceBytes`,
+`extensionBytes` and `installationBytes` for `local`. An empty generic read or payload is valid and is unrelated to a
+consumer's own envelope or authority.
+
+`error` is `{"code":<code>}` with `denied`, `unavailable`, `invalid`, `conflict`, `capacity`, `not-found` or `unknown`,
+and a `limit` member exactly for `capacity`: `namespace-bytes`, `extension-bytes`, `installation-bytes`,
+`namespace-entries`, `extension-entries`, `installation-entries`, `active-intents`, `retained-extension`,
+`retained-installation` or `requests`. `not-found` answers only `read`; `unknown` only `begin`, `part`, `commit` and
+`discard`, where an effect may have happened. No error carries message text, and none proves that a possibly published
+effect did not happen.
+
+**Admit** `{"version":1,"kind":"admit","generation":<uuid>,"callbackId":<counter>,"requestId":<counter>,"boundary":<boundary>,"context":<context>,"operation":<operation>}`
+asks the extension to decide at one boundary of one request; `requestId` is the request's own counter. `boundary` is
+`acquire` (before work starts), `effect` (before a durable change; only `begin`, `part`, `commit` and `discard` have one)
+or `disclose` (before a result leaves). `context` states how the request actually arrived, as the service established it
+and never as a browser selected it: `{"kind":"owner-session","originId":<uuid>,"deviceId":<uuid>,"grantRevision":<n>}`
+(`grantRevision` 1 to 2^53-1), `{"kind":"mounted","originId":<uuid>}` or `{"kind":"local-extension"}`. `operation` is
+`{"method":<method>,"input":<input>[,"disclosure":<disclosure>]}`, and `disclosure` is present exactly at `disclose`.
+
+For `config`, `begin`, `status` and `read` the admit `input` is the request input. For `part` it is
+`{"transferId","index","length","retained"}` with `length` 1 to 32,768, and for `commit` and `discard`
+`{"transferId","retained"}`; `retained` is what the transfer froze, `{"namespace","opaqueKey","policyInput","payloadSha256","payloadBytes"}`.
+No callback carries the bytes of a part or of a read: a `bytes` member is an unknown member.
+
+A `disclosure` names the exact class of result about to be disclosed, with the values but never the bytes. Its `class`
+decides its members and the methods that may produce it, the same association as the result tags above:
+
+| `class`    | Members                                                  | Result it announces | Methods                      |
+| ---------- | -------------------------------------------------------- | ------------------- | ---------------------------- |
+| `config`   | `projection`                                             | `config`            | `config`                     |
+| `status`   | `nextIndex`, `received`, `expiresAtMs` only for `status` | `pending`           | `begin`, `status`            |
+| `progress` | `nextIndex`, `received`                                  | `progress`          | `part`                       |
+| `receipt`  | `opaqueKey`, `payloadSha256`, `payloadBytes`             | `committed`         | `begin`, `commit`, `status`  |
+| `terminal` | `state`                                                  | `state`             | `begin`, `status`, `discard` |
+| `bytes`    | `offset`, `length` (0 to 32,768)                         | `read`              | `read`                       |
+
+`discard` discloses only `terminal` with `discarded`. A disclosure never turns an unknown, expired or unavailable state
+into permission to retry or into proof that no earlier effect happened.
+
+**Admission** `{"version":1,"kind":"admission","generation":<uuid>,"callbackId":<counter>,"requestId":<counter>,"decision":<decision>}`
+answers one admit. `decision` is `allow`, `deny` or `unavailable`, and nothing else: the reply has no permit, principal,
+role, target or scope member, and `unavailable` is neither permission nor a statement that no effect happened.
+
+**Origin state** `{"version":1,"kind":"origin-state","generation":<uuid>,"originId":<uuid>,"state":<state>}` announces that
+an origin is `established` or `closed`.
 
 ## Backends and deploy
 

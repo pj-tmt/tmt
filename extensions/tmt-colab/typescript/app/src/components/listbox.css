@@ -82,4 +82,7 @@
 .tmt-listbox-input-list {
   position: fixed;
   z-index: 60;
+  margin: 0;
+  padding: 0;
+  inset: auto;
 }

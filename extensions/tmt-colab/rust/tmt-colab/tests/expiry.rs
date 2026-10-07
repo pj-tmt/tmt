@@ -188,7 +188,7 @@ fn verified_projection_uses_same_durable_time_for_defaults_override_and_boundari
 fn content_samples_append_clock_and_failed_late_receipt_rolls_back_time() {
     let mut f = Fixture::new();
     f.create();
-    let p = page::prepare(
+    let p = match page::prepare_publication(
         &f.store,
         &f.key,
         PAGE,
@@ -200,10 +200,17 @@ fn content_samples_append_clock_and_failed_late_receipt_rolls_back_time() {
         &mut f.decoder(),
         NOW,
     )
-    .unwrap();
+    .unwrap()
+    {
+        page::PublicationPreparation::Write(frozen) => frozen,
+        page::PublicationPreparation::Noop { .. } => panic!("expected a write"),
+    };
+    let commit = |f: &mut Fixture| {
+        page::commit_publication(&mut f.store, &f.key, p.job(), p.packet(), p.chain(), NOW)
+    };
     f.clock.store(NOW + 40 * DAY, Ordering::SeqCst);
     f.sql().execute_batch("CREATE TRIGGER deny_receipt BEFORE INSERT ON owner_operations BEGIN SELECT RAISE(FAIL,'late rollback'); END;").unwrap();
-    assert!(page::commit(&mut f.store, &f.key, &p, NOW).is_err());
+    assert!(commit(&mut f).is_err());
     assert_eq!(f.projection()["lastUpdateAtMs"], NOW);
     assert_eq!(
         page::read(&f.store, &f.key, PAGE, &mut f.decoder())
@@ -212,20 +219,10 @@ fn content_samples_append_clock_and_failed_late_receipt_rolls_back_time() {
         "<p>Initial</p>"
     );
     f.sql().execute_batch("DROP TRIGGER deny_receipt").unwrap();
-    assert_eq!(
-        page::commit(&mut f.store, &f.key, &p, NOW)
-            .unwrap()
-            .accepted,
-        Accepted::New
-    );
+    assert_eq!(commit(&mut f).unwrap().accepted, Accepted::New);
     assert_eq!(f.projection()["lastUpdateAtMs"], NOW + 40 * DAY);
     f.clock.store(NOW + 50 * DAY, Ordering::SeqCst);
-    assert_eq!(
-        page::commit(&mut f.store, &f.key, &p, NOW)
-            .unwrap()
-            .accepted,
-        Accepted::Replay
-    );
+    assert_eq!(commit(&mut f).unwrap().accepted, Accepted::Replay);
     assert_eq!(f.projection()["lastUpdateAtMs"], NOW + 40 * DAY);
     f.apply(OwnerAction::EpochAdvance { page: PAGE });
     assert_eq!(f.projection()["lastUpdateAtMs"], NOW + 40 * DAY);
