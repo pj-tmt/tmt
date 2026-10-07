@@ -341,6 +341,9 @@ pub(in crate::board) fn render_squad(frame: &mut ratatui::Frame, app: &App, area
             .as_str()
             .map(crate::source::model_name)
             .unwrap_or_default();
+        let full_model = row["fields"]["model"].as_str().unwrap_or_default();
+        let model_visible = model == full_model
+            && crate::board::row_detail::uncut(model, 8, tmt_tui::style::TextFlow::Truncate);
         let model = fit(model, 8).trim_end().to_owned();
         let age = row["staleness"]["unchangedSinceMs"]
             .as_u64()
@@ -381,12 +384,25 @@ pub(in crate::board) fn render_squad(frame: &mut ratatui::Frame, app: &App, area
         for line in &mut before {
             line["text"] = json!(rule(line["text"].as_str().unwrap_or_default(), width));
         }
+        let task =
+            super::super::notes::sanitize(row["fields"]["task"].as_str().unwrap_or_default());
+        let mut visible = Vec::new();
+        if crate::board::row_detail::uncut(
+            &task,
+            width.saturating_sub(3),
+            tmt_tui::style::TextFlow::Truncate,
+        ) {
+            visible.push("task");
+        }
+        if model_visible {
+            visible.push("model");
+        }
         rows.push(json!({"id": id(index), "before": std::mem::take(&mut before), "separator": [],
             "mark": format!(" {mark} "), "mark_role": role.name(), "name": name, "tag": tag,
             "state": format!("  {}", fit(&escape(state), state_width).trim_end()),
             "state_role": if waits { "waiting" } else { row["colors"]["state"].as_str().and_then(crate::look::role).unwrap_or(Role::Text).name() },
             "squad": "", "model": if model.is_empty() { String::new() } else { format!("{model}  ") },
-            "age": format!("{age} "), "after": after, "detail":app.detail_value(index,&["task","model"])}));
+            "age": format!("{age} "), "after": after, "detail":app.detail_value(index,&visible)}));
     }
     // A trailing rule/section is still meaningful when search hides all members.
     // Attach it as an unselectable tail after the last row, before the box closes.
@@ -394,6 +410,7 @@ pub(in crate::board) fn render_squad(frame: &mut ratatui::Frame, app: &App, area
         before.push(json!({"id": "empty", "text": if app.search.is_empty() { "(no members)" } else { "(no matching members)" }, "role": "dim"}));
     }
     let tail = before.iter().enumerate().map(|(index, line)| json!({"id": format!("tail-{index}"), "text": rule(line["text"].as_str().unwrap_or_default(), usize::from(inner.width)), "role": "dim"})).collect::<Vec<_>>();
+    let details: Vec<_> = rows.iter().map(|row| row["detail"].clone()).collect();
     let key = Key {
         width: area.width,
         look,
@@ -429,7 +446,7 @@ pub(in crate::board) fn render_squad(frame: &mut ratatui::Frame, app: &App, area
         crate::board::row_detail::more_hit(
             app,
             row.local,
-            &app.detail_value(row.local, &["task", "model"]),
+            &details[row.local],
             inner.width,
             3,
             row.start + 2,

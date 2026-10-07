@@ -192,7 +192,7 @@ fn tab_enters_the_jobs_half_after_the_last_pane_and_returns() {
         expanded.contains("prompt")
             && expanded.contains("job for u1")
             && !expanded.contains("│when")
-            && !expanded.contains("│next"),
+            && expanded.contains("│next"),
         "{expanded}"
     );
     press(&mut app, KeyCode::Tab);

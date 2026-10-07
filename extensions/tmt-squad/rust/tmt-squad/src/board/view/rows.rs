@@ -71,31 +71,82 @@ fn prepare(
         .unwrap_or(layout);
     let cells = crate::markup::row_values(rows, tab, app.rows())
         .map_err(|error| format!("Row values: {error}"))?;
-    let mut visible = Vec::new();
-    for line in &rows.lines {
-        let mut position = 0;
-        for cell in line {
-            let range = position..position + cell.span;
-            position += cell.span;
-            if layout.span(range).is_some()
-                && let Some(field) = cell.field.as_deref()
-            {
-                visible.push(field);
+    // Visibility is per occurrence: a surviving track may still cut this row's
+    // text. Mirror the painter's request-age reservation and bounded wrapping.
+    let mut painted_extras = extras.clone();
+    for (index, (extra, (_, row))) in painted_extras.iter_mut().zip(app.rows()).enumerate() {
+        let mut visible = Vec::new();
+        for (line, configured) in rows.lines.iter().enumerate() {
+            let mut position = 0;
+            for (cell, node) in configured.iter().zip(&cells[index].children[line].children) {
+                let range = position..position + cell.span;
+                position += cell.span;
+                let Some(field) = cell.field.as_deref() else {
+                    continue;
+                };
+                let Some(budget) = layout.span(range) else {
+                    continue;
+                };
+                let pending = field == "pending";
+                let text = if pending {
+                    super::waiting::text(row)
+                } else {
+                    node.text.as_deref()
+                };
+                let (width, flow) = if pending && line > 0 {
+                    (
+                        budget.visible.saturating_sub(
+                            extra
+                                .request_age
+                                .as_deref()
+                                .map_or(0, |age| age.width() + GAP),
+                        ),
+                        tmt_tui::style::TextFlow::Truncate,
+                    )
+                } else {
+                    (usize::from(budget.text), node.style.text_flow)
+                };
+                if text.is_some_and(|text| {
+                    crate::board::row_detail::uncut(text, width, flow)
+                        && (pending && line > 0
+                            || !budget.cut
+                            || tmt_tui::text::fit_lines(
+                                text,
+                                budget.text,
+                                flow,
+                                rows.columns[position - cell.span].align,
+                            )
+                            .iter()
+                            .all(|line| {
+                                crate::board::row_detail::uncut(
+                                    line.trim_end(),
+                                    budget.visible,
+                                    tmt_tui::style::TextFlow::Truncate,
+                                )
+                            }))
+                }) {
+                    visible.push(field);
+                }
             }
         }
-    }
-    if !rows
-        .lines
-        .iter()
-        .flatten()
-        .any(|cell| cell.field.as_deref() == Some("pending"))
-    {
-        visible.push("pending");
-    }
-    // Keep the cache key's original inputs; only the paint projection suppresses
-    // fields whose cells survive the actual width-dependent grid layout.
-    let mut painted_extras = extras.clone();
-    for (index, extra) in painted_extras.iter_mut().enumerate() {
+        if !rows
+            .lines
+            .iter()
+            .flatten()
+            .any(|cell| cell.field.as_deref() == Some("pending"))
+        {
+            let room = usize::from(area.width).saturating_sub(
+                4 + extra
+                    .request_age
+                    .as_deref()
+                    .map_or(0, |age| age.width() + GAP),
+            );
+            if super::waiting::text(row).is_some_and(|text| {
+                crate::board::row_detail::uncut(text, room, tmt_tui::style::TextFlow::Truncate)
+            }) {
+                visible.push("pending");
+            }
+        }
         extra.detail = app.detail_value(index, &visible);
     }
     let scene = RowPaint::build(

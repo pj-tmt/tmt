@@ -125,3 +125,70 @@ fn row_ids_are_namespaced_and_untrusted_names_are_neutralized() {
         "{shown}"
     );
 }
+
+#[test]
+fn clipped_prompt_and_target_remain_in_detail_until_the_whole_field_is_visible() {
+    let message = "Review the long release checklist before shipping";
+    let mut job = view("tmt-lead", message, None);
+    job.job.pause = Some(tmt_squad::cron::Pause {
+        by: "u".into(),
+        at_ms: 0,
+    });
+    for (width, hidden) in [(80, true), (160, false)] {
+        let columns = Columns::for_width(false, width);
+        let data = expanded_detail(&job, NOW, columns, width);
+        assert_eq!(
+            data["fields"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|field| field["label"] == "prompt"),
+            hidden
+        );
+        let rows = project(
+            &[&job],
+            &[crate::board::row_detail::Target::Job(detail_id(&job))],
+            None,
+            NOW,
+            width,
+            crate::look::Look::default(),
+            columns,
+        );
+        let screen = paint(rows, columns, width, 8);
+        if hidden {
+            assert!(!screen[0].contains(message), "{screen:#?}");
+            assert!(
+                screen.iter().any(|line| line.contains(message)),
+                "{screen:#?}"
+            );
+            assert!(!screen.iter().any(|line| line.contains("no details yet")));
+        } else {
+            assert!(screen[0].contains(message));
+            assert!(
+                screen[1].starts_with("      │no details yet"),
+                "{screen:#?}"
+            );
+        }
+    }
+    job.owner_name = Some("a target name longer than sixteen cells".into());
+    for width in [80, 160] {
+        let data = expanded_detail(&job, NOW, Columns::for_width(false, width), width);
+        assert!(
+            data["fields"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|field| field["label"] == "target"
+                    && field["text"] == job.owner_name.as_deref().unwrap())
+        );
+    }
+    job.job.message = "first line\nsecond line".into();
+    let data = expanded_detail(&job, NOW, Columns::for_width(false, 160), 160);
+    assert!(
+        data["fields"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|field| field["label"] == "prompt" && field["text"] == "first line\nsecond line")
+    );
+}

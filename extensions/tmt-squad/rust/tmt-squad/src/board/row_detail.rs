@@ -81,6 +81,28 @@ pub(super) struct Detail {
     pub show_reply: bool,
 }
 
+/// A collapsed field suppresses detail only if its complete text survives the
+/// same cell budget and overflow policy that paint uses.
+pub(super) fn uncut(text: &str, width: usize, flow: tmt_tui::style::TextFlow) -> bool {
+    use tmt_tui::style::TextFlow;
+    let text = tmt_cli_style::table::escape(text);
+    let width = width.min(usize::from(u16::MAX));
+    if width == 0 {
+        return false;
+    }
+    match flow {
+        TextFlow::Wrap | TextFlow::Clamp(_) => {
+            let content = |text: &str| {
+                text.chars()
+                    .filter(|ch| !ch.is_whitespace())
+                    .collect::<String>()
+            };
+            content(&tmt_tui::text::lines(&text, width as u16, flow).join("")) == content(&text)
+        }
+        _ => text.width() <= width,
+    }
+}
+
 impl Detail {
     fn add(&mut self, label: &'static str, text: Option<&str>, role: Role) {
         if let Some(text) = text.filter(|text| !text.is_empty()) {
@@ -443,7 +465,11 @@ fn block(data: &Value, width: u16, indent: u16, look: Look, selected: bool) -> B
                 look.role(if selected { Role::Accent } else { Role::Dim }),
             ),
             Span::styled(
-                format!("{:<labels$}  ", super::view::fit(label, labels).trim_end()),
+                if fields.is_empty() && data["show_reply"] != true {
+                    String::new()
+                } else {
+                    format!("{:<labels$}  ", super::view::fit(label, labels).trim_end())
+                },
                 muted,
             ),
         ];

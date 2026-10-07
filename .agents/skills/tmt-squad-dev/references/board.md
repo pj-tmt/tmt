@@ -92,7 +92,8 @@ and covered-hit removal. Ask-lead, settings, pickers and cron overlays stay squa
 
 - `board::row_detail` owns the typed entity fields/reply projection, one renderer and
   full-reply reader for member, HOME lead/member and job rows. Adapters supply data
-  and row geometry plus the fields already visible in the collapsed row, never a
+  and row geometry plus fields shown uncut in the collapsed row (truncated or
+  clamped fields remain in the detail block), never a
   separate detail look. Collapsed content stays intact; detail omits visible
   fields, including task/model in the default member box and width-dependent
   job/grid cells. `e` toggles stable row occurrences;

@@ -44,19 +44,35 @@ impl Columns {
 
     /// The same fixed tracks used by the collapsed line decide which detail
     /// fields are already visible at this width.
-    fn visible_fields(self, width: u16) -> Vec<&'static str> {
+    fn visible_fields(self, view: &JobView, now_ms: i64, width: u16) -> Vec<&'static str> {
         let owner = 7 + if self.squad { SQUAD + 1 } else { 0 };
         let prompt = owner + OWNER + 1;
         let schedule = prompt + if self.what > 0 { self.what + 1 } else { 0 };
         let next = schedule + SCHEDULE + 1;
+        let target = view.owner_name.as_deref().unwrap_or("no owner");
+        let schedule_text = schedule_text(&view.job.schedule);
+        let next_text = match view.job.state() {
+            "on" => next_time(view, now_ms).unwrap_or_else(|| "–".into()),
+            "paused" => "paused".into(),
+            _ => "no owner".into(),
+        };
         [
-            ("target", owner),
-            ("prompt", if self.what > 0 { prompt } else { u16::MAX }),
-            ("when", schedule),
-            ("next", next),
+            ("target", owner, OWNER, target),
+            ("prompt", prompt, self.what, view.job.message.as_str()),
+            ("when", schedule, SCHEDULE, schedule_text.as_str()),
+            ("next", next, NEXT, next_text.as_str()),
         ]
         .into_iter()
-        .filter_map(|(field, start)| (start < width).then_some(field))
+        .filter_map(|(field, start, budget, text)| {
+            let text = crate::board::notes::sanitize(text);
+            (first_line(&text) == text
+                && crate::board::row_detail::uncut(
+                    &text,
+                    usize::from(budget.min(width.saturating_sub(start))),
+                    tmt_tui::style::TextFlow::Truncate,
+                ))
+            .then_some(field)
+        })
         .collect()
     }
 
@@ -203,7 +219,7 @@ pub(in crate::board) fn detail(view: &JobView, now_ms: i64) -> crate::board::row
 
 pub(super) fn expanded_detail(view: &JobView, now_ms: i64, columns: Columns, width: u16) -> Value {
     detail(view, now_ms)
-        .additional(&columns.visible_fields(width))
+        .additional(&columns.visible_fields(view, now_ms, width))
         .value()
 }
 
