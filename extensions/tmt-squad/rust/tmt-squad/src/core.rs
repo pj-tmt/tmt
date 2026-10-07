@@ -82,25 +82,34 @@ impl Core {
     /// Extension dispatch supplies `TMT_EXECUTABLE`; a direct run falls back
     /// to the first executable `tmt` on PATH.
     pub fn discover() -> Result<Self, SquadError> {
-        let supplied = std::env::var_os("TMT_EXECUTABLE").map(PathBuf::from);
+        Self::discover_with(
+            std::env::var_os("TMT_EXECUTABLE").map(PathBuf::from),
+            std::env::var_os("PATH"),
+        )
+    }
+
+    fn discover_with(
+        supplied: Option<PathBuf>,
+        search: Option<OsString>,
+    ) -> Result<Self, SquadError> {
         let executable = match supplied {
             Some(path) if path.is_absolute() => Some(path),
             Some(_) => return Err(unavailable("TMT_EXECUTABLE must be an absolute path.")),
-            None => std::env::var_os("PATH").and_then(|search| {
+            None => search.and_then(|search| {
                 std::env::split_paths(&search)
                     .map(|directory| directory.join("tmt"))
                     .find(|candidate| executable(candidate))
             }),
         };
-        executable
-            .map(|executable| Self {
-                executable,
-                cancellation: None,
-                deadline: None,
-            })
-            .ok_or_else(|| {
-                unavailable("Could not find the tmt executable; run through `tmt squad`.")
-            })
+        let executable = executable.ok_or_else(|| {
+            unavailable("Could not find the tmt executable; run through `tmt squad`.")
+        })?;
+        reject_self(&executable)?;
+        Ok(Self {
+            executable,
+            cancellation: None,
+            deadline: None,
+        })
     }
 
     /// A given executable, for tests that stand a script in for tmt.
@@ -213,8 +222,38 @@ impl Core {
     }
 }
 
+// Config loading calls `config show` before Squad dispatches its own config
+// command. Selecting this executable as Core would repeat startup recursively.
+fn reject_self(selected: &Path) -> Result<(), SquadError> {
+    use std::os::unix::fs::MetadataExt;
+
+    let current = std::env::current_exe().map_err(|_| {
+        unavailable("Could not identify Squad's executable to verify TMT_EXECUTABLE.")
+    })?;
+    let same_path = selected
+        .canonicalize()
+        .ok()
+        .zip(current.canonicalize().ok())
+        .is_some_and(|(selected, current)| selected == current);
+    let same_file = std::fs::metadata(selected)
+        .ok()
+        .zip(std::fs::metadata(current).ok())
+        .is_some_and(|(selected, current)| {
+            selected.dev() == current.dev() && selected.ino() == current.ino()
+        });
+    if same_path || same_file {
+        return Err(unavailable(
+            "TMT_EXECUTABLE (or tmt on PATH) selects Squad itself; select the Core tmt executable.",
+        ));
+    }
+    Ok(())
+}
+
 fn executable(path: &Path) -> bool {
     use std::os::unix::fs::PermissionsExt;
     std::fs::metadata(path)
         .is_ok_and(|metadata| metadata.is_file() && metadata.permissions().mode() & 0o111 != 0)
 }
+
+#[cfg(test)]
+mod tests;
