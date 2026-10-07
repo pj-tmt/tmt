@@ -49,12 +49,14 @@ function SelectionAnnotation({
   host,
   rectangle,
   inset,
+  noticeVisible,
   open,
   children,
 }: {
   host: HTMLDivElement | null;
   rectangle: SelectionRect | null;
   inset: number;
+  noticeVisible: boolean;
   open(): void;
   children?: React.ReactNode;
 }) {
@@ -62,10 +64,27 @@ function SelectionAnnotation({
   const element = useRef<HTMLDivElement>(null);
   const [position, setPosition] = useState<{ left: number; top: number } | null>(null);
   useEffect(() => {
+    const notice = noticeVisible
+      ? host?.parentElement?.querySelector<HTMLElement>('.tmt-ui-notice')
+      : null;
     const place = () => {
       const frame = host?.querySelector('iframe')?.getBoundingClientRect();
+      const width = expanded ? Math.min(380, innerWidth - 24) : 100;
+      const height = element.current?.offsetHeight ?? (expanded ? 200 : 38);
       if (!frame || !rectangle) {
-        setPosition(null);
+        // Keep the failure notice readable while retaining the mounted draft.
+        const belowNotice = notice?.getBoundingClientRect().bottom;
+        setPosition((previous) =>
+          expanded && previous
+            ? {
+                left: Math.max(8, Math.min(innerWidth - width - 8, previous.left)),
+                top:
+                  belowNotice !== undefined
+                    ? Math.max(inset + 4, belowNotice + 8)
+                    : Math.max(inset + 4, Math.min(innerHeight - height - 8, previous.top)),
+              }
+            : null,
+        );
         return;
       }
       const top = frame.top + Math.max(0, Math.min(frame.height, rectangle.y)),
@@ -76,8 +95,6 @@ function SelectionAnnotation({
         setPosition(null);
         return;
       }
-      const width = expanded ? Math.min(380, innerWidth - 24) : 100;
-      const height = element.current?.offsetHeight ?? (expanded ? 200 : 38);
       const beside = !expanded && right + width + 8 <= Math.min(frame.right, innerWidth - 8);
       const below = bottom + height + 8 <= innerHeight - 8;
       setPosition({
@@ -94,6 +111,7 @@ function SelectionAnnotation({
     place();
     const observer = new ResizeObserver(place);
     if (element.current) observer.observe(element.current);
+    if (notice) observer.observe(notice);
     window.addEventListener('scroll', place, { passive: true });
     window.addEventListener('resize', place);
     return () => {
@@ -101,7 +119,7 @@ function SelectionAnnotation({
       window.removeEventListener('scroll', place);
       window.removeEventListener('resize', place);
     };
-  }, [host, rectangle, inset, expanded]);
+  }, [host, rectangle, inset, expanded, noticeVisible]);
   return (
     <div
       ref={element}
@@ -110,7 +128,7 @@ function SelectionAnnotation({
     >
       {children ?? (
         <button
-          className="selection-ask"
+          className={`selection-ask ${ui.action}`}
           data-testid="selection-ask"
           onPointerDown={(event) => event.preventDefault()}
           onClick={(event) => {
@@ -582,6 +600,14 @@ function Page() {
   const [activeThread, setActiveThread] = useState<string | null>(null);
   useEffect(() => {
     setAnnotation(undefined);
+    drafts.current.clear();
+    annotationDraft.current = { value: '' };
+    setSelector(null);
+    currentSelector.current = null;
+    currentRectangle.current = null;
+    setRectangle(null);
+    setResolved([]);
+    setAnchorsChecked(false);
     setActiveThread(null);
     setPanel(null);
     setChatOpened(false);
@@ -649,22 +675,24 @@ function Page() {
     renderer.current?.scrollAnchor(id);
   }
   const [resolved, setResolved] = useState<string[]>([]);
+  const [anchorsChecked, setAnchorsChecked] = useState(false);
   const renderer = useRef<Awaited<ReturnType<typeof mountRenderer>> | null>(null);
   const [state, setState] = useState<RenderState | 'loading'>('loading');
+  // Author loading does not block discussion: sends use the captured quote.
+  const discussionBlocked = !!liveError || state === 'failed' || state === 'navigation';
   const host = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const controller = new AbortController();
     if (liveError) {
+      host.current?.replaceChildren();
       setState('failed');
       return () => controller.abort();
     }
     setState('loading');
-    setSelector(null);
-    currentSelector.current = null;
-    currentRectangle.current = null;
-    setAnnotation(undefined);
-    setRectangle(null);
+    // Source revisions replace only author content. Parent selection and composer
+    // state keep the original quote and rectangle even if that quote is now stale.
     setResolved([]);
+    setAnchorsChecked(false);
     void mountRenderer(host.current!, view.source, {
       signal: controller.signal,
       onState: setState,
@@ -677,7 +705,10 @@ function Page() {
         setRectangle(rect ?? null);
         if (!quote) selectionCleared.current();
       },
-      onAnchors: setResolved,
+      onAnchors: (ids, checked = false) => {
+        setResolved(ids);
+        setAnchorsChecked(checked);
+      },
       onAnnotate: annotate,
       onOpenThread: (id) => {
         const thread = latest.current.threads?.find(
@@ -691,9 +722,15 @@ function Page() {
         else renderer.current = handle;
       })
       .catch(() => {
-        if (!controller.signal.aborted) setState('failed');
+        if (!controller.signal.aborted) {
+          host.current?.replaceChildren();
+          setState('failed');
+        }
       });
     return () => {
+      // Retire messages before replacing the frame, retaining its layout and the
+      // parent's frozen selection. Unmount removes the host itself.
+      renderer.current?.release();
       controller.abort();
       renderer.current = null;
     };
@@ -711,8 +748,9 @@ function Page() {
             ]
           : [],
       ),
+      annotation?.selector,
     );
-  }, [state, view.threads]);
+  }, [state, view.threads, annotation]);
   return (
     <section className="page">
       <ColabHeader
@@ -908,60 +946,66 @@ function Page() {
           )}
         </div>
       </div>
-      {snapshot.binding?.discussion && snapshot.binding?.ask && !liveError && state === 'ready' && (
-        <SelectionAnnotation
-          host={host.current}
-          rectangle={annotation?.rectangle ?? rectangle}
-          inset={toolbar.current?.offsetHeight ?? 0}
-          open={annotate}
-        >
-          {annotation && (
-            <section
-              className="annotation-new"
-              role="dialog"
-              aria-label="Annotate selection"
-              ref={popover}
-              onKeyDown={(event) => {
-                if (event.key === 'Escape' && !event.defaultPrevented) {
-                  event.preventDefault();
-                  closeAnnotation(true);
-                }
-              }}
-            >
-              <button
-                type="button"
-                className="annotation-close"
-                aria-label="Close annotation"
-                onClick={(event) => {
-                  if (event.isTrusted) closeAnnotation(true);
+      {snapshot.binding?.discussion &&
+        snapshot.binding?.ask &&
+        (annotation || (!liveError && state === 'ready')) && (
+          <SelectionAnnotation
+            host={host.current}
+            rectangle={annotation?.rectangle ?? rectangle}
+            inset={toolbar.current?.offsetHeight ?? 0}
+            noticeVisible={state === 'navigation' || state === 'failed'}
+            open={annotate}
+          >
+            {annotation && (
+              <section
+                className="annotation-new"
+                role="dialog"
+                aria-label="Annotate selection"
+                ref={popover}
+                onKeyDown={(event) => {
+                  if (event.key === 'Escape' && !event.defaultPrevented) {
+                    event.preventDefault();
+                    closeAnnotation(true);
+                  }
                 }}
               >
-                ×
-              </button>
-              <blockquote>{annotation.selector.exact}</blockquote>
-              {annotation.restored !== undefined && <p className="annotation-hint">Draft kept</p>}
-              <AnnotationInput
-                key={JSON.stringify(annotation.selector)}
-                binding={snapshot.binding.ask}
-                discussion={snapshot.binding.discussion}
-                anchor={annotation.selector}
-                asks={view.asks ?? []}
-                title={view.title || snapshot.title}
-                blocked={!!liveError || state !== 'ready'}
-                initialEdit={annotation.restored}
-                onDraft={(_value, edit) => {
-                  annotationDraft.current = edit;
-                }}
-                onBusy={(busy) => {
-                  annotationBusy.current = busy;
-                }}
-                cancel={() => closeAnnotation(true)}
-                committed={openThread}
-              />
-            </section>
-          )}
-        </SelectionAnnotation>
-      )}
+                <button
+                  type="button"
+                  className={`annotation-close ${ui.action}`}
+                  aria-label="Close annotation"
+                  onClick={(event) => {
+                    if (event.isTrusted) closeAnnotation(true);
+                  }}
+                >
+                  ×
+                </button>
+                <blockquote>{annotation.selector.exact}</blockquote>
+                {anchorsChecked && !resolved.includes('') && (
+                  <p className="annotation-hint">{text.commentQuoteChanged}</p>
+                )}
+                {annotation.restored !== undefined && <p className="annotation-hint">Draft kept</p>}
+                <AnnotationInput
+                  key={JSON.stringify(annotation.selector)}
+                  binding={snapshot.binding.ask}
+                  discussion={snapshot.binding.discussion}
+                  anchor={annotation.selector}
+                  asks={view.asks ?? []}
+                  title={view.title || snapshot.title}
+                  blocked={discussionBlocked}
+                  initialEdit={annotation.restored}
+                  onDraft={(_value, edit) => {
+                    annotationDraft.current = edit;
+                  }}
+                  onBusy={(busy) => {
+                    annotationBusy.current = busy;
+                  }}
+                  cancel={() => closeAnnotation(true)}
+                  committed={openThread}
+                />
+              </section>
+            )}
+          </SelectionAnnotation>
+        )}
       <PageDrawer
         open={panel === 'source'}
         title={text.source}
@@ -1004,6 +1048,7 @@ function Page() {
           key={`discussion:${snapshot.id}`}
           threads={(view.threads ?? []).filter((thread) => !isChatThread(thread))}
           resolved={resolved}
+          anchorsChecked={anchorsChecked}
           selection={selector}
           binding={liveError === managementChanged ? undefined : snapshot.binding?.discussion}
           ask={liveError === managementChanged ? undefined : snapshot.binding?.ask}
@@ -1011,7 +1056,7 @@ function Page() {
           asks={view.asks ?? []}
           active={activeThread}
           select={openThread}
-          blocked={!!liveError || state !== 'ready'}
+          blocked={discussionBlocked}
         />
       </PageDrawer>
       <PageDrawer
@@ -1037,7 +1082,7 @@ function Page() {
             binding={liveError === managementChanged ? undefined : snapshot.binding?.ask}
             discussion={liveError === managementChanged ? undefined : snapshot.binding?.discussion}
             title={view.title || snapshot.title}
-            blocked={!!liveError || state !== 'ready'}
+            blocked={discussionBlocked}
             close={() => setPanel(null)}
           />
         )}

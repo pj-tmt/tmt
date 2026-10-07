@@ -1,3 +1,4 @@
+import { browserUiClasses as ui } from '@tmt/browser-ui/static';
 import { useEffect, useRef, useState } from 'react';
 import { MessageComposer } from './components/message-composer.js';
 import type { ComposerEdit, RecipientKey } from './components/message-composer-edit.js';
@@ -204,6 +205,7 @@ export function AnnotationInput({
       <div className="comment-actions">
         {!chat && (
           <button
+            className={ui.action}
             type="button"
             disabled={busy || blocked || !!recorded || !discussion || !value.trim()}
             onClick={(event) => {
@@ -214,6 +216,7 @@ export function AnnotationInput({
           </button>
         )}
         <button
+          className={ui.action}
           type="button"
           disabled={busy || blocked || !!recorded || !discussion || !binding || !value.trim()}
           onClick={(event) => {
@@ -226,6 +229,7 @@ export function AnnotationInput({
       {error && <p role="alert">{error}</p>}
       {recorded && (chat || !thread) && (
         <button
+          className={ui.action}
           type="button"
           onClick={(event) => {
             if (event.isTrusted) {

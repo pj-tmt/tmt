@@ -1551,7 +1551,17 @@ selector owns the thread anchor. Enter sends, Shift+Enter inserts a newline, and
 is no confirmation screen or automatic send. The popover closes with its ×, with Escape from anywhere
 inside it, with a press outside it, and with a selection cleared by a page click while
 no nonblank message is typed; none of these interrupts a send in flight. Typed text is kept in memory
-for the page together with the selected recipient and restored, with a "Draft kept" note, when the same selection is annotated again. Optional `@` completion opens the shared styled keyboard
+for the page together with the selected recipient and restored, with a "Draft kept" note, when the same selection is annotated again. A live source revision preserves the mounted composer, its unsent text and frozen
+quote/rectangle, even when the quote no longer exists in the updated page. Explicit
+Send uses that captured quote; cosmetic resolution may then show the thread as
+detached. After cosmetic resolution finds the quote missing, both the composer
+and open thread show: "This text changed on the page; your note keeps the original quote."
+Renderer loading leaves discussion inputs, focus, caret and agent list usable;
+sending uses the frozen quote and remains subject to current connection admission.
+Open threads, Comments/Chat panels and their drafts also survive source
+revisions. The window scroll offset is retained on a best-effort basis within the
+new document's bounds; no exact re-anchoring is required. A different page ID resets
+this page-local state. Optional `@` completion opens the shared styled keyboard
 listbox. The optional publishing name supplies a default only when it matches one
 unique reachable `agents.list` entry; unknown or ambiguous names supply no default.
 The current verified Remote grant and agent/machine UUIDs own routing and admission.

@@ -39,6 +39,7 @@ export const text = {
     'Could not save this change. Your draft is kept. Reconnect and review the latest discussion.',
   commentAnchored: 'Attached',
   commentDetached: 'Detached',
+  commentQuoteChanged: 'This text changed on the page; your note keeps the original quote.',
   commentReattach: 'Reattach to selection',
   commentConfirmReattach: 'Confirm reattach',
   threadOpen: 'Open',
