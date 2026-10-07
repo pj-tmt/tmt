@@ -33,7 +33,7 @@ const SLICE: Duration = Duration::from_millis(50);
 
 #[derive(Debug, Default)]
 struct Inbox {
-    frames: VecDeque<(Frame, usize)>,
+    frames: VecDeque<(StampedObjectFrame, usize)>,
     bytes: usize,
     /// The first final fault, kept for every later call.
     fault: Option<Fault>,
@@ -65,6 +65,14 @@ impl Shared {
         let _ = self.socket.shutdown(Shutdown::Both);
         self.changed.notify_all();
     }
+}
+
+/// One received frame with the monotonic instant its first prefix byte was read.
+/// Queue and decoding time are included in a caller's absolute request budget.
+#[derive(Debug)]
+pub struct StampedObjectFrame {
+    pub frame: Frame,
+    pub first_prefix: Instant,
 }
 
 /// An opened channel with its reader running. Share it between threads by reference.
@@ -129,16 +137,27 @@ impl Bus {
     /// identifiers the ledger refuses, comes back as `Fault::Correlation` with nothing
     /// written and the channel still usable; a failed or stalled write ends it.
     pub fn send(&self, frame: &Frame) -> Result<(), Fault> {
+        self.send_until(frame, Instant::now() + self.shared.budgets.write)
+    }
+
+    /// Send within both the normal write bound and `until`. A spent outer budget
+    /// refuses before ledger admission or any write, leaving the channel usable.
+    /// A failure after admission ends the channel, as with [`Self::send`].
+    pub fn send_until(&self, frame: &Frame, until: Instant) -> Result<(), Fault> {
         if let Some(fault) = self.fault() {
             return Err(fault);
         }
+        let deadline = until.min(Instant::now() + self.shared.budgets.write);
         let bytes = prepared(self.shared.generation, frame)?;
         // The ledger and the wire see frames in one order: the writer is held across both.
         let mut writer = locked(&self.shared.writer);
+        if Instant::now() >= deadline {
+            return Err(Fault::Timeout(Stage::Write));
+        }
         locked(&self.shared.ledger)
             .apply(frame, true)
             .map_err(Fault::Correlation)?;
-        match writer.send(&bytes, self.shared.budgets.write) {
+        match writer.send_by(&bytes, deadline, Stage::Write) {
             Ok(()) => Ok(()),
             Err(fault) => {
                 drop(writer);
@@ -151,6 +170,11 @@ impl Bus {
     /// The next frame, waiting until `until` (`None` waits for a frame or the end of the
     /// channel). Frames received before a fault are delivered before it is reported.
     pub fn recv(&self, until: Option<Instant>) -> Result<Frame, Fault> {
+        self.recv_stamped(until).map(|received| received.frame)
+    }
+
+    /// Receive without discarding the first-prefix instant, including queue time.
+    pub fn recv_stamped(&self, until: Option<Instant>) -> Result<StampedObjectFrame, Fault> {
         let mut inbox = locked(&self.shared.inbox);
         loop {
             if let Some((frame, bytes)) = inbox.frames.pop_front() {
@@ -207,12 +231,12 @@ fn drive(shared: &Shared, mut reader: bounded::Reader) {
         until: None,
     };
     loop {
-        let (frame, bytes) =
+        let (received, bytes) =
             match read_checked(&mut reader, shared.generation, idle, &shared.budgets) {
                 Ok(read) => read,
                 Err(fault) => return shared.fail(fault),
             };
-        if let Err(reason) = locked(&shared.ledger).apply(&frame, false) {
+        if let Err(reason) = locked(&shared.ledger).apply(&received.frame, false) {
             return shared.fail(Fault::Correlation(reason));
         }
         let mut inbox = locked(&shared.inbox);
@@ -231,7 +255,7 @@ fn drive(shared: &Shared, mut reader: bounded::Reader) {
                 .0;
         }
         inbox.bytes += bytes;
-        inbox.frames.push_back((frame, bytes));
+        inbox.frames.push_back((received, bytes));
         drop(inbox);
         shared.changed.notify_all();
     }
