@@ -298,6 +298,100 @@ describe('complete generation reservations', () => {
     expect(reconcile(s).intents).toEqual([]);
     expect(reconcile(s).charges).toEqual(result.charges);
   });
+  it('blocks complete recorded-output disappearance while retaining pending charges and input', () => {
+    const g = published();
+    g.disposition = 'pending';
+    g.observations.absence.state = 'confirmed';
+    g.observations.absence.artifactIds = [100, 101];
+    const s = snapshot([g]);
+    const original = JSON.stringify(s);
+    const result = reconcile(s);
+    expect(result.status).toBe('blocked');
+    expect(result.blocked).toEqual([
+      { generationKey: rcGenerationKey(g.identity), obligations: ['recorded-output-absent'] },
+    ]);
+    expect(result.intents).toEqual([]);
+    expect(result.charges).toEqual({ bytes: journalBytes + 71 * MiB + 2, artifacts: 2 });
+    expect(JSON.stringify(s)).toBe(original);
+  });
+  it('blocks payload upload when only the recorded catalog is confirmed absent', () => {
+    const g = generation();
+    g.resources[0].artifactId = 100;
+    for (const kind of ['reservation', 'settlement', 'inventory', 'absence'] as const)
+      g.observations[kind].state = 'confirmed';
+    g.observations.inventory.artifactIds = [100];
+    g.observations.absence.artifactIds = [100];
+    const s = snapshot([g]);
+    const original = JSON.stringify(s);
+    const result = reconcile(s);
+    expect(result.status).toBe('blocked');
+    expect(result.blocked[0].obligations).toContain('recorded-output-absent');
+    expect(result.intents).toEqual([]);
+    expect(result.charges).toEqual({ bytes: journalBytes + 71 * MiB + 2, artifacts: 2 });
+    expect(JSON.stringify(s)).toBe(original);
+  });
+  it('preserves empty pre-upload absence with conditional catalog-last upload obligations', () => {
+    const g = generation();
+    for (const kind of ['reservation', 'settlement', 'inventory', 'absence'] as const)
+      g.observations[kind].state = 'confirmed';
+    const s = snapshot([g]);
+    const original = JSON.stringify(s);
+    const result = reconcile(s);
+    expect(result.status).toBe('planned');
+    expect(result.blocked).toEqual([]);
+    expect(result.intents.map((i) => [i.kind, i.path])).toEqual([
+      ['upload', 'payload.zip'],
+      ['upload', 'catalog.zip'],
+    ]);
+    for (const intent of result.intents)
+      expect(intent.requires).toContain(
+        'trusted-adapter-revalidate-durable-reservation-and-current-Core-eligibility'
+      );
+    expect(result.intents[1].requires).toContain('all-payloads-independently-verified-and-settled');
+    expect(result.charges).toEqual({ bytes: journalBytes + 71 * MiB + 2, artifacts: 2 });
+    expect(JSON.stringify(s)).toBe(original);
+  });
+  it.each(['workflowId', 'workflowPath', 'workflowSha256', 'toolingCommit'] as const)(
+    'keeps a current generation with changed approved %s charged and unresolved',
+    (field) => {
+      const g = published();
+      const s = snapshot([g]);
+      if (field === 'workflowId') s.approvedProducer.workflowId++;
+      if (field === 'workflowPath') s.approvedProducer.workflowPath = '.github/workflows/other.yml';
+      if (field === 'workflowSha256') s.approvedProducer.workflowSha256 = 'f'.repeat(64);
+      if (field === 'toolingCommit') s.approvedProducer.toolingCommit = 'f'.repeat(40);
+      const original = JSON.stringify(s);
+      const result = reconcile(s);
+      expect(result.status).toBe('blocked');
+      expect(result.blocked).toEqual([
+        {
+          generationKey: rcGenerationKey(g.identity),
+          obligations: ['current-publication-unconfirmed', 'approved-producer'],
+        },
+      ]);
+      expect(result.intents).toEqual([]);
+      expect(result.charges).toEqual({ bytes: journalBytes + 71 * MiB + 2, artifacts: 2 });
+      expect(JSON.stringify(s)).toBe(original);
+    }
+  );
+  it('charges a mismatched current producer against the replacement slot, not candidate approval', () => {
+    const s = snapshot([published()]);
+    s.approvedProducer.toolingCommit = 'f'.repeat(40);
+    const replacement = generation(1, 2);
+    replacement.identity.producer = { ...s.approvedProducer };
+    Object.values(replacement.observations).forEach((o) => {
+      o.generationKey = rcGenerationKey(replacement.identity);
+    });
+    expect(reserve(snapshot(), replacement).reason).toContain('not current/approved');
+    const original = JSON.stringify({ s, replacement });
+    const result = reserve(s, replacement);
+    refuse(result, 'Replacement slot');
+    expect(result.charges).toEqual({ bytes: journalBytes + 71 * MiB + 2, artifacts: 2 });
+    expect(JSON.stringify({ s, replacement })).toBe(original);
+    const matching = snapshot([published()]);
+    expect(reconcile(matching).status).toBe('planned');
+    expect(reserve(matching, generation(1, 2)).status).toBe('planned');
+  });
   it('requires exclusive revalidation for competing triggers; the recorded winner blocks another reservation', () => {
     const s = snapshot();
     const first = generation(1, 1);
@@ -463,6 +557,41 @@ describe('retirement, interleavings and conditional capacity release', () => {
       expect(result.charges!.bytes).toBe(journalBytes + 71 * MiB + 2);
       expect(reconcile(s)).toEqual(result);
       expect(JSON.stringify(s)).toBe(original);
+    }
+  );
+  it.each(['retired', 'closed'] as const)(
+    'preserves historical %s ownership and conditional release after producer approval changes',
+    (disposition) => {
+      const g = published();
+      const s = snapshot([g]);
+      s.approvedProducer.toolingCommit = 'f'.repeat(40);
+      if (disposition === 'retired') g.disposition = 'retired';
+      else s.channels[0].state = 'closed';
+      const original = JSON.stringify(s);
+      const deletion = reconcile(s);
+      expect(deletion.intents.map((i) => [i.kind, i.artifactId])).toEqual([
+        ['retire-discovery', undefined],
+        ['delete', 100],
+        ['delete', 101],
+      ]);
+      expect(deletion.intents[2].requires).toContain('catalog-absence-confirmed');
+      expect(deletion.blocked[0].obligations).toEqual(['absence']);
+      expect(JSON.stringify(s)).toBe(original);
+      g.observations.absence.state = 'confirmed';
+      g.observations.absence.artifactIds = [100, 101];
+      const absent = JSON.stringify(s);
+      const release = reconcile(s);
+      expect(release.status).toBe('planned');
+      expect(release.intents.map((i) => i.kind)).toEqual([
+        'retire-discovery',
+        'release-reservation',
+      ]);
+      expect(release.intents[1].requires).toContain(
+        'trusted-adapter-revalidate-settlement-inventory-absence'
+      );
+      expect(release.intents[1].requires).toContain('exclusive-durable-release-commit');
+      expect(release.charges).toEqual(deletion.charges);
+      expect(JSON.stringify(s)).toBe(absent);
     }
   );
   it('does not equate cancellation202/204/404/TTL or missing logs with settlement or absence', () => {

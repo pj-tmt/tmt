@@ -437,6 +437,10 @@ charge unchanged. A refusal preserves input and has no intents; a null charge me
 unknown accounting, never zero. Readers gain no remote lease or local uninstall.
 Valid observations with unmet obligations return `blocked`, including unmatched
 charges with no generation and uncertain/contradictory current publication evidence.
+Confirmed absence of recorded pending outputs blocks further upload intents; an
+empty pre-upload absence set does not. A current producer tuple that differs from
+the supplied approved tuple remains unresolved in the incomplete slot. Changed
+approval does not prevent exact owned historical retirement.
 Re-enable/reopen cannot resurrect a retired generation or erase a charged slot.
 
 The remaining adapter/backend/serialization/recovery work must qualify actual

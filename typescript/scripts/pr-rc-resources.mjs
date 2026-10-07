@@ -377,7 +377,8 @@ export function planRCResources(snapshot, request) {
           (kind) => g.observations[kind].state !== 'confirmed'
         ) ||
         g.resources.some((r) => r.artifactId === null) ||
-        !currentChannel(g, snapshot.channels)
+        !currentChannel(g, snapshot.channels) ||
+        JSON.stringify(producerTuple(g.identity.producer)) !== producer
     );
     const capacity = () => {
       fail(
@@ -513,7 +514,15 @@ export function planRCResources(snapshot, request) {
             });
           else blocked.push({ generationKey, obligations });
         } else if (generation.disposition === 'current' && incomplete.includes(generation)) {
-          blocked.push({ generationKey, obligations: ['current-publication-unconfirmed'] });
+          blocked.push({
+            generationKey,
+            obligations: [
+              'current-publication-unconfirmed',
+              ...(JSON.stringify(producerTuple(generation.identity.producer)) !== producer
+                ? ['approved-producer']
+                : []),
+            ],
+          });
         } else if (generation.disposition === 'pending') {
           const obligations = [];
           if (observation.reservation.state !== 'confirmed')
@@ -522,6 +531,8 @@ export function planRCResources(snapshot, request) {
             obligations.push('uncertain-resources');
           if (JSON.stringify(producerTuple(generation.identity.producer)) !== producer)
             obligations.push('approved-producer');
+          if (observation.absence.state === 'confirmed' && observation.absence.artifactIds.length)
+            obligations.push('recorded-output-absent');
           if (obligations.length) blocked.push({ generationKey, obligations });
           else {
             const ordered = [...generation.resources].sort(
