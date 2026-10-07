@@ -5,7 +5,7 @@ use serde::Deserialize;
 use serde_json::json;
 use std::{
     fs,
-    io::{BufRead, Write},
+    io::{self, BufRead, Read, Write},
     process::{Command, Stdio},
 };
 
@@ -120,7 +120,6 @@ fn main() {
 /// unlike the native process its real lifecycle hooks correctly report.
 fn channel_mock(args: &[std::ffi::OsString], index: usize, mock: &std::ffi::OsStr) -> i32 {
     use std::{
-        io,
         net::Shutdown,
         os::unix::net::UnixListener,
         time::{Duration, Instant},
@@ -181,10 +180,10 @@ fn channel_mock(args: &[std::ffi::OsString], index: usize, mock: &std::ffi::OsSt
     let status = std::thread::scope(|scope| {
         let client_to_server = scope.spawn(move || {
             // EOF closes the real MCP child's stdin before the peer's close receipt.
-            io::copy(&mut input, &mut stdin)
+            forward_mcp(&mut input, &mut stdin)
         });
         let server_to_client = scope.spawn(move || {
-            let result = io::copy(&mut stdout, &mut output);
+            let result = forward_mcp(&mut stdout, &mut output);
             let _ = output.shutdown(Shutdown::Write);
             result
         });
@@ -208,4 +207,76 @@ fn channel_mock(args: &[std::ffi::OsString], index: usize, mock: &std::ffi::OsSt
         status
     });
     status.code().unwrap_or(1)
+}
+
+/// Forward each available chunk immediately. The peer must receive short MCP
+/// frames while both streams remain open, rather than waiting for copy EOF.
+fn forward_mcp(input: &mut impl Read, output: &mut impl Write) -> io::Result<u64> {
+    let mut buffer = [0; 8192];
+    let mut copied = 0;
+    loop {
+        let count = match input.read(&mut buffer) {
+            Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
+            result => result?,
+        };
+        if count == 0 {
+            return Ok(copied);
+        }
+        output.write_all(&buffer[..count])?;
+        output.flush()?;
+        copied += count as u64;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::{net::Shutdown, os::unix::net::UnixStream, time::Duration};
+
+    #[test]
+    fn forwards_two_short_frames_before_stream_eof_and_reaps_the_peer() {
+        let (connection, mut client) = UnixStream::pair().unwrap();
+        let mut input = connection.try_clone().unwrap();
+        let mut output = connection.try_clone().unwrap();
+        let mut peer = Command::new("cat")
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .spawn()
+            .unwrap();
+        let mut stdin = peer.stdin.take().unwrap();
+        let mut stdout = peer.stdout.take().unwrap();
+        std::thread::scope(|scope| {
+            let inbound = scope.spawn(move || forward_mcp(&mut input, &mut stdin));
+            let outbound = scope.spawn(move || {
+                let result = forward_mcp(&mut stdout, &mut output);
+                let _ = output.shutdown(Shutdown::Write);
+                result
+            });
+            client
+                .set_read_timeout(Some(Duration::from_secs(2)))
+                .unwrap();
+            let receipt = (|| -> io::Result<()> {
+                for frame in [b"initialize\n".as_slice(), b"initialized\n"] {
+                    client.write_all(frame)?;
+                    let mut echoed = vec![0; frame.len()];
+                    client.read_exact(&mut echoed)?;
+                    if echoed != frame {
+                        return Err(io::Error::other("MCP bridge changed the frame"));
+                    }
+                }
+                Ok(())
+            })();
+            // Close and reap even when a receipt fails; a red test must not
+            // leave a blocked forwarding thread or its process behind.
+            let _ = client.shutdown(Shutdown::Both);
+            let _ = connection.shutdown(Shutdown::Both);
+            let status = peer.wait().unwrap();
+            let inbound = inbound.join().unwrap();
+            let outbound = outbound.join().unwrap();
+            assert!(status.success());
+            receipt.expect("receive both short frames before closing the stream");
+            assert_eq!(inbound.unwrap(), 23);
+            assert_eq!(outbound.unwrap(), 23);
+        });
+    }
 }
