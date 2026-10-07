@@ -289,6 +289,13 @@ test('the page list filters archived pages with a square text toggle, not a nati
   await expect(toggle).toHaveAttribute('aria-pressed', 'false');
   await expect(page.locator('#chrome-fixture ul.pages li').first()).toContainText('Release notes');
   await expect(toggle).toBeFocused();
+  // Space also reverses a trusted keyboard selection without changing geometry.
+  await page.keyboard.press('Space');
+  await expect(toggle).toHaveAttribute('aria-pressed', 'true');
+  await expect(box).toHaveText('✓');
+  expect((await toggle.boundingBox())!.width).toBe(before!.width);
+  await page.keyboard.press('Space');
+  await expect(toggle).toHaveAttribute('aria-pressed', 'false');
   // Shared selected presentation keeps the label and square indicator in place.
   await expect(toggle).toHaveClass('tmt-ui-toggle');
   await expect(toggle).toHaveCSS('border-top-width', '1px');

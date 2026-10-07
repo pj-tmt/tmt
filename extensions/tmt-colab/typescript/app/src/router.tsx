@@ -270,7 +270,7 @@ export function AppHeader({
       home={
         linked
           ? (brand) => (
-              <Link className={ui.brand} to="/" aria-label={text.home}>
+              <Link to="/" aria-label={text.home}>
                 {brand}
               </Link>
             )
@@ -719,7 +719,7 @@ function Page() {
         menuOpen={menu}
         title={view.title || snapshot.title || text.unknownPageTitle}
         home={(brand) => (
-          <Link className={ui.brand} to="/" aria-label={text.home}>
+          <Link to="/" aria-label={text.home}>
             {brand}
           </Link>
         )}
