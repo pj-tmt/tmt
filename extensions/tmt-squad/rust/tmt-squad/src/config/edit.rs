@@ -5,29 +5,28 @@ use crate::split::{Size, Split};
 impl Config {
     fn setting_key_in_scope(key: &str, squad: Option<&str>) -> bool {
         matches!(
+            key,
+            "board.refresh"
+                | "board.ask_lead"
+                | "board.view"
+                | "board.token_rate.window"
+                | "tabs.order"
+                | "tabs.hide"
+        ) || squad.is_some_and(|name| !crate::tabs::aggregate(name))
+            && (matches!(
                 key,
-                "board.refresh"
-                    | "board.ask_lead"
-                    | "board.view"
-                    | "board.token_rate.window"
-                    | "tabs.order"
-                    | "tabs.hide"
-            )
-            || squad.is_some_and(|name| !crate::tabs::aggregate(name))
-                && (matches!(
-                    key,
-                    "layout"
-                        | "board.direction"
-                        | "board.sizes"
-                        | "board.panes"
-                        | "board.hidden_columns"
-                        | "notes.render"
-                        | "reminders.enabled"
-                        | "reminders.stale_after"
-                ) || key
-                    .strip_prefix("states.")
-                    .and_then(|name| name.strip_suffix(".color"))
-                    .is_some_and(field_name))
+                "layout"
+                    | "board.direction"
+                    | "board.sizes"
+                    | "board.panes"
+                    | "board.hidden_columns"
+                    | "notes.render"
+                    | "reminders.enabled"
+                    | "reminders.stale_after"
+            ) || key
+                .strip_prefix("states.")
+                .and_then(|name| name.strip_suffix(".color"))
+                .is_some_and(field_name))
     }
 
     pub fn can_edit_setting(&self, key: &str, squad: Option<&str>) -> bool {

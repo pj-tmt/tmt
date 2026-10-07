@@ -119,8 +119,8 @@ and covered-hit removal. Ask-lead, settings, pickers and cron overlays stay squa
   rows (Actions…, Theme, View, Token window) are `settings::Pick`s beside the config entries, never
   config keys. After a successful settings save, their config-backed values are
   resolved again through the same Config readers as opening; the component keeps
-  selection and the token-window row keeps its live session value. Failed saves
-  publish no new quick-row values. Presets bind `t` to talk, `e` to row expansion and `v` to the full-reply reader; no `r`, `T`, `l` or `w` default exists;
+  selection and the token-window row resolves its persisted shared value and any
+  squad override through Config. Failed saves publish no new quick-row values. Presets bind `t` to talk, `e` to row expansion and `v` to the full-reply reader; no `r`, `T`, `l` or `w` default exists;
   fixtures that exercise those actions use `action::with_action_keys`.
 
 Receiving focus is explicit in the existing outlined pane title. The default

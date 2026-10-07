@@ -193,6 +193,9 @@ fn the_overflow_line_opens_its_parent_reply_without_running_the_row_click_action
         .first()
         .cloned()
         .expect("the visible overflow line owns a hit");
+    // Moving from a meter to the reply overflow clears hover without cycling it.
+    let window = app.token_window;
+    app.meter_hover = Some(None);
     assert_eq!(
         app.mouse(
             MouseEvent {
@@ -206,6 +209,8 @@ fn the_overflow_line_opens_its_parent_reply_without_running_the_row_click_action
         Effect::None
     );
     assert_eq!(app.row_details.reader.as_ref().unwrap().target, target);
+    assert_eq!(app.meter_hover, None);
+    assert_eq!(app.token_window, window);
     assert!(app.input.is_none() && app.menu.is_none());
     press(&mut app, KeyCode::Esc);
     press(&mut app, KeyCode::Char('e'));

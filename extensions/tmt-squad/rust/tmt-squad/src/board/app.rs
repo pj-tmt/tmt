@@ -3641,7 +3641,7 @@ impl App {
         if self.menu.is_some() || self.input.is_some() {
             return Effect::None;
         }
-        if self.overlay().is_none() && event.kind == MouseEventKind::Down(MouseButton::Left) {
+        if !self.loading() && event.kind == MouseEventKind::Down(MouseButton::Left) {
             let target = self
                 .detail_more_hits
                 .borrow()
@@ -6463,12 +6463,12 @@ mod token_window_tests {
             .as_mut()
             .unwrap()
             .bindings
-            .extend(bind(&[("w", "refresh"), ("v", "token-window")]));
+            .extend(bind(&[("w", "refresh"), ("W", "token-window")]));
         assert_eq!(app.key(key), Effect::Refresh);
         assert_eq!(app.token_window, TokenWindow::FIVE_MINUTES);
         saved_cycle(
             &mut app,
-            KeyEvent::new(KeyCode::Char('v'), KeyModifiers::NONE),
+            KeyEvent::new(KeyCode::Char('W'), KeyModifiers::NONE),
         );
         assert_eq!(app.token_window, TokenWindow::HOUR);
         app.view.as_mut().unwrap().section_bindings = vec![bind(&[("w", "token-window")])];

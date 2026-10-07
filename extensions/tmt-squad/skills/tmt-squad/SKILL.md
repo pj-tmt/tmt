@@ -229,16 +229,17 @@ selected and marked `(hidden)`, without a drag target. There are no number keys.
 `ctrl-r` refreshes the board in squad, leads and all views, including while
 searching or composing a message, without changing the entered text. The footer
 and `?` help list the effective bindings. The footer shows `↑↓ move`, the row's main
-action (`⏎ open`) and `e expand` where those keys are bound and the selected row
-allows them, then `/ search`, `? more` and `q quit`. Keys are bold Accent, labels
-are Muted, and NO_COLOR keeps keys bold. `a write` and `A ask lead` stay bound
-and appear in `?` help and context menus. When the
-width runs out it drops whole hints from the end, and `q quit` and `? more` always
-stay. Every other key (tabs, back, open, copy, fold, refresh, `t` previews, ...) stays
-bound and is listed in `?` help only; `s switch` joins the footer when the tab line
-hides tabs. A `talk` or `reply` binding of your own keeps its hint. Rebind in `[bind]` (or a section),
-or `[tabs.all.bind]` for all. F5 has no default action; an explicit
-`f5 = "refresh"` binding remains supported.
+action (`⏎ open`), `t talk` and `e expand` where those keys are bound and the selected
+row allows them. `v view` appears only for an expanded row with a reply, followed by
+`/ search`, `? more` and `q quit`. Keys are bold Accent, labels are Muted, and
+NO_COLOR keeps keys bold. `a write` and `A ask lead` stay bound and appear in `?`
+help and context menus. When width runs out, whole optional hints drop from the end;
+`q quit` and `? more` always stay. Other keys remain bound and listed in `?`;
+`s switch` joins the footer when the tab line hides tabs. A `talk` or `reply`
+binding of your own keeps its hint. Rebind in `[bind]` (or a section), or
+`[tabs.all.bind]` for all. F5 has no default action; an explicit
+`f5 = "refresh"` binding remains supported. Composing, search, menus and overlays
+keep their own footer.
 
 Ordinary canvas, content and chrome inherit the terminal background. The board
 uses shared TMT tokens: `text` for shown tab names, primary counts and
