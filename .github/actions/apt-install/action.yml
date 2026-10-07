@@ -16,6 +16,8 @@ runs:
       shell: bash
       env:
         PACKAGES: ${{ inputs.packages }}
+        APT_SOURCES: /etc/apt/sources.list.d/ubuntu.sources
+        APT_MIRRORS: /etc/apt/apt-mirrors.txt
       run: |
         for source in $(grep -l dl.google.com /etc/apt/sources.list.d/* 2>/dev/null || true); do
           sudo rm -f "$source"
@@ -25,6 +27,40 @@ runs:
         # Revisit this bound before adding large packages. Kill stuck children too.
         apt_options=(-o Acquire::Retries=2 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30)
         "$retry" 3 5 sudo timeout --verbose --kill-after=10s 60s apt-get "${apt_options[@]}" update
+        install_state=$(mktemp)
+        trap '/bin/rm -f "$install_state"' EXIT
         # The package list is intentionally split into separate arguments.
         # shellcheck disable=SC2086
-        "$retry" 3 5 sudo timeout --verbose --kill-after=10s 120s apt-get "${apt_options[@]}" install --no-install-recommends -y $PACKAGES
+        "$retry" 3 5 bash -eu -c '
+          state=$1; sources=$2; mirrors=$3; shift 3
+          previous=$(cat "$state")
+          if [ "$previous" = 124 ]; then
+            # Admit only the pinned runner-image mirror+file layout.
+            if [ -f "$sources" ] && [ ! -L "$sources" ] && [ -r "$sources" ] &&
+               [ -f "$mirrors" ] && [ ! -L "$mirrors" ] && [ -r "$mirrors" ] &&
+               awk -v uri="mirror+file:$mirrors" '"'"'
+                 /^URIs:/ { seen++; if ($0 != "URIs: " uri) bad=1 }
+                 /^[ \t]/ { bad=1 }
+                 END { exit(!seen || bad) }
+               '"'"' "$sources" &&
+               cmp -s "$mirrors" <(printf "%s\t%s\n" \
+                 http://azure.archive.ubuntu.com/ubuntu/ priority:1 \
+                 https://archive.ubuntu.com/ubuntu/ priority:2 \
+                 https://security.ubuntu.com/ubuntu/ priority:3); then
+              sudo sed -i "1d" "$mirrors"
+              printf "apt-install: removed http://azure.archive.ubuntu.com/ubuntu/ from %s; archive/security retained.\n" "$mirrors"
+            else
+              printf "apt-install: mirror fallback no-op: unreadable or unexpected sources/list: %s / %s.\n" "$sources" "$mirrors" >&2
+            fi
+          fi
+          status=0
+          "$@" || status=$?
+          # Only the first install timeout can arm fallback; later retries reuse it.
+          if [ -z "$previous" ] && [ "$status" = 124 ]; then
+            printf 124 > "$state"
+          else
+            printf done > "$state"
+          fi
+          exit "$status"
+        ' apt-install "$install_state" "$APT_SOURCES" "$APT_MIRRORS" \
+          sudo timeout --verbose --kill-after=10s 120s apt-get "${apt_options[@]}" install --no-install-recommends -y $PACKAGES
