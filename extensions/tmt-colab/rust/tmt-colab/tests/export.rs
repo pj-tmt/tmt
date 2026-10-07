@@ -1,3 +1,5 @@
+#[path = "support/core_fixture.rs"]
+mod core_fixture;
 mod support;
 
 use ed25519_dalek::{Signer, SigningKey};
@@ -130,20 +132,15 @@ impl Fixture {
         Connection::open(self.layout.directory.join("space.db")).unwrap()
     }
     fn command(&self) -> Command {
-        let core = self.root.join("core");
-        if !core.exists() {
-            fs::write(
-                &core,
-                format!(
-                    "#!/bin/sh\ncat >/dev/null\nprintf '%s\\n' '{}'\n",
-                    json!({"dataRoot":self.root})
-                ),
-            )
-            .unwrap();
-            fs::set_permissions(&core, fs::Permissions::from_mode(0o700)).unwrap();
-        }
+        let core = core_fixture::link(&self.root, "core", core_fixture::Program::DataRoot);
         let mut command = Command::new(BINARY);
-        command.env("TMT_EXECUTABLE", core).current_dir(&self.root);
+        command
+            .env("TMT_EXECUTABLE", core)
+            .env(
+                "TMT_COLAB_TEST_REPLY",
+                json!({"dataRoot":self.root}).to_string(),
+            )
+            .current_dir(&self.root);
         command
     }
 }

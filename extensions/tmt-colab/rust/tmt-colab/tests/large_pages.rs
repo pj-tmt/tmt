@@ -1,13 +1,14 @@
 //! A page whose update tail grew far past the old 256 KiB / 200-object read caps (browser saves
 //! and many small appends) must read back byte-exact through every root-local reader, and a page
 //! that cannot be read must not hide the others (#1627).
+#[path = "support/core_fixture.rs"]
+mod core_fixture;
 mod support;
 
 use ed25519_dalek::{Signer, SigningKey};
 use serde_json::{Value, json};
 use std::{
     fs,
-    os::unix::fs::PermissionsExt,
     path::PathBuf,
     process::Command,
     sync::atomic::{AtomicUsize, Ordering},
@@ -122,20 +123,13 @@ impl Fixture {
         self.next.insert(page, (seq + 1, hash));
     }
     fn cli(&self, args: &[&str]) -> (bool, Value, String) {
-        let core = self.root.join("core");
-        if !core.exists() {
-            fs::write(
-                &core,
-                format!(
-                    "#!/bin/sh\ncat >/dev/null\nprintf '%s\\n' '{}'\n",
-                    json!({"dataRoot":self.root})
-                ),
-            )
-            .unwrap();
-            fs::set_permissions(&core, fs::Permissions::from_mode(0o700)).unwrap();
-        }
+        let core = core_fixture::link(&self.root, "core", core_fixture::Program::DataRoot);
         let output = Command::new(BINARY)
             .env("TMT_EXECUTABLE", core)
+            .env(
+                "TMT_COLAB_TEST_REPLY",
+                json!({"dataRoot":self.root}).to_string(),
+            )
             .current_dir(&self.root)
             .args(args)
             .output()
@@ -416,6 +410,10 @@ fn a_page_that_cannot_open_names_itself_and_does_not_hide_the_others() {
     // Human output keeps the list and explains the page on stderr.
     let human = Command::new(BINARY)
         .env("TMT_EXECUTABLE", f.root.join("core"))
+        .env(
+            "TMT_COLAB_TEST_REPLY",
+            json!({"dataRoot":f.root}).to_string(),
+        )
         .current_dir(&f.root)
         .arg("ls")
         .output()

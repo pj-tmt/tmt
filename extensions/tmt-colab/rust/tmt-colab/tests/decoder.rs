@@ -1,3 +1,5 @@
+#[path = "support/core_fixture.rs"]
+mod core_fixture;
 mod support;
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use nix::{errno::Errno, sys::signal::kill, unistd::Pid};
@@ -10,7 +12,6 @@ use tmt_colab::decoder::{
     BaselineInput, DecodeFault, Decoder, MemoryLimit, Namespace, Role, STREAM_BYTES, UpdateBatch,
 };
 use tmt_invoke::{Cleanup, EnvironmentPolicy, FailureKind, LaunchOptions, Request};
-use tmt_test_support::write_executable;
 use yrs::{
     Array, Doc, GetString, Map, ReadTxn, StateVector, Text, Transact, Update,
     updates::decoder::Decode,
@@ -347,15 +348,14 @@ impl FixtureProgram {
         ));
         std::fs::create_dir(&directory).unwrap();
         std::fs::set_permissions(&directory, std::fs::Permissions::from_mode(0o700)).unwrap();
-        let script = directory.join("child");
+        let script = core_fixture::link(&directory, "child", core_fixture::Program::Decoder);
         let pid_path = directory
             .join("pid")
             .to_string_lossy()
             .replace('\'', "'\\''");
-        write_executable(
-            &script,
+        std::fs::write(
+            directory.join("behavior"),
             format!("#!/bin/sh\nprintf '%s\\n' \"$$\" > '{pid_path}'\n{body}\n").as_bytes(),
-            0o700,
         )
         .unwrap();
         Self {
@@ -382,12 +382,11 @@ impl FixtureProgram {
         fixture.barrier = Some((open(&ready), open(&release)));
         let directory = fixture.directory.to_string_lossy().replace('\'', "'\\''");
         let actual = program().to_string_lossy().replace('\'', "'\\''");
-        write_executable(
-            &fixture.script,
+        std::fs::write(
+            fixture.directory.join("behavior"),
             format!(
                 "#!/bin/sh\nprintf '%s\\n' \"$$\" > '{directory}/pid'\nexec 3< '{directory}/release'\nprintf x > '{directory}/ready'\nread line <&3\nexec 3<&-\nexec '{actual}' \"$@\"\n"
             ).as_bytes(),
-            0o700,
         )
         .unwrap();
         fixture
@@ -429,10 +428,9 @@ impl FixtureProgram {
     }
     fn actual(&self) {
         let path = program().to_string_lossy().replace('\'', "'\\''");
-        write_executable(
-            &self.script,
+        std::fs::write(
+            self.directory.join("behavior"),
             format!("#!/bin/sh\nexec '{path}' \"$@\"\n").as_bytes(),
-            0o700,
         )
         .unwrap();
     }
