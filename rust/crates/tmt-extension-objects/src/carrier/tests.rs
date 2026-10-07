@@ -72,12 +72,23 @@ fn big_result() -> Frame {
     })
 }
 
+impl Link {
+    pub(super) fn read_frame(&mut self, idle: Idle<'_>, budgets: &Budgets) -> Result<Frame, Fault> {
+        read_checked(&mut self.reader, self.generation, idle, budgets).map(|(frame, _)| frame)
+    }
+    pub(super) fn write_frame(&mut self, frame: &Frame, budgets: &Budgets) -> Result<(), Fault> {
+        let bytes = prepared(self.generation, frame)?;
+        self.writer.send(&bytes, budgets.write)
+    }
+}
+
 /// A link over one end of a socket pair and the raw other end.
 fn raw_link() -> (Link, UnixStream) {
     let (ours, theirs) = UnixStream::pair().unwrap();
     let (reader, writer) = halves(ours, Vec::new()).unwrap();
     let link = Link {
         generation: generation(GEN),
+        role: Role::Extension,
         reader,
         writer,
     };
@@ -282,4 +293,142 @@ fn writes_refuse_a_wrong_generation_and_a_closed_peer() {
         link.write_frame(&admission(GEN, 1), &quick()),
         Err(Fault::Io(std::io::ErrorKind::BrokenPipe))
     );
+}
+
+// Builders for the correlated frames the ledger and bus tests exchange. Every one is
+// a `commit` conversation about one transfer unless a name says otherwise.
+use crate::{
+    Admit, AdmitInput, Bytes32, Call, Checkpoint, Context, Operation, Origin, OriginPhase,
+    OriginState, Policy, ReadInput, Request, Retained, Sha256Hex, TransferAdmit, TransferInput,
+};
+
+pub(super) fn transfer(n: u8) -> Uuid4 {
+    generation(&format!("0b5e6d1c-2a47-4f93-b8e0-61c4d7a92f{n:02x}"))
+}
+fn counter(n: u64) -> Counter {
+    Counter::new(n).unwrap()
+}
+fn retained() -> Retained {
+    Retained {
+        namespace: Bytes32::from_bytes([1; 32]),
+        opaque_key: Bytes32::from_bytes([2; 32]),
+        policy: Policy::new(Vec::new()).unwrap(),
+        payload_sha256: Sha256Hex::from_bytes([3; 32]),
+        payload_bytes: 3,
+    }
+}
+/// A `commit` request about `transfer`.
+pub(super) fn request(id: u64, transfer: Uuid4) -> Frame {
+    Frame::Request(Request {
+        generation: generation(GEN),
+        request_id: counter(id),
+        origin: Origin::LocalExtension,
+        call: Call::Commit(TransferInput {
+            transfer_id: transfer,
+        }),
+    })
+}
+/// A `read` request, which names no transfer.
+pub(super) fn read_request(id: u64) -> Frame {
+    Frame::Request(Request {
+        generation: generation(GEN),
+        request_id: counter(id),
+        origin: Origin::LocalExtension,
+        call: Call::Read(ReadInput {
+            namespace: Bytes32::from_bytes([1; 32]),
+            opaque_key: Bytes32::from_bytes([2; 32]),
+            policy: Policy::new(Vec::new()).unwrap(),
+            payload_sha256: Sha256Hex::from_bytes([3; 32]),
+            payload_bytes: 3,
+            offset: 0,
+            count: 3,
+        }),
+    })
+}
+fn admit_about(callback: u64, request: u64, input: AdmitInput) -> Frame {
+    Frame::Admit(Admit {
+        generation: generation(GEN),
+        callback_id: counter(callback),
+        request_id: counter(request),
+        boundary: Checkpoint::Acquire,
+        context: Context::LocalExtension,
+        operation: Operation {
+            input,
+            disclosure: None,
+        },
+    })
+}
+/// An acquire callback for a `commit` of `transfer`.
+pub(super) fn admit(callback: u64, request: u64, transfer: Uuid4) -> Frame {
+    admit_about(
+        callback,
+        request,
+        AdmitInput::Commit(TransferAdmit {
+            transfer_id: transfer,
+            retained: retained(),
+        }),
+    )
+}
+/// An acquire callback for a `read`.
+pub(super) fn admit_read(callback: u64, request: u64) -> Frame {
+    admit_about(
+        callback,
+        request,
+        AdmitInput::Read(ReadInput {
+            namespace: Bytes32::from_bytes([1; 32]),
+            opaque_key: Bytes32::from_bytes([2; 32]),
+            policy: Policy::new(Vec::new()).unwrap(),
+            payload_sha256: Sha256Hex::from_bytes([3; 32]),
+            payload_bytes: 3,
+            offset: 0,
+            count: 3,
+        }),
+    )
+}
+pub(super) fn answer(callback: u64, request: u64) -> Frame {
+    Frame::Admission(Admission {
+        generation: generation(GEN),
+        callback_id: counter(callback),
+        request_id: counter(request),
+        decision: Decision::Allow,
+    })
+}
+/// The committed result of the `commit` request `request` about `transfer`.
+pub(super) fn done(request: u64, transfer: Uuid4) -> Frame {
+    Frame::Result(ResultFrame {
+        generation: generation(GEN),
+        request_id: counter(request),
+        method: Method::Commit,
+        transfer_id: Some(transfer),
+        outcome: Outcome::Success(Success::Committed {
+            opaque_key: Bytes32::from_bytes([2; 32]),
+            payload_sha256: Sha256Hex::from_bytes([3; 32]),
+            payload_bytes: 3,
+        }),
+    })
+}
+/// A large result of the `read` request `request`: 32 KiB of bytes.
+pub(super) fn big_read_result(request: u64) -> Frame {
+    Frame::Result(ResultFrame {
+        generation: generation(GEN),
+        request_id: counter(request),
+        method: Method::Read,
+        transfer_id: None,
+        outcome: Outcome::Success(Success::Read {
+            offset: 0,
+            total_bytes: 32_768,
+            bytes: Chunk::new(vec![0xa5; 32_768]).unwrap(),
+        }),
+    })
+}
+pub(super) fn origin_state() -> Frame {
+    origin_state_n(0)
+}
+/// A lifecycle frame whose origin differs by `n`, so a run of them stays ordered.
+pub(super) fn origin_state_n(n: u8) -> Frame {
+    Frame::OriginState(OriginState {
+        generation: generation(GEN),
+        origin_id: generation(&format!("c1d2e3f4-a5b6-4c7d-9e8f-0a1b2c3d4e{n:02x}")),
+        phase: OriginPhase::Established,
+    })
 }

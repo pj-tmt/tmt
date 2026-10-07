@@ -83,7 +83,7 @@ library-only and shared with Colab:
 Synced publication tests prove filesystem behavior, not power-loss recovery.
 
 The wire leaf `tmt-extension-objects` is library-only and has no consumer yet. Its Unix-only
-`carrier` module (handshake, bounded frame I/O) is the only part that names `httparse` or `nix`
+`carrier` module (handshake, bounded frame I/O, correlation ledger, `Bus` driver) is the only part that names `httparse` or `nix`
 (`cfg(unix)` dependencies, guarded); the protocol modules stay free of OS dependencies. It owns the wire
 bounds (`limits`: chunk, policy input, payload); the `tmt-remote` limits of the same value do not
 depend on it, so consumer slices must reuse the leaf bounds or equality-test them against the

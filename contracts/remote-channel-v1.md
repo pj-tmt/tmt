@@ -996,9 +996,8 @@ Visibility is the extension's rule, not a remote grant.
 
 **Status:** library wire schema only. `rust/crates/tmt-extension-objects` implements and tests the five frame kinds below
 (request, result, admit, admission and origin-state), all decoded and encoded by the same checks, and, on Unix, the
-carrier below that opens the channel and moves frames with bounded waits; no mount or route integration, callback
-executor or backend is shipped (#1852). Which side may send which kind, and every generation, high-water, ordering and
-outstanding-request rule, belong to the channel built on the carrier. Requests, results
+carrier below that opens the channel, moves frames with bounded waits and enforces direction and correlation; no mount
+or route integration, callback executor or backend is shipped (#1852). Requests, results
 and admission replies carry no principal, role, permit, retry or scope: `method`, the result tag and the callback
 identifiers are correlation only. An admit `context` states the owner device and grant revision as Remote established
 them, for the extension's own decision; a browser or caller never selects it, and nothing in a context, identifier,
@@ -1041,6 +1040,21 @@ the reply within 1 s, both clipped by the setup bound the caller holds.
 checked before any allocation. Waiting for a frame to begin has no bound of its own and ends on a byte, the end of the
 stream, a stop request or the caller's deadline. A frame is written within 1 s. A partial prefix or body, an end of the
 stream inside a frame, a stalled write or an invalid frame ends the channel; none is retried.
+
+**Direction and correlation.** The extension sends requests and admissions; Remote sends results, admits and origin
+states. Each end applies every frame, sent or received, to one ledger before it is sent or queued. Request and callback
+identifiers are strictly increasing per issuer against a remembered high-water mark, so none is reused. At most 8
+requests and 8 callbacks are outstanding per channel (32 and 32 per installation, counted by the caller's shared budget
+and returned when a channel ends). A request has at most one callback outstanding and ends only with its result when none
+is. An admit must name an outstanding request with the same method and transfer; an admission must name the outstanding
+callback and its request; a result must repeat the request's method. A frame the local end may not send, or that the
+ledger refuses, is returned to the caller with nothing written and the channel stays usable. A received frame the ledger
+refuses ends the channel, so a duplicate, stale, mismatched or out-of-order frame never satisfies a successor.
+
+**Bus.** One thread reads while callers wait, and no frame spawns a thread. Received frames wait in a queue of at most 8
+frames and 524,288 bytes; reading pauses while it is full, and the peer's own write bound ends a peer that outruns it.
+Frames received before a fault are delivered before it is reported. The first fault is kept and every later call reports
+it. Closing, or dropping, shuts the socket down, wakes every waiter and joins the thread.
 
 **Request** `{"version":1,"kind":"request","generation":<uuid>,"requestId":<counter>,"origin":<origin>,"method":<method>,"input":<input>}`,
 with `origin` either `{"kind":"local-extension"}` or `{"kind":"mounted","originId":<uuid>}`.

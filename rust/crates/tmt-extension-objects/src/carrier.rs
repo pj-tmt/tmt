@@ -14,9 +14,13 @@ use std::{
 };
 
 mod bounded;
+mod bus;
 mod handshake;
+mod ledger;
 
+pub use bus::Bus;
 pub use handshake::{Expect, Offer, accept, initiate};
+pub use ledger::{Budget, Caps, Reason};
 
 /// The reserved route that opens the channel.
 pub(crate) const ROUTE: &str = "/.tmt/remote/object-channel-v1";
@@ -46,6 +50,14 @@ impl Budgets {
             write: Duration::from_secs(1),
         }
     }
+}
+
+/// Which end of the channel this is. Remote opens it and sends results, callbacks and
+/// origin state; the extension answers the upgrade and sends requests and admissions.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Role {
+    Remote,
+    Extension,
 }
 
 /// Where a bound ran out.
@@ -99,6 +111,8 @@ pub enum Fault {
     Frame(ErrorClass),
     /// A frame names a generation other than the link's.
     Generation,
+    /// A frame breaks direction or correlation.
+    Correlation(Reason),
 }
 
 /// What a caller does while waiting for the next frame to begin.
@@ -121,10 +135,12 @@ fn generation_of(frame: &Frame) -> Uuid4 {
     }
 }
 
-/// An opened channel: the stream after a successful upgrade, bound to its generation.
+/// An opened channel: the stream after a successful upgrade, bound to its generation
+/// and to this end's role. [`Bus::start`] takes it over.
 #[derive(Debug)]
 pub struct Link {
     generation: Uuid4,
+    role: Role,
     reader: bounded::Reader,
     writer: bounded::Writer,
 }
@@ -145,24 +161,33 @@ impl Link {
     pub fn generation(&self) -> Uuid4 {
         self.generation
     }
-    /// The next frame. The wait for its first byte is unbounded unless `idle` says
-    /// otherwise; from that byte on, `budgets.frame` is absolute.
-    pub fn read_frame(&mut self, idle: Idle<'_>, budgets: &Budgets) -> Result<Frame, Fault> {
-        let body = self.reader.frame(idle, budgets.frame)?;
-        let frame = crate::decode(&body).map_err(Fault::Frame)?;
-        if generation_of(&frame) != self.generation {
-            return Err(Fault::Generation);
-        }
-        Ok(frame)
+    pub fn role(&self) -> Role {
+        self.role
     }
-    /// One frame within `budgets.write`.
-    pub fn write_frame(&mut self, frame: &Frame, budgets: &Budgets) -> Result<(), Fault> {
-        if generation_of(frame) != self.generation {
-            return Err(Fault::Generation);
-        }
-        let bytes = crate::encode(frame).map_err(Fault::Frame)?;
-        self.writer.send(&bytes, budgets.write)
+}
+
+/// The next frame and the size of its body. The wait for its first byte is unbounded
+/// unless `idle` says otherwise; from that byte on, `budgets.frame` is absolute.
+fn read_checked(
+    reader: &mut bounded::Reader,
+    generation: Uuid4,
+    idle: Idle<'_>,
+    budgets: &Budgets,
+) -> Result<(Frame, usize), Fault> {
+    let body = reader.frame(idle, budgets.frame)?;
+    let frame = crate::decode(&body).map_err(Fault::Frame)?;
+    if generation_of(&frame) != generation {
+        return Err(Fault::Generation);
     }
+    Ok((frame, body.len()))
+}
+/// The bytes to write for `frame`, once it is known to belong to this generation and to
+/// be a valid frame. Nothing is sent or recorded yet.
+fn prepared(generation: Uuid4, frame: &Frame) -> Result<Vec<u8>, Fault> {
+    if generation_of(frame) != generation {
+        return Err(Fault::Generation);
+    }
+    crate::encode(frame).map_err(Fault::Frame)
 }
 
 #[cfg(test)]

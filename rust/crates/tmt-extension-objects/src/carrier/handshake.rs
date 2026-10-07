@@ -12,7 +12,7 @@
 //! tmt-object-channel: 1
 //! tmt-object-generation: <lowercase UUIDv4>
 //! ```
-use super::{Budgets, Fault, Link, PROTOCOL, ROUTE, Refusal, Stage, halves};
+use super::{Budgets, Fault, Link, PROTOCOL, ROUTE, Refusal, Role, Stage, halves};
 use crate::Uuid4;
 use std::{
     os::unix::net::UnixStream,
@@ -155,6 +155,7 @@ pub fn initiate(stream: UnixStream, offer: &Offer, setup: Instant) -> Result<Lin
     reader.keep(first_bytes);
     Ok(Link {
         generation: offer.generation,
+        role: Role::Remote,
         reader,
         writer,
     })
@@ -206,6 +207,7 @@ pub fn accept(
     )?;
     Ok(Link {
         generation,
+        role: Role::Extension,
         reader,
         writer,
     })

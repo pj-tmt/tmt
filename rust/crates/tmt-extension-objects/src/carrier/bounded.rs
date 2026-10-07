@@ -50,6 +50,11 @@ impl Reader {
         })
     }
 
+    /// Another handle to the same socket, for shutting it down from elsewhere.
+    pub(super) fn duplicate_stream(&self) -> io::Result<UnixStream> {
+        self.stream.try_clone()
+    }
+
     /// Bytes read past the upgrade head, to be consumed before the stream.
     pub(super) fn keep(&mut self, bytes: Vec<u8>) {
         self.first_bytes = bytes;
