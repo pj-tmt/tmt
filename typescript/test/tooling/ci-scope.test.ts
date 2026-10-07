@@ -2087,6 +2087,54 @@ describe('required CI gate', () => {
     }
   });
 
+  it('normalizes every CI cache consumer and Colab through one install owner before restore', () => {
+    const workflow = readFileSync(
+      new URL('../../../.github/workflows/ci.yml', import.meta.url),
+      'utf8'
+    );
+    const sites = [
+      'native-notices',
+      'native-clippy',
+      'native-workspace-tests',
+      'native-office-build',
+      'native-office',
+      'native-process-tests',
+      'native-msrv',
+      'native-runtime-build',
+    ];
+    expect(workflow.match(/sh scripts\/install-ci-rust\.sh /g)).toHaveLength(sites.length);
+    expect(workflow).not.toContain('add-rust-environment-hash-key: false');
+    for (const name of sites) {
+      const body = workflow.split(`\n  ${name}:\n`)[1].split(/\n {2}[a-z0-9-]+:\n/)[0];
+      const install = body.indexOf('sh scripts/install-ci-rust.sh ');
+      expect(install, name).toBeGreaterThan(0);
+      expect(install, name).toBeLessThan(body.indexOf('uses: Swatinem/rust-cache@'));
+      expect(body).toContain(
+        name === 'native-msrv'
+          ? 'install-ci-rust.sh "$MSRV" --profile minimal'
+          : 'install-ci-rust.sh 1.97.0 --profile minimal'
+      );
+    }
+    expect(workflow).toContain('steps: &native-runtime-build-steps');
+    expect(workflow).toContain('steps: *native-runtime-build-steps');
+    expect(workflow).toContain(
+      "install-ci-rust.sh 1.97.0 --profile minimal --target '${{ matrix.target }}'"
+    );
+    expect(
+      workflow.match(/install-ci-rust\.sh 1\.97\.0 --profile minimal --component rustfmt,clippy/g)
+    ).toHaveLength(5);
+    const colab = readFileSync(
+      new URL('../../../.github/workflows/colab-browser.yml', import.meta.url),
+      'utf8'
+    );
+    const install = colab.indexOf('sh scripts/install-ci-rust.sh 1.97.0 --profile minimal');
+    expect(colab.match(/sh scripts\/install-ci-rust\.sh /g)).toHaveLength(1);
+    expect(install).toBeGreaterThan(0);
+    expect(install).toBeLessThan(colab.indexOf('uses: Swatinem/rust-cache@'));
+    expect(colab).toContain('shared-key: native-rust');
+    expect(colab).toContain('save-if: false');
+  });
+
   it('gives every native step and job an explicit scope, and gates on exactly those results', () => {
     const workflow = readFileSync(
       fileURLToPath(new URL('../../../.github/workflows/ci.yml', import.meta.url)),
@@ -2170,8 +2218,8 @@ describe('required CI gate', () => {
     );
     expect(job('native-msrv')).toContain('["workspace"]["package"]["rust-version"]');
     expect(job('native-msrv')).toContain('RUSTUP_TOOLCHAIN=%s');
-    expect(job('native-msrv')).toContain('rustup toolchain install "$MSRV" --profile minimal');
-    expect(job('native-msrv')).not.toMatch(/rustup toolchain install \d/);
+    expect(job('native-msrv')).toContain('sh scripts/install-ci-rust.sh "$MSRV" --profile minimal');
+    expect(job('native-msrv')).not.toMatch(/install-ci-rust\.sh \d/);
     expect(job('native-msrv')).toContain(
       'cargo +"$MSRV" check --locked --workspace --exclude tmt-office --exclude tmt-office-storage --exclude tmt-office-pairing --exclude tmt-office-service --all-targets'
     );
