@@ -1,6 +1,6 @@
 ---
 source: site/src/chapters/squad.mdx
-sourceRevision: 8bd1e1392968d4d9d4eba8cfc86b0fb137b48931
+sourceRevision: dc6753f8892631e5ed862634ff7c77992a00e31a
 title: Squad：lead、成員與一個 board
 ---
 
@@ -34,7 +34,7 @@ import { BoardDemo, jumpAndTalk, startSquad, updateStatus } from "../../demos/Bo
 $ tmt extension install squad
 $ tmt sq init product            # 為 squad 命名；不會詢問
 $ tmt sq lead sol                # 選用：指定 sol 為 lead
-$ tmt sq                         # 有終端機就開啟 board，其他情況列出成員
+$ tmt sq board                   # 有終端機就開啟 board，其他情況列出成員
 `}</Cmd>
 
 <Waiting /> 表示在等的是 _你_。Squad 會從你執行它的窗格認出你；也可以用 `tmt sq me ben` 記錄一次。用
@@ -60,7 +60,7 @@ $ tmt sq                         # 有終端機就開啟 board，其他情況列
 
 <Mdx.h3 id="the-board">Board</Mdx.h3>
 
-squad 頁籤預設使用 **members**：lead 與成員共用一份有框線的清單，詳細資料在列內展開，lead 的筆記在下方。原本的 **team** 側邊窗格視圖仍可選用。按 `/` 並輸入文字，就能縮小清單範圍。<Waiting /> 表示成員正在等你，這些列會排在最前面。每個按鍵都使用畫面上已有的資料；pull request 狀態這類較慢的查詢會在背景更新。成員、請求或 room 變更，或你編輯 `squad.toml` 後，board 會在大約一秒內重新載入；其他資料仍會依設定的間隔更新（`refresh`，或 `"off"`）。按 **ctrl-r** 可以立刻更新，搜尋或輸入訊息時也能用。`tmt sq ls` 會以文字列出成員，加上 `--json` 則輸出 JSON；沒有終端機時，`tmt sq` 也會顯示這份清單。`tmt sq board` 在互動式終端機開啟 board，其他情況則印出同一份清單。
+squad 頁籤預設使用 **members**：lead 與成員共用一份有框線的清單，詳細資料在列內展開，lead 的筆記在下方。原本的 **team** 側邊窗格視圖仍可選用。按 `/` 並輸入文字，就能縮小清單範圍。<Waiting /> 表示成員正在等你，這些列會排在最前面。每個按鍵都使用畫面上已有的資料；pull request 狀態這類較慢的查詢會在背景更新。成員、請求或 room 變更，或你編輯 `squad.toml` 後，board 會在大約一秒內重新載入；其他資料仍會依設定的間隔更新（`refresh`，或 `"off"`）。按 **ctrl-r** 可以立刻更新，搜尋或輸入訊息時也能用。`tmt sq ls` 會以文字列出成員，加上 `--json` 則輸出 JSON；只輸入 `tmt sq` 也會顯示這份清單，並提示如何開啟 board。`tmt sq board` 在互動式終端機開啟 board，其他情況則印出同一份清單。
 
 <BoardSketch />
 

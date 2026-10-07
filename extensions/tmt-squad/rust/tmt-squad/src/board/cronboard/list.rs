@@ -126,6 +126,15 @@ impl List {
         });
         let (_, template) = template.as_ref().expect("compiled");
         surface.render("squad.cron.xml", template, value, frame, look, body);
+        if let Some(map) = &surface.frame {
+            let footer = map.areas.footer;
+            let text = super::hints::overlay(usize::from(footer.width));
+            tmt_tui::components::strip::paint_left(
+                frame.buffer_mut(),
+                footer,
+                crate::board::view::footer::hint_line(&text, look),
+            );
+        }
     }
 
     /// `None` is an event the list does not take, so the caller's router can offer

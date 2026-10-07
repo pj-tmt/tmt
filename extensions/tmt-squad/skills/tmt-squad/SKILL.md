@@ -9,7 +9,9 @@ Use this skill when you lead a squad: `tmt squad ls` shows you as the
 squad's `lead`. A squad is a TMT room named `squad-<name>`. Each member's board
 fields are that member's identity metadata `squad.<name>.<field>`. The authoritative roster and board fields stay in TMT; optional age observations
 live in a disposable Squad cache. `tmt sq` is the
-same command as `tmt squad`.
+same command as `tmt squad`. Bare `tmt sq` prints the member list followed by
+`tmt sq board opens the board`; `--json` prints only the same document as
+`tmt sq ls --json`. Run `tmt sq board` to open the interactive board.
 
 ## Read the board
 
@@ -220,14 +222,17 @@ cells is shortened with `…`. The shown name keeps semantic marks and counts
 when a name grapheme fits. At the minimum name width, a clipped grapheme can
 replace the ellipsis. Otherwise the ordinary prefix is fitted; at one cell a
 leading attention mark wins over the ellipsis. Selection is conveyed by the
-existing background, bold and no-background reverse styling. Hidden tabs opened through the switcher remain
+background, bold and no-background reverse styling. A named tab keeps its fixed
+attention slot outside the bar and one blank cell on each side of its name/count. Hidden tabs opened through the switcher remain
 selected and marked `(hidden)`, without a drag target. There are no number keys.
 
 `ctrl-r` refreshes the board in squad, leads and all views, including while
 searching or composing a message, without changing the entered text. The footer
 and `?` help list the effective bindings. The footer shows `↑↓ move`, the row's main
-action (`⏎ open`), `a write`, `e expand` and `A ask lead` where those keys are bound
-and the selected row allows them, then `/ search`, `? more` and `q quit`; when the
+action (`⏎ open`) and `e expand` where those keys are bound and the selected row
+allows them, then `/ search`, `? more` and `q quit`. Keys are bold Accent, labels
+are Muted, and NO_COLOR keeps keys bold. `a write` and `A ask lead` stay bound
+and appear in `?` help and context menus. When the
 width runs out it drops whole hints from the end, and `q quit` and `? more` always
 stay. Every other key (tabs, back, open, copy, fold, refresh, `t` previews, ...) stays
 bound and is listed in `?` help only; `s switch` joins the footer when the tab line

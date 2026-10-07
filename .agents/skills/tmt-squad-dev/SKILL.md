@@ -90,8 +90,8 @@ grammar or key tables into the references below.
   on workers (see [refresh-and-meter.md](references/refresh-and-meter.md)).
 - Command grammar, help and human output go through `tmt-cli-style`
   (`CommandSpec`, `Interaction`); `board` runs only when `Interaction::view()` is
-  `Interactive`, decided once in `main`, otherwise it is `ls`. `tmt squad` with no
-  command is `board`. Consent for hotkeys and playbooks is a `Consent` decided in
+  `Interactive`, decided once in `main`, otherwise it is `ls`. Bare `tmt squad` lists members and adds
+  `tmt sq board opens the board`; bare `--json` is identical to `ls --json`. Consent for hotkeys and playbooks is a `Consent` decided in
   `main` from `--yes` and `prompt()`.
 - Squad's dependencies must not change the CLI product: prove it package-scoped
   (`cargo ... -p tmt-cli` alone), because combined workspace builds can unify

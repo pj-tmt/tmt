@@ -1,6 +1,6 @@
 ---
 source: site/src/chapters/squad.mdx
-sourceRevision: 8bd1e1392968d4d9d4eba8cfc86b0fb137b48931
+sourceRevision: dc6753f8892631e5ed862634ff7c77992a00e31a
 title: Squad：lead、成员和一个看板
 ---
 
@@ -33,7 +33,7 @@ import { BoardDemo, jumpAndTalk, startSquad, updateStatus } from "../../demos/Bo
 $ tmt extension install squad
 $ tmt sq init product            # 为 squad 命名；不会询问
 $ tmt sq lead sol                # 可选：由 sol 带队
-$ tmt sq                         # 在终端中显示看板，其他情况下显示成员列表
+$ tmt sq board                   # 在终端中显示看板，其他情况下显示成员列表
 `}</Cmd>
 
 <Waiting /> 标出正在等<em>你</em>处理的事项。Squad 根据运行它的窗格识别你，也可以用 `tmt sq me ben`
@@ -59,7 +59,7 @@ $ tmt sq                         # 在终端中显示看板，其他情况下显
 
 <Mdx.h3 id="the-board">看板</Mdx.h3>
 
-squad 标签页默认使用 **members**：lead 与成员显示在同一个带边框的列表中，详情在行内展开，lead 的笔记位于下方。原来的 **team** 侧边窗格视图仍可选择。按 `/` 并输入内容可筛选行。<Waiting /> 标出正在等你的成员，这些行排在最前面。所有按键操作都基于屏幕上已有的内容；拉取请求状态等较慢的查询在后台刷新。成员、请求或房间发生变化，或你编辑 `squad.toml` 后，看板会在大约一秒内重新加载；其他内容仍按刷新间隔（`refresh`，或 `"off"`）更新。按 **ctrl-r** 可立即刷新，即使正在搜索或输入消息也可以。`tmt sq ls` 以文本输出成员列表，加上 `--json` 则输出 JSON；没有终端时，`tmt sq` 显示的也是这个列表。`tmt sq board` 在交互式终端中打开看板，其他情况下输出同一个列表。
+squad 标签页默认使用 **members**：lead 与成员显示在同一个带边框的列表中，详情在行内展开，lead 的笔记位于下方。原来的 **team** 侧边窗格视图仍可选择。按 `/` 并输入内容可筛选行。<Waiting /> 标出正在等你的成员，这些行排在最前面。所有按键操作都基于屏幕上已有的内容；拉取请求状态等较慢的查询在后台刷新。成员、请求或房间发生变化，或你编辑 `squad.toml` 后，看板会在大约一秒内重新加载；其他内容仍按刷新间隔（`refresh`，或 `"off"`）更新。按 **ctrl-r** 可立即刷新，即使正在搜索或输入消息也可以。`tmt sq ls` 以文本输出成员列表，加上 `--json` 则输出 JSON；只输入 `tmt sq` 也会显示这个列表，并提示如何打开看板。`tmt sq board` 在交互式终端中打开看板，其他情况下输出同一个列表。
 
 <BoardSketch />
 

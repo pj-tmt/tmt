@@ -113,13 +113,13 @@ and covered-hit removal. Ask-lead, settings, pickers and cron overlays stay squa
   publish no new quick-row values. Presets bind `t` to `home-replies` and no `r`, `T`, `l`, `w` or `talk`;
   fixtures that exercise those actions use `action::with_action_keys`.
 
-Receiving focus is explicit in the existing outlined pane title. Borderless Rows
-uses `Focus: rows` in the base footer; HOME uses `Focus: HOME rows`. Selection
-persists when another pane receives keys. Input/read, search and every existing
-overlay/menu suppress the base claim; notice, selected-link and error footer
-precedence remains unchanged. The full prefix plus mandatory `? more  q quit`
-needs 27 cells for Rows or 32 for HOME. Below that minimum the entire new prefix
-is omitted; optional hints still fit whole through the existing owner.
+Receiving focus is explicit in the existing outlined pane title. The default
+borderless Rows and HOME panes add no footer focus text. Selection persists when
+another pane receives keys. Input/read, search and every existing overlay/menu
+retain their footer ownership; notice, selected-link and error precedence is unchanged.
+Footer hint keys use bold Accent with Muted labels and two-space separators;
+NO_COLOR keeps the key bold, and settings dim both parts. Write and ask-lead
+remain bound and discoverable in help/menus, without default footer hints.
 
 ## Composition, folds and scrolling
 
@@ -152,6 +152,8 @@ is omitted; optional hints still fit whole through the existing owner.
 ## Tabs and retained views
 
 - `view::tabs` measures styled `tab_label` widths for windowing, overflow and hits;
+  a fixed attention slot sits outside the selected bar, whose name/count has one
+  blank cell on each side. Every named tab keeps the same trailing cell.
   shown names retain their authored text without added decoration. Shown-name
   fitting preserves semantic suffixes when a name grapheme fits; otherwise it uses
   the ordinary prefix fallback (a one-cell attention mark wins over the ellipsis). `tabs::arrange` owns order/pins. Window admission

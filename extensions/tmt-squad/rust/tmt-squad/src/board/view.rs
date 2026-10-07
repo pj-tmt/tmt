@@ -1,7 +1,7 @@
 //! Frame orchestration; surface painters retain their existing owners.
 
 mod detail;
-mod footer;
+pub(super) mod footer;
 mod header;
 pub(in crate::board) mod member_list;
 mod notes;

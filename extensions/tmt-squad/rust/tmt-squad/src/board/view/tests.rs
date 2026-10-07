@@ -109,7 +109,7 @@ fn waiting_rows_detail_and_ask_prompt_fit_each_width_and_theme() {
                 .unwrap();
             assert!(!pending_only.contains("12m"), "pending-only has no age");
             assert!(screen.last().unwrap().contains("◆ 3 waiting"));
-            assert_eq!(screen.last().unwrap().contains("A ask lead"), width >= 100);
+            assert!(!screen.last().unwrap().contains("A ask lead"));
             assert!(
                 app.hits.borrow().iter().any(|hit| hit.row().unwrap() == 1
                     && screen[usize::from(hit.y)].contains("Ship #412"))
@@ -175,7 +175,8 @@ fn waiting_hint_uses_rebound_key_and_drops_oldest_before_actions() {
         crate::action::Action::parse("ask-lead").unwrap(),
     );
     assert!(hints(&app, 160).contains("oldest auth-fix 12m"));
-    assert!(hints(&app, 120).contains("z ask lead"));
+    assert!(!hints(&app, 120).contains("z ask lead"));
+    assert!(help_lines(&app).iter().any(|line| line.starts_with("z  ")));
     assert!(!hints(&app, 100).contains("z ask lead"));
     assert!(!hints(&app, 50).contains("oldest"));
     assert!(!hints(&app, 80).contains("oldest"));
@@ -189,14 +190,68 @@ fn waiting_hint_uses_rebound_key_and_drops_oldest_before_actions() {
 }
 
 #[test]
+fn footer_keys_are_bold_accent_and_labels_muted_in_every_board_mode() {
+    for (base, depth) in [
+        (tmt_cli_style::Base::Tmt, tmt_cli_style::Depth::TrueColor),
+        (
+            tmt_cli_style::Base::TmtLight,
+            tmt_cli_style::Depth::TrueColor,
+        ),
+        (tmt_cli_style::Base::Terminal, tmt_cli_style::Depth::Ansi16),
+        (tmt_cli_style::Base::Mono, tmt_cli_style::Depth::None),
+    ] {
+        let mut app =
+            board(json!([{"title":null,"rows":[row("worker","working","task",json!({}))]}]));
+        app.view.as_mut().unwrap().look = crate::look::Look {
+            theme: tmt_cli_style::Theme::new(base),
+            depth,
+        };
+        let text = hints(&app, 160);
+        assert!(
+            !text.contains("a write") && !text.contains("A ask lead") && !text.contains("Focus:")
+        );
+        let help = help_lines(&app);
+        assert!(help.iter().any(|line| line.starts_with("a  ")));
+        assert!(help.iter().any(|line| line.starts_with("A  ")));
+        for list in [text, crate::board::cronboard::jobs_hints(160)] {
+            let line = super::footer::hint_line(&list, app.look());
+            let mut buffer = ratatui::buffer::Buffer::empty(Rect::new(0, 0, 160, 1));
+            tmt_tui::components::strip::paint_left(&mut buffer, Rect::new(0, 0, 160, 1), line);
+            let mut x = 0u16;
+            for part in list.split("  ") {
+                let (key, label) = part.split_once(' ').unwrap();
+                if key != "◆" {
+                    for offset in 0..key.width() as u16 {
+                        let cell = &buffer[(x + offset, 0)];
+                        assert_eq!(
+                            cell.fg,
+                            app.look().role(Role::Accent).fg.unwrap_or_default()
+                        );
+                        assert!(cell.modifier.contains(Modifier::BOLD));
+                    }
+                    let label_x = x + key.width() as u16 + 1;
+                    assert_eq!(
+                        buffer[(label_x, 0)].fg,
+                        app.look().role(Role::Muted).fg.unwrap_or_default()
+                    );
+                    assert_eq!(
+                        buffer[(label_x, 0)].modifier,
+                        app.look().role(Role::Muted).add_modifier
+                    );
+                    assert!(!label.is_empty());
+                }
+                x += part.width() as u16 + 2;
+            }
+        }
+    }
+}
+
+#[test]
 fn footer_omits_whole_hints_instead_of_clipping_words() {
     let mut app = App::new(Some("product".into()));
     app.apply(crate::board::app::tests::snapshot("product", json!([])));
     let full = hints(&app, usize::MAX);
-    assert!(
-        full.starts_with("Focus: rows  ↑↓ move  A ask lead  / search"),
-        "{full}"
-    );
+    assert!(full.starts_with("↑↓ move  / search"), "{full}");
     for width in [0, 1, 6, 20, 40, 80, 100, 108, 112, 120, 160] {
         let shown = hints(&app, width);
         assert!(shown.width() <= width);
@@ -230,15 +285,7 @@ fn footer_orders_hints_by_priority_and_always_keeps_quit_and_more() {
     app.select(1);
     assert_eq!(app.selected_row().unwrap()["name"], "auth-fix");
     let full = hints(&app, usize::MAX);
-    let order = [
-        "↑↓ move",
-        "⏎ open",
-        "a write",
-        "r reply",
-        "t talk",
-        "A ask lead",
-        "/ search",
-    ];
+    let order = ["↑↓ move", "⏎ open", "r reply", "t talk", "/ search"];
     let at = |hint: &str| full.find(hint).unwrap_or_else(|| panic!("{hint}: {full}"));
     assert!(
         order.windows(2).all(|pair| at(pair[0]) < at(pair[1])),
@@ -272,10 +319,7 @@ fn footer_orders_hints_by_priority_and_always_keeps_quit_and_more() {
     }
     // Focus and mandatory hints remain while optional actions fit whole.
     let narrow = hints(&app, 100);
-    assert!(
-        narrow.contains("⏎ open  a write  r reply  t talk"),
-        "{narrow}"
-    );
+    assert!(narrow.contains("⏎ open  r reply  t talk"), "{narrow}");
 }
 
 #[test]
@@ -288,7 +332,7 @@ fn footer_shows_only_the_row_actions_the_selected_row_allows() {
     app.select(0);
     assert_eq!(app.selected_row().unwrap()["name"], "sol");
     let lead = hints(&app, usize::MAX);
-    for hint in ["⏎ open", "t talk", "a write"] {
+    for hint in ["⏎ open", "t talk"] {
         assert!(lead.contains(hint), "{lead}");
     }
     assert!(!lead.contains("r reply"), "{lead}");
@@ -971,7 +1015,7 @@ fn rows_ignore_retired_notes_and_show_pending_sections_and_aligned_wide_text() {
     lead_sol(&mut app);
     let screen = draw(&app, 48, 12);
     // The tab line holds only the tabs; the summary has its own line.
-    assert_eq!(screen[0], "  product   reviews");
+    assert_eq!(screen[0], "  product    reviews");
     assert_eq!(screen[1], "lead sol · 2 members");
     assert_eq!(screen[2], "  MEMBER     STATE    TASK");
     // The lead is the first row; the rule names what follows.
@@ -983,7 +1027,7 @@ fn rows_ignore_retired_notes_and_show_pending_sections_and_aligned_wide_text() {
     assert_eq!(screen[8], "EVERYONE");
     assert_eq!(screen[9], "  文件-sweep working  整理安装指南");
     assert!(screen.iter().all(|line| !line.contains("needs a call")));
-    assert!(screen[11].starts_with("Focus: rows  ◆ 1 waiting"));
+    assert!(screen[11].starts_with("◆ 1 waiting"));
 }
 
 #[test]
@@ -1583,7 +1627,7 @@ fn team_pending_line_style_snapshots_and_unstyled_control() {
     const TRUE_COLOR: &str = r#""                               approve rollout                                  "
 [(2, "Reset/Reset/Reset/NONE/None"), (17, "Rgb(133, 133, 133)/Reset/Reset/NONE/None"), (1, "Reset/Reset/Reset/NONE/None"), (10, "Rgb(133, 133, 133)/Reset/Reset/NONE/None"), (1, "Reset/Reset/Reset/NONE/None"), (49, "Rgb(255, 158, 100)/Reset/Reset/NONE/None")]
 "                               approve rollout                                  "
-[(80, "Rgb(216, 216, 216)/Rgb(43, 43, 43)/Reset/NONE/None")]"#;
+[(80, "Rgb(216, 216, 216)/Rgb(74, 74, 74)/Reset/NONE/None")]"#;
     const ANSI16: &str = r#""                               approve rollout                                  "
 [(2, "Reset/Reset/Reset/NONE/None"), (17, "Reset/Reset/Reset/DIM/None"), (1, "Reset/Reset/Reset/NONE/None"), (10, "Reset/Reset/Reset/DIM/None"), (1, "Reset/Reset/Reset/NONE/None"), (49, "Yellow/Reset/Reset/NONE/None")]
 "                               approve rollout                                  "
@@ -1737,9 +1781,11 @@ fn light_body_chrome_and_selection_use_the_theme_and_no_color_keeps_focus() {
         let fg = |role| app.look().role(role).fg.unwrap_or_default();
         // Chrome uses the theme; unselected body keeps the terminal foreground.
         assert_eq!(buffer[(1, 1)].fg, fg(Role::Text));
-        for (x, y) in [(2, 2), (1, 6), (14, 0)] {
+        for (x, y) in [(2, 2), (15, 0)] {
             assert_eq!(buffer[(x, y)].fg, fg(Role::Muted), "chrome {x},{y}");
         }
+        assert_eq!(buffer[(1, 6)].fg, fg(Role::Accent));
+        assert!(buffer[(1, 6)].modifier.contains(Modifier::BOLD));
         assert_eq!(buffer[(2, 4)].fg, ratatui::style::Color::Reset);
         assert_eq!(buffer[(13, 5)].fg, fg(Role::Dim));
         assert_eq!(buffer[(22, 5)].fg, fg(Role::Dim));
@@ -1775,27 +1821,27 @@ fn selected_tabs_keep_undecorated_names_and_semantic_mark_styles() {
             };
             let selection = look.selection();
             for (attention, text) in [
-                (Attention::default(), "  product"),
+                (Attention::default(), "  product "),
                 (
                     Attention {
                         waiting: 2,
                         blocked: 0,
                     },
-                    "◆ product 2",
+                    "◆ product 2 ",
                 ),
                 (
                     Attention {
                         waiting: 0,
                         blocked: 1,
                     },
-                    "✗ product 1",
+                    "✗ product 1 ",
                 ),
                 (
                     Attention {
                         waiting: 2,
                         blocked: 1,
                     },
-                    "◆ product 2 ✗ 1",
+                    "◆ product 2 ✗ 1 ",
                 ),
             ] {
                 let selected = tab(
@@ -1853,6 +1899,11 @@ fn selected_tabs_keep_undecorated_names_and_semantic_mark_styles() {
                         } else {
                             None
                         };
+                        let normal = if x == 0 {
+                            look.role(Role::Muted)
+                        } else {
+                            normal
+                        };
                         let expected = role.map_or(normal, |role| Style {
                             bg: normal.bg,
                             ..look.role(role).add_modifier(
@@ -1906,7 +1957,8 @@ fn tab_fallback_depends_on_background_even_with_an_accent_foreground() {
                 Attention::default(),
                 &TabColors::default(),
             )
-            .style,
+            .spans[2]
+                .style,
             Role::Text,
         ),
         (pane_tab(look, "detail", true).style, Role::Accent),
@@ -2702,7 +2754,7 @@ fn tabs_carry_attention_by_color_and_count_and_the_summary_has_its_own_line() {
         .map(|x| buffer[(x, 0)].symbol().to_owned())
         .collect();
     // Counts say what the color says, so no meaning is color-only.
-    assert_eq!(tabs.trim_end(), "◆ product 1 ✗ 1 ✗ reviews 2");
+    assert_eq!(tabs.trim_end(), "◆ product 1 ✗ 1  ✗ reviews 2");
     let column = |name: &str| tabs[..tabs.find(name).unwrap()].chars().count() as u16;
     let product = &buffer[(column("product"), 0)];
     // Waiting wins over blocked; selection is bold without moving the tab.
@@ -2764,16 +2816,16 @@ fn attention_counts_keep_shared_marks_and_tab_width_without_color() {
             &TabColors::default()
         )
         .to_string(),
-        "  product"
+        "  product "
     );
     let colors = TabColors::default();
     let plain = tab(app.look(), "product", false, false, counts, &colors);
     let selected = tab(app.look(), "product", true, false, counts, &colors);
-    assert_eq!(selected.to_string(), "◆ product 2 ✗ 1");
-    assert_eq!(plain.to_string(), "◆ product 2 ✗ 1");
+    assert_eq!(selected.to_string(), "◆ product 2 ✗ 1 ");
+    assert_eq!(plain.to_string(), "◆ product 2 ✗ 1 ");
     assert_eq!(selected.width(), plain.width());
     assert_eq!(selected.style.fg, None);
-    assert!(draw(&app, 60, 8)[0].contains("◆ product 2 ✗ 1"));
+    assert!(draw(&app, 60, 8)[0].contains("◆ product 2 ✗ 1 "));
     app.switcher = Some(Switcher::new("product".into()));
     assert!(draw(&app, 60, 18).iter().any(|line| line.contains("[x]")
         && line.contains("product")
@@ -2874,7 +2926,7 @@ fn the_leads_tab_is_labelled_leads_and_counts_squad_leads() {
         view: Ok(view),
     });
     let screen = draw(&app, 60, 6);
-    assert_eq!(screen[0], "  product   leads");
+    assert_eq!(screen[0], "  product    leads");
     assert_eq!(screen[1], "2 squad leads");
     assert_eq!(screen[2], "  SQUAD          LEAD           STATE      TASK");
     assert_eq!(screen[3], "  product        sol            working    plan");
@@ -2909,7 +2961,7 @@ fn tabs_move_with_shift_arrows_or_a_drag_and_the_order_is_saved() {
 
     // Drag: press on the first tab (showing it), release over the last.
     let screen = draw(&app, 60, 6);
-    assert_eq!(screen[0], "  reviews   leads   product");
+    assert_eq!(screen[0], "  reviews    leads    product");
     let mouse = |kind, column| MouseEvent {
         kind,
         column,
@@ -3039,7 +3091,7 @@ fn switching_squads_never_moves_a_tab_or_blanks_the_frame() {
         before[0], during[0],
         "pending requests retain shown-tab names and positions"
     );
-    assert_eq!(before[0].trim_end(), "  product   reviews");
+    assert_eq!(before[0].trim_end(), "  product    reviews");
     assert!(
         during[1].contains("Opening reviews"),
         "a slow switch shows a spinner"
@@ -4059,7 +4111,8 @@ fn footer_hints_are_conditional_and_effective_bindings_remain_visible() {
     // Folding keys are in help only, whatever the panes.
     assert!(!hints(&app, usize::MAX).contains("d detail"));
     assert!(help_lines(&app).iter().any(|line| line.starts_with("d  ")));
-    assert!(draw(&app, 120, 12)[11].contains("A ask lead"));
+    assert!(!draw(&app, 120, 12)[11].contains("A ask lead"));
+    assert!(help_lines(&app).iter().any(|line| line.starts_with("A  ")));
     app.view
         .as_mut()
         .unwrap()
@@ -4856,7 +4909,7 @@ columns = [{name="member", width=12}, {name="task", width=12, overflow="wrap", m
 fn receiving_focus_labels_keep_title_footer_and_input_ownership_separate() {
     let mut app =
         board(json!([{"title":null,"rows":[row("selected","working","task",json!({}))]}]));
-    assert_eq!(hints(&app, 27), "Focus: rows  ? more  q quit");
+    assert_eq!(hints(&app, 27), "↑↓ move  ? more  q quit");
     assert!(!hints(&app, 26).contains("Focus:"));
     assert!(hints(&app, 26).ends_with("? more  q quit"));
     app.view.as_mut().unwrap().board = split(

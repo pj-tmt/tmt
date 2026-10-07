@@ -1926,7 +1926,7 @@ o = "run touch ${marker}"
     });
   });
 
-  it('lists members with ls; status and a bare tmt sq without a terminal are the same list', async () => {
+  it('bare sq lists members with a board hint; explicit ls/status/board keep list bytes', async () => {
     await withSandbox(async (sandbox) => {
       installSquad(sandbox);
       for (const name of ['Ben', 'auth-fix']) await identity(sandbox, name);
@@ -1942,12 +1942,20 @@ o = "run touch ${marker}"
       expect(ls.status).toBe(0);
       // The board's default columns: member, state, task, PR.
       expect(ls.stdout).toContain('auth-fix  working  rotate session tokens');
-      for (const args of [['sq', 'status'], ['sq'], ['squad'], ['sq', 'board']]) {
+      for (const args of [
+        ['sq', 'status'],
+        ['sq', 'board'],
+      ]) {
         const same = await runCli(sandbox, args);
         expect({ status: same.status, stdout: same.stdout }, args.join(' ')).toEqual({
           status: 0,
           stdout: ls.stdout,
         });
+      }
+      for (const args of [['sq'], ['squad']]) {
+        const bare = await runCli(sandbox, args);
+        expect(bare.status).toBe(0);
+        expect(bare.stdout).toBe(`${ls.stdout}\ntmt sq board opens the board\n`);
       }
       // Both JSON shapes are pinned: --squad gives that squad's document;
       // without it, always {squads, you}, even with one squad.

@@ -333,26 +333,18 @@ pub(super) fn usage_in(
 }
 
 /// The key line: whole hints drop from the end until the line and the two exit
-/// hints fit (a fit, not a step); `A ask lead` shortens to `A ask` below `md`.
-fn key_line(width: usize, overflow: bool, long_ask: bool, receiving: bool) -> String {
+/// hints fit (a fit, not a step).
+fn key_line(width: usize, overflow: bool) -> String {
     // The other keys (tabs, replies, cron, refresh, ...) are in `?` help;
     // `s switch` comes back only while the tab line hides tabs.
-    let mut optional = vec![
-        "↑↓ move",
-        "⏎ open",
-        "a write",
-        "e expand",
-        if long_ask { "A ask lead" } else { "A ask" },
-        "/ search",
-    ];
+    let mut optional = vec!["↑↓ move", "⏎ open", "e expand", "/ search"];
     if overflow {
         optional.push("s switch");
     }
-    let focus = (receiving && width >= 32).then_some("Focus: HOME rows");
     loop {
-        let text = focus
-            .into_iter()
-            .chain(optional.iter().copied())
+        let text = optional
+            .iter()
+            .copied()
             .chain(["? more", "q quit"])
             .collect::<Vec<_>>()
             .join("  ");
@@ -373,36 +365,23 @@ pub(super) fn hints_in(
     slot: &mut Kept<String>,
     width: usize,
     overflow: bool,
-    receiving: bool,
+    _receiving: bool,
 ) -> String {
     static TEMPLATE: OnceLock<Template<()>> = OnceLock::new();
     const FILE: &str = "squad.home.keys.xml";
     let template = TEMPLATE.get_or_init(|| {
-        let text = |branch: &str| {
-            format!(
-                r#"<tmt-text id="line" bind="$.{branch}" token="muted" class="w-full h-1"/>"#
-            )
-        };
-        let markup = format!(
-            r#"<tmt-view version="1"><tmt-switch><tmt-case min="md">{}</tmt-case><tmt-default>{}</tmt-default></tmt-switch></tmt-view>"#,
-            text("long"),
-            text("short")
-        );
-        let schema = Schema::Object(BTreeMap::from([
-            ("long".to_owned(), Schema::Scalar),
-            ("short".to_owned(), Schema::Scalar),
-        ]));
-        scene::compile(FILE, &markup, &schema)
+        scene::compile(
+            FILE,
+            r#"<tmt-view version="1"><tmt-text id="line" bind="$.line" token="muted" class="w-full h-1"/></tmt-view>"#,
+            &schema(&["line"]),
+        )
     });
     let width = width.min(usize::from(u16::MAX)) as u16;
     let key = Key {
         width,
         look: Look::default(),
         selected: None,
-        data: json!({
-            "long": key_line(usize::from(width), overflow, true, receiving),
-            "short": key_line(usize::from(width), overflow, false, receiving),
-        }),
+        data: json!({"line": key_line(usize::from(width), overflow)}),
     };
     slot.get(key, |key| {
         let painted = scene::paint(FILE, template, &key.data, key.width, &mut |_| {

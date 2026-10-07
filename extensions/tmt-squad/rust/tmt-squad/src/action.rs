@@ -205,20 +205,20 @@ impl Action {
     /// Where the action sits in the base footer, which is also the order whole
     /// hints drop from the end when width runs short: lowest first, `None` for
     /// actions the footer never lists (they stay bound and appear in `?` help).
-    /// The footer names the decision and the way in: open, write, expand and
-    /// ask, then search. The match is exhaustive so a new verb must choose.
+    /// The footer names the way in: open and expand, then search.
+    /// The match is exhaustive so a new verb must choose.
     pub fn footer_rank(&self) -> Option<u8> {
         let lead = self.args.first().and_then(Template::literal) == Some("lead");
         Some(match self.verb {
             Verb::Jump if !lead => 0,
             Verb::Menu | Verb::Tab => 0,
-            Verb::Annotate => 1,
             Verb::Reply => 2,
             Verb::Talk => 3,
             Verb::HomeMessage => 4,
-            Verb::AskLead => 5,
             // FOOTER_SEARCH_RANK (6) is the board's own `/ search`.
             Verb::Jump
+            | Verb::Annotate
+            | Verb::AskLead
             | Verb::Back
             | Verb::Open
             | Verb::Copy

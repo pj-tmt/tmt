@@ -256,7 +256,7 @@ fn focus_hints_follow_receiving_ownership_in_warm_and_cold_frames() {
                 let held = paint::hints_of(view, width, overflow, receiving);
                 view.derived.borrow_mut().home = Default::default();
                 assert_eq!(held, paint::hints_of(view, width, overflow, receiving));
-                assert_eq!(held.contains("Focus: HOME rows"), receiving && width >= 32);
+                assert!(!held.contains("Focus: HOME rows"));
                 assert!(held.ends_with("? more  q quit"));
                 assert!(unicode_width::UnicodeWidthStr::width(held.as_str()) <= width);
             }
@@ -329,7 +329,7 @@ fn focus_hints_follow_receiving_ownership_in_warm_and_cold_frames() {
             owns(&app, "cron list");
             app.cron_list = None;
             let restored = paint::hints_of(app.view.as_ref().unwrap(), width, overflow, true);
-            assert_eq!(restored.contains("Focus: HOME rows"), width >= 32);
+            assert!(!restored.contains("Focus: HOME rows"));
         }
     }
 }

@@ -1,6 +1,6 @@
 ---
 source: site/src/chapters/squad.mdx
-sourceRevision: 8bd1e1392968d4d9d4eba8cfc86b0fb137b48931
+sourceRevision: dc6753f8892631e5ed862634ff7c77992a00e31a
 title: チームを1つの board で見る
 ---
 
@@ -36,7 +36,7 @@ import { components as Mdx } from "../../components/mdx";
 $ tmt extension install squad
 $ tmt sq init product            # squad に名前を付ける。確認はありません
 $ tmt sq lead sol                # 任意：sol を lead に指定
-$ tmt sq                         # 端末では board、それ以外ではメンバー一覧
+$ tmt sq board                   # 端末では board、それ以外ではメンバー一覧
 `}</Cmd>
 
 <Waiting /> は、_ユーザー自身_の対応待ちを示します。Squad
@@ -64,7 +64,7 @@ $ tmt sq                         # 端末では board、それ以外ではメン
 
 <Mdx.h3 id="the-board">board</Mdx.h3>
 
-squad タブの既定は **members** です。lead とメンバーを1つの枠付き一覧に表示し、詳細は行の中に開き、lead の notes は下に置きます。従来の側面ペインを持つ **team** view も選べます。`/` を押して入力すると行を絞り込めます。ユーザーを待つメンバーには <Waiting /> が付き、その行を先に表示します。各キーはすでに画面にある情報で動き、PR の状態など時間のかかる取得はバックグラウンドで更新します。メンバー、リクエスト、room の変更や `squad.toml` の編集は約1秒以内に再読み込みし、ほかの情報は設定した間隔（`refresh` または `"off"`）で更新します。検索中やメッセージの入力中でも、**ctrl-r** ですぐに更新できます。`tmt sq ls` はメンバー一覧をテキストで、`--json` を付けると JSON で表示します。端末がないときの `tmt sq` もこの一覧を表示します。`tmt sq board` は対話端末では board を開き、それ以外では同じ一覧を表示します。
+squad タブの既定は **members** です。lead とメンバーを1つの枠付き一覧に表示し、詳細は行の中に開き、lead の notes は下に置きます。従来の側面ペインを持つ **team** view も選べます。`/` を押して入力すると行を絞り込めます。ユーザーを待つメンバーには <Waiting /> が付き、その行を先に表示します。各キーはすでに画面にある情報で動き、PR の状態など時間のかかる取得はバックグラウンドで更新します。メンバー、リクエスト、room の変更や `squad.toml` の編集は約1秒以内に再読み込みし、ほかの情報は設定した間隔（`refresh` または `"off"`）で更新します。検索中やメッセージの入力中でも、**ctrl-r** ですぐに更新できます。`tmt sq ls` はメンバー一覧をテキストで、`--json` を付けると JSON で表示します。引数なしの `tmt sq` も、この一覧と board を開くためのヒントを表示します。`tmt sq board` は対話端末では board を開き、それ以外では同じ一覧を表示します。
 
 <BoardSketch />
 

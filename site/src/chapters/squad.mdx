@@ -30,7 +30,7 @@ import { components as Mdx } from "../components/mdx";
 $ tmt extension install squad
 $ tmt sq init product            # name the squad; it never asks
 $ tmt sq lead sol                # optional: sol leads it
-$ tmt sq                         # the board on a terminal, the member list anywhere else
+$ tmt sq board                   # the board on a terminal, the member list anywhere else
 `}</Cmd>
 
 <Waiting /> marks what's waiting on _you_. Squad knows who you are from the pane you run it in, or
@@ -57,7 +57,7 @@ After that you work through the lead. Tell it what you need; it brings members i
 
 ### The board
 
-Squad tabs default to **members**, one boxed lead/member list with inline details and the lead's notes below. The previous **team** side-pane view stays available. Press `/` and type to narrow the rows. A <Waiting /> marks a member that's waiting on you, and those rows sort first. Every key works from what's already on screen; slow lookups such as pull request status refresh in the background. The board reloads within about a second when a member, request or room changes, or when you edit `squad.toml`, and it still refreshes on its interval (`refresh`, or `"off"`) for everything else. Press **ctrl-r** to refresh at once, even while you search or type a message. `tmt sq ls` prints the member list as text, or as JSON with `--json`, and it's what `tmt sq` shows when there's no terminal. `tmt sq board` opens the board on an interactive terminal and prints the same list otherwise.
+Squad tabs default to **members**, one boxed lead/member list with inline details and the lead's notes below. The previous **team** side-pane view stays available. Press `/` and type to narrow the rows. A <Waiting /> marks a member that's waiting on you, and those rows sort first. Every key works from what's already on screen; slow lookups such as pull request status refresh in the background. The board reloads within about a second when a member, request or room changes, or when you edit `squad.toml`, and it still refreshes on its interval (`refresh`, or `"off"`) for everything else. Press **ctrl-r** to refresh at once, even while you search or type a message. `tmt sq ls` prints the member list as text, or as JSON with `--json`, and bare `tmt sq` prints the same list with a hint to open the board. `tmt sq board` opens the board on an interactive terminal and prints the same list otherwise.
 
 <BoardSketch />
 

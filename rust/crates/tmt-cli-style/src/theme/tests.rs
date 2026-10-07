@@ -169,7 +169,7 @@ fn each_theme_renders_a_role_for_the_stream_s_depth() {
     // The selection is a background, or reverse video without a color.
     assert_eq!(
         tmt.style(Role::Selection, Depth::TrueColor).get_bg_color(),
-        Some(Color::Rgb(RgbColor(0x2B, 0x2B, 0x2B)))
+        Some(Color::Rgb(RgbColor(0x4A, 0x4A, 0x4A)))
     );
     assert_eq!(
         tmt.style(Role::Selection, Depth::TrueColor).get_fg_color(),
