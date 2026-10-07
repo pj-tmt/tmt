@@ -42,8 +42,8 @@ as described below. Waiting `talk` returns that durable final directly.
 
 TMT can send to a verified host pane (tmux, or Herdr after the user approves
 `tmt driver install herdr`) or queue an existing identity's local inbox. It
-correlates durable requests and final replies by request ID; `check` only captures
-a diagnostic pane snapshot.
+correlates durable requests and final replies by request ID. `check` captures a
+diagnostic pane snapshot and may deliver a due Focus checklist at verified idle.
 
 Do not infer completion from screen text, idle output, process exit or a sent
 receipt; do not automatically resend after timeout, interruption or uncertain
@@ -93,7 +93,8 @@ continues; never type into its pane to get around it.
 `talk` waits for the complete durable reply by default. It never treats terminal
 markers, idle output, a summary, or process exit as completion. A cooperating
 recipient must invoke `tmt reply`; otherwise there is no final result yet.
-`check` is only a diagnostic snapshot, not correlated result retrieval.
+`check` captures diagnostics and may deliver a due Focus checklist at verified idle.
+It does not retrieve a correlated result.
 Its positional count or `--lines` accepts integers from 0 through 2147483647;
 zero captures the visible pane. Invalid counts are rejected, not clamped.
 Invalid configured capture counts also fail before target lookup or capture.
