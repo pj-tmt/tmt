@@ -1,11 +1,11 @@
-use super::support::{Fixture, NOW_MS, service};
+use super::support::{Fixture, NOW_MS, preamble_count, service};
 use crate::storage::test_support::{Operation, concurrent_pair};
 use tmt_core::{
     identity::{Lifetime, create_or_resolve},
     operation::new_operation_id,
     request::{
-        Originator, PrepareRequest, RequestError, RequestKind, RequestRoute, RequestService,
-        ResponseProof, SubmitResponse, WakeState,
+        Originator, PreambleReservation, PrepareRequest, RequestError, RequestKind, RequestRoute,
+        RequestService, ResponseProof, SubmitResponse, WakeState,
         focus::{
             DeliveryPolicy, FocusKind, FocusOpportunity, FocusPolicyWrite, FocusRejection,
             FocusState,
@@ -111,10 +111,15 @@ fn focus_enabled_between_publication_and_wake_blocks_the_original_claim() {
         .unwrap();
     let mut input = request(&target, Some(&sender), "late-focus");
     input.wait = false;
+    input.preamble = Some(PreambleReservation {
+        identity_id: target.clone(),
+        every: 3,
+    });
     let prepared = service(&mut f)
         .enqueue_delivery(input, "late-attempt".into(), 7, DeliveryPolicy::default())
         .unwrap();
     assert_eq!(prepared.focus_until_ms, None);
+    assert_eq!(preamble_count(&f.database, &target), 1);
     service(&mut f)
         .write_focus(policy(&target, &owner, 2, NOW_MS + 1000))
         .unwrap();
@@ -122,6 +127,14 @@ fn focus_enabled_between_publication_and_wake_blocks_the_original_claim() {
     assert!(!wake.claimed);
     assert_eq!(wake.state, WakeState::NotAttempted);
     assert_eq!(wake.focus_until_ms, Some(NOW_MS + 1000));
+    assert_eq!(preamble_count(&f.database, &target), 0);
+    assert!(
+        !service(&mut f)
+            .get_attempt(&prepared.attempt_id)
+            .unwrap()
+            .unwrap()
+            .cadence_reserved
+    );
     assert_eq!(
         service(&mut f)
             .focus_checklist_items(&target, None, 0, 128)
@@ -426,9 +439,11 @@ fn concurrent_policy_writers_and_checklist_claims_have_one_winner() {
         let target = target.clone();
         let owner = owner.clone();
         Box::new(move |s: &mut crate::storage::Storage| {
-            RequestService::new(s, || NOW_MS)
-                .write_focus(policy(&target, &owner, 1, until))
-                .is_ok()
+            match RequestService::new(s, || NOW_MS).write_focus(policy(&target, &owner, 1, until)) {
+                Ok(_) => true,
+                Err(RequestError::Focus(FocusRejection::Conflict)) => false,
+                other => panic!("Expected one policy success and one revision conflict: {other:?}"),
+            }
         }) as Operation<bool>
     });
     assert_eq!(

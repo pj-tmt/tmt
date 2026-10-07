@@ -55,6 +55,7 @@ impl<R: RequestRepository, C: Fn() -> u64> RequestService<'_, R, C> {
                 super::focus::hold_incoming(records, &attempt, now)?
             };
             if focus_until_ms.is_some() {
+                refund_unsent_preamble(records, &attempt, now)?;
                 return Ok(WakeClaim {
                     state,
                     claimed: false,
