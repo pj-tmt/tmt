@@ -15,7 +15,8 @@
   overflow-wrap: anywhere;
 }
 .message-composer-field[contenteditable='false'] {
-  opacity: 0.6;
+  background: var(--tmt-ui-surface-disabled);
+  color: var(--tmt-ui-color-disabled-text);
 }
 .message-composer-field:focus-visible {
   outline: 2px solid var(--c-accent);

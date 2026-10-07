@@ -217,7 +217,7 @@ The small input at a selection or an item: annotation, follow-up, quick reply.
 - Outside press closes it, but a page click never hides a typed draft; nothing
   closes it while a send is in flight.
 - `components/message-composer.tsx` is the shared plaintext editing boundary for
-  Chat, annotation, thread reply and comment edit. Its Lexical 0.52.0 plaintext/history
+  Chat, annotation, thread reply and comment edit. Its plaintext/history
   extensions preserve undo, IME and exact message bytes; the source editor stays separate.
 - Candidate lists use available viewport space and the browser popover layer, including
   inside modal Chat. The field grows to a bounded height, then scrolls. Square corners
