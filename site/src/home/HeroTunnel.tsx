@@ -56,17 +56,19 @@ export function HeroTunnel() {
             preserveAspectRatio="none"
             aria-hidden="true"
           >
-            <path className="tunnel-route" d="M0 132.5 H160" />
-            <path className="tunnel-route tunnel-return" d="M160 173 H0" />
-            <path className="tunnel-arrow" d="m152 127.5 7 5-7 5 M8 168 l-7 5 7 5" />
+            <path className="tunnel-route" d="M0 132.5 H154" />
+            <path className="tunnel-route tunnel-return tunnel-return-wide" d="M160 173 H10" />
+            <path className="tunnel-route tunnel-return tunnel-return-narrow" d="M160 173 H14" />
+            <path className="tunnel-arrow" d="m147 127.5 7 5-7 5" />
+            <path className="tunnel-arrow tunnel-return-arrow" d="M17 168 l-7 5 7 5" />
             <rect className="tunnel-packet" x="0" y="130.5" width="4" height="4" />
             <rect className="tunnel-packet tunnel-reply" x="156" y="171" width="4" height="4" />
           </svg>
           <svg className="tunnel-path tunnel-mobile-flow" viewBox="0 0 260 160" aria-hidden="true">
             <PortalRings />
-            <path className="tunnel-route" d="M110 0 V160" />
-            <path className="tunnel-route tunnel-return" d="M150 160 V0" />
-            <path className="tunnel-arrow" d="m105 152 5 7 5-7 M145 8 l5-7 5 7" />
+            <path className="tunnel-route" d="M110 0 V154" />
+            <path className="tunnel-route tunnel-return" d="M150 160 V10" />
+            <path className="tunnel-arrow" d="m105 149 5 5 5-5 M145 15 l5-5 5 5" />
             <rect className="tunnel-packet" x="108" y="0" width="4" height="4" />
             <rect className="tunnel-packet tunnel-reply" x="148" y="156" width="4" height="4" />
           </svg>

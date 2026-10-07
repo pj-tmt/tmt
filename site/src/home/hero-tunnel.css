@@ -249,6 +249,9 @@
 .v9-home .tunnel-return {
   stroke-dasharray: 4 5;
 }
+.v9-home .tunnel-return-narrow {
+  display: none;
+}
 .v9-home .tunnel-arrow {
   fill: none;
   stroke: var(--c-text);
@@ -271,12 +274,12 @@
     opacity: 1;
   }
   40% {
-    transform: translateX(156px);
+    transform: translateX(150px);
     opacity: 1;
   }
   44%,
   100% {
-    transform: translateX(156px);
+    transform: translateX(150px);
     opacity: 0;
   }
 }
@@ -290,12 +293,12 @@
     opacity: 1;
   }
   80% {
-    transform: translateX(-156px);
+    transform: translateX(var(--tunnel-reply-distance, -146px));
     opacity: 1;
   }
   84%,
   100% {
-    transform: translateX(-156px);
+    transform: translateX(var(--tunnel-reply-distance, -146px));
     opacity: 0;
   }
 }
@@ -316,19 +319,19 @@
   text-align: center;
   padding: 4px;
   background: var(--bg);
-  font-size: 10px;
+  font-size: 11px;
 }
 .v9-home .tunnel-message code {
-  color: var(--c-muted);
+  color: var(--c-text);
   font: inherit;
-  font-size: 9px;
+  font-size: 10px;
   white-space: nowrap;
 }
 .v9-home .tunnel-request-label {
   top: 0;
 }
 .v9-home .tunnel-reply-label {
-  bottom: -24px;
+  top: 181px;
 }
 .v9-home .tunnel-footnote {
   margin: 40px 0 0;
@@ -336,6 +339,18 @@
   color: var(--c-muted);
 }
 @media (min-width: 761px) and (max-width: 1050px) {
+  .v9-home .tunnel-desktop-flow {
+    --tunnel-reply-distance: -142px;
+  }
+  .v9-home .tunnel-return-wide {
+    display: none;
+  }
+  .v9-home .tunnel-return-narrow {
+    display: block;
+  }
+  .v9-home .tunnel-return-arrow {
+    transform: translateX(4px);
+  }
   .v9-home .tunnel-exchange {
     margin-top: -13.5px;
   }
@@ -411,12 +426,12 @@
     opacity: 1;
   }
   40% {
-    transform: translateY(156px);
+    transform: translateY(150px);
     opacity: 1;
   }
   44%,
   100% {
-    transform: translateY(156px);
+    transform: translateY(150px);
     opacity: 0;
   }
 }
@@ -430,12 +445,12 @@
     opacity: 1;
   }
   80% {
-    transform: translateY(-156px);
+    transform: translateY(-146px);
     opacity: 1;
   }
   84%,
   100% {
-    transform: translateY(-156px);
+    transform: translateY(-146px);
     opacity: 0;
   }
 }
