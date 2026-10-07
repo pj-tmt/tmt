@@ -55,6 +55,9 @@ pub(super) fn frame(root: &Value) -> Result<Frame, ErrorClass> {
     match text(object.take("kind")?)? {
         "request" => request(object).map(Frame::Request),
         "result" => result(object).map(Frame::Result),
+        "admit" => admit(object).map(Frame::Admit),
+        "admission" => admission(object).map(Frame::Admission),
+        "origin-state" => origin_state(object).map(Frame::OriginState),
         _ => Err(ErrorClass::Shape),
     }
 }
@@ -101,18 +104,8 @@ fn method(value: &Value) -> Result<Method, ErrorClass> {
 fn call(method: Method, input: &Value) -> Result<Call, ErrorClass> {
     let mut object = Object::new(input)?;
     let call = match method {
-        Method::Config => Call::Config(ConfigInput {
-            namespace: Bytes32::parse(text(object.take("namespace")?)?)?,
-            policy: Policy::parse(text(object.take("policyInput")?)?)?,
-        }),
-        Method::Begin => Call::Begin(BeginInput {
-            transfer_id: uuid(object.take("transferId")?)?,
-            namespace: Bytes32::parse(text(object.take("namespace")?)?)?,
-            opaque_key: Bytes32::parse(text(object.take("opaqueKey")?)?)?,
-            policy: Policy::parse(text(object.take("policyInput")?)?)?,
-            payload_sha256: Sha256Hex::parse(text(object.take("payloadSha256")?)?)?,
-            payload_bytes: number(object.take("payloadBytes")?)?,
-        }),
+        Method::Config => Call::Config(config_input(&mut object)?),
+        Method::Begin => Call::Begin(begin_input(&mut object)?),
         Method::Part => Call::Part(PartInput {
             transfer_id: uuid(object.take("transferId")?)?,
             index: index(object.take("index")?)?,
@@ -120,23 +113,45 @@ fn call(method: Method, input: &Value) -> Result<Call, ErrorClass> {
         }),
         Method::Commit => Call::Commit(transfer(&mut object)?),
         Method::Discard => Call::Discard(transfer(&mut object)?),
-        Method::Status => Call::Status(StatusInput {
-            transfer_id: uuid(object.take("transferId")?)?,
-            namespace: Bytes32::parse(text(object.take("namespace")?)?)?,
-            policy: Policy::parse(text(object.take("policyInput")?)?)?,
-        }),
-        Method::Read => Call::Read(ReadInput {
-            namespace: Bytes32::parse(text(object.take("namespace")?)?)?,
-            opaque_key: Bytes32::parse(text(object.take("opaqueKey")?)?)?,
-            policy: Policy::parse(text(object.take("policyInput")?)?)?,
-            payload_sha256: Sha256Hex::parse(text(object.take("payloadSha256")?)?)?,
-            payload_bytes: number(object.take("payloadBytes")?)?,
-            offset: number(object.take("offset")?)?,
-            count: index(object.take("count")?)?,
-        }),
+        Method::Status => Call::Status(status_input(&mut object)?),
+        Method::Read => Call::Read(read_input(&mut object)?),
     };
     object.finish()?;
     Ok(call)
+}
+fn config_input(object: &mut Object) -> Result<ConfigInput, ErrorClass> {
+    Ok(ConfigInput {
+        namespace: Bytes32::parse(text(object.take("namespace")?)?)?,
+        policy: Policy::parse(text(object.take("policyInput")?)?)?,
+    })
+}
+fn begin_input(object: &mut Object) -> Result<BeginInput, ErrorClass> {
+    Ok(BeginInput {
+        transfer_id: uuid(object.take("transferId")?)?,
+        namespace: Bytes32::parse(text(object.take("namespace")?)?)?,
+        opaque_key: Bytes32::parse(text(object.take("opaqueKey")?)?)?,
+        policy: Policy::parse(text(object.take("policyInput")?)?)?,
+        payload_sha256: Sha256Hex::parse(text(object.take("payloadSha256")?)?)?,
+        payload_bytes: number(object.take("payloadBytes")?)?,
+    })
+}
+fn status_input(object: &mut Object) -> Result<StatusInput, ErrorClass> {
+    Ok(StatusInput {
+        transfer_id: uuid(object.take("transferId")?)?,
+        namespace: Bytes32::parse(text(object.take("namespace")?)?)?,
+        policy: Policy::parse(text(object.take("policyInput")?)?)?,
+    })
+}
+fn read_input(object: &mut Object) -> Result<ReadInput, ErrorClass> {
+    Ok(ReadInput {
+        namespace: Bytes32::parse(text(object.take("namespace")?)?)?,
+        opaque_key: Bytes32::parse(text(object.take("opaqueKey")?)?)?,
+        policy: Policy::parse(text(object.take("policyInput")?)?)?,
+        payload_sha256: Sha256Hex::parse(text(object.take("payloadSha256")?)?)?,
+        payload_bytes: number(object.take("payloadBytes")?)?,
+        offset: number(object.take("offset")?)?,
+        count: index(object.take("count")?)?,
+    })
 }
 fn transfer(object: &mut Object) -> Result<TransferInput, ErrorClass> {
     Ok(TransferInput {
@@ -182,14 +197,7 @@ fn success(value: &Value) -> Result<Success, ErrorClass> {
             payload_sha256: Sha256Hex::parse(text(object.take("payloadSha256")?)?)?,
             payload_bytes: number(object.take("payloadBytes")?)?,
         },
-        "state" => Success::State(match text(object.take("state")?)? {
-            "expired" => State::Expired,
-            "discarded" => State::Discarded,
-            "unavailable" => State::Unavailable,
-            "unknown" => State::Unknown,
-            "notObserved" => State::NotObserved,
-            _ => return Err(ErrorClass::Value),
-        }),
+        "state" => Success::State(state(object.take("state")?)?),
         "read" => Success::Read {
             offset: number(object.take("offset")?)?,
             total_bytes: number(object.take("totalBytes")?)?,
@@ -265,4 +273,175 @@ fn error_code(value: &Value) -> Result<ErrorCode, ErrorClass> {
     };
     object.finish()?;
     Ok(code)
+}
+
+fn admit(mut object: Object) -> Result<Admit, ErrorClass> {
+    let generation = uuid(object.take("generation")?)?;
+    let callback_id = Counter::parse(text(object.take("callbackId")?)?)?;
+    let request_id = Counter::parse(text(object.take("requestId")?)?)?;
+    let boundary = match text(object.take("boundary")?)? {
+        "acquire" => Checkpoint::Acquire,
+        "effect" => Checkpoint::Effect,
+        "disclose" => Checkpoint::Disclose,
+        _ => return Err(ErrorClass::Value),
+    };
+    let context = context(object.take("context")?)?;
+    let operation = operation(object.take("operation")?)?;
+    object.finish()?;
+    Ok(Admit {
+        generation,
+        callback_id,
+        request_id,
+        boundary,
+        context,
+        operation,
+    })
+}
+
+fn context(value: &Value) -> Result<Context, ErrorClass> {
+    let mut object = Object::new(value)?;
+    let context = match text(object.take("kind")?)? {
+        "owner-session" => Context::OwnerSession {
+            origin_id: uuid(object.take("originId")?)?,
+            device_id: uuid(object.take("deviceId")?)?,
+            grant_revision: number(object.take("grantRevision")?)?,
+        },
+        "mounted" => Context::Mounted {
+            origin_id: uuid(object.take("originId")?)?,
+        },
+        "local-extension" => Context::LocalExtension,
+        _ => return Err(ErrorClass::Shape),
+    };
+    object.finish()?;
+    Ok(context)
+}
+
+fn operation(value: &Value) -> Result<Operation, ErrorClass> {
+    let mut object = Object::new(value)?;
+    let method = method(object.take("method")?)?;
+    let input = admit_input(method, object.take("input")?)?;
+    let disclosure = object.optional("disclosure").map(disclosure).transpose()?;
+    object.finish()?;
+    Ok(Operation { input, disclosure })
+}
+
+fn admit_input(method: Method, value: &Value) -> Result<AdmitInput, ErrorClass> {
+    let mut object = Object::new(value)?;
+    let input = match method {
+        Method::Config => AdmitInput::Config(config_input(&mut object)?),
+        Method::Begin => AdmitInput::Begin(begin_input(&mut object)?),
+        Method::Status => AdmitInput::Status(status_input(&mut object)?),
+        Method::Read => AdmitInput::Read(read_input(&mut object)?),
+        Method::Part => AdmitInput::Part(PartAdmit {
+            transfer_id: uuid(object.take("transferId")?)?,
+            index: index(object.take("index")?)?,
+            length: index(object.take("length")?)?,
+            retained: retained(object.take("retained")?)?,
+        }),
+        Method::Commit => AdmitInput::Commit(transfer_admit(&mut object)?),
+        Method::Discard => AdmitInput::Discard(transfer_admit(&mut object)?),
+    };
+    object.finish()?;
+    Ok(input)
+}
+fn transfer_admit(object: &mut Object) -> Result<TransferAdmit, ErrorClass> {
+    Ok(TransferAdmit {
+        transfer_id: uuid(object.take("transferId")?)?,
+        retained: retained(object.take("retained")?)?,
+    })
+}
+fn retained(value: &Value) -> Result<Retained, ErrorClass> {
+    let mut object = Object::new(value)?;
+    let retained = Retained {
+        namespace: Bytes32::parse(text(object.take("namespace")?)?)?,
+        opaque_key: Bytes32::parse(text(object.take("opaqueKey")?)?)?,
+        policy: Policy::parse(text(object.take("policyInput")?)?)?,
+        payload_sha256: Sha256Hex::parse(text(object.take("payloadSha256")?)?)?,
+        payload_bytes: number(object.take("payloadBytes")?)?,
+    };
+    object.finish()?;
+    Ok(retained)
+}
+
+fn disclosure(value: &Value) -> Result<Disclosure, ErrorClass> {
+    let mut object = Object::new(value)?;
+    let disclosure = match text(object.take("class")?)? {
+        "config" => Disclosure::Config {
+            projection: match text(object.take("projection")?)? {
+                "browser" => Projection::Browser,
+                "local" => Projection::Local,
+                _ => return Err(ErrorClass::Value),
+            },
+        },
+        "status" => Disclosure::Status {
+            next_index: index(object.take("nextIndex")?)?,
+            received: number(object.take("received")?)?,
+            expires_at_ms: object.optional("expiresAtMs").map(number).transpose()?,
+        },
+        "progress" => Disclosure::Progress {
+            next_index: index(object.take("nextIndex")?)?,
+            received: number(object.take("received")?)?,
+        },
+        "receipt" => Disclosure::Receipt {
+            opaque_key: Bytes32::parse(text(object.take("opaqueKey")?)?)?,
+            payload_sha256: Sha256Hex::parse(text(object.take("payloadSha256")?)?)?,
+            payload_bytes: number(object.take("payloadBytes")?)?,
+        },
+        "terminal" => Disclosure::Terminal {
+            state: state(object.take("state")?)?,
+        },
+        "bytes" => Disclosure::Bytes {
+            offset: number(object.take("offset")?)?,
+            length: index(object.take("length")?)?,
+        },
+        _ => return Err(ErrorClass::Shape),
+    };
+    object.finish()?;
+    Ok(disclosure)
+}
+
+fn admission(mut object: Object) -> Result<Admission, ErrorClass> {
+    let generation = uuid(object.take("generation")?)?;
+    let callback_id = Counter::parse(text(object.take("callbackId")?)?)?;
+    let request_id = Counter::parse(text(object.take("requestId")?)?)?;
+    let decision = match text(object.take("decision")?)? {
+        "allow" => Decision::Allow,
+        "deny" => Decision::Deny,
+        "unavailable" => Decision::Unavailable,
+        _ => return Err(ErrorClass::Value),
+    };
+    object.finish()?;
+    Ok(Admission {
+        generation,
+        callback_id,
+        request_id,
+        decision,
+    })
+}
+
+fn origin_state(mut object: Object) -> Result<OriginState, ErrorClass> {
+    let generation = uuid(object.take("generation")?)?;
+    let origin_id = uuid(object.take("originId")?)?;
+    let phase = match text(object.take("state")?)? {
+        "established" => OriginPhase::Established,
+        "closed" => OriginPhase::Closed,
+        _ => return Err(ErrorClass::Value),
+    };
+    object.finish()?;
+    Ok(OriginState {
+        generation,
+        origin_id,
+        phase,
+    })
+}
+
+fn state(value: &Value) -> Result<State, ErrorClass> {
+    Ok(match text(value)? {
+        "expired" => State::Expired,
+        "discarded" => State::Discarded,
+        "unavailable" => State::Unavailable,
+        "unknown" => State::Unknown,
+        "notObserved" => State::NotObserved,
+        _ => return Err(ErrorClass::Value),
+    })
 }

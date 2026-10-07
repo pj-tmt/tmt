@@ -1,10 +1,13 @@
-//! Typed request and result frames of the generic object channel: seven methods,
-//! each with exact input, result and error associations. A frame carries
-//! correlation only; no field names a principal, permission, retry or scope.
+//! Typed frames of the generic object channel: request and result frames for seven
+//! methods, each with exact input, result and error associations, and the admission
+//! callback and origin lifecycle frames around them. Requests, results and
+//! admission replies carry no principal, role, permit, retry or scope, and no
+//! context grants authority: an `Admit` context only states, for the extension's own
+//! decision, the owner device and grant revision Remote established.
 //!
 //! Decoding and encoding apply one set of checks, so bytes that decode re-encode
-//! to the same canonical text and an invalid frame cannot be encoded. Callback and
-//! lifecycle kinds are not part of this slice and decode as an unknown kind.
+//! to the same canonical text and an invalid frame cannot be encoded. Which side may
+//! send which kind, and every ordering or generation rule, belongs to the channel.
 use crate::{
     Bytes32, Chunk, Counter, ErrorClass, Policy, Sha256Hex, Uuid4,
     limits::{
@@ -12,14 +15,23 @@ use crate::{
     },
 };
 
+mod callback;
 mod read;
 mod write;
+
+pub use callback::{
+    Admission, Admit, AdmitInput, Checkpoint, Context, Decision, Disclosure, Operation,
+    OriginPhase, OriginState, PartAdmit, Projection, Retained, TransferAdmit,
+};
 
 /// One decoded frame body.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Frame {
     Request(Request),
     Result(ResultFrame),
+    Admit(Admit),
+    Admission(Admission),
+    OriginState(OriginState),
 }
 
 /// Decode one frame body of exactly the length [`crate::decode_length`] announced.
@@ -58,6 +70,14 @@ impl Method {
     /// Whether results and errors of this method repeat the original transfer id.
     fn carries_transfer(self) -> bool {
         !matches!(self, Self::Config | Self::Read)
+    }
+    /// Whether the method may change durable state, so an effect boundary exists and
+    /// its failure may leave a possible effect (`unknown`).
+    fn mutates(self) -> bool {
+        matches!(
+            self,
+            Self::Begin | Self::Part | Self::Commit | Self::Discard
+        )
     }
 }
 
@@ -191,19 +211,44 @@ pub enum Success {
     },
 }
 impl Success {
-    fn allowed_for(&self, method: Method) -> bool {
+    fn answer(&self) -> Answer {
         match self {
-            Self::Config(_) => method == Method::Config,
-            Self::Pending { .. } => matches!(method, Method::Begin | Method::Status),
-            Self::Progress { .. } => method == Method::Part,
-            Self::Committed { .. } => {
-                matches!(method, Method::Begin | Method::Commit | Method::Status)
-            }
+            Self::Config(_) => Answer::Config,
+            Self::Pending { .. } => Answer::Pending,
+            Self::Progress { .. } => Answer::Progress,
+            Self::Committed { .. } => Answer::Committed,
+            Self::State(state) => Answer::State(*state),
+            Self::Read { .. } => Answer::Read,
+        }
+    }
+    fn allowed_for(&self, method: Method) -> bool {
+        self.answer().allowed_for(method)
+    }
+}
+
+/// The kind of answer a result carries or a disclosure announces. This is the one
+/// place that knows which method may produce which.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Answer {
+    Config,
+    Pending,
+    Progress,
+    Committed,
+    State(State),
+    Read,
+}
+impl Answer {
+    fn allowed_for(self, method: Method) -> bool {
+        match self {
+            Self::Config => method == Method::Config,
+            Self::Pending => matches!(method, Method::Begin | Method::Status),
+            Self::Progress => method == Method::Part,
+            Self::Committed => matches!(method, Method::Begin | Method::Commit | Method::Status),
             Self::State(State::Discarded) => {
                 matches!(method, Method::Begin | Method::Status | Method::Discard)
             }
             Self::State(_) => matches!(method, Method::Begin | Method::Status),
-            Self::Read { .. } => method == Method::Read,
+            Self::Read => method == Method::Read,
         }
     }
 }
@@ -264,10 +309,7 @@ impl ErrorCode {
     fn allowed_for(self, method: Method) -> bool {
         match self {
             Self::NotFound => method == Method::Read,
-            Self::Unknown => matches!(
-                method,
-                Method::Begin | Method::Part | Method::Commit | Method::Discard
-            ),
+            Self::Unknown => method.mutates(),
             _ => true,
         }
     }
@@ -293,6 +335,8 @@ impl Frame {
         match self {
             Self::Request(request) => request.call.check(),
             Self::Result(result) => result.check(),
+            Self::Admit(admit) => admit.check(),
+            Self::Admission(_) | Self::OriginState(_) => Ok(()),
         }
     }
 }
@@ -302,21 +346,28 @@ fn require(condition: bool) -> Result<(), ErrorClass> {
 impl Call {
     fn check(&self) -> Result<(), ErrorClass> {
         match self {
-            Self::Begin(input) => require(input.payload_bytes <= PAYLOAD_BYTES),
+            Self::Begin(input) => input.check(),
             Self::Part(input) => require(!input.bytes.as_bytes().is_empty()),
-            Self::Read(input) => {
-                // The count is a request for at most one chunk. `offset == payload`
-                // is a valid start only for the empty payload, which the backend answers
-                // with an empty read.
-                require(
-                    input.payload_bytes <= PAYLOAD_BYTES
-                        && (1..=CHUNK_BYTES as u32).contains(&input.count)
-                        && (input.offset < input.payload_bytes
-                            || (input.offset == 0 && input.payload_bytes == 0)),
-                )
-            }
+            Self::Read(input) => input.check(),
             _ => Ok(()),
         }
+    }
+}
+impl BeginInput {
+    fn check(&self) -> Result<(), ErrorClass> {
+        require(self.payload_bytes <= PAYLOAD_BYTES)
+    }
+}
+impl ReadInput {
+    /// The count is a request for at most one chunk. `offset == payload` is a valid
+    /// start only for the empty payload, which the backend answers with an empty read.
+    fn check(&self) -> Result<(), ErrorClass> {
+        require(
+            self.payload_bytes <= PAYLOAD_BYTES
+                && (1..=CHUNK_BYTES as u32).contains(&self.count)
+                && (self.offset < self.payload_bytes
+                    || (self.offset == 0 && self.payload_bytes == 0)),
+        )
     }
 }
 impl ResultFrame {
