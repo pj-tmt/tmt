@@ -42,7 +42,7 @@ impl MenuSurface {
             &title
         };
         let markup = format!(
-            r#"<tmt-view version="1"><tmt-modal id="action-menu" title="{title}" placement="center" class="w-48 h-{}"><tmt-scroll id="body"><tmt-list id="choices" bind="$.rows" empty="(no actions)"><tmt-row class="flex-row gap-1"><tmt-cell bind="row.key" class="w-{key_width} shrink-0" token="accent"/><tmt-cell bind="row.label" class="truncate"/></tmt-row></tmt-list></tmt-scroll><tmt-text slot="footer" bind="$.footer" token="muted"/></tmt-modal></tmt-view>"#,
+            r#"<tmt-view version="1"><tmt-modal id="action-menu" title="{title}" placement="center" class="w-48 h-{}"><tmt-scroll id="body"><tmt-list id="choices" bind="$.rows" empty="(no actions)"><tmt-row class="flex-row gap-0"><tmt-cell bind="row.key" class="w-{key_width} shrink-0" token="accent"/><tmt-cell bind="row.cursor" class="w-1 shrink-0" token="text"/><tmt-cell bind="row.label" class="truncate"/></tmt-row></tmt-list></tmt-scroll><tmt-text slot="footer" bind="$.footer" token="muted"/></tmt-modal></tmt-view>"#,
             entries.len() + CHROME
         );
         let rows: Vec<ListRow> = (0..entries.len())
@@ -55,7 +55,7 @@ impl MenuSurface {
             template: picker_surface::compile(
                 FILE,
                 &markup,
-                picker_surface::schema(&["key", "label"]),
+                picker_surface::schema(&["key", "cursor", "label"]),
             ),
             state: picker_surface::State::new(None, rows.clone(), None),
             rows,
@@ -78,11 +78,71 @@ impl MenuSurface {
             .iter()
             .zip(&self.rows)
             .map(|(entry, row)| {
-                serde_json::json!({"id": row.id, "disabled": false, "key": entry.key, "label": entry.label})
+                serde_json::json!({"id": row.id, "disabled": false, "key": entry.key, "cursor": if self.state.picker.list.selected() == Some(row.id.as_str()) { "›" } else { "" }, "label": entry.label})
             })
             .collect();
         let value = serde_json::json!({"rows": rows, "query": "", "footer": FOOTER, "status": "", "notes": []});
         self.state
             .render(FILE, &self.template, value, frame, look, body);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::board::app::Choice;
+    use ratatui::{Terminal, backend::TestBackend};
+
+    #[test]
+    fn menu_cursor_preserves_every_key_cell_and_label_start() {
+        let entries = vec![
+            MenuEntry {
+                key: "Ctrl-Shift-X".into(),
+                label: "First long action label".into(),
+                choice: Choice::Dismiss,
+            },
+            MenuEntry {
+                key: "2".into(),
+                label: "Second action".into(),
+                choice: Choice::Dismiss,
+            },
+        ];
+        for (variant, look) in picker_surface::evidence::looks().into_iter().enumerate() {
+            for (width, height) in [(80, 30), (100, 30), (160, 30), (180, 30), (80, 8)] {
+                let mut menu = MenuSurface::new("fixture actions", &entries);
+                for selected in [0, 1] {
+                    let mut screen = Terminal::new(TestBackend::new(width, height)).unwrap();
+                    screen
+                        .draw(|frame| menu.render(&entries, selected, frame, look, frame.area()))
+                        .unwrap();
+                    let buffer = screen.backend().buffer();
+                    for (index, entry) in entries.iter().enumerate() {
+                        let row = picker_surface::evidence::row(&menu.state, &row_id(index));
+                        if row.height == 0 {
+                            continue;
+                        }
+                        for (offset, ch) in entry.key.chars().enumerate() {
+                            assert_eq!(
+                                buffer[(row.x + offset as u16, row.y)].symbol(),
+                                ch.to_string()
+                            );
+                        }
+                        assert_eq!(
+                            buffer[(row.x + 12, row.y)].symbol(),
+                            if index == selected { "›" } else { " " }
+                        );
+                        assert_eq!(
+                            buffer[(row.x + 13, row.y)].symbol(),
+                            if index == 0 { "F" } else { "S" }
+                        );
+                    }
+                    picker_surface::evidence::capture(
+                        &format!("menu-{width}x{height}-{variant}-{selected}"),
+                        buffer,
+                        &menu.state,
+                    );
+                }
+            }
+        }
     }
 }
