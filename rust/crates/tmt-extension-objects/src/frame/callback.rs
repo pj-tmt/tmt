@@ -1,8 +1,10 @@
 //! Admission callback and origin lifecycle frames. An `Admit` frame asks the
 //! extension to decide at one boundary of one operation; the answer is a closed
-//! `Admission` decision. Neither carries payload bytes, a principal, a role or a
-//! permit: the contexts describe actual, trusted-later plumbing and are never a
-//! selection made by a browser.
+//! `Admission` decision. Neither carries payload bytes, and the decision carries no
+//! principal, role or permit. An owner-session context does name the owner device and
+//! grant revision, as Remote established them for the extension's own decision; it is
+//! trusted-later plumbing, never selected by a browser or the caller, and grants no
+//! authority.
 use super::*;
 
 /// Where in the lifetime of one request the extension is asked.

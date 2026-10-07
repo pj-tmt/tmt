@@ -997,9 +997,11 @@ Visibility is the extension's rule, not a remote grant.
 **Status:** library wire schema only. `rust/crates/tmt-extension-objects` implements and tests the five frame kinds below
 (request, result, admit, admission and origin-state), all decoded and encoded by the same checks; no route, channel,
 handshake, callback executor or backend is shipped (#1852). The leaf decodes every kind: which side may send which, and
-every generation, high-water, ordering and outstanding-request rule, belong to the later channel. A frame names no
-principal, permission, retry or scope: `method`, the result tag and the callback fields are correlation only, and an
-identifier, digest, context or origin proves nothing about who may use it.
+every generation, high-water, ordering and outstanding-request rule, belong to the later channel. Requests, results
+and admission replies carry no principal, role, permit, retry or scope: `method`, the result tag and the callback
+identifiers are correlation only. An admit `context` states the owner device and grant revision as Remote established
+them, for the extension's own decision; a browser or caller never selects it, and nothing in a context, identifier,
+digest or origin grants authority or proves who may use a value.
 
 **Framing.** A frame is a 4-byte big-endian length (2 to 65,536) and that many bytes of one strict UTF-8 JSON object
 without duplicate member names (compared after decoding escapes), unknown or missing members, trailing bytes, nesting

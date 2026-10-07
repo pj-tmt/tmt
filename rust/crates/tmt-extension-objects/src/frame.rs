@@ -1,7 +1,9 @@
 //! Typed frames of the generic object channel: request and result frames for seven
 //! methods, each with exact input, result and error associations, and the admission
-//! callback and origin lifecycle frames around them. A frame carries correlation
-//! only; no field names a principal, permission, retry or scope.
+//! callback and origin lifecycle frames around them. Requests, results and
+//! admission replies carry no principal, role, permit, retry or scope, and no
+//! context grants authority: an `Admit` context only states, for the extension's own
+//! decision, the owner device and grant revision Remote established.
 //!
 //! Decoding and encoding apply one set of checks, so bytes that decode re-encode
 //! to the same canonical text and an invalid frame cannot be encoded. Which side may
