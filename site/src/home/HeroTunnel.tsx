@@ -47,13 +47,15 @@ export function HeroTunnel() {
           </div>
         </article>
         <div className="tunnel-exchange">
+          <svg className="tunnel-portal" viewBox="0 0 160 260" aria-hidden="true">
+            <PortalRings vertical />
+          </svg>
           <svg
             className="tunnel-path tunnel-desktop-flow"
             viewBox="0 0 160 260"
             preserveAspectRatio="none"
             aria-hidden="true"
           >
-            <PortalRings vertical />
             <path className="tunnel-route" d="M0 132.5 H160" />
             <path className="tunnel-route tunnel-return" d="M160 173 H0" />
             <path className="tunnel-arrow" d="m152 127.5 7 5-7 5 M8 168 l-7 5 7 5" />

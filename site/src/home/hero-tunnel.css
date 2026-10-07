@@ -229,6 +229,13 @@
 .v9-home .tunnel-mobile-flow {
   display: none;
 }
+.v9-home .tunnel-portal {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+.v9-home .tunnel-portal ellipse,
 .v9-home .tunnel-path ellipse {
   fill: none;
   stroke: var(--c-muted);
@@ -318,13 +325,13 @@
   white-space: nowrap;
 }
 .v9-home .tunnel-request-label {
-  bottom: calc(100% - 124px);
+  top: 0;
 }
 .v9-home .tunnel-reply-label {
-  top: 181px;
+  bottom: -24px;
 }
 .v9-home .tunnel-footnote {
-  margin: 24px 0 0;
+  margin: 40px 0 0;
   font-size: 10px;
   color: var(--c-muted);
 }
@@ -333,7 +340,7 @@
     margin-top: -13.5px;
   }
   .v9-home .tunnel-scene {
-    grid-template-columns: minmax(0, 1fr) 70px minmax(0, 1fr);
+    grid-template-columns: minmax(0, 1fr) 110px minmax(0, 1fr);
   }
   .v9-home .tunnel-terminal header {
     padding: 8px 6px;
@@ -368,6 +375,7 @@
   .v9-home .tunnel-exchange {
     height: 160px;
   }
+  .v9-home .tunnel-portal,
   .v9-home .tunnel-desktop-flow {
     display: none;
   }
@@ -381,6 +389,7 @@
     transform: translate(-50%, -50%);
   }
   .v9-home .tunnel-reply-label {
+    bottom: auto;
     top: 50%;
     left: calc(50% + 56px);
     transform: translate(-50%, -50%);
