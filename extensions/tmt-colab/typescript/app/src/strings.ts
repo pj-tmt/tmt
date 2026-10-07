@@ -2,6 +2,8 @@
 export const text = {
   unknownPageTitle: 'Untitled page',
   messageLabel: 'Message',
+  annotationTitle: 'Annotate',
+  annotationClose: 'Close annotation',
   messagePlaceholder: 'Write a message…',
   messageUnavailable: 'Sending is unavailable right now.',
   messageAgentsUnavailable: 'Agents are unavailable.',

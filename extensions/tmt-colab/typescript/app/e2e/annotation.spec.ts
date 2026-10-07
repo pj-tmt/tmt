@@ -236,3 +236,46 @@ test('a refused content write preserves exact draft and never prepares or dispat
     sends: [],
   });
 });
+
+test('the shared window awaits one admitted status action without replacing its draft or quote', async ({
+  page,
+}) => {
+  await page.goto('/');
+  await run(page, 'mountWindow');
+  const window = page.getByTestId('comment-thread');
+  const input = page.getByRole('combobox', { name: 'Window draft', exact: true });
+  await input.focus();
+  await input.evaluate((node) => {
+    (node as HTMLDivElement).dataset.retained = 'yes';
+  });
+  await window.getByRole('button', { name: 'Resolve', exact: true }).click();
+  await expect(window.getByRole('button', { name: 'Resolve', exact: true })).toBeDisabled();
+  await expect(window.getByRole('button', { name: 'Close thread', exact: true })).toBeDisabled();
+  await input.focus();
+  await input.press('End');
+  await input.pressSequentially(' continues');
+  await expect(input).toBeFocused();
+  await expect(input).toHaveText('Unsent draft continues', { useInnerText: true });
+  await expect(input).toHaveAttribute('data-retained', 'yes');
+  await expect(window.locator('blockquote')).toHaveText('Frozen original quote');
+  expect(await run(page, 'windowProof')).toEqual({ statusCalls: 1, closes: 0 });
+  await run(page, 'finishWindowStatus');
+  await expect(window.getByRole('button', { name: 'Reopen', exact: true })).toBeEnabled();
+  await expect(input).toBeFocused();
+  await expect(input).toHaveText('Unsent draft continues', { useInnerText: true });
+  await window.getByRole('button', { name: 'Reopen', exact: true }).click();
+  await run(page, 'finishWindowStatus', 'failed');
+  await expect(window.getByRole('alert')).toBeVisible();
+  await expect(window.getByRole('button', { name: 'Reopen', exact: true })).toBeEnabled();
+  await expect(input).toHaveAttribute('data-retained', 'yes');
+  await expect(input).toHaveText('Unsent draft continues', { useInnerText: true });
+  expect(await run(page, 'windowProof')).toEqual({ statusCalls: 2, closes: 0 });
+});
+test('window status controls require writer ownership and current admission', async ({ page }) => {
+  await page.goto('/');
+  await run(page, 'mountWindow', 'readonly');
+  await expect(page.getByRole('button', { name: 'Resolve', exact: true })).toHaveCount(0);
+  await run(page, 'mountWindow', 'blocked');
+  await expect(page.getByRole('button', { name: 'Resolve', exact: true })).toBeDisabled();
+  expect(await run(page, 'windowProof')).toEqual({ statusCalls: 0, closes: 0 });
+});

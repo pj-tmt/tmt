@@ -62,6 +62,18 @@ Later height reports do not replay an older offset over newer scrolling.
 The [UI contract](../../../../extensions/tmt-colab/contracts/colab-v1.md#own-stream-discussion-records-1427)
 owns draft survival and stale-quote behavior.
 
+The annotation window uses the same `ThreadWindow` as Comments from first
+selection through the committed conversation. Its one shared composer stays
+mounted on first send; Close, Escape and outside press collapse without sending
+or resolving. Page-owned drafts keep the exact edit and recipient for reopening
+the known thread. Current renderer anchor positions locate marker-opened windows;
+viewport dimensions clamp their square, shadow-free surface independently of
+document height. Header/composer stay in place while messages scroll, including
+an associated delayed reply to an earlier turn. Unrelated live publications keep
+the reader's message-history position. This changes no renderer messages,
+subscription, publication admission or reply association. Comments remains the
+explicit full-history/details view.
+
 `page-drawer.tsx` portals chrome outside the header/menu. Desktop panels float on
 the right on an opaque square surface; mobile uses a full-screen native modal sheet. Neither
 changes renderer width or content layout. The panel body scrolls independently.

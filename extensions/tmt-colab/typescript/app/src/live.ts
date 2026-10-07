@@ -123,6 +123,20 @@ export class Live implements PageBinding {
           publish: (root, key, value) => this.#writer.submitOwn(root, key, value),
           connection: () => this.#current,
           observe: () => this.#observe(),
+          observationUnavailable: (unavailable) => {
+            if (
+              this.#closed ||
+              this.#error ||
+              this.ask !== facade ||
+              this.registration !== registration ||
+              !this.#observation ||
+              this.#observation.signal.aborted
+            )
+              return;
+            if (this.#projection.askUnavailable === unavailable) return;
+            this.#projection = { ...this.#projection, askUnavailable: unavailable };
+            this.#listeners.forEach((value) => value.publish(structuredClone(this.#projection)));
+          },
           sessionEnded: (error) => {
             if (this.ask === facade && this.registration === registration)
               this.#failed(error ?? new SessionEndedError('REMOTE_SESSION_ENDED'));
@@ -155,7 +169,6 @@ export class Live implements PageBinding {
     const refreshOlder = this.#refreshOlderAsks;
     this.#refreshOlderAsks = false;
     this.#observation = controller;
-    this.#projection = { ...this.#projection, askUnavailable: false };
     void this.ask
       .observe(controller.signal, refreshOlder)
       .catch(() => {
@@ -276,7 +289,12 @@ export class Live implements PageBinding {
             { spaceId: admission.space, pageId: admission.page, epoch: admission.epoch },
             (writer) => connection.objects.ownSigningKey(writer),
           );
-          this.#projection = { ...value, asks, threads };
+          this.#projection = {
+            ...value,
+            asks,
+            threads,
+            askUnavailable: this.#projection.askUnavailable ?? false,
+          };
           this.#listeners.forEach((v) => v.publish(structuredClone(this.#projection)));
           this.#observe();
         } catch (error) {

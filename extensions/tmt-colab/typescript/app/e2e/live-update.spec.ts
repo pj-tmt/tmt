@@ -223,7 +223,7 @@ for (const width of [1440, 390]) {
         page.frameLocator('#ask-page-fixture iframe').locator('[data-colab-thread]'),
       ).toHaveCount(1);
       expect(Math.abs((await page.evaluate(() => window.scrollY)) - threadScroll)).toBeLessThan(2);
-      await page.getByRole('button', { name: 'Close Comments', exact: true }).click();
+      await thread.getByRole('button', { name: text.threadClose, exact: true }).click();
       await panel(page, 'chat');
       const chat = await annotationInput(page.getByTestId('chat-panel'), 'Agent 1');
       const chatDraft = '@Agent 1 A Chat draft during another edit.';
@@ -235,6 +235,7 @@ for (const width of [1440, 390]) {
       await page.screenshot({ path: `${captureDir}/chat-${width}-${theme}-updated.png` });
       await page.getByRole('button', { name: 'Close Chat', exact: true }).click();
       await panel(page, 'comments');
+      await page.getByTestId('annotation-row').filter({ hasText: 'Exact selected text' }).click();
       await expect(reply).toHaveText(continuedThreadDraft, { useInnerText: true });
       await expect(thread).toHaveAttribute('data-anchor', 'detached');
       await expect(thread.getByText(text.commentQuoteChanged)).toBeVisible();
@@ -287,6 +288,144 @@ for (const width of [1440, 390]) {
         })
         .toBeGreaterThan(0);
       await page.screenshot({ path: `${captureDir}/annotation-${width}-${theme}-failure.png` });
+      expect((await run(page, 'proof')).sends).toHaveLength(1);
+    });
+  }
+}
+
+for (const width of [1440, 390]) {
+  for (const theme of ['light', 'dark']) {
+    test(`anchored window keeps one composer, exact association and collapsed draft at ${width} ${theme}`, async ({
+      page,
+    }) => {
+      await page.setViewportSize({ width, height: 900 });
+      await page.goto('/');
+      await run(page, 'mount');
+      await expect(page.locator('#ask-page-fixture .status')).toContainText('Live preview');
+      await change(page, source);
+      await page.evaluate((theme) => {
+        document.documentElement.dataset.theme = theme;
+        window.scrollTo(0, 1100);
+      }, theme);
+      await select(page);
+      const dialog = page.getByRole('dialog', { name: 'Annotate selection' });
+      const input = dialog.getByRole('combobox', { name: 'Message', exact: true });
+      await expect(input).toBeFocused();
+      await input.evaluate((node) => Object.assign(window, { anchoredInput: node }));
+      const scroll = await page.evaluate(() => window.scrollY);
+      const before = (await dialog.boundingBox())!;
+      mkdirSync(captureDir, { recursive: true });
+      await page.screenshot({ path: `${captureDir}/window-${width}-${theme}-empty.png` });
+      await input.fill('First plain turn without an agent.');
+      await input.press('Enter');
+      const thread = dialog.getByTestId('comment-thread');
+      await expect(thread.getByTestId('comment-entry')).toHaveCount(1);
+      await expect(input).toHaveText('', { useInnerText: true });
+      expect(
+        await input.evaluate(
+          (node) => (window as unknown as { anchoredInput: Element }).anchoredInput === node,
+        ),
+      ).toBe(true);
+      await expect(page.locator('.page-drawer[open]')).toHaveCount(0);
+      expect((await run(page, 'proof')).sends).toHaveLength(0);
+      expect(Math.abs((await dialog.boundingBox())!.x - before.x)).toBeLessThan(2);
+      expect(Math.abs((await dialog.boundingBox())!.y - before.y)).toBeLessThan(2);
+      expect(Math.abs((await page.evaluate(() => window.scrollY)) - scroll)).toBeLessThan(2);
+      await annotationInput(dialog, 'Agent 1');
+      await input.fill('Second turn from the same window.');
+      await input.press('Enter');
+      await expect(thread.getByTestId('comment-entry')).toHaveCount(2);
+      await expect.poll(async () => (await run(page, 'proof')).sends.length).toBe(1);
+      await expect(
+        thread.getByText('Second turn from the same window.', { exact: true }),
+      ).toBeInViewport({ ratio: 1 });
+      const threadId = await thread.getAttribute('data-thread-id');
+      const editorBox = (await input.boundingBox())!;
+      const labelBox = (await dialog.locator('.annotation-reply-label').boundingBox())!;
+      expect(editorBox.y - labelBox.y - labelBox.height).toBeGreaterThanOrEqual(8);
+      await page.screenshot({ path: `${captureDir}/window-${width}-${theme}-sent.png` });
+      // Row actions must fit the message area rather than flip under its stationary header.
+      const latestTurn = thread.getByTestId('comment-entry').last();
+      await latestTurn.hover();
+      await latestTurn.getByRole('button', { name: 'Message actions', exact: true }).click();
+      const editAction = latestTurn.getByRole('menuitem', { name: 'Edit', exact: true });
+      await expect(editAction).toBeInViewport({ ratio: 1 });
+      const menuBox = (await latestTurn.getByRole('menu').boundingBox())!;
+      const messageBox = (await thread.locator('.thread-messages').boundingBox())!;
+      expect(menuBox.y).toBeGreaterThanOrEqual(messageBox.y);
+      expect(menuBox.y + menuBox.height).toBeLessThanOrEqual(messageBox.y + messageBox.height);
+      await editAction.click();
+      await expect(
+        latestTurn.getByRole('combobox', { name: 'Edit comment', exact: true }),
+      ).toBeFocused();
+      await latestTurn.getByRole('button', { name: 'Cancel', exact: true }).click();
+      await page.evaluate(async (fixture) => (await import(fixture)).windowReply(24), fixture);
+      await expect(thread.getByTestId('ask-reply')).toHaveText('Exact associated agent reply.');
+      const messages = thread.locator('.thread-messages');
+      await expect(thread.getByTestId('ask-reply')).toBeInViewport({ ratio: 1 });
+      expect(await messages.evaluate((node) => node.scrollHeight > node.clientHeight)).toBe(true);
+      const header = thread.locator('.thread-bar');
+      const headerBefore = (await header.boundingBox())!;
+      const inputBefore = (await input.boundingBox())!;
+      await messages.evaluate((node) => {
+        node.scrollTop = 0;
+      });
+      expect((await header.boundingBox())!.y).toBe(headerBefore.y);
+      expect((await input.boundingBox())!.y).toBe(inputBefore.y);
+      await run(page, 'unrelatedWindowUpdate');
+      await expect(
+        page.getByRole('heading', { name: 'Unrelated live title', exact: true }),
+      ).toBeVisible();
+      expect(await messages.evaluate((node) => node.scrollTop)).toBe(0);
+      await page.screenshot({ path: `${captureDir}/window-${width}-${theme}-history.png` });
+      await run(page, 'updateWindowReply');
+      await expect(thread.getByTestId('ask-reply')).toHaveText('Updated associated agent reply.');
+      await expect(thread.getByTestId('ask-reply')).toBeInViewport({ ratio: 1 });
+      expect(await messages.evaluate((node) => node.clientHeight)).toBeGreaterThanOrEqual(240);
+      await page.screenshot({ path: `${captureDir}/window-${width}-${theme}-reply.png` });
+      await input.fill('Exact unsent draft retained on collapse.');
+      await page.getByRole('heading', { name: 'Unrelated live title', exact: true }).click();
+      await expect(dialog).toHaveCount(0);
+      // Reopening via the associated marker restores the thread, quote and selected recipient.
+      const marker = page
+        .frameLocator('#ask-page-fixture iframe')
+        .locator(`[data-colab-thread$="${threadId}"]`);
+      await marker.click();
+      await expect(thread).toHaveAttribute('data-thread-id', threadId!);
+      await expect(input).toHaveText('Exact unsent draft retained on collapse.', {
+        useInnerText: true,
+      });
+      await expect(dialog.getByText('Recipient: Agent 1', { exact: false })).toBeVisible();
+      await expect(thread.getByTestId('ask-reply')).toBeInViewport({ ratio: 1 });
+      await expect(thread.locator('blockquote')).toHaveText('Exact selected text');
+      await expect(page.locator('.page-drawer[open]')).toHaveCount(0);
+      const box = (await dialog.boundingBox())!;
+      expect(box.x).toBeGreaterThanOrEqual(8);
+      expect(box.x + box.width).toBeLessThanOrEqual(width - 8);
+      expect(box.y + box.height).toBeLessThanOrEqual(892);
+      const frameText = await page
+        .frameLocator('#ask-page-fixture iframe')
+        .locator('body')
+        .innerText();
+      expect(frameText).not.toContain('First plain turn');
+      expect(frameText).not.toContain('Exact associated agent reply');
+      expect(frameText).not.toContain('Exact unsent draft');
+      await page.screenshot({ path: `${captureDir}/window-${width}-${theme}-reopened.png` });
+      const resolve = thread.getByRole('button', { name: text.threadResolve, exact: true });
+      await resolve.focus();
+      await resolve.press('Tab');
+      const close = thread.getByRole('button', { name: text.threadClose, exact: true });
+      await expect(close).toBeFocused();
+      await expect(close.locator('.thread-action-caption')).toBeVisible();
+      await page.screenshot({ path: `${captureDir}/window-${width}-${theme}-header-focus.png` });
+      await resolve.click();
+      await expect(dialog).toHaveCount(0);
+      await panel(page, 'comments');
+      await page.getByTestId('annotation-row').click();
+      const details = page.getByTestId('comment-thread');
+      await expect(details).toContainText(text.threadResolved);
+      await details.getByRole('button', { name: text.threadReopen, exact: true }).click();
+      await expect(details).toContainText(text.threadOpen);
       expect((await run(page, 'proof')).sends).toHaveLength(1);
     });
   }

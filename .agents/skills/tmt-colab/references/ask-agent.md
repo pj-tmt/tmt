@@ -58,7 +58,12 @@ modules in `extensions/tmt-colab/typescript/app/src` and `rust/tmt-colab/src/ask
   an interrupted `dispatching` ask becomes `uncertain` (`OBSERVATION_INTERRUPTED`) first, and
   a missing operation stays `uncertain` and can be abandoned. A refused read is an ephemeral
   `ReadRefusedError`, never a ledger state; the observer keeps backing off, while a
-  session-ending refusal stops it. `observe` makes one sequential activation pass
+  session-ending refusal stops it. Each completed permitted observation cycle
+  reports one aggregate unavailable boolean through `LiveAsk` to Live's existing
+  projection. The warning stays visible across ordinary page publications and
+  clears on the next successful cycle; closed/replaced/hidden observation cannot
+  publish a late status. This changes no ledger state or retry cadence.
+  `observe` makes one sequential activation pass
   over the 256 newest unresolved owned asks on page open and visible-again, including
   old intents. Continued visible polling backs off from 2 s up to 30 s and stops
   at the two-hour operation horizon; failed older reads are not retried.

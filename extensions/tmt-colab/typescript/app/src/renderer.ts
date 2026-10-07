@@ -59,6 +59,8 @@ export async function mountRenderer(
   readonly snapshot: RenderSnapshot;
   highlight(anchors: { id: string; selector: QuoteSelector }[], draft?: QuoteSelector): void;
   scrollAnchor(id: string): void;
+  /** Cosmetic position already admitted from this render; never discussion authority. */
+  anchorRectangle(id: string): SelectionRect | undefined;
   /** Stop the old channel while its frame preserves layout until replacement. */
   release(): void;
   destroy(): void;
@@ -419,5 +421,15 @@ export async function mountRenderer(
       behavior: 'instant',
     });
   };
-  return { snapshot, highlight, scrollAnchor, release, destroy };
+  const anchorRectangle = (id: string): SelectionRect | undefined => {
+    const top = positions.get(id);
+    if (stopped || top === undefined) return;
+    return {
+      x: Math.max(0, frame.clientWidth - 28),
+      y: innerScroll ? inset() : top,
+      width: 20,
+      height: 20,
+    };
+  };
+  return { snapshot, highlight, scrollAnchor, anchorRectangle, release, destroy };
 }
