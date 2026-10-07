@@ -106,6 +106,8 @@ test('a same-request annotation reply submitted while observation is paused is r
   });
 });
 test('paired writers retain anchored annotation conversations, direct exact sends and one window scroll through restart', async () => {
+  const captureDir = process.env.COLAB_DISCUSSION_CAPTURE_DIR ?? test.info().outputPath('captures');
+  mkdirSync(captureDir, { recursive: true });
   await withWorld(async (world) => {
     const door = await startDoor(world, await freePort());
     const agent = await world.startAgent('discussion-agent');
@@ -140,7 +142,7 @@ test('paired writers retain anchored annotation conversations, direct exact send
         )
         .toBe(true);
       await first.evaluate(() => window.scrollTo(0, 0));
-      await first.screenshot({ path: `/tmp/1587-native-${width}-light-long-top.png` });
+      await first.screenshot({ path: `${captureDir}/1587-native-${width}-light-long-top.png` });
       await first.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
       const windowScrollTop = await first.evaluate(() => document.scrollingElement!.scrollTop);
       const frameScrollTop = await first
@@ -154,13 +156,15 @@ test('paired writers retain anchored annotation conversations, direct exact send
         JSON.stringify({ width, windowScrollTop, frameScrollTop, marker: 'END OF PAGE' }),
       );
       expect((await first.locator('.tmt-ui-header').boundingBox())?.y).toBe(0);
-      await first.screenshot({ path: `/tmp/1587-native-${width}-light-long-scrolled.png` });
+      await first.screenshot({
+        path: `${captureDir}/1587-native-${width}-light-long-scrolled.png`,
+      });
     }
     await first.setViewportSize({ width: 1440, height: 900 });
     await first.evaluate(() => window.scrollTo(0, 0));
     await selectInRenderer(first, '#quote');
     await expect(first.getByTestId('selection-ask')).toBeVisible();
-    await first.screenshot({ path: '/tmp/1587-native-1440-light-selection.png' });
+    await first.screenshot({ path: `${captureDir}/1587-native-1440-light-selection.png` });
     for (const width of [1440, 390]) {
       await first.setViewportSize({ width, height: 900 });
       for (const theme of ['light', 'dark']) {
@@ -186,10 +190,12 @@ test('paired writers retain anchored annotation conversations, direct exact send
           'aria-expanded',
           'false',
         );
-        await first.screenshot({ path: `/tmp/1587-native-${width}-${theme}-popover.png` });
+        await first.screenshot({ path: `${captureDir}/1587-native-${width}-${theme}-popover.png` });
         await prefilled.fill('@');
         await expect(first.getByRole('listbox')).toBeVisible();
-        await first.screenshot({ path: `/tmp/1587-native-${width}-${theme}-autocomplete.png` });
+        await first.screenshot({
+          path: `${captureDir}/1587-native-${width}-${theme}-autocomplete.png`,
+        });
         await prefilled.press('Escape');
         await prefilled.fill('');
         await prefilled.press('Escape');
@@ -238,7 +244,7 @@ test('paired writers retain anchored annotation conversations, direct exact send
         agent.pane,
       );
       await expect(first.locator('iframe')).not.toHaveAttribute('data-render-id', renderId!);
-      await expect(first.locator('.colab-header .status')).toContainText('Live preview');
+      await expect(first.locator('.tmt-ui-header .status')).toContainText('Live preview');
     };
     await replaceSource(
       html.replace('An &amp; <em>🌍 exact quote</em> for review.', 'The source was updated.'),
@@ -346,7 +352,7 @@ test('paired writers retain anchored annotation conversations, direct exact send
       await first.evaluate(() => window.scrollTo(0, 0));
       await expect(t1).toHaveAttribute('data-anchor', 'attached');
       await first.getByRole('button', { name: 'Close Comments', exact: true }).click();
-      await first.screenshot({ path: `/tmp/1587-native-${width}-light-markers.png` });
+      await first.screenshot({ path: `${captureDir}/1587-native-${width}-light-markers.png` });
       await marker.click();
       for (const theme of ['light', 'dark']) {
         await first.evaluate((theme) => {
@@ -356,24 +362,26 @@ test('paired writers retain anchored annotation conversations, direct exact send
         await first.locator('.page-drawer[open] .drawer-body').evaluate((node) => {
           node.scrollTop = 0;
         });
-        await first.screenshot({ path: `/tmp/1587-native-${width}-${theme}-threads.png` });
+        await first.screenshot({ path: `${captureDir}/1587-native-${width}-${theme}-threads.png` });
         await first.locator(`[data-testid="annotation-row"][data-thread-id="${threadId}"]`).click();
         await expect(t1).toHaveAttribute('data-anchor', 'attached');
         await first.locator('.page-drawer[open] .drawer-body').evaluate((node) => {
           node.scrollTop = 0;
         });
-        await first.screenshot({ path: `/tmp/1587-native-${width}-${theme}-thread.png` });
+        await first.screenshot({ path: `${captureDir}/1587-native-${width}-${theme}-thread.png` });
         // Comment order within a thread is not fixed; take the one this browser wrote.
         const own = t1.getByTestId('comment-entry').filter({ hasText: 'You ·' }).first();
         const menu = own.getByRole('button', { name: 'Message actions', exact: true });
         await own.hover();
         await menu.click();
         await expect(own.getByRole('menuitem')).toHaveText(['Edit', 'Delete']);
-        await first.screenshot({ path: `/tmp/1690-native-${width}-${theme}-comment-menu.png` });
+        await first.screenshot({
+          path: `${captureDir}/1690-native-${width}-${theme}-comment-menu.png`,
+        });
         await menu.press('Escape');
         await expect(own.getByRole('menuitem')).toHaveCount(0);
         await t1.getByRole('combobox', { name: 'Message', exact: true }).scrollIntoViewIfNeeded();
-        await first.screenshot({ path: `/tmp/1587-native-${width}-${theme}-input.png` });
+        await first.screenshot({ path: `${captureDir}/1587-native-${width}-${theme}-input.png` });
       }
       await first.evaluate(() => {
         document.documentElement.dataset.theme = 'light';

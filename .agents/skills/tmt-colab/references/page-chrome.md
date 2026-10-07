@@ -47,7 +47,9 @@ thread highlights are projected again when the new render is ready. `renderer.ts
 checks the frozen composer quote through the same bounded cosmetic resolver: the
 reserved empty anchor ID resolves without painting a highlight or creating a
 marker/action. Only an admitted resolution response marks the check complete;
-pending checks do not show the stale-quote hint. Source loading does not block
+pending checks do not show the stale-quote hint. Annotation and shared composer
+actions use the leaf action class; annotation surfaces and drawers are shadow-free.
+Source loading does not block
 discussion input or explicit sends, which use the frozen quote and verified
 connection; renderer failures and connection errors still block them. It
 releases the old channel before replacement without clearing parent selection or
@@ -58,7 +60,7 @@ The [UI contract](../../../../extensions/tmt-colab/contracts/colab-v1.md#own-str
 owns draft survival and stale-quote behavior.
 
 `page-drawer.tsx` portals chrome outside the header/menu. Desktop panels float on
-the right with a hard shadow; mobile uses a full-screen native modal sheet. Neither
+the right on an opaque square surface; mobile uses a full-screen native modal sheet. Neither
 changes renderer width or content layout. The panel body scrolls independently.
 Close/Escape restores focus, and media listeners/dialogs clean up on close or
 unmount. Chat initializes on first opening; closed Source, Comments and Chat panels retain drafts and admitted history;

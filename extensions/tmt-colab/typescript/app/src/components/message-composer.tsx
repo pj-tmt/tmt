@@ -1,3 +1,4 @@
+import { browserUiClasses as ui } from '@tmt/browser-ui/static';
 import { useCallback, useEffect, useRef, useState, type Ref } from 'react';
 import { LexicalExtensionComposer } from '@lexical/react/LexicalExtensionComposer';
 import { ReactExtension } from '@lexical/react/ReactExtension';
@@ -235,6 +236,7 @@ function MessageField(props: MessageComposerProps) {
       />
       {props.recipientPickerLabel && (
         <button
+          className={ui.action}
           type="button"
           disabled={
             props.disabled ||

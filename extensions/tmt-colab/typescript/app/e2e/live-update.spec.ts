@@ -1,6 +1,7 @@
 import { mkdirSync } from 'node:fs';
 import { expect, test, type Locator, type Page } from '@playwright/test';
 import { text } from '../src/strings.js';
+import { annotationInput } from '../acceptance/harness/ask.js';
 
 const fixture = '/test/ask-page-browser.tsx';
 const captureDir = process.env.COLAB_UPDATE_CAPTURE_DIR ?? '/tmp/colab-live-update-captures';
@@ -22,14 +23,33 @@ async function change(page: Page, html: string) {
   await expect(page.locator('#ask-page-fixture .status')).toContainText('Live preview');
   await expect.poll(async () => (await frame.boundingBox())?.height ?? 0).toBeGreaterThan(3200);
 }
-async function changeWhileTyping(page: Page, html: string, input: Locator, addition: string) {
-  const value = await input.inputValue();
+async function changeWhileTyping(
+  page: Page,
+  html: string,
+  input: Locator,
+  addition: string,
+  surface: string,
+) {
+  const value = await input.innerText();
   const caret = value.length - 1;
   await input.focus();
-  await input.evaluate(
-    (node: HTMLTextAreaElement, caret) => node.setSelectionRange(caret, caret),
-    caret,
-  );
+  await input.evaluate((node, caret) => {
+    const walker = node.ownerDocument.createTreeWalker(node, NodeFilter.SHOW_TEXT);
+    let remaining = caret;
+    for (let text = walker.nextNode(); text; text = walker.nextNode()) {
+      if (remaining <= text.textContent!.length) {
+        const range = node.ownerDocument.createRange();
+        range.setStart(text, remaining);
+        range.collapse(true);
+        const selection = node.ownerDocument.getSelection()!;
+        selection.removeAllRanges();
+        selection.addRange(range);
+        return;
+      }
+      remaining -= text.textContent!.length;
+    }
+    throw new Error('Caret is outside the retained message');
+  }, caret);
   let release!: () => void;
   const gate = new Promise<void>((resolve) => {
     release = resolve;
@@ -41,19 +61,36 @@ async function changeWhileTyping(page: Page, html: string, input: Locator, addit
   try {
     const update = change(page, html);
     await expect(page.locator('#ask-page-fixture .status')).toContainText(text.loading);
-    await expect(input).toBeEnabled();
+    await expect(input).toHaveAttribute('contenteditable', 'true');
     await expect(input).toBeFocused();
-    expect(await input.evaluate((node: HTMLTextAreaElement) => node.selectionStart)).toBe(caret);
+    expect(
+      await input.evaluate((node) => {
+        const selection = node.ownerDocument.getSelection()!;
+        const before = node.ownerDocument.createRange();
+        before.selectNodeContents(node);
+        before.setEnd(selection.focusNode!, selection.focusOffset);
+        return before.toString().length;
+      }),
+    ).toBe(caret);
     // Unicode fixture text exercises the caret path used by IME-produced text.
     await page.keyboard.insertText(addition);
     const expected = value.slice(0, caret) + addition + value.slice(caret);
-    await expect(input).toHaveValue(expected);
+    await expect(input).toHaveText(expected, { useInnerText: true });
+    const width = page.viewportSize()!.width;
+    const theme = await page.evaluate(() => document.documentElement.dataset.theme);
+    await page.screenshot({ path: `${captureDir}/${surface}-${width}-${theme}-loading.png` });
     release();
     await update;
     await expect(input).toBeFocused();
-    expect(await input.evaluate((node: HTMLTextAreaElement) => node.selectionStart)).toBe(
-      caret + addition.length,
-    );
+    expect(
+      await input.evaluate((node) => {
+        const selection = node.ownerDocument.getSelection()!;
+        const before = node.ownerDocument.createRange();
+        before.selectNodeContents(node);
+        before.setEnd(selection.focusNode!, selection.focusOffset);
+        return before.toString().length;
+      }),
+    ).toBe(caret + addition.length);
     return expected;
   } finally {
     release();
@@ -98,18 +135,19 @@ for (const width of [1440, 390]) {
       }, theme);
       await select(page);
       const composer = page.getByRole('dialog', { name: 'Annotate selection' });
-      const input = composer.getByRole('combobox', { name: 'Message to agent' });
-      await expect(input).toHaveValue('@Agent 1 ');
+      const input = await annotationInput(composer, 'Agent 1');
+      await expect(input).toHaveText('', { useInnerText: true });
+      mkdirSync(captureDir, { recursive: true });
+      await page.screenshot({ path: `${captureDir}/annotation-${width}-${theme}-empty.png` });
       const draft = '@Agent 1 Keep this exact unsent draft.';
       await input.fill(draft);
       const position = (await composer.boundingBox())!;
       const scroll = await page.evaluate(() => window.scrollY);
       // Keeping the value alone is insufficient: the real input must survive loading.
       await input.evaluate((node) => Object.assign(window, { retainedComposer: node }));
-      mkdirSync(captureDir, { recursive: true });
       await page.screenshot({ path: `${captureDir}/annotation-${width}-${theme}-before.png` });
-      const continuedDraft = await changeWhileTyping(page, revised, input, '新');
-      await expect(input).toHaveValue(continuedDraft);
+      const continuedDraft = await changeWhileTyping(page, revised, input, '新', 'annotation');
+      await expect(input).toHaveText(continuedDraft, { useInnerText: true });
       expect(
         await input.evaluate(
           (node) => (window as unknown as { retainedComposer: Element }).retainedComposer === node,
@@ -139,19 +177,19 @@ for (const width of [1440, 390]) {
       await expect.poll(async () => (await run(page, 'proof')).sends.length).toBe(1);
       const sent = (await run(page, 'proof')).sends[0];
       expect(sent.message).toContain('Exact selected text');
-      expect(sent.message).toContain(continuedDraft.slice('@Agent 1 '.length));
+      expect(sent.message).toContain(continuedDraft);
       expect(sent.message).not.toContain('New source without the captured quote');
       expect((await run(page, 'discussionProof'))[0].anchor.exact).toBe('Exact selected text');
 
       const thread = page.getByTestId('comment-thread');
       await expect(thread).toHaveAttribute('data-anchor', 'detached');
       await expect(thread.getByText(text.commentQuoteChanged)).toBeVisible();
-      const reply = thread.getByRole('combobox', { name: 'Message to agent' });
+      const reply = thread.getByRole('combobox', { name: 'Message' });
       const threadDraft = '@Agent 1 A thread reply still being written.';
       await reply.fill(threadDraft);
       const threadScroll = await page.evaluate(() => window.scrollY);
-      const continuedThreadDraft = await changeWhileTyping(page, source, reply, '文');
-      await expect(reply).toHaveValue(continuedThreadDraft);
+      const continuedThreadDraft = await changeWhileTyping(page, source, reply, '文', 'thread');
+      await expect(reply).toHaveText(continuedThreadDraft, { useInnerText: true });
       await expect(thread).toHaveAttribute('data-anchor', 'attached');
       await expect(thread.getByText(text.commentQuoteChanged)).toHaveCount(0);
       await expect(
@@ -160,19 +198,17 @@ for (const width of [1440, 390]) {
       expect(Math.abs((await page.evaluate(() => window.scrollY)) - threadScroll)).toBeLessThan(2);
       await page.getByRole('button', { name: 'Close Comments', exact: true }).click();
       await panel(page, 'chat');
-      const chat = page
-        .getByTestId('chat-panel')
-        .getByRole('combobox', { name: 'Message to agent' });
+      const chat = await annotationInput(page.getByTestId('chat-panel'), 'Agent 1');
       const chatDraft = '@Agent 1 A Chat draft during another edit.';
       await chat.fill(chatDraft);
       const chatScroll = await page.evaluate(() => window.scrollY);
-      const continuedChatDraft = await changeWhileTyping(page, revised, chat, '續');
-      await expect(chat).toHaveValue(continuedChatDraft);
+      const continuedChatDraft = await changeWhileTyping(page, revised, chat, '續', 'chat');
+      await expect(chat).toHaveText(continuedChatDraft, { useInnerText: true });
       expect(Math.abs((await page.evaluate(() => window.scrollY)) - chatScroll)).toBeLessThan(2);
       await page.screenshot({ path: `${captureDir}/chat-${width}-${theme}-updated.png` });
       await page.getByRole('button', { name: 'Close Chat', exact: true }).click();
       await panel(page, 'comments');
-      await expect(reply).toHaveValue(continuedThreadDraft);
+      await expect(reply).toHaveText(continuedThreadDraft, { useInnerText: true });
       await expect(thread).toHaveAttribute('data-anchor', 'detached');
       await expect(thread.getByText(text.commentQuoteChanged)).toBeVisible();
       await page.screenshot({ path: `${captureDir}/thread-${width}-${theme}-updated.png` });
@@ -202,8 +238,17 @@ for (const width of [1440, 390]) {
         .toBeGreaterThan(3200);
       await page.evaluate(() => window.scrollTo(0, 1100));
       await select(page);
-      await expect(input).toHaveValue('@Agent 1 ');
+      await expect(input).toHaveText('', { useInnerText: true });
       await expect(composer.getByText('Draft kept', { exact: true })).toHaveCount(0);
+      expect((await run(page, 'proof')).sends).toHaveLength(1);
+      await input.fill('Retain this draft when the connection fails.');
+      await run(page, 'block');
+      await expect(input).toHaveText('Retain this draft when the connection fails.', {
+        useInnerText: true,
+      });
+      await expect(input).toHaveAttribute('contenteditable', 'false');
+      await expect(page.locator('#ask-page-fixture iframe')).toHaveCount(0);
+      await page.screenshot({ path: `${captureDir}/annotation-${width}-${theme}-failure.png` });
       expect((await run(page, 'proof')).sends).toHaveLength(1);
     });
   }

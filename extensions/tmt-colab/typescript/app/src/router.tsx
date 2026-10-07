@@ -110,7 +110,7 @@ function SelectionAnnotation({
     >
       {children ?? (
         <button
-          className="selection-ask"
+          className={`selection-ask ${ui.action}`}
           data-testid="selection-ask"
           onPointerDown={(event) => event.preventDefault()}
           onClick={(event) => {
@@ -952,7 +952,7 @@ function Page() {
               >
                 <button
                   type="button"
-                  className="annotation-close"
+                  className={`annotation-close ${ui.action}`}
                   aria-label="Close annotation"
                   onClick={(event) => {
                     if (event.isTrusted) closeAnnotation(true);

@@ -257,7 +257,7 @@ footer {
   color: var(--c-text);
   background: var(--c-paper);
   border: 1px solid var(--c-text);
-  box-shadow: 6px 6px 0 var(--c-text);
+  box-shadow: none;
   overflow: hidden;
 }
 .page-drawer[open] {
@@ -786,7 +786,7 @@ footer {
   padding: 12px;
   border: 1px solid var(--c-text);
   background: var(--c-sheet);
-  box-shadow: 5px 5px 0 var(--c-accent);
+  box-shadow: none;
 }
 .annotation-popover blockquote {
   margin: 0 0 10px;
@@ -796,11 +796,6 @@ footer {
 }
 .selection-ask {
   margin: 0;
-  border: 1px solid var(--c-text);
-  padding: 7px 12px;
-  background: var(--c-sheet);
-  color: var(--c-text);
-  box-shadow: 3px 3px 0 var(--c-accent);
 }
 .annotation-row {
   display: flex;
