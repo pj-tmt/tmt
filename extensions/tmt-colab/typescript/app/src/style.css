@@ -1126,6 +1126,11 @@ footer {
   width: 16px;
   height: 16px;
 }
+.comment-thread[data-layout='anchored'] .comment-actions button,
+.comment-thread[data-layout='anchored'] .tmt-action-menu-list {
+  border-width: 1px;
+  box-shadow: none;
+}
 /* A state is a mark plus a word; the mark takes the state's role color, the word stays muted text. */
 .ask-state {
   display: inline-flex;

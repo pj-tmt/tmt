@@ -344,6 +344,21 @@ for (const width of [1440, 390]) {
       const labelBox = (await dialog.locator('.annotation-reply-label').boundingBox())!;
       expect(editorBox.y - labelBox.y - labelBox.height).toBeGreaterThanOrEqual(8);
       await page.screenshot({ path: `${captureDir}/window-${width}-${theme}-sent.png` });
+      // Row actions must fit the message area rather than flip under its stationary header.
+      const latestTurn = thread.getByTestId('comment-entry').last();
+      await latestTurn.hover();
+      await latestTurn.getByRole('button', { name: 'Message actions', exact: true }).click();
+      const editAction = latestTurn.getByRole('menuitem', { name: 'Edit', exact: true });
+      await expect(editAction).toBeInViewport({ ratio: 1 });
+      const menuBox = (await latestTurn.getByRole('menu').boundingBox())!;
+      const messageBox = (await thread.locator('.thread-messages').boundingBox())!;
+      expect(menuBox.y).toBeGreaterThanOrEqual(messageBox.y);
+      expect(menuBox.y + menuBox.height).toBeLessThanOrEqual(messageBox.y + messageBox.height);
+      await editAction.click();
+      await expect(
+        latestTurn.getByRole('combobox', { name: 'Edit comment', exact: true }),
+      ).toBeFocused();
+      await latestTurn.getByRole('button', { name: 'Cancel', exact: true }).click();
       await page.evaluate(async (fixture) => (await import(fixture)).windowReply(24), fixture);
       await expect(thread.getByTestId('ask-reply')).toHaveText('Exact associated agent reply.');
       const messages = thread.locator('.thread-messages');

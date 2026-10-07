@@ -39,7 +39,9 @@ owns record fields, limits, revision semantics and trust boundaries.
   Lucide controls (visible labels in Comments, hover/focus captions in the anchored
   window), plain-text
   parent controls, one all-annotations list, expanded conversation and explicit
-  reattach confirmation. `annotation-input.tsx` owns parent draft/recipient/send
+  reattach confirmation. Row action menus choose below/above placement when it
+  fits, otherwise clamp inside their scroll container so the stationary window
+  header cannot cover Edit/Delete. `annotation-input.tsx` owns parent draft/recipient/send
   policy around the shared Lexical plaintext message composer: Enter submits the
   current parent action, Shift+Enter adds a line, Escape closes candidates before cancellation. It
   opens at the selection in a cosmetic parent window and continues there after
