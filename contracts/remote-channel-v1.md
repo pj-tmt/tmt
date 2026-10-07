@@ -1035,6 +1035,12 @@ head is refused. A head is at most 8 KiB and 32 fields. The reply is `HTTP/1.1 1
 refuses any other status, field or generation, and a refused attempt is closed with no fallback. Every later frame names
 that generation, and a frame of another generation ends the channel. The extension reads the head within 2 s and writes
 the reply within 1 s, both clipped by the setup bound the caller holds.
+An acceptor whose router already read the head, through the blank line and within the router's own bound, to dispatch
+on its path applies the same checks to those bytes and writes the same reply, and bytes the router read after the head
+are refused as pipelined. `Host` and `tmt-mount` are the same values the door sets on every request it sends that
+extension on its owner-only socket: `Host` is the admitted door host, as in the device-events callback, and `tmt-mount`
+is the actual mount name. The acceptor takes both from what the door already gives it, never from the request being
+validated, so both ends compare equal values.
 
 **Frame waits.** A frame is complete 2 s after its first prefix byte, with no renewal for partial progress; the length is
 checked before any allocation. Waiting for a frame to begin has no bound of its own and ends on a byte, the end of the

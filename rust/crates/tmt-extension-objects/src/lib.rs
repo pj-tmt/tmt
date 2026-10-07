@@ -15,7 +15,7 @@ pub mod limits;
 #[cfg(unix)]
 pub use carrier::{
     Budget, Budgets, Bus, Caps, Expect, Fault, Idle, Link, Offer, Reason, Refusal, Role, Stage,
-    accept, initiate,
+    accept, accept_head, initiate,
 };
 pub use codec::decode_length;
 pub use error::ErrorClass;

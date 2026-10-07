@@ -30,12 +30,38 @@ fn refused(refusal: Refusal) -> Fault {
     Fault::Handshake(refusal)
 }
 
-/// Send `bytes` to an acceptor and return its result and whatever it replied.
-fn offered(bytes: &[u8]) -> (Result<Link, Fault>, Vec<u8>) {
+/// How an acceptor gets its head: reading it itself, or from a router that read it.
+#[derive(Clone, Copy, Debug)]
+enum Entry {
+    Accept,
+    /// `accept_head` with the head split from what followed it, as a router would.
+    Head,
+}
+const ENTRIES: [Entry; 2] = [Entry::Accept, Entry::Head];
+
+/// Split `bytes` after the first blank line, if there is one.
+fn split_head(bytes: &[u8]) -> (&[u8], &[u8]) {
+    match bytes.windows(4).position(|window| window == b"\r\n\r\n") {
+        Some(at) => bytes.split_at(at + 4),
+        None => (bytes, &[]),
+    }
+}
+
+/// Offer `bytes` to an acceptor through `entry` and return its result and whatever it
+/// replied.
+fn offered_by(entry: Entry, bytes: &[u8]) -> (Result<Link, Fault>, Vec<u8>) {
     let (mut client, server) = UnixStream::pair().unwrap();
-    let accepted = thread::spawn(move || accept(server, &expect(), &quick(), setup()));
-    client.write_all(bytes).unwrap();
-    let result = accepted.join().unwrap();
+    let result = match entry {
+        Entry::Accept => {
+            let accepted = thread::spawn(move || accept(server, &expect(), &quick(), setup()));
+            client.write_all(bytes).unwrap();
+            accepted.join().unwrap()
+        }
+        Entry::Head => {
+            let (head, rest) = split_head(bytes);
+            accept_head(server, head, rest, &expect(), &quick(), setup())
+        }
+    };
     // A refused link was dropped, so the client reads to EOF; an accepted one is
     // still open, so read only what is there.
     let mut replied = Vec::new();
@@ -50,13 +76,14 @@ fn offered(bytes: &[u8]) -> (Result<Link, Fault>, Vec<u8>) {
     }
     (result, replied)
 }
-
 #[test]
 fn the_acceptor_replies_exactly_once_to_the_canonical_request() {
-    let (result, replied) = offered(request().as_bytes());
-    let link = result.unwrap();
-    assert_eq!(link.generation(), generation(GEN));
-    assert_eq!(String::from_utf8(replied).unwrap(), reply());
+    for entry in ENTRIES {
+        let (result, replied) = offered_by(entry, request().as_bytes());
+        let link = result.unwrap();
+        assert_eq!(link.generation(), generation(GEN), "{entry:?}");
+        assert_eq!(String::from_utf8(replied).unwrap(), reply(), "{entry:?}");
+    }
 }
 
 #[test]
@@ -95,11 +122,61 @@ fn the_acceptor_refuses_every_one_token_change_and_replies_nothing() {
         ("garbage", "GARBAGE\r\n\r\n".into(), Refusal::Head),
         ("bytes before the reply", format!("{}{{\"x\":1}}", request()), Refusal::Pipelined),
     ];
-    // The accepted twin of every row.
-    assert!(offered(request().as_bytes()).0.is_ok());
-    for (name, text, refusal) in rows {
-        let (result, replied) = offered(text.as_bytes());
-        assert_eq!(result.err(), Some(refused(refusal)), "{name}");
+    // The accepted twin of every row, and every row through both entry points.
+    for entry in ENTRIES {
+        assert!(offered_by(entry, request().as_bytes()).0.is_ok());
+        for (name, text, refusal) in &rows {
+            let (result, replied) = offered_by(entry, text.as_bytes());
+            assert_eq!(
+                result.err(),
+                Some(refused(*refusal)),
+                "{name} via {entry:?}"
+            );
+            assert!(replied.is_empty(), "{name} via {entry:?} was answered");
+        }
+    }
+}
+
+#[test]
+fn a_router_that_read_the_head_hands_over_exactly_what_it_read() {
+    let whole = request();
+    let bytes = whole.as_bytes();
+    // A head the router read in several chunks is the same head.
+    let chunks: Vec<&[u8]> = bytes.chunks(7).collect();
+    let joined: Vec<u8> = chunks.concat();
+    let (client, server) = UnixStream::pair().unwrap();
+    let link = accept_head(server, &joined, &[], &expect(), &quick(), setup()).unwrap();
+    assert_eq!(link.generation(), generation(GEN));
+    let mut replied = vec![0u8; reply().len()];
+    let mut client = client;
+    client.read_exact(&mut replied).unwrap();
+    assert_eq!(String::from_utf8(replied).unwrap(), reply());
+    // The router read past the head: nothing may follow it.
+    for rest in [&b"x"[..], &b"{\"x\":1}"[..]] {
+        let (mut client, server) = UnixStream::pair().unwrap();
+        let result = accept_head(server, bytes, rest, &expect(), &quick(), setup());
+        assert_eq!(result.err(), Some(refused(Refusal::Pipelined)));
+        let mut replied = Vec::new();
+        client.read_to_end(&mut replied).unwrap();
+        assert!(replied.is_empty());
+    }
+    // A head over 8 KiB is refused even though it is complete, and so is one
+    // that has not reached its blank line.
+    let padded = mutate(
+        &request(),
+        "tmt-mount: colab\r\n",
+        &format!("tmt-mount: colab\r\nX-Pad: {}\r\n", "a".repeat(9000)),
+    );
+    for (name, head) in [
+        ("oversize", padded.as_bytes()),
+        ("unfinished", &bytes[..bytes.len() - 2]),
+        ("empty", &b""[..]),
+    ] {
+        let (mut client, server) = UnixStream::pair().unwrap();
+        let result = accept_head(server, head, &[], &expect(), &quick(), setup());
+        assert_eq!(result.err(), Some(refused(Refusal::Head)), "{name}");
+        let mut replied = Vec::new();
+        client.read_to_end(&mut replied).unwrap();
         assert!(replied.is_empty(), "{name} was answered");
     }
 }

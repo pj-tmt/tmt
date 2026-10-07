@@ -12,7 +12,7 @@
 //! tmt-object-channel: 1
 //! tmt-object-generation: <lowercase UUIDv4>
 //! ```
-use super::{Budgets, Fault, Link, PROTOCOL, ROUTE, Refusal, Role, Stage, halves};
+use super::{Budgets, Fault, Link, PROTOCOL, ROUTE, Refusal, Role, Stage, bounded, halves};
 use crate::Uuid4;
 use std::{
     os::unix::net::UnixStream,
@@ -161,42 +161,81 @@ pub fn initiate(stream: UnixStream, offer: &Offer, setup: Instant) -> Result<Lin
     })
 }
 
-/// Accept the channel as the extension on `stream`, an accepted connection.
+/// Accept the channel as the extension on `stream`, an accepted connection: read one
+/// head within the head bound, admit it with [`accept_head`]'s checks and reply.
 pub fn accept(
     stream: UnixStream,
     expect: &Expect,
     budgets: &Budgets,
     setup: Instant,
 ) -> Result<Link, Fault> {
-    let (mut reader, mut writer) = halves(stream, Vec::new())?;
+    let (mut reader, writer) = halves(stream, Vec::new())?;
     let (head, rest) = reader.head(HEAD_BYTES, within(Instant::now(), budgets.head, setup))?;
+    let generation = admitted(&head, &rest, expect).map_err(Fault::Handshake)?;
+    replied(reader, writer, generation, budgets, setup)
+}
+
+/// Accept the channel as the extension for a caller whose router already read one
+/// complete request `head` (through the blank line, within its own bound) and
+/// dispatched on its path. `rest` is whatever the caller read after the head; it must be
+/// empty. The head gets exactly the checks [`accept`] applies and nothing is written
+/// to `stream` on a refusal; the head-read bound belongs to the caller.
+pub fn accept_head(
+    stream: UnixStream,
+    head: &[u8],
+    rest: &[u8],
+    expect: &Expect,
+    budgets: &Budgets,
+    setup: Instant,
+) -> Result<Link, Fault> {
+    let generation = admitted(head, rest, expect).map_err(Fault::Handshake)?;
+    let (reader, writer) = halves(stream, Vec::new())?;
+    replied(reader, writer, generation, budgets, setup)
+}
+
+/// The one validation of an offered head, shared by both entry points: the generation
+/// it offers, or why it is refused.
+fn admitted(head: &[u8], rest: &[u8], expect: &Expect) -> Result<Uuid4, Refusal> {
+    if head.len() > HEAD_BYTES {
+        return Err(Refusal::Head);
+    }
     let mut headers = [httparse::EMPTY_HEADER; HEAD_FIELDS];
     let mut request = httparse::Request::new(&mut headers);
-    let refused = |refusal| Fault::Handshake(refusal);
-    match request.parse(&head) {
+    match request.parse(head) {
         Ok(httparse::Status::Complete(end)) if end == head.len() => {}
-        _ => return Err(refused(Refusal::Head)),
+        _ => return Err(Refusal::Head),
     }
     if request.method != Some("GET") {
-        return Err(refused(Refusal::Method));
+        return Err(Refusal::Method);
     }
     if request.path != Some(ROUTE) {
-        return Err(refused(Refusal::Path));
+        return Err(Refusal::Path);
     }
     if request.version != Some(1) {
-        return Err(refused(Refusal::Version));
+        return Err(Refusal::Version);
     }
-    let seen = fields(request.headers, &REQUEST_FIELDS).map_err(refused)?;
-    require(&seen, "host", &expect.host).map_err(refused)?;
-    token(&seen, "connection", "upgrade").map_err(refused)?;
-    require(&seen, "upgrade", PROTOCOL).map_err(refused)?;
-    require(&seen, "content-length", "0").map_err(refused)?;
-    require(&seen, "tmt-mount", &expect.mount).map_err(refused)?;
-    require(&seen, "tmt-object-channel", "1").map_err(refused)?;
-    let generation = generation(&seen).map_err(refused)?;
+    let seen = fields(request.headers, &REQUEST_FIELDS)?;
+    require(&seen, "host", &expect.host)?;
+    token(&seen, "connection", "upgrade")?;
+    require(&seen, "upgrade", PROTOCOL)?;
+    require(&seen, "content-length", "0")?;
+    require(&seen, "tmt-mount", &expect.mount)?;
+    require(&seen, "tmt-object-channel", "1")?;
+    let generation = generation(&seen)?;
     if !rest.is_empty() {
-        return Err(refused(Refusal::Pipelined));
+        return Err(Refusal::Pipelined);
     }
+    Ok(generation)
+}
+
+/// Write the one reply within its bound and hand the link over.
+fn replied(
+    reader: bounded::Reader,
+    mut writer: bounded::Writer,
+    generation: Uuid4,
+    budgets: &Budgets,
+    setup: Instant,
+) -> Result<Link, Fault> {
     let reply = format!(
         "HTTP/1.1 101 Switching Protocols\r\nConnection: Upgrade\r\nUpgrade: {PROTOCOL}\r\ntmt-object-generation: {generation}\r\n\r\n"
     );

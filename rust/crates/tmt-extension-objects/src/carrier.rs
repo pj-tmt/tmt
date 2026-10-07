@@ -19,7 +19,7 @@ mod handshake;
 mod ledger;
 
 pub use bus::Bus;
-pub use handshake::{Expect, Offer, accept, initiate};
+pub use handshake::{Expect, Offer, accept, accept_head, initiate};
 pub use ledger::{Budget, Caps, Reason};
 
 /// The reserved route that opens the channel.
