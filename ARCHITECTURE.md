@@ -1247,4 +1247,4 @@ core discovery or storage access.
   or runtime implementation is claimed; archive/history/native acceptance remains required.
 - **Plaintext invariant.** Page source and export are root-local: only the isolated decoder
   child decodes Yjs, no route serves plaintext, and the browser Worker is resource
-  containment, not a security sandbox. Private causal preparation returns deltas; pure [publication codecs](extensions/tmt-colab/contracts/colab-v1.md#unintegrated-content-publication-codecs-1908) validate sealed intent. The unintegrated native adapter atomically retains content and its scoped terminal outcome in the existing Store; Browser Save and CLI write still use single-update paths.
+  containment, not a security sandbox. Private causal preparation returns deltas; pure [publication codecs](extensions/tmt-colab/contracts/colab-v1.md#unintegrated-content-publication-codecs-1908) validate sealed intent. The unintegrated native library prepares a frozen signed packet and chain from one authenticated snapshot, then atomically retains content with its scoped terminal outcome in the existing Store; Browser Save and CLI write still use single-update paths.

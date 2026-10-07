@@ -2447,6 +2447,18 @@ original-key replay ignores stale effect epoch/head/base but still requires curr
 New effects reserve outcome capacity and use a content savepoint; admitted domain rejection
 rolls back all content/stream/receipt/device/time changes before recording rejection, while unexpected errors
 roll back the enclosing transaction. UNKNOWN is genuine absence and is never persisted.
+The unintegrated #1934 `page::prepare_publication` library captures one authenticated snapshot
+for its genesis issuer, owner head, epoch, cuts, devices and complete content/own projections.
+It reuses isolated causal preparation and returns explicit Noop with captured base and memory
+profile, or a frozen Write with one signed job, exact ordered sealed envelope packet and chain.
+Noop precedes operation ID, sequence, encryption and certificate issuance; publisher-only changes
+are writes. Write preparation preserves foreign state and metadata, admits combined retained tail
+and new deltas, and signs through the existing private local Keyring writer. Native evidence binds
+source digest, actual decoder memory profile and the exact chain hash. Preparation has no durable
+effect or authority promotion; later commit rechecks current authority and the frozen base.
+Both native single-edit and batch preparation include all own bytes in the checked whole-state
+raw fastpath and use one gzip stream at the unchanged 5,000,000-byte budget. This library does not
+activate v2 IPC, CLI, browser Save, durable caller recovery or final cap acceptance.
 Existing browser Save and CLI writes still publish through their single-update paths; the active
 page-write version-1 DTO and route limits above are unchanged. Syntax and signature success
 neither authorizes effects nor proves a retained terminal outcome.

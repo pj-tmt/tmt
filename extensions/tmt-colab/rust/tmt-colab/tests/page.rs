@@ -27,6 +27,7 @@ const BINARY: &str = env!("CARGO_BIN_EXE_tmt-colab");
 const NOW: u64 = 1_791_025_000_000;
 struct Fixture {
     root: PathBuf,
+    retain_diagnostic: bool,
     layout: Layout,
     key: Keyring,
     store: Store,
@@ -132,6 +133,7 @@ impl Fixture {
             .unwrap();
         Self {
             root,
+            retain_diagnostic: false,
             layout,
             key,
             store,
@@ -189,7 +191,9 @@ impl Fixture {
 }
 impl Drop for Fixture {
     fn drop(&mut self) {
-        fs::remove_dir_all(&self.root).unwrap();
+        if !self.retain_diagnostic {
+            fs::remove_dir_all(&self.root).unwrap();
+        }
     }
 }
 #[test]
@@ -799,7 +803,7 @@ mod native_publication {
     fn hex(bytes: &[u8]) -> String {
         bytes.iter().map(|b| format!("{b:02x}")).collect()
     }
-    fn signer(f: &Fixture, label: &[u8]) -> SigningKey {
+    pub(super) fn signer(f: &Fixture, label: &[u8]) -> SigningKey {
         let seed = fs::read(f.layout.directory.join("owner.key")).unwrap();
         SigningKey::from_bytes(&crypto::derive_key(
             &seed,
@@ -807,7 +811,7 @@ mod native_publication {
             &framing::frame(&[label, f.key.space_id.as_bytes()]).unwrap(),
         ))
     }
-    fn device(f: &Fixture) -> String {
+    pub(super) fn device(f: &Fixture) -> String {
         let seed = fs::read(f.layout.directory.join("owner.key")).unwrap();
         let mut id = crypto::derive_key(
             &seed,
@@ -826,7 +830,7 @@ mod native_publication {
             &h[20..]
         )
     }
-    fn chain(f: &Fixture, issued: u64) -> Vec<u8> {
+    pub(super) fn chain(f: &Fixture, issued: u64) -> Vec<u8> {
         let member = f.key.management_member().unwrap();
         let seed = fs::read(f.layout.directory.join("owner.key")).unwrap();
         let enc = crypto::derive_key(
@@ -864,7 +868,7 @@ mod native_publication {
             "deviceCertificate":values::encode_binary(&input),"issuerSignature":values::encode_binary(&signer(f,b"tmt-colab-management-signing-seed-v1").sign(&input).to_bytes())})).unwrap()
     }
     // Independent token oracle from public Cut framing and durable SQL state; never calls page::read.
-    fn revision(f: &Fixture) -> String {
+    pub(super) fn revision(f: &Fixture) -> String {
         let db = f.sql();
         let head = f
             .store
@@ -1019,7 +1023,7 @@ mod native_publication {
     fn status(f: &Fixture, j: &Job) -> tmt_colab::Result<page::PublicationRecord> {
         page::publication_status(&f.store, &f.key, &j.signed.key().unwrap(), &j.chain, NOW)
     }
-    fn effects(f: &Fixture) -> Vec<String> {
+    pub(super) fn effects(f: &Fixture) -> Vec<String> {
         let db = f.sql();
         ["pages", "streams", "receipts", "devices", "checkpoints"]
             .into_iter()
@@ -1692,5 +1696,1397 @@ mod native_publication {
         assert_eq!(effects(&f), before);
         assert_eq!(terminals(&f), 1);
         assert_eq!(status(&f, &j).unwrap().bytes, result.record.bytes);
+    }
+}
+
+// Native snapshot-to-sealed-intent composition; production CLI/IPC remain unintegrated.
+mod native_preparation {
+    use super::native_publication::{chain, device, signer};
+    use super::*;
+    use rusqlite::{OptionalExtension, params};
+    use tmt_colab::{
+        decoder::ContentEdit,
+        page::{FrozenPublication, PublicationPreparation},
+        publication::Outcome,
+    };
+    use tmt_colab_model::crypto;
+    use yrs::GetString;
+
+    fn prepare(
+        f: &Fixture,
+        source: &str,
+        publisher: Option<&str>,
+        expected: Option<&str>,
+    ) -> tmt_colab::Result<PublicationPreparation> {
+        page::prepare_publication(
+            &f.store,
+            &f.key,
+            PAGE,
+            ContentEdit {
+                source,
+                publisher_agent: publisher,
+            },
+            expected,
+            &mut Decoder::new(BINARY.into()).unwrap(),
+            NOW,
+        )
+    }
+
+    fn observation_custody<T>(result: &tmt_colab::Result<T>) -> &'static str {
+        use tmt_colab::decoder::DecodeFault;
+        match result {
+            Ok(_) => "completed",
+            Err(error) => match error.downcast_ref::<DecodeFault>() {
+                Some(DecodeFault::Invoke(error)) => match error.cleanup {
+                    tmt_invoke::Cleanup::NotStarted => "not-started",
+                    tmt_invoke::Cleanup::Confirmed => "confirmed",
+                    _ => "unknown",
+                },
+                // Mapped capacity and every other opaque error may have erased cleanup provenance.
+                _ => "unknown",
+            },
+        }
+    }
+
+    #[test]
+    fn observation_custody_requires_success_or_explicit_original_cleanup() {
+        use tmt_colab::decoder::DecodeFault;
+        use tmt_colab::store::owner::OwnerFault;
+        use tmt_invoke::{Cleanup, FailureKind, InvokeError};
+        assert_eq!(
+            observation_custody(&Ok::<(), Box<dyn std::error::Error + Send + Sync>>(())),
+            "completed"
+        );
+        for (cleanup, expected) in [
+            (Cleanup::NotStarted, "not-started"),
+            (Cleanup::Confirmed, "confirmed"),
+            (Cleanup::CallerOwned, "unknown"),
+            (
+                Cleanup::Unconfirmed(std::io::Error::other("original-cleanup")),
+                "unknown",
+            ),
+        ] {
+            let result: tmt_colab::Result<()> = Err(DecodeFault::Invoke(InvokeError {
+                kind: FailureKind::Deadline,
+                cause: Some(std::io::Error::other("original-cause")),
+                cleanup,
+            })
+            .into());
+            assert_eq!(observation_custody(&result), expected);
+            // Classification borrows the original error; it cannot replace its cause or cleanup.
+            let Some(DecodeFault::Invoke(original)) =
+                result.as_ref().unwrap_err().downcast_ref::<DecodeFault>()
+            else {
+                panic!("original Invoke error replaced");
+            };
+            assert_eq!(original.kind, FailureKind::Deadline);
+            assert_eq!(
+                original.cause.as_ref().unwrap().to_string(),
+                "original-cause"
+            );
+            if let Cleanup::Unconfirmed(cause) = &original.cleanup {
+                assert_eq!(cause.to_string(), "original-cleanup");
+            }
+        }
+        let mapped: tmt_colab::Result<()> = Err(OwnerFault::too_large(
+            PAGE,
+            "decoding its changes did not finish within 2 s".into(),
+        )
+        .into());
+        assert_eq!(observation_custody(&mapped), "unknown");
+        assert!(
+            mapped
+                .as_ref()
+                .unwrap_err()
+                .downcast_ref::<OwnerFault>()
+                .is_some()
+        );
+        for error in [DecodeFault::InvalidOutput, DecodeFault::CleanupBlocked] {
+            let result: tmt_colab::Result<()> = Err(error.into());
+            assert_eq!(observation_custody(&result), "unknown");
+        }
+        let opaque: tmt_colab::Result<()> = Err(std::io::Error::other("opaque failure").into());
+        assert_eq!(observation_custody(&opaque), "unknown");
+        // This pure classifier performs no root reads, removals or runner reuse.
+    }
+
+    fn observation_metadata(path: &std::path::Path, value: &Value) {
+        use std::os::unix::fs::OpenOptionsExt;
+        let mut file = fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .open(path)
+            .unwrap();
+        file.write_all(&serde_json::to_vec_pretty(value).unwrap())
+            .unwrap();
+    }
+
+    fn observation_bytes(path: &std::path::Path, limit: usize) -> Option<Vec<u8>> {
+        use std::io::Read;
+        let mut bytes = Vec::new();
+        fs::File::open(path)
+            .ok()?
+            .take(limit as u64 + 1)
+            .read_to_end(&mut bytes)
+            .ok()?;
+        (bytes.len() <= limit).then_some(bytes)
+    }
+
+    #[test]
+    #[ignore = "supplementary child stage observation requires explicit compiler/native allocation"]
+    fn native_preparation_observe_source_and_own_deadline_paths() {
+        use base64::Engine as _;
+        use sha2::{Digest, Sha256};
+        use tmt_colab::decoder::{Config, DecodeFault};
+        let artifact_root = fs::canonicalize(PathBuf::from(
+            std::env::var_os("TMT_COLAB_OBSERVER_ARTIFACT_ROOT")
+                .expect("explicit observer artifact root"),
+        ))
+        .unwrap();
+        let program = artifact_root.join("program");
+        assert!(program.is_absolute());
+        for own in [false, true] {
+            let mut f = Fixture::new();
+            // Choose custody before any helper launch. Panic or unknown cleanup still retains it.
+            f.retain_diagnostic = true;
+            fs::set_permissions(&f.root, fs::Permissions::from_mode(0o700)).unwrap();
+            if own {
+                own_checkpoint(&mut f, false);
+            }
+            let text = if own {
+                "new".to_owned()
+            } else {
+                "x".repeat(tmt_colab::decoder::BASELINE_BYTES)
+            };
+            let before_state = f.bytes();
+            let before: std::collections::BTreeSet<_> = fs::read_dir(&artifact_root)
+                .unwrap()
+                .map(|entry| entry.unwrap().path())
+                .collect();
+            let mut decoder = Decoder::with_config(Config::new(program.clone())).unwrap();
+            let result = page::prepare_publication(
+                &f.store,
+                &f.key,
+                PAGE,
+                ContentEdit {
+                    source: &text,
+                    publisher_agent: None,
+                },
+                None,
+                &mut decoder,
+                NOW,
+            );
+            let custody = observation_custody(&result);
+            let deadline = matches!(result.as_ref().err().and_then(|error| error.downcast_ref::<DecodeFault>()),
+                Some(DecodeFault::Invoke(error)) if error.kind == tmt_invoke::FailureKind::Deadline);
+            let case = if own { "own-heavy" } else { "source-boundary" };
+            // Do not inspect/reuse/delete roots while a helper may still own them.
+            if custody == "unknown" {
+                observation_metadata(
+                    &f.root.join("observation-custody.json"),
+                    &json!({
+                        "case":case,"custody":"unknown","evidence_read":false,"retained":true
+                    }),
+                );
+                panic!("observation custody unknown; isolated roots retained");
+            }
+            let mut records = Vec::new();
+            for entry in fs::read_dir(&artifact_root).unwrap() {
+                let root = entry.unwrap().path();
+                if before.contains(&root) || !root.is_dir() {
+                    continue;
+                }
+                let request =
+                    observation_bytes(&root.join("request.json"), tmt_colab::decoder::STREAM_BYTES);
+                let request_complete = root.join("request.complete").exists();
+                let input_hash = request
+                    .as_ref()
+                    .filter(|bytes| {
+                        request_complete && bytes.len() <= tmt_colab::decoder::STREAM_BYTES
+                    })
+                    .map(|bytes| {
+                        base64::engine::general_purpose::URL_SAFE_NO_PAD
+                            .encode(Sha256::digest(bytes))
+                    });
+                let reply_complete = root.join("reply.complete").exists();
+                let reply =
+                    observation_bytes(&root.join("reply.json"), tmt_colab::decoder::STREAM_BYTES);
+                let reply_value = reply
+                    .as_ref()
+                    .filter(|bytes| {
+                        reply_complete && bytes.len() <= tmt_colab::decoder::STREAM_BYTES
+                    })
+                    .and_then(|bytes| serde_json::from_slice::<Value>(bytes).ok());
+                let correlation = reply_value
+                    .as_ref()
+                    .and_then(|reply| reply["input_hash"].as_str())
+                    .zip(input_hash.as_deref())
+                    .map(|(actual, expected)| actual == expected);
+                if let Some(equal) = correlation {
+                    assert!(equal, "actual original reply/input correlation");
+                }
+                let progress =
+                    observation_bytes(&root.join("progress.txt"), 96 * 1024).unwrap_or_default();
+                let mut reached = Vec::new();
+                let mut rows_valid = progress.len() <= 96 * 1024
+                    && progress.is_ascii()
+                    && (progress.is_empty() || progress.last() == Some(&b'\n'));
+                for (index, row) in progress.split_inclusive(|v| *v == b'\n').enumerate() {
+                    if row.len() > 96 || index >= 1024 {
+                        rows_valid = false;
+                        break;
+                    }
+                    let line = std::str::from_utf8(row).unwrap_or("");
+                    let fields: Vec<_> = line.split_whitespace().collect();
+                    if fields.len() != 5
+                        || fields[0] != format!("seq={}", index + 1)
+                        || !matches!(fields[2], "edge=enter" | "edge=leave")
+                        || fields[3]
+                            .strip_prefix("n=")
+                            .and_then(|v| v.parse::<u32>().ok())
+                            .is_none()
+                        || fields[4]
+                            .strip_prefix("ns=")
+                            .and_then(|v| v.parse::<u64>().ok())
+                            .is_none()
+                    {
+                        rows_valid = false;
+                        break;
+                    }
+                    let stage = fields[1].strip_prefix("stage=").unwrap_or("");
+                    if ![
+                        "memory",
+                        "input",
+                        "json",
+                        "binary",
+                        "decode",
+                        "apply",
+                        "own",
+                        "project",
+                        "merge",
+                        "edit",
+                        "generation",
+                        "bounds",
+                        "replay",
+                        "prefix",
+                        "reply-build",
+                        "reply-json",
+                        "reply-write",
+                    ]
+                    .contains(&stage)
+                    {
+                        rows_valid = false;
+                        break;
+                    }
+                    reached.push(line.trim().to_owned());
+                }
+                let quality = observation_bytes(&root.join("quality.txt"), 32).unwrap_or_default();
+                let classification_valid =
+                    rows_valid && !reached.is_empty() && quality == b"terminal-valid\n";
+                // Killed/torn/write-failed/capped helpers provide at most a reached prefix, never a stopping-phase classification.
+                let command = observation_bytes(&root.join("command.txt"), 32);
+                let command = match command.as_deref() {
+                    Some(b"decode") => Some("decode"),
+                    Some(b"prepare-content") => Some("prepare-content"),
+                    _ => None,
+                };
+                let namespace = request
+                    .as_ref()
+                    .and_then(|bytes| serde_json::from_slice::<Value>(bytes).ok())
+                    .and_then(|wire| match wire["namespace"].as_str() {
+                        Some("own") => Some("own"),
+                        Some("content") => Some("content"),
+                        _ => None,
+                    });
+                let child_input_complete = rows_valid
+                    && reached.iter().any(|row| {
+                        row.contains("stage=input edge=leave ")
+                            && request.as_ref().is_some_and(|bytes| {
+                                row.split_whitespace()
+                                    .any(|field| field == format!("n={}", bytes.len()))
+                            })
+                    });
+                records.push(json!({"command":command,"namespace":namespace,
+                    "helper_entered":root.join("progress.txt").exists(),"child_input_complete":child_input_complete,
+                    "request_bytes":request.as_ref().map(Vec::len),"request_complete":request_complete,
+                    "actual_input_hash":input_hash,"reply_complete":reply_complete,"reply_correlation":correlation,
+                    "memory_initialized":rows_valid && reached.iter().any(|row| row.contains("stage=memory edge=leave ")),
+                    "classification_valid":classification_valid,"progress_rows_valid":rows_valid,
+                    "reached_prefix":if rows_valid { reached } else { Vec::new() },
+                    "incomplete":!classification_valid,"historical_input_identity":false}));
+            }
+            assert_eq!(f.bytes(), before_state);
+            if let Ok(PublicationPreparation::Write(write)) = &result {
+                let reader = replay(&f, write);
+                assert_eq!(
+                    reader
+                        .get_or_insert_text("html")
+                        .get_string(&reader.transact()),
+                    text
+                );
+            }
+            observation_metadata(
+                &f.root.join("observation-summary.json"),
+                &json!({
+                    "case":case,"custody":custody,"original_error_deadline":deadline,
+                    "preparation_success":result.is_ok(),"retained":true,
+                    "supplementary_only":true,"original_deadline_ms":2000,"records":records
+                }),
+            );
+            // Only a safe synthetic fixture path is printed, never raw requests/replies or private causes.
+            eprintln!(
+                "supplementary observation fixture retained: {}",
+                f.root.display()
+            );
+        }
+    }
+
+    fn write(result: PublicationPreparation) -> FrozenPublication {
+        match result {
+            PublicationPreparation::Write(w) => w,
+            PublicationPreparation::Noop { .. } => panic!("expected frozen write"),
+        }
+    }
+    fn state(f: &Fixture) -> Vec<String> {
+        let db = f.sql();
+        let tables = db
+            .prepare("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")
+            .unwrap()
+            .query_map([], |r| r.get::<_, String>(0))
+            .unwrap()
+            .map(Result::unwrap)
+            .collect::<Vec<_>>();
+        let mut output = Vec::new();
+        for table in tables {
+            let mut q = db.prepare(&format!("SELECT * FROM {table}")).unwrap();
+            let n = q.column_count();
+            let mut rows = q
+                .query_map([], |r| {
+                    Ok((0..n)
+                        .map(|i| format!("{:?}", r.get_ref(i).unwrap()))
+                        .collect::<Vec<_>>()
+                        .join("|"))
+                })
+                .unwrap()
+                .map(Result::unwrap)
+                .collect::<Vec<_>>();
+            rows.sort();
+            output.push(format!("{table}:{rows:?}"));
+        }
+        output
+    }
+    fn put_chain(f: &mut Fixture, bytes: Vec<u8>, revoked: bool) {
+        let id = certificate::Chain::from_json(&bytes)
+            .unwrap()
+            .certificate()
+            .unwrap()
+            .device_id
+            .to_owned();
+        f.sql().execute("INSERT INTO devices(id,record) VALUES(?,?) ON CONFLICT(id) DO UPDATE SET record=excluded.record",params![id,serde_json::to_vec(&Device {chain:bytes,revoked}).unwrap()]).unwrap();
+    }
+    fn append(
+        f: &mut Fixture,
+        local: bool,
+        namespace: Namespace,
+        bytes: &[u8],
+    ) -> object::Envelope {
+        let id = if local { device(f) } else { DEVICE.into() };
+        let prior: Option<(String, Vec<u8>)> = f
+            .sql()
+            .query_row(
+                "SELECT seq,hash FROM receipts WHERE page=? AND stream=? ORDER BY seq DESC LIMIT 1",
+                params![PAGE, id],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .optional()
+            .unwrap();
+        let (seq, previous) = prior.map_or((1, [0; 32]), |(s, h)| {
+            (s.parse::<u64>().unwrap() + 1, h.try_into().unwrap())
+        });
+        let sign = if local {
+            signer(f, b"tmt-colab-cli-signing-seed-v1")
+        } else {
+            SigningKey::from_bytes(&[9; 32])
+        };
+        let head = f
+            .store
+            .owner_head(&f.key.space_id, &f.key.owner_public())
+            .unwrap()
+            .unwrap();
+        let envelope = object::seal(
+            &object::Context {
+                space: f.key.space_id.clone(),
+                page: PAGE.into(),
+                epoch: "1".into(),
+                kind: "update".into(),
+                namespace: match namespace {
+                    Namespace::Content => "content",
+                    Namespace::Own => "own",
+                }
+                .into(),
+                author_device: id.clone(),
+                membership_revision: head.revision.to_string(),
+                stream_seq: seq.to_string(),
+                prev_hash: previous,
+            },
+            &[11; 32],
+            &sign,
+            bytes,
+        )
+        .unwrap();
+        f.store
+            .append(&Envelope {
+                scope: StreamScope {
+                    page: PAGE,
+                    epoch: 1,
+                    stream: &id,
+                },
+                namespace,
+                seq,
+                hash: envelope.hash().unwrap(),
+                previous,
+                bytes: &envelope.to_json().unwrap(),
+            })
+            .unwrap();
+        envelope
+    }
+    fn content(f: &Fixture) -> Doc {
+        let doc = Doc::with_client_id(717);
+        let rows = f
+            .sql()
+            .prepare("SELECT payload FROM receipts WHERE namespace='content' ORDER BY stream,seq")
+            .unwrap()
+            .query_map([], |r| r.get::<_, Vec<u8>>(0))
+            .unwrap()
+            .map(Result::unwrap)
+            .collect::<Vec<_>>();
+        for bytes in rows {
+            let e = object::Envelope::from_json(&bytes).unwrap();
+            let h = object::Header::decode(e.header()).unwrap();
+            let sign = if h.context.author_device == DEVICE {
+                SigningKey::from_bytes(&[9; 32]).verifying_key().to_bytes()
+            } else {
+                signer(f, b"tmt-colab-cli-signing-seed-v1")
+                    .verifying_key()
+                    .to_bytes()
+            };
+            let update = object::open(&e, &h.context, &[11; 32], &sign).unwrap();
+            doc.transact_mut()
+                .apply_update(Update::decode_v1(&update).unwrap())
+                .unwrap();
+        }
+        doc
+    }
+    fn own(f: &mut Fixture, local: bool, value: &str) {
+        if local {
+            put_chain(f, chain(f, NOW), false);
+        }
+        let doc = Doc::with_client_id(if local { 818 } else { 919 });
+        for root in ["threads", "messages", "intents", "replies"] {
+            doc.get_or_insert_map(root);
+        }
+        doc.get_or_insert_map("threads")
+            .insert(&mut doc.transact_mut(), "legacy", value);
+        append(
+            f,
+            local,
+            Namespace::Own,
+            &doc.transact()
+                .encode_state_as_update_v1(&StateVector::default()),
+        );
+    }
+    fn replay(f: &Fixture, w: &FrozenPublication) -> Doc {
+        let doc = content(f);
+        let key = signer(f, b"tmt-colab-cli-signing-seed-v1")
+            .verifying_key()
+            .to_bytes();
+        let verified = w.job().verify_packet(w.packet(), &key).unwrap();
+        let mut offset = 0;
+        for e in verified {
+            assert_eq!(e.bytes, &w.packet()[offset..offset + e.bytes.len()]);
+            offset += e.bytes.len();
+            let raw = object::open(&e.envelope, &e.header.context, &[11; 32], &key).unwrap();
+            doc.transact_mut()
+                .apply_update(Update::decode_v1(&raw).unwrap())
+                .unwrap();
+            assert!(doc.transact().store().pending_update().is_none());
+            assert!(doc.transact().store().pending_ds().is_none());
+        }
+        assert_eq!(offset, w.packet().len());
+        doc
+    }
+    #[test]
+    fn native_preparation_unicode_packet_is_causal_frozen_and_has_no_store_effect() {
+        let mut f = Fixture::new();
+        own(&mut f, false, "foreign own");
+        own(&mut f, true, "local own");
+        let before = state(&f);
+        let original = content(&f);
+        let clocks = original.transact().state_vector();
+        let text = "🌱".repeat(393_216);
+        assert_eq!(text.len(), 1_572_864);
+        let w = write(prepare(&f, &text, Some("New publisher"), Some(&f.read().revision)).unwrap());
+        assert_eq!(state(&f), before);
+        assert!(w.job().manifest.entries.len() > 1);
+        let m = &w.job().manifest;
+        assert_eq!(m.packet_bytes, w.packet().len());
+        assert_eq!(
+            values::binary(&m.packet_hash, 32).unwrap(),
+            crypto::digest(w.packet())
+        );
+        assert_eq!(
+            m.entries[0].seq, "2",
+            "shared stream follows local own sequence"
+        );
+        let r = replay(&f, &w);
+        assert_eq!(r.get_or_insert_text("html").get_string(&r.transact()), text);
+        assert_eq!(
+            r.get_or_insert_map("meta")
+                .get(&r.transact(), "title")
+                .unwrap()
+                .to_string(&r.transact()),
+            "Exact title 🐈"
+        );
+        assert_eq!(
+            r.get_or_insert_map("meta")
+                .get(&r.transact(), "publisherAgent")
+                .unwrap()
+                .to_string(&r.transact()),
+            "New publisher"
+        );
+        for (client, clock) in clocks.iter() {
+            assert_eq!(r.transact().state_vector().get(client), *clock);
+        }
+        let e = m.native_evidence.as_ref().unwrap();
+        assert_eq!(
+            e.source_sha256,
+            crypto::digest(text.as_bytes())
+                .iter()
+                .map(|b| format!("{b:02x}"))
+                .collect::<String>()
+        );
+        assert_eq!(
+            e.chain_hash,
+            values::encode_binary(&crypto::digest(w.chain()))
+        );
+        assert_eq!(e.memory_limit, tmt_colab::decoder::memory_limit());
+        let detached = Doc::new();
+        for e in w
+            .job()
+            .verify_packet(
+                w.packet(),
+                signer(&f, b"tmt-colab-cli-signing-seed-v1")
+                    .verifying_key()
+                    .as_bytes(),
+            )
+            .unwrap()
+        {
+            let bytes = object::open(
+                &e.envelope,
+                &e.header.context,
+                &[11; 32],
+                signer(&f, b"tmt-colab-cli-signing-seed-v1")
+                    .verifying_key()
+                    .as_bytes(),
+            )
+            .unwrap();
+            detached
+                .transact_mut()
+                .apply_update(Update::decode_v1(&bytes).unwrap())
+                .unwrap();
+        }
+        assert!(
+            detached.transact().store().pending_update().is_some()
+                || detached.transact().store().pending_ds().is_some()
+        );
+        let frozen = w.job().key().unwrap();
+        let bytes = w.packet().to_vec();
+        let out =
+            page::commit_publication(&mut f.store, &f.key, w.job(), w.packet(), w.chain(), NOW)
+                .unwrap();
+        assert!(matches!(out.record.outcome, Outcome::Committed { .. }));
+        assert_eq!(frozen, w.job().key().unwrap());
+        assert_eq!(w.packet(), bytes);
+        assert_eq!(f.read().source, text);
+    }
+    #[test]
+    fn native_preparation_noop_never_issues_or_renews_a_certificate() {
+        for expiry in [None, Some(NOW - 86_400_001)] {
+            let mut f = Fixture::new();
+            if let Some(at) = expiry {
+                let bytes = chain(&f, at);
+                put_chain(&mut f, bytes, false);
+            }
+            let before = state(&f);
+            let expected = f.read().revision;
+            let p = prepare(&f, "old 🐈\r\n", None, Some(&expected)).unwrap();
+            assert!(
+                matches!(p,PublicationPreparation::Noop{base_revision,memory_limit} if base_revision==expected&&memory_limit==tmt_colab::decoder::memory_limit())
+            );
+            assert_eq!(state(&f), before);
+            let w = write(prepare(&f, "changed", None, None).unwrap());
+            assert!(
+                certificate::Chain::from_json(w.chain())
+                    .unwrap()
+                    .certificate()
+                    .unwrap()
+                    .expires_at
+                    > NOW
+            );
+            assert_eq!(state(&f), before);
+        }
+    }
+    #[test]
+    fn native_preparation_publisher_only_set_clear_preserves_metadata_and_own() {
+        let mut f = Fixture::new();
+        own(&mut f, false, "keep foreign");
+        own(&mut f, true, "keep local");
+        for label in [Some("Publisher"), None] {
+            let source = f.read().source;
+            let before = state(&f);
+            let w = write(prepare(&f, &source, label, None).unwrap());
+            assert_eq!(state(&f), before);
+            let r = replay(&f, &w);
+            assert_eq!(
+                r.get_or_insert_text("html").get_string(&r.transact()),
+                source
+            );
+            assert_eq!(
+                r.get_or_insert_map("meta")
+                    .get(&r.transact(), "title")
+                    .unwrap()
+                    .to_string(&r.transact()),
+                "Exact title 🐈"
+            );
+            page::commit_publication(&mut f.store, &f.key, w.job(), w.packet(), w.chain(), NOW)
+                .unwrap();
+            let p = prepare(&f, &source, label, None).unwrap();
+            assert!(matches!(p, PublicationPreparation::Noop { .. }));
+            // Independent own records survive the content write byte-exact.
+            let rows = f
+                .sql()
+                .prepare("SELECT payload FROM receipts WHERE namespace='own' ORDER BY stream,seq")
+                .unwrap()
+                .query_map([], |r| r.get::<_, Vec<u8>>(0))
+                .unwrap()
+                .map(Result::unwrap)
+                .collect::<Vec<_>>();
+            assert_eq!(rows.len(), 2);
+        }
+    }
+    fn signed_change(f: &mut Fixture, action: &str, payload: Value) {
+        let head = f
+            .store
+            .owner_head(&f.key.space_id, &f.key.owner_public())
+            .unwrap()
+            .unwrap();
+        f.store
+            .owner_transaction(
+                &f.key.space_id,
+                &f.key.owner_public(),
+                Mutation {
+                    operation_id: "90000000-0000-4000-8000-000000000001",
+                    digest: [42; 32],
+                    expected_revision: head.revision,
+                },
+                |tx| {
+                    let statement = f.key.sign_statement(
+                        tx.head(),
+                        action,
+                        &serde_json::to_vec(&payload).unwrap(),
+                    )?;
+                    tx.append_statement(&statement)?;
+                    Ok(vec![])
+                },
+            )
+            .unwrap();
+    }
+    #[test]
+    fn native_preparation_stale_inactive_revoked_and_malformed_authority_fail_closed() {
+        let f = Fixture::new();
+        let before = state(&f);
+        assert_eq!(
+            prepare(&f, "old 🐈\r\n", None, Some("v1:stale"))
+                .err()
+                .unwrap()
+                .downcast_ref::<Fault>(),
+            Some(&Fault::StaleBase)
+        );
+        assert_eq!(state(&f), before);
+        for action in ["page.archive", "page.delete"] {
+            let mut f = Fixture::new();
+            signed_change(&mut f, action, json!({"pageId":PAGE}));
+            let before = state(&f);
+            assert!(prepare(&f, "old 🐈\r\n", None, None).is_err());
+            assert_eq!(state(&f), before);
+        }
+        for signed in [false, true] {
+            let mut f = Fixture::new();
+            let bytes = chain(&f, NOW);
+            put_chain(&mut f, bytes, !signed);
+            if signed {
+                let id = device(&f);
+                signed_change(&mut f, "device.revoke", json!({"deviceId":id,"cuts":[]}));
+            }
+            let before = state(&f);
+            assert_eq!(
+                prepare(&f, "old 🐈\r\n", None, None)
+                    .err()
+                    .unwrap()
+                    .downcast_ref::<Fault>(),
+                Some(&Fault::Denied)
+            );
+            assert_eq!(state(&f), before);
+        }
+        let f = Fixture::new();
+        f.sql()
+            .execute(
+                "INSERT INTO devices VALUES(?,?)",
+                params![
+                    "40000000-0000-4000-8000-000000000001",
+                    serde_json::to_vec(&Device {
+                        chain: b"{}".to_vec(),
+                        revoked: false
+                    })
+                    .unwrap()
+                ],
+            )
+            .unwrap();
+        let before = state(&f);
+        assert!(prepare(&f, "changed", None, None).is_err());
+        assert_eq!(state(&f), before);
+    }
+    #[test]
+    fn native_preparation_reuses_exact_chain_and_frozen_job_is_not_refreshed_on_stale_commit() {
+        let mut f = Fixture::new();
+        let original = chain(&f, NOW);
+        let original = format!(" {}\n", String::from_utf8(original).unwrap()).into_bytes();
+        put_chain(&mut f, original.clone(), false);
+        let before = state(&f);
+        let w = write(prepare(&f, "new", None, None).unwrap());
+        assert_eq!(w.chain(), original);
+        assert_eq!(state(&f), before);
+        let key = w.job().key().unwrap();
+        let job_bytes = w.job().to_json().unwrap();
+        // A different certified writer advances the captured shared cut after preparation.
+        let doc = content(&f);
+        let html = doc.get_or_insert_text("html");
+        let mut tx = doc.transact_mut();
+        html.insert(&mut tx, 0, "foreign ");
+        let delta = tx.encode_update_v1();
+        drop(tx);
+        append(&mut f, false, Namespace::Content, &delta);
+        let out =
+            page::commit_publication(&mut f.store, &f.key, w.job(), w.packet(), w.chain(), NOW)
+                .unwrap();
+        assert!(matches!(
+            out.record.outcome,
+            Outcome::Rejected {
+                code: tmt_colab::publication::Rejection::StaleBase,
+                ..
+            }
+        ));
+        assert_eq!(w.job().key().unwrap(), key);
+        assert_eq!(w.job().to_json().unwrap(), job_bytes);
+        let mut f = Fixture::new();
+        let w = write(prepare(&f, "new", None, None).unwrap());
+        let id = device(&f);
+        signed_change(&mut f, "device.revoke", json!({"deviceId":id,"cuts":[]}));
+        let before = state(&f);
+        assert!(
+            page::commit_publication(&mut f.store, &f.key, w.job(), w.packet(), w.chain(), NOW)
+                .is_err()
+        );
+        assert_eq!(state(&f), before);
+    }
+    #[test]
+    fn native_preparation_count_boundary_allows_noop_but_rejects_new_tail() {
+        let mut f = Fixture::new();
+        let bytes = chain(&f, NOW);
+        put_chain(&mut f, bytes, false);
+        let doc = Doc::with_client_id(1828);
+        for root in ["threads", "messages", "intents", "replies"] {
+            doc.get_or_insert_map(root);
+        }
+        let threads = doc.get_or_insert_map("threads");
+        for i in 0..198 {
+            let mut tx = doc.transact_mut();
+            threads.insert(&mut tx, "legacy", i.to_string());
+            let delta = tx.encode_update_v1();
+            drop(tx);
+            append(&mut f, true, Namespace::Own, &delta);
+        }
+        let w = write(prepare(&f, "new", None, None).unwrap());
+        assert_eq!(
+            w.job().manifest.entries.len(),
+            1,
+            "199 retained plus one new is exactly200"
+        );
+        let mut tx = doc.transact_mut();
+        threads.insert(&mut tx, "legacy", "last");
+        let delta = tx.encode_update_v1();
+        drop(tx);
+        append(&mut f, true, Namespace::Own, &delta);
+        let before = state(&f);
+        assert!(matches!(
+            prepare(&f, "old 🐈\r\n", None, None).unwrap(),
+            PublicationPreparation::Noop { .. }
+        ));
+        assert!(prepare(&f, "new", None, None).is_err());
+        assert_eq!(state(&f), before);
+    }
+    #[test]
+    fn native_preparation_source_boundary_and_exact_packet_tampering() {
+        let f = Fixture::new();
+        let text = "x".repeat(tmt_colab::decoder::BASELINE_BYTES);
+        let w = write(prepare(&f, &text, None, None).unwrap());
+        let reader = replay(&f, &w);
+        assert_eq!(
+            reader
+                .get_or_insert_text("html")
+                .get_string(&reader.transact()),
+            text
+        );
+        let before = state(&f);
+        assert_eq!(
+            prepare(&f, &format!("{text}x"), None, None)
+                .err()
+                .unwrap()
+                .downcast_ref::<Fault>(),
+            Some(&Fault::Capacity)
+        );
+        assert_eq!(state(&f), before);
+        let key = signer(&f, b"tmt-colab-cli-signing-seed-v1")
+            .verifying_key()
+            .to_bytes();
+        let mut packet = w.packet().to_vec();
+        packet[0] ^= 1;
+        assert!(w.job().verify_packet(&packet, &key).is_err());
+        let mut j = w.job().clone();
+        j.manifest.packet_hash = values::encode_binary(&[0; 32]);
+        assert!(j.verify_packet(w.packet(), &key).is_err());
+        // Isolate structural guards on the actual composed manifest before signing.
+        let mut envelope_limit = w.job().manifest.clone();
+        let old = envelope_limit.entries[0].envelope_bytes;
+        envelope_limit.entries[0].envelope_bytes = tmt_colab::limits::UPDATE_BYTES;
+        envelope_limit.packet_bytes += tmt_colab::limits::UPDATE_BYTES - old;
+        assert!(envelope_limit.signature_input().is_ok());
+        envelope_limit.entries[0].envelope_bytes += 1;
+        envelope_limit.packet_bytes += 1;
+        assert!(envelope_limit.signature_input().is_err());
+        let mut count_limit = w.job().manifest.clone();
+        count_limit.entries = (1..=200)
+            .map(|seq| {
+                let mut e = count_limit.entries[0].clone();
+                e.seq = seq.to_string();
+                e.envelope_bytes = 100;
+                e
+            })
+            .collect();
+        count_limit.packet_bytes = 20_000;
+        assert!(count_limit.signature_input().is_ok());
+        let mut extra = count_limit.entries[0].clone();
+        extra.seq = "201".into();
+        count_limit.entries.push(extra);
+        count_limit.packet_bytes += 100;
+        assert!(count_limit.signature_input().is_err());
+        let mut packet_limit = count_limit.clone();
+        packet_limit.entries.pop();
+        let cap = tmt_colab::publication::packet_limit(200).unwrap();
+        for (i, e) in packet_limit.entries.iter_mut().enumerate() {
+            e.envelope_bytes = cap / 200 + usize::from(i < cap % 200);
+        }
+        packet_limit.packet_bytes = cap;
+        assert!(packet_limit.signature_input().is_ok());
+        packet_limit.entries[199].envelope_bytes += 1;
+        packet_limit.packet_bytes += 1;
+        assert!(packet_limit.signature_input().is_err());
+        // The existing model seals the exact raw cap and refuses +1 before packet creation.
+        let context = w.job().verify_packet(w.packet(), &key).unwrap()[0]
+            .header
+            .context
+            .clone();
+        for length in [
+            tmt_colab::decoder::UPDATE_BYTES,
+            tmt_colab::decoder::UPDATE_BYTES + 1,
+        ] {
+            let sealed = object::seal(
+                &context,
+                &[11; 32],
+                &signer(&f, b"tmt-colab-cli-signing-seed-v1"),
+                &vec![0; length],
+            );
+            if length > tmt_colab::decoder::UPDATE_BYTES {
+                assert!(sealed.is_err());
+                continue;
+            }
+            let envelope = sealed.unwrap();
+            let raw = envelope.to_json().unwrap();
+            assert!(raw.len() < tmt_colab::limits::UPDATE_BYTES);
+            let mut manifest = w.job().manifest.clone();
+            manifest.entries = vec![tmt_colab::publication::PublicationEntry {
+                namespace: tmt_colab::publication::PublicationKind::Content,
+                seq: context.stream_seq.clone(),
+                envelope_hash: values::encode_binary(&envelope.hash().unwrap()),
+                envelope_bytes: raw.len(),
+            }];
+            manifest.packet_bytes = raw.len();
+            manifest.packet_hash = values::encode_binary(&crypto::digest(&raw));
+            let signature = values::encode_binary(
+                &signer(&f, b"tmt-colab-cli-signing-seed-v1")
+                    .sign(&manifest.signature_input().unwrap())
+                    .to_bytes(),
+            );
+            let job = tmt_colab::publication::SignedJob {
+                manifest,
+                signature,
+            };
+            assert_eq!(
+                job.verify_packet(&raw, &key).is_ok(),
+                length == tmt_colab::decoder::UPDATE_BYTES
+            );
+        }
+        let signed = w.job().to_json().unwrap();
+        let mut exact = signed.clone();
+        exact.resize(tmt_colab::publication::JSON_BYTES, b' ');
+        assert_eq!(
+            tmt_colab::publication::SignedJob::from_json(&exact).unwrap(),
+            *w.job()
+        );
+        exact.push(b' ');
+        assert!(tmt_colab::publication::SignedJob::from_json(&exact).is_err());
+        let mut j = w.job().clone();
+        j.signature = values::encode_binary(&[0; 64]);
+        assert!(j.verify_packet(w.packet(), &key).is_err());
+        let mut j = w.job().clone();
+        j.manifest.native_evidence.as_mut().unwrap().chain_hash = values::encode_binary(&[0; 32]);
+        assert!(j.verify_packet(w.packet(), &key).is_err());
+        for e in &w.job().manifest.entries {
+            assert!(e.envelope_bytes <= tmt_colab::limits::UPDATE_BYTES);
+        }
+        assert!(w.job().to_json().unwrap().len() <= tmt_colab::publication::JSON_BYTES);
+        assert!(
+            w.packet().len()
+                <= tmt_colab::publication::packet_limit(w.job().manifest.entries.len()).unwrap()
+        );
+        assert!(w.chain().len() <= tmt_colab::publication::CHAIN_BYTES);
+    }
+
+    fn own_checkpoint(f: &mut Fixture, entropy: bool) -> Vec<u8> {
+        let bytes = chain(f, NOW);
+        put_chain(f, bytes, false);
+        let doc = Doc::with_client_id(2929);
+        let threads = doc.get_or_insert_map("threads");
+        for root in ["messages", "intents", "replies"] {
+            doc.get_or_insert_map(root);
+        }
+        let mut random = 0x123456789abcdef0u64;
+        for i in 0..32 {
+            let text = (0..224 * 1024)
+                .map(|_| {
+                    random ^= random << 13;
+                    random ^= random >> 7;
+                    random ^= random << 17;
+                    if entropy {
+                        char::from(32 + (random % 95) as u8)
+                    } else {
+                        'x'
+                    }
+                })
+                .collect::<String>();
+            let mut tx = doc.transact_mut();
+            threads.insert(&mut tx, format!("legacy-{i}"), text);
+            let delta = tx.encode_update_v1();
+            drop(tx);
+            assert!(delta.len() < tmt_colab::decoder::UPDATE_BYTES);
+            append(f, true, Namespace::Own, &delta);
+        }
+        let update = doc
+            .transact()
+            .encode_state_as_update_v1(&StateVector::default());
+        assert!(update.len() > 5_000_000);
+        let id = device(f);
+        let (seq, hash): (String, Vec<u8>) = f
+            .sql()
+            .query_row(
+                "SELECT seq,hash FROM receipts WHERE stream=? ORDER BY seq DESC LIMIT 1",
+                [&id],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+        let seq: u64 = seq.parse().unwrap();
+        let previous: [u8; 32] = hash.try_into().unwrap();
+        let cp = object::seal(
+            &object::Context {
+                space: f.key.space_id.clone(),
+                page: PAGE.into(),
+                epoch: "1".into(),
+                kind: "checkpoint".into(),
+                namespace: "own".into(),
+                author_device: id.clone(),
+                membership_revision: "2".into(),
+                stream_seq: seq.to_string(),
+                prev_hash: previous,
+            },
+            &[11; 32],
+            &signer(f, b"tmt-colab-cli-signing-seed-v1"),
+            &update,
+        )
+        .unwrap();
+        f.store
+            .checkpoint(&Envelope {
+                scope: StreamScope {
+                    page: PAGE,
+                    epoch: 1,
+                    stream: &id,
+                },
+                namespace: Namespace::Own,
+                seq,
+                hash: cp.hash().unwrap(),
+                previous,
+                bytes: &cp.to_json().unwrap(),
+            })
+            .unwrap();
+        update
+    }
+    #[test]
+    fn native_preparation_own_heavy_gzip_admission_also_fences_legacy_edit() {
+        use flate2::{Compression, write::GzEncoder};
+        for entropy in [false, true] {
+            let mut f = Fixture::new();
+            let own = own_checkpoint(&mut f, entropy);
+            let mut gz = GzEncoder::new(Vec::new(), Compression::new(6));
+            gz.write_all(&own).unwrap();
+            let size = gz.finish().unwrap().len();
+            assert_eq!(
+                size > 5_000_000,
+                entropy,
+                "independent own-only stream alone proves over-budget; compressible same-size positive"
+            );
+            let before = f.bytes();
+            let batch = prepare(&f, "new", None, None);
+            let legacy = f.prepare("new", None);
+            if entropy {
+                assert!(batch.is_err());
+                assert!(legacy.is_err());
+                assert!(batch.err().unwrap().to_string().contains("compressed"));
+                assert!(legacy.err().unwrap().to_string().contains("compressed"));
+            } else {
+                assert!(matches!(batch.unwrap(), PublicationPreparation::Write(_)));
+                assert!(legacy.is_ok());
+            }
+            assert_eq!(f.bytes(), before);
+        }
+    }
+    fn extreme_head(f: &mut Fixture, seq: u64) {
+        let bytes = chain(f, NOW);
+        put_chain(f, bytes, false);
+        let id = device(f);
+        let prior = [88; 32];
+        let doc = Doc::new();
+        for root in ["threads", "messages", "intents", "replies"] {
+            doc.get_or_insert_map(root);
+        }
+        let raw = doc
+            .transact()
+            .encode_state_as_update_v1(&StateVector::default());
+        let cp = object::seal(
+            &object::Context {
+                space: f.key.space_id.clone(),
+                page: PAGE.into(),
+                epoch: "1".into(),
+                kind: "checkpoint".into(),
+                namespace: "own".into(),
+                author_device: id.clone(),
+                membership_revision: "2".into(),
+                stream_seq: seq.to_string(),
+                prev_hash: prior,
+            },
+            &[11; 32],
+            &signer(f, b"tmt-colab-cli-signing-seed-v1"),
+            &raw,
+        )
+        .unwrap();
+        // Independent retained/pruned receipt anchor: only authenticated checkpoint bytes are folded.
+        let db = f.sql();
+        db.execute(
+            "INSERT INTO streams VALUES(?,?,?,0)",
+            params![PAGE, "1", id],
+        )
+        .unwrap();
+        db.execute(
+            "INSERT INTO receipts VALUES(?,?,?,?,?,?,?,NULL)",
+            params![
+                PAGE,
+                "1",
+                id,
+                format!("{seq:020}"),
+                "own",
+                prior.as_slice(),
+                [0u8; 32].as_slice()
+            ],
+        )
+        .unwrap();
+        db.execute(
+            "INSERT INTO checkpoints VALUES(?,?,?,?,?,?,?,?,?,0)",
+            params![
+                PAGE,
+                "1",
+                id,
+                "own",
+                format!("{seq:020}"),
+                cp.hash().unwrap().as_slice(),
+                [0u8; 32].as_slice(),
+                prior.as_slice(),
+                cp.to_json().unwrap()
+            ],
+        )
+        .unwrap();
+    }
+    #[test]
+    fn native_preparation_shared_sequence_exact_u64_boundary_and_chain_raw_cap() {
+        let mut f = Fixture::new();
+        extreme_head(&mut f, u64::MAX - 1);
+        let w = write(prepare(&f, "new", None, None).unwrap());
+        assert_eq!(w.job().manifest.entries[0].seq, u64::MAX.to_string());
+        let mut f = Fixture::new();
+        extreme_head(&mut f, u64::MAX);
+        let before = state(&f);
+        assert!(matches!(
+            prepare(&f, "old 🐈\r\n", None, None).unwrap(),
+            PublicationPreparation::Noop { .. }
+        ));
+        assert_eq!(
+            prepare(&f, "new", None, None)
+                .err()
+                .unwrap()
+                .downcast_ref::<Fault>(),
+            Some(&Fault::Capacity)
+        );
+        assert_eq!(state(&f), before);
+        for length in [16 * 1024, 16 * 1024 + 1] {
+            let f = Fixture::new();
+            let mut bytes = chain(&f, NOW);
+            bytes.resize(length, b' ');
+            let id = device(&f);
+            f.sql()
+                .execute(
+                    "INSERT INTO devices VALUES(?,?)",
+                    params![
+                        id,
+                        serde_json::to_vec(&Device {
+                            chain: bytes.clone(),
+                            revoked: false
+                        })
+                        .unwrap()
+                    ],
+                )
+                .unwrap();
+            let before = state(&f);
+            let made = prepare(&f, "new", None, None);
+            if length == 16 * 1024 {
+                assert_eq!(write(made.unwrap()).chain(), bytes);
+            } else {
+                assert!(made.is_err());
+            }
+            assert_eq!(state(&f), before);
+        }
+    }
+
+    fn own_delta(index: u64, length: usize) -> Vec<u8> {
+        let doc = Doc::with_client_id(3000 + index);
+        let threads = doc.get_or_insert_map("threads");
+        for root in ["messages", "intents", "replies"] {
+            doc.get_or_insert_map(root);
+        }
+        threads.insert(
+            &mut doc.transact_mut(),
+            format!("legacy-{index}"),
+            "x".repeat(length),
+        );
+        doc.transact()
+            .encode_state_as_update_v1(&StateVector::default())
+    }
+    #[test]
+    fn native_preparation_exact_retained_raw_limit_allows_noop_and_refuses_more_bytes() {
+        let mut f = Fixture::new();
+        let bytes = chain(&f, NOW);
+        put_chain(&mut f, bytes, false);
+        let bytes: Vec<u8> = f
+            .sql()
+            .query_row(
+                "SELECT payload FROM receipts WHERE stream=?",
+                [DEVICE],
+                |r| r.get(0),
+            )
+            .unwrap();
+        let envelope = object::Envelope::from_json(&bytes).unwrap();
+        let context = object::Header::decode(envelope.header()).unwrap().context;
+        let raw = object::open(
+            &envelope,
+            &context,
+            &[11; 32],
+            SigningKey::from_bytes(&[9; 32]).verifying_key().as_bytes(),
+        )
+        .unwrap();
+        let mut total = raw.len();
+        let mut index = 0;
+        while total + 224 * 1024 + 1024 < tmt_colab::decoder::WRITE_TAIL_BYTES {
+            let delta = own_delta(index, 224 * 1024);
+            total += delta.len();
+            append(&mut f, true, Namespace::Own, &delta);
+            index += 1;
+        }
+        // Positive with legal retained raw bytes and room for the actual source edit.
+        let w = write(prepare(&f, "new", None, None).unwrap());
+        let key = signer(&f, b"tmt-colab-cli-signing-seed-v1")
+            .verifying_key()
+            .to_bytes();
+        let added = w
+            .job()
+            .verify_packet(w.packet(), &key)
+            .unwrap()
+            .iter()
+            .map(|e| e.envelope.ciphertext().len() - 16)
+            .sum::<usize>();
+        assert!(total + added < tmt_colab::decoder::WRITE_TAIL_BYTES);
+        let target = tmt_colab::decoder::WRITE_TAIL_BYTES - total;
+        let mut length = target - 64;
+        let final_delta = loop {
+            let delta = own_delta(index, length);
+            if delta.len() == target {
+                break delta;
+            }
+            if delta.len() < target {
+                length += target - delta.len();
+            } else {
+                length -= delta.len() - target;
+            }
+        };
+        assert!(final_delta.len() < tmt_colab::decoder::UPDATE_BYTES);
+        total += final_delta.len();
+        append(&mut f, true, Namespace::Own, &final_delta);
+        assert_eq!(total, tmt_colab::decoder::WRITE_TAIL_BYTES);
+        let before = state(&f);
+        assert!(matches!(
+            prepare(&f, "old 🐈\r\n", None, None).unwrap(),
+            PublicationPreparation::Noop { .. }
+        ));
+        let error = prepare(&f, "new", None, None).err().unwrap();
+        assert!(error.to_string().contains("changes"));
+        assert_eq!(state(&f), before);
+    }
+    #[test]
+    fn native_preparation_invalid_child_output_returns_no_intent_and_confirms_cleanup() {
+        let f = Fixture::new();
+        let program = f.root.join("bad-preparation");
+        let script = format!(
+            r#"#!/usr/bin/python3
+import json, pathlib, subprocess, sys
+marker=pathlib.Path({marker})
+child=subprocess.run([{binary}]+sys.argv[1:],input=sys.stdin.buffer.read(),capture_output=True)
+if child.returncode:
+    sys.stderr.buffer.write(child.stderr);sys.exit(child.returncode)
+reply=json.loads(child.stdout)
+if 'prepare-content' in sys.argv and not marker.exists():
+    marker.write_text('tampered once')
+    reply['input_hash']='wrong'
+sys.stdout.write(json.dumps(reply))
+"#,
+            binary = serde_json::to_string(BINARY).unwrap(),
+            marker = serde_json::to_string(&f.root.join("tampered-once")).unwrap()
+        );
+        tmt_test_support::write_executable(&program, script.as_bytes(), 0o700).unwrap();
+        let mut decoder = Decoder::new(program).unwrap();
+        let before = state(&f);
+        let result = page::prepare_publication(
+            &f.store,
+            &f.key,
+            PAGE,
+            ContentEdit {
+                source: "new",
+                publisher_agent: None,
+            },
+            None,
+            &mut decoder,
+            NOW,
+        );
+        assert!(matches!(
+            result
+                .err()
+                .unwrap()
+                .downcast_ref::<tmt_colab::decoder::DecodeFault>(),
+            Some(tmt_colab::decoder::DecodeFault::InvalidOutput)
+        ));
+        assert_eq!(state(&f), before);
+        // Confirmed child cleanup keeps this exact runner reusable (a no-op is not tampered).
+        assert!(matches!(
+            page::prepare_publication(
+                &f.store,
+                &f.key,
+                PAGE,
+                ContentEdit {
+                    source: "old 🐈\r\n",
+                    publisher_agent: None
+                },
+                None,
+                &mut decoder,
+                NOW
+            )
+            .unwrap(),
+            PublicationPreparation::Noop { .. }
+        ));
+        assert_eq!(state(&f), before);
+    }
+    #[test]
+    fn native_preparation_authenticated_malformed_base_returns_no_intent_and_runner_reuses() {
+        let mut f = Fixture::new();
+        append(&mut f, false, Namespace::Content, &[255]);
+        let before = state(&f);
+        let mut decoder = Decoder::new(BINARY.into()).unwrap();
+        let result = page::prepare_publication(
+            &f.store,
+            &f.key,
+            PAGE,
+            ContentEdit {
+                source: "new",
+                publisher_agent: None,
+            },
+            None,
+            &mut decoder,
+            NOW,
+        );
+        assert!(matches!(
+            result
+                .err()
+                .unwrap()
+                .downcast_ref::<tmt_colab::decoder::DecodeFault>(),
+            Some(tmt_colab::decoder::DecodeFault::Rejected)
+        ));
+        assert_eq!(state(&f), before);
+        // Remove only the task fixture's malformed signed tail, then reuse the same runner.
+        f.sql()
+            .execute(
+                "DELETE FROM receipts WHERE stream=? AND seq='00000000000000000002'",
+                [DEVICE],
+            )
+            .unwrap();
+        assert!(matches!(
+            page::prepare_publication(
+                &f.store,
+                &f.key,
+                PAGE,
+                ContentEdit {
+                    source: "old 🐈\r\n",
+                    publisher_agent: None
+                },
+                None,
+                &mut decoder,
+                NOW
+            )
+            .unwrap(),
+            PublicationPreparation::Noop { .. }
+        ));
     }
 }
