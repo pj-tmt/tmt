@@ -78,6 +78,8 @@ export async function openPage(
 
 /** Select the text of one element inside the sandboxed renderer frame. */
 export async function selectInRenderer(page: Page, selector: string): Promise<void> {
+  // Paired viewers have separate browser contexts; keyboard checks target this viewer.
+  await page.bringToFront();
   await page
     .frameLocator('iframe')
     .locator(selector)

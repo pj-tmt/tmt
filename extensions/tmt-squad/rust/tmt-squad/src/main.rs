@@ -18,12 +18,15 @@ pub mod cron_service;
 mod display_rows;
 mod effects;
 mod filter;
+mod focus;
+mod focus_command;
 mod hook_protocol;
 mod hotkeys;
 mod id;
 mod layout;
 mod links;
 mod look;
+mod management;
 mod markup;
 mod me;
 mod member_actions;
@@ -249,6 +252,7 @@ fn grammar() -> Command {
         .subcommand(view::grammar())
         .subcommand(playbook::grammar())
         .subcommand(cron_command::grammar())
+        .subcommand(focus_command::grammar())
         .subcommand(checklist_command::grammar())
         .subcommand(
             build(specs::SKILL)
@@ -484,6 +488,7 @@ fn human(command: &str, document: &Value, terminal: Terminal) -> String {
         "theme" => theme::text(document, terminal),
         "view" => view::text(document, terminal),
         "cron" => cron_command::text(document, terminal),
+        "focus" => focus_command::text(document, terminal),
         "checklist" => checklist_command::text_output(document, terminal),
         "jump" => {
             let mut output = done(
@@ -784,6 +789,9 @@ fn run(
         return member_actions::back(&core);
     }
     let mut config = Config::load(&core)?;
+    if command == "focus" {
+        return focus_command::run(&core, &config, matches).map(Outcome::from);
+    }
     if command == "cron" {
         return cron_command::run(&core, &config, matches).map(|document| Outcome {
             complete: document["complete"] != false,
@@ -929,6 +937,7 @@ fn ls_document(
     };
     let you = me::resolve_you(core, config)?;
     let mut documents = Vec::with_capacity(squads.len());
+    let mut active_ids = std::collections::BTreeSet::new();
     for squad in &squads {
         let layout = config.layout(&squad.name)?;
         let sections = config.sections(&squad.name)?;
@@ -947,6 +956,7 @@ fn ls_document(
                 notes: false,
             }),
         )?;
+        active_ids.extend(observation.members.iter().map(|member| member.id.clone()));
         if refresh_fields {
             provider::refresh(
                 &squad.name,
@@ -984,6 +994,7 @@ fn ls_document(
         (_, Ok([one])) => json!({"squads": [one]}),
         (_, Err(all)) => json!({"squads": all}),
     };
+    focus::enrich(core, &mut [&mut document], &active_ids);
     document["you"] = you.map_or(
         Value::Null,
         |(me, source)| json!({"id": me.id, "name": me.name, "source": source.as_str()}),
@@ -1261,6 +1272,7 @@ mod tests {
                 "config",
                 "copy",
                 "cron",
+                "focus",
                 "help",
                 "hotkeys",
                 "init",

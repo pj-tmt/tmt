@@ -1,3 +1,4 @@
+import { browserUiClasses as ui } from '@tmt/browser-ui/static';
 import { useCallback, useEffect, useRef, useState, type Ref } from 'react';
 import { LexicalExtensionComposer } from '@lexical/react/LexicalExtensionComposer';
 import { ReactExtension } from '@lexical/react/ReactExtension';
@@ -65,7 +66,9 @@ function MessageField(props: MessageComposerProps) {
   }, []);
   const reset = useRef(props.resetKey);
   useEffect(() => {
-    if (props.autoFocus) editor.focus();
+    // Lexical sets the caret; DOM focus must also leave the sandboxed renderer.
+    if (props.autoFocus)
+      editor.focus(() => editor.getRootElement()?.focus({ preventScroll: true }));
   }, [editor, props.autoFocus]);
   const candidates = fuzzyMessageCandidates(
     props.candidates ?? [],
@@ -235,6 +238,7 @@ function MessageField(props: MessageComposerProps) {
       />
       {props.recipientPickerLabel && (
         <button
+          className={ui.action}
           type="button"
           disabled={
             props.disabled ||

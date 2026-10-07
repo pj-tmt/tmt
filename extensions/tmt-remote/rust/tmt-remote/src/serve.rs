@@ -25,7 +25,7 @@ use tmt_remote::{
     error::RemoteError,
     http::{Door, Handler},
     mount::{self, Mounts},
-    object_service::{ObjectService, ServiceBounds},
+    object_service::{ObjectService, Origins, ServiceBounds},
     objects::{IoBudget, Quotas, system_clock},
     operations::Operations,
     pages::Pages,
@@ -634,6 +634,8 @@ fn foreground(
         let machine_key = MachineKey::open(&layout)?;
         fence(stop)?;
         let mut store = Store::open(&serving)?;
+        // The origins of tunnels to object-declared extensions, shared by mounts and service.
+        let origins = Origins::default();
         // Declared object storage settles its accounting before readiness or refuses it.
         // Nothing declares objects in production, so this opens nothing today.
         let objects = ObjectService::open(
@@ -642,6 +644,7 @@ fn foreground(
             Quotas::contract(),
             system_clock(),
             ServiceBounds::contract(),
+            origins.clone(),
             &IoBudget {
                 deadline: Instant::now() + STARTUP,
                 cancelled: stop,
@@ -715,12 +718,10 @@ fn foreground(
         )?;
         let site = Arc::new(Site {
             routes,
-            mounts: Arc::new(Mounts::new(
-                root,
-                &door.origin,
-                &machine.route_prefix,
-                sessions,
-            )),
+            mounts: Arc::new(
+                Mounts::new(root, &door.origin, &machine.route_prefix, sessions)
+                    .with_origins(Arc::new(origins)),
+            ),
             pages: Some(
                 Pages::new(
                     &door.origin,

@@ -84,7 +84,7 @@ fn prepare(
                 let Some(field) = cell.field.as_deref() else {
                     continue;
                 };
-                let Some(budget) = layout.span(range) else {
+                let Some(budget) = layout.span(range.clone()) else {
                     continue;
                 };
                 let pending = field == "pending";
@@ -93,7 +93,23 @@ fn prepare(
                 } else {
                     node.text.as_deref()
                 };
-                let (width, flow) = if pending && line > 0 {
+                let (width, flow) = if line == 0 && extra.focus.is_some() {
+                    let heading = super::row_paint::heading_labels(
+                        ages[index].clone(),
+                        extra.next.clone(),
+                        extra.focus.as_deref(),
+                        usize::from(area.width),
+                    );
+                    let end = usize::from(area.width)
+                        .saturating_sub(heading.first().map_or(0, |label| label.width() + GAP));
+                    let start = 2
+                        + tmt_cli_style::grid::span(&layout.columns, 0..range.start, GAP)
+                        + usize::from(layout.columns[..range.start].iter().any(Option::is_some));
+                    (
+                        budget.visible.min(end.saturating_sub(start)),
+                        tmt_tui::style::TextFlow::Truncate,
+                    )
+                } else if pending && line > 0 {
                     (
                         budget.visible.saturating_sub(
                             extra
@@ -146,6 +162,13 @@ fn prepare(
             }) {
                 visible.push("pending");
             }
+        }
+        if extra
+            .focus
+            .as_ref()
+            .is_some_and(|text| text.width() <= available / 2)
+        {
+            visible.push("focus");
         }
         extra.detail = app.detail_value(index, &visible);
     }
@@ -200,6 +223,7 @@ pub(super) fn render_rows(frame: &mut Frame, app: &App, area: Rect) {
             };
             Extra {
                 lead: origin == RowOrigin::Lead,
+                focus: crate::focus::label(row, request_now),
                 detail: app.detail_value(index, &[]),
                 next: row["id"]
                     .as_str()

@@ -4,13 +4,14 @@ import { RouterProvider } from '@tanstack/react-router';
 import { ReadRefusedError } from '../src/ask-remote.js';
 import type { AskBinding, PageAsk } from '../src/ask-panel.js';
 import type { ThreadBinding } from '../src/thread-store.js';
-import type { ThreadView } from '../src/thread-records.js';
+import type { QuoteSelector, ThreadView } from '../src/thread-records.js';
 import type { PageView, PageBinding } from '../src/transport.js';
 import { createAppRouter } from '../src/router.js';
 import { fixtureAttempt } from './ask-browser-attempt.js';
 import { destination, id, pageLink, RemoteDouble, selection } from './ask-fixtures.js';
 let root: Root | undefined;
 let sends: RemoteDouble;
+let dispatched: RemoteDouble[];
 let actions: string[];
 let publish: ((value: PageView) => void) | undefined;
 let fail: ((error: Error) => void) | undefined;
@@ -28,6 +29,7 @@ export async function mount() {
   host.id = 'ask-page-fixture';
   document.body.append(host);
   sends = new RemoteDouble();
+  dispatched = [];
   actions = [];
   readRefusal = undefined;
   records = [];
@@ -57,6 +59,7 @@ export async function mount() {
       if (preparing) await preparing;
       const result = await fixture;
       sends = result.remote;
+      dispatched.push(sends);
       return result.attempt;
     },
     async recheck(operationId) {
@@ -78,15 +81,21 @@ export async function mount() {
       ref: _ref,
       ...scope
     } = thread;
-    thread.comments.push({
+    const comment: ThreadView['comments'][number] = {
       ...scope,
       kind: 'comment',
       thread: thread.ref,
       body,
       messageId,
       ref: { writer: id(4), id: messageId },
-    });
-    current = { ...current, threads: [thread] };
+    };
+    current = {
+      ...current,
+      threads: [
+        ...current.threads!.filter((value) => value.threadId !== thread.threadId),
+        { ...thread, comments: [...thread.comments, comment] },
+      ],
+    };
     publish?.(current);
     return {
       thread: thread.ref,
@@ -94,6 +103,26 @@ export async function mount() {
       message: { writer: id(4), id: messageId },
       messageRevision: '1',
     };
+  }
+  function createThread(body: string, anchor: QuoteSelector | null, threadId: string) {
+    const thread: ThreadView = {
+      version: 1,
+      kind: 'thread',
+      spaceId: selection().space,
+      pageId: id(1),
+      epoch: '1',
+      senderDevice: id(4),
+      deviceName: 'You',
+      threadId,
+      revision: '1',
+      at: String(Date.now()),
+      anchor,
+      resolved: false,
+      deleted: false,
+      ref: { writer: id(4), id: threadId },
+      comments: [],
+    };
+    return addTurn(body, thread);
   }
   const discussion: ThreadBinding = {
     async setStatus() {
@@ -104,24 +133,7 @@ export async function mount() {
     },
     deviceId: id(4),
     async createChat(body) {
-      const thread: ThreadView = {
-        version: 1,
-        kind: 'thread',
-        spaceId: selection().space,
-        pageId: id(1),
-        epoch: '1',
-        senderDevice: id(4),
-        deviceName: 'You',
-        threadId: id(4),
-        revision: '1',
-        at: String(Date.now()),
-        anchor: null,
-        resolved: false,
-        deleted: false,
-        ref: { writer: id(4), id: id(4) },
-        comments: [],
-      };
-      return addTurn(body, thread);
+      return createThread(body, null, id(4));
     },
     async reply(ref, body) {
       return addTurn(
@@ -129,8 +141,8 @@ export async function mount() {
         current.threads!.find((thread) => thread.ref.id === ref.id)!,
       );
     },
-    async create() {
-      throw new Error('Not used');
+    async create(body, anchor) {
+      return createThread(body, anchor, crypto.randomUUID());
     },
     async edit() {
       throw new Error('Not used');
@@ -174,15 +186,31 @@ export async function mount() {
         async spaceHome() {
           return { title: 'Fixture space', pages: [] };
         },
-        async page() {
-          return { id: id(1), sharing: 'private', ...current, binding };
+        async page(pageId) {
+          if (pageId === 'notes')
+            return {
+              id: id(2),
+              sharing: 'private',
+              title: 'Another fixture page',
+              source: '<p id="other-page">Another fixture page</p>',
+              own: {},
+            };
+          return {
+            id: id(1),
+            sharing: 'private',
+            ...current,
+            binding,
+          };
         },
       })}
     />,
   );
 }
 export function proof() {
-  return { sends: sends.sends, actions };
+  return { sends: dispatched.flatMap((remote) => remote.sends), actions };
+}
+export function discussionProof() {
+  return structuredClone(current.threads);
 }
 export function change(source: string) {
   current = { ...current, source, title: 'Changed live title' };
@@ -323,5 +351,58 @@ export function conversation(options: {
     },
   ];
   current = { ...current, threads: [thread], asks: records };
+  publish?.(current);
+}
+
+/** Admitted reply/history publication double; it never prepares or dispatches an Ask. */
+export function windowReply(count = 0) {
+  const thread = current.threads!.find((value) => value.anchor)!;
+  const opening = thread.comments.at(-1)!;
+  const comments = [...thread.comments];
+  for (let index = 0; index < count; index++) {
+    const messageId = crypto.randomUUID();
+    comments.push({
+      ...opening,
+      ref: { ...opening.ref, id: messageId },
+      messageId,
+      body: `History turn ${index + 1}.`,
+      at: String(Date.now()),
+    });
+  }
+  const record: PageAsk = {
+    thread: thread.threadId,
+    messageIds: [opening.messageId],
+    operationId: dispatched[0]?.sends[0]?.operationId ?? id(43),
+    writer: opening.ref.writer,
+    agent: id(6),
+    agentName: 'Agent 1',
+    deviceName: 'You',
+    issuedAt: Date.now(),
+    machine: id(5),
+    message: opening.body,
+    state: 'accepted',
+    canTrack: true,
+    reply: 'Exact associated agent reply.',
+  };
+  current = {
+    ...current,
+    threads: current.threads!.map((value) => (value === thread ? { ...thread, comments } : value)),
+    asks: [record],
+  };
+  publish?.(current);
+}
+
+/** A source-independent publication still clones thread/Ask records like Live. */
+export function unrelatedWindowUpdate() {
+  current = { ...structuredClone(current), title: 'Unrelated live title' };
+  publish?.(current);
+}
+
+/** Update the admitted reply on the same operation/thread, without another send. */
+export function updateWindowReply() {
+  current = {
+    ...structuredClone(current),
+    asks: current.asks!.map((record) => ({ ...record, reply: 'Updated associated agent reply.' })),
+  };
   publish?.(current);
 }

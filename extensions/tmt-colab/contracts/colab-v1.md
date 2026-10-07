@@ -1585,7 +1585,7 @@ nodes intact. Resolved ranges keep a light highlight and a small square right-ma
 marker in the frame's document flow, with a count for anchors on the same line. Hover
 shows the bounded quoted text. Comment first-line tooltips stay in parent chrome. A marker posts exactly `type:"colab.render.open-thread"`,
 `renderId`, `requestId`, `id` on the bound port; the parent accepts only a known ID in
-its current highlight request and opens that thread's overlay. Forging this view-only
+its current highlight request and opens that thread's anchored parent window. Forging this view-only
 action cannot publish, sign or send. Resize and DOM changes re-resolve positions;
 thread-list navigation scrolls the window to the reported anchor offset (the bounded
 viewport-coupled fallback scrolls inside its frame). Author scripts can tamper with these APIs, DOM or cosmetic results;
@@ -1597,14 +1597,36 @@ absent own history is never recreated automatically.
 ### Inline annotation conversations (#1587)
 
 The Annotate control beside a selection opens one plain trusted-parent input in a
-small anchored popover at that span. Its placement is cosmetic; the captured quote
+small anchored window at that span. On the first committed turn, the same input
+continues below the thread's user turns, agent state and admitted replies; Comments
+and Chat do not open automatically. The header and composer stay stationary, only
+messages scroll, and new turns/replies scroll that area to the new content. The
+window grows toward the viewport bottom before scrolling, with about 240 px for
+messages when space permits, independently of document bounds. First open, new
+comment IDs and changed associated replies scroll into view; unrelated live
+publications preserve a reader's position in history.
+Its placement is cosmetic; the captured quote
 selector owns the thread anchor. Enter sends, Shift+Enter inserts a newline, and Esc closes the input (an unsent draft is kept). There
 is no confirmation screen or automatic send. The popover closes with its ×, with Escape from anywhere
 inside it, with a press outside it, and with a selection cleared by a page click while
 no nonblank message is typed; none of these interrupts a send in flight. Typed text is kept in memory
-for the page together with the selected recipient and restored, with a "Draft kept" note, when the same selection is annotated again. Optional `@` completion opens the shared styled keyboard
-listbox. The optional publishing name supplies a default only when it matches one
-unique reachable `agents.list` entry; unknown or ambiguous names supply no default.
+for the page together with the selected recipient and restored, with a "Draft kept"
+note, when the same selection is annotated again or its known thread is reopened.
+After a thread exists, an outside page press collapses it even with a typed draft;
+Close never resolves or sends. Existing writer-owned Resolve collapses only after
+a successful explicit action; failure retains the window and draft. A live source revision preserves the mounted composer, its unsent text and frozen
+quote/rectangle, even when the quote no longer exists in the updated page. Explicit
+Send uses that captured quote; cosmetic resolution may then show the thread as
+detached. After cosmetic resolution finds the quote missing, both the composer
+and open thread show: "This text changed on the page; your note keeps the original quote."
+Renderer loading leaves discussion inputs, focus, caret and agent list usable;
+sending uses the frozen quote and remains subject to current connection admission.
+Open threads, Comments/Chat panels and their drafts also survive source
+revisions. The window scroll offset is retained on a best-effort basis within the
+new document's bounds; no exact re-anchoring is required. A different page ID resets
+this page-local state. Optional `@` completion opens the shared styled keyboard
+listbox. A first agent turn requires an explicit admitted recipient selection;
+publishing/display names do not select a destination.
 The current verified Remote grant and agent/machine UUIDs own routing and admission.
 Recipient state is independent of message bytes; a mention prefix is never mandatory.
 Replies continue a uniquely bound prior UUID/machine under current admission; ambiguity
@@ -1625,11 +1647,15 @@ view of the transport message. Frozen bytes, including the quote and captured
 context, remain in the existing Ask record. Held approval stays inline; approval
 itself happens on the machine through Remote.
 The existing ledger, expiry, recheck, abandon and uncertainty rules still apply.
+A transient observation read failure shows the existing warning in the anchored
+window. Subsequent permitted observation continues through the same bounded
+observer; a successful cycle clears the warning without another dispatch.
 
 The Comments overlay lists every annotation and page-level thread, with a quote
 snippet, participants, display time and open/resolved status. Selecting a row scrolls
 the window to its anchor and expands that thread inside the overlay; a margin marker
-opens the same thread. Agent replies join verified Ask records to comment IDs and
+reopens the same thread in its anchored window. Page-owned per-thread drafts also
+survive switching to the explicit Comments details view. Agent replies join verified Ask records to comment IDs and
 remain attributed to their agent. Overlay geometry does not reflow page content.
 
 ### Page Chat (#1645)

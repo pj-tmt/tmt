@@ -58,6 +58,7 @@ export interface LiveAskOptions {
   connection(): Promise<Connection>;
   remote: RemoteClient;
   observe?(): void;
+  observationUnavailable?(unavailable: boolean): void;
   sessionEnded?(error?: SessionEvictedError): void;
 }
 
@@ -82,6 +83,9 @@ export class LiveAsk implements AskBinding {
       store,
       remote: options.remote,
       key: options.key,
+      observationUnavailable: (unavailable) => {
+        if (!this.#closed) options.observationUnavailable?.(unavailable);
+      },
       sessionEnded: (error) => {
         if (!this.#closed) options.sessionEnded?.(error);
       },

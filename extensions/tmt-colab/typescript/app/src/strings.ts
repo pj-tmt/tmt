@@ -2,6 +2,8 @@
 export const text = {
   unknownPageTitle: 'Untitled page',
   messageLabel: 'Message',
+  annotationTitle: 'Annotate',
+  annotationClose: 'Close annotation',
   messagePlaceholder: 'Write a message…',
   messageUnavailable: 'Sending is unavailable right now.',
   messageAgentsUnavailable: 'Agents are unavailable.',
@@ -39,6 +41,7 @@ export const text = {
     'Could not save this change. Your draft is kept. Reconnect and review the latest discussion.',
   commentAnchored: 'Attached',
   commentDetached: 'Detached',
+  commentQuoteChanged: 'This text changed on the page; your note keeps the original quote.',
   commentReattach: 'Reattach to selection',
   commentConfirmReattach: 'Confirm reattach',
   threadOpen: 'Open',

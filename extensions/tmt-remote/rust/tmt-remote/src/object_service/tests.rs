@@ -3,6 +3,7 @@
 //! acceptor, so the offered `Host` and mount values, the one-active-one-candidate rule,
 //! the installation bound, stop and the absence of leaked sockets are all observed from
 //! the extension's side. Nothing infers an effect from a sleep.
+use super::dispatch::Pause;
 use super::*;
 use crate::{
     limits,
@@ -103,12 +104,21 @@ impl Env {
         extensions: &'static [Extension],
         bounds: ServiceBounds,
     ) -> Option<ObjectService<'_>> {
+        self.service_with(extensions, bounds, Origins::default())
+    }
+    fn service_with(
+        &self,
+        extensions: &'static [Extension],
+        bounds: ServiceBounds,
+        origins: Origins,
+    ) -> Option<ObjectService<'_>> {
         ObjectService::open(
             &self.serving,
             extensions,
             Quotas::contract(),
             system_clock(),
             bounds,
+            origins,
             &io(),
         )
         .unwrap()
@@ -280,7 +290,8 @@ fn production_declares_no_object_storage() {
         &mut found,
     );
     for (path, text) in found {
-        let tests = path.file_name().is_some_and(|name| name == "tests.rs");
+        let tests = path.file_name().is_some_and(|name| name == "tests.rs")
+            || path.components().any(|part| part.as_os_str() == "tests");
         assert!(
             tests || !text.contains("objects: ObjectDeclaration::Local"),
             "{} enables object storage outside a test",
@@ -338,6 +349,7 @@ fn readiness_refuses_storage_that_cannot_settle_and_never_resets_it() {
         Quotas::contract(),
         system_clock(),
         bounds(),
+        Origins::default(),
         &io(),
     );
     assert!(opened.is_err());
@@ -355,6 +367,7 @@ fn readiness_refuses_storage_that_cannot_settle_and_never_resets_it() {
         Quotas::contract(),
         system_clock(),
         bounds(),
+        Origins::default(),
         &spent,
     );
     assert!(opened.is_err());
@@ -1069,8 +1082,8 @@ fn time_spent_between_acquire_and_disclose_is_unavailable_with_no_second_callbac
         .unwrap();
     // Only the first request is held until its own deadline has passed.
     let first = Arc::new(AtomicBool::new(true));
-    service.set_hook(Some(Arc::new(move |deadline: Instant| {
-        if first.swap(false, Ordering::AcqRel) {
+    service.set_hook(Some(Arc::new(move |pause: Pause, deadline: Instant| {
+        if pause == Pause::BetweenAdmissions && first.swap(false, Ordering::AcqRel) {
             while Instant::now() < deadline {
                 thread::yield_now();
             }
@@ -1105,3 +1118,5 @@ fn time_spent_between_acquire_and_disclose_is_unavailable_with_no_second_callbac
     );
     assert_eq!(service.ended("alpha"), None);
 }
+
+mod flow;

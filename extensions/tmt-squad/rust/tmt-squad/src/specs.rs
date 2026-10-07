@@ -105,6 +105,14 @@ pub const CHECKLIST_REORDER: &CommandSpec = spec!(
     ["Submit the full reviewed order" => "tmt squad checklist reorder --room 44444444-4444-4444-8444-444444444444 --checklist 55555555-5555-4555-8555-555555555555 --expect-inventory 1 --order '[\"66666666-6666-4666-8666-666666666666\"]'"]
 );
 
+pub const FOCUS: &CommandSpec = spec!(
+    "focus", "Show, set or clear a member focus window",
+    details = "Showing, setting and clearing focus all require the recorded user or the current squad lead. Whole s/m/h segments from 1s through 24h; no recurring cadence. Revision conflicts require reload and retry.",
+    ["Focus for thirty minutes" => "tmt squad focus worker 30m",
+     "Inspect the current policy" => "tmt squad focus worker",
+     "Clear focus" => "tmt squad focus worker off"]
+);
+
 pub const CRON: &CommandSpec = spec!(
     "cron", "Manage time-based Squad jobs",
     details = "Writes require the recorded user or the squad's lead. Change announcements are best effort. Jobs are stored separately from squad.toml; no run results or catch-up.",

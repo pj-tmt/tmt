@@ -15,7 +15,7 @@ and `transport` have no I/O, clock, storage or `CoreClient` access):
 | `pairing`, `control`, `devices`        | One pairing offer per run, owner-only control socket for discovery/stop and device list/revoke/rename                                                                                                                 |
 | `mount`, `pages`                       | Extension mounts (allowlisted extensions only), static landing/pairing/error pages and embedded stylesheet/SDK assets                                                                                                 |
 | `objects`                              | Object backend trait and `LocalFs`: the `objects.db` ledger and extension-private payload trees under the serve lease; the channel and config belong to `object_service`                                              |
-| `object_service`                       | Library only, unreachable in production: lease-bound `ObjectService`, one channel per declared extension (dispatcher, two workers), local-extension `config` answers; every production declaration is disabled        |
+| `object_service`                       | Library only, unreachable in production: lease-bound `ObjectService`, per-extension channel, origin registry and tickets, local-extension and mounted `config` answers; every production declaration is disabled      |
 | `tmt-extension-objects` (leaf)         | Remote-owned protocol leaf, consumed only by `object_service`: canonical IDs/encodings, protocol bounds, strict JSON, typed frames and the Unix carrier; no backend, policy or Remote/Colab types, and grants nothing |
 
 Rules that are easy to get wrong:

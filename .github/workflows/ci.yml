@@ -409,7 +409,7 @@ jobs:
     needs: [changes, native-office-build]
     if: ${{ always() && needs.changes.outputs.native == 'true' && (needs.changes.outputs.native_scope == 'squad' || needs.changes.outputs.native_office == 'false' || (needs.changes.outputs.native_office == 'true' && needs.native-office-build.result == 'success')) }}
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
       - name: Check out repository
         uses: actions/checkout@v4

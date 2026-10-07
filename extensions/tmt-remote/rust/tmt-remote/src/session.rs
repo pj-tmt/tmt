@@ -10,7 +10,7 @@ use crate::{
     canonical::{self, Envelope},
     crypto,
     error::RemoteError,
-    mount::{Admitted, DeviceContext, IdleClock, SessionState, Sessions},
+    mount::{Admitted, DeviceContext, IdleClock, OwnerBinding, SessionState, Sessions},
     pairing::now_ms,
     state::MachineKey,
     store::{Grant, Store, uuid_v4},
@@ -33,6 +33,8 @@ pub const COOKIE: &str = "tmt_door";
 pub const CLOCK_SKEW: Duration = Duration::from_secs(60);
 /// A session unused for this long ends; the page reopens it silently.
 pub const IDLE: Duration = crate::limits::SESSION_IDLE;
+/// How long a currentness check waits for the live-session fence before it fails closed.
+const CURRENT_WAIT: Duration = Duration::from_millis(250);
 /// Bound on remembered `session.open` nonces; beyond it opens refuse.
 const NONCES: usize = 4096;
 
@@ -709,6 +711,44 @@ impl DoorSessions {
     }
 }
 impl Sessions for DoorSessions {
+    fn current(&self, binding: &OwnerBinding) -> bool {
+        // A core effect may hold the live fence through its own bounded call; wait for it
+        // no longer than a short bound and fail closed.
+        let limit = Instant::now() + CURRENT_WAIT;
+        let live = loop {
+            match self.live.try_lock() {
+                Ok(live) => break live,
+                Err(std::sync::TryLockError::WouldBlock) if Instant::now() < limit => {
+                    std::thread::yield_now();
+                }
+                Err(_) => return false,
+            }
+        };
+        if live.stopped {
+            return false;
+        }
+        let Some(session) = live
+            .by_session
+            .values()
+            .find(|session| Arc::ptr_eq(&session.state, &binding.session))
+        else {
+            return false;
+        };
+        if session.grant_revision != binding.grant_revision
+            || session.client_id != binding.device_id
+            || self.expired(session)
+        {
+            return false;
+        }
+        let Ok(now) = now_ms() else {
+            return false;
+        };
+        self.store
+            .lock()
+            .ok()
+            .and_then(|store| store.grant(&session.client_id).ok().flatten())
+            .is_some_and(|grant| grant.live_at(now) && grant.revision == binding.grant_revision)
+    }
     fn context(&self, cookie: Option<&str>) -> Option<Admitted> {
         self.context_for(cookie, None)
     }

@@ -73,7 +73,7 @@ export function mountComposer(options: { agents: string[]; selected?: number; re
   );
 }
 
-export function mountMenu(options: { tight?: boolean } = {}) {
+export function mountMenu(options: { tight?: boolean; spaceAbove?: boolean } = {}) {
   root = createRoot(host());
   const row = (
     <ConversationTurn
@@ -102,10 +102,16 @@ export function mountMenu(options: { tight?: boolean } = {}) {
       <button type="button">After</button>
     </ConversationTurn>
   );
-  // A short scrolling container: the list cannot fit below the trigger, so it flips up.
+  // The small viewport either has room above the row or needs an in-viewport menu.
   root.render(
     options.tight ? (
-      <div style={{ height: 120, overflowY: 'auto', marginTop: 200 }}>{row}</div>
+      <div
+        data-testid="menu-viewport"
+        style={{ height: options.spaceAbove ? 240 : 120, overflowY: 'auto', marginTop: 200 }}
+      >
+        {options.spaceAbove && <div style={{ height: 120 }} />}
+        {row}
+      </div>
     ) : (
       row
     ),

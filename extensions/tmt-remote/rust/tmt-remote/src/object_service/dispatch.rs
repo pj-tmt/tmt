@@ -7,7 +7,12 @@
 //! unanswered past its bound, or the service stops, every thread ends and the last one
 //! drops the bus, which shuts the socket down and joins its reader. No frame spawns a
 //! thread, and nothing is retried.
-use super::{ServiceBounds, config::ConfigSource};
+use super::{
+    ServiceBounds,
+    config::ConfigSource,
+    origins::{Events, Next, Origins},
+};
+use crate::mount::Sessions;
 #[cfg(test)]
 use std::sync::Weak;
 use std::{
@@ -21,15 +26,42 @@ use std::{
 };
 use tmt_extension_objects::{
     Admit, AdmitInput, Bus, Call, Checkpoint, Context, Counter, Decision, Disclosure, ErrorCode,
-    Fault, Frame, Operation, Origin, Outcome, Projection, Reason, Request, ResultFrame, Stage,
-    Success, Uuid4,
+    Fault, Frame, Operation, Origin, OriginState, Outcome, Projection, Reason, Request,
+    ResultFrame, Stage, Success, Uuid4,
 };
 
-/// A test-only pause between the two admissions of a request.
+/// Where a test-only pause runs in a `config` request.
 #[cfg(test)]
-pub(super) type Hook = Option<Arc<dyn Fn(Instant) + Send + Sync>>;
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum Pause {
+    /// After the acquire decision, before the disclose callback.
+    BetweenAdmissions,
+    /// After the disclose decision, before the result is sent.
+    BeforeResult,
+}
+/// A test-only pause; it receives the request's deadline.
+#[cfg(test)]
+pub(super) type Hook = Option<Arc<dyn Fn(Pause, Instant) + Send + Sync>>;
 #[cfg(not(test))]
 pub(super) type Hook = ();
+
+/// Everything a channel needs to start besides its bus.
+pub(super) struct Launch<'a> {
+    pub(super) source: ConfigSource,
+    pub(super) bounds: &'a ServiceBounds,
+    pub(super) hook: Hook,
+    pub(super) origins: &'a Origins,
+    pub(super) extension: &'a str,
+    pub(super) tunnels: usize,
+    /// The owner sessions mounted tunnels were admitted under.
+    pub(super) sessions: Arc<dyn Sessions>,
+}
+
+/// The most origin-state notices a channel may hold: an `established` and a `closed` for
+/// every tunnel the extension may have.
+pub(super) const fn notice_limit(tunnels: usize) -> usize {
+    2 * tunnels
+}
 
 /// Workers per channel. A request waits for its callbacks, so more than one is needed for
 /// requests not to queue behind each other; the bus holds at most eight outstanding.
@@ -47,6 +79,8 @@ pub enum ChannelEnd {
     CallbackTimeout,
     /// The service stopped or replaced the channel.
     Stopped,
+    /// The extension stopped reading origin-state notices and the backlog hit its bound.
+    Backlog,
 }
 
 fn locked<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -61,6 +95,11 @@ struct Work {
 }
 struct Hub {
     generation: Uuid4,
+    extension: String,
+    origins: Origins,
+    sessions: Arc<dyn Sessions>,
+    /// Origin-state notices for the announcer, the only sender of them.
+    events: Arc<Events>,
     source: ConfigSource,
     callback: Duration,
     request: Duration,
@@ -80,10 +119,14 @@ struct Hub {
 impl Hub {
     /// Record the first reason and wake every thread.
     fn end(&self, why: ChannelEnd) {
+        // Every origin of this channel is gone with it, so none can reach a successor; this
+        // happens before the end is visible, so whoever sees the end sees no origins.
+        self.origins.detach(&self.extension, self.generation);
         locked(&self.ended).get_or_insert(why);
         self.stop.store(true, Ordering::Release);
         self.queued.notify_all();
         self.decided.notify_all();
+        self.events.wake();
     }
     fn stopped(&self) -> bool {
         self.stop.load(Ordering::Acquire)
@@ -98,14 +141,22 @@ pub(super) struct Running {
 }
 impl Running {
     /// Start the dispatcher and workers of an established `bus`.
-    pub(super) fn start(
-        bus: Bus,
-        source: ConfigSource,
-        bounds: &ServiceBounds,
-        hook: Hook,
-    ) -> Result<Self, Fault> {
+    pub(super) fn start(bus: Bus, launch: Launch<'_>) -> Result<Self, Fault> {
+        let Launch {
+            source,
+            bounds,
+            hook,
+            origins,
+            extension,
+            tunnels,
+            sessions,
+        } = launch;
         let hub = Arc::new(Hub {
             generation: bus.generation(),
+            extension: extension.to_owned(),
+            origins: origins.clone(),
+            sessions,
+            events: Arc::new(Events::new(notice_limit(tunnels))),
             source,
             callback: bounds.callback,
             request: bounds.request,
@@ -119,21 +170,22 @@ impl Running {
             issuer: Mutex::new(0),
         });
         let bus = Arc::new(bus);
+        // Registered before any thread runs, so a channel that ends right away detaches
+        // itself (`Hub::end`) instead of being registered after it is over.
+        origins.attach(extension, hub.generation, Arc::clone(&hub.events));
         let mut threads = Vec::new();
-        for index in 0..=WORKERS {
+        for index in 0..=WORKERS + 1 {
             let (thread_hub, thread_bus) = (Arc::clone(&hub), Arc::clone(&bus));
             let spawned = thread::Builder::new()
-                .name(if index == 0 {
-                    "tmt-object-dispatch".into()
-                } else {
-                    format!("tmt-object-worker-{index}")
+                .name(match index {
+                    0 => "tmt-object-dispatch".into(),
+                    i if i > WORKERS => "tmt-object-announce".into(),
+                    i => format!("tmt-object-worker-{i}"),
                 })
-                .spawn(move || {
-                    if index == 0 {
-                        dispatch(&thread_hub, &thread_bus);
-                    } else {
-                        work(&thread_hub, &thread_bus);
-                    }
+                .spawn(move || match index {
+                    0 => dispatch(&thread_hub, &thread_bus),
+                    i if i > WORKERS => announce(&thread_hub, &thread_bus),
+                    _ => work(&thread_hub, &thread_bus),
                 });
             match spawned {
                 Ok(thread) => threads.push(thread),
@@ -198,6 +250,27 @@ fn dispatch(hub: &Hub, bus: &Bus) {
     }
 }
 
+/// The only sender of origin-state notices, so each origin's `established` precedes its
+/// `closed` on the wire. A write that fails or stalls ends the channel and every record.
+fn announce(hub: &Hub, bus: &Bus) {
+    while !hub.stopped() {
+        match hub.events.next(SLICE) {
+            Next::Notice(origin, phase) => {
+                let notice = Frame::OriginState(OriginState {
+                    generation: hub.generation,
+                    origin_id: origin,
+                    phase,
+                });
+                if let Err(fault) = bus.send(&notice) {
+                    hub.end(ChannelEnd::Bus(fault));
+                }
+            }
+            Next::Overflow => hub.end(ChannelEnd::Backlog),
+            Next::Idle => {}
+        }
+    }
+}
+
 fn work(hub: &Hub, bus: &Bus) {
     while let Some(next) = take(hub) {
         if let Err(why) = serve(hub, bus, next) {
@@ -226,22 +299,58 @@ fn take(hub: &Hub) -> Option<Work> {
 fn serve(hub: &Hub, bus: &Bus, next: Work) -> Result<(), ChannelEnd> {
     let Work { request, received } = next;
     let deadline = received + hub.request;
+    let denied = || Outcome::Failure(ErrorCode::Denied);
     match (request.origin, &request.call) {
-        // No mounted origin is established yet, so nothing mounted is admitted.
-        (Origin::Mounted(_), _) => {
-            send_result(hub, bus, &request, Outcome::Failure(ErrorCode::Denied))
-        }
         (Origin::LocalExtension, Call::Config(_)) => config(hub, bus, &request, deadline),
         // The other six methods belong to later slices: no callback and no effect.
         (Origin::LocalExtension, _) => {
             send_result(hub, bus, &request, Outcome::Failure(ErrorCode::Unavailable))
         }
+        // A mounted request is only as good as its origin: established on this channel and,
+        // for an owner session, still current. Anything else is denied without a callback.
+        (Origin::Mounted(id), call) => match (standing(hub, id), call) {
+            (None, _) => send_result(hub, bus, &request, denied()),
+            (Some(_), Call::Config(_)) => config(hub, bus, &request, deadline),
+            (Some(_), _) => {
+                send_result(hub, bus, &request, Outcome::Failure(ErrorCode::Unavailable))
+            }
+        },
     }
 }
 
-/// `objects.config` for the local extension: current acquire admission, the delivered
-/// backend's projection, then current disclose admission. Each request asks afresh and
-/// nothing is remembered between requests.
+/// The context a request arrived in, if its origin still stands: Remote's registry says the
+/// origin is established on this channel, and for an owner session the session owner says it
+/// is the current one with the same device and grant revision. `None` denies, whatever the
+/// extension might say. A local extension always stands.
+fn standing(hub: &Hub, origin: Uuid4) -> Option<Context> {
+    let known = hub
+        .origins
+        .established(origin, &hub.extension, hub.generation)?;
+    let Some(owner) = known.owner else {
+        return Some(Context::Mounted { origin_id: origin });
+    };
+    // A revision outside the frame grammar cannot be told to the extension, so it denies.
+    let revision = owner.grant_revision;
+    let device = Uuid4::parse(&owner.device_id).ok()?;
+    let grammar = 1..=tmt_extension_objects::limits::MAX_SAFE_INTEGER;
+    (grammar.contains(&revision) && hub.sessions.current(&owner)).then_some(Context::OwnerSession {
+        origin_id: origin,
+        device_id: device,
+        grant_revision: revision,
+    })
+}
+fn stands(hub: &Hub, origin: Origin) -> Option<Context> {
+    match origin {
+        Origin::LocalExtension => Some(Context::LocalExtension),
+        Origin::Mounted(id) => standing(hub, id),
+    }
+}
+
+/// `objects.config`: current acquire admission, the delivered backend's projection, then
+/// current disclose admission. Each request asks afresh and nothing is remembered between
+/// requests. A local extension sees the owner's limits; every mounted origin, owner session
+/// or not, sees the reduced browser projection. The origin is checked before each callback
+/// and again before the result leaves, so a session that ended meanwhile discloses nothing.
 fn config(hub: &Hub, bus: &Bus, request: &Request, deadline: Instant) -> Result<(), ChannelEnd> {
     let Call::Config(input) = &request.call else {
         return Ok(());
@@ -256,10 +365,15 @@ fn config(hub: &Hub, bus: &Bus, request: &Request, deadline: Instant) -> Result<
         Decision::Unavailable => Some(ErrorCode::Unavailable),
     };
     let spent = || Outcome::Failure(ErrorCode::Unavailable);
+    let denied = || Outcome::Failure(ErrorCode::Denied);
+    let Some(context) = stands(hub, request.origin) else {
+        return send_result(hub, bus, request, denied());
+    };
     let Some(acquire) = ask(
         hub,
         bus,
         request,
+        context,
         Checkpoint::Acquire,
         operation(None),
         deadline,
@@ -270,17 +384,24 @@ fn config(hub: &Hub, bus: &Bus, request: &Request, deadline: Instant) -> Result<
     if let Some(code) = refusal(acquire) {
         return send_result(hub, bus, request, Outcome::Failure(code));
     }
-    let projection = Projection::Local;
+    let projection = match request.origin {
+        Origin::LocalExtension => Projection::Local,
+        Origin::Mounted(_) => Projection::Browser,
+    };
     let config = hub.source.project(projection);
     let disclosure = Some(Disclosure::Config { projection });
     #[cfg(test)]
     if let Some(hook) = &hub.hook {
-        hook(deadline);
+        hook(Pause::BetweenAdmissions, deadline);
     }
+    let Some(context) = stands(hub, request.origin) else {
+        return send_result(hub, bus, request, denied());
+    };
     let Some(disclose) = ask(
         hub,
         bus,
         request,
+        context,
         Checkpoint::Disclose,
         operation(disclosure),
         deadline,
@@ -290,6 +411,14 @@ fn config(hub: &Hub, bus: &Bus, request: &Request, deadline: Instant) -> Result<
     };
     if let Some(code) = refusal(disclose) {
         return send_result(hub, bus, request, Outcome::Failure(code));
+    }
+    #[cfg(test)]
+    if let Some(hook) = &hub.hook {
+        hook(Pause::BeforeResult, deadline);
+    }
+    // Fenced again before the result leaves: a revoked or closed origin gets no bytes.
+    if stands(hub, request.origin).is_none() {
+        return send_result(hub, bus, request, denied());
     }
     send_result(hub, bus, request, Outcome::Success(Success::Config(config)))
 }
@@ -302,6 +431,7 @@ fn ask(
     hub: &Hub,
     bus: &Bus,
     request: &Request,
+    context: Context,
     boundary: Checkpoint,
     operation: Operation,
     deadline: Instant,
@@ -321,7 +451,7 @@ fn ask(
             callback_id,
             request_id: request.request_id,
             boundary,
-            context: Context::LocalExtension,
+            context,
             operation,
         });
         bus.send(&admit).map_err(ChannelEnd::Bus)?;

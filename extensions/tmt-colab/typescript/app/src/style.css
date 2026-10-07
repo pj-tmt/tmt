@@ -257,7 +257,7 @@ footer {
   color: var(--c-text);
   background: var(--c-paper);
   border: 1px solid var(--c-text);
-  box-shadow: 6px 6px 0 var(--c-text);
+  box-shadow: none;
   overflow: hidden;
 }
 .page-drawer[open] {
@@ -780,13 +780,15 @@ footer {
   z-index: 40;
 }
 .annotation-popover {
+  height: min(480px, calc(100dvh - 80px));
+  display: flex;
   width: min(380px, calc(100vw - 24px));
   max-height: calc(100vh - 80px);
-  overflow-y: auto;
+  overflow: hidden;
   padding: 12px;
   border: 1px solid var(--c-text);
   background: var(--c-sheet);
-  box-shadow: 5px 5px 0 var(--c-accent);
+  box-shadow: none;
 }
 .annotation-popover blockquote {
   margin: 0 0 10px;
@@ -796,11 +798,6 @@ footer {
 }
 .selection-ask {
   margin: 0;
-  border: 1px solid var(--c-text);
-  padding: 7px 12px;
-  background: var(--c-sheet);
-  color: var(--c-text);
-  box-shadow: 3px 3px 0 var(--c-accent);
 }
 .annotation-row {
   display: flex;
@@ -1004,7 +1001,7 @@ footer {
 .thread-bar-actions {
   margin-left: auto;
 }
-.comments-panel .thread-action {
+.thread-action {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -1087,29 +1084,53 @@ footer {
 
 .annotation-new {
   position: relative;
+  min-height: 0;
+  display: flex;
+  max-height: 100%;
+  width: 100%;
 }
-.annotation-new blockquote {
-  margin-right: 28px;
-}
-/* The same × as the Comments, Chat and Source overlays. */
-.annotation-popover .annotation-close {
-  position: absolute;
-  top: -6px;
-  right: -6px;
+.comment-thread[data-layout='anchored'] {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  max-height: 100%;
+  width: 100%;
   margin: 0;
+  padding: 0;
   border: 0;
-  padding: 7px 8px;
-  background: transparent;
-  color: var(--c-text);
+}
+.comment-thread[data-layout='anchored'] > .thread-bar {
+  flex: none;
+  margin-bottom: 12px;
+}
+.comment-thread[data-layout='anchored'] > .thread-messages {
+  min-height: 0;
+  overflow: auto;
+  flex: 1 1 auto;
+  overscroll-behavior: contain;
+}
+.comment-thread[data-layout='anchored'] > .annotation-compose {
+  flex: none;
+}
+.annotation-reply-label {
+  flex: none;
+  margin: 12px 0 8px;
+  font-weight: 600;
+}
+.comment-thread[data-layout='anchored'] .thread-action {
+  position: relative;
+  margin: 0;
+  padding: 6px;
+}
+.comment-thread[data-layout='anchored'] .thread-action svg {
+  width: 16px;
+  height: 16px;
+}
+.comment-thread[data-layout='anchored'] .comment-actions button,
+.comment-thread[data-layout='anchored'] .tmt-action-menu-list {
+  border-width: 1px;
   box-shadow: none;
-  font-size: 20px;
-  line-height: 1;
 }
-.annotation-popover .annotation-close:hover {
-  text-decoration: underline;
-  text-underline-offset: 4px;
-}
-
 /* A state is a mark plus a word; the mark takes the state's role color, the word stays muted text. */
 .ask-state {
   display: inline-flex;
@@ -1138,4 +1159,22 @@ footer {
 
 .home > .tmt-ui-toggle {
   margin: 0 0 16px;
+}
+
+.comment-thread[data-layout='anchored'] .thread-action-caption {
+  display: none;
+  position: absolute;
+  z-index: 1;
+  top: 100%;
+  right: 0;
+  width: max-content;
+  padding: 4px 8px;
+  border: 1px solid var(--c-rule);
+  background: var(--c-sheet);
+  color: var(--c-text);
+  font-size: 12px;
+}
+.comment-thread[data-layout='anchored'] .thread-action:hover .thread-action-caption,
+.comment-thread[data-layout='anchored'] .thread-action:focus-visible .thread-action-caption {
+  display: block;
 }

@@ -1,5 +1,8 @@
 /** Component-only send/keyboard double; durable writer and Remote proof lives in acceptance. */
 import { createRoot, type Root } from 'react-dom/client';
+import { ThreadWindow } from '../src/thread-panel.js';
+import { MessageComposer } from '../src/components/message-composer.js';
+import type { ThreadView } from '../src/thread-records.js';
 import { useState } from 'react';
 import { AnnotationInput } from '../src/annotation-input.js';
 import { AskPanel, type AskBinding, type PageAsk } from '../src/ask-panel.js';
@@ -160,4 +163,88 @@ export function proof() {
 
 export function editingProof() {
   return { draft, captured };
+}
+
+let statusCalls = 0;
+let finishStatus: ((failed: boolean) => void) | undefined;
+/** Presentation-only writer binding double, with no status store or dispatch adapter. */
+export function mountWindow(mode = 'ready') {
+  root?.unmount();
+  document.getElementById('annotation-fixture')?.remove();
+  document.getElementById('root')?.setAttribute('hidden', '');
+  const host = document.createElement('main');
+  host.id = 'annotation-fixture';
+  document.body.append(host);
+  statusCalls = closes = 0;
+  finishStatus = undefined;
+  const unused = async () => {
+    throw new Error('Not used');
+  };
+  const thread: ThreadView = {
+    version: 1,
+    kind: 'thread',
+    spaceId: selection().space,
+    pageId: id(1),
+    epoch: '1',
+    senderDevice: id(4),
+    deviceName: 'Browser',
+    revision: '1',
+    deleted: false,
+    at: '1',
+    threadId: id(2),
+    ref: { writer: id(4), id: id(2) },
+    anchor: { exact: 'Frozen original quote', prefix: '', suffix: '' },
+    resolved: false,
+    comments: [],
+  };
+  function WindowFixture() {
+    const [current, setCurrent] = useState(thread);
+    const [edit, setEdit] = useState({ value: 'Unsent draft' });
+    return (
+      <ThreadWindow
+        thread={current}
+        attached
+        anchorsChecked
+        selection={null}
+        asks={[]}
+        title="Annotated page"
+        blocked={mode === 'blocked'}
+        close={() => {
+          closes++;
+        }}
+        composer={
+          <MessageComposer label="Window draft" edit={edit} onChange={setEdit} disabled={false} />
+        }
+        binding={{
+          deviceId: mode === 'readonly' ? id(7) : id(4),
+          create: unused,
+          createChat: unused,
+          reply: unused,
+          edit: unused,
+          deleteComment: unused,
+          updateThread: async (_ref, _revision, change) => {
+            statusCalls++;
+            await new Promise<void>((resolve, reject) => {
+              finishStatus = (failed) => {
+                if (failed) reject(new Error('Unavailable'));
+                else {
+                  setCurrent((previous) => ({ ...previous, ...change }));
+                  resolve();
+                }
+              };
+            });
+          },
+        }}
+      />
+    );
+  }
+  root = createRoot(host);
+  root.render(<WindowFixture />);
+}
+export function finishWindowStatus(mode?: string) {
+  finishStatus?.(mode === 'failed');
+  finishStatus = undefined;
+}
+export function windowProof() {
+  return { statusCalls, closes };
 }

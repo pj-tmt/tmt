@@ -947,10 +947,10 @@ On a mounted WebSocket upgrade, the door forwards the client's `Sec-WebSocket-Pr
 unchanged, including every offered subprotocol in its original order, and returns the extension's
 selected `Sec-WebSocket-Protocol` value in its `101` response unchanged. These values may carry
 extension-issued bearer tokens; the door never logs, audits or persists them. On every mounted
-request, including upgrades, client-supplied `tmt-device-context`, `tmt-device-event` and `tmt-mount`
+request, including upgrades, client-supplied `tmt-device-context`, `tmt-device-event`, `tmt-mount` and `tmt-origin`
 headers are stripped. Only the door sets these headers: `tmt-mount` identifies the actual mount,
-`tmt-device-context` is added only for an authenticated owner-device session, and `tmt-device-event`
-is reserved for the local callback above.
+`tmt-device-context` is added only for an authenticated owner-device session, `tmt-device-event`
+is reserved for the local callback above, and `tmt-origin` is the origin of an object-channel tunnel, below.
 
 **Relay.** Remote carries opaque, namespaced logs for extensions and never decrypts or interprets
 their payloads. A namespace is `<extension>:<path>` (for example `colab:<space>/<page>/<stream>`).
@@ -1000,9 +1000,10 @@ carrier below that opens the channel, moves frames with bounded waits and enforc
 or route integration, callback executor or backend is shipped (#1852). Remote's object service (`tmt-remote`, library
 code that is not routed or reachable in production) opens the channel to an extension only when a static, trusted
 per-extension declaration enables it; every production declaration is disabled and nothing in production opens a
-channel. On an opened channel it answers `config` for a local-extension origin only, after a current `acquire` admission
-and before a current `disclose` admission; a mounted origin is answered `denied` and each of the other six methods
-`unavailable`, without a callback or effect. Requests, results
+channel. On an opened channel it answers `config` after a current `acquire` admission and before a current `disclose`
+admission, for a local-extension origin (the owner's limits) and for a mounted origin that stands (the reduced browser
+limits, whether or not an owner session is bound); each of the other six methods is answered `unavailable`, without a
+callback or effect, and a mounted request whose origin does not stand is answered `denied` without a callback. Requests, results
 and admission replies carry no principal, role, permit, retry or scope: `method`, the result tag and the callback
 identifiers are correlation only. An admit `context` states the owner device and grant revision as Remote established
 them, for the extension's own decision; a browser or caller never selects it, and nothing in a context, identifier,
@@ -1066,6 +1067,28 @@ refuses ends the channel, so a duplicate, stale, mismatched or out-of-order fram
 frames and 524,288 bytes; reading pauses while it is full, and the peer's own write bound ends a peer that outruns it.
 Frames received before a fault are delivered before it is reported. The first fault is kept and every later call reports
 it. Closing, or dropping, shuts the socket down, wakes every waiter and joins the thread.
+
+**Origins.** Remote sets `tmt-origin: <originId>` only on a WebSocket upgrade to an extension that declares objects and has
+an active channel, exactly once, as one lowercase canonical UUIDv4 it just generated, and never on any other request. A
+connection without the header never gets object work: the extension denies it and the browser reconnects. An origin is
+Pending while Remote forwards the upgrade, is established only after the owner session is attached, the browser has its
+`101` and the tunnel runs, and ends at the first close: a close that wins is never followed by `established`. Every
+upgrade is a new origin, so a reconnect, including within the session's reload grace, gets a new id, and no object work
+carries across origins. An origin belongs to one channel generation; ending or replacing the channel ends all its origins
+and a successor starts with none. `originId` is not a capability: only the extension, on the private bus, can name it, and
+Remote's registry, not any frame, is authoritative when a request arrives and when its result is about to leave. Origin
+state frames are lifecycle notices written in order by one sender, with a bounded backlog (an `established` and a `closed`
+per tunnel); a write that fails or stalls, or a backlog past its bound, ends the channel and with it every origin, so a
+late `closed` is safe and nothing relies on one. Closing an origin never waits on a socket or on the session owner.
+
+**Mounted origins stand only while Remote says so.** A request naming a mounted origin is answered `denied`, with no
+callback, unless that origin is established on this channel generation in Remote's registry and, when an owner session was
+attached to its upgrade, the session owner confirms that same session is still live with the same device and grant
+revision (not ended, idle-expired, revoked or replaced); an unknown, pending, closed, other-extension or other-generation
+origin, or a session owner that cannot answer within its short bound, denies. The `acquire` and `disclose` callbacks name
+`owner-session` (with that device and grant revision) or `mounted`, never what the browser or the extension chose. The
+origin is checked before `acquire`, again before `disclose`, and once more before the result leaves, so an origin that
+closed or a session that ended meanwhile discloses nothing. Every mounted origin sees the reduced limits.
 
 **Admission outcomes.** Remote asks the extension afresh for every request and remembers no decision for a later one.
 `deny` is answered `denied` and an `unavailable` decision `unavailable`; neither, and no missing answer, is ever treated
