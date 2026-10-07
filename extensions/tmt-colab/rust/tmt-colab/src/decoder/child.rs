@@ -46,7 +46,8 @@ fn execute() -> Result<(), DecodeFault> {
     if std::env::args().nth(2).as_deref() == Some("prepare-content") {
         return prepare_content(&input);
     }
-    let wire: WireBatch = serde_json::from_slice(&input).map_err(|_| DecodeFault::InvalidInput)?;
+    let wire: WireBatch<BorrowedWireText<'_>> =
+        serde_json::from_slice(&input).map_err(|_| DecodeFault::InvalidInput)?;
     if wire.version != 1
         || wire.updates.len() > UPDATES
         || wire
@@ -226,7 +227,7 @@ fn replay_content(
     Ok(())
 }
 fn prepare_content(input: &[u8]) -> Result<(), DecodeFault> {
-    let wire: WireContentPreparation =
+    let wire: WireContentPreparation<BorrowedWireText<'_>, Value, BorrowedWireText<'_>> =
         serde_json::from_slice(input).map_err(|_| DecodeFault::InvalidInput)?;
     if wire.version != 1
         || wire.source.len() > BASELINE_BYTES

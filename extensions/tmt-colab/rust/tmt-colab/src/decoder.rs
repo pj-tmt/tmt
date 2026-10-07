@@ -748,6 +748,15 @@ impl Serialize for EncodedBytes<'_> {
     }
 }
 #[derive(Serialize, Deserialize)]
+#[serde(transparent)]
+struct BorrowedWireText<'a>(#[serde(borrow)] std::borrow::Cow<'a, str>);
+impl std::ops::Deref for BorrowedWireText<'_> {
+    type Target = str;
+    fn deref(&self) -> &str {
+        &self.0
+    }
+}
+#[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct WireBatch<B = String> {
     version: u8,
@@ -776,10 +785,10 @@ struct WireResult {
 }
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct WireContentPreparation<S = String, V = Value> {
+struct WireContentPreparation<S = String, V = Value, B = String> {
     version: u8,
-    baseline: String,
-    updates: Vec<String>,
+    baseline: B,
+    updates: Vec<B>,
     expected_base: V,
     source: S,
     publisher_agent: Option<S>,

@@ -434,8 +434,8 @@ fn borrowed_preparation_wire_preserves_exact_bytes_hash_and_strict_owned_parse()
     for publisher in [None, Some("agent")] {
         let borrowed = WireContentPreparation {
             version: 1,
-            baseline: "AA".into(),
-            updates: vec!["AAE".into()],
+            baseline: String::from("AA"),
+            updates: vec![String::from("AAE")],
             expected_base: &base,
             source,
             publisher_agent: publisher,
@@ -451,6 +451,14 @@ fn borrowed_preparation_wire_preserves_exact_bytes_hash_and_strict_owned_parse()
             hash,
             URL_SAFE_NO_PAD.encode(Sha256::digest(oracle.as_bytes()))
         );
+        let specialized: WireContentPreparation<BorrowedWireText<'_>, Value, BorrowedWireText<'_>> =
+            serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(serde_json::to_vec(&specialized).unwrap(), bytes);
+        assert!(matches!(
+            specialized.baseline.0,
+            std::borrow::Cow::Borrowed(_)
+        ));
+        assert!(matches!(specialized.source.0, std::borrow::Cow::Owned(_)));
         let owned: WireContentPreparation = serde_json::from_slice(&bytes).unwrap();
         assert_eq!(owned.expected_base, base);
         assert_eq!(owned.source, source);
@@ -563,6 +571,12 @@ fn borrowed_binary_wire_matches_fixed_own_content_edit_and_merge_bytes() {
                 ]
             );
         }
+        let specialized: WireBatch<BorrowedWireText<'_>> = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(serde_json::to_vec(&specialized).unwrap(), bytes);
+        assert!(matches!(
+            specialized.baseline.0,
+            std::borrow::Cow::Borrowed(_)
+        ));
         let owned: WireBatch = serde_json::from_slice(&bytes).unwrap();
         assert_eq!(owned.baseline, "AAEC");
         assert_eq!(owned.updates, ["_w", ""]);
@@ -733,4 +747,101 @@ fn serialization_failure_discards_partial_input_and_digest() {
         hash,
         URL_SAFE_NO_PAD.encode(Sha256::digest(br#"{"ok":true}"#))
     );
+}
+
+#[test]
+fn child_borrowed_parse_matches_owned_strict_grammar_and_escape_fallback() {
+    let literal = r#"{"version":1,"namespace":"own","baseline":"AAEC","updates":["_w",""]}"#;
+    for input in [literal.to_owned(), literal.replace("AAEC", r"\u0041AEC")] {
+        let old: WireBatch = serde_json::from_str(&input).unwrap();
+        let new: WireBatch<BorrowedWireText<'_>> = serde_json::from_str(&input).unwrap();
+        assert_eq!(
+            serde_json::to_vec(&old).unwrap(),
+            serde_json::to_vec(&new).unwrap()
+        );
+        assert_eq!(
+            binary(&old.baseline, 3).unwrap(),
+            binary(&new.baseline, 3).unwrap()
+        );
+        assert!(binary(&new.baseline, 2).is_err());
+        assert_eq!(
+            matches!(new.baseline.0, std::borrow::Cow::Owned(_)),
+            input != literal
+        );
+        // Correlation is the exact original input, never normalized parsed JSON.
+        if input != literal {
+            assert_ne!(
+                Sha256::digest(input.as_bytes()),
+                Sha256::digest(literal.as_bytes())
+            );
+        }
+    }
+    let mut malformed: Vec<Vec<u8>> = [
+        literal.replace("\"version\":1", "\"version\":1,\"version\":1"),
+        literal.replace("\"version\":1", "\"version\":1,\"extra\":0"),
+        literal.replace("\"AAEC\"", "null"),
+        literal.replace("\"AAEC\"", "1"),
+        literal.replace("[\"_w\",\"\"]", "[null]"),
+        literal.replace("[\"_w\",\"\"]", "{}"),
+        format!("{literal} true"),
+    ]
+    .into_iter()
+    .map(String::into_bytes)
+    .collect();
+    let mut utf8 = literal.as_bytes().to_vec();
+    let pos = utf8.iter().position(|b| *b == b'A').unwrap();
+    utf8[pos] = 255;
+    malformed.push(utf8);
+    for bytes in malformed {
+        assert!(serde_json::from_slice::<WireBatch>(&bytes).is_err());
+        assert!(serde_json::from_slice::<WireBatch<BorrowedWireText<'_>>>(&bytes).is_err());
+    }
+}
+
+#[test]
+fn preparation_borrowed_unicode_null_grammar_and_source_byte_bounds_match_owned() {
+    let literal = r#"{"version":1,"baseline":"","updates":[],"expected_base":{"html":"old","meta":{"title":"T","publisherAgent":"agent"}},"source":"🐈","publisher_agent":null}"#;
+    for input in [literal.to_owned(), literal.replace("🐈", r"\ud83d\udc08")] {
+        let old: WireContentPreparation = serde_json::from_str(&input).unwrap();
+        let new: WireContentPreparation<BorrowedWireText<'_>, Value, BorrowedWireText<'_>> =
+            serde_json::from_str(&input).unwrap();
+        assert_eq!(old.source, &*new.source);
+        assert_eq!(old.expected_base, new.expected_base);
+        assert_eq!(
+            serde_json::to_vec(&old).unwrap(),
+            serde_json::to_vec(&new).unwrap()
+        );
+        assert_eq!(
+            matches!(new.source.0, std::borrow::Cow::Owned(_)),
+            input != literal
+        );
+        assert!(new.publisher_agent.is_none());
+    }
+    for source in ["x".repeat(BASELINE_BYTES), "x".repeat(BASELINE_BYTES + 1)] {
+        let bytes = literal.replace("🐈", &source);
+        let old: WireContentPreparation = serde_json::from_str(&bytes).unwrap();
+        let new: WireContentPreparation<BorrowedWireText<'_>, Value, BorrowedWireText<'_>> =
+            serde_json::from_str(&bytes).unwrap();
+        assert_eq!(
+            old.source.len() > BASELINE_BYTES,
+            new.source.len() > BASELINE_BYTES
+        );
+        assert!(matches!(new.source.0, std::borrow::Cow::Borrowed(_)));
+    }
+    for malformed in [
+        literal.replace("\"source\":\"🐈\"", "\"source\":null"),
+        literal.replace("\"source\":\"🐈\"", "\"source\":2"),
+        literal.replace("\"source\":\"🐈\"", "\"source\":\"🐈\",\"source\":\"x\""),
+        literal.replace("\"version\":1", "\"version\":1,\"unknown\":true"),
+        literal.replace("\"publisher_agent\":null", "\"publisher_agent\":false"),
+        format!("{literal} []"),
+    ] {
+        assert!(serde_json::from_str::<WireContentPreparation>(&malformed).is_err());
+        assert!(
+            serde_json::from_str::<
+                WireContentPreparation<BorrowedWireText<'_>, Value, BorrowedWireText<'_>>,
+            >(&malformed)
+            .is_err()
+        );
+    }
 }
