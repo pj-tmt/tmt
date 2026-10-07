@@ -1,8 +1,9 @@
 //! Door sessions (`session.open`). A paired device opens independent sessions per run
 //! with a signed control envelope; a `browser` device on this door's origin
 //! also receives the door cookie, of which serve keeps only the SHA-256.
-//! Sessions live in serve's memory: they end on stop, authority loss, transport
-//! close, optional-limit eviction or idle expiry, and reopening is a silent
+//! Sessions live in serve's memory: they end on stop, authority loss,
+//! optional-limit eviction or idle expiry. Transport close starts a reattach grace;
+//! reopening an expired session is a silent
 //! signed `session.open` from the device key.
 use crate::{
     admission::{self, BindingAction, MessagePermit, MessageRefusal},
@@ -628,13 +629,14 @@ impl DoorSessions {
 }
 impl DoorSessions {
     fn expired(&self, session: &Session) -> bool {
-        session.state.ended()
-            || session.state.idle()
-                >= if session.state.had_transport() {
-                    self.idle
-                } else {
-                    self.idle.min(crate::limits::SESSION_UNATTACHED_IDLE)
-                }
+        // Read the transport count before idle: last-close touches while holding
+        // that count's lock, so a detached snapshot cannot use pre-close activity.
+        let idle_limit = if session.state.has_transport() {
+            self.idle
+        } else {
+            self.idle.min(crate::limits::SESSION_UNATTACHED_IDLE)
+        };
+        session.state.ended() || session.state.idle() >= idle_limit
     }
     fn remove(
         &self,

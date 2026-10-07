@@ -151,12 +151,7 @@ pub struct SessionState {
     clock: IdleClock,
     ended: AtomicBool,
     used: Mutex<Instant>,
-    transports: Mutex<TransportLifetime>,
-}
-#[derive(Default)]
-struct TransportLifetime {
-    active: usize,
-    attached: bool,
+    transports: Mutex<usize>,
 }
 impl Default for SessionState {
     fn default() -> Self {
@@ -172,18 +167,15 @@ impl SessionState {
             ended: AtomicBool::new(false),
         }
     }
-    pub fn had_transport(&self) -> bool {
-        self.transports
-            .lock()
-            .map_or(true, |lifetime| lifetime.attached)
+    pub fn has_transport(&self) -> bool {
+        self.transports.lock().is_ok_and(|active| *active > 0)
     }
     fn attach(self: &Arc<Self>) -> Option<SessionTransport> {
         let mut transports = self.transports.lock().ok()?;
         if self.ended() {
             return None;
         }
-        transports.active += 1;
-        transports.attached = true;
+        *transports += 1;
         self.touch();
         Some(SessionTransport(Arc::clone(self)))
     }
@@ -209,9 +201,10 @@ struct SessionTransport(Arc<SessionState>);
 impl Drop for SessionTransport {
     fn drop(&mut self) {
         if let Ok(mut transports) = self.0.transports.lock() {
-            transports.active -= 1;
-            if transports.active == 0 {
-                self.0.end();
+            *transports -= 1;
+            if *transports == 0 {
+                // Start the reattach grace from last close, even after a quiet tunnel.
+                self.0.touch();
             }
         }
     }

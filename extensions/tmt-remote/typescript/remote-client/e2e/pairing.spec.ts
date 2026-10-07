@@ -329,12 +329,15 @@ test('a browser pairs, gets a door session and certifies only its own extension'
   // Two pages of one context share the device cookie but retain independent transports/lanes.
   const otherTab = await context.newPage();
   await otherTab.goto(`${mounts}colab/other`);
-  const attach = async (tab: Page) =>
-    tab.evaluate(async () => {
+  const attach = async (tab: Page, reuseSession = false) =>
+    tab.evaluate(async (reuseSession) => {
       const sdk = (await import(
         '/sdk/remote-v1.js' as string
       )) as typeof import('../src/browser.js');
-      const session = await sdk.reopenSession();
+      const session = reuseSession
+        ? (window as unknown as { remoteTest: { session: import('../src/device.js').Session } })
+            .remoteTest.session
+        : await sdk.reopenSession();
       const url = sdk.transportUrl(
         session,
         location.href.replace('http:', 'ws:').replace(/\/[^/]*$/, '/sync'),
@@ -346,7 +349,7 @@ test('a browser pairs, gets a door session and certifies only its own extension'
       });
       Object.assign(window, { remoteTest: { session, socket, remote: sdk.operations(session) } });
       return session.sessionId;
-    });
+    }, reuseSession);
   const firstSession = await attach(app);
   const secondSession = await attach(otherTab);
   expect(firstSession).not.toBe(secondSession);
@@ -360,33 +363,26 @@ test('a browser pairs, gets a door session and certifies only its own extension'
       return state.remote.listAgents();
     });
   expect(await list(app)).toEqual(await list(otherTab));
-  // Simulate transport loss while the tab remains mounted (background/sleep recovery).
-  await app.evaluate(async () => {
-    const state = (window as unknown as { remoteTest: { socket: WebSocket } }).remoteTest;
-    await new Promise<void>((resolve) => {
-      state.socket.onclose = () => resolve();
-      state.socket.close();
+  // Last-close keeps the same session usable inside the inactivity grace.
+  const closeTransport = async () =>
+    app.evaluate(async () => {
+      const state = (window as unknown as { remoteTest: { socket: WebSocket } }).remoteTest;
+      await new Promise<void>((resolve) => {
+        state.socket.onclose = () => resolve();
+        state.socket.close();
+      });
     });
-  });
-  await expect
-    .poll(async () =>
-      app.evaluate(async () => {
-        const state = (
-          window as unknown as {
-            remoteTest: { remote: import('../src/operations.js').RemoteOperations };
-          }
-        ).remoteTest;
-        try {
-          await state.remote.listAgents();
-          return 'live';
-        } catch (error) {
-          return (error as { code?: string }).code;
-        }
-      }),
-    )
-    .toBe('REMOTE_SESSION_ENDED');
+  await closeTransport();
+  expect(await list(app)).toHaveLength(1);
   expect(await list(otherTab)).toHaveLength(1);
-  await attach(app);
+  expect(await attach(app, true)).toBe(firstSession);
+  expect(await list(app)).toHaveLength(1);
+  expect(await list(otherTab)).toHaveLength(1);
+  // Explicit reopen still creates an independent session; no send is retried.
+  await closeTransport();
+  const reopenedSession = await attach(app);
+  expect(reopenedSession).not.toBe(firstSession);
+  expect(reopenedSession).not.toBe(secondSession);
   expect(await list(app)).toHaveLength(1);
   // Closing one tab drops its transport; the surviving tab remains usable.
   await otherTab.close();

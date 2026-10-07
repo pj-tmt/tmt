@@ -46,8 +46,10 @@ Rules that are easy to get wrong:
 - **Mount trust.** Mounted extensions share one trust domain behind the door.
   The device context header is added only for a live owner session and is never
   copied from a client. Session lifetime counts successful upgraded transports;
-  last-close marks the session ended, and the door maintenance loop persists cleanup.
-  Never-attached and attached idle limits belong to `limits`; `session` owns
+  last-close touches the session, starting the short inactivity grace for every session
+  without a live transport. Reattach resumes that session; detached sessions count against
+  the cap until expiry. Live-transport and no-transport idle limits belong to `limits`;
+  the door maintenance loop persists expiry cleanup. `session` owns
   per-session replay and device-wide authority loss. Held work belongs to the grant and
   survives session end; only stop/revoke/expiry/revision change cancels it. The journal/ack remain per device.
 - **Session cap.** `session.open` rereads `settings` on each open. Unset settings
