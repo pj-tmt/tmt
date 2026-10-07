@@ -853,7 +853,7 @@ Native `tmt colab threads <page> [--json]` reads the same authenticated current-
 conversation projection as export. Its page operand uses the same owner-catalog
 short-prefix resolution as other page commands; thread IDs remain full UUIDs. `threads resolve <page> <thread>` and `threads
 reopen <page> <thread>` publish an agent-labelled status action through the local
-writer as one `kind:"own"` content publication (see Content publication), using its
+writer as one native publication job of `kind:"own"` (see Content publication), using its
 shared content/own sequence and the same fenced ciphertext commit, offline or through
 the running serve's `page-publish` route. Preparation edits only the writer's admitted
 own structs in the isolated child. Its outcome handling is the page write's: an
@@ -2588,6 +2588,9 @@ effect or authority promotion; later commit rechecks current authority and the f
 `page::prepare_own_publication` freezes the same job for the status action's one
 own-namespace update (`kind:"own"`, see the manifest below): the commit appends each entry
 to the stream namespace its kind names, and a serve broadcasts each entry as any other.
+For an own job `nativeEvidence.sourceSha256` is the digest of the page's current source at
+preparation: evidence only, since the job carries no source edit; `memoryLimit` is the
+decoder profile of the own preparation and `chainHash` binds the writer chain as for content.
 Both native single-edit and batch preparation include all own bytes in the checked whole-state
 raw fastpath and use one gzip stream at the unchanged 5,000,000-byte budget. `tmt colab page write`
 and the serving route above are its production callers. Browser Save still publishes through

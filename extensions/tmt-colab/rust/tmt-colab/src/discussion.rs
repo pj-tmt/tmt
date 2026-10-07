@@ -2,12 +2,12 @@
 //! and export projection own interpretation; the isolated decoder alone edits Yjs.
 use crate::{
     Result,
-    decoder::{Decoder, OwnRecord, UpdateBatch},
+    decoder::{Decoder, OwnRecord},
     export::conversations::{self, Conversations},
     fold::{Snapshot, View as Folded},
     keyring::Keyring,
     page::{self, Fault},
-    store::{Namespace, Store},
+    store::Store,
     threads::status::{Action, Reference},
 };
 use serde::Serialize;
@@ -125,31 +125,7 @@ pub fn prepare_status(
         key: key_name,
         value,
     }];
-    // Only that writer's authenticated structs enter the edit, never the shared
-    // document or another writer's plain projection re-encoded as a new document.
-    let updates: Vec<&[u8]> = folded
-        .local_own_update
-        .as_ref()
-        .into_iter()
-        .map(Vec::as_slice)
-        .collect();
-    let prepared = decoder.prepare_own(
-        UpdateBatch {
-            namespace: Namespace::Own,
-            baseline: &[],
-            updates: &updates,
-        },
-        &records,
-        None,
-    )?;
-    let publication = page::prepare_own_publication(
-        key,
-        page,
-        &snapshot,
-        &prepared.merged,
-        &folded.source,
-        prepared.memory_limit,
-        now,
-    )?;
+    let publication =
+        page::freeze_own_records(key, page, &snapshot, &folded, &records, decoder, now)?;
     Ok(Some((publication, action)))
 }

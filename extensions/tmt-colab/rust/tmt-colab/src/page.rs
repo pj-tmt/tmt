@@ -413,6 +413,58 @@ pub(crate) fn prepare_own_publication(
         now,
     )
 }
+/// Own records of the local writer, prepared against one materialization and frozen as one
+/// own publication. Only that writer's authenticated structs enter the edit, never the shared
+/// document or another writer's plain projection re-encoded as a new document.
+pub(crate) fn freeze_own_records(
+    key: &Keyring,
+    page: &str,
+    s: &Snapshot,
+    folded: &fold::View,
+    records: &[crate::decoder::OwnRecord],
+    decoder: &mut Decoder,
+    now: u64,
+) -> Result<FrozenPublication> {
+    use crate::decoder::UpdateBatch;
+    let updates: Vec<&[u8]> = folded
+        .local_own_update
+        .as_ref()
+        .into_iter()
+        .map(Vec::as_slice)
+        .collect();
+    let prepared = decoder.prepare_own(
+        UpdateBatch {
+            namespace: Namespace::Own,
+            baseline: &[],
+            updates: &updates,
+        },
+        records,
+        None,
+    )?;
+    prepare_own_publication(
+        key,
+        page,
+        s,
+        &prepared.merged,
+        &folded.source,
+        prepared.memory_limit,
+        now,
+    )
+}
+/// Publishes immutable records into the local writer's own stream through the same job a
+/// status action uses. A record already present with the same value is left out of the edit.
+pub fn prepare_own_records(
+    store: &Store,
+    key: &Keyring,
+    page: &str,
+    records: &[crate::decoder::OwnRecord],
+    decoder: &mut Decoder,
+    now: u64,
+) -> Result<FrozenPublication> {
+    let s = snapshot(store, key, page, true)?;
+    let folded = s.materialize(key, page, decoder)?;
+    freeze_own_records(key, page, &s, &folded, records, decoder, now)
+}
 /// The local writer and the unexpired certificate chain it already holds, if any.
 struct Author {
     id: String,

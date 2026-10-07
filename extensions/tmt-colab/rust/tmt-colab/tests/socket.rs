@@ -2830,6 +2830,142 @@ fn root_local_page_publish_broadcasts_each_entry_in_order_and_replays_without_fa
     );
 }
 
+#[test]
+fn root_local_page_publish_carries_an_own_status_job_to_peers_and_later_readers() {
+    use tmt_colab::{
+        decoder::{Decoder, OwnRecord},
+        discussion::{self, StatusEdit},
+        page,
+        publication::Outcome,
+    };
+    const THREAD: &str = "40000000-0000-4000-8000-000000000001";
+    let (server, layout, key, mut peer) = publish_fixture();
+    let mut decoder = Decoder::with_config(support::decoder_config(
+        env!("CARGO_BIN_EXE_tmt-colab").into(),
+    ))
+    .unwrap();
+    // The local writer authors every record below; its stream ID is the one a content job names.
+    let stream = prepare_write(&layout, &key, "unused")
+        .job()
+        .manifest
+        .stream_id
+        .clone();
+    // Seed one anchored thread by the same own-kind route, then resolve it.
+    let thread = json!({"version":1,"kind":"thread","spaceId":key.space_id,"pageId":PAGE,
+        "epoch":"1","senderDevice":stream,"revision":"1","deleted":false,
+        "deviceName":"Local CLI","at":now().to_string(),"threadId":THREAD,
+        "anchor":{"exact":"x","prefix":"","suffix":""},"resolved":false});
+    let store = Store::read(&layout).unwrap();
+    let seed = page::prepare_own_records(
+        &store,
+        &key,
+        PAGE,
+        &[OwnRecord {
+            root: "threads".into(),
+            key: format!("{THREAD}:1"),
+            value: thread,
+        }],
+        &mut decoder,
+        now(),
+    )
+    .unwrap();
+    store.close().unwrap();
+    let seeded = page::ipc::publish(&layout, &key, &seed).unwrap().unwrap();
+    assert!(matches!(
+        seeded.record.outcome,
+        Outcome::Committed { count: 1, .. }
+    ));
+    let own_broadcast = |peer: &mut WebSocket<UnixStream>, frozen: &page::FrozenPublication| {
+        let frame = receive(peer);
+        assert_eq!(frame["type"], "broadcast");
+        assert_eq!(frame["streamId"], stream);
+        let entry = &frozen
+            .job()
+            .verify_packet(frozen.packet(), &author_key(frozen))
+            .unwrap()[0];
+        assert_eq!(frame["seq"], entry.header.context.stream_seq);
+        assert_eq!(
+            frame["envelopeHash"],
+            values::encode_binary(&entry.envelope.hash().unwrap())
+        );
+        // The broadcast names no namespace: the sealed header the peer authenticates does.
+        let sent =
+            values::binary(frame["envelope"].as_str().unwrap(), limits::UPDATE_BYTES).unwrap();
+        let header =
+            object::Header::decode(object::Envelope::from_json(&sent).unwrap().header()).unwrap();
+        assert_eq!(header.context.namespace, "own");
+        entry.envelope.hash().unwrap()
+    };
+    own_broadcast(&mut peer, &seed);
+    let store = Store::read(&layout).unwrap();
+    let before = discussion::read(&store, &key, PAGE, &mut decoder).unwrap();
+    assert!(!before.conversations.threads[0].resolved);
+    let (status, action) = discussion::prepare_status(
+        &store,
+        &key,
+        PAGE,
+        StatusEdit {
+            thread: THREAD,
+            resolved: true,
+            agent_name: Some("Review agent"),
+        },
+        &mut decoder,
+        now(),
+    )
+    .unwrap()
+    .unwrap();
+    store.close().unwrap();
+    let published = page::ipc::publish(&layout, &key, &status).unwrap().unwrap();
+    let Outcome::Committed {
+        count,
+        final_position,
+        ..
+    } = &published.record.outcome
+    else {
+        panic!("{:?}", published.record.outcome)
+    };
+    assert_eq!((*count, final_position.seq.as_str()), (1, "2"));
+    let hash = own_broadcast(&mut peer, &status);
+    // An exact replay answers with the retained bytes and broadcasts nothing.
+    let replay = page::ipc::publish(&layout, &key, &status).unwrap().unwrap();
+    assert_eq!(replay.record.bytes, published.record.bytes);
+    peer.send(Message::Ping(vec![3].into())).unwrap();
+    assert!(
+        matches!(peer.read().unwrap(), Message::Pong(_)),
+        "a replay was broadcast again"
+    );
+    // A later native reader sees the authenticated resolved state and the agent's label.
+    let store = Store::read(&layout).unwrap();
+    let after = discussion::read(&store, &key, PAGE, &mut decoder).unwrap();
+    let row = &after.conversations.threads[0];
+    assert!(row.resolved);
+    assert_eq!(row.status.as_ref().unwrap().reference.id, action.action_id);
+    assert_eq!(
+        row.status.as_ref().unwrap().action.agent_name.as_deref(),
+        Some("Review agent")
+    );
+    assert_eq!(
+        page::publication_receipt(status.job(), &published.record)
+            .unwrap()
+            .publication
+            .unwrap()
+            .envelope_hash,
+        values::encode_binary(&hash)
+    );
+    store.close().unwrap();
+    // A second browser peer that joins afterwards catches up with the status envelope.
+    let mut reader = server.peer(OTHER);
+    let pages = hello(&server, &mut reader, OTHER);
+    assert!(
+        pages
+            .iter()
+            .flat_map(|p| p["streams"].as_array().unwrap())
+            .flat_map(|s| s["tail"].as_array().unwrap())
+            .any(|t| t["envelopeHash"] == values::encode_binary(&hash)),
+        "{pages:?}"
+    );
+}
+
 fn checkpoint_rows(server: &Running) -> i64 {
     server
         .oracle()
