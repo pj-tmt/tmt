@@ -171,18 +171,22 @@ fn channel_mock(args: &[std::ffi::OsString], index: usize, mock: &std::ffi::OsSt
     };
     drop(listener);
     fs::remove_file(socket).unwrap();
+    // Streaming copies must wait for the next frame, including on hosts whose
+    // accepted socket inherits the listener's nonblocking mode.
+    connection.set_nonblocking(false).unwrap();
     let mut input = connection.try_clone().unwrap();
     let mut output = connection.try_clone().unwrap();
     let mut stdin = channel.stdin.take().unwrap();
     let mut stdout = channel.stdout.take().unwrap();
     let status = std::thread::scope(|scope| {
-        scope.spawn(move || {
-            let _ = io::copy(&mut input, &mut stdin);
+        let client_to_server = scope.spawn(move || {
             // EOF closes the real MCP child's stdin before the peer's close receipt.
+            io::copy(&mut input, &mut stdin)
         });
-        scope.spawn(move || {
-            let _ = io::copy(&mut stdout, &mut output);
+        let server_to_client = scope.spawn(move || {
+            let result = io::copy(&mut stdout, &mut output);
             let _ = output.shutdown(Shutdown::Write);
+            result
         });
         let status = peer.wait().expect("reap model-free MCP client");
         let _ = connection.shutdown(Shutdown::Both);
@@ -191,6 +195,16 @@ fn channel_mock(args: &[std::ffi::OsString], index: usize, mock: &std::ffi::OsSt
         }
         let channel_status = channel.wait().expect("reap native provider's MCP child");
         assert!(channel_status.success() || !status.success());
+        if status.success() {
+            client_to_server
+                .join()
+                .unwrap()
+                .expect("forward MCP client to native child");
+            server_to_client
+                .join()
+                .unwrap()
+                .expect("forward native MCP child to client");
+        }
         status
     });
     status.code().unwrap_or(1)
