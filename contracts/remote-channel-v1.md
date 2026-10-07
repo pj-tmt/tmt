@@ -997,7 +997,10 @@ Visibility is the extension's rule, not a remote grant.
 **Status:** library wire schema only. `rust/crates/tmt-extension-objects` implements and tests the five frame kinds below
 (request, result, admit, admission and origin-state), all decoded and encoded by the same checks, and, on Unix, the
 carrier below that opens the channel, moves frames with bounded waits and enforces direction and correlation; no mount
-or route integration, callback executor or backend is shipped (#1852). Requests, results
+or route integration, callback executor or backend is shipped (#1852). Remote's object service (`tmt-remote`, library
+code that is not routed or reachable in production) opens the channel to an extension only when a static, trusted
+per-extension declaration enables it; every production declaration is disabled and nothing in production opens a
+channel. Requests, results
 and admission replies carry no principal, role, permit, retry or scope: `method`, the result tag and the callback
 identifiers are correlation only. An admit `context` states the owner device and grant revision as Remote established
 them, for the extension's own decision; a browser or caller never selects it, and nothing in a context, identifier,

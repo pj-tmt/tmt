@@ -5,8 +5,11 @@ Follow [tmt-dev](../../tmt-dev/SKILL.md) and the
 [storage proposal](../../../../extensions/tmt-colab/contracts/storage-v1-proposal.md)
 owns the accepted behavior and bounds; this guide owns how the implemented backend
 in `extensions/tmt-remote/rust/tmt-remote/src/objects*` works and how to add an
-adapter. Nothing here is reachable from a route, the SDK or a setting yet: the
-admitted channel, configuration and consumers belong to #1852 and later children.
+adapter. Nothing here is reachable from a route, the SDK or a setting, and no
+production extension declares object storage (`mount::ObjectDeclaration`, disabled for
+every entry of `mount::EXTENSIONS`): the lease-bound `object_service` below is library
+code that tests exercise; the routed channel and consumers belong to #1852 and later
+children.
 
 ## Modules
 
@@ -17,6 +20,15 @@ admitted channel, configuration and consumers belong to #1852 and later children
 | `objects/tree.rs`                                              | Directory-handle, no-follow traversal of one extension's `<dataRoot>/<extension>/objects/{staging,blobs}` tree                         |
 | `objects/local.rs`                                             | `LocalFs` (coordinator) and `LocalHandle` (one extension's backend), in-flight guards, the effect order below                          |
 | `src/objects/*/tests.rs`, `tests/objects.rs`, `tests/objects/` | Crash windows and races at named milestones; the reusable conformance suite, an independent in-memory adapter, `LocalFs` safety tests  |
+
+`ObjectService` (`src/object_service.rs`, not under `objects/`) is the one installation
+owner above these: it opens `LocalFs` only when a static declaration enables an extension
+(`ObjectService::open` refuses readiness when accounting cannot settle and creates
+nothing otherwise), keeps at most one active bus and one setup candidate per extension and
+eight buses in all, and opens a channel only on an explicit `activate` (no retry, no
+polling). `activate` is not called by production code. Its extension names come only from
+the declaration list and it names no extension itself. The dispatcher, config answers and
+jobs are described with their code once they land.
 
 `LocalFs` borrows the `Serving` proof, so the lease cannot be released while it or a
 handle exists, and `Store::open` and the ledger share only the private connection setup

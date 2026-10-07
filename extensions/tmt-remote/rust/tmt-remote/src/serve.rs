@@ -24,7 +24,9 @@ use tmt_remote::{
     devices::Devices,
     error::RemoteError,
     http::{Door, Handler},
-    mount::Mounts,
+    mount::{self, Mounts},
+    object_service::{ObjectService, ServiceBounds},
+    objects::{IoBudget, Quotas, system_clock},
     operations::Operations,
     pages::Pages,
     pairing::{Pairing, Timing},
@@ -632,6 +634,19 @@ fn foreground(
         let machine_key = MachineKey::open(&layout)?;
         fence(stop)?;
         let mut store = Store::open(&serving)?;
+        // Declared object storage settles its accounting before readiness or refuses it.
+        // Nothing declares objects in production, so this opens nothing today.
+        let objects = ObjectService::open(
+            &serving,
+            &mount::EXTENSIONS,
+            Quotas::contract(),
+            system_clock(),
+            ServiceBounds::contract(),
+            &IoBudget {
+                deadline: Instant::now() + STARTUP,
+                cancelled: stop,
+            },
+        )?;
         let machine = store.machine()?;
         let requested = port;
         let remembered = store.remembered_port()?;
@@ -735,6 +750,7 @@ fn foreground(
         control.stop();
         approval.cancel_pending()?;
         drop(events);
+        drop(objects);
         result
     })();
     if let (Some(diagnostic), Err(error)) = (&mut diagnostic, &result) {

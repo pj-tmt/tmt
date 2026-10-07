@@ -473,9 +473,12 @@ describe('extension objects leaf attribution', () => {
       expect(cutsOf(sources, product, edges), product).toBe(count);
   });
 
-  it('keeps a prefix-sharing path with CLI and the real workspace leaf free of consumers', () => {
+  it('keeps a prefix-sharing path with CLI and releases the real workspace leaf with Remote alone', () => {
     expect(productsOf(`${leaf}-other/src/lib.rs`, [['tmt-colab', 'normal']])).toEqual(['cli']);
     expect(affectedProducts([sources], map, workspace).products).toEqual(['remote']);
-    expect(releasedComponentsForPath(sources, map, workspace)).toEqual([]);
+    // Remote's object service is the leaf's only consumer, so a leaf change releases Remote.
+    expect(
+      releasedComponentsForPath(sources, map, workspace).map((component) => component.name)
+    ).toEqual(['tmt-remote']);
   });
 });

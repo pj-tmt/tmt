@@ -1965,7 +1965,7 @@ fn refuses(
 }
 
 #[test]
-fn extension_objects_is_a_strict_leaf_with_no_product_consumer_yet() {
+fn extension_objects_is_a_strict_leaf_consumed_only_by_the_remote_object_service() {
     for kind in ["normal", "dev", "build"] {
         for target in [None, Some("cfg(unix)")] {
             for allowed in ["base64", "serde", "serde_json"] {
@@ -2034,12 +2034,18 @@ fn extension_objects_is_a_strict_leaf_with_no_product_consumer_yet() {
                     "renamed {carrier} {kind} {target:?}"
                 );
             }
-            // No package, including Remote and Colab, depends on the leaf yet.
+            // Only Remote depends on the leaf, as a plain normal dependency: no other
+            // package, and no rename, dev, build or target-gated edge of Remote.
             for consumer in WORKSPACE_PACKAGES {
                 for rename in [None, Some("objects")] {
-                    assert!(
+                    let reviewed = consumer == "tmt-remote"
+                        && kind == "normal"
+                        && target.is_none()
+                        && rename.is_none();
+                    assert_eq!(
                         refuses(consumer, "tmt-extension-objects", kind, target, rename),
-                        "{consumer} must not depend on the leaf ({kind}, {target:?}, {rename:?})"
+                        !reviewed,
+                        "{consumer} -> leaf ({kind}, {target:?}, {rename:?})"
                     );
                 }
             }
@@ -2050,6 +2056,44 @@ fn extension_objects_is_a_strict_leaf_with_no_product_consumer_yet() {
             !policy::source_violations(&[syntax(
                 consumer,
                 "objects.rs",
+                "use tmt_extension_objects::Counter;"
+            )])
+            .is_empty(),
+            "{consumer}"
+        );
+    }
+    // Remote's object service may name the leaf; no other Remote file, no other package.
+    for file in ["object_service.rs", "object_service/bus.rs"] {
+        assert_exact(
+            &[syntax(
+                "tmt-remote",
+                file,
+                "use tmt_extension_objects::Counter;",
+            )],
+            &[],
+        );
+    }
+    for file in [
+        "mount.rs",
+        "serve.rs",
+        "objects/local.rs",
+        "object_services.rs",
+    ] {
+        assert!(
+            !policy::source_violations(&[syntax(
+                "tmt-remote",
+                file,
+                "use tmt_extension_objects::Counter;"
+            )])
+            .is_empty(),
+            "{file}"
+        );
+    }
+    for consumer in WORKSPACE_PACKAGES.iter().filter(|p| **p != "tmt-remote") {
+        assert!(
+            !policy::source_violations(&[syntax(
+                consumer,
+                "object_service.rs",
                 "use tmt_extension_objects::Counter;"
             )])
             .is_empty(),
