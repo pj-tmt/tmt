@@ -831,7 +831,7 @@ fn squad_view(
         input: super::rate::Input::observed(&squad.room_id, &observation.members),
     });
     let crate::observe::Projected {
-        document,
+        mut document,
         sent,
         notes,
     } = observation.document(
@@ -846,6 +846,7 @@ fn squad_view(
             rows: &rows,
         },
     )?;
+    crate::focus::enrich(core, &mut [&mut document]);
     let attention = BTreeMap::from([(squad.name.clone(), Attention::of(&document))]);
     let mut replies = match &sent {
         Some(sent) if preview_panes || board.members || board.panes.contains(&Pane::Replies) => {

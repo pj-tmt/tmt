@@ -147,6 +147,13 @@ fn prepare(
                 visible.push("pending");
             }
         }
+        if extra
+            .focus
+            .as_ref()
+            .is_some_and(|text| text.width() <= usize::from(area.width).saturating_sub(2))
+        {
+            visible.push("focus");
+        }
         extra.detail = app.detail_value(index, &visible);
     }
     let scene = RowPaint::build(
@@ -200,6 +207,7 @@ pub(super) fn render_rows(frame: &mut Frame, app: &App, area: Rect) {
             };
             Extra {
                 lead: origin == RowOrigin::Lead,
+                focus: crate::focus::label(row, request_now),
                 detail: app.detail_value(index, &[]),
                 next: row["id"]
                     .as_str()

@@ -32,6 +32,7 @@ const MARKUP: &str = r#"<tmt-view version="1">
 <tmt-text id="age" bind="row.age" token="dim" class="shrink-0"/>
 <tmt-text id="fill" class="grow h-1"/>
 </tmt-row>
+<tmt-repeat each="row.focus" as="focus"><tmt-row id="focus" class="w-full h-1"><tmt-text id="focus-gap" class="shrink-0">   </tmt-text><tmt-text id="focus-word" bind="focus.word" token="text" class="shrink-0"/><tmt-text id="focus-suffix" bind="focus.suffix" token="muted" class="shrink-0"/></tmt-row></tmt-repeat>
 <tmt-repeat each="row.after" as="extra"><tmt-row id-bind="extra.id" class="h-1"><tmt-text id="text" bind="extra.text" token-bind="extra.role" class="shrink-0"/></tmt-row></tmt-repeat>
 </tmt-col></tmt-repeat>
 </tmt-view>"#;
@@ -65,6 +66,13 @@ fn schema() -> Schema {
                 ("name", Schema::Scalar),
                 ("squad", Schema::Scalar),
                 ("age", Schema::Scalar),
+                (
+                    "focus",
+                    list(object(&[
+                        ("word", Schema::Scalar),
+                        ("suffix", Schema::Scalar),
+                    ])),
+                ),
                 ("after", list(line())),
             ])),
         ),
@@ -156,7 +164,14 @@ pub(super) fn paint(
             {
                 after.push(json!({"id": format!("reserve-{line}"), "text": null, "role": null}));
             }
+            let budget = width.saturating_sub(3);
+            let visible = if crate::focus::fitted(entry.row, now, budget).2 {
+                vec!["focus"]
+            } else {
+                vec![]
+            };
             json!({
+                "focus":crate::focus::pieces(entry.row, now, budget),
                 "id": id(local),
                 "mark": format!(" {} ", if waiting { "◆" } else { "✗" }),
                 "mark_role": if waiting { Role::Waiting } else { Role::Blocked }.name(),
@@ -164,7 +179,7 @@ pub(super) fn paint(
                 "squad": fit(&escape(&entry.target.squad), available.saturating_sub(name_width)),
                 "age": format!(" {age}"),
                 "after": after,
-                "detail": app.detail_value(index,&[]),
+                "detail": app.detail_value(index,&visible),
             })
         })
         .collect::<Vec<_>>();
@@ -222,7 +237,9 @@ fn build(key: &Key) -> Block {
                     look.role(Role::Working)
                 }
                 Some("mark") => base.patch(span(look.role(role), true)),
-                Some("name" | "squad" | "age") => base.patch(span(look.role(role), false)),
+                Some("name" | "squad" | "age" | "focus-word" | "focus-suffix" | "focus-gap") => {
+                    base.patch(span(look.role(role), false))
+                }
                 Some("fill") => base,
                 _ => Style::new(),
             };
@@ -254,7 +271,11 @@ fn build(key: &Key) -> Block {
         }
         let count = crate::board::row_detail::insert(
             &mut lines,
-            row.start + 1,
+            row.start
+                + 1
+                + key.data["rows"][row.local]["focus"]
+                    .as_array()
+                    .map_or(0, Vec::len),
             &key.data["rows"][row.local]["detail"],
             key.width,
             3,

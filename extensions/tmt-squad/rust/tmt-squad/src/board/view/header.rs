@@ -52,6 +52,18 @@ pub(in crate::board) fn time_marks(app: &App, now: u64) -> Vec<String> {
             .flat_map(|section| &section.rows)
             .filter_map(|row| row.age.as_ref())
             .map(|age| crate::board::home::age_label(age, now))
+            .chain(
+                home.sections
+                    .iter()
+                    .flat_map(|section| &section.rows)
+                    .filter_map(|row| crate::focus::label(&row.member, now)),
+            )
+            .chain(
+                app.home_leads
+                    .leads
+                    .iter()
+                    .filter_map(|lead| crate::focus::label(&lead.row, now)),
+            )
             .chain(app.home_leads.leads.iter().filter_map(|lead| {
                 lead.exchange
                     .as_ref()?
@@ -72,6 +84,11 @@ pub(in crate::board) fn time_marks(app: &App, now: u64) -> Vec<String> {
         .into_iter()
         .filter_map(|(_, row)| super::waiting::age(row, now))
         .collect();
+    marks.extend(
+        app.rows()
+            .into_iter()
+            .filter_map(|(_, row)| crate::focus::label(row, now)),
+    );
     if board.members {
         marks.extend(app.rows().into_iter().filter_map(|(_, row)| {
             row["staleness"]["unchangedSinceMs"]

@@ -132,7 +132,8 @@ pub fn load(
         None
     };
     let all = squads.iter().collect::<Vec<_>>();
-    let acquired = roster_documents(core, config, &all, me, listed.as_ref());
+    let mut acquired = roster_documents(core, config, &all, me, listed.as_ref());
+    acquired.focus(core);
     document(config, &settings, tabs, key, &acquired)
 }
 
@@ -385,6 +386,19 @@ fn project_rows(
 }
 
 impl Acquired {
+    /// One optional batched policy read shared by source documents and flat rows.
+    pub fn focus(&mut self, core: &Core) {
+        let mut values = self
+            .documents
+            .values_mut()
+            .chain(
+                self.rows
+                    .values_mut()
+                    .flat_map(|rows| rows.iter_mut().map(|row| &mut row.value)),
+            )
+            .collect::<Vec<_>>();
+        crate::focus::enrich(core, &mut values);
+    }
     /// Display names from the same full roster as member_ids, before row filters.
     pub fn member_names(&self, squad: &str) -> BTreeMap<String, String> {
         self.rows

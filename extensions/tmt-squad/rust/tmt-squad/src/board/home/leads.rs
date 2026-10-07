@@ -101,7 +101,14 @@ pub(super) fn paint(
                 row["state_role"] = json!("text");
                 row["separator"] = json!([]);
                 row["after"] = json!(after);
-                row["detail"] = app.detail_value(index, &[]);
+                let budget = usize::from(area.width.saturating_sub(5));
+                row["focus"] = crate::focus::pieces(&lead.row, now, budget);
+                let visible = if crate::focus::fitted(&lead.row, now, budget).2 {
+                    vec!["focus"]
+                } else {
+                    vec![]
+                };
+                row["detail"] = app.detail_value(index, &visible);
                 row
             })
             .collect::<Vec<_>>();

@@ -37,6 +37,7 @@ pub(in crate::board) struct Extra {
     /// Blank lines under the row for the inline input band.
     pub reserve: usize,
     pub detail: Value,
+    pub focus: Option<String>,
 }
 
 /// The row-end label candidates, longest first: the age mark then `cron next`, then
@@ -417,6 +418,40 @@ impl RowPaint {
                 self.parts[index].emphasize = true;
                 if let Some(age) = &extra.request_age {
                     self.row_end(root, std::slice::from_ref(age), 4 + room, y, width);
+                }
+                y += 1;
+            }
+        }
+        if let Some(focus) = &extra.focus {
+            let budget = width.saturating_sub(2);
+            if budget >= 5 {
+                let suffix = if focus.width() <= budget {
+                    &focus[5..]
+                } else {
+                    ""
+                };
+                self.label(
+                    None,
+                    (0, y, (7 + suffix.width()).min(width), 1),
+                    None,
+                    TextFlow::Clip,
+                    Some(root),
+                );
+                self.label(
+                    Some("focus".into()),
+                    (2, y, 5, 1),
+                    Some(Role::Text),
+                    TextFlow::Clip,
+                    Some(root),
+                );
+                if !suffix.is_empty() {
+                    self.label(
+                        Some(suffix.into()),
+                        (7, y, suffix.width(), 1),
+                        Some(Role::Muted),
+                        TextFlow::Clip,
+                        Some(root),
+                    );
                 }
                 y += 1;
             }
