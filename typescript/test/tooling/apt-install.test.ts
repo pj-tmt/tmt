@@ -32,12 +32,12 @@ beforeAll(() => {
   tool(
     'timeout',
     `printf '%s\\n' "$*" >> "$LOG_DIR/timeouts"
-[ "$1" = --verbose ] && [ "$2" = --kill-after=10s ] && [ "$3" = 120s ] || exit 98
+[ "$1" = --verbose ] && [ "$2" = --kill-after=10s ] && [ "$3" = 60s ] || exit 98
 shift 3
 case " $* " in *' update '*) phase=update;; *) phase=install;; esac
 printf '%s\\n' "$phase" >> "$LOG_DIR/$phase"
 count=$(wc -l < "$LOG_DIR/$phase")
-if [ "$phase" = "$FAIL_PHASE" ] && [ "$count" -le "$FAIL_COUNT" ]; then exit 124; fi
+if { [ "$phase" = "$FAIL_PHASE" ] || [ "$FAIL_PHASE" = both ]; } && [ "$count" -le "$FAIL_COUNT" ]; then exit 124; fi
 exec "$@"`
   );
   tool('apt-get', 'printf "%s\\n" "$*" >> "$LOG_DIR/apt"');
@@ -77,7 +77,7 @@ describe('apt-install composite action', () => {
     expect(lines('apt')).toEqual([update, install]);
     expect(lines('sudo')).toEqual([
       'rm -f /etc/apt/sources.list.d/google-chrome.list',
-      ...[update, install].map((args) => `timeout --verbose --kill-after=10s 120s apt-get ${args}`),
+      ...[update, install].map((args) => `timeout --verbose --kill-after=10s 60s apt-get ${args}`),
     ]);
     expect(lines('sleeps')).toEqual([]);
   });
@@ -90,6 +90,19 @@ describe('apt-install composite action', () => {
     expect(lines('apt')).toEqual([update, install]);
     expect(lines('sleeps')).toEqual(['5', '10']);
     expect(result.stderr).toContain('attempt 2 of 3 with status 124');
+  });
+
+  it('bounds both phases independently when each recovers on its third attempt', () => {
+    const { result, lines } = run('both', '2');
+    expect(result.status).toBe(0);
+    expect(lines('update')).toHaveLength(3);
+    expect(lines('install')).toHaveLength(3);
+    expect(lines('timeouts')).toEqual([
+      ...Array(3).fill(`--verbose --kill-after=10s 60s apt-get ${update}`),
+      ...Array(3).fill(`--verbose --kill-after=10s 60s apt-get ${install}`),
+    ]);
+    expect(lines('sleeps')).toEqual(['5', '10', '5', '10']);
+    expect(lines('apt')).toEqual([update, install]);
   });
 
   it.each(['update', 'install'])(
