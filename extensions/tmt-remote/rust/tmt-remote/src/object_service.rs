@@ -13,7 +13,7 @@
 use crate::{
     error::RemoteError,
     mount::{Extension, Mounts, ObjectDeclaration},
-    objects::{Clock, ExtensionId, IoBudget, LocalFs, LocalHandle, Quotas},
+    objects::{Clock, ExtensionId, IoBudget, LocalFs, LocalHandle, ObjectBackend, Quotas},
     state::Serving,
     store::uuid_v4,
 };
@@ -23,6 +23,12 @@ use std::{
     time::{Duration, Instant},
 };
 use tmt_extension_objects::{Budget, Budgets, Bus, Caps, Fault, Offer, Uuid4, initiate};
+
+mod config;
+mod dispatch;
+use config::ConfigSource;
+pub use dispatch::ChannelEnd;
+use dispatch::Running;
 
 /// Bounds of the service; [`ServiceBounds::contract`] is the proposed contract set and
 /// tests inject smaller values.
@@ -36,6 +42,12 @@ pub struct ServiceBounds {
     pub frames: Budgets,
     /// Outstanding requests and callbacks of one bus.
     pub caps: Caps,
+    /// Outstanding requests and callbacks of all buses together.
+    pub installation: Caps,
+    /// One admission callback is answered within this.
+    pub callback: Duration,
+    /// One request is answered within this, callbacks included.
+    pub request: Duration,
 }
 impl ServiceBounds {
     pub const fn contract() -> Self {
@@ -44,6 +56,12 @@ impl ServiceBounds {
             buses: 8,
             frames: Budgets::contract(),
             caps: Caps::contract(),
+            installation: Caps {
+                requests: 32,
+                callbacks: 32,
+            },
+            callback: Duration::from_secs(5),
+            request: Duration::from_secs(30),
         }
     }
 }
@@ -68,9 +86,19 @@ pub enum ActivateError {
 struct Declared {
     name: &'static str,
     id: ExtensionId,
+    /// What `objects.config` projects for this extension, fixed when the service opens.
+    source: ConfigSource,
     /// A candidate is being set up outside the lock.
     setup: bool,
-    active: Option<Bus>,
+    active: Option<Running>,
+}
+impl Declared {
+    /// Whether the extension has a channel that has not ended.
+    fn running(&self) -> bool {
+        self.active
+            .as_ref()
+            .is_some_and(|running| running.ended().is_none())
+    }
 }
 struct State {
     stopped: bool,
@@ -119,7 +147,7 @@ impl<'s> ObjectService<'s> {
         bounds: ServiceBounds,
         io: &IoBudget<'_>,
     ) -> Result<Option<Self>, RemoteError> {
-        let mut slots = Vec::new();
+        let mut declared = Vec::new();
         for extension in extensions
             .iter()
             .filter(|extension| extension.objects == ObjectDeclaration::Local)
@@ -130,21 +158,34 @@ impl<'s> ObjectService<'s> {
                     "An extension declares object storage under an invalid name.",
                 )
             })?;
-            slots.push(Declared {
-                name: extension.name,
-                id,
-                setup: false,
-                active: None,
-            });
+            declared.push((extension.name, id));
         }
-        if slots.is_empty() {
+        if declared.is_empty() {
             return Ok(None);
         }
         let storage = LocalFs::open(serving, quotas, clock, io)?;
+        let slots = declared
+            .into_iter()
+            .map(|(name, id)| {
+                let backend = storage.handle(id.clone());
+                let source = ConfigSource {
+                    backend_id: backend.id(),
+                    caps: backend.capabilities(),
+                    quotas,
+                };
+                Declared {
+                    name,
+                    id,
+                    source,
+                    setup: false,
+                    active: None,
+                }
+            })
+            .collect();
         Ok(Some(Self {
             storage,
             bounds,
-            budget: Budget::contract(),
+            budget: Budget::new(bounds.installation.requests, bounds.installation.callbacks),
             state: Mutex::new(State {
                 stopped: false,
                 slots,
@@ -164,11 +205,11 @@ impl<'s> ObjectService<'s> {
     /// `mounts` with exactly the `Host` and mount values the door sets on every request
     /// it sends that extension.
     pub fn activate(&self, mounts: &Mounts, name: &str) -> Result<Uuid4, ActivateError> {
-        let index = self.begin_setup(name)?;
-        let built = self.connect(mounts, name);
+        let (index, source) = self.begin_setup(name)?;
+        let built = self.connect(mounts, name, source);
         self.finish_setup(index, built)
     }
-    fn begin_setup(&self, name: &str) -> Result<usize, ActivateError> {
+    fn begin_setup(&self, name: &str) -> Result<(usize, ConfigSource), ActivateError> {
         let mut state = self.locked();
         if state.stopped {
             return Err(ActivateError::Stopped);
@@ -184,15 +225,20 @@ impl<'s> ObjectService<'s> {
         let buses: usize = state
             .slots
             .iter()
-            .map(|slot| usize::from(slot.setup) + usize::from(slot.active.is_some()))
+            .map(|slot| usize::from(slot.setup) + usize::from(slot.running()))
             .sum();
         if buses >= self.bounds.buses {
             return Err(ActivateError::Capacity);
         }
         state.slots[index].setup = true;
-        Ok(index)
+        Ok((index, state.slots[index].source))
     }
-    fn connect(&self, mounts: &Mounts, name: &str) -> Result<Bus, ActivateError> {
+    fn connect(
+        &self,
+        mounts: &Mounts,
+        name: &str,
+        source: ConfigSource,
+    ) -> Result<Running, ActivateError> {
         let setup = Instant::now() + self.bounds.setup;
         let endpoint = mounts
             .open_object_channel(name, setup)
@@ -207,20 +253,21 @@ impl<'s> ObjectService<'s> {
             generation,
         };
         let link = initiate(endpoint.stream, &offer, setup).map_err(ActivateError::Channel)?;
-        Bus::start(
+        let bus = Bus::start(
             link,
             self.bounds.frames,
             self.bounds.caps,
             Some(self.budget.clone()),
         )
-        .map_err(ActivateError::Channel)
+        .map_err(ActivateError::Channel)?;
+        Running::start(bus, source, &self.bounds).map_err(ActivateError::Channel)
     }
     fn finish_setup(
         &self,
         index: usize,
-        built: Result<Bus, ActivateError>,
+        built: Result<Running, ActivateError>,
     ) -> Result<Uuid4, ActivateError> {
-        // Buses are closed after the lock is released: closing joins a thread.
+        // Channels are ended after the lock is released: ending joins threads.
         let (result, closing) = {
             let mut state = self.locked();
             let stopped = state.stopped;
@@ -228,15 +275,15 @@ impl<'s> ObjectService<'s> {
             slot.setup = false;
             match built {
                 Err(error) => (Err(error), None),
-                Ok(bus) if stopped => (Err(ActivateError::Stopped), Some(bus)),
-                Ok(bus) => {
-                    let generation = bus.generation();
-                    (Ok(generation), slot.active.replace(bus))
+                Ok(running) if stopped => (Err(ActivateError::Stopped), Some(running)),
+                Ok(running) => {
+                    let generation = running.generation();
+                    (Ok(generation), slot.active.replace(running))
                 }
             }
         };
-        if let Some(bus) = closing {
-            bus.close();
+        if let Some(running) = closing {
+            running.end();
         }
         result
     }
@@ -245,18 +292,29 @@ impl<'s> ObjectService<'s> {
     pub fn active(&self, name: &str) -> Option<Uuid4> {
         let state = self.locked();
         let slot = state.slots.iter().find(|slot| slot.name == name)?;
-        slot.active.as_ref().map(Bus::generation)
+        slot.active
+            .as_ref()
+            .filter(|running| running.ended().is_none())
+            .map(Running::generation)
     }
-    /// The fault that ended the extension's active bus, if it has ended.
-    pub fn fault(&self, name: &str) -> Option<Fault> {
+    /// Why the extension's last channel is over, if it has ended.
+    pub fn ended(&self, name: &str) -> Option<ChannelEnd> {
         let state = self.locked();
         let slot = state.slots.iter().find(|slot| slot.name == name)?;
-        slot.active.as_ref().and_then(Bus::fault)
+        slot.active.as_ref().and_then(Running::ended)
+    }
+    /// The bus of the extension's channel, which is gone once the channel's threads end.
+    #[cfg(test)]
+    fn bus(&self, name: &str) -> Option<std::sync::Weak<Bus>> {
+        let state = self.locked();
+        let slot = state.slots.iter().find(|slot| slot.name == name)?;
+        slot.active.as_ref().map(Running::bus)
     }
 
-    /// Stop: later activations are refused, and every active bus is closed and joined.
+    /// Stop: later activations are refused, and every channel is ended: its threads are
+    /// joined and its bus closed.
     pub fn shutdown(&self) {
-        let buses: Vec<Bus> = {
+        let channels: Vec<Running> = {
             let mut state = self.locked();
             state.stopped = true;
             state
@@ -265,8 +323,8 @@ impl<'s> ObjectService<'s> {
                 .filter_map(|slot| slot.active.take())
                 .collect()
         };
-        for bus in buses {
-            bus.close();
+        for running in channels {
+            running.end();
         }
     }
 

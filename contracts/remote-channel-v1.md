@@ -1000,7 +1000,9 @@ carrier below that opens the channel, moves frames with bounded waits and enforc
 or route integration, callback executor or backend is shipped (#1852). Remote's object service (`tmt-remote`, library
 code that is not routed or reachable in production) opens the channel to an extension only when a static, trusted
 per-extension declaration enables it; every production declaration is disabled and nothing in production opens a
-channel. Requests, results
+channel. On an opened channel it answers `config` for a local-extension origin only, after a current `acquire` admission
+and before a current `disclose` admission; a mounted origin is answered `denied` and each of the other six methods
+`unavailable`, without a callback or effect. Requests, results
 and admission replies carry no principal, role, permit, retry or scope: `method`, the result tag and the callback
 identifiers are correlation only. An admit `context` states the owner device and grant revision as Remote established
 them, for the extension's own decision; a browser or caller never selects it, and nothing in a context, identifier,
@@ -1064,6 +1066,12 @@ refuses ends the channel, so a duplicate, stale, mismatched or out-of-order fram
 frames and 524,288 bytes; reading pauses while it is full, and the peer's own write bound ends a peer that outruns it.
 Frames received before a fault are delivered before it is reported. The first fault is kept and every later call reports
 it. Closing, or dropping, shuts the socket down, wakes every waiter and joins the thread.
+
+**Admission outcomes.** Remote asks the extension afresh for every request and remembers no decision for a later one.
+`deny` is answered `denied` and an `unavailable` decision `unavailable`; neither, and no missing answer, is ever treated
+as an allow. A callback left unanswered past 5 s, or past the request's own 30 s, ends the channel and sends no result,
+because a result is refused while a callback is outstanding. A request is read by one dispatcher that never waits for a
+decision, so decisions are delivered while workers wait for them.
 
 **Request** `{"version":1,"kind":"request","generation":<uuid>,"requestId":<counter>,"origin":<origin>,"method":<method>,"input":<input>}`,
 with `origin` either `{"kind":"local-extension"}` or `{"kind":"mounted","originId":<uuid>}`.
