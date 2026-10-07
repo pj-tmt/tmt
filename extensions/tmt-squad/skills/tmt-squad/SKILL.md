@@ -346,8 +346,7 @@ requests require an explicit choice before composing. `r` has no default key
 (`a` already answers first; `reply` stays bindable and, on a row that waits only on a
 `pending` decision, opens a note to that member: nothing is sent, cleared or
 acknowledged until you press Enter on a non-empty note, and the pending text stays
-until it is explicitly cleared by its owner or Update status). `t` shows or hides reply previews on every tab; a `talk`
-binding of your own keeps working and opens in talk mode. Explicit member-note
+until it is explicitly cleared by its owner or Update status). `t` opens talk mode on every tab. Explicit member-note
 bindings retain that recipient and cycle note, talk and status.
 
 Use `a → Tab → status` to **Update status** for the selected lead or member. The
@@ -424,21 +423,14 @@ blocked disappears. Public `tmt sq ls --tab all --json` and text retain the aggr
 
 Leads show the latest exchange with you in one full-width group between horizontal
 rules, with blank side margins. Each header has a bold name, its squad from 100 columns, and an event age
-at the right. The second line previews the message: ◆ means the lead asks you,
+at the right. The header marks the latest exchange: ◆ means the lead asks you,
 … means you asked and no reply has been submitted, and ✓ means the lead replied.
-Reply wording does not change that mark. A lead with no exchange has a blank mark
-and `–` age, with just one line. Leads marked ◆ come first, oldest ask first.
-Other exchanges follow, newest first. Undated exchanges follow dated exchanges
-within each group. Leads with no exchange follow a blank line, ordered by name.
-Partial, expired or unavailable reads remain explicit.
-
-`t` (on every tab) hides previews and the blank separators between leads, and saves the global
-`board.home_replies` choice (default `true`). `e` on a lead expands its complete
-wrapped message directly below its header in the same inline band used for answers,
-replacing that row’s preview while open. Arrows/j/k and
-PgUp/PgDn scroll that body; `e` or Esc collapses it, and `a` opens an answer or
-note to that lead in the same place. Reading sends and acknowledges nothing.
-Only one band can be open.
+A lead with no exchange has a blank mark and `–` age. Leads marked ◆ come first,
+oldest ask first; other exchanges follow newest first, then undated exchanges,
+then leads without an exchange ordered by name. Reply previews start collapsed.
+`e` expands/collapses that row's fields and latest reply using the same presentation
+as [member rows](#squad-member-list). Reading sends and acknowledges nothing.
+`t` talks to the selected member or lead; `a` keeps its answer/note action.
 
 The `→ all leads` footer sits outside the group. `A` writes to all current leads;
 `@` picks one lead. Both use the ordinary composer. The recipient identities
@@ -469,11 +461,10 @@ holder as `session:window` inside tmux when available, otherwise by pane id.
 A squad tab is split in two: members above, that squad's jobs below (as tall as its jobs, at
 most two fifths of the body). The `c` list is as tall as its jobs too. Tab moves into the
 jobs after the last pane and back to the first. Members who own an active job show
-`cron <next>` at the row end (the first thing to drop when narrow) and in their detail. The selected job expands in
-place with its full message, its next three runs and its time zone.
+`cron <next>` at the row end (the first thing to drop when narrow) and in their detail. Jobs start collapsed; `e` toggles their shared [row detail](#squad-member-list) in place. Selection alone never expands them.
 
 While the jobs (or the `c` list) have focus these keys are job keys, and `?` lists them:
-Enter go to the owner (open the squad, in the list), `n` new, `e` edit, `p` pause or resume,
+Enter go to the owner (open the squad, in the list), `n` new, `e` expand/collapse, `E` edit, `p` pause or resume,
 `x` send now, `o` reassign and `d` delete (after a confirmation). A key you bound in `[bind]`
 keeps its binding. New, edit and reassign use the input line one step at a time: owner
 (member name), message, then schedule (`every 3h from 09:00`, `daily 09:00`, `weekdays 09:00`,
@@ -665,9 +656,8 @@ is required for `layout`, `board.panes`, `board.direction`, `board.sizes`,
 `board.hidden_columns`, `notes.render`, `states.STATE.color`, `reminders.enabled`
 and `reminders.stale_after`. `board.refresh`, `board.ask_lead`, `board.view` and `board.token_rate.window`
 use the squad layer with `--squad`, otherwise the global Squad board layer.
-`board.home_replies` is a global boolean (default `true`) controlling HOME's
-lead-message previews and separators; it rejects `--squad`. `t` saves
-this setting through the same validated writer. `tabs.order` and `tabs.hide`
+The obsolete `board.home_replies` key is ignored with a one-line deprecation
+notice; authored TOML stays unchanged. It is no longer editable. `tabs.order` and `tabs.hide`
 always edit global Squad tab policy. Arrays use JSON;
 other values are unquoted scalar arguments. Examples:
 
@@ -744,22 +734,34 @@ Agents change views only when requested.
 ## Squad member list
 
 Squad tabs default to one grouped list with the lead first, its `lead` tag, then
-`── members · N ──`. Each member has a mark/name/state/model/age line and a task
-line. Waiting members (`◆`) come first, with the oldest questions first; other
+`── members · N ──`. Each member has a mark/name/state/model/age line and its task line. Waiting members (`◆`) come first, with the oldest questions first; other
 exchanges follow newest first, and members without exchanges sort by name.
 The lead stays first, and authored sections keep their positions. The lead's
 notes stay below the list; `n` hides or shows them.
 
-Press `e` on the selected lead or member to expand the shared band beneath its
-header. It replaces the task preview and shows, when available, `◆ waits on you`,
-task, links, latest reply with age, then the available collapse/write/open hints.
-`e` or Esc collapses; `a` opens the same answer/note/talk/status composer for that row, and `o` opens the row's PR or link.
-Arrow keys/j/k and PgUp/PgDn scroll long details without moving the selected row.
-There is one band at a time. Reading works without recording yourself; writing
-requires `tmt sq me`. Custom bindings also control the expanded band.
+Press `e` to expand/collapse the selected row in place, including HOME lead/member
+and job rows. Several rows can stay expanded; refresh retains their row identities
+and removes detail when a row disappears. A dim `│` (accent for the selected row)
+attaches the label/value grid below the collapsed row. The collapsed row keeps
+its existing content and selection; the expanded block has no selection background.
+Member fields are task, pending, note, links, model and reply; HOME lead fields are
+task, pending and reply; HOME member fields are task and reply. Empty fields are
+omitted, and fields already visible in the collapsed row are not repeated (such as
+the member task line). A missing reply says `no reply yet`. Job fields are when, next,
+last when available, target and prompt, omitting what the collapsed job line already
+shows at that width. With no additional fields it says `no details yet`. Long fields wrap to three lines; replies
+show sender/age and up to six lines of Markdown, followed by `… N more lines · v view`
+when clipped. Arrow keys/j/k move between rows; the block scrolls with its pane.
+`v` opens any available reply in a read-only full-message reader; clicking the
+clipped-reply hint also opens it. Arrows/PgUp/PgDn/Home/End scroll that reader,
+and Esc closes it without changing row expansion. Rows without replies ignore `v`.
+The footer shows `v view` only for an expanded selected row with a reply; `?` always
+lists it. Enter keeps its jump/menu action and `o` keeps its link action.
+`a` opens the existing answer/note/talk/status composer, and `t` opens talk mode.
+Reading works without recording yourself; writing requires `tmt sq me`.
 
-Use `l` to choose `team` for the previous detail/replies side panes, or edit
-`board.view` to `team` in `,` settings. `members` restores the grouped list.
+Choose `team` from the `,` settings menu's View row for the previous detail/replies
+side panes; `members` restores the grouped list.
 Hand-written `board.layout` or `panes` keeps its configured composition.
 
 ## Fold board panes

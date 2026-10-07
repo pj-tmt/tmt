@@ -93,10 +93,11 @@ fn the_half_is_content_sized_and_capped_at_two_fifths_of_the_body() {
     };
     // One job: the rule, the job and the three-line minimum, not half the body.
     assert_eq!(below(&app, 40), 3);
-    // Focus expands the selected job in place: rule, row, message and next runs,
-    // still within two fifths of the body.
+    // Focus leaves the job collapsed; only e reserves its shared detail lines.
     press(&mut app, KeyCode::Tab);
-    assert_eq!(below(&app, 40), 4);
+    assert_eq!(below(&app, 40), 3);
+    press(&mut app, KeyCode::Char('e'));
+    assert_eq!(below(&app, 40), 3);
     let capped = below(&app, 20);
     assert!((3..=7).contains(&capped), "{capped}");
 }
@@ -181,15 +182,28 @@ fn tab_enters_the_jobs_half_after_the_last_pane_and_returns() {
     );
     let screen = draw(&app, 100, 24);
     let text = screen.join("\n");
-    // Focus expands the selected job in place.
-    assert!(text.contains("message  job for u1"), "{text}");
     assert!(
-        text.contains("next     ") && text.contains("tz Asia/Tokyo"),
-        "{text}"
+        !text.contains("prompt "),
+        "focus leaves jobs collapsed\n{text}"
+    );
+    press(&mut app, KeyCode::Char('e'));
+    let expanded = draw(&app, 60, 40).join("\n");
+    assert!(
+        expanded.contains("prompt")
+            && expanded.contains("job for u1")
+            && !expanded.contains("│when")
+            && !expanded.contains("│next"),
+        "{expanded}"
     );
     press(&mut app, KeyCode::Tab);
     assert!(!app.jobs_focus && app.focused_pane() == Some(Pane::Rows));
-    assert!(!draw(&app, 100, 24).join("\n").contains("message  job"));
+    assert!(
+        draw(&app, 60, 40).join("\n").contains("prompt"),
+        "expansion survives focus changes"
+    );
+    press(&mut app, KeyCode::Tab);
+    press(&mut app, KeyCode::Char('e'));
+    assert!(!draw(&app, 60, 40).join("\n").contains("prompt"));
 }
 
 #[test]
@@ -338,10 +352,13 @@ mod controls {
         }
         let effect = press(&mut app, KeyCode::Char('e'));
         assert!(!matches!(effect, Effect::Act(Request::Cron(_))));
-        assert!(matches!(
-            app.input.as_ref().map(|input| &input.compose),
-            Some(crate::board::app::Compose::ReadRow { .. })
-        ));
+        assert!(app.input.is_none());
+        assert!(
+            app.row_details
+                .contains(&crate::board::row_detail::Target::Row(
+                    app.row_target(app.selected).unwrap()
+                ))
+        );
     }
 
     #[test]
@@ -391,7 +408,7 @@ mod controls {
     #[test]
     fn edit_prefills_writes_only_changed_fields_and_cancel_writes_nothing() {
         let (mut app, key) = focused();
-        press(&mut app, KeyCode::Char('e'));
+        press(&mut app, KeyCode::Char('E'));
         let input = app.input.as_ref().unwrap();
         assert_eq!(
             (input.text.as_str(), &input.compose),
@@ -409,7 +426,7 @@ mod controls {
         assert_eq!(press(&mut app, KeyCode::Enter), Effect::None);
         assert!(app.input.is_none() && app.notice.as_deref().unwrap().contains("nothing written"));
         // An invalid schedule keeps the step, the text and says why.
-        press(&mut app, KeyCode::Char('e'));
+        press(&mut app, KeyCode::Char('E'));
         press(&mut app, KeyCode::Enter);
         for _ in 0..9 {
             press(&mut app, KeyCode::Backspace);
@@ -442,7 +459,7 @@ mod controls {
             }
         );
         // Esc at any step discards the draft.
-        press(&mut app, KeyCode::Char('e'));
+        press(&mut app, KeyCode::Char('E'));
         typed(&mut app, "x");
         assert_eq!(press(&mut app, KeyCode::Esc), Effect::None);
         assert!(app.input.is_none() && app.cron_draft.is_none());
@@ -453,7 +470,7 @@ mod controls {
     fn a_multi_line_message_is_kept_as_stored_and_only_the_schedule_is_edited() {
         let (mut app, _) = focused();
         app.cron.cron.as_mut().unwrap().jobs[0].job.message = "one\ntwo".into();
-        press(&mut app, KeyCode::Char('e'));
+        press(&mut app, KeyCode::Char('E'));
         let input = app.input.as_ref().unwrap();
         assert!(input.prompt.ends_with("schedule"), "{}", input.prompt);
         assert!(input.hint.as_ref().unwrap().text.contains("several lines"));
@@ -545,7 +562,10 @@ mod controls {
         let (mut app, _) = focused();
         let screen = draw(&app, 120, 24);
         let footer = screen.last().unwrap();
-        assert!(footer.starts_with("⏎ owner  n new  e edit"), "{footer}");
+        assert!(
+            footer.starts_with("⏎ owner  n new  e expand  E edit"),
+            "{footer}"
+        );
         assert!(
             footer.contains("q quit") && footer.ends_with("? more"),
             "{footer}"
@@ -581,7 +601,7 @@ mod controls {
         );
         assert!(app.cron_list.is_some());
         // A form needs the input line, so it closes the list.
-        press(&mut app, KeyCode::Char('e'));
+        press(&mut app, KeyCode::Char('E'));
         assert!(app.cron_list.is_none() && app.input.is_some());
     }
 }
@@ -642,7 +662,7 @@ fn walk_ids(count: usize) -> Vec<String> {
 }
 
 #[test]
-fn walking_the_jobs_half_moves_one_job_per_press_with_the_detail_expanded() {
+fn walking_the_jobs_half_moves_one_job_per_press_without_auto_expansion() {
     let order = walk_ids(8);
     for (down, up) in [
         (KeyCode::Down, KeyCode::Up),
@@ -666,15 +686,16 @@ fn walking_the_jobs_half_moves_one_job_per_press_with_the_detail_expanded() {
                 );
                 assert_eq!(app.selected, members, "the member selection never moves");
                 let cid = expected.rsplit('/').next().unwrap();
-                // The selected job is painted, with its detail below it.
-                let at = screen
-                    .iter()
-                    .position(|line| line.contains(&format!(" {cid} ")) && line.contains("●"))
-                    .unwrap_or_else(|| panic!("{cid} painted\n{}", screen.join("\n")));
                 assert!(
-                    screen[at + 1..].iter().any(|line| line.contains("message")),
-                    "{cid} shows its detail\n{}",
+                    screen
+                        .iter()
+                        .any(|line| line.contains(&format!(" {cid} ")) && line.contains("●")),
+                    "{cid} painted\n{}",
                     screen.join("\n")
+                );
+                assert!(
+                    app.row_details.expanded.is_empty(),
+                    "navigation never auto-expands"
                 );
             };
             for expected in &order[1..] {
@@ -744,4 +765,46 @@ fn dump_split_squad_tab_snapshots() {
         serde_json::to_string_pretty(&snapshots()).unwrap() + "\n",
     )
     .unwrap();
+}
+
+#[test]
+fn job_expansion_is_explicit_shared_between_surfaces_and_pruned_on_removal() {
+    use crate::board::row_detail::Target;
+    let mut app = many_jobs(2);
+    draw(&app, 160, 40);
+    press(&mut app, KeyCode::Tab);
+    draw(&app, 160, 40);
+    let first = app.jobs_selected().unwrap();
+    assert!(app.row_details.expanded.is_empty());
+    app.cron.cron.as_mut().unwrap().actor = Err("actor unavailable".into());
+    press(&mut app, KeyCode::Char('e'));
+    assert!(app.input.is_none() && app.row_details.contains(&Target::Job(first.clone())));
+    let shown = draw(&app, 160, 40).join("\n");
+    assert!(shown.contains("no details yet"), "{shown}");
+    press(&mut app, KeyCode::Down);
+    draw(&app, 160, 40);
+    let second = app.jobs_selected().unwrap();
+    assert_ne!(first, second);
+    assert_eq!(app.row_details.expanded, vec![Target::Job(first.clone())]);
+    press(&mut app, KeyCode::Char('c'));
+    draw(&app, 160, 40);
+    assert_eq!(
+        app.cron_list.as_ref().unwrap().selected().as_deref(),
+        Some(second.as_str())
+    );
+    press(&mut app, KeyCode::Char('e'));
+    let shown = draw(&app, 160, 40).join("\n");
+    assert!(app.cron_list.is_some() && app.input.is_none());
+    assert_eq!(app.row_details.expanded.len(), 2);
+    assert!(
+        shown.contains("no details yet") && shown.contains("E edit"),
+        "{shown}"
+    );
+    press(&mut app, KeyCode::Char('e'));
+    assert_eq!(app.row_details.expanded, vec![Target::Job(first)]);
+    app.cron.cron.as_mut().unwrap().jobs.clear();
+    app.reconcile_row_details();
+    assert!(app.row_details.expanded.is_empty());
+    let shown = draw(&app, 160, 40).join("\n");
+    assert!(!shown.contains("E edit"), "{shown}");
 }

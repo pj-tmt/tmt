@@ -24,6 +24,11 @@ Its surface modules under `board/view/` retain the existing painters:
 | `waiting`   | Acquired decision text, inline composer bands and docked ask-lead  |
 | `overlays`  | Overlay dispatch and switcher painting                             |
 
+`board/row_detail.rs` owns the shared in-place detail projection and renderer,
+expansion reconciliation, worker-acquired reply cache and read-only full-reply
+reader. Member, HOME and cron surfaces reserve lines and retain their existing
+list geometry; they call this owner for detail content.
+
 `row_paint` builds the rows scene (admitted cells, solved boxes, ages, waiting line,
 annotation, `✓ sent` line, reserved input lines) and paints it through
 `tmt-tui::paint::paint_with`; `rows` only prepares and caches it.

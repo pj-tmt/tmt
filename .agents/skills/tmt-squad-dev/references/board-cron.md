@@ -24,14 +24,18 @@ dispatch and the independent clock lifecycle. The shipped Squad skill owns
 - `composition::halves` places the squad's configured composition above its jobs
   in one flex computation. The jobs half grows to content demand, capped at two
   fifths of body height; below 12 body lines it keeps only its rule. Its ordinary
-  TUI list retains per-room `ListState` across tab switches, and expands the selected
-  job only while focused. Tab/pointer focus enters through `App`; `focused_pane()`
+  TUI list retains per-room `ListState` across tab switches. Selection and focus
+  leave jobs collapsed; `e` toggles an explicit stable job expansion in
+  `board::row_detail`, which owns the shared block rendering and reconciliation.
+  Tab/pointer focus enters through `App`; `focused_pane()`
   is then `None`, and member-row actions refuse.
 - `Overlay::CronList` uses the shared `FocusStack`, `app::route` and docked
   `picker_surface::State`. Rows use `<room UUID>/<c-id>` identity, preserved on
   refresh. Opening forms/delete confirmation closes the list; pause/resume/send
   retain it. Job keys route through base field `cron-jobs` before board dispatch,
-  while configured `[bind]` keys win. `cronboard::hints` supplies help and footers.
+  while configured `[bind]` keys win. `e` expands/collapses and `E` edits in both
+  surfaces. `cronboard::hints::KEYS` supplies help and footers; `E edit` appears
+  only with a selected job.
 
 ## Controls and row projection
 

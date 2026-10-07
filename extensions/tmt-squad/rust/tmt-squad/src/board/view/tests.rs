@@ -213,7 +213,7 @@ fn footer_keys_are_bold_accent_and_labels_muted_in_every_board_mode() {
         let help = help_lines(&app);
         assert!(help.iter().any(|line| line.starts_with("a  ")));
         assert!(help.iter().any(|line| line.starts_with("A  ")));
-        for list in [text, crate::board::cronboard::jobs_hints(160)] {
+        for list in [text, crate::board::cronboard::jobs_hints(160, true)] {
             let line = super::footer::hint_line(&list, app.look());
             let mut buffer = ratatui::buffer::Buffer::empty(Rect::new(0, 0, 160, 1));
             tmt_tui::components::strip::paint_left(&mut buffer, Rect::new(0, 0, 160, 1), line);
@@ -285,7 +285,7 @@ fn footer_orders_hints_by_priority_and_always_keeps_quit_and_more() {
     app.select(1);
     assert_eq!(app.selected_row().unwrap()["name"], "auth-fix");
     let full = hints(&app, usize::MAX);
-    let order = ["↑↓ move", "⏎ open", "r reply", "t talk", "/ search"];
+    let order = ["↑↓ move", "⏎ open", "t talk", "r reply", "/ search"];
     let at = |hint: &str| full.find(hint).unwrap_or_else(|| panic!("{hint}: {full}"));
     assert!(
         order.windows(2).all(|pair| at(pair[0]) < at(pair[1])),
@@ -317,9 +317,9 @@ fn footer_orders_hints_by_priority_and_always_keeps_quit_and_more() {
     ] {
         assert!(!full.contains(hint), "{hint}: {full}");
     }
-    // Focus and mandatory hints remain while optional actions fit whole.
+    // Mandatory hints remain while optional actions fit whole.
     let narrow = hints(&app, 100);
-    assert!(narrow.contains("⏎ open  r reply  t talk"), "{narrow}");
+    assert!(narrow.contains("⏎ open  t talk  r reply"), "{narrow}");
 }
 
 #[test]
@@ -487,7 +487,6 @@ pub(super) fn board(sections: Value) -> App {
         view: Ok(View {
             history_pending: false,
             ask_lead: crate::config::DEFAULT_ASK_LEAD.into(),
-            home_replies: true,
             token_rate: None,
             home_rate: Default::default(),
             exchanges: Vec::new(),
@@ -1236,7 +1235,6 @@ fn paned(board: crate::config::Board, notes: Notes) -> App {
             view: Ok(View {
                 history_pending: false,
                 ask_lead: crate::config::DEFAULT_ASK_LEAD.into(),
-                home_replies: true,
                 token_rate: None,
                 home_rate: Default::default(),
             exchanges: Vec::new(),
@@ -4267,132 +4265,6 @@ fn boxed_members(sections: Value) -> App {
 }
 
 #[test]
-fn boxed_members_share_home_scene_and_inline_band_at_all_widths_and_themes() {
-    for width in [160, 100, 80] {
-        for (base, depth) in [
-            ("tmt", tmt_cli_style::Depth::TrueColor),
-            ("tmt-light", tmt_cli_style::Depth::TrueColor),
-            ("tmt", tmt_cli_style::Depth::None),
-        ] {
-            let now = crate::status::now_ms();
-            let mut app = boxed_members(
-                json!([{"title": null, "rows": [row("worker", "working", "implement issue", json!({"id": "WORKER", "state": "working", "pending": "Approve this change?", "fields": {"task": "implement issue", "model": "gpt-6.1-sol", "pr_link": "https://github.com/pj-tmt/tmt/pull/1766"}}))]}]),
-            );
-            let view = app.view.as_mut().unwrap();
-            view.look = crate::look::Look {
-                theme: tmt_cli_style::Theme::new(tmt_cli_style::theme::Base::parse(base).unwrap()),
-                depth,
-            };
-            view.replies = vec![
-                json!({"requestId": "reply", "recipientId": "WORKER", "to": "worker", "status": "retained", "submittedAtMs": now - 300000, "response": "Pushed the shared list.\u{001b}[31m"}),
-            ];
-            let collapsed = draw(&app, width, 32);
-            let lead = collapsed
-                .iter()
-                .position(|line| line.contains("sol") && line.contains("lead"))
-                .unwrap();
-            let rule = collapsed
-                .iter()
-                .position(|line| line.contains("members · 1"))
-                .unwrap();
-            let worker = collapsed
-                .iter()
-                .position(|line| line.contains("worker") && line.contains("waits on you"))
-                .unwrap();
-            assert!(lead < rule && rule < worker);
-            assert!(collapsed[worker + 1].contains("implement issue"));
-            assert!(
-                !app.hits
-                    .borrow()
-                    .iter()
-                    .any(|hit| usize::from(hit.y) == rule)
-            );
-            assert_eq!(
-                app.hits
-                    .borrow()
-                    .iter()
-                    .filter(|hit| hit.row().unwrap() == 1)
-                    .count(),
-                2
-            );
-            app.selected = 1;
-            assert_eq!(
-                app.key(KeyEvent::new(KeyCode::Char('e'), KeyModifiers::NONE)),
-                Effect::None
-            );
-            let expanded = draw(&app, width, 32);
-            let band = app.input_band.get().unwrap();
-            assert_eq!(band.x, 1, "single list border, band inset: {base}/{width}");
-            assert_eq!(band.width, width - 2);
-            let body = crate::board::view::waiting::read_lines(&app, band.width - 4)
-                .iter()
-                .map(|line| line.to_string())
-                .collect::<Vec<_>>()
-                .join("\n");
-            assert!(
-                body.find("◆ waits on you").unwrap() < body.find("task  implement issue").unwrap()
-            );
-            assert!(body.find("links").unwrap() < body.find("latest reply · 5m").unwrap());
-            assert!(body.contains("Pushed the shared list."));
-            assert!(!body.contains('\u{1b}'));
-            assert!(expanded.iter().any(|line| line.contains("a write")));
-            assert!(
-                !app.hits
-                    .borrow()
-                    .iter()
-                    .any(|hit| (band.y..band.bottom()).contains(&hit.y))
-            );
-            assert_eq!(
-                app.selected_read(),
-                None,
-                "reuse already acquired reply body"
-            );
-            assert_eq!(
-                app.key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)),
-                Effect::None
-            );
-            assert!(app.input.is_none());
-            assert_eq!(app.selected, 1);
-            app.selected = 0;
-            app.perform(&crate::action::Action::parse("home-message").unwrap());
-            draw(&app, width, 32);
-            assert!(matches!(
-                app.input.as_ref().unwrap().compose,
-                crate::board::app::Compose::ReadRow { .. }
-            ));
-            app.key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
-            app.key(KeyEvent::new(KeyCode::Char('n'), KeyModifiers::NONE));
-            assert!(app.collapsed_panes().contains(&Pane::Notes));
-            app.key(KeyEvent::new(KeyCode::Char('n'), KeyModifiers::NONE));
-            assert!(!app.collapsed_panes().contains(&Pane::Notes));
-        }
-    }
-}
-
-#[test]
-fn boxed_member_read_without_user_is_read_only_and_replaced_rows_cannot_inherit_a_band() {
-    let mut app = boxed_members(
-        json!([{"title":null,"rows":[row("worker", "idle", "safe detail", json!({"id":"WORKER", "state":"idle"}))]}]),
-    );
-    let view = app.view.as_mut().unwrap();
-    view.me = None;
-    view.me_id = None;
-    app.selected = 1;
-    app.perform(&crate::action::Action::parse("home-message").unwrap());
-    draw(&app, 80, 24);
-    assert!(app.input_band.get().is_some());
-    assert_eq!(app.selected_read(), None);
-    assert_eq!(
-        app.key(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE)),
-        Effect::None
-    );
-    assert!(app.input.is_none());
-    app.perform(&crate::action::Action::parse("home-message").unwrap());
-    app.view.as_mut().unwrap().document["sections"][0]["rows"][0]["id"] = json!("REPLACEMENT");
-    assert!(!app.message_valid());
-}
-
-#[test]
 fn boxed_member_order_preserves_lead_and_authored_sections_and_uses_home_exchanges() {
     let mut app = boxed_members(json!([
         {"title":"First", "rows":[
@@ -4440,114 +4312,6 @@ fn boxed_member_order_preserves_lead_and_authored_sections_and_uses_home_exchang
     let screen = draw(&app, 80, 40).join("\n");
     assert!(screen.find("First").unwrap() < screen.find("old-wait").unwrap());
     assert!(screen.find("Second").unwrap() > screen.find("empty-z").unwrap());
-}
-
-#[test]
-fn boxed_member_band_uses_rebound_keys_and_scrolls_its_body_without_moving_the_cursor() {
-    use crate::action::Action;
-    let mut app = boxed_members(
-        json!([{"title":null,"rows":[row("worker", "working", &"long task ".repeat(100), json!({"id":"WORKER"}))]}]),
-    );
-    let view = app.view.as_mut().unwrap();
-    view.bindings.remove("e");
-    view.bindings.remove("a");
-    view.bindings
-        .insert("E".into(), Action::parse("home-message").unwrap());
-    view.bindings
-        .insert("A".into(), Action::parse("annotate").unwrap());
-    app.selected = 1;
-    app.key(KeyEvent::new(KeyCode::Char('E'), KeyModifiers::NONE));
-    draw(&app, 80, 24);
-    assert!(app.input_band.get().is_some());
-    let screen = draw(&app, 80, 24).join("\n");
-    assert!(screen.contains("E collapse · A write"));
-    app.key(KeyEvent::new(KeyCode::PageDown, KeyModifiers::NONE));
-    assert_eq!(app.selected, 1);
-    assert!(
-        matches!(app.input.as_ref().unwrap().compose, crate::board::app::Compose::ReadRow { offset, .. } if offset > 0)
-    );
-    app.key(KeyEvent::new(KeyCode::Char('e'), KeyModifiers::NONE));
-    assert!(
-        app.input.is_some(),
-        "disabled collapse key remains disabled"
-    );
-    app.key(KeyEvent::new(KeyCode::Char('E'), KeyModifiers::NONE));
-    assert!(app.input.is_none());
-    app.key(KeyEvent::new(KeyCode::Char('E'), KeyModifiers::NONE));
-    assert_eq!(
-        app.key(KeyEvent::new(KeyCode::Char('A'), KeyModifiers::NONE)),
-        Effect::None
-    );
-    assert!(
-        matches!(&app.input.as_ref().unwrap().compose, crate::board::app::Compose::Annotate { to, row } if to == "sol" && row == "worker")
-    );
-    app.key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
-    assert!(
-        matches!(&app.input.as_ref().unwrap().compose, crate::board::app::Compose::Talk { to } if to == "worker")
-    );
-}
-
-#[test]
-fn boxed_member_read_band_starts_answer_then_cycles_note_and_talk_without_losing_text() {
-    use crate::board::app::Compose;
-    let mut app = boxed_members(json!([{"title":null,"rows":[
-        row("worker", "working", "decision", json!({"id":"WORKER", "waitingOnYou":[{"requestId":"decision-q","preview":"Ship this?"}]}))
-    ]}]));
-    app.selected = 1;
-    app.key(KeyEvent::new(KeyCode::Char('e'), KeyModifiers::NONE));
-    assert!(matches!(
-        &app.input.as_ref().unwrap().compose,
-        Compose::ReadRow { .. }
-    ));
-    app.key(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE));
-    assert!(
-        matches!(&app.input.as_ref().unwrap().compose, Compose::Reply { request, from } if request == "decision-q" && from == "worker")
-    );
-    app.input.as_mut().unwrap().text = "Keep this draft".into();
-    app.key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
-    assert!(
-        matches!(&app.input.as_ref().unwrap().compose, Compose::Annotate { to, row } if to == "sol" && row == "worker")
-    );
-    app.key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
-    assert!(matches!(&app.input.as_ref().unwrap().compose, Compose::Talk { to } if to == "worker"));
-    app.key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
-    assert!(matches!(
-        app.input.as_ref().unwrap().compose,
-        Compose::Status
-    ));
-    app.key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
-    assert!(
-        matches!(&app.input.as_ref().unwrap().compose, Compose::Reply { request, .. } if request == "decision-q")
-    );
-    assert_eq!(app.input.as_ref().unwrap().text, "Keep this draft");
-}
-
-#[test]
-fn boxed_member_band_follows_its_occurrence_through_exchange_reordering_without_a_user() {
-    let mut app = boxed_members(json!([{"title":null,"rows":[
-        row("worker", "working", "keep reading", json!({"id":"WORKER"})),
-        row("alpha", "working", "other", json!({"id":"ALPHA"}))
-    ]}]));
-    app.view.as_mut().unwrap().me = None;
-    app.view.as_mut().unwrap().me_id = None;
-    app.selected = 2;
-    assert_eq!(app.selected_row().unwrap()["id"], "WORKER");
-    app.perform(&crate::action::Action::parse("home-message").unwrap());
-    let mut view = app.view.take().unwrap();
-    view.document["sections"][0]["rows"][0]["pending"] = json!("question moves this row first");
-    view.exchanges =
-        crate::board::home_leads::members(&view.document, None, crate::status::now_ms());
-    let mut snapshot = crate::board::app::tests::snapshot("product", json!([]));
-    snapshot.view = Ok(view);
-    app.apply(snapshot);
-    assert_eq!(app.selected, 1);
-    assert_eq!(app.selected_row().unwrap()["id"], "WORKER");
-    assert!(app.input.is_some());
-    assert!(app.message_valid());
-    draw(&app, 80, 24);
-    assert!(app.input_band.get().is_some());
-    app.view.as_mut().unwrap().document["sections"][0]["rows"][0]["id"] = json!("REPLACED");
-    assert!(!app.message_valid());
 }
 
 /// Read-only runtime evidence for the immutable #1829 first-slice packet.
@@ -4997,7 +4761,6 @@ fn flat_custom_split_retains_inner_hits_and_focus_title_without_dimming_it() {
                 .find(|hit| hit.pane == Pane::Notes)
                 .unwrap()
                 .area;
-            assert!(!super::panes::borderless_rows(&app));
             assert_eq!((rows.y, rows.height), (2, 1));
             assert_eq!(notes.x, width * 60 / 100);
             let dim = app.look().role(Role::Dim);
@@ -5181,94 +4944,4 @@ fn switcher_cursor_moves_without_changing_picks_attention_or_query() {
             );
         }
     }
-}
-
-#[test]
-fn boxed_duplicate_selection_keeps_heading_task_blanks_targets_and_drafts() {
-    crate::status::with_now_ms(1_900_000_000_000, || {
-        for width in [80, 100, 160, 180] {
-            for (base, depth) in [
-                (tmt_cli_style::Base::Tmt, tmt_cli_style::Depth::TrueColor),
-                (
-                    tmt_cli_style::Base::TmtLight,
-                    tmt_cli_style::Depth::TrueColor,
-                ),
-                (tmt_cli_style::Base::Terminal, tmt_cli_style::Depth::Ansi16),
-                (tmt_cli_style::Base::Tmt, tmt_cli_style::Depth::None),
-            ] {
-                let member = row(
-                    "duplicate",
-                    "working",
-                    "authored > task [draft]",
-                    json!({"id":"SAME"}),
-                );
-                let mut app = boxed_members(json!([
-                    {"title":"first", "rows":[member.clone()]},
-                    {"title":"second", "rows":[member]}
-                ]));
-                app.view.as_mut().unwrap().look = crate::look::Look {
-                    theme: tmt_cli_style::Theme::new(base),
-                    depth,
-                };
-                let document = app.view.as_ref().unwrap().document.clone();
-                let targets = [app.row_target(1).unwrap(), app.row_target(2).unwrap()];
-                assert_ne!(targets[0], targets[1]);
-                app.selected = 1;
-                let first = board_buffer(&app, width, 24);
-                let hits = format!("{:?}", app.hits.borrow());
-                let starts = app.row_starts.borrow().clone();
-                app.selected = 2;
-                let second = board_buffer(&app, width, 24);
-                assert_eq!(format!("{:?}", app.hits.borrow()), hits);
-                assert_eq!(*app.row_starts.borrow(), starts);
-                for (a, b) in first.content.iter().zip(&second.content) {
-                    assert_eq!(a.symbol(), b.symbol(), "selection preserves authored text");
-                }
-                for (index, buffer) in [(1, &first), (2, &second)] {
-                    let y = app
-                        .hits
-                        .borrow()
-                        .iter()
-                        .find(|hit| hit.row().unwrap() == index)
-                        .unwrap()
-                        .y;
-                    for line in [y, y + 1] {
-                        let blank = &buffer[(1, line)];
-                        assert_eq!(blank.symbol(), " ");
-                        assert_eq!(blank.bg, app.look().selection().bg.unwrap_or_default());
-                        assert_eq!(
-                            blank.modifier.contains(Modifier::REVERSED),
-                            app.look().selection().bg.is_none()
-                        );
-                    }
-                    assert!(
-                        detail_text(buffer)[usize::from(y + 1)].contains("authored > task [draft]")
-                    );
-                }
-                assert_eq!(app.row_target(1).as_ref(), Some(&targets[0]));
-                assert_eq!(app.row_target(2).as_ref(), Some(&targets[1]));
-                app.key(KeyEvent::new(KeyCode::Char('e'), KeyModifiers::NONE));
-                let reading = board_buffer(&app, width, 24);
-                let band = app.input_band.get().unwrap();
-                assert_eq!(reading[(1, band.y - 1)].symbol(), " ");
-                assert!(matches!(
-                    app.input.as_ref().unwrap().compose,
-                    crate::board::app::Compose::ReadRow { .. }
-                ));
-                assert!(
-                    !app.hits
-                        .borrow()
-                        .iter()
-                        .any(|hit| (band.y..band.bottom()).contains(&hit.y))
-                );
-                app.key(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE));
-                app.input.as_mut().unwrap().text = "Keep > [draft]".into();
-                board_buffer(&app, width, 24);
-                app.key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
-                board_buffer(&app, width, 24);
-                assert_eq!(app.input.as_ref().unwrap().text, "Keep > [draft]");
-                assert_eq!(app.view.as_ref().unwrap().document, document);
-            }
-        }
-    });
 }

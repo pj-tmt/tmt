@@ -71,12 +71,39 @@ fn prepare(
         .unwrap_or(layout);
     let cells = crate::markup::row_values(rows, tab, app.rows())
         .map_err(|error| format!("Row values: {error}"))?;
+    let mut visible = Vec::new();
+    for line in &rows.lines {
+        let mut position = 0;
+        for cell in line {
+            let range = position..position + cell.span;
+            position += cell.span;
+            if layout.span(range).is_some()
+                && let Some(field) = cell.field.as_deref()
+            {
+                visible.push(field);
+            }
+        }
+    }
+    if !rows
+        .lines
+        .iter()
+        .flatten()
+        .any(|cell| cell.field.as_deref() == Some("pending"))
+    {
+        visible.push("pending");
+    }
+    // Keep the cache key's original inputs; only the paint projection suppresses
+    // fields whose cells survive the actual width-dependent grid layout.
+    let mut painted_extras = extras.clone();
+    for (index, extra) in painted_extras.iter_mut().enumerate() {
+        extra.detail = app.detail_value(index, &visible);
+    }
     let scene = RowPaint::build(
         rows,
         &layout,
         &cells,
         &app.items(),
-        &extras,
+        &painted_extras,
         usize::from(area.width),
         if app.search.is_empty() {
             "  (no members)"
@@ -122,6 +149,7 @@ pub(super) fn render_rows(frame: &mut Frame, app: &App, area: Rect) {
             };
             Extra {
                 lead: origin == RowOrigin::Lead,
+                detail: app.detail_value(index, &[]),
                 next: row["id"]
                     .as_str()
                     .and_then(|id| app.cron.member_label(id, now)),
@@ -174,4 +202,9 @@ pub(super) fn render_rows(frame: &mut Frame, app: &App, area: Rect) {
     );
     super::waiting::place_input(app, scene.input.clone(), area, offset, viewport);
     app.hits.borrow_mut().extend(hits);
+    for (row, start, data) in &scene.details {
+        crate::board::row_detail::more_hit(
+            app, *row, data, area.width, 2, *start, area, offset, viewport,
+        );
+    }
 }

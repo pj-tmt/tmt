@@ -36,17 +36,6 @@ pub(super) fn receiving_pane(app: &App) -> Option<Pane> {
     }
 }
 
-/// Match the existing dispatch paths that paint Rows without an outer title.
-pub(super) fn borderless_rows(app: &App) -> bool {
-    app.view.as_ref().is_some_and(|view| view.home.is_some())
-        || app.effective_board().is_some_and(|board| {
-            board.members
-                || (board.mode == BoardMode::Split
-                    && board.panes == [Pane::Rows]
-                    && app.collapsed_panes().is_empty())
-        })
-}
-
 /// Split mode tiles the configured panes; tabs mode shows the focused pane
 /// under a tab bar. The focused pane's border is highlighted.
 pub(super) fn render_body(frame: &mut Frame, app: &App, area: Rect) {

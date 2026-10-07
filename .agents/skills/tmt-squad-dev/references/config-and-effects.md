@@ -130,11 +130,10 @@ their required squad scope.
   prompt and never replaces concurrent edits. While the overlay is open the ordinary loader
   acquires preview notes/replies and metadata behind its existing cancellation fence, and
   closing returns to resolved-pane acquisition.
-- HOME `board.home_replies` is a global-only boolean, default true. The reader
-  rejects scoped copies and non-booleans. The bindable `home-replies` effect and
-  settings overlay use `Config::set_setting`; a failed save does not flip the
-  displayed choice. Settings preview applies the boolean through the existing
-  disposable draft.
+- `board.home_replies` remains a recognized obsolete global key so existing TOML
+  loads. Its value is ignored, with one deprecation notice; inspection exposes no
+  editable entry, and `config set` refuses it without changing authored bytes.
+  HOME reply previews are collapsed by default; row expansion belongs to `row_detail`.
 - `config::edit` owns the shared edit policy and a disposable validated Config draft.
   `sq config set KEY VALUE` accepts layout preset, flat split panes/direction/sizes,
   refresh, notes mode, hidden tracks, exact state colors, global tabs order/hide and the

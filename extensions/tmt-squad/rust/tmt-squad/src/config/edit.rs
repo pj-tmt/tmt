@@ -4,8 +4,7 @@ use crate::split::{Size, Split};
 
 impl Config {
     fn setting_key_in_scope(key: &str, squad: Option<&str>) -> bool {
-        (key == "board.home_replies" && squad.is_none())
-            || matches!(
+        matches!(
                 key,
                 "board.refresh"
                     | "board.ask_lead"
@@ -69,7 +68,7 @@ impl Config {
     }
 
     fn parse_setting_value(key: &str, text: &str) -> Result<Item, SquadError> {
-        if matches!(key, "reminders.enabled" | "board.home_replies") {
+        if key == "reminders.enabled" {
             return text
                 .parse::<bool>()
                 .map(value)
@@ -159,7 +158,6 @@ impl Config {
         // Validate the global layer even if the chosen squad masks it.
         self.refresh("")?;
         self.ask_lead("")?;
-        self.home_replies()?;
         self.tabs()?;
         self.settings(squad, false, None)?;
         if global && let Some(squads) = self.document.get("squad").and_then(Item::as_table_like) {

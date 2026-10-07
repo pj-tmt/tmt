@@ -94,7 +94,6 @@ struct HeaderMember<'a> {
 pub struct View {
     pub history_pending: bool,
     pub ask_lead: String,
-    pub home_replies: bool,
     pub token_rate: Option<RateView>,
     /// HOME sampling templates, separate from the painter/controller model.
     pub home_rate: BTreeMap<String, RateView>,
@@ -238,7 +237,6 @@ pub enum Effect {
     SaveSetting,
     ResetSetting,
     CycleTokenWindow,
-    HomeReplies(bool),
     CancelSettings,
     PickTheme,
     SaveTheme,
@@ -301,17 +299,6 @@ pub enum Compose {
         sender: String,
         recipients: Vec<crate::send::LeadRecipient>,
         all: bool,
-    },
-    /// Read-only mode of the existing anchored band; it never submits text.
-    ReadLead {
-        key: super::home_leads::MessageKey,
-        offset: usize,
-    },
-    /// Row fields and latest reply share the existing read-only inline band.
-    ReadRow {
-        target: RowTarget,
-        reply: Option<super::home_leads::MessageKey>,
-        offset: usize,
     },
     AskLead {
         to: String,
@@ -413,11 +400,7 @@ impl RowSend {
                 self.note.as_ref() == Some(&input.compose)
                     && (self.note_member || app.note_recipient(&self.target).as_ref() == Some(to))
             }
-            Compose::AskLead { .. }
-            | Compose::ReadLead { .. }
-            | Compose::ReadRow { .. }
-            | Compose::Leads { .. }
-            | Compose::Cron => false,
+            Compose::AskLead { .. } | Compose::Leads { .. } | Compose::Cron => false,
         }
     }
 }
@@ -447,17 +430,12 @@ pub struct Hint {
 
 impl Input {
     pub(super) fn target(&self) -> Option<&RowTarget> {
-        match &self.compose {
-            Compose::ReadRow { target, .. } => Some(target),
-            _ => self.row_send.as_ref().map(|send| &send.target),
-        }
+        self.row_send.as_ref().map(|send| &send.target)
     }
 
     pub(super) fn header(&self) -> String {
         match &self.compose {
-            Compose::ReadLead { .. } | Compose::ReadRow { .. } | Compose::Leads { .. } => {
-                self.prompt.clone()
-            }
+            Compose::Leads { .. } => self.prompt.clone(),
             Compose::Talk { to } => format!("→ {to} ({}) · talk", self.squad),
             Compose::Reply { from, .. } => format!("→ {from} ({}) · answer", self.squad),
             Compose::Annotate { to, row } if to != row => {
@@ -515,6 +493,7 @@ pub(super) enum Overlay {
     Theme,
     Switcher,
     CronList,
+    ReplyReader,
     Checklist,
 }
 impl Overlay {
@@ -527,6 +506,7 @@ impl Overlay {
                 Self::Theme => "theme-picker",
                 Self::Switcher => "switcher",
                 Self::CronList => "cron-list",
+                Self::ReplyReader => "reply-reader",
                 Self::Checklist => "checklist",
             }
             .into(),
@@ -652,6 +632,7 @@ pub struct App {
     pub switcher: Option<Switcher>,
     /// The `c` list of every squad's jobs, while open.
     pub(super) cron_list: Option<super::cronboard::List>,
+    pub(super) row_details: super::row_detail::State,
     pub attention: BTreeMap<String, Attention>,
     pub current: Option<String>,
     pub view: Option<View>,
@@ -698,6 +679,7 @@ pub struct App {
     last_click: Option<(usize, Instant)>,
     /// Where rows were last drawn, for mouse events.
     pub hits: RefCell<Vec<Hit>>,
+    pub(super) detail_more_hits: RefCell<Vec<(ratatui::layout::Rect, super::row_detail::Target)>>,
     /// Each record's first visual line in the last rows draw, for paging.
     pub row_starts: RefCell<Vec<usize>>,
     /// Where tabs were last drawn.
@@ -1113,9 +1095,7 @@ impl App {
     }
 
     fn clamp(&mut self) {
-        if !self.message_valid() {
-            self.input = None;
-        }
+        self.reconcile_row_details();
         let anchor = self
             .input
             .as_ref()
@@ -1776,7 +1756,6 @@ impl App {
         };
         if let Some(view) = &mut self.view {
             view.refresh = config.refresh(key).expect("validated settings draft");
-            view.home_replies = config.home_replies().expect("validated settings draft");
             if !crate::tabs::aggregate(key) {
                 view.board = config.board(key).expect("validated settings draft");
                 view.bindings = config
@@ -2100,19 +2079,8 @@ impl App {
             Verb::TokenWindow => {
                 return self.cycle_token_window();
             }
-            Verb::HomeReplies => {
-                return self
-                    .view
-                    .as_ref()
-                    .map_or(Effect::None, |view| Effect::HomeReplies(!view.home_replies));
-            }
-            Verb::HomeMessage => {
-                return if self.view.as_ref().is_some_and(|view| view.home.is_some()) {
-                    self.home_expand()
-                } else {
-                    self.row_expand()
-                };
-            }
+            Verb::HomeMessage => return self.toggle_row_detail(),
+            Verb::ViewReply => return self.view_row_reply(),
             Verb::HomeWrite => return self.home_write(),
             Verb::HomePick => return self.home_pick(),
             Verb::AskLead => return self.ask_lead(),
@@ -2922,14 +2890,6 @@ impl App {
         {
             return self.status_key(key);
         }
-        if self.input.as_ref().is_some_and(|input| {
-            matches!(
-                input.compose,
-                Compose::ReadLead { .. } | Compose::ReadRow { .. }
-            )
-        }) {
-            return self.message_key(key);
-        }
         let Some(input) = &mut self.input else {
             return Effect::None;
         };
@@ -2996,8 +2956,6 @@ impl App {
                     Compose::Cron
                     | Compose::Status
                     | Compose::AnswerPicker
-                    | Compose::ReadLead { .. }
-                    | Compose::ReadRow { .. }
                     | Compose::Leads { .. } => false,
                     Compose::Reply { request, from } => {
                         from == member
@@ -3044,9 +3002,6 @@ impl App {
                 all,
                 text,
             },
-            Compose::ReadLead { .. } | Compose::ReadRow { .. } => {
-                unreachable!("read-only mode cannot send")
-            }
             Compose::Status => unreachable!("status submission has its own retained form"),
             Compose::AnswerPicker => unreachable!("answer mode opens the existing request menu"),
             Compose::Cron => unreachable!("a cron step is submitted before this match"),
@@ -3213,7 +3168,9 @@ impl App {
     }
 
     fn overlay(&self) -> Option<Overlay> {
-        if self.checklist_shown() {
+        if self.row_details.reader.is_some() {
+            Some(Overlay::ReplyReader)
+        } else if self.checklist_shown() {
             Some(Overlay::Checklist)
         } else if self.help {
             Some(Overlay::Help)
@@ -3239,6 +3196,21 @@ impl App {
         event: &Event,
     ) -> Option<Effect> {
         match overlay {
+            Overlay::ReplyReader => {
+                if matches!(event, Event::Key(key) if matches!(key.code, KeyCode::Esc | KeyCode::Char('q' | 'v')))
+                {
+                    self.row_details.reader = None;
+                    self.reconcile_row_details();
+                } else {
+                    self.row_details
+                        .reader
+                        .as_ref()?
+                        .scroll
+                        .borrow_mut()
+                        .input(event);
+                }
+                Some(Effect::None)
+            }
             Overlay::Checklist => self.checklist_event(event),
             Overlay::Help => {
                 let input = self.help_state.borrow_mut().input(event);
@@ -3669,6 +3641,25 @@ impl App {
         if self.menu.is_some() || self.input.is_some() {
             return Effect::None;
         }
+        if self.overlay().is_none() && event.kind == MouseEventKind::Down(MouseButton::Left) {
+            let target = self
+                .detail_more_hits
+                .borrow()
+                .iter()
+                .find(|(area, _)| area.contains((event.column, event.row).into()))
+                .map(|(_, target)| target.clone());
+            if let Some(target) = target.filter(|target| {
+                self.detail(target)
+                    .is_some_and(|detail| detail.reply.is_some())
+            }) {
+                self.row_details.reader = Some(super::row_detail::Reader {
+                    target,
+                    scroll: Default::default(),
+                });
+                return Effect::None;
+            }
+        }
+
         if event.kind == MouseEventKind::Down(MouseButton::Left)
             && !self.loading()
             && self.hits.borrow().iter().any(|hit| {
@@ -3847,24 +3838,8 @@ impl App {
                 .clone()
                 .map(super::refresh::SelectedRead::Status);
         }
-        if let Some(Input {
-            compose: Compose::ReadLead { key, .. },
-            ..
-        }) = &self.input
-        {
-            return Some(super::refresh::SelectedRead::Message(key.clone()));
-        }
-        if let Some(Input {
-            compose: Compose::ReadRow {
-                reply: Some(key), ..
-            },
-            ..
-        }) = &self.input
-            && self
-                .latest_row_reply()
-                .is_none_or(|reply| !reply["response"].is_string())
-        {
-            return Some(super::refresh::SelectedRead::Message(key.clone()));
+        if let Some(key) = self.detail_read() {
+            return Some(super::refresh::SelectedRead::Message(key));
         }
         self.notebook_identity()
             .map(super::refresh::SelectedRead::Notebook)
@@ -4095,7 +4070,6 @@ pub(crate) mod tests {
         View {
             history_pending: false,
             ask_lead: crate::config::DEFAULT_ASK_LEAD.into(),
-            home_replies: true,
             token_rate: None,
             home_rate: Default::default(),
             exchanges: Vec::new(),
@@ -4914,31 +4888,23 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn t_toggles_reply_previews_on_a_squad_tab_and_a_user_talk_binding_wins() {
+    fn t_opens_talk_on_a_squad_tab_and_user_bindings_still_override_it() {
         let mut app = crew(crate::action::preset(true, &[]), vec![]);
         app.view.as_mut().unwrap().me = Some("Ben".into());
-        assert_eq!(
-            press(&mut app, KeyCode::Char('t')),
-            Effect::HomeReplies(false)
-        );
-        app.view.as_mut().unwrap().home_replies = false;
-        assert_eq!(
-            press(&mut app, KeyCode::Char('t')),
-            Effect::HomeReplies(true)
-        );
-        assert!(app.input.is_none(), "t no longer opens a composer");
-        // Someone who bound `t` themselves keeps their binding.
-        app.view
-            .as_mut()
-            .unwrap()
-            .bindings
-            .insert("t".into(), crate::action::Action::parse("talk").unwrap());
         app.select(0);
         assert_eq!(press(&mut app, KeyCode::Char('t')), Effect::None);
         assert_eq!(
             app.input.as_ref().unwrap().header(),
             "→ auth-fix (product) · talk"
         );
+        app.input = None;
+        app.view
+            .as_mut()
+            .unwrap()
+            .bindings
+            .insert("t".into(), crate::action::Action::parse("menu").unwrap());
+        press(&mut app, KeyCode::Char('t'));
+        assert!(app.input.is_none() && app.menu.is_some());
     }
 
     fn modes_of(app: &App) -> (String, Vec<&'static str>) {
@@ -5305,6 +5271,7 @@ pub(crate) mod tests {
                 "n",
                 "A",
                 "e",
+                "v",
                 "l",
                 "T",
                 ",",

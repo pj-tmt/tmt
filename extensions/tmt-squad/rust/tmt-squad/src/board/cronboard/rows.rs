@@ -42,6 +42,24 @@ impl Columns {
         }
     }
 
+    /// The same fixed tracks used by the collapsed line decide which detail
+    /// fields are already visible at this width.
+    fn visible_fields(self, width: u16) -> Vec<&'static str> {
+        let owner = 7 + if self.squad { SQUAD + 1 } else { 0 };
+        let prompt = owner + OWNER + 1;
+        let schedule = prompt + if self.what > 0 { self.what + 1 } else { 0 };
+        let next = schedule + SCHEDULE + 1;
+        [
+            ("target", owner),
+            ("prompt", if self.what > 0 { prompt } else { u16::MAX }),
+            ("when", schedule),
+            ("next", next),
+        ]
+        .into_iter()
+        .filter_map(|(field, start)| (start < width).then_some(field))
+        .collect()
+    }
+
     /// The `<tmt-row>` markup for these columns, bound to `row`.
     pub fn markup(self) -> String {
         let squad = if self.squad {
@@ -60,7 +78,7 @@ impl Columns {
             String::new()
         };
         format!(
-            r#"<tmt-row class="flex-col"><tmt-row class="flex-row gap-1 shrink-0"><tmt-row class="flex-row w-6 shrink-0 gap-0"><tmt-text id="mark" bind="row.mark" token-bind="row.mark_role" class="w-{MARK} shrink-0"/><tmt-text id="cursor" bind="row.cursor" token="text" class="w-1 shrink-0"/><tmt-text id="id" bind="row.cid" token="link" class="w-{ID} shrink-0"/></tmt-row>{squad}<tmt-text id="owner" bind="row.owner" token-bind="row.owner_role" class="w-{OWNER} shrink-0 truncate"/>{what}<tmt-text id="schedule" bind="row.schedule" token="dim" class="w-{SCHEDULE} shrink-0 truncate"/><tmt-text id="next" bind="row.next" token-bind="row.next_role" class="w-{NEXT} shrink-0 truncate"/></tmt-row><tmt-repeat each="row.detail" as="line"><tmt-row id-bind="line.id" class="grid grid-cols-[8_1fr] gap-x-1 shrink-0"><tmt-text bind="line.label" token="dim"/><tmt-text bind="line.text" token="text" wrap="true"/></tmt-row></tmt-repeat></tmt-row>"#
+            r#"<tmt-row class="flex-col"><tmt-row class="flex-row gap-1 shrink-0"><tmt-row class="flex-row w-6 shrink-0 gap-0"><tmt-text id="mark" bind="row.mark" token-bind="row.mark_role" class="w-{MARK} shrink-0"/><tmt-text id="cursor" bind="row.cursor" token="text" class="w-1 shrink-0"/><tmt-text id="id" bind="row.cid" token="link" class="w-{ID} shrink-0"/></tmt-row>{squad}<tmt-text id="owner" bind="row.owner" token-bind="row.owner_role" class="w-{OWNER} shrink-0 truncate"/>{what}<tmt-text id="schedule" bind="row.schedule" token="dim" class="w-{SCHEDULE} shrink-0 truncate"/><tmt-text id="next" bind="row.next" token-bind="row.next_role" class="w-{NEXT} shrink-0 truncate"/></tmt-row><tmt-repeat each="row.detail" as="line"><tmt-row id-bind="line.id" class="h-1 shrink-0"><tmt-text bind="line.label" token="dim"/><tmt-text bind="line.text" token="text" wrap="true"/></tmt-row></tmt-repeat></tmt-row>"#
         )
     }
 }
@@ -68,6 +86,10 @@ impl Columns {
 /// `<room uuid>/<c-id>`: stable across refresh, reorder and squad renames.
 pub(super) fn row_id(key: &JobKey) -> String {
     format!("{}/{}", key.room_id, key.id)
+}
+
+pub(in crate::board) fn detail_id(view: &JobView) -> String {
+    row_id(&key_of(view))
 }
 
 pub(super) fn key_of(view: &JobView) -> JobKey {
@@ -144,26 +166,56 @@ fn upcoming(view: &JobView, now_ms: i64) -> Vec<String> {
     slots
 }
 
-fn detail(view: &JobView, id: &str, now_ms: i64) -> Vec<Value> {
-    // The message is sanitized for display; stored bytes never change here.
-    let message = crate::board::notes::sanitize(&view.job.message).replace('\n', " ↵ ");
-    let when = match view.job.state() {
-        "on" => format!("{}   tz {}", upcoming(view, now_ms).join(" · "), zone(view)),
-        "paused" => format!("paused · p to resume   tz {}", zone(view)),
-        _ => format!("no owner · o to reassign   tz {}", zone(view)),
+pub(in crate::board) fn detail(view: &JobView, now_ms: i64) -> crate::board::row_detail::Detail {
+    use crate::board::row_detail::{Detail, Field};
+    let mut fields = Vec::new();
+    let mut add = |label, text: String, role| {
+        if !text.is_empty() {
+            fields.push(Field {
+                label,
+                text: crate::board::notes::sanitize(&text),
+                role,
+            });
+        }
     };
-    vec![
-        json!({"id": format!("{id}#message"), "label": "message", "text": message}),
-        json!({"id": format!("{id}#next"), "label": "next", "text": when}),
-    ]
+    add(
+        "when",
+        format!("{} · tz {}", schedule_text(&view.job.schedule), zone(view)),
+        Role::Text,
+    );
+    let next = match view.job.state() {
+        "on" => upcoming(view, now_ms).join(" · "),
+        "paused" => "paused".into(),
+        _ => "no owner".into(),
+    };
+    add("next", next, Role::Text);
+    add(
+        "target",
+        view.owner_name.clone().unwrap_or_else(|| "no owner".into()),
+        Role::Text,
+    );
+    add("prompt", view.job.message.clone(), Role::Text);
+    Detail {
+        fields,
+        ..Detail::default()
+    }
+}
+
+pub(super) fn expanded_detail(view: &JobView, now_ms: i64, columns: Columns, width: u16) -> Value {
+    detail(view, now_ms)
+        .additional(&columns.visible_fields(width))
+        .value()
 }
 
 /// One row per job; `expanded` names the job shown in place.
 pub(super) fn project(
     jobs: &[&JobView],
-    expanded: Option<&str>,
+    expanded: &[crate::board::row_detail::Target],
     selected: Option<&str>,
     now_ms: i64,
+    width: u16,
+    look: crate::look::Look,
+    columns: Columns,
 ) -> Vec<Value> {
     jobs.iter()
         .map(|view| {
@@ -179,6 +231,8 @@ pub(super) fn project(
                 _ => ("no owner".into(), Role::Blocked),
             };
             let owner = view.owner_name.as_deref().unwrap_or("–");
+            let detail=if expanded.contains(&crate::board::row_detail::Target::Job(id.clone())) { expanded_detail(view,now_ms,columns,width) } else {Value::Null};
+            let lines=crate::board::row_detail::render(&detail,width,7,look,selected==Some(id.as_str())).len();
             json!({
                 "id": id,
                 "disabled": false,
@@ -193,7 +247,8 @@ pub(super) fn project(
                 "schedule": schedule_text(&view.job.schedule),
                 "next": next,
                 "next_role": next_role.name(),
-                "detail": if expanded == Some(id.as_str()) { detail(view, &id, now_ms) } else { vec![] },
+                "detail": (0..lines).map(|index|json!({"id":format!("{id}#detail-{index}"),"label":"","text":""})).collect::<Vec<_>>(),
+                "expanded_detail": detail,
             })
         })
         .collect()

@@ -26,7 +26,7 @@ pub(in crate::board) enum Input {
     Close,
     /// Enter or a click on this row id.
     Open(String),
-    /// A job control (`n e p x o d`) with the selected row id, if any.
+    /// A job control (`n e E p x o d`) with the selected row id, if any.
     Job(char, Option<String>),
 }
 
@@ -71,9 +71,11 @@ impl List {
             .map(str::to_owned)
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn render(
         &self,
         state: &State,
+        expanded: &[crate::board::row_detail::Target],
         now_ms: i64,
         place: Option<&str>,
         frame: &mut Frame,
@@ -93,7 +95,30 @@ impl List {
         let jobs: Vec<_> = state.cron.iter().flat_map(|cron| &cron.jobs).collect();
         // Content height: border 2, one line per job (one for the
         // empty note), position, status and footer lines; the modal caps it.
-        let height = (jobs.len().max(1) as u16 + 5).min(body.height);
+        let detail_height = jobs
+            .iter()
+            .filter(|job| {
+                expanded.contains(&crate::board::row_detail::Target::Job(
+                    super::rows::detail_id(job),
+                ))
+            })
+            .map(|job| {
+                crate::board::row_detail::render(
+                    &super::rows::expanded_detail(job, now_ms, columns, inside),
+                    inside,
+                    7,
+                    look,
+                    false,
+                )
+                .len()
+            })
+            .sum::<usize>();
+        let height = (jobs
+            .len()
+            .max(1)
+            .saturating_add(detail_height)
+            .saturating_add(5)
+            .min(usize::from(body.height))) as u16;
         let shape = (columns, width, height);
         let mut template = self.template.borrow_mut();
         if template.as_ref().is_none_or(|(old, _)| *old != shape) {
@@ -115,11 +140,20 @@ impl List {
         let mut surface = self.surface.borrow_mut();
         surface.reconcile(list_rows(state));
         let selected = surface.picker.list.selected().map(str::to_owned);
+        let rows = project(
+            &jobs,
+            expanded,
+            selected.as_deref(),
+            now_ms,
+            inside,
+            look,
+            columns,
+        );
         let value = json!({
-            "rows": project(&jobs, None, selected.as_deref(), now_ms),
+            "rows": &rows,
             "query": "",
             "status": status,
-            "footer": super::hints::overlay(usize::from(inside)),
+            "footer": super::hints::overlay(usize::from(inside),selected.is_some()),
             "notes": [],
             // The cached scene is keyed by value, and the template depends on width.
             "columns": format!("{columns:?}/{height}"),
@@ -127,8 +161,18 @@ impl List {
         let (_, template) = template.as_ref().expect("compiled");
         surface.render("squad.cron.xml", template, value, frame, look, body);
         if let Some(map) = &surface.frame {
+            if let Some(list) = &map.list {
+                crate::board::row_detail::paint_list(
+                    frame.buffer_mut(),
+                    list,
+                    &rows,
+                    look,
+                    selected.as_deref(),
+                    7,
+                );
+            }
             let footer = map.areas.footer;
-            let text = super::hints::overlay(usize::from(footer.width));
+            let text = super::hints::overlay(usize::from(footer.width), selected.is_some());
             tmt_tui::components::strip::paint_left(
                 frame.buffer_mut(),
                 footer,
@@ -152,7 +196,7 @@ impl List {
                 KeyCode::Enter => {
                     return Some(self.selected().map_or(Input::None, Input::Open));
                 }
-                KeyCode::Char(job @ ('n' | 'e' | 'p' | 'x' | 'o' | 'd')) => {
+                KeyCode::Char(job @ ('n' | 'e' | 'E' | 'p' | 'x' | 'o' | 'd' | 'v')) => {
                     return Some(Input::Job(job, self.selected()));
                 }
                 _ => {}

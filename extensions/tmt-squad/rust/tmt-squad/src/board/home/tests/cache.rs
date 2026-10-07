@@ -229,7 +229,7 @@ fn the_header_usage_and_key_line_follow_their_inputs() {
         assert_eq!(again, held, "{width}");
         for cron in [false, true] {
             assert_eq!(
-                paint::hints_of(view, width.into(), cron, true),
+                paint::hints_of(view, width.into(), cron, true, false),
                 paint::hints(width.into(), cron),
                 "{width} cron {cron}"
             );
@@ -237,7 +237,7 @@ fn the_header_usage_and_key_line_follow_their_inputs() {
     }
     let before = builds(&app);
     paint::usage_of(view, &usage, 80, app.look());
-    paint::hints_of(view, 80, true, true);
+    paint::hints_of(view, 80, true, true, false);
     assert_eq!(builds(&app), before, "the held strips paint nothing");
     usage.unreported += 1;
     paint::usage_of(view, &usage, 160, app.look());
@@ -253,9 +253,12 @@ fn focus_hints_follow_receiving_ownership_in_warm_and_cold_frames() {
             app.tabs_overflow.set(overflow);
             let view = app.view.as_ref().unwrap();
             for receiving in [true, false, true] {
-                let held = paint::hints_of(view, width, overflow, receiving);
+                let held = paint::hints_of(view, width, overflow, receiving, false);
                 view.derived.borrow_mut().home = Default::default();
-                assert_eq!(held, paint::hints_of(view, width, overflow, receiving));
+                assert_eq!(
+                    held,
+                    paint::hints_of(view, width, overflow, receiving, false)
+                );
                 assert!(!held.contains("Focus: HOME rows"));
                 assert!(held.ends_with("? more  q quit"));
                 assert!(unicode_width::UnicodeWidthStr::width(held.as_str()) <= width);
@@ -270,7 +273,7 @@ fn focus_hints_follow_receiving_ownership_in_warm_and_cold_frames() {
                     "{name} owns the keys"
                 );
             };
-            // Actual input/read transitions retain selection and use the existing band.
+            // In-place detail and input transitions retain selection and fresh-frame equality.
             let lead = app
                 .home_entries()
                 .iter()
@@ -280,9 +283,9 @@ fn focus_hints_follow_receiving_ownership_in_warm_and_cold_frames() {
                 .unwrap();
             app.select(lead);
             press(&mut app, Char('e'));
-            assert!(app.input.is_some());
-            owns(&app, "read");
-            press(&mut app, Esc);
+            assert!(app.input.is_none() && !app.row_details.expanded.is_empty());
+            owns(&app, "expanded detail");
+            press(&mut app, Char('e'));
             app.select(2);
             press(&mut app, Char('a'));
             assert!(app.input.is_some());
@@ -328,7 +331,8 @@ fn focus_hints_follow_receiving_ownership_in_warm_and_cold_frames() {
             app.cron_list = Some(crate::board::cronboard::List::open(&app.cron, None));
             owns(&app, "cron list");
             app.cron_list = None;
-            let restored = paint::hints_of(app.view.as_ref().unwrap(), width, overflow, true);
+            let restored =
+                paint::hints_of(app.view.as_ref().unwrap(), width, overflow, true, false);
             assert!(!restored.contains("Focus: HOME rows"));
         }
     }

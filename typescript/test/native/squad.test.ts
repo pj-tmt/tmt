@@ -235,46 +235,25 @@ o = "run touch ${marker}"
     });
   });
 
-  it('persists the global HOME replies boolean and rejects scoped or invalid values without edits', async () => {
+  it('ignores the obsolete HOME replies setting without rewriting authored TOML', async () => {
     await withSandbox(async (sandbox) => {
       installSquad(sandbox);
       await identity(sandbox, 'home-settings-owner');
       const config = path.join(sandbox.globalDir, 'squad.toml');
-      writeFileSync(config, '# keep this comment\n');
-      const setting = async () => {
-        const shown = await squad(sandbox, ['config', 'show', '--tab', 'all']);
-        expect(shown.status).toBe(0);
-        return shown.body.entries.find(
-          (entry: { key: string }) => entry.key === 'board.home_replies'
-        );
-      };
-      expect(await setting()).toMatchObject({
-        value: true,
-        source: 'default:true',
-        editable: true,
-      });
-      expect((await squad(sandbox, ['config', 'set', 'board.home_replies', 'false'])).status).toBe(
-        0
-      );
-      expect(await setting()).toMatchObject({ value: false, source: 'board.home_replies' });
-      const before = readFileSync(config, 'utf8');
-      expect(before).toContain('# keep this comment');
-      for (const args of [
-        ['config', 'set', 'board.home_replies', 'true', '--squad', 'product'],
-        ['config', 'set', 'board.home_replies', 'yes'],
-      ]) {
-        const rejected = await squad(sandbox, args);
-        expect(rejected.status).not.toBe(0);
-        expect(rejected.body.error.code).toBe('SQUAD_CONFIG_INVALID');
-        expect(rejected.body.error.message).toContain(
-          args.includes('--squad') ? 'read-only in this scope' : 'must be true or false'
-        );
-        expect(readFileSync(config, 'utf8')).toBe(before);
-      }
-      expect((await squad(sandbox, ['config', 'set', 'board.home_replies', 'true'])).status).toBe(
-        0
-      );
-      expect(await setting()).toMatchObject({ value: true, source: 'board.home_replies' });
+      const before = '# keep this comment\n[board]\nhome_replies=false\n';
+      writeFileSync(config, before);
+      const shown = await squad(sandbox, ['config', 'show', '--tab', 'all']);
+      expect(shown.status).toBe(0);
+      expect(
+        shown.body.entries.some((entry: { key: string }) => entry.key === 'board.home_replies')
+      ).toBe(false);
+      expect(
+        shown.body.notices.filter((notice: string) => notice.includes('board.home_replies'))
+      ).toEqual(['board.home_replies is deprecated and ignored; e expands row details.']);
+      const rejected = await squad(sandbox, ['config', 'set', 'board.home_replies', 'true']);
+      expect(rejected.status).not.toBe(0);
+      expect(rejected.body.error.message).toContain('read-only in this scope');
+      expect(readFileSync(config, 'utf8')).toBe(before);
     });
   });
 

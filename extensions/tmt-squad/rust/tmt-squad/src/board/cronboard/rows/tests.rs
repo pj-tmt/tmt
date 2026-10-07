@@ -39,22 +39,37 @@ fn rows_show_state_owner_schedule_and_next_and_expand_in_place() {
         at_ms: 0,
     });
     let id = row_id(&key_of(&a));
-    let rows = project(&[&a, &b], Some(&id), None, NOW);
-    let columns = Columns::for_width(true, 120);
-    let screen = paint(rows, columns, 120, 8);
+    let rows = project(
+        &[&a, &b],
+        &[crate::board::row_detail::Target::Job(id)],
+        None,
+        NOW,
+        80,
+        crate::look::Look::default(),
+        Columns::for_width(true, 80),
+    );
+    let columns = Columns::for_width(true, 80);
+    let screen = paint(rows, columns, 80, 8);
     assert!(screen[0].contains("● c0"), "{screen:#?}");
     assert!(screen[0].contains("every 30m"), "{screen:#?}");
     assert!(
         screen[0].contains("Mon 10-05 00:30") && screen[0].contains("tmt-core"),
         "{screen:#?}"
     );
-    assert!(screen[1].starts_with("message"), "{screen:#?}");
     assert!(
-        screen[2].starts_with("next     Mon 10-05 00:00 · Mon 10-05 00:30 · "),
+        screen[1].contains("│prompt") && screen[1].contains("merge queue sweep"),
         "{screen:#?}"
     );
     assert!(
-        screen[3].contains("○") && screen[3].contains("paused"),
+        !screen.iter().any(|line| line.contains("│when")
+            || line.contains("│next")
+            || line.contains("│target")),
+        "already visible fields are not repeated: {screen:#?}"
+    );
+    assert!(
+        screen
+            .iter()
+            .any(|line| line.contains("○") && line.contains("paused")),
         "{screen:#?}"
     );
 }
@@ -62,7 +77,15 @@ fn rows_show_state_owner_schedule_and_next_and_expand_in_place() {
 #[test]
 fn the_message_preview_takes_what_the_fixed_tracks_leave_and_steps_aside() {
     let a = view("tmt-lead", "merge queue sweep", Some(NOW + 3_600_000));
-    let rows = project(&[&a], None, None, NOW);
+    let rows = project(
+        &[&a],
+        &[],
+        None,
+        NOW,
+        120,
+        crate::look::Look::default(),
+        Columns::for_width(false, 120),
+    );
     for (width, squad, preview) in [
         (160, true, true),
         (93, true, true),
@@ -86,7 +109,15 @@ fn the_message_preview_takes_what_the_fixed_tracks_leave_and_steps_aside() {
 fn row_ids_are_namespaced_and_untrusted_names_are_neutralized() {
     let mut a = view("o\u{1b}[2Jwner", "m\u{202e}essage", None);
     a.job.room_id = "6f1c2d3e-0000-4000-8000-000000000001".into();
-    let rows = project(&[&a], None, None, NOW);
+    let rows = project(
+        &[&a],
+        &[],
+        None,
+        NOW,
+        120,
+        crate::look::Look::default(),
+        Columns::for_width(false, 120),
+    );
     assert_eq!(rows[0]["id"], "6f1c2d3e-0000-4000-8000-000000000001/c0");
     let shown = paint(rows, Columns::for_width(false, 120), 120, 2).join("\n");
     assert!(

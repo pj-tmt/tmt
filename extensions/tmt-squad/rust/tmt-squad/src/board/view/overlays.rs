@@ -32,6 +32,7 @@ pub(super) fn render(frame: &mut Frame, app: &App, body: Rect, look: crate::look
     if let Some(list) = &app.cron_list {
         list.render(
             &app.cron,
+            &app.row_details.expanded,
             app.cron.now_ms(),
             app.clock_place(),
             frame,
@@ -48,6 +49,7 @@ pub(super) fn render(frame: &mut Frame, app: &App, body: Rect, look: crate::look
     if let Some(overlay) = &app.settings {
         crate::board::settings::render(frame, overlay, look, body);
     }
+    crate::board::row_detail::render_reader(frame, app, body);
 }
 
 /// The quick switcher: the query, then the matching tabs with their counts

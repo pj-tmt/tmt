@@ -83,6 +83,7 @@ fn hint_word(action: &crate::action::Action) -> &'static str {
         }
         Verb::Annotate => "write",
         Verb::HomeMessage => "expand",
+        Verb::ViewReply => "view",
         verb => verb.name(),
     }
 }
@@ -101,6 +102,9 @@ fn key_label(event: &str) -> &str {
 fn row_allows(app: &App, action: &crate::action::Action) -> bool {
     use crate::action::Verb;
     let lead = action.args.first().and_then(|arg| arg.literal()) == Some("lead");
+    if action.verb == Verb::ViewReply {
+        return app.reply_hint();
+    }
     let acts_on_row = !(action.verb == Verb::Jump && lead)
         && matches!(
             action.verb,
@@ -135,7 +139,7 @@ fn row_allows(app: &App, action: &crate::action::Action) -> bool {
 /// stay (`? more` alone when only it fits), as the guideline requires.
 pub(super) fn hints(app: &App, width: usize) -> String {
     if app.jobs_focus {
-        return crate::board::cronboard::jobs_hints(width);
+        return crate::board::cronboard::jobs_hints(width, app.jobs_selected().is_some());
     }
     if let Some(view) = app.view.as_ref().filter(|view| view.home.is_some()) {
         return crate::board::home::hints_of(
@@ -143,6 +147,7 @@ pub(super) fn hints(app: &App, width: usize) -> String {
             width,
             app.tabs_overflow.get(),
             super::panes::receiving_pane(app) == Some(Pane::Rows),
+            app.reply_hint(),
         );
     }
     let bindings = app.bindings();
@@ -313,11 +318,7 @@ pub(super) fn render(frame: &mut Frame, app: &App, footer: Rect, look: crate::lo
         !matches!(input.compose, crate::board::app::Compose::AskLead { .. })
             && app.input_band.get().is_none()
     }) {
-        let mut spans = if matches!(input.compose, crate::board::app::Compose::ReadLead { .. }) {
-            hint_line("e collapse  a reply", look).spans
-        } else {
-            vec![Span::raw(format!("{} › {}▏", input.prompt, input.text))]
-        };
+        let mut spans = vec![Span::raw(format!("{} › {}▏", input.prompt, input.text))];
         if let Some(hint) = input
             .hint
             .as_ref()

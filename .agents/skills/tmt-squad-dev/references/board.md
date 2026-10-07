@@ -57,13 +57,13 @@ and covered-hit removal. Ask-lead, settings, pickers and cron overlays stay squa
   carries no section binding, and public JSON keeps it outside `sections`.
 - Default squad `members` and HOME leads use the neutral `view::member_list` boxed-list
   scene and `Derived.member_list` cache:
-  lead first, the nonselectable members rule, then two selectable lines per member.
+  lead first, the nonselectable members rule, then each member’s selectable heading and task line.
   `View.exchanges` comes from `home_leads::members` using the already acquired
   `requests::Sent` window. `App::items` applies the HOME comparator within authored
   member groups; the lead/rules/sections and public documents stay fixed. Actual
   row waiting overrides newer replies for squad ordering; HOME retains its latest
   exchange semantics. Task/state/model/observed age feed the same scene key, and
-  read-only expansion replaces the task line with the shared reservation.
+  read-only detail joins the row stream through `row_detail`.
 - Other named/custom views: `view::rows` prepares `row_paint::RowPaint` before replacing the immutable view's
   `Derived.grid`. Its key includes effective width, search and `Extra` (lead,
   clock-derived cron/request labels, sent feedback and input reservation). Failed
@@ -77,10 +77,10 @@ and covered-hit removal. Ask-lead, settings, pickers and cron overlays stay squa
   name, disappears below two cells and reserves no width on other rows. Age/cron
   room is reserved only if it hides no additional column; cron drops before age.
 - Occurrence selection changes styles while preserving the existing blank prefixes:
-  grid x=1 beside the attention diamond, and boxed heading/task indentation.
-  Hit/reveal ranges, annotation, sent feedback, borders and input/read reservations
+  grid x=1 beside the attention diamond, and boxed heading indentation.
+  Hit/reveal ranges, annotation, sent feedback, borders and input reservations
   do not define selected paint. Duplicate occurrences remain independent. HOME
-  boxed leads select their heading only; member boxes also select their task line.
+  boxed leads select their heading only; member boxes retain their heading/task selection.
 - Selection words: `Look::selected_words` is the one owner of what a real selection
   background (`tmt`, `tmt-light`) does to colors. `render_frame` runs it last, over the
   finished buffer: on a cell with the selection background, `muted`, `dim`, `accent`, `link` and the
@@ -90,14 +90,23 @@ and covered-hit removal. Ask-lead, settings, pickers and cron overlays stay squa
   fallback stays with `row_span`. The contrast test in `tmt-cli-style` pins text 4.5:1
   and marks 3:1 on that background.
 
-- `Compose::ReadRow` anchors fields/latest reply to the same row occurrence and
-  shared `App.input` as HOME/read/send modes. `home::controller` reuses cached bodies
-  or the existing fenced request read; `view::waiting::read_lines` supplies field
-  order, height, paint and scroll limits. Read-only expansion needs no recorded user;
-  writing does. Effective bindings control collapse/write/open. Writing from a
-  read band dispatches the same row action as the list, so default `a` answers first
-  and explicit note/talk/reply bindings keep their recipient and mode. Covered hits
-  are removed by the existing band owner.
+- `board::row_detail` owns the typed entity fields/reply projection, one renderer and
+  full-reply reader for member, HOME lead/member and job rows. Adapters supply data
+  and row geometry plus the fields already visible in the collapsed row, never a
+  separate detail look. Collapsed content stays intact; detail omits visible
+  fields, including task/model in the default member box and width-dependent
+  job/grid cells. `e` toggles stable row occurrences;
+  several can expand. Refresh prunes disappeared rows and obsolete request bodies.
+  Detail participates in the list height and parent hits, with no input-band or
+  selection background. Labels/gutter, three-line fields and six-line Markdown
+  replies share wrapping and roles across every adapter. Existing scroll owners
+  reveal the minimum row/block range, clipping tall blocks with their overflow cue.
+  Full bodies arrive only through the existing cancellable worker/request cache,
+  fenced by revision and exact sender/recipient/request; collapsed or removed rows
+  cannot accept late results. `v` opens any available reply in the shared read-only
+  modal/ScrollState reader, and clicking its generated overflow line does the same.
+  Enter and `o` retain ordinary row actions. Expansion needs no recorded user or
+  Rows-pane focus; sending still does.
 - Row composer and footer: `Input.compose` is the current mode (answer, note, talk or status)
   and `Input.others` the rest in cycle order; Tab (`cycle_mode`) rotates them and
   refreshes the quote. `attach_row` builds the list from the row (`other_modes`), so a
@@ -110,7 +119,7 @@ and covered-hit removal. Ask-lead, settings, pickers and cron overlays stay squa
   config keys. After a successful settings save, their config-backed values are
   resolved again through the same Config readers as opening; the component keeps
   selection and the token-window row keeps its live session value. Failed saves
-  publish no new quick-row values. Presets bind `t` to `home-replies` and no `r`, `T`, `l`, `w` or `talk`;
+  publish no new quick-row values. Presets bind `t` to talk, `e` to row expansion and `v` to the full-reply reader; no `r`, `T`, `l` or `w` default exists;
   fixtures that exercise those actions use `action::with_action_keys`.
 
 Receiving focus is explicit in the existing outlined pane title. The default
@@ -118,7 +127,7 @@ borderless Rows and HOME panes add no footer focus text. Selection persists when
 another pane receives keys. Input/read, search and every existing overlay/menu
 retain their footer ownership; notice, selected-link and error precedence is unchanged.
 Footer hint keys use bold Accent with Muted labels and two-space separators;
-NO_COLOR keeps the key bold, and settings dim both parts. Write and ask-lead
+NO_COLOR keeps the key bold, and settings dim both parts. `t talk` remains at footer rank 1; `v view` appears only for an expanded selected row with a reply. Write and ask-lead
 remain bound and discoverable in help/menus, without default footer hints.
 
 ## Composition, folds and scrolling
@@ -226,8 +235,7 @@ remain bound and discoverable in help/menus, without default footer hints.
   band across the body, or the HOME lead box's inner width, and removes covered
   hits. Headers derive from actual `Compose` recipients/subjects. Unanchored input
   keeps the footer path; ask-lead keeps a docked band and opening sender/squad/lead
-  fences. `Compose::ReadLead` is read-only; wrapping, reservation and scrolling share
-  `home_leads::message_lines`, and transition to answer/note uses the normal owner.
+  fences. Read-only detail belongs to `row_detail`, outside the composer.
 - `RowFeedback` retains the anchored occurrence through refresh; its `sent` flag
   alone permits `✓ sent`. A removed HOME row stays in the transient display
   projection until the next key. An active status form retains its row through
@@ -306,3 +314,8 @@ acknowledgements. Closing retains drafts and stable base return context; explici
 Cancel discards intent. This flow never contributes attention or changes Core
 requests, member state, metadata or configuration. Storage/service invariants live
 in [data-and-state.md](data-and-state.md#checklist-storage-and-service).
+
+The jobs half and `c` list never expand merely on selection or focus. Their ListState
+owns navigation, scrolling and hit geometry; `row_detail` paints into their reserved
+inline detail lines. Scoped `e` toggles, `E` edits, and the single cron `KEYS` table
+owns footer/help words. `E edit` appears only when a job is selected.
