@@ -995,9 +995,10 @@ Visibility is the extension's rule, not a remote grant.
 ### Object channel frames
 
 **Status:** library wire schema only. `rust/crates/tmt-extension-objects` implements and tests the five frame kinds below
-(request, result, admit, admission and origin-state), all decoded and encoded by the same checks; no route, channel,
-handshake, callback executor or backend is shipped (#1852). The leaf decodes every kind: which side may send which, and
-every generation, high-water, ordering and outstanding-request rule, belong to the later channel. Requests, results
+(request, result, admit, admission and origin-state), all decoded and encoded by the same checks, and, on Unix, the
+carrier below that opens the channel and moves frames with bounded waits; no mount or route integration, callback
+executor or backend is shipped (#1852). Which side may send which kind, and every generation, high-water, ordering and
+outstanding-request rule, belong to the channel built on the carrier. Requests, results
 and admission replies carry no principal, role, permit, retry or scope: `method`, the result tag and the callback
 identifiers are correlation only. An admit `context` states the owner device and grant revision as Remote established
 them, for the extension's own decision; a browser or caller never selects it, and nothing in a context, identifier,
@@ -1011,6 +1012,35 @@ Counters are canonical decimal strings spanning `u64`. UUIDs are lowercase versi
 re-encodes to the same text. Structure faults (unknown or missing member, wrong JSON type, unknown `kind`, `method`,
 origin kind, context kind, disclosure class or result tag) and value faults (a spelling, range or association outside its grammar) are distinct
 classes. Encoding applies the same checks, in the canonical member order shown.
+
+**Carrier handshake.** Remote opens the channel on an extension's owner-only `door.sock` with one HTTP/1.1 request and the
+extension answers with one reply; nothing else is sent before the reply. This is not RFC 6455 and not the extension's
+browser routes.
+
+```http
+GET /.tmt/remote/object-channel-v1 HTTP/1.1
+Host: <the exact admitted mount host>
+Connection: Upgrade
+Upgrade: tmt-object-channel-v1
+Content-Length: 0
+tmt-mount: <the exact selected mount>
+tmt-object-channel: 1
+tmt-object-generation: <lowercase UUIDv4 Remote just generated>
+```
+
+The acceptor requires this method, this exact path (a query is a different path), `HTTP/1.1`, and exactly these seven
+fields, each once in any letter case and in any order, with these values; any other field (a cookie, `Transfer-Encoding`,
+a `Sec-WebSocket-*` field, a device context, an origin), a repeat, a missing field, a nonzero length or bytes after the
+head is refused. A head is at most 8 KiB and 32 fields. The reply is `HTTP/1.1 101 Switching Protocols` with exactly
+`Connection: Upgrade`, `Upgrade: tmt-object-channel-v1` and the same `tmt-object-generation`, and no body; the initiator
+refuses any other status, field or generation, and a refused attempt is closed with no fallback. Every later frame names
+that generation, and a frame of another generation ends the channel. The extension reads the head within 2 s and writes
+the reply within 1 s, both clipped by the setup bound the caller holds.
+
+**Frame waits.** A frame is complete 2 s after its first prefix byte, with no renewal for partial progress; the length is
+checked before any allocation. Waiting for a frame to begin has no bound of its own and ends on a byte, the end of the
+stream, a stop request or the caller's deadline. A frame is written within 1 s. A partial prefix or body, an end of the
+stream inside a frame, a stalled write or an invalid frame ends the channel; none is retried.
 
 **Request** `{"version":1,"kind":"request","generation":<uuid>,"requestId":<counter>,"origin":<origin>,"method":<method>,"input":<input>}`,
 with `origin` either `{"kind":"local-extension"}` or `{"kind":"mounted","originId":<uuid>}`.

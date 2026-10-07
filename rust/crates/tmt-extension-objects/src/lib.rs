@@ -4,12 +4,16 @@
 //! Handshake and channel I/O are not part of this crate yet. It names no
 //! Remote or Colab type and grants no authority: an identifier or digest proves
 //! nothing about who may use it.
+#[cfg(unix)]
+mod carrier;
 mod codec;
 mod error;
 mod frame;
 mod ids;
 pub mod limits;
 
+#[cfg(unix)]
+pub use carrier::{Budgets, Expect, Fault, Idle, Link, Offer, Refusal, Stage, accept, initiate};
 pub use codec::decode_length;
 pub use error::ErrorClass;
 pub use frame::{

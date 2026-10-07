@@ -2916,6 +2916,8 @@ name = "tmt-extension-objects"
 version = "5.0.0-dev"
 dependencies = [
  "base64 0.22.1",
+ "httparse",
+ "nix",
  "serde",
  "serde_json",
 ]

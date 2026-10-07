@@ -15,7 +15,7 @@ and `transport` have no I/O, clock, storage or `CoreClient` access):
 | `pairing`, `control`, `devices`        | One pairing offer per run, owner-only control socket for discovery/stop and device list/revoke/rename                                                                                                                 |
 | `mount`, `pages`                       | Extension mounts (allowlisted extensions only), static landing/pairing/error pages and embedded stylesheet/SDK assets                                                                                                 |
 | `objects`                              | Object backend trait and `LocalFs`: the `objects.db` ledger and extension-private payload trees under the serve lease; no route, config or consumer yet                                                               |
-| `tmt-extension-objects` (leaf)         | Remote-owned protocol leaf awaiting product integration: canonical IDs/encodings, protocol bounds, strict JSON and request/result/callback frames; no I/O, backend, policy or Remote/Colab types, none consume it yet |
+| `tmt-extension-objects` (leaf)         | Remote-owned protocol leaf awaiting product integration: canonical IDs/encodings, protocol bounds, strict JSON, typed frames and the Unix carrier; no backend, policy or Remote/Colab types, no crate consumes it yet |
 
 Rules that are easy to get wrong:
 
@@ -82,7 +82,9 @@ library-only and shared with Colab:
 
 Synced publication tests prove filesystem behavior, not power-loss recovery.
 
-The wire leaf `tmt-extension-objects` is library-only and has no consumer yet. It owns the wire
+The wire leaf `tmt-extension-objects` is library-only and has no consumer yet. Its Unix-only
+`carrier` module (handshake, bounded frame I/O) is the only part that names `httparse` or `nix`
+(`cfg(unix)` dependencies, guarded); the protocol modules stay free of OS dependencies. It owns the wire
 bounds (`limits`: chunk, policy input, payload); the `tmt-remote` limits of the same value do not
 depend on it, so consumer slices must reuse the leaf bounds or equality-test them against the
 backend limits. Its tests are in-crate, so run it alone and keep it in the architecture guard:
