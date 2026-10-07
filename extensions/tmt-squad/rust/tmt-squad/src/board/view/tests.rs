@@ -24,6 +24,7 @@ use serde_json::Value;
 use tmt_cli_style::{Role, mark::Mark};
 use unicode_width::UnicodeWidthStr;
 
+mod checklist;
 mod cron;
 mod frame_timing;
 mod help;

@@ -28,6 +28,7 @@ pub(super) fn receiving_pane(app: &App) -> Option<Pane> {
         || app.theme_picker.is_some()
         || app.switcher.is_some()
         || app.cron_list.is_some()
+        || app.checklist_shown()
     {
         None
     } else {

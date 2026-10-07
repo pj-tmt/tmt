@@ -10,6 +10,11 @@ use ratatui::{
 use tmt_cli_style::mark::Mark;
 
 pub(super) fn render(frame: &mut Frame, app: &App, body: Rect, look: crate::look::Look) {
+    if let Some(checklist) = &app.checklist
+        && checklist.active
+    {
+        checklist.render(frame, look, body);
+    }
     if app.help {
         crate::board::help::render(frame, app, body);
     }

@@ -208,7 +208,7 @@ unassign/complete/reopen/archive/restore/delete/reorder operations. `checklist_c
 exposes them through `tmt squad checklist` (`tmt sq` dispatch alias); primary `ls` has
 hidden accepted alias `list`, both returning semantic JSON action `list`. The adapter
 parses only explicit UUIDs and revisions, invokes the unchanged service once and
-projects its typed results/errors. No board action is exposed.
+projects its typed results/errors. The board consumes the same typed service directly; `Service::preview` reuses read admission to expose its captured actor, current inventory and eligible roster. Board filters and authored drafts remain presentation state.
 
 - `model` owns the frozen item lifecycle: positive item revisions, a separate inventory
   revision, full authored order including archived items, exact expectations and no-op
