@@ -550,9 +550,7 @@ completed operations, requires qualified owning disposition before any new opera
 automatic retry, older fallback, inferred bootstrap or deletion is exposed. Ordinary preparation
 artifacts remain read-only reuse provenance, with no deletion rights.
 
-`test/tooling/pr-rc-coordinator.test.ts` uses independent Python json/hashlib/USTAR/gzip literals
-and injected filesystem-durable recovery. It proves source ordering, catalog bytes and
-refusal/crash sensitivity only. Production approval, actual workflow/transport, backend/recovery
+Source controls prove ordering, catalog bytes and refusal sensitivity only. Production approval, actual workflow/transport, backend/recovery
 custody, finalization, catalog-first close/missed-event/late-upload/reader-race cleanup, physical
 absence, measured cost and representative installs remain #1889/#1639 work.
 

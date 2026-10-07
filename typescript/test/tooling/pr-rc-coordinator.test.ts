@@ -3,7 +3,8 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { serialize, deserialize } from 'node:v8';
-import { describe, expect, it } from 'vite-plus/test';
+import { describe, expect, it, vi } from 'vite-plus/test';
+import * as journal from '../../scripts/pr-rc-journal.mjs';
 import {
   coordinatePRRC,
   type RCPublicationInput,
@@ -681,6 +682,42 @@ describe('trusted reuse-only source coordinator', () => {
       expect(f.uploaded).toHaveLength(5);
     });
   });
+
+  it.each(['commit throws', 'journal recovery load fails'] as const)(
+    'retained recovery keeps original charges when %s',
+    async (failure) => {
+      await withFixture(async (f) => {
+        const first = await coordinatePRRC(f.input, f.ports);
+        expect(first.status).toBe('readback-confirmed');
+        const retained = f.load();
+        const events = [...f.events];
+        const commit =
+          failure === 'commit throws'
+            ? vi
+                .spyOn(journal, 'commitRCCheckpoint')
+                .mockRejectedValueOnce(new Error('Injected checkpoint commit failure'))
+            : null;
+        if (failure === 'journal recovery load fails') {
+          let loads = 0;
+          f.ports.checkpoint.recovery.load = async () => {
+            if (++loads === 2) throw new Error('Injected journal recovery load failure');
+            return retained;
+          };
+        }
+        try {
+          const result = await coordinatePRRC(f.input, f.ports);
+          expect(result.status).toBe('frozen');
+          expect(result.charges).toEqual(CHARGES);
+          expect(result.recovery).toEqual(retained);
+          expect(f.load()).toEqual(retained);
+          expect(f.events).toEqual(events);
+          expect(f.uploaded).toHaveLength(5);
+        } finally {
+          commit?.mockRestore();
+        }
+      });
+    }
+  );
 
   const eligibilityNegatives: [string, (v: ReturnType<typeof eligible>) => void][] = [
     [

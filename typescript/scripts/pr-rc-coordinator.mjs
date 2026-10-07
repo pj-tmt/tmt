@@ -419,19 +419,25 @@ export async function coordinatePRRC(input, ports) {
     const old = await ports.checkpoint.recovery.load();
     if (old !== null) {
       recovery = old;
-      charges = null;
-      checkpointResult = await commitRCCheckpoint({
-        candidate: old.candidate,
-        recorded: old.recorded,
-        bootstrap: null,
-        ports: ports.checkpoint,
-        startedAtMs,
-      });
+      charges = old.candidate.charges;
+      let reason = 'Existing checkpoint recovery requires qualified disposition; no upload replay.';
+      try {
+        checkpointResult = await commitRCCheckpoint({
+          candidate: old.candidate,
+          recorded: old.recorded,
+          bootstrap: null,
+          ports: ports.checkpoint,
+          startedAtMs,
+        });
+        charges = checkpointResult.charges ?? charges;
+      } catch (error) {
+        reason = error instanceof Error ? error.message : 'Unknown retained checkpoint evidence.';
+      }
       return {
         mode: 'unarmed',
         status: 'frozen',
-        reason: 'Existing checkpoint recovery requires qualified disposition; no upload replay.',
-        charges: checkpointResult.charges,
+        reason,
+        charges,
         recovery: old,
         checkpoint: checkpointResult,
       };
@@ -501,7 +507,8 @@ export async function coordinatePRRC(input, ports) {
           response.nextPage === null &&
           reference(response.reference) &&
           positive(response.observedAtMs) &&
-          positive(response.elapsedMs + 1) &&
+          Number.isSafeInteger(response.elapsedMs) &&
+          response.elapsedMs >= 0 &&
           response.elapsedMs <= 10_000 &&
           responseBytes <= LIMIT.reconciliationBytes &&
           ports.checkpoint.now() < deadline,
