@@ -15,6 +15,166 @@ const bundle = read('.github/workflows/native-release-bundle.yml');
 const prepare = read('.github/workflows/native-release-prepare.yml');
 const smokeWorkflow = read('.github/workflows/native-release-smoke.yml');
 
+describe('compiled CLI schema preparation order', () => {
+  const blocks = (source: string) => ({
+    build: source.split('  build:\n')[1].split('  assemble:\n')[0],
+    assemble: source.split('  assemble:\n')[1].split('  verify:\n')[0],
+    verify: source.split('  verify:\n')[1].split('  upgrade-fetch:\n')[0],
+  });
+  const trustedInstallName = 'name: Install trusted CLI verification dependencies';
+  const trustedInstallCommand =
+    'pnpm --filter tmux-team --fail-if-no-match install --frozen-lockfile --ignore-scripts';
+  function requireTrustedCliPreparation(source: string) {
+    const { verify } = blocks(source);
+    const steps = verify.split(/\n      - /).slice(1);
+    const installs = steps.filter((step) => step.startsWith(trustedInstallName + '\n'));
+    expect(installs).toHaveLength(1);
+    const install = installs[0];
+    expect(install.split('\n')).toContain("        if: inputs.product == 'cli'");
+    expect(install.split('\n')).toContain('        working-directory: typescript');
+    expect(install.split('\n')).toContain(`        run: ${trustedInstallCommand}`);
+    const setup = steps.findIndex((step) => step.startsWith('name: Set up Node.js and pnpm\n'));
+    const preparation = steps.indexOf(install);
+    const final = steps.findIndex((step) =>
+      step.startsWith(
+        'name: Execute final archive and bootstrap with the matching target process\n'
+      )
+    );
+    expect(setup).toBeGreaterThanOrEqual(0);
+    expect(preparation).toBeGreaterThan(setup);
+    expect(final).toBeGreaterThan(preparation);
+    expect(steps[final]).toContain(
+      'node "$GITHUB_WORKSPACE/typescript/scripts/verify-native-artifact.mjs"'
+    );
+    const candidate = steps.find((step) =>
+      step.startsWith('name: Install verification dependencies\n')
+    );
+    expect(candidate?.split('\n')).toContain(
+      '        working-directory: release-source/typescript'
+    );
+    expect(candidate?.split('\n')).toContain(
+      '        run: pnpm install --frozen-lockfile --ignore-scripts'
+    );
+    const activation = read('.github/actions/setup-tooling/action.yml');
+    expect(activation).toContain('default: 22.23.2');
+    expect(activation).toContain('default: 10.33.0');
+  }
+  function requireSchemaOrder(source: string) {
+    const { build, assemble, verify } = blocks(source);
+    expect(build).toContain(
+      "inputs.product == 'cli' && matrix.target == 'x86_64-apple-darwin' && 'x64'"
+    );
+    const capture = build.indexOf('name: Capture compiled CLI schema');
+    expect(capture).toBeGreaterThan(
+      build.indexOf('name: Verify plan, archive and binary versions')
+    );
+    expect(build.indexOf('scripts/run-native-verification.sh "$TARGET"', capture)).toBeGreaterThan(
+      capture
+    );
+    expect(build.indexOf('native-application-schema.mjs" capture', capture)).toBeGreaterThan(
+      capture
+    );
+    expect(capture).toBeLessThan(build.indexOf('name: Recheck version-only source'));
+    expect(build).toContain('release-source/target/distrib/*-application-schema.json');
+    const merge = assemble.indexOf('dist build --tag');
+    const attach = assemble.indexOf('native-application-schema.mjs" assemble');
+    expect(attach).toBeGreaterThan(merge);
+    expect(attach).toBeLessThan(assemble.indexOf('generate-native-bootstrap.mjs'));
+    expect(attach).toBeLessThan(assemble.indexOf('uses: actions/upload-artifact@v4'));
+    expect(assemble).toContain('release-source/target/distrib/*-application-schema.json');
+    expect(verify).toContain(
+      'node "$GITHUB_WORKSPACE/typescript/scripts/verify-native-artifact.mjs"'
+    );
+    expect(verify).toContain('--schema-snapshot "$RUNNER_TEMP/release-version-state.json"');
+    expect(verify).toContain('--schema-evidence "target/distrib/$TARGET-application-schema.json"');
+    expect(verify).toContain('--source-root "$PWD"');
+    expect(verify.indexOf('scripts/run-native-verification.sh "$TARGET"')).toBeLessThan(
+      verify.indexOf('--schema-snapshot')
+    );
+    expect(verify).not.toContain('native-application-schema.mjs" assemble');
+  }
+  it('captures on matching hosts, inserts after cargo-dist merge and verifies without rewriting', () => {
+    requireSchemaOrder(prepare);
+    const source = read('typescript/scripts/verify-native-artifact.mjs');
+    expect(source).toContain('verifyApplicationSchema({');
+    expect(source).toContain('Final schema manifest changed during verification');
+    expect(source.indexOf('verifyApplicationSchema({')).toBeLessThan(
+      source.indexOf('await verifyNativeRuntime({')
+    );
+    expect(source.indexOf('Final schema manifest changed during verification')).toBeGreaterThan(
+      source.indexOf('await verifyNativeRuntime({')
+    );
+    expect(source).toContain("'schema-snapshot': { type: 'string' }");
+  });
+  it('prepares pinned trusted tooling for CLI verification while retaining candidate dependencies', () => {
+    requireTrustedCliPreparation(prepare);
+  });
+  it.each(['missing', 'wrong-checkout', 'late', 'condition', 'filter', 'frozen', 'scripts'])(
+    'detects %s trusted CLI dependency preparation',
+    (mutation) => {
+      const { verify } = blocks(prepare);
+      const step = verify
+        .split(/\n      - /)
+        .find((entry) => entry.startsWith(trustedInstallName + '\n'))!;
+      const declaration = '      - ' + step;
+      let changed: string;
+      if (mutation === 'missing') changed = verify.replace(declaration, '');
+      else if (mutation === 'late') {
+        changed = verify
+          .replace(declaration, '')
+          .replace(
+            '      - name: Recheck version-only source after this stage\n',
+            declaration + '      - name: Recheck version-only source after this stage\n'
+          );
+      } else {
+        const [before, after] = {
+          'wrong-checkout': [
+            'working-directory: typescript',
+            'working-directory: release-source/typescript',
+          ],
+          condition: ["inputs.product == 'cli'", "inputs.product == 'colab'"],
+          filter: ['--filter tmux-team', '--filter @tmt/colab-app'],
+          frozen: ['--frozen-lockfile', '--no-frozen-lockfile'],
+          scripts: ['--ignore-scripts', '--enable-scripts'],
+        }[mutation]!;
+        changed = verify.replace(declaration, declaration.replace(before, after));
+      }
+      expect(changed).not.toBe(verify);
+      expect(() => requireTrustedCliPreparation(prepare.replace(verify, changed))).toThrow();
+    }
+  );
+  it.each(['capture', 'carrier', 'evidence', 'snapshot', 'source', 'rosetta'])(
+    'detects removal of the %s obligation',
+    (guard) => {
+      const changed = prepare.replace(
+        {
+          capture: 'name: Capture compiled CLI schema',
+          carrier: 'native-application-schema.mjs" assemble',
+          evidence: '--schema-evidence',
+          snapshot: '--schema-snapshot',
+          source: '--source-root "$PWD"',
+          rosetta: "inputs.product == 'cli' && matrix.target == 'x86_64-apple-darwin' && 'x64'",
+        }[guard]!,
+        'REMOVED'
+      );
+      expect(changed).not.toBe(prepare);
+      expect(() => requireSchemaOrder(changed)).toThrow();
+    }
+  );
+  it('refuses a carrier inserted after bootstrap generation', () => {
+    const line =
+      'node "$GITHUB_WORKSPACE/typescript/scripts/native-application-schema.mjs" assemble';
+    const changed = prepare
+      .replace(line, 'REMOVED')
+      .replace(
+        'node typescript/scripts/generate-native-bootstrap.mjs',
+        `node typescript/scripts/generate-native-bootstrap.mjs\n          ${line}`
+      );
+    expect(changed).not.toBe(prepare);
+    expect(() => requireSchemaOrder(changed)).toThrow();
+  });
+});
+
 describe('independent release-tag concurrency guard', () => {
   it('keys every publishing pipeline concurrency group on the allocated tag', () => {
     const directory = path.join(repository, '.github/workflows');

@@ -366,6 +366,19 @@ it('rejects missing artifact verifier imports and transitive URL file inputs', (
   );
 });
 
+it('rejects removal of the compiled schema verifier import from the artifact image', () => {
+  const file = 'typescript/test/native/artifact.Dockerfile';
+  const current = readSource(file);
+  const broken = current.replace(
+    /^COPY typescript\/scripts\/native-application-schema\.mjs.*\n/m,
+    ''
+  );
+  expect(broken).not.toBe(current);
+  expect(missingScriptInputs(file, broken, trackedFiles, readSource)).toContain(
+    `${file} [1]: typescript/scripts/verify-native-artifact.mjs -> typescript/scripts/native-application-schema.mjs (expected /verification/typescript/scripts/native-application-schema.mjs)`
+  );
+});
+
 it('checks transitive imports, cycles, URL reads and image destinations within each stage', () => {
   const sources: Record<string, string> = {
     'scripts/main.mjs': "import './nested/helper.mjs'; import 'node:fs'; // import './ignored.mjs'",
