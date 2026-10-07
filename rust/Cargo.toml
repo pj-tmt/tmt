@@ -85,6 +85,10 @@ toml_edit = { version = "=0.25.15", default-features = false, features = ["parse
 [workspace.lints.rust]
 unsafe_code = "forbid"
 
+# Tests exercising product deadlines need optimized dependencies; workspace crates retain the dev opt-level.
+[profile.dev.package."*"]
+opt-level = 2
+
 [profile.release]
 lto = "thin"
 strip = "debuginfo"
