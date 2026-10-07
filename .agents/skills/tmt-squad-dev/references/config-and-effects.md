@@ -91,11 +91,21 @@ shared fetcher path.
   across refreshes. Preview applies the same in-memory edit as CLI set, cached by
   selection and scope, without writing; `App::look` supplies it to every pane and tab. Tab
   switches board/squad scope (built-in tabs have board scope only; a masking squad base is
-  named). Overlay input cannot operate underlying rows, tabs or panes. Enter calls the
+  named). Pickers open in all-boards scope, even when a squad override masks it;
+  the notice points to `r reset in ,`. Overlay input cannot operate underlying rows, tabs or panes. Enter calls the
   named edit once; a failed save keeps the draft and notice without retry; Esc drops the
   preview and uses the latest saved view.
 
 ## Settings inspection and editing
+
+Board preference choices use the shared layer by default; explicit squad keys
+remain opt-in overrides. The comma menu derives its `≠` marks and deduplicated
+count from actual squad keys, not inherited source labels. Its selected override
+alone offers `r reset`; `Config::reset_setting` removes exactly that key through
+the existing validated CAS writer, preserving siblings and comments. Failure
+keeps the effective state and existing diagnostic. Quick theme/view/window rows
+share the full settings entry's provenance. Workflow and geometry edits retain
+their required squad scope.
 
 - `settings` coordinates arrangement, rows, notebook/state, meter, theme and tab/program
   projections. `config show` and the bindable inspection overlay (comma by default) share

@@ -2,6 +2,53 @@ use super::super::rate::tests::input;
 use super::*;
 
 #[test]
+fn bar_readout_uses_retained_slice_rate_and_bucket_end_age() {
+    let now = Instant::now();
+    let mut meter = crate::status::with_now_ms(100_000_000, || {
+        Meter::new(
+            TokenRate {
+                enabled: true,
+                reduced_motion: true,
+                ..Default::default()
+            },
+            &input(100),
+            now,
+        )
+    });
+    assert_eq!(meter.bar_readout(7, now).as_deref(), Some("– · 0m ago"));
+    meter.sample(Ok(&input(200)), now + Duration::from_secs(10));
+    assert_eq!(
+        meter
+            .bar_readout(7, now + Duration::from_secs(10))
+            .as_deref(),
+        Some("15 tok/s · 0m ago")
+    );
+    assert_eq!(
+        meter
+            .bar_readout(0, now + Duration::from_secs(10))
+            .as_deref(),
+        Some("– · 1m ago")
+    );
+    meter.sample(Ok(&input(200)), now + Duration::from_secs(20));
+    assert_eq!(
+        meter
+            .bar_readout(7, now + Duration::from_secs(20))
+            .as_deref(),
+        Some("0 tok/s · 0m ago")
+    );
+    meter.select(TokenWindow::parse("24h").unwrap(), now);
+    // Select is constrained to configured windows; test a configured long slice.
+    meter.settings.windows[2] = TokenWindow::parse("24h").unwrap();
+    meter.select(meter.settings.windows[2], now + Duration::from_secs(20));
+    assert!(
+        meter
+            .bar_readout(0, now + Duration::from_secs(25))
+            .unwrap()
+            .ends_with("21h ago")
+    );
+}
+
+#[test]
 fn delayed_seed_uses_fresh_receipt_and_failed_receipt_preserves_history() {
     use super::super::rate::tests::{fixture_seeds, historical_input, history_fixture};
     let fixture = history_fixture();
@@ -113,7 +160,10 @@ fn layout_keeps_partial_and_nondefault_labels_and_steps_aside() {
         now,
     );
     let empty = meter.layout(100).unwrap();
-    assert!(!empty.spark);
+    assert!(
+        empty.spark,
+        "empty slices remain hover targets without implying zero"
+    );
     assert_eq!(empty.label.as_deref(), Some("1m"));
     assert_eq!(meter.digits(), None, "a baseline is unavailable, not zero");
     meter.sample(Ok(&input(100)), now + Duration::from_secs(10));

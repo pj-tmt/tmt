@@ -50,7 +50,7 @@
 The meter shows completed-request token totals for the visited squad. Input plus
 output counts cached input once. Mixed providers sum reported token units, not
 cost or text volume. `board::rate` owns evidence, `board::meter` presentation and
-`App` the runtime selected window.
+`App` the effective configured window.
 
 - Acquisition: `board::rate::Input` captures roster UUIDs and public `resume`
   values before section shaping. On named/HOME entry, the existing cancellable
@@ -128,7 +128,17 @@ cost or text volume. `board::rate` owns evidence, `board::meter` presentation an
 - Window selection: comma settings > Token window cycles configured windows;
   `token-window` remains bindable with no default key. Both paths post the label in
   the existing board notice, including without data or when the summary cannot fit. Whole hours use
-  `h`, so 60m displays as 1h. Selection is runtime state, never a config write.
+  `h`, so 60m displays as 1h. These paths and clicks on the painted meter group
+  persist the shared `board.token_rate.window` through the existing Config writer.
+  Explicit squad overrides still win; failed writes leave the displayed window
+  unchanged. Reload/reopen resolves config rather than a session precedence flag.
+- Pointer presentation: the existing frame hit collection includes the meter group
+  and individual bars. Moved events repaint only on target changes; leaving,
+  keyboard operation, resize and modal input clear hover. The whole group uses
+  selection background. A hovered bar uses text colour and replaces the fixed
+  number/label slot with its rate and bucket-end age (minutes below 1h, then hours).
+  Readouts reuse the token formatter and already retained Rate evidence, with no
+  acquisition in paint/input; absent evidence stays distinct from measured zero.
 - Row projection: `App::project_usage` derives a board-only document from immutable
   public status using the accepted meters for model and three totals. Repeated
   section rows share one UUID history; changed values invalidate only existing
@@ -157,7 +167,8 @@ cost or text volume. `board::rate` owns evidence, `board::meter` presentation an
   retargeting starts from displayed digits, and window switches/reduced motion
   settle immediately. Eight bucket-aligned bars derive from the same rings: blank
   means no evidence, ▁ measured zero, and ▂–█ nonzero. A right-aligned
-  number/unit/window/trend group uses a seven-cell maximum number region. It
+  number/unit/window/trend group reserves a fixed 24-cell readout slot when bars
+  fit, accommodating both live totals and slice rate/age without shifting. It
   drops the trend, then shortens the unit. It preserves the selected label by
   clipping lead/attention text when necessary; it hides only when the terminal
   cannot fit the compact meter itself. Its status row stays reserved while enabled

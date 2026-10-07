@@ -6,6 +6,7 @@ use std::time::{Duration, Instant};
 const FRAME: Duration = Duration::from_millis(250);
 const DURATION: Duration = Duration::from_millis(600);
 pub const NUMBER_WIDTH: usize = 7;
+const READOUT_WIDTH: usize = 24;
 
 #[derive(Debug)]
 struct Animation {
@@ -35,6 +36,7 @@ pub struct Meter {
     animation: Option<Animation>,
     window: TokenWindow,
     trend: [Option<f64>; 8],
+    trend_ms: u64,
 }
 
 impl Meter {
@@ -51,6 +53,7 @@ impl Meter {
             animation: None,
             window: settings.window,
             trend: [None; 8],
+            trend_ms: 0,
         };
         meter.sample(Ok(input), now);
         meter
@@ -77,6 +80,13 @@ impl Meter {
             .unwrap_or(0.0);
         self.animation = None;
         self.trend = self.rate.trend(ms, self.window);
+        self.trend_ms = ms;
+    }
+
+    pub fn same_policy(&self, settings: TokenRate) -> bool {
+        let mut policy = self.settings;
+        policy.window = settings.window;
+        policy == settings
     }
 
     pub fn due(&self, now: Instant) -> bool {
@@ -136,6 +146,7 @@ impl Meter {
         }
         self.reading = reading;
         self.trend = self.rate.trend(ms, self.window);
+        self.trend_ms = ms;
     }
 
     /// Only changed visible digits wake the normal renderer. No idle motion.
@@ -194,6 +205,7 @@ impl Meter {
             .unwrap_or(0.0);
         self.animation = None;
         self.trend = self.rate.trend(ms, self.window);
+        self.trend_ms = ms;
     }
 
     pub fn label(&self) -> Option<String> {
@@ -239,6 +251,28 @@ impl Meter {
             .collect()
     }
 
+    pub fn bar_readout(&self, index: usize, now: Instant) -> Option<String> {
+        let value = self.trend.get(index)?;
+        let end = Rate::bar_end(self.trend_ms, self.window, index);
+        let minutes = self.milliseconds(now).saturating_sub(end) / 60_000;
+        let age = if minutes < 60 {
+            format!("{minutes}m ago")
+        } else {
+            format!("{}h ago", minutes / 60)
+        };
+        let value = value.and_then(|tokens| {
+            crate::source::render_value(
+                &serde_json::json!(tokens / Rate::bar_seconds(self.window)),
+                crate::source::Format::Tokens,
+                0,
+            )
+        });
+        Some(match value {
+            Some(value) => format!("{value} tok/s · {age}"),
+            None => format!("– · {age}"),
+        })
+    }
+
     pub fn sparkline(&self) -> String {
         const MARKS: [char; 7] = ['▂', '▃', '▄', '▅', '▆', '▇', '█'];
         let high = self.trend.iter().flatten().copied().fold(0.0_f64, f64::max);
@@ -266,13 +300,13 @@ impl Meter {
         let number_width = if covered { NUMBER_WIDTH } else { 1 };
         let make = |spark: bool, short: bool| Layout {
             label: Some(label.clone()),
-            spark: spark && covered,
+            spark,
             unit: if short { "" } else { " tok" },
-            width: number_width
-                + label.len()
-                + 1
-                + if short { 0 } else { 4 }
-                + if spark && covered { 9 } else { 0 },
+            width: if spark {
+                READOUT_WIDTH + 9
+            } else {
+                number_width + label.len() + 1 + if short { 0 } else { 4 }
+            },
         };
         [make(true, false), make(false, false), make(false, true)]
             .into_iter()

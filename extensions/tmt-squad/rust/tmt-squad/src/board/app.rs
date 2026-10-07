@@ -236,6 +236,8 @@ pub enum Effect {
     Refresh,
     Settings,
     SaveSetting,
+    ResetSetting,
+    CycleTokenWindow,
     HomeReplies(bool),
     CancelSettings,
     PickTheme,
@@ -563,13 +565,43 @@ pub struct TabHit {
     pub tab: usize,
 }
 
-/// A screen line of the rows pane and the visible row it shows.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// A currently painted screen region and its row or meter target.
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub struct Hit {
     pub y: u16,
     pub x: u16,
     pub width: u16,
-    pub row: usize,
+    pub target: HitTarget,
+}
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HitTarget {
+    Row(usize),
+    Meter(Option<usize>),
+}
+impl Hit {
+    pub fn row(&self) -> Option<usize> {
+        match self.target {
+            HitTarget::Row(row) => Some(row),
+            HitTarget::Meter(_) => None,
+        }
+    }
+    fn contains(&self, x: u16, y: u16) -> bool {
+        self.y == y && (self.x..self.x.saturating_add(self.width)).contains(&x)
+    }
+}
+
+impl std::fmt::Debug for Hit {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut hit = f.debug_struct("Hit");
+        hit.field("y", &self.y)
+            .field("x", &self.x)
+            .field("width", &self.width);
+        match self.target {
+            HitTarget::Row(row) => hit.field("row", &row),
+            target => hit.field("target", &target),
+        }
+        .finish()
+    }
 }
 
 /// Config is immutable; only this session presentation set changes on a toggle.
@@ -610,7 +642,7 @@ pub struct App {
     usage_document: Option<Value>,
     pub(super) token_window: crate::config::TokenWindow,
     pub(super) excluded_counters: Vec<String>,
-    window_changed: bool,
+    pub(super) meter_hover: Option<Option<usize>>,
     squad_keys: Vec<String>,
     pub(super) picks: super::pick::Picks,
     pub tabs: Vec<String>,
@@ -888,7 +920,7 @@ impl App {
                     .as_ref()
                     .filter(|_| self.current.as_deref() == Some(squad))
             })
-            .filter(|meter| meter.room == rate.input.room && meter.settings == rate.settings)
+            .filter(|meter| meter.room == rate.input.room && meter.same_policy(rate.settings))
     }
 
     pub(super) fn home_usage(&self, squad: &str, now: Instant) -> Option<HomeUsage<'_>> {
@@ -1323,13 +1355,14 @@ impl App {
                         .filter(|(_, rate)| rate.settings.enabled)
                     {
                         if self.meters.get(name).is_none_or(|meter| {
-                            meter.room != rate.input.room || meter.settings != rate.settings
+                            meter.room != rate.input.room || !meter.same_policy(rate.settings)
                         }) {
                             self.meters.insert(
                                 name.clone(),
                                 super::meter::Meter::new(rate.settings, &rate.input, now),
                             );
                         } else if let Some(meter) = self.meters.get_mut(name) {
+                            meter.settings = rate.settings;
                             meter.retain(&rate.input);
                         }
                         if let Some(seeds) = rate.history.take() {
@@ -1344,13 +1377,12 @@ impl App {
                 }
                 match &mut view.token_rate {
                     Some(rate) if rate.settings.enabled => {
-                        if !self.window_changed {
-                            self.token_window = rate.settings.window;
-                        }
+                        self.token_window = rate.settings.window;
                         self.token_window = self.token_window.available(rate.settings.windows);
                         if let Some(meter) = self.meter.as_mut().filter(|meter| {
-                            meter.room == rate.input.room && meter.settings == rate.settings
+                            meter.room == rate.input.room && meter.same_policy(rate.settings)
                         }) {
+                            meter.settings = rate.settings;
                             if meter.due(now) {
                                 meter.sample(Ok(&rate.input), now);
                             }
@@ -1367,6 +1399,9 @@ impl App {
                 }
                 if let Some(meter) = self.meter.as_mut() {
                     meter.select(self.token_window, now);
+                }
+                if self.meter.is_none() {
+                    self.meter_hover = None;
                 }
                 // Help belongs to the ordinary immutable roster snapshot, not meter ticks.
                 self.excluded_counters = view
@@ -1623,6 +1658,7 @@ impl App {
 
     /// Shows the tab `next`, from the cache at once when it was visited.
     pub(super) fn go(&mut self, next: String) -> Effect {
+        self.meter_hover = None;
         self.picks.include(&next);
         if Some(&next) == self.current.as_ref() {
             return Effect::None;
@@ -2062,8 +2098,7 @@ impl App {
                 return self.toggle_panes(&panes);
             }
             Verb::TokenWindow => {
-                self.cycle_token_window();
-                return Effect::None;
+                return self.cycle_token_window();
             }
             Verb::HomeReplies => {
                 return self
@@ -2622,15 +2657,40 @@ impl App {
     }
 
     /// The next token window of the summary meter, when the squad samples one.
-    fn cycle_token_window(&mut self) {
-        if let Some(meter) = self.meter.as_mut() {
-            self.token_window = self.token_window.next(meter.settings.windows);
-            self.window_changed = true;
-            let now = Instant::now();
-            meter.select(self.token_window, now);
-            self.project_usage(now);
-            self.notice = Some(format!("Token window: {}", self.token_window.label()));
+    fn cycle_token_window(&mut self) -> Effect {
+        if self.meter.is_some() {
+            Effect::CycleTokenWindow
+        } else {
+            Effect::None
         }
+    }
+    pub(super) fn next_token_window(&self) -> Option<crate::config::TokenWindow> {
+        self.meter
+            .as_ref()
+            .map(|meter| self.token_window.next(meter.settings.windows))
+    }
+    pub(super) fn apply_token_window(&mut self, config: &Config) -> String {
+        let key = self.current.clone().unwrap_or_default();
+        let window = config
+            .token_rate(&key)
+            .expect("validated window write")
+            .window;
+        self.token_window = window;
+        let now = Instant::now();
+        if let Some(meter) = &mut self.meter {
+            meter.settings.window = window;
+            meter.select(window, now);
+        }
+        self.project_usage(now);
+        format!(
+            "Token window: {}{}",
+            window.label(),
+            if config.has_setting_override(&key, "board.token_rate.window") {
+                " · this squad · r reset in ,"
+            } else {
+                ""
+            }
+        )
     }
 
     fn annotate_note(&mut self) -> Effect {
@@ -3199,6 +3259,7 @@ impl App {
                     Some(match input {
                         super::settings::Input::None => Effect::None,
                         super::settings::Input::Save => Effect::SaveSetting,
+                        super::settings::Input::Reset => Effect::ResetSetting,
                         super::settings::Input::Preview => {
                             self.settings_preview();
                             Effect::None
@@ -3213,14 +3274,7 @@ impl App {
                             self.settings = None;
                             self.context_menu()
                         }
-                        super::settings::Input::Pick("window") => {
-                            self.cycle_token_window();
-                            let label = self.token_window.label().to_owned();
-                            if let Some(overlay) = &mut self.settings {
-                                overlay.set_pick("window", label);
-                            }
-                            Effect::None
-                        }
+                        super::settings::Input::Pick("window") => self.cycle_token_window(),
                         super::settings::Input::Pick(id) => {
                             self.settings_preview();
                             self.settings = None;
@@ -3263,6 +3317,7 @@ impl App {
     }
 
     pub fn key(&mut self, key: KeyEvent) -> Effect {
+        self.meter_hover = None;
         if let Some(effect) = self.overlay_event(&Event::Key(key)) {
             return effect;
         }
@@ -3575,12 +3630,52 @@ impl App {
     /// The wheel scrolls the pane under the pointer, whichever is focused.
     /// A left click focuses the pane under it and selects the row under it, then runs its `click` binding;
     /// a second click on the same row soon after runs `double-click`.
+    pub(super) fn move_pointer(&mut self, event: MouseEvent) -> bool {
+        let next = if self.loading()
+            || self.overlay().is_some()
+            || self.menu.is_some()
+            || self.input.is_some()
+        {
+            None
+        } else {
+            self.hits
+                .borrow()
+                .iter()
+                .rev()
+                .find(|hit| hit.contains(event.column, event.row))
+                .and_then(|hit| match hit.target {
+                    HitTarget::Meter(bar) => Some(bar),
+                    _ => None,
+                })
+        };
+        let changed = next != self.meter_hover;
+        self.meter_hover = next;
+        changed
+    }
+
     pub fn mouse(&mut self, event: MouseEvent, now: Instant) -> Effect {
+        if event.kind == MouseEventKind::Moved {
+            self.move_pointer(event);
+            return Effect::None;
+        }
+        // A button/wheel event carries the current position too. Reconcile an
+        // existing hover, without inventing hover on terminals lacking motion.
+        if self.meter_hover.is_some() {
+            self.move_pointer(event);
+        }
         if let Some(effect) = self.overlay_event(&Event::Mouse(event)) {
             return effect;
         }
         if self.menu.is_some() || self.input.is_some() {
             return Effect::None;
+        }
+        if event.kind == MouseEventKind::Down(MouseButton::Left)
+            && !self.loading()
+            && self.hits.borrow().iter().any(|hit| {
+                hit.contains(event.column, event.row) && matches!(hit.target, HitTarget::Meter(_))
+            })
+        {
+            return self.cycle_token_window();
         }
         if let Some(effect) = self.jobs_mouse(event) {
             return effect;
@@ -3701,15 +3796,17 @@ impl App {
         let hit = self.hits.borrow().iter().copied().find(|hit| {
             hit.y == event.row && (hit.x..hit.x.saturating_add(hit.width)).contains(&event.column)
         });
-        let Some(hit) = hit.filter(|_| !self.collapsed_panes().contains(&Pane::Rows)) else {
+        let Some(hit) =
+            hit.filter(|hit| hit.row().is_some() && !self.collapsed_panes().contains(&Pane::Rows))
+        else {
             return Effect::None;
         };
         self.notice = None;
-        self.select(hit.row);
-        let double = self
-            .last_click
-            .is_some_and(|(row, at)| row == hit.row && now.duration_since(at) <= DOUBLE_CLICK);
-        self.last_click = (!double).then_some((hit.row, now));
+        self.select(hit.row().unwrap());
+        let double = self.last_click.is_some_and(|(row, at)| {
+            row == hit.row().unwrap() && now.duration_since(at) <= DOUBLE_CLICK
+        });
+        self.last_click = (!double).then_some((hit.row().unwrap(), now));
         let event = if double { "double-click" } else { "click" };
         match self.bindings().remove(event) {
             Some(action) => self.perform(&action),
@@ -5249,13 +5346,13 @@ pub(crate) mod tests {
                 y: 3,
                 x: 0,
                 width: 40,
-                row: 0,
+                target: HitTarget::Row(0),
             },
             Hit {
                 y: 5,
                 x: 0,
                 width: 40,
-                row: 1,
+                target: HitTarget::Row(1),
             },
         ];
         let click = |row, column| MouseEvent {
@@ -5805,6 +5902,29 @@ mod token_window_tests {
     use super::*;
     use crate::config::{TokenRate, TokenWindow};
     use serde_json::json;
+    fn saved_cycle(app: &mut App, key: KeyEvent) {
+        assert_eq!(app.key(key), Effect::CycleTokenWindow);
+        static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+        let root = std::env::temp_dir().join(format!(
+            "tmt-window-choice-{}-{}",
+            std::process::id(),
+            NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+        ));
+        std::fs::create_dir(&root).unwrap();
+        let path = root.join("squad.toml");
+        let mut config = Config::read(path.clone()).unwrap();
+        config
+            .set_setting(
+                None,
+                "board.token_rate.window",
+                &app.next_token_window().unwrap().label(),
+            )
+            .unwrap();
+        let saved = Config::read(path.clone()).unwrap();
+        app.notice = Some(app.apply_token_window(&saved));
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
     fn app() -> App {
         let mut app = crew(
             crate::action::with_action_keys(crate::action::preset(false, &[])),
@@ -5820,6 +5940,46 @@ mod token_window_tests {
         ));
         app
     }
+    #[test]
+    fn refreshed_shared_window_preserves_retained_evidence() {
+        let mut app = app();
+        let start = Instant::now();
+        let input = super::super::rate::tests::input(100);
+        let settings = app.meter.as_ref().unwrap().settings;
+        app.meter = Some(super::super::meter::Meter::new(settings, &input, start));
+        app.meter.as_mut().unwrap().sample(
+            Ok(&super::super::rate::tests::input(200)),
+            start + Duration::from_secs(10),
+        );
+        let before = app
+            .meter
+            .as_ref()
+            .unwrap()
+            .total(1, start + Duration::from_secs(10))
+            .map(|reading| reading.tokens);
+        assert_eq!(before, Some(150));
+        let mut snapshot = super::tests::snapshot("product", json!([]));
+        app.current = Some("product".into());
+        let mut changed = settings;
+        changed.window = TokenWindow::FIVE_MINUTES;
+        snapshot.view.as_mut().unwrap().token_rate = Some(RateView {
+            settings: changed,
+            input,
+            history: None,
+        });
+        app.apply(snapshot);
+        assert_eq!(app.token_window, TokenWindow::FIVE_MINUTES);
+        assert_eq!(
+            app.meter
+                .as_ref()
+                .unwrap()
+                .total(1, start + Duration::from_secs(10))
+                .map(|reading| reading.tokens),
+            before,
+            "changing shared display window cannot replace the retained rate ring"
+        );
+    }
+
     fn home(now: Instant) -> App {
         let mut app = App::new(Some(super::super::ALL.into()));
         let mut snapshot = super::tests::snapshot(super::super::ALL, serde_json::json!([]));
@@ -6296,7 +6456,7 @@ mod token_window_tests {
     fn window_binding_overrides_and_text_inputs_keep_their_owner() {
         let mut app = app();
         let key = KeyEvent::new(KeyCode::Char('w'), KeyModifiers::NONE);
-        assert_eq!(app.key(key), Effect::None);
+        saved_cycle(&mut app, key);
         assert_eq!(app.token_window, TokenWindow::FIVE_MINUTES);
         app.searching = true;
         assert_eq!(app.key(key), Effect::None);
@@ -6338,10 +6498,13 @@ mod token_window_tests {
             .extend(bind(&[("w", "refresh"), ("v", "token-window")]));
         assert_eq!(app.key(key), Effect::Refresh);
         assert_eq!(app.token_window, TokenWindow::FIVE_MINUTES);
-        app.key(KeyEvent::new(KeyCode::Char('v'), KeyModifiers::NONE));
+        saved_cycle(
+            &mut app,
+            KeyEvent::new(KeyCode::Char('v'), KeyModifiers::NONE),
+        );
         assert_eq!(app.token_window, TokenWindow::HOUR);
         app.view.as_mut().unwrap().section_bindings = vec![bind(&[("w", "token-window")])];
-        app.key(key);
+        saved_cycle(&mut app, key);
         assert_eq!(app.token_window, TokenWindow::MINUTE);
     }
     #[test]
@@ -6358,7 +6521,10 @@ mod token_window_tests {
             for (index, column) in view.rows.columns[5..].iter().enumerate() {
                 assert_eq!(column.priority == Some(1), index == selected);
             }
-            app.key(KeyEvent::new(KeyCode::Char('w'), KeyModifiers::NONE));
+            saved_cycle(
+                &mut app,
+                KeyEvent::new(KeyCode::Char('w'), KeyModifiers::NONE),
+            );
         }
     }
 

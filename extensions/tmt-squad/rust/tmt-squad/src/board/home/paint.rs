@@ -374,7 +374,7 @@ pub(super) fn render_at(frame: &mut Frame, app: &App, area: Rect, now: u64) {
                     y: area.y + (line - offset) as u16,
                     x: area.x + x,
                     width,
-                    row,
+                    target: crate::board::app::HitTarget::Row(row),
                 });
             }
         }

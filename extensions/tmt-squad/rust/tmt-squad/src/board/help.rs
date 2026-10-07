@@ -292,7 +292,10 @@ pub(super) fn model(app: &App) -> KeyHelp {
                 } else {
                     &keys
                 },
-                format!("switch window: {} (also without data)", order.join(" → ")),
+                format!(
+                    "switch window: {} (also without data); click meter or use ,; saves all boards",
+                    order.join(" → ")
+                ),
             ),
         );
         meter.entries.insert(
@@ -303,6 +306,11 @@ pub(super) fn model(app: &App) -> KeyHelp {
                 "set [board] tok = \"5m/60m/24h\"; [squad.<name>.board] tok overrides it",
             ),
         );
+        meter.entries.push(entry(
+            "hover",
+            "hover bar",
+            "read that slice's token rate and age in place; leaving restores live total",
+        ));
         sections.insert(0, meter);
     }
     let mut bindings = app.bindings();

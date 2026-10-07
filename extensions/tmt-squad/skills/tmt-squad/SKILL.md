@@ -641,6 +641,14 @@ cancels the edit without writing. A second Esc closes settings. Entries marked
 and the path of `squad.toml`. Configured provider argv and run bindings are
 shown without executing them. Close and reopen to read later config edits.
 
+Board preference choices save to the all-boards layer of `squad.toml` by default
+and persist across sessions. Theme and view pickers still offer an explicit
+`this squad` scope. A hand-written squad key overrides the shared value: its
+settings row carries `≠` and `this squad · r reset`. The header counts explicit
+settings that differ from all boards. Press `r` on that row to remove only its
+squad key and use the shared value; other rows ignore `r`. Comments and unrelated
+keys stay intact. A failed or conflicting write leaves the effective value unchanged.
+
 `tmt sq config show` inspects board defaults. Use `--squad product` for one
 squad or `--tab all` (also `leads` or a configured tab name) for an aggregate
 view, and `--json` for full values and source paths. These scope flags are
@@ -650,7 +658,7 @@ settings supported by `config set`; the board uses the same validation and write
 Use `tmt sq config set KEY VALUE [--squad NAME]` for validated edits. Squad scope
 is required for `layout`, `board.panes`, `board.direction`, `board.sizes`,
 `board.hidden_columns`, `notes.render`, `states.STATE.color`, `reminders.enabled`
-and `reminders.stale_after`. `board.refresh`, `board.ask_lead` and `board.view`
+and `reminders.stale_after`. `board.refresh`, `board.ask_lead`, `board.view` and `board.token_rate.window`
 use the squad layer with `--squad`, otherwise the global Squad board layer.
 `board.home_replies` is a global boolean (default `true`) controlling HOME's
 lead-message previews and separators; it rejects `--squad`. `t` saves
@@ -935,9 +943,10 @@ usage history and computes no money estimate.
 
 Team enables observation; crew, pr-queue and minimal keep it off by default.
 The all/leads tabs omit this named-squad meter. The settings menu's Token window row cycles the summary's windows, as does
-the bindable `token-window` action (no default key); member columns show all three at once.
-The label always names the configured window; the number is a total, never a
-per-second rate. Configure exactly three distinct ascending whole `m`/`h`
+the bindable `token-window` action (no default key), or clicking any part of the meter.
+All three paths save the next window to the shared layer; a squad override remains
+in effect until reset in settings. Member columns show all three at once.
+The live label names the configured window and the live number is a token total. Configure exactly three distinct ascending whole `m`/`h`
 durations, from 1m through 24h:
 
 ```toml
@@ -947,7 +956,7 @@ tok = "1m/5m/60m" # for example, "5m/60m/24h"
 [board.token_rate]
 enabled = false
 every = "5s" # 5s through 10s; independent of board.refresh
-window = "1m" # initial summary window; falls back to the first configured window
+window = "1m" # persisted summary window; falls back to the first configured window
 reduced_motion = true
 
 [squad.checkout.board]
@@ -982,9 +991,15 @@ nonzero values. Narrow boards drop the trend, then shorten the unit. The active
 window label stays next to the meter values; lead/attention text clips if needed.
 Only a terminal too narrow for the compact meter hides it. Without a
 covered reading it shows `–` and a dim `no usage reported yet` line. Cycling the window still
-switches the label immediately and posts the window in the board notice. `?`
+saves the shared choice, updates the effective label and posts the window in the board notice. `?`
 explains the totals, best-effort coverage, switch order and `tok` configuration.
 Whole-hour labels use `h`, so 60m displays as `1h`.
+Hover highlights the whole meter group. Hovering one bar temporarily replaces the
+number and label with that slice's token rate and age, e.g. `1.2k tok/s · 3m ago`;
+observed zero reads `0 tok/s`, and no evidence reads `–`. Ages measure from the
+slice's end, in minutes below one hour and hours thereafter. The readout keeps
+its fixed width and the hovered bar uses text colour. Leaving restores live text;
+there is no popup. Keyboard operation remains available without mouse motion.
 
 ## Columns and row lines
 

@@ -421,6 +421,18 @@ impl Rate {
     }
 
     /// Eight bucket-aligned totals, from the same UUID rings as member readings.
+    /// Inclusive bucket groups share these bounds with their hover readout.
+    pub fn bar_end(now: u64, window: TokenWindow, index: usize) -> u64 {
+        let slots = (window.milliseconds() / SLOT_MS).div_ceil(8);
+        (now / SLOT_MS)
+            .saturating_sub((7 - index.min(7)) as u64 * slots)
+            .saturating_add(1)
+            .saturating_mul(SLOT_MS)
+    }
+    pub fn bar_seconds(window: TokenWindow) -> f64 {
+        ((window.milliseconds() / SLOT_MS).div_ceil(8) * SLOT_MS) as f64 / 1000.0
+    }
+
     pub fn trend(&self, now: u64, window: TokenWindow) -> [Option<f64>; 8] {
         let bar_slots = (window.milliseconds() / SLOT_MS).div_ceil(8);
         let end = now / SLOT_MS;

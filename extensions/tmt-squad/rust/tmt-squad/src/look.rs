@@ -16,7 +16,7 @@ use tmt_cli_style::{
 
 /// The state marks from `design/tokens/tokens.json` that a selected row keeps in
 /// color: a mark is one glyph, never part of a word.
-const MARKS: [char; 8] = ['◆', '✗', '◐', '●', '○', '✓', '◌', '!'];
+const MARKS: [char; 9] = ['◆', '✗', '◐', '●', '○', '✓', '◌', '!', '≠'];
 
 static BACKGROUND: std::sync::OnceLock<Option<Background>> = std::sync::OnceLock::new();
 
