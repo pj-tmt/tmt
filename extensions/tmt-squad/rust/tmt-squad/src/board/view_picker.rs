@@ -73,18 +73,14 @@ impl Picker {
         focus: usize,
     ) -> Result<Self, SquadError> {
         let name = squad.as_deref().unwrap_or("");
-        let (view, source) = config.view_source(name)?;
+        let (view, _) = config.view_source(name)?;
         let custom = config.custom_board(name)?;
         let current = if custom {
             Choice::Custom
         } else {
             view.map_or(Choice::Reset, Choice::View)
         };
-        let scope = if source == "squad" || custom {
-            ViewScope::Squad(squad.clone().expect("squad source"))
-        } else {
-            ViewScope::Board
-        };
+        let scope = ViewScope::Board;
         Ok(Self {
             config,
             squad,
@@ -130,7 +126,7 @@ impl Picker {
             Some(format!("squad {name} keeps its custom layout"))
         } else if self.scope == ViewScope::Board && self.config.view_source(name).ok()?.1 == "squad"
         {
-            Some(format!("squad {name} keeps its own view"))
+            Some(format!("squad {name} keeps its own view · r reset in ,"))
         } else {
             None
         }
@@ -362,6 +358,12 @@ mod tests {
         let (path, config, mut app) = fixture("scope", original);
         app.open_view_picker(config).unwrap();
         let picker = app.view_picker.as_mut().unwrap();
+        assert_eq!(picker.scope, ViewScope::Board);
+        assert_eq!(
+            picker.masked().as_deref(),
+            Some("squad product keeps its own view · r reset in ,")
+        );
+        picker.key(key(KeyCode::Tab));
         assert_eq!(picker.scope, ViewScope::Squad("product".into()));
         assert_eq!(
             picker.inherited().unwrap(),
@@ -370,7 +372,7 @@ mod tests {
         picker.key(key(KeyCode::Tab));
         assert_eq!(
             picker.masked().as_deref(),
-            Some("squad product keeps its own view")
+            Some("squad product keeps its own view · r reset in ,")
         );
         picker.key(key(KeyCode::Tab));
         picker.surface.borrow_mut().select(Choice::Reset.id());
@@ -399,6 +401,8 @@ mod tests {
         let original = "[squad.product.board]\npanes = ['rows', 'notes'] # own\nview = 'focus'\n";
         let (path, config, mut app) = fixture("custom", original);
         app.open_view_picker(config).unwrap();
+        assert_eq!(app.view_picker.as_ref().unwrap().scope, ViewScope::Board);
+        app.key(key(KeyCode::Tab));
         app.key(key(KeyCode::Down)); // reset
         app.key(key(KeyCode::Down)); // members
         app.key(key(KeyCode::Down)); // team

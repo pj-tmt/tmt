@@ -628,7 +628,10 @@ fn table_rows_click_the_same_stable_squad_at_every_width() {
         let hits = app.hits.borrow().clone();
         let height = 1;
         for row in 0..5 {
-            let tiles = hits.iter().filter(|hit| hit.row == row).collect::<Vec<_>>();
+            let tiles = hits
+                .iter()
+                .filter(|hit| hit.row().unwrap() == row)
+                .collect::<Vec<_>>();
             assert_eq!(tiles.len(), height);
             assert!(tiles.windows(2).all(|pair| pair[1].y == pair[0].y + 1));
         }
@@ -638,11 +641,11 @@ fn table_rows_click_the_same_stable_squad_at_every_width() {
             assert!((area.y..area.bottom()).contains(&hit.y));
         }
         if width >= 100 {
-            let left = hits.iter().find(|hit| hit.row == 0).unwrap();
+            let left = hits.iter().find(|hit| hit.row().unwrap() == 0).unwrap();
             assert!(!hits.iter().any(|hit| hit.y == left.y
                 && (hit.x..hit.x + hit.width).contains(&(left.x + left.width))));
         }
-        let continuation = hits.iter().rfind(|hit| hit.row == 4).unwrap();
+        let continuation = hits.iter().rfind(|hit| hit.row().unwrap() == 4).unwrap();
         assert_eq!(
             app.mouse(
                 MouseEvent {
@@ -675,7 +678,7 @@ fn table_row_reveal_and_hits_share_the_scroll_viewport() {
             .hits
             .borrow()
             .iter()
-            .filter(|hit| hit.row == 4)
+            .filter(|hit| hit.row().unwrap() == 4)
             .copied()
             .collect::<Vec<_>>();
         assert_eq!(selected.len(), 1);
@@ -693,13 +696,17 @@ fn table_row_reveal_and_hits_share_the_scroll_viewport() {
     app.scrolls.scroll(Pane::Rows, Step::Bottom);
     tile_frame(&app, area);
     let hits = app.hits.borrow().clone();
-    assert_eq!(hits.iter().filter(|hit| hit.row == 4).count(), 1);
+    assert_eq!(hits.iter().filter(|hit| hit.row().unwrap() == 4).count(), 1);
     assert!(hits.iter().all(|hit| hit.y < area.bottom() - 1));
     assert_eq!(app.selected, 4);
     app.follow = true;
     tile_frame(&app, Rect::new(3, 2, 100, 5));
     assert_eq!(
-        app.hits.borrow().iter().filter(|hit| hit.row == 4).count(),
+        app.hits
+            .borrow()
+            .iter()
+            .filter(|hit| hit.row().unwrap() == 4)
+            .count(),
         1
     );
 }
@@ -729,7 +736,10 @@ fn table_note_band_shifts_later_rows_without_changing_hits_or_selection() {
                 .get()
                 .expect("note beneath the selected tile");
             let hits = app.hits.borrow().clone();
-            let selected = hits.iter().filter(|hit| hit.row == 4).collect::<Vec<_>>();
+            let selected = hits
+                .iter()
+                .filter(|hit| hit.row().unwrap() == 4)
+                .collect::<Vec<_>>();
             assert_eq!(selected.len(), 1);
             assert_eq!(selected.last().unwrap().y + 1, band.y);
             assert!(
@@ -738,15 +748,15 @@ fn table_note_band_shifts_later_rows_without_changing_hits_or_selection() {
                     .any(|hit| (band.y..band.bottom()).contains(&hit.y))
             );
             let next_grid_row = 5;
-            assert!(hits.iter().any(|hit| hit.row == next_grid_row));
+            assert!(hits.iter().any(|hit| hit.row().unwrap() == next_grid_row));
             assert!(
                 hits.iter()
-                    .filter(|hit| hit.row == 0)
+                    .filter(|hit| hit.row().unwrap() == 0)
                     .all(|hit| hit.y < band.y)
             );
             assert!(
                 hits.iter()
-                    .filter(|hit| hit.row == next_grid_row)
+                    .filter(|hit| hit.row().unwrap() == next_grid_row)
                     .all(|hit| hit.y >= band.bottom())
             );
             let lines = terminal
@@ -1101,8 +1111,8 @@ fn header_frames() -> Value {
             for (before, after) in hits[0].iter().zip(&hits[1]) {
                 assert_eq!(after.y, before.y + shift);
                 assert_eq!(
-                    (after.x, after.width, after.row),
-                    (before.x, before.width, before.row)
+                    (after.x, after.width, after.row().unwrap()),
+                    (before.x, before.width, before.row().unwrap())
                 );
             }
             if shift == 0 {

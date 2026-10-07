@@ -415,7 +415,7 @@ pub(in crate::board) fn render_squad(frame: &mut ratatui::Frame, app: &App, area
                     y: area.y + (line - offset) as u16,
                     x: inner.x,
                     width: inner.width,
-                    row: row.local,
+                    target: crate::board::app::HitTarget::Row(row.local),
                 });
             }
         }

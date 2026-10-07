@@ -87,7 +87,7 @@ fn lead_rows_and_footer_share_one_cursor_and_hidden_previews_remove_separators()
             app.hits
                 .borrow()
                 .iter()
-                .filter(|hit| hit.row == row)
+                .filter(|hit| hit.row().unwrap() == row)
                 .count(),
             2
         );
@@ -111,7 +111,7 @@ fn lead_rows_and_footer_share_one_cursor_and_hidden_previews_remove_separators()
             app.hits
                 .borrow()
                 .iter()
-                .filter(|hit| hit.row == row)
+                .filter(|hit| hit.row().unwrap() == row)
                 .count(),
             1
         );
@@ -154,7 +154,7 @@ fn leads_without_exchanges_have_one_hit_line_and_one_blank_after_the_last_exchan
             app.hits
                 .borrow()
                 .iter()
-                .filter(|hit| hit.row == target)
+                .filter(|hit| hit.row().unwrap() == target)
                 .count(),
             1
         );
@@ -164,7 +164,7 @@ fn leads_without_exchanges_have_one_hit_line_and_one_blank_after_the_last_exchan
             app.hits
                 .borrow()
                 .iter()
-                .find(|hit| hit.row == app.selected)
+                .find(|hit| hit.row().unwrap() == app.selected)
                 .unwrap()
                 .y,
         );
@@ -181,7 +181,7 @@ fn leads_without_exchanges_have_one_hit_line_and_one_blank_after_the_last_exchan
                 app.hits
                     .borrow()
                     .iter()
-                    .filter(|hit| hit.row == entry.0)
+                    .filter(|hit| hit.row().unwrap() == entry.0)
                     .count(),
                 1
             );
@@ -221,7 +221,7 @@ fn expanded_body_and_answer_share_the_full_inner_band_at_every_width_and_theme()
                 app.hits
                     .borrow()
                     .iter()
-                    .filter(|hit| hit.row == app.selected)
+                    .filter(|hit| hit.row().unwrap() == app.selected)
                     .count(),
                 1
             );
@@ -246,7 +246,7 @@ fn expanded_body_and_answer_share_the_full_inner_band_at_every_width_and_theme()
                 app.hits
                     .borrow()
                     .iter()
-                    .filter(|hit| hit.row == app.selected)
+                    .filter(|hit| hit.row().unwrap() == app.selected)
                     .count(),
                 2
             );
@@ -356,7 +356,7 @@ fn home_attention_and_boxed_heading_selection_preserve_blanks_and_acquired_previ
                     .hits
                     .borrow()
                     .iter()
-                    .find(|hit| hit.row == app.selected)
+                    .find(|hit| hit.row().unwrap() == app.selected)
                     .unwrap()
                     .y;
                 let preview = heading + 1;
@@ -373,7 +373,7 @@ fn home_attention_and_boxed_heading_selection_preserve_blanks_and_acquired_previ
                     .hits
                     .borrow()
                     .iter()
-                    .find(|hit| hit.row == app.selected)
+                    .find(|hit| hit.row().unwrap() == app.selected)
                     .unwrap()
                     .y;
                 assert_eq!(attention[(0, y)].symbol(), " ");

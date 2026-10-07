@@ -1642,18 +1642,7 @@ impl Config {
                     .expect("validated view parent");
             }
             let key = path.last().unwrap();
-            if parent
-                .get(key)
-                .and_then(Item::as_table)
-                .is_some_and(|table| {
-                    [table.decor().prefix(), table.decor().suffix()]
-                        .into_iter()
-                        .all(|raw| {
-                            raw.and_then(|raw| raw.as_str())
-                                .is_none_or(|text| text.trim().is_empty())
-                        })
-                })
-            {
+            if parent.get(key).is_some_and(empty_table_without_comments) {
                 parent.remove(key);
             }
         }
@@ -2233,6 +2222,18 @@ fn publish(path: &Path, bytes: &[u8]) -> io::Result<()> {
     fs::File::open(directory)?.sync_all()
 }
 
+fn empty_table_without_comments(item: &Item) -> bool {
+    item.as_table().is_some_and(|table| {
+        table.is_empty()
+            && [table.decor().prefix(), table.decor().suffix()]
+                .into_iter()
+                .all(|raw| {
+                    raw.and_then(|raw| raw.as_str())
+                        .is_none_or(|text| text.trim().is_empty())
+                })
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2655,6 +2656,53 @@ mod tests {
         let _ = fs::remove_dir_all(&directory);
         fs::create_dir_all(&directory).unwrap();
         directory.join("squad.toml")
+    }
+
+    #[test]
+    fn reset_drops_only_an_empty_comment_free_parent_and_preserves_siblings() {
+        let path = temp("reset-empty-parent");
+        for (prefix, suffix, sibling, keep_parent) in [
+            ("", "", "", false),
+            ("# keep meter note\n", "", "", true),
+            ("", " # keep header note", "", true),
+            ("", "", "reduced_motion = true # keep sibling\n", true),
+        ] {
+            let authored = format!(
+                "# keep authored file\n[board.token_rate]\nwindow = '5m'\n[squad.x.board]\nrefresh = '10s' # keep refresh\n{prefix}[squad.x.board.token_rate]{suffix}\nwindow = '1h'\n{sibling}[squad.y.board]\nview = 'members' # keep other squad\n"
+            );
+            fs::write(&path, authored).unwrap();
+            let mut config = Config::read(path.clone()).unwrap();
+            assert!(
+                config
+                    .reset_setting("x", "board.token_rate.window")
+                    .unwrap()
+            );
+            assert!(
+                !config
+                    .reset_setting("x", "board.token_rate.window")
+                    .unwrap()
+            );
+            let saved = fs::read_to_string(&path).unwrap();
+            assert_eq!(saved.contains("[squad.x.board.token_rate]"), keep_parent);
+            for retained in [
+                "# keep authored file",
+                "window = '5m'",
+                "refresh = '10s' # keep refresh",
+                "view = 'members' # keep other squad",
+                prefix,
+                suffix,
+                sibling,
+            ] {
+                assert!(saved.contains(retained), "{retained}: {saved}");
+            }
+            let reopened = Config::read(path.clone()).unwrap();
+            assert_eq!(
+                reopened.token_rate("x").unwrap().window,
+                TokenWindow::FIVE_MINUTES
+            );
+            assert!(!reopened.has_setting_override("x", "board.token_rate.window"));
+        }
+        fs::remove_dir_all(path.parent().unwrap()).unwrap();
     }
 
     #[test]

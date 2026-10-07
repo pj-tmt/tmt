@@ -35,7 +35,7 @@ fn capture(app: &App, width: u16) -> Frame {
             .hits
             .borrow()
             .iter()
-            .map(|hit| (hit.y, hit.x, hit.width, hit.row))
+            .map(|hit| (hit.y, hit.x, hit.width, hit.row().unwrap()))
             .collect(),
         starts: app.row_starts.borrow().clone(),
         input: format!("{:?}", app.input_band.get()),

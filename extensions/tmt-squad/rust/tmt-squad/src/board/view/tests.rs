@@ -111,10 +111,8 @@ fn waiting_rows_detail_and_ask_prompt_fit_each_width_and_theme() {
             assert!(screen.last().unwrap().contains("◆ 3 waiting"));
             assert_eq!(screen.last().unwrap().contains("A ask lead"), width >= 100);
             assert!(
-                app.hits
-                    .borrow()
-                    .iter()
-                    .any(|hit| hit.row == 1 && screen[usize::from(hit.y)].contains("Ship #412"))
+                app.hits.borrow().iter().any(|hit| hit.row().unwrap() == 1
+                    && screen[usize::from(hit.y)].contains("Ship #412"))
             );
             app.perform(&crate::action::Action::parse("ask-lead").unwrap());
             let prompt = draw(&app, width, 24);
@@ -904,7 +902,7 @@ columns = [{ name = "member", width = "30%" },
         .hits
         .borrow()
         .iter()
-        .map(|hit| (hit.y, hit.row))
+        .map(|hit| (hit.y, hit.row().unwrap()))
         .collect();
     assert!(hits.contains(&(3, 0)) && hits.contains(&(4, 0)));
     app.selected = 1;
@@ -938,11 +936,18 @@ columns = [{ name = "member", width = "30%" },
         screen.iter().any(|line| line.contains("gamma delta")),
         "{screen:?}"
     );
-    assert!(app.hits.borrow().iter().filter(|hit| hit.row == 3).count() == 2);
+    assert!(
+        app.hits
+            .borrow()
+            .iter()
+            .filter(|hit| hit.row().unwrap() == 3)
+            .count()
+            == 2
+    );
     for width in [8, 12, 18] {
         let screen = draw(&app, width, 7);
         assert!(screen.iter().all(|line| line.width() <= usize::from(width)));
-        assert!(app.hits.borrow().iter().all(|hit| hit.row < 4));
+        assert!(app.hits.borrow().iter().all(|hit| hit.row().unwrap() < 4));
     }
 }
 
@@ -1018,7 +1023,12 @@ fn drawn_rows_are_clickable_and_the_menu_and_help_show_bindings() {
         {"title": "Everyone", "rows": [row("docs", "working", "guide", json!({}))]}
     ]));
     draw(&app, 48, 9);
-    let lines: Vec<(u16, usize)> = app.hits.borrow().iter().map(|h| (h.y, h.row)).collect();
+    let lines: Vec<(u16, usize)> = app
+        .hits
+        .borrow()
+        .iter()
+        .map(|h| (h.y, h.row().unwrap()))
+        .collect();
     assert_eq!(
         lines,
         [(4, 0), (6, 1)],
@@ -1027,7 +1037,12 @@ fn drawn_rows_are_clickable_and_the_menu_and_help_show_bindings() {
     // Scrolled: only visible lines are clickable, at their screen rows.
     app.selected = 1;
     draw(&app, 48, 6);
-    let lines: Vec<(u16, usize)> = app.hits.borrow().iter().map(|h| (h.y, h.row)).collect();
+    let lines: Vec<(u16, usize)> = app
+        .hits
+        .borrow()
+        .iter()
+        .map(|h| (h.y, h.row().unwrap()))
+        .collect();
     // An overflowing pane keeps its last line for the indicator, so two of
     // the three lines show rows.
     assert_eq!(lines, [(3, 1)]);
@@ -1399,7 +1414,7 @@ fn sent_feedback_sits_under_its_row_before_the_annotation_and_stays_clickable() 
         .iter()
         .copied()
         .find(|hit| usize::from(hit.y) == alpha + 1);
-    assert_eq!(hit.map(|hit| hit.row), Some(0));
+    assert_eq!(hit.map(|hit| hit.row().unwrap()), Some(0));
     let buffer = board_buffer(&app, 60, 12);
     let look = app.look();
     assert_eq!(
@@ -3185,7 +3200,7 @@ fn a_click_focuses_the_pane_under_it() {
     let hit = app.hits.borrow()[0];
     click(&mut app, hit.x, hit.y);
     assert_eq!(app.focused(), Pane::Rows);
-    assert_eq!(app.selected, hit.row);
+    assert_eq!(app.selected, hit.row().unwrap());
     // Outside every pane, or under the help, a click changes nothing.
     click(&mut app, 45, 5);
     assert_eq!(app.focused(), Pane::Notes);
@@ -3214,7 +3229,7 @@ fn the_wheel_scrolls_rows_away_from_the_selection_until_a_key_brings_it_back() {
     assert!(screen.iter().any(|line| line.contains("m09")));
     assert_eq!(app.selected, 0);
     // Only visible rows take clicks, at their screen lines.
-    assert!(app.hits.borrow().iter().all(|hit| hit.row >= 8));
+    assert!(app.hits.borrow().iter().all(|hit| hit.row().unwrap() >= 8));
     app.key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
     let screen = draw(&app, 40, 8);
     assert!(
@@ -4240,7 +4255,11 @@ fn boxed_members_share_home_scene_and_inline_band_at_all_widths_and_themes() {
                     .any(|hit| usize::from(hit.y) == rule)
             );
             assert_eq!(
-                app.hits.borrow().iter().filter(|hit| hit.row == 1).count(),
+                app.hits
+                    .borrow()
+                    .iter()
+                    .filter(|hit| hit.row().unwrap() == 1)
+                    .count(),
                 2
             );
             app.selected = 1;
@@ -4824,7 +4843,11 @@ columns = [{name="member", width=12}, {name="task", width=12, overflow="wrap", m
             app.look(),
         );
         assert_eq!(scrolled[(1, 0)].symbol(), " ");
-        assert!(visible.iter().all(|hit| hit.y < 2 && hit.row == 0));
+        assert!(
+            visible
+                .iter()
+                .all(|hit| hit.y < 2 && hit.row().unwrap() == 0)
+        );
         assert_eq!(view.document, document);
     }
 }
@@ -5153,7 +5176,7 @@ fn boxed_duplicate_selection_keeps_heading_task_blanks_targets_and_drafts() {
                         .hits
                         .borrow()
                         .iter()
-                        .find(|hit| hit.row == index)
+                        .find(|hit| hit.row().unwrap() == index)
                         .unwrap()
                         .y;
                     for line in [y, y + 1] {

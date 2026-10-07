@@ -595,7 +595,9 @@ impl RowPaint {
                     y: y as u16,
                     x: body.x,
                     width: body.width,
-                    row: part.row.expect("a root names its row"),
+                    target: crate::board::app::HitTarget::Row(
+                        part.row.expect("a root names its row"),
+                    ),
                 });
             }
         }
