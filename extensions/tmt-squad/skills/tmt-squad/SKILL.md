@@ -459,7 +459,8 @@ switcher, and `/` searches. Home has no r/R reply shortcut or numeric navigation
 `tmt sq focus <member> [duration|off] [--squad <name>] [--json]` shows, sets or clears
 one active member or lead policy. Showing, setting and clearing all require the
 recorded user or the current squad lead; a lead needs the saved owner recorded with
-`tmt sq me <owner>`. Human output names the member; JSON also retains the UUID.
+`tmt sq me <owner>`. Human output names the member. JSON includes `member` (the
+resolved name) and `identityId` (the UUID), alongside the policy fields.
 Use whole `s`/`m`/`h` segments from **1s through 24h**, such as `30m` or `1h30m`.
 Zero, negative and larger windows are refused. Omit duration to inspect; `off` clears.
 Running it again replaces the window against the observed revision. A revision
