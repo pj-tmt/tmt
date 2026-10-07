@@ -29,7 +29,7 @@ mod dispatch;
 mod origins;
 use config::ConfigSource;
 pub use dispatch::ChannelEnd;
-use dispatch::Running;
+use dispatch::{Launch, Running};
 pub use origins::Origins;
 
 /// Bounds of the service; [`ServiceBounds::contract`] is the proposed contract set and
@@ -284,16 +284,16 @@ impl<'s> ObjectService<'s> {
             .clone();
         #[cfg(not(test))]
         let hook = ();
-        Running::start(
-            bus,
+        let launch = Launch {
             source,
-            &self.bounds,
+            bounds: &self.bounds,
             hook,
-            &self.origins,
-            name,
+            origins: &self.origins,
+            extension: name,
             tunnels,
-        )
-        .map_err(ActivateError::Channel)
+            sessions: mounts.sessions(),
+        };
+        Running::start(bus, launch).map_err(ActivateError::Channel)
     }
     fn finish_setup(
         &self,

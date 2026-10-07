@@ -146,6 +146,13 @@ pub trait Sessions: Send + Sync {
             self.context(cookie)
         }
     }
+    /// Whether the owner session an upgrade was admitted under is still the live one, with
+    /// the same device and grant revision, not ended, idle-expired or revoked. It must not
+    /// wait on the session owner past a short bound, and answers `false` when it cannot
+    /// tell. The default knows no sessions.
+    fn current(&self, _binding: &OwnerBinding) -> bool {
+        false
+    }
 }
 pub struct NoSessions;
 impl Sessions for NoSessions {
@@ -312,6 +319,10 @@ impl Mounts {
             tunnels: Mutex::default(),
             origins: None,
         }
+    }
+    /// The session resolver the mounts admit owner requests with.
+    pub fn sessions(&self) -> Arc<dyn Sessions> {
+        Arc::clone(&self.sessions)
     }
     /// Report the origins of upgrades to object-declared extensions to `origins`.
     pub fn with_origins(mut self, origins: Arc<dyn OriginSink>) -> Self {

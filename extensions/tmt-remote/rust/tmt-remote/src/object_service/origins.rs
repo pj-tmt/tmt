@@ -172,6 +172,11 @@ impl Origins {
                 owner: record.owner.clone(),
             })
     }
+    /// Whether new origins of `extension` attach to a channel.
+    #[cfg(test)]
+    pub(super) fn attached(&self, extension: &str) -> bool {
+        locked(&self.table).channels.contains_key(extension)
+    }
     #[cfg(test)]
     pub(super) fn count(&self) -> usize {
         locked(&self.table).records.len()

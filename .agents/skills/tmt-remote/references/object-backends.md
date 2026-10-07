@@ -36,17 +36,23 @@ forwarded (`tmt-origin` is the id), established only after the owner session att
 the browser has its 101 and `adopt` ran the tunnel, gone at the first close. A close wins
 over a later establish, a channel's end removes its origins and a successor inherits none.
 `established`/`closed` notices go through a bounded ordered queue to one announcer thread;
-the registry never calls sessions or writes a frame, and a ticket drop never blocks. Nothing
-yet answers a mounted origin's request (that is the next commit's session check).
+the registry never calls sessions or writes a frame, and a ticket drop never blocks.
+
+A request naming a mounted origin stands only while Remote's registry has that origin
+established on the channel's generation and, if an owner session was attached, `Sessions::current`
+confirms the same live session, device and grant revision (a bounded check that fails closed). It
+is checked before `acquire`, before `disclose` and before the result leaves; anything else is
+`denied` with no callback. The admits carry `owner-session` or `mounted` as Remote established
+it, and every mounted origin gets the reduced `Limits::Browser` projection.
 
 Each running channel has one dispatcher thread, the only reader of the bus, two workers and one announcer.
 The dispatcher queues requests and hands callback decisions to the worker that waits for
 them, so a decision is never stuck behind a request. A worker answers `config` for a
-local-extension origin from a snapshot of the delivered backend taken at `open` (backend
-identifier, capabilities and `Quotas`; no usage, ledger row, path or secret): it asks for
-`acquire` admission, then for `disclose` admission naming the projection, and refuses on
-anything but an allow. A mounted origin is answered `denied` and the other six methods
-`unavailable`, with no callback and no effect; they belong to later slices. No decision is
+local-extension origin (owner limits) or a standing mounted origin (reduced limits) from a
+snapshot of the delivered backend taken at `open` (backend identifier, capabilities and
+`Quotas`; no usage, ledger row, path or secret): it asks for `acquire` admission, then for
+`disclose` admission naming the projection, and refuses on anything but an allow. The other
+six methods are `unavailable`, with no callback and no effect; they belong to later slices. No decision is
 remembered. A request whose 30 s is spent before a callback is sent (queued too long, or used
 up between acquire and disclose) is answered `unavailable` with no further callback and the
 channel keeps serving. A sent callback unanswered at its bound (5 s, within the request's

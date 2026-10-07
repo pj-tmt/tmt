@@ -3,6 +3,7 @@
 //! acceptor, so the offered `Host` and mount values, the one-active-one-candidate rule,
 //! the installation bound, stop and the absence of leaked sockets are all observed from
 //! the extension's side. Nothing infers an effect from a sleep.
+use super::dispatch::Pause;
 use super::*;
 use crate::{
     limits,
@@ -1081,8 +1082,8 @@ fn time_spent_between_acquire_and_disclose_is_unavailable_with_no_second_callbac
         .unwrap();
     // Only the first request is held until its own deadline has passed.
     let first = Arc::new(AtomicBool::new(true));
-    service.set_hook(Some(Arc::new(move |deadline: Instant| {
-        if first.swap(false, Ordering::AcqRel) {
+    service.set_hook(Some(Arc::new(move |pause: Pause, deadline: Instant| {
+        if pause == Pause::BetweenAdmissions && first.swap(false, Ordering::AcqRel) {
             while Instant::now() < deadline {
                 thread::yield_now();
             }

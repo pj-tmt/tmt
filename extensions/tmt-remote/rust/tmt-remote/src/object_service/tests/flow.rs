@@ -3,20 +3,30 @@
 //! channel. The extension sees exactly what Remote forwards, and its bus is told, in
 //! order, when each tunnel is established and closed. The registry's own rules (terminal
 //! close, bounds, lock discipline) are tested directly.
+use super::super::dispatch::Pause;
 use super::super::origins::{Events, Next};
 use super::*;
+use crate::{
+    canonical::{self, Envelope},
+    session::DoorSessions,
+    state::MachineKey,
+    store::{DEFAULT_SCOPES, Grant, Store, uuid_v4},
+};
 use crate::{
     http::{Door, Handler},
     mount::{Admitted, DeviceContext, SessionState, Sessions},
     routes::Routes,
     site::Site,
 };
+use ed25519_dalek::{Signer, SigningKey};
 use std::{
     collections::HashMap,
     io::{Read, Write},
     net::{SocketAddr, TcpStream},
 };
-use tmt_extension_objects::{OriginPhase, OriginState, accept_head};
+use tmt_extension_objects::{
+    Admit, Decision, ErrorCode, OriginPhase, OriginState, ResultFrame, Success, accept_head,
+};
 
 const OWNER: &str = "tmt_door=owner";
 const ENDED: &str = "tmt_door=ended";
@@ -62,13 +72,28 @@ struct Live {
 }
 impl Live {
     fn new(env: &Env, origins: &Origins) -> Self {
+        Self::with(env, origins, |_| Tabs::new()).0
+    }
+    /// A door whose mounts resolve owner sessions with what `sessions` builds from the
+    /// door's origin; the resolver is returned too.
+    fn with<S: Sessions + 'static>(
+        env: &Env,
+        origins: &Origins,
+        sessions: impl FnOnce(&str) -> Arc<S>,
+    ) -> (Self, Arc<S>) {
         let routes = Routes::new(1024, "/r/k7qxm4tz2pbwn6rh".into()).unwrap();
         let prefix = routes.prefix().to_owned();
         let door = Door::bind(0).unwrap();
         let (addr, origin) = (door.socket_addr().unwrap(), door.origin.clone());
-        let mounts =
-            Mounts::with_extensions(env.root.clone(), &origin, &prefix, Tabs::new(), &ALPHA)
-                .with_origins(Arc::new(origins.clone()));
+        let resolver = sessions(&origin);
+        let mounts = Mounts::with_extensions(
+            env.root.clone(),
+            &origin,
+            &prefix,
+            Arc::clone(&resolver) as Arc<dyn Sessions>,
+            &ALPHA,
+        )
+        .with_origins(Arc::new(origins.clone()));
         let site = Arc::new(Site {
             routes,
             mounts: Arc::new(mounts),
@@ -77,14 +102,15 @@ impl Live {
         let stop = Arc::new(AtomicBool::new(false));
         let (flag, served) = (Arc::clone(&stop), Arc::clone(&site));
         let door = thread::spawn(move || door.run(&flag, served as Arc<dyn Handler>).unwrap());
-        Self {
+        let live = Self {
             addr,
             origin,
             prefix,
             site,
             stop,
             door: Some(door),
-        }
+        };
+        (live, resolver)
     }
     fn mounts(&self) -> &Mounts {
         &self.site.mounts
@@ -147,6 +173,13 @@ struct Ext {
 }
 impl Ext {
     fn start(env: &Env, live: &Live) -> Self {
+        Self::launch(env, live, false)
+    }
+    /// An extension that drops its end of the object channel as soon as it is set up.
+    fn start_closing(env: &Env, live: &Live) -> Self {
+        Self::launch(env, live, true)
+    }
+    fn launch(env: &Env, live: &Live, closing: bool) -> Self {
         let path = env.directory("alpha").join("door.sock");
         let listener = UnixListener::bind(&path).unwrap();
         fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).unwrap();
@@ -163,7 +196,7 @@ impl Ext {
                 }
                 let (expect, seen, held) = (expect.clone(), Arc::clone(&seen), Arc::clone(&held));
                 connections.push(thread::spawn(move || {
-                    serve_connection(stream, &expect, &seen, &held);
+                    serve_connection(stream, closing, &expect, &seen, &held);
                 }));
             }
             for connection in connections {
@@ -196,9 +229,12 @@ impl Ext {
         self.heads.lock().unwrap().len()
     }
     fn bus<T>(&self, f: impl FnOnce(&Bus) -> T) -> T {
+        self.bus_at(0, f)
+    }
+    fn bus_at<T>(&self, index: usize, f: impl FnOnce(&Bus) -> T) -> T {
         let started = Instant::now();
         loop {
-            if let Some(bus) = self.buses.lock().unwrap().first() {
+            if let Some(bus) = self.buses.lock().unwrap().get(index) {
                 return f(bus);
             }
             assert!(started.elapsed() < Duration::from_secs(10), "no bus");
@@ -206,6 +242,18 @@ impl Ext {
         }
     }
     /// The next origin-state notice on the object channel.
+    /// Hear notices until every origin in `origins` is established. The browser has its 101
+    /// before Remote establishes an origin, so a request sent earlier would be denied;
+    /// notices for other origins (an earlier tab's close) are not what is waited on.
+    fn await_established(&self, origins: &[Uuid4]) {
+        let mut waiting = origins.to_vec();
+        while !waiting.is_empty() {
+            let notice = self.notice();
+            if notice.phase == OriginPhase::Established {
+                waiting.retain(|origin| *origin != notice.origin_id);
+            }
+        }
+    }
     fn notice(&self) -> OriginState {
         match self.bus(|bus| bus.recv(Some(Instant::now() + Duration::from_secs(10)))) {
             Ok(Frame::OriginState(state)) => state,
@@ -225,6 +273,7 @@ impl Drop for Ext {
 }
 fn serve_connection(
     mut stream: UnixStream,
+    closing: bool,
     expect: &Expect,
     seen: &Mutex<Vec<String>>,
     held: &Mutex<Vec<Bus>>,
@@ -245,7 +294,11 @@ fn serve_connection(
         let setup = Instant::now() + Duration::from_secs(5);
         if let Ok(link) = accept_head(stream, &head, &[], expect, &Budgets::contract(), setup) {
             let bus = Bus::start(link, Budgets::contract(), Caps::contract(), None).unwrap();
-            held.lock().unwrap().push(bus);
+            if closing {
+                drop(bus);
+            } else {
+                held.lock().unwrap().push(bus);
+            }
         }
         return;
     }
@@ -428,6 +481,9 @@ fn drained(events: &Events) -> Vec<(Uuid4, OriginPhase)> {
     }
     found
 }
+fn drain_ignored(events: &Events) {
+    drained(events);
+}
 fn ticket(origins: &Origins) -> Arc<dyn crate::mount::OriginTicket> {
     crate::mount::OriginSink::pending(origins, "alpha", None).expect("an attached extension")
 }
@@ -458,6 +514,16 @@ fn a_close_wins_over_a_later_establish_and_every_phase_change_is_announced_once(
         drained(&events),
         vec![(id, OriginPhase::Established), (id, OriginPhase::Closed)]
     );
+    // An origin stands only on its own extension and channel generation.
+    let again = ticket(&origins);
+    let again_id = Uuid4::parse(&again.id()).unwrap();
+    again.establish();
+    let other = Uuid4::parse("0b2d4f60-1a3c-4e5f-9a7b-8c9d0e1f2a3b").unwrap();
+    assert!(origins.established(again_id, "alpha", generation).is_some());
+    assert!(origins.established(again_id, "alpha", other).is_none());
+    assert!(origins.established(again_id, "beta", generation).is_none());
+    again.close();
+    drain_ignored(&events);
     // No channel for the extension: no origin at all.
     assert!(crate::mount::OriginSink::pending(&origins, "beta", None).is_none());
     origins.detach("alpha", generation);
@@ -524,5 +590,502 @@ fn origins_hold_no_lock_across_a_session_or_a_frame_and_survive_contention() {
         });
     });
     assert!(started.elapsed() < Duration::from_secs(30));
+    assert_eq!(origins.count(), 0);
+}
+
+// ---- Commit B: the current-session check and mounted `config` answers, over real sockets
+// and a real `DoorSessions` with a paired-device grant and a controllable idle clock.
+
+/// A paired browser device and the clock its sessions' idle time follows.
+struct Device {
+    sessions: Arc<DoorSessions>,
+    client_id: String,
+    key: SigningKey,
+    machine_id: String,
+    window_id: String,
+    origin: String,
+    clock: Arc<Mutex<Instant>>,
+}
+impl Device {
+    fn pair(env: &Env, origin: &str, idle: Duration) -> Self {
+        let mut store = Store::open(&env.serving).unwrap();
+        let machine = store.machine().unwrap();
+        let key = SigningKey::from_bytes(&[5; 32]);
+        let client_id = uuid_v4().unwrap();
+        store
+            .insert_grant(&Grant {
+                client_id: client_id.clone(),
+                public_key: key.verifying_key().to_bytes(),
+                kind: "browser".into(),
+                origin: origin.into(),
+                name: "Laptop".into(),
+                agents: "all".into(),
+                scopes: DEFAULT_SCOPES.iter().map(|s| (*s).into()).collect(),
+                mode: "direct".into(),
+                issued_at_ms: 1,
+                expires_at_ms: None,
+                revision: 1,
+                disabled: false,
+            })
+            .unwrap();
+        let window_id = uuid_v4().unwrap();
+        let base = Instant::now();
+        let clock = Arc::new(Mutex::new(base));
+        let ticking = Arc::clone(&clock);
+        let sessions = Arc::new(
+            DoorSessions::new(
+                machine.id.clone(),
+                window_id.clone(),
+                origin.into(),
+                format!("{}/x/", machine.route_prefix),
+                MachineKey::open(env.serving.layout()).unwrap(),
+                Arc::new(Mutex::new(store)),
+                idle,
+            )
+            .with_clock(Arc::new(move || *ticking.lock().unwrap())),
+        );
+        Self {
+            sessions,
+            client_id,
+            key,
+            machine_id: machine.id,
+            window_id,
+            origin: origin.into(),
+            clock,
+        }
+    }
+    /// Open a session as the device and return its `Cookie` header value.
+    fn open(&self) -> String {
+        let mut nonce = [0u8; 16];
+        getrandom::fill(&mut nonce).unwrap();
+        let payload = serde_json::json!({
+            "clientNonce": nonce.iter().map(|b| format!("{b:02x}")).collect::<String>()
+        })
+        .to_string();
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis() as u64;
+        let id = uuid_v4().unwrap();
+        let signed = canonical::envelope(&Envelope {
+            kind: "control",
+            id: &id,
+            correlation_id: None,
+            machine_id: &self.machine_id,
+            window_id: &self.window_id,
+            client_id: &self.client_id,
+            session_id: "new",
+            sequence: "0",
+            timestamp_ms: now,
+            origin: &self.origin,
+            operation: "session.open",
+            payload: payload.as_bytes(),
+        })
+        .unwrap();
+        let wire = serde_json::json!({
+            "version": 1, "profile": "local-v1", "kind": "control", "id": id,
+            "correlationId": null, "machineId": self.machine_id, "windowId": self.window_id,
+            "clientId": self.client_id, "sessionId": "new", "sequence": "0",
+            "timestampMs": now, "origin": self.origin, "operation": "session.open",
+            "payload": canonical::base64url(payload.as_bytes()),
+            "signature": canonical::base64url(&self.key.sign(&signed).to_bytes()),
+        });
+        let opened = self
+            .sessions
+            .open(Some(&self.origin), wire.to_string().as_bytes())
+            .expect("the paired device opens a session");
+        let cookie = opened.cookie.expect("a browser cookie");
+        cookie.split(';').next().unwrap().to_owned()
+    }
+    fn advance(&self, by: Duration) {
+        *self.clock.lock().unwrap() += by;
+    }
+}
+
+/// One side of a conversation on the extension's `index`th bus.
+struct Talk<'a>(&'a Ext, usize);
+impl Talk<'_> {
+    fn say(&self, frame: Frame) {
+        self.0.bus_at(self.1, |bus| bus.send(&frame).unwrap());
+    }
+    fn heard(&self) -> Frame {
+        self.0.bus_at(self.1, |bus| {
+            bus.recv(Some(Instant::now() + Duration::from_secs(10)))
+                .expect("nothing heard")
+        })
+    }
+    /// The next frame that is not a lifecycle notice.
+    fn next(&self) -> Frame {
+        loop {
+            match self.heard() {
+                Frame::OriginState(_) => {}
+                other => return other,
+            }
+        }
+    }
+    fn generation(&self) -> Uuid4 {
+        self.0.bus_at(self.1, Bus::generation)
+    }
+    fn config(&self, id: u64, origin: Uuid4) {
+        self.say(Frame::Request(Request {
+            generation: self.generation(),
+            request_id: counter(id),
+            origin: Origin::Mounted(origin),
+            call: Call::Config(config_input()),
+        }));
+    }
+    fn callback(&self) -> Admit {
+        match self.next() {
+            Frame::Admit(admit) => admit,
+            other => panic!("expected a callback, heard {other:?}"),
+        }
+    }
+    fn result(&self) -> ResultFrame {
+        match self.next() {
+            Frame::Result(result) => result,
+            other => panic!("expected a result, heard {other:?}"),
+        }
+    }
+    fn decide(&self, admit: &Admit, decision: Decision) {
+        self.say(Frame::Admission(Admission {
+            generation: self.generation(),
+            callback_id: admit.callback_id,
+            request_id: admit.request_id,
+            decision,
+        }));
+    }
+    /// The result must be a denial with no callback before it.
+    fn denied(&self, id: u64) {
+        let result = self.result();
+        assert_eq!(result.request_id, counter(id));
+        assert_eq!(
+            result.outcome,
+            Outcome::Failure(ErrorCode::Denied),
+            "request {id}"
+        );
+    }
+}
+
+/// Everything over a real `DoorSessions`.
+struct Real<'e> {
+    service: ObjectService<'e>,
+    origins: Origins,
+    live: Live,
+    ext: Ext,
+    device: Device,
+}
+fn real<'e>(env: &'e Env, idle: Duration, hook: dispatch::Hook) -> Real<'e> {
+    let origins = Origins::default();
+    let service = env.service_with(&ALPHA, bounds(), origins.clone()).unwrap();
+    service.set_hook(hook);
+    let device = std::cell::RefCell::new(None);
+    let (live, _) = Live::with(env, &origins, |origin| {
+        let paired = Device::pair(env, origin, idle);
+        let sessions = Arc::clone(&paired.sessions);
+        *device.borrow_mut() = Some(paired);
+        sessions
+    });
+    let device = device.into_inner().unwrap();
+    let ext = Ext::start(env, &live);
+    service.activate(live.mounts(), "alpha").unwrap();
+    Real {
+        service,
+        origins,
+        live,
+        ext,
+        device,
+    }
+}
+fn browser_config() -> Config {
+    let mut config = local_config();
+    config.limits = Limits::Browser(bounds_of());
+    config
+}
+
+#[test]
+fn a_mounted_owner_session_gets_the_reduced_config_after_both_admissions() {
+    let env = Env::new();
+    let world = real(&env, Duration::from_secs(600), None);
+    let cookie = world.device.open();
+    let (_tab, head) = world.live.upgrade(&cookie, "");
+    assert!(head.starts_with("HTTP/1.1 101"), "{head}");
+    let origin = origin_of(&world.ext.head(0));
+    assert_eq!(world.ext.notice().phase, OriginPhase::Established);
+    let talk = Talk(&world.ext, 0);
+    talk.config(1, origin);
+    let acquire = talk.callback();
+    let owner = Context::OwnerSession {
+        origin_id: origin,
+        device_id: Uuid4::parse(&world.device.client_id).unwrap(),
+        grant_revision: 1,
+    };
+    assert_eq!(
+        (acquire.boundary, acquire.context),
+        (Checkpoint::Acquire, owner)
+    );
+    talk.decide(&acquire, Decision::Allow);
+    let disclose = talk.callback();
+    assert_eq!(
+        (disclose.boundary, disclose.context),
+        (Checkpoint::Disclose, owner)
+    );
+    assert_eq!(
+        disclose.operation.disclosure,
+        Some(Disclosure::Config {
+            projection: Projection::Browser
+        })
+    );
+    talk.decide(&disclose, Decision::Allow);
+    let result = talk.result();
+    // Reduced for a mounted origin: the bounds, never the owner's quotas.
+    assert_eq!(
+        result.outcome,
+        Outcome::Success(Success::Config(browser_config()))
+    );
+}
+
+#[test]
+fn a_mounted_connection_without_an_owner_session_is_asked_as_mounted_and_sees_the_same_projection()
+{
+    let env = Env::new();
+    let world = real(&env, Duration::from_secs(600), None);
+    let (_tab, head) = world.live.send(&format!(
+        "GET {}/x/alpha/sync HTTP/1.1\r\nHost: {}\r\nOrigin: {}\r\nConnection: Upgrade\r\nUpgrade: websocket\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Version: 13\r\n\r\n",
+        world.live.prefix, world.live.addr, world.live.origin
+    ));
+    assert!(head.starts_with("HTTP/1.1 101"), "{head}");
+    let origin = origin_of(&world.ext.head(0));
+    assert_eq!(world.ext.notice().phase, OriginPhase::Established);
+    let talk = Talk(&world.ext, 0);
+    talk.config(1, origin);
+    let acquire = talk.callback();
+    assert_eq!(acquire.context, Context::Mounted { origin_id: origin });
+    talk.decide(&acquire, Decision::Allow);
+    let disclose = talk.callback();
+    talk.decide(&disclose, Decision::Allow);
+    assert_eq!(
+        talk.result().outcome,
+        Outcome::Success(Success::Config(browser_config()))
+    );
+}
+
+#[test]
+fn a_request_is_denied_without_a_callback_unless_its_origin_stands() {
+    let env = Env::new();
+    let world = real(&env, Duration::from_secs(600), None);
+    let cookie = world.device.open();
+    let (tab, _) = world.live.upgrade(&cookie, "");
+    let closing = origin_of(&world.ext.head(0));
+    assert_eq!(world.ext.notice().phase, OriginPhase::Established);
+    let talk = Talk(&world.ext, 0);
+    // An origin nobody issued, one still Pending, and one whose tunnel has closed.
+    let unknown = Uuid4::parse("0b2d4f60-1a3c-4e5f-9a7b-8c9d0e1f2a3b").unwrap();
+    let pending = ticket(&world.origins);
+    let waiting = Uuid4::parse(&pending.id()).unwrap();
+    drop(tab);
+    assert_eq!(world.ext.notice().phase, OriginPhase::Closed);
+    for (id, origin) in [(1, unknown), (2, waiting), (3, closing)] {
+        talk.config(id, origin);
+        talk.denied(id);
+    }
+    // After the pending one establishes it is served, but only on this channel: a
+    // successor bus does not know it.
+    pending.establish();
+    talk.config(4, waiting);
+    let acquire = talk.callback();
+    assert_eq!(acquire.context, Context::Mounted { origin_id: waiting });
+    talk.decide(&acquire, Decision::Deny);
+    assert_eq!(talk.result().outcome, Outcome::Failure(ErrorCode::Denied));
+    world
+        .service
+        .activate(world.live.mounts(), "alpha")
+        .unwrap();
+    let successor = Talk(&world.ext, 1);
+    successor.config(1, waiting);
+    successor.denied(1);
+}
+
+#[test]
+fn two_tabs_are_each_asked_as_themselves_and_a_closed_tab_is_denied() {
+    let env = Env::new();
+    let world = real(&env, Duration::from_secs(600), None);
+    let cookie = world.device.open();
+    let (first, _) = world.live.upgrade(&cookie, "");
+    let (_second, _) = world.live.upgrade(&cookie, "");
+    let (one, two) = (origin_of(&world.ext.head(0)), origin_of(&world.ext.head(1)));
+    world.ext.await_established(&[one, two]);
+    let talk = Talk(&world.ext, 0);
+    for (id, origin) in [(1, one), (2, two)] {
+        talk.config(id, origin);
+        let acquire = talk.callback();
+        assert!(
+            matches!(acquire.context, Context::OwnerSession { origin_id, .. } if origin_id == origin)
+        );
+        talk.decide(&acquire, Decision::Deny);
+        assert_eq!(talk.result().outcome, Outcome::Failure(ErrorCode::Denied));
+    }
+    drop(first);
+    let closed = loop {
+        let notice = world.ext.notice();
+        if notice.phase == OriginPhase::Closed {
+            break notice;
+        }
+    };
+    assert_eq!(closed.origin_id, one);
+    talk.config(3, one);
+    talk.denied(3);
+    talk.config(4, two);
+    let acquire = talk.callback();
+    assert!(matches!(acquire.context, Context::OwnerSession { origin_id, .. } if origin_id == two));
+    talk.decide(&acquire, Decision::Deny);
+    assert_eq!(talk.result().outcome, Outcome::Failure(ErrorCode::Denied));
+}
+
+#[test]
+fn a_session_that_ends_is_denied_before_acquire_between_admissions_and_before_the_result() {
+    let env = Env::new();
+    let sessions: Arc<Mutex<Option<Arc<DoorSessions>>>> = Arc::new(Mutex::new(None));
+    let client = Arc::new(Mutex::new(String::new()));
+    let at_result = Arc::new(AtomicBool::new(false));
+    let hook: dispatch::Hook = {
+        let (sessions, client, at_result) = (
+            Arc::clone(&sessions),
+            Arc::clone(&client),
+            Arc::clone(&at_result),
+        );
+        Some(Arc::new(move |pause: Pause, _| {
+            if pause == Pause::BeforeResult && at_result.load(Ordering::Acquire) {
+                let live = sessions.lock().unwrap().clone().unwrap();
+                live.end_device(&client.lock().unwrap());
+            }
+        }))
+    };
+    let world = real(&env, Duration::from_secs(600), hook);
+    *sessions.lock().unwrap() = Some(Arc::clone(&world.device.sessions));
+    *client.lock().unwrap() = world.device.client_id.clone();
+    let talk = Talk(&world.ext, 0);
+    let tab = |expected: u64| {
+        let cookie = world.device.open();
+        let (tab, _) = world.live.upgrade(&cookie, "");
+        let origin = origin_of(&world.ext.head(expected as usize));
+        world.ext.await_established(&[origin]);
+        (tab, origin)
+    };
+    // (a) Revoked before the request arrives: denied, no callback.
+    let (_a, origin) = tab(0);
+    world.device.sessions.end_device(&world.device.client_id);
+    talk.config(1, origin);
+    talk.denied(1);
+    // (b) Revoked while the acquire callback is out: the disclose callback is never sent.
+    let (_b, origin) = tab(1);
+    talk.config(2, origin);
+    let acquire = talk.callback();
+    world.device.sessions.end_device(&world.device.client_id);
+    talk.decide(&acquire, Decision::Allow);
+    talk.denied(2);
+    // (c) Revoked after the extension allowed disclosure and before the result leaves:
+    // no configuration is sent.
+    let (_c, origin) = tab(2);
+    at_result.store(true, Ordering::Release);
+    talk.config(3, origin);
+    let acquire = talk.callback();
+    talk.decide(&acquire, Decision::Allow);
+    let disclose = talk.callback();
+    talk.decide(&disclose, Decision::Allow);
+    talk.denied(3);
+}
+
+#[test]
+fn an_idle_expired_session_is_denied() {
+    let env = Env::new();
+    let world = real(&env, Duration::from_secs(60), None);
+    let cookie = world.device.open();
+    let (_tab, _) = world.live.upgrade(&cookie, "");
+    let origin = origin_of(&world.ext.head(0));
+    world.ext.await_established(&[origin]);
+    let talk = Talk(&world.ext, 0);
+    talk.config(1, origin);
+    let acquire = talk.callback();
+    talk.decide(&acquire, Decision::Deny);
+    assert_eq!(talk.result().outcome, Outcome::Failure(ErrorCode::Denied));
+    // The session's idle time passes on the injected clock; the tunnel is still open.
+    world.device.advance(Duration::from_secs(61));
+    talk.config(2, origin);
+    talk.denied(2);
+}
+
+#[test]
+fn currentness_follows_the_live_session_its_device_and_its_revision() {
+    let env = Env::new();
+    let origins = Origins::default();
+    let (_live, device) = {
+        let mut made = None;
+        let (live, _) = Live::with(&env, &origins, |origin| {
+            let paired = Device::pair(&env, origin, Duration::from_secs(600));
+            let sessions = Arc::clone(&paired.sessions);
+            made = Some(paired);
+            sessions
+        });
+        (live, made.unwrap())
+    };
+    let cookie = device.open();
+    let admitted = device
+        .sessions
+        .context(Some(&cookie))
+        .expect("a live session");
+    let binding = crate::mount::OwnerBinding {
+        session: admitted.session,
+        device_id: admitted.context.device_id,
+        grant_revision: admitted.context.grant_revision,
+    };
+    assert!(device.sessions.current(&binding));
+    let mut other_device = binding.clone();
+    other_device.device_id = uuid_v4().unwrap();
+    let mut other_revision = binding.clone();
+    other_revision.grant_revision += 1;
+    let stranger = crate::mount::OwnerBinding {
+        session: Arc::new(SessionState::default()),
+        ..binding.clone()
+    };
+    for (name, wrong) in [
+        ("another device", other_device),
+        ("another grant revision", other_revision),
+        ("a session this door never opened", stranger),
+    ] {
+        assert!(!device.sessions.current(&wrong), "{name}");
+    }
+    // Idle expiry and revocation each end it, and nothing brings it back.
+    device.advance(Duration::from_secs(601));
+    assert!(!device.sessions.current(&binding));
+    let again = device.open();
+    let fresh = device.sessions.context(Some(&again)).unwrap();
+    let revoked = crate::mount::OwnerBinding {
+        session: fresh.session,
+        device_id: fresh.context.device_id,
+        grant_revision: fresh.context.grant_revision,
+    };
+    assert!(device.sessions.current(&revoked));
+    device.sessions.end_device(&device.client_id);
+    assert!(!device.sessions.current(&revoked));
+    assert!(!device.sessions.current(&binding));
+}
+
+#[test]
+fn a_channel_that_ends_right_after_setup_leaves_no_origin_to_issue() {
+    let env = Env::new();
+    let origins = Origins::default();
+    let service = env.service_with(&ALPHA, bounds(), origins.clone()).unwrap();
+    let live = Live::new(&env, &origins);
+    let ext = Ext::start_closing(&env, &live);
+    // Whether the channel ends before or after setup finishes varies from run to run; in
+    // every case it takes its registration with it and none is left behind.
+    for _ in 0..25 {
+        service.activate(live.mounts(), "alpha").unwrap();
+        assert!(matches!(ended_soon(&service, "alpha"), ChannelEnd::Bus(_)));
+        assert!(!origins.attached("alpha"));
+    }
+    let (_tab, head) = live.upgrade(OWNER, "");
+    assert!(head.starts_with("HTTP/1.1 101"), "{head}");
+    assert!(values(&ext.head(0), "tmt-origin").is_empty());
     assert_eq!(origins.count(), 0);
 }
