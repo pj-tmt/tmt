@@ -4951,7 +4951,7 @@ fn focus_app(members: bool, home: bool, held: u64, until: u64, look: crate::look
         "worker",
         "working",
         "implementation",
-        json!({"id":"worker", "focus":{"active":true,"focusUntilMs":until,"remainingMs":until-1000,"heldCount":held}}),
+        json!({"id":"worker", "state":"working", "focus":{"active":true,"focusUntilMs":until,"remainingMs":until-1000,"heldCount":held}}),
     );
     let mut app = board(json!([{"title":null,"rows":[focused]}]));
     app.view.as_mut().unwrap().board.members = members;
@@ -5014,7 +5014,14 @@ fn focus_rows_tick_expire_and_keep_words_and_expanded_details() {
                         },
                     );
                     let buffer = board_buffer(&app, width, 20);
-                    let screen = detail_text(&buffer).join("\n");
+                    let lines = detail_text(&buffer);
+                    for line in lines.iter().filter(|line| line.contains("focus 30m")) {
+                        assert!(
+                            line.contains("worker") || line.contains("lead"),
+                            "focus must stay on the heading: {line}"
+                        );
+                    }
+                    let screen = lines.join("\n");
                     assert_eq!(
                         screen.matches("focus 30m · 2 held").count(),
                         if home { 2 } else { 1 }
@@ -5044,14 +5051,100 @@ fn focus_rows_tick_expire_and_keep_words_and_expanded_details() {
             }
         }
     }
+    for (members, home) in [(false, false), (true, false), (false, true)] {
+        crate::status::with_now_ms(1_000, || {
+            let mut app = focus_app(members, home, 999999, 4_801_000, Default::default());
+            let target = app.row_target(0).unwrap();
+            app.row_details
+                .toggle(crate::board::row_detail::Target::Row(target));
+            let narrow = detail_text(&board_buffer(&app, 20, 30)).join("\n");
+            assert!(narrow.contains("focus"), "{narrow}");
+            assert!(narrow.contains("1h20m"), "{narrow}");
+            assert!(narrow.contains("left"), "{narrow}");
+        });
+    }
+}
+
+#[test]
+fn focus_heading_keeps_row_height_hits_and_selected_background() {
     crate::status::with_now_ms(1_000, || {
-        let mut app = focus_app(false, false, 999999, 4_801_000, Default::default());
-        let target = app.row_target(0).unwrap();
-        app.row_details
-            .toggle(crate::board::row_detail::Target::Row(target));
-        let narrow = detail_text(&board_buffer(&app, 20, 30)).join("\n");
-        assert!(narrow.contains("focus"), "{narrow}");
-        assert!(narrow.contains("1h20m left"), "{narrow}");
+        for (members, home) in [(false, false), (true, false), (false, true)] {
+            for width in [20, 80, 160] {
+                let focused = focus_app(members, home, 2, 4_801_000, Default::default());
+                let plain = focus_app(members, home, 2, 1_000, Default::default());
+                board_buffer(&plain, width, 30);
+                let hits = |app: &App| {
+                    app.hits
+                        .borrow()
+                        .iter()
+                        .filter_map(|hit| hit.row().map(|row| (row, hit.x, hit.y, hit.width)))
+                        .collect::<Vec<_>>()
+                };
+                let before = hits(&plain);
+                let buffer = board_buffer(&focused, width, 30);
+                assert_eq!(
+                    hits(&focused),
+                    before,
+                    "focus adds no row lines or hit regions"
+                );
+                if let Some(hit) = focused
+                    .hits
+                    .borrow()
+                    .iter()
+                    .find(|hit| hit.row() == Some(0))
+                {
+                    let line = (0..width)
+                        .map(|x| buffer[(x, hit.y)].symbol())
+                        .collect::<String>();
+                    assert!(line.contains("focus"), "{line}");
+                    let from = (0..width.saturating_sub(4))
+                        .find(|x| {
+                            (*x..*x + 5)
+                                .map(|at| buffer[(at, hit.y)].symbol())
+                                .collect::<String>()
+                                == "focus"
+                        })
+                        .unwrap();
+                    for x in from..from + 5 {
+                        assert_eq!(
+                            buffer[(x, hit.y)].bg,
+                            focused.look().selection().bg.unwrap()
+                        );
+                    }
+                }
+            }
+        }
+        // Wrapped first-line cells retain their original continuation geometry.
+        let mut focused = focus_app(false, false, 2, 4_801_000, Default::default());
+        let mut plain = focus_app(false, false, 2, 1_000, Default::default());
+        for app in [&mut focused, &mut plain] {
+            let view = app.view.as_mut().unwrap();
+            view.rows = rows_from(
+                r#"[p.rows]
+columns = [{name = "member", width = "30%"}, {name = "task", width = "70%", overflow = "wrap", max_lines = 4}]
+"#,
+            );
+            view.document["sections"][0]["rows"][0]["fields"]["task"] =
+                json!("alpha beta gamma delta epsilon zeta eta theta");
+        }
+        board_buffer(&plain, 40, 30);
+        let starts = plain.row_starts.borrow().clone();
+        board_buffer(&focused, 40, 30);
+        assert_eq!(*focused.row_starts.borrow(), starts);
+        assert_eq!(
+            focused
+                .hits
+                .borrow()
+                .iter()
+                .map(|hit| hit.y)
+                .collect::<Vec<_>>(),
+            plain
+                .hits
+                .borrow()
+                .iter()
+                .map(|hit| hit.y)
+                .collect::<Vec<_>>()
+        );
     });
 }
 
@@ -5070,30 +5163,35 @@ fn capture_focus_window_rows() {
                 for width in [20, 80, 160] {
                     for held in [0, 2] {
                         for expanded in [false, true] {
-                            let mut app = focus_app(
-                                members,
-                                home,
-                                held,
-                                4_801_000,
-                                crate::look::Look {
-                                    theme: tmt_cli_style::Theme::new(
-                                        tmt_cli_style::Base::parse(if base == "NO_COLOR" {
-                                            "tmt"
-                                        } else {
-                                            base
-                                        })
-                                        .unwrap(),
-                                    ),
-                                    depth,
-                                },
-                            );
-                            if expanded {
-                                let target = app.row_target(0).unwrap();
-                                app.row_details
-                                    .toggle(crate::board::row_detail::Target::Row(target));
+                            for selected in [false, true] {
+                                let mut app = focus_app(
+                                    members,
+                                    home,
+                                    held,
+                                    4_801_000,
+                                    crate::look::Look {
+                                        theme: tmt_cli_style::Theme::new(
+                                            tmt_cli_style::Base::parse(if base == "NO_COLOR" {
+                                                "tmt"
+                                            } else {
+                                                base
+                                            })
+                                            .unwrap(),
+                                        ),
+                                        depth,
+                                    },
+                                );
+                                if !selected {
+                                    app.selected = 1;
+                                }
+                                if expanded {
+                                    let target = app.row_target(0).unwrap();
+                                    app.row_details
+                                        .toggle(crate::board::row_detail::Target::Row(target));
+                                }
+                                let buffer = board_buffer(&app, width, 30);
+                                cases.push(json!({"selected":selected,"members":members,"home":home,"expanded":expanded,"theme":base,"width":width,"held":held,"text":detail_text(&buffer).join("\n"),"cells":buffer.content.iter().map(|cell|json!({"symbol":cell.symbol(),"fg":format!("{:?}",cell.fg),"bg":format!("{:?}",cell.bg),"modifier":format!("{:?}",cell.modifier)})).collect::<Vec<_>>() }));
                             }
-                            let buffer = board_buffer(&app, width, 30);
-                            cases.push(json!({"members":members,"home":home,"expanded":expanded,"theme":base,"width":width,"held":held,"text":detail_text(&buffer).join("\n"),"cells":buffer.content.iter().map(|cell|json!({"symbol":cell.symbol(),"fg":format!("{:?}",cell.fg),"bg":format!("{:?}",cell.bg),"modifier":format!("{:?}",cell.modifier)})).collect::<Vec<_>>() }));
                         }
                     }
                 }

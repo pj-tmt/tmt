@@ -19,6 +19,7 @@ use tmt_tui::{
     binding::{Schema, Template},
     components::Outline,
 };
+use unicode_width::UnicodeWidthStr;
 
 const FILE: &str = "squad.home.leads.xml";
 
@@ -38,11 +39,11 @@ const MARKUP: &str = r#"<tmt-view version="1">
 <tmt-text id="state" bind="lead.state" token-bind="lead.state_role" class="shrink-0"/>
 <tmt-text id="squad" bind="lead.squad" token="muted" class="shrink-0" hide-below="md"/>
 <tmt-text id="fill" class="grow h-1"/>
+<tmt-repeat each="lead.focus" as="focus"><tmt-text id="focus-gap" class="shrink-0"> </tmt-text><tmt-text id="focus-word" bind="focus.word" token="text" class="shrink-0"/><tmt-text id="focus-suffix" bind="focus.suffix" token="muted" class="shrink-0"/><tmt-text id="focus-after-gap" class="shrink-0"> </tmt-text></tmt-repeat>
 <tmt-text id="model" bind="lead.model" token="muted" class="shrink-0"/>
 <tmt-text id="age" bind="lead.age" token="dim" class="shrink-0"/>
 <tmt-text id="right" bind="$.right" class="shrink-0"/>
 </tmt-row>
-<tmt-repeat each="lead.focus" as="focus"><tmt-row id="focus" class="w-full h-1"><tmt-text id="left" bind="$.left" class="shrink-0"/><tmt-text id="focus-gap" class="shrink-0">   </tmt-text><tmt-text id="focus-word" bind="focus.word" token="text" class="shrink-0"/><tmt-text id="focus-suffix" bind="focus.suffix" token="muted" class="shrink-0"/><tmt-text id="fill" class="grow h-1"/><tmt-text id="right" bind="$.right" class="shrink-0"/></tmt-row></tmt-repeat>
 <tmt-repeat each="lead.after" as="line"><tmt-row id-bind="line.id" class="w-full h-1"><tmt-text id="left" bind="$.left" class="shrink-0"/><tmt-text id="text" bind="line.text" token-bind="line.role" class="shrink-0"/><tmt-text id="fill" class="grow h-1"/><tmt-text id="right" bind="$.right" class="shrink-0"/></tmt-row></tmt-repeat>
 </tmt-col></tmt-repeat>
 <tmt-repeat each="$.tail" as="line"><tmt-row id-bind="line.id" class="w-full h-1"><tmt-text id="left" bind="$.left" class="shrink-0"/><tmt-text id="text" bind="line.text" token-bind="line.role" class="grow h-1"/><tmt-text id="right" bind="$.right" class="shrink-0"/></tmt-row></tmt-repeat>
@@ -237,7 +238,7 @@ pub(in crate::board) fn build(key: &Key) -> Block {
                 (
                     Some(
                         "squad" | "state" | "tag" | "model" | "age" | "focus-word" | "focus-suffix"
-                        | "focus-gap",
+                        | "focus-gap" | "focus-after-gap",
                     ),
                     _,
                 ) => boxed(look.row_span(selected, look.role(role), false)),
@@ -262,15 +263,7 @@ pub(in crate::board) fn build(key: &Key) -> Block {
             LeadSpan {
                 local,
                 start: head.start,
-                hit: head.start
-                    ..preview.map_or_else(
-                        || {
-                            painted
-                                .lines(&[&id(local), "focus"])
-                                .map_or(head.end, |focus| focus.end)
-                        },
-                        |preview| preview.end,
-                    ),
+                hit: head.start..preview.map_or(head.end, |preview| preview.end),
                 end: lead.end,
                 reserve: (reserving[local] > 0).then(|| lead.end - reserving[local]..lead.end),
             }
@@ -382,6 +375,11 @@ pub(in crate::board) fn render_squad(frame: &mut ratatui::Frame, app: &App, area
         let right = format!("{}  {} ", model, age);
         let available =
             width.saturating_sub(3 + unicode_width::UnicodeWidthStr::width(right.as_str()));
+        let focus = crate::focus::pieces(row, now, available / 2);
+        let focus_width = focus.as_array().unwrap().first().map_or(0, |piece| {
+            piece["word"].as_str().unwrap().width() + piece["suffix"].as_str().unwrap().width() + 2
+        });
+        let available = available.saturating_sub(focus_width);
         let tag = if origin == RowOrigin::Lead {
             "  lead"
         } else {
@@ -422,12 +420,12 @@ pub(in crate::board) fn render_squad(frame: &mut ratatui::Frame, app: &App, area
         if model_visible {
             visible.push("model");
         }
-        if crate::focus::fitted(row, now, width.saturating_sub(3)).2 {
+        if crate::focus::fitted(row, now, (available + focus_width) / 2).2 {
             visible.push("focus");
         }
-        rows.push(json!({"focus": crate::focus::pieces(row, now, width.saturating_sub(3)), "id": id(index), "before": std::mem::take(&mut before), "separator": [],
+        rows.push(json!({"focus": focus, "id": id(index), "before": std::mem::take(&mut before), "separator": [],
             "mark": format!(" {mark} "), "mark_role": role.name(), "name": name, "tag": tag,
-            "state": format!("  {}", fit(&escape(state), state_width).trim_end()),
+            "state": if state_width == 0 { String::new() } else { format!("  {}", fit(&escape(state), state_width).trim_end()) },
             "state_role": if waits { "waiting" } else { row["colors"]["state"].as_str().and_then(crate::look::role).unwrap_or(Role::Text).name() },
             "squad": "", "model": if model.is_empty() { String::new() } else { format!("{model}  ") },
             "age": format!("{age} "), "after": after, "detail":app.detail_value(index,&visible)}));

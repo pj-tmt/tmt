@@ -37,6 +37,13 @@ fn heading(lead: &Lead, width: u16, now: u64) -> Value {
         .map_or_else(|| "–".into(), |at| crate::requests::age(now, at));
     let age = fit(&age, inner.saturating_sub(4)).trim_end().to_owned();
     let available = inner.saturating_sub(4 + unicode_width::UnicodeWidthStr::width(age.as_str()));
+    let focus = crate::focus::pieces(&lead.row, now, available / 2);
+    let focus_width = focus.as_array().unwrap().first().map_or(0, |piece| {
+        unicode_width::UnicodeWidthStr::width(piece["word"].as_str().unwrap())
+            + unicode_width::UnicodeWidthStr::width(piece["suffix"].as_str().unwrap())
+            + 2
+    });
+    let available = available.saturating_sub(focus_width);
     let name_width = available.min(24);
     // Whether the squad column shows at all is the `md` step of the markup;
     // whether any room is left for it is a fit.
@@ -49,6 +56,8 @@ fn heading(lead: &Lead, width: u16, now: u64) -> Value {
         String::new()
     };
     json!({
+        "focus": focus,
+        "focus_visible": crate::focus::fitted(&lead.row, now, (available + focus_width) / 2).2,
         "mark": format!(" {mark} "),
         "mark_role": role.name(),
         "name": fit(&escape(lead.name()), name_width),
@@ -101,9 +110,7 @@ pub(super) fn paint(
                 row["state_role"] = json!("text");
                 row["separator"] = json!([]);
                 row["after"] = json!(after);
-                let budget = usize::from(area.width.saturating_sub(5));
-                row["focus"] = crate::focus::pieces(&lead.row, now, budget);
-                let visible = if crate::focus::fitted(&lead.row, now, budget).2 {
+                let visible = if row["focus_visible"] == true {
                     vec!["focus"]
                 } else {
                     vec![]

@@ -176,7 +176,7 @@ pub fn fitted(row: &Value, now: u64, budget: usize) -> (String, String, bool) {
     }
 }
 
-/// Shared secondary-line data for boxed and HOME row templates.
+/// Shared heading data for boxed and HOME row templates.
 pub fn pieces(row: &Value, now: u64, budget: usize) -> Value {
     let (word, suffix, _) = fitted(row, now, budget);
     if word.is_empty() {
