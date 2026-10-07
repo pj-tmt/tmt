@@ -7,12 +7,12 @@ use std::{
 
 pub(super) const USER: &str = "11111111-1111-4111-8111-111111111111";
 pub(super) const LEAD: &str = "22222222-2222-4222-8222-222222222222";
-pub(super) const WORKER: &str = "33333333-3333-4333-8333-333333333333";
-pub(super) const ROOM: &str = "44444444-4444-4444-8444-444444444444";
-pub(super) const CHECKLIST: &str = "55555555-5555-4555-8555-555555555555";
-pub(super) const ITEM: &str = "66666666-6666-4666-8666-666666666666";
-pub(super) const OTHER: &str = "77777777-7777-4777-8777-777777777777";
-pub(super) fn id(text: &str) -> Id {
+pub(crate) const WORKER: &str = "33333333-3333-4333-8333-333333333333";
+pub(crate) const ROOM: &str = "44444444-4444-4444-8444-444444444444";
+pub(crate) const CHECKLIST: &str = "55555555-5555-4555-8555-555555555555";
+pub(crate) const ITEM: &str = "66666666-6666-4666-8666-666666666666";
+pub(crate) const OTHER: &str = "77777777-7777-4777-8777-777777777777";
+pub(crate) fn id(text: &str) -> Id {
     Id::parse(text).unwrap()
 }
 pub(super) fn create(
@@ -48,7 +48,7 @@ pub(super) fn mutate(item: &str, revision: u64, mutation: model::Mutation) -> Re
     }
 }
 
-pub(super) struct Fixture {
+pub(crate) struct Fixture {
     pub root: PathBuf,
     pub core: Core,
     pub config: Config,

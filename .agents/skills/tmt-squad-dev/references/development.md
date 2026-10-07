@@ -34,7 +34,12 @@ markup: see [tmt-tui](../../tmt-tui/SKILL.md).
   tests inspect committed bytes, temporary cleanup, lock release and retained Unknown
   after readback. Run unfiltered Squad tests on current/MSRV toolchains, owning clippy,
   fmt, CLI architecture/current+MSRV and the native Squad regression as well. This storage
-  module adds no command/board surface, dependency or parity fixture regeneration.
+  service remains the only admission/persistence owner. `cargo test --locked -p tmt-squad
+checklist_command` covers adapter grammar, exact typed requests, literal JSON projections,
+  alias/help/completion, authorized conflict/deletion errors and retained Unknown. Native
+  `squad.test.ts` exercises actual dispatch, streams/exits and independently read durable
+  bytes across revisions, archive/order, assignment departure and exact room lifecycle.
+  No dependency, board action or parity fixture regeneration is introduced.
 - `main::print_help` sends both routed help and clap `DisplayHelp` through
   `tmt_cli_style::rendered_help` before core discovery. Specs and argument help
   remain in `specs.rs`/`main.rs`; the shared style crate owns terminal wrapping.

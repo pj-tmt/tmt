@@ -476,6 +476,76 @@ use the same permission and revision checks as the commands: only the recorded u
 squad's lead can change jobs, and a job that changed since you looked is refused, not
 overwritten. Failures are shown and never retried. `x` sends once, like `tmt sq cron send`.
 
+## Manage checklists
+
+`tmt sq checklist ls --room ROOM_UUID` reads a manually authored room checklist;
+`--json` returns one complete document. `list` remains an accepted hidden alias;
+help and examples use `ls`. These commands are also available as `tmt squad checklist`.
+The board has no checklist actions yet. Every command requires the exact room UUID,
+never a squad name; writes freeze supplied checklist/item UUIDs and revisions.
+No command accepts an actor override or uses a member filter as assignment.
+
+| Action                                                 | Explicit inputs besides `--room`                                                                                                                                |
+| ------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ls`                                                   | Optional `--include-archived`, `--completion open\|complete`, `--assignee UUID`; reads create nothing                                                           |
+| `show`                                                 | `--checklist UUID --item UUID`                                                                                                                                  |
+| `create TITLE`                                         | `--checklist UUID --item UUID --expect-inventory absent\|POSITIVE`; optional `--body TEXT --reference HTTP(S) --assignee UUID`                                  |
+| `edit`                                                 | `--checklist UUID --item UUID --expect-revision POSITIVE`; at least one `--title TEXT`, `--body TEXT`/`--clear-body`, `--reference HTTP(S)`/`--clear-reference` |
+| `assign`                                               | Item/checklist UUIDs, exact `--expect-revision`, explicit `--assignee UUID`                                                                                     |
+| `unassign`, `complete`, `reopen`, `archive`, `restore` | Item/checklist UUIDs and exact `--expect-revision`                                                                                                              |
+| `delete`                                               | Item/checklist UUIDs, `--expect-revision`, `--expect-inventory`, matching `--confirm-item UUID --confirm-revision POSITIVE`                                     |
+| `reorder`                                              | `--checklist UUID --expect-inventory POSITIVE --order JSON_UUID_ARRAY`; all nondeleted items including archived items                                           |
+
+Generate new checklist/item UUIDs before the first Create and keep them fixed for
+that submission. First Create expects `absent`; subsequent Create expects the
+reviewed positive inventory revision. No command invents new UUIDs, adopts a
+latest revision, retries or substitutes a same-name target after refusal.
+Set/clear pairs conflict. Empty body normalizes to absent; empty reference is
+invalid and clearing it is explicit. Title is nonblank, without controls, at most
+1024 UTF-8 bytes; body is at most 65536 bytes with only line break/tab controls.
+A single reference is inert HTTP(S), at most 4096 bytes, never fetched or opened.
+Authored strings remain data.
+
+The verified invoking caller decides authority. Only when no caller is bound may
+the recorded active user be used; ambiguous or invalid callers refuse. Active
+recorded users and room leads are managers. Collaborators can create unassigned
+items, edit content, complete and reopen unarchived items. Initial assignment
+requires manager permission, including self-assignment; only managers assign,
+unassign, archive, restore, delete or reorder. Assignment chooses an exact active
+same-room member UUID. Departure retains its UUID/last label as unavailable;
+Unassign needs no live former assignee. Completion changes no pending/state/request
+or dispatch/notification data.
+
+Each actual item change increments only its revision; Create/Delete/actual Reorder
+also increment inventory once. A no-op changes neither revision but still admits
+permission and exact expectations. Archive retains content, completion and order;
+Restore changes only visibility. Archived items require explicit Restore before
+editing, assigning or completion changes. Delete removes authored content and
+retains a minimal tombstone; neither deleted nor live UUIDs may be reused.
+
+Success exits 0, checklist operation errors 1 and grammar errors 2. JSON successes
+have `action` and `current`; listing uses semantic action `list`, `totalCount` before
+filtering and `matchedCount` after filtering. Mutations add `changed`, plus `itemId`
+and `itemRevision` where applicable. `current` contains `room:{id,name,available,manager}`,
+nullable `checklistId`/`inventoryRevision`, ordered `items` and nullable
+`deletion:{itemId,deletionRevision}`. Items expose `{id,revision,title,body,reference,
+assignee,completion,archived}`; absent optionals are null and assignment is null or
+`{id,label,available}`. Completion is `open` or `complete`.
+
+Errors retain `{error:{code,message,current?}}`. Only authorized typed conflict/
+deletion data supplies `current`; denial exposes no current projection. Human
+errors go to stderr and print no success line. Missing checklist, empty inventory,
+filtered-empty inventory and storage/read failure are distinct; corrupt data is
+never treated as empty or repaired. Exact UUID reads preserve a renamed room;
+a same-name successor is distinct. Only the recorded active user may inspect an
+unavailable room's retained data read-only, and all orphan writes refuse.
+
+After `CHECKLIST_CONFLICT`, review the supplied current revisions and make a new
+explicit submission. `CHECKLIST_OUTCOME_UNKNOWN` never claims success or rollback
+and never permits blind replay: later matching fields, revision or tombstone only
+confirm observed current state. Current state refreshed; original update outcome
+remains unknown. No operation ledger is introduced.
+
 ## Manage recurring jobs
 
 `tmt sq cron ls [--squad NAME]` lists jobs across all active squads, including

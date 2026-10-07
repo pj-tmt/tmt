@@ -204,8 +204,11 @@ skill (`extensions/tmt-squad/skills/tmt-squad/SKILL.md`).
 ## Checklist storage and service
 
 The native binary's `checklist` module provides typed list/show/create/edit/assign/
-unassign/complete/reopen/archive/restore/delete/reorder operations. Checklist commands
-and board actions are not exposed yet; their adapters consume this same service.
+unassign/complete/reopen/archive/restore/delete/reorder operations. `checklist_command`
+exposes them through `tmt squad checklist` (`tmt sq` dispatch alias); primary `ls` has
+hidden accepted alias `list`, both returning semantic JSON action `list`. The adapter
+parses only explicit UUIDs and revisions, invokes the unchanged service once and
+projects its typed results/errors. No board action is exposed.
 
 - `model` owns the frozen item lifecycle: positive item revisions, a separate inventory
   revision, full authored order including archived items, exact expectations and no-op
@@ -239,7 +242,12 @@ and board actions are not exposed yet; their adapters consume this same service.
   acknowledgement returns `CHECKLIST_OUTCOME_UNKNOWN`. Readback never proves which earlier
   uncertain operation committed; a new operation needs a freshly reviewed revision.
   Checklist errors and authorized conflict/deletion projections are typed locally;
-  unrelated Squad error JSON is unchanged. No dispatch, hooks, attention, request,
+  `checklist_command` emits one JSON stdout document with success exit 0, operation
+  error exit 1 and grammar error exit 2. Only typed `Error.current` becomes optional
+  `error.current`; refusal never invents a projection. Human failures use main's
+  existing stderr error/hint path and emit no success text. UUID/revision/text/order/
+  confirmation validity remains operation input validation rather than clap usage.
+  Unrelated Squad error JSON is unchanged. No dispatch, hooks, attention, request,
   metadata or configuration mutation, reference fetching or implicit opening occurs.
 
 ## Cron

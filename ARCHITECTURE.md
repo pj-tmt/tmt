@@ -998,12 +998,10 @@ Module/drawing ownership and guard verification: [Squad](.agents/skills/tmt-squa
   `<dataRoot>/squad` (`storage.root`) and disposable `$XDG_CACHE_HOME/tmt-squad` caches.
   `squad.toml` is the user's file: agents never write it; Squad uses its compare-and-set
   writer. No Squad data goes into `config.json` or the core database.
-- **Checklist.** The binary's `checklist` service owns exact caller/room admission;
-  `model` owns item/inventory revisions and minimal tombstones; `store` owns versioned
-  room-UUID JSON and locked, synced replacement under `<dataRoot>/squad/checklist`.
-  Reads create nothing; admission is rechecked before replacement, outside a Core/file transaction.
-  Prepublication failure preserves bytes; post-replacement uncertainty remains Unknown
-  after readback. No checklist command or board action is exposed.
+- **Checklist.** `checklist_command` exposes native grammar and scoped output over the existing
+  `checklist` caller/room admission, `model` revisions/tombstones and `store` versioned room-UUID JSON
+  under `<dataRoot>/squad/checklist`. Reads create nothing; locked admission precedes synced replacement outside a Core/file transaction.
+  Prepublication failure preserves bytes; uncertainty remains Unknown after readback. No board action is exposed.
 - **Public JSON.** Display-ready documents exclude board-only home/meter/`usage.*` data.
 
 Contracts index: the [embedded lead skill](extensions/tmt-squad/skills/tmt-squad/SKILL.md)
@@ -1016,6 +1014,8 @@ owns shapes, checked by `typescript/test/native/squad.test.ts`:
   `olderRequestsNotShown`; `squad.noteAnnotations`, `squad.notesStaleness`.
 - `sq config show` and `sq config set --json`: entries of key, value, source and
   editable.
+- `sq checklist <action> --json`: admitted current/revision documents and optional authorized error current;
+  `ls` (hidden alias `list`) returns semantic action `list` with unfiltered/matched counts.
 - `sq cron ls|show|add|edit|pause|resume|reassign|rm --json`: job documents with the
   exact message, schedule, owner and pause attribution; writes admit only the recorded
   user or the squad's current lead.

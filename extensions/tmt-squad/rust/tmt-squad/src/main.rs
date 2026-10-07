@@ -8,6 +8,7 @@ mod back;
 mod board;
 mod cache;
 pub mod checklist;
+mod checklist_command;
 mod config;
 mod consent;
 mod core;
@@ -247,6 +248,7 @@ fn grammar() -> Command {
         .subcommand(view::grammar())
         .subcommand(playbook::grammar())
         .subcommand(cron_command::grammar())
+        .subcommand(checklist_command::grammar())
         .subcommand(
             build(specs::SKILL)
                 .subcommand_required(true)
@@ -481,6 +483,7 @@ fn human(command: &str, document: &Value, terminal: Terminal) -> String {
         "theme" => theme::text(document, terminal),
         "view" => view::text(document, terminal),
         "cron" => cron_command::text(document, terminal),
+        "checklist" => checklist_command::text_output(document, terminal),
         "jump" => {
             let mut output = done(
                 terminal,
@@ -612,6 +615,7 @@ fn human(command: &str, document: &Value, terminal: Terminal) -> String {
 fn human_failures(command: &str, document: &Value) -> Vec<(String, Option<String>)> {
     let text = |value: &Value| value["message"].as_str().unwrap_or_default().to_owned();
     match command {
+        "checklist" => checklist_command::failure(document),
         "add" => document["results"]
             .as_array()
             .into_iter()
@@ -755,6 +759,15 @@ fn run(
     // Offline authoring check: no core, config or storage discovery.
     if command == "layout" {
         return layout::run(matches).map(Outcome::from);
+    }
+    if command == "checklist" {
+        let invocation = match checklist_command::parse(matches) {
+            Ok(invocation) => invocation,
+            Err(error) => return Ok(checklist_command::finish(Err(error))),
+        };
+        let core = Core::discover()?;
+        let config = Config::load(&core)?;
+        return Ok(checklist_command::run(&core, &config, invocation));
     }
     let core = Core::discover()?;
     let text = |name: &str| matches.get_one::<String>(name).map(String::as_str);
@@ -1235,9 +1248,28 @@ mod tests {
         assert_eq!(
             complete(&words("-- ")),
             [
-                "add", "back", "board", "config", "copy", "cron", "help", "hotkeys", "init",
-                "jump", "layout", "lead", "ls", "me", "open", "playbook", "rm", "set", "skill",
-                "theme", "view"
+                "add",
+                "back",
+                "board",
+                "checklist",
+                "config",
+                "copy",
+                "cron",
+                "help",
+                "hotkeys",
+                "init",
+                "jump",
+                "layout",
+                "lead",
+                "ls",
+                "me",
+                "open",
+                "playbook",
+                "rm",
+                "set",
+                "skill",
+                "theme",
+                "view"
             ]
         );
         assert_eq!(complete(&words("-- view ")), ["ls", "rm", "set"]);
