@@ -15,6 +15,14 @@ export const english = {
     getStarted: "Get started",
     seeWorkflow: "See the workflow",
     environment: "Your agents. Your environment.",
+    tunnel: {
+      label:
+        "An illustrative exchange: reviewer in Claude Code sends a request to builder in Codex with tmt talk. Builder submits one reply with tmt reply, which returns to reviewer.",
+      caption: "TWO TERMINALS. ONE DIRECT LINE.",
+      question: "Check this patch?",
+      answer: "Tests pass. Ready for review.",
+      note: "Illustrative exchange · one request, one reply",
+    },
     workflowTitle: "Less copy-paste.\nMore actual work.",
     workflowDescription: "Send the task. Keep moving.\nThe answer has a way back.",
     exampleSession: "EXAMPLE SESSION",

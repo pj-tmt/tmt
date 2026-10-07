@@ -134,163 +134,191 @@
   max-width: 640px;
 }
 
-/* Staggered terminals keep the exchange legible without a rigid hub diagram. */
+/* Two identities and a complete exchange remain visible in every frame. */
 .v9-home .hero-tunnel {
   position: absolute;
   z-index: 2;
-  top: 155px;
+  top: 205px;
   left: calc(50% + 20px);
   width: min(500px, 43vw);
-  height: 580px;
+  margin: 0;
   color: var(--c-text);
   font: 12px/1.5 var(--f-mono);
 }
 .v9-home .tunnel-caption {
-  position: absolute;
-  left: 12px;
-  top: 0;
-  font-size: 9px;
+  margin-bottom: 24px;
+  font-size: 10px;
   color: var(--c-muted);
   letter-spacing: 0.08em;
 }
+.v9-home .tunnel-terminals {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 28px;
+}
+.v9-home .tunnel-terminal {
+  position: relative;
+  z-index: 1;
+  min-width: 0;
+  border: 1px solid var(--c-term-edge);
+  background: var(--c-term);
+  color: var(--t-text);
+  box-shadow: 5px 5px 0 var(--c-rule);
+}
+.v9-home .tunnel-terminal header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  background: var(--c-term-bar);
+  border-bottom: 1px solid var(--c-term-edge);
+}
+.v9-home .tunnel-identity {
+  font-size: 15px;
+  font-weight: 600;
+}
+.v9-home .tunnel-terminal header span:last-child {
+  color: var(--t-muted);
+  font-size: 9px;
+}
+.v9-home .tunnel-terminal-body {
+  min-height: 154px;
+  padding: 16px 12px;
+}
+.v9-home .tunnel-terminal p {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.v9-home .tunnel-harness {
+  font-weight: 600;
+  font-size: 12px;
+}
+.v9-home .terminal-reviewer .tunnel-harness {
+  display: inline-block;
+  border: 1px solid var(--t-muted);
+  padding: 2px 6px;
+}
+.v9-home .terminal-builder .tunnel-harness {
+  padding: 3px 0;
+}
+.v9-home .tunnel-terminal .tunnel-context {
+  margin-top: 8px;
+  color: var(--t-muted);
+  font-size: 10px;
+}
+.v9-home .tunnel-terminal .tunnel-prompt {
+  margin-top: 18px;
+  font-size: 12px;
+}
+.v9-home .terminal-builder .tunnel-prompt {
+  border-left: 2px solid var(--t-muted);
+  padding-left: 8px;
+}
+.v9-home .tunnel-exchange {
+  position: relative;
+  aspect-ratio: 480 / 180;
+}
 .v9-home .tunnel-path {
-  position: absolute;
-  inset: 0;
+  display: block;
   width: 100%;
-  height: 560px;
-  overflow: visible;
+  height: 100%;
 }
 .v9-home .tunnel-path ellipse {
   fill: none;
   stroke: var(--c-rule);
   stroke-width: 1;
 }
-.v9-home .tunnel-path path {
+.v9-home .tunnel-route {
   fill: none;
   stroke: var(--c-accent);
-  stroke-width: 1.2;
-  stroke-dasharray: 3 7;
-  opacity: 0.7;
+  stroke-width: 1;
 }
-.v9-home .tunnel-path .tunnel-return {
-  stroke: var(--c-muted);
-  opacity: 0.45;
+.v9-home .tunnel-return {
+  stroke-dasharray: 4 5;
+}
+.v9-home .tunnel-arrow {
+  fill: none;
+  stroke: var(--c-text);
+  stroke-width: 1.5;
 }
 .v9-home .tunnel-packet {
-  fill: var(--c-accent);
+  fill: var(--c-text);
+  animation: tunnel-request 4.8s ease-in-out both;
 }
 .v9-home .tunnel-reply {
-  fill: var(--c-working);
+  animation-name: tunnel-reply;
 }
-.v9-home .tunnel-terminal {
-  position: absolute;
-  border: 1px solid var(--c-text);
-  background: var(--c-sheet);
-  box-shadow: 5px 5px 0 var(--c-rule);
+@keyframes tunnel-request {
+  0%,
+  8% {
+    transform: translateX(0);
+    opacity: 0;
+  }
+  12% {
+    opacity: 1;
+  }
+  40% {
+    transform: translateX(424px);
+    opacity: 1;
+  }
+  44%,
+  100% {
+    transform: translateX(424px);
+    opacity: 0;
+  }
 }
-.v9-home .terminal-reviewer {
-  top: 42px;
-  left: 1%;
-  width: 57%;
-  z-index: 3;
-  transform: rotate(-2deg);
-}
-.v9-home .terminal-pi {
-  top: 145px;
-  right: 0;
-  width: 39%;
-  transform: rotate(3deg);
-}
-.v9-home .terminal-cursor {
-  top: 346px;
-  left: 0;
-  width: 42%;
-  transform: rotate(-3deg);
-}
-.v9-home .terminal-builder {
-  top: 386px;
-  right: 0;
-  width: 55%;
-  z-index: 3;
-  transform: rotate(1.5deg);
-}
-.v9-home .tunnel-terminal header {
-  display: flex;
-  justify-content: space-between;
-  padding: 9px 12px;
-  border-bottom: 1px solid var(--c-rule);
-}
-.v9-home .tunnel-terminal header span:last-child {
-  color: var(--c-muted);
-  font-size: 9px;
-}
-.v9-home .tunnel-environment {
-  display: flex;
-  justify-content: space-between;
-  gap: 4px;
-  padding: 4px 10px;
-  color: var(--c-muted);
-  font-size: 9px;
-  border-bottom: 1px solid var(--c-rule);
-}
-.v9-home .tunnel-terminal-body {
-  padding: 12px 10px;
-}
-.v9-home .tunnel-terminal p {
-  margin: 0 0 8px;
-  font-size: 10px;
-  line-height: 1.5;
-  overflow-wrap: anywhere;
-}
-.v9-home .tunnel-terminal p:last-child {
-  margin-bottom: 0;
-}
-.v9-home .tunnel-command {
-  color: var(--c-muted);
-}
-.v9-home .tunnel-terminal .tunnel-label {
-  color: var(--c-working);
-  font-size: 9px;
-  margin-top: 12px;
+@keyframes tunnel-reply {
+  0%,
+  48% {
+    transform: translateX(0);
+    opacity: 0;
+  }
+  52% {
+    opacity: 1;
+  }
+  80% {
+    transform: translateX(-424px);
+    opacity: 1;
+  }
+  84%,
+  100% {
+    transform: translateX(-424px);
+    opacity: 0;
+  }
 }
 .v9-home .tunnel-message {
   position: absolute;
-  top: 282px;
-  left: 36%;
+  left: 50%;
+  transform: translate(-50%, -50%);
   display: flex;
+  align-items: baseline;
   gap: 12px;
-  padding: 5px 8px;
-  background: var(--c-sheet);
+  padding: 4px 8px;
+  white-space: nowrap;
+  background: var(--bg);
   border: 1px solid var(--c-rule);
-  font-size: 10px;
-  transform: rotate(-3deg);
+  font-size: 11px;
 }
-.v9-home .tunnel-code-lines i {
-  display: block;
-  width: 80%;
-  height: 2px;
-  background: var(--c-rule);
-  margin: 8px 0;
+.v9-home .tunnel-message code {
+  color: var(--c-muted);
+  font: inherit;
+  font-size: 9px;
 }
-.v9-home .tunnel-code-lines i:last-child {
-  width: 55%;
+.v9-home .tunnel-request-label {
+  top: 34.44%;
+}
+.v9-home .tunnel-reply-label {
+  top: 66.67%;
 }
 .v9-home .tunnel-footnote {
-  position: absolute;
-  bottom: 0;
-  left: 12px;
-  font-size: 9px;
+  margin: 8px 0 0;
+  font-size: 10px;
   color: var(--c-muted);
-  letter-spacing: 0.04em;
-}
-.v9-home .tunnel-remote-note {
-  display: block;
-  margin-top: 5px;
-  font-size: 8px;
 }
 @media (min-width: 761px) {
   .v9-home .hero {
-    min-height: 820px;
+    min-height: 730px;
   }
 }
 @media (max-width: 760px) {
@@ -300,19 +328,34 @@
     left: auto;
     width: calc(100% - 40px);
     max-width: 500px;
-    margin: 0 auto 32px;
+    margin: 0 auto 36px;
+  }
+  .v9-home .tunnel-terminals {
+    gap: 16px;
   }
   .v9-home .tunnel-terminal header {
     padding: 8px;
-    font-size: 10px;
   }
-  .v9-home .tunnel-environment {
-    flex-wrap: wrap;
+  .v9-home .tunnel-terminal-body {
+    padding: 14px 8px;
+  }
+  .v9-home .tunnel-identity {
+    font-size: 13px;
+  }
+  .v9-home .tunnel-terminal .tunnel-prompt {
+    font-size: 11px;
+  }
+  .v9-home .tunnel-message {
+    gap: 8px;
   }
 }
 @media (prefers-reduced-motion: reduce) {
   .v9-home .tunnel-packet {
-    display: none;
+    animation: none;
+    transform: translateX(424px);
+  }
+  .v9-home .tunnel-reply {
+    transform: translateX(-424px);
   }
 }
 
