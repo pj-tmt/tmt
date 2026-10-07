@@ -387,6 +387,73 @@ end of runtime verification. Sidecars remain preparation evidence, not a new rel
 No extension schema is inferred, published manifest rewritten or PR binary executed with writer
 credentials. Source/tooling proof and actual integrated native preparation remain separate gates.
 
+## Unarmed PR RC resource planning
+
+`typescript/scripts/pr-rc-resources.mjs` owns the pure first resource-policy slice of
+#1889. It imports only the built-in digest owner, exports `rcGenerationKey` and
+`planRCResources`, and has no command entry point or effectful adapter. Its local
+typed planning records are not Core catalog/eligibility/schema/trust wire types.
+The [PR channel contract](../../../../contracts/native-pr-channel.md) retains those
+owners and frozen v2 catalog/payload and v1 schema/trust semantics.
+
+The complete snapshot binds official repository, current channel source/enable
+epoch, externally approved producer tuple, exact run/attempt and sorted selected
+product/target set. Each reservation/settlement/inventory/absence observation binds
+the digest of that entire identity and a bounded evidence reference. `confirmed`
+is a supplied planning observation, never API authentication, upload quiescence,
+installer eligibility or remote cleanup proof. A future trusted adapter must
+establish and revalidate the evidence; PR code must never run with its write authority.
+Upstream source-artifact provenance is separate and cannot become deletion ownership.
+
+A reserve request proposes only an exclusive durable journal commit/readback; it
+cannot expose upload in that call. The subsequent complete snapshot must retain
+that reservation before upload intents can appear. Every output reserves declared
+transport and metadata maxima, at least the frozen 69 MiB payload/2 MiB catalog
+transport bounds. The future uploader must enforce the complete declared envelope
+before and during effects, with one payload bound to each canonical selected pair.
+It must refuse an unknown overhead bound. Raw member sizes do
+not replace transport bounds. Catalog upload is last and separately requires all
+payloads independently verified/settled and fresh Core eligibility.
+
+Local admission enforces eight enabled channels, one current generation per PR,
+one incomplete/replacement/retired/uncertain generation repository-wide, 1 GiB/64
+artifacts per generation, 9 GiB aggregate, 1 MiB declared manifest content and
+16 MiB diagnostics per generation, and no cache resource kind. All reservations,
+unknown/unmatched and deletion-unconfirmed resources remain charged. The proposed
+128 KiB checkpoint/three-checkpoint/32-terminal-entry limits are conservative local
+controls, not backend guarantees: all three maximum checkpoint representations
+remain charged inside the aggregate even when observed metadata is smaller. Input
+plus request must fit one checkpoint; reconciliation admits at most 100 channel
+and 1000 resource records. It never evicts unresolved records to meet a bound.
+
+Close (merged or unmerged), disable, new head or new epoch retires discovery first.
+Only exact journal-owned run/attempt cancellation and artifact-ID deletion intents
+are proposed. Cancellation acceptance, deletion status, a bare 404, expiry or missing
+logs do not settle uploads or release capacity. Deletion additionally requires
+settled uploads and complete exact inventory; payload deletion requires confirmed
+catalog absence. Release additionally requires separately bound confirmed absence
+and an exclusive durable release commit. Even a release intent leaves the input
+charge unchanged. A refusal preserves input and has no intents; a null charge means
+unknown accounting, never zero. Readers gain no remote lease or local uninstall.
+Valid observations with unmet obligations return `blocked`, including unmatched
+charges with no generation and uncertain/contradictory current publication evidence.
+Confirmed absence of recorded pending outputs blocks further upload intents; an
+empty pre-upload absence set does not. A current producer tuple that differs from
+the supplied approved tuple remains unresolved in the incomplete slot. Changed
+approval does not prevent exact owned historical retirement.
+Re-enable/reopen cannot resurrect a retired generation or erase a charged slot.
+
+The remaining adapter/backend/serialization/recovery work must qualify actual
+ownership, authentication, inventory completeness, absence and delayed-upload
+settlement. No storage provider, workflow approval or writer is selected here.
+The accepted 10-minute close budget (including queue/lock wait), three-day TTL
+backstop and proposed finite reconciliation costs (256 requests/8 MiB per pass,
+10 seconds per call within the original deadline) remain follow-on execution gates,
+not effects enforced by this pure planner or service promises. Ordinary CI artifacts,
+caches, releases, upstream reuse evidence and local installs remain protected.
+Focused model controls live in `test/tooling/pr-rc-resources.test.ts`; they do not
+qualify live cleanup, trusted publication, schema-bearing alpha or incremental cost.
+
 ## Packed verifier cleanup
 
 Packed verifiers use bounded synchronous subprocesses and own their isolated process

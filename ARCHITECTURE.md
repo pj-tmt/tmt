@@ -1055,7 +1055,7 @@ shares the native runtime/linkage proof across archive, installer, upgrade and
 public smoke verification. Raw executables do not prove archives or public
 installation. The candidate-owned installer handoff contract is
 [`contracts/native-install-handoff-v1.md`](contracts/native-install-handoff-v1.md).
-Archive, installer, verifier, publication and compiled CLI schema procedures belong to
+Archive, installer, verifier, publication, compiled CLI schema and unarmed RC resource planning belong to
 [tmt-release](.agents/skills/tmt-release/SKILL.md).
 
 ### Main release cuts
