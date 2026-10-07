@@ -128,8 +128,39 @@ impl Drop for Publication {
         }
     }
 }
+fn suffix() -> io::Result<String> {
+    let mut random = [0; 16];
+    getrandom::fill(&mut random).map_err(io::Error::other)?;
+    Ok(random.iter().map(|byte| format!("{byte:02x}")).collect())
+}
+/// Stages a complete directory beside the destination and renames it into place.
+fn install(base: &Path, directory: &Path) -> io::Result<()> {
+    let staging = base.join(format!(
+        "tmt-colab-publication-{}-{}",
+        std::process::id(),
+        suffix()?
+    ));
+    fs::create_dir(&staging)?;
+    let publication = Publication(staging);
+    for (name, source) in PROGRAMS {
+        tmt_test_support::write_executable(&publication.0.join(name), source.as_bytes(), 0o700)?;
+    }
+    verify(&publication.0)?;
+    if let Err(error) = fs::rename(&publication.0, directory) {
+        // A concurrent publisher may have won; never overwrite or repair its files.
+        if fs::symlink_metadata(directory).is_err() {
+            return Err(error);
+        }
+        verify(directory)?;
+    }
+    Ok(())
+}
+/// Published outside `CARGO_TARGET_TMPDIR`: CI caches and prunes that directory, and a
+/// partial restore would otherwise fail every later run until the cache key changed.
 fn publish() -> io::Result<PathBuf> {
-    let base = Path::new(env!("CARGO_TARGET_TMPDIR"));
+    publish_in(&std::env::temp_dir())
+}
+fn publish_in(base: &Path) -> io::Result<PathBuf> {
     fs::create_dir_all(base)?;
     let mut digest = Sha256::new();
     for (name, source) in PROGRAMS {
@@ -143,38 +174,24 @@ fn publish() -> io::Result<PathBuf> {
         .iter()
         .map(|byte| format!("{byte:02x}"))
         .collect::<String>();
-    let directory = base.join(format!("colab-core-fixture-{hash}"));
+    let name = format!(
+        "tmt-colab-fixture-{}-{hash}",
+        nix::unistd::Uid::effective().as_raw()
+    );
+    let directory = base.join(&name);
     match fs::symlink_metadata(&directory) {
-        Ok(_) => verify(&directory)?,
-        Err(error) if error.kind() == io::ErrorKind::NotFound => {
-            let mut random = [0; 16];
-            getrandom::fill(&mut random).map_err(io::Error::other)?;
-            let suffix = random
-                .iter()
-                .map(|byte| format!("{byte:02x}"))
-                .collect::<String>();
-            let staging = base.join(format!(
-                "colab-core-publication-{}-{suffix}",
-                std::process::id()
-            ));
-            fs::create_dir(&staging)?;
-            let publication = Publication(staging);
-            for (name, source) in PROGRAMS {
-                tmt_test_support::write_executable(
-                    &publication.0.join(name),
-                    source.as_bytes(),
-                    0o700,
-                )?;
+        Ok(_) if verify(&directory).is_ok() => {}
+        Ok(_) => {
+            // Never repair in place: a stale or partial directory moves aside under a unique
+            // name, and a fresh one is published. A concurrent loser re-verifies the winner.
+            match fs::rename(&directory, base.join(format!("{name}-stale-{}", suffix()?))) {
+                Ok(()) => {}
+                Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+                Err(error) => return Err(error),
             }
-            verify(&publication.0)?;
-            if let Err(error) = fs::rename(&publication.0, &directory) {
-                // A concurrent publisher may have won; never overwrite or repair its files.
-                if fs::symlink_metadata(&directory).is_err() {
-                    return Err(error);
-                }
-                verify(&directory)?;
-            }
+            install(base, &directory)?;
         }
+        Err(error) if error.kind() == io::ErrorKind::NotFound => install(base, &directory)?,
         Err(error) => return Err(error),
     }
     verify(&directory)?;
@@ -283,6 +300,39 @@ mod tests {
             assert_eq!(bytes, source.as_bytes());
         }
         assert_eq!(fs::read_dir(directory).unwrap().count(), PROGRAMS.len());
+    }
+    #[test]
+    fn a_stale_published_directory_moves_aside_and_is_published_fresh() {
+        let base = root();
+        let first = publish_in(&base.0).unwrap();
+        assert_eq!(publish_in(&base.0).unwrap(), first);
+        assert_eq!(fs::read_dir(&base.0).unwrap().count(), 1);
+        // Partial restore, extra entry and changed bytes each leave the old directory
+        // untouched under another name.
+        let damage: [fn(&Path); 3] = [
+            |d| fs::remove_file(d.join("door")).unwrap(),
+            |d| fs::write(d.join("unknown"), b"retained").unwrap(),
+            |d| fs::write(d.join("core"), b"different bytes").unwrap(),
+        ];
+        for (round, damage) in damage.into_iter().enumerate() {
+            damage(&first);
+            assert_eq!(publish_in(&base.0).unwrap(), first);
+            verify(&first).unwrap();
+            assert_eq!(fs::read_dir(&base.0).unwrap().count(), round + 2);
+        }
+        let aside = fs::read_dir(&base.0)
+            .unwrap()
+            .map(|entry| entry.unwrap().path())
+            .filter(|path| path != &first)
+            .collect::<Vec<_>>();
+        assert!(aside.iter().all(|path| verify(path).is_err()));
+        assert!(aside.iter().any(|path| path.join("unknown").exists()));
+        assert!(aside.iter().all(|path| {
+            path.file_name()
+                .unwrap()
+                .to_string_lossy()
+                .contains("-stale-")
+        }));
     }
     #[test]
     fn publication_refuses_changed_bytes_modes_and_unexpected_entries() {
