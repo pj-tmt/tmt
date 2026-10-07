@@ -321,6 +321,13 @@ impl App {
         targets
     }
     pub(super) fn reconcile_row_details(&mut self) {
+        if self.row_details.reader.as_ref().is_some_and(|reader| {
+            self.detail(&reader.target)
+                .and_then(|detail| detail.reply)
+                .is_none()
+        }) {
+            self.row_details.reader = None;
+        }
         let alive = self
             .active_detail_targets()
             .into_iter()

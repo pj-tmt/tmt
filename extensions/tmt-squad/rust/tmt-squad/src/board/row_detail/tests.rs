@@ -133,6 +133,29 @@ fn v_reader_is_read_only_and_preserves_the_normal_enter_and_open_actions() {
 }
 
 #[test]
+fn a_removed_reply_closes_its_reader_but_keeps_the_rows_other_details() {
+    let mut app = fixture();
+    app.view.as_mut().unwrap().me_id = Some("user".into());
+    app.view.as_mut().unwrap().replies = vec![json!({"recipientId":"u1","requestId":"r1"})];
+    press(&mut app, KeyCode::Char('e'));
+    press(&mut app, KeyCode::Char('v'));
+    let key = app.detail_read().unwrap();
+    assert!(app.row_details.reader.is_some());
+    app.view.as_mut().unwrap().replies.clear();
+    app.reconcile_row_details();
+    assert!(app.row_details.reader.is_none());
+    assert_eq!(app.row_details.expanded.len(), 1);
+    app.apply_message(&key, Ok("late removed reply".into()));
+    assert!(app.row_details.bodies.is_empty());
+    let shown = text(&draw(&app, 80, 24));
+    assert!(shown.contains("watch CI") && shown.contains("no reply yet"));
+    assert_eq!(
+        press(&mut app, KeyCode::Enter),
+        Effect::Act(app::Request::Jump("one".into()))
+    );
+}
+
+#[test]
 fn the_shared_renderer_wraps_limits_and_keeps_only_the_gutter_selected() {
     for width in [40, 80, 160] {
         for look in [
