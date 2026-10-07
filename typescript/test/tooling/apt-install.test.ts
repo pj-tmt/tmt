@@ -228,6 +228,10 @@ describe('apt-install composite action', () => {
     ],
     ['different referenced list', { sources: () => sourcesFor('/etc/apt/another-list.txt') }],
     [
+      'unexpected URI field casing',
+      { sources: (list: string) => sourcesFor(list).replace('URIs:', 'uris:') },
+    ],
+    [
       'mixed URIs',
       {
         sources: (list: string) =>

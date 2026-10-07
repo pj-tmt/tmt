@@ -39,7 +39,7 @@ runs:
             if [ -f "$sources" ] && [ ! -L "$sources" ] && [ -r "$sources" ] &&
                [ -f "$mirrors" ] && [ ! -L "$mirrors" ] && [ -r "$mirrors" ] &&
                awk -v uri="mirror+file:$mirrors" '"'"'
-                 /^URIs:/ { seen++; if ($0 != "URIs: " uri) bad=1 }
+                 tolower($0) ~ /^uris:/ { seen++; if ($0 != "URIs: " uri) bad=1 }
                  /^[ \t]/ { bad=1 }
                  END { exit(!seen || bad) }
                '"'"' "$sources" &&
