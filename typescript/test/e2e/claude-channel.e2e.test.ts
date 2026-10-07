@@ -523,6 +523,148 @@ describe('Claude channel delivery', { concurrent: false }, () => {
     60_000
   );
 
+  it.each([true, false])(
+    'a resumed channel=%s Claude records activity and consumption after an identity rename',
+    async (channel) => {
+      await withE2EFixture(async (fixture) => {
+        const name = 'ReportingClaude';
+        const renamed = 'RenamedReportingClaude';
+        const sessionId = '88888888-8888-4888-8888-888888888888';
+        const home = path.join(fixture.root, `home-${name}`);
+        const tree = path.join(home, '.claude', 'projects', '-workspace');
+        fs.mkdirSync(tree, { recursive: true });
+        const transcript = path.join(tree, `${sessionId}.jsonl`);
+        // Use the same minimized provider records as usage-hooks. A completed
+        // request is appended only after the real Prompt established a baseline.
+        const records = fs
+          .readFileSync(
+            path.resolve(
+              '../rust/crates/tmt-adapters/src/runtime/fixtures/claude-usage-sequence.jsonl'
+            ),
+            'utf8'
+          )
+          .trimEnd()
+          .split('\n');
+        fs.writeFileSync(transcript, records[0] + '\n');
+        fs.writeFileSync(
+          path.join(home, '.claude', 'settings.json'),
+          JSON.stringify({
+            hooks: {
+              Stop: [
+                {
+                  hooks: [
+                    {
+                      type: 'command',
+                      command: `${quote(fixture.executables.cli.executable)} __hook claude`,
+                      timeout: 3,
+                    },
+                  ],
+                },
+              ],
+            },
+          })
+        );
+        writeExecutable(
+          path.join(fixture.wrapperDir, 'claude'),
+          fs.readFileSync('/opt/tmt-tests/claude'),
+          0o755
+        );
+        const worker = start(fixture, name, {
+          channel,
+          resume: sessionId,
+          env: {
+            MOCK_SESSION_ID: sessionId,
+            MOCK_TURN_TRANSCRIPT: transcript,
+            TMT_TEST_CLAUDE_MOCK: mock,
+            TMT_TEST_CLAUDE_NODE: process.execPath,
+          },
+        });
+        await withCompletedSession(fixture, worker, async () => {
+          await waitForEvent(fixture, worker, 'prompt-recorded');
+          if (channel) await waitForReady(fixture, 1);
+          const id = identityId(fixture, name);
+          const listed = async () => {
+            const result = await fixture.runJsonCli<{
+              identities: Array<{
+                id: string;
+                name: string;
+                session: { activity: { state: string } };
+                resume?: {
+                  session: string;
+                  usage?: Record<string, unknown>;
+                  consumption?: Record<string, unknown>;
+                };
+              }>;
+            }>(['ls']);
+            expect(result.code).toBe(0);
+            return result.json!.identities.find((row) => row.id === id)!;
+          };
+          const baseline = await listed();
+          expect(baseline.session.activity.state).toBe('working');
+          expect(baseline.resume).toMatchObject({ session: sessionId });
+          expect(baseline.resume?.consumption).toMatchObject({
+            inputTokens: 0,
+            outputTokens: 0,
+            cachedInputTokens: 0,
+          });
+          expect((await fixture.runJsonCli(['rename', name, renamed])).code).toBe(0);
+          expect(identityId(fixture, renamed)).toBe(id);
+          fs.appendFileSync(transcript, records.slice(1).join('\n') + '\n');
+          fs.writeFileSync(`${worker.log}.stop-turn`, '');
+          await waitForEvent(fixture, worker, 'turn-recorded');
+          const observed = await listed();
+          expect(observed.name).toBe(renamed);
+          expect(observed.session.activity.state).toBe('idle');
+          expect(observed.resume).toMatchObject({ session: sessionId, usage: { tokens: 365396 } });
+          expect(observed.resume?.consumption).toMatchObject({
+            inputTokens: 5415987,
+            outputTokens: 5609,
+            cachedInputTokens: 5405674,
+            complete: true,
+            gap: false,
+          });
+          const observedAt = Number(observed.resume!.consumption!.observedAtMs);
+          await fixture.waitFor(
+            () => Math.floor(Date.now() / 5000) > Math.floor(observedAt / 5000),
+            7000,
+            'the accepted counter observation belongs to closed history'
+          );
+          const history = JSON.parse(
+            execFileSync(
+              fixture.executables.cli.executable,
+              [...fixture.executables.cli.args, 'api'],
+              {
+                input: JSON.stringify({
+                  version: 1,
+                  operation: 'consumption.history',
+                  input: { identityIds: [id], windowsMs: [60000], maxBuckets: 120 },
+                }),
+                encoding: 'utf8',
+                timeout: 5000,
+                env: { PATH: process.env.PATH, HOME: home, TMUX_TEAM_HOME: fixture.globalDir },
+              }
+            )
+          );
+          expect(history.identities[0]).toMatchObject({
+            id,
+            found: true,
+            reporting: true,
+            latest: {
+              driver: 'claude',
+              session: sessionId,
+              consumption: { inputTokens: 5415987, outputTokens: 5609, cachedInputTokens: 5405674 },
+            },
+          });
+          expect(named(worker, 'hook-error')).toEqual([]);
+          expect(named(worker, 'paste')).toEqual([]);
+        });
+        expect(channelFiles(fixture)).toEqual([]);
+        expect(leakedServers(fixture)).toEqual([]);
+      });
+    },
+    60_000
+  );
+
   it('admits a resumed channel session while whoami is observing its pane', async () => {
     await withE2EFixture(async (fixture) => {
       const gate = path.join(fixture.root, 'resume-reader');

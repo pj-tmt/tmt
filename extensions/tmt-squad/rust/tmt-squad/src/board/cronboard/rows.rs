@@ -60,7 +60,7 @@ impl Columns {
             String::new()
         };
         format!(
-            r#"<tmt-row class="flex-col"><tmt-row class="flex-row gap-1 shrink-0"><tmt-text id="mark" bind="row.mark" token-bind="row.mark_role" class="w-{MARK} shrink-0"/><tmt-text id="id" bind="row.cid" token="link" class="w-{ID} shrink-0"/>{squad}<tmt-text id="owner" bind="row.owner" token-bind="row.owner_role" class="w-{OWNER} shrink-0 truncate"/>{what}<tmt-text id="schedule" bind="row.schedule" token="dim" class="w-{SCHEDULE} shrink-0 truncate"/><tmt-text id="next" bind="row.next" token-bind="row.next_role" class="w-{NEXT} shrink-0 truncate"/></tmt-row><tmt-repeat each="row.detail" as="line"><tmt-row id-bind="line.id" class="grid grid-cols-[8_1fr] gap-x-1 shrink-0"><tmt-text bind="line.label" token="dim"/><tmt-text bind="line.text" token="text" wrap="true"/></tmt-row></tmt-repeat></tmt-row>"#
+            r#"<tmt-row class="flex-col"><tmt-row class="flex-row gap-1 shrink-0"><tmt-row class="flex-row w-6 shrink-0 gap-0"><tmt-text id="mark" bind="row.mark" token-bind="row.mark_role" class="w-{MARK} shrink-0"/><tmt-text id="cursor" bind="row.cursor" token="text" class="w-1 shrink-0"/><tmt-text id="id" bind="row.cid" token="link" class="w-{ID} shrink-0"/></tmt-row>{squad}<tmt-text id="owner" bind="row.owner" token-bind="row.owner_role" class="w-{OWNER} shrink-0 truncate"/>{what}<tmt-text id="schedule" bind="row.schedule" token="dim" class="w-{SCHEDULE} shrink-0 truncate"/><tmt-text id="next" bind="row.next" token-bind="row.next_role" class="w-{NEXT} shrink-0 truncate"/></tmt-row><tmt-repeat each="row.detail" as="line"><tmt-row id-bind="line.id" class="grid grid-cols-[8_1fr] gap-x-1 shrink-0"><tmt-text bind="line.label" token="dim"/><tmt-text bind="line.text" token="text" wrap="true"/></tmt-row></tmt-repeat></tmt-row>"#
         )
     }
 }
@@ -101,6 +101,7 @@ pub(super) fn schema_rows() -> tmt_tui::binding::Schema {
     ];
     let names = [
         "mark",
+        "cursor",
         "mark_role",
         "cid",
         "squad",
@@ -158,7 +159,12 @@ fn detail(view: &JobView, id: &str, now_ms: i64) -> Vec<Value> {
 }
 
 /// One row per job; `expanded` names the job shown in place.
-pub(super) fn project(jobs: &[&JobView], expanded: Option<&str>, now_ms: i64) -> Vec<Value> {
+pub(super) fn project(
+    jobs: &[&JobView],
+    expanded: Option<&str>,
+    selected: Option<&str>,
+    now_ms: i64,
+) -> Vec<Value> {
     jobs.iter()
         .map(|view| {
             let id = row_id(&key_of(view));
@@ -177,6 +183,7 @@ pub(super) fn project(jobs: &[&JobView], expanded: Option<&str>, now_ms: i64) ->
                 "id": id,
                 "disabled": false,
                 "mark": symbol,
+                "cursor": if selected == Some(id.as_str()) { "›" } else { "" },
                 "mark_role": mark_role.name(),
                 "cid": view.job.id(),
                 "squad": view.job.squad,

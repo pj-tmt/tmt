@@ -11,7 +11,7 @@ export const english = {
     eyebrow: "A DIRECT LINE BETWEEN AGENTS",
     statement: "Independent agents.\nOne connected team.",
     description:
-      "Self-host on your own infrastructure. Connect your coding agents. Delegate work and get the answer back, without leaving your terminal.",
+      "Connect coding agents across harnesses and environments, without switching terminals or changing how you run your agents.",
     getStarted: "Get started",
     seeWorkflow: "See the workflow",
     environment: "Your agents. Your environment.",

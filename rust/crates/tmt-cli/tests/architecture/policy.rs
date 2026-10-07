@@ -89,6 +89,7 @@ pub fn dependency_violations(package: &Value) -> Vec<String> {
             "toml_edit",
             "tar",
             "flate2",
+            "zip", // PR Actions transport: fixed bounded in-memory members; no path extraction
             "tmt-core",
             "rusqlite",
             "serde_json",
@@ -310,6 +311,19 @@ pub fn dependency_violations(package: &Value) -> Vec<String> {
         .iter()
         .filter_map(|d| {
             let dependency = d["name"].as_str().expect("Cargo dependency name");
+            // Browser presentation is forbidden for every Core/CLI dependency kind.
+            // Cargo's canonical name/path still identifies renamed and target entries.
+            let core_owner = package["manifest_path"]
+                .as_str()
+                .is_some_and(|p| p.replace('\\', "/").contains("/rust/crates/"))
+                || ["tmt-core", "tmt-cli"].contains(&name);
+            let browser_path = d["path"].as_str().is_some_and(|p| {
+                p.replace('\\', "/").split('/').collect::<Vec<_>>()
+                    .windows(2).any(|pair| pair == ["design", "browser-ui"])
+            });
+            if core_owner && (browser_path || ["@tmt/browser-ui", "tmt-browser-ui", "browser-ui"].contains(&dependency)) {
+                return Some(format!("{name}: Core/CLI must neither depend on nor embed browser-ui"));
+            }
             if dependency == "tmt-release-tool" {
                 return Some(format!("{name}: release tooling cannot be a product dependency"));
             }

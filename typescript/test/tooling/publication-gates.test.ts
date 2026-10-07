@@ -43,6 +43,14 @@ describe('countMigrations', () => {
     ).toBe(3);
   });
 
+  it('counts migration macros with single-line and multiline arguments', () => {
+    expect(
+      countMigrations(
+        list('migration!("one", "schema/001.sql"),\nmigration!(\n  "two",\n  "schema/002.sql",\n),')
+      )
+    ).toBe(2);
+  });
+
   it('counts a last entry without a trailing comma, and an empty list as none', () => {
     expect(countMigrations(list('A { x: 1 },\nA { x: 2 }'))).toBe(2);
     expect(countMigrations(list(''))).toBe(0);
@@ -73,7 +81,7 @@ describe('countMigrations', () => {
       cli.indexOf('const MIGRATIONS'),
       cli.indexOf('\n];', cli.indexOf('const MIGRATIONS'))
     );
-    expect(countMigrations(cli)).toBe(cliRegion.match(/^ {4}Migration \{$/gm)?.length);
+    expect(countMigrations(cli)).toBe(cliRegion.match(/^ {4}migration!\(/gm)?.length);
     expect(countMigrations(cli)).toBeGreaterThan(20);
 
     const office = read('extensions/tmt-office/rust/tmt-office-storage/src/schema.rs');

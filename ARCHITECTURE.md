@@ -42,7 +42,7 @@ ownership comes separately from [`.github/components.json`](.github/components.j
 | `scripts/`                | Shared shell/build/development helpers                                               |
 | `skills/`                 | Canonical bundled user-agent guidance                                                |
 | `site/`                   | Public Home, retained handbook sources and translations                              |
-| `design/`                 | Shared visual tokens and CLI style guidance                                          |
+| `design/`                 | Tokens/CLI; [private browser-ui](design/gui-components.md); no Core/CLI dep/embed    |
 
 New homes or exceptions need infra review and coordinated map/allowlist changes;
 ignored local outputs are outside the tracked-file map. The
@@ -59,7 +59,7 @@ Docker build stages preserve those source paths, and their CI rules retain nativ
 The private design-tokens component attributes token changes to Colab through `releaseConsumers`.
 Release procedures belong to the
 [release skill](.agents/skills/tmt-release/SKILL.md), including the archive's
-product-neutral `rust/archive/NATIVE-INSTALL.md`.
+product-neutral `rust/archive/NATIVE-INSTALL.md`; [dev-only embed](site/README.md) stays site-owned.
 
 ## TypeScript workspace boundary
 
@@ -644,12 +644,12 @@ declared roots, packaging and canonical generated inputs without cfg/reachabilit
 Required CI covers the component map, declaring crates and release build script; the Node
 Project sweep validates declarations and never executes captured source.
 
-Selected missing, failed, cancelled or unexpectedly skipped work cannot satisfy a
-required gate; empty test discovery never passes. Selection, worker, cache and
-advisory-browser details live in the
-[CI reference](.agents/skills/tmt-release/references/ci-selection.md).
-Publication reuses the native aggregate's scope-skip proof with check-suite
-provenance rather than recomputing historical selection or accepting bare skips.
+Selected missing, failed, cancelled or unexpectedly skipped work and empty discovery
+cannot satisfy required gates; selection, worker, cache and advisory-browser details live in the
+[CI reference](.agents/skills/tmt-release/references/ci-selection.md). `pr-title-check.mjs` owns
+released-path and cumulative squash-title gates; the [release reference](.agents/skills/tmt-release/references/native-release.md#conventional-pr-titles)
+owns edit-only feedback and explicit report-only compatibility. Publication reuses the native
+aggregate's scope-skip proof with check-suite provenance, not recomputed selection or bare skips.
 
 ## Runtime layers
 
@@ -942,8 +942,8 @@ declares nothing beyond what the user approved. Core, not the driver, decides
 evidence: server identity is core's own process start token and a missing or changed
 driver is `Unavailable`, never proof of loss. `rust/crates/tmt-driver-herdr` is the
 first driver; its library depends only on the protocol crate, `tmt-invoke`,
-`serde_json` and `semver`, and the CLI archive carries its executable as a
-companion. Details are in the
+`serde_json` and `semver`. Its standalone alpha archives use the main release cut;
+the CLI retains its companion until #1084. Details are in the
 [hosts and drivers reference](.agents/skills/tmt-core-runtime/references/hosts-drivers.md#external-host-drivers).
 
 ## Managed skills and native installation
@@ -968,9 +968,9 @@ release, and the active executable is the authority for a managed update: receip
 anchor to the installation prefix, not to configuration roots. Verification precedes
 execution, publication runs the release verifier before the receipt so a rejection
 keeps the previous release, and failure or cancellation never leaves a half-published
-current release. CLI self-upgrade hands a verified candidate its own
-`__native-install` under the
-[handoff contract](contracts/native-install-handoff-v1.md) and then lets that CLI
+current release. CLI self-upgrade delegates to the verified candidate under the
+[handoff contract](contracts/native-install-handoff-v1.md); persisted PR channels,
+compiled schema export and admission are owned by the [PR channel contract](contracts/native-pr-channel.md). The candidate then lets that CLI
 run the consented extension phase; there is no rollback or second installer.
 `tmt extension install|upgrade|rm|ls` is the public surface for extensions and
 requires consent. Acquisition, receipts, companions, skills trees, repair and the
@@ -981,33 +981,33 @@ build, publication and verification procedures are in the
 
 ## Squad extension
 
-`extensions/tmt-squad/rust/tmt-squad` builds the optional `tmt-squad` executable,
-reached through the external command contract as `tmt squad` and, through a
-`tmt-sq` link to the same file, `tmt sq`. It is a workspace member for the shared
-lockfile and toolchain only, and is released independently (`tmt-squad-v<version>`).
-Module-level reference: the [Squad developer skill](.agents/skills/tmt-squad-dev/SKILL.md).
-Drawing ownership and guard verification are defined in the [Squad](.agents/skills/tmt-squad-dev/SKILL.md) and [TUI](.agents/skills/tmt-tui/SKILL.md) developer skills.
+`extensions/tmt-squad/rust/tmt-squad` builds optional `tmt-squad`, reached through
+external dispatch as `tmt squad` or the same-file `tmt-sq` link as `tmt sq`.
+It shares only the workspace lockfile/toolchain and releases independently (`tmt-squad-v<version>`).
+Module/drawing ownership and guard verification: [Squad](.agents/skills/tmt-squad-dev/SKILL.md) and [TUI](.agents/skills/tmt-tui/SKILL.md) developer skills.
 
 - **Seam.** Squad reaches core only through public `tmt --json` commands and
   `tmt api` (`TMT_EXECUTABLE`, else `tmt` on PATH), each call bounded by
   `tmt-invoke`. It never links a core crate or writes core state, tmux or provider
-  directories itself. No TMT crate depends on Squad; the architecture guard enforces
-  both directions for Cargo dependencies and source references. `tmt-squad` depends
-  only on `tmt-tui`, `tmt-cli-style` and `tmt-invoke`, never on core crates. Using a
-  new `tmt api` method (for example cron's planned `dispatch.create` and
-  `identityHooks`) changes the seam and goes to tmt-lead.
+  directories itself. The architecture guard enforces no TMT crate depending on Squad
+  and no Squad core dependency, for Cargo and source references. Its TMT dependencies
+  are only `tmt-tui`, `tmt-cli-style` and `tmt-invoke`. A new `tmt api` method
+  (for example cron's planned `dispatch.create` and `identityHooks`) changes the seam and goes to tmt-lead.
 - **Data ownership.** A squad is the core room `squad-<name>`; member fields are
   identity metadata `squad.<name>.<field>`, with no Squad membership store. Squad owns
-  `<dataRoot>/squad` (`storage.root`) and disposable caches under
-  `$XDG_CACHE_HOME/tmt-squad`. `squad.toml` is the user's file: agents never write it
-  and Squad edits it only through its compare-and-set writer. No Squad data goes into
-  `config.json` or the core database.
-- **Public JSON.** Public documents are display-ready and never carry board-only data
-  (home model, token-rate meter state, `usage.*` observations).
+  `<dataRoot>/squad` (`storage.root`) and disposable `$XDG_CACHE_HOME/tmt-squad` caches.
+  `squad.toml` is the user's file: agents never write it; Squad uses its compare-and-set
+  writer. No Squad data goes into `config.json` or the core database.
+- **Checklist.** The binary's `checklist` service owns exact caller/room admission;
+  `model` owns item/inventory revisions and minimal tombstones; `store` owns versioned
+  room-UUID JSON and locked, synced replacement under `<dataRoot>/squad/checklist`.
+  Reads create nothing; admission is rechecked before replacement, outside a Core/file transaction.
+  Prepublication failure preserves bytes; post-replacement uncertainty remains Unknown
+  after readback. No checklist command or board action is exposed.
+- **Public JSON.** Display-ready documents exclude board-only home/meter/`usage.*` data.
 
-Contracts index (shape owner: the embedded lead skill
-`extensions/tmt-squad/skills/tmt-squad/SKILL.md`, checked by
-`typescript/test/native/squad.test.ts`):
+Contracts index: the [embedded lead skill](extensions/tmt-squad/skills/tmt-squad/SKILL.md)
+owns shapes, checked by `typescript/test/native/squad.test.ts`:
 
 - `sq ls --json`: with `--squad`, one document (`squad`, `sections`, row grid
   `columns`/`lines`, `you`); without it always `{squads: [...], you}`, whatever the
@@ -1055,7 +1055,7 @@ shares the native runtime/linkage proof across archive, installer, upgrade and
 public smoke verification. Raw executables do not prove archives or public
 installation. The candidate-owned installer handoff contract is
 [`contracts/native-install-handoff-v1.md`](contracts/native-install-handoff-v1.md).
-Archive, installer, verifier and publication procedures belong to
+Archive, installer, verifier, publication, compiled CLI schema and injected unarmed RC checkpoints belong to
 [tmt-release](.agents/skills/tmt-release/SKILL.md).
 
 ### Main release cuts
@@ -1247,4 +1247,4 @@ core discovery or storage access.
   or runtime implementation is claimed; archive/history/native acceptance remains required.
 - **Plaintext invariant.** Page source and export are root-local: only the isolated decoder
   child decodes Yjs, no route serves plaintext, and the browser Worker is resource
-  containment, not a security sandbox. Private causal content-batch preparation returns deltas; pure [content-publication codecs](extensions/tmt-colab/contracts/colab-v1.md#unintegrated-content-publication-codecs-1908) validate sealed intent without publishing. Browser Save and CLI write still use their single-update paths.
+  containment, not a security sandbox. Private causal preparation returns deltas; pure [publication codecs](extensions/tmt-colab/contracts/colab-v1.md#unintegrated-content-publication-codecs-1908) validate sealed intent. The unintegrated native adapter atomically retains content and its scoped terminal outcome in the existing Store; Browser Save and CLI write still use single-update paths.

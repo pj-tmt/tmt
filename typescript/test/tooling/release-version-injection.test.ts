@@ -9,6 +9,7 @@ import { parseComponentMap } from '../../scripts/ci-scope.mjs';
 import {
   captureVersionState,
   injectVersion,
+  verifyDistArtifact,
   verifyDistVersions,
   verifyVersionState,
   type InjectionMetadata,
@@ -21,7 +22,7 @@ afterEach(() => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
 
-function fixture(product = 'cli') {
+function fixture(product = 'cli', releaseHerdr = false) {
   const root = mkdtempSync(join(tmpdir(), 'tmt-injection-test-'));
   roots.push(root);
   const files: Record<string, string> = {
@@ -80,7 +81,7 @@ function fixture(product = 'cli') {
         'driver-herdr': {
           package: 'tmt-driver-herdr',
           owns: ['rust/crates/tmt-driver-herdr'],
-          release: false,
+          release: releaseHerdr,
           bootstrapSha: 'a'.repeat(40),
         },
       },
@@ -419,4 +420,100 @@ describe('dist and binary version agreement', () => {
       );
     }
   );
+});
+
+describe('Herdr archive version protocol', () => {
+  function artifact(product = 'driver-herdr') {
+    const { root, snapshot } = fixture(product, true);
+    const manifest = {
+      announcement_tag: snapshot.tag,
+      releases: [{ app_name: `tmt-${product}`, app_version: snapshot.version }],
+    };
+    const declaration = { name: 'herdr', kind: 'host', version: snapshot.version, protocols: [1] };
+    return { root, snapshot, manifest, declaration };
+  }
+
+  it('requires the exact compiled capability version and retains tag/plan/build equality', () => {
+    const { snapshot, manifest, declaration } = artifact();
+    const raw = JSON.stringify({ ok: declaration });
+    expect(() => verifyDistVersions(snapshot, manifest, manifest, raw)).not.toThrow();
+    for (const mutation of [
+      { name: 'other' },
+      { kind: 'provider' },
+      { version: '0.1.0-dev' },
+      { protocols: [2] },
+    ]) {
+      expect(() =>
+        verifyDistVersions(
+          snapshot,
+          manifest,
+          manifest,
+          JSON.stringify({ ok: { ...declaration, ...mutation } })
+        )
+      ).toThrow('Herdr driver');
+    }
+    for (const rejected of ['not JSON', '{}', JSON.stringify({ error: { code: 'invalid' } })]) {
+      expect(() => verifyDistVersions(snapshot, manifest, manifest, rejected)).toThrow();
+    }
+    for (const wrong of [
+      { ...manifest, announcement_tag: 'tmt-driver-herdr-v9.0.0' },
+      { ...manifest, releases: [{ app_name: 'tmt-cli', app_version: snapshot.version }] },
+      { ...manifest, releases: [{ app_name: 'tmt-driver-herdr', app_version: '0.1.0-dev' }] },
+      { ...manifest, releases: [...manifest.releases, ...manifest.releases] },
+    ]) {
+      expect(() => verifyDistVersions(snapshot, wrong, manifest, raw)).toThrow();
+      expect(() => verifyDistVersions(snapshot, manifest, wrong, raw)).toThrow();
+    }
+  });
+
+  it.each(['driver-herdr', 'cli', 'squad', 'remote', 'colab'])(
+    'uses the existing %s query ABI with unchanged command bounds',
+    (product) => {
+      const { root, snapshot, manifest, declaration } = artifact(product);
+      const stdout =
+        product === 'driver-herdr'
+          ? JSON.stringify({ ok: declaration })
+          : product === 'cli'
+            ? snapshot.version
+            : `${product} ${snapshot.version}`;
+      const spawn = vi.spyOn(childProcess, 'spawnSync').mockReturnValueOnce({
+        pid: 0,
+        output: [],
+        stdout: `${stdout}\n`,
+        stderr: '',
+        status: 0,
+        signal: null,
+      });
+      syncBuiltinESMExports();
+      verifyDistArtifact(root, snapshot, manifest, manifest, '/archive/binary');
+      expect(spawn).toHaveBeenCalledExactlyOnceWith(
+        '/archive/binary',
+        product === 'driver-herdr' ? ['__tmt-driver', '1', 'capabilities'] : ['--version'],
+        {
+          cwd: root,
+          env: process.env,
+          encoding: 'utf8',
+          timeout: 60_000,
+          maxBuffer: 64 * 1024 * 1024,
+        }
+      );
+    }
+  );
+
+  it.each(['timeout', 'exit', 'signal'])('refuses an unsuccessful Herdr query: %s', (failure) => {
+    const { root, snapshot, manifest, declaration } = artifact();
+    vi.spyOn(childProcess, 'spawnSync').mockReturnValueOnce({
+      pid: 0,
+      output: [],
+      stdout: JSON.stringify({ ok: declaration }),
+      stderr: '',
+      status: failure === 'exit' ? 2 : null,
+      signal: failure === 'signal' ? 'SIGTERM' : null,
+      ...(failure === 'timeout' ? { error: new Error('ETIMEDOUT') } : {}),
+    });
+    syncBuiltinESMExports();
+    expect(() =>
+      verifyDistArtifact(root, snapshot, manifest, manifest, '/archive/binary')
+    ).toThrow();
+  });
 });

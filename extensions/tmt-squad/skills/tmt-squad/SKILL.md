@@ -159,6 +159,15 @@ user's board shows it as ✎ until you do. Never edit the user's notes for it.
 
 ## Board appearance
 
+Member and HOME lead groups, outlined panes and inline input/read bands use horizontal
+rules with blank side margins. Pane titles and focus cues retain their reserved
+positions. Ask-lead, settings, pickers and cron overlays keep square frames.
+
+View, Theme, action menus, the tab switcher and the cron list show `›` on the
+selected choice's first line when that line fits. In View, `●` still marks the saved view;
+in the switcher, `[x]` still marks picked tabs. Cursor movement changes neither
+mark nor a cron job's state. Config keeps its selected continuation cues.
+
 On a squad tab the lead is the first row, in the same columns as the members, with a
 dim `lead` after its name (cut first when the name cell is narrow), followed by
 the dim rule `── members · N ───` (`── members · 0 · none yet ──` for a squad
@@ -169,8 +178,7 @@ the lead like any row. A squad without a lead keeps its member rows as they
 are. Text `ls` lists the lead first in its own `LEAD` section before `MEMBERS`;
 `--json` is unchanged.
 
-The home tab is the `▚ tmt` accent block, with ◆ waiting and ✗ blocked
-counts inside. Its command/config name remains `all`. With neither `tabs.order`
+The home tab is `▚ tmt`, with ◆ waiting and ✗ blocked counts after its name. Its command/config name remains `all`. With neither `tabs.order`
 nor `tabs.pin` configured, home is pinned first, followed by leads and squads.
 An explicit order or pin, including an empty array, keeps the existing ordering
 policy; hide always applies. Opening the board writes no configuration.
@@ -208,7 +216,11 @@ blocked, then quiet, retaining arrangement order within each tier. Names remain
 full unless a visible group prefix makes them unambiguous. If configured pins
 leave no room for the current tab, pins step aside from the end, except the
 current pin; their stored order stays unchanged. A label wider than the available
-cells is shortened with `…`. Hidden tabs opened through the switcher remain
+cells is shortened with `…`. The shown name keeps semantic marks and counts
+when a name grapheme fits. At the minimum name width, a clipped grapheme can
+replace the ellipsis. Otherwise the ordinary prefix is fitted; at one cell a
+leading attention mark wins over the ellipsis. Selection is conveyed by the
+existing background, bold and no-background reverse styling. Hidden tabs opened through the switcher remain
 selected and marked `(hidden)`, without a drag target. There are no number keys.
 
 `ctrl-r` refreshes the board in squad, leads and all views, including while
@@ -223,15 +235,20 @@ hides tabs. A `talk` or `reply` binding of your own keeps its hint. Rebind in `[
 or `[tabs.all.bind]` for all. F5 has no default action; an explicit
 `f5 = "refresh"` binding remains supported.
 
-The board uses the shared TMT design tokens: `muted` for readable tabs, labels
-and key hints, `accent` plus bold for focus, and `dim` for secondary values and
-borders. Only a tab's leading attention mark and appended blocked `✗n` use bold
-waiting/blocked colors; names and primary counts keep accent/bold when selected
-and muted otherwise. The fixed mark slot keeps each name's starting column stable.
-Selection uses the theme's `selection` background for rows and selected squad/pane tabs,
-retaining each cell's state/provider color and each tab's foreground; a terminal without a background color uses reverse video,
-including `NO_COLOR`. Colors decorate the words and marks; never infer state
-from color alone. The CLI theme is `theme.base` in the global `config.json`;
+Ordinary canvas, content and chrome inherit the terminal background. The board
+uses shared TMT tokens: `text` for shown tab names, primary counts and
+partial/unavailable explanations, `muted` for context and key hints, and `dim`
+for separators and incidental metadata. HOME summary state glyphs keep their
+semantic roles; their words and counts use `text`. Tab marks retain configured
+waiting/blocked colors, independently of neutral names. Shown top-level names
+use the theme's `selection` background with bold, including
+HOME. Row headings and tasks retain their blank indentation; selection adds no
+prefix glyph. Pane tab names also have no added decoration. Requested targets are underlined and say `Opening`; the shown document
+keeps selection until the request loads or fails. A terminal without a selection
+background uses reverse video, including `NO_COLOR`. On a real selection
+background the final word policy uses readable `text`, while semantic marks
+retain their colors. User theme and tab-color overrides still apply. Colors
+reinforce words and marks; never infer state from color alone. The CLI theme is `theme.base` in the global `config.json`;
 `tmt config show` shows its value and file. Board themes layer that resolved
 theme, then `[board.theme]`, then `[squad.<name>.theme]` in `squad.toml`.
 `auto` works in both `squad.toml` theme layers and both picker scopes; the global
@@ -364,7 +381,7 @@ send shows its error and does not show `✓ sent` or retry automatically.
 ## Home dashboard
 
 The built-in `all` board shows counts, needs-you members and a blocked subgroup,
-then boxed leads, cron and squads. Squads occupy one full-width column at every width, with one compact table row
+then grouped leads, cron and squads. Squads occupy one full-width column at every width, with one compact table row
 per squad. Member counts align within their table column rather than at the terminal edge. A row shows squad attention, lead/model and non-lead member marks in urgency
 order (◆ ✗ ◐ ● ○) and a member count. Each mark has a trailing space. Members
 with unknown/custom states appear as `N other`. Sampled token windows and the lead's share follow the member count.
@@ -397,8 +414,8 @@ age; blocked ages say `observed` to identify the task/state observation. Questio
 appear in the inline composer after `a`. Quiet needs-you takes one line, and empty
 blocked disappears. Public `tmt sq ls --tab all --json` and text retain the aggregate document.
 
-Leads show the latest exchange with you in one full-width square
-box. Each header has a bold name, its squad from 100 columns, and an event age
+Leads show the latest exchange with you in one full-width group between horizontal
+rules, with blank side margins. Each header has a bold name, its squad from 100 columns, and an event age
 at the right. The second line previews the message: ◆ means the lead asks you,
 … means you asked and no reply has been submitted, and ✓ means the lead replied.
 Reply wording does not change that mark. A lead with no exchange has a blank mark
@@ -415,7 +432,7 @@ PgUp/PgDn scroll that body; `e` or Esc collapses it, and `a` opens an answer or
 note to that lead in the same place. Reading sends and acknowledges nothing.
 Only one band can be open.
 
-The `→ all leads` footer sits outside the box. `A` writes to all current leads;
+The `→ all leads` footer sits outside the group. `A` writes to all current leads;
 `@` picks one lead. Both use the ordinary composer. The recipient identities
 are frozen when it opens, deduplicated for dispatch and checked again before
 sending. A changed sender or lead audience sends nothing. Feedback reports
@@ -564,7 +581,7 @@ extension consent.
 
 `tmt sq view ls` (or bare `tmt sq view`) lists factory pane arrangements:
 `members`, `team`, `focus`, `notes`, `detail` and `wide`. The default `members`
-view uses one boxed list; the other views use the configured row grid and pane
+view uses one grouped list; the other views use the configured row grid and pane
 arrangements. Workflow states, rows, providers, reminders, the token meter
 and theme keep their settings; crew, pr-queue and minimal remain workflow layouts.
 
@@ -607,7 +624,7 @@ Agents change views only when requested.
 
 ## Squad member list
 
-Squad tabs default to one boxed list with the lead first, its `lead` tag, then
+Squad tabs default to one grouped list with the lead first, its `lead` tag, then
 `── members · N ──`. Each member has a mark/name/state/model/age line and a task
 line. Waiting members (`◆`) come first, with the oldest questions first; other
 exchanges follow newest first, and members without exchanges sort by name.
@@ -623,7 +640,7 @@ There is one band at a time. Reading works without recording yourself; writing
 requires `tmt sq me`. Custom bindings also control the expanded band.
 
 Use `l` to choose `team` for the previous detail/replies side panes, or edit
-`board.view` to `team` in `,` settings. `members` restores the boxed list.
+`board.view` to `team` in `,` settings. `members` restores the grouped list.
 Hand-written `board.layout` or `panes` keeps its configured composition.
 
 ## Fold board panes

@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vite-plus/test';
 import { componentMap } from '../../scripts/ci-scope.mjs';
+import { readCargoWorkspace } from '../../scripts/cargo-workspace.mjs';
 import {
   activeProducts,
   runReleaseRehearsal,
@@ -11,12 +12,22 @@ import {
 } from '../../scripts/release-rehearsal.mjs';
 
 const map = componentMap();
-const all = ['cli', 'colab', 'remote', 'squad'];
+const all = ['cli', 'colab', 'driver-herdr', 'remote', 'squad'];
 const select = (...paths: string[]) => selectReleaseRehearsal(paths, map);
 
 describe('active products', () => {
   it('lists released native products from the component map, not parked or private ones', () => {
     expect(activeProducts(map)).toEqual(all);
+  });
+  it('activates the standalone Herdr package and keeps its own executable in Cargo metadata', () => {
+    const workspace = readCargoWorkspace(path.resolve(import.meta.dirname, '../../..'));
+    const driver = workspace.packages.find(({ name }) => name === 'tmt-driver-herdr');
+    expect(driver).toMatchObject({
+      manifest: 'rust/crates/tmt-driver-herdr/Cargo.toml',
+      version: '0.1.0-alpha.0',
+      distMetadata: { dist: true },
+      binTargets: ['tmt-driver-herdr'],
+    });
   });
 });
 
@@ -42,6 +53,7 @@ describe('release rehearsal selection', () => {
     'scripts/run-native-verification.sh',
     'typescript/scripts/verify-native-notices.mjs',
     'typescript/scripts/release-version-injection.mjs',
+    'typescript/scripts/native-application-schema.mjs',
     'typescript/scripts/release-upgrade.mjs',
     'typescript/scripts/publication-gates.mjs',
     'typescript/scripts/verify-native-installation.mjs',

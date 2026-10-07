@@ -1,0 +1,370 @@
+@media (max-width: 760px) {
+  .v9-home .hero {
+    display: flex;
+    flex-direction: column;
+  }
+  .v9-home .hero-inner {
+    order: -1;
+  }
+}
+
+@media (min-width: 761px) {
+  .v9-home .hero h1 {
+    font-size: 84px;
+  }
+}
+
+.v9-home .workflow-reach {
+  max-width: 760px;
+  color: var(--muted);
+  font-size: 13px;
+}
+.v9-home .workflow-reach a {
+  color: var(--fg);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+@media (min-width: 761px) {
+  .v9-home .hero {
+    min-height: 730px;
+  }
+}
+
+.v9-home #workflow > .section-heading {
+  display: block;
+}
+.v9-home .workflow-summary {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 12px;
+  margin-top: 24px;
+  color: var(--muted);
+}
+.v9-home .workflow-summary p {
+  margin: 0;
+}
+.v9-home .workflow-step {
+  margin: 24px 0 12px;
+  color: var(--muted);
+  font: 11px/1.5 var(--f-mono);
+}
+.v9-home .workflow-step:first-child {
+  margin-top: 0;
+}
+@media (max-width: 760px) {
+  .v9-home .workflow-summary {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+}
+
+.v9-home .compatibility-inner {
+  flex-wrap: wrap;
+}
+
+.v9-home .terminal-body .workflow-step {
+  color: #b6b6b6;
+}
+
+.v9-home .document-comments {
+  position: relative;
+  align-self: center;
+  margin: 24px 24px 24px 0;
+  padding: 20px;
+  border: 1px solid var(--c-text);
+  background: var(--c-sheet);
+  color: var(--c-text);
+  box-shadow: 6px 6px 0 var(--c-rule);
+}
+.v9-home .document-comments::before {
+  content: "";
+  position: absolute;
+  width: 28px;
+  left: -29px;
+  top: 88px;
+  border-top: 1px solid var(--c-muted);
+}
+.v9-home .document-comments .panel-label {
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--c-rule);
+  color: var(--c-text);
+}
+.v9-home .document-comments .comment-anchor {
+  margin: 20px 0;
+  color: var(--c-muted);
+  border-color: var(--c-accent);
+}
+.v9-home .document-comments .comment-entry p,
+.v9-home .document-comments .agent-mention {
+  color: var(--c-text);
+}
+.v9-home .document-comments .comment-entry strong small,
+.v9-home .document-comments .comment-link {
+  color: var(--c-muted);
+}
+.v9-home .document-comments .comment-avatar {
+  background: var(--c-accent-soft);
+  color: var(--c-text);
+}
+.v9-home .document-comments .comment-compose {
+  border-color: var(--c-rule);
+  color: var(--c-muted);
+  padding: 16px 12px;
+  background: var(--c-paper);
+}
+.v9-home .annotation-tooltip {
+  width: 116px;
+  box-shadow: 3px 3px 0 #383838;
+}
+@media (max-width: 760px) {
+  .v9-home .document-comments {
+    margin: 0 20px 24px;
+  }
+  .v9-home .document-comments::before {
+    display: none;
+  }
+}
+
+.v9-home .colab-heading {
+  display: block;
+}
+.v9-home .rich-section .colab-heading > p {
+  margin-top: 24px;
+  max-width: 640px;
+}
+
+/* Staggered terminals keep the exchange legible without a rigid hub diagram. */
+.v9-home .hero-tunnel {
+  position: absolute;
+  z-index: 2;
+  top: 155px;
+  left: calc(50% + 20px);
+  width: min(500px, 43vw);
+  height: 580px;
+  color: var(--c-text);
+  font: 12px/1.5 var(--f-mono);
+}
+.v9-home .tunnel-caption {
+  position: absolute;
+  left: 12px;
+  top: 0;
+  font-size: 9px;
+  color: var(--c-muted);
+  letter-spacing: 0.08em;
+}
+.v9-home .tunnel-path {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 560px;
+  overflow: visible;
+}
+.v9-home .tunnel-path ellipse {
+  fill: none;
+  stroke: var(--c-rule);
+  stroke-width: 1;
+}
+.v9-home .tunnel-path path {
+  fill: none;
+  stroke: var(--c-accent);
+  stroke-width: 1.2;
+  stroke-dasharray: 3 7;
+  opacity: 0.7;
+}
+.v9-home .tunnel-path .tunnel-return {
+  stroke: var(--c-muted);
+  opacity: 0.45;
+}
+.v9-home .tunnel-packet {
+  fill: var(--c-accent);
+}
+.v9-home .tunnel-reply {
+  fill: var(--c-working);
+}
+.v9-home .tunnel-terminal {
+  position: absolute;
+  border: 1px solid var(--c-text);
+  background: var(--c-sheet);
+  box-shadow: 5px 5px 0 var(--c-rule);
+}
+.v9-home .terminal-reviewer {
+  top: 42px;
+  left: 1%;
+  width: 57%;
+  z-index: 3;
+  transform: rotate(-2deg);
+}
+.v9-home .terminal-pi {
+  top: 145px;
+  right: 0;
+  width: 39%;
+  transform: rotate(3deg);
+}
+.v9-home .terminal-cursor {
+  top: 346px;
+  left: 0;
+  width: 42%;
+  transform: rotate(-3deg);
+}
+.v9-home .terminal-builder {
+  top: 386px;
+  right: 0;
+  width: 55%;
+  z-index: 3;
+  transform: rotate(1.5deg);
+}
+.v9-home .tunnel-terminal header {
+  display: flex;
+  justify-content: space-between;
+  padding: 9px 12px;
+  border-bottom: 1px solid var(--c-rule);
+}
+.v9-home .tunnel-terminal header span:last-child {
+  color: var(--c-muted);
+  font-size: 9px;
+}
+.v9-home .tunnel-environment {
+  display: flex;
+  justify-content: space-between;
+  gap: 4px;
+  padding: 4px 10px;
+  color: var(--c-muted);
+  font-size: 9px;
+  border-bottom: 1px solid var(--c-rule);
+}
+.v9-home .tunnel-terminal-body {
+  padding: 12px 10px;
+}
+.v9-home .tunnel-terminal p {
+  margin: 0 0 8px;
+  font-size: 10px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.v9-home .tunnel-terminal p:last-child {
+  margin-bottom: 0;
+}
+.v9-home .tunnel-command {
+  color: var(--c-muted);
+}
+.v9-home .tunnel-terminal .tunnel-label {
+  color: var(--c-working);
+  font-size: 9px;
+  margin-top: 12px;
+}
+.v9-home .tunnel-message {
+  position: absolute;
+  top: 282px;
+  left: 36%;
+  display: flex;
+  gap: 12px;
+  padding: 5px 8px;
+  background: var(--c-sheet);
+  border: 1px solid var(--c-rule);
+  font-size: 10px;
+  transform: rotate(-3deg);
+}
+.v9-home .tunnel-code-lines i {
+  display: block;
+  width: 80%;
+  height: 2px;
+  background: var(--c-rule);
+  margin: 8px 0;
+}
+.v9-home .tunnel-code-lines i:last-child {
+  width: 55%;
+}
+.v9-home .tunnel-footnote {
+  position: absolute;
+  bottom: 0;
+  left: 12px;
+  font-size: 9px;
+  color: var(--c-muted);
+  letter-spacing: 0.04em;
+}
+.v9-home .tunnel-remote-note {
+  display: block;
+  margin-top: 5px;
+  font-size: 8px;
+}
+@media (min-width: 761px) {
+  .v9-home .hero {
+    min-height: 820px;
+  }
+}
+@media (max-width: 760px) {
+  .v9-home .hero-tunnel {
+    position: relative;
+    top: auto;
+    left: auto;
+    width: calc(100% - 40px);
+    max-width: 500px;
+    margin: 0 auto 32px;
+  }
+  .v9-home .tunnel-terminal header {
+    padding: 8px;
+    font-size: 10px;
+  }
+  .v9-home .tunnel-environment {
+    flex-wrap: wrap;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .v9-home .tunnel-packet {
+    display: none;
+  }
+}
+
+.v9-home section > .top-install {
+  margin-top: 28px;
+  max-width: none;
+}
+
+.v9-home .squad-heading {
+  display: block;
+}
+.v9-home .squad-heading h2,
+.v9-home .colab-heading h2 {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 12px 32px;
+}
+.v9-home .squad-heading-line {
+  font-size: 0.72em;
+  color: var(--muted);
+}
+.v9-home .rich-section .squad-heading > p {
+  max-width: none;
+  margin-top: 24px;
+}
+
+.v9-home .workflow-install {
+  margin-top: 40px;
+  padding-top: 28px;
+  border-top: 1px solid var(--border);
+}
+.v9-home .workflow-install h3 {
+  margin: 0 0 8px;
+  font-size: 24px;
+  letter-spacing: -0.03em;
+}
+.v9-home .workflow-install > p {
+  margin: 0 0 20px;
+  color: var(--muted);
+  font-size: 14px;
+}
+.v9-home .workflow-install .top-install {
+  max-width: none;
+  margin-bottom: 0;
+}
+
+.v9-home .marked-line {
+  background: var(--c-selection);
+  color: var(--c-text);
+  border-bottom-color: var(--c-accent);
+}
+.v9-home .marked-line sup {
+  color: var(--c-accent);
+}

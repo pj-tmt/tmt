@@ -8,6 +8,19 @@ use std::{
 use tmt_adapters::native_install;
 use tmt_core::native_install::{Channel, PinAction};
 
+pub fn schema(source_sha: &str, mode: OutputMode) -> io::Result<u8> {
+    match native_install::compiled_application_schema(source_sha) {
+        Ok(record) => {
+            let mut stdout = tmt_cli_style::stream::stdout(true);
+            writeln!(stdout, "{record}")?;
+            Ok(0)
+        }
+        Err(error) => Failure::new("NATIVE_SCHEMA_EXPORT_FAILED", error.to_string(), 1)
+            .caused_by(error)
+            .publish(mode),
+    }
+}
+
 pub fn execute(
     product: tmt_core::native_install::Product,
     archive: &str,
@@ -97,7 +110,7 @@ pub fn execute(
 }
 
 /// The version is admitted by the typed grammar before reading input or writing.
-pub fn handoff(probe: bool, mode: OutputMode) -> io::Result<u8> {
+pub fn handoff(version: u32, probe: bool, mode: OutputMode) -> io::Result<u8> {
     if !mode.json {
         return Failure::new(
             "NATIVE_INSTALL_FAILED",
@@ -108,12 +121,16 @@ pub fn handoff(probe: bool, mode: OutputMode) -> io::Result<u8> {
     }
     let mut stdout = tmt_cli_style::stream::stdout(mode.json);
     if probe {
-        writeln!(stdout, "{}", native_install::handoff::probe())?;
+        writeln!(
+            stdout,
+            "{}",
+            native_install::handoff::probe_version(version)
+        )?;
         return Ok(0);
     }
     let input = match tmt_adapters::response_input::read_stdin_bounded(
         std::time::Duration::from_secs(5),
-        native_install::handoff::LIMIT,
+        native_install::handoff::input_limit(version),
     ) {
         Ok(input) => input,
         Err(error) => {
@@ -121,16 +138,17 @@ pub fn handoff(probe: bool, mode: OutputMode) -> io::Result<u8> {
         }
     };
     let interrupt = tmt_adapters::interrupt::Interrupt::install()?;
-    let (report, failed) = native_install::handoff::install(input.as_bytes(), || {
-        if interrupt.is_interrupted() {
-            Err(io::Error::new(
-                io::ErrorKind::Interrupted,
-                "Native installation interrupted before activation.",
-            ))
-        } else {
-            Ok(())
-        }
-    });
+    let (report, failed) =
+        native_install::handoff::install_version(version, input.as_bytes(), || {
+            if interrupt.is_interrupted() {
+                Err(io::Error::new(
+                    io::ErrorKind::Interrupted,
+                    "Native installation interrupted before activation.",
+                ))
+            } else {
+                Ok(())
+            }
+        });
     writeln!(stdout, "{report}")?;
     Ok(u8::from(failed))
 }

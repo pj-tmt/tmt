@@ -7,6 +7,7 @@ mod attention;
 mod back;
 mod board;
 mod cache;
+pub mod checklist;
 mod config;
 mod consent;
 mod core;

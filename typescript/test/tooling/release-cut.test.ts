@@ -551,6 +551,52 @@ describe('immutable plans and independent cuts', () => {
       )
     ).toThrow('commit SHA');
   });
+  it('plans Herdr from its registered bootstrap and first alpha, retaining missing-registration refusals', async () => {
+    const source = JSON.parse(
+      readFileSync(new URL('../../../.github/components.json', import.meta.url), 'utf8')
+    );
+    const driver = source.components['driver-herdr'];
+    expect(driver).toMatchObject({
+      owns: ['rust/crates/tmt-driver-herdr'],
+      package: 'tmt-driver-herdr',
+      release: true,
+      bootstrapSha: '6ed7f3f9f0070076d4ca78e9fcc2f4de4457fbbd',
+      initialVersion: '0.1.0-alpha.1',
+    });
+    expect(source.components['browser-addon']).toMatchObject({
+      release: false,
+      releaseStatus: 'parked',
+      owns: ['extensions/tmt-remote/typescript/browser-addon'],
+    });
+    expect(source.components['browser-addon'].releaseConsumers).toBeUndefined();
+    const fixture = planningFixture();
+    fixture.metadata.releases = [];
+    const original = fixture.git.getMockImplementation()!;
+    fixture.git.mockImplementation((args) =>
+      args[0] === 'diff' ? 'rust/crates/tmt-driver-herdr/src/main.rs\0' : original(args)
+    );
+    const plan = (definition: typeof driver) =>
+      planReleaseCuts({
+        ...fixture,
+        map: parseComponentMap(JSON.stringify({ components: { 'driver-herdr': definition } })),
+      });
+    expect((await plan(driver)).components).toMatchObject([
+      {
+        product: 'driver-herdr',
+        previous: driver.bootstrapSha,
+        version: '0.1.0-alpha.1',
+        tag: 'tmt-driver-herdr-v0.1.0-alpha.1',
+        status: 'proposed',
+      },
+    ]);
+    const missingSeed = { ...driver };
+    delete missingSeed.initialVersion;
+    const blocked = (await plan(missingSeed)).components[0];
+    expect(blocked).toMatchObject({ status: 'blocked' });
+    expect(blocked.reason).toContain('First cut needs');
+    expect(() => plan({ ...driver, bootstrapSha: undefined })).toThrow('initialVersion');
+    expect((await plan({ ...driver, release: false })).components).toEqual([]);
+  });
   it('does not fall back when a tag is absent or a range is not on main', async () => {
     const fixture = planningFixture();
     fixture.git.mockImplementation((args) => {

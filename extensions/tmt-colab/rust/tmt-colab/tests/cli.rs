@@ -1042,7 +1042,11 @@ fn serve_migrates_an_older_store_and_preserves_the_page() {
     let supported: u32 = conn
         .pragma_query_value(None, "user_version", |row| row.get(0))
         .unwrap();
-    conn.execute_batch("ALTER TABLE pages DROP COLUMN last_update_at_ms; PRAGMA user_version=4")
+    conn.execute_batch("ALTER TABLE owner_operations RENAME TO current_owner_operations;
+        CREATE TABLE owner_operations(id TEXT PRIMARY KEY, digest BLOB NOT NULL, outcome BLOB NOT NULL);
+        INSERT INTO owner_operations(id,digest,outcome) SELECT id,digest,outcome FROM current_owner_operations;
+        DROP TABLE current_owner_operations;
+        ALTER TABLE pages DROP COLUMN last_update_at_ms; PRAGMA user_version=4")
         .unwrap();
     drop(conn);
     let before = fs::read(&db).unwrap();

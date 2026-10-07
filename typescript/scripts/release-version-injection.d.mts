@@ -50,3 +50,10 @@ export function verifyDistManifests(
   plan: { announcement_tag: string; releases: { app_name: string; app_version: string }[] },
   build: { announcement_tag: string; releases: { app_name: string; app_version: string }[] }
 ): void;
+export function verifyDistArtifact(
+  root: string,
+  snapshot: VersionSnapshot,
+  plan: { announcement_tag: string; releases: { app_name: string; app_version: string }[] },
+  build: { announcement_tag: string; releases: { app_name: string; app_version: string }[] },
+  executable: string
+): void;
