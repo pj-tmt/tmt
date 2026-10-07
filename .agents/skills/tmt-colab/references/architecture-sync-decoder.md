@@ -62,18 +62,18 @@ and `limits.rs`; do not restate them.
   an explicit no-op or ordered causal update batch. The child replays the batch from the supplied
   admitted base and verifies the expected content projection; the parent checks input/output
   correlation, strict shape, bounds and expected metadata without parsing Yjs. The batch is
-  preparation only: existing CLI publication still uses its single-update path.
+  preparation only; `tmt colab page write` publishes it through `page::prepare_publication`.
 
 ## Page source and export
 
 - `page.rs` reads and writes admitted source locally: it prepares through the fold and
   decoder, and the opaque token binds the owner head, page epoch and every namespace
   position, because content appends do not advance the membership log.
-- Unintegrated `page::prepare_publication` uses one admitted `fold::Snapshot` and its extracted
+- `page::prepare_publication` uses one admitted `fold::Snapshot` and its extracted
   materialization input owner for exact base/full metadata/own projections and causal decoder inputs.
   It returns Noop before ID/sequence/seal/certificate work, or a frozen signed content packet and
   chain through the existing local Keyring writer. Both single-edit and batch gzip admission include
-  all own bytes in the checked raw fastpath; current Save/CLI/v1 callers remain unchanged.
+  all own bytes in the checked raw fastpath. `page write` is its caller; browser Save is not.
 - `page/compact.rs` combines the local device's own stream after a write (best effort, repeatable):
   it opens only that stream's objects through `Snapshot::open_object`, merges them in the decoder
   child (`Decoder::merge`, no projection, since one device's stream can depend on another's structs),
@@ -86,10 +86,18 @@ and `limits.rs`; do not restate them.
   `ContentEdit` replaces/clears `meta.publisherAgent` atomically with source. Browser
   edits preserve it, and owner epoch baselines carry it in their committed update.
   No label selects an identity or grant.
-- Offline writes hold the serve lifecycle lock and use `Store::write_existing`; when `serve`
-  holds the lock, `page/ipc.rs` makes one bounded request to the owned socket and never
-  retries or falls back. The write signs with a purpose-separated local device certified by
-  the management member; it is not a Remote registration.
+- `page write` freezes one batch (`prepare_publication`). Offline it holds the serve lifecycle
+  lock, uses `Store::write_existing` and `commit_publication`; when `serve` holds the lock,
+  `page/ipc.rs` posts one `LocalWrite` v2 to `/.tmt/colab/local/page-publish` and never
+  retries, re-signs or falls back. `ipc::send` and `ipc::receive` are split so a failure
+  before the body is fully written is a plain refusal, while any later doubt is resolved
+  by one read-only `publication_status` in `main.rs::publish_write`, else
+  `COLAB_OUTCOME_UNKNOWN` with the original operation ID. `Server::publish` prepares one
+  broadcast per entry before the transaction and fans out only for a new committed
+  outcome, then combines the own tail (`Trigger::until` = request read time plus `PUBLISH_COMBINE`; a later combine publishes
+  nothing, so the page does not move after the reply the client waits for, and the reply
+  carries the revision read under the sync lock). The write signs with a purpose-separated local device certified by the
+  management member; it is not a Remote registration.
 - `export.rs` snapshots exact source and title through `fold::Snapshot` and the decoder and
   writes `page.html`, `conversations.json`, `conversations.md` and `manifest.json` (format and
   disclosure: colab-v1). The fold now keeps each writer's decoded `own` projection and

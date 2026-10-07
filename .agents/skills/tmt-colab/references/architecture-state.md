@@ -166,7 +166,7 @@ through `reconnect(page)` in `acceptance/ask.spec.ts`.
 - Signed statement, secrets, baseline, wraps, page epoch and the operation receipt commit in
   one transaction or not at all; `owner_operations` makes an exact retry return the saved
   outcome with its original head. Callers propagate mutation errors so everything rolls back.
-- Unintegrated `page::commit_publication` reuses the immediate device transaction and a
+- `page::commit_publication` reuses the immediate device transaction and a
   content savepoint for a verified sealed batch plus one scoped terminal outcome. Expected
   admitted rejection rolls back content/stream/receipt/device/time changes before retaining the rejection;
   unexpected failure rolls back the enclosing transaction. Original-key replay returns exact
@@ -174,15 +174,15 @@ through `reconnect(page)` in `acceptance/ask.spec.ts`.
   `publication_status` is a read-only original-key lookup with caller-supplied current authority;
   it never issues a chain or persists UNKNOWN. Shared capacity includes scoped outcomes in
   existing page budgets across epochs, without eviction. The contract owns wire details;
-  existing Save/CLI callers and v1 IPC remain unchanged.
+  CLI `page write` and its serving route call it; browser Save does not.
 - Link seeds are borrowed for key derivation and never persisted or returned
   (`transitions/links.rs`).
 
 ## Admission and lock order
 
-- `socket.rs` treats registration, session, pages, management, the reserved page-write and
+- `socket.rs` treats registration, session, pages, management, the reserved page-publish and
   device-events routes and the reader challenge/session routes specially. The root-local
-  management and page-write routes deny any request carrying a forwarded
+  management and page-publish routes deny any request carrying a forwarded
   `tmt-device-context` or device-event header (`local_denied`), and Remote refuses to
   forward the reserved `/.tmt/` subtree from browsers.
 - **Lock order: the sync lock before the `Registration` mutex** (`registration.rs`).

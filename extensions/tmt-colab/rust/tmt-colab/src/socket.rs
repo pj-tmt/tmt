@@ -274,6 +274,8 @@ impl Drop for MountSocket {
 }
 /// What one request asks for, after framing admission.
 struct Request {
+    /// When the whole request had been read; a publish measures its combine window from here.
+    received: std::time::Instant,
     path: String,
     method: String,
     /// The owner device's name, when remote forwarded an owner context.
@@ -326,12 +328,12 @@ fn serve(
             if request.method != "POST" || request.upgrade {
                 return Err(crate::page::Fault::Invalid.into());
             }
-            let prepared =
-                serde_json::from_slice(&request.body).map_err(|_| crate::page::Fault::Invalid)?;
-            let receipt = sync
-                .ok_or(crate::page::Fault::Unavailable)?
-                .page_write(&prepared, registration::now_ms()?)?;
-            Ok(serde_json::to_vec(&receipt)?)
+            let published = sync.ok_or(crate::page::Fault::Unavailable)?.publish(
+                &request.body,
+                registration::now_ms()?,
+                request.received,
+            )?;
+            crate::page::ipc::reply_json(&published)
         })();
         match result {
             Ok(bytes) => {
@@ -1058,6 +1060,7 @@ fn acquire(socket: &mut UnixStream) -> std::result::Result<Request, u16> {
     }
     let mut seen = BTreeSet::new();
     let mut request = Request {
+        received: std::time::Instant::now(),
         path: parsed.path.ok_or(400u16)?.to_owned(),
         method: parsed.method.ok_or(400u16)?.to_owned(),
         owner: None,
@@ -1130,6 +1133,7 @@ fn acquire(socket: &mut UnixStream) -> std::result::Result<Request, u16> {
     }
     request.body = bytes[end..end + size].to_vec();
     request.prefetched = bytes[end + size..].to_vec();
+    request.received = std::time::Instant::now();
     if !matches!(
         request.path.as_str(),
         registration::PATH

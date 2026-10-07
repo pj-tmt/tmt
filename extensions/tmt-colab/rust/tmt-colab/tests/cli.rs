@@ -1159,6 +1159,407 @@ fn create_initializes_fresh_space_then_read_write_and_list_work_offline_and_serv
         }
     }
 }
+/// Printable text that shares no run longer than a few bytes with any other seed's output, so a
+/// replacement is a full rewrite of the page rather than a small diff.
+fn varied_source(seed: u64, bytes: usize) -> String {
+    let mut state = seed.wrapping_mul(0x9e37_79b9_7f4a_7c15) | 1;
+    let mut text = String::with_capacity(bytes + 64);
+    while text.len() < bytes {
+        state ^= state << 13;
+        state ^= state >> 7;
+        state ^= state << 17;
+        text.push(char::from(b'a' + (state % 26) as u8));
+        if state.is_multiple_of(61) {
+            text.push_str("\r\n");
+        }
+    }
+    text.truncate(bytes);
+    text
+}
+#[test]
+fn a_page_of_one_and_a_half_mib_is_replaced_whole_three_times_offline_and_serving() {
+    const SIZE: usize = 1_536 * 1024;
+    for serving in [false, true] {
+        let mut pilot = Pilot::new(None);
+        if serving {
+            pilot.start();
+        }
+        let file = pilot.root.join("source.html");
+        let first = varied_source(1, SIZE);
+        fs::write(&file, &first).unwrap();
+        let created = pilot.call(&[
+            "page",
+            "create",
+            "--title",
+            "Large",
+            "--file",
+            file.to_str().unwrap(),
+            "--json",
+        ]);
+        let id = created["pageId"].as_str().unwrap();
+        assert_eq!(pilot.call(&["page", "read", id, "--json"])["source"], first);
+        let mut revisions = vec![
+            pilot.call(&["page", "read", id, "--json"])["revision"]
+                .as_str()
+                .unwrap()
+                .to_owned(),
+        ];
+        for seed in 2..=4 {
+            let source = varied_source(seed, SIZE);
+            fs::write(&file, &source).unwrap();
+            let output = pilot
+                .command()
+                .args([
+                    "page",
+                    "write",
+                    id,
+                    "--file",
+                    file.to_str().unwrap(),
+                    "--json",
+                ])
+                .output()
+                .unwrap();
+            assert!(
+                output.status.success(),
+                "write {seed} (serving: {serving}): {output:?}"
+            );
+            let written: Value = serde_json::from_slice(&output.stdout).unwrap();
+            assert_eq!(written["changed"], true);
+            assert_eq!(written["pageId"], id);
+            let read = pilot.call(&["page", "read", id, "--json"]);
+            // The receipt carries the revision after the write's own combine, so it fences the next write.
+            assert_eq!(written["revision"], read["revision"]);
+            revisions.push(read["revision"].as_str().unwrap().to_owned());
+            assert_eq!(
+                read["source"], source,
+                "write {seed} did not read back exactly"
+            );
+            let export = pilot.call(&[
+                "export",
+                id,
+                "--dir",
+                pilot.root.to_str().unwrap(),
+                "--json",
+            ]);
+            let directory = PathBuf::from(export["directory"].as_str().unwrap());
+            assert_eq!(
+                fs::read(directory.join("page.html")).unwrap(),
+                source.as_bytes(),
+                "export differs after write {seed}"
+            );
+        }
+        revisions.dedup();
+        assert_eq!(revisions.len(), 4, "each replacement is its own revision");
+        if serving {
+            pilot.stop();
+        }
+    }
+}
+#[test]
+fn a_write_names_its_limit_or_stale_base_and_changes_nothing_offline_and_serving() {
+    for serving in [false, true] {
+        let mut pilot = Pilot::new(None);
+        if serving {
+            pilot.start();
+        }
+        let file = pilot.root.join("source.html");
+        fs::write(&file, "<p>Original</p>").unwrap();
+        let created = pilot.call(&[
+            "page",
+            "create",
+            "--title",
+            "Limits",
+            "--file",
+            file.to_str().unwrap(),
+            "--json",
+        ]);
+        let id = created["pageId"].as_str().unwrap();
+        let before = pilot.call(&["page", "read", id, "--json"]);
+        let limit = tmt_colab::decoder::BASELINE_BYTES;
+        fs::write(&file, "x".repeat(limit + 1)).unwrap();
+        let refused = failure(
+            &pilot,
+            &[
+                "page",
+                "write",
+                id,
+                "--file",
+                file.to_str().unwrap(),
+                "--json",
+            ],
+            "COLAB_CAPACITY",
+        );
+        let message = refused["error"]["message"].as_str().unwrap();
+        assert!(
+            message.contains(&format!("{} bytes", limit + 1))
+                && message.contains(&format!("at most {limit} bytes (2 MiB)"))
+                && message.ends_with("Nothing was written."),
+            "{message}"
+        );
+        // The most a source can be still has to fit the retained tail: replacing a freshly
+        // created 2 MiB page with a different 2 MiB source would leave 4 MiB plus overhead.
+        let full = pilot.root.join("full.html");
+        fs::write(&full, varied_source(7, limit)).unwrap();
+        let created = pilot.call(&[
+            "page",
+            "create",
+            "--title",
+            "Full",
+            "--file",
+            full.to_str().unwrap(),
+            "--json",
+        ]);
+        let full_id = created["pageId"].as_str().unwrap();
+        let full_before = pilot.call(&["page", "read", full_id, "--json"]);
+        fs::write(&full, varied_source(8, limit)).unwrap();
+        let refused = failure(
+            &pilot,
+            &[
+                "page",
+                "write",
+                full_id,
+                "--file",
+                full.to_str().unwrap(),
+                "--json",
+            ],
+            "COLAB_CAPACITY",
+        );
+        let message = refused["error"]["message"].as_str().unwrap();
+        assert!(
+            message.contains("is full: this edit would take its changes to")
+                && message.contains("more than the 4 MiB (4194304 bytes) one page can hold")
+                && message.contains("Nothing was deleted"),
+            "{message}"
+        );
+        assert_eq!(
+            pilot.call(&["page", "read", full_id, "--json"]),
+            full_before
+        );
+        // A base the page has moved past is refused before anything is sealed or published.
+        fs::write(&file, "<p>Second</p>").unwrap();
+        pilot.call(&[
+            "page",
+            "write",
+            id,
+            "--file",
+            file.to_str().unwrap(),
+            "--json",
+        ]);
+        fs::write(&file, "<p>Third</p>").unwrap();
+        failure(
+            &pilot,
+            &[
+                "page",
+                "write",
+                id,
+                "--file",
+                file.to_str().unwrap(),
+                "--expected-revision",
+                before["revision"].as_str().unwrap(),
+                "--json",
+            ],
+            "COLAB_STALE_BASE",
+        );
+        let after = pilot.call(&["page", "read", id, "--json"]);
+        assert_eq!(after["source"], "<p>Second</p>");
+        if serving {
+            pilot.stop();
+        }
+    }
+}
+#[test]
+fn writing_an_archived_page_is_refused_before_anything_is_recorded() {
+    let pilot = Pilot::new(None);
+    let file = pilot.root.join("source.html");
+    fs::write(&file, "<p>Kept</p>").unwrap();
+    let created = pilot.call(&[
+        "page",
+        "create",
+        "--title",
+        "Archived",
+        "--file",
+        file.to_str().unwrap(),
+        "--json",
+    ]);
+    let id = created["pageId"].as_str().unwrap();
+    pilot.call(&["archive", id, "--json"]);
+    fs::write(&file, "<p>Changed</p>").unwrap();
+    let db = pilot.root.join("selected/colab/space.db");
+    let before = fs::read(&db).unwrap();
+    failure(
+        &pilot,
+        &[
+            "page",
+            "write",
+            id,
+            "--file",
+            file.to_str().unwrap(),
+            "--json",
+        ],
+        "COLAB_PAGE_INACTIVE",
+    );
+    assert_eq!(fs::read(&db).unwrap(), before, "a refused write left a row");
+}
+#[test]
+fn writing_the_source_a_page_already_has_publishes_nothing_offline_and_serving() {
+    for serving in [false, true] {
+        let mut pilot = Pilot::new(None);
+        if serving {
+            pilot.start();
+        }
+        let file = pilot.root.join("source.html");
+        fs::write(&file, "<p>Same</p>").unwrap();
+        let created = pilot.call(&[
+            "page",
+            "create",
+            "--title",
+            "Same",
+            "--file",
+            file.to_str().unwrap(),
+            "--json",
+        ]);
+        let id = created["pageId"].as_str().unwrap();
+        let before = pilot.call(&["page", "read", id, "--json"]);
+        let written = pilot.call(&[
+            "page",
+            "write",
+            id,
+            "--file",
+            file.to_str().unwrap(),
+            "--json",
+        ]);
+        assert_eq!(written["changed"], false);
+        assert_eq!(written["revision"], before["revision"]);
+        assert!(written.get("operationId").is_none());
+        assert_eq!(pilot.call(&["page", "read", id, "--json"]), before);
+        if serving {
+            pilot.stop();
+        }
+    }
+}
+/// Stands in the serve socket's place and forwards each request to the real server, so a test
+/// can lose the reply (or the request) the way a dying connection would.
+struct Interposer {
+    real: PathBuf,
+    path: PathBuf,
+    forward: bool,
+    thread: Option<JoinHandle<()>>,
+}
+impl Interposer {
+    fn start(pilot: &Pilot, forward: bool) -> Self {
+        let path = pilot.root.join("selected/colab/door.sock");
+        let real = pilot.root.join("selected/colab/real.sock");
+        fs::rename(&path, &real).unwrap();
+        let listener = UnixListener::bind(&path).unwrap();
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).unwrap();
+        let target = real.clone();
+        let thread = thread::spawn(move || {
+            let (mut client, _) = listener.accept().unwrap();
+            let mut request = Vec::new();
+            let mut chunk = [0; 65536];
+            let body_start = loop {
+                let n = client.read(&mut chunk).unwrap();
+                request.extend_from_slice(&chunk[..n]);
+                if let Some(end) = request.windows(4).position(|w| w == b"\r\n\r\n") {
+                    break end + 4;
+                }
+            };
+            let head = String::from_utf8_lossy(&request[..body_start]).to_lowercase();
+            let length: usize = head
+                .lines()
+                .find_map(|l| l.strip_prefix("content-length: "))
+                .unwrap()
+                .trim()
+                .parse()
+                .unwrap();
+            while request.len() < body_start + length {
+                let n = client.read(&mut chunk).unwrap();
+                request.extend_from_slice(&chunk[..n]);
+            }
+            if forward {
+                let mut server = UnixStream::connect(target).unwrap();
+                server.write_all(&request).unwrap();
+                server.shutdown(std::net::Shutdown::Write).unwrap();
+                let mut reply = Vec::new();
+                server.read_to_end(&mut reply).unwrap();
+                assert!(reply.starts_with(b"HTTP/1.1 200"));
+            }
+            // The reply, if any, is dropped: the writer sees a closed connection.
+        });
+        Self {
+            real,
+            path,
+            forward,
+            thread: Some(thread),
+        }
+    }
+    fn finish(mut self) {
+        self.thread.take().unwrap().join().unwrap();
+        fs::remove_file(&self.path).unwrap();
+        fs::rename(&self.real, &self.path).unwrap();
+        let _ = self.forward;
+    }
+}
+#[test]
+fn a_lost_reply_is_resolved_by_original_status_and_a_lost_request_names_its_operation() {
+    let mut pilot = Pilot::new(None);
+    pilot.start();
+    let file = pilot.root.join("source.html");
+    fs::write(&file, "<p>Start</p>").unwrap();
+    let created = pilot.call(&[
+        "page",
+        "create",
+        "--title",
+        "Doubt",
+        "--file",
+        file.to_str().unwrap(),
+        "--json",
+    ]);
+    let id = created["pageId"].as_str().unwrap();
+    let args = [
+        "page",
+        "write",
+        id,
+        "--file",
+        file.to_str().unwrap(),
+        "--json",
+    ];
+    // The server commits, the reply is lost: the status check finds the original outcome.
+    fs::write(&file, "<p>Committed behind a lost reply</p>").unwrap();
+    let interposer = Interposer::start(&pilot, true);
+    let resolved = pilot.call(&args);
+    interposer.finish();
+    assert_eq!(resolved["changed"], true);
+    let operation = resolved["operationId"].as_str().unwrap().to_owned();
+    assert_eq!(
+        pilot.call(&["page", "read", id, "--json"])["source"],
+        "<p>Committed behind a lost reply</p>"
+    );
+    // The same command again finds nothing to publish: the lost reply cannot double-publish.
+    let again = pilot.call(&args);
+    assert_eq!(again["changed"], false);
+    // The request is lost before the server sees it: nothing exists to resolve, so the result is
+    // unknown, names the original operation, and nothing was written or resent.
+    fs::write(&file, "<p>Never reached the server</p>").unwrap();
+    let interposer = Interposer::start(&pilot, false);
+    let unknown = failure(&pilot, &args, "COLAB_OUTCOME_UNKNOWN");
+    interposer.finish();
+    let message = unknown["error"]["message"].as_str().unwrap();
+    assert!(message.contains("operation "), "{message}");
+    assert!(!message.contains(&operation), "{message}");
+    assert_eq!(
+        pilot.call(&["page", "read", id, "--json"])["source"],
+        "<p>Committed behind a lost reply</p>"
+    );
+    // A plain retry is a fresh preparation and publishes exactly once.
+    let retried = pilot.call(&args);
+    assert_eq!(retried["changed"], true);
+    assert_eq!(
+        pilot.call(&["page", "read", id, "--json"])["source"],
+        "<p>Never reached the server</p>"
+    );
+    pilot.stop();
+}
 #[test]
 fn create_supports_empty_source_and_stdin_and_refuses_invalid_input_before_state_creation() {
     let pilot = Pilot::new(None);
@@ -1433,9 +1834,9 @@ fn human_output_is_readable_and_the_decoder_note_is_not_repeated_per_command() {
         "--file",
         "-",
     ]);
-    // (stdin is empty here, so the write stays a no-op update of the same empty source)
+    // (stdin is empty here, so the write is the same empty source and publishes nothing)
     assert!(
-        written.contains("PAGE WRITTEN") && !written.contains("decoder"),
+        written.contains("PAGE UNCHANGED") && !written.contains("decoder"),
         "{written}"
     );
     // Help examples cover creating a page and sharing it.

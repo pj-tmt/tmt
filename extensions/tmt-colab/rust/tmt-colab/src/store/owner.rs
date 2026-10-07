@@ -329,22 +329,6 @@ impl OwnerTransaction<'_> {
     ) -> Result<super::Accepted> {
         Ok(super::append_in(self.tx, envelope, self.clock)?.ok_or(super::Fault::Conflict)?)
     }
-    pub(crate) fn save_operation(
-        &mut self,
-        id: &str,
-        digest: &[u8; 32],
-        outcome: &[u8],
-    ) -> Result<()> {
-        values::generated_id(id)?;
-        if outcome.len() > MAX_OUTCOME_BYTES {
-            return Err(OwnerFault::Capacity.into());
-        }
-        self.tx.execute(
-            "INSERT INTO owner_operations(id,digest,outcome) VALUES (?,?,?)",
-            params![id, digest.as_slice(), outcome],
-        )?;
-        Ok(())
-    }
     /// Only content/device projection writes belong here; membership head stays unchanged.
     pub(crate) fn content_savepoint<T>(
         &mut self,

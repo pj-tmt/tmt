@@ -48,6 +48,10 @@ fn binary<const N: usize>(value: &str) -> Result<[u8; N]> {
 fn revision(value: &str) -> Result<()> {
     values::object_id(value.strip_prefix("v1:").ok_or(Invalid)?)
 }
+/// Whether `value` is a page revision token.
+pub fn valid_revision(value: &str) -> bool {
+    revision(value).is_ok()
+}
 fn json<T: Serialize>(value: &T, max: usize) -> Result<Vec<u8>> {
     let out = serde_json::to_vec(value).map_err(|_| Invalid)?;
     require(out.len() <= max)?;

@@ -145,8 +145,20 @@ impl Fixture {
     fn read(&self) -> page::Page {
         page::read(&self.store, &self.key, PAGE, &mut self.decoder()).unwrap()
     }
-    fn prepare(&self, source: &str, revision: Option<&str>) -> tmt_colab::Result<page::Prepared> {
-        page::prepare(
+    fn prepare(
+        &self,
+        source: &str,
+        revision: Option<&str>,
+    ) -> tmt_colab::Result<page::FrozenPublication> {
+        self.prepare_at(source, revision, NOW)
+    }
+    fn prepare_at(
+        &self,
+        source: &str,
+        revision: Option<&str>,
+        now: u64,
+    ) -> tmt_colab::Result<page::FrozenPublication> {
+        match page::prepare_publication(
             &self.store,
             &self.key,
             PAGE,
@@ -156,14 +168,32 @@ impl Fixture {
             },
             revision,
             &mut self.decoder(),
-            NOW,
+            now,
+        )? {
+            page::PublicationPreparation::Write(frozen) => Ok(frozen),
+            page::PublicationPreparation::Noop { .. } => {
+                panic!("the fixture expected a write, but the source is unchanged")
+            }
+        }
+    }
+    fn commit(
+        &mut self,
+        frozen: &page::FrozenPublication,
+        now: u64,
+    ) -> tmt_colab::Result<page::PublicationCommitted> {
+        page::commit_publication(
+            &mut self.store,
+            &self.key,
+            frozen.job(),
+            frozen.packet(),
+            frozen.chain(),
+            now,
         )
     }
     fn write(&mut self, source: &str) -> page::Receipt {
-        let p = self.prepare(source, None).unwrap();
-        page::commit(&mut self.store, &self.key, &p, NOW)
-            .unwrap()
-            .receipt
+        let frozen = self.prepare(source, None).unwrap();
+        let committed = self.commit(&frozen, NOW).unwrap();
+        page::publication_receipt(frozen.job(), &committed.record).unwrap()
     }
     fn bytes(&self) -> Vec<u8> {
         fs::read(self.layout.directory.join("space.db")).unwrap()
@@ -207,33 +237,34 @@ fn exact_source_title_authenticated_receipts_and_reopening() {
     assert_eq!(f.bytes(), before);
     for source in ["new 🐈\r\n\0雪", "", "old 🦊\r\n"] {
         let p = f.prepare(source, Some(&f.read().revision)).unwrap();
-        assert!(!serde_json::to_string(&p).unwrap().contains("new 🐈"));
-        let receipt = page::commit(&mut f.store, &f.key, &p, NOW).unwrap();
-        assert_eq!(receipt.accepted, Accepted::New);
+        assert!(!String::from_utf8_lossy(p.packet()).contains("new 🐈"));
+        let committed = f.commit(&p, NOW).unwrap();
+        assert_eq!(committed.accepted, Accepted::New);
+        let receipt = page::publication_receipt(p.job(), &committed.record).unwrap();
+        let publication = receipt.publication.as_ref().unwrap();
         let result = f.read();
         assert_eq!(result.source, source);
         assert_eq!(result.title, "Exact title 🐈");
-        assert_eq!(result.revision, receipt.receipt.revision);
+        assert_eq!(result.revision, receipt.revision);
         assert_eq!(result.membership_head.revision, "2");
-        let envelope = object::Envelope::from_json(
-            &values::binary(&p.envelope, tmt_colab::limits::UPDATE_BYTES).unwrap(),
-        )
-        .unwrap();
-        let chain =
-            certificate::Chain::from_json(&values::binary(&p.chain, 16 * 1024).unwrap()).unwrap();
-        let header = object::Header::decode(envelope.header()).unwrap();
-        assert_eq!(header.context.author_device, receipt.receipt.stream_id);
-        assert_eq!(header.context.namespace, "content");
+        let chain = certificate::Chain::from_json(p.chain()).unwrap();
+        let signing_key = chain.certificate().unwrap().signing_key;
+        let entries = p.job().verify_packet(p.packet(), signing_key).unwrap();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(publication.count, 1);
+        let entry = &entries[0];
+        assert_eq!(entry.header.context.author_device, publication.stream_id);
+        assert_eq!(entry.header.context.namespace, "content");
         assert_eq!(
-            envelope.hash().unwrap().as_slice(),
-            values::binary(&receipt.receipt.envelope_hash, 32).unwrap()
+            entry.envelope.hash().unwrap().as_slice(),
+            values::binary(&publication.envelope_hash, 32).unwrap()
         );
         assert!(
             !object::open(
-                &envelope,
-                &header.context,
+                &entry.envelope,
+                &entry.header.context,
                 &[11; 32],
-                chain.certificate().unwrap().signing_key
+                signing_key
             )
             .unwrap()
             .is_empty()
@@ -266,24 +297,33 @@ fn exact_source_title_authenticated_receipts_and_reopening() {
 }
 #[test]
 fn stale_concurrent_bases_and_exact_replay_never_overwrite_or_reseal() {
+    use tmt_colab::publication::{Outcome, Rejection};
     let mut f = Fixture::new();
     let base = f.read().revision;
     // Both real children finish before either writer commits: deterministic race barrier.
     let first = f.prepare("one", Some(&base)).unwrap();
     let second = f.prepare("two", Some(&base)).unwrap();
-    let accepted = page::commit(&mut f.store, &f.key, &first, NOW)
-        .unwrap()
-        .receipt;
-    let before = f.bytes();
+    let accepted = f.commit(&first, NOW).unwrap();
+    assert!(matches!(accepted.record.outcome, Outcome::Committed { .. }));
+    // The loser records its own terminal refusal and changes nothing else.
+    let before = f.read();
+    let loser = f.commit(&second, NOW).unwrap();
     assert_eq!(
-        page::commit(&mut f.store, &f.key, &second, NOW)
+        loser.record.outcome,
+        Outcome::Rejected {
+            key: second.job().key().unwrap(),
+            code: Rejection::StaleBase
+        }
+    );
+    assert_eq!(
+        page::publication_receipt(second.job(), &loser.record)
             .err()
             .unwrap()
             .downcast_ref::<Fault>(),
         Some(&Fault::StaleBase)
     );
-    assert_eq!(f.bytes(), before);
     assert_eq!(f.read().source, "one");
+    assert_eq!(f.read().revision, before.revision);
     assert_eq!(
         f.prepare("three", Some(&base))
             .err()
@@ -293,18 +333,28 @@ fn stale_concurrent_bases_and_exact_replay_never_overwrite_or_reseal() {
     );
     f.write("later");
     let before = f.bytes();
-    let replay = page::commit(&mut f.store, &f.key, &first, NOW).unwrap();
+    let replay = f.commit(&first, NOW).unwrap();
     assert_eq!(replay.accepted, Accepted::Replay);
-    assert_eq!(
-        serde_json::to_vec(&replay.receipt).unwrap(),
-        serde_json::to_vec(&accepted).unwrap()
-    );
+    assert_eq!(replay.record.bytes, accepted.record.bytes);
     assert_eq!(f.bytes(), before);
     assert_eq!(f.read().source, "later");
-    let mut changed = serde_json::to_value(&first).unwrap();
-    changed["sourceSha256"] = Value::String("0".repeat(64));
-    let changed: page::Prepared = serde_json::from_value(changed).unwrap();
-    assert!(page::commit(&mut f.store, &f.key, &changed, NOW).is_err());
+    // Changed evidence is not the original operation: the signature no longer covers it.
+    let mut changed = serde_json::to_value(first.job()).unwrap();
+    changed["manifest"]["nativeEvidence"]["sourceSha256"] = Value::String("0".repeat(64));
+    let changed =
+        tmt_colab::publication::SignedJob::from_json(&serde_json::to_vec(&changed).unwrap());
+    assert!(
+        changed.is_err()
+            || page::commit_publication(
+                &mut f.store,
+                &f.key,
+                &changed.unwrap(),
+                first.packet(),
+                first.chain(),
+                NOW
+            )
+            .is_err()
+    );
     assert_eq!(f.bytes(), before);
 }
 #[test]
@@ -313,18 +363,20 @@ fn late_failure_rolls_back_device_append_and_receipt_and_revocation_denies_repla
     let p = f.prepare("draft", None).unwrap();
     f.sql().execute_batch("CREATE TRIGGER reject_page_receipt BEFORE INSERT ON owner_operations BEGIN SELECT RAISE(ABORT,'fixture refusal'); END").unwrap();
     let before = f.bytes();
-    assert!(page::commit(&mut f.store, &f.key, &p, NOW).is_err());
+    assert!(f.commit(&p, NOW).is_err());
     assert_eq!(f.bytes(), before);
     assert_eq!(f.read().source, "old 🐈\r\n");
     f.sql()
         .execute_batch("DROP TRIGGER reject_page_receipt")
         .unwrap();
-    let r = page::commit(&mut f.store, &f.key, &p, NOW).unwrap().receipt;
+    let committed = f.commit(&p, NOW).unwrap();
+    let r = page::publication_receipt(p.job(), &committed.record).unwrap();
+    let stream_id = r.publication.unwrap().stream_id;
     let db = f.sql();
     let record: Vec<u8> = db
         .query_row(
             "SELECT record FROM devices WHERE id=?",
-            [&r.stream_id],
+            [&stream_id],
             |row| row.get(0),
         )
         .unwrap();
@@ -332,15 +384,12 @@ fn late_failure_rolls_back_device_append_and_receipt_and_revocation_denies_repla
     device.revoked = true;
     db.execute(
         "UPDATE devices SET record=? WHERE id=?",
-        rusqlite::params![serde_json::to_vec(&device).unwrap(), r.stream_id],
+        rusqlite::params![serde_json::to_vec(&device).unwrap(), stream_id],
     )
     .unwrap();
     let before = f.bytes();
     assert_eq!(
-        page::commit(&mut f.store, &f.key, &p, NOW)
-            .err()
-            .unwrap()
-            .downcast_ref::<Fault>(),
+        f.commit(&p, NOW).err().unwrap().downcast_ref::<Fault>(),
         Some(&Fault::Denied)
     );
     assert_eq!(
@@ -467,23 +516,28 @@ fn cli_raw_json_stdin_invalid_capacity_and_lifecycle_refusal() {
     assert_eq!(f.bytes(), before);
 }
 #[test]
-fn ciphertext_tampering_and_oversized_delta_apply_nothing() {
+fn ciphertext_tampering_and_oversized_source_apply_nothing() {
     let mut f = Fixture::new();
     let p = f.prepare("test", None).unwrap();
     let before = f.bytes();
-    let mut encoded = serde_json::to_value(&p).unwrap();
-    let mut envelope: Value = serde_json::from_slice(
-        &values::binary(&p.envelope, tmt_colab::limits::UPDATE_BYTES).unwrap(),
-    )
-    .unwrap();
-    envelope["signature"] = values::encode_binary(&[0; 64]).into();
-    encoded["envelope"] = values::encode_binary(&serde_json::to_vec(&envelope).unwrap()).into();
-    let bad: page::Prepared = serde_json::from_value(encoded).unwrap();
-    assert!(page::commit(&mut f.store, &f.key, &bad, NOW).is_err());
-    assert_eq!(f.bytes(), before);
+    // A flipped byte in the sealed packet no longer matches the signed packet hash.
+    let mut packet = p.packet().to_vec();
+    let middle = packet.len() / 2;
+    packet[middle] ^= 1;
     assert!(
-        f.prepare(&"x".repeat(tmt_colab::decoder::UPDATE_BYTES + 1), None)
-            .is_err()
+        page::commit_publication(&mut f.store, &f.key, p.job(), &packet, p.chain(), NOW).is_err()
+    );
+    assert_eq!(f.bytes(), before);
+    let too_large = "x".repeat(tmt_colab::decoder::BASELINE_BYTES + 1);
+    assert_eq!(
+        f.prepare(&too_large, None)
+            .err()
+            .unwrap()
+            .downcast_ref::<page::SourceTooLarge>(),
+        Some(&page::SourceTooLarge::exact(
+            tmt_colab::decoder::BASELINE_BYTES + 1,
+            tmt_colab::decoder::BASELINE_BYTES
+        ))
     );
     assert_eq!(f.bytes(), before);
 }
@@ -492,22 +546,10 @@ fn ciphertext_tampering_and_oversized_delta_apply_nothing() {
 fn expired_local_certificate_renews_same_device_atomically() {
     let mut f = Fixture::new();
     let original = f.write("before expiry");
+    let original = original.publication.unwrap();
     let later = NOW + tmt_colab::registration::CERTIFICATE_MS;
-    let prepared = page::prepare(
-        &f.store,
-        &f.key,
-        PAGE,
-        tmt_colab::decoder::ContentEdit {
-            source: "after expiry",
-            publisher_agent: None,
-        },
-        None,
-        &mut f.decoder(),
-        later,
-    )
-    .unwrap();
-    let renewed_bytes = values::binary(&prepared.chain, 16 * 1024).unwrap();
-    let renewed = certificate::Chain::from_json(&renewed_bytes).unwrap();
+    let prepared = f.prepare_at("after expiry", None, later).unwrap();
+    let renewed = certificate::Chain::from_json(prepared.chain()).unwrap();
     let cert = renewed.certificate().unwrap();
     assert_eq!(cert.device_id, original.stream_id);
     assert_eq!(cert.issued_at, later);
@@ -517,51 +559,40 @@ fn expired_local_certificate_renews_same_device_atomically() {
     );
     f.sql().execute_batch("CREATE TRIGGER reject_renewal BEFORE INSERT ON owner_operations BEGIN SELECT RAISE(ABORT,'fixture refusal'); END").unwrap();
     let before = f.bytes();
-    assert!(page::commit(&mut f.store, &f.key, &prepared, later).is_err());
+    assert!(f.commit(&prepared, later).is_err());
     assert_eq!(f.bytes(), before);
     f.sql()
         .execute_batch("DROP TRIGGER reject_renewal")
         .unwrap();
-    let receipt = page::commit(&mut f.store, &f.key, &prepared, later)
-        .unwrap()
-        .receipt;
-    assert_eq!(receipt.stream_id, original.stream_id);
-    assert_eq!(receipt.seq, "2");
+    let committed = f.commit(&prepared, later).unwrap();
+    let receipt = page::publication_receipt(prepared.job(), &committed.record).unwrap();
+    let publication = receipt.publication.unwrap();
+    assert_eq!(publication.stream_id, original.stream_id);
+    assert_eq!(publication.seq, "2");
     assert_eq!(f.read().source, "after expiry");
     let record: Vec<u8> = f
         .sql()
         .query_row(
             "SELECT record FROM devices WHERE id=?",
-            [&receipt.stream_id],
+            [&publication.stream_id],
             |row| row.get(0),
         )
         .unwrap();
     let mut device: Device = serde_json::from_slice(&record).unwrap();
-    assert_eq!(device.chain, renewed_bytes);
+    assert_eq!(device.chain, prepared.chain());
     device.revoked = true;
     f.sql()
         .execute(
             "UPDATE devices SET record=? WHERE id=?",
-            rusqlite::params![serde_json::to_vec(&device).unwrap(), receipt.stream_id],
+            rusqlite::params![serde_json::to_vec(&device).unwrap(), publication.stream_id],
         )
         .unwrap();
     let before = f.bytes();
     assert_eq!(
-        page::prepare(
-            &f.store,
-            &f.key,
-            PAGE,
-            tmt_colab::decoder::ContentEdit {
-                source: "revoked",
-                publisher_agent: None
-            },
-            None,
-            &mut f.decoder(),
-            cert.expires_at
-        )
-        .err()
-        .unwrap()
-        .downcast_ref::<Fault>(),
+        f.prepare_at("revoked", None, cert.expires_at)
+            .err()
+            .unwrap()
+            .downcast_ref::<Fault>(),
         Some(&Fault::Denied)
     );
     assert_eq!(f.bytes(), before);
@@ -624,7 +655,6 @@ fn browser_author_append_invalidates_read_and_prepared_cli_bases() {
         })
         .unwrap();
     assert_eq!(f.read().source, "browser old 🐈\r\n");
-    let before = f.bytes();
     assert_eq!(
         f.prepare("CLI replacement", Some(&base))
             .err()
@@ -632,14 +662,15 @@ fn browser_author_append_invalidates_read_and_prepared_cli_bases() {
             .downcast_ref::<Fault>(),
         Some(&Fault::StaleBase)
     );
-    assert_eq!(
-        page::commit(&mut f.store, &f.key, &prepared, NOW)
-            .err()
-            .unwrap()
-            .downcast_ref::<Fault>(),
-        Some(&Fault::StaleBase)
-    );
-    assert_eq!(f.bytes(), before);
+    let stale = f.commit(&prepared, NOW).unwrap();
+    assert!(matches!(
+        stale.record.outcome,
+        tmt_colab::publication::Outcome::Rejected {
+            code: tmt_colab::publication::Rejection::StaleBase,
+            ..
+        }
+    ));
+    assert_eq!(f.read().source, "browser old 🐈\r\n");
     assert_eq!(f.read().membership_head.revision, "2");
 }
 
@@ -653,9 +684,47 @@ fn compact_now(f: &mut Fixture, updates: usize) -> Option<tmt_colab::page::compa
         tmt_colab::page::compact::Trigger {
             updates,
             bytes: usize::MAX,
+            until: None,
         },
     )
     .unwrap()
+}
+
+#[test]
+fn a_combine_past_its_deadline_publishes_nothing_so_the_page_never_moves_after_its_reply() {
+    let mut f = Fixture::new();
+    let mut source = String::from("old 🐈\r\n");
+    for i in 0..3 {
+        source.push_str(&format!("<p>{i}</p>"));
+        f.write(&source);
+    }
+    let late = std::time::Instant::now()
+        .checked_sub(std::time::Duration::from_secs(1))
+        .unwrap();
+    let revision = f.read().revision;
+    let before = f.bytes();
+    let mut decoder = f.decoder();
+    let combine = |f: &mut Fixture, decoder: &mut Decoder, until| {
+        page::compact::compact(
+            &mut f.store,
+            &f.key,
+            PAGE,
+            decoder,
+            page::compact::Trigger {
+                updates: 1,
+                bytes: usize::MAX,
+                until,
+            },
+        )
+        .unwrap()
+    };
+    assert_eq!(combine(&mut f, &mut decoder, Some(late)), None);
+    assert_eq!(f.bytes(), before, "a late combine changed the page state");
+    assert_eq!(f.read().revision, revision);
+    // Positive control: the same combine with time left does publish and moves the revision.
+    assert!(combine(&mut f, &mut decoder, None).is_some());
+    assert_ne!(f.read().revision, revision);
+    assert_eq!(f.read().source, source);
 }
 
 #[test]
@@ -706,6 +775,7 @@ sys.stdout.write(json.dumps(reply))
             page::compact::Trigger {
                 updates: 10,
                 bytes: usize::MAX,
+                until: None,
             },
         )
         .unwrap(),
@@ -2322,7 +2392,7 @@ mod native_preparation {
             let expected = f.read().revision;
             let p = prepare(&f, "old 🐈\r\n", None, Some(&expected)).unwrap();
             assert!(
-                matches!(p,PublicationPreparation::Noop{base_revision,memory_limit} if base_revision==expected&&memory_limit==tmt_colab::decoder::memory_limit())
+                matches!(p,PublicationPreparation::Noop{base_revision,memory_limit,..} if base_revision==expected&&memory_limit==tmt_colab::decoder::memory_limit())
             );
             assert_eq!(state(&f), before);
             let w = write(prepare(&f, "changed", None, None).unwrap());
@@ -2553,8 +2623,11 @@ mod native_preparation {
             prepare(&f, &format!("{text}x"), None, None)
                 .err()
                 .unwrap()
-                .downcast_ref::<Fault>(),
-            Some(&Fault::Capacity)
+                .downcast_ref::<page::SourceTooLarge>(),
+            Some(&page::SourceTooLarge::exact(
+                tmt_colab::decoder::BASELINE_BYTES + 1,
+                tmt_colab::decoder::BASELINE_BYTES
+            ))
         );
         assert_eq!(state(&f), before);
         let key = signer(&f, b"tmt-colab-cli-signing-seed-v1")
