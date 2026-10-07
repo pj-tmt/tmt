@@ -1,3 +1,5 @@
+#[path = "support/core_fixture.rs"]
+mod core_fixture;
 mod support;
 use nix::{
     errno::Errno,
@@ -21,6 +23,7 @@ use std::{
 const BINARY: &str = env!("CARGO_BIN_EXE_tmt-colab");
 struct Pilot {
     root: PathBuf,
+    response: String,
     child: Option<Child>,
     reader: Option<JoinHandle<()>>,
 }
@@ -36,40 +39,28 @@ impl Pilot {
             NEXT.fetch_add(1, Ordering::Relaxed)
         ));
         fs::create_dir(&root).unwrap();
+        let response = reply
+            .map(str::to_owned)
+            .unwrap_or_else(|| json!({"dataRoot":root.join("selected")}).to_string());
         let pilot = Self {
             root,
+            response,
             child: None,
             reader: None,
         };
-        let response = reply
-            .map(str::to_owned)
-            .unwrap_or_else(|| json!({"dataRoot":pilot.root.join("selected")}).to_string());
-        let payload = format!(
-            "#!/bin/sh\nif [ \"$1 $2 $3\" = 'identity show --json' ]; then\ncd {} || exit 9\nprintf '%s\\n' \"$*\" >> publisher-calls\n[ -f publisher ] || exit 9\ncat publisher\nexit 0\nfi\n[ \"$#\" = 1 ] && [ \"$1\" = api ] || exit 9\ncd {} || exit 9\nprintf '%s\\n' \"$*\" >> calls\ncat > input\nprintf '%s\\n' {}\n",
-            quote(pilot.root.to_str().unwrap()),
-            quote(pilot.root.to_str().unwrap()),
-            quote(&response)
-        );
-        tmt_test_support::write_executable(&pilot.root.join("core"), payload.as_bytes(), 0o700)
-            .unwrap();
+        core_fixture::link(&pilot.root, "core", core_fixture::Program::Core);
         assert!(!pilot.root.join("calls").exists());
         pilot
     }
     /// A core stand-in that also answers Remote's `status --json`; everything else is the fixture core.
     fn door_core(&self, status: &str, delay: Option<u32>) -> PathBuf {
-        let path = self.root.join("core-door");
         let sleep = delay.map_or(String::new(), |s| format!("sleep {s}\n"));
         fs::write(
-            &path,
-            format!(
-                "#!/bin/sh\nif [ \"$1 $2 $3\" = 'remote status --json' ]; then\n{sleep}printf '%s\\n' {}\nexit 0\nfi\nexec {} \"$@\"\n",
-                quote(status),
-                quote(self.root.join("core").to_str().unwrap())
-            ),
+            self.root.join("door-status"),
+            format!("{sleep}printf '%s\\n' {}\nexit 0\n", quote(status)),
         )
         .unwrap();
-        fs::set_permissions(&path, fs::Permissions::from_mode(0o700)).unwrap();
-        path
+        core_fixture::link(&self.root, "core-door", core_fixture::Program::Door)
     }
     fn command_with_door(&self, status: &str) -> Command {
         let mut cmd = self.command();
@@ -87,6 +78,8 @@ impl Pilot {
             .env("TMPDIR", &self.root)
             .env("TMUX_TEAM_HOME", self.root.join("selected"))
             .env("TMT_EXECUTABLE", self.root.join("core"))
+            .env("TMT_COLAB_TEST_ROOT", &self.root)
+            .env("TMT_COLAB_TEST_REPLY", &self.response)
             // A stub opener lives in `bin`; a real one must never be reached by a test.
             .env(
                 "PATH",
@@ -2531,7 +2524,6 @@ impl Pilot {
     /// A core stand-in with a scripted Remote: `status` is its `remote status --json` answer
     /// (`None` fails, as an absent extension does); every other command is the fixture core.
     fn remote_core(&self, status: Option<&str>, serve: Serve) -> PathBuf {
-        let path = self.root.join("core-remote");
         // A leading `!` is an error envelope: printed on stdout, exit 1, like Remote does.
         let status = status.map_or("exit 1".to_owned(), |s| match s.strip_prefix('!') {
             Some(envelope) => format!("printf '%s\\n' {}\nexit 1", quote(envelope)),
@@ -2560,13 +2552,9 @@ impl Pilot {
                 quote(READY)
             ),
         };
-        let script = format!(
-            "#!/bin/sh\ncd {root} || exit 9\ncase \"$1 $2 $3\" in\n'remote status --json')\n{status}\n;;\n'remote devices --json')\n[ -f devices.json ] && cat devices.json && exit 0\nexit 1\n;;\n'remote serve --json')\nprintf '%s\\n' \"$*\" >> serve.calls\necho $$ > serve.pid\n{serve}\n;;\nesac\nexec {core} \"$@\"\n",
-            root = quote(self.root.to_str().unwrap()),
-            core = quote(self.root.join("core").to_str().unwrap()),
-        );
-        tmt_test_support::write_executable(&path, script.as_bytes(), 0o700).unwrap();
-        path
+        fs::write(self.root.join("remote-status"), status).unwrap();
+        fs::write(self.root.join("remote-serve"), serve).unwrap();
+        core_fixture::link(&self.root, "core-remote", core_fixture::Program::Remote)
     }
     /// What the scripted Remote answers to `devices --json`; absent means it gives no answer.
     fn devices(&self, json: &str) {
