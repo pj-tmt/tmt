@@ -56,8 +56,9 @@ releases the old channel before replacement without clearing parent selection or
 removing the old frame; failures and ordinary abort/destroy still remove it. An
 open annotation retains its last viewport placement when renderer geometry is gone,
 with input and sending disabled by the current failure. It
-retains the previous frame height during replacement and restores the window
-offset on its first admitted height report, clamped by the new document's bounds.
+retains the previous frame height during replacement and preserves the current
+window offset through that replacement, clamped by the new document's bounds.
+Later height reports do not replay an older offset over newer scrolling.
 The [UI contract](../../../../extensions/tmt-colab/contracts/colab-v1.md#own-stream-discussion-records-1427)
 owns draft survival and stale-quote behavior.
 

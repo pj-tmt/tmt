@@ -63,12 +63,9 @@ export async function mountRenderer(
   release(): void;
   destroy(): void;
 }> {
-  const previous = host.querySelector('iframe');
   // Keep the old layout while the replacement loads, so the browser does not
   // clamp the window offset to a temporary viewport-high document.
-  let restoreScroll = previous
-    ? { left: window.scrollX, top: window.scrollY, height: previous.getBoundingClientRect().height }
-    : undefined;
+  const previousHeight = host.querySelector('iframe')?.getBoundingClientRect().height;
   const snapshot = await captureRender(source);
   options.signal.throwIfAborted();
   const frame = document.createElement('iframe');
@@ -92,10 +89,7 @@ export async function mountRenderer(
     updatedAt = -Infinity,
     growingAt = 0,
     growthReports = 0,
-    lastHeight = Math.min(
-      MAX_RENDER_HEIGHT,
-      Math.max(viewportHeight(), restoreScroll?.height ?? 0),
-    ),
+    lastHeight = Math.min(MAX_RENDER_HEIGHT, Math.max(viewportHeight(), previousHeight ?? 0)),
     innerScroll = false,
     scrolledAt = -Infinity;
   frame.scrolling = 'no';
@@ -144,10 +138,6 @@ export async function mountRenderer(
     lastHeight = next;
     updatedAt = now;
     frame.style.height = `${next}px`;
-    if (restoreScroll) {
-      window.scrollTo({ left: restoreScroll.left, top: restoreScroll.top, behavior: 'instant' });
-      restoreScroll = undefined;
-    }
   };
   const release = () => {
     if (stopped) return;
@@ -405,9 +395,12 @@ export async function mountRenderer(
     ]);
   };
   frame.src = new URL('./renderer.html', document.baseURI).href;
+  // Preserve the current offset through replacement, without replaying an older
+  // offset when a later height report arrives after the person has scrolled.
+  const scroll =
+    previousHeight === undefined ? undefined : { left: window.scrollX, top: window.scrollY };
   host.replaceChildren(frame);
-  if (restoreScroll)
-    window.scrollTo({ left: restoreScroll.left, top: restoreScroll.top, behavior: 'instant' });
+  if (scroll) window.scrollTo({ ...scroll, behavior: 'instant' });
   const scrollAnchor = (id: string) => {
     const top = positions.get(id);
     if (stopped || top === undefined) return;
