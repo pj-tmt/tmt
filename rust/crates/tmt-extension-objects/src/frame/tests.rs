@@ -547,13 +547,14 @@ fn bytes_that_are_not_one_frame_are_refused_by_admission() {
         r#""kind":"request""#,
         r#""kind":"request","kind":"request""#,
     );
-    // `i` spells `i`: the member name differs in bytes but repeats after decoding.
+    // The escape spells `i`: the member name differs in bytes but repeats after decoding.
+    let escaped_name = format!("k{}u0069nd", '\\');
     let escaped = mutate(
         &accepted,
         r#""kind":"request""#,
-        r#""kind":"request","kind":"request""#,
+        &format!(r#""kind":"request","{escaped_name}":"request""#),
     );
-    assert!(escaped.contains(r"kind") && escaped.matches("\"kind\"").count() == 1);
+    assert!(escaped.contains(&escaped_name) && escaped.matches(r#""kind":"request""#).count() == 1);
     let cases: Vec<(&str, Vec<u8>, ErrorClass)> = vec![
         (
             "repeated member",
