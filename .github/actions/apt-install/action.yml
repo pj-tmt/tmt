@@ -24,7 +24,7 @@ runs:
         # Current callers install small packages (zsh, binutils, musl-tools).
         # Revisit this bound before adding large packages. Kill stuck children too.
         apt_options=(-o Acquire::Retries=2 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30)
-        "$retry" 3 5 sudo timeout --verbose --kill-after=10s 120s apt-get "${apt_options[@]}" update
+        "$retry" 3 5 sudo timeout --verbose --kill-after=10s 60s apt-get "${apt_options[@]}" update
         # The package list is intentionally split into separate arguments.
         # shellcheck disable=SC2086
         "$retry" 3 5 sudo timeout --verbose --kill-after=10s 120s apt-get "${apt_options[@]}" install --no-install-recommends -y $PACKAGES

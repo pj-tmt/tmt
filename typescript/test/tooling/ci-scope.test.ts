@@ -2271,6 +2271,10 @@ describe('required CI gate', () => {
     );
     expect(job('native-office')).toContain("if: needs.changes.outputs.native_scope == 'full'");
     expect(job('native-process-tests')).toContain('needs: [changes, native-office-build]');
+    expect(job('native-process-tests')).toContain('timeout-minutes: 20');
+    expect(job('native-process-tests')).toContain(
+      'uses: ./.github/actions/apt-install\n        with:\n          packages: zsh'
+    );
     expect(job('native-process-tests')).toContain(
       "needs.changes.outputs.native_office == 'false' || (needs.changes.outputs.native_office == 'true' && needs.native-office-build.result == 'success')"
     );
