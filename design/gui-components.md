@@ -69,9 +69,8 @@ tmt-ux. Products may depend on the leaf; it must not import product code. Core a
 the CLI must neither depend on nor embed it. The initial #1797 source implements
 checked CSS, static class names and isolated Header, Notice, Field, Action and
 Toggle; [the package contract](browser-ui/README.md) owns its entries, generation
-commands and host metric inputs. Product adoption is not delivered. The initial package and shared workspace,
-lockfile, quality and static COPY integration are delivered through PR #1910 with
-Core, Infra and affected consumer review and protected CI. Subsequent workspace,
+commands and host metric inputs. Product adoption is not delivered. The package and its shared workspace,
+lockfile, quality and static COPY integration are in place. Workspace,
 lockfile and dependency changes receive Core review, and packaging changes receive
 Colab/Remote review at the actual implementation head before delivery/adoption.
 

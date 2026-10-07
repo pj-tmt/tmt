@@ -12,9 +12,8 @@ are recorded in the [browser component contracts](gui-components.md).
 `extensions/tmt-colab/typescript/app/src`; the other descriptions include
 approved design targets that have not shipped yet. Remote's pairing and door
 pages follow the same token, header and card rules in their own `pages.css`.
-Office has not adopted this style. The initial private browser leaf and its shared
-integration are delivered through PR #1910. Product adoption remains separate
-consumer work. The implementation basis column still includes proposals beyond that
+Office has not adopted this style. The private browser leaf and its shared
+integration are in place; product adoption is separate consumer work. The implementation basis column still includes proposals beyond that
 leaf. See the [package contract](browser-ui/README.md) for the bounded subset.
 
 ## Principles

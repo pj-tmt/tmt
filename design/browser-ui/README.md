@@ -4,9 +4,9 @@
 must not import product code. Core and the CLI must neither depend on nor embed
 it. The all-file native input guard proves direct literal/manifest-relative inputs
 and local single-arm literal-forwarding wrappers at every literal call site;
-unproved macro scope, forwarding, aliases or expressions fail closed. The initial package, workspace, lockfile, shared quality and static COPY
-integration are delivered through PR #1910 with owning review and protected CI.
-Product adoption and product release readiness remain separate consumer work.
+unproved macro scope, forwarding, aliases or expressions fail closed. The package, its workspace and lockfile entries, shared quality
+checks and static COPY integration are in place. Product adoption and product
+release readiness are separate consumer work.
 
 ## Entries and generation
 
