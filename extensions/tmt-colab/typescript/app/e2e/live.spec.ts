@@ -1085,7 +1085,7 @@ result:async()=>({state:'replied',requestId:'${requestId}',message:${JSON.string
     getSelection()!.addRange(range);
   });
   await page.getByTestId('chat-toggle').click();
-  const input = page.getByTestId('chat-panel').getByRole('combobox', { name: 'Message to agent' });
+  const input = page.getByTestId('chat-panel').getByRole('combobox', { name: 'Message' });
   await input.fill('@');
   await page.getByRole('option').click();
   await input.fill('@Wire agent Explain this page.');

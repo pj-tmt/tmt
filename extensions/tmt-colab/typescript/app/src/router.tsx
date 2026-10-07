@@ -1,3 +1,4 @@
+import type { ComposerEdit } from './components/message-composer-edit.js';
 import { BrowserAction, BrowserToggle } from '@tmt/browser-ui/react';
 import { browserUiClasses as ui } from '@tmt/browser-ui/static';
 import { validPagePrefix } from './short-links.js';
@@ -569,14 +570,14 @@ function Page() {
     selector: QuoteSelector;
     rectangle: SelectionRect;
     /** Text kept from an earlier close of this selection. */
-    restored?: string;
+    restored?: ComposerEdit;
   }>();
   const annotationRef = useRef(annotation);
   annotationRef.current = annotation;
   const popover = useRef<HTMLElement>(null);
   // An unsent draft lives in memory for this page only: never stored, never sent to the frame.
-  const drafts = useRef(new Map<string, string>());
-  const annotationDraft = useRef('');
+  const drafts = useRef(new Map<string, ComposerEdit>());
+  const annotationDraft = useRef<ComposerEdit>({ value: '' });
   const annotationBusy = useRef(false);
   const [activeThread, setActiveThread] = useState<string | null>(null);
   useEffect(() => {
@@ -597,17 +598,17 @@ function Page() {
     setPanel(null);
     setMenu(false);
   }
-  /** True once something beyond the prefilled `@agent` has been typed. */
-  const typed = () =>
-    annotationDraft.current.trim() !== '' && !/^@\S*\s*$/.test(annotationDraft.current);
+  /** Every nonblank message is a draft; recipient selection never replaces its bytes. */
+  const typed = () => annotationDraft.current.value.trim() !== '';
   /** Closes without losing typed text: it comes back when the same selection is annotated again. */
   function closeAnnotation(focusPage: boolean) {
     // A send in flight is not interrupted by the ×, Escape, an outside press or a cleared selection.
     if (!annotation || annotationBusy.current) return;
     const key = JSON.stringify(annotation.selector);
-    if (typed()) drafts.current.set(key, annotationDraft.current);
+    if (typed() || annotationDraft.current.recipient)
+      drafts.current.set(key, annotationDraft.current);
     else drafts.current.delete(key);
-    annotationDraft.current = '';
+    annotationDraft.current = { value: '' };
     setAnnotation(undefined);
     setRectangle(currentRectangle.current);
     if (focusPage) queueMicrotask(() => host.current?.querySelector('iframe')?.focus());
@@ -946,11 +947,10 @@ function Page() {
                 anchor={annotation.selector}
                 asks={view.asks ?? []}
                 title={view.title || snapshot.title}
-                publisher={view.publisherAgent}
                 blocked={!!liveError || state !== 'ready'}
-                initialValue={annotation.restored}
-                onDraft={(value) => {
-                  annotationDraft.current = value;
+                initialEdit={annotation.restored}
+                onDraft={(_value, edit) => {
+                  annotationDraft.current = edit;
                 }}
                 onBusy={(busy) => {
                   annotationBusy.current = busy;
@@ -1008,7 +1008,6 @@ function Page() {
           binding={liveError === managementChanged ? undefined : snapshot.binding?.discussion}
           ask={liveError === managementChanged ? undefined : snapshot.binding?.ask}
           title={view.title || snapshot.title}
-          publisher={view.publisherAgent}
           asks={view.asks ?? []}
           active={activeThread}
           select={openThread}
@@ -1038,7 +1037,6 @@ function Page() {
             binding={liveError === managementChanged ? undefined : snapshot.binding?.ask}
             discussion={liveError === managementChanged ? undefined : snapshot.binding?.discussion}
             title={view.title || snapshot.title}
-            publisher={view.publisherAgent}
             blocked={!!liveError || state !== 'ready'}
             close={() => setPanel(null)}
           />

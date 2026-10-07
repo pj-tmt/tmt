@@ -1,10 +1,13 @@
-import { expect, test, type Locator, type Page } from '@playwright/test';
+import { expect, test, type Locator, type Page, type Route } from '@playwright/test';
 import { text } from '../src/strings.js';
 import { mkdirSync, writeFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import path from 'node:path';
 import { pairBrowser, restartColab, startDoor } from './harness/browser.js';
 import {
   annotationInput as inputFor,
+  composerTrace,
+  composerAssets,
   createPage,
   freePort,
   openPage,
@@ -44,10 +47,13 @@ test('a same-request annotation reply submitted while observation is paused is r
     const page = await openPage(door, browser, created);
     await selectInRenderer(page, '#quote');
     await page.getByTestId('selection-ask').click();
-    const input = page.getByRole('combobox', { name: 'Message to agent', exact: true });
-    await expect(input).toHaveValue(`@${agent.name} `);
-    await input.fill(`@${agent.name} Explain this passage.`);
-    await input.press('Enter');
+    const input = await inputFor(
+      page.getByRole('dialog', { name: 'Annotate selection' }),
+      agent.name,
+    );
+    await expect(input).toHaveText('', { useInnerText: true });
+    await input.fill('Explain this passage.');
+    await page.getByRole('button', { name: 'Ask agent', exact: true }).click();
     await until(() => agent.received().length === 1, 'annotation delivery');
     await expect(page.getByTestId('ask-state')).toHaveAttribute('data-state', 'accepted');
     const requestId = agent.received()[0].requestId as string;
@@ -161,12 +167,20 @@ test('paired writers retain anchored annotation conversations, direct exact send
         await selectInRenderer(first, '#quote');
         await first.getByTestId('selection-ask').click();
         const popover = first.getByRole('dialog', { name: 'Annotate selection' });
-        const prefilled = popover.getByRole('combobox', { name: 'Message to agent' });
-        await expect(prefilled).toHaveValue(`@${agent.name} `);
+        const prefilled = popover.getByRole('combobox', { name: 'Message' });
+        await expect(prefilled).toHaveText('', { useInnerText: true });
         await expect(prefilled).toBeFocused();
-        expect(await prefilled.evaluate((node: HTMLTextAreaElement) => node.selectionStart)).toBe(
-          agent.name.length + 2,
-        );
+        expect(
+          await prefilled.evaluate((node) => {
+            const selection = node.ownerDocument.getSelection();
+            return (
+              !!selection?.isCollapsed &&
+              !!selection.anchorNode &&
+              node.contains(selection.anchorNode) &&
+              selection.anchorOffset === 0
+            );
+          }),
+        ).toBe(true);
         await expect(first.getByTestId('comments-toggle')).toHaveAttribute(
           'aria-expanded',
           'false',
@@ -176,6 +190,7 @@ test('paired writers retain anchored annotation conversations, direct exact send
         await expect(first.getByRole('listbox')).toBeVisible();
         await first.screenshot({ path: `/tmp/1587-native-${width}-${theme}-autocomplete.png` });
         await prefilled.press('Escape');
+        await prefilled.fill('');
         await prefilled.press('Escape');
         await expect(popover).toHaveCount(0);
         await expect(first.getByTestId('selection-ask')).toBeVisible();
@@ -187,21 +202,21 @@ test('paired writers retain anchored annotation conversations, direct exact send
     await selectInRenderer(first, '#quote');
     await first.getByTestId('selection-ask').click();
     const compose = first.locator('.annotation-new');
-    const input = compose.getByRole('combobox', { name: 'Message to agent' });
-    await expect(input).toHaveValue(`@${agent.name} `);
+    const input = await inputFor(compose, agent.name);
+    await expect(input).toHaveText('', { useInnerText: true });
     const over = `@${agent.name} ${'é'.repeat(8193)}`;
     await input.fill(over);
     await input.press('Enter');
     await expect(compose.getByRole('alert')).toContainText('could not be recorded');
-    await expect(input).toHaveValue(over);
+    await expect(input).toHaveText(over, { useInnerText: true });
     expect(agent.received()).toHaveLength(0);
     const opening = `@${agent.name} <script>plain discussion</script>\nPlease explain this.`;
     await input.fill(opening);
     await expect(compose.locator('details')).toHaveCount(0);
-    await input.press('Enter');
+    await compose.getByRole('button', { name: 'Ask agent', exact: true }).click();
     await until(() => agent.received().length === 1, 'opening annotation delivered');
     expect(agent.received()[0].message).toContain('[remote: discussion-author]\n');
-    expect(agent.received()[0].message).toContain(opening.slice(agent.name.length + 2));
+    expect(agent.received()[0].message).toContain(opening);
     const t1 = first.getByTestId('comment-thread').first();
     await expect(t1).toHaveAttribute('data-anchor', 'attached');
     const threadId = (await t1.getAttribute('data-thread-id'))!;
@@ -230,7 +245,9 @@ test('paired writers retain anchored annotation conversations, direct exact send
     const follow = await inputFor(t2, agent.name);
     await follow.fill(`@${agent.name} A follow-up from another device.`);
     await follow.press('Shift+Enter');
-    await expect(follow).toHaveValue(`@${agent.name} A follow-up from another device.\n`);
+    await expect(follow).toHaveText(`@${agent.name} A follow-up from another device.\n`, {
+      useInnerText: true,
+    });
     await follow.type('One more line.');
     await follow.press('Enter');
     await until(() => agent.received().length === 2, 'follow-up annotation delivered');
@@ -296,7 +313,7 @@ test('paired writers retain anchored annotation conversations, direct exact send
         await first.evaluate((theme) => {
           document.documentElement.dataset.theme = theme;
         }, theme);
-        await t1.getByRole('combobox', { name: 'Message to agent', exact: true }).press('Escape');
+        await t1.getByRole('combobox', { name: 'Message', exact: true }).press('Escape');
         await first.locator('.page-drawer[open] .drawer-body').evaluate((node) => {
           node.scrollTop = 0;
         });
@@ -316,9 +333,7 @@ test('paired writers retain anchored annotation conversations, direct exact send
         await first.screenshot({ path: `/tmp/1690-native-${width}-${theme}-comment-menu.png` });
         await menu.press('Escape');
         await expect(own.getByRole('menuitem')).toHaveCount(0);
-        await t1
-          .getByRole('combobox', { name: 'Message to agent', exact: true })
-          .scrollIntoViewIfNeeded();
+        await t1.getByRole('combobox', { name: 'Message', exact: true }).scrollIntoViewIfNeeded();
         await first.screenshot({ path: `/tmp/1587-native-${width}-${theme}-input.png` });
       }
       await first.evaluate(() => {
@@ -378,6 +393,195 @@ test('paired writers retain anchored annotation conversations, direct exact send
     expect(agent.received()).toHaveLength(2);
     expect(world.coreCalls().filter((call) => call.operation === 'dispatch.create')).toHaveLength(
       2,
+    );
+  });
+});
+
+test('composer records plain annotations and replies without a recipient, then sends one explicitly selected no-prefix Ask', async () => {
+  await withWorld(async (world) => {
+    const door = await startDoor(world, await freePort());
+    const agent = await world.startAgent('composer-agent', { gated: true });
+    const browser = await pairBrowser(world, 'composer-author');
+    await composerTrace(world, browser, door.address, 'composer-owner');
+    const operations: string[] = [];
+    browser.context.on('request', (request) => {
+      if (
+        request.method() !== 'POST' ||
+        !new URL(request.url()).pathname.endsWith('/append') ||
+        !request.headers()['content-type']?.includes('application/json')
+      )
+        return;
+      const operation = (request.postDataJSON() as { operation?: string }).operation;
+      if (typeof operation === 'string') operations.push(operation);
+    });
+    const created = createPage(
+      world,
+      'Composer acceptance',
+      '<p id="quote">Frozen original quote.</p>',
+      agent.pane,
+    );
+    const page = await openPage(door, browser, created);
+    await selectInRenderer(page, '#quote');
+    await composerAssets(page, 'composer-owner');
+    const opened = operations.filter((operation) => operation === 'session.open').length;
+    let injectedContextReads = 0;
+    // Ordinary network failure at the existing context GET before directory discovery.
+    // No signed agents.list is fabricated or interrupted; content admission/sync is untouched.
+    const unavailableDirectoryContext = async (route: Route) => {
+      if (route.request().method() !== 'GET') return route.continue();
+      injectedContextReads++;
+      await route.abort('failed');
+    };
+    await page.route('**/api/session', unavailableDirectoryContext);
+    await page.getByTestId('selection-ask').click();
+    const compose = page.getByRole('dialog', { name: 'Annotate selection' });
+    const input = compose.getByRole('combobox', { name: 'Message', exact: true });
+    const plain = 'Plain annotation without a recipient.\nSecond line.';
+    await expect(compose.getByRole('status')).toContainText(text.messageAgentsUnavailable);
+    await expect(input).toBeEnabled();
+    await input.fill(plain);
+    await expect(compose.getByRole('button', { name: 'Post comment', exact: true })).toBeEnabled();
+    await compose.getByRole('button', { name: 'Post comment', exact: true }).click();
+    await comments(page);
+    await page.getByTestId('annotation-row').filter({ hasText: 'Frozen original quote.' }).click();
+    const thread = page.getByTestId('comment-thread').first();
+    const original = thread
+      .getByTestId('comment-entry')
+      .filter({ hasText: 'Plain annotation without a recipient.' });
+    const threadId = (await thread.getAttribute('data-thread-id'))!;
+    const originalId = (await original.getAttribute('data-message-id'))!;
+    await expect.poll(() => original.locator('.comment-body').textContent()).toBe(plain);
+    await expect
+      .poll(() => thread.locator('blockquote').first().textContent())
+      .toBe('Frozen original quote.');
+    expect(agent.received()).toHaveLength(0);
+    expect(world.coreCalls().filter((call) => call.operation === 'dispatch.create')).toHaveLength(
+      0,
+    );
+    const edited = 'Edited plain annotation.\n  Exact spacing stays.  ';
+    await edit(original, edited);
+    const originalById = thread.locator(`[data-message-id="${originalId}"]`);
+    await expect.poll(() => originalById.locator('.comment-body').textContent()).toBe(edited);
+    const reply = thread.getByRole('combobox', { name: 'Message', exact: true });
+    const plainReply = 'Plain reply without a recipient.\n  Retained bytes.  ';
+    await reply.fill(plainReply);
+    await thread.getByRole('button', { name: 'Post reply', exact: true }).click();
+    await expect(thread.getByTestId('comment-entry')).toHaveCount(2);
+    const replyEntry = thread
+      .getByTestId('comment-entry')
+      .filter({ hasText: 'Plain reply without a recipient.' });
+    const replyId = (await replyEntry.getAttribute('data-message-id'))!;
+    await expect.poll(() => replyEntry.locator('.comment-body').textContent()).toBe(plainReply);
+    expect(agent.received()).toHaveLength(0);
+    expect(world.coreCalls().filter((call) => call.operation === 'dispatch.create')).toHaveLength(
+      0,
+    );
+    expect(injectedContextReads).toBeGreaterThan(0);
+    expect(operations.filter((operation) => operation === 'session.open')).toHaveLength(opened);
+    await expect(page.frameLocator('iframe').locator('#quote')).toHaveText(
+      'Frozen original quote.',
+    );
+    await page.unroute('**/api/session', unavailableDirectoryContext);
+    const question =
+      'Explain this exact quote, with no mandatory prefix.\n  Keep these spaces and this line.  ';
+    await reply.fill(question);
+    await inputFor(thread, agent.name);
+    await expect.poll(() => reply.innerText()).toBe(question);
+    // Choose, then Change the same admitted recipient; both preserve multiline bytes.
+    await inputFor(thread, agent.name);
+    await expect.poll(() => reply.innerText()).toBe(question);
+    expect(agent.received()).toHaveLength(0);
+    expect(world.coreCalls().filter((call) => call.operation === 'dispatch.create')).toHaveLength(
+      0,
+    );
+    const directory = process.env.COLAB_1817_CAPTURE_DIR;
+    if (directory) {
+      mkdirSync(directory, { recursive: true });
+      for (const width of [1440, 390]) {
+        await page.setViewportSize({ width, height: 900 });
+        for (const theme of ['light', 'dark']) {
+          await page.evaluate((theme) => (document.documentElement.dataset.theme = theme), theme);
+          await reply.scrollIntoViewIfNeeded();
+          await page.screenshot({
+            path: path.join(directory, `native-composer-${width}-${theme}.png`),
+          });
+        }
+      }
+    }
+    expect(operations.filter((operation) => operation === 'session.open')).toHaveLength(opened);
+    world.armNextBarrier('after');
+    await thread.getByRole('button', { name: 'Ask agent', exact: true }).click();
+    const parked = await world.barrierEntered();
+    const entry = thread.getByTestId('ask-entry');
+    await expect(entry).toHaveCount(1);
+    const operationId = (await entry.getAttribute('data-operation-id'))!;
+    expect(parked.operationId).toBe(operationId);
+    await until(() => agent.received().length === 1, 'one explicitly selected annotation Ask');
+    const received = agent.received()[0];
+    const requestId = received.requestId as string;
+    expect(requestId).toMatch(/^req_[0-9a-f-]+$/);
+    expect(received.identityId).toBe(agent.id);
+    expect(typeof received.message).toBe('string');
+    const delivered = received.message as string;
+    expect(delivered.slice(-question.length)).toBe(question);
+    const askComment = thread
+      .getByTestId('comment-entry')
+      .filter({ hasText: 'Explain this exact quote, with no mandatory prefix.' });
+    const askMessageId = (await askComment.getAttribute('data-message-id'))!;
+    await expect.poll(() => askComment.locator('.comment-body').textContent()).toBe(question);
+    expect(agent.received()[0].message).toContain('Frozen original quote.');
+    expect(agent.received()[0].message).not.toContain(`@${agent.name}`);
+    expect(world.coreCalls().filter((call) => call.operation === 'dispatch.create')).toHaveLength(
+      1,
+    );
+    expect(
+      world
+        .coreCalls()
+        .filter((call) => call.operation === 'dispatch.create')
+        .map((call) => call.operationId),
+    ).toEqual([operationId]);
+    expect(agent.received(requestId)).toHaveLength(1);
+    world.releaseBarrier();
+    await expect(entry).toHaveAttribute('data-ledger-state', 'accepted');
+    writeFileSync(path.join(agent.gate, `${requestId}.release`), '');
+    const expectedReply = `ask-reply:${createHash('sha256').update(delivered).digest('hex').slice(0, 16)}`;
+    await expect.poll(() => entry.getByTestId('ask-reply').textContent()).toBe(expectedReply);
+    await until(
+      () => agent.rows().some((row) => row.event === 'replied' && row.requestId === requestId),
+      'reply for the original request',
+    );
+    await page.reload();
+    await comments(page);
+    await page.locator(`[data-testid=annotation-row][data-thread-id="${threadId}"]`).click();
+    const restored = page.locator(`[data-testid=comment-thread][data-thread-id="${threadId}"]`);
+    await expect
+      .poll(() => restored.locator(`[data-message-id="${originalId}"] .comment-body`).textContent())
+      .toBe(edited);
+    await expect
+      .poll(() => restored.locator(`[data-message-id="${replyId}"] .comment-body`).textContent())
+      .toBe(plainReply);
+    await expect
+      .poll(() =>
+        restored.locator(`[data-message-id="${askMessageId}"] .comment-body`).textContent(),
+      )
+      .toBe(question);
+    await expect
+      .poll(() => restored.locator('blockquote').first().textContent())
+      .toBe('Frozen original quote.');
+    const restoredAsk = restored.locator(
+      `[data-testid=ask-entry][data-operation-id="${operationId}"]`,
+    );
+    await expect.poll(() => restoredAsk.getByTestId('ask-reply').textContent()).toBe(expectedReply);
+    expect(agent.received(requestId)).toHaveLength(1);
+    expect(
+      world
+        .coreCalls()
+        .filter((call) => call.operation === 'dispatch.create')
+        .map((call) => call.operationId),
+    ).toEqual([operationId]);
+    expect(agent.received()).toHaveLength(1);
+    expect(world.coreCalls().filter((call) => call.operation === 'dispatch.create')).toHaveLength(
+      1,
     );
   });
 });

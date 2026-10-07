@@ -1209,8 +1209,8 @@ core discovery or storage access.
   depends on Remote's served SDK (`/sdk/remote-v1.js`). Never `tmt-core`, `tmt-adapters`,
   `tmt-remote` or Office; core is reached through `$TMT_EXECUTABLE api` and the fixed,
   bounded `identity show --json` command at CLI page create/write. Its optional caller
-  name is publisher-asserted display/default metadata, never identity or authority. The
-  architecture guard enforces the dependency set, that only `tmt-colab` consumes the model,
+  name is publisher-asserted display metadata, never a creator binding or routing authority.
+  The architecture guard enforces the dependency set, that only `tmt-colab` consumes the model,
   and that only `decoder/child.rs` imports `yrs`.
 - **Seams.** With Remote: the mount socket, `tmt-device-context`, the device-events callback
   and the browser SDK; the Ask agent sends through Remote's SDK operations helper as the
@@ -1228,8 +1228,8 @@ core discovery or storage access.
   in its own process group, reading pairing from `tmt remote devices --json`. This optional
   edge (Colab → Remote) uses the public CLI only: no Remote state files and no crate
   dependency. Colab stops only a door it started, with its whole group, after closing its own
-  socket. `tmt colab stop` reaches the serving process
-  through a root-local route on that same owner-only socket (no signals, no new surface).
+  socket. `tmt colab stop` reaches the serving process through a root-local route on that same owner-only socket (no signals, no new surface).
+- **Message editing.** One plaintext/history Lexical 0.52.0 composer follows the [editing boundary](.agents/skills/tmt-colab/references/architecture-state.md#message-editing-boundary), which owns dependencies, drafts and parent admission.
 - **Renderer invariant.** Parent chrome allows only self-hosted scripts and styles (no
   `unsafe-inline`). Author HTML runs only in `renderer.html` inside an opaque
   `sandbox allow-scripts` frame whose own policy permits inline scripts and styles but no

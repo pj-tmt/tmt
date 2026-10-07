@@ -1,6 +1,8 @@
 import { Check, CircleCheck, CircleDot, RotateCcw, X } from 'lucide-react';
+import { MessageComposer } from './components/message-composer.js';
+import { conversationAsks } from './thread-store.js';
 import { ConversationTurn } from './components/conversation-turn.js';
-import { useEffect, useId, useState, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { AskPanel, type AskBinding, type PageAsk } from './ask-panel.js';
 import { ActionMenu } from './components/action-menu.js';
 import type { ThreadBinding } from './thread-store.js';
@@ -22,7 +24,7 @@ function Composer({
   cancel?(): void;
   blocked: boolean;
 }) {
-  const inputId = useId();
+  const [resetKey, setResetKey] = useState(0);
   const [body, setBody] = useState(''),
     [busy, setBusy] = useState(false),
     [error, setError] = useState(false);
@@ -38,6 +40,7 @@ function Composer({
           .then(
             () => {
               setBody('');
+              setResetKey((key) => key + 1);
               cancel?.();
             },
             () => setError(true),
@@ -46,12 +49,13 @@ function Composer({
       }}
     >
       {quote && <blockquote>{quote}</blockquote>}
-      <label htmlFor={inputId}>{label}</label>
-      <textarea
-        id={inputId}
-        value={body}
+      <p>{label}</p>
+      <MessageComposer
+        label={label}
+        edit={{ value: body }}
+        resetKey={resetKey}
         disabled={busy || blocked}
-        onChange={(event) => setBody(event.target.value)}
+        onChange={(next) => setBody(next.value)}
       />
       <div className="comment-actions">
         <button type="submit" disabled={busy || blocked || !body.trim()}>
@@ -89,7 +93,6 @@ export function DiscussionComment({
   binding?: ThreadBinding;
   blocked: boolean;
 }) {
-  const editId = useId();
   const [editing, setEditing] = useState(false),
     [draft, setDraft] = useState(comment.body),
     [editRevision, setEditRevision] = useState(comment.revision);
@@ -171,12 +174,12 @@ export function DiscussionComment({
                   action(() => binding!.edit(comment.ref, editRevision, draft));
               }}
             >
-              <label htmlFor={editId}>{text.commentEditBody}</label>
-              <textarea
-                id={editId}
-                value={draft}
-                disabled={busy}
-                onChange={(event) => setDraft(event.target.value)}
+              <MessageComposer
+                label={text.commentEditBody}
+                edit={{ value: draft }}
+                disabled={busy || blocked}
+                autoFocus
+                onChange={(next) => setDraft(next.value)}
               />
               <div className="comment-actions">
                 <button disabled={busy || blocked || !draft.trim()}>{text.commentSave}</button>
@@ -218,8 +221,8 @@ export function CommentExchange({
   blocked: boolean;
   chat?: boolean;
 }) {
-  const records = asks.filter(
-    (record) => record.thread === thread.threadId && record.messageIds?.includes(comment.messageId),
+  const records = conversationAsks(thread, asks, true).filter((record) =>
+    record.messageIds?.includes(comment.messageId),
   );
   const user = (status?: ReactNode, delivery?: ReactNode) => (
     <DiscussionComment
@@ -253,7 +256,6 @@ function Thread({
   ask,
   title,
   asks,
-  publisher,
   close,
   blocked,
 }: {
@@ -264,7 +266,6 @@ function Thread({
   ask?: AskBinding;
   title: string;
   asks: readonly PageAsk[];
-  publisher?: string;
   close(): void;
   blocked: boolean;
 }) {
@@ -407,7 +408,6 @@ function Thread({
           thread={thread}
           asks={asks}
           title={title}
-          publisher={publisher}
           blocked={blocked || busy}
           cancel={close}
           committed={() => {}}
@@ -427,7 +427,6 @@ export function ThreadPanel({
   ask,
   asks,
   title,
-  publisher,
   blocked,
   active,
   select,
@@ -440,7 +439,6 @@ export function ThreadPanel({
   ask?: AskBinding;
   asks: readonly PageAsk[];
   title: string;
-  publisher?: string;
   blocked: boolean;
   active: string | null;
   select(ref: DiscussionRef | null): void;
@@ -532,7 +530,6 @@ export function ThreadPanel({
                   ask={ask}
                   asks={asks}
                   title={title}
-                  publisher={publisher}
                   close={() => select(null)}
                   blocked={blocked}
                 />

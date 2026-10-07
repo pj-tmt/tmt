@@ -41,6 +41,41 @@ an app build. Only these files and `renderer.html` are public; the rest of the a
 guidance CSP and pairing failure/reload guard alongside the app lifecycle tests (`served.spec.ts`,
 `session-recovery.test.ts`).
 
+## Message editing boundary
+
+The main app uses one Colab-local `components/message-composer.tsx` for Chat,
+annotations, agent follow-ups, plain replies and comment edits. Exact 0.52.0
+`lexical`, `@lexical/react`, `@lexical/plain-text` and `@lexical/history` are app-only
+runtime dependencies; only plaintext/history extensions are imported. The source
+editor is a separate editing mode. Reader and recovery entries have no composer.
+
+`ComposerEdit` emits one atomic snapshot of exact plaintext, optional parent-selected
+machine/agent identity and cosmetic mention-token range. Paragraphs serialize with
+one LF, retaining blank and trailing lines. Parent echoes preserve the editing
+history/selection; explicit reset keys end a draft's editing lifetime. Mention-node
+identity follows edits and undo; editing/removing the token invalidates its cosmetic
+metadata without changing recipient authority. No Lexical document is persisted or
+sent as a routing instruction.
+
+`AnnotationInput` owns the plaintext draft, selected recipient, trusted action,
+current write/Ask admission and immutable send capture. `messageRecipient` is a pure
+parent presentation policy: plain comments resolve before agent discovery, while an
+explicit Ask uses a current stable destination. Creation defaults require a canonical
+stable creation binding and a unique current admitted match; no such binding is currently projected. Latest publisher and
+original-author labels, or a sole directory candidate, never substitute for it.
+Prior replies use UUID/machine keys, never display labels. Ambiguous/stale choices
+do not silently retarget. `conversationAsks` owns comment/Ask association for display, reply defaults
+and captured conversation; the editor has no storage, ledger, notification or Remote
+capability. Content-write and Ask failures retain the existing draft/recorded-turn
+and uncertainty rules; recipient selection performs no preparation or dispatch.
+The explicit Choose/Change recipient picker preserves message bytes, including typed `@` text; mention
+completion remains optional.
+
+Candidate geometry is input-only in the shared Listbox: it uses viewport bounds and
+the native popover layer, remaining inside the current modal dialog's ownership.
+Management pickers retain their button policy. No native asset allowlist, embedding
+mechanism or CSP changes are required; no inline-style/eval relaxation is permitted.
+
 ## Read-only reader
 
 `src/reader-link.ts` parses the fragment (strict grammar in the contract), `src/reader.ts`
@@ -60,9 +95,15 @@ reload receives Colab's private guidance page. That page loads the public `asset
 (`colab-recovery:<mount path>`, `src/session-recovery.ts`) spans that reload so a second
 guidance response cannot loop; authenticated boot (`mounted.ts`) clears it. A failed or
 refused reopen, or unavailable session storage, leaves plain pairing guidance and never
-retries an Ask. On an open page's socket close, `Live` makes one read-only old-session
-probe: signed session end silently reopens that tab; signed eviction stops it with the
-limit notice. Transport failures remain distinct and get bounded sync catchup. If recovery
+retries an Ask. On an open page's socket close, `Live` makes one read-only probe of the exact old
+Connection/Registration/Remote owner. A current pending same-session attempt keeps
+that owner while diagnosis settles, even if readiness has already rejected.
+Verified session end starts one existing mounted-owner replacement; verified eviction
+blocks. A pending failed attempt also blocks on a successful read without session end
+or an unverified read failure. A failure during pending Session replacement is terminal.
+Ready-page transport failures retain bounded same-session catchup. Superseded callbacks,
+readiness, publications and diagnosis cannot alter the current attempt. Recovery
+never replays an Ask or mutation. If recovery
 fails, the explicit Reconnect button uses `recoverSession` through `Live.reconnect`, closing
 the page socket, Ask and observer first. The Remote restart cases drive that explicit path
 through `reconnect(page)` in `acceptance/ask.spec.ts`.

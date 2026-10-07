@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { AnnotationInput } from './annotation-input.js';
 import { AskPanel, type AskBinding, type PageAsk } from './ask-panel.js';
+import { conversationAsks } from './thread-store.js';
 import { CommentExchange } from './thread-panel.js';
 import { isChatThread, type ThreadView } from './thread-records.js';
 import type { ThreadBinding } from './thread-store.js';
@@ -11,7 +12,6 @@ export function ChatPanel({
   asks,
   binding,
   discussion,
-  publisher,
   title,
   blocked,
   close,
@@ -20,7 +20,6 @@ export function ChatPanel({
   asks: readonly PageAsk[];
   binding?: AskBinding;
   discussion?: ThreadBinding;
-  publisher?: string;
   title: string;
   blocked: boolean;
   close(): void;
@@ -29,12 +28,13 @@ export function ChatPanel({
   const chats = threads.filter(isChatThread);
   const own = chats.find((thread) => thread.ref.writer === discussion?.deviceId);
   const legacy = asks.filter((ask) => !ask.thread);
-  const replier = asks
+  const latest = conversationAsks(own, asks)
     .filter((ask) => ask.reply !== undefined)
     .reduce<PageAsk | undefined>(
       (latest, ask) => (!latest || ask.issuedAt > latest.issuedAt ? ask : latest),
       undefined,
-    )?.agentName;
+    );
+  const replier = latest ? { machine: latest.machine, agent: latest.agent } : undefined;
   useEffect(() => {
     const node = history.current;
     if (node) node.scrollTop = node.scrollHeight;
@@ -79,7 +79,6 @@ export function ChatPanel({
         thread={own}
         asks={asks}
         title={title}
-        publisher={publisher}
         replier={replier}
         blocked={blocked || !!own?.deleted}
         cancel={close}
