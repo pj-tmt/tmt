@@ -140,7 +140,7 @@
   z-index: 2;
   top: 205px;
   left: calc(50% + 20px);
-  right: max(53px, calc((100% - 1160px) / 2 + 5px));
+  right: max(calc(var(--home-gutter) / 2 + 5px), calc((100% - var(--home-col)) / 2 + 5px));
   margin: 0;
   color: var(--c-text);
   font: 12px/1.5 var(--f-mono);
@@ -154,7 +154,7 @@
 .v9-home .tunnel-scene {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 160px minmax(0, 1fr);
-  align-items: center;
+  align-items: start;
 }
 .v9-home .tunnel-terminal {
   position: relative;
@@ -318,10 +318,10 @@
   white-space: nowrap;
 }
 .v9-home .tunnel-request-label {
-  bottom: calc(50% + 28px);
+  bottom: calc(100% - 124px);
 }
 .v9-home .tunnel-reply-label {
-  top: calc(50% + 28px);
+  top: 181px;
 }
 .v9-home .tunnel-footnote {
   margin: 24px 0 0;
@@ -329,8 +329,8 @@
   color: var(--c-muted);
 }
 @media (min-width: 761px) and (max-width: 1050px) {
-  .v9-home .hero-tunnel {
-    right: 37px;
+  .v9-home .tunnel-exchange {
+    margin-top: -13.5px;
   }
   .v9-home .tunnel-scene {
     grid-template-columns: minmax(0, 1fr) 70px minmax(0, 1fr);

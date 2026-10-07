@@ -6,7 +6,7 @@ function PortalRings({ vertical = false }: { vertical?: boolean }) {
     <g
       transform={
         vertical
-          ? "translate(80 130) rotate(90) scale(.8) translate(-245 -282)"
+          ? "translate(80 152.75) rotate(90) scale(.8) translate(-245 -282)"
           : "translate(130 80) scale(.8) translate(-245 -282)"
       }
     >
@@ -47,13 +47,18 @@ export function HeroTunnel() {
           </div>
         </article>
         <div className="tunnel-exchange">
-          <svg className="tunnel-path tunnel-desktop-flow" viewBox="0 0 160 260" aria-hidden="true">
+          <svg
+            className="tunnel-path tunnel-desktop-flow"
+            viewBox="0 0 160 260"
+            preserveAspectRatio="none"
+            aria-hidden="true"
+          >
             <PortalRings vertical />
-            <path className="tunnel-route" d="M0 110 H160" />
-            <path className="tunnel-route tunnel-return" d="M160 150 H0" />
-            <path className="tunnel-arrow" d="m152 105 7 5-7 5 M8 145 l-7 5 7 5" />
-            <rect className="tunnel-packet" x="0" y="108" width="4" height="4" />
-            <rect className="tunnel-packet tunnel-reply" x="156" y="148" width="4" height="4" />
+            <path className="tunnel-route" d="M0 132.5 H160" />
+            <path className="tunnel-route tunnel-return" d="M160 173 H0" />
+            <path className="tunnel-arrow" d="m152 127.5 7 5-7 5 M8 168 l-7 5 7 5" />
+            <rect className="tunnel-packet" x="0" y="130.5" width="4" height="4" />
+            <rect className="tunnel-packet tunnel-reply" x="156" y="171" width="4" height="4" />
           </svg>
           <svg className="tunnel-path tunnel-mobile-flow" viewBox="0 0 260 160" aria-hidden="true">
             <PortalRings />

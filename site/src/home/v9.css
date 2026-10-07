@@ -3,6 +3,8 @@
   /* The monochrome identity is intentionally independent of the EGP application. */
   & {
     color-scheme: dark;
+    --home-col: 1160px;
+    --home-gutter: 96px;
     --bg: #080808;
     --fg: #f4f4f4;
     --muted: #969696;
@@ -55,7 +57,7 @@
     display: none !important;
   }
   .content {
-    width: min(1160px, calc(100% - 96px));
+    width: min(var(--home-col), calc(100% - var(--home-gutter)));
     margin-inline: auto;
   }
   .muted {
@@ -671,8 +673,8 @@
     }
   }
   @media (max-width: 1050px) {
-    .content {
-      width: calc(100% - 64px);
+    & {
+      --home-gutter: 64px;
     }
     .hero-art {
       object-position: 42% center;
@@ -701,8 +703,8 @@
     }
   }
   @media (max-width: 760px) {
-    .content {
-      width: calc(100% - 40px);
+    & {
+      --home-gutter: 40px;
     }
     .concept-bar {
       padding: 0 12px;
