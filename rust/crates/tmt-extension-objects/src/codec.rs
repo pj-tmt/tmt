@@ -1,10 +1,6 @@
-//! Length-prefix decoding and the strict JSON admission every typed frame will
-//! pass through. Admission checks bytes and JSON structure only: it knows nothing
-//! about frame kinds, fields or authority.
-//!
-//! The typed frame slices are the callers of `strict_value`; until they land it is
-//! reachable only from this crate's tests.
-#![cfg_attr(not(test), allow(dead_code))]
+//! Length-prefix decoding and the strict JSON admission every typed frame passes
+//! through. Admission checks bytes and JSON structure only: it knows nothing about
+//! frame kinds, fields or authority, and it is not an arbitrary-JSON API of the crate.
 use crate::{
     ErrorClass,
     limits::{FRAME_BYTES, JSON_DEPTH, MAX_SAFE_INTEGER, MIN_FRAME_BYTES},

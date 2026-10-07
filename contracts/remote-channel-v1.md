@@ -992,6 +992,68 @@ extension records the ask and the reply in the shared resource, attributed to th
 to the answering agent and machine. Everyone who can see that resource sees them, like comments.
 Visibility is the extension's rule, not a remote grant.
 
+### Object channel frames
+
+**Status:** library wire schema only. `rust/crates/tmt-extension-objects` implements and tests the request and result
+frames below; no route, channel, handshake, callback or backend is shipped (#1852), and callback and lifecycle frames
+are not defined yet. A frame names no principal, permission, retry or scope: `method` and the result tag are
+correlation only, and an identifier, digest or origin proves nothing about who may use it.
+
+**Framing.** A frame is a 4-byte big-endian length (2 to 65,536) and that many bytes of one strict UTF-8 JSON object
+without duplicate member names (compared after decoding escapes), unknown or missing members, trailing bytes, nesting
+deeper than 8, or any number that is not an unsigned integer of at most 2^53-1 without sign, fraction or exponent.
+Counters are canonical decimal strings spanning `u64`. UUIDs are lowercase version 4. Bytes are unpadded base64url
+(canonical: no padding, standard alphabet or nonzero trailing bits), digests 64 lowercase hex digits, and every value
+re-encodes to the same text. Structure faults (unknown or missing member, wrong JSON type, unknown `kind`, `method`,
+origin kind or result tag) and value faults (a spelling, range or association outside its grammar) are distinct
+classes. Encoding applies the same checks, in the canonical member order shown.
+
+**Request** `{"version":1,"kind":"request","generation":<uuid>,"requestId":<counter>,"origin":<origin>,"method":<method>,"input":<input>}`,
+with `origin` either `{"kind":"local-extension"}` or `{"kind":"mounted","originId":<uuid>}`.
+
+| `method`          | `input` members, in order                                                                                  |
+| ----------------- | ---------------------------------------------------------------------------------------------------------- |
+| `objects.config`  | `namespace`, `policyInput`                                                                                 |
+| `objects.begin`   | `transferId`, `namespace`, `opaqueKey`, `policyInput`, `payloadSha256`, `payloadBytes`                     |
+| `objects.part`    | `transferId`, `index`, `bytes`                                                                             |
+| `objects.commit`  | `transferId`                                                                                               |
+| `objects.status`  | `transferId`, `namespace`, `policyInput`                                                                   |
+| `objects.read`    | `namespace`, `opaqueKey`, `policyInput`, `payloadSha256`, `payloadBytes`, `offset`, `count`                |
+| `objects.discard` | `transferId`                                                                                               |
+
+`namespace` and `opaqueKey` are 32 bytes (43 characters). `policyInput` is opaque, at most 2,048 decoded bytes (the
+bound of the backend's policy binding). `payloadBytes` is at most 12,582,912. `bytes` of a part is 1 to 32,768 decoded
+bytes. `index` is any `u32`: it does not depend on the transport ceiling of 32,768 or on a smaller backend part size
+(3,071 or u32 max are valid; 2^32 is not), and the backend alone enforces part order, full parts and the final
+remainder. `count` is 1 to 32,768, and `offset` is below `payloadBytes` (an empty payload reads from 0).
+
+**Result** `{"version":1,"kind":"result","generation":<uuid>,"requestId":<counter>,"method":<method>[,"transferId":<uuid>],"ok":{...}|"error":{...}}`
+has exactly one of `ok` and `error`. `transferId` repeats the original transfer on every result and error of `begin`,
+`part`, `commit`, `status` and `discard`, and is absent for `config` and `read`. `ok` carries a `result` tag:
+
+| `result`    | Further members                                                                                      | Answers                  |
+| ----------- | ---------------------------------------------------------------------------------------------------- | ------------------------ |
+| `config`    | `projection` (`browser` or `local`), `backend`, `capabilities`, `limits`                               | `config`                 |
+| `pending`   | `nextIndex`, `received`, and `expiresAtMs` only for `status`                                          | `begin`, `status`        |
+| `progress`  | `nextIndex`, `received`                                                                              | `part`                   |
+| `committed` | `opaqueKey`, `payloadSha256`, `payloadBytes`                                                         | `begin`, `commit`, `status` |
+| `state`     | `state`: `expired`, `discarded`, `unavailable`, `unknown`, `notObserved` (`discard` answers only `discarded`) | `begin`, `status`, `discard` |
+| `read`      | `offset`, `totalBytes`, `bytes` (0 to 32,768 decoded bytes, within `totalBytes`)                       | `read`                   |
+
+A pending `status` answer carries the actual stored expiry; a pending `begin` answer has none and never invents one.
+`config` shows the server-selected backend (`{"id","source":"default","editable":false}`), its three boolean
+`capabilities` (`immutableCreate`, `chunkedRead`, `recoverByOriginalId`) and `limits`: `payloadBytes` and `chunkBytes`
+(the backend's canonical part size, never clamped to the transport) for `browser`, plus `namespaceBytes`,
+`extensionBytes` and `installationBytes` for `local`. An empty generic read or payload is valid and is unrelated to a
+consumer's own envelope or authority.
+
+`error` is `{"code":<code>}` with `denied`, `unavailable`, `invalid`, `conflict`, `capacity`, `not-found` or `unknown`,
+and a `limit` member exactly for `capacity`: `namespace-bytes`, `extension-bytes`, `installation-bytes`,
+`namespace-entries`, `extension-entries`, `installation-entries`, `active-intents`, `retained-extension`,
+`retained-installation` or `requests`. `not-found` answers only `read`; `unknown` only `begin`, `part`, `commit` and
+`discard`, where an effect may have happened. No error carries message text, and none proves that a possibly published
+effect did not happen.
+
 ## Backends and deploy
 
 The same message, relay and admission owners serve every backend: `local` (the door plus extension
