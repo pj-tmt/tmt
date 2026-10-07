@@ -81,17 +81,20 @@ export async function mount() {
       ref: _ref,
       ...scope
     } = thread;
-    thread.comments.push({
+    const comment: ThreadView['comments'][number] = {
       ...scope,
       kind: 'comment',
       thread: thread.ref,
       body,
       messageId,
       ref: { writer: id(4), id: messageId },
-    });
+    };
     current = {
       ...current,
-      threads: [...current.threads!.filter((value) => value.threadId !== thread.threadId), thread],
+      threads: [
+        ...current.threads!.filter((value) => value.threadId !== thread.threadId),
+        { ...thread, comments: [...thread.comments, comment] },
+      ],
     };
     publish?.(current);
     return {

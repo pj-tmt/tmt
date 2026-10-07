@@ -336,6 +336,9 @@ for (const width of [1440, 390]) {
       await input.press('Enter');
       await expect(thread.getByTestId('comment-entry')).toHaveCount(2);
       await expect.poll(async () => (await run(page, 'proof')).sends.length).toBe(1);
+      await expect(
+        thread.getByText('Second turn from the same window.', { exact: true }),
+      ).toBeInViewport({ ratio: 1 });
       const threadId = await thread.getAttribute('data-thread-id');
       const editorBox = (await input.boundingBox())!;
       const labelBox = (await dialog.locator('.annotation-reply-label').boundingBox())!;
@@ -344,7 +347,8 @@ for (const width of [1440, 390]) {
       await page.evaluate(async (fixture) => (await import(fixture)).windowReply(24), fixture);
       await expect(thread.getByTestId('ask-reply')).toHaveText('Exact associated agent reply.');
       const messages = thread.locator('.thread-messages');
-      await expect(thread.getByTestId('ask-reply')).toBeInViewport();
+      await expect(thread.getByTestId('ask-reply')).toBeInViewport({ ratio: 1 });
+      await page.screenshot({ path: `${captureDir}/window-${width}-${theme}-reply.png` });
       expect(await messages.evaluate((node) => node.scrollHeight > node.clientHeight)).toBe(true);
       const header = thread.locator('.thread-bar');
       const headerBefore = (await header.boundingBox())!;
