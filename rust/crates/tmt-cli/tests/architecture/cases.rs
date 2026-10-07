@@ -1919,6 +1919,149 @@ fn extension_state_is_a_leaf_with_only_the_two_reviewed_executable_consumers() {
     );
 }
 
+/// Every workspace package, so a consumer cannot be forgotten or misspelled: a
+/// misspelled name would be refused as an unreviewed package, not for the leaf.
+const WORKSPACE_PACKAGES: [&str; 24] = [
+    "tmt-core",
+    "tmt-adapters",
+    "tmt-cli",
+    "tmt-cli-style",
+    "tmt-command-output",
+    "tmt-host-grammar",
+    "tmt-driver-protocol",
+    "tmt-driver-herdr",
+    "tmt-invoke",
+    "tmt-extension-state",
+    "tmt-tui",
+    "tmt-test-support",
+    "tmt-release-tool",
+    "tmt-sys",
+    "tmt-colab-model",
+    "tmt-office",
+    "tmt-office-model",
+    "tmt-office-command",
+    "tmt-office-storage",
+    "tmt-office-pairing",
+    "tmt-office-service",
+    "tmt-squad",
+    "tmt-remote",
+    "tmt-colab",
+];
+
+/// The refusal names `dependency`, so an unrelated failure cannot satisfy a negative.
+fn refuses(
+    owner: &str,
+    dependency_name: &str,
+    kind: &str,
+    target: Option<&str>,
+    rename: Option<&str>,
+) -> bool {
+    policy::dependency_violations(&package(
+        owner,
+        vec![dependency(dependency_name, kind, target, rename)],
+    ))
+    .iter()
+    .any(|violation| violation.contains(dependency_name))
+}
+
+#[test]
+fn extension_objects_is_a_strict_leaf_with_no_product_consumer_yet() {
+    for kind in ["normal", "dev", "build"] {
+        for target in [None, Some("cfg(unix)")] {
+            let allowed = "base64";
+            assert!(
+                policy::dependency_violations(&package(
+                    "tmt-extension-objects",
+                    vec![dependency(allowed, kind, target, None)]
+                ))
+                .is_empty(),
+                "{allowed} {kind} {target:?}"
+            );
+            assert!(
+                refuses(
+                    "tmt-extension-objects",
+                    allowed,
+                    kind,
+                    target,
+                    Some("alias")
+                ),
+                "renamed {allowed} {kind} {target:?}"
+            );
+            // Includes crates the generic dev ledger permits elsewhere: the leaf is
+            // strict for every dependency kind.
+            for forbidden in [
+                "tmt-core",
+                "tmt-adapters",
+                "tmt-cli",
+                "tmt-colab-model",
+                "tmt-office-model",
+                "tmt-driver-protocol",
+                "tmt-driver-herdr",
+                "tmt-host-grammar",
+                "tmt-extension-state",
+                "tmt-invoke",
+                "tmt-test-support",
+                "tmt-remote",
+                "tmt-colab",
+                "nix",
+                "httparse",
+                "sha2",
+                "getrandom",
+                "ed25519-dalek",
+                "tempfile",
+                "serde",
+                "serde_json",
+            ] {
+                assert!(
+                    refuses("tmt-extension-objects", forbidden, kind, target, None),
+                    "leaf must not use {forbidden} ({kind}, {target:?})"
+                );
+            }
+            // No package, including Remote and Colab, depends on the leaf yet.
+            for consumer in WORKSPACE_PACKAGES {
+                for rename in [None, Some("objects")] {
+                    assert!(
+                        refuses(consumer, "tmt-extension-objects", kind, target, rename),
+                        "{consumer} must not depend on the leaf ({kind}, {target:?}, {rename:?})"
+                    );
+                }
+            }
+        }
+    }
+    for consumer in WORKSPACE_PACKAGES {
+        assert!(
+            !policy::source_violations(&[syntax(
+                consumer,
+                "objects.rs",
+                "use tmt_extension_objects::Counter;"
+            )])
+            .is_empty(),
+            "{consumer}"
+        );
+    }
+    for source in [
+        "use tmt_core::identity::Identity;",
+        "pub use tmt_adapters::process;",
+        "use tmt_remote::state::Layout;",
+        "use tmt_colab::keyring::Layout;",
+        "use tmt_extension_state::Layout;",
+    ] {
+        assert!(
+            !policy::source_violations(&[syntax("tmt-extension-objects", "lib.rs", source)])
+                .is_empty(),
+            "{source}"
+        );
+    }
+    assert_exact(
+        &[syntax(
+            "tmt-extension-objects",
+            "ids.rs",
+            "use tmt_extension_objects::Counter;",
+        )],
+        &[],
+    );
+}
+
 #[test]
 fn invoke_is_a_leaf_even_in_tests_builds_and_target_dependencies() {
     assert!(

@@ -10,7 +10,7 @@ use syn::{
 
 // Exact dev edges: one reviewed row with its fixture reason per dependency.
 // Versions/features remain Cargo-owned; aliases require canonical crate names.
-// The invoke and extension-state leaves retain their stricter all-kind policies below.
+// The invoke, extension-state and extension-objects leaves retain their stricter all-kind policies below.
 const DEV_DEPENDENCIES: &[(&str, &str, Option<&str>)] = &[
     ("tmt-adapters", "tmt-test-support", None), // Codex executable stand-ins
     ("tmt-cli", "tmt-test-support", None),      // target-resolution executable stand-in
@@ -232,6 +232,8 @@ pub fn dependency_violations(package: &Value) -> Vec<String> {
         ],
         "tmt-invoke" => &["subprocess", "nix"],
         "tmt-extension-state" => &["nix"],
+        // Wire primitives only: canonical encodings and protocol bounds.
+        "tmt-extension-objects" => &["base64"],
         // Case-2 publication reuses the neutral bounded process owner only.
         "tmt-test-support" => &["tmt-invoke"],
         // Private release tooling owns only TOML edits and their JSON transport.
@@ -325,7 +327,9 @@ pub fn dependency_violations(package: &Value) -> Vec<String> {
             if dependency == "tmt-release-tool" {
                 return Some(format!("{name}: release tooling cannot be a product dependency"));
             }
-            if d["kind"] == "dev" && !["tmt-invoke", "tmt-tui", "tmt-extension-state"].contains(&name) {
+            if d["kind"] == "dev"
+                && !["tmt-invoke", "tmt-tui", "tmt-extension-state", "tmt-extension-objects"]
+                    .contains(&name) {
                 let target = d["target"].as_str();
                 let entry = format!("({name:?}, {dependency:?}, {target:?}),");
                 let ledger = "DEV_DEPENDENCIES in rust/crates/tmt-cli/tests/architecture/policy.rs";
@@ -854,6 +858,22 @@ pub fn source_violations(sources: &[Source]) -> Vec<String> {
             {
                 violations.push(format!(
                     "{location}: unreviewed extension state consumer {}",
+                    source.package
+                ));
+            }
+            if source.package == "tmt-extension-objects"
+                && root.starts_with("tmt_")
+                && root != "tmt_extension_objects"
+            {
+                violations.push(format!(
+                    "{location}: extension objects leaf cannot reach {}",
+                    path.join("::")
+                ));
+            }
+            // No product consumes the leaf yet; each reviewed consumer is added with its edge.
+            if root == "tmt_extension_objects" && source.package != "tmt-extension-objects" {
+                violations.push(format!(
+                    "{location}: unreviewed extension objects consumer {}",
                     source.package
                 ));
             }

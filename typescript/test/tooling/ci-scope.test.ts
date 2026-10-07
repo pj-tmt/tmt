@@ -142,6 +142,22 @@ describe('CI area selection', () => {
     expect(ownerOf('rust/crates/tmt-extension-state-other/src/lib.rs')).toBe('cli');
   });
 
+  it('keeps the extension objects leaf privately owned by Remote with full native verification', () => {
+    const paths = [
+      'rust/crates/tmt-extension-objects/Cargo.toml',
+      'rust/crates/tmt-extension-objects/src/lib.rs',
+      'rust/crates/tmt-extension-objects/src/codec/tests.rs',
+    ];
+    for (const row of explainCiSelection(paths)) {
+      expect(row.owner).toBe('tmt-remote');
+      expect(row.rule).toBe('native-source');
+      expect(selectCiAreas([row.path])).toEqual(
+        selectCiAreas(['rust/crates/tmt-invoke/src/lib.rs'])
+      );
+    }
+    expect(ownerOf('rust/crates/tmt-extension-objects-other/src/lib.rs')).toBe('cli');
+  });
+
   it('rejects a misspelled private-release declaration', () => {
     expect(() =>
       parseComponentMap(

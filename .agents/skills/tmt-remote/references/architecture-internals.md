@@ -15,6 +15,7 @@ and `transport` have no I/O, clock, storage or `CoreClient` access):
 | `pairing`, `control`, `devices`        | One pairing offer per run, owner-only control socket for discovery/stop and device list/revoke/rename                                                                                                       |
 | `mount`, `pages`                       | Extension mounts (allowlisted extensions only), static landing/pairing/error pages and embedded stylesheet/SDK assets                                                                                       |
 | `objects`                              | Object backend trait and `LocalFs`: the `objects.db` ledger and extension-private payload trees under the serve lease; no route, config or consumer yet                                                     |
+| `tmt-extension-objects` (leaf)         | Remote-owned protocol leaf awaiting product integration: canonical IDs/encodings and protocol bounds only; no I/O, backend, policy or Remote/Colab types, and no crate consumes it yet                      |
 
 Rules that are easy to get wrong:
 
@@ -78,3 +79,11 @@ library-only and shared with Colab:
 ```
 
 Synced publication tests prove filesystem behavior, not power-loss recovery.
+
+The wire leaf `tmt-extension-objects` is library-only and has no consumer yet; its
+tests are in-crate, so run it alone and keep it in the architecture guard:
+
+```bash
+(cd rust && CARGO_BUILD_JOBS=2 cargo test --offline --locked -p tmt-extension-objects)
+(cd rust && CARGO_BUILD_JOBS=2 cargo test --offline --locked -p tmt-cli --test architecture)
+```
