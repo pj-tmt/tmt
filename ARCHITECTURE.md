@@ -845,11 +845,11 @@ are classified once and projected through `tmt-command-output::Failure::storage_
 
 `tmt-core::request::RequestService` owns preparation, delivery-state transitions,
 exact final submission, waiter release, attention revisions and bounded retention
-housekeeping; `storage::requests` owns SQL and cleanup and `request::attention` the
-pure attention contract. It samples clocks at the transaction boundary, never holds
-a transaction across transport, and treats uncertain delivery as uncertain, never as
-replay authorization. Final bodies are immutable and terminal text is never
-completion evidence. Reads never acknowledge; originator and recipient
+housekeeping; `storage::requests` owns SQL and cleanup; `request::attention` owns attention.
+`request::focus` owns held references and sealed checklists; the Focus adapter composes API
+and verified-idle handoff without scheduling. Clocks are sampled at transaction entry;
+no transaction spans transport, and uncertainty never authorizes replay. Finals are
+immutable and terminal text never proves completion. Reads never acknowledge; originator and recipient
 acknowledgment are independent. `RequestRoute` separates unbound pane delivery from
 the durable identity inbox, which settles `queued`. Unbound identity delivery uses
 the foreground observer and recipient pull. Reply notice windows are persisted and composed by

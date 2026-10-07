@@ -37,6 +37,8 @@ fn command_aliases_preserve_typed_invocations() {
                 message: "hello".into(),
                 originator: None,
                 options: TalkOptions {
+                    urgent: false,
+                    focus_kind: tmt_core::request::focus::FocusKind::Fyi,
                     room: None,
                     inbox: false,
                     force: false,
@@ -129,6 +131,8 @@ fn literal_option_words_remain_data_when_the_grammar_requires_values() {
             message: "--json --debug".into(),
             originator: None,
             options: TalkOptions {
+                urgent: false,
+                focus_kind: tmt_core::request::focus::FocusKind::Fyi,
                 room: None,
                 inbox: false,
                 force: false,
@@ -170,6 +174,8 @@ fn root_and_command_local_options_work_before_and_after_the_command() {
                 message: "hello".into(),
                 originator: None,
                 options: TalkOptions {
+                    urgent: false,
+                    focus_kind: tmt_core::request::focus::FocusKind::Fyi,
                     room: None,
                     inbox: false,
                     force: false,
@@ -189,6 +195,8 @@ fn root_and_command_local_options_work_before_and_after_the_command() {
             message: "hello".into(),
             originator: None,
             options: TalkOptions {
+                urgent: false,
+                focus_kind: tmt_core::request::focus::FocusKind::Fyi,
                 room: None,
                 inbox: false,
                 force: false,
@@ -220,6 +228,8 @@ fn removed_output_flags_are_rejected_but_remain_literal_payload_data() {
             message: "--verbose --debug -v".into(),
             originator: None,
             options: TalkOptions {
+                urgent: false,
+                focus_kind: tmt_core::request::focus::FocusKind::Fyi,
                 room: None,
                 inbox: false,
                 force: false,

@@ -25,6 +25,7 @@ import Database from 'better-sqlite3';
 import fs from 'node:fs';
 import { execFile, spawn } from 'node:child_process';
 import readline from 'node:readline';
+import net from 'node:net';
 import { resolveCliExecutables } from '../support/cli-executable.mjs';
 
 const args = process.argv.slice(2);
@@ -83,9 +84,17 @@ if (configIndex >= 0) {
     strictMcpConfig: args.includes('--strict-mcp-config'),
     serverArgs,
   });
-  server = spawn(command, serverArgs, { stdio: ['pipe', 'pipe', 'inherit'], env: process.env });
-  server.on('exit', (code, signal) => log({ event: 'server-exit', code, signal }));
-  serverClosed = new Promise((resolve) => server.once('close', resolve));
+  if (process.env.TMT_TEST_CLAUDE_MCP_SOCKET) {
+    // The native fixture owns the actual MCP child, matching the admitted
+    // provider incarnation. This socket forwards only its real stdio bytes.
+    const socket = net.createConnection(process.env.TMT_TEST_CLAUDE_MCP_SOCKET);
+    server = { stdin: socket, stdout: socket };
+    serverClosed = new Promise((resolve) => socket.once('close', resolve));
+  } else {
+    server = spawn(command, serverArgs, { stdio: ['pipe', 'pipe', 'inherit'], env: process.env });
+    server.on('exit', (code, signal) => log({ event: 'server-exit', code, signal }));
+    serverClosed = new Promise((resolve) => server.once('close', resolve));
+  }
   const send = (message) => server.stdin.write(`${JSON.stringify(message)}\n`);
   const announce = () => {
     send({ jsonrpc: '2.0', method: 'notifications/initialized' });

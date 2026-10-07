@@ -232,6 +232,8 @@ pub use crate::office_facade::invocation::{
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct TalkOptions {
+    pub urgent: bool,
+    pub focus_kind: tmt_core::request::focus::FocusKind,
     pub room: Option<String>,
     pub inbox: bool,
     pub force: bool,

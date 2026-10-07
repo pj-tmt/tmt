@@ -71,6 +71,7 @@ pub struct HistoryRecord {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HistoryItem<T = ()> {
+    pub delivery_policy: super::focus::DeliveryPolicy,
     pub request_id: String,
     pub room_id: Option<String>,
     pub recipient_identity_id: Option<String>,

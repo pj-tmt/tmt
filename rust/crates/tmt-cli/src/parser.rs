@@ -426,6 +426,9 @@ fn translate(path: &[&str], m: &ArgMatches) -> Result<Invocation, String> {
                 message: required(m, "message"),
                 originator: text(m, "identity"),
                 options: TalkOptions {
+                    urgent: flag(m, "urgent"),
+                    focus_kind: tmt_core::request::focus::FocusKind::parse(&required(m, "kind"))
+                        .expect("validated purpose"),
                     room: text(m, "room"),
                     inbox: flag(m, "inbox"),
                     force: flag(m, "force"),

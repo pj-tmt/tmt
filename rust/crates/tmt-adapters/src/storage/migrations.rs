@@ -245,6 +245,10 @@ const MIGRATIONS: &[Migration] = &[
         "retain originator withdrawal of unanswered requests",
         "schema/048.sql"
     ),
+    migration!(
+        "hold focus delivery and seal ordered checklists",
+        "schema/049.sql"
+    ),
 ];
 
 pub(super) fn apply(connection: &mut Connection) -> Result<(), StorageError> {

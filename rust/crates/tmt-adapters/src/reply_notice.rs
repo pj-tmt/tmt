@@ -53,18 +53,21 @@ fn channel_or_unknown(entry: &BindingEntry) -> bool {
 
 /// A preparation failure affects only the advisory hint, never durable acceptance.
 pub fn prepare(storage: &mut Storage, hint: &OriginatorHint) -> Result<Prepared, StorageError> {
+    if crate::focus::hold_notice(storage, &hint.request_id, hint.kind)? {
+        return Ok(Prepared::Immediate(WakeState::Unavailable));
+    }
     if hint.kind != HintKind::Reply {
-        return Ok(Prepared::Immediate(delivery::notify(storage, hint)));
+        return delivery::notify(storage, hint).map(Prepared::Immediate);
     }
     let now = wall_time_ms();
     let Some(entry) = delivery::current(storage, &hint.originator_id)? else {
-        return Ok(Prepared::Immediate(delivery::notify(storage, hint)));
+        return delivery::notify(storage, hint).map(Prepared::Immediate);
     };
     let Some(binding) = &entry.binding else {
-        return Ok(Prepared::Immediate(delivery::notify(storage, hint)));
+        return delivery::notify(storage, hint).map(Prepared::Immediate);
     };
     if channel_or_unknown(&entry) {
-        return Ok(Prepared::Immediate(delivery::notify(storage, hint)));
+        return delivery::notify(storage, hint).map(Prepared::Immediate);
     }
     let settings = ConfigPaths::discover()
         .ok()
@@ -76,7 +79,7 @@ pub fn prepare(storage: &mut Storage, hint: &OriginatorHint) -> Result<Prepared,
         return Ok(Prepared::Immediate(state));
     };
     if window == 0 && quiet == 0 {
-        return Ok(Prepared::Immediate(delivery::notify(storage, hint)));
+        return delivery::notify(storage, hint).map(Prepared::Immediate);
     }
     let text = delivery::hint_text(storage, hint);
     match storage.queue_reply_notice(hint, &binding.id, &text, window, quiet, now) {

@@ -432,6 +432,7 @@ mod tests {
         };
         let item = IncomingItem {
             exchange: Exchange {
+                delivery_policy: tmt_core::request::focus::DeliveryPolicy::default(),
                 request_id: "request-id".into(),
                 room_id: None,
                 recipient_identity_id: Some(identity.id.clone()),

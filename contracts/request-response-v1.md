@@ -644,7 +644,8 @@ use `X_INPUT_INVALID` (exit 1); revision overflow uses `X_REVISION_EXHAUSTED` (1
 Unexpected failures use sanitized `X_ERROR` (1); shared identity errors remain.
 
 `talk`, `reply`, and `result` remain the verbs for sending, submitting, and
-reading. `check` remains a pane diagnostic only. Timeout and interruption
+reading. `check` captures pane diagnostics and may deliver a due
+[Focus checklist](#focus-delivery-windows) at verified idle. Timeout and interruption
 remain observer-only: they do not cancel or complete X, and the existing
 180-second default remains current behavior. Explicit `talk --inbox` queues for
 one existing non-retired local identity, and bounded `x listen` observes local
@@ -720,3 +721,55 @@ input, cursor, JSON fields and preview caps. Expired/unavailable bodies retain
 honest headers while metadata is retained. Reads use an observation snapshot,
 never acknowledge, renew retention, run request housekeeping, or claim successful
 notification. Exact retained body text remains available through detail/result.
+
+## Focus delivery windows
+
+Focus is an identity-UUID delivery policy with a revision and absolute `untilMs`.
+Squad admits recorded-user/current-lead writes and supplies the pinned owner UUID;
+core validates active UUIDs and compare-and-set revisions through the
+[local API](extension-api.md#focus-policy-and-checklist).
+There is no cadence, rotation, timer, daemon or detached Focus worker.
+
+Normal automatic identity requests are prepared, registered for detached result
+notices, published as queued, and held under one IMMEDIATE transaction. They own
+no live waiter and attempt no channel write or paste. Text reports remaining
+seconds and UTC epoch expiry; JSON adds `focus:true`, `focusUntilMs`, `remainingMs`,
+`notification:"held"`, `waitingFor:"focus_checklist"` to ordinary queued correlation.
+This decision does not imply offline status. Explicit `--inbox` retains pull-only
+behavior and acquires no automatic wake or checklist membership.
+
+`talk --urgent` bypasses Focus only; `urgent` remains visible in X and request
+history. A resolved sender UUID equal to the policy's owner bypasses automatically;
+name reuse, anonymous sends and metadata do not establish owner authority.
+Result notices use the responding recipient UUID for this comparison, not the
+originator. `talk --kind decision|review|fyi` records purpose without text guessing
+(default `fyi`); finals use `result`, timeout notices use `fyi`. Classification is
+separate from request/announcement kind. Existing delivery, approval, enrollment,
+receipt and response-acceptance guards remain mandatory. An already claimed
+external attempt cannot be recalled by a later Focus write.
+
+Held references point to canonical request/final records and never renew retention.
+An admitted adapter turn boundary may claim one checklist during Focus; normal
+transport may claim only after expiry/off and fresh verification that the exact
+live session/incarnation is idle. A talk/check invocation touching the target is
+an opportunity, not a scheduled job. Without hooks or traffic, delivery remains
+pending; optional Squad cron reminders belong outside core. Newly arriving work
+cannot join a sealed checklist. Expiry/off immediately restores normal routing
+for new messages while one checklist carries the retained backlog.
+
+A checklist is ordered, deterministic and bounded to 4096 UTF-8 bytes. It names
+sender, purpose, original request ID, normalized first-lines preview and an
+original receipt-bound reply command only while the canonical request remains
+replyable. Finals and unavailable/withdrawn/expired requests retain truthful
+inspection commands. Overflow is counted and readable with the immutable
+checklist ID and sequence cursor. Reading/claiming/settling never acknowledges X,
+submits a final or proves model consumption.
+
+One active claim seals membership and fences competing consumers. Only its exact
+identity/checklist/attempt token may settle `delivered`, `definitely_unsent` or
+`uncertain`; identical settlement retries are no-ops. Definite non-delivery
+releases the members, uncertainty never does. A lost process after claim leaves
+an active claim discoverable through policy/read output, never an automatic retry
+lease. Ordinary wake and queued-notice paths cannot replay checklist-owned items.
+Provider adapters own launch/turn admission and actual handoff evidence. Idle
+transport uses the ordinary fresh binding, channel-first and guarded host route.

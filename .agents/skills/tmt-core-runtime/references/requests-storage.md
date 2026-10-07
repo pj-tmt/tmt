@@ -137,3 +137,23 @@ configuration. The owner map is in
   shared parser accepts it for `squad.toml`. `tmt-cli-style::theme::background` is pure parsing over
   injected read and clock functions; the executable owns terminal I/O. Only `tmt-cli-style` names
   colors, which the architecture test (`colors`) enforces for every production crate.
+
+## Focus checklist delivery
+
+`request::focus` is the UUID delivery policy and ordered reference/claim contract;
+`RequestService` serializes policy CAS, held publication, notice admission and
+checklist membership. Schema 49 adds policy, delivery metadata, held-reference and
+sealed-checklist tables, each with complete change-cursor coverage. Prompt/final
+owners and retention stay unchanged. `storage::requests::focus` owns bounded SQL,
+including empty settled-checklist pruning in existing request housekeeping;
+`api::focus` and the Focus adapter project the trusted local consumer seam.
+
+The ordinary request wake and existing reply-frame/joined-fallback writer claims
+admit Focus before granting new external input. Owner UUID and urgent bypass only
+this gate. Existing explicit inbox publication remains pull-only. A provider owns
+turn/launch admission; talk/check uses fresh matching live idle evidence and the
+ordinary channel-first delivery owner. There is no Focus timer, detached worker,
+cadence or scheduler. Definite unsent settlement releases only the sealed members;
+claimed/uncertain effects never become replay leases. Canonical contracts:
+[Focus delivery](../../../../contracts/request-response-v1.md#focus-delivery-windows),
+[local API](../../../../contracts/extension-api.md#focus-policy-and-checklist).

@@ -118,30 +118,30 @@ fn application_schema_observation_reads_wal_and_future_versions_without_migratio
     let connection = storage.connection().unwrap();
     // This intentionally contradicts the application record: user_version is
     // not Core's schema owner, and the newest committed history is still in WAL.
-    connection.execute_batch("PRAGMA wal_autocheckpoint = 0; PRAGMA user_version = 1; INSERT INTO _migrations VALUES (49, 'future migration', 'now');").unwrap();
-    assert_eq!(Storage::application_schema(&fixture.database).unwrap(), 49);
+    connection.execute_batch("PRAGMA wal_autocheckpoint = 0; PRAGMA user_version = 1; INSERT INTO _migrations VALUES (50, 'future migration', 'now');").unwrap();
+    assert_eq!(Storage::application_schema(&fixture.database).unwrap(), 50);
     assert_eq!(
         connection
             .query_row("PRAGMA user_version", [], |row| row.get::<_, u32>(0))
             .unwrap(),
         1
     );
-    assert_eq!(storage.health().unwrap().schema_version, 49);
+    assert_eq!(storage.health().unwrap().schema_version, 50);
     storage.close().unwrap();
-    assert_eq!(Storage::application_schema(&fixture.database).unwrap(), 49);
+    assert_eq!(Storage::application_schema(&fixture.database).unwrap(), 50);
 }
 
 #[test]
 fn application_schema_observation_refuses_gaps_and_changed_known_migrations() {
     let fixture = Fixture::new();
     let mut storage = Storage::open(&fixture.database).unwrap();
-    assert_eq!(Storage::application_schema(&fixture.database).unwrap(), 48);
+    assert_eq!(Storage::application_schema(&fixture.database).unwrap(), 49);
     let connection = storage.connection().unwrap();
     connection
-        .execute_batch("INSERT INTO _migrations VALUES (50, 'gap', 'now');")
+        .execute_batch("INSERT INTO _migrations VALUES (51, 'gap', 'now');")
         .unwrap();
     assert!(Storage::application_schema(&fixture.database).is_err());
-    connection.execute_batch("DELETE FROM _migrations WHERE version = 50; UPDATE _migrations SET name = 'unverified' WHERE version = 1;").unwrap();
+    connection.execute_batch("DELETE FROM _migrations WHERE version = 51; UPDATE _migrations SET name = 'unverified' WHERE version = 1;").unwrap();
     assert!(Storage::application_schema(&fixture.database).is_err());
     storage.close().unwrap();
 }
@@ -164,7 +164,7 @@ fn open_enforces_connection_features_and_private_files() {
         storage.health().unwrap(),
         StorageHealth {
             path: fixture.database.clone(),
-            schema_version: 48,
+            schema_version: 49,
             journal_mode: "wal",
             foreign_keys: true,
             busy_timeout_ms: 5000,
@@ -302,7 +302,7 @@ fn concurrent_openers_commit_each_migration_only_once() {
     initial.pragma_update(None, "journal_mode", "WAL").unwrap();
     initial.close().unwrap();
     for result in concurrent_opens(&fixture) {
-        assert_eq!(result.unwrap(), 48);
+        assert_eq!(result.unwrap(), 49);
     }
     assert_complete_history(&fixture);
 }
@@ -312,7 +312,7 @@ fn cold_open_race_initializes_wal_for_every_caller() {
     for _ in 0..4 {
         let fixture = Fixture::new();
         for result in concurrent_opens(&fixture) {
-            assert_eq!(result.unwrap(), 48);
+            assert_eq!(result.unwrap(), 49);
         }
         assert_complete_history(&fixture);
     }
@@ -348,7 +348,7 @@ fn assert_complete_history(fixture: &Fixture) {
     let count: i64 = verification
         .query_row("SELECT COUNT(*) FROM _migrations", [], |row| row.get(0))
         .unwrap();
-    assert_eq!(count, 48);
+    assert_eq!(count, 49);
     let check: String = verification
         .query_row("PRAGMA integrity_check", [], |row| row.get(0))
         .unwrap();

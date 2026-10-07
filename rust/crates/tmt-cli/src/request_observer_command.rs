@@ -89,7 +89,7 @@ pub fn execute(request_id: &str) -> io::Result<u8> {
                     .claim_timeout_hint(request_id)
                     .map_err(io::Error::other)?
                 {
-                    crate::delivery::notify(&mut storage, &hint);
+                    crate::delivery::notify(&mut storage, &hint).map_err(io::Error::other)?;
                 }
                 break;
             }

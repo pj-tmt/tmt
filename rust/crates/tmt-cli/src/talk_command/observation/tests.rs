@@ -77,6 +77,7 @@ fn correlation() -> Correlation {
         inbox: false,
         explicit_inbox: false,
         delivery_uncertain: false,
+        focus_until_ms: None,
     }
 }
 

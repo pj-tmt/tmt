@@ -220,6 +220,9 @@ pub(super) fn claim<E>(
     if *state != WakeState::NotAttempted {
         return Ok(None);
     }
+    if hold_notice(records, attempt, kind, now)? {
+        return Ok(None);
+    }
     *state = if records.identity_is_active(originator)? {
         WakeState::Claimed
     } else {
@@ -234,4 +237,36 @@ pub(super) fn claim<E>(
         kind,
         timeout_ms: value.policy.timeout_ms,
     }))
+}
+
+/// Recheck already queued legacy notice frames at their transport boundary.
+/// Definitely unattempted frames can move to focus; an attempted frame cannot.
+impl<R: RequestRepository, C: Fn() -> u64> RequestService<'_, R, C> {
+    pub fn hold_reply_notice(&mut self, request_id: &str) -> Result<bool, RequestError<R::Error>> {
+        self.hold_originator_notice(request_id, HintKind::Reply)
+    }
+
+    pub fn hold_originator_notice(
+        &mut self,
+        request_id: &str,
+        kind: HintKind,
+    ) -> Result<bool, RequestError<R::Error>> {
+        let clock = &self.clock;
+        self.repository.with_request_transaction(|records| {
+            let now = positive(clock())?;
+            let attempt = records
+                .find_request(request_id)?
+                .ok_or(RequestError::NotFound)?;
+            hold_notice(records, &attempt, kind, now)
+        })
+    }
+}
+
+fn hold_notice<E>(
+    records: &mut dyn RequestRecords<Error = E>,
+    attempt: &RequestAttempt,
+    kind: HintKind,
+    now: u64,
+) -> Result<bool, RequestError<E>> {
+    super::super::focus::hold_originator_notice(records, attempt, kind, now)
 }

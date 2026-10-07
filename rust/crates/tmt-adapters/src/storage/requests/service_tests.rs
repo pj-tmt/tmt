@@ -5,6 +5,7 @@ mod attention;
 mod concurrency;
 mod crash;
 mod enqueue;
+mod focus;
 mod history;
 mod lifecycle;
 mod notification;
