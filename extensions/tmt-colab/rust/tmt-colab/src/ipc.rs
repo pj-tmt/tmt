@@ -14,6 +14,14 @@ use std::{
 
 /// POST `body` to `path` on the owner-only socket and return the status and the framed body.
 pub(crate) fn exchange(layout: &Layout, path: &str, body: &[u8]) -> Result<(u16, Vec<u8>)> {
+    receive(
+        send(layout, path, body)?,
+        limits::ACQUISITION + limits::RESPONSE,
+    )
+}
+/// Connect and write the whole request. An error here means the server cannot have acted: it
+/// acts only on a complete body.
+pub(crate) fn send(layout: &Layout, path: &str, body: &[u8]) -> Result<UnixStream> {
     let socket_path = layout.directory.join(crate::socket::SOCKET);
     let metadata = std::fs::symlink_metadata(&socket_path).map_err(|_| Fault::Unavailable)?;
     if !metadata.file_type().is_socket()
@@ -30,8 +38,13 @@ pub(crate) fn exchange(layout: &Layout, path: &str, body: &[u8]) -> Result<(u16,
         body.len()
     )?;
     socket.write_all(body)?;
+    Ok(socket)
+}
+/// Finish the request and read one framed reply within `wait`. Any error here leaves the
+/// outcome in doubt.
+pub(crate) fn receive(mut socket: UnixStream, wait: std::time::Duration) -> Result<(u16, Vec<u8>)> {
     socket.shutdown(std::net::Shutdown::Write)?;
-    let deadline = Instant::now() + limits::ACQUISITION + limits::RESPONSE;
+    let deadline = Instant::now() + wait;
     let mut response = Vec::new();
     let mut chunk = [0; 4096];
     socket.set_nonblocking(true)?;

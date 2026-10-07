@@ -791,13 +791,57 @@ describe('global identity lifecycle', { concurrent: false }, () => {
         expectedHealthyBindingIds.sort()
       );
 
-      const affectedTalk = await fixture.runJsonCli<CommandError>([
+      // Once reconciliation removes the binding, ordinary talk uses the unbound
+      // foreground waiter. Bound this probe instead of awaiting its 180s default.
+      const waitingTalk = await fixture.runJsonCli<CommandError & { requestId: string }>([
+        'talk',
+        'MalformedCurrent',
+        'unbound-wait-must-not-route',
+        '--timeout',
+        '20ms',
+      ]);
+      expect(waitingTalk.code).toBe(4);
+      const waitingOutput = json(waitingTalk);
+      expect(waitingOutput).toMatchObject({ status: 'timeout', error: { code: 'TIMEOUT' } });
+      expect(waitingOutput.error.suggestion).toContain(
+        `tmt inbox --identity '${affectedIdentityId}' --json`
+      );
+      expect(
+        fixture.events().some((event) => event.message === 'unbound-wait-must-not-route')
+      ).toBe(false);
+
+      // This assertion inspects queue acceptance rather than waiting for a reply.
+      const affectedTalk = await fixture.runJsonCli<{ requestId: string }>([
         'talk',
         'MalformedCurrent',
         'affected-must-not-route',
+        '--detach',
       ]);
       expect(affectedTalk.code).toBe(0);
       expect(json(affectedTalk)).toMatchObject({ status: 'queued', offline: true });
+      expect(json(affectedTalk)).toMatchObject({
+        recipientIdentityId: affectedIdentityId,
+        notification: 'not_attempted',
+        waitingFor: 'recipient_inbox_pull',
+      });
+      const database = new Database(path.join(fixture.globalDir, 'tmux-team.db'), {
+        readonly: true,
+      });
+      try {
+        const attempt = database.prepare(
+          'SELECT recipient_identity_id, status, wait_active, wake_state FROM request_attempts WHERE request_id = ?'
+        );
+        for (const requestId of [waitingOutput.requestId, json(affectedTalk).requestId]) {
+          expect(attempt.get(requestId)).toEqual({
+            recipient_identity_id: affectedIdentityId,
+            status: 'queued',
+            wait_active: 0,
+            wake_state: 'not_attempted',
+          });
+        }
+      } finally {
+        database.close();
+      }
       expect(fixture.events().some((event) => event.message === 'affected-must-not-route')).toBe(
         false
       );

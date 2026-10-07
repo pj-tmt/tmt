@@ -23,6 +23,7 @@ pub(super) fn prepare(
         .map(|selector| crate::room_command::resolve(storage, selector))
         .transpose()?;
     let mut offline = false;
+    let mut unbound = false;
     let names_pane = !input.options.inbox
         && tmt_core::identity::addresses_pane(storage, &input.target).map_err(|error| {
             Failure::new("IDENTITY_ERROR", "Could not read recipient identity.", 1).caused_by(error)
@@ -42,16 +43,18 @@ pub(super) fn prepare(
             }
         };
         if let Some(identity) = identity {
+            let availability = crate::delivery::status(storage, &identity.id).map_err(|error| {
+                Failure::new(
+                    "DELIVERY_PREPARATION_FAILED",
+                    "Could not read recipient state.",
+                    1,
+                )
+                .caused_by(error)
+            })?;
+            unbound = availability == crate::delivery::Availability::Unbound;
             offline = matches!(
-                crate::delivery::status(storage, &identity.id).map_err(|error| {
-                    Failure::new(
-                        "DELIVERY_PREPARATION_FAILED",
-                        "Could not read recipient state.",
-                        1,
-                    )
-                    .caused_by(error)
-                })?,
-                crate::delivery::Availability::Offline
+                availability,
+                crate::delivery::Availability::Unbound | crate::delivery::Availability::Offline
             );
             Some(identity)
         } else {
@@ -101,7 +104,7 @@ pub(super) fn prepare(
             },
         );
     let (request_id, attempt_id) = request_ids();
-    let correlation = Correlation {
+    let mut correlation = Correlation {
         data_dir: data_dir.to_path_buf(),
         request_id,
         target: input.target.clone(),
@@ -115,7 +118,9 @@ pub(super) fn prepare(
         inbox: input.options.inbox || offline,
         explicit_inbox: input.options.inbox,
         offline,
+        unbound,
         delivery_uncertain: false,
+        focus_until_ms: None,
     };
     if let Some(room) = &room
         && !correlation
@@ -167,6 +172,32 @@ pub(super) fn prepare(
     } else {
         None
     };
+    if !input.options.inbox
+        && let Some(identity) = &correlation.identity
+        && let Err(error) = tmt_adapters::focus::flush_idle(
+            storage,
+            &identity.id,
+            Duration::from_secs_f64(settings.paste_enter_delay_ms / 1000.0),
+        )
+    {
+        // This opportunity belongs to the target's existing backlog. Its own
+        // claim/settlement fences must not reject the sender's new request.
+        let detail = match error {
+            RequestError::Repository(error) => error.to_string(),
+            error => error.to_string(),
+        };
+        let mut output = tmt_cli_style::stream::stderr();
+        let terminal = output.terminal();
+        let _ = tmt_cli_style::message::warning(
+            &mut output,
+            terminal,
+            &format!(
+                "Could not flush Focus checklist for {}: {detail}.",
+                identity.id
+            ),
+            None,
+        );
+    }
     let route = match (&correlation.identity, &observed) {
         (Some(identity), _) => RequestRoute::Inbox {
             recipient_identity_id: identity.id.clone(),
@@ -189,13 +220,14 @@ pub(super) fn prepare(
             )
         })?;
     let notify_originator = originator.identity_id().is_some() && !input.options.inbox;
+    let wait = !input.options.detach && (!offline || unbound);
     let request = PrepareRequest {
         room_id: room.map(|room| room.id),
         kind: tmt_core::request::RequestKind::Request,
         request_id: correlation.request_id.clone(),
         message: input.message.clone(),
         route: route.clone(),
-        wait: !input.options.detach && !offline,
+        wait,
         expires_at_ms,
         originator,
         recipient_identity_id: correlation
@@ -212,12 +244,41 @@ pub(super) fn prepare(
             }),
     };
     let mut service = RequestService::new(storage, wall_time_ms);
+    let delivery = tmt_core::request::focus::DeliveryPolicy {
+        urgent: input.options.urgent,
+        kind: input.options.focus_kind,
+        automatic: !input.options.inbox,
+    };
+    let timeout = input.options.timeout_seconds.unwrap_or(settings.timeout);
+    let notification =
+        notify_originator.then(|| tmt_core::request::notification::NotificationPolicy {
+            deadline_ms: wall_time_ms() + (timeout * 1000.0).ceil() as u64,
+            timeout_ms: (timeout * 1000.0).ceil() as u64,
+            waiter: None,
+        });
     let prepared = if input.options.inbox {
-        service.enqueue(request, attempt_id.clone(), settings.retention_days)
+        service.enqueue_delivery(
+            request,
+            attempt_id.clone(),
+            settings.retention_days,
+            delivery,
+        )
     } else {
-        service.prepare(request, attempt_id.clone(), settings.retention_days)
+        service.prepare_delivery(
+            request,
+            attempt_id.clone(),
+            settings.retention_days,
+            delivery,
+            notification,
+        )
     }
     .map_err(|error| correlation.state_error(error, false))?;
+    correlation.focus_until_ms = prepared.focus_until_ms;
+    if prepared.focus_until_ms.is_some() {
+        correlation.inbox = true;
+        correlation.offline = false;
+        correlation.unbound = false;
+    }
     let receipt = encode_route_receipt(&correlation.request_id, &attempt_id, &route);
     let message = if prepared.inject_preamble {
         preamble.map_or_else(
@@ -232,7 +293,7 @@ pub(super) fn prepare(
         escape_sender_attribute(&sender),
         correlation.request_id
     );
-    let wake = !input.options.inbox && correlation.identity.is_some();
+    let wake = !input.options.inbox && !unbound && correlation.identity.is_some();
     Ok(Prepared {
         correlation,
         attempt_id,
@@ -244,6 +305,7 @@ pub(super) fn prepare(
         previous_request_id: prepared.previous_request_id,
         notify_originator,
         wake,
+        wait,
     })
 }
 

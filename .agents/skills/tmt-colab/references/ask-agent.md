@@ -28,7 +28,12 @@ modules in `extensions/tmt-colab/typescript/app/src` and `rust/tmt-colab/src/ask
   no `check`. A Session fault (SDK `RefusalError` `REMOTE_SESSION_ENDED`, `ClientError`
   `sequence_unavailable`, an expired Session or a changed grant revision) is normalized to
   `SessionEndedError` or an `uncertain` state with that reason. A verified send that Remote
-  refused with `REMOTE_SESSION_ENDED` before admission stays `refused`. Other refusals use the nine reviewed
+  refused with `REMOTE_SESSION_ENDED` before admission stays `refused`. The SDK also
+  resolves signed eviction Send/operation refusals as states, carrying the positive
+  limit and optional settings URL. `sessionEviction` derives the typed page fault
+  without replacing a Send's known `refused` outcome. The adapter retains the first
+  verified eviction for its old Session; later ENDED reads or opaque socket close
+  cannot authorize reopening. Other refusals use the reviewed
   `REMOTE_REFUSAL_CODES`; anything else is `REMOTE_REFUSED`. Registration must rebuild the client and its
   controllers when it replaces the Session; an old client never adopts a new one.
 - **`ask-records.ts`.** Record types `ask`, `ask-state`, `ask-reply`, the ledger states and
@@ -60,7 +65,9 @@ modules in `extensions/tmt-colab/typescript/app/src` and `rust/tmt-colab/src/ask
   It never sends on reload or reconnect. `abandon` applies only to
   `uncertain`, records `MAY_HAVE_BEEN_DELIVERED` and cancels nothing. On a Session fault
   an adopted send ends `uncertain` (a typed sequence failure too) and an `accepted` ask's
-  records stay unchanged; a pre-admission `REMOTE_SESSION_ENDED` refusal stays `refused`.
+  records stay unchanged; pre-admission session-end or eviction Send refusals stay `refused`.
+  An eviction operation read leaves the prior ledger unchanged. Both returned
+  eviction paths carry the typed limit/settings notice and stop further work.
   The controller then calls `sessionEnded` once, after publication, refuses further work and
   stops observing.
 - **`writer.ts` and the fold Worker.** `Writer.submitOwn` is generic over the own roots
@@ -87,6 +94,16 @@ modules in `extensions/tmt-colab/typescript/app/src` and `rust/tmt-colab/src/ask
   store to the registration keys, the admitted own state and `Writer.submitOwn`. The
   observer runs only while the page is visible and has subscribers, and a Session end fails
   the Live connection.
+- **Read-only agent status.** `AskController` owns one current-context/signed-directory
+  read shared by Ask destination admission and `LiveAsk.observeDestinations`. The latter
+  returns `AgentDirectoryObservation`: a local check time and admitted presence rows,
+  or a session/directory phase with bounded session-end, verified eviction or refusal codes;
+  unexpected failures expose no raw diagnostics. Observation does not populate the Ask
+  preview cache, publish, dispatch or invoke Live's session recovery callback. It checks
+  current page admission and the same active connection before and after the read; a
+  closed/replaced facade refuses late results. Existing Ask destinations retain their
+  separate fail-closed session lifecycle response. No writer admission is required for
+  this read, and observing status never grants a send capability.
 - **Reading asks.** `pageAsks`/`readAskViews` run per admitted writer; other writers' asks
   verify with `Objects.ownSigningKey`, a display-only key captured from an authenticated,
   cut-admitted own envelope (revoked history stays inert and grants no authority). Slow
@@ -95,8 +112,12 @@ modules in `extensions/tmt-colab/typescript/app/src` and `rust/tmt-colab/src/ask
 - **UI.** `annotation-input.tsx` uses the same Ask binding for direct explicit Enter
   sends; it freezes the current text and captured conversation references without a
   confirmation screen; no surface offers a "show what was sent" view. In Chat it
-  prefills `@agent` (last replier, else publisher, else the only reachable agent) and
-  Enter without a recipient shows an error and opens the list. `thread-panel.tsx`
+  chooses a stable recipient independently of message bytes from an explicit choice
+  or an admitted bound prior reply. Unknown creation identity requires a choice;
+  latest-publisher display names and a sole directory candidate are not creator bindings.
+  No mention prefix is mandatory; ambiguity requires explicit selection. Choosing
+  a recipient performs no preparation or dispatch. Plain comments remain available
+  under content-write admission when discovery fails. `thread-panel.tsx`
   renders verified replies inline and puts Edit (own annotation comments) and Delete
   (own) in the square `⋯` menu (`components/action-menu.tsx`); held/recheck/uncertainty keep the existing ledger.
   `chat-panel.tsx` replaces standalone Ask with one bottom input and page-visible
@@ -106,7 +127,8 @@ modules in `extensions/tmt-colab/typescript/app/src` and `rust/tmt-colab/src/ask
   IDs remain `ask-entry`, `ask-state`, `ask-reply` and `ask-reply-attribution` for
   pending delivery and admitted replies; `ask-entry` retains the admitted ledger
   state independently of the disappearing delivery status. `chat-toggle` opens the pane; `chat-panel` scopes its shared
-  Message to agent combobox.
+  Message combobox. The shared plaintext/history Lexical editing boundary and
+  reset/recipient ownership are defined in [architecture-state](architecture-state.md#message-editing-boundary).
 
 ## Invariants and gotchas
 

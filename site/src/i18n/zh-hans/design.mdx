@@ -1,15 +1,28 @@
 ---
 source: site/src/chapters/design.mdx
-sourceRevision: 08968bf4a346ebc33e61b4bee74b700aaf3cb504
+sourceRevision: 962e2bd12fcd3a3e827acacdc076b2dbc7082c24
 title: 各处保持一致的外观
 ---
 
 import { components as Mdx } from "../../components/mdx";
+import { DesignPlayground } from "../../demos/DesignPlayground";
 import { Cmd } from "../../components/Cmd";
 import { Tag } from "../../components/marks";
 import { MarkList, TokenPreview, TokenTable, TypePreview } from "../../components/samples";
 
 无论在命令行、Squad 看板还是本站，tmt 都保持一致的外观。本页是它们共同遵循的指南。所有值都来自同一个文件：[`design/tokens/tokens.json`](https://github.com/pj-tmt/tmt/blob/main/design/tokens/tokens.json)。网站样式表和本页所有表格都读取这个文件，没有手工复制的值。
+
+<Mdx.h3 id="interactive-design-guidebook-mdx">MDX 交互式设计指南</Mdx.h3>
+
+[浏览器指南](https://github.com/pj-tmt/tmt/blob/main/design/gui-style.md) 定义页头、卡片、控件、浮层、焦点和恢复提示。[CLI 指南](https://github.com/pj-tmt/tmt/blob/main/design/cli-style.md) 定义终端输出。先在这里操作示例，再查看完整规范。
+
+<Mdx.h3 id="try-the-components">试用组件</Mdx.h3>
+
+切换 Light、Dark 和 Ready、Waiting、Stopped。输入草稿后切换状态，文字会保留。用 Tab 查看焦点；只有 Ready 且已输入文字时 Preview 才可用，否则会显示原因。Preview 只在本页显示输入。
+
+<DesignPlayground />
+
+这是 **设计示例**，不是实际的 Colab 或 Remote 连接。标签保持英文，与产品用词一致。Colab 和 Remote 有各自已发布的组件；[#1797](https://github.com/pj-tmt/tmt/issues/1797) 的共享组件包仍是 **计划中**。示例不演示配对、权限、Ask 投递或重连。[组件规范 PR](https://github.com/pj-tmt/tmt/pull/1798) 记录了清单和提取边界。
 
 <Mdx.h3 id="principles">原则</Mdx.h3>
 

@@ -109,13 +109,25 @@ pub(crate) struct Snapshot {
     baseline: Option<StoredBaseline>,
     pub(crate) objects: Vec<(usize, crate::store::owner::epoch::StoredObject)>,
 }
+/// Authenticated bytes from one snapshot, shared by reads, edits and causal preparation.
+struct MaterializationInput {
+    baseline: Vec<u8>,
+    updates: Vec<Vec<u8>>,
+    own_updates: BTreeMap<String, Vec<Vec<u8>>>,
+    signing_keys: BTreeMap<String, [u8; 32]>,
+    /// Whether every original own envelope of a writer came from an owner-member device.
+    owner_provenance: BTreeMap<String, bool>,
+    local_writer: String,
+    tail_count: usize,
+    tail_bytes: usize,
+}
 pub(crate) struct View {
     pub source: String,
     pub title: String,
     pub publisher_agent: Option<String>,
+    pub creation_recipient: Option<crate::decoder::CreationRecipient>,
     /// The complete content metadata projection, including keys not surfaced by the CLI.
     pub meta: serde_json::Value,
-    pub update: Vec<u8>,
     pub memory_limit: crate::decoder::MemoryLimit,
     /// Each authenticated writer's decoded `own` projection (threads, messages, intents,
     /// replies), as the isolated decoder returned and validated it.
@@ -405,6 +417,51 @@ impl Snapshot {
         edit: Option<crate::decoder::ContentEdit<'_>>,
         replacements: &BTreeMap<usize, Vec<u8>>,
     ) -> Result<View> {
+        self.materialization_input(key, page, decoder, replacements)?
+            .materialize(page, decoder, edit)
+    }
+    /// The verified genesis belongs to the same read snapshot as the page base.
+    pub(crate) fn genesis_hash(&self) -> Result<[u8; 32]> {
+        Ok(self.states.first().ok_or(OwnerFault::Invalid)?.head.hash)
+    }
+    pub(crate) fn prepare_content_batch(
+        &self,
+        key: &Keyring,
+        page: &str,
+        edit: crate::decoder::ContentEdit<'_>,
+        decoder: &mut Decoder,
+    ) -> Result<crate::decoder::PreparedContent> {
+        let input = self.materialization_input(key, page, decoder, &BTreeMap::new())?;
+        let base = input.materialize(page, decoder, None)?;
+        let expected_base = serde_json::json!({"html":base.source,"meta":base.meta});
+        let refs = input.updates.iter().map(Vec::as_slice).collect::<Vec<_>>();
+        let prepared = decoder.prepare_content_batch(
+            UpdateBatch {
+                namespace: Namespace::Content,
+                baseline: &input.baseline,
+                updates: &refs,
+            },
+            &expected_base,
+            edit,
+            None,
+        )?;
+        if let crate::decoder::ContentBatch::Updates(updates) = &prepared.batch {
+            input.admit_deltas(
+                page,
+                updates.len(),
+                checked_bytes(updates.iter().map(Vec::len))?,
+            )?;
+            input.admit_gzip(page, updates.iter().map(Vec::as_slice))?;
+        }
+        Ok(prepared)
+    }
+    fn materialization_input(
+        &self,
+        key: &Keyring,
+        page: &str,
+        decoder: &mut Decoder,
+        replacements: &BTreeMap<usize, Vec<u8>>,
+    ) -> Result<MaterializationInput> {
         let mut baseline = Vec::new();
         if let Some(saved) = &self.baseline {
             let d = payload::decode_baseline(&saved.descriptor)?;
@@ -443,6 +500,7 @@ impl Snapshot {
                     source: body.source.as_bytes(),
                     title: &d.title,
                     publisher_agent: None,
+                    creation_recipient: None,
                     source_digest: binary32(&d.source_digest)?,
                 },
                 &baseline,
@@ -458,8 +516,8 @@ impl Snapshot {
         let mut owner_provenance: BTreeMap<String, bool> = BTreeMap::new();
         let mut replaced = BTreeSet::new();
         // What a reader still has to apply one by one: updates after a device's checkpoint.
-        let mut tail_count = 0;
-        let mut tail_bytes = 0;
+        let mut tail_count = 0usize;
+        let mut tail_bytes = 0usize;
         for (index, stored) in &self.objects {
             let opened = self.open_object(key, page, *index, stored)?;
             if opened.namespace == "own" {
@@ -479,8 +537,10 @@ impl Snapshot {
                 opened.plaintext
             };
             if !stored.checkpoint {
-                tail_count += 1;
-                tail_bytes += plaintext.len();
+                tail_count = tail_count.checked_add(1).ok_or(OwnerFault::Capacity)?;
+                tail_bytes = tail_bytes
+                    .checked_add(plaintext.len())
+                    .ok_or(OwnerFault::Capacity)?;
             }
             if opened.namespace == "content" {
                 updates.push(plaintext);
@@ -495,19 +555,107 @@ impl Snapshot {
         if replaced.len() != replacements.len() {
             return Err(OwnerFault::Invalid.into());
         }
-        let state = baseline.len() + updates.iter().map(Vec::len).sum::<usize>();
+        Ok(MaterializationInput {
+            baseline,
+            updates,
+            own_updates,
+            signing_keys,
+            owner_provenance,
+            local_writer: key.local_writer()?.0,
+            tail_count,
+            tail_bytes,
+        })
+    }
+}
+/// Checked independently of allocation size, for raw admission and gzip's fastpath.
+fn checked_bytes(mut lengths: impl Iterator<Item = usize>) -> Result<usize> {
+    lengths
+        .try_fold(0usize, usize::checked_add)
+        .ok_or_else(|| OwnerFault::Capacity.into())
+}
+impl MaterializationInput {
+    fn admit_deltas(&self, page: &str, count: usize, bytes: usize) -> Result<()> {
+        let count = self
+            .tail_count
+            .checked_add(count)
+            .ok_or(OwnerFault::Capacity)?;
+        let bytes = self
+            .tail_bytes
+            .checked_add(bytes)
+            .ok_or(OwnerFault::Capacity)?;
+        let detail = if count > crate::decoder::WRITE_TAIL_UPDATES {
+            Some(format!(
+                "this edit would take its changes to {}, more than the {} one page can hold",
+                count,
+                crate::decoder::WRITE_TAIL_UPDATES
+            ))
+        } else if bytes > crate::decoder::WRITE_TAIL_BYTES {
+            Some(format!(
+                "this edit would take its changes to {} ({bytes} bytes), more than the {} ({} bytes) one page can hold",
+                size(bytes),
+                size(crate::decoder::WRITE_TAIL_BYTES),
+                crate::decoder::WRITE_TAIL_BYTES
+            ))
+        } else if self.baseline.len() > crate::decoder::BASELINE_BYTES {
+            Some(format!(
+                "its content is {}, the most one page can hold is {}",
+                size(self.baseline.len()),
+                size(crate::decoder::BASELINE_BYTES)
+            ))
+        } else {
+            None
+        };
+        if let Some(detail) = detail {
+            return Err(OwnerFault::too_large_to_edit(page, detail).into());
+        }
+        Ok(())
+    }
+    fn admit_gzip<'a>(
+        &'a self,
+        page: &str,
+        deltas: impl Iterator<Item = &'a [u8]> + Clone,
+    ) -> Result<()> {
+        let parts = std::iter::once(self.baseline.as_slice())
+            .chain(self.updates.iter().map(Vec::as_slice))
+            .chain(self.own_updates.values().flatten().map(Vec::as_slice))
+            .chain(deltas);
+        let after = checked_bytes(parts.clone().map(<[u8]>::len))?;
+        if after > crate::decoder::PAGE_BUDGET_GZIP_BYTES
+            && let Some(compressed) = gzip_over_budget(parts)?
+        {
+            return Err(OwnerFault::too_large_to_edit(page, format!("its content would be {} ({} compressed), more than the {} one page can hold compressed", size(after), size(compressed), size(crate::decoder::PAGE_BUDGET_GZIP_BYTES))).into());
+        }
+        Ok(())
+    }
+    fn materialize(
+        &self,
+        page: &str,
+        decoder: &mut Decoder,
+        edit: Option<crate::decoder::ContentEdit<'_>>,
+    ) -> Result<View> {
+        let Self {
+            baseline,
+            updates,
+            own_updates,
+            signing_keys,
+            owner_provenance,
+            local_writer,
+            ..
+        } = self;
+        let state =
+            checked_bytes(std::iter::once(baseline.len()).chain(updates.iter().map(Vec::len)))?;
         if edit.is_some() {
-            // A write adds one update and must not leave a page the browser cannot open; reads
-            // accept more. The new update's own size is checked once it is prepared.
-            let detail = if tail_count >= crate::decoder::WRITE_TAIL_UPDATES {
+            // Legacy edits refuse an already full retained tail before decoding. Batch
+            // preparation decides Noop first and admits only its actual added deltas.
+            let detail = if self.tail_count >= crate::decoder::WRITE_TAIL_UPDATES {
                 Some(format!(
                     "it has {} changes, the most one page can hold",
-                    count(tail_count)
+                    count(self.tail_count)
                 ))
-            } else if tail_bytes >= crate::decoder::WRITE_TAIL_BYTES {
+            } else if self.tail_bytes >= crate::decoder::WRITE_TAIL_BYTES {
                 Some(format!(
                     "its changes add up to {}; one page holds at most {}",
-                    size(tail_bytes),
+                    size(self.tail_bytes),
                     size(crate::decoder::WRITE_TAIL_BYTES)
                 ))
             } else if baseline.len() > crate::decoder::BASELINE_BYTES {
@@ -536,10 +684,9 @@ impl Snapshot {
         }
         let mut threads = 0;
         let mut own_views = BTreeMap::new();
-        let local_writer = key.local_writer()?.0;
         let mut local_own_update = None;
-        for (writer, own) in &own_updates {
-            let discussion = own.iter().map(Vec::len).sum::<usize>();
+        for (writer, own) in own_updates {
+            let discussion = checked_bytes(own.iter().map(Vec::len))?;
             if discussion > crate::decoder::STATE_BYTES {
                 return Err(OwnerFault::too_large(
                     page,
@@ -568,7 +715,7 @@ impl Snapshot {
             if threads > 1000 {
                 return Err(OwnerFault::Capacity.into());
             }
-            if writer == &local_writer {
+            if writer == local_writer {
                 local_own_update = Some(decoded.merged);
             }
             own_views.insert(writer.clone(), decoded.projection);
@@ -576,7 +723,7 @@ impl Snapshot {
         let refs = updates.iter().map(Vec::as_slice).collect::<Vec<_>>();
         let batch = UpdateBatch {
             namespace: Namespace::Content,
-            baseline: &baseline,
+            baseline,
             updates: &refs,
         };
         let folded = if let Some(edit) = edit {
@@ -620,53 +767,27 @@ impl Snapshot {
                     other => Box::<dyn std::error::Error + Send + Sync>::from(other),
                 })?
         };
-        if edit.is_some() && tail_bytes + folded.merged.len() > crate::decoder::WRITE_TAIL_BYTES {
-            return Err(OwnerFault::too_large_to_edit(
-                page,
-                format!(
-                    "this edit would take its changes to {}, more than the {} one page can hold",
-                    size(tail_bytes + folded.merged.len()),
-                    size(crate::decoder::WRITE_TAIL_BYTES)
-                ),
-            )
-            .into());
-        }
         if edit.is_some() {
-            // The budget is what a browser loads, compressed. Raw state under the budget cannot
-            // exceed it, so only larger pages are measured.
-            let after = state + folded.merged.len();
-            if after > crate::decoder::PAGE_BUDGET_GZIP_BYTES {
-                let parts = std::iter::once(baseline.as_slice())
-                    .chain(updates.iter().map(Vec::as_slice))
-                    .chain(own_updates.values().flatten().map(Vec::as_slice))
-                    .chain(std::iter::once(folded.merged.as_slice()));
-                if let Some(compressed) = gzip_over_budget(parts)? {
-                    return Err(OwnerFault::too_large_to_edit(
-                        page,
-                        format!(
-                            "its content would be {} ({} compressed), more than the {} one page can hold compressed",
-                            size(after),
-                            size(compressed),
-                            size(crate::decoder::PAGE_BUDGET_GZIP_BYTES)
-                        ),
-                    )
-                    .into());
-                }
-            }
+            self.admit_deltas(page, 1, folded.merged.len())?;
+            self.admit_gzip(page, std::iter::once(folded.merged.as_slice()))?;
         }
         Ok(View {
+            creation_recipient: folded.projection["meta"]
+                .get("creationRecipient")
+                .map(|v| serde_json::from_value(v.clone()))
+                .transpose()?,
             publisher_agent: folded.projection["meta"]["publisherAgent"]
                 .as_str()
                 .map(str::to_owned),
-            update: folded.merged,
             memory_limit: folded.memory_limit,
             own: own_views,
             local_own_update,
             status_writers: owner_provenance
-                .into_iter()
-                .filter_map(|(writer, owner)| owner.then_some(writer))
+                .iter()
+                .filter(|(_, owner)| **owner)
+                .map(|(writer, _)| writer.clone())
                 .collect(),
-            signing_keys,
+            signing_keys: signing_keys.clone(),
             meta: folded.projection["meta"].clone(),
             source: folded.projection["html"]
                 .as_str()
@@ -898,3 +1019,6 @@ mod budget_tests {
         assert!(over.is_some_and(|n| n > 5_000_000), "{over:?}");
     }
 }
+
+#[cfg(test)]
+mod tests;

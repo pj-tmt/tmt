@@ -23,6 +23,13 @@ composition. `board/mod.rs` receives input, snapshots and deferred events on one
 channel; snapshots wake painting directly. Redraws follow state/input/resize changes
 and changed clock text or spinner frames, rather than periodic full repainting.
 
+Member/HOME lead lists and outlined body panes use `Outline::paint_flat`: horizontal
+rules and blank side slots retain measured inner areas and title/fold hits.
+Incidental frame cells stay Dim; receiving titles keep their existing focus styles.
+Invisible walls do not change the actual borderless dispatch predicate. The shared
+inline input/read band uses `Modal::paint_flat`, retaining its complete opaque mask
+and covered-hit removal. Ask-lead, settings, pickers and cron overlays stay square.
+
 ## Rows, grid and identity
 
 - `rows::Rows` owns positional tracks and prefix coverage, including empty cells
@@ -69,6 +76,11 @@ and changed clock text or spinner frames, rather than periodic full repainting.
   text or end label. The lead tag stays inside the member cell, cuts before the
   name, disappears below two cells and reserves no width on other rows. Age/cron
   room is reserved only if it hides no additional column; cron drops before age.
+- Occurrence selection changes styles while preserving the existing blank prefixes:
+  grid x=1 beside the attention diamond, and boxed heading/task indentation.
+  Hit/reveal ranges, annotation, sent feedback, borders and input/read reservations
+  do not define selected paint. Duplicate occurrences remain independent. HOME
+  boxed leads select their heading only; member boxes also select their task line.
 - Selection words: `Look::selected_words` is the one owner of what a real selection
   background (`tmt`, `tmt-light`) does to colors. `render_frame` runs it last, over the
   finished buffer: on a cell with the selection background, `muted`, `dim`, `accent`, `link` and the
@@ -82,8 +94,32 @@ and changed clock text or spinner frames, rather than periodic full repainting.
   shared `App.input` as HOME/read/send modes. `home::controller` reuses cached bodies
   or the existing fenced request read; `view::waiting::read_lines` supplies field
   order, height, paint and scroll limits. Read-only expansion needs no recorded user;
-  writing does. Effective bindings control collapse/write/open, and covered hits
+  writing does. Effective bindings control collapse/write/open. Writing from a
+  read band dispatches the same row action as the list, so default `a` answers first
+  and explicit note/talk/reply bindings keep their recipient and mode. Covered hits
   are removed by the existing band owner.
+- Row composer and footer: `Input.compose` is the current mode (answer, note, talk or status)
+  and `Input.others` the rest in cycle order; Tab (`cycle_mode`) rotates them and
+  refreshes the quote. `attach_row` builds the list from the row (`other_modes`), so a
+  mode appears only when available; multiple answers use the same explicit request menu. `Input::header` names the recipient, its squad and the mode (`→ sol (product) · note`).
+  The footer (`view/footer.rs`) is derived from the effective bindings through
+  `Action::footer_rank` (`None` keeps an action out of the footer, in `?` help only) with a
+  fixed `↑↓ move` first; `s switch` shows only while `App::tabs_overflow` (set by the tab
+  painter) is true. HOME's key line (`home/bar.rs`) follows the same list. `,` settings
+  rows (Actions…, Theme, View, Token window) are `settings::Pick`s beside the config entries, never
+  config keys. After a successful settings save, their config-backed values are
+  resolved again through the same Config readers as opening; the component keeps
+  selection and the token-window row keeps its live session value. Failed saves
+  publish no new quick-row values. Presets bind `t` to `home-replies` and no `r`, `T`, `l`, `w` or `talk`;
+  fixtures that exercise those actions use `action::with_action_keys`.
+
+Receiving focus is explicit in the existing outlined pane title. Borderless Rows
+uses `Focus: rows` in the base footer; HOME uses `Focus: HOME rows`. Selection
+persists when another pane receives keys. Input/read, search and every existing
+overlay/menu suppress the base claim; notice, selected-link and error footer
+precedence remains unchanged. The full prefix plus mandatory `? more  q quit`
+needs 27 cells for Rows or 32 for HOME. Below that minimum the entire new prefix
+is omitted; optional hints still fit whole through the existing owner.
 
 ## Composition, folds and scrolling
 
@@ -116,7 +152,9 @@ and changed clock text or spinner frames, rather than periodic full repainting.
 ## Tabs and retained views
 
 - `view::tabs` measures styled `tab_label` widths for windowing, overflow and hits;
-  selection adds no characters. `tabs::arrange` owns order/pins. Window admission
+  shown names retain their authored text without added decoration. Shown-name
+  fitting preserves semantic suffixes when a name grapheme fits; otherwise it uses
+  the ordinary prefix fallback (a one-cell attention mark wins over the ellipsis). `tabs::arrange` owns order/pins. Window admission
   uses measured group/overflow widths and preserves the current tab even when other
   pins must step aside. Adjacent squad-prefix groups are display-only; prefixes
   have no hit, suffixes retain canonical keys/indices. An opened globally hidden
@@ -138,6 +176,10 @@ and changed clock text or spinner frames, rather than periodic full repainting.
   The requested tab is underlined without taking shown-view selection. Failure
   restores the shown tab and clears that cue. `view::header` delays the uncached
   spinner by `SPINNER_DELAY` (100 ms), with 80 ms frames; cached switches omit it.
+  Cold startup uses the same delayed spinner, with a stable Squad heading and
+  target-aware opening line, using the startup theme already read for background
+  detection. Historical usage loads after the roster; its scoped
+  status does not disable rows or replace the displayed owner with a blank frame.
   Effective refresh dispatch precedes text inputs, preserving search/drafts.
   `App::lead` resolves the shown squad/aggregate/HOME lead before ordinary jump.
 
@@ -154,13 +196,29 @@ and changed clock text or spinner frames, rather than periodic full repainting.
   label gets space only after all hints through `FOOTER_ROW_ACTIONS_END` fit.
   `board::glyph_guard` checks these labels and HOME/cron text. Tail fitting and
   appearance rules belong to the interaction owner linked above.
-- `App::input` is the shared talk/answer/annotation/ask-lead/HOME-audience composer.
+- `App::input` is the shared talk/answer/annotation/status/ask-lead/HOME-audience composer.
   `RowSend` retains occurrence and opening sender; a chosen request, quoted preview,
-  note recipient and draft survive answer/note mode changes. Several requests use
+  note recipient and draft survive mode changes; the status draft keeps its own field choices and reason. Several requests use
   an explicit picker. Submission revalidates sender, occurrence, actual lead or
   chosen open request against acquired data before the existing public send effect.
   Pending-only Reply opens an annotation to that member (`note_member`), never
   clears pending or acknowledges it. Empty submission and cancellation send nothing.
+- `board/status_update` owns the status form in that composer, measured wrapped
+  lines and focus/scroll. Each wrapped field line reserves two columns for the `›`
+  focus cue, independent of color and checked mutation choices. `SelectedRead::Status` acquires raw roster metadata through
+  the existing cancellable worker, fenced by generation, read revision and exact
+  target/actor. No display/provider value becomes an expectation. `membership/status_update`
+  freezes UUID, room, namespace and full keys, validates the actor and occurrence,
+  then calls unattributed public `identity.meta.apply` once for selected fields,
+  including locally unchanged selections as expectation guards. A wholly unchanged
+  submission refuses before applying; the announcement lists only changed fields.
+  Exact old values and absence stay distinct; unsupported legacy values refuse.
+  Conflict refresh retains context, clears field choices and needs a fresh submit; ambiguous output locks
+  out mutation replay and sends no announcement. Typed `ActionOutcome::Status`
+  keeps Refused/Conflict/Unknown/Applied state rather than flattening it to a notice.
+  Applied retains only a frozen announcement for explicit notification-only retry;
+  focus returns to the first field so queued submit keys cannot retry a notification.
+  Unanswered requests remain separate and use the existing one-request composer.
 - Row painters reserve input beneath the complete target in the same line stream
   used for starts, reveal and hits. `view::waiting` places the current-frame opaque
   band across the body, or the HOME lead box's inner width, and removes covered
@@ -168,19 +226,30 @@ and changed clock text or spinner frames, rather than periodic full repainting.
   keeps the footer path; ask-lead keeps a docked band and opening sender/squad/lead
   fences. `Compose::ReadLead` is read-only; wrapping, reservation and scrolling share
   `home_leads::message_lines`, and transition to answer/note uses the normal owner.
-- `RowFeedback` is session-only evidence of successful send. It follows the anchored
-  occurrence through refresh and clears on the next key. A removed HOME row stays
-  in the transient display projection until then; the acquired model and request
-  state are unchanged. Clearing precedes any underlying action.
+- `RowFeedback` retains the anchored occurrence through refresh; its `sent` flag
+  alone permits `✓ sent`. A removed HOME row stays in the transient display
+  projection until the next key. An active status form retains its row through
+  applied/unknown outcomes and notification retry without claiming a successful
+  send; the acquired model and request state are unchanged. Clearing precedes any
+  underlying action after leaving the form.
 
 ## Overlays and offline validation
 
-`App::overlay_event` synchronizes help/settings/theme/view/switcher/cron controllers
+`App::overlay_event` synchronizes help/settings/theme/view/switcher/cron/checklist controllers
 with one caller-owned `FocusStack` before base dispatch. Controllers own saves,
 rollback and worker effects; `picker_surface::State` owns component cursor/query,
 admitted scenes and clipped frame maps. Refresh follows stable selected identity;
 resize/model replacement invalidates hits. Query edits select the first match;
 query/list and selection-only scope fields remain controller-specific.
+
+Choice cursors are caller-projected `›` cells from the reconciled selected row ID.
+View keeps saved `●` at mark cell 0 and cursor at cell 1. Theme uses zero-gap
+`[10,1,1fr]` tracks; menus keep the exact key width followed by one cursor cell.
+Switcher uses a fixed nonshrinking five-cell pick/cursor/attention prefix, and
+cron a six-cell state/cursor/ID prefix, both with zero inner and original outer
+gaps. Content starts and semantic marks stay fixed. The cron list supplies its
+cursor; the shared jobs half passes no cursor. These cues appear on the first
+admitted row line; Config retains its existing selected continuation marks.
 
 A controller returns `None` only for an unconsumed event: routing may offer it again
 to the overlay. Consumed moves and boundary presses return `Some`, including
@@ -203,3 +272,35 @@ board never loads the file. The shipped skill owns the
 the frozen parity approval/regeneration gate. Relevant tests live in `view/tests`
 (cells, styles, hits, footer, menu and parity), `composition`, `scroll`, `app`,
 `markup` and `layout`. Text-list projection is corroborated by the native Squad test.
+
+## Checklist controller
+
+`App::context_menu` owns the context action menu for configured Menu bindings and
+`,` → Actions… (the first settings row on every host). It adds Checklist before
+member-row admission; no selected member exposes only context actions. No default
+Menu binding or hint changes. Closing that menu returns directly to the board.
+
+`checklist::{controller,forms,surface,load}` owns one centered square modal and its
+room chooser, independent filters, item selection, authored fields and exact
+confirmation. The shown named room freezes its UUID; other contexts require an
+explicit room choice. Default scope is Open / Squad-wide / archived excluded.
+The unfiltered total uses the same archive scope as the matched count. Item Enter
+opens details; explicit named controls perform edits, assignment, completion,
+archive, delete and full inventory reorder. Archived items expose Restore/Delete.
+Delete uses Review delete / Confirm delete, with its title in text colour and
+muted UUID/revision context outside the selectable choices. Details keeps IDs
+muted; single-line Body previews show only the first line, followed by an ellipsis
+when more follows. Delete starts on Cancel and requires all exact identities/revisions and both
+controls to fit in current shared geometry. Clipped/stale hits cannot submit.
+
+The existing refresh worker queues checklist jobs without collapsing writes. Its
+lane retains Service actor/context for a controller and exact room, with a separate
+shutdown cancellation token so board-read preemption cannot erase a started write.
+Controller/serial/room keys fence every result. UUID allocation reuses the same
+`id::new_v4` helper as explicit sends; each caller retains its own error mapping. Conflict/refusal retains intent and
+fields; Refresh observes and Review explicitly adopts current expectations before
+fresh Confirm. Original Unknown targets remain unknown after reads and subsequent
+acknowledgements. Closing retains drafts and stable base return context; explicit
+Cancel discards intent. This flow never contributes attention or changes Core
+requests, member state, metadata or configuration. Storage/service invariants live
+in [data-and-state.md](data-and-state.md#checklist-storage-and-service).

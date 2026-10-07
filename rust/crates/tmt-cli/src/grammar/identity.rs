@@ -163,6 +163,13 @@ pub(in crate::grammar) fn identity() -> Command {
                 ]
             ))
                 .subcommand_required(true)
+                .subcommand(with_options(storage(spec!(
+                    "apply",
+                    "Atomically apply conditional metadata changes from JSON stdin",
+                    [
+                        "Apply changes from stdin" => "tmt identity meta apply --identity reviewer --json",
+                    ]
+                )), &["identity"]))
                 .subcommand(
                     with_options(storage(spec!(
                         "set",

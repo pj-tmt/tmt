@@ -4,6 +4,9 @@
 
 - `squad.toml` sits beside the global config that `tmt config show` reports. It is the
   user's file; agents never write it.
+- Core executable discovery refuses `TMT_EXECUTABLE` or the first `tmt` on PATH when
+  it names the running Squad executable, including symbolic and hard links. This
+  prevents recursive configuration loading; select the Core `tmt` executable instead.
 - `Config::write` owns format-preserving replacement for `me`/`me_id`, tab order, board
   views, theme bases and settings edits. It checks the original bytes, edits a cloned
   document, skips unchanged bytes and assigns the new document only after successful
@@ -88,11 +91,22 @@ shared fetcher path.
   across refreshes. Preview applies the same in-memory edit as CLI set, cached by
   selection and scope, without writing; `App::look` supplies it to every pane and tab. Tab
   switches board/squad scope (built-in tabs have board scope only; a masking squad base is
-  named). Overlay input cannot operate underlying rows, tabs or panes. Enter calls the
+  named). Pickers open in all-boards scope, even when a squad override masks it;
+  the notice points to `r reset in ,`. Overlay input cannot operate underlying rows, tabs or panes. Enter calls the
   named edit once; a failed save keeps the draft and notice without retry; Esc drops the
   preview and uses the latest saved view.
 
 ## Settings inspection and editing
+
+Board preference choices use the shared layer by default; explicit squad keys
+remain opt-in overrides. The comma menu derives its `≠` marks and deduplicated
+count from actual squad keys, not inherited source labels. Its selected override
+alone offers `r reset`; `Config::reset_setting` removes exactly that key through
+the existing validated CAS writer, preserving siblings and comments. Failure
+keeps the effective state and existing diagnostic. Reset drops only an empty
+immediate parent table whose header has no comments. Quick theme/view/window rows
+share the full settings entry's provenance. Workflow and geometry edits retain
+their required squad scope.
 
 - `settings` coordinates arrangement, rows, notebook/state, meter, theme and tab/program
   projections. `config show` and the bindable inspection overlay (comma by default) share
@@ -202,13 +216,12 @@ executable, never in the core skill bundle.
 
 ## HOME lead sends
 
-`send::leads` owns all-leads and picked-lead effects. The existing `App.input`
+`send::leads` owns all-leads and picked-lead audience validation; `send::dispatch` owns the shared frozen intent, private journal and acceptance recovery used by it and status announcements. The existing `App.input`
 keeps the opening user UUID and squad/lead occurrences; both submission and the
 send effect validate current authority. The public dispatch deduplicates recipient
 UUIDs. `send::new_operation` supplies a fresh UUID for explicit sends, shared with
 manual cron sends. Before dispatch, a private 0600 intent under
 `board-dispatches/<operation>.json` beside Squad configuration is synced. Confirmed
 acceptance removes it; uncertain acceptance retains it for manual inspection.
-One `dispatch.show` read can recover lost output; there is no create replay,
-automatic resend or wake retry. Feedback distinguishes each recipient's queued or
+One `dispatch.show` read can recover lost output. There is no automatic resend or wake retry. An explicit status notification retry first recovers uncertain acceptance; after the owned invocation has closed and a definitive missing receipt, it may create only the same frozen operation/intent again. Confirmed acceptance is never created again. Feedback distinguishes each recipient's queued or
 unavailable acceptance without claiming delivery or processing.

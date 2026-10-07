@@ -201,3 +201,19 @@ fn rename_takes_two_names_at_the_top_level_and_under_identity() {
     parse_error(&["rename", "only-one"]);
     parse_error(&["identity", "rename"]);
 }
+
+#[test]
+fn conditional_metadata_apply_reads_changes_from_stdin_not_operands() {
+    assert_eq!(
+        parsed(&["identity", "meta", "apply", "--identity", "alice", "--json"]).invocation,
+        Invocation::Identity(IdentityRequest::Metadata {
+            identity: Some("alice".into()),
+            operation: IdentityMetadataRequest::Apply
+        })
+    );
+    assert_usage_error(
+        &["identity", "meta", "apply", "payload"],
+        "unexpected argument",
+        OutputMode::default(),
+    );
+}

@@ -269,12 +269,16 @@ fn shared_fixture_matches_the_native_bundle_bytes_and_field_order() {
         FileInfo::new("conversations.md", &markdown),
     ];
     // Exercise the production native serializer, not a Value's map ordering.
+    let recipient = input.get("creationRecipient").map(|value| {
+        serde_json::from_value::<crate::decoder::CreationRecipient>(value.clone()).unwrap()
+    });
     let manifest = serde_json::to_vec(&Manifest {
         format: "tmt-colab-page-export",
         version: 1,
         space_id: input["spaceId"].as_str().unwrap(),
         page_id: input["pageId"].as_str().unwrap(),
         title: input["title"].as_str().unwrap(),
+        creation_recipient: recipient.as_ref(),
         exported_at_ms: input["exportedAtMs"].as_u64().unwrap(),
         membership_head: MembershipHead {
             revision: input["membershipHead"]["revision"].as_str().unwrap().into(),

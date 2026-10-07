@@ -106,7 +106,12 @@ function scenario(options: Scenario = {}) {
     path.join(repositoryRoot, '.github/components.json'),
     path.join(repo, '.github/components.json')
   );
-  writeReleaseWorkspace(repo, ['remote', 'colab']);
+  writeReleaseWorkspace(repo, ['remote', 'colab', 'driver-herdr']);
+  // Exact-ref metadata must use the checkout's installed toolchain, not the host default.
+  copyFileSync(
+    path.join(repositoryRoot, 'rust/rust-toolchain.toml'),
+    path.join(repo, 'rust/rust-toolchain.toml')
+  );
   writeFileSync(path.join(repo, MIGRATIONS), list(2));
   writeFileSync(path.join(repo, 'rust/lib.rs'), 'fn a() {}\n');
   git('add', '-A');
@@ -206,13 +211,15 @@ function scenario(options: Scenario = {}) {
   const summary = path.join(directory, 'summary');
   writeFileSync(output, '');
   writeFileSync(summary, '');
-  const run = (args: string[]) => {
-    const result = spawnSync('node', [script, ...args], {
+  const run = (args: string[], environment: NodeJS.ProcessEnv = process.env) => {
+    const result = spawnSync(process.execPath, [script, ...args], {
       cwd: repo,
       encoding: 'utf8',
       env: {
-        ...process.env,
-        PATH: `${bin}${path.delimiter}${process.env.PATH}`,
+        ...environment,
+        // This dependency-free workspace needs no shared cache or caller Cargo configuration.
+        CARGO_HOME: path.join(directory, 'cargo'),
+        PATH: `${bin}${path.delimiter}${environment.PATH}`,
         FAKE_GH_STATE: stateFile,
         GITHUB_REPOSITORY: 'wkh237/tmt',
         GITHUB_OUTPUT: output,
@@ -315,6 +322,18 @@ describe('publication-gates.mjs early', () => {
       '--slurp',
       `repos/wkh237/tmt/commits/${'f'.repeat(40)}/check-runs`,
     ]);
+  });
+
+  it('resolves captured metadata independently of caller Cargo configuration', () => {
+    const callerCargo = mkdtempSync(path.join(root, 'caller-cargo-'));
+    writeFileSync(path.join(callerCargo, 'config.toml'), 'invalid caller Cargo configuration');
+    const { run, uploaded, calls } = scenario({ hold: null });
+    const result = run(early, { ...process.env, CARGO_HOME: callerCargo });
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.output).toBe('held=\nskip=\n');
+    expect(result.summary).toContain('- passed `migration`');
+    expect(uploaded('publication-held.json')).toBeNull();
+    expect(calls().filter((call) => call.includes('--method'))).toEqual([]);
   });
 
   it.each(['missing', 'failure', 'cancelled', 'unexpected-skip'])(

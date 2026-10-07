@@ -1,6 +1,5 @@
 import { expect, it, vi } from 'vite-plus/test';
 import type { LiveSessionOwner } from '../src/live.js';
-import { InactiveTabError, type TabOwnership } from '../src/active-tab.js';
 import type { Pending } from '../src/management.js';
 import type { RemoteClient } from '../src/ask-remote.js';
 import { mountedTransport } from '../src/mounted.js';
@@ -94,12 +93,13 @@ it('replaces a verified mounted session once for concurrent reconnects and creat
     setup.events.push(`remote:${session.id}`);
     return {};
   });
-  const mounted = await mountedTransport({ active: true, run: (action) => action() });
+  const mounted = await mountedTransport();
   expect(setup.register).toHaveBeenCalledExactlyOnceWith(
     expect.any(URL),
     expect.objectContaining({
       reopenSession: expect.any(Function),
       certifyKey: expect.any(Function),
+      transportUrl: expect.any(Function),
     }),
   );
   await mounted.transport.page('page', new AbortController().signal);
@@ -134,7 +134,7 @@ it('replaces a verified mounted session once for concurrent reconnects and creat
   expect(await setup.owner!.reconnect(setup.first as never)).toBe(replacement);
 });
 
-it('inactive ownership closes all page signals and fences every Remote method, certification and session reconnect', async () => {
+it('closing a tab aborts page signals and fences Remote methods, certification and reconnect', async () => {
   setup.sdk.reopenSession.mockClear();
   setup.sdk.certifyKey.mockClear();
   setup.signals.length = 0;
@@ -152,21 +152,10 @@ it('inactive ownership closes all page signals and fences every Remote method, c
     await sdk.certifyKey('sign', new Uint8Array(32));
     return setup.first;
   });
-  let active = true;
-  const ownership: TabOwnership = {
-    get active() {
-      return active;
-    },
-    async run(action) {
-      if (!active) throw new InactiveTabError();
-      return action();
-    },
-  };
-  const mounted = await mountedTransport(ownership);
+  const mounted = await mountedTransport();
   await mounted.transport.page('page');
   const remote = setup.ports[0];
   const sdk = setup.register.mock.calls[0][1];
-  active = false;
   mounted.close();
   expect(setup.signals[0].aborted).toBe(true);
   for (const result of [
@@ -176,20 +165,22 @@ it('inactive ownership closes all page signals and fences every Remote method, c
     remote.operation('op'),
     remote.result('request'),
   ])
-    await expect(result).rejects.toBeInstanceOf(InactiveTabError);
-  await expect(setup.owner!.reconnect(setup.first as never)).rejects.toBeInstanceOf(
-    InactiveTabError,
-  );
-  await expect(sdk.reopenSession()).rejects.toBeInstanceOf(InactiveTabError);
-  await expect(sdk.certifyKey('sign', new Uint8Array(32))).rejects.toBeInstanceOf(InactiveTabError);
-  await expect(mounted.transport.page('page')).rejects.toBeInstanceOf(InactiveTabError);
+    await expect(result).rejects.toMatchObject({ name: 'AbortError' });
+  await expect(setup.owner!.reconnect(setup.first as never)).rejects.toMatchObject({
+    name: 'AbortError',
+  });
+  await expect(sdk.reopenSession()).rejects.toMatchObject({ name: 'AbortError' });
+  await expect(sdk.certifyKey('sign', new Uint8Array(32))).rejects.toMatchObject({
+    name: 'AbortError',
+  });
+  await expect(mounted.transport.page('page')).rejects.toMatchObject({ name: 'AbortError' });
   expect(call).not.toHaveBeenCalled();
   expect(setup.sdk.reopenSession).toHaveBeenCalledOnce();
   expect(setup.sdk.certifyKey).toHaveBeenCalledOnce();
   expect(setup.register).toHaveBeenCalledOnce();
 });
 
-it('a takeover during explicit recovery prevents the old tab from reloading or reopening again', async () => {
+it('closing a tab during explicit recovery prevents a late reload or reopen', async () => {
   const items = new Map<string, string>();
   const reload = vi.fn();
   vi.stubGlobal('sessionStorage', {
@@ -202,16 +193,6 @@ it('a takeover during explicit recovery prevents the old tab from reloading or r
     },
   });
   vi.stubGlobal('location', { reload });
-  let active = true;
-  const ownership: TabOwnership = {
-    get active() {
-      return active;
-    },
-    async run(action) {
-      if (!active) throw new InactiveTabError();
-      return action();
-    },
-  };
   setup.register.mockReset().mockResolvedValue(setup.first);
   setup.remote.mockReset().mockResolvedValue(null);
   let release!: () => void;
@@ -222,33 +203,26 @@ it('a takeover during explicit recovery prevents the old tab from reloading or r
       }),
   );
   try {
-    const mounted = await mountedTransport(ownership);
+    const mounted = await mountedTransport();
     await mounted.transport.page('page');
     const recovering = setup.owner!.recover!();
     expect(setup.sdk.reopenSession).toHaveBeenCalledOnce();
-    active = false;
     mounted.close();
     release();
-    expect(await recovering).toBe(false);
+    await expect(recovering).rejects.toMatchObject({ name: 'AbortError' });
     expect(reload).not.toHaveBeenCalled();
-    await expect(setup.owner!.recover!()).rejects.toBeInstanceOf(InactiveTabError);
+    await expect(setup.owner!.recover!()).rejects.toMatchObject({ name: 'AbortError' });
     expect(setup.sdk.reopenSession).toHaveBeenCalledOnce();
   } finally {
     vi.unstubAllGlobals();
   }
 });
 
-it('takeover during management signing prevents POST and does not adopt the late signed request', async () => {
+it('closing during management signing prevents POST and does not adopt the late signed request', async () => {
   setup.register.mockReset().mockResolvedValue(setup.first);
   setup.remote.mockReset().mockResolvedValue(null);
   setup.managementSend.mockClear();
-  let active = true;
-  const mounted = await mountedTransport({
-    get active() {
-      return active;
-    },
-    run: (action) => action(),
-  });
+  const mounted = await mountedTransport();
   const port = mounted.transport.management!;
   const view = await port.read('page');
   let release!: () => void;
@@ -259,12 +233,11 @@ it('takeover during management signing prevents POST and does not adopt the late
       }),
   );
   const preparing = port.prepare(view, { operation: 'page.archive', value: { pageId: 'page' } });
-  active = false;
   mounted.close();
   release();
-  await expect(preparing).rejects.toBeInstanceOf(InactiveTabError);
-  await expect(port.send({} as Pending)).rejects.toBeInstanceOf(InactiveTabError);
-  await expect(port.read('page')).rejects.toBeInstanceOf(InactiveTabError);
+  await expect(preparing).rejects.toMatchObject({ name: 'AbortError' });
+  await expect(port.send({} as Pending)).rejects.toMatchObject({ name: 'AbortError' });
+  await expect(port.read('page')).rejects.toMatchObject({ name: 'AbortError' });
   expect(setup.managementSend).not.toHaveBeenCalled();
 });
 
@@ -273,7 +246,7 @@ it('a replaced session refuses old management views and frozen retries but permi
   setup.remote.mockReset().mockResolvedValue(null);
   setup.managementSend.mockClear();
   setup.managementPrepare.mockResolvedValue({ id: 'operation' });
-  const mounted = await mountedTransport({ active: true, run: (action) => action() });
+  const mounted = await mountedTransport();
   await mounted.transport.page('page');
   const port = mounted.transport.management!;
   const view = await port.read('page');
@@ -293,25 +266,11 @@ it('a replaced session refuses old management views and frozen retries but permi
   mounted.close();
 });
 
-it('a management POST already started retains the lease until its result settles, without a takeover retry', async () => {
+it('a management POST already started cannot publish its result after tab close', async () => {
   setup.register.mockReset().mockResolvedValue(setup.first);
   setup.remote.mockReset().mockResolvedValue(null);
   setup.managementSend.mockClear();
-  let active = true,
-    running = 0;
-  const mounted = await mountedTransport({
-    get active() {
-      return active;
-    },
-    async run(action) {
-      running++;
-      try {
-        return await action();
-      } finally {
-        running--;
-      }
-    },
-  });
+  const mounted = await mountedTransport();
   const port = mounted.transport.management!;
   const pending = await port.prepare(await port.read('page'), {
     operation: 'page.archive',
@@ -325,27 +284,18 @@ it('a management POST already started retains the lease until its result settles
       }),
   );
   const sending = port.send(pending);
-  active = false;
   mounted.close();
-  expect(running).toBe(1);
   release();
-  await expect(sending).rejects.toBeInstanceOf(InactiveTabError);
-  expect(running).toBe(0);
+  await expect(sending).rejects.toMatchObject({ name: 'AbortError' });
   expect(setup.managementSend).toHaveBeenCalledOnce();
 });
 
-it('takeover during acknowledgment verification cancels its read and refuses a late verified view without sending', async () => {
+it('closing during acknowledgment verification cancels its read and refuses a late view', async () => {
   setup.register.mockReset().mockResolvedValue(setup.first);
   setup.remote.mockReset().mockResolvedValue(null);
   setup.managementSend.mockClear();
   setup.managementVerify.mockClear();
-  let active = true;
-  const mounted = await mountedTransport({
-    get active() {
-      return active;
-    },
-    run: (action) => action(),
-  });
+  const mounted = await mountedTransport();
   const port = mounted.transport.management!;
   const pending = await port.prepare(await port.read('page'), {
     operation: 'page.archive',
@@ -363,7 +313,6 @@ it('takeover during acknowledgment verification cancels its read and refuses a l
       }),
   );
   const verifying = port.verify(pending, ack);
-  active = false;
   mounted.close();
   expect(setup.managementVerify).toHaveBeenCalledWith(
     pending,
@@ -371,21 +320,15 @@ it('takeover during acknowledgment verification cancels its read and refuses a l
     expect.objectContaining({ aborted: true }),
   );
   release();
-  await expect(verifying).rejects.toBeInstanceOf(InactiveTabError);
+  await expect(verifying).rejects.toMatchObject({ name: 'AbortError' });
   expect(setup.managementSend).not.toHaveBeenCalled();
 });
 
-it('title hints from a replaced registration or lost tab cannot reach the cache', async () => {
+it('title hints from a replaced registration or closed tab cannot reach the cache', async () => {
   setup.register.mockReset().mockResolvedValueOnce(setup.first).mockResolvedValueOnce(setup.second);
   setup.remote.mockReset().mockResolvedValue(null);
   setup.titleRemember.mockClear();
-  let active = true;
-  const mounted = await mountedTransport({
-    get active() {
-      return active;
-    },
-    run: (action) => action(),
-  });
+  const mounted = await mountedTransport();
   await mounted.transport.page('page');
   const owner = setup.owner!;
   await owner.reconnect(setup.first as never);
@@ -397,7 +340,6 @@ it('title hints from a replaced registration or lost tab cannot reach the cache'
     'Current session',
     expect.any(AbortSignal),
   );
-  active = false;
   mounted.close();
   await owner.rememberTitle!('page', 'Late view', setup.second as never);
   expect(setup.titleRemember).toHaveBeenCalledOnce();

@@ -22,10 +22,12 @@ pub mod extension_command;
 pub mod extension_hooks;
 #[cfg(unix)]
 pub mod file_lock;
+pub mod focus;
 #[cfg(unix)]
 pub mod hint_cadence;
 #[cfg(unix)]
 pub mod host;
+pub mod identity_metadata;
 pub mod identity_projection;
 pub mod identity_status;
 #[cfg(unix)]

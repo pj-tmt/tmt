@@ -17,7 +17,7 @@ export function Window({
     <div
       role={label ? "img" : undefined}
       aria-label={label}
-      className="w-full overflow-hidden border border-term-edge bg-term text-t-text shadow-[6px_6px_0_var(--c-accent)]"
+      className="w-full overflow-hidden border border-term-edge bg-term text-t-text"
     >
       <div className="flex items-center gap-1.5 bg-term-bar px-2.5 py-2 font-mono text-xs text-t-dim">
         <i className="size-2.5 bg-term-edge" />

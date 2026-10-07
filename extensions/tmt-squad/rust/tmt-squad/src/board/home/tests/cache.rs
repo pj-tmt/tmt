@@ -35,7 +35,7 @@ fn capture(app: &App, width: u16) -> Frame {
             .hits
             .borrow()
             .iter()
-            .map(|hit| (hit.y, hit.x, hit.width, hit.row))
+            .map(|hit| (hit.y, hit.x, hit.width, hit.row().unwrap()))
             .collect(),
         starts: app.row_starts.borrow().clone(),
         input: format!("{:?}", app.input_band.get()),
@@ -95,6 +95,7 @@ fn a_frame_from_held_sections_equals_one_from_none() {
         press(&mut app, Esc);
         let target = app.home_entries()[app.selected].target.clone();
         app.sent = Some(RowFeedback {
+            sent: true,
             target: RowTarget::Home(target),
             home: None,
         });
@@ -228,7 +229,7 @@ fn the_header_usage_and_key_line_follow_their_inputs() {
         assert_eq!(again, held, "{width}");
         for cron in [false, true] {
             assert_eq!(
-                paint::hints_of(view, width.into(), cron),
+                paint::hints_of(view, width.into(), cron, true),
                 paint::hints(width.into(), cron),
                 "{width} cron {cron}"
             );
@@ -236,9 +237,99 @@ fn the_header_usage_and_key_line_follow_their_inputs() {
     }
     let before = builds(&app);
     paint::usage_of(view, &usage, 80, app.look());
-    paint::hints_of(view, 80, true);
+    paint::hints_of(view, 80, true, true);
     assert_eq!(builds(&app), before, "the held strips paint nothing");
     usage.unreported += 1;
     paint::usage_of(view, &usage, 160, app.look());
     assert_eq!(builds(&app), before + 1, "new usage data repaints the line");
+}
+
+#[test]
+fn focus_hints_follow_receiving_ownership_in_warm_and_cold_frames() {
+    use crate::board::app::{Menu, Switcher};
+    for width in [31, 32, 80, 100, 160] {
+        for overflow in [false, true] {
+            let mut app = rich();
+            app.tabs_overflow.set(overflow);
+            let view = app.view.as_ref().unwrap();
+            for receiving in [true, false, true] {
+                let held = paint::hints_of(view, width, overflow, receiving);
+                view.derived.borrow_mut().home = Default::default();
+                assert_eq!(held, paint::hints_of(view, width, overflow, receiving));
+                assert_eq!(held.contains("Focus: HOME rows"), receiving && width >= 32);
+                assert!(held.ends_with("? more  q quit"));
+                assert!(unicode_width::UnicodeWidthStr::width(held.as_str()) <= width);
+            }
+            let owns = |app: &App, name: &str| {
+                agrees(app, width as u16, name);
+                let shown = capture(app, width as u16);
+                assert!(
+                    !shown.buffer.content.windows(6).any(|cells| {
+                        cells.iter().map(|cell| cell.symbol()).collect::<String>() == "Focus:"
+                    }),
+                    "{name} owns the keys"
+                );
+            };
+            // Actual input/read transitions retain selection and use the existing band.
+            let lead = app
+                .home_entries()
+                .iter()
+                .position(|entry| {
+                    entry.target.section == super::super::LEADS && entry.target.squad == "alpha"
+                })
+                .unwrap();
+            app.select(lead);
+            press(&mut app, Char('e'));
+            assert!(app.input.is_some());
+            owns(&app, "read");
+            press(&mut app, Esc);
+            app.select(2);
+            press(&mut app, Char('a'));
+            assert!(app.input.is_some());
+            owns(&app, "composer");
+            press(&mut app, Esc);
+            app.searching = true;
+            owns(&app, "search");
+            app.searching = false;
+            app.help = true;
+            owns(&app, "help");
+            app.help = false;
+            app.menu = Some(Menu {
+                row_send: None,
+                link: None,
+                prefill: String::new(),
+                title: "owned menu".into(),
+                entries: Vec::new(),
+                selected: 0,
+                surface: Default::default(),
+            });
+            owns(&app, "menu");
+            app.menu = None;
+            app.switcher = Some(Switcher::default());
+            owns(&app, "switcher");
+            app.switcher = None;
+            let config = || {
+                crate::config::Config::read(std::env::temp_dir().join(format!(
+                    "selection-focus-{}.missing.toml",
+                    std::process::id()
+                )))
+                .unwrap()
+            };
+            app.open_settings(config()).unwrap();
+            owns(&app, "settings");
+            app.settings = None;
+            app.open_view_picker(config()).unwrap();
+            owns(&app, "view picker");
+            app.close_view_picker(false);
+            app.theme_picker =
+                Some(crate::board::theme_picker::Picker::open(config(), None).unwrap());
+            owns(&app, "theme picker");
+            app.theme_picker = None;
+            app.cron_list = Some(crate::board::cronboard::List::open(&app.cron, None));
+            owns(&app, "cron list");
+            app.cron_list = None;
+            let restored = paint::hints_of(app.view.as_ref().unwrap(), width, overflow, true);
+            assert_eq!(restored.contains("Focus: HOME rows"), width >= 32);
+        }
+    }
 }

@@ -85,6 +85,7 @@ impl<R: RequestRepository, C: Fn() -> u64> RequestService<'_, R, C> {
                     AttemptStatus::Prepared | AttemptStatus::Queued
                 )
                 || attempt.response_submitted_at_ms.is_some()
+                || attempt.withdrawal.is_some()
                 || now >= attempt.retention_expires_at_ms
             {
                 return Err(RequestError::StateInvalid);
@@ -202,7 +203,11 @@ pub(super) fn claim<E>(
     let Some(mut value) = records.notification(&attempt.request_id)? else {
         return Ok(None);
     };
-    if now >= attempt.retention_expires_at_ms || value.observed || attempt.wait_active {
+    if now >= attempt.retention_expires_at_ms
+        || value.observed
+        || attempt.wait_active
+        || attempt.withdrawal.is_some()
+    {
         return Ok(None);
     }
     if kind == HintKind::Timeout && now < value.policy.deadline_ms {
@@ -213,6 +218,9 @@ pub(super) fn claim<E>(
         HintKind::Timeout => &mut value.timeout,
     };
     if *state != WakeState::NotAttempted {
+        return Ok(None);
+    }
+    if hold_notice(records, attempt, kind, now)? {
         return Ok(None);
     }
     *state = if records.identity_is_active(originator)? {
@@ -229,4 +237,36 @@ pub(super) fn claim<E>(
         kind,
         timeout_ms: value.policy.timeout_ms,
     }))
+}
+
+/// Recheck already queued legacy notice frames at their transport boundary.
+/// Definitely unattempted frames can move to focus; an attempted frame cannot.
+impl<R: RequestRepository, C: Fn() -> u64> RequestService<'_, R, C> {
+    pub fn hold_reply_notice(&mut self, request_id: &str) -> Result<bool, RequestError<R::Error>> {
+        self.hold_originator_notice(request_id, HintKind::Reply)
+    }
+
+    pub fn hold_originator_notice(
+        &mut self,
+        request_id: &str,
+        kind: HintKind,
+    ) -> Result<bool, RequestError<R::Error>> {
+        let clock = &self.clock;
+        self.repository.with_request_transaction(|records| {
+            let now = positive(clock())?;
+            let attempt = records
+                .find_request(request_id)?
+                .ok_or(RequestError::NotFound)?;
+            hold_notice(records, &attempt, kind, now)
+        })
+    }
+}
+
+fn hold_notice<E>(
+    records: &mut dyn RequestRecords<Error = E>,
+    attempt: &RequestAttempt,
+    kind: HintKind,
+    now: u64,
+) -> Result<bool, RequestError<E>> {
+    super::super::focus::hold_originator_notice(records, attempt, kind, now)
 }

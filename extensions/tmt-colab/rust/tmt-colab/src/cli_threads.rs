@@ -148,14 +148,16 @@ pub fn run(root: &Path, args: &ArgMatches) -> Result<()> {
         let prepared = prepared?;
         closed?;
         let changed = prepared.is_some();
-        let action = if let Some((publication, action)) = prepared {
-            page::publish(&layout, &key, &publication, now, &mut decoder)?;
-            Some(action)
+        let (action, operation_id) = if let Some((frozen, action)) = prepared {
+            let published =
+                crate::publish_write(&layout, &key, &page_id, &frozen, &mut decoder, now)?;
+            let receipt = page::publication_receipt(frozen.job(), &published.record)?;
+            (Some(action), receipt.publication.map(|v| v.operation_id))
         } else {
-            None
+            (None, None)
         };
         if json_output {
-            let mut value = json!({"spaceId":key.space_id,"pageId":page_id,"threadId":thread,"resolved":resolved,"changed":changed,"action":action});
+            let mut value = json!({"spaceId":key.space_id,"pageId":page_id,"threadId":thread,"resolved":resolved,"changed":changed,"operationId":operation_id,"action":action});
             reach.annotate(&mut value, &path);
             writeln!(output, "{value}")?;
         } else {

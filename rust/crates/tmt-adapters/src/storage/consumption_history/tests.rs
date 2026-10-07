@@ -1,5 +1,100 @@
 use super::*;
 
+// Literal expectations characterize the pre-optimization public projection.
+#[test]
+fn history_empty_and_missing_keep_complete_wire_shape() {
+    let (_directory, path, id) = fixture();
+    let mut storage = Storage::open(&path).unwrap();
+    let response = storage
+        .consumption_history(&[id.clone(), "missing".into()], &[10000], 120, 15001)
+        .unwrap();
+    assert_eq!(
+        response,
+        json!({
+            "asOfMs":15001,"throughMs":15000,"retainedFromMs":0,"resolutionMs":5000,
+            "identities":[
+                {"id":id,"found":true,"reporting":false,"availableFromMs":null,
+                 "lastSampleAtMs":null,"latest":null,"windows":[
+                    {"windowMs":10000,"fromMs":5000,"toMs":15000,"bucketMs":5000,
+                     "buckets":[
+                        {"fromMs":5000,"toMs":10000,"inputTokens":0,"outputTokens":0,
+                         "cachedInputTokens":0,"coveredMs":0,"complete":false,"gap":true,"discontinuous":false},
+                        {"fromMs":10000,"toMs":15000,"inputTokens":0,"outputTokens":0,
+                         "cachedInputTokens":0,"coveredMs":0,"complete":false,"gap":true,"discontinuous":false}
+                     ]}
+                 ]},
+                {"id":"missing","found":false}
+            ]
+        })
+    );
+}
+
+#[test]
+fn history_populated_windows_preserve_gaps_and_exact_boundaries() {
+    let (_directory, path, id) = fixture();
+    let mut storage = Storage::open(&path).unwrap();
+    for (from, input, covered, incomplete, gap, discontinuous) in [
+        (0, 1, 5000, false, false, false),
+        (5000, 2, 5000, false, false, false),
+        (10000, 3, 2000, true, true, false),
+        (15000, 4, 5000, false, false, true),
+        (20000, 99, 5000, false, false, false), // Open bucket is excluded.
+    ] {
+        Bucket {
+            from,
+            input,
+            covered,
+            incomplete,
+            gap,
+            discontinuous,
+            ..Bucket::default()
+        }
+        .write(storage.connection().unwrap(), &id)
+        .unwrap();
+    }
+    let response = storage
+        .consumption_history(std::slice::from_ref(&id), &[15000, 5000], 2, 22500)
+        .unwrap();
+    assert_eq!(
+        response,
+        json!({
+            "asOfMs":22500,"throughMs":20000,"retainedFromMs":0,"resolutionMs":5000,
+            "identities":[{"id":id,"found":true,"reporting":false,"availableFromMs":null,
+            "lastSampleAtMs":null,"latest":null,"windows":[
+                {"windowMs":15000,"fromMs":5000,"toMs":20000,"bucketMs":10000,"buckets":[
+                    {"fromMs":5000,"toMs":15000,"inputTokens":5,"outputTokens":0,"cachedInputTokens":0,
+                     "coveredMs":7000,"complete":false,"gap":true,"discontinuous":false},
+                    {"fromMs":15000,"toMs":20000,"inputTokens":4,"outputTokens":0,"cachedInputTokens":0,
+                     "coveredMs":5000,"complete":true,"gap":false,"discontinuous":true}
+                ]},
+                {"windowMs":5000,"fromMs":15000,"toMs":20000,"bucketMs":5000,"buckets":[
+                    {"fromMs":15000,"toMs":20000,"inputTokens":4,"outputTokens":0,"cachedInputTokens":0,
+                     "coveredMs":5000,"complete":true,"gap":false,"discontinuous":true}
+                ]}
+            ]}]
+        })
+    );
+}
+
+#[test]
+fn history_corrupt_retained_rows_outside_requested_window_still_fail() {
+    let (_directory, path, id) = fixture();
+    let mut storage = Storage::open(&path).unwrap();
+    Bucket {
+        from: 0,
+        sampled: Some(1000),
+        latest: Some("invalid json".into()),
+        ..Bucket::default()
+    }
+    .write(storage.connection().unwrap(), &id)
+    .unwrap();
+    let error = storage
+        .consumption_history(std::slice::from_ref(&id), &[5000], 120, 20000)
+        .unwrap_err();
+    assert_eq!(error.code, StorageErrorCode::Corrupt);
+    assert_eq!(error.message, "Invalid consumption history evidence");
+}
+
 #[test]
 fn shared_seed_fixture_excludes_open_counter() {
     let fixture: Value = serde_json::from_str(include_str!(

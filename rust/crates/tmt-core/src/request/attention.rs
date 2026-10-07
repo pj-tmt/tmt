@@ -1,6 +1,6 @@
 //! Attention is a view over retained requests, not a second request lifecycle.
 
-use super::{AttemptStatus, RequestAttempt, RequestPrompt};
+use super::{AttemptStatus, RequestAttempt, RequestPrompt, Withdrawal};
 use std::fmt;
 
 pub const DEFAULT_LIST_LIMIT: u64 = 50;
@@ -25,6 +25,8 @@ pub struct AttentionRecord {
 /// state variants therefore have one definition without optional body flags.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FinalState<T> {
+    /// Terminal originator intent, never a recipient final or approval.
+    Withdrawn(Withdrawal),
     NotRequired,
     NotSubmitted,
     Retained {
@@ -46,6 +48,7 @@ pub enum FinalState<T> {
 impl<T> FinalState<T> {
     pub fn as_str(&self) -> &'static str {
         match self {
+            Self::Withdrawn(_) => "withdrawn",
             Self::NotRequired => "not_required",
             Self::NotSubmitted => "not_submitted",
             Self::Retained { .. } => "retained",
@@ -57,6 +60,7 @@ impl<T> FinalState<T> {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Exchange<T = ()> {
+    pub delivery_policy: super::focus::DeliveryPolicy,
     pub request_id: String,
     pub room_id: Option<String>,
     pub recipient_identity_id: Option<String>,

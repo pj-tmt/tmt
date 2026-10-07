@@ -7,6 +7,7 @@ import { describe, expect, it } from 'vite-plus/test';
 import { writeExecutable } from '../support/executable-fixture.mjs';
 import { componentMap } from '../../scripts/ci-scope.mjs';
 import {
+  CONVENTIONAL_PR_TYPES,
   checkPullRequestTitle,
   checkQueueTitles,
   conventionalPrTitle,
@@ -39,6 +40,25 @@ function reader(log: string): QueueReader {
 }
 
 describe('conventional squash title syntax', () => {
+  it('has exactly the approved immutable policy and accepts every approved type', () => {
+    expect(CONVENTIONAL_PR_TYPES).toEqual([
+      'feat',
+      'fix',
+      'perf',
+      'revert',
+      'refactor',
+      'docs',
+      'test',
+      'ci',
+      'chore',
+      'build',
+    ]);
+    expect(Object.isFrozen(CONVENTIONAL_PR_TYPES)).toBe(true);
+    for (const type of CONVENTIONAL_PR_TYPES) {
+      expect(conventionalPrTitle(`${type}: change`)).toBe(true);
+      expect(conventionalPrTitle(`${type}(scope)!: change`)).toBe(true);
+    }
+  });
   it.each([
     'fix: repair lock',
     'feat(cli): add option',
@@ -60,6 +80,10 @@ describe('conventional squash title syntax', () => {
     'fix(core))!: extra parenthesis',
     'fix(core)!!: duplicate marker',
     'fix: first\nsecond',
+    'fux: typo',
+    'feature: unknown type',
+    'fix-other: unapproved type',
+    'Fix: capitalized type',
   ])('reports %s', (title) => expect(conventionalPrTitle(title)).toBe(false));
   it('rejects missing title data', () => expect(conventionalPrTitle(undefined)).toBe(false));
 });
@@ -112,6 +136,8 @@ function reportFixture(
       missingEvent?: boolean;
       eventName?: string;
       missingToken?: boolean;
+      reportOnly?: boolean;
+      extraArgs?: string[];
     }) => { result: SpawnSyncReturns<string>; summary: string };
   }) => void
 ) {
@@ -139,6 +165,8 @@ function reportFixture(
         missingEvent?: boolean;
         eventName?: string;
         missingToken?: boolean;
+        reportOnly?: boolean;
+        extraArgs?: string[];
       } = {}
     ) => {
       const summaryPath = options.summaryDirectory ? directory : path.join(directory, 'summary');
@@ -147,7 +175,11 @@ function reportFixture(
       writeFileSync(logPath, options.log ?? row(head, 'fix: change', 1));
       const result = spawnSync(
         process.execPath,
-        [path.join(root, 'typescript/scripts/pr-title-check.mjs')],
+        [
+          path.join(root, 'typescript/scripts/pr-title-check.mjs'),
+          ...(options.reportOnly === false ? [] : ['--report-only']),
+          ...(options.extraArgs ?? []),
+        ],
         {
           env: {
             ...process.env,
@@ -244,6 +276,81 @@ describe('real report-only command exit status and job summary', () => {
     }));
 });
 
+describe('required cumulative merge-group title gate', () => {
+  it('rejects an earlier invalid squash subject despite a valid tip', () =>
+    reportFixture(({ invoke }) => {
+      const { result, summary } = invoke({
+        reportOnly: false,
+        log: [
+          row(earlier, 'feature(remote): unapproved type', 993),
+          row(head, 'fix: valid tip', 1035),
+        ].join('\n'),
+      });
+      expect(result.status).toBe(1);
+      expect(result.signal).toBeNull();
+      expect(summary).toContain('Checked 2 queued title(s); 1 finding(s)');
+      expect(summary).toContain('PR #993');
+      expect(summary).toContain(earlier);
+      expect(summary).toContain('feature(remote): unapproved type');
+      expect(summary).toContain('Expected type(scope)?: subject');
+      expect(summary).toContain('Approved types:');
+      expect(summary).not.toContain('report-only');
+    }));
+  it('passes the same cumulative range after correcting its offending subject', () =>
+    reportFixture(({ invoke }) => {
+      const { result, summary } = invoke({
+        reportOnly: false,
+        missingToken: true,
+        log: [
+          row(earlier, 'feat(remote): approved type', 993),
+          row(head, 'fix: valid tip', 1035),
+        ].join('\n'),
+      });
+      expect(result.status).toBe(0);
+      expect(result.stderr).toBe('');
+      expect(summary).toContain('Checked 2 queued title(s); 0 finding(s)');
+    }));
+  it('fails closed on missing or malformed queue evidence', () =>
+    reportFixture(({ invoke }) => {
+      for (const options of [
+        { log: '' },
+        { log: 'invalid' },
+        { gitStatus: 2 },
+        { missingEvent: true },
+      ]) {
+        const { result, summary } = invoke({ ...options, reportOnly: false });
+        expect(result.status).toBe(1);
+        expect(summary).toContain('Title evidence unavailable');
+        expect(summary).toContain('fails closed');
+      }
+    }));
+  it('refuses unknown arguments and report-only on a pull-request event', () =>
+    reportFixture(({ invoke }) => {
+      const unknown = invoke({ reportOnly: false, extraArgs: ['--unknown'] }).result;
+      expect(unknown.status).toBe(1);
+      expect(unknown.stdout).toContain('Usage: pr-title-check.mjs [--report-only]');
+      const extra = invoke({ extraArgs: ['--unknown'] }).result;
+      expect(extra.status).toBe(1);
+      const pull = invoke({ eventName: 'pull_request' }).result;
+      expect(pull.status).toBe(1);
+      expect(pull.stdout).toContain('--report-only is available only for merge groups');
+    }));
+  it('does not let missing job-summary storage change the title decision', () =>
+    reportFixture(({ invoke }) => {
+      for (const options of [{ summaryDirectory: true }, { missingSummary: true }]) {
+        expect(invoke({ ...options, reportOnly: false }).result.status).toBe(0);
+        const invalid = invoke({
+          ...options,
+          reportOnly: false,
+          log: row(head, 'fux: typo', 1),
+        }).result;
+        expect(invalid.status).toBe(1);
+        expect(invalid.stdout).toContain('fux: typo');
+        expect(invalid.stderr).toContain('Title report summary unavailable');
+      }
+    }));
+});
+
 // Real released component roots from the checked-in map, so a map change is noticed here.
 const remotePath = 'extensions/tmt-remote/rust/src/lib.rs';
 describe('pull-request title gate', () => {
@@ -263,7 +370,7 @@ describe('pull-request title gate', () => {
     expect(check('', ['extensions/tmt-office/README.md']).ok).toBe(true);
   });
   it('rejects an empty or capitalized title when a released component changes', () => {
-    for (const title of ['', 'Squad: capitalized type'])
+    for (const title of ['', 'Squad: capitalized type', 'fux: typo', 'feature(cli): unknown type'])
       expect(check(title, ['rust/crates/tmt-cli/src/main.rs']).ok).toBe(false);
   });
 });
@@ -274,6 +381,7 @@ function gateFixture(
       title: string;
       files: string[];
       restStatus?: number;
+      restResponse?: string;
     }) => SpawnSyncReturns<string> & { summary: string }
   ) => void
 ) {
@@ -287,7 +395,7 @@ function gateFixture(
     // The event payload carries a stale title; only REST holds the current one.
     writeExecutable(
       path.join(directory, 'gh'),
-      `#!${process.execPath}\nif (process.env.GH_FIXTURE_STATUS !== '0') process.exit(Number(process.env.GH_FIXTURE_STATUS));\nif (process.argv.slice(2).join(' ') !== 'api repos/pj-tmt/tmt/pulls/77') process.exit(3);\nprocess.stdout.write(JSON.stringify({ title: process.env.GH_FIXTURE_TITLE }));\n`,
+      `#!${process.execPath}\nif (process.env.GH_FIXTURE_STATUS !== '0') process.exit(Number(process.env.GH_FIXTURE_STATUS));\nif (process.argv.slice(2).join(' ') !== 'api repos/pj-tmt/tmt/pulls/77') process.exit(3);\nprocess.stdout.write(process.env.GH_FIXTURE_RESPONSE || JSON.stringify({ title: process.env.GH_FIXTURE_TITLE }));\n`,
       0o700
     );
     const eventPath = path.join(directory, 'event.json');
@@ -302,7 +410,7 @@ function gateFixture(
         },
       })
     );
-    run(({ title, files, restStatus = 0 }) => {
+    run(({ title, files, restStatus = 0, restResponse }) => {
       const filesPath = path.join(directory, 'files');
       const summaryPath = path.join(directory, 'summary');
       writeFileSync(filesPath, files.map((file) => `${file}\0`).join(''));
@@ -321,6 +429,7 @@ function gateFixture(
             GIT_FIXTURE_FILES: filesPath,
             GH_FIXTURE_TITLE: title,
             GH_FIXTURE_STATUS: String(restStatus),
+            GH_FIXTURE_RESPONSE: restResponse ?? '',
           },
           encoding: 'utf8',
           timeout: 5000,
@@ -341,7 +450,9 @@ describe('real pull-request gate command', () => {
       expect(result.summary).toContain('tmt-remote');
       expect(result.summary).toContain('Keep Remote door origins stable');
       expect(result.summary).toContain('Edit the PR title');
-      expect(result.summary).toContain('rerun Code quality');
+      expect(result.summary).toContain('Rerun Code quality');
+      expect(result.summary).toContain('Expected type(scope)?: subject');
+      expect(result.summary).toContain('separate PR title check runs on edits');
       expect(result.stdout).toBe(result.summary);
     }));
   it('passes once the title is fixed and for a PR that changes no released component', () =>
@@ -365,8 +476,23 @@ describe('real pull-request gate command', () => {
     }));
 });
 
+describe('missing live PR title evidence', () => {
+  it('refuses a missing or non-string REST title even off released paths', () =>
+    gateFixture((invoke) => {
+      for (const restResponse of ['{}', '{"title":null}', '{"title":17}']) {
+        const result = invoke({
+          title: 'fix: valid stale input',
+          files: ['extensions/tmt-office/README.md'],
+          restResponse,
+        });
+        expect(result.status).toBe(1);
+        expect(result.summary).toContain('Missing current pull-request title');
+      }
+    }));
+});
+
 describe('workflow wiring', () => {
-  it('runs one checker on pull requests and merge groups without edited or an extra workflow', () => {
+  it('keeps the required checker on pull requests and merge groups without full-CI edited events', () => {
     const ci = readFileSync(path.join(root, '.github/workflows/ci.yml'), 'utf8');
     const step = ci
       .split('      - name: Check conventional PR titles\n')[1]
@@ -375,5 +501,22 @@ describe('workflow wiring', () => {
     expect(step).toContain('GITHUB_TOKEN: ${{ github.token }}');
     expect(step).toContain('run: node typescript/scripts/pr-title-check.mjs');
     expect(ci.split('  pull_request:\n')[1].split('  merge_group:')[0]).not.toContain('edited');
+  });
+  it('checks title edits in one independent read-only Node job without product builds', () => {
+    const workflow = readFileSync(path.join(root, '.github/workflows/pr-title.yml'), 'utf8');
+    expect(workflow).toContain('types: [opened, edited, reopened, synchronize]');
+    expect(workflow).toContain('group: pr-title-${{ github.event.pull_request.number }}');
+    expect(workflow).toContain('cancel-in-progress: true');
+    expect(workflow).toContain('contents: read');
+    expect(workflow).toContain('pull-requests: read');
+    expect(workflow).not.toMatch(/(?:contents|pull-requests): write/);
+    expect(workflow).toContain('persist-credentials: false');
+    expect(workflow).toContain('fetch-depth: 0');
+    expect(workflow).toContain('node-version: 22.23.2');
+    expect(workflow).toContain('timeout-minutes: 5');
+    expect(workflow).toContain('GITHUB_TOKEN: ${{ github.token }}');
+    expect(workflow).toContain('run: node typescript/scripts/pr-title-check.mjs');
+    expect(workflow).not.toMatch(/--report-only|pnpm|cargo|docker|pull_request_target/);
+    expect(workflow.match(/^  \w[\w-]*:\n/gm)).toEqual(['  pull_request:\n', '  title:\n']);
   });
 });

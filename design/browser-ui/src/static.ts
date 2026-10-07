@@ -1,0 +1,32 @@
+export const browserUiClasses = Object.freeze({
+  header: 'tmt-ui-header',
+  brand: 'tmt-ui-brand',
+  mark: 'tmt-ui-mark',
+  wordmark: 'tmt-ui-wordmark',
+  heading: 'tmt-ui-heading',
+  title: 'tmt-ui-title',
+  caption: 'tmt-ui-caption',
+  status: 'tmt-ui-status',
+  actions: 'tmt-ui-actions',
+  icon: 'tmt-ui-icon',
+  notice: 'tmt-ui-notice',
+  noticeMark: 'tmt-ui-notice-mark',
+  noticeEyebrow: 'tmt-ui-notice-eyebrow',
+  noticeHeading: 'tmt-ui-notice-heading',
+  noticeBody: 'tmt-ui-notice-body',
+  noticeActions: 'tmt-ui-notice-actions',
+  field: 'tmt-ui-field',
+  fieldLabel: 'tmt-ui-field-label',
+  fieldControl: 'tmt-ui-field-control',
+  fieldDescription: 'tmt-ui-field-description',
+  fieldError: 'tmt-ui-field-error',
+  action: 'tmt-ui-action',
+  actionLabel: 'tmt-ui-action-label',
+  actionMark: 'tmt-ui-action-mark',
+  toggle: 'tmt-ui-toggle',
+  toggleIndicator: 'tmt-ui-toggle-indicator',
+} as const);
+
+export type BrowserNoticeTone = 'waiting' | 'blocked' | 'working' | 'review' | 'muted';
+export type BrowserActionVariant = 'text' | 'primary' | 'destructive';
+export type BrowserAnnouncement = 'status' | 'alert' | 'none';

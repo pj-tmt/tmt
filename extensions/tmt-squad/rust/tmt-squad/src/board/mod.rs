@@ -3,6 +3,7 @@
 
 mod app;
 mod changes;
+mod checklist;
 mod composition;
 mod cronboard;
 mod derived;
@@ -21,6 +22,7 @@ mod rate;
 mod refresh;
 mod scroll;
 mod settings;
+mod status_update;
 pub(crate) use crate::tabs;
 mod terminal;
 mod theme_picker;
@@ -39,7 +41,7 @@ use app::{App, Effect, Request, Snapshot};
 use ratatui::{
     Terminal,
     backend::CrosstermBackend,
-    crossterm::event::{self, Event, KeyEventKind},
+    crossterm::event::{self, Event, KeyEventKind, MouseEventKind},
 };
 use std::{
     io,
@@ -90,11 +92,16 @@ pub fn exit_status(signal: Option<i32>) -> u8 {
 /// terminal hangs up, so the board never waits on it directly; the thread ends
 /// with the process, and a read error disconnects the channel.
 pub(super) enum BoardEvent {
+    Checklist(checklist::load::Completed),
     Input(Event),
     InputClosed,
     Snapshot {
         cancellation: crate::runner::Cancellation,
         snapshot: Box<Snapshot>,
+    },
+    History {
+        cancellation: crate::runner::Cancellation,
+        read: refresh::HistoryRead,
     },
     Usage {
         cancellation: crate::runner::Cancellation,
@@ -114,6 +121,12 @@ pub(super) enum BoardEvent {
         key: home_leads::MessageKey,
         revision: u64,
         body: Result<String, String>,
+    },
+    Status {
+        cancellation: crate::runner::Cancellation,
+        target: crate::membership::status_update::Target,
+        revision: u64,
+        result: Result<crate::membership::status_update::Preview, String>,
     },
     Notebook {
         cancellation: crate::runner::Cancellation,
@@ -168,8 +181,34 @@ fn spawn_input(sender: Sender<BoardEvent>, mut filter: Option<terminal::backgrou
 /// Carries out a resolved request. Nothing here reads the row or config.
 /// Jump and back share the plain commands' path, including the per-client
 /// back stack.
-fn execute(core: &Core, request: Request) -> Result<String, String> {
-    match request {
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum ActionOutcome {
+    Message(String),
+    Status(Box<crate::membership::status_update::Outcome>),
+}
+impl From<String> for ActionOutcome {
+    fn from(message: String) -> Self {
+        Self::Message(message)
+    }
+}
+impl From<&str> for ActionOutcome {
+    fn from(message: &str) -> Self {
+        Self::Message(message.into())
+    }
+}
+fn execute(core: &Core, request: Request) -> Result<ActionOutcome, String> {
+    if let Request::Status(action) = request {
+        return Ok(ActionOutcome::Status(Box::new(match *action {
+            status_update::Action::Apply(submit) => {
+                crate::membership::status_update::apply(core, &submit)
+            }
+            status_update::Action::Retry { preview, intent } => {
+                crate::membership::status_update::retry(core, &preview, intent)
+            }
+        })));
+    }
+    let outcome = match request {
+        Request::Status(_) => unreachable!("handled above"),
         Request::Jump(member) => back::jump(core, &member)
             .map(|(focus, warning)| match warning {
                 None => format!("Showing {member} ({}).", focus.pane),
@@ -231,7 +270,8 @@ fn execute(core: &Core, request: Request) -> Result<String, String> {
         } => send::answer(core, &me, &request, &from, &text)
             .map(|()| format!("Replied to {from}."))
             .map_err(|error| error.message),
-    }
+    };
+    outcome.map(ActionOutcome::Message)
 }
 
 fn reload_interval(app: &App) -> Option<Duration> {
@@ -242,14 +282,15 @@ fn reload_interval(app: &App) -> Option<Duration> {
 
 /// The board loop, independent of the real terminal. It always returns within
 /// one input wait of a stop signal or a closed input, whatever the reader does.
-#[allow(clippy::too_many_arguments)] // The terminal-independent loop injects both worker request kinds.
-fn session(
+#[allow(clippy::too_many_arguments)] // The terminal-independent loop injects worker requests and effects.
+fn session<T: Into<ActionOutcome>>(
     app: &mut App,
     stop: &AtomicUsize,
     input: &Receiver<BoardEvent>,
     request: impl Fn(Option<String>, bool, bool),
     selected_read: impl Fn(u64, Option<refresh::SelectedRead>),
-    mut act: impl FnMut(Request) -> Result<String, String>,
+    checklist: impl Fn(checklist::load::Task),
+    mut act: impl FnMut(Request) -> Result<T, String>,
     mut load_config: impl FnMut() -> Result<Config, String>,
     mut draw: impl FnMut(&mut App) -> io::Result<()>,
 ) -> io::Result<Option<i32>> {
@@ -297,6 +338,11 @@ fn session(
             wait = wait.min(interval.saturating_sub(refreshed.elapsed()));
         }
         let effect = match input.recv_timeout(wait) {
+            Ok(BoardEvent::Checklist(completed)) => {
+                app.finished_checklist(completed);
+                dirty = true;
+                Effect::None
+            }
             Ok(BoardEvent::Snapshot {
                 cancellation,
                 snapshot,
@@ -326,6 +372,22 @@ fn session(
                 }
                 Effect::None
             }
+            Ok(BoardEvent::Status {
+                cancellation,
+                target,
+                revision: read_revision,
+                result,
+            }) => {
+                if !cancellation.cancelled()
+                    && read_revision == revision
+                    && app.selected_read() == Some(refresh::SelectedRead::Status(target.clone()))
+                    && let Some(draft) = &mut app.status_draft
+                {
+                    draft.loaded(result);
+                    dirty = true;
+                }
+                Effect::None
+            }
             Ok(BoardEvent::Message {
                 cancellation,
                 key,
@@ -348,6 +410,12 @@ fn session(
                 {
                     app.apply_home_leads(read);
                     dirty = true;
+                }
+                Effect::None
+            }
+            Ok(BoardEvent::History { cancellation, read }) => {
+                if !cancellation.cancelled() {
+                    dirty |= app.apply_history(read, Instant::now());
                 }
                 Effect::None
             }
@@ -398,10 +466,20 @@ fn session(
                 app.key(key)
             }
             Ok(BoardEvent::Input(Event::Mouse(mouse))) => {
+                if mouse.kind == MouseEventKind::Moved {
+                    dirty |= app.move_pointer(mouse);
+                    Effect::None
+                } else {
+                    dirty = true;
+                    app.mouse(mouse, Instant::now())
+                }
+            }
+            Ok(BoardEvent::Input(event @ Event::Paste(_))) if app.checklist_shown() => {
                 dirty = true;
-                app.mouse(mouse, Instant::now())
+                app.overlay_event(&event).unwrap_or(Effect::None)
             }
             Ok(BoardEvent::Input(Event::Resize(_, _))) => {
+                app.meter_hover = None;
                 app.invalidate_overlay_frames();
                 dirty = true;
                 Effect::None
@@ -468,6 +546,7 @@ fn session(
                     }
                 }
             }
+            Effect::Checklist(task) => checklist(task),
             Effect::Settings => {
                 match load_config()
                     .and_then(|config| app.open_settings(config).map_err(|error| error.message))
@@ -488,6 +567,52 @@ fn session(
                     requested = None;
                     request(app.current.clone(), true, true);
                     refreshed = Instant::now();
+                }
+            }
+            Effect::ResetSetting => {
+                if app.settings.as_mut().is_some_and(|overlay| overlay.reset()) {
+                    app.settings_preview();
+                    if let Some(config) = app
+                        .settings
+                        .as_ref()
+                        .and_then(|overlay| overlay.config())
+                        .cloned()
+                    {
+                        app.apply_token_window(&config);
+                    }
+                    revision += 1;
+                    requested = None;
+                    request(app.current.clone(), true, true);
+                    refreshed = Instant::now();
+                }
+            }
+            Effect::CycleTokenWindow => {
+                if let Some(window) = app.next_token_window() {
+                    let result = if let Some(overlay) = &mut app.settings {
+                        if overlay.save_window(window) {
+                            Some(Ok(overlay.config().unwrap().clone()))
+                        } else {
+                            None
+                        }
+                    } else {
+                        Some(load_config().and_then(|mut config| {
+                            config
+                                .set_setting(None, "board.token_rate.window", &window.label())
+                                .map_err(|error| error.message)?;
+                            Ok(config)
+                        }))
+                    };
+                    match result {
+                        Some(Ok(config)) => {
+                            app.notice = Some(app.apply_token_window(&config));
+                            revision += 1;
+                            requested = None;
+                            request(app.current.clone(), true, app.settings.is_some());
+                            refreshed = Instant::now();
+                        }
+                        Some(Err(error)) => app.finished(Err(error)),
+                        None => {}
+                    }
                 }
             }
             Effect::CancelSettings => {
@@ -541,7 +666,13 @@ fn session(
                 let jump = matches!(action, Request::Jump(_));
                 let outcome = act(action);
                 let jumped = jump && outcome.is_ok();
-                app.finished(outcome);
+                match outcome.map(Into::into) {
+                    Ok(ActionOutcome::Status(outcome)) => {
+                        app.finished_status(*outcome);
+                    }
+                    Ok(ActionOutcome::Message(message)) => app.finished(Ok(message)),
+                    Err(error) => app.finished(Err(error)),
+                }
                 if jumped && app.popup {
                     return Ok(None);
                 }
@@ -570,6 +701,10 @@ fn session(
                         if let Some(view) = &mut app.view {
                             view.home_replies = shown;
                         }
+                        app.say(format!(
+                            "Reply previews {}.",
+                            if shown { "shown" } else { "hidden" }
+                        ));
                         revision += 1;
                         requested = None;
                         request(app.current.clone(), false, false);
@@ -652,7 +787,8 @@ pub fn run(
     let config = Config::load(&core)?;
     let (picks, squad) = selection(&core, &config, picks.as_deref(), squad.as_deref())?;
     composition::admit().map_err(|message| SquadError::new("SQUAD_LAYOUT_INVALID", message))?;
-    let requested = config.theme(squad.as_deref().unwrap_or(""))?.0.base;
+    let initial_theme = config.theme(squad.as_deref().unwrap_or(""))?.0;
+    let requested = initial_theme.base;
     let value = std::env::var("COLORFGBG").ok();
     let mut guard = terminal::Guard::enter(terminal::Crossterm).map_err(failed)?;
     let eligible = terminal::background::allowed(
@@ -675,6 +811,7 @@ pub fn run(
     );
     worker.request(squad.clone(), false, false);
     let mut app = App::new(squad);
+    app.initial_look = Some(crate::look::Look::new(initial_theme));
     app.picks = picks;
     app.popup = popup;
     let mut screen = Terminal::new(CrosstermBackend::new(io::stdout())).map_err(failed)?;
@@ -686,6 +823,7 @@ pub fn run(
         &input,
         |squad, preempt, preview| worker.request(squad, preempt, preview),
         |revision, identity| worker.selected(revision, identity),
+        |task| worker.checklist(task),
         |request| execute(&core, request),
         || Config::load(&core).map_err(|error| error.message),
         |app| {
@@ -749,6 +887,7 @@ mod tests {
                 &input,
                 |_, _, _| reloads.set(reloads.get() + 1),
                 |_, _| {},
+                |_| {},
                 no_actions,
                 || {
                     if conflict {
@@ -793,7 +932,8 @@ mod tests {
             &[50, 50],
         );
         let view = snapshot.view.as_mut().unwrap();
-        view.bindings = crate::action::preset(true, &view.board.panes);
+        view.bindings =
+            crate::action::with_action_keys(crate::action::preset(true, &view.board.panes));
         view.document["squad"]["lead"] =
             serde_json::json!({"id":"LEAD", "name":"lead", "lifetime":"saved"});
         app.apply(snapshot);
@@ -827,7 +967,7 @@ mod tests {
                     view.refresh = None;
                     view.board = crate::config::Board::simple(crate::config::BoardMode::Split,
                         crate::config::Direction::LeftRight, vec![crate::config::Pane::Rows, crate::config::Pane::Detail], &[50,50]);
-                    view.bindings = crate::action::preset(true, &view.board.panes);
+                    view.bindings = crate::action::with_action_keys(crate::action::preset(true, &view.board.panes));
                     events.send(snapshot_event(fresh)).unwrap();
                     events.send(result(identity, revision, "BEFORE REFRESH")).unwrap();
                 } else {
@@ -843,6 +983,7 @@ mod tests {
                     events.send(key(KeyCode::Char('q'))).unwrap();
                 }
             },
+                |_| {},
             no_actions,
             no_load_config,
             |app| {
@@ -922,10 +1063,11 @@ mod tests {
             &input,
             |_, preempt, preview| reloads.borrow_mut().push((preempt, preview)),
             |_, _| {},
+            |_| {},
             |request| {
                 assert_eq!(request, Request::Jump("coder".into()));
                 actions += 1;
-                Ok("Jumped".into())
+                Ok("Jumped".to_owned())
             },
             || {
                 reads += 1;
@@ -975,10 +1117,11 @@ mod tests {
             &input,
             |_, _, _| reloads.set(reloads.get() + 1),
             |_, _| {},
+            |_| {},
             |request| {
                 assert_eq!(request, Request::Jump("coder".into()));
                 actions += 1;
-                Ok("Jumped".into())
+                Ok("Jumped".to_owned())
             },
             || {
                 reads += 1;
@@ -1022,6 +1165,7 @@ mod tests {
             &input,
             |_, _, _| {},
             |_, _| {},
+            |_| {},
             no_actions,
             || Config::read(path.clone()).map_err(|error| error.message),
             |app| {
@@ -1067,6 +1211,7 @@ mod tests {
             &input,
             |_, _, _| panic!("a failed save must not reload or retry"),
             |_, _| {},
+            |_| {},
             no_actions,
             || Config::read(path.clone()).map_err(|error| error.message),
             |app| {
@@ -1171,6 +1316,7 @@ mod tests {
                 &input,
                 |_, _, _| {},
                 |_, _| {},
+                |_| {},
                 no_actions,
                 no_load_config,
                 |_| Ok(()),
@@ -1209,6 +1355,7 @@ mod tests {
                 &input,
                 |_, _, _| {},
                 |_, _| {},
+                |_| {},
                 |request| {
                     assert_eq!(request, Request::Jump("auth-fix".into()));
                     jumps += 1;
@@ -1237,6 +1384,7 @@ mod tests {
             &input,
             |_, _, _| {},
             |_, _| {},
+            |_| {},
             no_actions,
             no_load_config,
             |_| Err(io::Error::other("terminal gone")),
@@ -1262,6 +1410,7 @@ mod tests {
                 &input,
                 |_, _, _| {},
                 |_, _| {},
+                |_| {},
                 no_actions,
                 no_load_config,
                 |app| {
@@ -1303,6 +1452,63 @@ mod tests {
     }
 
     #[test]
+    fn pointer_motion_repaints_only_when_meter_target_changes() {
+        use ratatui::crossterm::event::{KeyModifiers, MouseEvent};
+        let (events, input) = channel();
+        let (painted, frames) = channel();
+        let session = std::thread::spawn(move || {
+            let mut app = App::new(Some("product".into()));
+            let mut snapshot = app::tests::snapshot("product", serde_json::json!([]));
+            snapshot.view.as_mut().unwrap().refresh = None;
+            app.apply(snapshot);
+            super::session(
+                &mut app,
+                &AtomicUsize::new(0),
+                &input,
+                |_, _, _| {},
+                |_, _| {},
+                |_| {},
+                no_actions,
+                no_load_config,
+                |app| {
+                    *app.hits.borrow_mut() = vec![app::Hit {
+                        y: 1,
+                        x: 40,
+                        width: 10,
+                        target: app::HitTarget::Meter(None),
+                    }];
+                    painted.send(app.meter_hover).unwrap();
+                    Ok(())
+                },
+            )
+            .unwrap()
+        });
+        assert_eq!(frames.recv_timeout(Duration::from_secs(2)).unwrap(), None);
+        let moved = |column| {
+            BoardEvent::Input(Event::Mouse(MouseEvent {
+                kind: MouseEventKind::Moved,
+                column,
+                row: 1,
+                modifiers: KeyModifiers::NONE,
+            }))
+        };
+        events.send(moved(40)).unwrap();
+        assert_eq!(
+            frames.recv_timeout(Duration::from_secs(2)).unwrap(),
+            Some(None)
+        );
+        events.send(moved(45)).unwrap();
+        assert!(
+            frames.recv_timeout(INPUT_WAIT * 2).is_err(),
+            "motion within the same group never repaints"
+        );
+        events.send(moved(39)).unwrap();
+        assert_eq!(frames.recv_timeout(Duration::from_secs(2)).unwrap(), None);
+        events.send(key(KeyCode::Char('q'))).unwrap();
+        assert_eq!(session.join().unwrap(), None);
+    }
+
+    #[test]
     fn interval_reloads_continue_without_idle_frames_and_off_never_reloads() {
         for interval in [Some(Duration::from_millis(10)), None] {
             let (events, input) = channel();
@@ -1321,6 +1527,7 @@ mod tests {
                         requested.send(squad).unwrap();
                     },
                     |_, _| {},
+                    |_| {},
                     no_actions,
                     no_load_config,
                     |_| {
@@ -1363,6 +1570,7 @@ mod tests {
                 &input,
                 |_, _, _| {},
                 |_, _| {},
+                |_| {},
                 no_actions,
                 no_load_config,
                 |_| {
@@ -1417,6 +1625,7 @@ mod tests {
                 &input,
                 |_, _, _| {},
                 |_, _| {},
+                |_| {},
                 no_actions,
                 no_load_config,
                 |_| {
@@ -1457,6 +1666,7 @@ mod tests {
                 &input,
                 |_, _, _| panic!("automatic refresh was turned off by the snapshot"),
                 |_, _| {},
+                |_| {},
                 no_actions,
                 no_load_config,
                 |_| Ok(())

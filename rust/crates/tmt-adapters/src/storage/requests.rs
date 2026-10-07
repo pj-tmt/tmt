@@ -5,6 +5,7 @@
 //! held.
 
 mod attention;
+mod focus;
 mod history;
 mod notification;
 mod reply_batch;
@@ -156,6 +157,95 @@ fn checked_now(value: u64, label: &str) -> Result<i64, StorageError> {
 
 impl RequestRecords for RequestRows<'_> {
     type Error = StorageError;
+
+    fn focus_policy(
+        &self,
+        id: &str,
+    ) -> Result<Option<tmt_core::request::focus::FocusPolicy>, Self::Error> {
+        focus::policy(self.0, id)
+    }
+    fn write_focus_policy(
+        &mut self,
+        p: &tmt_core::request::focus::FocusPolicy,
+    ) -> Result<(), Self::Error> {
+        focus::write_policy(self.0, p)
+    }
+    fn delivery_policy(
+        &self,
+        id: &str,
+    ) -> Result<tmt_core::request::focus::DeliveryPolicy, Self::Error> {
+        focus::delivery_policy(self.0, id)
+    }
+    fn write_delivery_policy(
+        &mut self,
+        id: &str,
+        p: &tmt_core::request::focus::DeliveryPolicy,
+    ) -> Result<(), Self::Error> {
+        focus::write_delivery_policy(self.0, id, p)
+    }
+    fn hold_focus_item(
+        &mut self,
+        id: &str,
+        request: &str,
+        kind: tmt_core::request::focus::FocusKind,
+        source: tmt_core::request::focus::FocusSource,
+        now: u64,
+    ) -> Result<(), Self::Error> {
+        focus::hold(self.0, id, request, kind, source, now)
+    }
+    fn has_focus_item(
+        &self,
+        id: &str,
+        request: &str,
+        source: tmt_core::request::focus::FocusSource,
+    ) -> Result<bool, Self::Error> {
+        focus::has_item(self.0, id, request, source)
+    }
+    fn focus_inventory(
+        &self,
+        id: &str,
+        batch: Option<&str>,
+        after: u64,
+        now: u64,
+    ) -> Result<(u64, u64), Self::Error> {
+        focus::inventory(self.0, id, batch, after, now)
+    }
+    fn focus_items(
+        &self,
+        id: &str,
+        batch: Option<&str>,
+        after: u64,
+        limit: u64,
+        now: u64,
+    ) -> Result<Vec<tmt_core::request::focus::FocusItem>, Self::Error> {
+        focus::items(self.0, id, batch, after, limit, now)
+    }
+    fn focus_checklist(
+        &self,
+        id: &str,
+    ) -> Result<Option<tmt_core::request::focus::FocusChecklist>, Self::Error> {
+        focus::checklist(self.0, id)
+    }
+    fn active_focus_checklist(
+        &self,
+        id: &str,
+    ) -> Result<Option<tmt_core::request::focus::FocusChecklist>, Self::Error> {
+        focus::active(self.0, id)
+    }
+    fn create_focus_checklist(
+        &mut self,
+        b: &tmt_core::request::focus::FocusChecklist,
+        now: u64,
+    ) -> Result<(), Self::Error> {
+        focus::create_checklist(self.0, b, now)
+    }
+    fn settle_focus_checklist(
+        &mut self,
+        b: &tmt_core::request::focus::FocusChecklist,
+        state: tmt_core::request::focus::FocusState,
+    ) -> Result<(), Self::Error> {
+        focus::settle(self.0, b, state)
+    }
 
     fn notification(
         &self,
@@ -574,6 +664,28 @@ impl RequestRecords for RequestRows<'_> {
         Ok(())
     }
 
+    fn withdraw_request(
+        &mut self,
+        attempt_id: &str,
+        withdrawal: &tmt_core::request::Withdrawal,
+    ) -> Result<bool, Self::Error> {
+        let changed = self
+            .0
+            .execute(
+                "UPDATE request_attempts SET withdrawn_at_ms = ?1, withdrawal_reason = ?2
+             WHERE attempt_id = ?3 AND withdrawn_at_ms IS NULL
+               AND response_submitted_at_ms IS NULL
+               AND NOT EXISTS (SELECT 1 FROM request_responses WHERE attempt_id = ?3)",
+                params![
+                    checked_now(withdrawal.withdrawn_at_ms, "Withdrawal time")?,
+                    withdrawal.reason,
+                    attempt_id
+                ],
+            )
+            .map_err(|error| classify(error, "Withdraw unanswered request"))?;
+        Ok(changed == 1)
+    }
+
     fn create_response(&mut self, response: &FinalResponse) -> Result<(), Self::Error> {
         let (route_kind, route_recipient, endpoint) = match &response.route {
             RequestRoute::Pane(endpoint) => ("pane", None, Some(endpoint)),
@@ -625,7 +737,7 @@ impl RequestRecords for RequestRows<'_> {
              SET response_submitted_at_ms = ?,
                  retention_expires_at_ms = MAX(retention_expires_at_ms, ?)
              WHERE attempt_id = ? AND request_id = ?
-               AND response_submitted_at_ms IS NULL",
+               AND response_submitted_at_ms IS NULL AND withdrawn_at_ms IS NULL",
                 params![
                     submitted_at_ms,
                     response_expires_at_ms,
@@ -982,6 +1094,7 @@ impl RequestRecords for RequestRows<'_> {
                 params![settled_cutoff, now, now, checked_limit(limit)?],
             )
             .map_err(|error| classify(error, "Delete retained requests"))?;
+        focus::prune_settled(self.0, settled_cutoff_ms, limit)?;
         Ok(())
     }
 }

@@ -170,6 +170,7 @@ fn sent_on(app: &mut App, section: &str, squad: &str) {
     select(app, section, squad);
     let target = app.home_entries()[app.selected].target.clone();
     app.sent = Some(RowFeedback {
+        sent: true,
         target: RowTarget::Home(target),
         home: None,
     });
@@ -347,7 +348,7 @@ fn frame(
         app.hits
             .borrow()
             .iter()
-            .map(|hit| format!("{}:{}+{}#{}", hit.y, hit.x, hit.width, hit.row))
+            .map(|hit| format!("{}:{}+{}#{}", hit.y, hit.x, hit.width, hit.row().unwrap()))
             .collect::<Vec<_>>()
             .join(" ")
     );

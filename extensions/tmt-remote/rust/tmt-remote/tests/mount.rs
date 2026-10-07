@@ -22,7 +22,10 @@ use tmt_remote::{
     devices::{Devices, event_json},
     http::{Door, Handler, Head},
     limits,
-    mount::{Admitted, DeviceContext, EXTENSIONS, Extension, Mounts, NoSessions, Sessions},
+    mount::{
+        Admitted, DeviceContext, EXTENSIONS, Extension, Mounts, NoSessions, ObjectDeclaration,
+        Sessions,
+    },
     routes::Routes,
     site::Site,
     state::Layout,
@@ -910,6 +913,7 @@ static WIDE: [Extension; 1] = [Extension {
     reply_bytes: 1024,
     tunnels: limits::SOCKETS + 2,
     tunnel_idle: Duration::from_millis(600),
+    objects: ObjectDeclaration::Disabled,
 }];
 /// Upgrade a new client and return it after the 101 head.
 fn tunnel(door: &Mounted) -> TcpStream {

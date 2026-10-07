@@ -73,18 +73,14 @@ impl Picker {
         focus: usize,
     ) -> Result<Self, SquadError> {
         let name = squad.as_deref().unwrap_or("");
-        let (view, source) = config.view_source(name)?;
+        let (view, _) = config.view_source(name)?;
         let custom = config.custom_board(name)?;
         let current = if custom {
             Choice::Custom
         } else {
             view.map_or(Choice::Reset, Choice::View)
         };
-        let scope = if source == "squad" || custom {
-            ViewScope::Squad(squad.clone().expect("squad source"))
-        } else {
-            ViewScope::Board
-        };
+        let scope = ViewScope::Board;
         Ok(Self {
             config,
             squad,
@@ -130,7 +126,7 @@ impl Picker {
             Some(format!("squad {name} keeps its custom layout"))
         } else if self.scope == ViewScope::Board && self.config.view_source(name).ok()?.1 == "squad"
         {
-            Some(format!("squad {name} keeps its own view"))
+            Some(format!("squad {name} keeps its own view · r reset in ,"))
         } else {
             None
         }
@@ -246,13 +242,20 @@ pub(super) fn render(frame: &mut Frame, picker: &Picker, look: crate::look::Look
     let inherited = picker
         .inherited()
         .unwrap_or_else(|_| "inherit the arrangement".into());
+    let selected = picker
+        .surface
+        .borrow()
+        .picker
+        .list
+        .selected()
+        .map(str::to_owned);
     let rows: Vec<_> = picker.choices().into_iter().map(|choice| {
         let (name, description) = match choice {
             Choice::Custom => ("custom", "(squad.toml)"),
             Choice::Reset => ("default", inherited.as_str()),
             Choice::View(view) => (view.name(), view.description()),
         };
-        json!({"id":choice.id(),"disabled":false,"mark":if choice == picker.current {"●"} else {""},"name":name,"description":description})
+        json!({"id":choice.id(),"disabled":false,"mark":match (choice == picker.current, selected.as_deref() == Some(choice.id())) { (true, true) => "●›", (true, false) => "●", (false, true) => " ›", (false, false) => "" },"name":name,"description":description})
     }).collect();
     let mut notes = vec![json!({"id":"purpose", "text":"Pane arrangement and fold defaults only"})];
     if let Some(masked) = picker.masked() {
@@ -303,7 +306,8 @@ mod tests {
             crate::board::app::tests::snapshot("product", json!([{"rows":[{"name":"before"}]}]));
         let view = snapshot.view.as_mut().unwrap();
         view.board = config.board("product").unwrap();
-        view.bindings = config.bindings(true, &view.board.panes).unwrap();
+        view.bindings =
+            crate::action::with_action_keys(config.bindings(true, &view.board.panes).unwrap());
         app.apply(snapshot);
         app.set_body_width(120);
         (path, config, app)
@@ -354,6 +358,12 @@ mod tests {
         let (path, config, mut app) = fixture("scope", original);
         app.open_view_picker(config).unwrap();
         let picker = app.view_picker.as_mut().unwrap();
+        assert_eq!(picker.scope, ViewScope::Board);
+        assert_eq!(
+            picker.masked().as_deref(),
+            Some("squad product keeps its own view · r reset in ,")
+        );
+        picker.key(key(KeyCode::Tab));
         assert_eq!(picker.scope, ViewScope::Squad("product".into()));
         assert_eq!(
             picker.inherited().unwrap(),
@@ -362,7 +372,7 @@ mod tests {
         picker.key(key(KeyCode::Tab));
         assert_eq!(
             picker.masked().as_deref(),
-            Some("squad product keeps its own view")
+            Some("squad product keeps its own view · r reset in ,")
         );
         picker.key(key(KeyCode::Tab));
         picker.surface.borrow_mut().select(Choice::Reset.id());
@@ -391,6 +401,8 @@ mod tests {
         let original = "[squad.product.board]\npanes = ['rows', 'notes'] # own\nview = 'focus'\n";
         let (path, config, mut app) = fixture("custom", original);
         app.open_view_picker(config).unwrap();
+        assert_eq!(app.view_picker.as_ref().unwrap().scope, ViewScope::Board);
+        app.key(key(KeyCode::Tab));
         app.key(key(KeyCode::Down)); // reset
         app.key(key(KeyCode::Down)); // members
         app.key(key(KeyCode::Down)); // team
@@ -538,6 +550,58 @@ mod tests {
             }
         }
         assert_eq!(std::fs::read_to_string(&path).unwrap(), "");
+        std::fs::remove_dir_all(path.parent().unwrap()).unwrap();
+    }
+    #[test]
+    fn saved_dot_and_cursor_move_independently_in_the_existing_mark_track() {
+        let original = "[board]\nview = 'team'\n";
+        let (path, config, app) = fixture("cursor-track", original);
+        let mut picker = Picker::open(
+            config,
+            Some("product".into()),
+            app.effective_board().unwrap().clone(),
+            0,
+        )
+        .unwrap();
+        for (variant, look) in picker_surface::evidence::looks().into_iter().enumerate() {
+            for (width, height) in [(80, 30), (100, 30), (160, 30), (180, 30), (80, 8)] {
+                for choice in [Choice::View(ViewName::Team), Choice::Reset] {
+                    picker.surface.borrow_mut().select(choice.id());
+                    let mut screen = Terminal::new(TestBackend::new(width, height)).unwrap();
+                    screen
+                        .draw(|frame| render(frame, &picker, look, frame.area()))
+                        .unwrap();
+                    let state = picker.surface.borrow();
+                    let buffer = screen.backend().buffer();
+                    for id in ["team", "default"] {
+                        let row = picker_surface::evidence::row(&state, id);
+                        if row.height == 0 {
+                            continue;
+                        }
+                        assert_eq!(
+                            buffer[(row.x, row.y)].symbol(),
+                            if id == "team" { "●" } else { " " }
+                        );
+                        assert_eq!(
+                            buffer[(row.x + 1, row.y)].symbol(),
+                            if id == choice.id() { "›" } else { " " }
+                        );
+                        assert_eq!(
+                            buffer[(row.x + 3, row.y)].symbol(),
+                            if id == "team" { "t" } else { "d" }
+                        );
+                    }
+                    picker_surface::evidence::capture(
+                        &format!("view-{width}x{height}-{variant}-{}", choice.id()),
+                        buffer,
+                        &state,
+                    );
+                }
+            }
+        }
+        picker.key(key(KeyCode::Down));
+        assert_eq!(picker.current.id(), "team");
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), original);
         std::fs::remove_dir_all(path.parent().unwrap()).unwrap();
     }
 }

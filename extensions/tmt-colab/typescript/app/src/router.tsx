@@ -1,3 +1,6 @@
+import type { ComposerEdit } from './components/message-composer-edit.js';
+import { BrowserAction, BrowserToggle } from '@tmt/browser-ui/react';
+import { browserUiClasses as ui } from '@tmt/browser-ui/static';
 import { validPagePrefix } from './short-links.js';
 import {
   FileText,
@@ -35,8 +38,10 @@ import { ShareDialog } from './share-dialog.js';
 import { mountRenderer } from './renderer.js';
 import type { RenderState, SelectionRect } from './renderer.js';
 import { text } from './strings.js';
+import { SessionEvictedError } from './ask-remote.js';
 import { ExportPanel } from './export-panel.js';
 import { PageDrawer } from './page-drawer.js';
+import { AgentStatusPanel } from './agent-status-panel.js';
 import { ChatPanel } from './chat-panel.js';
 import { isChatThread } from './thread-records.js';
 
@@ -131,7 +136,7 @@ const root = createRootRouteWithContext<{ transport: PageTransport }>()({
           eyebrow={text.product}
           title={text.error}
           actions={
-            <Link className="notice-action" to="/">
+            <Link className={ui.action} data-variant="text" to="/">
               {text.retry}
             </Link>
           }
@@ -148,7 +153,7 @@ const root = createRootRouteWithContext<{ transport: PageTransport }>()({
         eyebrow={text.product}
         title={text.error}
         actions={
-          <Link className="notice-action" to="/">
+          <Link className={ui.action} data-variant="text" to="/">
             {text.retry}
           </Link>
         }
@@ -205,7 +210,7 @@ function ShortPageChoice() {
       testId="short-page-choice"
       actions={
         deleted ? (
-          <Link className="notice-action" to="/">
+          <Link className={ui.action} data-variant="text" to="/">
             Back to pages
           </Link>
         ) : undefined
@@ -266,7 +271,7 @@ export function AppHeader({
       home={
         linked
           ? (brand) => (
-              <Link className="colab-brand" to="/" aria-label={text.home}>
+              <Link to="/" aria-label={text.home}>
                 {brand}
               </Link>
             )
@@ -286,7 +291,12 @@ function ThemeButton({ menuLabel = false }: { menuLabel?: boolean }) {
     document.documentElement.dataset.theme = dark ? 'dark' : 'light';
   }, [dark]);
   return (
-    <button className="theme" aria-label={text.theme} onClick={() => setDark(!dark)}>
+    <button
+      className={`theme ${ui.action}`}
+      data-variant="text"
+      aria-label={text.theme}
+      onClick={() => setDark(!dark)}
+    >
       <span className="theme-symbol" aria-hidden>
         {dark ? <Moon aria-hidden /> : <Sun aria-hidden />}
       </span>
@@ -335,13 +345,14 @@ function ManageButton({
   if (!port) return null;
   return (
     <>
-      <button
-        onClick={(event) => {
+      <BrowserAction
+        type="button"
+        variant="text"
+        label="Manage page"
+        onActivate={(event) => {
           if (event.isTrusted) setOpen(true);
         }}
-      >
-        Manage page
-      </button>
+      />
       {open &&
         createPortal(
           <ShareDialog
@@ -380,17 +391,13 @@ function Home() {
       <h1>{space.title}</h1>
       <p className="intro">{text.intro}</p>
       {transport.management && (
-        <button
-          type="button"
-          className="archive-toggle"
-          aria-pressed={archived}
-          onClick={(event) => {
+        <BrowserToggle
+          pressed={archived}
+          label="Show archived"
+          onActivate={(event) => {
             if (event.isTrusted) setArchived(!archived);
           }}
-        >
-          <span className="toggle-box" aria-hidden="true" />
-          Show archived
-        </button>
+        />
       )}
       {pages.length ? (
         <ul className="pages">
@@ -442,7 +449,9 @@ function Page() {
   const snapshot = page.useLoaderData();
   const backendName = transport.backendName?.trim();
   const backendLabel = backendName ? `local · ${backendName}` : 'local';
-  const [panel, setPanel] = useState<'source' | 'comments' | 'chat' | 'export' | null>(null);
+  const [panel, setPanel] = useState<'source' | 'comments' | 'chat' | 'export' | 'agents' | null>(
+    null,
+  );
   const [menu, setMenu] = useState(false);
   const [chatOpened, setChatOpened] = useState(false);
   const toolbar = useRef<HTMLElement>(null);
@@ -490,6 +499,7 @@ function Page() {
   const [draft, setDraft] = useState(snapshot.source),
     [saving, setSaving] = useState(false);
   const [liveError, setLiveError] = useState<string | null>(null),
+    [eviction, setEviction] = useState<SessionEvictedError | null>(null),
     [editError, setEditError] = useState<string | null>(null);
   useEffect(() => {
     dirty.current = false;
@@ -505,6 +515,7 @@ function Page() {
       threads: snapshot.threads,
     });
     setLiveError(null);
+    setEviction(null);
     setEditError(null);
     const unsubscribe = snapshot.binding?.subscribe(
       (value) => {
@@ -516,7 +527,10 @@ function Page() {
           setDraft(value.source);
         }
       },
-      (error) => setLiveError(error.message),
+      (error) => {
+        setLiveError(error.message);
+        setEviction(error instanceof SessionEvictedError ? error : null);
+      },
     );
     return () => {
       unsubscribe?.();
@@ -556,14 +570,14 @@ function Page() {
     selector: QuoteSelector;
     rectangle: SelectionRect;
     /** Text kept from an earlier close of this selection. */
-    restored?: string;
+    restored?: ComposerEdit;
   }>();
   const annotationRef = useRef(annotation);
   annotationRef.current = annotation;
   const popover = useRef<HTMLElement>(null);
   // An unsent draft lives in memory for this page only: never stored, never sent to the frame.
-  const drafts = useRef(new Map<string, string>());
-  const annotationDraft = useRef('');
+  const drafts = useRef(new Map<string, ComposerEdit>());
+  const annotationDraft = useRef<ComposerEdit>({ value: '' });
   const annotationBusy = useRef(false);
   const [activeThread, setActiveThread] = useState<string | null>(null);
   useEffect(() => {
@@ -584,17 +598,17 @@ function Page() {
     setPanel(null);
     setMenu(false);
   }
-  /** True once something beyond the prefilled `@agent` has been typed. */
-  const typed = () =>
-    annotationDraft.current.trim() !== '' && !/^@\S*\s*$/.test(annotationDraft.current);
+  /** Every nonblank message is a draft; recipient selection never replaces its bytes. */
+  const typed = () => annotationDraft.current.value.trim() !== '';
   /** Closes without losing typed text: it comes back when the same selection is annotated again. */
   function closeAnnotation(focusPage: boolean) {
     // A send in flight is not interrupted by the ×, Escape, an outside press or a cleared selection.
     if (!annotation || annotationBusy.current) return;
     const key = JSON.stringify(annotation.selector);
-    if (typed()) drafts.current.set(key, annotationDraft.current);
+    if (typed() || annotationDraft.current.recipient)
+      drafts.current.set(key, annotationDraft.current);
     else drafts.current.delete(key);
-    annotationDraft.current = '';
+    annotationDraft.current = { value: '' };
     setAnnotation(undefined);
     setRectangle(currentRectangle.current);
     if (focusPage) queueMicrotask(() => host.current?.querySelector('iframe')?.focus());
@@ -706,7 +720,7 @@ function Page() {
         menuOpen={menu}
         title={view.title || snapshot.title || text.unknownPageTitle}
         home={(brand) => (
-          <Link className="colab-brand" to="/" aria-label={text.home}>
+          <Link to="/" aria-label={text.home}>
             {brand}
           </Link>
         )}
@@ -740,7 +754,8 @@ function Page() {
               </span>
             </span>
             <button
-              className="page-overflow-toggle"
+              className={`page-overflow-toggle ${ui.action}`}
+              data-variant="text"
               aria-label="More page actions"
               aria-expanded={menu}
               onClick={(event) => {
@@ -763,7 +778,8 @@ function Page() {
               }}
             >
               <button
-                className="page-menu-close"
+                className={`page-menu-close ${ui.action}`}
+                data-variant="text"
                 aria-label="Close page actions"
                 onClick={() => setMenu(false)}
               >
@@ -774,6 +790,8 @@ function Page() {
                 <span>{text[snapshot.sharing]}</span>
               </div>
               <button
+                className={ui.action}
+                data-variant="text"
                 data-testid="chat-toggle"
                 aria-label="Chat"
                 aria-expanded={panel === 'chat'}
@@ -784,6 +802,19 @@ function Page() {
                 Chat
               </button>
               <button
+                className={ui.action}
+                data-variant="text"
+                data-testid="agents-toggle"
+                aria-expanded={panel === 'agents'}
+                onClick={(event) => {
+                  if (event.isTrusted) toggle('agents');
+                }}
+              >
+                {text.agentStatus}
+              </button>
+              <button
+                className={ui.action}
+                data-variant="text"
                 data-testid="comments-toggle"
                 aria-expanded={panel === 'comments'}
                 onClick={(event) => {
@@ -793,6 +824,8 @@ function Page() {
                 {text.comments}
               </button>
               <button
+                className={ui.action}
+                data-variant="text"
                 aria-pressed={panel === 'source'}
                 onClick={(event) => {
                   if (event.isTrusted) toggle('source');
@@ -821,7 +854,7 @@ function Page() {
               />
               <ThemeButton menuLabel />
               <details className="page-information">
-                <summary aria-label="Page information">
+                <summary className={ui.action} data-variant="text" aria-label="Page information">
                   <span className="info-symbol" aria-hidden>
                     <Info aria-hidden />
                   </span>
@@ -838,10 +871,29 @@ function Page() {
           <div className="frame-host" ref={host} />
           {(state === 'navigation' || state === 'failed') && (
             <NoticeCard state="blocked" eyebrow={text.product} title={text.blocked}>
-              <p>{liveError ?? (state === 'navigation' ? text.navigation : text.failed)}</p>
-              <p>{text.limit}</p>
+              {eviction ? (
+                <>
+                  <p>{text.sessionEvicted(eviction.limit)}</p>
+                  <p>
+                    {text.sessionLimitCommand}{' '}
+                    <code>tmt remote settings sessions-per-device {eviction.limit + 1}</code>
+                  </p>
+                  {eviction.settingsUrl && (
+                    <p>
+                      <a href={eviction.settingsUrl}>{text.remoteSettings}</a>
+                    </p>
+                  )}
+                </>
+              ) : (
+                <>
+                  <p>{liveError ?? (state === 'navigation' ? text.navigation : text.failed)}</p>
+                  <p>{text.limit}</p>
+                </>
+              )}
               {liveError === 'Sync disconnected' && snapshot.binding?.reconnect && (
                 <button
+                  className={ui.action}
+                  data-variant="text"
                   disabled={reconnecting}
                   data-testid="colab-reconnect"
                   onClick={(event) => {
@@ -895,11 +947,10 @@ function Page() {
                 anchor={annotation.selector}
                 asks={view.asks ?? []}
                 title={view.title || snapshot.title}
-                publisher={view.publisherAgent}
                 blocked={!!liveError || state !== 'ready'}
-                initialValue={annotation.restored}
-                onDraft={(value) => {
-                  annotationDraft.current = value;
+                initialEdit={annotation.restored}
+                onDraft={(_value, edit) => {
+                  annotationDraft.current = edit;
                 }}
                 onBusy={(busy) => {
                   annotationBusy.current = busy;
@@ -957,11 +1008,23 @@ function Page() {
           binding={liveError === managementChanged ? undefined : snapshot.binding?.discussion}
           ask={liveError === managementChanged ? undefined : snapshot.binding?.ask}
           title={view.title || snapshot.title}
-          publisher={view.publisherAgent}
           asks={view.asks ?? []}
           active={activeThread}
           select={openThread}
           blocked={!!liveError || state !== 'ready'}
+        />
+      </PageDrawer>
+      <PageDrawer
+        open={panel === 'agents'}
+        title={text.agentStatus}
+        kind="agents"
+        close={() => setPanel(null)}
+      >
+        <AgentStatusPanel
+          open={panel === 'agents'}
+          binding={snapshot.binding?.ask}
+          page={snapshot.id}
+          admitted={!!snapshot.binding && !liveError}
         />
       </PageDrawer>
       <PageDrawer open={panel === 'chat'} title="Chat" kind="chat" close={() => setPanel(null)}>
@@ -974,7 +1037,6 @@ function Page() {
             binding={liveError === managementChanged ? undefined : snapshot.binding?.ask}
             discussion={liveError === managementChanged ? undefined : snapshot.binding?.discussion}
             title={view.title || snapshot.title}
-            publisher={view.publisherAgent}
             blocked={!!liveError || state !== 'ready'}
             close={() => setPanel(null)}
           />

@@ -2,6 +2,98 @@ use super::super::rate::tests::input;
 use super::*;
 
 #[test]
+fn bar_readout_uses_retained_slice_total_and_bucket_end_age() {
+    let now = Instant::now();
+    let mut meter = crate::status::with_now_ms(100_000_000, || {
+        Meter::new(
+            TokenRate {
+                enabled: true,
+                reduced_motion: true,
+                ..Default::default()
+            },
+            &input(100),
+            now,
+        )
+    });
+    assert_eq!(meter.bar_readout(7, now).as_deref(), Some("– · now"));
+    // The latest five-second bucket ends five seconds after this fixture origin.
+    meter.trend[7] = Some(18_000.0);
+    assert_eq!(
+        meter
+            .bar_readout(7, now + Duration::from_secs(185))
+            .as_deref(),
+        Some("18k tok · 3m ago"),
+        "the bar uses the same token formatter as the live meter"
+    );
+    meter.trend[7] = None;
+    meter.sample(Ok(&input(200)), now + Duration::from_secs(10));
+    assert_eq!(
+        meter
+            .bar_readout(7, now + Duration::from_secs(10))
+            .as_deref(),
+        Some("150 tok · now")
+    );
+    assert_eq!(
+        meter
+            .bar_readout(0, now + Duration::from_secs(10))
+            .as_deref(),
+        Some("– · 1m ago")
+    );
+    meter.sample(Ok(&input(200)), now + Duration::from_secs(20));
+    assert_eq!(
+        meter
+            .bar_readout(7, now + Duration::from_secs(20))
+            .as_deref(),
+        Some("0 tok · now")
+    );
+    meter.select(TokenWindow::parse("24h").unwrap(), now);
+    // Select is constrained to configured windows; test a configured long slice.
+    meter.settings.windows[2] = TokenWindow::parse("24h").unwrap();
+    meter.select(meter.settings.windows[2], now + Duration::from_secs(20));
+    assert!(
+        meter
+            .bar_readout(0, now + Duration::from_secs(25))
+            .unwrap()
+            .ends_with("21h ago")
+    );
+}
+
+#[test]
+fn delayed_seed_uses_fresh_receipt_and_failed_receipt_preserves_history() {
+    use super::super::rate::tests::{fixture_seeds, historical_input, history_fixture};
+    let fixture = history_fixture();
+    let seeds = fixture_seeds(&fixture);
+    let fresh = historical_input(&fixture, true);
+    let mut opening = historical_input(&fixture, false);
+    opening
+        .resumes
+        .insert("a".into(), fixture["observations"][0].clone());
+    let now = Instant::now();
+    for failed in [false, true] {
+        let mut meter = Meter::new(TokenRate::default(), &opening, now);
+        meter.origin_ms = 22_500;
+        // The worker publishes the opening roster first, then the seed and a
+        // post-history observation. It must never replay opening's old receipt.
+        meter.seed(&opening, &seeds, now, false);
+        meter.sample(if failed { Err(()) } else { Ok(&fresh) }, now);
+        assert_eq!(
+            meter.member("a", 0, now).unwrap().tokens,
+            if failed { 21 } else { 30 }
+        );
+        if !failed {
+            meter.sample(Ok(&fresh), now + Duration::from_secs(5));
+            assert_eq!(
+                meter
+                    .member("a", 0, now + Duration::from_secs(5))
+                    .unwrap()
+                    .tokens,
+                30
+            );
+        }
+    }
+}
+
+#[test]
 fn cubic_frames_settle_exactly_and_retarget_from_displayed_digits() {
     let now = Instant::now();
     let mut meter = Meter::new(TokenRate::default(), &input(100), now);
@@ -78,7 +170,10 @@ fn layout_keeps_partial_and_nondefault_labels_and_steps_aside() {
         now,
     );
     let empty = meter.layout(100).unwrap();
-    assert!(!empty.spark);
+    assert!(
+        empty.spark,
+        "empty slices remain hover targets without implying zero"
+    );
     assert_eq!(empty.label.as_deref(), Some("1m"));
     assert_eq!(meter.digits(), None, "a baseline is unavailable, not zero");
     meter.sample(Ok(&input(100)), now + Duration::from_secs(10));

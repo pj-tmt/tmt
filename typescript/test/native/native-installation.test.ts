@@ -13,7 +13,7 @@ import { writeExecutable } from '../support/executable-fixture.mjs';
 import path from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import { describe, expect, it } from 'vite-plus/test';
-import { expectError, parseWholeStdout, runCli } from '../support/cli-process.js';
+import { expectError, parseWholeStdout, runCli, type Sandbox } from '../support/cli-process.js';
 import { createArtifact, type ArtifactFixture } from '../support/native-artifact.js';
 
 import {
@@ -42,6 +42,35 @@ function artifactChecksum(fixture: ArtifactFixture): string {
     artifacts: Record<string, { checksums: { sha256: string } }>;
   };
   return manifest.artifacts[path.basename(fixture.archive)].checksums.sha256;
+}
+
+// These two installation scenarios retain phases even when an outer test bound expires.
+async function traceInstallationPhase<T>(
+  sandbox: Sandbox,
+  phase: string,
+  operation: () => Promise<T>
+): Promise<T> {
+  const record = (event: 'start' | 'settled') => {
+    try {
+      console.error(
+        'Installation phase:',
+        JSON.stringify({
+          sandboxRoot: Buffer.byteLength(sandbox.root) <= 256 ? sandbox.root : '[path unavailable]',
+          phase,
+          event,
+          atMs: performance.now(),
+        })
+      );
+    } catch {
+      // Optional reporting cannot change the awaited operation's result.
+    }
+  };
+  record('start');
+  try {
+    return await operation();
+  } finally {
+    record('settled');
+  }
 }
 
 describe('native installation process contract', () => {
@@ -149,8 +178,12 @@ describe('native installation process contract', () => {
 
   it('prints the requested command path even through an aliased prefix ancestor', async () => {
     await withReleaseSandbox(async (sandbox) => {
-      const version = (await runCli(sandbox, ['--version'])).stdout.trim();
-      const fixture = await createArtifact(sandbox, version);
+      const version = (
+        await traceInstallationPhase(sandbox, 'alias-version', () => runCli(sandbox, ['--version']))
+      ).stdout.trim();
+      const fixture = await traceInstallationPhase(sandbox, 'alias-artifact', () =>
+        createArtifact(sandbox, version)
+      );
       const physical = path.join(sandbox.root, 'physical');
       const alias = path.join(sandbox.root, 'alias');
       mkdirSync(physical);
@@ -168,7 +201,9 @@ describe('native installation process contract', () => {
         'alpha',
       ];
       for (const verb of ['Installed', 'Current']) {
-        const result = await runCli(sandbox, args, { deadlineMs: INSTALL_PROCESS_BUDGET_MS });
+        const result = await traceInstallationPhase(sandbox, `alias-${verb}`, () =>
+          runCli(sandbox, args, { deadlineMs: INSTALL_PROCESS_BUDGET_MS })
+        );
         expect(result.status).toBe(0);
         expect(result.stdout).toContain(
           `${verb} tmt ${version} at ${path.join(prefix, 'bin', 'tmt')}`
@@ -349,16 +384,24 @@ esac
     { timeout: 60_000 },
     async () => {
       await withReleaseSandbox(async (sandbox) => {
-        const versionResult = await runCli(sandbox, ['--version']);
-        const fixture = await createArtifact(sandbox, versionResult.stdout.trim());
+        const versionResult = await traceInstallationPhase(sandbox, 'pin-version', () =>
+          runCli(sandbox, ['--version'])
+        );
+        const fixture = await traceInstallationPhase(sandbox, 'pin-artifact', () =>
+          createArtifact(sandbox, versionResult.stdout.trim())
+        );
         const prefix = installPrefix(sandbox);
-        await install(sandbox, fixture, prefix);
+        await traceInstallationPhase(sandbox, 'first-install', () =>
+          install(sandbox, fixture, prefix)
+        );
         const originalId = currentReleaseId(prefix);
         const originalBytes = readFileSync(
           path.join(prefix, 'lib', 'tmux-team', 'releases', originalId, 'tmt')
         );
 
-        const pinned = await install(sandbox, fixture, prefix, ['--pin']);
+        const pinned = await traceInstallationPhase(sandbox, 'pin-install', () =>
+          install(sandbox, fixture, prefix, ['--pin'])
+        );
         const pinnedId = currentReleaseId(prefix);
         expect(pinned.changed).toBe(true);
         expect(pinnedId).not.toBe(originalId);
@@ -374,7 +417,9 @@ esac
         };
         const pinnedReceipt = readFileSync(receiptPath(prefix));
         for (const command of ['upgrade', 'update']) {
-          const result = await runCli(managed, [command, '--json']);
+          const result = await traceInstallationPhase(sandbox, `pinned-${command}`, () =>
+            runCli(managed, [command, '--json'])
+          );
           expect(result.status).toBe(0);
           expect(result.stderr).toBe('');
           expect(parseWholeStdout(result)).toMatchObject({
@@ -391,13 +436,14 @@ esac
             pathWarning: null,
           });
         }
-        const shadowed = await runCli({ ...managed, env: { ...managed.env, PATH: '' } }, [
-          'upgrade',
-          '--json',
-        ]);
+        const shadowed = await traceInstallationPhase(sandbox, 'path-empty-upgrade', () =>
+          runCli({ ...managed, env: { ...managed.env, PATH: '' } }, ['upgrade', '--json'])
+        );
         expect(shadowed.status).toBe(0);
         expect(parseWholeStdout(shadowed).pathWarning).toContain('PATH does not select');
-        const badChannel = await runCli(managed, ['upgrade', '--channel', 'stable', '--json']);
+        const badChannel = await traceInstallationPhase(sandbox, 'stable-channel-upgrade', () =>
+          runCli(managed, ['upgrade', '--channel', 'stable', '--json'])
+        );
         expect(badChannel.status).toBe(1);
         expectError(
           badChannel,
@@ -412,18 +458,22 @@ esac
           )
         ).toBe(true);
 
-        const unpinned = await install(sandbox, fixture, prefix, ['--unpin']);
+        const unpinned = await traceInstallationPhase(sandbox, 'unpin-install', () =>
+          install(sandbox, fixture, prefix, ['--unpin'])
+        );
         const unpinnedId = currentReleaseId(prefix);
         expect(unpinned.changed).toBe(true);
-        const stale = await runCli(
-          {
-            ...sandbox,
-            cli: {
-              executable: path.join(prefix, 'lib', 'tmux-team', 'releases', pinnedId, 'tmt'),
-              args: [],
+        const stale = await traceInstallationPhase(sandbox, 'stale-release-upgrade', () =>
+          runCli(
+            {
+              ...sandbox,
+              cli: {
+                executable: path.join(prefix, 'lib', 'tmux-team', 'releases', pinnedId, 'tmt'),
+                args: [],
+              },
             },
-          },
-          ['upgrade', '--json']
+            ['upgrade', '--json']
+          )
         );
         expect(stale.status).toBe(1);
         expectError(

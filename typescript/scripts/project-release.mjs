@@ -301,6 +301,10 @@ export function affectedProducts(paths, map, workspace) {
     const name = ownerOf(path, map);
     const component = map.components.find((entry) => entry.name === name);
     if (!component) throw new Error(`No component owns ${path}.`);
+    if (
+      component.neverShippedPaths.some(({ root }) => path === root || path.startsWith(`${root}/`))
+    )
+      continue;
     if (component.releaseStatus === 'never') continue;
     // Linked private leaves ship through their consumers; parked products retain their own identity.
     const owners = new Set([

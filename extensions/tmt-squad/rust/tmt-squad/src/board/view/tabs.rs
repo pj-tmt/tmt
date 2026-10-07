@@ -18,7 +18,7 @@ pub(super) fn pane_tab(look: crate::look::Look, name: &str, selected: bool) -> S
     if selected {
         let selection = look.selection();
         Span::styled(
-            format!("[{name}]"),
+            tmt_cli_style::table::escape(name),
             Style {
                 bg: selection.bg,
                 ..look
@@ -30,7 +30,7 @@ pub(super) fn pane_tab(look: crate::look::Look, name: &str, selected: bool) -> S
         Span::styled(format!(" {name} "), look.role(Role::Muted))
     }
 }
-/// A tab or switcher entry has one fixed mark slot and one styled label owner.
+/// A tab has one fixed mark slot; span 2 owns only its escaped name.
 pub(super) fn tab_label(
     look: crate::look::Look,
     name: &str,
@@ -54,7 +54,8 @@ pub(super) fn tab_label(
                 style
             },
         ),
-        Span::styled(format!(" {}", tmt_cli_style::table::escape(name)), style),
+        Span::styled(" ", style),
+        Span::styled(tmt_cli_style::table::escape(name), style),
     ];
     if count > 0 {
         spans.push(Span::styled(format!(" {count}"), style));
@@ -117,6 +118,59 @@ pub(super) fn fit_tab_label(mut line: Line<'static>, width: usize) -> Line<'stat
     Line::from(spans).style(line.style)
 }
 
+/// Fit the shown name before its semantic suffix when a name grapheme fits.
+/// Otherwise retain the ordinary prefix fallback; a one-cell attention mark wins.
+fn fit_shown_tab_label(mut line: Line<'static>, width: usize) -> Line<'static> {
+    if line.width() <= width {
+        return fit_tab_label(line, width);
+    }
+    let name = line.spans[2].content.to_string();
+    let fixed = line.width() - line.spans[2].width();
+    let room = width.saturating_sub(fixed);
+    let clipped = tmt_tui::text::fit_line(
+        &name,
+        room.min(usize::from(u16::MAX)) as u16,
+        tmt_tui::style::TextFlow::Clip,
+        tmt_cli_style::grid::Align::Left,
+    );
+    if !clipped.trim().is_empty() {
+        let fitted = fit(&name, room);
+        // At the minimum width an ellipsis alone would identify no name.
+        let fitted = if fitted.trim() == "…" {
+            clipped
+        } else {
+            fitted
+        };
+        line.spans[2].content = fitted.into();
+        line
+    } else {
+        line.spans[2].content = name.into();
+        if width == 1 && line.spans[0].width() == 1 {
+            // The fixed attention slot wins over an ellipsis at one cell.
+            line.spans.truncate(1);
+            line
+        } else {
+            fit_tab_label(line, width)
+        }
+    }
+}
+
+fn tab_style(look: Look, selected: bool, pending: bool) -> Style {
+    if selected {
+        let selection = look.selection();
+        Style {
+            bg: selection.bg,
+            ..look
+                .role(Role::Text)
+                .add_modifier(Modifier::BOLD | selection.add_modifier)
+        }
+    } else if pending {
+        look.role(Role::Muted).add_modifier(Modifier::UNDERLINED)
+    } else {
+        look.role(Role::Muted)
+    }
+}
+
 /// Selection covers the entire tab; attention decorates only its marks.
 pub(super) fn tab(
     look: crate::look::Look,
@@ -126,19 +180,7 @@ pub(super) fn tab(
     attention: Attention,
     colors: &TabColors,
 ) -> Line<'static> {
-    let style = if selected {
-        let selection = look.selection();
-        Style {
-            bg: selection.bg,
-            ..look
-                .role(Role::Accent)
-                .add_modifier(Modifier::BOLD | selection.add_modifier)
-        }
-    } else if pending {
-        look.role(Role::Muted).add_modifier(Modifier::UNDERLINED)
-    } else {
-        look.role(Role::Muted)
-    };
+    let style = tab_style(look, selected, pending);
     tab_label(look, name, attention, colors, style)
 }
 
@@ -150,20 +192,12 @@ fn home_tab(
     attention: Attention,
     colors: &TabColors,
 ) -> Line<'static> {
-    let style = if selected {
-        let selection = look.selection();
-        Style {
-            bg: selection.bg,
-            ..look
-                .role(Role::Accent)
-                .add_modifier(Modifier::REVERSED | Modifier::BOLD | selection.add_modifier)
-        }
-    } else if pending {
-        look.role(Role::Muted).add_modifier(Modifier::UNDERLINED)
-    } else {
-        look.role(Role::Muted)
-    };
-    let mut spans = vec![Span::styled(" ▚ tmt", style)];
+    let style = tab_style(look, selected, pending);
+    let mut spans = vec![
+        Span::styled(" ", style),
+        Span::styled("▚ ", style),
+        Span::styled("tmt", style),
+    ];
     for (count, mark, color) in [
         (attention.waiting, Mark::Decision, &colors.waiting),
         (attention.blocked, Mark::Failed, &colors.blocked),
@@ -523,6 +557,12 @@ fn unpicked(app: &App, budget: usize, look: Look, colors: &TabColors) -> Line<'s
 /// Prepare labels, admit a pure window, then paint its spans and exact hit cells.
 pub(super) fn paint(app: &App, area: Rect) -> Line<'static> {
     let look = app.look();
+    if app.view.is_none() && app.tabs.is_empty() {
+        return Line::styled(
+            "  Squad",
+            look.role(Role::Accent).add_modifier(Modifier::BOLD),
+        );
+    }
     let default = TabColors::default();
     let colors = app.view.as_ref().map_or(&default, |view| &view.tab_colors);
     let indices = app.picked_indices();
@@ -558,14 +598,18 @@ pub(super) fn paint(app: &App, area: Rect) -> Line<'static> {
         .map(|(key, label)| widths(key, label))
         .collect();
     let shown_hidden = shown.filter(|_| position.is_none()).map(|key| {
-        tab(
+        let mut label = tab(
             look,
-            &format!("{} (hidden)", tabs::label(key)),
+            tabs::label(key),
             true,
             false,
             app.attention.get(key).copied().unwrap_or_default(),
             colors,
-        )
+        );
+        label
+            .spans
+            .insert(3, Span::styled(" (hidden)", label.style));
+        label
     });
     let hidden_width = shown_hidden.as_ref().map_or(0, |label| label.width() + 1);
     let window = window(
@@ -580,7 +624,7 @@ pub(super) fn paint(app: &App, area: Rect) -> Line<'static> {
     let mut spans = Vec::new();
     let mut used = 0;
     if let Some(label) = shown_hidden {
-        let fitted = fit_tab_label(label, hidden_width.saturating_sub(1).min(width));
+        let fitted = fit_shown_tab_label(label, hidden_width.saturating_sub(1).min(width));
         used += fitted.width();
         spans.extend(fitted.spans);
         if used < width {
@@ -615,7 +659,11 @@ pub(super) fn paint(app: &App, area: Rect) -> Line<'static> {
         let label_width = line
             .width()
             .min(width.saturating_sub(used + window.reserved));
-        let fitted = fit_tab_label(line.clone(), label_width);
+        let fitted = if position == Some(place.index) {
+            fit_shown_tab_label(line.clone(), label_width)
+        } else {
+            fit_tab_label(line.clone(), label_width)
+        };
         if label_width > 0 {
             app.tab_hits.borrow_mut().push(TabHit {
                 y: area.y,
@@ -636,6 +684,7 @@ pub(super) fn paint(app: &App, area: Rect) -> Line<'static> {
         used += fitted.width();
         spans.push(Span::styled(fitted, left_style));
     }
+    app.tabs_overflow.set(!window.hidden.is_empty());
     if !window.hidden.is_empty() && used < width {
         let overflow = overflow(&labels, &window.hidden, width - used, look, colors);
         used += overflow.width();
@@ -701,6 +750,262 @@ mod tests {
                 .insert(name.into(), Attention { waiting, blocked });
         }
         app
+    }
+
+    #[test]
+    fn shown_name_fitting_keeps_graphemes_and_semantic_suffixes_at_exact_widths() {
+        let look = Look::default();
+        let colors = TabColors::default();
+        for (name, minimum, smallest) in [
+            ("product", 3, "p"),
+            ("界界", 4, "界"),
+            ("e\u{301}clair", 3, "e\u{301}"),
+        ] {
+            for attention in [
+                Attention::default(),
+                Attention {
+                    waiting: 2,
+                    blocked: 1,
+                },
+            ] {
+                let label = tab(look, name, true, false, attention, &colors);
+                let fixed = label.width() - label.spans[2].width();
+                let minimum = minimum + fixed - 2;
+                for width in 0..=label.width() + 1 {
+                    let fitted = fit_shown_tab_label(label.clone(), width);
+                    let text = fitted.to_string();
+                    assert_eq!(
+                        fitted.width(),
+                        width,
+                        "{name:?}/{attention:?}/{width}: {text:?}"
+                    );
+                    assert_eq!(
+                        text.matches('[').count(),
+                        text.matches(']').count(),
+                        "{text}"
+                    );
+                    if width >= minimum {
+                        assert!(!text.contains('[') && !text.contains(']'), "{text}");
+                        if attention.waiting > 0 {
+                            assert!(
+                                text.starts_with("◆ ") && text.trim_end().ends_with(" 2 ✗ 1"),
+                                "{text}"
+                            );
+                            assert_eq!(fitted.spans[0].style.fg, look.role(Role::Waiting).fg);
+                            assert_eq!(
+                                fitted
+                                    .spans
+                                    .iter()
+                                    .find(|span| span.content.starts_with("✗"))
+                                    .unwrap()
+                                    .style
+                                    .fg,
+                                look.role(Role::Blocked).fg
+                            );
+                        }
+                        if width == minimum {
+                            assert!(text.contains(smallest), "{text:?}");
+                        }
+                    } else {
+                        assert!(
+                            !text.contains('[') && !text.contains(']'),
+                            "fitted names have no decoration: {text}"
+                        );
+                        if width == 1 && attention.waiting > 0 {
+                            assert_eq!(text, "◆");
+                        }
+                    }
+                }
+            }
+        }
+        for width in 0..=24 {
+            let line = fit_shown_tab_label(
+                home_tab(
+                    look,
+                    true,
+                    false,
+                    Attention {
+                        waiting: 2,
+                        blocked: 1,
+                    },
+                    &colors,
+                ),
+                width,
+            );
+            let text = line.to_string();
+            assert_eq!(line.width(), width);
+            assert_eq!(text.matches('[').count(), text.matches(']').count());
+            if width >= 13 {
+                assert!(text.contains("▚ t"), "{text}");
+            }
+        }
+    }
+
+    #[test]
+    fn authored_tab_brackets_and_escaped_controls_are_preserved() {
+        let look = Look::default();
+        let colors = TabColors::default();
+        let name = "[authored]\n界e\u{301}";
+        let escaped = tmt_cli_style::table::escape(name);
+        for selected in [false, true] {
+            let label = tab(look, name, selected, false, Attention::default(), &colors);
+            assert_eq!(label.spans[2].content, escaped);
+            assert_eq!(label.width(), 2 + escaped.width());
+        }
+        assert_eq!(pane_tab(look, "[detail]", true).content, "[detail]");
+    }
+
+    #[test]
+    fn home_and_named_selection_follow_user_text_background_and_reverse_overrides() {
+        for settings in [
+            vec![
+                ("base", "tmt-light"),
+                ("text", "#123456"),
+                ("selection", "#234567"),
+            ],
+            vec![("base", "terminal"), ("text", "blue")],
+        ] {
+            let look = Look {
+                theme: tmt_cli_style::Theme::parse("theme", settings).unwrap(),
+                depth: tmt_cli_style::Depth::TrueColor,
+            };
+            let home = home_tab(
+                look,
+                true,
+                false,
+                Attention::default(),
+                &TabColors::default(),
+            );
+            let named = tab(
+                look,
+                "product",
+                true,
+                false,
+                Attention::default(),
+                &TabColors::default(),
+            );
+            assert_eq!(home.style, named.style);
+            assert_eq!(home.style.fg, look.role(Role::Text).fg);
+            assert_eq!(home.style.bg, look.selection().bg);
+            assert_eq!(
+                home.style.add_modifier.contains(Modifier::REVERSED),
+                look.selection().bg.is_none()
+            );
+            assert!(home.style.add_modifier.contains(Modifier::BOLD));
+        }
+    }
+
+    #[test]
+    fn shown_names_are_inside_measured_hits_and_overflow_remains_reachable() {
+        for key in [tabs::ALL, tabs::LEADS, "@tab:authored", "tmt-core"] {
+            let mut app = tabline_board();
+            app.tabs.insert(2, "@tab:authored".into());
+            app.pinned = 3;
+            app.set_tab_focus_for_test(key);
+            let document = app.view.as_ref().unwrap().document.clone();
+            for width in [80, 100, 160, 180, 32, 180] {
+                let line = draw(&app, width, 8)[0].clone();
+                let hits = app.tab_hits.borrow().clone();
+                let index = app.tabs.iter().position(|tab| tab == key).unwrap();
+                let hit = hits.iter().find(|hit| hit.tab == index).unwrap();
+                let shown: String = line
+                    .chars()
+                    .skip(hit.x as usize)
+                    .take(hit.width as usize)
+                    .collect();
+                assert!(
+                    !shown.contains('[') && !shown.contains(']'),
+                    "{key}/{width}: {line}"
+                );
+                let name = if key == tabs::ALL {
+                    "tmt"
+                } else if key == "tmt-core" && line.contains("tmt ·") {
+                    "core"
+                } else {
+                    tabs::label(key)
+                };
+                assert!(shown.contains(name), "{key}/{width}: {shown}");
+                let name_start = shown.find(name).unwrap() as u16 + hit.x;
+                for x in [hit.x, name_start, hit.x + hit.width - 1] {
+                    assert_eq!(
+                        app.mouse(
+                            MouseEvent {
+                                kind: MouseEventKind::Down(MouseButton::Left),
+                                column: x,
+                                row: hit.y,
+                                modifiers: KeyModifiers::NONE
+                            },
+                            std::time::Instant::now()
+                        ),
+                        crate::board::app::Effect::None
+                    );
+                    assert_eq!(
+                        app.current.as_deref(),
+                        Some(key),
+                        "exact shown hit at {x}: {line}"
+                    );
+                }
+                assert!(hits.iter().all(|h| h.x + h.width <= width));
+                assert!(
+                    hits.windows(2)
+                        .all(|pair| pair[0].x + pair[0].width <= pair[1].x)
+                );
+                assert_eq!(app.view.as_ref().unwrap().document, document);
+                if app.tabs_overflow.get() {
+                    app.key(KeyEvent::new(KeyCode::Char('s'), KeyModifiers::NONE));
+                    assert!(app.switcher_keys().iter().any(|tab| tab == key));
+                    app.key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+                    assert!(app.switcher.is_none());
+                }
+            }
+        }
+    }
+
+    /// Separately labeled deterministic chrome evidence; no fixture writes or core reads.
+    #[test]
+    #[ignore = "explicit chrome evidence output"]
+    fn capture_flat_chrome() {
+        let output = std::env::var("TMT_CHROME_OUTPUT").expect("task-owned output path");
+        crate::status::with_now_ms(1_900_000_000_000, || {
+            let mut captures = Vec::new();
+            for (base, depth) in [
+                (tmt_cli_style::Base::Tmt, tmt_cli_style::Depth::TrueColor),
+                (
+                    tmt_cli_style::Base::TmtLight,
+                    tmt_cli_style::Depth::TrueColor,
+                ),
+                (tmt_cli_style::Base::Terminal, tmt_cli_style::Depth::Ansi16),
+                (tmt_cli_style::Base::Tmt, tmt_cli_style::Depth::None),
+            ] {
+                for (width, height) in [(80, 30), (100, 30), (160, 30), (180, 30), (80, 8)] {
+                    for current in [
+                        tabs::ALL,
+                        tabs::LEADS,
+                        "@tab:authored",
+                        "tmt-core",
+                        "hidden-squad",
+                    ] {
+                        let mut app = tabline_board();
+                        app.tabs.insert(2, "@tab:authored".into());
+                        app.pinned = 3;
+                        app.hidden = vec!["hidden-squad".into()];
+                        app.set_tab_focus_for_test(current);
+                        app.view.as_mut().unwrap().look = Look {
+                            theme: tmt_cli_style::Theme::new(base),
+                            depth,
+                        };
+                        let lines = draw(&app, width, height);
+                        let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
+                        terminal.draw(|frame| render(frame, &app)).unwrap();
+                        let cells: Vec<_> = terminal.backend().buffer().content.iter().map(|cell| json!({
+                            "symbol":cell.symbol(), "fg":format!("{:?}",cell.fg), "bg":format!("{:?}",cell.bg), "modifier":format!("{:?}",cell.modifier)
+                        })).collect();
+                        captures.push(json!({"current":current, "base":base.name(), "depth":format!("{depth:?}"), "width":width,"height":height,"lines":lines,"cells":cells,"hits":format!("{:?}", app.tab_hits.borrow()),"overflow":app.tabs_overflow.get(),"document":app.view.as_ref().unwrap().document}));
+                    }
+                }
+            }
+            std::fs::write(output, serde_json::to_vec(&captures).unwrap()).unwrap();
+        });
     }
 
     #[test]
@@ -901,7 +1206,7 @@ mod tests {
             let buffer = terminal.backend().buffer();
             assert_eq!(buffer[(0, 0)].fg, Style::new().fg.unwrap_or_default());
             assert_eq!(buffer[(12, 0)].fg, Style::new().fg.unwrap_or_default());
-            assert_eq!(buffer[(2, 0)].fg, look.role(Role::Accent).fg.unwrap());
+            assert_eq!(buffer[(2, 0)].fg, look.role(Role::Text).fg.unwrap());
             for x in 0..width {
                 assert_eq!(buffer[(x, 0)].bg, look.selection().bg.unwrap());
             }
@@ -1008,7 +1313,7 @@ mod tests {
                     assert_eq!(
                         home.fg,
                         app.look()
-                            .role(if selected { Role::Accent } else { Role::Muted })
+                            .role(if selected { Role::Text } else { Role::Muted })
                             .fg
                             .unwrap_or_default()
                     );
@@ -1020,7 +1325,10 @@ mod tests {
                             app.look().role(Role::Muted).bg.unwrap_or_default()
                         }
                     );
-                    assert_eq!(home.modifier.contains(Modifier::REVERSED), selected);
+                    assert_eq!(
+                        home.modifier.contains(Modifier::REVERSED),
+                        selected && app.look().selection().bg.is_none()
+                    );
                     assert!(!home.modifier.contains(Modifier::UNDERLINED));
                     // Counts stay inside the label and keep their attention roles.
                     for (symbol, role) in [("◆", Role::Waiting), ("✗", Role::Blocked)] {
@@ -1031,7 +1339,7 @@ mod tests {
                         );
                         assert_eq!(
                             buffer[(column, 0)].modifier.contains(Modifier::REVERSED),
-                            selected
+                            selected && app.look().selection().bg.is_none()
                         );
                     }
                 }
@@ -1430,10 +1738,10 @@ mod tests {
                 blocked: 2,
             },
         );
-        let mut terminal = Terminal::new(TestBackend::new(40, 6)).unwrap();
+        let mut terminal = Terminal::new(TestBackend::new(42, 6)).unwrap();
         terminal.draw(|frame| render(frame, &app)).unwrap();
         let buffer = terminal.backend().buffer().clone();
-        let line: String = (0..40)
+        let line: String = (0..42)
             .map(|x| buffer[(x, 0)].symbol().to_owned())
             .collect();
         assert!(line.starts_with("◆ quiet (hidden) 1 ✗ 2 "), "{line:?}");

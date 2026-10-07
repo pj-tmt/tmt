@@ -5,20 +5,22 @@ pages, Office and any later TMT page in a browser. It defines the principles,
 the shared components and the interaction rules. Terminal output and the Squad
 board follow the [CLI style](cli-style.md). Colors, type, sizes and breakpoints
 come from [`tokens/tokens.json`](tokens/tokens.json). A surface never writes a
-color or size that is not a token.
+color or size that is not a token. Component extraction and consumer ownership
+are recorded in the [browser component contracts](gui-components.md).
 
 **Adoption status:** Colab's shipped implementations are named below under
 `extensions/tmt-colab/typescript/app/src`; the other descriptions include
 approved design targets that have not shipped yet. Remote's pairing and door
 pages follow the same token, header and card rules in their own `pages.css`.
-Office has not adopted this style. A shared component package and the
-implementation basis column are a **proposal**. A future package and any new
-dependencies require architecture and dependency review.
+Office has not adopted this style. The private browser leaf and its shared
+integration are in place; product adoption is separate consumer work. The implementation basis column still includes proposals beyond that
+leaf. See the [package contract](browser-ui/README.md) for the bounded subset.
 
 ## Principles
 
-1. **Square and flat.** Corners are square everywhere. Depth is a hard offset
-   shadow in a solid token color, never a blur.
+1. **Square and flat.** Corners are square everywhere. The initial browser leaf
+   uses opaque surfaces and no shadows. Existing product shadows await owning
+   adoption; they are not a fallback for the new leaf.
 2. **Edge to edge.** The page fills the window. There is exactly one window
    scrollbar; no region under the header scrolls on its own, except an overlay's
    body.
@@ -45,13 +47,13 @@ theme action overrides it.
 
 State roles map to marks:
 
-| Role | Mark | Word examples | Use |
-| --- | --- | --- | --- |
-| `waiting` | `◆` | waiting, waits on you, held | the user must act |
-| `blocked` | `✗` | failed, unavailable, deleted | stopped; needs a fix |
-| `working` | `●` | running, live, replied | healthy and active |
-| `review` | `◐` | opening, in review | in progress |
-| `muted` | `○` | ended, archived, resolved | finished or idle |
+| Role      | Mark | Word examples                | Use                  |
+| --------- | ---- | ---------------------------- | -------------------- |
+| `waiting` | `◆`  | waiting, waits on you, held  | the user must act    |
+| `blocked` | `✗`  | failed, unavailable, deleted | stopped; needs a fix |
+| `working` | `●`  | running, live, replied       | healthy and active   |
+| `review`  | `◐`  | opening, in review           | in progress          |
+| `muted`   | `○`  | ended, archived, resolved    | finished or idle     |
 
 In the browser the mark may be the matching Lucide icon (Diamond, X, Circle
 filled, LoaderCircle, Circle), always followed by its word.
@@ -200,12 +202,26 @@ Comments, Chat, Source, Share and settings panels.
 
 The small input at a selection or an item: annotation, follow-up, quick reply.
 
-- Prefills the recipient (`@agent`); Enter sends, Shift+Enter adds a line, Esc
-  closes. Typed text is kept as a draft when it closes and restored on the same
-  anchor with `Draft kept`.
+- The recipient is independent of the message. An admitted stable prior
+  reply can supply the default; creation defaults require a reliable canonical binding.
+  Unknown creation and ambiguity require explicit selection, never a name or sole-agent guess.
+  Choose/Change recipient selects without mutating message text. There is no mandatory
+  `@` prefix. Optional mention completion preserves the surrounding
+  text and caret; changing or removing the token does not change the selected recipient.
+- Enter submits the parent's current message action; Shift+Enter adds a line, Esc
+  closes the innermost candidate list before the composer. Typed text and the selected
+  recipient are kept on close and restored on the same anchor with `Draft kept`.
+- Plain comments have an explicit Post action and remain available under current
+  content-write admission when agent discovery fails. Asking an agent is an explicit
+  action; choosing a recipient alone never prepares or sends a message.
 - Outside press closes it, but a page click never hides a typed draft; nothing
   closes it while a send is in flight.
-- Shipped in `annotation-input.tsx`. Basis: Radix (Popover) around an own field.
+- `components/message-composer.tsx` is the shared plaintext editing boundary for
+  Chat, annotation, thread reply and comment edit. Its plaintext/history
+  extensions preserve undo, IME and exact message bytes; the source editor stays separate.
+- Candidate lists use available viewport space and the browser popover layer, including
+  inside modal Chat. The field grows to a bounded height, then scrolls. Square corners
+  and existing ink/accent tokens apply. Basis: own parent chrome with Lexical editing.
 
 ### Conversation turn
 
@@ -247,16 +263,16 @@ drawn by Colab, not by page HTML. Designed in #1773; not shipped.
 `tokens.json` already has `color`, `surface`, `font`, `header` and
 `breakpoint`. These groups are proposed so components stop hard-coding values:
 
-| Group | Values |
-| --- | --- |
-| `driver` | `claude` → the `review` color, `codex` → the `link` color |
-| `type` | sizes 11, 12, 13, 14, 16, 22 and 34 px with line heights and weights |
-| `space` | 4, 8, 12, 16, 24, 32 px |
-| `size` | controls 20 (chip), 24 (small control, minimum target), 32 (input, button); icons 16, 18; avatars 24, 28; status dot 8 |
-| `border` | 1 px default, 2 px emphasis (focus ring, selected underline, rails); radius always 0 |
-| `shadow` | hard offsets 2, 3, 4, 5 px (small button, chip and tooltip, menu and overlay, card), colored by role |
-| `layer` | z order: page, header, overlay, popover, tooltip |
-| `motion` | spinner 1 s; 0 under reduced motion |
+| Group    | Values                                                                                                                 |
+| -------- | ---------------------------------------------------------------------------------------------------------------------- |
+| `driver` | `claude` → the `review` color, `codex` → the `link` color                                                              |
+| `type`   | sizes 11, 12, 13, 14, 16, 22 and 34 px with line heights and weights                                                   |
+| `space`  | 4, 8, 12, 16, 24, 32 px                                                                                                |
+| `size`   | controls 20 (chip), 24 (small control, minimum target), 32 (input, button); icons 16, 18; avatars 24, 28; status dot 8 |
+| `border` | 1 px default, 2 px emphasis (focus ring, selected underline, rails); radius always 0                                   |
+| `shadow` | hard offsets 2, 3, 4, 5 px (small button, chip and tooltip, menu and overlay, card), colored by role                   |
+| `layer`  | z order: page, header, overlay, popover, tooltip                                                                       |
+| `motion` | spinner 1 s; 0 under reduced motion                                                                                    |
 
 ## Interaction rules
 
@@ -270,9 +286,9 @@ drawn by Colab, not by page HTML. Designed in #1773; not shipped.
   component that failed. A failed send keeps the text.
 - **Empty states:** one sentence of what will appear and how to make it appear.
 - **Waiting and held:** `◆` with the reason (`held · waiting for approval on
-  your machine`) and a way to recheck.
+your machine`) and a way to recheck.
 - **Time:** relative and lowercase in running text (`5m ago`, `expires in 6
-  days`); exact time on hover.
+days`); exact time on hover.
 - **Counts:** the header carries one pending count per surface; it disappears at
   zero.
 - **Motion:** none except the LoaderCircle spin, which stops under

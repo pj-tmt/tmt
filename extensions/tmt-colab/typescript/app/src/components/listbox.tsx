@@ -1,5 +1,6 @@
 import { createPortal } from 'react-dom';
 import {
+  useCallback,
   useEffect,
   useId,
   useRef,
@@ -52,6 +53,9 @@ export function Listbox<Value extends string>({
   const root = useRef<HTMLDivElement>(null);
   const trigger = useRef<HTMLElement>(null);
   const list = useRef<HTMLDivElement>(null);
+  const setTrigger = useCallback((node: HTMLElement | null) => {
+    trigger.current = node;
+  }, []);
   const [placement, setPlacement] = useState<{
     left: number;
     top: number;
@@ -89,6 +93,16 @@ export function Listbox<Value extends string>({
   }, [open, setOpen]);
 
   useEffect(() => {
+    if (!isInput || !list.current) return;
+    const node = list.current;
+    if (open && trigger.current?.getClientRects().length) node.showPopover();
+    else if (node.matches(':popover-open')) node.hidePopover();
+    return () => {
+      if (node.matches(':popover-open')) node.hidePopover();
+    };
+  }, [open, isInput]);
+
+  useEffect(() => {
     if (!open || focusIndex < 0) return;
     list.current?.children[focusIndex]?.scrollIntoView({ block: 'nearest' });
   }, [open, focusIndex]);
@@ -98,25 +112,30 @@ export function Listbox<Value extends string>({
     const place = () => {
       const box = trigger.current?.getBoundingClientRect();
       if (!box) return;
-      let lower = innerHeight - 8,
-        upper = 8;
-      for (let parent = root.current?.parentElement; parent; parent = parent.parentElement) {
-        if (/(auto|scroll)/.test(getComputedStyle(parent).overflowY)) {
-          const bounds = parent.getBoundingClientRect();
-          upper = Math.max(upper, bounds.top);
-          lower = Math.min(lower, bounds.bottom);
-          break;
-        }
+      const node = list.current;
+      if (!box.width || !box.height) {
+        if (node?.matches(':popover-open')) node.hidePopover();
+        setPlacement(undefined);
+        return;
       }
+      if (node && !node.matches(':popover-open')) node.showPopover();
+      const viewport = window.visualViewport;
+      const leftEdge = (viewport?.offsetLeft ?? 0) + 8;
+      const rightEdge = (viewport?.offsetLeft ?? 0) + (viewport?.width ?? innerWidth) - 8;
+      const lower = (viewport?.offsetTop ?? 0) + (viewport?.height ?? innerHeight) - 8,
+        upper = (viewport?.offsetTop ?? 0) + 8;
       const above = Math.max(0, box.top - upper - 4),
         below = Math.max(0, lower - box.bottom - 4);
-      const height = Math.min(248, list.current?.scrollHeight ?? 248);
+      const height = Math.min(
+        248,
+        node ? node.scrollHeight + node.offsetHeight - node.clientHeight : 248,
+      );
       const upward = below < height && above > below;
       const maxHeight = Math.max(1, Math.min(248, upward ? above : below));
       const next = {
-        left: Math.max(8, Math.min(box.left, innerWidth - box.width - 8)),
+        left: Math.max(leftEdge, Math.min(box.left, rightEdge - box.width)),
         top: upward ? box.top - Math.min(height, maxHeight) - 2 : box.bottom + 2,
-        width: Math.min(box.width, innerWidth - 16),
+        width: Math.min(box.width, rightEdge - leftEdge),
         maxHeight,
       };
       setPlacement((previous) =>
@@ -131,11 +150,14 @@ export function Listbox<Value extends string>({
     place();
     const observer = new ResizeObserver(place);
     if (trigger.current) observer.observe(trigger.current);
-    if (list.current) observer.observe(list.current);
+    window.visualViewport?.addEventListener('resize', place);
+    window.visualViewport?.addEventListener('scroll', place);
     window.addEventListener('resize', place);
     window.addEventListener('scroll', place, true);
     return () => {
       observer.disconnect();
+      window.visualViewport?.removeEventListener('resize', place);
+      window.visualViewport?.removeEventListener('scroll', place);
       window.removeEventListener('resize', place);
       window.removeEventListener('scroll', place, true);
     };
@@ -212,6 +234,7 @@ export function Listbox<Value extends string>({
   const optionList = (
     <div
       ref={list}
+      popover={inputTrigger ? 'manual' : undefined}
       className={`tmt-listbox-options${inputTrigger ? ' tmt-listbox-input-list' : ''}`}
       style={
         inputTrigger ? { ...placement, visibility: placement ? 'visible' : 'hidden' } : undefined
@@ -253,9 +276,7 @@ export function Listbox<Value extends string>({
       </span>
       {inputTrigger ? (
         inputTrigger.render({
-          ref: (node) => {
-            trigger.current = node;
-          },
+          ref: setTrigger,
           role: 'combobox',
           'aria-label': label,
           'aria-autocomplete': 'list',

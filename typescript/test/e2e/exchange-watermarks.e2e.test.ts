@@ -179,6 +179,8 @@ describe('exchange attention watermarks and revision fencing', { concurrent: fal
             requestId,
             preparedAtMs: expect.any(Number),
             delivery: 'queued',
+            urgent: false,
+            focusKind: 'fyi',
             final: {
               status: 'retained',
               submittedAtMs: expect.any(Number),
@@ -257,6 +259,8 @@ describe('exchange attention watermarks and revision fencing', { concurrent: fal
             recipientIdentityId: created.identity.id,
             preparedAtMs: expect.any(Number),
             delivery: 'queued',
+            urgent: false,
+            focusKind: 'fyi',
             final: {
               status: 'retained',
               response: body,

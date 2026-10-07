@@ -30,7 +30,7 @@ restate them.
 The app build emits its main entry plus two public standalone entries (`vp build`, then
 `vp build --mode recovery` and `vp build --mode reader`; the `build` script runs all three):
 
-- `assets/recovery.js` reuses tab coordination for private guidance.
+- `assets/recovery.js` uses the tab's bounded SDK recovery for private guidance.
 - The read-only reader (`public/reader.html` served at `/read`, `src/reader-main.tsx`) builds as fixed-name
   `assets/reader.js`, `reader.css` and `reader-fold.js` (the decoder worker), so the native allowlist
   `assets::anonymous_file` is exact. Add a file to the reader entry only together with that list,
@@ -40,6 +40,41 @@ The native `/assets/chrome.css` token/header stylesheet also remains available w
 an app build. Only these files and `renderer.html` are public; the rest of the app stays owner-gated. Verify the
 guidance CSP and pairing failure/reload guard alongside the app lifecycle tests (`served.spec.ts`,
 `session-recovery.test.ts`).
+
+## Message editing boundary
+
+The main app uses one Colab-local `components/message-composer.tsx` for Chat,
+annotations, agent follow-ups, plain replies and comment edits. Exact 0.52.0
+`lexical`, `@lexical/react`, `@lexical/plain-text` and `@lexical/history` are app-only
+runtime dependencies; only plaintext/history extensions are imported. The source
+editor is a separate editing mode. Reader and recovery entries have no composer.
+
+`ComposerEdit` emits one atomic snapshot of exact plaintext, optional parent-selected
+machine/agent identity and cosmetic mention-token range. Paragraphs serialize with
+one LF, retaining blank and trailing lines. Parent echoes preserve the editing
+history/selection; explicit reset keys end a draft's editing lifetime. Mention-node
+identity follows edits and undo; editing/removing the token invalidates its cosmetic
+metadata without changing recipient authority. No Lexical document is persisted or
+sent as a routing instruction.
+
+`AnnotationInput` owns the plaintext draft, selected recipient, trusted action,
+current write/Ask admission and immutable send capture. `messageRecipient` is a pure
+parent presentation policy: plain comments resolve before agent discovery, while an
+explicit Ask uses a current stable destination. Creation defaults require a canonical
+stable creation binding and a unique current admitted match; no such binding is currently projected. Latest publisher and
+original-author labels, or a sole directory candidate, never substitute for it.
+Prior replies use UUID/machine keys, never display labels. Ambiguous/stale choices
+do not silently retarget. `conversationAsks` owns comment/Ask association for display, reply defaults
+and captured conversation; the editor has no storage, ledger, notification or Remote
+capability. Content-write and Ask failures retain the existing draft/recorded-turn
+and uncertainty rules; recipient selection performs no preparation or dispatch.
+The explicit Choose/Change recipient picker preserves message bytes, including typed `@` text; mention
+completion remains optional.
+
+Candidate geometry is input-only in the shared Listbox: it uses viewport bounds and
+the native popover layer, remaining inside the current modal dialog's ownership.
+Management pickers retain their button policy. No native asset allowlist, embedding
+mechanism or CSP changes are required; no inline-style/eval relaxation is permitted.
 
 ## Read-only reader
 
@@ -55,15 +90,23 @@ owner router, writer, Ask and export modules are not part of this bundle.
 
 Remote keeps sessions and door cookies in memory, so after a restart a paired browser's
 reload receives Colab's private guidance page. That page loads the public `assets/recovery.js`
-(`src/guidance.ts`), which takes over the tab claim (`ActiveTab`, Web Lock) before Remote's
-SDK checks its paired key and calls `reopenSession()`, then reloads. A session-storage marker
+(`src/guidance.ts`), which lets Remote's SDK check its paired key and call
+`reopenSession()` for that tab, then reloads. A session-storage marker
 (`colab-recovery:<mount path>`, `src/session-recovery.ts`) spans that reload so a second
 guidance response cannot loop; authenticated boot (`mounted.ts`) clears it. A failed or
 refused reopen, or unavailable session storage, leaves plain pairing guidance and never
-retries an Ask. An open page whose sync drops shows "Sync disconnected" with the explicit
-Reconnect button, which uses the same `recoverSession` helper through `Live.reconnect` (it
-closes the page socket, Ask and observer first). Acceptance drives this through `reconnect(page)`
-in `acceptance/ask.spec.ts`.
+retries an Ask. On an open page's socket close, `Live` makes one read-only probe of the exact old
+Connection/Registration/Remote owner. A current pending same-session attempt keeps
+that owner while diagnosis settles, even if readiness has already rejected.
+Verified session end starts one existing mounted-owner replacement; verified eviction
+blocks. A pending failed attempt also blocks on a successful read without session end
+or an unverified read failure. A failure during pending Session replacement is terminal.
+Ready-page transport failures retain bounded same-session catchup. Superseded callbacks,
+readiness, publications and diagnosis cannot alter the current attempt. Recovery
+never replays an Ask or mutation. If recovery
+fails, the explicit Reconnect button uses `recoverSession` through `Live.reconnect`, closing
+the page socket, Ask and observer first. The Remote restart cases drive that explicit path
+through `reconnect(page)` in `acceptance/ask.spec.ts`.
 
 ## Persistence layout
 
@@ -79,8 +122,9 @@ in `acceptance/ask.spec.ts`.
 - `space.db` schemas are append-only (`store/schema.rs`): 1 ciphertext (pages, streams,
   receipts, checkpoints), 2 owner authority (membership log, recipients, devices, epoch
   secrets, wraps, `owner_operations`), 3 `device_registrations`, 4 `baselines`,
-  5 nullable checked server-observed content time on `pages`. Migration leaves legacy
-  times null without backfill. Epoch
+  5 nullable checked server-observed content time on `pages`, 6 nullable original content
+  publication scope on `owner_operations`. Migration leaves legacy times null and legacy
+  outcomes unscoped without backfill. Epoch
   secrets are local key material, not an encrypted-at-rest guarantee.
 - `Store::open` creates and migrates. `Store::read` and `Store::write_existing` open only
   existing 0600 state owned by the user, create nothing and never migrate;
@@ -122,14 +166,23 @@ in `acceptance/ask.spec.ts`.
 - Signed statement, secrets, baseline, wraps, page epoch and the operation receipt commit in
   one transaction or not at all; `owner_operations` makes an exact retry return the saved
   outcome with its original head. Callers propagate mutation errors so everything rolls back.
+- `page::commit_publication` reuses the immediate device transaction and a
+  content savepoint for a verified sealed batch plus one scoped terminal outcome. Expected
+  admitted rejection rolls back content/stream/receipt/device/time changes before retaining the rejection;
+  unexpected failure rolls back the enclosing transaction. Original-key replay returns exact
+  bytes after current writer admission, without effect fences, quota charge or time refresh.
+  `publication_status` is a read-only original-key lookup with caller-supplied current authority;
+  it never issues a chain or persists UNKNOWN. Shared capacity includes scoped outcomes in
+  existing page budgets across epochs, without eviction. The contract owns wire details;
+  CLI `page write` and its serving route call it; browser Save does not.
 - Link seeds are borrowed for key derivation and never persisted or returned
   (`transitions/links.rs`).
 
 ## Admission and lock order
 
-- `socket.rs` treats registration, session, pages, management, the reserved page-write and
+- `socket.rs` treats registration, session, pages, management, the reserved page-publish and
   device-events routes and the reader challenge/session routes specially. The root-local
-  management and page-write routes deny any request carrying a forwarded
+  management and page-publish routes deny any request carrying a forwarded
   `tmt-device-context` or device-event header (`local_denied`), and Remote refuses to
   forward the reserved `/.tmt/` subtree from browsers.
 - **Lock order: the sync lock before the `Registration` mutex** (`registration.rs`).
@@ -144,7 +197,7 @@ in `acceptance/ask.spec.ts`.
 - `management.rs` holds strict DTOs and device-signature admission and adapts to the
   engine; it never writes authority tables or chooses baselines, cuts, wraps or epoch
   keys. The CLI (`cli_grammar.rs`, `cli_management.rs`, `inspection.rs`) is root-local:
-  `ls`, `show`, `share mode/link/member/history`, `retention`, `archive` and `delete`.
+  `ls`, `show`, `open`, `share mode/link/member/history`, `retention`, `archive` and `delete`.
   `cli_management::selection` adapts public CLI inputs to strict existing DTOs;
   its shared page resolver reuses the short-link helpers to admit unique UUID prefixes
   from the verified complete catalog, including retained deleted IDs, before
@@ -169,7 +222,7 @@ in `acceptance/ask.spec.ts`.
   for current baseline/statement chunk transport without opening content or a Worker.
   POST acknowledgments never change policy: verification requires the exact signed
   revision/hash and matching change, even when later owner commits exist.
-- `mounted.ts` supplies one management facade through the existing tab lease and
+- `mounted.ts` supplies one management facade through the mounted tab lifetime and
   current registration. Views and prepared requests retain their originating client;
   session replacement refuses old mutations, while acknowledgment verification is
   read-only under the new registration. It never opens another Remote session.
@@ -215,6 +268,9 @@ in `acceptance/ask.spec.ts`.
   JSON and `show` retain full IDs. Ask composition captures the catalog prefix in `Live`, preserving full
   signed scope, legacy source-link admission and unchanged reader links. See the contract for
   Remote's root-redirect dependency and exact URL/JSON shapes.
+- Explicit `open [PAGE]` reuses this catalog/link boundary and the shared opener without
+  starting services. JSON/no-open never launches; stopped Colab
+  reports the serving next step. This does not replace browser admission.
 
 ## Browser title hints
 

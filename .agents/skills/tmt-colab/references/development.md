@@ -8,7 +8,10 @@ Run from the repository root; `(cd rust && ...)` runs from `rust/`. Use
 `extensions/tmt-colab/skills/tmt-colab/SKILL.md` is the canonical user-facing agent
 skill; this development skill remains the repository guide. The executable embeds
 it, and `tmt colab skill` prints its exact bytes without core discovery or storage.
-`tests/cli.rs` verifies a relocated executable with no core or checkout.
+`tests/cli.rs` verifies a relocated executable with no core or checkout. Its
+fixture publishes the exact binary bytes and mode through the existing dev-only
+`tmt-test-support::write_executable` boundary before execution; the test process
+never opens that executable for writing and does not retry its invocation.
 
 The component map declares `skills: true`; cargo-dist includes `../../skills`.
 The existing consented `tmt extension install colab --skills` path owns provider

@@ -45,7 +45,10 @@ architecture test enforces it for the CLIs and the Rust extensions.
 `theme` owns what the design tokens (`design/tokens/tokens.json`) look like in
 a terminal. Its roles are the tokens: `text`, `muted`, `dim`, `accent`,
 `waiting`, `working`, `review`, `blocked`, `link` and `selection` (a
-background). A `Theme` is a built-in base plus per-role overrides:
+background). Truecolor neutral roles (`text`, `muted`, `dim` and `selection`)
+use grayscale values from that single token source; semantic colors remain saturated.
+Terminal16, `mono`, `NO_COLOR` and explicit overrides keep their existing behavior.
+A `Theme` is a built-in base plus per-role overrides:
 
 | Base        | Rendering                                                                      |
 | ----------- | ------------------------------------------------------------------------------ |
@@ -161,6 +164,7 @@ tokens. Additional marks stay labelled board only. A row's leading state mark is
 | `◆`        | waits on your decision                                                                    |
 | `▾`        | an open foldable pane in a toggle hint (board only)                                       |
 | `▸`        | folded Squad board pane (board only)                                                      |
+| `≠`        | differs from all boards (this squad overrides it; board only)                             |
 | `~`        | approximate observed token total from incomplete coverage (board only)                    |
 | `▁▂▃▄▅▆▇█` | completed-request trend: ▁ measured zero, ▂–█ relative totals, blank no data (board only) |
 

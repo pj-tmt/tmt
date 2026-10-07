@@ -244,6 +244,20 @@ pub(super) fn set(value: &mut Value, setting: Setting, scope: Scope) -> Result<(
     Ok(())
 }
 
+pub(super) fn set_theme_base(
+    value: &mut Value,
+    base: &str,
+    path: &Path,
+) -> Result<(), ConfigError> {
+    let root = value.as_object_mut().expect("validated configuration root");
+    let theme = root.entry("theme").or_insert_with(|| json!({}));
+    let theme = theme
+        .as_object_mut()
+        .ok_or_else(|| ConfigError::validation(path, "theme", "a non-null object"))?;
+    theme.insert("base".into(), json!(base));
+    Ok(())
+}
+
 /// Return false only for a key-specific clear with no local container. The
 /// reference command does not create a file in that no-op case.
 pub(super) fn clear(value: &mut Value, key: Option<&str>) -> bool {

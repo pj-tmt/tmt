@@ -65,7 +65,7 @@ jobs:
       - name: Select the cache-seeding jobs
         if: steps.event.outputs.verify != 'true'
         id: seed
-        # Weekly/manual runs revive Office coverage; main pushes only seed Rust caches.
+        # Office product verification is retired; all seed events cover retained products only.
         env:
           SEED_SCOPE: ${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && 'full' || 'seed' }}
         run: node typescript/scripts/ci-scope.mjs "$SEED_SCOPE" >> "$GITHUB_OUTPUT"
@@ -131,12 +131,21 @@ jobs:
           RUSTUP_TOOLCHAIN: 1.97.0
         run: |
           rustup toolchain install 1.97.0 --profile minimal
+          # Offline metadata tests require every locked workspace dependency, not only the helper.
+          cargo fetch --locked --manifest-path rust/Cargo.toml
           cargo build --locked -p tmt-release-tool --bin release-version --manifest-path rust/Cargo.toml
       - name: Run code quality checks
         working-directory: typescript
         run: |
           pnpm check:tooling
           pnpm exec vp test run --config vitest.config.ts test/tooling/ci-scope.test.ts test/tooling/component-skills.test.ts test/tooling/release-cut.test.ts test/tooling/release-cut-live.test.ts test/tooling/release-source-at-ref.test.ts test/tooling/release-version-injection.test.ts test/tooling/release-workflow.test.ts test/tooling/release-parity.test.ts test/tooling/release-rehearsal.test.ts test/tooling/guide-budget.test.ts test/tooling/docker-workspace.test.ts
+      - name: Verify isolated browser presentation leaf
+        working-directory: typescript
+        run: |
+          pnpm --filter @tmt/browser-ui install --frozen-lockfile --ignore-scripts
+          pnpm --filter @tmt/browser-ui --fail-if-no-match check
+          pnpm --filter @tmt/browser-ui --fail-if-no-match test
+          pnpm exec vp test run --config vitest.config.ts test/tooling/browser-ui-boundary.test.ts
       - name: Check conventional PR titles
         env:
           GITHUB_TOKEN: ${{ github.token }}
@@ -210,7 +219,7 @@ jobs:
         with:
           node-version: 22.23.2
       - name: Install pinned Rust toolchain
-        run: rustup toolchain install 1.97.0 --profile minimal
+        run: sh scripts/install-ci-rust.sh 1.97.0 --profile minimal
       - name: Restore Rust dependencies
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
@@ -254,7 +263,7 @@ jobs:
           persist-credentials: false
       - name: Install pinned Rust toolchains
         run: |
-          rustup toolchain install 1.97.0 --profile minimal --component rustfmt,clippy
+          sh scripts/install-ci-rust.sh 1.97.0 --profile minimal --component rustfmt,clippy
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
@@ -273,7 +282,7 @@ jobs:
         if: needs.changes.outputs.native_scope == 'full'
         working-directory: rust
         run: |
-          cargo clippy --locked --workspace --all-targets -- -D warnings
+          cargo clippy --locked --workspace --exclude tmt-office --exclude tmt-office-storage --exclude tmt-office-pairing --exclude tmt-office-service --all-targets -- -D warnings
       - name: Lint Squad
         if: needs.changes.outputs.native_scope == 'squad'
         working-directory: rust
@@ -293,7 +302,7 @@ jobs:
           persist-credentials: false
       - name: Install pinned Rust toolchains
         run: |
-          rustup toolchain install 1.97.0 --profile minimal --component rustfmt,clippy
+          sh scripts/install-ci-rust.sh 1.97.0 --profile minimal --component rustfmt,clippy
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
@@ -307,8 +316,8 @@ jobs:
           remote_tests="$(cargo test --locked -p tmt-remote -- --list)"
           printf '%s\n' "$remote_tests"
           grep -q ': test$' <<< "$remote_tests"
-          cargo test --locked --workspace
-          cargo build --locked --workspace
+          cargo test --locked --workspace --exclude tmt-office --exclude tmt-office-storage --exclude tmt-office-pairing --exclude tmt-office-service
+          cargo build --locked --workspace --exclude tmt-office --exclude tmt-office-storage --exclude tmt-office-pairing --exclude tmt-office-service
       - name: Test Squad and architecture
         if: needs.changes.outputs.native_scope == 'squad'
         working-directory: rust
@@ -329,7 +338,7 @@ jobs:
           persist-credentials: false
       - name: Install pinned Rust toolchains
         run: |
-          rustup toolchain install 1.97.0 --profile minimal --component rustfmt,clippy
+          sh scripts/install-ci-rust.sh 1.97.0 --profile minimal --component rustfmt,clippy
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
@@ -377,7 +386,7 @@ jobs:
           persist-credentials: false
       - name: Install pinned Rust toolchains
         run: |
-          rustup toolchain install 1.97.0 --profile minimal --component rustfmt,clippy
+          sh scripts/install-ci-rust.sh 1.97.0 --profile minimal --component rustfmt,clippy
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
@@ -408,7 +417,7 @@ jobs:
           persist-credentials: false
       - name: Install pinned Rust toolchains
         run: |
-          rustup toolchain install 1.97.0 --profile minimal --component rustfmt,clippy
+          sh scripts/install-ci-rust.sh 1.97.0 --profile minimal --component rustfmt,clippy
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
@@ -531,7 +540,7 @@ jobs:
           msrv="$(python3 -c 'import tomllib; print(tomllib.load(open("rust/Cargo.toml", "rb"))["workspace"]["package"]["rust-version"])')"
           printf 'MSRV=%s\nRUSTUP_TOOLCHAIN=%s\n' "$msrv" "$msrv" >> "$GITHUB_ENV"
       - name: Install the declared minimum Rust version
-        run: rustup toolchain install "$MSRV" --profile minimal
+        run: sh scripts/install-ci-rust.sh "$MSRV" --profile minimal
       - name: Restore Rust dependencies
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
@@ -540,7 +549,7 @@ jobs:
           save-if: ${{ needs.changes.outputs.verify == 'false' && github.ref == 'refs/heads/main' }}
       - name: Check all workspace targets at MSRV
         working-directory: rust
-        run: cargo +"$MSRV" check --locked --workspace --all-targets
+        run: cargo +"$MSRV" check --locked --workspace --exclude tmt-office --exclude tmt-office-storage --exclude tmt-office-pairing --exclude tmt-office-service --all-targets
 
   native-rust:
     name: Native Rust contracts
@@ -596,6 +605,9 @@ jobs:
       - name: Install dependencies
         working-directory: typescript
         run: pnpm --filter tmux-team install --frozen-lockfile
+      - name: Install locked browser presentation guard inputs
+        working-directory: typescript
+        run: pnpm --filter @tmt/browser-ui install --frozen-lockfile --ignore-scripts
       - name: Prepare locked Cargo metadata inputs
         working-directory: rust
         run: cargo fetch --locked
@@ -711,7 +723,7 @@ jobs:
         with:
           packages: musl-tools
       - name: Install pinned Rust
-        run: rustup toolchain install 1.97.0 --profile minimal --target '${{ matrix.target }}'
+        run: sh scripts/install-ci-rust.sh 1.97.0 --profile minimal --target '${{ matrix.target }}'
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:

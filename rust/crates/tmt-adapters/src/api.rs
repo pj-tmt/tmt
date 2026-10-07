@@ -4,6 +4,7 @@ mod changes;
 mod consumption;
 mod dispatch;
 mod extensions;
+mod focus;
 mod identities;
 mod identity_hooks;
 mod notes;
@@ -28,6 +29,12 @@ use tmt_core::{
 pub const INPUT_LIMIT: usize = crate::dispatch::INPUT_LIMIT + 4096;
 pub const OUTPUT_LIMIT: usize = 12 * 1_048_576 + 65_536;
 const OPS: &[&str] = &[
+    "focus.policy.set",
+    "focus.policy.clear",
+    "focus.policy.show",
+    "focus.checklist.read",
+    "focus.checklist.claim",
+    "focus.checklist.settle",
     "capabilities",
     "storage.root",
     "changes.cursor",
@@ -47,6 +54,7 @@ const OPS: &[&str] = &[
     "skills.remove",
     "references.resolve",
     "identities.status",
+    "identity.meta.apply",
     "consumption.history",
     "extensions.uses",
 ];
@@ -56,6 +64,7 @@ pub struct Fault {
     code: &'static str,
     message: std::borrow::Cow<'static, str>,
     storage_open: Option<StorageError>,
+    metadata_conflicts: Option<Box<tmt_core::identity_metadata::MetadataConflicts>>,
 }
 impl Fault {
     pub fn new(code: &'static str, message: &'static str) -> Self {
@@ -63,6 +72,7 @@ impl Fault {
             code,
             message: message.into(),
             storage_open: None,
+            metadata_conflicts: None,
         }
     }
     /// A fault whose message names the specific skill, path or owner.
@@ -71,6 +81,7 @@ impl Fault {
             code,
             message: message.into(),
             storage_open: None,
+            metadata_conflicts: None,
         }
     }
     pub fn unavailable() -> Self {
@@ -90,6 +101,22 @@ impl Fault {
         self.storage_open.take()
     }
 
+    pub(super) fn with_metadata_conflicts(
+        mut self,
+        current: tmt_core::identity_metadata::MetadataConflicts,
+    ) -> Self {
+        self.metadata_conflicts = Some(Box::new(current));
+        self
+    }
+
+    pub fn status(&self) -> u8 {
+        if self.code == "METADATA_CONFLICT" {
+            5
+        } else {
+            1
+        }
+    }
+
     pub fn code(&self) -> &'static str {
         self.code
     }
@@ -99,6 +126,9 @@ impl Fault {
 
     pub fn encode(&self) -> Vec<u8> {
         let mut error = json!({"code":self.code,"message":self.message});
+        if let Some(current) = &self.metadata_conflicts {
+            error["current"] = json!(current);
+        }
         if self.code == "API_VERSION_UNSUPPORTED" {
             error["supported"] = json!({"min":1,"max":1});
         }
@@ -131,6 +161,7 @@ pub enum DispatchIdentity {
 }
 
 pub enum Request {
+    Focus(Box<focus::Operation>),
     Capabilities,
     ConsumptionHistory {
         identities: Vec<String>,
@@ -193,6 +224,10 @@ pub enum Request {
     IdentityStatuses {
         identities: Vec<String>,
     },
+    MetadataApply {
+        identity_id: String,
+        changes: tmt_core::identity_metadata::MetadataChanges,
+    },
     /// Read-only availability of an optional use of another extension.
     ExtensionUse {
         extension: String,
@@ -219,8 +254,8 @@ pub fn decode(body: &str) -> Result<Request, Fault> {
         wire.operation.as_str(),
         "dispatch.create" | "rooms.write" | "rooms.retire"
     );
-    // A write names exactly one originator: an identity or `"anonymous"`. Other
-    // operations name neither.
+    // Originator-attributed writes name exactly one identity or `"anonymous"`.
+    // Other operations, including metadata target mutations, name neither.
     let anonymous = match wire.originator.as_deref() {
         None => false,
         Some("anonymous") => true,
@@ -255,6 +290,7 @@ pub fn decode(body: &str) -> Result<Request, Fault> {
         {
             Request::ChangeCursor
         }
+        op if op.starts_with("focus.") => focus::decode(op, input)?,
         "requests.list" => Request::History(requests::decode_list(input)?),
         "requests.show" => Request::Detail(requests::decode_show(input)?),
         "dispatch.show" => Request::Receipt(dispatch::decode_show(input)?),
@@ -270,6 +306,7 @@ pub fn decode(body: &str) -> Result<Request, Fault> {
         "identityHooks.ack" => Request::HookAck(identity_hooks::hook(input)?),
         "references.resolve" => references::decode(input)?,
         "identities.status" => identities::decode(input)?,
+        "identity.meta.apply" => identities::decode_metadata(input)?,
         "consumption.history" => consumption::decode(input)?,
         "extensions.uses" => extensions::decode(input)?,
         "identityHooks.pending" => identity_hooks::decode_pending(input)?,
@@ -357,12 +394,17 @@ pub fn execute(paths: &ConfigPaths, request: Request) -> Result<Vec<u8>, Fault> 
             windows,
             max_buckets,
         } => consumption::history(&mut storage, identities, windows, max_buckets),
+        Request::Focus(operation) => focus::execute(&mut storage, *operation),
         Request::ChangeCursor => changes::cursor(&storage),
         Request::Roster { room, prefix } => rooms::roster(&storage, room, prefix),
         Request::References { identities, rooms } => {
             references::resolve(&mut storage, identities, rooms)
         }
         Request::IdentityStatuses { identities } => identities::status(&storage, identities),
+        Request::MetadataApply {
+            identity_id,
+            changes,
+        } => identities::apply_metadata(&mut storage, &identity_id, &changes),
         Request::HookRegister(hook) => identity_hooks::register(&mut storage, hook),
         Request::HookPending { consumer, limit } => {
             identity_hooks::pending(&storage, consumer, limit)

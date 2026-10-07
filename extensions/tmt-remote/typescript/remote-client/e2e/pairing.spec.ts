@@ -275,6 +275,7 @@ test('a browser pairs, gets a door session and certifies only its own extension'
     'ClientError',
     'RefusalError',
     'certifyKey',
+    'landingPage',
     'operations',
     'pairingPage',
     'reopenSession',
@@ -328,12 +329,15 @@ test('a browser pairs, gets a door session and certifies only its own extension'
   // Two pages of one context share the device cookie but retain independent transports/lanes.
   const otherTab = await context.newPage();
   await otherTab.goto(`${mounts}colab/other`);
-  const attach = async (tab: Page) =>
-    tab.evaluate(async () => {
+  const attach = async (tab: Page, reuseSession = false) =>
+    tab.evaluate(async (reuseSession) => {
       const sdk = (await import(
         '/sdk/remote-v1.js' as string
       )) as typeof import('../src/browser.js');
-      const session = await sdk.reopenSession();
+      const session = reuseSession
+        ? (window as unknown as { remoteTest: { session: import('../src/device.js').Session } })
+            .remoteTest.session
+        : await sdk.reopenSession();
       const url = sdk.transportUrl(
         session,
         location.href.replace('http:', 'ws:').replace(/\/[^/]*$/, '/sync'),
@@ -345,7 +349,7 @@ test('a browser pairs, gets a door session and certifies only its own extension'
       });
       Object.assign(window, { remoteTest: { session, socket, remote: sdk.operations(session) } });
       return session.sessionId;
-    });
+    }, reuseSession);
   const firstSession = await attach(app);
   const secondSession = await attach(otherTab);
   expect(firstSession).not.toBe(secondSession);
@@ -359,33 +363,26 @@ test('a browser pairs, gets a door session and certifies only its own extension'
       return state.remote.listAgents();
     });
   expect(await list(app)).toEqual(await list(otherTab));
-  // Simulate transport loss while the tab remains mounted (background/sleep recovery).
-  await app.evaluate(async () => {
-    const state = (window as unknown as { remoteTest: { socket: WebSocket } }).remoteTest;
-    await new Promise<void>((resolve) => {
-      state.socket.onclose = () => resolve();
-      state.socket.close();
+  // Last-close keeps the same session usable inside the inactivity grace.
+  const closeTransport = async () =>
+    app.evaluate(async () => {
+      const state = (window as unknown as { remoteTest: { socket: WebSocket } }).remoteTest;
+      await new Promise<void>((resolve) => {
+        state.socket.onclose = () => resolve();
+        state.socket.close();
+      });
     });
-  });
-  await expect
-    .poll(async () =>
-      app.evaluate(async () => {
-        const state = (
-          window as unknown as {
-            remoteTest: { remote: import('../src/operations.js').RemoteOperations };
-          }
-        ).remoteTest;
-        try {
-          await state.remote.listAgents();
-          return 'live';
-        } catch (error) {
-          return (error as { code?: string }).code;
-        }
-      }),
-    )
-    .toBe('REMOTE_SESSION_ENDED');
+  await closeTransport();
+  expect(await list(app)).toHaveLength(1);
   expect(await list(otherTab)).toHaveLength(1);
-  await attach(app);
+  expect(await attach(app, true)).toBe(firstSession);
+  expect(await list(app)).toHaveLength(1);
+  expect(await list(otherTab)).toHaveLength(1);
+  // Explicit reopen still creates an independent session; no send is retried.
+  await closeTransport();
+  const reopenedSession = await attach(app);
+  expect(reopenedSession).not.toBe(firstSession);
+  expect(reopenedSession).not.toBe(secondSession);
   expect(await list(app)).toHaveLength(1);
   // Closing one tab drops its transport; the surviving tab remains usable.
   await otherTab.close();
@@ -550,7 +547,11 @@ test('browser pages use local tokens in both schemes and fit desktop and mobile'
         });
         const inspect = async (state: 'landing' | 'pairing' | 'confirmation' | 'error') => {
           await expect(page.locator('.header-title')).toHaveText(
-            state === 'error' ? 'Page unavailable' : 'Pair a browser',
+            state === 'error'
+              ? 'Page unavailable'
+              : state === 'landing'
+                ? 'Remote connection'
+                : 'Pair a browser',
           );
           await expect(page.locator('.state-mark')).toHaveText(
             { landing: '○', pairing: '◆', confirmation: '◆', error: '✗' }[state]!,
@@ -603,7 +604,7 @@ test('browser pages use local tokens in both schemes and fit desktop and mobile'
           expect(look).toMatchObject({
             paper: colorScheme === 'light' ? 'rgb(244, 246, 251)' : 'rgb(26, 27, 38)',
             sheet: colorScheme === 'light' ? 'rgb(255, 255, 255)' : 'rgb(22, 22, 30)',
-            text: colorScheme === 'light' ? 'rgb(52, 59, 88)' : 'rgb(192, 202, 245)',
+            text: colorScheme === 'light' ? 'rgb(23, 23, 23)' : 'rgb(216, 216, 216)',
             markAboveEyebrow: true,
             radius: '0px',
             overflow: false,
@@ -671,7 +672,7 @@ test('browser pages use local tokens in both schemes and fit desktop and mobile'
         await expect(page.locator('#status')).toHaveAttribute('data-state', 'waiting');
         await expect(page.locator('.words-label')).toHaveText('Words');
         await expect(page.locator('#status')).toHaveText(
-          'Compare these words with the terminal, then confirm there.',
+          'Waiting for confirmation in your terminal. Compare these words and confirm only if they match.',
         );
         const confirmation = await page.evaluate(() => ({
           instruction: getComputedStyle(document.getElementById('status')!).color,
@@ -720,4 +721,234 @@ test('browser pages use local tokens in both schemes and fit desktop and mobile'
     'storage.root',
     ...Array<string>(4).fill('storage.root'),
   ]);
+});
+
+test('the native entry separates saved pairing from explicit verified access and never sends work', async () => {
+  const context = await browser.newContext();
+  const page = await context.newPage();
+  const captureEntry = async (state: string): Promise<void> => {
+    const captures = process.env.TMT_REMOTE_CAPTURE_DIR;
+    for (const colorScheme of ['light', 'dark'] as const) {
+      await page.emulateMedia({ colorScheme });
+      for (const width of [1440, 390]) {
+        await page.setViewportSize({ width, height: 900 });
+        expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
+          true,
+        );
+        if (captures) {
+          await mkdir(captures, { recursive: true });
+          await page.screenshot({
+            path: join(captures, `entry-${state}-${width}-${colorScheme}.png`),
+            fullPage: true,
+          });
+        }
+      }
+    }
+    await page.setViewportSize({ width: 320, height: 900 });
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
+      true,
+    );
+  };
+  let mountsRead = 0,
+    admissions = 0;
+  const requests: string[] = [];
+  page.on('request', (request) => requests.push(request.url()));
+  const readCounts = () => ({ mounts: mountsRead, admissions });
+  page.on('request', (request) => {
+    if (new URL(request.url()).pathname === '/sdk/mount') mountsRead++;
+    const body = request.postData();
+    if (body && request.url().endsWith('/append') && JSON.parse(body).operation === 'session.open')
+      admissions++;
+  });
+  await page.goto(origin);
+  await expect(page.locator('#pairing-status')).toHaveText('No saved pairing');
+  await expect(page.locator('#access-status')).toHaveText('Not checked');
+  await expect(page.getByRole('button', { name: 'Connect' })).toBeDisabled();
+  expect(readCounts()).toEqual({ mounts: 0, admissions: 0 });
+  await expect(page.locator('.entry-help')).toContainText('confirm in the terminal');
+  await captureEntry('unpaired');
+
+  pair = spawn(BINARY, ['pair', '--json'], { env });
+  const events = lines(pair);
+  const offer = await events.next();
+  const code = (offer.link as string).split('#')[1]!;
+  await page.goto(offer.link as string);
+  await page.fill('#name', 'Entry browser');
+  await page.getByRole('button', { name: 'Pair', exact: true }).click();
+  const candidate = await events.next();
+  await expect(page.locator('#words')).toHaveText((candidate.words as string[]).join(' '));
+  pair.stdin.write('confirm\n');
+  const paired = await events.next();
+  expect(paired.reason).toBe('paired');
+  await exited(pair);
+  expect(pair.exitCode).toBe(0);
+  await expect(page.locator('#entry-link')).toBeVisible();
+  expect(requests.some((url) => url.includes(code))).toBe(false);
+  const original = await page.evaluate(async () => {
+    const database = await new Promise<IDBDatabase>((resolve) => {
+      const request = indexedDB.open('tmt-remote', 1);
+      request.onsuccess = () => resolve(request.result);
+    });
+    const record = await new Promise<{
+      paired: { clientId: string; machineId: string; machinePublicKey: Uint8Array };
+    }>((resolve) => {
+      const request = database.transaction('device').objectStore('device').get('device');
+      request.onsuccess = () => resolve(request.result);
+    });
+    database.close();
+    return {
+      clientId: record.paired.clientId,
+      machineId: record.paired.machineId,
+      machinePublicKey: Array.from(record.paired.machinePublicKey),
+    };
+  });
+  async function changePin(machineId: string, pin: number[]): Promise<void> {
+    await page.evaluate(
+      async ({ machineId, pin }) => {
+        const database = await new Promise<IDBDatabase>((resolve) => {
+          const request = indexedDB.open('tmt-remote', 1);
+          request.onsuccess = () => resolve(request.result);
+        });
+        const transaction = database.transaction('device', 'readwrite');
+        const store = transaction.objectStore('device');
+        const request = store.get('device');
+        request.onsuccess = () => {
+          const record = request.result;
+          record.paired.machineId = machineId;
+          record.paired.machinePublicKey = new Uint8Array(pin);
+          store.put(record, 'device');
+        };
+        await new Promise<void>((resolve, reject) => {
+          transaction.oncomplete = () => resolve();
+          transaction.onerror = () => reject(transaction.error);
+        });
+        database.close();
+      },
+      { machineId, pin },
+    );
+  }
+  async function saved(): Promise<void> {
+    mountsRead = 0;
+    admissions = 0;
+    await page.goto(origin);
+    await expect(page.locator('#pairing-status')).toHaveText('Pairing saved in this browser');
+    await expect(page.locator('#access-status')).toHaveText('Not checked');
+    expect(readCounts()).toEqual({ mounts: 0, admissions: 0 });
+  }
+  await page.getByRole('link', { name: 'Return to Remote and connect' }).click();
+  await saved();
+  await captureEntry('saved');
+  // Keyboard activation exposes visible focus before connecting.
+  await page.keyboard.press('Tab');
+  await expect(page.getByRole('button', { name: 'Connect' })).toBeFocused();
+  if (process.env.TMT_REMOTE_CAPTURE_DIR) {
+    await page.setViewportSize({ width: 320, height: 900 });
+    await page.screenshot({
+      path: join(process.env.TMT_REMOTE_CAPTURE_DIR, 'entry-connect-focus-320-dark.png'),
+      fullPage: true,
+    });
+  }
+  await page.keyboard.press('Enter');
+  await expect(page.locator('#access-status')).toHaveText('Access confirmed');
+  expect(readCounts()).toEqual({ mounts: 1, admissions: 1 });
+  await expect(page.locator('#status')).toContainText('no work was sent');
+  await captureEntry('verified');
+  const beforeGrants = execFileSync(
+    'python3',
+    [
+      '-c',
+      'import sqlite3,sys,json;d=sqlite3.connect(sys.argv[1]);print(json.dumps(d.execute("select * from grants").fetchall(),default=lambda value: value.hex()))',
+      join(root, 'state/remote/remote.db'),
+    ],
+    { encoding: 'utf8' },
+  );
+
+  await changePin(crypto.randomUUID(), original.machinePublicKey);
+  await saved();
+  await page.click('#check');
+  await expect(page.locator('#pairing-status')).toHaveText(
+    'Saved pairing does not match this Remote',
+  );
+  expect(readCounts()).toEqual({ mounts: 1, admissions: 0 });
+
+  await changePin(original.machineId, original.machinePublicKey.slice(0, 31));
+  mountsRead = 0;
+  admissions = 0;
+  await page.goto(origin);
+  await expect(page.locator('#pairing-status')).toHaveText('Pairing status unknown');
+  expect(readCounts()).toEqual({ mounts: 0, admissions: 0 });
+
+  const changed = [...original.machinePublicKey];
+  changed[0] = changed[0]! ^ 1;
+  await changePin(original.machineId, changed);
+  await saved();
+  await page.click('#check');
+  await expect(page.locator('#access-status')).toHaveText('Could not verify access');
+  expect(readCounts()).toEqual({ mounts: 1, admissions: 1 });
+  await expect(page.locator('#pairing-status')).toHaveText('Pairing saved in this browser');
+  await captureEntry('unconfirmed');
+
+  await changePin(original.machineId, original.machinePublicKey);
+  await saved();
+  await page.route('**/sdk/mount', (route) => route.abort('failed'));
+  await page.click('#check');
+  await expect(page.locator('#access-status')).toHaveText('Could not verify access');
+  expect(readCounts()).toEqual({ mounts: 1, admissions: 0 });
+  await page.unroute('**/sdk/mount');
+  expect(
+    execFileSync(
+      'python3',
+      [
+        '-c',
+        'import sqlite3,sys,json;d=sqlite3.connect(sys.argv[1]);print(json.dumps(d.execute("select * from grants").fetchall(),default=lambda value: value.hex()))',
+        join(root, 'state/remote/remote.db'),
+      ],
+      { encoding: 'utf8' },
+    ),
+  ).toBe(beforeGrants);
+
+  const revoke = spawn(BINARY, ['devices', 'revoke', original.clientId, '--json'], { env });
+  expect((await lines(revoke).next()).device).toMatchObject({
+    clientId: original.clientId,
+    revoked: true,
+  });
+  await exited(revoke);
+  expect(revoke.exitCode).toBe(0);
+  await saved();
+  await page.click('#check');
+  await expect(page.locator('#access-status')).toHaveText('Could not verify access');
+  expect(readCounts()).toEqual({ mounts: 2, admissions: 1 });
+  await expect(page.locator('#status')).toContainText('not a verified refusal reason');
+  await captureEntry('refused');
+  await context.close();
+
+  const unavailable = await browser.newContext();
+  await unavailable.addInitScript(() => {
+    indexedDB.open = () => {
+      throw new Error('private storage diagnostic');
+    };
+  });
+  const unavailablePage = await unavailable.newPage();
+  await unavailablePage.goto(origin);
+  await expect(unavailablePage.locator('#pairing-status')).toHaveText('Pairing status unknown');
+  await expect(unavailablePage.locator('#status')).not.toContainText('private storage diagnostic');
+  await unavailable.close();
+  const coreCalls = (await readFile(join(root, 'core-calls.jsonl'), 'utf8'))
+    .trim()
+    .split('\n')
+    .map((line) => JSON.parse(line).operation);
+  expect(coreCalls.every((operation) => ['capabilities', 'storage.root'].includes(operation))).toBe(
+    true,
+  );
+  expect(
+    execFileSync(
+      'python3',
+      [
+        '-c',
+        'import sqlite3,sys;d=sqlite3.connect(sys.argv[1]);print(d.execute("select count(*) from operations").fetchone()[0])',
+        join(root, 'state/remote/remote.db'),
+      ],
+      { encoding: 'utf8' },
+    ).trim(),
+  ).toBe('0');
 });

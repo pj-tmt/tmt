@@ -1,9 +1,10 @@
 import { validateDiscussionRecord } from './thread-records.js';
-import { exactKeys, generatedId, requireValue, text } from '@tmt/colab-client';
+import { coreId, exactKeys, generatedId, requireValue, text } from '@tmt/colab-client';
 /** Plaintext-only decoder protocol. No CryptoKeys or transport capabilities. */
 // Mirror decoder.rs: UPDATE_BYTES, WRITE_TAIL_UPDATES, WRITE_TAIL_BYTES, UPDATES, STATE_BYTES and
 // BASELINE_UPDATE_BYTES. Read admission is wider; prepare/check still use write limits.
 export const SOURCE_BYTES = 2 * 1024 * 1024;
+export const CONTENT_CHUNK_BYTES = 192 * 1024;
 export const UPDATE_BYTES = 256 * 1024;
 export const WRITE_TAIL_UPDATES = 200;
 export const WRITE_TAIL_BYTES = 4 * 1024 * 1024;
@@ -32,7 +33,19 @@ export interface OwnRecord {
   key: string;
   value: JsonValue;
 }
+export interface CreationRecipient {
+  machineId: string;
+  agentId: string;
+}
+export function validateCreationRecipient(value: unknown): asserts value is CreationRecipient {
+  requireValue(value !== null && typeof value === 'object');
+  exactKeys(value, ['machineId', 'agentId']);
+  requireValue(typeof value.machineId === 'string' && typeof value.agentId === 'string');
+  generatedId(value.machineId);
+  coreId(value.agentId);
+}
 export interface Projection {
+  creationRecipient?: CreationRecipient;
   source: string;
   title: string;
   publisherAgent?: string;
@@ -120,7 +133,8 @@ export interface FoldResult extends Projection {
 }
 export function validateProjection(value: unknown): asserts value is Projection {
   if (!value || typeof value !== 'object') throw new Error('Invalid decoder projection');
-  const { source, title, publisherAgent } = value as Projection;
+  const { source, title, publisherAgent, creationRecipient } = value as Projection;
+  if (Object.hasOwn(value, 'creationRecipient')) validateCreationRecipient(creationRecipient);
   if (
     typeof source !== 'string' ||
     typeof title !== 'string' ||
@@ -133,4 +147,44 @@ export function validateProjection(value: unknown): asserts value is Projection 
     text(title).length > UPDATE_BYTES
   )
     throw new Error('Invalid decoder projection');
+}
+
+/** Detached admitted snapshot. Batch preparation has no publication capability. */
+export interface ContentSnapshot extends Projection {
+  own: OwnState;
+}
+export interface PrepareContentCommand {
+  type: 'prepare-content';
+  source: string;
+  base: ContentSnapshot;
+}
+export type ContentPreparation =
+  | { kind: 'noop'; projection: ContentSnapshot }
+  | { kind: 'updates'; projection: ContentSnapshot; updates: Uint8Array[] };
+export type DecoderCommand = FoldCommand | PrepareContentCommand;
+
+/** A batch's envelope-sized deltas are bounded independently of read state. */
+export function validateContentUpdates(updates: unknown): asserts updates is Uint8Array[] {
+  requireValue(
+    Array.isArray(updates) && updates.length > 0 && updates.length <= WRITE_TAIL_UPDATES,
+  );
+  let bytes = 0;
+  for (const update of updates) {
+    requireValue(
+      update instanceof Uint8Array && update.length > 0 && update.length <= UPDATE_BYTES,
+    );
+    bytes += update.length;
+    requireValue(bytes <= WRITE_TAIL_BYTES);
+  }
+}
+export function sameContent(a: ContentSnapshot, b: ContentSnapshot): boolean {
+  return (
+    a.source === b.source &&
+    a.title === b.title &&
+    a.publisherAgent === b.publisherAgent &&
+    Object.hasOwn(a, 'creationRecipient') === Object.hasOwn(b, 'creationRecipient') &&
+    a.creationRecipient?.machineId === b.creationRecipient?.machineId &&
+    a.creationRecipient?.agentId === b.creationRecipient?.agentId &&
+    JSON.stringify(a.own) === JSON.stringify(b.own)
+  );
 }

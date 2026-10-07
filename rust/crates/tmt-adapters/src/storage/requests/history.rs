@@ -197,6 +197,7 @@ pub(super) fn list_open_requests(
         &format!(
             "a.recipient_identity_id=?1 AND (?2 IS NULL OR a.originator_identity_id=?2)
              AND a.request_kind='request' AND a.response_submitted_at_ms IS NULL
+             AND a.withdrawn_at_ms IS NULL
              AND a.status IN ({statuses}) AND a.retention_expires_at_ms > ?3
              AND (a.expires_at_ms > ?3 OR a.prepared_at_ms > ?4)"
         ),

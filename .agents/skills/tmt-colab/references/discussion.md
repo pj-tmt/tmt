@@ -39,25 +39,30 @@ owns record fields, limits, revision semantics and trust boundaries.
   owner action remains effective after revocation; new publication is denied.
   `discussion.rs` reuses the authenticated export projection for native reads and
   prepares agent status actions with no recipients or dispatch. The isolated decoder
-  prepares only that writer's own structs; `page::publish` shares the existing offline lock
-  or root-local socket path, certificate, sequence and ciphertext commit fences with source
-  writes. `cli_threads.rs` adapts these operations to `threads`, `resolve` and `reopen`.
+  prepares only that writer's own structs; `page::prepare_own_publication` freezes them as a
+  `kind:"own"` publication that `main.rs::publish_write` sends through the offline lock or
+  the root-local `page-publish` route, with the certificate, sequence, ciphertext commit
+  and unknown-outcome rules of source writes. `cli_threads.rs` adapts these operations to `threads`, `resolve` and `reopen`.
   Actor labels and clocks remain display assertions.
 - `components/conversation-turn.tsx` owns the shared turn markup, attribution and
   square styling. Its `thread` layout uses User/Bot avatars and an ink agent-body
   rail; its `chat` layout uses sided tinted turns and a bot mark in the agent meta
-  line. `CommentExchange` associates admitted asks with their originating comment
-  once for both surfaces. Replies have one agent/name/time byline; pending states
+  line. `conversationAsks` owns admitted comment/Ask association for display, reply
+  defaults and captured context; `CommentExchange` presents it on both surfaces. Replies have one agent/name/time byline; pending states
   and trusted delivery actions stay in the requester turn until a reply exists
   (including an empty reply), then the status disappears.
 - `thread-panel.tsx` owns muted author/time labels with device-ID tooltips, visible Resolve/Reopen/Close thread labels alongside Lucide icons, plain-text
   parent controls, one all-annotations list, expanded conversation and explicit
-  reattach confirmation. `annotation-input.tsx` owns one plain @ input with Enter
-  Send, Shift+Enter newline, Escape cancellation. It
+  reattach confirmation. `annotation-input.tsx` owns parent draft/recipient/send
+  policy around the shared Lexical plaintext message composer: Enter submits the
+  current parent action, Shift+Enter adds a line, Escape closes candidates before cancellation. It
   opens at the selection in a cosmetic parent popover; saved threads open in Comments.
   It extends the same `components/listbox.tsx` used by Manage and the agent list;
-  input options portal into its dialog ancestor (otherwise the body), so mobile
-  modal sheets retain visible, clickable autocomplete across close/reopen.
+  input options portal into its dialog ancestor (otherwise the body) and use the
+  browser popover layer with viewport bounds, so mobile modal sheets retain visible,
+  clickable autocomplete across close/reopen. Plain replies and edits reuse the field
+  with explicit buttons/newline policy. Recipient identity stays independent of text;
+  a plain comment does not require working agent discovery.
   UI capture/default labels grant no routing authority. `ask-panel.tsx` shares the
   accepted-turn observation deadline and Clock + `no reply yet` copy between annotation
   threads and Chat; it retains read-only recheck without changing ledger state.

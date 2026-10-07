@@ -87,15 +87,15 @@ fn lead_rows_and_footer_share_one_cursor_and_hidden_previews_remove_separators()
             app.hits
                 .borrow()
                 .iter()
-                .filter(|hit| hit.row == row)
+                .filter(|hit| hit.row().unwrap() == row)
                 .count(),
             2
         );
-        assert!(text[at("→ all leads") - 1].starts_with('└'));
+        assert!(text[at("→ all leads") - 1].starts_with('─'));
         assert_eq!(glyph_error(&text.join("\n")), None);
         assert!(
-            text.last().unwrap().contains("t replies"),
-            "the new toggle remains discoverable at 80 columns"
+            text.last().unwrap().contains("? more"),
+            "help, where the toggle is listed, stays discoverable at 80 columns"
         );
         let target = app.home_target.clone();
         assert_eq!(press(&mut app, Char('t')), Effect::HomeReplies(false));
@@ -111,7 +111,7 @@ fn lead_rows_and_footer_share_one_cursor_and_hidden_previews_remove_separators()
             app.hits
                 .borrow()
                 .iter()
-                .filter(|hit| hit.row == row)
+                .filter(|hit| hit.row().unwrap() == row)
                 .count(),
             1
         );
@@ -142,12 +142,9 @@ fn leads_without_exchanges_have_one_hit_line_and_one_blank_after_the_last_exchan
             .unwrap();
         // One blank boxed line keeps `no reply yet` / the question apart from the
         // first lead without an exchange; nothing separates lead from lead below it.
-        assert!(
-            text[preview + 1].starts_with('│')
-                && text[preview + 1].trim_matches(['│', ' ']).is_empty()
-        );
+        assert!(text[preview + 1].chars().all(|c| c == ' '));
         assert!(text[preview + 2].contains("lead-b"));
-        assert!(text[preview + 3].starts_with('└'));
+        assert!(text[preview + 3].starts_with('─'));
         let target = app
             .home_entries()
             .iter()
@@ -157,18 +154,23 @@ fn leads_without_exchanges_have_one_hit_line_and_one_blank_after_the_last_exchan
             app.hits
                 .borrow()
                 .iter()
-                .filter(|hit| hit.row == target)
+                .filter(|hit| hit.row().unwrap() == target)
                 .count(),
             1
         );
         app.home_leads.leads[0].exchange = None;
         let text = lines(&draw(&app, width, 40));
-        let heading = text
-            .iter()
-            .position(|line| line.contains("lead-a") && line.starts_with('│'))
-            .unwrap();
+        let heading = usize::from(
+            app.hits
+                .borrow()
+                .iter()
+                .find(|hit| hit.row().unwrap() == app.selected)
+                .unwrap()
+                .y,
+        );
+        assert!(text[heading].contains("lead-a"));
         assert!(text[heading + 1].contains("lead-b"));
-        assert!(text[heading + 2].starts_with('└'));
+        assert!(text[heading + 2].starts_with('─'));
         for entry in app
             .home_entries()
             .iter()
@@ -179,7 +181,7 @@ fn leads_without_exchanges_have_one_hit_line_and_one_blank_after_the_last_exchan
                 app.hits
                     .borrow()
                     .iter()
-                    .filter(|hit| hit.row == entry.0)
+                    .filter(|hit| hit.row().unwrap() == entry.0)
                     .count(),
                 1
             );
@@ -219,22 +221,18 @@ fn expanded_body_and_answer_share_the_full_inner_band_at_every_width_and_theme()
                 app.hits
                     .borrow()
                     .iter()
-                    .filter(|hit| hit.row == app.selected)
+                    .filter(|hit| hit.row().unwrap() == app.selected)
                     .count(),
                 1
             );
             assert!(text[usize::from(band.y + 1)].contains("First complete line"));
-            assert!(
-                text[usize::from(band.y + 2)]
-                    .chars()
-                    .all(|c| c == ' ' || c == '│')
-            );
+            assert!(text[usize::from(band.y + 2)].chars().all(|c| c == ' '));
             assert!(text[usize::from(band.y + 3)].contains("Second complete line"));
             assert!(!text.join("\n").contains("\\n"));
             assert!(
                 text[usize::from(band.bottom() - 2)].contains("e collapse · a reply to lead-a")
             );
-            assert!(text[usize::from(band.y)].starts_with("│┌"));
+            assert!(text[usize::from(band.y)].starts_with(" ─"));
             assert!(
                 app.hits
                     .borrow()
@@ -248,7 +246,7 @@ fn expanded_body_and_answer_share_the_full_inner_band_at_every_width_and_theme()
                 app.hits
                     .borrow()
                     .iter()
-                    .filter(|hit| hit.row == app.selected)
+                    .filter(|hit| hit.row().unwrap() == app.selected)
                     .count(),
                 2
             );
@@ -261,7 +259,7 @@ fn expanded_body_and_answer_share_the_full_inner_band_at_every_width_and_theme()
             let answer = lines(&draw(&app, width, 30));
             let next = app.input_band.get().unwrap();
             assert_eq!((next.x, next.width), (band.x, band.width));
-            assert!(answer[usize::from(next.y + 1)].contains("→ lead-a (a)"));
+            assert!(answer[usize::from(next.y + 1)].contains("→ lead-a (a) · answer"));
             assert!(answer[usize::from(next.y + 2)].contains("Approve this change?"));
             press(&mut app, Esc);
             assert!(app.input.is_none());
@@ -330,4 +328,80 @@ fn audience_controls_use_one_composer_and_refuse_sender_or_lead_changes() {
         assert_eq!(press(&mut app, Enter), Effect::None);
         assert!(app.notice.as_ref().unwrap().contains("nothing sent"));
     }
+}
+
+#[test]
+fn home_attention_and_boxed_heading_selection_preserve_blanks_and_acquired_previews() {
+    crate::status::with_now_ms(1_900_000_000_000, || {
+        for width in [80, 100, 160, 180] {
+            for (base, depth) in [
+                (tmt_cli_style::Base::Tmt, tmt_cli_style::Depth::TrueColor),
+                (
+                    tmt_cli_style::Base::TmtLight,
+                    tmt_cli_style::Depth::TrueColor,
+                ),
+                (tmt_cli_style::Base::Terminal, tmt_cli_style::Depth::Ansi16),
+                (tmt_cli_style::Base::Tmt, tmt_cli_style::Depth::None),
+            ] {
+                let mut app = fixture();
+                app.view.as_mut().unwrap().look = crate::look::Look {
+                    theme: tmt_cli_style::Theme::new(base),
+                    depth,
+                };
+                let document = app.view.as_ref().unwrap().document.clone();
+                let selected = draw(&app, width, 40);
+                let hits = format!("{:?}", app.hits.borrow());
+                let starts = app.row_starts.borrow().clone();
+                let heading = app
+                    .hits
+                    .borrow()
+                    .iter()
+                    .find(|hit| hit.row().unwrap() == app.selected)
+                    .unwrap()
+                    .y;
+                let preview = heading + 1;
+                assert!(
+                    lines(&selected)[usize::from(preview)].contains("asks: Approve this change?")
+                );
+                assert_eq!(selected[(1, heading)].symbol(), " ");
+                assert_eq!(selected[(2, heading)].symbol(), "◆");
+                select(&mut app, "needs-you", "a");
+                let attention = draw(&app, width, 40);
+                assert_eq!(format!("{:?}", app.hits.borrow()), hits);
+                assert_eq!(*app.row_starts.borrow(), starts);
+                let y = app
+                    .hits
+                    .borrow()
+                    .iter()
+                    .find(|hit| hit.row().unwrap() == app.selected)
+                    .unwrap()
+                    .y;
+                assert_eq!(attention[(0, y)].symbol(), " ");
+                assert_eq!(attention[(1, y)].symbol(), "◆");
+                assert_eq!(
+                    attention[(0, y)].bg,
+                    app.look().selection().bg.unwrap_or_default()
+                );
+                assert_eq!(
+                    attention[(0, y)]
+                        .modifier
+                        .contains(ratatui::style::Modifier::REVERSED),
+                    app.look().selection().bg.is_none()
+                );
+                for y in 2..39 {
+                    for x in 0..width {
+                        assert_eq!(selected[(x, y)].symbol(), attention[(x, y)].symbol());
+                    }
+                }
+                for x in 0..width {
+                    assert_eq!(
+                        selected[(x, preview)],
+                        attention[(x, preview)],
+                        "preview style is outside selected heading"
+                    );
+                }
+                assert_eq!(app.view.as_ref().unwrap().document, document);
+            }
+        }
+    });
 }

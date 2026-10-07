@@ -7,7 +7,10 @@ use ratatui::{
     layout::Rect,
 };
 use serde_json::{Value, json};
-use std::{cell::RefCell, collections::BTreeMap};
+use std::{
+    cell::RefCell,
+    collections::{BTreeMap, BTreeSet},
+};
 use tmt_cli_style::{Role, grid::Align, mark::Mark, table::escape};
 use tmt_tui::{
     binding::Schema,
@@ -19,7 +22,67 @@ pub(super) enum Input {
     None,
     Preview,
     Save,
+    Reset,
     Close,
+    /// Enter on a picker row: the id of what the board should open or cycle.
+    Pick(&'static str),
+}
+
+/// A row that opens a picker or cycles a value, in place of a default key.
+pub(super) struct Pick {
+    pub id: &'static str,
+    pub name: &'static str,
+    pub value: String,
+    pub hint: &'static str,
+}
+
+fn config_picks(
+    config: &Config,
+    settings: &BoardSettings,
+) -> Result<Vec<Pick>, crate::core::SquadError> {
+    let theme = settings
+        .entries
+        .iter()
+        .find(|entry| entry.key == "theme.base")
+        .map_or_else(
+            || "auto".into(),
+            |entry| crate::settings::display(&entry.value),
+        );
+    let squad = settings
+        .context
+        .as_deref()
+        .filter(|key| !crate::tabs::aggregate(key))
+        .unwrap_or("");
+    let view = match config.view_source(squad)? {
+        (Some(view), _) => view.name().to_owned(),
+        (None, "custom") => "custom".into(),
+        (None, _) => "default".into(),
+    };
+    Ok(vec![
+        Pick {
+            id: "actions",
+            name: "Actions…",
+            value: String::new(),
+            hint: "Enter open",
+        },
+        Pick {
+            id: "theme",
+            name: "Theme",
+            value: theme,
+            hint: "Enter pick",
+        },
+        Pick {
+            id: "view",
+            name: "View",
+            value: view,
+            hint: "Enter pick",
+        },
+    ])
+}
+
+const PICK_GROUP: &str = "choose";
+fn pick_row_id(pick: &Pick) -> String {
+    format!("pick:{}", pick.id)
 }
 
 struct SettingNotice {
@@ -99,6 +162,8 @@ pub(super) struct Overlay {
     pub squad_keys: Vec<String>,
     pub opening_focus: usize,
     pub staleness: Option<crate::staleness::Snapshot>,
+    pub picks: Vec<Pick>,
+    overrides: BTreeSet<String>,
 }
 impl Overlay {
     pub fn new(mut settings: BoardSettings) -> Self {
@@ -112,7 +177,7 @@ impl Overlay {
                     .map(|path| format!("~/{path}"))
             })
             .unwrap_or_else(|| settings.path.clone());
-        let rows = list_rows(&settings);
+        let rows = list_rows(&settings, &[]);
         Self {
             settings,
             reference_template: RefCell::new(None),
@@ -128,21 +193,56 @@ impl Overlay {
             squad_keys: Vec::new(),
             opening_focus: 0,
             staleness: None,
+            picks: Vec::new(),
+            overrides: BTreeSet::new(),
         }
     }
     pub fn open(
         config: Config,
         context: Option<&str>,
         section: Option<usize>,
+        window: Option<String>,
     ) -> Result<Self, crate::core::SquadError> {
         let mut overlay = Self::new(config.settings(
             context,
             crate::effects::tmux_socket().is_some(),
             section,
         )?);
+        overlay.picks = config_picks(&config, &overlay.settings)?;
+        overlay.picks.extend(window.map(|value| Pick {
+            id: "window",
+            name: "Token window",
+            value,
+            hint: "Enter next",
+        }));
+        // A fresh list: the menu opens on its first row, Actions….
+        overlay.surface = RefCell::new(picker_surface::State::new(
+            None,
+            list_rows(&overlay.settings, &overlay.picks),
+            None,
+        ));
         overlay.config = Some(config);
         overlay.section = section;
+        overlay.refresh();
         Ok(overlay)
+    }
+
+    /// The new value of a row that cycles in place.
+    pub fn set_pick(&mut self, id: &str, value: String) {
+        if let Some(pick) = self.picks.iter_mut().find(|pick| pick.id == id) {
+            pick.value = value;
+        }
+    }
+
+    fn selected_pick(&self) -> Option<&Pick> {
+        let id = self
+            .surface
+            .borrow()
+            .picker
+            .list
+            .selected()
+            .map(str::to_owned)?;
+        self.picks.iter().find(|pick| pick_row_id(pick) == id)
     }
     pub fn config(&self) -> Option<&Config> {
         self.draft.as_ref().or(self.config.as_ref())
@@ -155,6 +255,113 @@ impl Overlay {
             .context
             .as_deref()
             .filter(|key| !crate::tabs::aggregate(key))
+    }
+    fn edit_scope(&self, key: &str) -> Option<&str> {
+        if self
+            .config
+            .as_ref()
+            .is_some_and(|config| config.can_edit_setting(key, None))
+        {
+            None
+        } else {
+            self.scope()
+        }
+    }
+    fn pick_key(id: &str) -> Option<&str> {
+        match id {
+            "theme" => Some("theme.base"),
+            "view" => Some("board.view"),
+            "window" => Some("board.token_rate.window"),
+            _ => None,
+        }
+    }
+    fn selected_key(&self) -> Option<&str> {
+        self.selected_pick()
+            .and_then(|pick| Self::pick_key(pick.id))
+            .or_else(|| self.selected_entry().map(|entry| entry.key.as_str()))
+    }
+    fn selected_override(&self) -> bool {
+        self.selected_key()
+            .is_some_and(|key| self.overrides.contains(key))
+    }
+    fn refresh(&mut self) {
+        let config = self.config.as_ref().expect("config-backed overlay");
+        self.settings = config
+            .settings(
+                self.settings.context.as_deref(),
+                self.settings.host == "tmux",
+                self.section,
+            )
+            .expect("validated settings write");
+        group_entries(&mut self.settings);
+        self.overrides = self
+            .scope()
+            .map(|squad| {
+                self.settings
+                    .entries
+                    .iter()
+                    .filter(|entry| config.has_setting_override(squad, &entry.key))
+                    .map(|entry| entry.key.clone())
+                    .collect()
+            })
+            .unwrap_or_default();
+        let picks = config_picks(config, &self.settings).expect("validated settings write");
+        for pick in picks {
+            self.set_pick(pick.id, pick.value);
+        }
+        if let Some(value) = self
+            .settings
+            .entries
+            .iter()
+            .find(|entry| entry.key == "board.token_rate.window")
+            .map(|entry| crate::settings::display(&entry.value))
+        {
+            self.set_pick("window", value);
+        }
+        self.surface
+            .borrow_mut()
+            .reconcile(list_rows(&self.settings, &self.picks));
+    }
+    pub fn reset(&mut self) -> bool {
+        if !self.selected_override() {
+            return false;
+        }
+        let key = self.selected_key().unwrap().to_owned();
+        let squad = self.scope().unwrap().to_owned();
+        match self.config.as_mut().unwrap().reset_setting(&squad, &key) {
+            Ok(_) => {
+                self.refresh();
+                self.notice = Some(SettingNotice {
+                    mark: Mark::Done,
+                    message: "Using the all-boards value".into(),
+                });
+                true
+            }
+            Err(error) => {
+                self.notice = Some(SettingNotice::error(error.message, &key, Some(&squad)));
+                false
+            }
+        }
+    }
+    pub fn save_window(&mut self, window: crate::config::TokenWindow) -> bool {
+        match self.config.as_mut().unwrap().set_setting(
+            None,
+            "board.token_rate.window",
+            &window.label(),
+        ) {
+            Ok(_) => {
+                self.refresh();
+                true
+            }
+            Err(error) => {
+                self.notice = Some(SettingNotice::error(
+                    error.message,
+                    "board.token_rate.window",
+                    None,
+                ));
+                false
+            }
+        }
     }
     pub fn key(&mut self, key: KeyEvent) -> Input {
         if self.editing.is_none() {
@@ -193,6 +400,16 @@ impl Overlay {
         }
         match key.code {
             KeyCode::Esc | KeyCode::Char('q') | KeyCode::Char(',') => return Input::Close,
+            KeyCode::Char('r') => {
+                return if self.selected_override() {
+                    Input::Reset
+                } else {
+                    Input::None
+                };
+            }
+            KeyCode::Enter if self.selected_pick().is_some() => {
+                return Input::Pick(self.selected_pick().expect("a picker row").id);
+            }
             KeyCode::Enter if self.config.is_some() => {
                 if let Some(entry) = self.selected_entry() {
                     if !entry.editable {
@@ -233,7 +450,7 @@ impl Overlay {
             .config
             .as_ref()
             .unwrap()
-            .preview_setting(self.scope(), &name, &text)
+            .preview_setting(self.edit_scope(&name), &name, &text)
         {
             Ok(config) => self.draft = Some(config),
             Err(error) => {
@@ -244,7 +461,7 @@ impl Overlay {
 
     pub fn save(&mut self) -> bool {
         let (name, text) = self.editing.as_ref().unwrap().clone();
-        let scope = self.scope().map(str::to_owned);
+        let scope = self.edit_scope(&name).map(str::to_owned);
         match self
             .config
             .as_mut()
@@ -252,20 +469,7 @@ impl Overlay {
             .set_setting(scope.as_deref(), &name, &text)
         {
             Ok(_) => {
-                self.settings = self
-                    .config
-                    .as_ref()
-                    .unwrap()
-                    .settings(
-                        self.settings.context.as_deref(),
-                        self.settings.host == "tmux",
-                        self.section,
-                    )
-                    .expect("validated settings draft");
-                group_entries(&mut self.settings);
-                self.surface
-                    .borrow_mut()
-                    .reconcile(list_rows(&self.settings));
+                self.refresh();
                 self.editing = None;
                 self.draft = None;
                 let pinning = crate::settings::saved_notice(
@@ -360,8 +564,22 @@ fn value_lines(text: &str, width: usize, structured: bool) -> Vec<String> {
     lines
 }
 
-fn list_rows(settings: &BoardSettings) -> Vec<ListRow> {
+fn list_rows(settings: &BoardSettings, picks: &[Pick]) -> Vec<ListRow> {
     let mut rows = Vec::new();
+    let mut grouped = false;
+    for pick in picks {
+        if pick.id != "actions" && !grouped {
+            rows.push(ListRow {
+                id: format!("group:{PICK_GROUP}"),
+                disabled: true,
+            });
+            grouped = true;
+        }
+        rows.push(ListRow {
+            id: pick_row_id(pick),
+            disabled: false,
+        });
+    }
     let mut previous = None;
     for entry in &settings.entries {
         let group = setting_name(&entry.key).0;
@@ -388,7 +606,7 @@ fn template(
 ) -> tmt_tui::components::surface::Template<()> {
     // Groups are disabled rows; setting identity and selection remain owned by the list.
     let markup = format!(
-        r#"<tmt-view version="1"><tmt-modal id="settings" title="settings · Enter edit · * read-only" placement="body"><tmt-scroll id="body"><tmt-text bind="$.query" token="dim" class="truncate-middle"/><tmt-text token="dim" class="truncate">Full values: tmt sq config show --json (--squad/--tab)</tmt-text><tmt-repeat each="$.notes" as="note"><tmt-text bind="note.text" token="waiting" wrap="true"/></tmt-repeat><tmt-list id="choices" bind="$.rows" empty="(no settings)"><tmt-row class="flex-col"><tmt-repeat each="row.lines" as="line"><tmt-row id-bind="line.id" class="grid grid-cols-[2_{key_width}_1fr_{source_width}] gap-x-2 shrink-0"><tmt-text bind="line.mark"/><tmt-text id="name" bind="line.name" token="accent" class="truncate-middle"/><tmt-text id="value" bind="line.value" token="text" wrap="true"/><tmt-text bind="line.source" token="dim" class="truncate-middle"/></tmt-row></tmt-repeat><tmt-repeat each="row.description" as="description"><tmt-row class="grid grid-cols-[2_{key_width}_1fr_{source_width}] gap-x-2 shrink-0"><tmt-text/><tmt-text/><tmt-text bind="description.text" token="muted" wrap="true" class="col-span-2"/></tmt-row></tmt-repeat><tmt-repeat each="row.heading" as="heading"><tmt-text bind="heading.text" token="dim" class="shrink-0"/></tmt-repeat></tmt-row></tmt-list></tmt-scroll><tmt-text slot="status" bind="$.status" token="{role}" wrap="true"/><tmt-text slot="footer" bind="$.footer" token="muted"/></tmt-modal></tmt-view>"#
+        r#"<tmt-view version="1"><tmt-modal id="settings" title="settings · Enter edit · * read-only" placement="body"><tmt-scroll id="body"><tmt-text bind="$.query" token="dim" class="truncate-middle"/><tmt-repeat each="$.overrides" as="override"><tmt-text bind="override.text" token="muted" class="truncate"/></tmt-repeat><tmt-text token="dim" class="truncate">Full values: tmt sq config show --json (--squad/--tab)</tmt-text><tmt-repeat each="$.notes" as="note"><tmt-text bind="note.text" token="waiting" wrap="true"/></tmt-repeat><tmt-list id="choices" bind="$.rows" empty="(no settings)"><tmt-row class="flex-col"><tmt-repeat each="row.lines" as="line"><tmt-row id-bind="line.id" class="grid grid-cols-[1_1_{key_width}_1fr_{source_width}] gap-x-1 shrink-0"><tmt-text bind="line.cursor"/><tmt-text id="mark" bind="line.mark"/><tmt-text id="name" bind="line.name" token="accent" class="truncate-middle"/><tmt-text id="value" bind="line.value" token="text" wrap="true"/><tmt-text bind="line.source" token="dim" class="truncate-middle"/></tmt-row></tmt-repeat><tmt-repeat each="row.description" as="description"><tmt-row class="grid grid-cols-[1_1_{key_width}_1fr_{source_width}] gap-x-1 shrink-0"><tmt-text/><tmt-text/><tmt-text/><tmt-text bind="description.text" token="muted" wrap="true" class="col-span-2"/></tmt-row></tmt-repeat><tmt-repeat each="row.heading" as="heading"><tmt-text bind="heading.text" token="dim" class="shrink-0"/></tmt-repeat></tmt-row></tmt-list></tmt-scroll><tmt-text slot="status" bind="$.status" token="{role}" wrap="true"/><tmt-text slot="footer" bind="$.footer" token="muted"/></tmt-modal></tmt-view>"#
     );
     let scalar_row = |fields: &[&str]| {
         Schema::Collection(Box::new(Schema::Object(
@@ -411,6 +629,7 @@ fn template(
     let Schema::Object(root) = &mut schema else {
         unreachable!()
     };
+    root.insert("overrides".into(), scalar_row(&["text"]));
     root.insert(
         "rows".into(),
         Schema::Collection(Box::new(Schema::Object(BTreeMap::from([
@@ -418,7 +637,7 @@ fn template(
             ("disabled".into(), Schema::Boolean),
             (
                 "lines".into(),
-                scalar_row(&["id", "mark", "name", "value", "source"]),
+                scalar_row(&["id", "cursor", "mark", "name", "value", "source"]),
             ),
             ("description".into(), scalar_row(&["text"])),
             ("heading".into(), scalar_row(&["text"])),
@@ -482,11 +701,12 @@ pub(super) fn render(frame: &mut Frame, overlay: &Overlay, look: Look, body: Rec
         .entries
         .iter()
         .map(|entry| setting_name(&entry.key).1.width() + usize::from(!entry.editable))
+        .chain(overlay.picks.iter().map(|pick| pick.name.width()))
         .max()
         .unwrap_or(0)
         .min(row_width / 4);
     let source_width = (row_width / 3).min(42);
-    // Three gaps include the selection marker's track. Shared geometry owns
+    // Two one-cell mark tracks and four one-cell gaps. Shared geometry owns
     // the actual grid fitting at tiny widths.
     let value_width = row_width
         .saturating_sub(key_width + source_width + 6)
@@ -499,6 +719,23 @@ pub(super) fn render(frame: &mut Frame, overlay: &Overlay, look: Look, body: Rec
         .selected()
         .map(str::to_owned);
     let mut rows = Vec::new();
+    let mut grouped = false;
+    for pick in &overlay.picks {
+        if pick.id != "actions" && !grouped {
+            rows.push(json!({"id":format!("group:{PICK_GROUP}"),"disabled":true,"lines":[],"description":[],"heading":[{"text":PICK_GROUP}]}));
+            grouped = true;
+        }
+        let id = pick_row_id(pick);
+        let overridden =
+            Overlay::pick_key(pick.id).is_some_and(|key| overlay.overrides.contains(key));
+        let mark = if overridden { "≠" } else { "" };
+        let cursor = if selected.as_deref() == Some(&id) {
+            "›"
+        } else {
+            ""
+        };
+        rows.push(json!({"id":id, "disabled":false, "lines":[{"id":"line:0", "cursor":cursor, "mark":mark, "name":pick.name, "value":escape(&pick.value), "source":if overridden { "this squad · r reset" } else {pick.hint}}], "description":[], "heading":[]}));
+    }
     let mut previous = None;
     for entry in &overlay.settings.entries {
         let group = setting_name(&entry.key).0;
@@ -516,7 +753,13 @@ pub(super) fn render(frame: &mut Frame, overlay: &Overlay, look: Look, body: Rec
             setting_name(&entry.key).1,
             if entry.editable { "" } else { "*" }
         );
-        let lines: Vec<_> = value_lines(&escape(&value), value_width, entry.value.is_array() || entry.value.is_object()).into_iter().enumerate().map(|(index,value)| json!({"id":format!("line:{index}"), "mark":if selected.as_deref() == Some(&entry.key) {"›"} else {""}, "name":if index == 0 {name.as_str()} else {""}, "value":value, "source":if index == 0 {entry.source.as_str()} else {""}})).collect();
+        let overridden = overlay.overrides.contains(&entry.key);
+        let source = if overridden {
+            "this squad · r reset"
+        } else {
+            entry.source.as_str()
+        };
+        let lines: Vec<_> = value_lines(&escape(&value), value_width, entry.value.is_array() || entry.value.is_object()).into_iter().enumerate().map(|(index,value)| json!({"id":format!("line:{index}"), "cursor":if selected.as_deref() == Some(&entry.key) {"›"} else {""}, "mark":if index == 0 && overridden {"≠"} else {""}, "name":if index == 0 {name.as_str()} else {""}, "value":value, "source":if index == 0 {source} else {""}})).collect();
         rows.push(json!({"id":entry.key, "disabled":false, "lines":lines, "description":entry.description.as_ref().map(|text| vec![json!({"text":text})]).unwrap_or_default(), "heading":[]}));
     }
     let key = ReferenceStyle {
@@ -532,33 +775,42 @@ pub(super) fn render(frame: &mut Frame, overlay: &Overlay, look: Look, body: Rec
         });
     }
     let template = &cache.as_ref().unwrap().template;
+    let reset_hint = overlay.selected_override();
     let mut state = overlay.surface.borrow_mut();
-    state.render(FILE, template, json!({"rows":rows, "query":format!("{} {} · {}",overlay.settings.context.as_deref().unwrap_or("board defaults"), overlay.settings.host, overlay.display_path), "notes":overlay.settings.notices.iter().enumerate().map(|(index,text)| json!({"id":format!("notice:{index}"),"text":text})).collect::<Vec<_>>(), "status":overlay.notice.as_ref().map(|notice| notice.display(width as u16, &overlay.settings.path)).unwrap_or_default(), "footer":"↑↓ select · Enter edit · PgUp/PgDn page · Esc close", "tracks":[key_width,source_width], "role":notice_role(overlay.notice.as_ref())}), frame, look, body);
+    state.render(FILE, template, json!({"rows":rows, "overrides": if overlay.overrides.is_empty() { vec![] } else { vec![json!({"text":format!("{} {} from all boards", overlay.overrides.len(), if overlay.overrides.len() == 1 {"setting differs"} else {"settings differ"})})] }, "query":format!("{} {} · {}",overlay.settings.context.as_deref().unwrap_or("board defaults"), overlay.settings.host, overlay.display_path), "notes":overlay.settings.notices.iter().enumerate().map(|(index,text)| json!({"id":format!("notice:{index}"),"text":text})).collect::<Vec<_>>(), "status":overlay.notice.as_ref().map(|notice| notice.display(width as u16, &overlay.settings.path)).unwrap_or_default(), "footer":if reset_hint {"↑↓ select · Enter edit · r reset · PgUp/PgDn page · Esc close"} else {"↑↓ select · Enter edit · PgUp/PgDn page · Esc close"}, "tracks":[key_width,source_width], "role":notice_role(overlay.notice.as_ref())}), frame, look, body);
     if let Some(map) = &state.frame {
         for hit in &map.hits {
-            let Some(entry) = hit.row_id.as_ref().and_then(|id| {
-                overlay
-                    .settings
-                    .entries
-                    .iter()
-                    .find(|entry| &entry.key == id)
-            }) else {
+            let Some(id) = hit.row_id.as_ref() else {
                 continue;
             };
+            let entry = overlay
+                .settings
+                .entries
+                .iter()
+                .find(|entry| &entry.key == id);
+            let key = id
+                .strip_prefix("pick:")
+                .and_then(Overlay::pick_key)
+                .unwrap_or(id);
+            let overridden = overlay.overrides.contains(key);
             let role = match hit.id.last().map(String::as_str) {
-                Some("name") if !entry.editable => Role::Muted,
+                Some("mark") if overridden => Role::Waiting,
+                Some("name") if entry.is_some_and(|entry| !entry.editable) => Role::Muted,
+                Some("value") if overridden => Role::Text,
                 Some("value")
-                    if entry.value.is_null()
-                        || entry.value.as_array().is_some_and(Vec::is_empty) =>
+                    if entry.is_some_and(|entry| {
+                        entry.value.is_null() || entry.value.as_array().is_some_and(Vec::is_empty)
+                    }) =>
                 {
                     Role::Dim
                 }
                 _ => continue,
             };
-            let selected = selected.as_deref() == Some(&entry.key);
-            frame
-                .buffer_mut()
-                .set_style(hit.rect, look.row_span(selected, look.role(role), false));
+            let selected = selected.as_ref() == Some(id);
+            frame.buffer_mut().set_style(
+                hit.rect,
+                look.row_span(selected, look.role(role), role == Role::Waiting),
+            );
         }
     }
 }
@@ -568,6 +820,118 @@ mod tests {
     use super::*;
     use crate::config::Pane;
     use ratatui::{Terminal, backend::TestBackend, crossterm::event::KeyModifiers};
+
+    #[test]
+    fn shared_window_override_reset_and_reopen_preserve_authored_keys() {
+        let mut f = fixture("shared-window-reset", "");
+        let authored = "# hand edited\nunknown = 'kept'\n[board.token_rate]\nwindow = '5m'\n[squad.product]\nlayout = 'team'\n[squad.product.token_note]\ntext = 'kept'\n[squad.product.board.token_rate]\nwindow = '1h' # local window\nreduced_motion = true # keep sibling\n[squad.product.theme]\nbase = 'mono'\n";
+        std::fs::write(&f.path, authored).unwrap();
+        f.app
+            .open_settings(Config::read(f.path.clone()).unwrap())
+            .unwrap();
+        let overlay = f.app.settings.as_mut().unwrap();
+        assert!(overlay.overrides.contains("theme.base"));
+        assert!(
+            !overlay.overrides.contains("theme.text"),
+            "inherited base is not a token override"
+        );
+        assert!(overlay.save_window(crate::config::TokenWindow::MINUTE));
+        let saved = Config::read(f.path.clone()).unwrap();
+        assert_eq!(
+            saved.token_rate("other").unwrap().window,
+            crate::config::TokenWindow::MINUTE
+        );
+        assert_eq!(
+            saved.token_rate("product").unwrap().window,
+            crate::config::TokenWindow::HOUR
+        );
+        overlay
+            .surface
+            .borrow_mut()
+            .select("board.token_rate.window");
+        assert!(matches!(
+            overlay.key(KeyEvent::new(KeyCode::Char('r'), KeyModifiers::NONE)),
+            Input::Reset
+        ));
+        assert!(overlay.reset());
+        assert!(!overlay.overrides.contains("board.token_rate.window"));
+        let reopened = Config::read(f.path.clone()).unwrap();
+        assert_eq!(
+            reopened.token_rate("product").unwrap().window,
+            crate::config::TokenWindow::MINUTE
+        );
+        let bytes = std::fs::read_to_string(&f.path).unwrap();
+        for kept in [
+            "# hand edited",
+            "unknown = 'kept'",
+            "text = 'kept'",
+            "reduced_motion = true # keep sibling",
+            "base = 'mono'",
+        ] {
+            assert!(bytes.contains(kept), "{kept}");
+        }
+        assert!(!overlay.reset());
+        assert!(matches!(
+            overlay.key(KeyEvent::new(KeyCode::Char('r'), KeyModifiers::NONE)),
+            Input::None
+        ));
+    }
+
+    #[test]
+    fn stale_reset_and_window_write_leave_effective_projection_unchanged() {
+        let mut f = fixture("stale-reset-window", "refresh = 'off'\n");
+        let overlay = f.app.settings.as_mut().unwrap();
+        overlay.surface.borrow_mut().select("board.refresh");
+        let before = overlay.settings.value();
+        let newer = format!("{}\n# concurrent author\n", f.original);
+        std::fs::write(&f.path, &newer).unwrap();
+        assert!(!overlay.reset());
+        assert_eq!(overlay.settings.value(), before);
+        assert!(!overlay.save_window(crate::config::TokenWindow::HOUR));
+        assert_eq!(overlay.settings.value(), before);
+        assert_eq!(std::fs::read_to_string(&f.path).unwrap(), newer);
+        assert_eq!(overlay.notice.as_ref().unwrap().mark, Mark::Failed);
+    }
+    #[test]
+    fn unpublished_reset_and_window_keep_effective_state_and_can_recover() {
+        let mut f = fixture("unpublished-reset-window", "refresh = 'off'\n");
+        let staged = f.root.join(format!(".squad.toml.{}", std::process::id()));
+        std::fs::write(&staged, "occupied publication path").unwrap();
+        let overlay = f.app.settings.as_mut().unwrap();
+        overlay.surface.borrow_mut().select("board.refresh");
+        let before = overlay.settings.value();
+        assert!(!overlay.reset());
+        assert!(!overlay.save_window(crate::config::TokenWindow::HOUR));
+        assert_eq!(overlay.settings.value(), before);
+        assert_eq!(std::fs::read_to_string(&f.path).unwrap(), f.original);
+        assert_eq!(overlay.notice.as_ref().unwrap().mark, Mark::Failed);
+        std::fs::remove_file(staged).unwrap();
+        assert!(overlay.reset());
+        assert!(overlay.save_window(crate::config::TokenWindow::HOUR));
+        let reopened = Config::read(f.path.clone()).unwrap();
+        assert!(!reopened.has_setting_override("product", "board.refresh"));
+        assert_eq!(
+            reopened.token_rate("other").unwrap().window,
+            crate::config::TokenWindow::HOUR
+        );
+    }
+
+    #[test]
+    fn malformed_concurrent_file_is_not_overwritten_by_reset_or_window() {
+        let mut f = fixture("malformed-reset-window", "refresh = 'off'\n");
+        let malformed = "[squad.product.board\nrefresh = 'off'\n";
+        std::fs::write(&f.path, malformed).unwrap();
+        let overlay = f.app.settings.as_mut().unwrap();
+        overlay.surface.borrow_mut().select("board.refresh");
+        let before = overlay.settings.value();
+        assert!(!overlay.reset());
+        assert!(!overlay.save_window(crate::config::TokenWindow::HOUR));
+        assert_eq!(overlay.settings.value(), before);
+        assert_eq!(std::fs::read_to_string(&f.path).unwrap(), malformed);
+        assert_eq!(overlay.notice.as_ref().unwrap().mark, Mark::Failed);
+        assert!(Config::read(f.path.clone()).is_err());
+    }
+
     #[test]
     fn structured_values_break_at_punctuation_preserve_quotes_and_cap_lines() {
         for text in ["x,y:z", r#"x\"y,z:q"#] {
@@ -719,6 +1083,16 @@ mod tests {
     fn press(app: &mut crate::board::app::App, code: KeyCode) -> crate::board::app::Effect {
         app.key(KeyEvent::new(code, KeyModifiers::NONE))
     }
+    fn cycle_window(f: &mut Fixture) {
+        assert_eq!(
+            press(&mut f.app, KeyCode::Enter),
+            crate::board::app::Effect::CycleTokenWindow
+        );
+        let next = f.app.next_token_window().unwrap();
+        assert!(f.app.settings.as_mut().unwrap().save_window(next));
+        let saved = Config::read(f.path.clone()).unwrap();
+        f.app.notice = Some(f.app.apply_token_window(&saved));
+    }
     fn edit(app: &mut crate::board::app::App, key: &str, text: &str) {
         let overlay = app.settings.as_mut().unwrap();
         overlay.surface.borrow_mut().select(key);
@@ -737,6 +1111,13 @@ mod tests {
         let paint = |frame: &mut Frame, app: &crate::board::app::App| {
             render(frame, app.settings.as_ref().unwrap(), look, frame.area());
         };
+        f.app
+            .settings
+            .as_ref()
+            .unwrap()
+            .surface
+            .borrow_mut()
+            .select("board.sizes");
         terminal.draw(|frame| paint(frame, &f.app)).unwrap();
         let hit = f
             .app
@@ -1264,6 +1645,349 @@ mod tests {
         assert_eq!(std::fs::read_to_string(&f.path).unwrap(), f.original);
         press(&mut f.app, KeyCode::Esc);
         assert!(f.app.tabs.iter().any(|key| key == "infra"));
+    }
+
+    #[test]
+    fn picker_rows_open_the_pickers_and_cycle_the_token_window_in_place() {
+        use crate::board::app::Effect;
+        let mut f = fixture("pick-rows", "");
+        let path = f.path.clone();
+        let config = move || Config::read(path.clone()).unwrap();
+        let names = |f: &Fixture| {
+            f.app
+                .settings
+                .as_ref()
+                .unwrap()
+                .picks
+                .iter()
+                .map(|pick| (pick.name, pick.value.clone()))
+                .collect::<Vec<_>>()
+        };
+        let select = |f: &mut Fixture, id: &str| {
+            f.app
+                .settings
+                .as_ref()
+                .unwrap()
+                .surface
+                .borrow_mut()
+                .select(id);
+        };
+        // No meter: no token window row.
+        assert_eq!(
+            names(&f),
+            [
+                ("Actions…", String::new()),
+                ("Theme", "auto".to_owned()),
+                ("View", "custom".to_owned())
+            ]
+        );
+        assert_eq!(
+            f.app
+                .settings
+                .as_ref()
+                .unwrap()
+                .surface
+                .borrow()
+                .picker
+                .list
+                .selected(),
+            Some("pick:actions"),
+            "the menu opens on its first row"
+        );
+        assert_eq!(press(&mut f.app, KeyCode::Enter), Effect::None);
+        assert!(f.app.settings.is_none());
+        assert!(
+            f.app
+                .menu
+                .as_ref()
+                .unwrap()
+                .entries
+                .iter()
+                .any(|entry| entry.choice == crate::board::app::Choice::Checklist)
+        );
+        f.app.menu = None;
+        f.app.open_settings(config()).unwrap();
+        select(&mut f, "pick:theme");
+        assert_eq!(press(&mut f.app, KeyCode::Enter), Effect::PickTheme);
+        assert!(f.app.settings.is_none(), "the picker replaces the menu");
+        f.app.open_settings(config()).unwrap();
+        select(&mut f, "pick:view");
+        assert_eq!(press(&mut f.app, KeyCode::Enter), Effect::PickView);
+        assert!(f.app.settings.is_none());
+        // A sampling squad adds the window, which cycles without closing.
+        f.app.meter = Some(crate::board::meter::Meter::new(
+            crate::config::TokenRate {
+                enabled: true,
+                ..Default::default()
+            },
+            &crate::board::rate::tests::input(100),
+            std::time::Instant::now(),
+        ));
+        f.app.open_settings(config()).unwrap();
+        let before = f.app.token_window.label().to_owned();
+        assert_eq!(names(&f)[3], ("Token window", before.clone()));
+        select(&mut f, "pick:window");
+        cycle_window(&mut f);
+        let after = f.app.token_window.label().to_owned();
+        assert_ne!(before, after);
+        assert_eq!(names(&f)[3], ("Token window", after));
+        assert!(f.app.settings.is_some(), "cycling keeps the menu open");
+        // The window is durable; opening another edit does not publish its draft.
+        let saved_window = std::fs::read_to_string(&f.path).unwrap();
+        edit(&mut f.app, "board.refresh", "10s");
+        assert_eq!(std::fs::read_to_string(&f.path).unwrap(), saved_window);
+    }
+
+    fn factory_fixture(name: &str) -> Fixture {
+        let mut f = fixture(name, "");
+        f.original = f.original.replace(
+            "panes = ['rows', 'notes']\nsizes = [60, 40]",
+            "view = 'members'",
+        );
+        std::fs::write(&f.path, &f.original).unwrap();
+        f.app
+            .open_settings(Config::read(f.path.clone()).unwrap())
+            .unwrap();
+        f.app.settings_preview();
+        f
+    }
+
+    fn quick_row(f: &Fixture, name: &str) -> String {
+        let mut terminal = Terminal::new(TestBackend::new(80, 24)).unwrap();
+        terminal
+            .draw(|frame| {
+                render(
+                    frame,
+                    f.app.settings.as_ref().unwrap(),
+                    f.app.look(),
+                    frame.area(),
+                );
+            })
+            .unwrap();
+        terminal
+            .backend()
+            .buffer()
+            .content
+            .chunks(80)
+            .map(|cells| cells.iter().map(|cell| cell.symbol()).collect::<String>())
+            .find(|line| line.contains(name))
+            .unwrap()
+    }
+
+    #[test]
+    fn selected_override_keeps_cursor_and_mark_columns_in_every_color_depth() {
+        use tmt_cli_style::Depth;
+        let f = fixture("override-cursor-mark", "");
+        std::fs::write(
+            &f.path,
+            "[board]\nview = 'members'\n[squad.product.board]\nview = 'team'\n",
+        )
+        .unwrap();
+        let overlay = Overlay::open(
+            Config::read(f.path.clone()).unwrap(),
+            Some("product"),
+            None,
+            None,
+        )
+        .unwrap();
+        for depth in [Depth::TrueColor, Depth::Ansi16, Depth::None] {
+            let look = Look {
+                theme: tmt_cli_style::Theme::default(),
+                depth,
+            };
+            for (id, name) in [("pick:view", "View"), ("board.view", "view")] {
+                for selected in [false, true] {
+                    overlay
+                        .surface
+                        .borrow_mut()
+                        .select(if selected { id } else { "pick:actions" });
+                    let mut terminal = Terminal::new(TestBackend::new(100, 40)).unwrap();
+                    terminal
+                        .draw(|frame| render(frame, &overlay, look, frame.area()))
+                        .unwrap();
+                    let cells = terminal
+                        .backend()
+                        .buffer()
+                        .content
+                        .chunks(100)
+                        .find(|cells| {
+                            let line: String = cells.iter().map(|cell| cell.symbol()).collect();
+                            line.contains(name) && line.contains("this squad")
+                        })
+                        .unwrap();
+                    let words: Vec<_> = name.chars().map(|ch| ch.to_string()).collect();
+                    let name_x = cells
+                        .windows(words.len())
+                        .position(|cells| {
+                            cells
+                                .iter()
+                                .zip(&words)
+                                .all(|(cell, word)| cell.symbol() == word)
+                        })
+                        .unwrap();
+                    let leading = name_x - 4;
+                    assert_eq!(
+                        cells[leading].symbol(),
+                        if selected { "›" } else { " " },
+                        "{depth:?} {id} selected={selected}: cursor stays in column 1"
+                    );
+                    assert_eq!(
+                        cells[leading + 2].symbol(),
+                        "≠",
+                        "{depth:?} {id} selected={selected}: override stays in column 3"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn override_count_uses_singular_plural_and_disappears_after_last_reset() {
+        let f = fixture("override-count-grammar", "");
+        std::fs::write(
+            &f.path,
+            "[squad.product.board]\nview = 'team'\n[squad.product.theme]\nbase = 'mono'\n",
+        )
+        .unwrap();
+        let mut overlay = Overlay::open(
+            Config::read(f.path.clone()).unwrap(),
+            Some("product"),
+            None,
+            None,
+        )
+        .unwrap();
+        let text = |overlay: &Overlay| {
+            let mut terminal = Terminal::new(TestBackend::new(100, 40)).unwrap();
+            terminal
+                .draw(|frame| render(frame, overlay, Look::default(), frame.area()))
+                .unwrap();
+            terminal
+                .backend()
+                .buffer()
+                .content
+                .iter()
+                .map(|cell| cell.symbol())
+                .collect::<String>()
+        };
+        assert!(text(&overlay).contains("2 settings differ from all boards"));
+        overlay.surface.borrow_mut().select("pick:theme");
+        assert!(overlay.reset());
+        assert_eq!(overlay.overrides.len(), 1);
+        assert!(text(&overlay).contains("1 setting differs from all boards"));
+        overlay.surface.borrow_mut().select("pick:view");
+        assert!(overlay.reset());
+        assert!(!text(&overlay).contains("from all boards"));
+    }
+
+    #[test]
+    fn saved_view_and_quick_row_agree_without_resetting_selection_or_live_window() {
+        use crate::board::app::Effect;
+        let mut f = factory_fixture("saved-quick-view");
+        f.app.meter = Some(crate::board::meter::Meter::new(
+            crate::config::TokenRate {
+                enabled: true,
+                ..Default::default()
+            },
+            &crate::board::rate::tests::input(100),
+            std::time::Instant::now(),
+        ));
+        f.app
+            .open_settings(Config::read(f.path.clone()).unwrap())
+            .unwrap();
+        f.app
+            .settings
+            .as_ref()
+            .unwrap()
+            .surface
+            .borrow_mut()
+            .select("pick:window");
+        cycle_window(&mut f);
+        let live_window = f.app.token_window;
+        assert_ne!(live_window.label(), "1m");
+        assert!(quick_row(&f, "Token window").contains(&live_window.label()));
+        assert!(quick_row(&f, "View").contains("members"));
+        edit(&mut f.app, "board.view", "team");
+        assert_eq!(press(&mut f.app, KeyCode::Enter), Effect::SaveSetting);
+        assert!(f.app.settings.as_mut().unwrap().save());
+        f.app.settings_preview();
+        assert_eq!(
+            f.app
+                .settings
+                .as_ref()
+                .unwrap()
+                .surface
+                .borrow()
+                .picker
+                .list
+                .selected(),
+            Some("board.view")
+        );
+        let saved = Config::read(f.path.clone()).unwrap();
+        assert_eq!(saved.view_source("").unwrap().0.unwrap().name(), "team");
+        assert_eq!(
+            saved.view_source("product").unwrap().0.unwrap().name(),
+            "members"
+        );
+        assert_eq!(
+            f.app.view.as_ref().unwrap().board,
+            saved.board("product").unwrap()
+        );
+        f.app
+            .settings
+            .as_ref()
+            .unwrap()
+            .surface
+            .borrow_mut()
+            .select("pick:view");
+        let row = quick_row(&f, "View");
+        assert!(
+            row.contains('≠') && row.contains("members") && row.contains("this squad"),
+            "{row}"
+        );
+        assert_eq!(f.app.token_window, live_window);
+        assert!(quick_row(&f, "Token window").contains(&live_window.label()));
+    }
+
+    #[test]
+    fn failed_view_saves_do_not_publish_a_new_quick_row_value() {
+        for (name, value, stale) in [
+            ("invalid-quick-view", "not-a-view", false),
+            ("stale-quick-view", "team", true),
+        ] {
+            let mut f = factory_fixture(name);
+            edit(&mut f.app, "board.view", value);
+            let durable = if stale {
+                format!("{}\n# concurrent edit\n", f.original)
+            } else {
+                f.original.clone()
+            };
+            std::fs::write(&f.path, &durable).unwrap();
+            assert!(!f.app.settings.as_mut().unwrap().save());
+            assert_eq!(std::fs::read_to_string(&f.path).unwrap(), durable);
+            assert_eq!(
+                Config::read(f.path.clone())
+                    .unwrap()
+                    .view_source("product")
+                    .unwrap()
+                    .0
+                    .unwrap()
+                    .name(),
+                "members"
+            );
+            press(&mut f.app, KeyCode::Esc);
+            f.app
+                .settings
+                .as_ref()
+                .unwrap()
+                .surface
+                .borrow_mut()
+                .select("pick:view");
+            let row = quick_row(&f, "View");
+            assert!(
+                row.contains('≠') && row.contains("members") && !row.contains("team"),
+                "{row}"
+            );
+        }
     }
 
     #[test]

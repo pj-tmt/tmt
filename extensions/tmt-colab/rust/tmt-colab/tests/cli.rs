@@ -1,3 +1,5 @@
+#[path = "support/core_fixture.rs"]
+mod core_fixture;
 mod support;
 use nix::{
     errno::Errno,
@@ -21,6 +23,7 @@ use std::{
 const BINARY: &str = env!("CARGO_BIN_EXE_tmt-colab");
 struct Pilot {
     root: PathBuf,
+    response: String,
     child: Option<Child>,
     reader: Option<JoinHandle<()>>,
 }
@@ -36,40 +39,96 @@ impl Pilot {
             NEXT.fetch_add(1, Ordering::Relaxed)
         ));
         fs::create_dir(&root).unwrap();
+        let response = reply
+            .map(str::to_owned)
+            .unwrap_or_else(|| json!({"dataRoot":root.join("selected")}).to_string());
         let pilot = Self {
             root,
+            response,
             child: None,
             reader: None,
         };
-        let response = reply
-            .map(str::to_owned)
-            .unwrap_or_else(|| json!({"dataRoot":pilot.root.join("selected")}).to_string());
-        let payload = format!(
-            "#!/bin/sh\nif [ \"$1 $2 $3\" = 'identity show --json' ]; then\ncd {} || exit 9\nprintf '%s\\n' \"$*\" >> publisher-calls\n[ -f publisher ] || exit 9\ncat publisher\nexit 0\nfi\n[ \"$#\" = 1 ] && [ \"$1\" = api ] || exit 9\ncd {} || exit 9\nprintf '%s\\n' \"$*\" >> calls\ncat > input\nprintf '%s\\n' {}\n",
-            quote(pilot.root.to_str().unwrap()),
-            quote(pilot.root.to_str().unwrap()),
-            quote(&response)
-        );
-        tmt_test_support::write_executable(&pilot.root.join("core"), payload.as_bytes(), 0o700)
-            .unwrap();
+        core_fixture::link(&pilot.root, "core", core_fixture::Program::Core);
         assert!(!pilot.root.join("calls").exists());
         pilot
     }
     /// A core stand-in that also answers Remote's `status --json`; everything else is the fixture core.
     fn door_core(&self, status: &str, delay: Option<u32>) -> PathBuf {
-        let path = self.root.join("core-door");
         let sleep = delay.map_or(String::new(), |s| format!("sleep {s}\n"));
         fs::write(
-            &path,
-            format!(
-                "#!/bin/sh\nif [ \"$1 $2 $3\" = 'remote status --json' ]; then\n{sleep}printf '%s\\n' {}\nexit 0\nfi\nexec {} \"$@\"\n",
-                quote(status),
-                quote(self.root.join("core").to_str().unwrap())
-            ),
+            self.root.join("door-status"),
+            format!("{sleep}printf '%s\\n' {}\nexit 0\n", quote(status)),
         )
         .unwrap();
-        fs::set_permissions(&path, fs::Permissions::from_mode(0o700)).unwrap();
+        core_fixture::link(&self.root, "core-door", core_fixture::Program::Door)
+    }
+    /// Creation's optional machine projection; ordinary support remains available to detect fallback.
+    fn creation_core(&self, status: Option<&str>, delay: Option<u32>) -> PathBuf {
+        let path = self.root.join("core-creation");
+        let snapshot = status.map_or_else(
+            || "exit 9\n".to_owned(),
+            |status| {
+                let sleep = delay.map_or(String::new(), |s| format!("sleep {s}\n"));
+                let (body, exit) = status
+                    .strip_prefix('!')
+                    .map_or((status, 0), |body| (body, 1));
+                format!("{sleep}printf '%s\\n' {}\nexit {exit}\n", quote(body))
+            },
+        );
+        let script = format!(
+            r#"#!/bin/sh
+if [ "$1" = remote ]; then
+printf '%s\n' "$*" >> {calls}
+fi
+case "$*" in
+'remote status --machine --json')
+{snapshot};;
+'remote status --json')
+printf '%s\n' {ordinary}
+exit 0
+;;
+'remote devices --json')
+printf '%s\n' '{{"devices":[]}}'
+exit 0
+;;
+esac
+exec {core} "$@"
+"#,
+            calls = quote(self.root.join("creation-remote.calls").to_str().unwrap()),
+            ordinary = quote(DOOR),
+            core = quote(self.root.join("core").to_str().unwrap()),
+        );
+        tmt_test_support::write_executable(&path, script.as_bytes(), 0o700).unwrap();
         path
+    }
+    fn command_with_creation_door(&self, status: &str) -> Command {
+        let mut cmd = self.command();
+        cmd.env("TMT_EXECUTABLE", self.creation_core(Some(status), None));
+        cmd
+    }
+    fn creation_calls(&self) -> Vec<String> {
+        fs::read_to_string(self.root.join("creation-remote.calls"))
+            .unwrap_or_default()
+            .lines()
+            .map(str::to_owned)
+            .collect()
+    }
+    fn assert_creation_acquisitions(&self, count: usize) {
+        let calls = self.creation_calls();
+        assert_eq!(
+            calls
+                .iter()
+                .filter(|s| *s == "remote status --machine --json")
+                .count(),
+            count,
+            "{calls:?}"
+        );
+        assert!(
+            calls
+                .iter()
+                .all(|s| s == "remote status --machine --json" || s == "remote devices --json"),
+            "unexpected call or fallback: {calls:?}"
+        );
     }
     fn command_with_door(&self, status: &str) -> Command {
         let mut cmd = self.command();
@@ -87,6 +146,8 @@ impl Pilot {
             .env("TMPDIR", &self.root)
             .env("TMUX_TEAM_HOME", self.root.join("selected"))
             .env("TMT_EXECUTABLE", self.root.join("core"))
+            .env("TMT_COLAB_TEST_ROOT", &self.root)
+            .env("TMT_COLAB_TEST_REPLY", &self.response)
             // A stub opener lives in `bin`; a real one must never be reached by a test.
             .env(
                 "PATH",
@@ -507,6 +568,24 @@ fn failure(pilot: &Pilot, args: &[&str], code: &str) -> Value {
     assert_eq!(result["error"]["code"], code, "{result}");
     result
 }
+/// A refused confirmation names its own consequence and the exact retry, never another
+/// command's disclosure.
+fn confirmation_required(pilot: &Pilot, args: &[&str], consequence: &str, action: &str) -> Value {
+    let result = failure(pilot, args, "COLAB_CONFIRMATION_REQUIRED");
+    let message = result["error"]["message"].as_str().unwrap();
+    assert!(message.starts_with(consequence), "{message}");
+    assert!(
+        message.ends_with(&format!(" Run again with --yes to {action}.")),
+        "{message}"
+    );
+    assert!(!message.contains("disclosure in help"), "{message}");
+    assert_eq!(
+        message.contains("permanent"),
+        args.contains(&"delete"),
+        "{message}"
+    );
+    result
+}
 #[test]
 fn management_reads_verify_encrypted_titles_and_preserve_missing_and_existing_state() {
     let pilot = Pilot::new(None);
@@ -543,12 +622,22 @@ fn management_confirmation_and_input_denials_have_no_state_effects() {
     seed_page(&pilot);
     let db = pilot.root.join("selected/colab/space.db");
     let before = fs::read(&db).unwrap();
-    for args in [
-        vec!["share", "mode", PAGE, "link", "--json"],
-        vec!["share", "mode", PAGE, "public", "--json"],
-    ] {
-        failure(&pilot, &args, "COLAB_CONFIRMATION_REQUIRED");
-    }
+    confirmation_required(
+        &pilot,
+        &["share", "mode", PAGE, "link", "--json"],
+        &format!(
+            "Sharing page {PAGE} by link lets anyone with a link read it, and copies can't be recalled later."
+        ),
+        "share it by link",
+    );
+    confirmation_required(
+        &pilot,
+        &["share", "mode", PAGE, "public", "--json"],
+        &format!(
+            "Making page {PAGE} public lets anyone with the link read it, and copies can't be recalled later."
+        ),
+        "make it public",
+    );
     failure(
         &pilot,
         &["show", "not-a-page", "--json"],
@@ -750,7 +839,14 @@ fn management_link_cli_uses_serving_and_offline_service_with_durable_replay() {
             replacement,
             "--json",
         ];
-        failure(&pilot, &reset, "COLAB_CONFIRMATION_REQUIRED");
+        confirmation_required(
+            &pilot,
+            &reset,
+            &format!(
+                "Resetting link {LINK} turns off the old link and creates a new read-only one; anyone with the new link can read page {PAGE}."
+            ),
+            "reset the link",
+        );
         assert_eq!(fs::read(&db).unwrap(), committed);
         let mut confirmed = reset.to_vec();
         confirmed.push("--yes");
@@ -1007,7 +1103,11 @@ fn serve_migrates_an_older_store_and_preserves_the_page() {
     let supported: u32 = conn
         .pragma_query_value(None, "user_version", |row| row.get(0))
         .unwrap();
-    conn.execute_batch("ALTER TABLE pages DROP COLUMN last_update_at_ms; PRAGMA user_version=4")
+    conn.execute_batch("ALTER TABLE owner_operations RENAME TO current_owner_operations;
+        CREATE TABLE owner_operations(id TEXT PRIMARY KEY, digest BLOB NOT NULL, outcome BLOB NOT NULL);
+        INSERT INTO owner_operations(id,digest,outcome) SELECT id,digest,outcome FROM current_owner_operations;
+        DROP TABLE current_owner_operations;
+        ALTER TABLE pages DROP COLUMN last_update_at_ms; PRAGMA user_version=4")
         .unwrap();
     drop(conn);
     let before = fs::read(&db).unwrap();
@@ -1120,6 +1220,407 @@ fn create_initializes_fresh_space_then_read_write_and_list_work_offline_and_serv
         }
     }
 }
+/// Printable text that shares no run longer than a few bytes with any other seed's output, so a
+/// replacement is a full rewrite of the page rather than a small diff.
+fn varied_source(seed: u64, bytes: usize) -> String {
+    let mut state = seed.wrapping_mul(0x9e37_79b9_7f4a_7c15) | 1;
+    let mut text = String::with_capacity(bytes + 64);
+    while text.len() < bytes {
+        state ^= state << 13;
+        state ^= state >> 7;
+        state ^= state << 17;
+        text.push(char::from(b'a' + (state % 26) as u8));
+        if state.is_multiple_of(61) {
+            text.push_str("\r\n");
+        }
+    }
+    text.truncate(bytes);
+    text
+}
+#[test]
+fn a_page_of_one_and_a_half_mib_is_replaced_whole_three_times_offline_and_serving() {
+    const SIZE: usize = 1_536 * 1024;
+    for serving in [false, true] {
+        let mut pilot = Pilot::new(None);
+        if serving {
+            pilot.start();
+        }
+        let file = pilot.root.join("source.html");
+        let first = varied_source(1, SIZE);
+        fs::write(&file, &first).unwrap();
+        let created = pilot.call(&[
+            "page",
+            "create",
+            "--title",
+            "Large",
+            "--file",
+            file.to_str().unwrap(),
+            "--json",
+        ]);
+        let id = created["pageId"].as_str().unwrap();
+        assert_eq!(pilot.call(&["page", "read", id, "--json"])["source"], first);
+        let mut revisions = vec![
+            pilot.call(&["page", "read", id, "--json"])["revision"]
+                .as_str()
+                .unwrap()
+                .to_owned(),
+        ];
+        for seed in 2..=4 {
+            let source = varied_source(seed, SIZE);
+            fs::write(&file, &source).unwrap();
+            let output = pilot
+                .command()
+                .args([
+                    "page",
+                    "write",
+                    id,
+                    "--file",
+                    file.to_str().unwrap(),
+                    "--json",
+                ])
+                .output()
+                .unwrap();
+            assert!(
+                output.status.success(),
+                "write {seed} (serving: {serving}): {output:?}"
+            );
+            let written: Value = serde_json::from_slice(&output.stdout).unwrap();
+            assert_eq!(written["changed"], true);
+            assert_eq!(written["pageId"], id);
+            let read = pilot.call(&["page", "read", id, "--json"]);
+            // The receipt carries the revision after the write's own combine, so it fences the next write.
+            assert_eq!(written["revision"], read["revision"]);
+            revisions.push(read["revision"].as_str().unwrap().to_owned());
+            assert_eq!(
+                read["source"], source,
+                "write {seed} did not read back exactly"
+            );
+            let export = pilot.call(&[
+                "export",
+                id,
+                "--dir",
+                pilot.root.to_str().unwrap(),
+                "--json",
+            ]);
+            let directory = PathBuf::from(export["directory"].as_str().unwrap());
+            assert_eq!(
+                fs::read(directory.join("page.html")).unwrap(),
+                source.as_bytes(),
+                "export differs after write {seed}"
+            );
+        }
+        revisions.dedup();
+        assert_eq!(revisions.len(), 4, "each replacement is its own revision");
+        if serving {
+            pilot.stop();
+        }
+    }
+}
+#[test]
+fn a_write_names_its_limit_or_stale_base_and_changes_nothing_offline_and_serving() {
+    for serving in [false, true] {
+        let mut pilot = Pilot::new(None);
+        if serving {
+            pilot.start();
+        }
+        let file = pilot.root.join("source.html");
+        fs::write(&file, "<p>Original</p>").unwrap();
+        let created = pilot.call(&[
+            "page",
+            "create",
+            "--title",
+            "Limits",
+            "--file",
+            file.to_str().unwrap(),
+            "--json",
+        ]);
+        let id = created["pageId"].as_str().unwrap();
+        let before = pilot.call(&["page", "read", id, "--json"]);
+        let limit = tmt_colab::decoder::BASELINE_BYTES;
+        fs::write(&file, "x".repeat(limit + 1)).unwrap();
+        let refused = failure(
+            &pilot,
+            &[
+                "page",
+                "write",
+                id,
+                "--file",
+                file.to_str().unwrap(),
+                "--json",
+            ],
+            "COLAB_CAPACITY",
+        );
+        let message = refused["error"]["message"].as_str().unwrap();
+        assert!(
+            message.contains(&format!("{} bytes", limit + 1))
+                && message.contains(&format!("at most {limit} bytes (2 MiB)"))
+                && message.ends_with("Nothing was written."),
+            "{message}"
+        );
+        // The most a source can be still has to fit the retained tail: replacing a freshly
+        // created 2 MiB page with a different 2 MiB source would leave 4 MiB plus overhead.
+        let full = pilot.root.join("full.html");
+        fs::write(&full, varied_source(7, limit)).unwrap();
+        let created = pilot.call(&[
+            "page",
+            "create",
+            "--title",
+            "Full",
+            "--file",
+            full.to_str().unwrap(),
+            "--json",
+        ]);
+        let full_id = created["pageId"].as_str().unwrap();
+        let full_before = pilot.call(&["page", "read", full_id, "--json"]);
+        fs::write(&full, varied_source(8, limit)).unwrap();
+        let refused = failure(
+            &pilot,
+            &[
+                "page",
+                "write",
+                full_id,
+                "--file",
+                full.to_str().unwrap(),
+                "--json",
+            ],
+            "COLAB_CAPACITY",
+        );
+        let message = refused["error"]["message"].as_str().unwrap();
+        assert!(
+            message.contains("is full: this edit would take its changes to")
+                && message.contains("more than the 4 MiB (4194304 bytes) one page can hold")
+                && message.contains("Nothing was deleted"),
+            "{message}"
+        );
+        assert_eq!(
+            pilot.call(&["page", "read", full_id, "--json"]),
+            full_before
+        );
+        // A base the page has moved past is refused before anything is sealed or published.
+        fs::write(&file, "<p>Second</p>").unwrap();
+        pilot.call(&[
+            "page",
+            "write",
+            id,
+            "--file",
+            file.to_str().unwrap(),
+            "--json",
+        ]);
+        fs::write(&file, "<p>Third</p>").unwrap();
+        failure(
+            &pilot,
+            &[
+                "page",
+                "write",
+                id,
+                "--file",
+                file.to_str().unwrap(),
+                "--expected-revision",
+                before["revision"].as_str().unwrap(),
+                "--json",
+            ],
+            "COLAB_STALE_BASE",
+        );
+        let after = pilot.call(&["page", "read", id, "--json"]);
+        assert_eq!(after["source"], "<p>Second</p>");
+        if serving {
+            pilot.stop();
+        }
+    }
+}
+#[test]
+fn writing_an_archived_page_is_refused_before_anything_is_recorded() {
+    let pilot = Pilot::new(None);
+    let file = pilot.root.join("source.html");
+    fs::write(&file, "<p>Kept</p>").unwrap();
+    let created = pilot.call(&[
+        "page",
+        "create",
+        "--title",
+        "Archived",
+        "--file",
+        file.to_str().unwrap(),
+        "--json",
+    ]);
+    let id = created["pageId"].as_str().unwrap();
+    pilot.call(&["archive", id, "--json"]);
+    fs::write(&file, "<p>Changed</p>").unwrap();
+    let db = pilot.root.join("selected/colab/space.db");
+    let before = fs::read(&db).unwrap();
+    failure(
+        &pilot,
+        &[
+            "page",
+            "write",
+            id,
+            "--file",
+            file.to_str().unwrap(),
+            "--json",
+        ],
+        "COLAB_PAGE_INACTIVE",
+    );
+    assert_eq!(fs::read(&db).unwrap(), before, "a refused write left a row");
+}
+#[test]
+fn writing_the_source_a_page_already_has_publishes_nothing_offline_and_serving() {
+    for serving in [false, true] {
+        let mut pilot = Pilot::new(None);
+        if serving {
+            pilot.start();
+        }
+        let file = pilot.root.join("source.html");
+        fs::write(&file, "<p>Same</p>").unwrap();
+        let created = pilot.call(&[
+            "page",
+            "create",
+            "--title",
+            "Same",
+            "--file",
+            file.to_str().unwrap(),
+            "--json",
+        ]);
+        let id = created["pageId"].as_str().unwrap();
+        let before = pilot.call(&["page", "read", id, "--json"]);
+        let written = pilot.call(&[
+            "page",
+            "write",
+            id,
+            "--file",
+            file.to_str().unwrap(),
+            "--json",
+        ]);
+        assert_eq!(written["changed"], false);
+        assert_eq!(written["revision"], before["revision"]);
+        assert!(written.get("operationId").is_none());
+        assert_eq!(pilot.call(&["page", "read", id, "--json"]), before);
+        if serving {
+            pilot.stop();
+        }
+    }
+}
+/// Stands in the serve socket's place and forwards each request to the real server, so a test
+/// can lose the reply (or the request) the way a dying connection would.
+struct Interposer {
+    real: PathBuf,
+    path: PathBuf,
+    forward: bool,
+    thread: Option<JoinHandle<()>>,
+}
+impl Interposer {
+    fn start(pilot: &Pilot, forward: bool) -> Self {
+        let path = pilot.root.join("selected/colab/door.sock");
+        let real = pilot.root.join("selected/colab/real.sock");
+        fs::rename(&path, &real).unwrap();
+        let listener = UnixListener::bind(&path).unwrap();
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).unwrap();
+        let target = real.clone();
+        let thread = thread::spawn(move || {
+            let (mut client, _) = listener.accept().unwrap();
+            let mut request = Vec::new();
+            let mut chunk = [0; 65536];
+            let body_start = loop {
+                let n = client.read(&mut chunk).unwrap();
+                request.extend_from_slice(&chunk[..n]);
+                if let Some(end) = request.windows(4).position(|w| w == b"\r\n\r\n") {
+                    break end + 4;
+                }
+            };
+            let head = String::from_utf8_lossy(&request[..body_start]).to_lowercase();
+            let length: usize = head
+                .lines()
+                .find_map(|l| l.strip_prefix("content-length: "))
+                .unwrap()
+                .trim()
+                .parse()
+                .unwrap();
+            while request.len() < body_start + length {
+                let n = client.read(&mut chunk).unwrap();
+                request.extend_from_slice(&chunk[..n]);
+            }
+            if forward {
+                let mut server = UnixStream::connect(target).unwrap();
+                server.write_all(&request).unwrap();
+                server.shutdown(std::net::Shutdown::Write).unwrap();
+                let mut reply = Vec::new();
+                server.read_to_end(&mut reply).unwrap();
+                assert!(reply.starts_with(b"HTTP/1.1 200"));
+            }
+            // The reply, if any, is dropped: the writer sees a closed connection.
+        });
+        Self {
+            real,
+            path,
+            forward,
+            thread: Some(thread),
+        }
+    }
+    fn finish(mut self) {
+        self.thread.take().unwrap().join().unwrap();
+        fs::remove_file(&self.path).unwrap();
+        fs::rename(&self.real, &self.path).unwrap();
+        let _ = self.forward;
+    }
+}
+#[test]
+fn a_lost_reply_is_resolved_by_original_status_and_a_lost_request_names_its_operation() {
+    let mut pilot = Pilot::new(None);
+    pilot.start();
+    let file = pilot.root.join("source.html");
+    fs::write(&file, "<p>Start</p>").unwrap();
+    let created = pilot.call(&[
+        "page",
+        "create",
+        "--title",
+        "Doubt",
+        "--file",
+        file.to_str().unwrap(),
+        "--json",
+    ]);
+    let id = created["pageId"].as_str().unwrap();
+    let args = [
+        "page",
+        "write",
+        id,
+        "--file",
+        file.to_str().unwrap(),
+        "--json",
+    ];
+    // The server commits, the reply is lost: the status check finds the original outcome.
+    fs::write(&file, "<p>Committed behind a lost reply</p>").unwrap();
+    let interposer = Interposer::start(&pilot, true);
+    let resolved = pilot.call(&args);
+    interposer.finish();
+    assert_eq!(resolved["changed"], true);
+    let operation = resolved["operationId"].as_str().unwrap().to_owned();
+    assert_eq!(
+        pilot.call(&["page", "read", id, "--json"])["source"],
+        "<p>Committed behind a lost reply</p>"
+    );
+    // The same command again finds nothing to publish: the lost reply cannot double-publish.
+    let again = pilot.call(&args);
+    assert_eq!(again["changed"], false);
+    // The request is lost before the server sees it: nothing exists to resolve, so the result is
+    // unknown, names the original operation, and nothing was written or resent.
+    fs::write(&file, "<p>Never reached the server</p>").unwrap();
+    let interposer = Interposer::start(&pilot, false);
+    let unknown = failure(&pilot, &args, "COLAB_OUTCOME_UNKNOWN");
+    interposer.finish();
+    let message = unknown["error"]["message"].as_str().unwrap();
+    assert!(message.contains("operation "), "{message}");
+    assert!(!message.contains(&operation), "{message}");
+    assert_eq!(
+        pilot.call(&["page", "read", id, "--json"])["source"],
+        "<p>Committed behind a lost reply</p>"
+    );
+    // A plain retry is a fresh preparation and publishes exactly once.
+    let retried = pilot.call(&args);
+    assert_eq!(retried["changed"], true);
+    assert_eq!(
+        pilot.call(&["page", "read", id, "--json"])["source"],
+        "<p>Never reached the server</p>"
+    );
+    pilot.stop();
+}
 #[test]
 fn create_supports_empty_source_and_stdin_and_refuses_invalid_input_before_state_creation() {
     let pilot = Pilot::new(None);
@@ -1208,12 +1709,13 @@ fn create_supports_empty_source_and_stdin_and_refuses_invalid_input_before_state
     assert!(human.stderr.is_empty());
     let message = String::from_utf8(human.stdout).unwrap();
     assert!(message.contains("PAGE CREATED"));
-    // Without a running door the path stays relative and says how to get a full link.
+    // An unsupported creation projection leaves a neutral relative path.
     assert!(message.contains("x/colab/p/"));
-    assert!(message.contains("(Browser access needs the Remote extension"));
+    assert!(message.contains("(Remote link unavailable from the creation snapshot"));
     assert!(!message.contains("start tmt remote serve"));
     assert!(!message.contains("tmt remote pair printed"));
 }
+const CREATION_DOOR: &str = r#"{"running":true,"origin":"http://127.0.0.1:53253","path":"/r/abcdefghijkl2345","machineId":"40000000-0000-4000-8000-000000000001"}"#;
 const DOOR: &str = r#"{"running":true,"origin":"http://127.0.0.1:53253","path":"/r/3e2c69f7"}"#;
 #[test]
 fn reader_links_print_a_full_url_only_while_a_door_runs() {
@@ -1257,13 +1759,20 @@ fn reader_links_print_a_full_url_only_while_a_door_runs() {
 #[test]
 fn created_pages_keep_full_json_links_and_print_short_links_only_while_a_door_runs() {
     let pilot = Pilot::new(None);
+    pilot.opener(0);
     let json = |status: &str| -> Value {
+        let before = pilot
+            .creation_calls()
+            .iter()
+            .filter(|s| *s == "remote status --machine --json")
+            .count();
         let out = pilot
-            .command_with_door(status)
+            .command_with_creation_door(status)
             .args(["page", "create", "--title", "Linked", "--json"])
             .output()
             .unwrap();
         assert!(out.status.success(), "{out:?}");
+        pilot.assert_creation_acquisitions(before + 1);
         serde_json::from_slice(&out.stdout).unwrap()
     };
     // No door (the fixture core has no remote status): relative path, no url.
@@ -1274,9 +1783,26 @@ fn created_pages_keep_full_json_links_and_print_short_links_only_while_a_door_ru
         "not json",
         r#"{"running":true,"origin":"http://127.0.0.1:1/x","path":"/r/ab"}"#,
     ] {
-        assert!(json(status).get("url").is_none(), "{status}");
+        let value = json(status);
+        assert!(
+            value["link"].is_null() && value["shortLink"].is_null(),
+            "{status}"
+        );
+        assert!(value["paired"].is_null());
+        assert_eq!(value["next"], json!([]));
     }
-    let created = json(DOOR);
+    let created = json(CREATION_DOOR);
+    assert!(
+        pilot
+            .call(&[
+                "page",
+                "read",
+                created["pageId"].as_str().unwrap(),
+                "--json"
+            ])
+            .get("creationRecipient")
+            .is_none()
+    );
     let path = created["path"].as_str().unwrap();
     assert!(path.starts_with("x/colab/#space="));
     assert_eq!(
@@ -1289,10 +1815,10 @@ fn created_pages_keep_full_json_links_and_print_short_links_only_while_a_door_ru
     assert!(plain["shortLink"].is_null());
     assert_eq!(
         created["link"],
-        format!("http://127.0.0.1:53253/r/3e2c69f7/{path}")
+        format!("http://127.0.0.1:53253/r/abcdefghijkl2345/{path}")
     );
     let human = pilot
-        .command_with_door(DOOR)
+        .command_with_creation_door(CREATION_DOOR)
         .args(["page", "create", "--title", "Human link"])
         .output()
         .unwrap();
@@ -1303,9 +1829,9 @@ fn created_pages_keep_full_json_links_and_print_short_links_only_while_a_door_ru
     let text = String::from_utf8(human.stdout).unwrap();
     assert!(text.contains("http://127.0.0.1:53253/p/"), "{text}");
     assert!(!text.contains("start tmt remote serve"));
-    // A stopped door says how to get one; an extra field never breaks the answer.
+    // A stopped opt-in is exact; an extra field is malformed rather than evidence of stopping.
     let stopped = pilot
-        .command_with_door(r#"{"running":false,"lastPort":53253,"future":1}"#)
+        .command_with_creation_door(r#"{"running":false,"lastPort":53253}"#)
         .args(["page", "create", "--title", "Stopped"])
         .output()
         .unwrap();
@@ -1314,12 +1840,80 @@ fn created_pages_keep_full_json_links_and_print_short_links_only_while_a_door_ru
         text.contains("(run tmt colab serve to get a full link)"),
         "{text}"
     );
+    let malformed = pilot
+        .command_with_creation_door(r#"{"running":false,"lastPort":53253,"future":1}"#)
+        .args(["page", "create", "--title", "Malformed stopped"])
+        .output()
+        .unwrap();
+    assert!(malformed.status.success());
+    let text = String::from_utf8(malformed.stdout).unwrap();
+    assert!(
+        text.contains("Remote link unavailable from the creation snapshot"),
+        "{text}"
+    );
+    assert!(!text.contains("run tmt colab serve"));
+    // An older command still offers ordinary status; creation must never fall back to it.
+    fs::write(
+        pilot.root.join("publisher"),
+        r#"{"identity":{"name":"creator","id":"50000000-0000-1000-8000-000000000001"}}"#,
+    )
+    .unwrap();
+    let old = pilot
+        .command()
+        .env("TMT_EXECUTABLE", pilot.creation_core(None, None))
+        .args(["page", "create", "--title", "Old CLI", "--open", "--json"])
+        .output()
+        .unwrap();
+    assert!(old.status.success());
+    let old: Value = serde_json::from_slice(&old.stdout).unwrap();
+    assert!(old["link"].is_null() && old["shortLink"].is_null() && old["paired"].is_null());
+    assert_eq!(old["next"], json!([]));
+    assert!(
+        pilot
+            .call(&["page", "read", old["pageId"].as_str().unwrap(), "--json"])
+            .get("creationRecipient")
+            .is_none()
+    );
+    let old_human = pilot
+        .command()
+        .env("TMT_EXECUTABLE", pilot.creation_core(None, None))
+        .args(["page", "create", "--title", "Old CLI human", "--open"])
+        .output()
+        .unwrap();
+    assert!(old_human.status.success());
+    let text = String::from_utf8(old_human.stdout).unwrap();
+    assert!(
+        text.contains("Remote link unavailable from the creation snapshot"),
+        "{text}"
+    );
+    for instruction in [
+        "install",
+        "upgrade",
+        "restart",
+        "tmt colab serve",
+        "tmt remote pair",
+    ] {
+        assert!(!text.contains(instruction), "{text}");
+    }
+    assert!(pilot.opened().is_empty());
+    pilot.assert_creation_acquisitions(9);
+    assert_eq!(
+        pilot
+            .creation_calls()
+            .iter()
+            .filter(|s| *s == "remote devices --json")
+            .count(),
+        2
+    );
 }
 #[test]
 fn a_door_that_does_not_answer_in_time_falls_back_to_the_relative_path() {
     let pilot = Pilot::new(None);
     let mut cmd = pilot.command();
-    cmd.env("TMT_EXECUTABLE", pilot.door_core(DOOR, Some(8)));
+    cmd.env(
+        "TMT_EXECUTABLE",
+        pilot.creation_core(Some(CREATION_DOOR), Some(8)),
+    );
     // Capture to a file and wait on the process itself: a parallel test's child can inherit a pipe
     // end and delay its EOF, which says nothing about this command's own duration.
     let capture = pilot.root.join("slow.out");
@@ -1330,6 +1924,17 @@ fn a_door_that_does_not_answer_in_time_falls_back_to_the_relative_path() {
         .status()
         .unwrap();
     assert!(status.success());
+    pilot.assert_creation_acquisitions(1);
+    assert!(
+        pilot
+            .creation_calls()
+            .iter()
+            .all(|s| s != "remote devices --json")
+    );
+    assert!(
+        started.elapsed() >= Duration::from_secs(2),
+        "opt-in deadline was not exercised"
+    );
     assert!(
         started.elapsed() < Duration::from_secs(7),
         "{:?}",
@@ -1337,7 +1942,9 @@ fn a_door_that_does_not_answer_in_time_falls_back_to_the_relative_path() {
     );
     let out = fs::read(&capture).unwrap();
     let created: Value = serde_json::from_slice(&out).unwrap();
-    assert!(created.get("url").is_none());
+    assert!(created["link"].is_null() && created["shortLink"].is_null());
+    assert!(created["paired"].is_null());
+    assert_eq!(created["next"], json!([]));
     assert!(
         created["path"]
             .as_str()
@@ -1394,9 +2001,9 @@ fn human_output_is_readable_and_the_decoder_note_is_not_repeated_per_command() {
         "--file",
         "-",
     ]);
-    // (stdin is empty here, so the write stays a no-op update of the same empty source)
+    // (stdin is empty here, so the write is the same empty source and publishes nothing)
     assert!(
-        written.contains("PAGE WRITTEN") && !written.contains("decoder"),
+        written.contains("PAGE UNCHANGED") && !written.contains("decoder"),
         "{written}"
     );
     // Help examples cover creating a page and sharing it.
@@ -1700,17 +2307,36 @@ fn full_management_confirmation_input_and_retention_reads_preserve_state() {
         let add = full_management_cases().remove(0).1;
         let mut unconfirmed_add = add.clone();
         unconfirmed_add.push("--json".into());
-        failure(
+        confirmation_required(
             &pilot,
             &words(&unconfirmed_add),
-            "COLAB_CONFIRMATION_REQUIRED",
+            &format!(
+                "Adding member 20000000-0000-4000-8000-000000000009 as viewer gives them access to page {PAGE}, and copies they make can't be recalled later."
+            ),
+            "add the member",
         );
-        for base in [
-            vec!["share", "member", "role", PAGE, MEMBER, "editor", "--json"],
-            vec!["share", "history", PAGE, "shared", "--json"],
-            vec!["delete", PAGE, "--json"],
+        for (base, consequence, action) in [
+            (
+                vec!["share", "member", "role", PAGE, MEMBER, "editor", "--json"],
+                format!("Making member {MEMBER} an editor lets them edit page {PAGE}."),
+                "change the role",
+            ),
+            (
+                vec!["share", "history", PAGE, "shared", "--json"],
+                format!(
+                    "Sharing the full history of page {PAGE} lets readers see deleted text, snapshots, comments and agent replies, and copies can't be recalled later."
+                ),
+                "share the history",
+            ),
+            (
+                vec!["delete", PAGE, "--json"],
+                format!(
+                    "Deleting page {PAGE} is permanent; copied text and earlier public history can't be recalled."
+                ),
+                "delete",
+            ),
         ] {
-            failure(&pilot, &base, "COLAB_CONFIRMATION_REQUIRED");
+            confirmation_required(&pilot, &base, &consequence, action);
         }
         for days in ["0", "-1", "01", "9007199254740992", "1.5", "Forever"] {
             failure(
@@ -2072,7 +2698,6 @@ impl Pilot {
     /// A core stand-in with a scripted Remote: `status` is its `remote status --json` answer
     /// (`None` fails, as an absent extension does); every other command is the fixture core.
     fn remote_core(&self, status: Option<&str>, serve: Serve) -> PathBuf {
-        let path = self.root.join("core-remote");
         // A leading `!` is an error envelope: printed on stdout, exit 1, like Remote does.
         let status = status.map_or("exit 1".to_owned(), |s| match s.strip_prefix('!') {
             Some(envelope) => format!("printf '%s\\n' {}\nexit 1", quote(envelope)),
@@ -2101,13 +2726,9 @@ impl Pilot {
                 quote(READY)
             ),
         };
-        let script = format!(
-            "#!/bin/sh\ncd {root} || exit 9\ncase \"$1 $2 $3\" in\n'remote status --json')\n{status}\n;;\n'remote devices --json')\n[ -f devices.json ] && cat devices.json && exit 0\nexit 1\n;;\n'remote serve --json')\nprintf '%s\\n' \"$*\" >> serve.calls\necho $$ > serve.pid\n{serve}\n;;\nesac\nexec {core} \"$@\"\n",
-            root = quote(self.root.to_str().unwrap()),
-            core = quote(self.root.join("core").to_str().unwrap()),
-        );
-        tmt_test_support::write_executable(&path, script.as_bytes(), 0o700).unwrap();
-        path
+        fs::write(self.root.join("remote-status"), status).unwrap();
+        fs::write(self.root.join("remote-serve"), serve).unwrap();
+        core_fixture::link(&self.root, "core-remote", core_fixture::Program::Remote)
     }
     /// What the scripted Remote answers to `devices --json`; absent means it gives no answer.
     fn devices(&self, json: &str) {
@@ -2711,7 +3332,7 @@ fn page_create_opens_its_page_only_with_a_door_and_never_for_json() {
     let create = |door: Option<&str>, extra: &[&str]| {
         let mut cmd = pilot.command();
         if let Some(status) = door {
-            cmd.env("TMT_EXECUTABLE", pilot.door_core(status, None));
+            cmd.env("TMT_EXECUTABLE", pilot.creation_core(Some(status), None));
         }
         let out = cmd
             .args(["page", "create", "--title", "T"])
@@ -2722,11 +3343,12 @@ fn page_create_opens_its_page_only_with_a_door_and_never_for_json() {
         String::from_utf8(out.stdout).unwrap()
     };
     // Not without --open (no terminal), not without a door, not for --json.
-    create(Some(DOOR), &[]);
+    create(Some(CREATION_DOOR), &[]);
     create(None, &["--open"]);
-    create(Some(DOOR), &["--open", "--json"]);
+    create(Some(CREATION_DOOR), &["--open", "--json"]);
     assert!(pilot.opened().is_empty());
-    let text = create(Some(DOOR), &["--open"]);
+    let text = create(Some(CREATION_DOOR), &["--open"]);
+    pilot.assert_creation_acquisitions(3);
     let opened = pilot.opened();
     assert_eq!(opened.len(), 1);
     assert!(opened[0].starts_with("http://127.0.0.1:53253/p/"));
@@ -2738,6 +3360,119 @@ fn page_create_opens_its_page_only_with_a_door_and_never_for_json() {
         text.contains("pair this browser") || text.contains("if this browser is new"),
         "{text}"
     );
+}
+#[test]
+fn explicit_open_hands_off_home_and_resolved_page_without_mutating_content() {
+    let pilot = Pilot::new(None);
+    pilot.opener(0);
+    seed_page_with_title(&pilot, "Existing page");
+    pilot.call(&["settings", "open", "off", "--json"]);
+    let mut serving = Serving::start(
+        &pilot,
+        pilot.remote_core(Some(DOOR), Serve::Fail),
+        &["--json"],
+    );
+    serving.ready();
+    let database = pilot.root.join("selected/colab/space.db");
+    let before = fs::read(&database).unwrap();
+    for args in [vec!["open"], vec!["open", &PAGE[..8]]] {
+        // Captured stdout is not a terminal: explicit intent still opens.
+        let result = pilot.command_with_door(DOOR).args(args).output().unwrap();
+        assert!(result.status.success(), "{result:?}");
+        assert!(String::from_utf8_lossy(&result.stdout).contains("opened in your browser:"));
+    }
+    let opened = pilot.opened();
+    assert_eq!(opened.len(), 2);
+    assert!(opened[0].starts_with("http://127.0.0.1:53253/r/"));
+    assert!(opened[0].contains("/x/colab/#space="));
+    assert_eq!(
+        opened[1],
+        format!("http://127.0.0.1:53253/p/{}", &PAGE[..8])
+    );
+    assert_eq!(fs::read(&database).unwrap(), before);
+    serving.stop(Signal::SIGTERM);
+}
+#[test]
+fn explicit_open_reports_facts_without_launching_for_json_no_open_or_unavailable_services() {
+    let pilot = Pilot::new(None);
+    pilot.opener(0);
+    seed_page_with_title(&pilot, "Existing page");
+    let mut serving = Serving::start(
+        &pilot,
+        pilot.remote_core(Some(DOOR), Serve::Fail),
+        &["--json"],
+    );
+    serving.ready();
+    let result = pilot
+        .command_with_door(DOOR)
+        .args(["open", &PAGE[..8], "--json"])
+        .output()
+        .unwrap();
+    assert!(result.status.success(), "{result:?}");
+    let facts: Value = serde_json::from_slice(&result.stdout).unwrap();
+    assert_eq!(facts["pageId"], PAGE);
+    assert_eq!(facts["running"], true);
+    assert_eq!(facts["opened"], false);
+    assert_eq!(
+        facts["shortLink"],
+        format!("http://127.0.0.1:53253/p/{}", &PAGE[..8])
+    );
+    for (door, args) in [
+        (DOOR, vec!["open", PAGE, "--no-open"]),
+        (STOPPED, vec!["open", PAGE]),
+    ] {
+        let result = pilot.command_with_door(door).args(args).output().unwrap();
+        assert!(result.status.success(), "{result:?}");
+        assert!(!String::from_utf8_lossy(&result.stdout).contains("opened in your browser"));
+    }
+    serving.stop(Signal::SIGTERM);
+    let result = pilot
+        .command_with_door(DOOR)
+        .args(["open", PAGE])
+        .output()
+        .unwrap();
+    assert!(result.status.success(), "{result:?}");
+    assert!(String::from_utf8_lossy(&result.stdout).contains("tmt colab serve"));
+    assert!(pilot.opened().is_empty());
+    failure(
+        &pilot,
+        &["open", "ffffffff", "--json"],
+        "COLAB_PAGE_NOT_FOUND",
+    );
+    pilot.call(&["delete", PAGE, "--yes", "--json"]);
+    failure(&pilot, &["open", PAGE, "--json"], "COLAB_PAGE_DELETED");
+    assert!(pilot.opened().is_empty());
+}
+#[test]
+fn explicit_open_failure_keeps_the_link_and_warns_once() {
+    let pilot = Pilot::new(None);
+    pilot.opener(1);
+    seed_page_with_title(&pilot, "Existing page");
+    let mut serving = Serving::start(
+        &pilot,
+        pilot.remote_core(Some(DOOR), Serve::Fail),
+        &["--json"],
+    );
+    serving.ready();
+    let result = pilot
+        .command_with_door(DOOR)
+        .args(["open", PAGE])
+        .output()
+        .unwrap();
+    assert!(result.status.success(), "{result:?}");
+    assert_eq!(
+        String::from_utf8_lossy(&result.stderr)
+            .matches("Could not open the browser")
+            .count(),
+        1
+    );
+    assert!(
+        String::from_utf8_lossy(&result.stdout)
+            .contains(&format!("http://127.0.0.1:53253/p/{}", &PAGE[..8]))
+    );
+    assert!(!String::from_utf8_lossy(&result.stdout).contains("opened in your browser"));
+    assert_eq!(pilot.opened().len(), 1);
+    serving.stop(Signal::SIGTERM);
 }
 #[test]
 fn settings_show_and_change_open_with_its_source_and_survive_a_damaged_file() {
@@ -3104,6 +3839,7 @@ fn human_ls_uses_the_link_prefix_even_when_a_collision_is_archived_or_deleted() 
 /// Exercise each CLI adapter and sharing selection without opening stdin, seed files or an export.
 fn prefix_commands<'a>(prefix: &'a str, file: &'a str, destination: &'a str) -> Vec<Vec<&'a str>> {
     vec![
+        vec!["open", prefix, "--json"],
         vec!["show", prefix, "--json"],
         vec!["threads", prefix, "--json"],
         vec![
@@ -3307,14 +4043,26 @@ fn page_prefix_reads_writes_exports_and_confirmations_use_the_resolved_full_id()
     assert_eq!(manifest["pageId"], PAGE);
     let database = pilot.root.join("selected/colab/space.db");
     let before = fs::read(&database).unwrap();
-    for args in [
-        vec!["delete", prefix],
-        vec!["share", "mode", prefix, "public"],
-        vec!["share", "link", "add", prefix],
+    for (args, consequence, action) in [
+        (
+            vec!["delete", prefix],
+            format!("Deleting page {PAGE} is permanent;"),
+            "delete",
+        ),
+        (
+            vec!["share", "mode", prefix, "public"],
+            format!("Making page {PAGE} public lets anyone with the link read it,"),
+            "make it public",
+        ),
+        (
+            vec!["share", "link", "add", prefix],
+            format!("Adding a read-only link to page {PAGE} lets anyone who has it read the page,"),
+            "add the link",
+        ),
     ] {
         let mut json_args = args.clone();
         json_args.push("--json");
-        let result = failure(&pilot, &json_args, "COLAB_CONFIRMATION_REQUIRED");
+        let result = confirmation_required(&pilot, &json_args, &consequence, action);
         assert_eq!(result["pageId"], PAGE);
         assert!(result["error"]["message"].as_str().unwrap().contains(PAGE));
         let human = pilot.command().args(args).output().unwrap();
@@ -3369,7 +4117,10 @@ fn unreadable_settings_never_fail_a_committed_page_create_or_a_ready_serve() {
     fs::create_dir(colab.join("settings.json")).unwrap();
     let out = pilot
         .command()
-        .env("TMT_EXECUTABLE", pilot.door_core(DOOR, None))
+        .env(
+            "TMT_EXECUTABLE",
+            pilot.creation_core(Some(CREATION_DOOR), None),
+        )
         .args(["page", "create", "--title", "Kept", "--open"])
         .output()
         .unwrap();
@@ -3392,6 +4143,7 @@ fn unreadable_settings_never_fail_a_committed_page_create_or_a_ready_serve() {
             .len(),
         1
     );
+    pilot.assert_creation_acquisitions(1);
     // Serve is just as unaffected, and `--open` still works with the defaults.
     let mut serving = Serving::start(
         &pilot,
@@ -3526,8 +4278,89 @@ fn page_commands_say_why_there_is_no_link_when_remote_answers_with_an_error() {
         let text = human(OTHER_ENVELOPE, &args);
         assert!(text.contains("Core did not answer."), "{args:?}: {text}");
     }
-    let created = human(OUTDATED_ENVELOPE, &["page", "create", "--title", "Again"]);
-    assert!(created.contains("older than this Colab"), "{created}");
+    pilot.opener(0);
+    let mut acquisitions = 0;
+    for envelope in [OUTDATED_ENVELOPE, OTHER_ENVELOPE] {
+        let core = pilot.creation_core(Some(envelope), None);
+        let out = pilot
+            .command()
+            .env("TMT_EXECUTABLE", &core)
+            .args(["page", "create", "--title", "Refused link", "--open"])
+            .output()
+            .unwrap();
+        acquisitions += 1;
+        pilot.assert_creation_acquisitions(acquisitions);
+        assert!(out.status.success(), "{out:?}");
+        assert!(out.stderr.is_empty());
+        let text = String::from_utf8(out.stdout).unwrap();
+        assert!(text.contains("PAGE CREATED"), "{text}");
+        assert!(text.contains("x/colab/p/"), "{text}");
+        assert!(
+            text.contains("Remote link unavailable from the creation snapshot"),
+            "{text}"
+        );
+        for forbidden in [
+            "older than",
+            "outdated",
+            "Stop",
+            "stop",
+            "restart",
+            "install",
+            "upgrade",
+            "pair",
+            "tmt remote serve",
+            "tmt colab serve",
+        ] {
+            assert!(!text.contains(forbidden), "{text}");
+        }
+        let out = pilot
+            .command()
+            .env("TMT_EXECUTABLE", &core)
+            .args([
+                "page",
+                "create",
+                "--title",
+                "Refused JSON link",
+                "--open",
+                "--json",
+            ])
+            .output()
+            .unwrap();
+        acquisitions += 1;
+        pilot.assert_creation_acquisitions(acquisitions);
+        assert!(out.status.success(), "{out:?}");
+        assert!(out.stderr.is_empty());
+        let created: Value = serde_json::from_slice(&out.stdout).unwrap();
+        assert!(created["link"].is_null());
+        assert!(created["shortLink"].is_null());
+        assert!(created["paired"].is_null());
+        assert_eq!(created["next"], json!([]));
+        let read = pilot.call(&[
+            "page",
+            "read",
+            created["pageId"].as_str().unwrap(),
+            "--json",
+        ]);
+        assert_eq!(read["source"], "");
+        assert!(read.get("creationRecipient").is_none());
+    }
+    pilot.assert_creation_acquisitions(4);
+    assert!(
+        pilot
+            .creation_calls()
+            .iter()
+            .all(|call| call == "remote status --machine --json")
+    );
+    assert!(pilot.opened().is_empty());
+    assert!(!pilot.root.join("serve.calls").exists());
+    assert!(!pilot.root.join("serve.pid").exists());
+    let pages = pilot.call(&["ls", "--json"]);
+    assert_eq!(pages["pages"].as_array().unwrap().len(), 5);
+    for page in pages["pages"].as_array().unwrap() {
+        let read = pilot.call(&["page", "read", page["pageId"].as_str().unwrap(), "--json"]);
+        assert_eq!(read["source"], "");
+        assert!(read.get("creationRecipient").is_none());
+    }
 }
 #[test]
 fn serve_says_the_outdated_instruction_once_in_the_warning_and_points_at_it_in_the_row() {
@@ -3556,7 +4389,14 @@ fn serve_says_the_outdated_instruction_once_in_the_warning_and_points_at_it_in_t
 fn skill_is_exact_embedded_bytes_after_relocation_without_core_or_state() {
     let pilot = Pilot::new(None);
     let relocated = pilot.root.join("relocated-colab");
-    fs::copy(BINARY, &relocated).unwrap();
+    let binary = fs::read(BINARY).unwrap();
+    let mode = fs::metadata(BINARY).unwrap().permissions().mode() & 0o777;
+    tmt_test_support::write_executable(&relocated, &binary, mode).unwrap();
+    assert_eq!(fs::read(&relocated).unwrap(), binary);
+    assert_eq!(
+        fs::metadata(&relocated).unwrap().permissions().mode() & 0o777,
+        mode
+    );
     fs::remove_file(pilot.root.join("core")).unwrap();
     let invoke = |args: &[&str]| {
         Command::new(&relocated)

@@ -91,11 +91,22 @@ fn required_option<'de, D: serde::Deserializer<'de>>(
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 struct Create {
+    #[serde(default, deserialize_with = "creation_recipient")]
+    creation_recipient: Option<crate::decoder::CreationRecipient>,
     page_id: String,
     title: String,
     source: String,
     #[serde(default, deserialize_with = "publisher_label")]
     publisher_agent: Option<String>,
+}
+fn creation_recipient<'de, D: serde::Deserializer<'de>>(
+    d: D,
+) -> std::result::Result<Option<crate::decoder::CreationRecipient>, D::Error> {
+    let value = crate::decoder::CreationRecipient::deserialize(d)?;
+    if !value.valid() {
+        return Err(serde::de::Error::custom("Invalid creation recipient"));
+    }
+    Ok(Some(value))
 }
 fn publisher_label<'de, D: serde::Deserializer<'de>>(
     d: D,
@@ -428,6 +439,7 @@ fn apply(
             title: &v.title,
             source: &v.source,
             publisher_agent: v.publisher_agent.as_deref(),
+            creation_recipient: v.creation_recipient.as_ref(),
         },
         Action::Advance => OwnerAction::EpochAdvance {
             page: &command.page,

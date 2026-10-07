@@ -87,6 +87,8 @@ groups fail within the one-second cleanup bound. Never signal an unconfirmed
 group. Disposal cancels outstanding runs first; failure retains fixture paths
 and reports callback and cleanup failures together.
 
+Linux deadline diagnostics optionally observe the registered CLI and at most eight admitted sandbox residents before termination, with bounded identity-checked facts and explicit unavailability that never supplies signalling or cleanup authority.
+
 After callback cleanup, Linux's cwd guard checks inspectable same-user processes
 under the canonical sandbox root (permission-denied discovery is skipped). It
 reverifies each resident before signalling and confirms absence before deletion.

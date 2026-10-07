@@ -106,16 +106,20 @@ fn count_pieces(counts: &Counts, words: bool) -> Vec<Piece> {
         ("○", counts.idle, Role::Dim, "idle"),
     ]
     .into_iter()
-    .map(|(mark, count, role, label)| {
+    .flat_map(|(mark, count, role, label)| {
         let suffix = if words {
             format!(" {label}")
         } else {
             String::new()
         };
-        (
-            format!("{mark} {count}{suffix}  "),
-            Some(if count == 0 { Role::Dim } else { role }),
-        )
+        [
+            (
+                mark.to_owned(),
+                Some(if count == 0 { Role::Dim } else { role }),
+            ),
+            (format!(" {count}{suffix}"), Some(Role::Text)),
+            ("  ".into(), Some(Role::Dim)),
+        ]
     })
     .collect()
 }
@@ -169,10 +173,10 @@ pub(super) fn summary_in(
             home.squads.len(),
             home.summary.members
         ),
-        None,
+        Some(Role::Text),
     )];
     wide.extend(count_pieces(&home.summary, true));
-    let mut narrow = vec![(format!("{} squads  ", home.squads.len()), None)];
+    let mut narrow = vec![(format!("{} squads  ", home.squads.len()), Some(Role::Text))];
     narrow.extend(count_pieces(&home.summary, false));
     let key = Key {
         width,
@@ -251,14 +255,7 @@ fn usage_pieces(usage: &HomeHeaderUsage<'_>, width: u16, wide: bool) -> Vec<Piec
     let mut pieces: Vec<Piece> = vec![
         (windows, Some(Role::Text)),
         (" · ".into(), Some(Role::Dim)),
-        (
-            top,
-            Some(if usage.top.is_some() {
-                Role::Accent
-            } else {
-                Role::Dim
-            }),
-        ),
+        (top, Some(Role::Text)),
     ];
     if let Some(unreported) = unreported {
         let used: usize = pieces.iter().map(|(text, _)| text.width()).sum();
@@ -289,7 +286,7 @@ fn usage_pieces(usage: &HomeHeaderUsage<'_>, width: u16, wide: bool) -> Vec<Piec
             pieces.push((models, Some(Role::Text)));
         }
         pieces.push((" · ".into(), Some(Role::Dim)));
-        pieces.push((unreported, Some(Role::Dim)));
+        pieces.push((unreported, Some(Role::Text)));
     }
     pieces
 }
@@ -337,25 +334,25 @@ pub(super) fn usage_in(
 
 /// The key line: whole hints drop from the end until the line and the two exit
 /// hints fit (a fit, not a step); `A ask lead` shortens to `A ask` below `md`.
-fn key_line(width: usize, cron: bool, long_ask: bool) -> String {
+fn key_line(width: usize, overflow: bool, long_ask: bool, receiving: bool) -> String {
+    // The other keys (tabs, replies, cron, refresh, ...) are in `?` help;
+    // `s switch` comes back only while the tab line hides tabs.
     let mut optional = vec![
         "↑↓ move",
         "⏎ open",
-        "a answer · note",
-        if long_ask { "A ask lead" } else { "A ask" },
+        "a write",
         "e expand",
-        "t replies",
+        if long_ask { "A ask lead" } else { "A ask" },
         "/ search",
-        "←→ tabs",
-        "s switch",
     ];
-    if cron {
-        optional.push("c cron");
+    if overflow {
+        optional.push("s switch");
     }
+    let focus = (receiving && width >= 32).then_some("Focus: HOME rows");
     loop {
-        let text = optional
-            .iter()
-            .copied()
+        let text = focus
+            .into_iter()
+            .chain(optional.iter().copied())
             .chain(["? more", "q quit"])
             .collect::<Vec<_>>()
             .join("  ");
@@ -367,12 +364,17 @@ fn key_line(width: usize, cron: bool, long_ask: bool) -> String {
 }
 
 #[cfg(test)]
-pub(crate) fn hints(width: usize, cron: bool) -> String {
-    hints_in(&mut Kept::default(), width, cron)
+pub(crate) fn hints(width: usize, overflow: bool) -> String {
+    hints_in(&mut Kept::default(), width, overflow, true)
 }
 
 /// The key line, painted again only when its key changed.
-pub(super) fn hints_in(slot: &mut Kept<String>, width: usize, cron: bool) -> String {
+pub(super) fn hints_in(
+    slot: &mut Kept<String>,
+    width: usize,
+    overflow: bool,
+    receiving: bool,
+) -> String {
     static TEMPLATE: OnceLock<Template<()>> = OnceLock::new();
     const FILE: &str = "squad.home.keys.xml";
     let template = TEMPLATE.get_or_init(|| {
@@ -398,8 +400,8 @@ pub(super) fn hints_in(slot: &mut Kept<String>, width: usize, cron: bool) -> Str
         look: Look::default(),
         selected: None,
         data: json!({
-            "long": key_line(usize::from(width), cron, true),
-            "short": key_line(usize::from(width), cron, false),
+            "long": key_line(usize::from(width), overflow, true, receiving),
+            "short": key_line(usize::from(width), overflow, false, receiving),
         }),
     };
     slot.get(key, |key| {

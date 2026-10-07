@@ -63,14 +63,20 @@ pub(in crate::board) fn render_frame(
     app.row_starts.borrow_mut().clear();
     app.tab_hits.borrow_mut().clear();
     app.unpicked_hit.set(None);
+    app.tabs_overflow.set(false);
     app.title_hits.borrow_mut().clear();
     app.jobs_area.set(ratatui::layout::Rect::default());
     app.scrolls.begin_frame();
+    let home_history_pending = !app.loading()
+        && app
+            .view
+            .as_ref()
+            .is_some_and(|view| view.home.is_some() && view.history_pending);
     let [tabs, summary, meter_status, body, footer] = Layout::vertical([
         Constraint::Length(1),
         Constraint::Length(1),
         Constraint::Length(u16::from(
-            header::meter_enabled(app) || home_usage.is_some(),
+            header::meter_enabled(app) || home_usage.is_some() || home_history_pending,
         )),
         Constraint::Min(1),
         Constraint::Length(1),
@@ -93,7 +99,13 @@ pub(in crate::board) fn render_frame(
     strip::paint_left(frame.buffer_mut(), summary_area, summary_text);
     header::render_meter(frame, app, summary);
     header::render_meter_status(frame, app, meter_status);
-    if let Some(line) = home_usage {
+    if home_history_pending {
+        strip::paint_left(
+            frame.buffer_mut(),
+            meter_status,
+            ratatui::text::Line::styled("Updating usage…", look.role(tmt_cli_style::Role::Muted)),
+        );
+    } else if let Some(line) = home_usage {
         strip::paint_left(frame.buffer_mut(), meter_status, line);
     }
     panes::render_body(frame, app, body);
@@ -102,6 +114,7 @@ pub(in crate::board) fn render_frame(
     overlays::render(frame, app, body, look);
     waiting::prompt(frame, app, body);
     look.selected_words(frame.buffer_mut());
+    header::finish_meter_styles(frame, app, summary);
 }
 
 #[cfg(test)]

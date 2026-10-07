@@ -50,14 +50,26 @@
 The meter shows completed-request token totals for the visited squad. Input plus
 output counts cached input once. Mixed providers sum reported token units, not
 cost or text volume. `board::rate` owns evidence, `board::meter` presentation and
-`App` the runtime selected window.
+`App` the effective configured window.
 
 - Acquisition: `board::rate::Input` captures roster UUIDs and public `resume`
   values before section shaping. On named/HOME entry, the existing cancellable
-  worker batches `consumption.history` for at most 32 UUIDs per call, requesting
-  one longest window capped at the API's 1 h limit. The transient response is
-  validated and consumed once into the existing Rate rings; it is not retained
-  as a second history store. Ordinary reloads do not acquire history.
+  worker publishes the usable roster before acquiring history. It batches
+  `consumption.history` for at most 32 UUIDs per call, requesting one longest
+  window capped at the API's 1 h limit. The worker may reuse validated seeds
+  only with the same successful core change cursor, closed five-second range
+  and requested window; missing UUIDs are fetched, failures are not cached, and
+  any unknown/changed cursor or time range discards reuse. This bounded worker
+  cache does not replace interval freshness for panes or notebooks.
+  A new generation reacquires history even when queued tab switches coalesce
+  back to the previous name; ordinary same-generation reloads do not acquire it.
+- Publication: the same worker serializes roster, history and a fresh public
+  usage observation. History never replays the opening snapshot's older counters.
+  One global `ls` supplies the post-history observation, replacing the first
+  scheduled usage poll. Delivery checks cancellation, displayed owner, room UUID,
+  settings and exact member UUIDs before seeding the existing Rate rings. A failed
+  observation preserves historical evidence with a gap; it cannot imply zero or
+  continuous coverage. The usable roster remains interactive while usage updates.
 - Seeding: closed deltas replace the authoritative recent region on re-entry,
   preserving older board observations in the same owner. The included `latest`
   driver/session/epoch/sequence and cumulative counters, rather than `throughMs`,
@@ -113,10 +125,20 @@ cost or text volume. `board::rate` owns evidence, `board::meter` presentation an
   alone is not measured zero. Without usable interval evidence, the meter retains its active
   window label and `–`, plus one dim `no usage reported yet` line; member cells
   also show `–`. Built-in all/leads tabs omit the named-squad summary meter.
-- Window selection: bindable `token-window` (`w` in both host presets, outside text
-  inputs) cycles configured windows and posts the label in the existing board
-  notice, including without data or when the summary cannot fit. Whole hours use
-  `h`, so 60m displays as 1h. Selection is runtime state, never a config write.
+- Window selection: comma settings > Token window cycles configured windows;
+  `token-window` remains bindable with no default key. Both paths post the label in
+  the existing board notice, including without data or when the summary cannot fit. Whole hours use
+  `h`, so 60m displays as 1h. These paths and clicks on the painted meter group
+  persist the shared `board.token_rate.window` through the existing Config writer.
+  Explicit squad overrides still win; failed writes leave the displayed window
+  unchanged. Reload/reopen resolves config rather than a session precedence flag.
+- Pointer presentation: the existing frame hit collection includes the meter group
+  and individual bars. Moved events repaint only on target changes; leaving,
+  keyboard operation, resize and modal input clear hover. The whole group uses
+  selection background. A hovered bar uses text colour and replaces the fixed
+  number/label slot with its total and bucket-end age (`now` below 1m, minutes below 1h, then hours).
+  Readouts reuse the token formatter and already retained Rate evidence, with no
+  acquisition in paint/input; absent evidence stays distinct from measured zero.
 - Row projection: `App::project_usage` derives a board-only document from immutable
   public status using the accepted meters for model and three totals. Repeated
   section rows share one UUID history; changed values invalidate only existing
@@ -145,7 +167,8 @@ cost or text volume. `board::rate` owns evidence, `board::meter` presentation an
   retargeting starts from displayed digits, and window switches/reduced motion
   settle immediately. Eight bucket-aligned bars derive from the same rings: blank
   means no evidence, ▁ measured zero, and ▂–█ nonzero. A right-aligned
-  number/unit/window/trend group uses a seven-cell maximum number region. It
+  number/unit/window/trend group reserves a fixed 24-cell readout slot when bars
+  fit, accommodating both live totals and slice total/age without shifting. It
   drops the trend, then shortens the unit. It preserves the selected label by
   clipping lead/attention text when necessary; it hides only when the terminal
   cannot fit the compact meter itself. Its status row stays reserved while enabled

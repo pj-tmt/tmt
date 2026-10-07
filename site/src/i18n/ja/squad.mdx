@@ -1,6 +1,6 @@
 ---
 source: site/src/chapters/squad.mdx
-sourceRevision: 6be111a46d67bd4d158deff28e9e6d7e503917a4
+sourceRevision: 8bd1e1392968d4d9d4eba8cfc86b0fb137b48931
 title: チームを1つの board で見る
 ---
 
@@ -8,8 +8,8 @@ import { MarkLegend } from "../../chapter-scenes/MarkLegend";
 import { Cmd, Code } from "../../components/Cmd";
 import { Callout, Caption, KeyList, Lede, More, Tag, Waiting } from "../../components/marks";
 import { Spaces, TokenTable } from "../../components/samples";
-import { BoardSketch, SplitBoardSketch } from "../../demos/board";
-import { BoardDemo, jumpAndTalk, startSquad } from "../../demos/BoardDemo";
+import { BoardSketch, SplitBoardSketch, UpdateStatusSketch } from "../../demos/board";
+import { BoardDemo, jumpAndTalk, startSquad, updateStatus } from "../../demos/BoardDemo";
 import { components as Mdx } from "../../components/mdx";
 
 <Lede>
@@ -70,27 +70,61 @@ squad タブの既定は **members** です。lead とメンバーを1つの枠�
 
 <Caption>図：既定の members view。1つの枠付き一覧の下に lead の notes があります。</Caption>
 
-| キー                     | 選択した行での動作                                                                                                                                                                                                                                                            |
-| ------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| enter · double-click · ⌫ | `jump` でメンバーの画面へ移動し、`back` で元に戻ります。シングルクリックは行の選択だけです。notes などのペインをクリックするとフォーカスが移ります。ペインを切り替えられる host が必要です。[メンバー間の移動](/extensions/squad#jumping-between-members)を参照してください。 |
-| t · r                    | tmt 自身の `tmt talk` と `tmt answer` を通して、メンバーへ `talk` するか、待っている依頼に `reply` します。返事は board に表示されます。                                                                                                                                      |
-| e · n                    | lead またはメンバーの詳細を行内に開く · lead の notes を隠す／表示する。                                                                                                                                                                                                      |
-| a                        | lead にこの行の注釈を送ります。展開した詳細では、そのメンバーに書き込みます。                                                                                                                                                                                                 |
-| o · y                    | `open` で行の PR または最初のリンクを開きます。`copy` で `auth-fix: rotate session tokens (blocked)` のような状況の1行をコピーします。SSH 越しでもコピーできます。                                                                                                            |
-| / · tab · s              | 検索、次のペイン、任意のタブへの切り替えです。                                                                                                                                                                                                                                |
-| l · ctrl-r               | view を選ぶ · すぐ更新する。任意の側面ペイン view では **d** で detail と replies を折りたためます。                                                                                                                                                                          |
+| キー                     | 選択した行での動作                                                                                                                                                                                                                                                                                           |
+| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| enter · double-click · ⌫ | tmux では Enter またはダブルクリックでメンバーの画面へ移動し、Backspace で戻ります。通常の端末では Enter またはダブルクリックで行のアクションメニューを開きます。シングルクリックは選択、ペインのクリックはフォーカスです。[メンバー間の移動](/extensions/squad#jumping-between-members)を参照してください。 |
+| a                        | `write`：行に共通の composer を開きます。自分への質問があれば回答し（複数なら先に1つ選択）、なければその行について lead にメモを送ります（lead がいなければ talk）。**Tab** は利用可能な answer、note、talk、status を切り替え、メッセージと status の下書きを保ちます。talk は返信を求めるリクエストです。  |
+| t                        | HOME と同じく返信プレビューを表示／非表示にします。                                                                                                                                                                                                                                                          |
+| e · n                    | lead またはメンバーの詳細を行内に開く · lead の notes を隠す／表示する。                                                                                                                                                                                                                                     |
+| ,                        | 設定：**Theme**、**View**、meter 有効時の **Token window** を選びます。                                                                                                                                                                                                                                      |
+| o · y                    | `open` で行の PR または最初のリンクを開きます。`copy` で `auth-fix: rotate session tokens (blocked)` のような状況の1行をコピーします。SSH 越しでもコピーできます。                                                                                                                                           |
+| / · tab · s              | 検索、次のペイン、任意のタブへの切り替えです。                                                                                                                                                                                                                                                               |
+| ctrl-r                   | すぐ更新します。側面ペイン view では **d** で detail と replies を折りたためます。                                                                                                                                                                                                                           |
 
-<Mdx.h3 id="token-rate">トークンレート</Mdx.h3>
+以上は既定のキーです。`r`、`T`、`l`、`w` に既定の割り当てはありませんが、reply、theme、view、token-window は割り当て可能です。独自の割り当てが優先され、`?` に有効なキーが載ります。
 
-board は、要約行の右側に squad のトークンレートを `1.2k tok/s 1m ▂▅▇▃` のように表示します。期間内に完了した各メンバーのリクエストのトークン数を合計するため、モデルの出力中ではなく、リクエストが終わるたびに段階的に変わります。**w** で 5s、1m（既定）、30m、1h を切り替えます。期間全体のデータが集まるまでは、実際に経過した時間を表示します。`0` は完了したリクエストがないこと、`≥` は一部のメンバーを読み取れなかったことを示します。使用量を報告するメンバーがいなければメーターは隠れます。driver が使用量を報告しないメンバーは `?` の下に表示します。棒は推移を示し、`▁` はゼロ、空白はデータなしです。
+<Mdx.h3 id="update-status">Update status</Mdx.h3>
+
+HOME または squad タブで lead やメンバーを選び、**a → Tab → status** で共通の行内 band に **Update status → squad / agent** を開きます。これは既定のキーで、独自の割り当てが優先されます。手動の `pending` と `state` は正確な旧値と予定する新値を別々に表示し、幅が狭いときは縦に並べます。上下キーで **Clear pending**、**Replace state**、**Reason**、**Apply and notify**、各 **Answer request** にフォーカスを移します。`›` はフォーカス中の項目の折り返し行にも付き、色なしでも残ります。`[x]` は変更の選択であり、キーボードフォーカスではありません。Enter で項目の選択を切り替え、state 行に明示的な新値、**Reason** に必須の理由を入力します。どちらも事前選択されず、pending の消去から working を推定しません。PgUp/PgDn で長いプレビューをスクロールします。Tab はメッセージと status の下書きを保ち、Esc はキャンセルして追加の操作を行いません。band は選択した行全体と task プレビューの直後に入り、後続の行を下へ移します。
+
+**Apply and notify** は選択した全項目をまとめて送信し、プレビューした正確な生の値または不存在を照合します。予定値が変わらない選択も対象です。identity UUID、room、namespace、metadata keys は固定されます。選択した値がすべて変わらない場合は拒否し、更新も announcement も行いません。選択値が競合すると全項目を適用せず、プレビューを更新して選択を解除し、再度の明示的な送信を求めます。actor、identity、room、metadata namespace の変更は操作を拒否します。既存値が空または無効なら、未対応の値として拒否します。適用結果が不明な場合、通知を送らず再実行も提供しません。現在の metadata を確認してから開き直してください。適用済みまたは結果不明の後に context が変わっても、フォームはその結果を保ち、追加の操作を行いません。
+
+更新が確認されると、選択した agent に操作者を示す announcement が届くようキューへ送ります。内容は実際に変わった項目と理由だけです。返信を求めず、配信完了の証明でもありません。**Status updated; notification failed** は受け付けが未確認のとき **Retry notification only** を提供します。その操作にフォーカスして Enter を押すと、同じ operation とメッセージを使い、metadata の変更は繰り返しません。宛先が利用不可と確定した receipt からは再送できません。
+
+**Requires a reply** は手動状態と別です。**Answer request** は指定した1件の既存 answer composer を開きます。明示的な dismissal も final reply です。手動項目の消去はリクエストを終了せず、回答は無関係な手動状態を消しません。複数件ある場合、回答先を選ばずに Tab で既存 picker を離れて別のモードへ移れます。
+
+<UpdateStatusSketch />
+
+<Caption>
+  選択した行全体の下に置く status band の図です。手動変更は両方選択済みですが、色に依存しない `›` は
+  Reason のフォーカスを示します。未回答の2件は独立しています。出力例は英語のままです。
+</Caption>
+
+<BoardDemo
+  steps={updateStatus}
+  label="Update status の操作例：未選択の項目、明示的な選択と理由、競合後の再送信、通知だけの再試行。手動変更は2件のリクエストに回答しません。字幕で各段階を説明します。"
+/>
+
+<Caption>
+  受け入れ済みの動作を示す図で、実際の board
+  ではありません。矢印で各フレームを確認でき、動きを減らす設定では完成したフレームを表示します。
+</Caption>
+
+<Mdx.h3 id="token-rate">Token の時間窓</Mdx.h3>
+
+board は選択中の squad で観測した完了リクエストの token 合計と時間窓を、要約行に `1.2k tok 1m` のように表示します。core の公開履歴とこの board の観測を合わせ、リクエスト完了に応じて5–10秒ごとに更新します。モデルの出力中に token ごとには変わりません。`,` 設定の **Token window** で設定済みの窓（既定は1m、5m、1h）を順に切り替えます。数字は窓内の合計で、毎秒のレートではありません。`0` は測定済みのゼロ、`~` は不完全な範囲、`–` または `no usage reported yet` はデータなしです。カウンターを報告しないメンバーは `?` に載ります。8本の棒は観測 token の区間を示し、空白は証拠なし、`▁` は測定済みのゼロです。入力と出力の合計はキャッシュ入力を一度だけ数えます。異なる provider の token 単位を足すもので、費用ではありません。履歴はベストエフォートで、不完全な観測は測定済みのゼロではありません。
+
+この要約 meter は観測が有効な名前付き squad 用で、all/leads には表示しません。HOME は表示中の squad を合わせ、データがあり100列以上なら窓の合計とメンバーの割合を、140列以上ならモデルと未報告メンバーも表示します。観測がなければ HOME 使用量行はなく、測定済みのゼロはゼロのままです。
+
+`[board]` の `tok = "1m/5m/60m"`、または1つの squad の `[squad.<name>.board]` で、昇順の3つの窓を設定します。1m〜24h の整数の分または時間を使えます。窓の切り替えは実行中だけの状態で、設定を書きません。
 
 すべての squad では `[board.token_rate]`、1つの squad では `[squad.<name>.board.token_rate]` で有効化や調整をします。
 
 <Code>{`
 [board.token_rate]
 enabled = true
-window = "1m"         # 5s, 1m, 30m or 1h
-every = "5s"          # how often it samples, 5s to 10s; the 5s window needs 5s
+window = "1m"         # initial summary window
+every = "5s"          # how often it samples, 5s to 10s
 reduced_motion = false
 `}</Code>
 
@@ -143,7 +177,7 @@ squad と区別できるよう、`order`、`pin`、`hide` では `tab:needs-me` 
 
 <Mdx.h3 id="see-your-settings">設定を見る</Mdx.h3>
 
-`,` を押すと、現在の squad やタブに適用される設定を表示します（キーを変更した場合は `?` で確認できます）。各値には、プリセット、既定値、`squad.toml`（上部にパスを表示）、tmt 自身のテーマ設定のどこから来たかを示します。この画面で実行や変更は行わず、コマンドは文字として表示します。矢印キー、j/k、PgUp/PgDn、Home/End、ホイールでスクロールし、Esc で閉じます。開いた時点の設定なので、ファイルを編集したら開き直してください。
+`,` は現在の squad またはタブの有効な設定を開きます（変更したキーは `?` に表示）。先頭の **Theme**、**View**、meter 有効時の **Token window** は現在値を示します。Theme と View は選択画面を開き、Token window はその行で順に切り替えます。各値にはプリセット、既定値、`squad.toml`（先頭にパス）または tmt のテーマ設定という出所を表示します。コマンド項目は文字として表示するだけで、実行しません。矢印、j/k、PgUp/PgDn、Home/End、ホイールでスクロールし、Esc で閉じます。開いた時点の設定なので、ファイル編集後は開き直してください。
 
 `tmt sq config show` で同じ情報をコマンドラインから表示できます。単独なら board の既定値、`--squad product` なら1つの squad、`--tab all`（または `leads` や自作のタブ名）なら1つのタブです。2つのフラグは同時に使えません。`--json` はすべての値と取得元を返します。
 
@@ -183,17 +217,17 @@ $ tmt sq view rm --squad product             # 配置を継承する
 
 squad に手書きの `board.layout` または `panes` があれば最優先です。その後は squad の `view`、`[board] view`、既定の `members` の順です。view を指定せず direction/sizes だけを設定した既存の squad は、従来のペイン構成を保ちます。`view set` は `view` キーだけを変更し、途中で変更されたファイルへの書き込みを拒否します。`--squad` では手書きの layout も拒否するので先に自分で削除してください。`view rm` は `view` だけを削除し、独自の layout や折りたたみ設定は残します。手動の折りたたみには通常のセッション内のルールが適用されます。
 
-board で **l** を押すと view を選べます。一覧を移動するとその場でプレビューし、**Tab** ですべての board とこの squad を切り替え、**Enter** で保存、**Esc** で何も書かず元に戻します。`default` は継承する配置を表示し、自分の選択だけを削除します。leads と home タブは固定の構成を保ち、view は squad タブに適用されます。
+`,` 設定で **View** を選びます。リスト内を移動するとライブプレビューし、**Tab** ですべての board とこの squad を切り替え、**Enter** で保存、**Esc** で何も書かず元に戻します。`default` は継承する配置を表示し、自分の選択だけを削除します。leads と home タブは固定の構成を保ち、view は squad タブに適用されます。
 
-手書きの `board.layout` や `panes` がある squad には `custom` と表示されます。プレビューはできますが、その squad への保存は該当キーを `squad.toml` から削除するまで拒否されます。すべての board 向けの選択は保存でき、独自の layout はそのままです。ヘルプには有効な view とテーマのキーが表示されます。
+手書きの `board.layout` や `panes` がある squad には `custom` と表示されます。プレビューはできますが、その squad への保存は該当キーを `squad.toml` から削除するまで拒否されます。すべての board 向けの選択は保存でき、独自の layout はそのままです。help は自分で割り当てた view と theme のキーを表示します。
 
 <Mdx.h3 id="boxed-squad-members">枠付きの squad メンバー一覧</Mdx.h3>
 
 squad タブは既定で1つの枠付き一覧です。先頭は `lead` タグ付きの lead、その後に `── members · N ──` の区切りがあります。メンバーは印・名前・状態・モデル・経過時間の行と作業の行で表示します。待機中（`◆`）は古い質問から先に並び、ほかのやり取りは新しい順、やり取りのないメンバーは名前順です。lead は先頭、作成者が定めた section は元の位置に残ります。
 
-lead またはメンバーで **e** を押すと、作業のプレビューが行内の詳細に変わります。利用できる場合は `◆ waits on you`、作業、リンク、経過時間付きの最新の返事、折りたたみ／書き込み／開く操作を表示します。**e** または **Esc** で閉じ、**a** はそのメンバーに書き込み、**o** は PR またはリンクを開きます。長い詳細は矢印キーや j/k、PgUp/PgDn でスクロールでき、行の選択は動きません。一度に開ける詳細は1つです。読むだけならユーザー登録は不要で、書き込むには `tmt sq me` が必要です。lead の notes は一覧の下にあり、**n** で隠したり表示したりできます。
+lead またはメンバーで **e** を押すと、作業のプレビューが行内の詳細に変わります。利用できる場合は `◆ waits on you`、作業、リンク、経過時間付きの最新の返事、折りたたみ／書き込み／開く操作を表示します。**e** または **Esc** で閉じ、**a** はその行に共通の answer／note／talk／status composer を開き、**o** は PR またはリンクを開きます。長い詳細は矢印キーや j/k、PgUp/PgDn でスクロールでき、行の選択は動きません。一度に開ける詳細は1つです。読むだけならユーザー登録は不要で、書き込むには `tmt sq me` が必要です。lead の notes は一覧の下にあり、**n** で隠したり表示したりできます。
 
-従来の detail/replies 側面ペインには **l** で `team` を選ぶか、`,` 設定で `board.view` を `team` にします。`members` で枠付き一覧に戻ります。独自の `board.layout` または `panes` は設定された構成を保ちます。
+従来の detail/replies 側面ペインは **,** 設定の **View** → `team` で選べます。`members` で枠付き一覧に戻ります。独自の `board.layout` や `panes` は設定した構成を保ちます。
 
 <Mdx.h3 id="panes-rows-notes-and-replies">ペイン：rows、notes、replies</Mdx.h3>
 
@@ -211,7 +245,7 @@ notebook には board の操作へのリンクも書けます。`tmt:jump/<membe
 
 detail ペインは、フィールドの下に選択したメンバー自身の notebook を読み取り専用で表示します。lead notes と同じ Markdown スタイルを使います。notebook のない保存済みメンバーは `(no notes yet)`、一時的なメンバーは `(temporary identity: no notebook)` と表示します。各メンバーも notebook の先頭に同じ短い **Current state** を置いてください。leads と all タブは行だけの表示を保ちます。
 
-split モードでは **d** で detail と replies を一緒に開閉します。どちらかが開いていれば両方を折りたたみます。ペインの見出しをクリックすると、そのペインだけを開閉します。フッターには `d detail+replies ▾`（開いている）または `d detail+replies ▸`（折りたたみ）を表示します。折りたたむと `▸ name` の見出しだけになり、隣のペインが空いた場所を使います。開くと指定したサイズに戻ります。Tab は折りたたんだペインを飛ばします。折りたたみ状態は squad ごとにセッション中だけ保たれ、設定ファイルは変えません。手動の折りたたみは狭い幅での自動処理より優先されます。tabs モードでは折りたたみません。
+split モードでは **d** で detail と replies を一緒に開閉します。どちらかが開いていれば両方を折りたたみます。ペインの見出しをクリックすると、そのペインだけを開閉します。`d` のキーは `?` help に表示され、折りたたんだペインは `▸ name` の見出しになります。折りたたむと `▸ name` の見出しだけになり、隣のペインが空いた場所を使います。開くと指定したサイズに戻ります。Tab は折りたたんだペインを飛ばします。折りたたみ状態は squad ごとにセッション中だけ保たれ、設定ファイルは変えません。手動の折りたたみは狭い幅での自動処理より優先されます。tabs モードでは折りたたみません。
 
 最初から折りたたむには、`[squad.product.board]` に `collapsed = ["detail"]` を追加します。他のペインをキーで開閉するには `D = "toggle notes"` や `d = "toggle detail replies"` のように割り当てます。ペイン名は既知の名前で、重複は認めません。
 
@@ -219,7 +253,7 @@ split モードでは **d** で detail と replies を一緒に開閉します�
 
 <Caption>rows と notes を横に並べ、注記を入力している概略図です。</Caption>
 
-- **行に注記します。** `a` を押して入力します。たとえば `[product · auth-fix] keep old tokens valid for a day` のように、行を示す印を付けて lead に届きます。返事が来るまで行に `✎ sent to sol` と表示するため、何を伝え、何が未回答か分かります。lead が board の更新、notes への追記、メンバーへの転送などを判断します。
+- **行に注記します。** `a` を押し、回答モードなら Tab で note に切り替えて入力します。たとえば `[product · auth-fix] keep old tokens valid for a day` のように、行を示す印を付けて lead に届きます。返事が来るまで行に `✎ sent to sol` と表示するため、何を伝え、何が未回答か分かります。lead が board の更新、notes への追記、メンバーへの転送などを判断します。
 - **メンバーの情報を残します。** 作業内容は `task=`、ユーザーに求める判断は `pending=` に書きます。長い説明はメンバー自身の notebook（`tmt notes path --identity <member>`）に置きます。旧版で設定した note は隠れ、空の `note=` で削除できます。
 - **detail は全列を表示します。** 作業とリンクに加え、board のほかの列の値も列順に全文表示します。長い値は切らずに折り返します。取得に失敗したフィールドは `?`、値がないものは `–` です。
 - **notes は読みやすく表示します。** 見出し、リスト、太字、斜体、インラインコード、リンクなど一般的な Markdown に対応し、ほかは文字として表示します。行はペイン幅で折り返し、中国語などの幅広い文字も揃え、端末のエスケープコードは取り除きます。board から lead の notes は編集できず、書き手は1人のままです。
@@ -382,7 +416,7 @@ $ tmt sq theme set mono --squad product   # 1つの squad の board
 $ tmt sq theme rm --squad product         # board の設定に再び従う。個別の色調整は残ります
 `}</Cmd>
 
-board で **T** を押す方法もあります。↑ と ↓ で各テーマをその場でプレビューし、**Tab** ですべての board とこの squad を切り替え、**Enter** で保存、**Esc** で取り消します。どちらの方法でも `squad.toml` に保存します。全 board は `[board.theme]`、1つの squad は `[squad.<name>.theme]` で、ファイルのほかの部分は保たれます。squad 自身のテーマ、board のテーマ、コマンドラインのテーマの順に優先します。各層で `config.json` と同じキーを使い、個別の token も上書きできます。
+または `,` 設定で **Theme** を選びます。↑ と ↓ で各テーマをその場でプレビューし、**Tab** ですべての board とこの squad を切り替え、**Enter** で保存、**Esc** で取り消します。どちらの方法でも `squad.toml` に保存します。全 board は `[board.theme]`、1つの squad は `[squad.<name>.theme]` で、ファイルのほかの部分は保たれます。squad 自身のテーマ、board のテーマ、コマンドラインのテーマの順に優先します。各層で `config.json` と同じキーを使い、個別の token も上書きできます。
 
 **auto** は board を開くたびに端末に合わせます。多くの端末が設定する `COLORFGBG` を読み、なければ端末に背景色を問い合わせます。明るければ **tmt-light**、暗ければ **tmt**、応答がなければ **tmt** を使います。問い合わせは最大0.1秒で、その間に押したキーは取りこぼします。テーマ一覧では問い合わせません。`tmt sq theme` は `auto` を `matches the terminal when the board opens` と表示し、`COLORFGBG` から分かる場合は `auto (tmt-light)` または `auto (tmt)` と表示します。名前で選んだテーマは常に `auto` より優先します。
 
@@ -451,9 +485,9 @@ board を開かず lead へ移動するには、`tmt sq jump --lead` を使い�
 $ tmt sq add auth-fix docs-sweep      # 起動方法に関係なく、動作中の agent を追加
 $ tmt sq set auth-fix state=review    # lead が board を更新する操作。field= で消去
 $ tmt sq ls                           # メンバー一覧。スクリプトでは --json
-$ tmt talk auth-fix "…" --detach      # board の t をコマンドラインから実行
-$ tmt answer auth-fix "use postgres"  # board の r：自分への依頼に回答
-$ tmt sq annotate auth-fix "split this job"   # board の a と同じ
+$ tmt talk auth-fix "…" --detach      # the composer's talk mode, from the command line
+$ tmt answer auth-fix "use postgres"  # the composer's answer mode, from the command line
+$ tmt sq annotate auth-fix "split this job"   # the composer's note mode, from the command line
 $ tmt sq jump auth-fix                # tmt sq back で戻る
 $ tmt sq jump --lead                  # 自分の squad の lead
 $ tmt sq rm auth-fix                  # squad から外す。agent は動き続けます

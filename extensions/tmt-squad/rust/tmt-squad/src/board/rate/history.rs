@@ -111,6 +111,54 @@ impl Seed {
     }
 }
 
+/// Reuse only normalized history with unchanged durable evidence and closed range.
+/// One worker owns this short-lived cache; failed reads are never retained.
+#[derive(Default)]
+pub(in crate::board) struct Cache {
+    key: Option<(u64, u64, u64)>,
+    seeds: Seeds,
+}
+
+impl Cache {
+    pub fn load(
+        &mut self,
+        core: &Core,
+        ids: BTreeSet<String>,
+        longest: TokenWindow,
+        cursor: Option<u64>,
+        now: u64,
+    ) -> Seeds {
+        let through = now / SLOT_MS * SLOT_MS;
+        let key = cursor.map(|cursor| (cursor, through, longest.milliseconds()));
+        if key.is_none() || self.key != key {
+            self.seeds.clear();
+            self.key = key;
+        }
+        let missing = ids
+            .iter()
+            .filter(|id| !self.seeds.contains_key(*id))
+            .cloned()
+            .collect();
+        let loaded = load(core, missing, longest);
+        for (id, seed) in &loaded {
+            if key.is_some() && seed.as_ref().is_some_and(|seed| seed.through == through) {
+                self.seeds.insert(id.clone(), seed.clone());
+            }
+        }
+        ids.into_iter()
+            .map(|id| {
+                let seed = self
+                    .seeds
+                    .get(&id)
+                    .or_else(|| loaded.get(&id))
+                    .cloned()
+                    .flatten();
+                (id, seed)
+            })
+            .collect()
+    }
+}
+
 /// Acquire only one longest window; overlapping shorter windows are never added.
 pub fn load(core: &Core, ids: BTreeSet<String>, longest: TokenWindow) -> Seeds {
     let ids: Vec<_> = ids.into_iter().collect();
@@ -140,6 +188,53 @@ pub fn load(core: &Core, ids: BTreeSet<String>, longest: TokenWindow) -> Seeds {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn cached_history_requires_known_cursor_same_closed_range_and_window() {
+        let window = TokenWindow::parse("1m").unwrap();
+        let seed = Seed {
+            from: 0,
+            through: 60000,
+            available: None,
+            sampled: None,
+            latest: Value::Null,
+            reporting: false,
+            buckets: Vec::new(),
+        };
+        // A cache miss cannot accidentally pass: this executable does not exist.
+        let core = Core::at(std::path::PathBuf::from(
+            "/nonexistent-squad-history-cache-test",
+        ));
+        for (cursor, now, selected, reused) in [
+            (Some(7), 64999, window, true),
+            (Some(8), 64999, window, false),
+            (None, 64999, window, false),
+            (Some(7), 65000, window, false),
+            (Some(7), 59999, window, false),
+            (Some(7), 64999, TokenWindow::parse("5m").unwrap(), false),
+        ] {
+            let mut cache = Cache {
+                key: Some((7, 60000, 60000)),
+                seeds: [("known".into(), Some(seed.clone()))].into(),
+            };
+            let result = cache.load(
+                &core,
+                ["known".into(), "new".into()].into(),
+                selected,
+                cursor,
+                now,
+            );
+            assert_eq!(result["known"].is_some(), reused);
+            assert!(
+                result["new"].is_none(),
+                "new membership never borrows another identity's history"
+            );
+            assert!(
+                !cache.seeds.contains_key("new"),
+                "failed reads remain retryable"
+            );
+        }
+    }
 
     #[test]
     fn public_history_batches_roster_uuids_and_caps_long_configured_windows() {

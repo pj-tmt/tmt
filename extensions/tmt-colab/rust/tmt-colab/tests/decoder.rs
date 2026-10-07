@@ -1,3 +1,5 @@
+#[path = "support/core_fixture.rs"]
+mod core_fixture;
 mod support;
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use nix::{errno::Errno, sys::signal::kill, unistd::Pid};
@@ -10,7 +12,6 @@ use tmt_colab::decoder::{
     BaselineInput, DecodeFault, Decoder, MemoryLimit, Namespace, Role, STREAM_BYTES, UpdateBatch,
 };
 use tmt_invoke::{Cleanup, EnvironmentPolicy, FailureKind, LaunchOptions, Request};
-use tmt_test_support::write_executable;
 use yrs::{
     Array, Doc, GetString, Map, ReadTxn, StateVector, Text, Transact, Update,
     updates::decoder::Decode,
@@ -347,15 +348,14 @@ impl FixtureProgram {
         ));
         std::fs::create_dir(&directory).unwrap();
         std::fs::set_permissions(&directory, std::fs::Permissions::from_mode(0o700)).unwrap();
-        let script = directory.join("child");
+        let script = core_fixture::link(&directory, "child", core_fixture::Program::Decoder);
         let pid_path = directory
             .join("pid")
             .to_string_lossy()
             .replace('\'', "'\\''");
-        write_executable(
-            &script,
+        std::fs::write(
+            directory.join("behavior"),
             format!("#!/bin/sh\nprintf '%s\\n' \"$$\" > '{pid_path}'\n{body}\n").as_bytes(),
-            0o700,
         )
         .unwrap();
         Self {
@@ -382,12 +382,11 @@ impl FixtureProgram {
         fixture.barrier = Some((open(&ready), open(&release)));
         let directory = fixture.directory.to_string_lossy().replace('\'', "'\\''");
         let actual = program().to_string_lossy().replace('\'', "'\\''");
-        write_executable(
-            &fixture.script,
+        std::fs::write(
+            fixture.directory.join("behavior"),
             format!(
                 "#!/bin/sh\nprintf '%s\\n' \"$$\" > '{directory}/pid'\nexec 3< '{directory}/release'\nprintf x > '{directory}/ready'\nread line <&3\nexec 3<&-\nexec '{actual}' \"$@\"\n"
             ).as_bytes(),
-            0o700,
         )
         .unwrap();
         fixture
@@ -429,10 +428,9 @@ impl FixtureProgram {
     }
     fn actual(&self) {
         let path = program().to_string_lossy().replace('\'', "'\\''");
-        write_executable(
-            &self.script,
+        std::fs::write(
+            self.directory.join("behavior"),
             format!("#!/bin/sh\nexec '{path}' \"$@\"\n").as_bytes(),
-            0o700,
         )
         .unwrap();
     }
@@ -666,6 +664,7 @@ fn own_maps_have_a_positive_control_and_array_substitution_rejects() {
 fn view<'a>(source: &'a [u8], title: &'a str) -> BaselineInput<'a> {
     use sha2::{Digest, Sha256};
     BaselineInput {
+        creation_recipient: None,
         source,
         title,
         publisher_agent: None,
@@ -694,15 +693,41 @@ fn baseline_exact_vectors_materialize_and_concurrent_clients_converge() {
             .unwrap()
             .try_into()
             .unwrap();
+        let recipient = vector.get("creationRecipient").map(|v| {
+            serde_json::from_value::<tmt_colab::decoder::CreationRecipient>(v.clone()).unwrap()
+        });
         let mut decoder = owner();
         let verified = decoder
             .verify_baseline(view(source.as_bytes(), title), &update, commitment, None)
             .unwrap();
         assert_eq!(verified.update, update);
         gone(verified.child_pid);
+        if let Some(alternate) = vector["alternateUpdate"].as_str() {
+            let mismatched = URL_SAFE_NO_PAD
+                .decode(vector["alternateCommitment"].as_str().unwrap())
+                .unwrap()
+                .try_into()
+                .unwrap();
+            assert!(matches!(
+                decoder.verify_baseline(view(source.as_bytes(), title), &update, mismatched, None),
+                Err(DecodeFault::Rejected)
+            ));
+            let alternate = URL_SAFE_NO_PAD.decode(alternate).unwrap();
+            let commitment = URL_SAFE_NO_PAD
+                .decode(vector["alternateCommitment"].as_str().unwrap())
+                .unwrap()
+                .try_into()
+                .unwrap();
+            let verified = decoder
+                .verify_baseline(view(source.as_bytes(), title), &alternate, commitment, None)
+                .unwrap();
+            assert_eq!(verified.update, alternate);
+            gone(verified.child_pid);
+        }
         let produced = decoder
             .produce_baseline(
                 BaselineInput {
+                    creation_recipient: recipient.as_ref(),
                     publisher_agent: vector["publisherAgent"].as_str(),
                     ..view(source.as_bytes(), title)
                 },
@@ -758,6 +783,7 @@ fn baseline_digest_commitment_and_materialization_mismatches_return_no_result() 
         .unwrap();
     gone(baseline.child_pid);
     let wrong_digest = BaselineInput {
+        creation_recipient: None,
         source: b"exact",
         title: "title",
         source_digest: [0; 32],
@@ -964,6 +990,7 @@ fn publisher_metadata_updates_and_unknown_cli_edits_clear_it() {
     let baseline = decoder
         .produce_baseline(
             BaselineInput {
+                creation_recipient: None,
                 publisher_agent: Some("publisher"),
                 ..view(b"before", "Title")
             },
@@ -1126,4 +1153,544 @@ fn merging_one_devices_updates_keeps_structs_that_depend_on_another_device() {
             .merge(Namespace::Content, &[b"not an update"], None)
             .is_err()
     );
+}
+
+#[test]
+fn creation_recipient_survives_chunked_baselines_and_known_or_unknown_source_edits() {
+    use tmt_colab::decoder::{ContentEdit, CreationRecipient};
+    let recipient = CreationRecipient {
+        machine_id: "40000000-0000-4000-8000-000000000001".into(),
+        agent_id: "50000000-0000-1000-8000-000000000001".into(),
+    };
+    let source = "<p>Unicode 🐈</p>".repeat(20_000);
+    let mut decoder = owner();
+    for hint in [Some(&recipient), None] {
+        let baseline = decoder
+            .produce_page(
+                BaselineInput {
+                    creation_recipient: hint,
+                    ..view(source.as_bytes(), "Title")
+                },
+                None,
+            )
+            .unwrap();
+        gone(baseline.child_pid);
+        assert!(baseline.update.len() > 256 * 1024);
+        assert!(!baseline.chunks.is_empty());
+        let doc = Doc::new();
+        for chunk in &baseline.chunks {
+            apply_baseline(&doc, chunk);
+        }
+        let merged = doc
+            .transact()
+            .encode_state_as_update_v1(&StateVector::default());
+        let expected = hint.map(|v| serde_json::to_value(v).unwrap());
+        let folded = decoder
+            .decode(
+                UpdateBatch {
+                    namespace: Namespace::Content,
+                    baseline: &merged,
+                    updates: &[],
+                },
+                Role::Editor,
+                None,
+            )
+            .unwrap();
+        assert_eq!(
+            folded.projection["meta"].get("creationRecipient"),
+            expected.as_ref()
+        );
+        gone(folded.child_pid);
+        for publisher in [Some("later-agent"), None] {
+            let prepared = decoder
+                .prepare(
+                    UpdateBatch {
+                        namespace: Namespace::Content,
+                        baseline: &merged,
+                        updates: &[],
+                    },
+                    ContentEdit {
+                        source: "later",
+                        publisher_agent: publisher,
+                    },
+                    None,
+                )
+                .unwrap();
+            let folded = decoder
+                .decode(
+                    UpdateBatch {
+                        namespace: Namespace::Content,
+                        baseline: &merged,
+                        updates: &[&prepared.merged],
+                    },
+                    Role::Editor,
+                    None,
+                )
+                .unwrap();
+            assert_eq!(
+                folded.projection["meta"].get("creationRecipient"),
+                expected.as_ref()
+            );
+            gone(prepared.child_pid);
+            gone(folded.child_pid);
+        }
+    }
+}
+
+#[test]
+fn creation_metadata_rejects_partial_unknown_nested_or_noncanonical_values() {
+    use std::collections::HashMap;
+    let pair = || {
+        HashMap::from([
+            (
+                "machineId".into(),
+                yrs::Any::String("40000000-0000-4000-8000-000000000001".into()),
+            ),
+            (
+                "agentId".into(),
+                yrs::Any::String("50000000-0000-1000-8000-000000000001".into()),
+            ),
+        ])
+    };
+    let mut partial = pair();
+    partial.remove("agentId");
+    let mut extra = pair();
+    extra.insert("extra".into(), yrs::Any::Bool(true));
+    let mut nested = pair();
+    nested.insert("agentId".into(), yrs::Any::Map(pair().into()));
+    let mut invalid = pair();
+    invalid.insert(
+        "machineId".into(),
+        yrs::Any::String("40000000-0000-1000-8000-000000000001".into()),
+    );
+    for value in [
+        yrs::Any::Null,
+        yrs::Any::Map(partial.into()),
+        yrs::Any::Map(extra.into()),
+        yrs::Any::Map(nested.into()),
+        yrs::Any::Map(invalid.into()),
+    ] {
+        let doc = Doc::new();
+        doc.get_or_insert_text("html");
+        let meta = doc.get_or_insert_map("meta");
+        meta.insert(&mut doc.transact_mut(), "title", "Title");
+        meta.insert(&mut doc.transact_mut(), "creationRecipient", value);
+        let update = doc
+            .transact()
+            .encode_state_as_update_v1(&StateVector::default());
+        assert!(matches!(
+            owner().decode(
+                UpdateBatch {
+                    namespace: Namespace::Content,
+                    baseline: &update,
+                    updates: &[]
+                },
+                Role::Editor,
+                None
+            ),
+            Err(DecodeFault::Rejected)
+        ));
+    }
+}
+
+#[test]
+fn content_batch_full_replacement_replays_without_reattributing_foreign_structs() {
+    use tmt_colab::decoder::{ContentBatch, ContentEdit};
+    let old = "A".repeat(1_572_864);
+    let author = Doc::with_client_id(123);
+    author
+        .get_or_insert_text("html")
+        .insert(&mut author.transact_mut(), 0, &old);
+    let meta = author.get_or_insert_map("meta");
+    meta.insert(&mut author.transact_mut(), "title", "Keep title");
+    meta.insert(
+        &mut author.transact_mut(),
+        "publisherAgent",
+        "Old publisher",
+    );
+    let baseline = author
+        .transact()
+        .encode_state_as_update_v1(&StateVector::default());
+    let foreign = Doc::with_client_id(456);
+    apply_baseline(&foreign, &baseline);
+    let html = foreign.get_or_insert_text("html");
+    let mut tx = foreign.transact_mut();
+    let end = html.len(&tx);
+    html.insert(&mut tx, end, "<p>foreign</p>");
+    let admitted = tx.encode_update_v1();
+    drop(tx);
+    let before = serde_json::json!({"html":format!("{old}<p>foreign</p>"),"meta":{"title":"Keep title","publisherAgent":"Old publisher"}});
+    let refs = [admitted.as_slice()];
+    let source = "B".repeat(1_572_864);
+    // This regression uses the unchanged production deadline, not the test's larger deadline.
+    let mut decoder = Decoder::new(program()).unwrap();
+    let made = decoder
+        .prepare_content_batch(
+            UpdateBatch {
+                namespace: Namespace::Content,
+                baseline: &baseline,
+                updates: &refs,
+            },
+            &before,
+            ContentEdit {
+                source: &source,
+                publisher_agent: Some("New publisher"),
+            },
+            None,
+        )
+        .unwrap();
+    let ContentBatch::Updates(updates) = &made.batch else {
+        panic!("expected full replacement")
+    };
+    assert!(updates.len() > 1);
+    assert!(
+        updates
+            .iter()
+            .all(|v| v.len() <= tmt_colab::decoder::UPDATE_BYTES)
+    );
+    assert!(updates.iter().map(Vec::len).sum::<usize>() <= tmt_colab::decoder::WRITE_TAIL_BYTES);
+    let replay = Doc::new();
+    apply_baseline(&replay, &baseline);
+    apply_baseline(&replay, &admitted);
+    let foreign_clock = replay.transact().state_vector().get(&foreign.client_id());
+    for update in updates {
+        apply_baseline(&replay, update);
+        assert!(replay.transact().store().pending_update().is_none());
+        assert!(replay.transact().store().pending_ds().is_none());
+    }
+    assert_eq!(
+        replay
+            .get_or_insert_text("html")
+            .get_string(&replay.transact()),
+        source
+    );
+    assert_eq!(
+        replay.transact().state_vector().get(&foreign.client_id()),
+        foreign_clock
+    );
+    assert_eq!(
+        made.projection,
+        serde_json::json!({"html":source,"meta":{"title":"Keep title","publisherAgent":"New publisher"}})
+    );
+    gone(made.child_pid);
+    // Deltas alone are dependent on the admitted source; they are not a fresh baseline.
+    let detached = Doc::new();
+    for update in updates {
+        apply_baseline(&detached, update);
+    }
+    assert!(
+        detached.transact().store().pending_update().is_some()
+            || detached.transact().store().pending_ds().is_some()
+    );
+    let unchanged = decoder
+        .decode(
+            UpdateBatch {
+                namespace: Namespace::Content,
+                baseline: &baseline,
+                updates: &refs,
+            },
+            Role::Editor,
+            None,
+        )
+        .unwrap();
+    assert_eq!(unchanged.projection, before);
+    gone(unchanged.child_pid);
+}
+
+#[test]
+fn content_batch_handles_unicode_deletion_noop_and_publisher_only_changes() {
+    use tmt_colab::decoder::{ContentBatch, ContentEdit};
+    for (old, source) in [
+        (
+            "start 😀 middle 🐈 end".to_owned(),
+            "START 😀 middle 🐈 end".to_owned(),
+        ),
+        (
+            "start 😀 middle 🐈 end".to_owned(),
+            "start 😀 MIDDLE 🐈 end".to_owned(),
+        ),
+        (
+            "start 😀 middle 🐈 end".to_owned(),
+            "start 😀 middle 🐈 END".to_owned(),
+        ),
+        ("x😀end".to_owned(), "x😁end".to_owned()),
+        (
+            "old".to_owned(),
+            format!("{}🌍漢字{}", "é".repeat(96 * 1024 - 1), "界".repeat(80_000)),
+        ),
+        ("delete me".to_owned(), String::new()),
+        (String::new(), String::new()),
+        ("same 🐈".to_owned(), "same 🐈".to_owned()),
+    ] {
+        let doc = Doc::with_client_id(123);
+        doc.get_or_insert_text("html")
+            .insert(&mut doc.transact_mut(), 0, &old);
+        doc.get_or_insert_map("meta")
+            .insert(&mut doc.transact_mut(), "title", "T");
+        let baseline = doc
+            .transact()
+            .encode_state_as_update_v1(&StateVector::default());
+        let before = serde_json::json!({"html":old,"meta":{"title":"T"}});
+        let made = owner()
+            .prepare_content_batch(
+                UpdateBatch {
+                    namespace: Namespace::Content,
+                    baseline: &baseline,
+                    updates: &[],
+                },
+                &before,
+                ContentEdit {
+                    source: &source,
+                    publisher_agent: None,
+                },
+                None,
+            )
+            .unwrap();
+        match made.batch {
+            ContentBatch::Noop => assert_eq!(old, source),
+            ContentBatch::Updates(updates) => {
+                assert_ne!(old, source);
+                for update in &updates {
+                    apply_baseline(&doc, update);
+                }
+                assert_eq!(
+                    doc.get_or_insert_text("html").get_string(&doc.transact()),
+                    source
+                );
+            }
+        }
+        assert_eq!(
+            made.projection,
+            serde_json::json!({"html":source,"meta":{"title":"T"}})
+        );
+        gone(made.child_pid);
+        for publisher in [Some("Publisher"), None] {
+            let baseline = doc
+                .transact()
+                .encode_state_as_update_v1(&StateVector::default());
+            let made = owner().prepare_content_batch(
+                UpdateBatch { namespace: Namespace::Content, baseline: &baseline, updates: &[] },
+                &serde_json::json!({"html":source,"meta":if publisher.is_some() { serde_json::json!({"title":"T"}) } else { serde_json::json!({"title":"T","publisherAgent":"Publisher"}) }}),
+                ContentEdit { source: &source, publisher_agent: publisher }, None,
+            ).unwrap();
+            let ContentBatch::Updates(updates) = made.batch else {
+                panic!("publisher change is not a no-op")
+            };
+            for update in &updates {
+                apply_baseline(&doc, update);
+            }
+            assert_eq!(
+                made.projection["meta"]["publisherAgent"].as_str(),
+                publisher
+            );
+            assert_eq!(
+                doc.get_or_insert_text("html").get_string(&doc.transact()),
+                source
+            );
+            gone(made.child_pid);
+        }
+    }
+}
+
+#[test]
+fn content_batch_rejection_and_deadline_keep_the_runner_reusable() {
+    use tmt_colab::decoder::{BASELINE_BYTES, ContentBatch, ContentEdit};
+    let before = serde_json::json!({"html":"","meta":{}});
+    let source = "x".repeat(BASELINE_BYTES + 1);
+    let mut decoder = owner();
+    assert!(matches!(
+        decoder.prepare_content_batch(
+            UpdateBatch {
+                namespace: Namespace::Content,
+                baseline: &[],
+                updates: &[]
+            },
+            &before,
+            ContentEdit {
+                source: &source,
+                publisher_agent: None
+            },
+            None,
+        ),
+        Err(DecodeFault::InvalidInput)
+    ));
+    assert!(matches!(
+        decoder.prepare_content_batch(
+            UpdateBatch {
+                namespace: Namespace::Content,
+                baseline: &[],
+                updates: &[]
+            },
+            &serde_json::json!({"html":"wrong","meta":{}}),
+            ContentEdit {
+                source: "new",
+                publisher_agent: None
+            },
+            None,
+        ),
+        Err(DecodeFault::Rejected)
+    ));
+    let fixture = FixtureProgram::new("cat >/dev/null; printf '{}' ");
+    let mut decoder =
+        Decoder::with_config(support::decoder_config(fixture.script.clone())).unwrap();
+    assert!(matches!(
+        decoder.prepare_content_batch(
+            UpdateBatch {
+                namespace: Namespace::Content,
+                baseline: &[],
+                updates: &[]
+            },
+            &before,
+            ContentEdit {
+                source: "new",
+                publisher_agent: None
+            },
+            None,
+        ),
+        Err(DecodeFault::InvalidOutput)
+    ));
+    gone(fixture.pid());
+    fixture.actual();
+    let made = decoder
+        .prepare_content_batch(
+            UpdateBatch {
+                namespace: Namespace::Content,
+                baseline: &[],
+                updates: &[],
+            },
+            &before,
+            ContentEdit {
+                source: "",
+                publisher_agent: None,
+            },
+            None,
+        )
+        .unwrap();
+    assert_eq!(made.batch, ContentBatch::Noop);
+    gone(made.child_pid);
+    let fixture = FixtureProgram::blocked();
+    let mut decoder = Decoder::new(fixture.script.clone()).unwrap();
+    let error = decoder
+        .prepare_content_batch(
+            UpdateBatch {
+                namespace: Namespace::Content,
+                baseline: &[],
+                updates: &[],
+            },
+            &before,
+            ContentEdit {
+                source: "new",
+                publisher_agent: None,
+            },
+            None,
+        )
+        .err()
+        .unwrap();
+    assert!(matches!(error, DecodeFault::Invoke(ref e)
+        if e.kind == FailureKind::Deadline && matches!(e.cleanup, Cleanup::Confirmed)));
+    fixture.assert_blocked_child_was_reaped();
+    fixture.actual();
+    let made = decoder
+        .prepare_content_batch(
+            UpdateBatch {
+                namespace: Namespace::Content,
+                baseline: &[],
+                updates: &[],
+            },
+            &before,
+            ContentEdit {
+                source: "new",
+                publisher_agent: None,
+            },
+            None,
+        )
+        .unwrap();
+    assert!(matches!(made.batch, ContentBatch::Updates(_)));
+    gone(made.child_pid);
+}
+
+#[test]
+fn content_batch_preserves_creation_recipient_through_replay_and_noop() {
+    use tmt_colab::decoder::{ContentBatch, ContentEdit, CreationRecipient};
+    let recipient = CreationRecipient {
+        machine_id: "40000000-0000-4000-8000-000000000001".into(),
+        agent_id: "50000000-0000-1000-8000-000000000001".into(),
+    };
+    let mut decoder = owner();
+    for hint in [Some(&recipient), None] {
+        let baseline = decoder
+            .produce_page(
+                BaselineInput {
+                    creation_recipient: hint,
+                    ..view(b"old", "T")
+                },
+                None,
+            )
+            .unwrap();
+        gone(baseline.child_pid);
+        let folded = decoder
+            .decode(
+                UpdateBatch {
+                    namespace: Namespace::Content,
+                    baseline: &baseline.update,
+                    updates: &[],
+                },
+                Role::Editor,
+                None,
+            )
+            .unwrap();
+        gone(folded.child_pid);
+        for source in ["old", "new"] {
+            let made = decoder
+                .prepare_content_batch(
+                    UpdateBatch {
+                        namespace: Namespace::Content,
+                        baseline: &baseline.update,
+                        updates: &[],
+                    },
+                    &folded.projection,
+                    ContentEdit {
+                        source,
+                        publisher_agent: None,
+                    },
+                    None,
+                )
+                .unwrap();
+            gone(made.child_pid);
+            assert_eq!(made.projection["meta"], folded.projection["meta"]);
+            match made.batch {
+                ContentBatch::Noop => assert_eq!(source, "old"),
+                ContentBatch::Updates(updates) => {
+                    assert_eq!(source, "new");
+                    let refs = updates.iter().map(Vec::as_slice).collect::<Vec<_>>();
+                    let replay = decoder
+                        .decode(
+                            UpdateBatch {
+                                namespace: Namespace::Content,
+                                baseline: &baseline.update,
+                                updates: &refs,
+                            },
+                            Role::Editor,
+                            None,
+                        )
+                        .unwrap();
+                    assert_eq!(replay.projection, made.projection);
+                    gone(replay.child_pid);
+                }
+            }
+            let unchanged = decoder
+                .decode(
+                    UpdateBatch {
+                        namespace: Namespace::Content,
+                        baseline: &baseline.update,
+                        updates: &[],
+                    },
+                    Role::Editor,
+                    None,
+                )
+                .unwrap();
+            assert_eq!(unchanged.projection, folded.projection);
+            gone(unchanged.child_pid);
+        }
+    }
 }

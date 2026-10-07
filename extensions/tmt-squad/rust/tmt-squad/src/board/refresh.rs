@@ -65,6 +65,7 @@ impl Generation {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) enum SelectedRead {
     Notebook(String),
+    Status(crate::membership::status_update::Target),
     Message(super::home_leads::MessageKey),
 }
 
@@ -72,6 +73,7 @@ pub struct Worker {
     requests: Sender<Work>,
     generation: Arc<Generation>,
     thread: Option<std::thread::JoinHandle<()>>,
+    checklist_stop: crate::runner::Cancellation,
 }
 
 impl Worker {
@@ -80,7 +82,10 @@ impl Worker {
         let (requests, pending) = mpsc::channel();
         let generation = Arc::new(Generation::default());
         let read_generation = Arc::clone(&generation);
+        let checklist_stop = crate::runner::Cancellation::default();
+        let checklist_reader = core.cancellable(checklist_stop.clone());
         let thread = std::thread::spawn(move || {
+            let mut checklist = super::checklist::load::Lane::default();
             let initial = core.cancellable(read_generation.cancellation(0));
             let mut kept = Kept {
                 bodies: BTreeMap::new(),
@@ -91,6 +96,7 @@ impl Worker {
             let caller = crate::me::caller(&initial).ok().flatten();
             let mut changes =
                 Changes::new(Config::locate(&initial).ok(), provider::Cache::directory());
+            let mut history = super::rate::history::Cache::default();
             let mut places = super::cronboard::Places::new(crate::effects::tmux_socket());
             serve(
                 &pending,
@@ -119,9 +125,21 @@ impl Worker {
                     )
                 },
                 |job, generation| {
+                    if let Deferred::Checklist(task) = job {
+                        return events
+                            .send(super::BoardEvent::Checklist(
+                                checklist.complete(&checklist_reader, task),
+                            ))
+                            .is_ok();
+                    }
                     let cancellation = read_generation.cancellation(generation);
                     let reader = core.cancellable(cancellation.clone());
                     let event = match job {
+                        Deferred::Checklist(_) => unreachable!("handled above"),
+                        Deferred::History(job) => super::BoardEvent::History {
+                            read: job.complete(&reader, &mut history),
+                            cancellation: cancellation.clone(),
+                        },
                         Deferred::HomeLeads(job) => super::BoardEvent::HomeLeads {
                             read: job.complete(&reader),
                             cancellation: cancellation.clone(),
@@ -137,6 +155,16 @@ impl Worker {
                                 crate::status::now_ms() as i64,
                                 &mut places,
                             ),
+                            cancellation: cancellation.clone(),
+                        },
+                        Deferred::Selected {
+                            read: SelectedRead::Status(target),
+                            revision,
+                        } => super::BoardEvent::Status {
+                            result: crate::membership::status_update::read(&reader, &target)
+                                .map_err(|error| error.message),
+                            target,
+                            revision,
                             cancellation: cancellation.clone(),
                         },
                         Deferred::Selected {
@@ -194,6 +222,7 @@ impl Worker {
             requests,
             generation,
             thread: Some(thread),
+            checklist_stop,
         }
     }
 
@@ -210,6 +239,9 @@ impl Worker {
             preview_panes,
         }));
     }
+    pub fn checklist(&self, task: super::checklist::load::Task) {
+        let _ = self.requests.send(Work::Checklist(task));
+    }
     pub fn selected(&self, revision: u64, read: Option<SelectedRead>) {
         let generation = self.generation.number.load(Ordering::Acquire);
         let _ = self.requests.send(Work::Selected {
@@ -223,6 +255,7 @@ impl Worker {
 impl Drop for Worker {
     fn drop(&mut self) {
         self.generation.advance();
+        self.checklist_stop.cancel();
         // Disconnect before joining: the worker exits its bounded cancelled
         // child read, and an idle worker exits recv immediately.
         let (replacement, _) = mpsc::channel();
@@ -234,6 +267,7 @@ impl Drop for Worker {
 }
 
 enum Work {
+    Checklist(super::checklist::load::Task),
     Reload(Reload),
     Selected {
         read: Option<SelectedRead>,
@@ -255,6 +289,7 @@ struct Loaded {
     home_leads: Option<super::home_leads::Fetch>,
     /// Every tab shows the cron projection, so any readable config schedules it.
     cron: Option<super::cronboard::Fetch>,
+    history: Option<HistoryJob>,
 }
 
 impl Loaded {
@@ -264,12 +299,76 @@ impl Loaded {
             attention: None,
             home_leads: None,
             cron: None,
+            history: None,
+        }
+    }
+}
+
+/// History belongs to the opening snapshot, never to a later tab with the same label.
+struct HistoryJob {
+    owner: String,
+    cursor: Option<u64>,
+    targets: BTreeMap<String, (crate::config::TokenRate, super::rate::Input)>,
+}
+
+pub(crate) struct HistoryRead {
+    pub owner: String,
+    pub targets: BTreeMap<String, (crate::config::TokenRate, super::rate::Input)>,
+    pub seeds: super::rate::history::Seeds,
+    pub observed: Result<BTreeMap<String, Value>, ()>,
+}
+
+impl HistoryJob {
+    fn new(owner: &str, view: &View) -> Option<Self> {
+        let targets: BTreeMap<_, _> = view
+            .home_rate
+            .iter()
+            .map(|(name, rate)| (name.clone(), rate))
+            .chain(view.token_rate.iter().map(|rate| (owner.to_owned(), rate)))
+            .filter(|(_, rate)| rate.settings.enabled)
+            .map(|(name, rate)| (name, (rate.settings, rate.input.clone())))
+            .collect();
+        (!targets.is_empty()).then(|| Self {
+            owner: owner.to_owned(),
+            cursor: None,
+            targets,
+        })
+    }
+
+    fn complete(self, core: &Core, cache: &mut super::rate::history::Cache) -> HistoryRead {
+        let longest = self
+            .targets
+            .values()
+            .map(|(settings, _)| settings.windows[2])
+            .max_by_key(|window| window.milliseconds())
+            .expect("enabled history targets");
+        let ids = self
+            .targets
+            .values()
+            .flat_map(|(_, input)| input.resumes.keys().cloned())
+            .collect();
+        let seeds = cache.load(core, ids, longest, self.cursor, crate::status::now_ms());
+        // The same worker serializes history before its next Usage event. Read a
+        // fresh cumulative receipt rather than replaying the pre-history input.
+        let observed = core
+            .json(&["ls"])
+            .ok()
+            .filter(|listed| listed["identities"].is_array())
+            .map(|listed| super::rate::Input::resumes(&listed))
+            .ok_or(());
+        HistoryRead {
+            owner: self.owner,
+            targets: self.targets,
+            seeds,
+            observed,
         }
     }
 }
 
 /// The existing worker's lower-priority work, behind full reloads.
 enum Deferred {
+    Checklist(super::checklist::load::Task),
+    History(HistoryJob),
     HomeLeads(super::home_leads::Fetch),
     Attention(Box<AttentionJob>),
     Cron(Box<super::cronboard::Fetch>),
@@ -407,14 +506,24 @@ fn serve(
         };
         let mut wanted = None;
         let mut selected = None;
+        let mut checklist = Vec::new();
         for work in std::iter::once(received).chain(pending.try_iter()) {
             match work {
+                Work::Checklist(task) => checklist.push(task),
                 Work::Reload(reload) => wanted = Some(reload),
                 Work::Selected {
                     read,
                     revision,
                     generation,
                 } => selected = Some((read, revision, generation)),
+            }
+        }
+        for task in checklist {
+            if !deferred(
+                Deferred::Checklist(task),
+                generation.load(Ordering::Acquire),
+            ) {
+                return;
             }
         }
         let Some(wanted) = wanted else {
@@ -437,15 +546,20 @@ fn serve(
             attention: job,
             cron,
             home_leads,
+            mut history,
         } = load(
             wanted.squad.clone(),
             wanted.generation,
             wanted.preview_panes,
-            last.as_ref()
-                .is_none_or(|(previous, _, _)| previous.squad != wanted.squad),
+            last.as_ref().is_none_or(|(previous, _, _)| {
+                previous.squad != wanted.squad || previous.generation != wanted.generation
+            }),
         );
         if generation.load(Ordering::Acquire) != wanted.generation {
             continue;
+        }
+        if let Some(job) = history.as_mut() {
+            job.cursor = seen.history_cursor();
         }
         // A squad that failed to load keeps the default interval.
         let automatic = snapshot
@@ -491,6 +605,17 @@ fn serve(
             });
         if !publish(snapshot, wanted.generation) {
             break;
+        }
+        if let Some(job) = history
+            && generation.load(Ordering::Acquire) == wanted.generation
+        {
+            if !deferred(Deferred::History(job), wanted.generation) {
+                break;
+            }
+            // Enrichment includes the first fresh usage observation.
+            if let Some((_, every, due)) = sampling.as_mut() {
+                *due = Instant::now() + *every;
+            }
         }
         if let Some(job) = home_leads
             && generation.load(Ordering::Acquire) == wanted.generation
@@ -594,10 +719,10 @@ fn load(
     let mut attention = BTreeMap::new();
     let mut deferred = None;
     let mut home_leads = None;
-    let view = (|| {
+    let mut view = (|| {
         let config = config.as_ref().map_err(Clone::clone)?;
         let me = crate::me::you(crate::me::current(core, config)?, caller);
-        let (mut view, found) = if key == LEADS {
+        let (view, found) = if key == LEADS {
             leads_view(core, tmux, config, &squads, &tabs, me.clone())?
         } else if key == ALL {
             all_view(core, config, &squads, &tabs, me.clone())?
@@ -618,42 +743,6 @@ fn load(
             home_leads = Some(super::home_leads::Fetch::new(home, me));
         }
         attention = found;
-        if opening {
-            let enabled: Vec<_> = view
-                .token_rate
-                .iter()
-                .chain(view.home_rate.values())
-                .filter(|rate| rate.settings.enabled)
-                .collect();
-            let longest = enabled
-                .iter()
-                .map(|rate| rate.settings.windows[2])
-                .max_by_key(|window| window.milliseconds());
-            if let Some(longest) = longest {
-                let ids = enabled
-                    .iter()
-                    .flat_map(|rate| rate.input.resumes.keys().cloned())
-                    .collect();
-                let seeds = super::rate::history::load(core, ids, longest);
-                for rate in view
-                    .token_rate
-                    .iter_mut()
-                    .chain(view.home_rate.values_mut())
-                {
-                    if rate.settings.enabled {
-                        rate.history = Some(
-                            rate.input
-                                .resumes
-                                .keys()
-                                .map(|id| {
-                                    (id.clone(), seeds.get(id).and_then(Option::as_ref).cloned())
-                                })
-                                .collect(),
-                        );
-                    }
-                }
-            }
-        }
         Ok(view)
     })()
     .map_err(|error: crate::core::SquadError| error.to_string());
@@ -670,6 +759,16 @@ fn load(
             me,
             document,
         });
+    let history = opening
+        .then(|| {
+            view.as_ref()
+                .ok()
+                .and_then(|view| HistoryJob::new(&key, view))
+        })
+        .flatten();
+    if let Ok(view) = &mut view {
+        view.history_pending = history.is_some();
+    }
     Loaded {
         snapshot: Snapshot {
             squad_keys: names,
@@ -683,6 +782,7 @@ fn load(
         attention: job,
         home_leads,
         cron,
+        history,
     }
 }
 
@@ -764,6 +864,7 @@ fn squad_view(
         Notes::NotShown
     };
     let view = View {
+        history_pending: false,
         home: None,
         token_rate,
         home_rate: Default::default(),
@@ -831,6 +932,7 @@ fn member_view(
             .collect()
     });
     let view = View {
+        history_pending: false,
         home_replies: config.home_replies()?,
         ask_lead: config.ask_lead("")?,
         token_rate: None,
@@ -881,6 +983,7 @@ fn all_view(
     let (loaded, home, home_rate) = super::home::load(core, config, squads, tabs, me.as_ref())?;
     let bindings = config.bindings_for_tab(ALL, false, &[])?;
     let view = View {
+        history_pending: false,
         home_replies: config.home_replies()?,
         ask_lead: config.ask_lead("")?,
         token_rate: None,
@@ -1007,6 +1110,48 @@ mod tests {
     }
 
     const WAIT: Duration = Duration::from_millis(300);
+
+    #[test]
+    fn checklist_jobs_are_fifo_and_survive_board_read_generation_changes() {
+        let (sender, pending) = mpsc::channel();
+        for serial in 1..=3 {
+            sender
+                .send(Work::Checklist(super::super::checklist::load::Task {
+                    key: super::super::checklist::load::Key {
+                        controller: 9,
+                        serial,
+                        room: None,
+                    },
+                    job: super::super::checklist::load::Job::Ids,
+                }))
+                .unwrap();
+            sender
+                .send(Work::Selected {
+                    read: Some(SelectedRead::Notebook("obsolete".into())),
+                    revision: serial,
+                    generation: 0,
+                })
+                .unwrap();
+        }
+        drop(sender);
+        let mut completed = Vec::new();
+        serve(
+            &pending,
+            |_, _| panic!("no reload"),
+            Duration::from_secs(1),
+            &AtomicU64::new(2),
+            |_| Stamp::cursor(0),
+            |_, _, _, _| panic!("no reload"),
+            |job, _| {
+                let Deferred::Checklist(task) = job else {
+                    panic!("obsolete selected read must not run")
+                };
+                completed.push(task.key.serial);
+                true
+            },
+        );
+        assert_eq!(completed, [1, 2, 3]);
+    }
 
     #[test]
     fn selected_home_message_uses_the_existing_worker_and_read_only_public_api() {
@@ -1929,6 +2074,7 @@ esac
             &AtomicU64::new(0),
             |_| Stamp::cursor(1),
             |_, _, _, _| Loaded {
+                history: None,
                 snapshot: crate::board::app::tests::snapshot("product", json!([])),
                 attention: Some(AttentionJob {
                     config: config.take().unwrap(),
@@ -1950,6 +2096,219 @@ esac
             },
         );
         assert_eq!(*steps.borrow(), ["shown", "cron", "attention"]);
+    }
+
+    #[test]
+    fn coalesced_return_replaces_cancelled_history_but_refresh_does_not_reseed() {
+        use super::super::rate::tests::{fixture_seeds, historical_input, history_fixture};
+        use std::cell::{Cell, RefCell};
+
+        let fixture = history_fixture();
+        // Shift the shared frozen vector into App's wall-clock window without
+        // changing its receipts, deltas or relative bucket boundaries.
+        let offset = crate::status::now_ms() / 5_000 * 5_000 - 25_000;
+        let mut seeds = fixture_seeds(&fixture);
+        for seed in seeds.values_mut().flatten() {
+            seed.from += offset;
+            seed.through += offset;
+            seed.available = seed.available.map(|at| at + offset);
+            seed.sampled = seed.sampled.map(|at| at + offset);
+            let at = seed.latest["consumption"]["observedAtMs"].as_u64().unwrap();
+            seed.latest["consumption"]["observedAtMs"] = json!(at + offset);
+            for bucket in &mut seed.buckets {
+                bucket.from_ms += offset;
+                bucket.to_ms += offset;
+            }
+        }
+        let mut opening = historical_input(&fixture, false);
+        opening
+            .resumes
+            .insert("a".into(), fixture["observations"][0].clone());
+        let mut fresh = historical_input(&fixture, true);
+        for input in [&mut opening, &mut fresh] {
+            let at = input.resumes["a"]["consumption"]["observedAtMs"]
+                .as_u64()
+                .unwrap();
+            input.resumes.get_mut("a").unwrap()["consumption"]["observedAtMs"] = json!(at + offset);
+        }
+        let app = RefCell::new(super::super::app::App::new(Some("product".into())));
+        let generation = Generation::default();
+        let (sender, pending) = mpsc::channel();
+        let request = |squad: &str, generation| {
+            sender
+                .send(Work::Reload(Reload {
+                    squad: Some(squad.into()),
+                    generation,
+                    preview_panes: false,
+                }))
+                .unwrap();
+        };
+        request("product", 0);
+        let loads = Cell::new(0);
+        let stages = RefCell::new(Vec::new());
+        serve(
+            &pending,
+            |snapshot, current| {
+                let mut app = app.borrow_mut();
+                app.apply(snapshot);
+                assert!(!app.loading());
+                assert_eq!(app.current.as_deref(), Some("product"));
+                assert_eq!(app.view.as_ref().unwrap().history_pending, loads.get() < 3);
+                stages.borrow_mut().push(("usable", current));
+                loads.get() < 3
+            },
+            CHECK_EVERY,
+            &generation.number,
+            |_| Stamp::cursor(0),
+            |squad, current, _, opening_history| {
+                loads.set(loads.get() + 1);
+                assert_eq!(
+                    squad.as_deref(),
+                    Some("product"),
+                    "intermediate tab is coalesced"
+                );
+                assert_eq!(current, if loads.get() == 1 { 0 } else { 2 });
+                assert_eq!(opening_history, loads.get() < 3);
+                let mut snapshot = super::super::app::tests::snapshot("product", json!([]));
+                let view = snapshot.view.as_mut().unwrap();
+                view.token_rate = Some(super::super::app::RateView {
+                    settings: crate::config::TokenRate {
+                        enabled: true,
+                        ..Default::default()
+                    },
+                    input: if loads.get() < 3 {
+                        opening.clone()
+                    } else {
+                        fresh.clone()
+                    },
+                    history: None,
+                });
+                view.history_pending = opening_history;
+                let history = opening_history.then(|| HistoryJob::new("product", view).unwrap());
+                let mut loaded = Loaded::only(snapshot);
+                loaded.history = history;
+                loaded
+            },
+            |job, current| {
+                let Deferred::History(job) = job else {
+                    panic!("unexpected deferred job")
+                };
+                stages.borrow_mut().push(("history", current));
+                if current == 0 {
+                    let cancelled = generation.cancellation(current);
+                    let mut app = app.borrow_mut();
+                    app.go("infra".into());
+                    request("infra", generation.advance());
+                    assert!(
+                        !app.apply_history(
+                            HistoryRead {
+                                owner: job.owner.clone(),
+                                targets: job.targets.clone(),
+                                seeds: seeds.clone(),
+                                observed: Ok(fresh.resumes.clone()),
+                            },
+                            Instant::now()
+                        ),
+                        "another owner cannot consume the old seed"
+                    );
+                    app.go("product".into());
+                    request("product", generation.advance());
+                    assert!(
+                        cancelled.cancelled(),
+                        "queued old-owner events remain fenced on return"
+                    );
+                } else {
+                    let mut app = app.borrow_mut();
+                    assert!(app.view.as_ref().unwrap().history_pending);
+                    assert!(app.apply_history(
+                        HistoryRead {
+                            owner: job.owner,
+                            targets: job.targets,
+                            seeds: seeds.clone(),
+                            observed: Ok(fresh.resumes.clone()),
+                        },
+                        Instant::now()
+                    ));
+                    assert!(!app.view.as_ref().unwrap().history_pending);
+                    assert_eq!(
+                        app.meter
+                            .as_ref()
+                            .unwrap()
+                            .member("a", 0, Instant::now())
+                            .unwrap()
+                            .tokens,
+                        30
+                    );
+                    request("product", current);
+                }
+                true
+            },
+        );
+        assert_eq!(loads.get(), 3);
+        assert_eq!(
+            *stages.borrow(),
+            [
+                ("usable", 0),
+                ("history", 0),
+                ("usable", 2),
+                ("history", 2),
+                ("usable", 2),
+            ]
+        );
+    }
+
+    #[test]
+    fn history_follows_usable_snapshot_and_cancelled_opening_never_enriches() {
+        for cancel in [false, true] {
+            let (sender, pending) = mpsc::channel();
+            sender
+                .send(Work::Reload(Reload {
+                    squad: Some("product".into()),
+                    generation: 0,
+                    preview_panes: false,
+                }))
+                .unwrap();
+            drop(sender);
+            let generation = AtomicU64::new(0);
+            let steps = std::cell::RefCell::new(Vec::new());
+            serve(
+                &pending,
+                |snapshot, _| {
+                    assert!(snapshot.view.is_ok());
+                    steps.borrow_mut().push("usable");
+                    if cancel {
+                        generation.store(1, Ordering::Release);
+                    }
+                    true
+                },
+                CHECK_EVERY,
+                &generation,
+                |_| Stamp::cursor(0),
+                |_, _, _, _| {
+                    let mut loaded =
+                        Loaded::only(crate::board::app::tests::snapshot("product", json!([])));
+                    loaded.history = Some(HistoryJob {
+                        owner: "product".into(),
+                        cursor: None,
+                        targets: BTreeMap::new(),
+                    });
+                    loaded
+                },
+                |job, _| {
+                    assert!(matches!(job, Deferred::History(_)));
+                    steps.borrow_mut().push("history");
+                    true
+                },
+            );
+            assert_eq!(
+                *steps.borrow(),
+                if cancel {
+                    vec!["usable"]
+                } else {
+                    vec!["usable", "history"]
+                }
+            );
+        }
     }
     #[test]
     fn squad_leads_and_all_default_to_ctrl_r_refresh_and_keep_their_override_owners() {

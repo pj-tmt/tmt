@@ -12,6 +12,8 @@ mod extension_host;
 mod host_names;
 #[path = "architecture/interaction.rs"]
 mod interaction;
+#[path = "architecture/never_shipped.rs"]
+mod never_shipped;
 #[path = "architecture/output.rs"]
 mod output;
 #[path = "architecture/output_allowlist.rs"]
@@ -58,6 +60,10 @@ const WORKSPACE_MANIFESTS: &[(&str, &str)] = &[
     (
         "tmt-extension-state",
         "rust/crates/tmt-extension-state/Cargo.toml",
+    ),
+    (
+        "tmt-extension-objects",
+        "rust/crates/tmt-extension-objects/Cargo.toml",
     ),
     ("tmt-tui", "rust/crates/tmt-tui/Cargo.toml"),
     (
@@ -188,6 +194,8 @@ fn workspace_obeys_native_architecture() {
     )
     .parent()
     .expect("the Rust workspace has a repository parent");
+    never_shipped::check(repository, &metadata)
+        .expect("never-shipped declarations remain eligible");
     for package in metadata["packages"].as_array().expect("Cargo packages") {
         violations.extend(manifest_location_violation(package, repository));
         violations.extend(policy::dependency_violations(package));

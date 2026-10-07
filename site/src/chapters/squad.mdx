@@ -2,8 +2,9 @@ import { MarkLegend } from "../chapter-scenes/MarkLegend";
 import { Cmd, Code } from "../components/Cmd";
 import { Callout, Caption, KeyList, Lede, More, Tag, Waiting } from "../components/marks";
 import { Spaces, TokenTable } from "../components/samples";
-import { BoardSketch, SplitBoardSketch } from "../demos/board";
-import { BoardDemo, jumpAndTalk, startSquad } from "../demos/BoardDemo";
+import { BoardSketch, SplitBoardSketch, UpdateStatusSketch } from "../demos/board";
+import { BoardDemo, jumpAndTalk, startSquad, updateStatus } from "../demos/BoardDemo";
+import { components as Mdx } from "../components/mdx";
 
 <Lede>
   With more than a couple of agents, keeping track of them becomes the work. Squad hands that job to
@@ -62,27 +63,62 @@ Squad tabs default to **members**, one boxed lead/member list with inline detail
 
 <Caption>Sketch: the default members view, with one boxed list and the lead's notes below.</Caption>
 
-| Key                      | On the selected row                                                                                                                                                                                                                                                    |
-| ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| enter · double-click · ⌫ | `jump` to the member's own screen, and `back` to where you were. A single click only selects a row; clicking a pane, such as the notes, focuses it. This needs a host that can switch panes; see [Jumping between members](/extensions/squad#jumping-between-members). |
-| t · r                    | `talk` to the member, or `reply` to what it's waiting on, through tmt's own `tmt talk` and `tmt answer`. The answer shows up on the board.                                                                                                                             |
-| e · n                    | expand the selected lead or member inline · hide or show the lead's notes.                                                                                                                                                                                             |
-| a                        | `annotate`: send the lead a note about this row (below). In an expanded band, write to that member.                                                                                                                                                                    |
-| o · y                    | `open` the row's pull request or first link · `copy` a status line such as `auth-fix: rotate session tokens (blocked)`. Copy works over SSH too.                                                                                                                       |
-| / · tab · s              | search · next pane · switch to any tab                                                                                                                                                                                                                                 |
-| l · ctrl-r               | choose a view · refresh now. The optional side-pane views also offer **d** to fold detail and replies.                                                                                                                                                                 |
+| Key                      | On the selected row                                                                                                                                                                                                                                                                                                                               |
+| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| enter · double-click · ⌫ | In tmux, Enter or double-click jumps to the member’s screen; Backspace returns. In a plain terminal, Enter or double-click opens the row’s action menu. A single click selects; clicking a pane focuses it. See [Jumping between members](/extensions/squad#jumping-between-members).                                                             |
+| a                        | `write`: one composer for the row. Answer a question waiting on you (choose one first if there are several), otherwise send the lead a note about this row (talk when no lead is available). **Tab** cycles available answer, note, talk and status modes while keeping the message and status drafts; talk sends a request that expects a reply. |
+| t                        | show or hide reply previews, as on HOME.                                                                                                                                                                                                                                                                                                          |
+| e · n                    | expand the selected lead or member inline · hide or show the lead's notes.                                                                                                                                                                                                                                                                        |
+| ,                        | settings: choose **Theme**, **View** or **Token window** (while the meter is on).                                                                                                                                                                                                                                                                 |
+| o · y                    | `open` the row's pull request or first link · `copy` a status line such as `auth-fix: rotate session tokens (blocked)`. Copy works over SSH too.                                                                                                                                                                                                  |
+| / · tab · s              | search · next pane · switch to any tab                                                                                                                                                                                                                                                                                                            |
+| ctrl-r                   | refresh now. The optional side-pane views also offer **d** to fold detail and replies.                                                                                                                                                                                                                                                            |
 
-### Token rate
+These are default keys. `r`, `T`, `l` and `w` have no default binding; reply, theme, view and token-window actions remain bindable. Your own bindings win; `?` lists the effective keys.
 
-The board shows the squad's token rate at the right of the summary line, such as `1.2k tok/s 1m ▂▅▇▃`. It adds up the tokens of requests that finished in the window across members, so it moves in steps as requests finish, not while a model is writing. Press **w** to cycle 5s, 1m (the default), 30m and 1h; until a window has filled, its label shows the time covered so far. `0` means no finished requests, `≥` means some members could not be read, and the meter is hidden when no member reports usage. Members whose driver never reports usage are listed under `?`. The bars show the trend: `▁` is zero and a blank is no data.
+<Mdx.h3 id="update-status">Update status</Mdx.h3>
+
+Use **a → Tab → status** on a lead or member to open **Update status → squad / agent** in the shared band on HOME or a squad tab. These are default keys; your bindings win. Manual `pending` and `state` show exact old and proposed new values; at narrow widths they stack. Use up/down to focus **Clear pending**, **Replace state**, **Reason**, **Apply and notify** or an **Answer request**. The `›` marks every wrapped line of the focused field or action, including without color; `[x]` means a chosen mutation, not keyboard focus. Enter toggles a field choice; type the explicit replacement on its row and the required reason on **Reason**. Neither field is preselected, and clearing pending never infers working. PgUp/PgDn scroll long previews. Tab preserves the message and status drafts; Esc cancels without a further action. The band follows the complete selected row and its task preview, shifting later rows.
+
+**Apply and notify** submits every chosen field together against its exact previewed raw value or absence, including a choice whose proposed value is unchanged. The identity UUID, room, namespace and metadata keys remain fixed. An entirely unchanged selection refuses without an update or announcement. A selected value conflict applies none of the fields, refreshes the preview, clears field choices and requires a new explicit submit. A changed actor, identity, room or metadata namespace refuses the action. Empty or invalid legacy values show an unsupported-value refusal. An unknown apply outcome sends no notification and offers no replay; inspect current metadata before reopening. If the context changes after an applied or unknown outcome, the form retains that outcome and takes no further action.
+
+After a confirmed update, the selected agent receives an attributed announcement with only the changed fields and your reason. It does not require a reply or prove delivery. **Status updated; notification failed** offers **Retry notification only** while acceptance is unresolved. Select that action and press Enter; it retains the same operation and message, and never repeats the metadata change. A settled unavailable recipient cannot be resent from that receipt.
+
+**Requires a reply** stays separate from manual status. **Answer request** opens the existing composer for one identified request; an explicit dismissal is a final reply. Clearing manual fields does not end a request, and answering does not clear unrelated manual status. With several requests, Tab can leave the existing picker for the other modes without choosing an answer target.
+
+<UpdateStatusSketch />
+
+<Caption>
+  Illustrative status band beneath the complete selected row. The non-color `›` focuses Reason while
+  both manual changes are checked; the two unanswered requests remain separate. Example output stays
+  in English.
+</Caption>
+
+<BoardDemo
+  steps={updateStatus}
+  label="Animated Update status example: unchecked fields, explicit choices and reason, conflict and fresh submit, then notification-only retry. Manual changes never answer the two requests. Captions explain the steps."
+/>
+
+<Caption>
+  Illustrative frames of the accepted behavior, not a live board. Use the arrows to inspect each
+  frame; reduced motion shows complete frames.
+</Caption>
+
+<Mdx.h3 id="token-rate">Token windows</Mdx.h3>
+
+The board shows the selected squad's observed completed-request token total and window, such as `1.2k tok 1m`. It combines public core history with this board's observations and updates every 5–10 seconds as requests finish, not while a model writes. Choose **Token window** in the `,` settings menu to cycle the configured windows (1m, 5m and 1h by default). The label names the window and the number is a total, never a per-second rate. `0` is measured zero, `~` marks incomplete coverage, and `–` or `no usage reported yet` means unavailable. Members without reported counters are listed under `?`. The bars show eight observed-token slices: blank means no evidence and `▁` means measured zero. Input plus output counts cached input once; mixed providers report token units, not cost. History coverage is best effort, so incomplete observations are not a measured zero.
+
+This summary meter belongs to named sampling squads; all/leads omit it. HOME uses the shown squads: with data and at least 100 columns it shows window totals and a member share; at 140 columns it adds models and unreported members. No readings means no HOME usage row, while measured zero remains zero.
+
+Set the three ascending windows with `tok = "1m/5m/60m"` under `[board]`, or `[squad.<name>.board]` for one squad; whole minutes/hours from 1m to 24h are allowed. Switching the window is runtime-only and does not write config.
 
 Turn it on or tune it under `[board.token_rate]` for every squad, or `[squad.<name>.board.token_rate]` for one:
 
 <Code>{`
 [board.token_rate]
 enabled = true
-window = "1m"         # 5s, 1m, 30m or 1h
-every = "5s"          # how often it samples, 5s to 10s; the 5s window needs 5s
+window = "1m"         # initial summary window
+every = "5s"          # how often it samples, 5s to 10s
 reduced_motion = false
 `}</Code>
 
@@ -135,7 +171,7 @@ Filters combine fields with `=`, `!=`, `not`, `and`, `or` and parentheses, and `
 
 ### See your settings
 
-Press `,` to see the settings that apply to the current squad or tab (`?` shows the key if you changed it). Each value says where it comes from: a preset, the default, your `squad.toml` (its path is at the top), or tmt's own theme setting. Nothing in this view runs or changes; commands appear as text. Scroll with the arrow keys, j/k, PgUp/PgDn, Home/End or the wheel, and close it with Esc. It shows the settings as they were when you opened it, so reopen it after you edit the file.
+Press `,` to see the settings that apply to the current squad or tab (`?` shows the key if you changed it). The first rows, **Theme**, **View** and **Token window** (while the meter is on), show their current values. Theme and View open their pickers; Token window cycles in place. Each value says where it comes from: a preset, the default, your `squad.toml` (its path is at the top), or tmt's own theme setting. Command entries appear as text and never run from this menu. Scroll with the arrow keys, j/k, PgUp/PgDn, Home/End or the wheel, and close it with Esc. It shows the settings as they were when you opened it, so reopen it after you edit the file.
 
 `tmt sq config show` prints the same from the command line: board defaults on its own, one squad with `--squad product`, or one tab with `--tab all` (or `leads`, or a tab you named). Use one of the two flags at a time. `--json` gives the full values and where each comes from.
 
@@ -175,17 +211,17 @@ $ tmt sq view rm --squad product             # inherit the arrangement
 
 A hand-written `board.layout` or `panes` for a squad always wins, then that squad's `view`, then `[board] view`, then the `members` default. Existing simple direction/sizes configurations without a named view keep their pane preset. `view set` changes only the `view` key and refuses a file that changed meanwhile; with `--squad` it also refuses a hand-written layout, so remove that yourself first. `view rm` removes only `view`, so custom layouts and folds stay. Folds you make by hand keep their usual session rules.
 
-Press **l** on the board to pick a view. Moving through the list previews each one live; **Tab** switches between all boards and this squad, **Enter** saves, and **Esc** puts back what you had without writing anything. The `default` entry shows what you would inherit and removes only your choice. The leads and home tabs retain their fixed composition; views apply to squad tabs.
+Open the `,` settings menu and choose **View** to pick a view. Moving through the list previews each one live; **Tab** switches between all boards and this squad, **Enter** saves, and **Esc** puts back what you had without writing anything. The `default` entry shows what you would inherit and removes only your choice. The leads and home tabs retain their fixed composition; views apply to squad tabs.
 
-A squad with a hand-written `board.layout` or `panes` shows a `custom` entry. You can preview views there, but saving for that squad is refused until you remove those keys from `squad.toml`. A choice for all boards still saves, and that squad keeps its custom layout. The help lists the effective view and theme bindings.
+A squad with a hand-written `board.layout` or `panes` shows a `custom` entry. You can preview views there, but saving for that squad is refused until you remove those keys from `squad.toml`. A choice for all boards still saves, and that squad keeps its custom layout. The help lists any view and theme keys you bind yourself.
 
 ### Boxed squad members
 
 Squad tabs default to one boxed list: the lead first with its `lead` tag, then `── members · N ──`. Each member has a mark/name/state/model/age line and a task line. Waiting members (`◆`) come first, oldest questions first; other exchanges follow newest first, and members without exchanges sort by name. The lead stays first and authored sections keep their positions.
 
-Press **e** on a lead or member to replace its task preview with the shared band. It shows the available waits-on-you question, task, links and latest reply with age. **e** or **Esc** collapses it, **a** writes to that member, and **o** opens its PR or link. Arrow keys/j/k and PgUp/PgDn scroll long details without moving the row cursor. Reading needs no recorded user; writing needs `tmt sq me`. There is one band at a time. The lead's notes remain below the list; **n** hides or shows them.
+Press **e** on a lead or member to replace its task preview with the shared band. It shows the available waits-on-you question, task, links and latest reply with age. **e** or **Esc** collapses it, **a** opens the same answer/note/talk/status composer for that row, and **o** opens its PR or link. Arrow keys/j/k and PgUp/PgDn scroll long details without moving the row cursor. Reading needs no recorded user; writing needs `tmt sq me`. There is one band at a time. The lead's notes remain below the list; **n** hides or shows them.
 
-Choose `team` with **l**, or edit `board.view` to `team` in **,** settings, for the previous detail/replies side panes. Choose `members` to restore the boxed list. A custom `board.layout` or `panes` keeps its configured composition.
+Choose `team` from **,** settings → **View** for the previous detail/replies side panes. Choose `members` to restore the boxed list. A custom `board.layout` or `panes` keeps its configured composition.
 
 ### Panes: rows, notes and replies
 
@@ -203,7 +239,7 @@ A notebook can also link to board actions: `tmt:jump/<member>`, `tmt:open/<membe
 
 The detail pane shows the selected member's own notebook below its fields, read-only, with the same Markdown styles as lead notes. Saved members without a notebook show `(no notes yet)`; temporary members show `(temporary identity: no notebook)`. Every member should keep the same short **Current state** section at the top of their notebook. The leads and all tabs remain rows only.
 
-In split mode, press **d** to fold or unfold detail and replies together (if either is open, both fold). Click a pane's title to toggle just that one. The footer shows the state: `d detail+replies ▾` (open) or `d detail+replies ▸` (folded). A folded pane shrinks to its `▸ name` title and its neighbours take the space; unfolding brings back the sizes you set. Tab skips folded panes. Folds last for the session, per squad, and never change your config; a manual fold wins over automatic narrow-width folding. Tabs mode doesn't fold.
+In split mode, press **d** to fold or unfold detail and replies together (if either is open, both fold). Click a pane's title to toggle just that one. The `d` binding appears in `?` help; folded panes show a `▸ name` title. A folded pane shrinks to its `▸ name` title and its neighbours take the space; unfolding brings back the sizes you set. Tab skips folded panes. Folds last for the session, per squad, and never change your config; a manual fold wins over automatic narrow-width folding. Tabs mode doesn't fold.
 
 To start with a pane folded, add `collapsed = ["detail"]` under `[squad.product.board]`. To toggle other panes with a key, bind it, such as `D = "toggle notes"` or `d = "toggle detail replies"`; pane names must be known and unique.
 
@@ -211,7 +247,7 @@ To start with a pane folded, add `collapsed = ["detail"]` under `[squad.product.
 
 <Caption>Sketch: rows and notes side by side, with an annotation being typed.</Caption>
 
-- **Annotate a row.** Press `a` and type. The note goes to the lead, tagged with the row, for example `[product · auth-fix] keep old tokens valid for a day`. The row shows `✎ sent to sol` until the lead answers, so you can see what you've raised and what's still open. The lead decides what to do with it: update the board, add it to its notes, or pass it to the member.
+- **Annotate a row.** Press `a`, use Tab to choose note mode if it opens an answer, and type. The note goes to the lead, tagged with the row, for example `[product · auth-fix] keep old tokens valid for a day`. The row shows `✎ sent to sol` until the lead answers, so you can see what you've raised and what's still open. The lead decides what to do with it: update the board, add it to its notes, or pass it to the member.
 - **Member context.** Use `task=` for what a member is doing and `pending=` for what it waits on you for; longer context goes in the member's own notebook (`tmt notes path --identity <member>`). A note set by an older version is hidden, and `note=` with an empty value clears it.
 - **Detail shows every column.** Besides the member's task and links, the detail pane lists the full value of every other board column, in column order. Long values wrap instead of being cut; a failed field shows `?` and a missing value `–`.
 - **Notes read like notes.** The notes pane renders common Markdown: headings, lists, bold and italic, inline code and links. Anything else shows as plain text. Lines wrap to the pane, wide characters like Chinese stay aligned, and terminal escape codes are removed. You never edit the lead's notes from the board, so they keep one author.
@@ -374,7 +410,7 @@ $ tmt sq theme set mono --squad product   # one squad's board
 $ tmt sq theme rm --squad product         # follow the board again; your color tweaks stay
 `}</Cmd>
 
-Or press **T** on the board: ↑ and ↓ preview each theme live, **Tab** switches between every board and this squad, **Enter** saves and **Esc** cancels. Either way the choice goes into `squad.toml`, as `[board.theme]` for every board or `[squad.<name>.theme]` for one squad, and the rest of the file stays as it was. A squad's own theme wins over the board's, which wins over the command line's. Each layer can also override single tokens, with the same keys as `config.json`.
+Or choose **Theme** in the `,` settings menu: ↑ and ↓ preview each theme live, **Tab** switches between every board and this squad, **Enter** saves and **Esc** cancels. Either way the choice goes into `squad.toml`, as `[board.theme]` for every board or `[squad.<name>.theme]` for one squad, and the rest of the file stays as it was. A squad's own theme wins over the board's, which wins over the command line's. Each layer can also override single tokens, with the same keys as `config.json`.
 
 **auto** matches your terminal each time the board opens. It reads the `COLORFGBG` variable that many terminals set; without it, the board asks the terminal for its background color. A light background gets **tmt-light**, a dark one gets **tmt**, and when the terminal doesn't answer the board uses **tmt**. The question lasts at most a tenth of a second, so a key you press in that moment is dropped. Listing themes never asks: `tmt sq theme` shows `auto` as `matches the terminal when the board opens`, or as `auto (tmt-light)` or `auto (tmt)` when `COLORFGBG` already says. A theme you choose by name always wins over `auto`.
 
@@ -443,9 +479,9 @@ To reach a lead without opening the board, `tmt sq jump --lead` jumps to the lea
 $ tmt sq add auth-fix docs-sweep      # agents already running, however they started
 $ tmt sq set auth-fix state=review    # what leads do to keep the board current; field= clears
 $ tmt sq ls                           # the member list; --json for scripts
-$ tmt talk auth-fix "…" --detach      # the board's t, from the command line
-$ tmt answer auth-fix "use postgres"  # the board's r: what it's waiting on you for
-$ tmt sq annotate auth-fix "split this job"   # the board's a
+$ tmt talk auth-fix "…" --detach      # the composer's talk mode, from the command line
+$ tmt answer auth-fix "use postgres"  # the composer's answer mode, from the command line
+$ tmt sq annotate auth-fix "split this job"   # the composer's note mode, from the command line
 $ tmt sq jump auth-fix                # and tmt sq back
 $ tmt sq jump --lead                  # your squad's lead
 $ tmt sq rm auth-fix                  # leaves the squad; the agent keeps running

@@ -15,6 +15,7 @@ pub mod keyring;
 pub mod limits;
 pub mod management;
 pub mod page;
+pub mod publication;
 pub mod readers;
 pub mod registration;
 pub mod settings;

@@ -12,13 +12,15 @@ import {
 import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { describe, expect, it } from 'vite-plus/test';
 import { readCargoWorkspace } from '../../scripts/cargo-workspace.mjs';
 import {
   parseComponentMap,
   releasedComponentsForPath,
   selectCiAreas,
+  ownerOf,
+  selectNativeScope,
 } from '../../scripts/ci-scope.mjs';
 import {
   affectedProducts,
@@ -30,9 +32,74 @@ import {
 import { attributeCutCommits } from '../../scripts/release-cut.mjs';
 
 const root = fileURLToPath(new URL('../../../', import.meta.url));
+const { productOfComponent } = (await import(
+  pathToFileURL(`${root}typescript/scripts/native-release-policy.mjs`).href
+)) as { productOfComponent: (name: string) => string };
 const source = readFileSync(`${root}.github/components.json`, 'utf8');
 const map = parseComponentMap(source);
 const workspace = readCargoWorkspace(root);
+
+describe('Project-only never-shipped declarations', () => {
+  it('preserves ownership, CI scope and cuts for the current map', () => {
+    const original = JSON.parse(source);
+    for (const component of Object.values(original.components) as Record<string, unknown>[]) {
+      delete component.neverShippedPaths;
+      delete component.generatedInputs;
+    }
+    const base = parseComponentMap(JSON.stringify(original));
+    const files = runGitFiles();
+    const paths = [...files, 'unmapped/input', 'extensions/tmt-colab/rust/tmt-colab/new-input'];
+    for (const path of paths) {
+      expect(ownerOf(path, map), path).toBe(ownerOf(path, base));
+      expect(selectCiAreas([path], map), path).toEqual(selectCiAreas([path], base));
+      expect(selectNativeScope([path], map), path).toBe(selectNativeScope([path], base));
+    }
+    const commits = [{ sha: 'a'.repeat(40), message: 'fix: changed input', files: paths }];
+    for (const component of map.components.filter(
+      (component) => component.package && component.release !== false
+    )) {
+      expect(
+        attributeCutCommits(commits, map, productOfComponent(component.name), workspace)
+      ).toEqual(attributeCutCommits(commits, base, productOfComponent(component.name), workspace));
+    }
+  });
+
+  it.each([
+    ['empty root', { root: '' }],
+    ['absolute root', { root: '/tmp/tests' }],
+    ['parent traversal', { root: 'rust/../tests' }],
+    ['glob', { root: 'rust/**' }],
+    ['backslash', { root: 'rust\\tests' }],
+    ['empty reason', { reason: ' ' }],
+  ])('refuses %s', (_label, patch) => {
+    const invalid = JSON.parse(source);
+    Object.assign(invalid.components.cli.neverShippedPaths[0], patch);
+    expect(() => parseComponentMap(JSON.stringify(invalid))).toThrow();
+  });
+
+  it('keeps actual skills, build, app, dependency and undeclared inputs attributed', () => {
+    for (const path of [
+      'extensions/tmt-colab/skills/tmt-colab/SKILL.md',
+      'extensions/tmt-colab/skills/tmt-colab/references/future.md',
+      'extensions/tmt-colab/rust/tmt-colab/build.rs',
+      'extensions/tmt-colab/rust/tmt-colab/Cargo.toml',
+      'extensions/tmt-colab/rust/tmt-colab/src/main.rs',
+      'extensions/tmt-colab/typescript/app/src/main.ts',
+      'extensions/tmt-colab/typescript/colab-client/src/index.ts',
+      'extensions/tmt-colab/rust/tmt-colab-model/src/lib.rs',
+    ])
+      expect(affectedProducts([path], map, workspace).products, path).toContain('colab');
+    expect(
+      affectedProducts(['rust/crates/tmt-invoke/src/lib.rs'], map, workspace).products
+    ).toContain('colab');
+  });
+});
+
+function runGitFiles(): string[] {
+  const result = spawnSync('git', ['ls-files', '-z'], { cwd: root, encoding: 'utf8' });
+  expect(result.status, result.stderr).toBe(0);
+  return result.stdout.split('\0').filter(Boolean);
+}
 const sha = 'a'.repeat(40);
 const office = (name: string) => `extensions/tmt-office/rust/tmt-office-${name}/src/lib.rs`;
 
@@ -334,3 +401,84 @@ it.each([false, true])(
   },
   70_000
 );
+
+describe('extension objects leaf attribution', () => {
+  const leaf = 'rust/crates/tmt-extension-objects';
+  const sources = `${leaf}/src/lib.rs`;
+  const members = {
+    'tmt-cli': 'rust/crates/tmt-cli',
+    'tmt-remote': 'extensions/tmt-remote/rust/tmt-remote',
+    'tmt-colab': 'extensions/tmt-colab/rust/tmt-colab',
+    'tmt-office': 'extensions/tmt-office/rust/tmt-office',
+    'tmt-squad': 'stubs/tmt-squad',
+    'tmt-driver-herdr': 'rust/crates/tmt-driver-herdr',
+    'tmt-extension-objects': leaf,
+  };
+  type Edge = [consumer: string, kind: 'normal' | 'build' | 'dev'];
+  // Synthetic `cargo metadata`: each edge is a consumer's dependency on the leaf.
+  const worldOf = (edges: Edge[]) =>
+    readCargoWorkspace('/world', {
+      runner: () =>
+        JSON.stringify({
+          workspace_members: Object.keys(members),
+          packages: Object.entries(members).map(([name, dir]) => ({
+            id: name,
+            name,
+            version: '0.0.0',
+            manifest_path: `/world/${dir}/Cargo.toml`,
+            targets: [],
+            dependencies: edges
+              .filter(([consumer]) => consumer === name)
+              .map(([, kind]) => ({
+                path: `/world/${leaf}`,
+                kind: kind === 'normal' ? null : kind,
+              })),
+          })),
+        }),
+    });
+  const productsOf = (path: string, edges: Edge[]) =>
+    affectedProducts([path], map, worldOf(edges)).products;
+  const cutsOf = (path: string, product: string, edges: Edge[]) =>
+    attributeCutCommits(
+      [{ sha, message: 'fix: leaf', files: [path] }],
+      map,
+      product,
+      worldOf(edges)
+    ).length;
+
+  const rows: [string, Edge[], string[], Record<string, number>][] = [
+    ['no consumer', [], ['remote'], { remote: 0, colab: 0, cli: 0 }],
+    ['Remote normal', [['tmt-remote', 'normal']], ['remote'], { remote: 1, colab: 0, cli: 0 }],
+    ['Remote build', [['tmt-remote', 'build']], ['remote'], { remote: 1, colab: 0, cli: 0 }],
+    [
+      'Remote and Colab',
+      [
+        ['tmt-remote', 'normal'],
+        ['tmt-colab', 'normal'],
+      ],
+      ['colab', 'remote'],
+      { remote: 1, colab: 1, cli: 0 },
+    ],
+    [
+      'Colab build only',
+      [['tmt-colab', 'build']],
+      ['colab', 'remote'],
+      { remote: 0, colab: 1, cli: 0 },
+    ],
+    ['dev-only Colab', [['tmt-colab', 'dev']], ['remote'], { remote: 0, colab: 0, cli: 0 }],
+  ];
+  it.each(rows)('attributes the leaf with %s', (_name, edges, products, cuts) => {
+    expect(productsOf(sources, edges)).toEqual(products);
+    for (const [product, count] of Object.entries(cuts))
+      expect(cutsOf(sources, product, edges), product).toBe(count);
+  });
+
+  it('keeps a prefix-sharing path with CLI and releases the real workspace leaf with Remote alone', () => {
+    expect(productsOf(`${leaf}-other/src/lib.rs`, [['tmt-colab', 'normal']])).toEqual(['cli']);
+    expect(affectedProducts([sources], map, workspace).products).toEqual(['remote']);
+    // Remote's object service is the leaf's only consumer, so a leaf change releases Remote.
+    expect(
+      releasedComponentsForPath(sources, map, workspace).map((component) => component.name)
+    ).toEqual(['tmt-remote']);
+  });
+});

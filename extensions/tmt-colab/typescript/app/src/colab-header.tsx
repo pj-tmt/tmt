@@ -1,8 +1,9 @@
 import type { ReactNode, Ref } from 'react';
+import { BrowserHeader } from '@tmt/browser-ui/react';
 import { text } from './strings.js';
 import './colab-header.css';
 
-/** Shared chrome; screens supply content, never header geometry or typography. */
+/** Colab supplies routing, disclosure and content to the shared presentation. */
 export function ColabHeader({
   title,
   actions,
@@ -16,19 +17,16 @@ export function ColabHeader({
   headerRef?: Ref<HTMLElement>;
   menuOpen?: boolean;
 }) {
-  const brand = (
-    <>
-      <span className="colab-mark">tmt</span>
-      <span className="colab-wordmark">{text.product}</span>
-    </>
-  );
   return (
-    <header className="colab-header" ref={headerRef} data-menu-open={menuOpen}>
-      {home ? home(brand) : <span className="colab-brand">{brand}</span>}
-      <h1 className="colab-title" title={title}>
-        {title}
-      </h1>
-      <div className="colab-actions">{actions}</div>
-    </header>
+    <BrowserHeader
+      productLabel={text.product}
+      title={title}
+      brandLink={home}
+      actions={actions ?? <></>}
+      headerRef={headerRef}
+      disclosure={
+        menuOpen === undefined ? undefined : { attribute: 'data-menu-open', open: menuOpen }
+      }
+    />
   );
 }

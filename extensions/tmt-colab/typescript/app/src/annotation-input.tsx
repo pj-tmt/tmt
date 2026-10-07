@@ -1,42 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
-import { Listbox } from './components/listbox.js';
+import { MessageComposer } from './components/message-composer.js';
+import type { ComposerEdit, RecipientKey } from './components/message-composer-edit.js';
+import { messageRecipient } from './message-recipient.js';
+import { text } from './strings.js';
 import type { AskBinding, PageAsk } from './ask-panel.js';
 import type { AgentDestination } from './live-ask.js';
 import type { ThreadBinding } from './thread-store.js';
-import { captureConversation } from './thread-store.js';
+import { captureConversation, conversationAsks } from './thread-store.js';
 import type { DiscussionRef, QuoteSelector, ThreadView } from './thread-records.js';
-
-export function publishingDestination(agents: readonly AgentDestination[], publisher?: string) {
-  const matches = agents.filter(
-    (agent) =>
-      agent.agentName === publisher && agent.online === 'online' && agent.presence !== 'offline',
-  );
-  return matches.length === 1 ? matches[0] : undefined;
-}
-/** The one agent a chat can reach without asking: exactly one is online. */
-function soleDestination(agents: readonly AgentDestination[]) {
-  const reachable = agents.filter(
-    (agent) => agent.online === 'online' && agent.presence !== 'offline',
-  );
-  return reachable.length === 1 ? reachable[0] : undefined;
-}
-function destinationKey(agent: AgentDestination) {
-  return `${agent.machine}:${agent.agent}`;
-}
-export function mentionedDestination(
-  value: string,
-  agents: readonly AgentDestination[],
-  selected?: string,
-) {
-  const matches = agents.filter(
-    (agent) =>
-      value.startsWith(`@${agent.agentName}`) &&
-      /^\s/.test(value.slice(agent.agentName.length + 1)),
-  );
-  const longest = Math.max(0, ...matches.map((agent) => agent.agentName.length));
-  const exact = matches.filter((agent) => agent.agentName.length === longest);
-  return exact.length === 1 ? exact[0] : exact.find((agent) => destinationKey(agent) === selected);
-}
 
 /** One trusted input. Enter is the explicit effect; disclosure never prepares or sends an intent. */
 export function AnnotationInput({
@@ -46,9 +17,9 @@ export function AnnotationInput({
   thread,
   asks,
   title,
-  publisher,
   replier,
   initialValue,
+  initialEdit,
   onDraft,
   onBusy,
   blocked,
@@ -62,13 +33,13 @@ export function AnnotationInput({
   thread?: ThreadView;
   asks: readonly PageAsk[];
   title: string;
-  publisher?: string;
   /** Chat only: the agent that answered last. */
-  replier?: string;
+  replier?: RecipientKey;
   /** A draft kept from an earlier close of the same selection. */
   initialValue?: string;
+  initialEdit?: ComposerEdit;
   /** Reports every value, so the owner can keep an unsent draft. */
-  onDraft?(value: string): void;
+  onDraft?(value: string, edit: ComposerEdit): void;
   /** Reports a send in flight, which nothing outside may interrupt. */
   onBusy?(busy: boolean): void;
   blocked: boolean;
@@ -76,16 +47,14 @@ export function AnnotationInput({
   committed(ref: DiscussionRef): void;
   chat?: boolean;
 }) {
-  const inputElement = useRef<HTMLTextAreaElement | null>(null);
-  const [agents, setAgents] = useState<AgentDestination[]>([]);
-  const [value, setValue] = useState(initialValue ?? '');
-  const [selected, setSelected] = useState<string>();
-  const [open, setOpen] = useState(false);
+  const [agents, setAgents] = useState<AgentDestination[]>();
+  const [edit, setEdit] = useState<ComposerEdit>(initialEdit ?? { value: initialValue ?? '' });
+  const value = edit.value;
+  const [resetKey, setResetKey] = useState(0);
   const [busy, setBusy] = useState(false);
   const sending = useRef(false);
-  const dirty = useRef(initialValue !== undefined);
-  const wasBusy = useRef(false);
   const [error, setError] = useState<string>();
+  const [discoveryFailed, setDiscoveryFailed] = useState(false);
   const [recorded, setRecorded] = useState<DiscussionRef>();
   useEffect(() => {
     let active = true;
@@ -94,73 +63,63 @@ export function AnnotationInput({
       (destinations) => {
         if (!active) return;
         setAgents(destinations);
-        const target =
-          (chat && replier ? publishingDestination(destinations, replier) : undefined) ??
-          publishingDestination(destinations, publisher) ??
-          (chat ? soleDestination(destinations) : undefined);
-        if (target && !dirty.current) {
-          setSelected(destinationKey(target));
-          setValue(`@${target.agentName} `);
-        }
+        setDiscoveryFailed(false);
       },
       () => {
-        if (active) setError('Agents are unavailable.');
+        if (active) {
+          setAgents(undefined);
+          setDiscoveryFailed(true);
+        }
       },
     );
     return () => {
       active = false;
     };
-  }, [binding, publisher, replier, chat]);
-  useEffect(() => onDraft?.(value), [value]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [binding]);
+  useEffect(() => onDraft?.(value, edit), [value, edit]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => onBusy?.(busy), [busy]); // eslint-disable-line react-hooks/exhaustive-deps
-  useEffect(() => {
-    if (!dirty.current && inputElement.current) {
-      inputElement.current.setSelectionRange(value.length, value.length);
-    }
-  }, [value]);
-  useEffect(() => {
-    const completed = wasBusy.current && !busy;
-    wasBusy.current = busy;
-    const input = inputElement.current;
-    if (
-      chat &&
-      completed &&
-      !blocked &&
-      !recorded &&
-      input &&
-      input.closest('dialog[open]') &&
-      document.activeElement === document.body
-    )
-      input.focus({ preventScroll: true });
-  }, [busy, chat, blocked, recorded]);
-  const destination = mentionedDestination(value, agents, selected);
+  const prior = conversationAsks(thread, asks)
+    .filter((ask) => ask.reply !== undefined)
+    .map((ask) => ({ machine: ask.machine, agent: ask.agent }));
+  const decide = (intent: 'comment' | 'agent') =>
+    messageRecipient({
+      writable: !blocked && !!discussion,
+      intent,
+      destinations: agents,
+      selected: edit.recipient,
+      replyRecipients: chat ? [] : prior,
+      lastReplier: replier,
+    });
+  const decision = decide('agent');
+  const destination = decision.kind === 'agent' ? decision.destination : undefined;
   const quote = thread?.anchor?.exact ?? anchor?.exact ?? '';
-  const query = /^@([^\n]*)$/.exec(value)?.[1] ?? '';
-  const options = agents
-    .filter((agent) => agent.agentName.toLowerCase().startsWith(query.toLowerCase()))
-    .map((agent) => ({
-      value: destinationKey(agent),
-      label: `@${agent.agentName} · ${agent.machineName}`,
-      disabled: agent.online === 'offline' || agent.presence === 'offline',
-    }));
-  async function send() {
+  const defaultIntent = chat || prior.length || edit.recipient ? 'agent' : 'comment';
+  function clearDraft() {
+    setEdit((previous) => ({ value: '', recipient: previous.recipient }));
+    setResetKey((key) => key + 1);
+  }
+  async function send(intent: 'comment' | 'agent') {
     if (sending.current || recorded) return;
-    if (blocked || !binding || !discussion) {
-      setError('Sending is unavailable right now.');
+    const admitted = decide(intent);
+    if (admitted.kind === 'blocked' || !discussion || (intent === 'agent' && !binding)) {
+      setError(text.messageUnavailable);
       return;
     }
-    if (!destination) {
-      setError('Add @agent to choose who gets this');
-      if (options.length > 0) setOpen(true);
+    if (intent === 'agent' && admitted.kind !== 'agent') {
+      setError(
+        decision.kind === 'unavailable'
+          ? text.messageAgentsUnavailable
+          : text.messageChooseRecipient,
+      );
       return;
     }
-    if (!value.slice(destination.agentName.length + 1).trim()) {
-      setError(`Write a message for @${destination.agentName}`);
+    if (!value.trim()) {
+      setError(text.messageWrite);
       return;
     }
     const captured = {
       value,
-      destination: structuredClone(destination),
+      destination: admitted.kind === 'agent' ? structuredClone(admitted.destination) : undefined,
       anchor: structuredClone(anchor),
       thread: thread?.ref,
       threadRevision: thread?.revision,
@@ -178,27 +137,25 @@ export function AnnotationInput({
         : chat
           ? await discussion.createChat(captured.value)
           : await discussion.create(captured.value, captured.anchor);
-      const attempt = await binding.prepare({
-        quote,
-        comment: captured.value,
-        title: captured.title,
-        url: captured.url,
-        destination: captured.destination,
-        context: { ...origin, conversation: captured.conversation },
-      });
-      const outcome = await attempt.send();
-      if (!['accepted', 'held', 'uncertain'].includes(outcome.state))
-        setError(`Send ${outcome.state}. The recorded turn was kept.`);
-      setValue(chat ? `@${captured.destination.agentName} ` : '');
+      if (captured.destination && binding) {
+        const attempt = await binding.prepare({
+          quote,
+          comment: captured.value,
+          title: captured.title,
+          url: captured.url,
+          destination: captured.destination,
+          context: { ...origin, conversation: captured.conversation },
+        });
+        const outcome = await attempt.send();
+        if (!['accepted', 'held', 'uncertain'].includes(outcome.state))
+          setError(text.messageRecordedDeliveryFailed);
+      }
+      clearDraft();
       committed(origin.thread);
     } catch {
-      setError(
-        origin
-          ? 'The turn was recorded, but delivery is unavailable or uncertain. Check the thread before sending again.'
-          : 'The turn could not be recorded.',
-      );
+      setError(origin ? text.messageRecordedUncertain : text.messageRecordFailed);
       if (origin) {
-        setValue('');
+        clearDraft();
         setRecorded(origin.thread);
       }
     } finally {
@@ -208,63 +165,64 @@ export function AnnotationInput({
   }
   return (
     <section className="annotation-compose" data-testid="annotation-compose">
-      <Listbox
-        label="Message to agent"
-        options={options}
-        value={selected ?? ''}
-        disabled={busy || blocked || !!recorded}
-        onChange={(key) => {
-          const agent = agents.find((candidate) => destinationKey(candidate) === key);
-          if (agent) {
-            dirty.current = true;
-            setSelected(key);
-            setValue(`@${agent.agentName} `);
-            setOpen(false);
-          }
+      <MessageComposer
+        edit={edit}
+        onChange={(next) => {
+          setEdit(next);
+          setError(undefined);
         }}
-        inputTrigger={{
-          open: open && options.length > 0 && !busy && !blocked && !recorded,
-          onOpenChange: setOpen,
-          render: (props) => (
-            <textarea
-              {...props}
-              ref={(node) => {
-                inputElement.current = node;
-                if (typeof props.ref === 'function') props.ref(node);
-              }}
-              autoFocus
-              rows={3}
-              value={value}
-              disabled={busy || blocked || !!recorded || !binding || !discussion}
-              placeholder="@agent Write a message…"
-              onChange={(event) => {
-                dirty.current = true;
-                setValue(event.target.value);
-                setError(undefined);
-                setOpen(/^@[^\s]*$/.test(event.target.value));
-              }}
-              onKeyDown={(event) => {
-                // keyCode 229 is the Enter that ends a composition in browsers that report it after compositionend.
-                if (!event.isTrusted || event.nativeEvent.isComposing || event.keyCode === 229)
-                  return;
-                props.onKeyDown?.(event);
-                if (event.defaultPrevented) return;
-                if (event.key === 'Enter' && !event.shiftKey) {
-                  event.preventDefault();
-                  void send();
-                } else if (event.key === 'Escape' && !sending.current) {
-                  event.preventDefault();
-                  event.stopPropagation();
-                  cancel();
-                }
-              }}
-            />
-          ),
+        label={text.messageLabel}
+        placeholder={text.messagePlaceholder}
+        candidates={agents}
+        recipientPickerLabel={
+          destination ? text.messageChangeRecipient : text.messageSelectRecipient
+        }
+        resetKey={resetKey}
+        autoFocus
+        disabled={busy || blocked || !!recorded || !discussion}
+        onSubmit={(event) => {
+          if (event.isTrusted && !event.isComposing && event.keyCode !== 229)
+            void send(defaultIntent);
+        }}
+        onCancel={(event) => {
+          if (event.isTrusted && !event.isComposing && event.keyCode !== 229 && !sending.current)
+            cancel();
         }}
       />
-      <p className="annotation-hint">
-        {busy ? 'Sending…' : 'Enter sends · Shift+Enter adds a line · Esc closes'}
-      </p>
+      <p className="annotation-hint">{busy ? text.messageSending : text.messageKeys}</p>
+      {destination && (
+        <p className="annotation-hint">
+          {text.messageRecipient}: {destination.agentName} · {destination.machineName}
+        </p>
+      )}
+      {discoveryFailed && (
+        <p role="status">
+          {text.messageAgentsUnavailable}
+          {!chat && <> {text.messageCommentAvailable}</>}
+        </p>
+      )}
+      <div className="comment-actions">
+        {!chat && (
+          <button
+            type="button"
+            disabled={busy || blocked || !!recorded || !discussion || !value.trim()}
+            onClick={(event) => {
+              if (event.isTrusted) void send('comment');
+            }}
+          >
+            {thread ? text.commentPostReply : text.commentPost}
+          </button>
+        )}
+        <button
+          type="button"
+          disabled={busy || blocked || !!recorded || !discussion || !binding || !value.trim()}
+          onClick={(event) => {
+            if (event.isTrusted) void send('agent');
+          }}
+        >
+          {chat ? text.askSend : text.ask}
+        </button>
+      </div>
       {error && <p role="alert">{error}</p>}
       {recorded && (chat || !thread) && (
         <button
@@ -274,12 +232,12 @@ export function AnnotationInput({
               if (chat) {
                 setRecorded(undefined);
                 setError(undefined);
-                setValue(destination ? `@${destination.agentName} ` : '');
+                clearDraft();
               } else committed(recorded);
             }
           }}
         >
-          {chat ? 'Write another message' : 'Open recorded thread'}
+          {chat ? text.messageAnother : text.messageOpenRecorded}
         </button>
       )}
     </section>

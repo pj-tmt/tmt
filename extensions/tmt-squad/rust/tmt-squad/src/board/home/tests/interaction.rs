@@ -1,7 +1,7 @@
 use super::*;
 use crate::action::Action;
 use crate::board::{
-    app::{App, Effect, Request, Snapshot},
+    app::{App, Compose, Effect, Request, Snapshot},
     home::paint,
 };
 use ratatui::{
@@ -12,6 +12,7 @@ use ratatui::{
     widgets::Paragraph,
 };
 use tmt_cli_style::breakpoint::{LG, MD};
+use unicode_width::UnicodeWidthStr;
 
 pub(super) fn press(app: &mut App, key: KeyCode) -> Effect {
     app.key(KeyEvent::new(key, KeyModifiers::NONE))
@@ -54,9 +55,15 @@ fn home_footer_keeps_search_after_row_actions_when_it_fits() {
     for width in [160, 100, 80] {
         let hints = paint::hints(width, false);
         assert!(unicode_width::UnicodeWidthStr::width(hints.as_str()) <= width);
-        assert!(hints.contains("t replies"), "{width}: {hints}");
+        // The key line keeps to the keys that matter; `t` and the rest are in help.
+        assert!(!hints.contains("t replies"), "{width}: {hints}");
         if width >= 100 {
-            assert!(hints.contains("t replies  / search"), "{width}: {hints}");
+            assert!(
+                hints.starts_with(
+                    "Focus: HOME rows  ↑↓ move  ⏎ open  a write  e expand  A ask lead  / search"
+                ),
+                "{width}: {hints}"
+            );
         }
     }
 }
@@ -513,7 +520,7 @@ fn middle_home_row_composes_inline_and_success_survives_answer_refresh() {
                 .chunks(usize::from(width))
                 .map(|cells| cells.iter().map(|cell| cell.symbol()).collect::<String>())
                 .collect::<Vec<_>>();
-            assert!(lines[usize::from(band.y + 1)].contains("→ worker-2 (a)"));
+            assert!(lines[usize::from(band.y + 1)].contains("→ worker-2 (a) · answer"));
             assert!(lines[usize::from(band.y + 2)].contains("◆ “Should this decision proceed?”"));
             assert!(lines[usize::from(band.y + 4)].contains("Enter send · Esc cancel"));
             assert!(lines[usize::from(band.bottom())].contains("worker-3"));
@@ -526,8 +533,18 @@ fn middle_home_row_composes_inline_and_success_survives_answer_refresh() {
             press(&mut app, Tab);
             assert_eq!(
                 app.input.as_ref().unwrap().header(),
-                "✎ note → lead-a · about worker-2"
+                "→ lead-a (a) · note · about worker-2"
             );
+            press(&mut app, Tab);
+            assert_eq!(
+                app.input.as_ref().unwrap().header(),
+                "→ worker-2 (a) · talk"
+            );
+            press(&mut app, Tab);
+            assert!(matches!(
+                app.input.as_ref().unwrap().compose,
+                Compose::Status
+            ));
             press(&mut app, Tab);
             press(&mut app, Char('y'));
             assert!(
@@ -611,7 +628,10 @@ fn table_rows_click_the_same_stable_squad_at_every_width() {
         let hits = app.hits.borrow().clone();
         let height = 1;
         for row in 0..5 {
-            let tiles = hits.iter().filter(|hit| hit.row == row).collect::<Vec<_>>();
+            let tiles = hits
+                .iter()
+                .filter(|hit| hit.row().unwrap() == row)
+                .collect::<Vec<_>>();
             assert_eq!(tiles.len(), height);
             assert!(tiles.windows(2).all(|pair| pair[1].y == pair[0].y + 1));
         }
@@ -621,11 +641,11 @@ fn table_rows_click_the_same_stable_squad_at_every_width() {
             assert!((area.y..area.bottom()).contains(&hit.y));
         }
         if width >= 100 {
-            let left = hits.iter().find(|hit| hit.row == 0).unwrap();
+            let left = hits.iter().find(|hit| hit.row().unwrap() == 0).unwrap();
             assert!(!hits.iter().any(|hit| hit.y == left.y
                 && (hit.x..hit.x + hit.width).contains(&(left.x + left.width))));
         }
-        let continuation = hits.iter().rfind(|hit| hit.row == 4).unwrap();
+        let continuation = hits.iter().rfind(|hit| hit.row().unwrap() == 4).unwrap();
         assert_eq!(
             app.mouse(
                 MouseEvent {
@@ -658,7 +678,7 @@ fn table_row_reveal_and_hits_share_the_scroll_viewport() {
             .hits
             .borrow()
             .iter()
-            .filter(|hit| hit.row == 4)
+            .filter(|hit| hit.row().unwrap() == 4)
             .copied()
             .collect::<Vec<_>>();
         assert_eq!(selected.len(), 1);
@@ -676,13 +696,17 @@ fn table_row_reveal_and_hits_share_the_scroll_viewport() {
     app.scrolls.scroll(Pane::Rows, Step::Bottom);
     tile_frame(&app, area);
     let hits = app.hits.borrow().clone();
-    assert_eq!(hits.iter().filter(|hit| hit.row == 4).count(), 1);
+    assert_eq!(hits.iter().filter(|hit| hit.row().unwrap() == 4).count(), 1);
     assert!(hits.iter().all(|hit| hit.y < area.bottom() - 1));
     assert_eq!(app.selected, 4);
     app.follow = true;
     tile_frame(&app, Rect::new(3, 2, 100, 5));
     assert_eq!(
-        app.hits.borrow().iter().filter(|hit| hit.row == 4).count(),
+        app.hits
+            .borrow()
+            .iter()
+            .filter(|hit| hit.row().unwrap() == 4)
+            .count(),
         1
     );
 }
@@ -712,7 +736,10 @@ fn table_note_band_shifts_later_rows_without_changing_hits_or_selection() {
                 .get()
                 .expect("note beneath the selected tile");
             let hits = app.hits.borrow().clone();
-            let selected = hits.iter().filter(|hit| hit.row == 4).collect::<Vec<_>>();
+            let selected = hits
+                .iter()
+                .filter(|hit| hit.row().unwrap() == 4)
+                .collect::<Vec<_>>();
             assert_eq!(selected.len(), 1);
             assert_eq!(selected.last().unwrap().y + 1, band.y);
             assert!(
@@ -721,15 +748,15 @@ fn table_note_band_shifts_later_rows_without_changing_hits_or_selection() {
                     .any(|hit| (band.y..band.bottom()).contains(&hit.y))
             );
             let next_grid_row = 5;
-            assert!(hits.iter().any(|hit| hit.row == next_grid_row));
+            assert!(hits.iter().any(|hit| hit.row().unwrap() == next_grid_row));
             assert!(
                 hits.iter()
-                    .filter(|hit| hit.row == 0)
+                    .filter(|hit| hit.row().unwrap() == 0)
                     .all(|hit| hit.y < band.y)
             );
             assert!(
                 hits.iter()
-                    .filter(|hit| hit.row == next_grid_row)
+                    .filter(|hit| hit.row().unwrap() == next_grid_row)
                     .all(|hit| hit.y >= band.bottom())
             );
             let lines = terminal
@@ -739,7 +766,7 @@ fn table_note_band_shifts_later_rows_without_changing_hits_or_selection() {
                 .chunks(width as usize)
                 .map(|cells| cells.iter().map(|cell| cell.symbol()).collect::<String>())
                 .collect::<Vec<_>>();
-            assert!(lines[usize::from(band.y + 1)].contains("✎ note → lead-e · about e"));
+            assert!(lines[usize::from(band.y + 1)].contains("→ lead-e (e) · note · about e"));
             press(&mut app, Esc);
             assert!(app.input.is_none());
             assert_eq!(app.home_target, target);
@@ -963,6 +990,63 @@ fn header_usage_formats_thresholds_real_labels_and_partial_missing_values() {
 }
 
 #[test]
+fn flat_header_words_counts_and_missing_evidence_are_text_while_marks_keep_roles() {
+    use tmt_cli_style::{Base, Depth, Role, Theme};
+    for (base, depth) in [
+        (Base::Tmt, Depth::TrueColor),
+        (Base::TmtLight, Depth::TrueColor),
+        (Base::Terminal, Depth::Ansi16),
+        (Base::Tmt, Depth::None),
+    ] {
+        let app = board(&[(
+            "product",
+            document(
+                "product",
+                row("L", "lead", "working"),
+                vec![row("W", "worker", "blocked")],
+            ),
+        )]);
+        let look = crate::look::Look {
+            theme: Theme::new(base),
+            depth,
+        };
+        let line = paint::summary(app.view.as_ref().unwrap().home.as_ref().unwrap(), 160, look);
+        let fg = |role| look.role(role).fg.unwrap_or_default();
+        let mut terminal = Terminal::new(TestBackend::new(160, 1)).unwrap();
+        terminal
+            .draw(|frame| frame.render_widget(Paragraph::new(line), frame.area()))
+            .unwrap();
+        let buffer = terminal.backend().buffer();
+        let text = buffer
+            .content
+            .iter()
+            .map(|cell| cell.symbol())
+            .collect::<String>();
+        for word in ["squads", "members", "blocked", "idle"] {
+            let x = text[..text.find(word).unwrap()].width() as u16;
+            assert_eq!(buffer[(x, 0)].fg, fg(Role::Text), "{word}");
+        }
+        let x = text[..text.find("✗").unwrap()].width() as u16;
+        assert_eq!(buffer[(x, 0)].fg, fg(Role::Blocked));
+        let usage = header_usage();
+        let line = paint::usage(&usage, 160, look).unwrap();
+        terminal
+            .draw(|frame| frame.render_widget(Paragraph::new(line), frame.area()))
+            .unwrap();
+        let buffer = terminal.backend().buffer();
+        let text = buffer
+            .content
+            .iter()
+            .map(|cell| cell.symbol())
+            .collect::<String>();
+        for word in ["–", "~1k", "worker", "without data"] {
+            let x = text[..text.find(word).unwrap()].width() as u16;
+            assert_eq!(buffer[(x, 0)].fg, fg(Role::Text), "{word}");
+        }
+    }
+}
+
+#[test]
 fn header_usage_fits_escaped_unicode_names_and_keeps_whole_optional_groups() {
     let app = board(&[]);
     let mut usage = header_usage();
@@ -1027,8 +1111,8 @@ fn header_frames() -> Value {
             for (before, after) in hits[0].iter().zip(&hits[1]) {
                 assert_eq!(after.y, before.y + shift);
                 assert_eq!(
-                    (after.x, after.width, after.row),
-                    (before.x, before.width, before.row)
+                    (after.x, after.width, after.row().unwrap()),
+                    (before.x, before.width, before.row().unwrap())
                 );
             }
             if shift == 0 {
@@ -1104,4 +1188,15 @@ fn names_that_are_not_stable_ids_never_reach_the_scene_identity() {
             assert!(!text.contains('\n') && !text.contains('\t'));
         }
     }
+}
+
+#[test]
+#[ignore = "read-only snapshot inspection before fixture approval"]
+fn dump_home_snapshots() {
+    let path = std::env::var("SQUAD_SNAPSHOTS_OUT").expect("SQUAD_SNAPSHOTS_OUT");
+    std::fs::write(
+        path,
+        serde_json::to_string_pretty(&snapshots()).unwrap() + "\n",
+    )
+    .unwrap();
 }

@@ -10,6 +10,11 @@ import {
   validateOwn,
   type FoldCommand,
   type FoldResult,
+  type DecoderCommand,
+  type ContentSnapshot,
+  type ContentPreparation,
+  validateContentUpdates,
+  sameContent,
 } from './fold-protocol.js';
 
 /** Decoder output is checked again by the authority-holding parent. Failure
@@ -18,7 +23,9 @@ export class Fold {
   #worker: Worker;
   #pending: {
     id: number;
-    resolve(value: FoldResult): void;
+    resolve(value: FoldResult | ContentPreparation): void;
+    expected?: ContentSnapshot;
+    noop?: boolean;
     reject(error: Error): void;
     writers: Set<string>;
     commit: boolean;
@@ -34,6 +41,48 @@ export class Fold {
     worker.onerror = () => this.close();
     worker.onmessage = (event: MessageEvent<unknown>) => {
       try {
+        if (this.#pending?.expected) {
+          const value = event.data as ContentPreparation & { id: number; type: string };
+          exactKeys(value, [
+            'id',
+            'type',
+            'kind',
+            'projection',
+            ...(value.kind === 'updates' ? ['updates'] : []),
+          ]);
+          if (
+            value.id !== this.#pending.id ||
+            value.type !== 'prepared-content' ||
+            (value.kind !== 'updates' && value.kind !== 'noop')
+          )
+            throw new Error('Invalid content preparation');
+          exactKeys(value.projection, [
+            'source',
+            'title',
+            'own',
+            ...(Object.hasOwn(value.projection, 'publisherAgent') ? ['publisherAgent'] : []),
+            ...(Object.hasOwn(value.projection, 'creationRecipient') ? ['creationRecipient'] : []),
+          ]);
+          validateProjection(value.projection);
+          validateOwn(value.projection.own);
+          if (
+            !sameContent(value.projection, this.#pending.expected) ||
+            new TextEncoder().encode(JSON.stringify(value.projection)).length > STATE_BYTES
+          )
+            throw new Error('Content preparation projection mismatch');
+          if (value.kind === 'updates') validateContentUpdates(value.updates);
+          if ((value.kind === 'noop') !== this.#pending.noop)
+            throw new Error('Invalid content preparation outcome');
+          const pending = this.#pending;
+          this.#pending = null;
+          clearTimeout(this.#timer);
+          pending.resolve(
+            value.kind === 'noop'
+              ? { kind: 'noop', projection: value.projection }
+              : { kind: 'updates', projection: value.projection, updates: value.updates },
+          );
+          return;
+        }
         exactKeys(event.data, [
           'id',
           'source',
@@ -41,6 +90,9 @@ export class Fold {
           'update',
           'own',
           ...(Object.hasOwn(event.data as object, 'publisherAgent') ? ['publisherAgent'] : []),
+          ...(Object.hasOwn(event.data as object, 'creationRecipient')
+            ? ['creationRecipient']
+            : []),
         ]);
         const value = event.data as unknown as FoldResult & { id: number; error?: string };
         if (!this.#pending || value.id !== this.#pending.id || value.error)
@@ -57,6 +109,7 @@ export class Fold {
               source: value.source,
               title: value.title,
               publisherAgent: value.publisherAgent,
+              creationRecipient: value.creationRecipient,
               own: value.own,
             }),
           ).length > STATE_BYTES
@@ -72,6 +125,9 @@ export class Fold {
           source: value.source,
           title: value.title,
           ...(value.publisherAgent === undefined ? {} : { publisherAgent: value.publisherAgent }),
+          ...(value.creationRecipient === undefined
+            ? {}
+            : { creationRecipient: value.creationRecipient }),
           own: value.own,
           update: value.update,
         });
@@ -81,6 +137,29 @@ export class Fold {
     };
   }
   run(command: FoldCommand): Promise<FoldResult> {
+    return this.#run(command) as Promise<FoldResult>;
+  }
+  /** Private preparation seam; never commits or publishes these deltas. */
+  prepareContent(source: string, base: ContentSnapshot): Promise<ContentPreparation> {
+    exactKeys(base, [
+      'source',
+      'title',
+      'own',
+      ...(Object.hasOwn(base, 'publisherAgent') ? ['publisherAgent'] : []),
+      ...(Object.hasOwn(base, 'creationRecipient') ? ['creationRecipient'] : []),
+    ]);
+    validateProjection(base);
+    validateProjection({ ...base, source });
+    validateOwn(base.own);
+    if (new TextEncoder().encode(JSON.stringify({ ...base, source })).length > STATE_BYTES)
+      throw new Error('Decoder input capacity');
+    return this.#run({
+      type: 'prepare-content',
+      source,
+      base: structuredClone(base),
+    }) as Promise<ContentPreparation>;
+  }
+  #run(command: DecoderCommand): Promise<FoldResult | ContentPreparation> {
     if (this.#closed || this.#pending) return Promise.reject(new Error('Decoder unavailable'));
     if (
       (command.type === 'apply' || command.type === 'check') &&
@@ -120,9 +199,18 @@ export class Fold {
         id,
         resolve,
         reject,
+        ...(command.type === 'prepare-content'
+          ? {
+              expected: { ...command.base, source: command.source },
+              noop: command.source === command.base.source,
+            }
+          : {}),
         writers,
         commit:
-          command.type !== 'check' && command.type !== 'prepare' && command.type !== 'prepare-own',
+          command.type !== 'check' &&
+          command.type !== 'prepare' &&
+          command.type !== 'prepare-own' &&
+          command.type !== 'prepare-content',
       };
       this.#timer = setTimeout(() => this.close(), 2000);
       try {

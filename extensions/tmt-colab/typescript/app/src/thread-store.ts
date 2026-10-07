@@ -468,6 +468,21 @@ export function conversationText(
     : body;
 }
 
+/** One admitted comment/Ask association used by display, reply routing and immutable context capture. */
+export function conversationAsks(
+  thread: ThreadView | undefined,
+  asks: readonly PageAsk[],
+  includeDeleted = false,
+) {
+  if (!thread) return [];
+  const comments = thread.comments.filter((comment) => includeDeleted || !comment.deleted);
+  return asks.filter(
+    (ask) =>
+      ask.thread === thread.threadId &&
+      ask.messageIds?.some((id) => comments.some((comment) => comment.messageId === id)),
+  );
+}
+
 export function captureConversation(
   thread: ThreadView | undefined,
   asks: readonly PageAsk[],
@@ -480,13 +495,8 @@ export function captureConversation(
       body: value.body,
       deviceName: value.deviceName,
     })),
-    replies: asks
-      .filter(
-        (value) =>
-          value.thread === thread?.threadId &&
-          value.reply !== undefined &&
-          value.messageIds?.some((id) => comments.some((comment) => comment.messageId === id)),
-      )
+    replies: conversationAsks(thread, asks)
+      .filter((value) => value.reply !== undefined)
       .map((value) => ({
         writer: value.writer,
         operationId: value.operationId,

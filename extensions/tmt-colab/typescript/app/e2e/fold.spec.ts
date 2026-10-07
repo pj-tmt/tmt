@@ -1,4 +1,69 @@
-import { expect, test } from '@playwright/test';
+import { expect, test as base } from '@playwright/test';
+
+// Opt-in observation only: unchanged assertions, no cache preparation or app patch.
+const test = base.extend<{ coldObservation: void }>({
+  coldObservation: [
+    async ({ page }, use, info) => {
+      if (process.env.COLAB_FOLD_COLD_OBSERVE !== '1') {
+        await use();
+        return;
+      }
+      const events: unknown[] = [];
+      const session = await page.context().newCDPSession(page);
+      const record = (event: string, data: unknown) =>
+        events.push({ observedAt: new Date().toISOString(), event, data });
+      session.on('Network.requestWillBeSent', (event) =>
+        record('request', {
+          requestId: event.requestId,
+          loaderId: event.loaderId,
+          frameId: event.frameId,
+          timestamp: event.timestamp,
+          type: event.type,
+          url: event.request.url,
+          initiator: event.initiator,
+          redirectStatus: event.redirectResponse?.status,
+        }),
+      );
+      session.on('Network.responseReceived', (event) =>
+        record('response', {
+          requestId: event.requestId,
+          timestamp: event.timestamp,
+          url: event.response.url,
+          status: event.response.status,
+          mimeType: event.response.mimeType,
+        }),
+      );
+      session.on('Network.loadingFailed', (event) => record('loadingFailed', event));
+      session.on('Network.webSocketFrameReceived', (event) => record('webSocketReceived', event));
+      session.on('Page.frameNavigated', (event) => record('frameNavigated', event));
+      session.on('Page.frameRequestedNavigation', (event) => record('navigationRequested', event));
+      session.on('Runtime.executionContextDestroyed', (event) => record('contextDestroyed', event));
+      session.on('Target.attachedToTarget', (event) => record('targetAttached', event));
+      page.on('console', (message) =>
+        record('console', { type: message.type(), text: message.text() }),
+      );
+      page.on('pageerror', (error) => record('pageerror', { message: error.message }));
+      await session.send('Network.enable');
+      await session.send('Page.enable');
+      await session.send('Runtime.enable');
+      await session.send('Target.setAutoAttach', {
+        autoAttach: true,
+        waitForDebuggerOnStart: false,
+        flatten: true,
+      });
+      try {
+        await use();
+      } finally {
+        await info.attach('cold-fold-observation', {
+          body: Buffer.from(JSON.stringify({ title: info.title, events }, null, 2)),
+          contentType: 'application/json',
+        });
+        await session.detach();
+      }
+    },
+    { auto: true },
+  ],
+});
 
 test('Worker folds concurrent independent writers, reload reconstruction and Unicode minimal edits', async ({
   page,

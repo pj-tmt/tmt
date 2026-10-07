@@ -717,7 +717,7 @@ fn walking_the_c_list_from_the_board_moves_one_job_per_press() {
                 );
                 let cid = expected.rsplit('/').next().unwrap();
                 assert!(
-                    screen.iter().any(|line| line.contains(&format!(" {cid} "))),
+                    screen.iter().any(|line| line.contains(&format!("›{cid} "))),
                     "{cid} painted\n{}",
                     screen.join("\n")
                 );
@@ -733,4 +733,15 @@ fn walking_the_c_list_from_the_board_moves_one_job_per_press() {
             step(&mut app, up, &order[0]);
         }
     }
+}
+
+#[test]
+#[ignore = "read-only snapshot inspection before fixture approval"]
+fn dump_split_squad_tab_snapshots() {
+    let path = std::env::var("SQUAD_SNAPSHOTS_OUT").expect("SQUAD_SNAPSHOTS_OUT");
+    std::fs::write(
+        path,
+        serde_json::to_string_pretty(&snapshots()).unwrap() + "\n",
+    )
+    .unwrap();
 }

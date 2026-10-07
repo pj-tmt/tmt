@@ -28,11 +28,11 @@ button {
   border-radius: 0;
   cursor: pointer;
 }
-button:hover,
-a:hover {
+button:not(.tmt-ui-action):not(.tmt-ui-toggle):hover,
+a:not(.tmt-ui-action):hover {
   color: var(--c-accent);
 }
-button[aria-pressed='true'] {
+button:not(.tmt-ui-action):not(.tmt-ui-toggle)[aria-pressed='true'] {
   border-color: var(--c-accent);
   background: var(--c-accent-soft);
 }
@@ -124,12 +124,8 @@ footer {
 .page-card-actions summary {
   cursor: pointer;
 }
-.page-card-actions button {
-  padding: 0;
-  border: 0;
-  box-shadow: none;
-  background: transparent;
-  white-space: nowrap;
+.page-card-actions {
+  --tmt-ui-host-action-padding: 0;
 }
 .page-mark {
   color: var(--c-muted);
@@ -196,22 +192,17 @@ footer {
   text-decoration: underline;
   text-underline-offset: 4px;
 }
-.colab-header .export-control {
+.tmt-ui-header .export-control {
   margin: 0;
-}
-.colab-header .export-control button:disabled {
-  opacity: 1;
-  color: var(--c-muted);
-  cursor: default;
 }
 .theme-label,
 .info-label,
 .page-menu-meta {
   display: none;
 }
-/* `.colab-header button` sets display, so these need its specificity to stay hidden at desktop. */
-.colab-header .page-menu-close,
-.colab-header .page-overflow-toggle {
+/* Keep shared action controls hidden until the product overflow menu is needed. */
+.tmt-ui-header .page-menu-close,
+.tmt-ui-header .page-overflow-toggle {
   display: none;
 }
 .drawer-bar button {
@@ -324,13 +315,13 @@ footer {
   margin-top: 24px;
 }
 @media (max-width: 1100px) {
-  .colab-header .page-overflow-toggle {
+  .tmt-ui-header .page-overflow-toggle {
     display: inline-flex;
   }
   .page-secondary {
     display: none;
   }
-  .colab-header[data-menu-open='true'] .page-secondary {
+  .tmt-ui-header[data-menu-open='true'] .page-secondary {
     display: flex;
     position: fixed;
     top: calc(var(--page-bar-size) + env(safe-area-inset-top, 0px));
@@ -379,15 +370,15 @@ footer {
   .page-secondary .theme {
     margin: 0;
   }
-  .colab-header .chip {
+  .tmt-ui-header .chip {
     padding: 3px 5px;
     font-size: 10px;
   }
 }
 @media (max-width: 640px) {
-  .colab-actions > .page-backend,
-  .colab-actions > .page-sharing,
-  .colab-actions > .status {
+  .tmt-ui-actions > .page-backend,
+  .tmt-ui-actions > .page-sharing,
+  .tmt-ui-actions > .status {
     display: none;
   }
   .page-menu-meta {
@@ -470,7 +461,7 @@ footer {
   max-width: 880px;
   margin: 16px 0 0;
 }
-.canvas .notice {
+.canvas .tmt-ui-notice {
   position: absolute;
   top: 100px;
   left: 20px;
@@ -1145,41 +1136,6 @@ footer {
   color: var(--c-blocked);
 }
 
-/* A light text toggle like the header actions: the square before the word carries on/off. */
-.archive-toggle {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
+.home > .tmt-ui-toggle {
   margin: 0 0 16px;
-  border: 0;
-  padding: 7px 8px 7px 0;
-  background: transparent;
-  color: var(--c-text);
-  box-shadow: none;
-}
-.archive-toggle:hover,
-.archive-toggle[aria-pressed='true'] {
-  color: var(--c-text);
-  border: 0;
-  background: transparent;
-}
-.archive-toggle:hover {
-  text-decoration: underline;
-  text-underline-offset: 4px;
-}
-.archive-toggle:focus-visible {
-  outline: 2px solid var(--c-accent);
-  outline-offset: 2px;
-}
-.toggle-box {
-  flex: none;
-  box-sizing: border-box;
-  width: 14px;
-  height: 14px;
-  border: 2px solid var(--c-text);
-  background: transparent;
-}
-.archive-toggle[aria-pressed='true'] .toggle-box {
-  background: var(--c-accent);
-  border-color: var(--c-accent);
 }

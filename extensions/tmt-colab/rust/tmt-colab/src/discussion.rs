@@ -70,7 +70,7 @@ pub fn prepare_status(
     edit: StatusEdit<'_>,
     decoder: &mut Decoder,
     now: u64,
-) -> Result<Option<(page::Prepared, Action)>> {
+) -> Result<Option<(page::FrozenPublication, Action)>> {
     let StatusEdit {
         thread,
         resolved,
@@ -142,17 +142,13 @@ pub fn prepare_status(
         &records,
         None,
     )?;
-    let publication = page::prepare_update(
-        store,
+    let publication = page::prepare_own_publication(
         key,
         page,
         &snapshot,
-        page::UpdateInput {
-            namespace: Namespace::Own,
-            source: &folded.source,
-            update: &prepared.merged,
-            memory_limit: prepared.memory_limit,
-        },
+        &prepared.merged,
+        &folded.source,
+        prepared.memory_limit,
         now,
     )?;
     Ok(Some((publication, action)))

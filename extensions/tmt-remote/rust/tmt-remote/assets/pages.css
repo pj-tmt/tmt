@@ -1,8 +1,8 @@
 /* Palette and font stacks from design/tokens/tokens.json; no font requests. */
 :root {
   color-scheme: light dark;
-  --c-text: #343b58;
-  --c-muted: #5a6390;
+  --c-text: #171717;
+  --c-muted: #626262;
   --c-accent: #1f5fbf;
   --c-waiting: #965027;
   --c-working: #4f6a33;
@@ -35,8 +35,8 @@
 }
 @media (prefers-color-scheme: dark) {
   :root {
-    --c-text: #c0caf5;
-    --c-muted: #9aa5ce;
+    --c-text: #d8d8d8;
+    --c-muted: #b0b0b0;
     --c-accent: #7aa2f7;
     --c-waiting: #ff9e64;
     --c-working: #9ece6a;
@@ -233,4 +233,43 @@ button:hover {
   button {
     width: 100%;
   }
+}
+
+/* Browser entry keeps local pairing evidence separate from live access. */
+.entry-status {
+  margin: 0 0 24px;
+}
+.entry-status dt {
+  color: var(--c-muted);
+  font: 600 12px/1.6 var(--f-mono);
+}
+.entry-status dd {
+  margin: 0 0 12px;
+}
+.entry-help {
+  margin-top: 28px;
+}
+.entry-help h2 {
+  font-size: clamp(24px, 3vw, 28px);
+}
+.entry-help ol {
+  margin: 0 0 24px;
+  padding-left: 24px;
+}
+.entry-help li + li {
+  margin-top: 12px;
+}
+.entry-note {
+  margin-top: 24px;
+  color: var(--c-muted);
+  font-size: 14px;
+}
+button:disabled {
+  cursor: default;
+  opacity: 0.6;
+  box-shadow: none;
+}
+.entry-help code {
+  white-space: normal;
+  overflow-wrap: anywhere;
 }

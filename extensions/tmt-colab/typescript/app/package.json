@@ -12,8 +12,13 @@
     "test:acceptance": "vp exec playwright test --config playwright.acceptance.config.ts"
   },
   "dependencies": {
+    "@lexical/history": "0.52.0",
+    "@lexical/plain-text": "0.52.0",
+    "@lexical/react": "0.52.0",
     "@tanstack/react-router": "1.170.33",
+    "@tmt/browser-ui": "workspace:*",
     "@tmt/colab-client": "workspace:*",
+    "lexical": "0.52.0",
     "lucide-react": "1.52.0",
     "react": "19.2.8",
     "react-dom": "19.2.8",

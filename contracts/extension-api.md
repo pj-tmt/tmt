@@ -32,7 +32,8 @@ Every request has `version`, `operation` and `input`. Writes (`dispatch.create`,
 identity UUID or name, or `"originator":"anonymous"`, which stores no writer identity,
 exactly like the CLI without `--identity`. Anonymous is not an authenticated owner and
 grants nothing beyond what same-user CLI calls without an identity can already do; both
-or neither is `API_INPUT_INVALID`. Reads name neither. Unknown request fields
+or neither is `API_INPUT_INVALID`. Operations without originator attribution, including
+`identity.meta.apply`, name neither. The metadata target is its input `identityId`. Unknown request fields
 are rejected. Responses reuse existing resource shapes, without a second wrapper.
 Clients must tolerate additive response fields. Public `tmt api` storage opens,
 including `notes.read`, return `STORAGE_NOT_WRITABLE` (exit 1) only for a confirmed
@@ -62,6 +63,7 @@ independent of storage access.
 | `skills.remove`          | `owner`, `consent: true`, optional `skills` (names)                                                | `owner`, `removed` and `kept` targets                                                                                                                             |
 | `references.resolve`     | optional `identityIds`, `roomIds` (canonical UUIDs, at most 256 in total)                          | `identities` (`id`, `found`, `name`, `lifetime`, `retired`) and `rooms` (`id`, `found`, `retired`)                                                                |
 | `consumption.history`    | `identityIds` (1–32 UUIDs), `windowsMs` (1–3), optional `maxBuckets`                               | Closed timestamped deltas, coverage and included cumulative seed watermark (see below)                                                                            |
+| `identity.meta.apply`    | `identityId` (active canonical UUID), `changes`                                                    | `identityId`, `changed`; atomic conditional metadata update (see below)                                                                                           |
 | `identities.status`      | `identityIds` (canonical UUIDs, at most 256)                                                       | `identities`: `{id, found}` and, when found, `status`: the `tmt identity status` value or `null`                                                                  |
 | `extensions.uses`        | `extension`, `feature`                                                                             | `available`, `installed`, `reason`, `hint` for a declared optional use (see [Optional cross-extension uses](#optional-cross-extension-uses))                      |
 
@@ -72,6 +74,74 @@ rather than infer configuration paths, and keep their files under
 subtree, with 0700 directories and 0600 secret/state files; it MUST NOT open or
 modify core's database/configuration or provider settings. Discovery does not
 create the root or read its files. `capabilities` remains a constant document.
+
+## Conditional identity metadata
+
+`identity.meta.apply` updates descriptive, untrusted metadata for one exact active
+identity UUID. It grants no ownership, availability or prompt authority and does
+not promote temporary identities. An unknown or retired UUID is `NAME_NOT_FOUND`;
+it never falls back to a display name or a same-name successor. No originator
+fields are accepted for this operation.
+
+```json
+{
+  "version": 1,
+  "operation": "identity.meta.apply",
+  "input": {
+    "identityId": "11111111-1111-4111-8111-111111111111",
+    "changes": [
+      { "key": "pending", "expect": { "value": "review" }, "then": "remove" },
+      { "key": "state", "expect": "absent", "then": { "set": "working" } }
+    ]
+  }
+}
+```
+
+`changes` contains 1–64 entries with distinct keys and no unknown fields. Each
+entry has exactly `key`, `expect` and `then`. Expectations are `{"value":"exact"}`
+(exact string equality, including whitespace), `"absent"` (no row), or `"any"`
+(present or absent). Actions are `{"set":"value"}` or `"remove"`; removing an
+absent key is a no-op. Object forms keep literal values such as `"absent"`,
+`"any"` and `"remove"` unambiguous. Keys use `[a-z][a-z0-9_.-]*`, 1–64 ASCII
+bytes. Exact expectations and set values use the existing 1–1024 UTF-8 byte,
+nonempty, no-control-character metadata validation. The changes JSON is bounded
+by 815,104 bytes. Invalid API fields or changes return `API_INPUT_INVALID`.
+
+One SQLite writer transaction rechecks active UUID membership, checks every
+expectation against the same current rows, and only then applies all effects.
+Any mismatch writes nothing and returns exit **5** with:
+
+```json
+{
+  "error": {
+    "code": "METADATA_CONFLICT",
+    "message": "Metadata expectations did not match current values; no changes were applied.",
+    "current": { "pending": null, "state": "blocked" }
+  }
+}
+```
+
+`current` contains every conflicting key, with its current string or `null` when
+absent; matching keys are omitted. It is the transaction's conflict snapshot,
+not a promise that another writer cannot subsequently change it. A client must
+refresh its preview and obtain a fresh submit before overwriting intervening
+values. Competing writers with the same exact expectations serialize: one
+applies, the other conflicts. `"any"` deliberately permits unconditional writes.
+The final metadata set must contain at most 64 entries; a removal and addition
+can exchange an entry regardless of list order. An entry-limit refusal is
+`IDENTITY_METADATA_INVALID` and writes nothing. A later storage failure rolls
+back all effects. Success is `{identityId, changed}`, where `changed` is false
+when every action is already satisfied. No-ops and conflicts leave the durable
+change cursor unchanged. Existing metadata `set` and `rm` remain unconditional.
+
+The CLI uses the identical changes schema on stdin:
+`tmt identity meta apply --identity <name-or-uuid> --json < changes.json`.
+Without `--identity`, it uses the existing verified-caller selector. UUID
+selection is exact, without display-name fallback. Stdin must be non-terminal
+and close within five seconds; invalid input is `IDENTITY_METADATA_INVALID`.
+The CLI shares the success/conflict documents and conflict exit 5 with the API.
+This mutation sends no notification; callers own any subsequent notification and
+must not repeat a confirmed mutation to retry it.
 
 ## Consumption history
 
@@ -353,6 +423,10 @@ Ordinary recipient/room history lists default to 20 items (maximum 50). Pass `ne
 unchanged as the next request's `before`. Concurrent new requests above that cursor
 will appear on a fresh first page; final-state changes can appear when detail is
 reread. This is not a live change feed. Reads never mark incoming work as read.
+Ordinary history and detail include `final:{status:"withdrawn",reason,withdrawnAtMs}`
+after [originator withdrawal](request-response-v1.md#originator-withdrawal).
+This terminal state is not a recipient final or approval; consumers waiting on
+a person exclude it. Original prompt/history and delivery status remain intact.
 For submitted replies across rooms and recipients, call `requests.list` with
 `{"originatorId":"<canonical UUID>","view":"results"}`. Both fields are required
 and cannot be combined with `recipientId` or `roomId`. The default limit is 8;
@@ -586,3 +660,51 @@ status never affects the command. All observers of one command share a 500 ms
 deadline. Calls to `tmt` made while `TMT_HOOK_DELIVERY` is set emit no further
 observations. Replacing or re-permissioning the executable suspends delivery
 until it is enabled again.
+
+## Focus policy and checklist
+
+All operations below use version 1 and name neither envelope `identity` nor
+`originator`. This is a trusted same-user process seam, not authentication.
+Squad owns user/lead authorization and duration syntax; it passes the recorded
+owner UUID. Provider adapters must admit their exact launch's turn boundary before
+claiming. Core never reads Squad configuration or installs provider-global hooks.
+
+| Operation                | Input                                                                                                 | Result                                                         |
+| ------------------------ | ----------------------------------------------------------------------------------------------------- | -------------------------------------------------------------- |
+| `focus.policy.set`       | `identityId`, `ownerIdentityId`, `setterIdentityId`, `expectedRevision`, `untilMs`                    | policy view                                                    |
+| `focus.policy.clear`     | same UUID/revision fields, without `untilMs`                                                          | cleared policy view                                            |
+| `focus.policy.show`      | `identities`: 1–256 active UUIDs                                                                      | `policies`: views in input order                               |
+| `focus.checklist.read`   | `identityId`, optional `checklistId`, `limit` (default 32, 1–128), `after` (default 0)                | bounded ordered page                                           |
+| `focus.checklist.claim`  | `identityId`, `opportunity`: `turn_boundary` or `idle`                                                | `claimed:false` or a sealed checklist, page and bounded `text` |
+| `focus.checklist.settle` | `identityId`, `checklistId`, `attemptToken`, `outcome`: `delivered`, `definitely_unsent`, `uncertain` | `changed`, `state`                                             |
+
+UUIDs must be canonical and active; revision/expiry/cursors are nonnegative JS-safe
+integers, a set expiry is strictly future, absent revision is 0. A clear advances
+the revision and stores expiry 0. Unknown fields (including `everyMs`) are refused.
+Views contain `identityId`, `revision`, `active`, `focusUntilMs`, `remainingMs`,
+`heldCount`, pinned `ownerIdentityId` and `setterIdentityId`, and `activeChecklist`
+(null or an unsettled claim). Held count includes that active sealed membership.
+Policy conflicts return `FOCUS_REVISION_CONFLICT`; refresh before another write.
+
+A read without a checklist ID shows unclaimed references. A sealed read includes
+its retained membership regardless of settlement; later arrivals stay outside it.
+Each item includes `sequence`, `requestId`, `kind`, `source`, `createdAtMs`, sender
+UUID/name, `urgent`, bounded `preview`, optional `replyCommand`/`inspectCommand`,
+and a bounded `resultPreview` for finals. Page fields are `identityId`,
+`checklistId`, `activeChecklist`, `items`, `total` (remaining from this cursor),
+`remaining`, `nextAfter` (null at the end). Continue with the same scope and the
+returned sequence cursor. Canonical retention still applies.
+
+A successful claim returns `{claimed:true,checklist,page,text}`; the checklist
+contains `checklistId`, `identityId`, `attemptToken`, `throughSequence`, `state`,
+`createdAtMs`. A competing or empty claim returns no transport permission. The
+`idle` path verifies actual live idle evidence and refuses while Focus is active;
+`turn_boundary` relies on the admitted provider adapter. No core scheduler exists.
+Settlement is exact-token and idempotent; an opposite terminal outcome returns
+`FOCUS_STATE_INVALID`, a wrong scope/token `FOCUS_ATTEMPT_MISMATCH`.
+Existing request housekeeping prunes empty delivered/definitely-unsent checklist
+records after the metadata age floor; retained member links follow canonical
+request retention. Settlement idempotency lasts while the record is retained.
+Claimed and uncertain records remain discoverable even after members expire.
+A crash after claim remains unknown until inspected; no elapsed time reopens it.
+See the [delivery contract](request-response-v1.md#focus-delivery-windows).

@@ -41,8 +41,13 @@ pub(crate) fn usage_of(
     )
 }
 
-pub(crate) fn hints_of(view: &View, width: usize, cron: bool) -> String {
-    super::bar::hints_in(&mut view.derived.borrow_mut().home.hints, width, cron)
+pub(crate) fn hints_of(view: &View, width: usize, overflow: bool, receiving: bool) -> String {
+    super::bar::hints_in(
+        &mut view.derived.borrow_mut().home.hints,
+        width,
+        overflow,
+        receiving,
+    )
 }
 
 /// The strips painted from nothing, for tests of the strips themselves.
@@ -320,8 +325,11 @@ pub(super) fn render_at(frame: &mut Frame, app: &App, area: Rect, now: u64) {
             let before = lines.len();
             if selected_region.is_some() {
                 if app.sent.as_ref().is_some_and(|feedback| {
-                    feedback.target
-                        == crate::board::app::RowTarget::Home(entries[app.selected].target.clone())
+                    feedback.sent
+                        && feedback.target
+                            == crate::board::app::RowTarget::Home(
+                                entries[app.selected].target.clone(),
+                            )
                 }) {
                     lines.push(Line::styled("   ✓ sent", look.role(Role::Working)));
                 }
@@ -366,7 +374,7 @@ pub(super) fn render_at(frame: &mut Frame, app: &App, area: Rect, now: u64) {
                     y: area.y + (line - offset) as u16,
                     x: area.x + x,
                     width,
-                    row,
+                    target: crate::board::app::HitTarget::Row(row),
                 });
             }
         }

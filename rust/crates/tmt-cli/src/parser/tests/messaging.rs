@@ -1,6 +1,70 @@
 use super::*;
 
 #[test]
+fn talk_focus_bypass_and_purpose_are_command_local_and_result_is_reserved() {
+    let Invocation::Talk { options, .. } =
+        parsed(&["talk", "peer", "hello", "--urgent", "--kind", "review"]).invocation
+    else {
+        panic!("talk invocation")
+    };
+    assert!(options.urgent);
+    assert_eq!(
+        options.focus_kind,
+        tmt_core::request::focus::FocusKind::Review
+    );
+    for value in ["result", "urgent", "decision "] {
+        assert_eq!(
+            parse_error(&["talk", "peer", "hello", "--kind", value]).code,
+            "USAGE_ERROR"
+        );
+    }
+    assert_eq!(
+        parse_error(&["check", "peer", "--urgent"]).code,
+        "USAGE_ERROR"
+    );
+}
+
+#[test]
+fn withdrawal_requires_reason_and_keeps_originator_selection_command_local() {
+    assert_eq!(
+        parsed(&[
+            "x",
+            "withdraw",
+            "req-owned",
+            "--reason",
+            "Already resolved",
+            "--identity",
+            "Owner",
+            "--json"
+        ])
+        .invocation,
+        Invocation::Exchange {
+            identity: Some("Owner".into()),
+            operation: ExchangeOperation::Withdraw {
+                request_id: "req-owned".into(),
+                reason: "Already resolved".into()
+            },
+        }
+    );
+    assert_eq!(
+        parse_error(&["x", "withdraw", "req-owned"]).code,
+        "USAGE_ERROR"
+    );
+    assert_eq!(
+        parse_error(&[
+            "x",
+            "withdraw",
+            "req-owned",
+            "--reason",
+            "obsolete",
+            "--incoming"
+        ])
+        .code,
+        "USAGE_ERROR"
+    );
+}
+
+#[test]
 fn timing_values_accept_exact_boundaries_and_reject_invalid_values() {
     let timeout = parsed(&["talk", "peer", "hello", "--timeout", "86400s"]);
     assert_eq!(
@@ -10,6 +74,8 @@ fn timing_values_accept_exact_boundaries_and_reject_invalid_values() {
             message: "hello".into(),
             originator: None,
             options: TalkOptions {
+                urgent: false,
+                focus_kind: tmt_core::request::focus::FocusKind::Fyi,
                 room: None,
                 inbox: false,
                 force: false,
@@ -28,6 +94,8 @@ fn timing_values_accept_exact_boundaries_and_reject_invalid_values() {
             message: "hello".into(),
             originator: None,
             options: TalkOptions {
+                urgent: false,
+                focus_kind: tmt_core::request::focus::FocusKind::Fyi,
                 room: None,
                 inbox: false,
                 force: false,
@@ -68,6 +136,8 @@ fn timing_values_accept_exact_boundaries_and_reject_invalid_values() {
             message: "hello".into(),
             originator: None,
             options: TalkOptions {
+                urgent: false,
+                focus_kind: tmt_core::request::focus::FocusKind::Fyi,
                 room: None,
                 inbox: false,
                 force: false,

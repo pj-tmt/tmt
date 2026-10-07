@@ -2480,7 +2480,31 @@ sort = ["-name"]
         recipientId: ids.docs,
         prompt: { message: '[product · docs] add examples' },
       });
-      expect((await roomRequests()).length).toBe(3);
+      const withdraw = async (requestId: string, who: string) => {
+        const result = await runCli(sandbox, [
+          'x',
+          'withdraw',
+          requestId,
+          '--identity',
+          who,
+          '--reason',
+          'obsolete',
+          '--json',
+        ]);
+        expect(result.status, result.stdout).toBe(0);
+        const history = await prompt(requestId);
+        expect(history.final).toMatchObject({
+          status: 'withdrawn',
+          reason: 'obsolete',
+          withdrawnAtMs: expect.any(Number),
+        });
+        expect(history.final).not.toHaveProperty('submittedAtMs');
+        return history;
+      };
+      const obsolete = await annotate('Sol', 'auth-fix', 'obsolete annotation');
+      const withdrawn = await withdraw(obsolete.requestId, 'Ben');
+      expect(withdrawn.prompt.message).toBe('[product · auth-fix] obsolete annotation');
+      expect((await roomRequests()).length).toBe(4);
 
       // The marker is derived from request state on every read.
       const marker = async () => {
@@ -2524,7 +2548,7 @@ sort = ["-name"]
 
       // Waiting on you comes from tmt inbox; the board's r is tmt answer.
       const asks: string[] = [];
-      for (const question of ['approve the plan?', 'which database?']) {
+      for (const question of ['approve the plan?', 'which database?', 'obsolete question']) {
         const asked = await runCli(sandbox, [
           'talk',
           'Ben',
@@ -2537,6 +2561,8 @@ sort = ["-name"]
         ]);
         asks.push(JSON.parse(asked.stdout).requestId);
       }
+      const obsoleteAsk = asks.pop()!;
+      const withdrawnAsk = await withdraw(obsoleteAsk, 'auth-fix');
       const waiting = async () =>
         (
           await squad(sandbox, ['ls', '--squad', 'product'])
@@ -2579,6 +2605,10 @@ sort = ["-name"]
           'auth-fix',
           body,
         ]);
+      const refused = await board(obsoleteAsk, 'cannot answer withdrawal');
+      expect(refused.status, refused.stdout).toBe(5);
+      expect(JSON.parse(refused.stdout).error.code).toBe('REQUEST_WITHDRAWN');
+      expect(await prompt(obsoleteAsk)).toEqual(withdrawnAsk);
       const chosen = await board(asks[0], '-postgres');
       expect(chosen.status, chosen.stdout).toBe(0);
       expect(JSON.parse(chosen.stdout)).toMatchObject({ requestId: asks[0], status: 'submitted' });
@@ -2591,6 +2621,8 @@ sort = ["-name"]
       expect((await incoming('Ben', asks[1])).acknowledged, 'answering never acknowledges').toBe(
         false
       );
+
+      expect(await prompt(obsolete.requestId)).toEqual(withdrawn);
 
       expect(await notebook(), 'no notebook was created or written').toBe('NOTEBOOK_NOT_FOUND');
       const projection = async () =>
@@ -3148,6 +3180,543 @@ describe('Squad cron management', () => {
       ]);
       expect(replacement.body.job.id).toBe('c2');
       expect(replacement.body.job.roomId).not.toBe(oldRoom);
+    });
+  }, 60_000);
+});
+
+describe('Squad checklist native commands', () => {
+  const checklistId = '55555555-5555-4555-8555-555555555555';
+  const itemId = '66666666-6666-4666-8666-666666666666';
+  const otherId = '77777777-7777-4777-8777-777777777777';
+
+  async function fixture(sandbox: Sandbox) {
+    installSquad(sandbox);
+    await identity(sandbox, 'Ben');
+    const worker = await identity(sandbox, 'worker');
+    expect((await squad(sandbox, ['init', 'product', '--me', 'Ben'])).status).toBe(0);
+    expect((await squad(sandbox, ['add', 'worker'])).status).toBe(0);
+    const room = parseWholeStdout(
+      await runCli(sandbox, ['room', 'show', 'squad-product', '--json'])
+    ).room as { id: string };
+    const root = parseWholeStdout(
+      await runCli(sandbox, ['api'], {
+        stdin: JSON.stringify({ version: 1, operation: 'storage.root', input: {} }),
+      })
+    ).dataRoot as string;
+    const directory = path.join(root, 'squad', 'checklist', room.id);
+    const selected = ['--room', room.id, '--checklist', checklistId, '--item', itemId];
+    return { worker, roomId: room.id, root, directory, selected };
+  }
+
+  // Observe metadata, dispatch/attention/request/hook state without invoking a product read.
+  function unrelatedState(sandbox: Sandbox) {
+    const db = new Database(sandbox.database, { readonly: true });
+    try {
+      const tables = db
+        .prepare("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")
+        .all() as { name: string }[];
+      return {
+        tables: Object.fromEntries(
+          tables
+            .filter(({ name }) => /request|dispatch|notification|hook|identity_metadata/.test(name))
+            .map(({ name }) => [
+              name,
+              db
+                .prepare(`SELECT * FROM "${name}"`)
+                .all()
+                .sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b))),
+            ])
+        ),
+        squadConfig: readFileSync(path.join(sandbox.globalDir, 'squad.toml')),
+        coreConfig: existsSync(sandbox.globalConfig) ? readFileSync(sandbox.globalConfig) : null,
+        localConfig: existsSync(sandbox.localConfig) ? readFileSync(sandbox.localConfig) : null,
+      };
+    } finally {
+      db.close();
+    }
+  }
+
+  it('binds real dispatch, alias, streams, revisions, full inventory, tombstones and inert content', async () => {
+    await withSandbox(async (sandbox) => {
+      const f = await fixture(sandbox);
+      expect((await squad(sandbox, ['set', 'worker', 'state=busy', 'pending=review'])).status).toBe(
+        0
+      );
+      const before = unrelatedState(sandbox);
+      const cli = (words: string[]) => squad(sandbox, ['checklist', ...words]);
+      const list = (filters: string[] = []) => cli(['ls', '--room', f.roomId, ...filters]);
+      const mutation = (action: string, revision: number, options: string[] = []) =>
+        cli([action, ...f.selected, '--expect-revision', String(revision), ...options]);
+      const absent = await list();
+      expect(absent).toMatchObject({
+        status: 0,
+        stderr: '',
+        body: {
+          action: 'list',
+          totalCount: 0,
+          matchedCount: 0,
+          current: { checklistId: null, inventoryRevision: null, items: [], deletion: null },
+        },
+      });
+      expect(existsSync(f.directory)).toBe(false);
+      const body = `literal body\n\t$(touch ${path.join(sandbox.root, 'executed')}) !`;
+      const created = await cli([
+        'create',
+        'Manually authored',
+        ...f.selected,
+        '--expect-inventory',
+        'absent',
+        '--body',
+        body,
+        '--reference',
+        'https://example.invalid/inert',
+      ]);
+      expect(created).toMatchObject({
+        status: 0,
+        stderr: '',
+        body: {
+          action: 'create',
+          itemId,
+          itemRevision: 1,
+          changed: true,
+          current: {
+            inventoryRevision: 1,
+            items: [
+              {
+                id: itemId,
+                revision: 1,
+                title: 'Manually authored',
+                body,
+                reference: 'https://example.invalid/inert',
+                assignee: null,
+                completion: 'open',
+                archived: false,
+              },
+            ],
+          },
+        },
+      });
+      const file = path.join(f.directory, 'items.json');
+      const stored = () => JSON.parse(readFileSync(file, 'utf8'));
+      expect(stored().items[0]).toMatchObject({
+        id: itemId,
+        revision: 1,
+        title: 'Manually authored',
+        body,
+        reference: 'https://example.invalid/inert',
+        assignee: null,
+        completion: 'open',
+        archived: false,
+      });
+      expect(statSync(file).mode & 0o777).toBe(0o600);
+      expect(existsSync(path.join(sandbox.root, 'executed'))).toBe(false);
+      const alias = await runCli(sandbox, [
+        'sq',
+        'checklist',
+        'list',
+        '--room',
+        f.roomId,
+        '--json',
+      ]);
+      expect(alias.status).toBe(0);
+      expect(alias.stderr).toBe('');
+      expect(parseWholeStdout(alias)).toEqual((await list()).body);
+      // Seven actual content revisions provide the frozen revision7 -> revision8 example.
+      for (let revision = 1; revision < 7; revision += 1) {
+        expect(
+          (await mutation('edit', revision, ['--title', `Draft ${revision}`])).body.itemRevision
+        ).toBe(revision + 1);
+      }
+      const complete = await mutation('complete', 7);
+      expect(complete).toMatchObject({
+        status: 0,
+        body: { itemRevision: 8, current: { inventoryRevision: 1 } },
+      });
+      const bytes = readFileSync(file);
+      const conflict = await mutation('edit', 7, ['--title', 'Retained draft']);
+      expect(conflict).toMatchObject({
+        status: 1,
+        stderr: '',
+        body: {
+          error: {
+            code: 'CHECKLIST_CONFLICT',
+            current: {
+              items: [{ id: itemId, revision: 8, title: 'Draft 6', completion: 'complete' }],
+            },
+          },
+        },
+      });
+      expect(readFileSync(file)).toEqual(bytes);
+      const human = await runCli(sandbox, [
+        'squad',
+        'checklist',
+        'complete',
+        ...f.selected,
+        '--expect-revision',
+        '7',
+      ]);
+      expect(human.status).toBe(1);
+      expect(human.stdout).toBe('');
+      expect(human.stderr).toContain('error:');
+      expect(human.stderr).toContain(`${itemId} revision 8`);
+      expect((await mutation('complete', 8)).body).toMatchObject({
+        changed: false,
+        itemRevision: 8,
+      });
+      expect(readFileSync(file)).toEqual(bytes);
+      const second = await cli([
+        'create',
+        'Independent item',
+        '--room',
+        f.roomId,
+        '--checklist',
+        checklistId,
+        '--item',
+        otherId,
+        '--expect-inventory',
+        '1',
+      ]);
+      expect(second.body).toMatchObject({ itemRevision: 1, current: { inventoryRevision: 2 } });
+      expect((await mutation('archive', 8)).body.itemRevision).toBe(9);
+      const filtered = await list(['--completion', 'complete']);
+      expect(filtered.body).toMatchObject({ totalCount: 2, matchedCount: 0 });
+      const reorder = (inventory: number, order: string[]) =>
+        cli([
+          'reorder',
+          '--room',
+          f.roomId,
+          '--checklist',
+          checklistId,
+          '--expect-inventory',
+          String(inventory),
+          '--order',
+          JSON.stringify(order),
+        ]);
+      expect((await reorder(1, [otherId, itemId])).body.error.code).toBe('CHECKLIST_CONFLICT');
+      expect((await reorder(2, [otherId])).body.error.code).toBe('CHECKLIST_INPUT_INVALID');
+      expect((await reorder(2, [otherId, itemId])).body.current).toMatchObject({
+        inventoryRevision: 3,
+        items: [
+          { id: otherId, revision: 1 },
+          { id: itemId, revision: 9, archived: true },
+        ],
+      });
+      expect((await mutation('restore', 9)).body.current.items[1]).toMatchObject({
+        id: itemId,
+        revision: 10,
+        completion: 'complete',
+        archived: false,
+      });
+      expect((await mutation('assign', 10, ['--assignee', f.worker])).body.itemRevision).toBe(11);
+      expect(
+        (await runCli(sandbox, ['room', 'leave', f.roomId, '--identity', f.worker, '--json']))
+          .status
+      ).toBe(0);
+      expect((await list()).body.current.items[1].assignee).toEqual({
+        id: f.worker,
+        label: 'worker',
+        available: false,
+      });
+      expect((await mutation('unassign', 11)).body.itemRevision).toBe(12);
+      const deletion = await mutation('delete', 12, [
+        '--expect-inventory',
+        '3',
+        '--confirm-item',
+        itemId,
+        '--confirm-revision',
+        '12',
+      ]);
+      expect(deletion).toMatchObject({
+        status: 0,
+        body: {
+          itemRevision: 13,
+          current: { inventoryRevision: 4, deletion: { itemId, deletionRevision: 13 } },
+        },
+      });
+      expect(stored().deleted).toEqual([
+        { roomId: f.roomId, checklistId, itemId, deletionRevision: 13 },
+      ]);
+      expect(stored().items).toHaveLength(1);
+      expect(readFileSync(file, 'utf8')).not.toContain('Draft 6');
+      expect(readFileSync(file, 'utf8')).not.toContain(body);
+      const deleted = await cli(['show', ...f.selected]);
+      expect(deleted).toMatchObject({
+        status: 1,
+        stderr: '',
+        body: {
+          error: {
+            code: 'CHECKLIST_DELETED',
+            current: { deletion: { itemId, deletionRevision: 13 } },
+          },
+        },
+      });
+      expect(
+        (await cli(['create', 'Reuse denied', ...f.selected, '--expect-inventory', '4'])).body.error
+          .code
+      ).toBe('CHECKLIST_DELETED');
+      const empty = await cli([
+        'delete',
+        '--room',
+        f.roomId,
+        '--checklist',
+        checklistId,
+        '--item',
+        otherId,
+        '--expect-revision',
+        '1',
+        '--expect-inventory',
+        '4',
+        '--confirm-item',
+        otherId,
+        '--confirm-revision',
+        '1',
+      ]);
+      expect(empty.status).toBe(0);
+      expect((await list()).body).toMatchObject({
+        totalCount: 0,
+        matchedCount: 0,
+        current: { checklistId, inventoryRevision: 5, items: [] },
+      });
+      // Room departure was intentional; all checklist operations themselves remain inert.
+      const after = unrelatedState(sandbox);
+      expect(after).toEqual(before);
+      expect(existsSync(path.join(f.directory, 'items.tmp'))).toBe(false);
+    });
+  }, 60_000);
+
+  it('rejects operation inputs with exit1 and grammar inputs with exit2 without changing bytes', async () => {
+    await withSandbox(async (sandbox) => {
+      const f = await fixture(sandbox);
+      const cli = (words: string[]) => squad(sandbox, ['checklist', ...words]);
+      expect(
+        (await cli(['create', 'Title', ...f.selected, '--expect-inventory', 'absent'])).status
+      ).toBe(0);
+      const file = path.join(f.directory, 'items.json');
+      const bytes = readFileSync(file);
+      const before = unrelatedState(sandbox);
+      const selected = [...f.selected, '--expect-revision', '1'];
+      const invalid = [
+        ['ls', '--room', 'product'],
+        ['show', '--room', f.roomId, '--checklist', 'named', '--item', itemId],
+        ['complete', ...f.selected, '--expect-revision', '0'],
+        ['complete', ...f.selected, '--expect-revision', '-1'],
+        ['complete', ...f.selected, '--expect-revision', '18446744073709551616'],
+        ['edit', ...selected, '--title', ' '],
+        ['edit', ...selected, '--body', '\u001b'],
+        ['edit', ...selected, '--reference', 'file:///tmp/secret'],
+        ['edit', ...selected, '--reference', ''],
+        ['assign', ...selected, '--assignee', 'worker'],
+        [
+          'delete',
+          ...selected,
+          '--expect-inventory',
+          '1',
+          '--confirm-item',
+          otherId,
+          '--confirm-revision',
+          '1',
+        ],
+        [
+          'delete',
+          ...selected,
+          '--expect-inventory',
+          '1',
+          '--confirm-item',
+          itemId,
+          '--confirm-revision',
+          '2',
+        ],
+        [
+          'reorder',
+          '--room',
+          f.roomId,
+          '--checklist',
+          checklistId,
+          '--expect-inventory',
+          '1',
+          '--order',
+          '[1]',
+        ],
+        [
+          'reorder',
+          '--room',
+          f.roomId,
+          '--checklist',
+          checklistId,
+          '--expect-inventory',
+          '1',
+          '--order',
+          JSON.stringify([itemId, itemId]),
+        ],
+      ];
+      for (const words of invalid) {
+        const result = await cli(words);
+        expect(result, JSON.stringify(words)).toMatchObject({
+          status: 1,
+          stderr: '',
+          body: { error: { code: 'CHECKLIST_INPUT_INVALID' } },
+        });
+        expect(readFileSync(file)).toEqual(bytes);
+      }
+      const usage = [
+        [],
+        ['unknown'],
+        ['ls'],
+        ['ls', '--room', f.roomId, '--completion', 'closed'],
+        ['ls', '--room', f.roomId, '--identity', f.worker],
+        ['edit', ...selected],
+        ['edit', ...selected, '--body', 'x', '--clear-body'],
+        ['edit', ...selected, '--reference', 'https://example.org', '--clear-reference'],
+        ['delete', ...selected, '--expect-inventory', '1', '--yes'],
+      ];
+      for (const words of usage) {
+        expect(await cli(words), JSON.stringify(words)).toMatchObject({
+          status: 2,
+          stderr: '',
+          body: { error: { code: 'USAGE_ERROR' } },
+        });
+        expect(readFileSync(file)).toEqual(bytes);
+      }
+      expect(
+        (await cli(['show', '--room', f.roomId, '--checklist', checklistId, '--item', otherId]))
+          .body.error.code
+      ).toBe('CHECKLIST_NOT_FOUND');
+      expect(unrelatedState(sandbox)).toEqual(before);
+      expect(existsSync(path.join(f.directory, 'items.tmp'))).toBe(false);
+      const help = await runCli(sandbox, ['sq', 'checklist', '--help']);
+      expect(help.status).toBe(0);
+      expect(help.stderr).toBe('');
+      expect(help.stdout).toMatch(/^  ls\s/m);
+      expect(help.stdout).not.toMatch(/^  list\s/m);
+      expect(help.stdout).not.toContain('--identity');
+      const offline = {
+        ...sandbox,
+        cli: { executable: squadExecutable, args: [] },
+        env: { ...sandbox.env, TMT_EXECUTABLE: 'relative-invalid-core' },
+      };
+      for (const words of [
+        ['checklist', '--help'],
+        ['help', 'checklist', 'delete'],
+        ['checklist', 'create', '--help'],
+      ]) {
+        const shown = await runCli(offline, words);
+        expect(shown.status).toBe(0);
+        expect(shown.stderr).toBe('');
+        expect(shown.stdout).toContain('Usage: tmt squad checklist');
+      }
+      const completion = await runCli(offline, ['__complete', '--', 'checklist', '']);
+      expect(completion.status).toBe(0);
+      expect(completion.stderr).toBe('');
+      expect(completion.stdout.split('\n')).toContain('ls');
+      expect(completion.stdout.split('\n')).not.toContain('list');
+      const invalidBeforeDiscovery = await runCli(offline, [
+        'checklist',
+        'ls',
+        '--room',
+        'name',
+        '--json',
+      ]);
+      expect(invalidBeforeDiscovery.status).toBe(1);
+      expect(parseWholeStdout(invalidBeforeDiscovery)).toMatchObject({
+        error: { code: 'CHECKLIST_INPUT_INVALID' },
+      });
+    });
+  }, 60_000);
+
+  it('keeps two squads, renamed rooms, readonly orphans and corrupt reads distinct', async () => {
+    await withSandbox(async (sandbox) => {
+      const f = await fixture(sandbox);
+      const cli = (words: string[]) => squad(sandbox, ['checklist', ...words]);
+      expect(
+        (await cli(['create', 'Retained', ...f.selected, '--expect-inventory', 'absent'])).status
+      ).toBe(0);
+      expect((await squad(sandbox, ['init', 'other'])).status).toBe(0);
+      const otherRoom = (
+        parseWholeStdout(await runCli(sandbox, ['room', 'show', 'squad-other', '--json'])).room as {
+          id: string;
+        }
+      ).id;
+      expect((await cli(['ls', '--room', otherRoom])).body.current).toMatchObject({
+        checklistId: null,
+        items: [],
+      });
+      expect(existsSync(path.join(f.root, 'squad', 'checklist', otherRoom))).toBe(false);
+      const file = path.join(f.directory, 'items.json');
+      const original = readFileSync(file);
+      const corrupt = Buffer.from('{"version":999}\n');
+      writeFileSync(file, corrupt);
+      const failed = await cli(['ls', '--room', f.roomId]);
+      expect(failed).toMatchObject({
+        status: 1,
+        stderr: '',
+        body: { error: { code: 'CHECKLIST_STORAGE_ERROR' } },
+      });
+      expect(failed.body.error).not.toHaveProperty('current');
+      expect(readFileSync(file)).toEqual(corrupt);
+      writeFileSync(file, original);
+      const lock = path.join(f.directory, 'items.lock');
+      const lockBytes = readFileSync(lock);
+      unlinkSync(lock);
+      expect((await cli(['ls', '--room', f.roomId])).body.error.code).toBe(
+        'CHECKLIST_STORAGE_ERROR'
+      );
+      expect(existsSync(lock)).toBe(false);
+      expect(readFileSync(file)).toEqual(original);
+      writeFileSync(lock, lockBytes, { mode: 0o600 });
+      const beforeRename = parseWholeStdout(
+        await runCli(sandbox, ['api'], {
+          stdin: JSON.stringify({
+            version: 1,
+            operation: 'rooms.roster',
+            input: { room: f.roomId },
+          }),
+        })
+      );
+      const renamed = await runCli(sandbox, ['api'], {
+        stdin: JSON.stringify({
+          version: 1,
+          operation: 'rooms.write',
+          identity: 'Ben',
+          input: {
+            roomId: f.roomId,
+            room: {
+              expectedRevision: (beforeRename.room as { revision: number }).revision,
+              name: 'squad-renamed',
+              memberIds: [f.worker],
+            },
+          },
+        }),
+      });
+      expect(renamed.status, renamed.stdout).toBe(0);
+      expect((await cli(['ls', '--room', f.roomId])).body.current.room).toMatchObject({
+        id: f.roomId,
+        name: 'renamed',
+        available: true,
+      });
+      expect(readFileSync(file)).toEqual(original);
+      expect((await runCli(sandbox, ['room', 'rm', f.roomId, '--json'])).status).toBe(0);
+      const orphan = await cli(['ls', '--room', f.roomId]);
+      expect(orphan).toMatchObject({
+        status: 0,
+        body: {
+          current: {
+            room: { id: f.roomId, name: null, available: false },
+            checklistId,
+            items: [{ id: itemId, title: 'Retained' }],
+          },
+        },
+      });
+      expect(
+        (await cli(['complete', ...f.selected, '--expect-revision', '1'])).body.error.code
+      ).toBe('CHECKLIST_ROOM_UNAVAILABLE');
+      expect((await squad(sandbox, ['init', 'renamed'])).status).toBe(0);
+      const successor = (
+        parseWholeStdout(await runCli(sandbox, ['room', 'show', 'squad-renamed', '--json']))
+          .room as { id: string }
+      ).id;
+      expect(successor).not.toBe(f.roomId);
+      expect((await cli(['ls', '--room', successor])).body.current.checklistId).toBeNull();
+      expect(readFileSync(file)).toEqual(original);
     });
   }, 60_000);
 });

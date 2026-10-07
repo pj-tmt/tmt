@@ -96,6 +96,22 @@ fn grammar() -> Command {
         outputs: OutputModes::HumanAndJson,
         details: "Asks the serving process over its owner-only socket, never by signalling a pid. A Remote door that serve started stops with it; a door it only attached to keeps running. Pairings and data are untouched. Not running is not an error.",
     };
+    const OPEN: CommandSpec = CommandSpec {
+        name: "open",
+        summary: "Open the existing space or a page in your browser",
+        examples: &[
+            Example {
+                command: "tmt colab open",
+                note: "Open the running space home",
+            },
+            Example {
+                command: "tmt colab open 10000000-0000-4000-8000-000000000001",
+                note: "Open an existing page; a unique UUID prefix also works",
+            },
+        ],
+        outputs: OutputModes::HumanAndJson,
+        details: "Omit PAGE for the existing space home. This explicit request opens even without a terminal or with the automatic-open setting off. --no-open and --json only print link facts. Uses the running Colab and Remote services; never starts another service, pairs a browser or changes page access. If Colab is stopped, run tmt colab serve. Missing, deleted or ambiguous pages are refused before opening.",
+    };
     const SETTINGS: CommandSpec = CommandSpec {
         name: "settings",
         summary: "Show or change Colab settings",
@@ -173,10 +189,10 @@ fn grammar() -> Command {
         summary: "Write page source against a verified base",
         examples: &[Example {
             command: "tmt colab page write 10000000-0000-4000-8000-000000000001 --file page.html --json",
-            note: "Write a minimal source update",
+            note: "Replace the page source",
         }],
         outputs: OutputModes::HumanAndJson,
-        details: "Retains the title and submits a minimal signed content update through serve when running, or under its lifecycle lock when stopped. Use the opaque revision from page read as --expected-revision. Without it, the base is captured when this command starts; intervening changes still reject.",
+        details: "Retains the title and replaces the page source (at most 2 MiB) as one atomic batch of signed content updates, through serve when running, or under its lifecycle lock when stopped. A source equal to the current one publishes nothing and reports changed false. If a serving write's reply is lost, the command checks the original operation once and otherwise reports COLAB_OUTCOME_UNKNOWN with its operation ID; it never resends. Use the opaque revision from page read as --expected-revision. Without it, the base is captured when this command starts; intervening changes still reject.",
     };
     cli_grammar::extend(
         tmt_cli_style::command(&ROOT)
@@ -197,6 +213,9 @@ fn grammar() -> Command {
             ))
             .subcommand(tmt_cli_style::command(&SKILL_COMMAND))
             .subcommand(tmt_cli_style::command(&STOP))
+            .subcommand(open_args(
+                tmt_cli_style::command(&OPEN).arg(cli_grammar::page().required(false)),
+            ))
             .subcommand(
                 tmt_cli_style::command(&SETTINGS)
                     .arg(
@@ -564,7 +583,7 @@ fn page(root: &std::path::Path, args: &clap::ArgMatches) -> Result<()> {
             .as_millis()
             .try_into()?;
         let publisher_agent = core::publisher_agent();
-        let prepared = page::prepare(
+        let preparation = page::prepare_publication(
             &store,
             &key,
             &id,
@@ -578,9 +597,33 @@ fn page(root: &std::path::Path, args: &clap::ArgMatches) -> Result<()> {
             now,
         )?;
         store.close()?;
-        // A held serve lock selects the existing root-local IPC path. An uncertain
-        // IPC result never falls back to a second offline writer or resends.
-        let receipt = page::publish(&layout, &key, &prepared, now, &mut decoder)?;
+        let receipt = match preparation {
+            page::PublicationPreparation::Noop {
+                epoch,
+                membership_head,
+                base_revision,
+                memory_limit,
+            } => page::Receipt::unchanged(
+                &key,
+                &id,
+                &source,
+                epoch,
+                membership_head,
+                base_revision,
+                memory_limit,
+            ),
+            page::PublicationPreparation::Write(frozen) => {
+                let published = publish_write(&layout, &key, &id, &frozen, &mut decoder, now)?;
+                let mut receipt = page::publication_receipt(frozen.job(), &published.record)?;
+                // A write's combine can move the revision after its outcome was retained. The
+                // revision read by the writer that excluded every other writer is the one a next
+                // `--expected-revision` must carry; a lost reply leaves the committed one.
+                if let Some(revision) = published.revision {
+                    receipt.revision = revision;
+                }
+                receipt
+            }
+        };
         if json_output {
             writeln!(output, "{}", serde_json::to_string(&receipt)?)?;
         } else {
@@ -588,7 +631,11 @@ fn page(root: &std::path::Path, args: &clap::ArgMatches) -> Result<()> {
             tmt_cli_style::detail::write(
                 &mut output,
                 terminal,
-                "PAGE WRITTEN",
+                if receipt.changed {
+                    "PAGE WRITTEN"
+                } else {
+                    "PAGE UNCHANGED"
+                },
                 &[
                     ("page", receipt.page_id),
                     ("revision", receipt.revision),
@@ -623,6 +670,95 @@ fn page(root: &std::path::Path, args: &clap::ArgMatches) -> Result<()> {
     }
     Ok(())
 }
+/// One frozen publication reaches exactly one writer: the serve process when it holds the
+/// lifecycle lock, otherwise this process under that lock. Doubt about a serving exchange is
+/// resolved by original-operation status; the batch is never re-prepared, resent or committed
+/// offline behind a running server.
+fn publish_write(
+    layout: &Layout,
+    key: &Keyring,
+    page_id: &str,
+    frozen: &tmt_colab::page::FrozenPublication,
+    decoder: &mut tmt_colab::decoder::Decoder,
+    now: u64,
+) -> Result<tmt_colab::page::Published> {
+    use tmt_colab::{
+        page::{self, OutcomeUnknown, Published},
+        publication::Outcome,
+        store::Accepted,
+    };
+    match layout.serve_lock() {
+        Ok(_lock) => {
+            let mut store = Store::write_existing(layout)?;
+            let committed = page::commit_publication(
+                &mut store,
+                key,
+                frozen.job(),
+                frozen.packet(),
+                frozen.chain(),
+                now,
+            );
+            if let Ok(done) = &committed
+                && done.accepted == Accepted::New
+                && matches!(done.record.outcome, Outcome::Committed { .. })
+                && let Err(error) = page::compact::compact(
+                    &mut store,
+                    key,
+                    page_id,
+                    decoder,
+                    page::compact::Trigger::default(),
+                )
+            {
+                // The write is durable; the next write tries to combine again.
+                let mut stderr = tmt_cli_style::stream::stderr();
+                let terminal = stderr.terminal();
+                tmt_cli_style::message::warning(
+                    &mut stderr,
+                    terminal,
+                    &format!("The page was written but could not be combined yet: {error}"),
+                    None,
+                )?;
+            }
+            // The serve lifecycle lock excludes every other writer, so this read is the revision
+            // this write and its combine produced.
+            let record = committed.as_ref().ok().map(|done| &done.record);
+            let revision = record
+                .filter(|record| matches!(record.outcome, Outcome::Committed { .. }))
+                .and_then(|_| page::revision(&store, key, page_id).ok());
+            let closed = store.close();
+            let record = committed?.record;
+            closed?;
+            Ok(Published { record, revision })
+        }
+        Err(error)
+            if error.downcast_ref::<tmt_colab::keyring::StateFault>()
+                == Some(&tmt_colab::keyring::StateFault::AlreadyServing) =>
+        {
+            if let Some(published) = page::ipc::publish(layout, key, frozen)? {
+                return Ok(published);
+            }
+            let original = frozen.job().key()?;
+            let status = Store::read(layout).and_then(|store| {
+                let status = page::publication_status(&store, key, &original, frozen.chain(), now);
+                let closed = store.close();
+                let status = status?;
+                closed?;
+                Ok(status)
+            });
+            match status {
+                Ok(record) if !matches!(record.outcome, Outcome::Unknown { .. }) => Ok(Published {
+                    record,
+                    revision: None,
+                }),
+                _ => Err(OutcomeUnknown {
+                    operation_id: original.operation_id,
+                }
+                .into()),
+            }
+        }
+        Err(error) => Err(error),
+    }
+}
 fn page_source(path: &std::path::Path) -> Result<String> {
     use nix::poll::{PollFd, PollFlags, poll};
     use std::{
@@ -631,7 +767,10 @@ fn page_source(path: &std::path::Path) -> Result<String> {
         os::unix::fs::OpenOptionsExt,
         time::{Duration, Instant},
     };
-    use tmt_colab::{decoder::BASELINE_BYTES, page::Fault};
+    use tmt_colab::{
+        decoder::BASELINE_BYTES,
+        page::{Fault, SourceTooLarge},
+    };
     let mut bytes = Vec::new();
     if path == std::path::Path::new("-") {
         let deadline = Instant::now() + Duration::from_secs(5);
@@ -660,7 +799,7 @@ fn page_source(path: &std::path::Path) -> Result<String> {
             }
             bytes.extend_from_slice(&chunk[..n]);
             if bytes.len() > BASELINE_BYTES {
-                return Err(Fault::Capacity.into());
+                return Err(SourceTooLarge::at_least(bytes.len(), BASELINE_BYTES).into());
             }
         }
     } else {
@@ -668,14 +807,16 @@ fn page_source(path: &std::path::Path) -> Result<String> {
             .read(true)
             .custom_flags(nix::fcntl::OFlag::O_NONBLOCK.bits())
             .open(path)?;
-        if !file.metadata()?.is_file() {
+        let metadata = file.metadata()?;
+        if !metadata.is_file() {
             return Err(Fault::Invalid.into());
         }
         Read::by_ref(&mut file)
             .take((BASELINE_BYTES + 1) as u64)
             .read_to_end(&mut bytes)?;
         if bytes.len() > BASELINE_BYTES {
-            return Err(Fault::Capacity.into());
+            let size = usize::try_from(metadata.len()).unwrap_or(usize::MAX);
+            return Err(SourceTooLarge::exact(size.max(bytes.len()), BASELINE_BYTES).into());
         }
     }
     String::from_utf8(bytes).map_err(|_| Fault::Invalid.into())
@@ -763,6 +904,16 @@ fn error_code(error: &(dyn std::error::Error + Send + Sync + 'static)) -> &'stat
         .or_else(|| {
             error
                 .downcast_ref::<tmt_colab::page::Fault>()
+                .map(|e| e.code())
+        })
+        .or_else(|| {
+            error
+                .downcast_ref::<tmt_colab::page::SourceTooLarge>()
+                .map(|e| e.code())
+        })
+        .or_else(|| {
+            error
+                .downcast_ref::<tmt_colab::page::OutcomeUnknown>()
                 .map(|e| e.code())
         })
         .or_else(|| {

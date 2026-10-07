@@ -102,7 +102,7 @@ fn template() -> &'static Template<()> {
     TEMPLATE.get_or_init(|| scene::compile(FILE, MARKUP, &schema()))
 }
 
-/// The box's four border strings. `Outline` owns the square glyphs; the section
+/// The box's four border strings. `Outline` owns the flat glyphs; the section
 /// reads them from a painted scratch buffer and styles them itself.
 struct Chrome {
     top: String,
@@ -120,7 +120,7 @@ impl Chrome {
             border: look.role(Role::Dim),
             title_style: look.role(Role::Dim),
         }
-        .paint(area, &mut buffer);
+        .paint_flat(area, &mut buffer);
         let row = |y| {
             (0..width)
                 .map(|x| buffer[(x, y)].symbol().to_owned())
@@ -282,7 +282,7 @@ pub(in crate::board) fn render_squad(frame: &mut ratatui::Frame, app: &App, area
     });
     let reserved =
         crate::board::view::waiting::reserved_lines(app, app.selected, inner).unwrap_or_default();
-    let sent_row = app.sent.as_ref().and_then(|sent| {
+    let sent_row = app.sent.as_ref().filter(|sent| sent.sent).and_then(|sent| {
         (0..app.rows().len()).find(|index| app.row_target(*index).as_ref() == Some(&sent.target))
     });
     let mut before = Vec::new();
@@ -415,7 +415,7 @@ pub(in crate::board) fn render_squad(frame: &mut ratatui::Frame, app: &App, area
                     y: area.y + (line - offset) as u16,
                     x: inner.x,
                     width: inner.width,
-                    row: row.local,
+                    target: crate::board::app::HitTarget::Row(row.local),
                 });
             }
         }

@@ -92,6 +92,7 @@ struct HeaderMember<'a> {
 }
 
 pub struct View {
+    pub history_pending: bool,
     pub ask_lead: String,
     pub home_replies: bool,
     pub token_rate: Option<RateView>,
@@ -202,6 +203,7 @@ pub enum Request {
         all: bool,
         text: String,
     },
+    Status(Box<super::status_update::Action>),
     /// Save this tab order to `[tabs] order` (tab keys, in order).
     Reorder(Vec<String>),
     /// A cron job control, with its actor, job and viewed revision resolved.
@@ -220,6 +222,7 @@ impl Request {
                 | Self::Reorder(_)
                 | Self::Cron(_)
                 | Self::Leads { .. }
+                | Self::Status(_)
         )
     }
 }
@@ -233,6 +236,8 @@ pub enum Effect {
     Refresh,
     Settings,
     SaveSetting,
+    ResetSetting,
+    CycleTokenWindow,
     HomeReplies(bool),
     CancelSettings,
     PickTheme,
@@ -241,11 +246,13 @@ pub enum Effect {
     SaveView,
     CancelView,
     Act(Request),
+    Checklist(super::checklist::load::Task),
 }
 
 /// What a menu entry does: run a binding, or reply to one open request.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Choice {
+    Checklist,
     Action(Action),
     /// Confirms a cron control picked from a menu.
     Cron(super::cronboard::CronRequest),
@@ -321,6 +328,9 @@ pub enum Compose {
         request: String,
         from: String,
     },
+    Status,
+    /// Choose one acquired request through the existing request menu.
+    AnswerPicker,
     /// One step of a cron form; its draft lives in `App::cron_draft`.
     Cron,
 }
@@ -355,6 +365,8 @@ pub(super) struct RowSend {
 /// A successful send keeps its Home row visible through the ensuing refresh,
 /// until the next key clears the confirmation. This is display evidence only.
 pub(super) struct RowFeedback {
+    /// Retention alone is not evidence that a message was sent.
+    pub sent: bool,
     pub target: RowTarget,
     pub home: Option<HomeFeedback>,
 }
@@ -366,7 +378,7 @@ pub(super) struct HomeFeedback {
 }
 
 impl RowSend {
-    fn valid(&self, app: &App, input: &Input) -> bool {
+    pub(super) fn valid(&self, app: &App, input: &Input) -> bool {
         if matches!(input.compose, Compose::Leads { .. }) {
             return app.leads_valid(input);
         }
@@ -386,6 +398,8 @@ impl RowSend {
             return false;
         }
         match &input.compose {
+            Compose::Status => true,
+            Compose::AnswerPicker => false,
             Compose::Talk { to } => to == &self.name,
             Compose::Reply { request, from } => {
                 from == &self.name
@@ -411,7 +425,9 @@ impl RowSend {
 /// The one-line composer: Enter sends, Esc cancels, empty sends nothing.
 pub struct Input {
     pub(super) row_send: Option<RowSend>,
-    pub(super) alternative: Option<Compose>,
+    /// The row composer's other modes in cycle order (answer, note, talk): Tab
+    /// makes the first one current and sends the current one to the back.
+    pub(super) others: Vec<Compose>,
     pub(super) quote: Option<String>,
     pub link: Option<LinkSend>,
     pub prompt: String,
@@ -442,20 +458,51 @@ impl Input {
             Compose::ReadLead { .. } | Compose::ReadRow { .. } | Compose::Leads { .. } => {
                 self.prompt.clone()
             }
-            Compose::Talk { to } => format!("→ {to} ({})", self.squad),
-            Compose::Reply { from, .. } => format!("→ {from} ({})", self.squad),
+            Compose::Talk { to } => format!("→ {to} ({}) · talk", self.squad),
+            Compose::Reply { from, .. } => format!("→ {from} ({}) · answer", self.squad),
             Compose::Annotate { to, row } if to != row => {
-                format!("✎ note → {to} · about {row}")
+                format!("→ {to} ({}) · note · about {row}", self.squad)
             }
-            Compose::Annotate { to, .. } => format!("✎ note → {to}"),
+            Compose::Annotate { to, .. } => format!("→ {to} ({}) · note", self.squad),
             Compose::AskLead { to, .. } => format!("→ lead {to}"),
             Compose::Cron => self.prompt.clone(),
+            Compose::AnswerPicker => self.prompt.clone(),
+            Compose::Status => format!(
+                "Update status → {} / {}",
+                self.squad,
+                self.row_send
+                    .as_ref()
+                    .map_or("agent", |send| send.name.as_str())
+            ),
+        }
+    }
+
+    /// The modes of a row composer in cycle order, for the hint line.
+    pub(super) fn modes(&self) -> Vec<&'static str> {
+        let mut modes: Vec<_> = std::iter::once(&self.compose)
+            .chain(&self.others)
+            .filter_map(Compose::mode)
+            .collect();
+        modes.sort_by_key(|(rank, _)| *rank);
+        modes.into_iter().map(|(_, word)| word).collect()
+    }
+}
+
+impl Compose {
+    /// The row composer's mode: its place in the answer, note, talk cycle and word.
+    fn mode(&self) -> Option<(u8, &'static str)> {
+        match self {
+            Self::Reply { .. } | Self::AnswerPicker => Some((0, "answer")),
+            Self::Annotate { .. } => Some((1, "note")),
+            Self::Talk { .. } => Some((2, "talk")),
+            Self::Status => Some((3, "status")),
+            _ => None,
         }
     }
 }
 
 /// Longest text the composer accepts, in characters.
-const INPUT_LIMIT: usize = 4000;
+pub(super) const INPUT_LIMIT: usize = 4000;
 
 const DOUBLE_CLICK: Duration = Duration::from_millis(400);
 
@@ -468,6 +515,7 @@ pub(super) enum Overlay {
     Theme,
     Switcher,
     CronList,
+    Checklist,
 }
 impl Overlay {
     fn id(self) -> tmt_tui::app::ComponentId {
@@ -479,6 +527,7 @@ impl Overlay {
                 Self::Theme => "theme-picker",
                 Self::Switcher => "switcher",
                 Self::CronList => "cron-list",
+                Self::Checklist => "checklist",
             }
             .into(),
         ]
@@ -516,13 +565,43 @@ pub struct TabHit {
     pub tab: usize,
 }
 
-/// A screen line of the rows pane and the visible row it shows.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// A currently painted screen region and its row or meter target.
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub struct Hit {
     pub y: u16,
     pub x: u16,
     pub width: u16,
-    pub row: usize,
+    pub target: HitTarget,
+}
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HitTarget {
+    Row(usize),
+    Meter(Option<usize>),
+}
+impl Hit {
+    pub fn row(&self) -> Option<usize> {
+        match self.target {
+            HitTarget::Row(row) => Some(row),
+            HitTarget::Meter(_) => None,
+        }
+    }
+    fn contains(&self, x: u16, y: u16) -> bool {
+        self.y == y && (self.x..self.x.saturating_add(self.width)).contains(&x)
+    }
+}
+
+impl std::fmt::Debug for Hit {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut hit = f.debug_struct("Hit");
+        hit.field("y", &self.y)
+            .field("x", &self.x)
+            .field("width", &self.width);
+        match self.target {
+            HitTarget::Row(row) => hit.field("row", &row),
+            target => hit.field("target", &target),
+        }
+        .finish()
+    }
 }
 
 /// Config is immutable; only this session presentation set changes on a toggle.
@@ -539,6 +618,9 @@ pub struct TitleHit {
 
 #[derive(Default)]
 pub struct App {
+    pub(super) checklist: Option<super::checklist::Controller>,
+    pub(super) checklist_generation: u64,
+    pub(super) initial_look: Option<crate::look::Look>,
     pub(super) note_link: Option<(String, usize)>,
     pub(super) link_hits: RefCell<Vec<(ratatui::layout::Rect, usize)>>,
     pub(super) note_cursors: RefCell<BTreeMap<String, super::notes::NotesCursor>>,
@@ -547,6 +629,7 @@ pub struct App {
     pub(super) cron: super::cronboard::State,
     pub(super) home_leads: super::home_leads::State,
     /// The cron form being filled in on the input line, if any.
+    pub(super) status_draft: Option<super::status_update::Draft>,
     pub(super) cron_draft: Option<super::cronboard::Draft>,
     /// The squad tab's jobs half has focus (Tab moves in after the last pane).
     pub(super) jobs_focus: bool,
@@ -559,7 +642,7 @@ pub struct App {
     usage_document: Option<Value>,
     pub(super) token_window: crate::config::TokenWindow,
     pub(super) excluded_counters: Vec<String>,
-    window_changed: bool,
+    pub(super) meter_hover: Option<Option<usize>>,
     squad_keys: Vec<String>,
     pub(super) picks: super::pick::Picks,
     pub tabs: Vec<String>,
@@ -594,7 +677,7 @@ pub struct App {
     pub input: Option<Input>,
     /// Last successful row send; cleared on the next user action.
     pub(super) sent: Option<RowFeedback>,
-    pending_send: Option<RowFeedback>,
+    pub(super) pending_send: Option<RowFeedback>,
     /// Current-frame inline band, reserved by the row painter.
     pub(super) input_band: std::cell::Cell<Option<ratatui::layout::Rect>>,
     /// Index of the focused pane (split) or visible tab (tabs).
@@ -620,6 +703,8 @@ pub struct App {
     /// Where tabs were last drawn.
     pub tab_hits: RefCell<Vec<TabHit>>,
     pub(super) unpicked_hit: std::cell::Cell<Option<ratatui::layout::Rect>>,
+    /// The last tab line hid tabs, so the footer offers the switcher.
+    pub(super) tabs_overflow: std::cell::Cell<bool>,
     /// Only titles actually painted in the last frame can toggle.
     pub title_hits: RefCell<Vec<TitleHit>>,
     folds: BTreeMap<String, FoldState>,
@@ -679,6 +764,7 @@ impl App {
     pub fn new(squad: Option<String>) -> Self {
         Self {
             current: squad,
+            loading_since: Some(Instant::now()),
             follow: true,
             ..Self::default()
         }
@@ -834,7 +920,7 @@ impl App {
                     .as_ref()
                     .filter(|_| self.current.as_deref() == Some(squad))
             })
-            .filter(|meter| meter.room == rate.input.room && meter.settings == rate.settings)
+            .filter(|meter| meter.room == rate.input.room && meter.same_policy(rate.settings))
     }
 
     pub(super) fn home_usage(&self, squad: &str, now: Instant) -> Option<HomeUsage<'_>> {
@@ -1133,6 +1219,61 @@ impl App {
 
     /// Swaps in a loaded squad in one step. A result for a squad the user
     /// already left is kept for switching back, never shown.
+    pub(super) fn apply_history(
+        &mut self,
+        read: super::refresh::HistoryRead,
+        now: Instant,
+    ) -> bool {
+        if self.loading()
+            || self.current.as_deref() != Some(&read.owner)
+            || self.shown.as_deref() != Some(&read.owner)
+        {
+            return false;
+        }
+        let Some(view) = self.view.as_mut() else {
+            return false;
+        };
+        let home = view.home.is_some();
+        let mut changed = false;
+        for (name, (settings, input)) in read.targets {
+            let current = if home {
+                view.home_rate.get(&name)
+            } else {
+                view.token_rate.as_ref()
+            };
+            let Some(current) = current.filter(|rate| {
+                rate.settings == settings
+                    && rate.settings.enabled
+                    && rate.input.room == input.room
+                    && rate.input.resumes.keys().eq(input.resumes.keys())
+            }) else {
+                continue;
+            };
+            let meter = if home {
+                self.meters.get_mut(&name)
+            } else {
+                self.meter.as_mut()
+            };
+            let Some(meter) =
+                meter.filter(|meter| meter.room == input.room && meter.settings == settings)
+            else {
+                continue;
+            };
+            meter.seed(&current.input, &read.seeds, now, false);
+            let observed = read
+                .observed
+                .as_ref()
+                .map(|rows| current.input.joined(rows));
+            meter.sample(observed.as_ref().map_err(|_| ()), now);
+            changed = true;
+        }
+        if changed {
+            view.history_pending = false;
+            self.project_usage(now);
+        }
+        changed
+    }
+
     pub fn apply(&mut self, snapshot: Snapshot) {
         debug_assert!(
             !snapshot.view.as_ref().is_ok_and(|view| view.home.is_some())
@@ -1214,13 +1355,14 @@ impl App {
                         .filter(|(_, rate)| rate.settings.enabled)
                     {
                         if self.meters.get(name).is_none_or(|meter| {
-                            meter.room != rate.input.room || meter.settings != rate.settings
+                            meter.room != rate.input.room || !meter.same_policy(rate.settings)
                         }) {
                             self.meters.insert(
                                 name.clone(),
                                 super::meter::Meter::new(rate.settings, &rate.input, now),
                             );
                         } else if let Some(meter) = self.meters.get_mut(name) {
+                            meter.settings = rate.settings;
                             meter.retain(&rate.input);
                         }
                         if let Some(seeds) = rate.history.take() {
@@ -1235,13 +1377,12 @@ impl App {
                 }
                 match &mut view.token_rate {
                     Some(rate) if rate.settings.enabled => {
-                        if !self.window_changed {
-                            self.token_window = rate.settings.window;
-                        }
+                        self.token_window = rate.settings.window;
                         self.token_window = self.token_window.available(rate.settings.windows);
                         if let Some(meter) = self.meter.as_mut().filter(|meter| {
-                            meter.room == rate.input.room && meter.settings == rate.settings
+                            meter.room == rate.input.room && meter.same_policy(rate.settings)
                         }) {
+                            meter.settings = rate.settings;
                             if meter.due(now) {
                                 meter.sample(Ok(&rate.input), now);
                             }
@@ -1258,6 +1399,9 @@ impl App {
                 }
                 if let Some(meter) = self.meter.as_mut() {
                     meter.select(self.token_window, now);
+                }
+                if self.meter.is_none() {
+                    self.meter_hover = None;
                 }
                 // Help belongs to the ordinary immutable roster snapshot, not meter ticks.
                 self.excluded_counters = view
@@ -1514,9 +1658,13 @@ impl App {
 
     /// Shows the tab `next`, from the cache at once when it was visited.
     pub(super) fn go(&mut self, next: String) -> Effect {
+        self.meter_hover = None;
         self.picks.include(&next);
         if Some(&next) == self.current.as_ref() {
             return Effect::None;
+        }
+        if let Some(view) = self.view.as_mut() {
+            view.history_pending = false;
         }
         self.handoff_meters(&next, Instant::now());
         if self.shown.as_deref() == Some(super::ALL) && self.home_target.is_some() {
@@ -1572,8 +1720,17 @@ impl App {
     }
 
     pub(super) fn open_settings(&mut self, config: Config) -> Result<(), crate::core::SquadError> {
-        let mut overlay =
-            super::settings::Overlay::open(config, self.shown_tab(), self.selected_section())?;
+        let window = self
+            .meter
+            .as_ref()
+            .filter(|meter| meter.settings.enabled)
+            .map(|_| self.token_window.label().to_owned());
+        let mut overlay = super::settings::Overlay::open(
+            config,
+            self.shown_tab(),
+            self.selected_section(),
+            window,
+        )?;
         overlay.opening_focus = self.focus;
         overlay.squad_keys = self.squad_keys.clone();
         overlay.staleness = self
@@ -1901,6 +2058,9 @@ impl App {
     /// the action with a notice; nothing runs half-filled. While a switch
     /// loads, the rows on screen are another squad's, so nothing acts on them.
     pub fn perform(&mut self, action: &Action) -> Effect {
+        if action.verb == Verb::Menu {
+            return self.context_menu();
+        }
         if action.verb == Verb::PickTab {
             self.switcher = Some(Switcher::default());
             self.reconcile_switcher(false);
@@ -1938,21 +2098,12 @@ impl App {
                 return self.toggle_panes(&panes);
             }
             Verb::TokenWindow => {
-                if let Some(meter) = self.meter.as_mut() {
-                    self.token_window = self.token_window.next(meter.settings.windows);
-                    self.window_changed = true;
-                    let now = Instant::now();
-                    meter.select(self.token_window, now);
-                    self.project_usage(now);
-                    self.notice = Some(format!("Token window: {}", self.token_window.label()));
-                }
-                return Effect::None;
+                return self.cycle_token_window();
             }
             Verb::HomeReplies => {
                 return self
                     .view
                     .as_ref()
-                    .filter(|view| view.home.is_some())
                     .map_or(Effect::None, |view| Effect::HomeReplies(!view.home_replies));
             }
             Verb::HomeMessage => {
@@ -2019,39 +2170,6 @@ impl App {
         let view = self.view.as_ref().expect("a selected row has a view");
         let request = match action.verb {
             Verb::Talk | Verb::Annotate | Verb::Reply => return self.compose(action, &row),
-            Verb::Menu => {
-                let mut entries: Vec<MenuEntry> = self
-                    .bindings()
-                    .into_iter()
-                    .filter(|(event, action)| {
-                        !matches!(event.as_str(), "click" | "double-click")
-                            && !matches!(
-                                action.verb,
-                                Verb::Menu | Verb::NextPane | Verb::TokenWindow
-                            )
-                    })
-                    .map(|(key, action)| MenuEntry {
-                        key,
-                        label: action.text.clone(),
-                        choice: Choice::Action(action),
-                    })
-                    .collect();
-                // Stable: bindings of one verb keep their key order.
-                entries.sort_by_key(|entry| match &entry.choice {
-                    Choice::Action(action) => action.order(),
-                    _ => u8::MAX,
-                });
-                self.menu = Some(Menu {
-                    row_send: None,
-                    link: None,
-                    prefill: String::new(),
-                    title: row["name"].as_str().unwrap_or_default().to_owned(),
-                    entries,
-                    selected: 0,
-                    surface: Default::default(),
-                });
-                return Effect::None;
-            }
             Verb::Tab => {
                 return match row["squad"].as_str() {
                     Some(squad) => self.go(squad.to_owned()),
@@ -2084,6 +2202,46 @@ impl App {
             Ok(request) => Effect::Act(request),
             Err(reason) => self.say(format!("{}: {reason}.", action.verb.name())),
         }
+    }
+
+    pub(super) fn context_menu(&mut self) -> Effect {
+        let row = self.selected_row();
+        let mut entries: Vec<MenuEntry> = self
+            .bindings()
+            .into_iter()
+            .filter(|(event, action)| {
+                !matches!(event.as_str(), "click" | "double-click")
+                    && !matches!(action.verb, Verb::Menu | Verb::NextPane | Verb::TokenWindow)
+                    && (row.is_some() || !action.verb.acts_on_member())
+            })
+            .map(|(key, action)| MenuEntry {
+                key,
+                label: action.text.clone(),
+                choice: Choice::Action(action),
+            })
+            .collect();
+        entries.sort_by_key(|entry| match &entry.choice {
+            Choice::Action(action) => action.order(),
+            _ => u8::MAX,
+        });
+        entries.push(MenuEntry {
+            key: String::new(),
+            label: "Checklist".into(),
+            choice: Choice::Checklist,
+        });
+        self.menu = Some(Menu {
+            row_send: None,
+            link: None,
+            prefill: String::new(),
+            title: row
+                .and_then(|row| row["name"].as_str())
+                .unwrap_or("Actions")
+                .to_owned(),
+            entries,
+            selected: 0,
+            surface: Default::default(),
+        });
+        Effect::None
     }
 
     /// The lead `jump lead` goes to: the squad's own lead on its tab; on the
@@ -2141,7 +2299,7 @@ impl App {
     pub(super) fn ask(&mut self, prompt: String, compose: Compose, squad: String) -> Effect {
         self.input = Some(Input {
             row_send: None,
-            alternative: None,
+            others: Vec::new(),
             quote: None,
             link: None,
             prompt,
@@ -2248,11 +2406,8 @@ impl App {
         })
     }
 
-    /// One composer for row answers and notes; several requests still need a choice.
-    pub(super) fn compose_row(&mut self, mut send: RowSend, verb: Verb, squad: String) -> Effect {
-        let row = self.target_row(&send.target).expect("opening row exists");
-        let pending = row["pending"].as_str().is_some_and(|text| !text.is_empty());
-        let open: Vec<MenuEntry> = row["waitingOnYou"]
+    fn request_entries(&self, send: &RowSend) -> Vec<MenuEntry> {
+        self.target_row(&send.target).unwrap_or(&Value::Null)["waitingOnYou"]
             .as_array()
             .into_iter()
             .flatten()
@@ -2269,7 +2424,14 @@ impl App {
                     },
                 })
             })
-            .collect();
+            .collect()
+    }
+    /// One composer for row answers and notes; several requests still need a choice.
+    pub(super) fn compose_row(&mut self, mut send: RowSend, verb: Verb, squad: String) -> Effect {
+        self.status_draft = None;
+        let row = self.target_row(&send.target).expect("opening row exists");
+        let pending = row["pending"].as_str().is_some_and(|text| !text.is_empty());
+        let open = self.request_entries(&send);
         if verb != Verb::Talk && !(verb == Verb::Annotate && send.note_member) && !open.is_empty() {
             if open.len() > 1 {
                 self.menu = Some(Menu {
@@ -2305,7 +2467,15 @@ impl App {
             Verb::Reply => return self.say(format!("{} is not waiting on you.", send.name)),
             _ => match send.note.clone() {
                 Some(note) => note,
-                None => return self.say(format!("This squad has no lead; set one with tmt squad lead <name> --squad {squad}, or use annotate member.")),
+                None if matches!(&send.target,RowTarget::Home(target) if target.member.is_none()) =>
+                {
+                    return self.say(
+                        "This squad has no lead; choose a lead before writing to its squad row.",
+                    );
+                }
+                None => Compose::Talk {
+                    to: send.name.clone(),
+                },
             },
         };
         let effect = self.ask(String::new(), compose, squad.clone());
@@ -2356,8 +2526,9 @@ impl App {
         self.compose_row(send, action.verb, squad)
     }
 
-    fn choose(&mut self, choice: Choice) -> Effect {
+    pub(super) fn choose(&mut self, choice: Choice) -> Effect {
         match choice {
+            Choice::Checklist => self.open_checklist(),
             Choice::Action(action) => self.perform(&action),
             Choice::Cron(request) => Effect::Act(Request::Cron(request)),
             Choice::Dismiss => Effect::None,
@@ -2370,29 +2541,156 @@ impl App {
         }
     }
 
-    fn attach_row(&mut self, send: RowSend, squad: String) {
-        let quote = self.input.as_ref().and_then(|input| match &input.compose {
-            Compose::Reply { request, .. } => self.target_row(&send.target)?["waitingOnYou"]
-                .as_array()?
-                .iter()
-                .find(|item| item["requestId"].as_str() == Some(request))
-                .map(|item| {
-                    super::notes::sanitize(
-                        item["preview"].as_str().unwrap_or("(question unavailable)"),
-                    )
-                }),
-            _ => None,
-        });
+    /// The question a reply answers, quoted above the text while composing it.
+    fn reply_quote(&self, send: &RowSend, compose: &Compose) -> Option<String> {
+        let Compose::Reply { request, .. } = compose else {
+            return None;
+        };
+        self.target_row(&send.target)?["waitingOnYou"]
+            .as_array()?
+            .iter()
+            .find(|item| item["requestId"].as_str() == Some(request))
+            .map(|item| {
+                super::notes::sanitize(item["preview"].as_str().unwrap_or("(question unavailable)"))
+            })
+    }
+
+    /// The modes Tab reaches from `current`, in answer, note, talk order after
+    /// it. Answer is offered only for the one request the row waits on; several
+    /// requests are chosen from the menu `a` opens first.
+    fn other_modes(&self, send: &RowSend, current: &Compose) -> Vec<Compose> {
+        let answer = match current {
+            Compose::Reply { .. } | Compose::AnswerPicker => Some(current.clone()),
+            _ if send.note_member => None,
+            _ => self.target_row(&send.target).and_then(|row| {
+                let mut open = row["waitingOnYou"].as_array()?.iter();
+                let (item, rest) = (open.next()?, open.next());
+                Some(if rest.is_none() {
+                    Compose::Reply {
+                        request: item["requestId"].as_str().unwrap_or_default().to_owned(),
+                        from: send.name.clone(),
+                    }
+                } else {
+                    Compose::AnswerPicker
+                })
+            }),
+        };
+        let all = [
+            answer,
+            send.note.clone(),
+            Some(Compose::Talk {
+                to: send.name.clone(),
+            }),
+            (!matches!(&send.target,RowTarget::Home(target) if target.member.is_none()))
+                .then_some(Compose::Status),
+        ];
+        let rank = |compose: &Compose| compose.mode().map(|(rank, _)| rank);
+        let here = rank(current);
+        let mut after: Vec<_> = all.into_iter().flatten().collect();
+        after.retain(|compose| rank(compose) != here);
+        after.sort_by_key(|compose| (rank(compose) <= here, rank(compose)));
+        after
+    }
+
+    pub(super) fn attach_row(&mut self, send: RowSend, squad: String) {
+        let compose = self.input.as_ref().map(|input| input.compose.clone());
+        let others = compose
+            .as_ref()
+            .map(|compose| self.other_modes(&send, compose))
+            .unwrap_or_default();
+        let quote = compose
+            .as_ref()
+            .and_then(|compose| self.reply_quote(&send, compose));
         if let Some(input) = &mut self.input {
             input.squad = squad;
-            input.alternative = matches!(input.compose, Compose::Reply { .. })
-                .then(|| send.note.clone())
-                .flatten();
+            input.others = others;
             input.quote = quote;
             input.row_send = Some(send);
             input.prompt = input.header();
         }
         self.follow = true;
+    }
+
+    /// Tab in a row composer: the next of answer, note and talk, keeping the text.
+    pub(super) fn cycle_mode(&mut self) {
+        let Some(input) = self.input.as_mut().filter(|input| !input.others.is_empty()) else {
+            return;
+        };
+        let next = input.others.remove(0);
+        let previous = std::mem::replace(&mut input.compose, next);
+        input.others.push(previous);
+        input.prompt = input.header();
+        if self
+            .input
+            .as_ref()
+            .is_some_and(|input| matches!(input.compose, Compose::AnswerPicker))
+        {
+            let input = self.input.take().unwrap();
+            if let Some(send) = input.row_send {
+                let entries = self.request_entries(&send);
+                self.menu = Some(Menu {
+                    title: format!("answer {}", send.name),
+                    row_send: Some(send),
+                    link: None,
+                    prefill: input.text,
+                    entries,
+                    selected: 0,
+                    surface: Default::default(),
+                });
+            }
+            return;
+        }
+        if self
+            .input
+            .as_ref()
+            .is_some_and(|input| matches!(input.compose, Compose::Status))
+        {
+            self.start_status();
+        }
+        let quote = self
+            .input
+            .as_ref()
+            .and_then(|input| self.reply_quote(input.row_send.as_ref()?, &input.compose));
+        if let Some(input) = &mut self.input {
+            input.quote = quote;
+        }
+    }
+
+    /// The next token window of the summary meter, when the squad samples one.
+    fn cycle_token_window(&mut self) -> Effect {
+        if self.meter.is_some() {
+            Effect::CycleTokenWindow
+        } else {
+            Effect::None
+        }
+    }
+    pub(super) fn next_token_window(&self) -> Option<crate::config::TokenWindow> {
+        self.meter
+            .as_ref()
+            .map(|meter| self.token_window.next(meter.settings.windows))
+    }
+    pub(super) fn apply_token_window(&mut self, config: &Config) -> String {
+        let key = self.current.clone().unwrap_or_default();
+        let window = config
+            .token_rate(&key)
+            .expect("validated window write")
+            .window;
+        self.token_window = window;
+        let now = Instant::now();
+        if let Some(meter) = &mut self.meter {
+            meter.settings.window = window;
+            meter.select(window, now);
+        }
+        self.project_usage(now);
+        format!(
+            "Token window: {}{}",
+            window.label(),
+            if config.has_setting_override(&key, "board.token_rate.window") {
+                " · this squad · r reset in ,"
+            } else {
+                ""
+            }
+        )
     }
 
     fn annotate_note(&mut self) -> Effect {
@@ -2617,6 +2915,13 @@ impl App {
     }
 
     fn input_key(&mut self, key: KeyEvent) -> Effect {
+        if self
+            .input
+            .as_ref()
+            .is_some_and(|input| matches!(input.compose, Compose::Status))
+        {
+            return self.status_key(key);
+        }
         if self.input.as_ref().is_some_and(|input| {
             matches!(
                 input.compose,
@@ -2632,6 +2937,7 @@ impl App {
             KeyCode::Esc => {
                 let cron = matches!(input.compose, Compose::Cron);
                 self.input = None;
+                self.status_draft = None;
                 if cron {
                     self.cron_draft = None;
                     return self.say("Cancelled; nothing changed.");
@@ -2639,10 +2945,7 @@ impl App {
                 return self.say("Nothing sent.");
             }
             KeyCode::Tab => {
-                if let Some(alternative) = input.alternative.take() {
-                    input.alternative = Some(std::mem::replace(&mut input.compose, alternative));
-                    input.prompt = input.header();
-                }
+                self.cycle_mode();
                 return Effect::None;
             }
             KeyCode::Enter => {}
@@ -2691,6 +2994,8 @@ impl App {
                     Compose::Talk { to } => to == member,
                     Compose::Annotate { to, .. } => self.lead().as_ref() == Ok(to),
                     Compose::Cron
+                    | Compose::Status
+                    | Compose::AnswerPicker
                     | Compose::ReadLead { .. }
                     | Compose::ReadRow { .. }
                     | Compose::Leads { .. } => false,
@@ -2714,25 +3019,7 @@ impl App {
         if text.is_empty() {
             return self.say("Nothing sent.");
         }
-        self.pending_send = input.row_send.map(|send| {
-            let home = matches!(&send.target, RowTarget::Home(target) if target.member.is_some())
-                .then(|| {
-                    self.home_entries()
-                        .iter()
-                        .enumerate()
-                        .find(|(_, entry)| RowTarget::Home(entry.target.clone()) == send.target)
-                        .map(|(index, entry)| HomeFeedback {
-                            row: entry.row.clone(),
-                            lead: entry.lead.map(str::to_owned),
-                            index,
-                        })
-                })
-                .flatten();
-            RowFeedback {
-                target: send.target,
-                home,
-            }
-        });
+        self.pending_send = self.row_feedback(input.row_send);
         Effect::Act(match input.compose {
             Compose::Talk { to } | Compose::AskLead { to, .. } => Request::Talk {
                 me,
@@ -2760,6 +3047,8 @@ impl App {
             Compose::ReadLead { .. } | Compose::ReadRow { .. } => {
                 unreachable!("read-only mode cannot send")
             }
+            Compose::Status => unreachable!("status submission has its own retained form"),
+            Compose::AnswerPicker => unreachable!("answer mode opens the existing request menu"),
             Compose::Cron => unreachable!("a cron step is submitted before this match"),
             Compose::Reply { request, from } => Request::Reply {
                 me,
@@ -2770,6 +3059,46 @@ impl App {
         })
     }
 
+    pub(super) fn row_feedback(&self, send: Option<RowSend>) -> Option<RowFeedback> {
+        send.map(|send| {
+            let home = matches!(&send.target, RowTarget::Home(target) if target.member.is_some())
+                .then(|| {
+                    self.home_entries()
+                        .iter()
+                        .enumerate()
+                        .find(|(_, entry)| RowTarget::Home(entry.target.clone()) == send.target)
+                        .map(|(index, entry)| HomeFeedback {
+                            row: entry.row.clone(),
+                            lead: entry.lead.map(str::to_owned),
+                            index,
+                        })
+                })
+                .flatten();
+            RowFeedback {
+                sent: true,
+                target: send.target,
+                home,
+            }
+        })
+    }
+    pub(super) fn finished_status(&mut self, outcome: crate::membership::status_update::Outcome) {
+        if matches!(
+            outcome,
+            crate::membership::status_update::Outcome::Applied { .. }
+                | crate::membership::status_update::Outcome::Unknown(_)
+        ) {
+            if let Some(mut feedback) = self.pending_send.take() {
+                feedback.sent = false;
+                self.sent = Some(feedback);
+            }
+        } else {
+            self.pending_send = None;
+        }
+        if let Some(draft) = &mut self.status_draft {
+            draft.finished(outcome);
+            self.notice = draft.error.clone();
+        }
+    }
     /// Shows how a request ended.
     pub fn finished(&mut self, outcome: Result<String, String>) {
         self.sent = self.pending_send.take().filter(|_| outcome.is_ok());
@@ -2777,6 +3106,24 @@ impl App {
     }
 
     fn menu_key(&mut self, key: KeyEvent) -> Effect {
+        if key.code == KeyCode::Tab
+            && let Some(send) = self.menu.as_ref().and_then(|menu| menu.row_send.clone())
+        {
+            let squad = match &send.target {
+                RowTarget::Home(target) => target.squad.clone(),
+                RowTarget::Member { squad, .. } | RowTarget::Lead { squad, .. } => squad.clone(),
+            };
+            let prefill = self.menu.as_ref().unwrap().prefill.clone();
+            self.menu = None;
+            let compose = send.note.clone().unwrap_or(Compose::Talk {
+                to: send.name.clone(),
+            });
+            self.ask(String::new(), compose, squad.clone());
+            self.input.as_mut().unwrap().text = prefill;
+            self.attach_row(send, squad);
+            return Effect::None;
+        }
+
         let Some(menu) = &mut self.menu else {
             return Effect::None;
         };
@@ -2866,7 +3213,9 @@ impl App {
     }
 
     fn overlay(&self) -> Option<Overlay> {
-        if self.help {
+        if self.checklist_shown() {
+            Some(Overlay::Checklist)
+        } else if self.help {
             Some(Overlay::Help)
         } else if self.settings.is_some() {
             Some(Overlay::Settings)
@@ -2890,6 +3239,7 @@ impl App {
         event: &Event,
     ) -> Option<Effect> {
         match overlay {
+            Overlay::Checklist => self.checklist_event(event),
             Overlay::Help => {
                 let input = self.help_state.borrow_mut().input(event);
                 match input? {
@@ -2909,6 +3259,7 @@ impl App {
                     Some(match input {
                         super::settings::Input::None => Effect::None,
                         super::settings::Input::Save => Effect::SaveSetting,
+                        super::settings::Input::Reset => Effect::ResetSetting,
                         super::settings::Input::Preview => {
                             self.settings_preview();
                             Effect::None
@@ -2917,6 +3268,21 @@ impl App {
                             self.settings_preview();
                             self.settings = None;
                             Effect::CancelSettings
+                        }
+                        super::settings::Input::Pick("actions") => {
+                            self.settings_preview();
+                            self.settings = None;
+                            self.context_menu()
+                        }
+                        super::settings::Input::Pick("window") => self.cycle_token_window(),
+                        super::settings::Input::Pick(id) => {
+                            self.settings_preview();
+                            self.settings = None;
+                            if id == "theme" {
+                                Effect::PickTheme
+                            } else {
+                                Effect::PickView
+                            }
                         }
                     })
                 }
@@ -2951,11 +3317,17 @@ impl App {
     }
 
     pub fn key(&mut self, key: KeyEvent) -> Effect {
+        self.meter_hover = None;
         if let Some(effect) = self.overlay_event(&Event::Key(key)) {
             return effect;
         }
         self.notice = None;
-        if self.sent.take().is_some() {
+        if !self
+            .input
+            .as_ref()
+            .is_some_and(|input| matches!(input.compose, Compose::Status))
+            && self.sent.take().is_some()
+        {
             self.clamp();
         }
         if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('c') {
@@ -3191,6 +3563,9 @@ impl App {
     }
 
     pub(super) fn invalidate_overlay_frames(&self) {
+        if let Some(checklist) = &self.checklist {
+            checklist.invalidate();
+        }
         if let Some(settings) = &self.settings {
             settings.surface.borrow_mut().invalidate();
         }
@@ -3255,12 +3630,52 @@ impl App {
     /// The wheel scrolls the pane under the pointer, whichever is focused.
     /// A left click focuses the pane under it and selects the row under it, then runs its `click` binding;
     /// a second click on the same row soon after runs `double-click`.
+    pub(super) fn move_pointer(&mut self, event: MouseEvent) -> bool {
+        let next = if self.loading()
+            || self.overlay().is_some()
+            || self.menu.is_some()
+            || self.input.is_some()
+        {
+            None
+        } else {
+            self.hits
+                .borrow()
+                .iter()
+                .rev()
+                .find(|hit| hit.contains(event.column, event.row))
+                .and_then(|hit| match hit.target {
+                    HitTarget::Meter(bar) => Some(bar),
+                    _ => None,
+                })
+        };
+        let changed = next != self.meter_hover;
+        self.meter_hover = next;
+        changed
+    }
+
     pub fn mouse(&mut self, event: MouseEvent, now: Instant) -> Effect {
+        if event.kind == MouseEventKind::Moved {
+            self.move_pointer(event);
+            return Effect::None;
+        }
+        // A button/wheel event carries the current position too. Reconcile an
+        // existing hover, without inventing hover on terminals lacking motion.
+        if self.meter_hover.is_some() {
+            self.move_pointer(event);
+        }
         if let Some(effect) = self.overlay_event(&Event::Mouse(event)) {
             return effect;
         }
         if self.menu.is_some() || self.input.is_some() {
             return Effect::None;
+        }
+        if event.kind == MouseEventKind::Down(MouseButton::Left)
+            && !self.loading()
+            && self.hits.borrow().iter().any(|hit| {
+                hit.contains(event.column, event.row) && matches!(hit.target, HitTarget::Meter(_))
+            })
+        {
+            return self.cycle_token_window();
         }
         if let Some(effect) = self.jobs_mouse(event) {
             return effect;
@@ -3381,15 +3796,18 @@ impl App {
         let hit = self.hits.borrow().iter().copied().find(|hit| {
             hit.y == event.row && (hit.x..hit.x.saturating_add(hit.width)).contains(&event.column)
         });
-        let Some(hit) = hit.filter(|_| !self.collapsed_panes().contains(&Pane::Rows)) else {
+        let Some(hit) =
+            hit.filter(|hit| hit.row().is_some() && !self.collapsed_panes().contains(&Pane::Rows))
+        else {
             return Effect::None;
         };
         self.notice = None;
-        self.select(hit.row);
-        let double = self
-            .last_click
-            .is_some_and(|(row, at)| row == hit.row && now.duration_since(at) <= DOUBLE_CLICK);
-        self.last_click = (!double).then_some((hit.row, now));
+        let row = hit.row().unwrap();
+        self.select(row);
+        let double = self.last_click.is_some_and(|(previous, at)| {
+            previous == row && now.duration_since(at) <= DOUBLE_CLICK
+        });
+        self.last_click = (!double).then_some((row, now));
         let event = if double { "double-click" } else { "click" };
         match self.bindings().remove(event) {
             Some(action) => self.perform(&action),
@@ -3397,11 +3815,14 @@ impl App {
         }
     }
 
-    /// How the board draws now: the shown squad's theme, or the default
-    /// one before the first load.
+    /// The shown squad's theme, or the already resolved startup theme before
+    /// the first snapshot arrives.
     pub fn look(&self) -> crate::look::Look {
         let saved = self.view.as_ref().map_or_else(
-            || crate::look::Look::new(tmt_cli_style::Theme::default()),
+            || {
+                self.initial_look
+                    .unwrap_or_else(|| crate::look::Look::new(tmt_cli_style::Theme::default()))
+            },
             |view| view.look,
         );
         self.theme_picker
@@ -3412,6 +3833,19 @@ impl App {
     pub(super) fn selected_read(&self) -> Option<super::refresh::SelectedRead> {
         if self.loading() {
             return None;
+        }
+        if self
+            .input
+            .as_ref()
+            .is_some_and(|input| matches!(input.compose, Compose::Status))
+            && let Some(draft) = &self.status_draft
+            && draft.preview.is_none()
+            && draft.error.is_none()
+        {
+            return draft
+                .target
+                .clone()
+                .map(super::refresh::SelectedRead::Status);
         }
         if let Some(Input {
             compose: Compose::ReadLead { key, .. },
@@ -3659,6 +4093,7 @@ pub(crate) mod tests {
 
     fn view(sections: Value) -> View {
         View {
+            history_pending: false,
             ask_lead: crate::config::DEFAULT_ASK_LEAD.into(),
             home_replies: true,
             token_rate: None,
@@ -3677,7 +4112,7 @@ pub(crate) mod tests {
             ),
             notes: super::Notes::NotShown,
             render: crate::config::NotesRender::Markdown,
-            bindings: crate::action::preset(true, &[]),
+            bindings: crate::action::with_action_keys(crate::action::preset(true, &[])),
             section_bindings: Vec::new(),
             configured_bindings: Default::default(),
             opener: None,
@@ -3989,7 +4424,7 @@ pub(crate) mod tests {
         json!({"id": name, "name": name, "state": "working", "fields": fields})
     }
 
-    pub(super) fn crew(
+    pub(in crate::board) fn crew(
         bindings: crate::action::Bindings,
         sections: Vec<crate::action::Bindings>,
     ) -> App {
@@ -4189,7 +4624,7 @@ pub(crate) mod tests {
             "sent in the lead's own squad room, not a tab's"
         );
         press(&mut app, KeyCode::Char('a'));
-        assert_eq!(app.input.as_ref().unwrap().header(), "✎ note → rin");
+        assert_eq!(app.input.as_ref().unwrap().header(), "→ rin (infra) · note");
         typed(&mut app, "check the queue");
         assert!(matches!(press(&mut app, KeyCode::Enter),
             Effect::Act(Request::Annotate { squad, to, .. }) if squad == "infra" && to == "rin"));
@@ -4242,7 +4677,10 @@ pub(crate) mod tests {
 
     #[test]
     fn keys_resolve_the_selected_row_into_requests_or_refuse_with_a_notice() {
-        let mut app = crew(crate::action::preset(true, &[]), Vec::new());
+        let mut app = crew(
+            crate::action::with_action_keys(crate::action::preset(true, &[])),
+            Vec::new(),
+        );
         assert_eq!(
             press(&mut app, KeyCode::Enter),
             Effect::Act(Request::Jump("auth-fix".into()))
@@ -4292,7 +4730,10 @@ pub(crate) mod tests {
 
     #[test]
     fn talk_annotate_and_reply_compose_one_line_and_empty_sends_nothing() {
-        let mut app = crew(crate::action::preset(true, &[]), Vec::new());
+        let mut app = crew(
+            crate::action::with_action_keys(crate::action::preset(true, &[])),
+            Vec::new(),
+        );
         {
             let view = app.view.as_mut().unwrap();
             view.me = Some("Ben".into());
@@ -4307,7 +4748,10 @@ pub(crate) mod tests {
         // The cursor starts on the lead; these cases act on the first member.
         app.select(1);
         press(&mut app, KeyCode::Char('t'));
-        assert_eq!(app.input.as_ref().unwrap().prompt, "→ auth-fix (product)");
+        assert_eq!(
+            app.input.as_ref().unwrap().prompt,
+            "→ auth-fix (product) · talk"
+        );
         typed(&mut app, "q j -rf; $(x)");
         assert!(app.input.is_some(), "q and j are text while composing");
         assert_eq!(
@@ -4336,7 +4780,7 @@ pub(crate) mod tests {
         press(&mut app, KeyCode::Tab);
         assert_eq!(
             app.input.as_ref().unwrap().prompt,
-            "✎ note → sol · about auth-fix"
+            "→ sol (product) · note · about auth-fix"
         );
         typed(&mut app, "split the job");
         assert_eq!(
@@ -4356,7 +4800,10 @@ pub(crate) mod tests {
         assert_eq!(menu.title, "answer auth-fix");
         assert_eq!(menu.entries.len(), 2);
         press(&mut app, KeyCode::Char('2'));
-        assert_eq!(app.input.as_ref().unwrap().prompt, "→ auth-fix (product)");
+        assert_eq!(
+            app.input.as_ref().unwrap().prompt,
+            "→ auth-fix (product) · answer"
+        );
         typed(&mut app, "postgres");
         assert_eq!(
             press(&mut app, KeyCode::Enter),
@@ -4385,13 +4832,15 @@ pub(crate) mod tests {
         press(&mut app, KeyCode::Char('r'));
         assert_eq!(app.notice.as_deref(), Some("docs is not waiting on you."));
         press(&mut app, KeyCode::Char('a'));
-        assert_eq!(
-            app.notice.as_deref(),
-            Some(
-                "This squad has no lead; set one with tmt squad lead <name> --squad product, or use annotate member."
-            )
-        );
-        assert!(app.input.is_none());
+        assert!(matches!(
+            app.input.as_ref().unwrap().compose,
+            Compose::Talk { .. }
+        ));
+        press(&mut app, KeyCode::Tab);
+        assert!(matches!(
+            app.input.as_ref().unwrap().compose,
+            Compose::Status
+        ));
     }
 
     #[test]
@@ -4405,7 +4854,10 @@ pub(crate) mod tests {
         app.select(1);
         press(&mut app, KeyCode::Char('a'));
         assert!(app.menu.is_none(), "a single request opens in place");
-        assert_eq!(app.input.as_ref().unwrap().header(), "→ auth-fix (product)");
+        assert_eq!(
+            app.input.as_ref().unwrap().header(),
+            "→ auth-fix (product) · answer"
+        );
         assert_eq!(
             app.input.as_ref().unwrap().quote.as_deref(),
             Some("Ship tonight?")
@@ -4414,12 +4866,29 @@ pub(crate) mod tests {
         press(&mut app, KeyCode::Tab);
         assert_eq!(
             app.input.as_ref().unwrap().header(),
-            "✎ note → sol · about auth-fix"
+            "→ sol (product) · note · about auth-fix"
         );
+        assert_eq!(app.input.as_ref().unwrap().text, "draft");
+        press(&mut app, KeyCode::Tab);
+        assert_eq!(
+            app.input.as_ref().unwrap().header(),
+            "→ auth-fix (product) · talk"
+        );
+        assert_eq!(app.input.as_ref().unwrap().text, "draft");
+        press(&mut app, KeyCode::Tab);
+        assert!(matches!(
+            app.input.as_ref().unwrap().compose,
+            Compose::Status
+        ));
         assert_eq!(app.input.as_ref().unwrap().text, "draft");
         press(&mut app, KeyCode::Tab);
         assert!(
             matches!(app.input.as_ref().unwrap().compose, Compose::Reply { ref request, .. } if request == "q")
+        );
+        assert_eq!(
+            app.input.as_ref().unwrap().quote.as_deref(),
+            Some("Ship tonight?"),
+            "the question is quoted again when the mode returns to answer"
         );
         let target = app.row_target(1).unwrap();
         assert!(
@@ -4441,6 +4910,165 @@ pub(crate) mod tests {
         assert!(
             app.sent.is_none(),
             "the next key clears the row confirmation"
+        );
+    }
+
+    #[test]
+    fn t_toggles_reply_previews_on_a_squad_tab_and_a_user_talk_binding_wins() {
+        let mut app = crew(crate::action::preset(true, &[]), vec![]);
+        app.view.as_mut().unwrap().me = Some("Ben".into());
+        assert_eq!(
+            press(&mut app, KeyCode::Char('t')),
+            Effect::HomeReplies(false)
+        );
+        app.view.as_mut().unwrap().home_replies = false;
+        assert_eq!(
+            press(&mut app, KeyCode::Char('t')),
+            Effect::HomeReplies(true)
+        );
+        assert!(app.input.is_none(), "t no longer opens a composer");
+        // Someone who bound `t` themselves keeps their binding.
+        app.view
+            .as_mut()
+            .unwrap()
+            .bindings
+            .insert("t".into(), crate::action::Action::parse("talk").unwrap());
+        app.select(0);
+        assert_eq!(press(&mut app, KeyCode::Char('t')), Effect::None);
+        assert_eq!(
+            app.input.as_ref().unwrap().header(),
+            "→ auth-fix (product) · talk"
+        );
+    }
+
+    fn modes_of(app: &App) -> (String, Vec<&'static str>) {
+        let input = app.input.as_ref().unwrap();
+        (input.header(), input.modes())
+    }
+
+    #[test]
+    fn tab_cycles_answer_note_talk_for_the_modes_the_row_allows() {
+        let mut app = crew(crate::action::preset(true, &[]), vec![]);
+        let view = app.view.as_mut().unwrap();
+        view.me = Some("Ben".into());
+        view.document["squad"]["lead"] = json!({"name":"sol"});
+        // Nothing waits: `a` opens the note; Tab reaches talk and back.
+        app.select(1);
+        press(&mut app, KeyCode::Char('a'));
+        assert_eq!(
+            modes_of(&app),
+            (
+                "→ sol (product) · note · about auth-fix".into(),
+                vec!["note", "talk", "status"]
+            )
+        );
+        typed(&mut app, "keep");
+        press(&mut app, KeyCode::Tab);
+        assert_eq!(
+            app.input.as_ref().unwrap().header(),
+            "→ auth-fix (product) · talk"
+        );
+        assert!(matches!(press(&mut app, KeyCode::Tab), Effect::None));
+        assert!(matches!(
+            app.input.as_ref().unwrap().compose,
+            Compose::Status
+        ));
+        press(&mut app, KeyCode::Tab);
+        assert!(matches!(
+            app.input.as_ref().unwrap().compose,
+            Compose::Annotate { .. }
+        ));
+        assert_eq!(app.input.as_ref().unwrap().text, "keep");
+        // Each mode sends through its own request after the same revalidation.
+        press(&mut app, KeyCode::Tab);
+        assert!(matches!(
+            press(&mut app, KeyCode::Enter),
+            Effect::Act(Request::Talk { ref to, ref text, .. }) if to == "auth-fix" && text == "keep"
+        ));
+        // Something waits: answer, note, talk in that cycle; a talk start
+        // (a user's own `talk` binding) cycles on to answer, then note.
+        app.view.as_mut().unwrap().document["sections"][0]["rows"][0]["waitingOnYou"] =
+            json!([{"requestId": "q", "preview": "Ship?"}]);
+        press(&mut app, KeyCode::Char('a'));
+        assert_eq!(
+            modes_of(&app),
+            (
+                "→ auth-fix (product) · answer".into(),
+                vec!["answer", "note", "talk", "status"]
+            )
+        );
+        press(&mut app, KeyCode::Esc);
+        app.view
+            .as_mut()
+            .unwrap()
+            .bindings
+            .insert("x".into(), crate::action::Action::parse("talk").unwrap());
+        press(&mut app, KeyCode::Char('x'));
+        assert_eq!(
+            app.input.as_ref().unwrap().header(),
+            "→ auth-fix (product) · talk"
+        );
+        press(&mut app, KeyCode::Tab);
+        assert!(matches!(
+            app.input.as_ref().unwrap().compose,
+            Compose::Status
+        ));
+        press(&mut app, KeyCode::Tab);
+        assert_eq!(
+            app.input.as_ref().unwrap().header(),
+            "→ auth-fix (product) · answer"
+        );
+        press(&mut app, KeyCode::Tab);
+        assert_eq!(
+            app.input.as_ref().unwrap().header(),
+            "→ sol (product) · note · about auth-fix"
+        );
+    }
+
+    #[test]
+    fn a_row_without_a_lead_or_request_can_cycle_talk_and_status() {
+        let mut app = crew(crate::action::preset(true, &[]), vec![]);
+        app.view.as_mut().unwrap().me = Some("Ben".into());
+        app.view
+            .as_mut()
+            .unwrap()
+            .bindings
+            .insert("x".into(), crate::action::Action::parse("talk").unwrap());
+        app.select(0);
+        press(&mut app, KeyCode::Char('x'));
+        assert_eq!(
+            modes_of(&app),
+            ("→ auth-fix (product) · talk".into(), vec!["talk", "status"])
+        );
+        typed(&mut app, "hi");
+        press(&mut app, KeyCode::Tab);
+        assert_eq!(
+            app.input.as_ref().unwrap().header(),
+            "Update status → product / auth-fix"
+        );
+        assert_eq!(app.input.as_ref().unwrap().text, "hi");
+    }
+
+    #[test]
+    fn an_explicit_member_note_binding_cycles_note_talk_status() {
+        let mut app = crew(crate::action::preset(true, &[]), vec![]);
+        let view = app.view.as_mut().unwrap();
+        view.me = Some("Ben".into());
+        view.document["squad"]["lead"] = json!({"name":"sol"});
+        view.document["sections"][0]["rows"][0]["waitingOnYou"] =
+            json!([{"requestId": "q", "preview": "Ship?"}]);
+        view.bindings.insert(
+            "x".into(),
+            crate::action::Action::parse("annotate member").unwrap(),
+        );
+        app.select(1);
+        press(&mut app, KeyCode::Char('x'));
+        assert_eq!(
+            modes_of(&app),
+            (
+                "→ auth-fix (product) · note".into(),
+                vec!["note", "talk", "status"]
+            )
         );
     }
 
@@ -4470,7 +5098,10 @@ pub(crate) mod tests {
         press(&mut app, KeyCode::Esc);
         let note = Action::parse("annotate member").unwrap();
         app.perform(&note);
-        assert_eq!(app.input.as_ref().unwrap().header(), "✎ note → auth-fix");
+        assert_eq!(
+            app.input.as_ref().unwrap().header(),
+            "→ auth-fix (product) · note"
+        );
         typed(&mut app, "context");
         assert!(
             matches!(press(&mut app, KeyCode::Enter), Effect::Act(Request::Annotate { ref to, ref row, .. }) if to == "auth-fix" && row == "auth-fix")
@@ -4570,7 +5201,7 @@ pub(crate) mod tests {
             ] {
                 app.input = Some(Input {
                     row_send: None,
-                    alternative: None,
+                    others: Vec::new(),
                     quote: None,
                     link: None,
                     prompt: "message".into(),
@@ -4653,7 +5284,7 @@ pub(crate) mod tests {
 
     #[test]
     fn the_menu_lists_the_rows_actions_first_then_the_boards_and_user_keys_follow_their_verb() {
-        let mut bindings = crate::action::preset(false, &[]);
+        let mut bindings = crate::action::with_action_keys(crate::action::preset(false, &[]));
         bindings.insert(
             "x".into(),
             crate::action::Action::parse("reply").expect("reply"),
@@ -4678,7 +5309,8 @@ pub(crate) mod tests {
                 "T",
                 ",",
                 "ctrl-r",
-                "backspace"
+                "backspace",
+                ""
             ]
         );
     }
@@ -4715,13 +5347,13 @@ pub(crate) mod tests {
                 y: 3,
                 x: 0,
                 width: 40,
-                row: 0,
+                target: HitTarget::Row(0),
             },
             Hit {
                 y: 5,
                 x: 0,
                 width: 40,
-                row: 1,
+                target: HitTarget::Row(1),
             },
         ];
         let click = |row, column| MouseEvent {
@@ -5120,7 +5752,7 @@ mod lead_row_tests {
         let mut loaded = snapshot("product", json!([{"title": null, "rows": rows}]));
         let view = loaded.view.as_mut().unwrap();
         view.document["squad"]["lead"] = lead();
-        view.bindings = crate::action::preset(true, &[]);
+        view.bindings = crate::action::with_action_keys(crate::action::preset(true, &[]));
         view.configured_bindings = view.bindings.clone();
         view.me = Some("Ben".into());
         app.apply(loaded);
@@ -5206,7 +5838,10 @@ mod lead_row_tests {
         // cancelling or an empty Enter.
         app.select(2);
         assert_eq!(press(&mut app, KeyCode::Char('r')), Effect::None);
-        assert_eq!(app.input.as_ref().unwrap().header(), "✎ note → bob");
+        assert_eq!(
+            app.input.as_ref().unwrap().header(),
+            "→ bob (product) · note"
+        );
         assert_eq!(press(&mut app, KeyCode::Esc), Effect::None);
         assert!(app.input.is_none());
         press(&mut app, KeyCode::Char('r'));
@@ -5243,7 +5878,7 @@ mod lead_row_tests {
             Effect::Act(Request::Jump("sol".into()))
         );
         press(&mut app, KeyCode::Char('t'));
-        assert_eq!(app.input.as_ref().unwrap().prompt, "→ sol (product)");
+        assert_eq!(app.input.as_ref().unwrap().prompt, "→ sol (product) · talk");
         for character in "hello".chars() {
             press(&mut app, KeyCode::Char(character));
         }
@@ -5268,8 +5903,34 @@ mod token_window_tests {
     use super::*;
     use crate::config::{TokenRate, TokenWindow};
     use serde_json::json;
+    fn saved_cycle(app: &mut App, key: KeyEvent) {
+        assert_eq!(app.key(key), Effect::CycleTokenWindow);
+        static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+        let root = std::env::temp_dir().join(format!(
+            "tmt-window-choice-{}-{}",
+            std::process::id(),
+            NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+        ));
+        std::fs::create_dir(&root).unwrap();
+        let path = root.join("squad.toml");
+        let mut config = Config::read(path.clone()).unwrap();
+        config
+            .set_setting(
+                None,
+                "board.token_rate.window",
+                &app.next_token_window().unwrap().label(),
+            )
+            .unwrap();
+        let saved = Config::read(path.clone()).unwrap();
+        app.notice = Some(app.apply_token_window(&saved));
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
     fn app() -> App {
-        let mut app = crew(crate::action::preset(false, &[]), Vec::new());
+        let mut app = crew(
+            crate::action::with_action_keys(crate::action::preset(false, &[])),
+            Vec::new(),
+        );
         app.meter = Some(super::super::meter::Meter::new(
             TokenRate {
                 enabled: true,
@@ -5280,6 +5941,46 @@ mod token_window_tests {
         ));
         app
     }
+    #[test]
+    fn refreshed_shared_window_preserves_retained_evidence() {
+        let mut app = app();
+        let start = Instant::now();
+        let input = super::super::rate::tests::input(100);
+        let settings = app.meter.as_ref().unwrap().settings;
+        app.meter = Some(super::super::meter::Meter::new(settings, &input, start));
+        app.meter.as_mut().unwrap().sample(
+            Ok(&super::super::rate::tests::input(200)),
+            start + Duration::from_secs(10),
+        );
+        let before = app
+            .meter
+            .as_ref()
+            .unwrap()
+            .total(1, start + Duration::from_secs(10))
+            .map(|reading| reading.tokens);
+        assert_eq!(before, Some(150));
+        let mut snapshot = super::tests::snapshot("product", json!([]));
+        app.current = Some("product".into());
+        let mut changed = settings;
+        changed.window = TokenWindow::FIVE_MINUTES;
+        snapshot.view.as_mut().unwrap().token_rate = Some(RateView {
+            settings: changed,
+            input,
+            history: None,
+        });
+        app.apply(snapshot);
+        assert_eq!(app.token_window, TokenWindow::FIVE_MINUTES);
+        assert_eq!(
+            app.meter
+                .as_ref()
+                .unwrap()
+                .total(1, start + Duration::from_secs(10))
+                .map(|reading| reading.tokens),
+            before,
+            "changing shared display window cannot replace the retained rate ring"
+        );
+    }
+
     fn home(now: Instant) -> App {
         let mut app = App::new(Some(super::super::ALL.into()));
         let mut snapshot = super::tests::snapshot(super::super::ALL, serde_json::json!([]));
@@ -5355,6 +6056,38 @@ mod token_window_tests {
                 history: None,
             },
         );
+    }
+
+    #[test]
+    fn delayed_history_rejects_changed_owner_room_settings_and_membership() {
+        for mismatch in ["owner", "room", "settings", "members", "none"] {
+            let now = Instant::now();
+            let mut app = home(now);
+            let rate = &app.view.as_ref().unwrap().home_rate["product"];
+            let mut input = rate.input.clone();
+            let mut settings = rate.settings;
+            let mut owner = super::super::ALL.to_owned();
+            match mismatch {
+                "owner" => owner = "other".into(),
+                "room" => input.room = "replacement-room".into(),
+                "settings" => settings.enabled = false,
+                "members" => {
+                    input.resumes.remove("missing");
+                }
+                _ => {}
+            }
+            let read = super::super::refresh::HistoryRead {
+                owner,
+                targets: [("product".into(), (settings, input))].into(),
+                seeds: BTreeMap::new(),
+                observed: Err(()),
+            };
+            assert_eq!(
+                app.apply_history(read, now),
+                mismatch == "none",
+                "{mismatch}"
+            );
+        }
     }
 
     #[test]
@@ -5724,7 +6457,7 @@ mod token_window_tests {
     fn window_binding_overrides_and_text_inputs_keep_their_owner() {
         let mut app = app();
         let key = KeyEvent::new(KeyCode::Char('w'), KeyModifiers::NONE);
-        assert_eq!(app.key(key), Effect::None);
+        saved_cycle(&mut app, key);
         assert_eq!(app.token_window, TokenWindow::FIVE_MINUTES);
         app.searching = true;
         assert_eq!(app.key(key), Effect::None);
@@ -5744,7 +6477,7 @@ mod token_window_tests {
         ] {
             app.input = Some(Input {
                 row_send: None,
-                alternative: None,
+                others: Vec::new(),
                 quote: None,
                 link: None,
                 prompt: "message".into(),
@@ -5766,10 +6499,13 @@ mod token_window_tests {
             .extend(bind(&[("w", "refresh"), ("v", "token-window")]));
         assert_eq!(app.key(key), Effect::Refresh);
         assert_eq!(app.token_window, TokenWindow::FIVE_MINUTES);
-        app.key(KeyEvent::new(KeyCode::Char('v'), KeyModifiers::NONE));
+        saved_cycle(
+            &mut app,
+            KeyEvent::new(KeyCode::Char('v'), KeyModifiers::NONE),
+        );
         assert_eq!(app.token_window, TokenWindow::HOUR);
         app.view.as_mut().unwrap().section_bindings = vec![bind(&[("w", "token-window")])];
-        app.key(key);
+        saved_cycle(&mut app, key);
         assert_eq!(app.token_window, TokenWindow::MINUTE);
     }
     #[test]
@@ -5786,7 +6522,10 @@ mod token_window_tests {
             for (index, column) in view.rows.columns[5..].iter().enumerate() {
                 assert_eq!(column.priority == Some(1), index == selected);
             }
-            app.key(KeyEvent::new(KeyCode::Char('w'), KeyModifiers::NONE));
+            saved_cycle(
+                &mut app,
+                KeyEvent::new(KeyCode::Char('w'), KeyModifiers::NONE),
+            );
         }
     }
 
@@ -5946,7 +6685,10 @@ mod link_tests {
             app.view.as_mut().unwrap().document["squad"]["lead"] =
                 json!({"id":"lead-id", "name":"Lead"});
             assert_eq!(app.activate_link(), Effect::None);
-            assert_eq!(app.input.as_ref().unwrap().header(), "→ Lead (product)");
+            assert_eq!(
+                app.input.as_ref().unwrap().header(),
+                "→ Lead (product) · talk"
+            );
             if changed {
                 app.view.as_mut().unwrap().document["squad"]["lead"]["id"] = json!("replacement");
                 assert_eq!(enter(&mut app), Effect::None);
@@ -5982,6 +6724,66 @@ mod link_tests {
         app.menu_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
         app.view.as_mut().unwrap().document["sections"][0]["rows"][0]["waitingOnYou"] = json!([]);
         assert_eq!(enter(&mut app), Effect::None);
+    }
+    #[test]
+    fn answer_selection_uses_core_inbox_after_withdrawal_and_preserves_manual_state() {
+        let mut app = app("tmt:answer/auth-fix?text=answer");
+        let view = app.view.as_mut().unwrap();
+        let row = &mut view.document["sections"][0]["rows"][0];
+        row["pending"] = json!("independent decision");
+        let state = row["state"].clone();
+        let room = crate::requests::Window {
+            items: vec![json!({
+                "requestId":"withdrawn", "kind":"request", "recipientId":"ME",
+                "sender":{"identityId":"auth-fix"}, "preview":"obsolete question",
+                "final":{"status":"withdrawn", "reason":"obsolete", "withdrawnAtMs":20}
+            })],
+            complete: true,
+        };
+        // Core's inbox has already excluded the withdrawal. Squad must use that
+        // projection rather than deriving answer candidates from room history.
+        let mut inbox = crate::requests::Window {
+            items: vec![json!({"requestId":"open", "from":{"identityId":"auth-fix"},
+                "preview":"current question", "preparedAtMs":10})],
+            complete: true,
+        };
+        crate::requests::apply(&mut view.document, "product", "ME", &room, &inbox);
+        assert_eq!(
+            view.document["sections"][0]["rows"][0]["waitingOnYou"],
+            json!([{"requestId":"open", "preview":"current question", "preparedAtMs":10}])
+        );
+        app.activate_link();
+        assert!(app.menu.is_none(), "one Core-open request needs no picker");
+        assert_eq!(
+            enter(&mut app),
+            Effect::Act(Request::Reply {
+                me: "Ben".into(),
+                request: "open".into(),
+                from: "auth-fix".into(),
+                text: "answer".into()
+            })
+        );
+        app.activate_link();
+        assert!(
+            app.input.is_some(),
+            "reopen the still-current answer before refresh"
+        );
+        inbox.items.clear();
+        let view = app.view.as_mut().unwrap();
+        crate::requests::apply(&mut view.document, "product", "ME", &room, &inbox);
+        let row = &view.document["sections"][0]["rows"][0];
+        assert_eq!(row["waitingOnYou"], json!([]));
+        assert_eq!(row["pending"], "independent decision");
+        assert_eq!(row["state"], state);
+        assert!(
+            crate::attention::waits_on_you(row),
+            "manual pending remains independent"
+        );
+        assert_eq!(
+            enter(&mut app),
+            Effect::None,
+            "stale answer cannot be submitted"
+        );
     }
     #[test]
     fn all_member_verbs_refuse_nonmembers_and_a_retained_loading_frame() {

@@ -16,7 +16,7 @@ use tmt_cli_style::{
 
 /// The state marks from `design/tokens/tokens.json` that a selected row keeps in
 /// color: a mark is one glyph, never part of a word.
-const MARKS: [char; 8] = ['◆', '✗', '◐', '●', '○', '✓', '◌', '!'];
+const MARKS: [char; 9] = ['◆', '✗', '◐', '●', '○', '✓', '◌', '!', '≠'];
 
 static BACKGROUND: std::sync::OnceLock<Option<Background>> = std::sync::OnceLock::new();
 
@@ -172,13 +172,13 @@ impl Look {
         }
     }
 
-    /// On the selection background `muted`, `dim`, the state colors, `accent`
-    /// and `link` hold less than 4.5:1, so there their words paint in `text`.
-    /// Marks keep their color (non-text, 3:1), except a dim or muted one. One
-    /// pass over the finished frame, keyed on the background, so no surface
-    /// classifies its own spans and a new surface follows the rule. Bold,
-    /// underline and the background stay. Without a selection background
-    /// (reverse fallback) `row_span` has already decided.
+    /// On a real selection background, the fixed role policy paints `muted`,
+    /// `dim` and state/`accent`/`link` words in `text`. Single semantic marks
+    /// keep their color, except dim or muted marks. This does not classify
+    /// contrast dynamically. One pass over the finished frame, keyed on the
+    /// background, lets every surface follow the same rule. Bold, underline
+    /// and the background stay. Without a selection background (reverse
+    /// fallback), `row_span` has already decided.
     pub fn selected_words(&self, buffer: &mut Buffer) {
         let Some(selection) = self.role(Role::Selection).bg else {
             return;

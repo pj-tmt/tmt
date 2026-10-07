@@ -4,6 +4,30 @@
 // leaves out stays English. A string may contain `code` and *emphasis*, which
 // <Inline> renders. Commands and sample terminal output stay in the scenes.
 export const english = {
+  // Verbatim owner-approved v9 homepage wording.
+  landing: {
+    howItWorks: "How it works",
+    quickStart: "Quick start",
+    eyebrow: "A DIRECT LINE BETWEEN AGENTS",
+    statement: "Independent agents.\nOne connected team.",
+    description:
+      "Connect coding agents across harnesses and environments, without switching terminals or changing how you run your agents.",
+    getStarted: "Get started",
+    seeWorkflow: "See the workflow",
+    environment: "Your agents. Your environment.",
+    workflowTitle: "Less copy-paste.\nMore actual work.",
+    workflowDescription: "Send the task. Keep moving.\nThe answer has a way back.",
+    exampleSession: "EXAMPLE SESSION",
+    keepToolsTitle: "Keep your tools.",
+    keepToolsDescription: "Your agents stay in their own terminals, with their own context.",
+    handoffTitle: "Make the handoff.",
+    handoffDescription: "Address an agent by name. Send a task without relaying it by hand.",
+    closeLoopTitle: "Close the loop.",
+    closeLoopDescription: "A request and its reply stay connected. Sent is not the same as done.",
+    nextTitle: "Open a terminal.\nConnect the team.",
+    readGuide: "Read the getting started guide",
+    footer: "Independent agents. Connected work.",
+  },
   ui: {
     notTranslated: "Not yet translated. This page is shown in English.",
     language: "Language",

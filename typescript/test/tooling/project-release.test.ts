@@ -199,6 +199,64 @@ const writes = (api: Api) =>
   vi.mocked(api.graphql).mock.calls.filter(([query]) => query.startsWith('mutation'));
 
 describe('full repository-state release sweep', () => {
+  it('reconciles the exact #1813 paths without publication and retains mixed containing-tag waits', () =>
+    history(({ directory, git, commit }) => {
+      const paths = [
+        `${map.components.find((c) => c.name === 'cli')!.neverShippedPaths[0].root}/development.md`,
+        `${map.components.find((c) => c.name === 'tmt-colab')!.neverShippedPaths[0].root}/cli.rs`,
+      ];
+      const never = commit(paths);
+      const mixed = commit([
+        ...paths,
+        'extensions/tmt-colab/rust/tmt-colab/src/main.rs',
+        'rust/crates/tmt-cli/src/main.rs',
+      ]);
+      const p = project([item(1812, 'Merged', 'stale release'), item(2)]);
+      const prs = new Map([
+        ['issue-1812', [closingPr(1813, never)]],
+        ['issue-2', [closingPr(2, mixed)]],
+      ]);
+      const releases: Release[] = [];
+      const api = stateApi(p, releases, prs);
+      const input = {
+        api,
+        repository,
+        git: gitEvidence({ cwd: directory }),
+        map,
+        workspace,
+        dryRun: true,
+      };
+      expect(affectedProducts(paths, map, workspace)).toEqual({ products: [], unpublished: [] });
+      expect(
+        affectedProducts(['.agents/skills/tmt-colab/references-other/guide.md'], map, workspace)
+          .products
+      ).toEqual(['cli']);
+      expect(() =>
+        affectedProducts(
+          ['unknown'],
+          parseComponentMap(JSON.stringify({ components: { cli: { owns: ['rust'] } } }))
+        )
+      ).toThrow('No component owns');
+      const preview = reconcile(input);
+      expect(preview.changed).toMatchObject([
+        { issue: `https://github.com/${repository}/issues/1812`, status: 'Done', text: '' },
+      ]);
+      expect(writes(api)).toHaveLength(0);
+      reconcile({ ...input, dryRun: false });
+      expect(p.items.get('issue-1812')!.status!.name).toBe('Done');
+      expect(p.items.get('issue-1812')!.released!.text).toBe('');
+      expect(reconcile(input).changed).toEqual([]);
+      git(['tag', 'tmt-colab-v0.1.0-alpha.1']);
+      releases.push(release('tmt-colab-v0.1.0-alpha.1'));
+      reconcile({ ...input, dryRun: false });
+      expect(p.items.get('issue-2')!.status!.name).toBe('Merged');
+      git(['tag', 'v5.0.0-alpha.1']);
+      releases.push(release('v5.0.0-alpha.1', 1));
+      reconcile({ ...input, dryRun: false });
+      expect(p.items.get('issue-2')!.status!.name).toBe('Released');
+      expect(reconcile(input).changed).toEqual([]);
+    }));
+
   it('repairs old/not-in-notes issues, waits for every product, repairs built-in drift, and reruns without writes', () =>
     history(({ directory, git, commit }) => {
       const docs = commit(['docs/fixture.md']);
@@ -424,7 +482,10 @@ describe('full repository-state release sweep', () => {
       };
       expect(affectedProducts([file], before)).toEqual({ products: ['cli'], unpublished: [] });
       expect(affectedProducts([file], map, workspace)).toEqual({
-        products: ['cli', 'colab', 'remote', 'squad'],
+        products:
+          leaf === 'tmt-invoke'
+            ? ['cli', 'colab', 'driver-herdr', 'remote', 'squad']
+            : ['cli', 'colab', 'remote', 'squad'],
         unpublished: [],
       });
       expect(affectedProducts([`rust/crates/${leaf}-other/src/lib.rs`], map)).toEqual({
@@ -461,20 +522,36 @@ describe('full repository-state release sweep', () => {
         expect(reconcile(input).rows[0]).toMatchObject({
           status: 'Merged',
           text: 'tmt-squad 0.1.0-alpha.1',
-          waiting: ['Awaiting cli', 'Awaiting colab', 'Awaiting remote'],
+          waiting:
+            leaf === 'tmt-invoke'
+              ? ['Awaiting cli', 'Awaiting colab', 'Awaiting driver-herdr', 'Awaiting remote']
+              : ['Awaiting cli', 'Awaiting colab', 'Awaiting remote'],
         });
         releases.push(release('v5.0.0-alpha.2', 1));
         expect(reconcile(input).rows[0]).toMatchObject({
           status: 'Merged',
-          waiting: ['Awaiting colab', 'Awaiting remote'],
+          waiting:
+            leaf === 'tmt-invoke'
+              ? ['Awaiting colab', 'Awaiting driver-herdr', 'Awaiting remote']
+              : ['Awaiting colab', 'Awaiting remote'],
         });
         for (const product of ['remote', 'colab']) {
           const tag = `tmt-${product}-v0.1.0-alpha.1`;
           git(['tag', tag]);
           releases.push(release(tag, 2));
         }
+        if (leaf === 'tmt-invoke') {
+          expect(reconcile(input).rows[0]).toMatchObject({
+            status: 'Merged',
+            waiting: ['Awaiting driver-herdr'],
+          });
+          const tag = 'tmt-driver-herdr-v0.1.0-alpha.1';
+          git(['tag', tag]);
+          releases.push(release(tag, 3));
+        }
         const row = reconcile(input).rows[0];
         expect(row.status).toBe('Released');
+        if (leaf === 'tmt-invoke') expect(row.text).toContain('tmt-driver-herdr 0.1.0-alpha.1');
         expect(row.text).toContain('tmt-cli 5.0.0-alpha.2');
         expect(row.text).toContain('tmt-squad 0.1.0-alpha.1');
         expect(row.waiting).toEqual([]);

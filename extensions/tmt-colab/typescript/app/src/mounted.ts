@@ -15,23 +15,31 @@ import { requireValue } from '@tmt/colab-client';
 import { verifyRegistration } from './registration.js';
 import { clearRecovery, recoverSession } from './session-recovery.js';
 import { text } from './strings.js';
-import { InactiveTabError, type TabOwnership } from './active-tab.js';
 import { TitleCache } from './title-cache.js';
 
-export async function mountedTransport(
-  ownership: TabOwnership,
-): Promise<{ space: string; transport: PageTransport; close(): void }> {
+export async function mountedTransport(signal?: AbortSignal): Promise<{
+  space: string;
+  transport: PageTransport;
+  close(): void;
+}> {
   const lifetime = new AbortController();
-  function owned<T>(action: () => Promise<T>): Promise<T> {
-    if (lifetime.signal.aborted) return Promise.reject(new InactiveTabError());
-    return ownership.run(action);
+  const abort = () => lifetime.abort(signal?.reason);
+  signal?.addEventListener('abort', abort, { once: true });
+  if (signal?.aborted) abort();
+  async function owned<T>(action: () => Promise<T>): Promise<T> {
+    lifetime.signal.throwIfAborted();
+    const result = await action();
+    lifetime.signal.throwIfAborted();
+    return result;
   }
   const mount = mountUrl(),
-    pairedSdk = await remoteSdk(),
-    sdk = {
+    pairedSdk = await remoteSdk();
+  lifetime.signal.throwIfAborted();
+  const sdk = {
       reopenSession: () => owned(() => pairedSdk.reopenSession()),
       certifyKey: (purpose: 'sign' | 'enc', key: Uint8Array) =>
         owned(() => pairedSdk.certifyKey(purpose, key)),
+      transportUrl: (session: unknown, url: string | URL) => pairedSdk.transportUrl(session, url),
     },
     registration = await owned(() => register(mount, sdk)),
     bootstrap = await discover(mount, (space, owner) =>
@@ -67,7 +75,7 @@ export async function mountedTransport(
     return owned(async () => {
       if (client !== managementClient) throw new ManagementError('DENIED');
       const result = await action();
-      if (!ownership.active || lifetime.signal.aborted) throw new InactiveTabError();
+      lifetime.signal.throwIfAborted();
       if (client !== managementClient) throw new ManagementError('DENIED');
       return result;
     });
@@ -109,12 +117,11 @@ export async function mountedTransport(
   clearRecovery(mount);
   const owner: LiveSessionOwner = {
     async rememberTitle(page, title, registration) {
-      if (registration !== current.registration || !ownership.active || lifetime.signal.aborted)
-        return;
+      if (registration !== current.registration || lifetime.signal.aborted) return;
       try {
         await owned(() => titles.remember(page, title, lifetime.signal));
       } catch {
-        // A lost tab lease can discard a display hint without failing Live.
+        // A closed tab can discard a display hint without failing Live.
       }
     },
     recover: () =>
@@ -124,14 +131,13 @@ export async function mountedTransport(
           storage: sessionStorage,
           reopen: () => pairedSdk.reopenSession(),
           reload: () => {
-            if (!ownership.active || lifetime.signal.aborted) throw new InactiveTabError();
+            lifetime.signal.throwIfAborted();
             location.reload();
           },
         }),
       ),
     reconnect(previous) {
-      if (lifetime.signal.aborted || !ownership.active)
-        return Promise.reject(new InactiveTabError());
+      if (lifetime.signal.aborted) return Promise.reject(lifetime.signal.reason);
       if (previous !== current.registration) return Promise.resolve(current);
       if (replacement) return replacement;
       replacement = owned(async () => {
@@ -149,7 +155,10 @@ export async function mountedTransport(
   };
   return {
     space: bootstrap.space,
-    close: () => lifetime.abort(),
+    close: () => {
+      signal?.removeEventListener('abort', abort);
+      lifetime.abort();
+    },
     transport: {
       get backendName() {
         return current.registration.deviceName;
@@ -189,8 +198,8 @@ export async function mountedTransport(
             scopedSignal(signal),
           ),
         );
-        if (lifetime.signal.aborted || !ownership.active || bound !== current)
-          throw new InactiveTabError();
+        lifetime.signal.throwIfAborted();
+        if (bound !== current) throw new Error('Remote session replaced');
         const page = boot.pages.find((page) => page.pageId === id && !page.archived);
         if (!page) throw new Error('Page unavailable');
         const live = new Live(

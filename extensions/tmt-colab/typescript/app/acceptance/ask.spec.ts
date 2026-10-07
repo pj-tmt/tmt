@@ -69,7 +69,7 @@ test.describe('Ask agent real-binary acceptance (#1110)', () => {
       // The input stays ready for another explicit turn; no preview screen exists.
       await expect(s.askerPage.getByTestId('ask-preview')).toHaveCount(0);
       await expect(
-        s.askerPage.getByTestId('chat-panel').getByRole('combobox', { name: 'Message to agent' }),
+        s.askerPage.getByTestId('chat-panel').getByRole('combobox', { name: 'Message' }),
       ).toBeFocused();
       await expect(askEntry(s.askerPage, ask.operationId)).toHaveAttribute(
         'data-ledger-state',
@@ -228,34 +228,28 @@ test.describe('Ask agent real-binary acceptance (#1110)', () => {
     });
   });
 
-  test(`two tabs of one paired browser: the newer tab takes the session, the older shows the notice, and "Use here" takes it back with no duplicate wake`, async () => {
+  test(`two tabs of one paired browser stay live and share Ask replies without duplicate wake`, async () => {
     await withWorld(async (world) => {
       const s = await scenario(world);
       // The scenario's tab is A. Tab B is a second tab of the same paired browser.
       const tabA = s.askerPage;
       const tabB = await openPage(s.door, s.asker, s.page);
-      // Remote keeps one session per device (tabs.spec.ts): B took it, so A stops
-      // reconnecting and says so, with no automatic ping-pong.
-      await expect(tabA.getByText('Colab is open in another tab')).toBeVisible();
-      await expect(tabB.getByText('Colab is open in another tab')).toHaveCount(0);
-      // An ask sent in the active tab B is accepted by Remote.
-      const draft = await composeChat(tabB, s.recipient, 'Sent from the active tab');
+      await expect(tabA.getByTestId('chat-toggle')).toBeVisible();
+      await expect(tabB.getByTestId('chat-toggle')).toBeVisible();
+      const draft = await composeChat(tabB, s.recipient, 'Sent from the second tab');
       const ask = await sendChat(tabB, draft);
       await expect(askEntry(tabB, ask.operationId)).toHaveAttribute(
         'data-ledger-state',
         'accepted',
       );
       await until(() => s.recipient.received().length === 1, 'recipient received the ask');
-      // "Use here" in A takes the session back; the ask made in B is visible in A,
-      // and B now shows the notice instead.
-      await tabA.getByRole('button', { name: 'Use here' }).click();
       await openChat(tabA);
       await expect(askEntry(tabA, ask.operationId)).toBeVisible();
-      await expect(tabB.getByText('Colab is open in another tab')).toBeVisible();
       await expect(askEntry(tabA, ask.operationId).getByTestId('ask-reply')).toHaveText(
         replyBody(draft.delivered()),
       );
-      // Takeover never resends: one wake, one dispatch.
+      await expect(tabB.getByTestId('chat-toggle')).toBeVisible();
+      // Both live tabs see the same signed Ask record; opening either tab never resends.
       expect(s.recipient.received()).toHaveLength(1);
       expect(dispatches(world)).toHaveLength(1);
     });

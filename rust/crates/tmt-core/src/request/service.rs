@@ -3,11 +3,13 @@
 
 mod answers;
 mod attention;
+mod focus;
 mod history;
 mod lifecycle;
 mod notification;
 mod responses;
 mod wake;
+mod withdrawal;
 
 use super::*;
 use crate::{exact_text::validate_exact_text, limits::MAX_JS_SAFE_INTEGER, retention::*};
@@ -28,7 +30,29 @@ impl<'a, R: RequestRepository, C: Fn() -> u64> RequestService<'a, R, C> {
         attempt_id: String,
         retention_days: u64,
     ) -> Result<PreparedRequest, RequestError<R::Error>> {
+        self.prepare_delivery(
+            input,
+            attempt_id,
+            retention_days,
+            super::focus::DeliveryPolicy::default(),
+            None,
+        )
+    }
+
+    pub fn prepare_delivery(
+        &mut self,
+        input: PrepareRequest,
+        attempt_id: String,
+        retention_days: u64,
+        delivery: super::focus::DeliveryPolicy,
+        notification: Option<super::notification::NotificationPolicy>,
+    ) -> Result<PreparedRequest, RequestError<R::Error>> {
         validate_prepare(&input, &attempt_id, retention_days)?;
+        if delivery.kind == super::focus::FocusKind::Result {
+            return Err(RequestError::Invalid(
+                "Result is reserved for final notices.",
+            ));
+        }
         let clock = &self.clock;
         self.repository.with_request_transaction(|records| {
             prepare_records(
@@ -37,6 +61,8 @@ impl<'a, R: RequestRepository, C: Fn() -> u64> RequestService<'a, R, C> {
                 input,
                 attempt_id,
                 retention_days,
+                &delivery,
+                notification.as_ref(),
             )
         })
     }
@@ -49,15 +75,47 @@ impl<'a, R: RequestRepository, C: Fn() -> u64> RequestService<'a, R, C> {
         attempt_id: String,
         retention_days: u64,
     ) -> Result<PreparedRequest, RequestError<R::Error>> {
+        self.enqueue_delivery(
+            input,
+            attempt_id,
+            retention_days,
+            super::focus::DeliveryPolicy::default(),
+        )
+    }
+
+    pub fn enqueue_delivery(
+        &mut self,
+        input: PrepareRequest,
+        attempt_id: String,
+        retention_days: u64,
+        delivery: super::focus::DeliveryPolicy,
+    ) -> Result<PreparedRequest, RequestError<R::Error>> {
         validate_prepare(&input, &attempt_id, retention_days)?;
+        if delivery.kind == super::focus::FocusKind::Result {
+            return Err(RequestError::Invalid(
+                "Result is reserved for final notices.",
+            ));
+        }
         if !matches!(&input.route, RequestRoute::Inbox { .. }) {
             return Err(RequestError::StateInvalid);
         }
         let clock = &self.clock;
         let (prepared, queued) = self.repository.with_request_transaction(|records| {
             let now = positive(clock())?;
-            let prepared = prepare_records(records, now, input, attempt_id, retention_days)?;
-            let queued = lifecycle::queue_records(records, &prepared.attempt_id, now)?;
+            let prepared = prepare_records(
+                records,
+                now,
+                input,
+                attempt_id,
+                retention_days,
+                &delivery,
+                None,
+            )?;
+            let queued = if prepared.focus_until_ms.is_some() {
+                true
+            } else {
+                lifecycle::queue_records(records, &prepared.attempt_id, now)?
+            };
             Ok::<_, RequestError<R::Error>>((prepared, queued))
         })?;
         if queued {
@@ -161,9 +219,11 @@ fn validate_prepare<E>(
 fn prepare_records<E>(
     records: &mut dyn RequestRecords<Error = E>,
     now: u64,
-    input: PrepareRequest,
+    mut input: PrepareRequest,
     attempt_id: String,
     retention_days: u64,
+    delivery: &super::focus::DeliveryPolicy,
+    notification: Option<&super::notification::NotificationPolicy>,
 ) -> Result<PreparedRequest, RequestError<E>> {
     if let Some(room_id) = &input.room_id {
         let recipient = input
@@ -192,6 +252,22 @@ fn prepare_records<E>(
         Some(id) => reserve_revision(records, id)?,
         None => 0,
     };
+    let focus_until_ms = if delivery.automatic && matches!(input.route, RequestRoute::Inbox { .. })
+    {
+        focus::held_until(
+            records,
+            input.recipient_identity_id.as_deref(),
+            input.originator.identity_id(),
+            delivery.urgent,
+            now,
+        )?
+    } else {
+        None
+    };
+    if focus_until_ms.is_some() {
+        input.wait = false;
+        input.preamble = None;
+    }
     let previous_request_id = records.find_active_request(&input.route)?;
     let mut inject = false;
     if let Some(preamble) = &input.preamble {
@@ -222,6 +298,7 @@ fn prepare_records<E>(
         settled_at_ms: None,
         wait_released_at_ms: None,
         response_submitted_at_ms: None,
+        withdrawal: None,
         expires_at_ms: expires,
         retention_days,
         retention_expires_at_ms: horizon,
@@ -232,11 +309,28 @@ fn prepare_records<E>(
         expires_at_ms: prompt_expiry,
     };
     records.create_attempt(&attempt, &prompt, revision)?;
+    records.write_delivery_policy(&attempt.request_id, delivery)?;
+    if focus_until_ms.is_some() {
+        if let Some(policy) = notification {
+            if policy.waiter.is_some()
+                || policy.timeout_ms == 0
+                || policy.timeout_ms > 86_400_000
+                || policy.deadline_ms == 0
+                || policy.deadline_ms > MAX_JS_SAFE_INTEGER
+            {
+                return Err(RequestError::Invalid("Invalid held notification policy."));
+            }
+            records.create_notification(&attempt.request_id, policy)?;
+        }
+        focus::hold_incoming(records, &attempt, now)?;
+        lifecycle::queue_records(records, &attempt.attempt_id, now)?;
+    }
     Ok(PreparedRequest {
         attempt_id,
         request_id: input.request_id,
         inject_preamble: inject,
         previous_request_id,
+        focus_until_ms,
     })
 }
 

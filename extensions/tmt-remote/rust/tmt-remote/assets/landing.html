@@ -3,24 +3,66 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>tmt remote</title>
+    <title>Remote connection · tmt remote</title>
     <link rel="stylesheet" href="/sdk/pages.css" />
+    <script type="module" src="/sdk/landing.js"></script>
   </head>
   <body>
     <header class="header">
       <span class="header-brand">
         <span class="header-mark">tmt</span><span class="header-wordmark">Remote</span>
       </span>
-      <h1 class="header-title">Pair a browser</h1>
+      <h1 class="header-title">Remote connection</h1>
     </header>
     <main class="page">
       <section class="sheet" aria-labelledby="heading">
         <div class="sheet-body">
-          <span class="state-mark" aria-hidden="true">○</span>
-          <p class="eyebrow">Browser pairing</p>
-          <h2 id="heading">Pair this browser with tmt remote</h2>
+          <span id="mark" class="state-mark" aria-hidden="true">○</span>
+          <p class="eyebrow">This browser</p>
+          <h2 id="heading">Remote connection</h2>
+          <dl class="entry-status">
+            <dt>Pairing</dt>
+            <dd id="pairing-status">Pairing status unknown</dd>
+            <dt>Current Remote access</dt>
+            <dd id="access-status">Not checked</dd>
+          </dl>
+          <p id="status" role="status">No connection is opened until you choose Connect.</p>
+          <button id="check" type="button" disabled>Connect</button>
+          <p class="entry-note">
+            Pairing gives this browser its own access. It does not designate a settings
+            administrator.
+          </p>
+        </div>
+      </section>
+      <section class="sheet entry-help" aria-labelledby="pair-heading">
+        <div class="sheet-body">
+          <p class="eyebrow">Local owner confirmation</p>
+          <h2 id="pair-heading">Pair this browser</h2>
+          <ol>
+            <li>
+              In the terminal on the machine running Remote, run <code>tmt remote pair</code>.
+            </li>
+            <li>
+              Open the link it prints in <strong>this browser</strong>. If another browser opens
+              automatically, paste the full link into this browser’s address bar.
+            </li>
+            <li>
+              Enter a device name and choose Pair. Compare the four words on the page with the
+              terminal.
+            </li>
+            <li>
+              If the words match, confirm in the terminal. Return here to connect with your saved
+              pairing.
+            </li>
+          </ol>
           <p>
-            Run <code>tmt remote pair</code> in your terminal. It opens this page with the code.
+            Keep the pairing link private. A link that no longer works needs a new
+            <code>tmt remote pair</code> offer.
+          </p>
+          <p>
+            For a saved pairing that loses access, inspect it locally with
+            <code>tmt remote devices</code>. Pairing again requires your explicit terminal
+            confirmation.
           </p>
         </div>
       </section>

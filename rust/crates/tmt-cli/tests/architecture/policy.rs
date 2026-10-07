@@ -10,7 +10,7 @@ use syn::{
 
 // Exact dev edges: one reviewed row with its fixture reason per dependency.
 // Versions/features remain Cargo-owned; aliases require canonical crate names.
-// The invoke and extension-state leaves retain their stricter all-kind policies below.
+// The invoke, extension-state and extension-objects leaves retain their stricter all-kind policies below.
 const DEV_DEPENDENCIES: &[(&str, &str, Option<&str>)] = &[
     ("tmt-adapters", "tmt-test-support", None), // Codex executable stand-ins
     ("tmt-cli", "tmt-test-support", None),      // target-resolution executable stand-in
@@ -89,6 +89,7 @@ pub fn dependency_violations(package: &Value) -> Vec<String> {
             "toml_edit",
             "tar",
             "flate2",
+            "zip", // PR Actions transport: fixed bounded in-memory members; no path extraction
             "tmt-core",
             "rusqlite",
             "serde_json",
@@ -231,6 +232,9 @@ pub fn dependency_violations(package: &Value) -> Vec<String> {
         ],
         "tmt-invoke" => &["subprocess", "nix"],
         "tmt-extension-state" => &["nix"],
+        // Wire primitives (canonical encodings, protocol bounds, strict JSON admission, typed frames)
+        // and the Unix channel carrier, whose `httparse` and `nix` are reviewed for `cfg(unix)` alone.
+        "tmt-extension-objects" => &["base64", "serde", "serde_json", "httparse", "nix"],
         // Case-2 publication reuses the neutral bounded process owner only.
         "tmt-test-support" => &["tmt-invoke"],
         // Private release tooling owns only TOML edits and their JSON transport.
@@ -299,6 +303,8 @@ pub fn dependency_violations(package: &Value) -> Vec<String> {
             // Remote's own state database under <dataRoot>/remote/ (#1039).
             "rusqlite",
             "tmt-extension-state",
+            // Wire frames and the Unix channel carrier; only the object service uses them.
+            "tmt-extension-objects",
         ],
         _ => return vec![format!("unreviewed workspace package {name}")],
     };
@@ -308,10 +314,25 @@ pub fn dependency_violations(package: &Value) -> Vec<String> {
         .iter()
         .filter_map(|d| {
             let dependency = d["name"].as_str().expect("Cargo dependency name");
+            // Browser presentation is forbidden for every Core/CLI dependency kind.
+            // Cargo's canonical name/path still identifies renamed and target entries.
+            let core_owner = package["manifest_path"]
+                .as_str()
+                .is_some_and(|p| p.replace('\\', "/").contains("/rust/crates/"))
+                || ["tmt-core", "tmt-cli"].contains(&name);
+            let browser_path = d["path"].as_str().is_some_and(|p| {
+                p.replace('\\', "/").split('/').collect::<Vec<_>>()
+                    .windows(2).any(|pair| pair == ["design", "browser-ui"])
+            });
+            if core_owner && (browser_path || ["@tmt/browser-ui", "tmt-browser-ui", "browser-ui"].contains(&dependency)) {
+                return Some(format!("{name}: Core/CLI must neither depend on nor embed browser-ui"));
+            }
             if dependency == "tmt-release-tool" {
                 return Some(format!("{name}: release tooling cannot be a product dependency"));
             }
-            if d["kind"] == "dev" && !["tmt-invoke", "tmt-tui", "tmt-extension-state"].contains(&name) {
+            if d["kind"] == "dev"
+                && !["tmt-invoke", "tmt-tui", "tmt-extension-state", "tmt-extension-objects"]
+                    .contains(&name) {
                 let target = d["target"].as_str();
                 let entry = format!("({name:?}, {dependency:?}, {target:?}),");
                 let ledger = "DEV_DEPENDENCIES in rust/crates/tmt-cli/tests/architecture/policy.rs";
@@ -332,7 +353,17 @@ pub fn dependency_violations(package: &Value) -> Vec<String> {
             // Source paths use canonical crate names. Renaming even an allowed
             // package requires an explicit policy review instead of bypassing
             // the source-layer checks through a new external crate alias.
+            let carrier_only = name == "tmt-extension-objects"
+                && ["httparse", "nix"].contains(&dependency)
+                && !((d["kind"].is_null() || d["kind"] == "normal") && d["target"] == "cfg(unix)");
+            // Remote consumes the leaf as an ordinary, untargeted, unrenamed dependency.
+            let leaf_consumer_only = dependency == "tmt-extension-objects"
+                && !(name == "tmt-remote"
+                    && (d["kind"].is_null() || d["kind"] == "normal")
+                    && d["target"].is_null());
             let unreviewed = !allowed.contains(&dependency)
+                || carrier_only
+                || leaf_consumer_only
                 || !d["rename"].is_null()
                 || (["tmt-test-support", "tmt-release-tool"].contains(&name)
                     && !d["kind"].is_null() && d["kind"] != "normal");
@@ -809,6 +840,7 @@ pub fn source_violations(sources: &[Source]) -> Vec<String> {
                 && root != "tmt_invoke"
                 && !(root == "tmt_extension_state"
                     && ["tmt-remote", "tmt-colab"].contains(&source.package.as_str()))
+                && !(root == "tmt_extension_objects" && source.package == "tmt-remote")
                 && !(source.package == "tmt-squad" && root == "tmt_tui")
                 && !(root == "tmt_colab_model" && colab_model_consumer)
                 && root != source.package.replace('-', "_")
@@ -840,6 +872,38 @@ pub fn source_violations(sources: &[Source]) -> Vec<String> {
             {
                 violations.push(format!(
                     "{location}: unreviewed extension state consumer {}",
+                    source.package
+                ));
+            }
+            if source.package == "tmt-extension-objects"
+                && root.starts_with("tmt_")
+                && root != "tmt_extension_objects"
+            {
+                violations.push(format!(
+                    "{location}: extension objects leaf cannot reach {}",
+                    path.join("::")
+                ));
+            }
+            // The protocol modules stay free of OS dependencies: only the carrier names them.
+            if source.package == "tmt-extension-objects"
+                && ["nix", "httparse"].contains(&root)
+                && source.file != "carrier.rs"
+                && !source.file.starts_with("carrier/")
+            {
+                violations.push(format!(
+                    "{location}: only the extension objects carrier may use {root}"
+                ));
+            }
+            // Each reviewed consumer is added with its edge: Remote's object service alone.
+            let object_service = source.package == "tmt-remote"
+                && (source.file == "object_service.rs"
+                    || source.file.starts_with("object_service/"));
+            if root == "tmt_extension_objects"
+                && source.package != "tmt-extension-objects"
+                && !object_service
+            {
+                violations.push(format!(
+                    "{location}: unreviewed extension objects consumer {}",
                     source.package
                 ));
             }
