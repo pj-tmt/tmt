@@ -54,7 +54,10 @@ fn offered_by(entry: Entry, bytes: &[u8]) -> (Result<Link, Fault>, Vec<u8>) {
     let result = match entry {
         Entry::Accept => {
             let accepted = thread::spawn(move || accept(server, &expect(), &quick(), setup()));
-            client.write_all(bytes).unwrap();
+            // The acceptor may refuse and close before it has read every byte of an
+            // oversize head, so the write may fail; the result and the bytes replied
+            // are what the test asserts.
+            let _ = client.write_all(bytes);
             accepted.join().unwrap()
         }
         Entry::Head => {
@@ -66,7 +69,8 @@ fn offered_by(entry: Entry, bytes: &[u8]) -> (Result<Link, Fault>, Vec<u8>) {
     // still open, so read only what is there.
     let mut replied = Vec::new();
     if result.is_err() {
-        client.read_to_end(&mut replied).unwrap();
+        // Closing with unread input may surface as a reset; only the bytes matter.
+        let _ = client.read_to_end(&mut replied);
     } else {
         client.set_nonblocking(true).unwrap();
         let mut chunk = [0u8; 1024];
@@ -252,7 +256,9 @@ fn scripted(server: UnixStream, reply: String) -> thread::JoinHandle<String> {
             server.read_exact(&mut byte).unwrap();
             head.push(byte[0]);
         }
-        server.write_all(reply.as_bytes()).unwrap();
+        // The initiator may refuse and close before the whole reply is written; the
+        // initiator's result is what the test asserts.
+        let _ = server.write_all(reply.as_bytes());
         String::from_utf8(head).unwrap()
     })
 }
