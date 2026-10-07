@@ -119,6 +119,29 @@ async function panel(page: Page, name: 'chat' | 'comments') {
   await toggle.click();
 }
 
+test('clearing an annotation immediately before Escape does not restore the removed text', async ({
+  page,
+}) => {
+  await page.goto('/');
+  await run(page, 'mount');
+  await expect(page.locator('#ask-page-fixture .status')).toContainText('Live preview');
+  await change(page, source);
+  await page.evaluate(() => window.scrollTo(0, 1100));
+  await select(page);
+  const composer = page.getByRole('dialog', { name: 'Annotate selection' });
+  const input = composer.getByRole('combobox', { name: 'Message', exact: true });
+  await input.fill('@');
+  await expect(input).toHaveAttribute('aria-expanded', 'true');
+  await input.press('Escape');
+  await input.press('ControlOrMeta+A');
+  await input.press('Backspace');
+  await input.press('Escape');
+  await expect(composer).toHaveCount(0);
+  await select(page);
+  await expect(input).toHaveText('', { useInnerText: true });
+  expect((await run(page, 'proof')).sends).toHaveLength(0);
+});
+
 for (const width of [1440, 390]) {
   for (const theme of ['light', 'dark']) {
     test(`source revisions preserve frozen annotation, thread and Chat drafts and scroll at ${width} ${theme}`, async ({

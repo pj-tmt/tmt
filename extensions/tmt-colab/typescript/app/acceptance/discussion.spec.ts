@@ -197,7 +197,9 @@ test('paired writers retain anchored annotation conversations, direct exact send
           path: `${captureDir}/1587-native-${width}-${theme}-autocomplete.png`,
         });
         await prefilled.press('Escape');
-        await prefilled.fill('');
+        // Trusted editing keys let Lexical admit the selected range before deletion.
+        await prefilled.press('ControlOrMeta+A');
+        await prefilled.press('Backspace');
         await prefilled.press('Escape');
         await expect(popover).toHaveCount(0);
         await expect(first.getByTestId('selection-ask')).toBeVisible();
@@ -489,6 +491,8 @@ test('composer records plain annotations and replies without a recipient, then s
     await input.fill(plain);
     await expect(compose.getByRole('button', { name: 'Post comment', exact: true })).toBeEnabled();
     await compose.getByRole('button', { name: 'Post comment', exact: true }).click();
+    // The recorded annotation opens Comments; wait before deciding whether to toggle it.
+    await expect(compose).toHaveCount(0);
     await comments(page);
     await page.getByTestId('annotation-row').filter({ hasText: 'Frozen original quote.' }).click();
     const thread = page.getByTestId('comment-thread').first();
