@@ -523,9 +523,13 @@ describe('Claude channel delivery', { concurrent: false }, () => {
     60_000
   );
 
-  it.each([true, false])(
-    'Focus channel=%s releases one checklist only at a verified idle check',
-    async (channel) => {
+  it.each([
+    { channel: true, nativeParent: true },
+    { channel: false, nativeParent: true },
+    { channel: true, nativeParent: false },
+  ])(
+    'Focus channel=$channel nativeParent=$nativeParent fences checklist delivery at a verified idle check',
+    async ({ channel, nativeParent }) => {
       await withE2EFixture(async (fixture) => {
         const name = 'FocusedClaude';
         const sessionId = randomUUID();
@@ -566,12 +570,21 @@ describe('Claude channel delivery', { concurrent: false }, () => {
             MOCK_AUTOREPLY: '0',
             TMT_TEST_CLAUDE_MOCK: mock,
             TMT_TEST_CLAUDE_NODE: process.execPath,
+            ...(nativeParent ? { TMT_TEST_CLAUDE_NATIVE_CHANNEL: '1' } : {}),
           },
         });
         await withCompletedSession(fixture, worker, async () => {
           await waitForEvent(fixture, worker, 'prompt-recorded');
           if (channel) await waitForReady(fixture, 1);
           const id = identityId(fixture, name);
+          if (channel) {
+            const binding = sql(fixture, (db) =>
+              db.prepare('SELECT runtime_pid FROM bindings WHERE identity_id=?').get(id)
+            ) as { runtime_pid: number };
+            if (nativeParent)
+              expect(enrollments(fixture)[0].record.claude?.pid).toBe(binding.runtime_pid);
+            else expect(enrollments(fixture)[0].record.claude?.pid).not.toBe(binding.runtime_pid);
+          }
           const created = await fixture.runJsonCli<{ identity: { id: string } }>([
             'identity',
             'create',
@@ -631,6 +644,24 @@ describe('Claude channel delivery', { concurrent: false }, () => {
           expect(named(worker, 'channel')).toEqual([]);
           expect(named(worker, 'paste')).toEqual([]);
           expect((await fixture.runJsonCli(['check', name])).code).toBe(0);
+          if (!nativeParent) {
+            // A delegated mock MCP parent differs from the native provider
+            // reported by its hooks. The ordinary driver must refuse this
+            // enrollment, release proven-unsent membership, and never paste.
+            expect(named(worker, 'channel')).toEqual([]);
+            expect(named(worker, 'paste')).toEqual([]);
+            expect(
+              sql(fixture, (db) => db.prepare('SELECT state FROM focus_checklists').all())
+            ).toEqual([{ state: 'definitely_unsent' }]);
+            expect(
+              sql(fixture, (db) =>
+                db
+                  .prepare('SELECT COUNT(*) AS count FROM focus_items WHERE checklist_id IS NULL')
+                  .get()
+              )
+            ).toEqual({ count: 2 });
+            return;
+          }
           await fixture.waitFor(
             () =>
               channel

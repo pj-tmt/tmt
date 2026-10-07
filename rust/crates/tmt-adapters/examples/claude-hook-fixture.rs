@@ -21,6 +21,11 @@ struct Step {
 fn main() {
     let mut args: Vec<_> = std::env::args_os().skip(1).collect();
     if let Some(mock) = std::env::var_os("TMT_TEST_CLAUDE_MOCK") {
+        if std::env::var_os("TMT_TEST_CLAUDE_NATIVE_CHANNEL").is_some()
+            && let Some(index) = args.iter().position(|arg| arg == "--mcp-config")
+        {
+            std::process::exit(channel_mock(&args, index, &mock));
+        }
         let status = Command::new(std::env::var_os("TMT_TEST_CLAUDE_NODE").expect("fixture node"))
             .arg(mock)
             .args(&args)
@@ -108,4 +113,85 @@ fn main() {
         )
         .unwrap();
     }
+}
+
+/// Keep the MCP server a direct child of the admitted native provider. The
+/// delegated JavaScript peer otherwise becomes the channel's recorded owner,
+/// unlike the native process its real lifecycle hooks correctly report.
+fn channel_mock(args: &[std::ffi::OsString], index: usize, mock: &std::ffi::OsStr) -> i32 {
+    use std::{
+        io,
+        net::Shutdown,
+        os::unix::net::UnixListener,
+        time::{Duration, Instant},
+    };
+
+    let config: serde_json::Value =
+        serde_json::from_str(args[index + 1].to_str().unwrap()).unwrap();
+    let server = &config["mcpServers"]["tmt"];
+    let mut channel = Command::new(server["command"].as_str().unwrap())
+        .args(
+            server["args"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|arg| arg.as_str().unwrap()),
+        )
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .expect("spawn native provider's MCP child");
+    let socket = std::path::PathBuf::from(std::env::var_os("MOCK_CHANNEL_LOG").unwrap())
+        .with_extension("mcp.sock");
+    let listener = UnixListener::bind(&socket).expect("bind fixture-owned MCP bridge");
+    listener.set_nonblocking(true).unwrap();
+    let mut peer = Command::new(std::env::var_os("TMT_TEST_CLAUDE_NODE").unwrap())
+        .arg(mock)
+        .args(args)
+        .env("TMT_TEST_CLAUDE_MCP_SOCKET", &socket)
+        .spawn()
+        .expect("spawn model-free MCP client");
+    let deadline = Instant::now() + Duration::from_secs(5);
+    let connection = loop {
+        match listener.accept() {
+            Ok((connection, _)) => break connection,
+            Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
+                if Instant::now() >= deadline || peer.try_wait().unwrap().is_some() {
+                    let _ = peer.kill();
+                    let _ = peer.wait();
+                    let _ = channel.kill();
+                    let _ = channel.wait();
+                    fs::remove_file(&socket).unwrap();
+                    panic!("MCP peer did not connect to its native parent");
+                }
+                std::thread::sleep(Duration::from_millis(5));
+            }
+            Err(error) => panic!("accept fixture MCP peer: {error}"),
+        }
+    };
+    drop(listener);
+    fs::remove_file(socket).unwrap();
+    let mut input = connection.try_clone().unwrap();
+    let mut output = connection.try_clone().unwrap();
+    let mut stdin = channel.stdin.take().unwrap();
+    let mut stdout = channel.stdout.take().unwrap();
+    let status = std::thread::scope(|scope| {
+        scope.spawn(move || {
+            let _ = io::copy(&mut input, &mut stdin);
+            // EOF closes the real MCP child's stdin before the peer's close receipt.
+        });
+        scope.spawn(move || {
+            let _ = io::copy(&mut stdout, &mut output);
+            let _ = output.shutdown(Shutdown::Write);
+        });
+        let status = peer.wait().expect("reap model-free MCP client");
+        let _ = connection.shutdown(Shutdown::Both);
+        if !status.success() {
+            let _ = channel.kill();
+        }
+        let channel_status = channel.wait().expect("reap native provider's MCP child");
+        assert!(channel_status.success() || !status.success());
+        status
+    });
+    status.code().unwrap_or(1)
 }

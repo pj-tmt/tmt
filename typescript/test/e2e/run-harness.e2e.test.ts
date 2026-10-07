@@ -428,9 +428,10 @@ exec /opt/tmt-tests/claude "$@"
         ['run', 'Signals', '/bin/sh', '-c', `touch ${quote(forbidden)}`],
         rejectedStatus
       );
-      expect(
-        await waitForFileContent(rejectedStatus, { description: 'stopped runtime conflict' })
-      ).toBe('5');
+      const rejectedCode = await waitForFileContent(rejectedStatus, {
+        description: 'stopped runtime conflict',
+      });
+      expect(rejectedCode, fixture.capture(60, pane)).toBe('5');
       expect(existsSync(forbidden)).toBe(false);
       expect(stopped(first.child)).toBe(true);
       fixture.tmux(['send-keys', '-t', pane, '-l', 'fg']);
