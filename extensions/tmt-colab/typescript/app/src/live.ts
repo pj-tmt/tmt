@@ -169,7 +169,6 @@ export class Live implements PageBinding {
     const refreshOlder = this.#refreshOlderAsks;
     this.#refreshOlderAsks = false;
     this.#observation = controller;
-    this.#projection = { ...this.#projection, askUnavailable: false };
     void this.ask
       .observe(controller.signal, refreshOlder)
       .catch(() => {

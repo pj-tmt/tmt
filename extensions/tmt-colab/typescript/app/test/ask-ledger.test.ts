@@ -838,6 +838,11 @@ it('one aggregate failure per observer cycle clears after a same-request recover
       if (unavailable) firstCycle();
     },
   });
+  const send = remote.send.bind(remote);
+  remote.send = async (input) => {
+    const state = await send(input);
+    return state.state === 'accepted' ? { ...state, requestId: `req_${input.operationId}` } : state;
+  };
   await controller.destinations();
   const first = controller.prepare(destination());
   const second = controller.prepare(destination());
