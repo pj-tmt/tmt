@@ -2591,9 +2591,13 @@ fn management_root_ipc_rejects_forwarded_headers_before_parsing_without_effects(
     management_response(&server, &server.event(path, "", &body), "2");
 }
 
-#[test]
-fn root_local_page_write_broadcasts_chain_chunks_and_replays_without_fanout() {
-    use tmt_colab::{decoder::Decoder, page};
+/// A running server, its page key, and one subscribed browser-style peer.
+fn publish_fixture() -> (
+    Running,
+    tmt_colab::keyring::Layout,
+    Keyring,
+    WebSocket<UnixStream>,
+) {
     let server = Running::start(Tunnels::PRODUCT);
     let layout = Layout::existing(&server.root).unwrap().unwrap();
     let key = Keyring::read(&layout).unwrap();
@@ -2609,31 +2613,28 @@ fn root_local_page_write_broadcasts_chain_chunks_and_replays_without_fanout() {
     assert!(head.starts_with("HTTP/1.1 101"));
     let mut peer = WebSocket::from_raw_socket(socket, Role::Client, None);
     hello(&server, &mut peer, DEVICE);
-    let store = Store::read(&layout).unwrap();
+    (server, layout, key, peer)
+}
+fn prepare_write(
+    layout: &tmt_colab::keyring::Layout,
+    key: &Keyring,
+    source: &str,
+) -> tmt_colab::page::FrozenPublication {
+    use tmt_colab::{
+        decoder::{ContentEdit, Decoder},
+        page::{self, PublicationPreparation},
+    };
+    let store = Store::read(layout).unwrap();
     let mut decoder = Decoder::with_config(support::decoder_config(
         env!("CARGO_BIN_EXE_tmt-colab").into(),
     ))
     .unwrap();
-    let source = "source 🐈\r\n".repeat(6000);
-    let prepared = page::prepare(
+    let prepared = page::prepare_publication(
         &store,
-        &key,
+        key,
         PAGE,
-        tmt_colab::decoder::ContentEdit {
-            source: &source,
-            publisher_agent: None,
-        },
-        None,
-        &mut decoder,
-        now(),
-    )
-    .unwrap();
-    let base = page::prepare(
-        &store,
-        &key,
-        PAGE,
-        tmt_colab::decoder::ContentEdit {
-            source: "stale",
+        ContentEdit {
+            source,
             publisher_agent: None,
         },
         None,
@@ -2642,7 +2643,44 @@ fn root_local_page_write_broadcasts_chain_chunks_and_replays_without_fanout() {
     )
     .unwrap();
     store.close().unwrap();
-    let body = serde_json::to_string(&prepared).unwrap();
+    match prepared {
+        PublicationPreparation::Write(frozen) => frozen,
+        PublicationPreparation::Noop { .. } => panic!("expected a write"),
+    }
+}
+fn author_key(frozen: &tmt_colab::page::FrozenPublication) -> [u8; 32] {
+    *tmt_colab_model::certificate::Chain::from_json(frozen.chain())
+        .unwrap()
+        .certificate()
+        .unwrap()
+        .signing_key
+}
+
+#[test]
+fn root_local_page_publish_broadcasts_each_entry_in_order_and_replays_without_fanout() {
+    use tmt_colab::{
+        decoder::Decoder,
+        page,
+        publication::{LocalWrite, Outcome, Rejection, WriteAction},
+    };
+    let (server, layout, key, mut peer) = publish_fixture();
+    // Two updates, each over one chunk, so ordering and chunk transfer are both observable.
+    let source = "source 🐈\r\n".repeat(20_000);
+    let frozen = prepare_write(&layout, &key, &source);
+    let base = prepare_write(&layout, &key, "stale");
+    let entries = frozen.job().manifest.entries.len();
+    assert!((2..=4).contains(&entries), "{entries}");
+    let author = author_key(&frozen);
+    let body = LocalWrite {
+        version: 2,
+        action: WriteAction::Write,
+        signed_job: frozen.job().clone(),
+        packet: values::encode_binary(frozen.packet()),
+        chain: values::encode_binary(frozen.chain()),
+    }
+    .to_json(&author)
+    .unwrap();
+    let body = String::from_utf8(body).unwrap();
     assert!(body.len() > limits::HTTP_BODY_BYTES);
     assert!(body.len() < limits::http_body_bytes(page::ipc::PATH));
     let before = fs::read(layout.directory.join("space.db")).unwrap();
@@ -2654,56 +2692,163 @@ fn root_local_page_write_broadcasts_chain_chunks_and_replays_without_fanout() {
         assert!(denied.contains("COLAB_DENIED"));
         assert_eq!(fs::read(layout.directory.join("space.db")).unwrap(), before);
     }
-    let receipt = page::ipc::write(&layout, &prepared).unwrap();
-    let broadcast = receive(&mut peer);
-    assert_eq!(broadcast["type"], "broadcast");
-    assert_eq!(broadcast["streamId"], receipt.stream_id);
-    assert_eq!(broadcast["chains"][0]["chain"], prepared.chain);
-    assert!(broadcast["envelope"].is_object());
-    let mut assembled = Vec::new();
-    loop {
-        let chunk = receive(&mut peer);
-        assert_eq!(chunk["type"], "chunk");
-        assembled
-            .extend(values::binary(chunk["bytes"].as_str().unwrap(), limits::CHUNK_BYTES).unwrap());
-        if chunk["index"].as_u64().unwrap() + 1 == chunk["count"].as_u64().unwrap() {
-            break;
+    let record = page::ipc::publish(&layout, &key, &frozen)
+        .unwrap()
+        .expect("the server answered");
+    let Outcome::Committed { count, .. } = &record.outcome else {
+        panic!("{:?}", record.outcome)
+    };
+    assert_eq!(*count, entries);
+    // One broadcast per entry, carrying the author's chain; envelopes over a chunk follow as chunks.
+    let verified = frozen
+        .job()
+        .verify_packet(frozen.packet(), &author)
+        .unwrap();
+    let chunked = verified
+        .iter()
+        .filter(|entry| entry.bytes.len() > limits::CHUNK_BYTES)
+        .map(|entry| entry.bytes.len().div_ceil(limits::CHUNK_BYTES))
+        .sum::<usize>();
+    // The server keeps at most one send queue of frames unacknowledged, as a browser acks them.
+    let mut frames = Vec::new();
+    let mut outstanding = 0;
+    for _ in 0..entries + chunked {
+        frames.push(receive(&mut peer));
+        outstanding += 1;
+        if outstanding == limits::SEND_QUEUE_FRAMES {
+            for _ in 0..outstanding {
+                send(&mut peer, server.frame("ack", json!({"cursors":[]})));
+            }
+            outstanding = 0;
         }
     }
-    assert_eq!(
-        assembled,
-        values::binary(&prepared.envelope, limits::UPDATE_BYTES).unwrap()
-    );
+    let broadcasts = frames
+        .iter()
+        .filter(|frame| frame["type"] == "broadcast")
+        .collect::<Vec<_>>();
+    assert_eq!(broadcasts.len(), entries);
+    for (broadcast, entry) in broadcasts.iter().zip(&verified) {
+        assert_eq!(broadcast["seq"], entry.header.context.stream_seq);
+        assert_eq!(broadcast["streamId"], entry.header.context.author_device);
+        assert_eq!(
+            broadcast["chains"][0]["chain"],
+            values::encode_binary(frozen.chain())
+        );
+        if entry.bytes.len() > limits::CHUNK_BYTES {
+            let mut assembled = Vec::new();
+            for chunk in frames.iter().filter(|f| {
+                f["type"] == "chunk" && f["objectId"] == broadcast["envelope"]["objectId"]
+            }) {
+                assembled.extend(
+                    values::binary(chunk["bytes"].as_str().unwrap(), limits::CHUNK_BYTES).unwrap(),
+                );
+            }
+            assert_eq!(assembled, entry.bytes);
+        } else {
+            assert_eq!(
+                values::binary(
+                    broadcast["envelope"].as_str().unwrap(),
+                    limits::UPDATE_BYTES
+                )
+                .unwrap(),
+                entry.bytes
+            );
+        }
+    }
     let before = fs::read(layout.directory.join("space.db")).unwrap();
-    let replay = page::ipc::write(&layout, &prepared).unwrap();
-    assert_eq!(
-        serde_json::to_value(replay).unwrap(),
-        serde_json::to_value(&receipt).unwrap()
-    );
+    let replay = page::ipc::publish(&layout, &key, &frozen).unwrap().unwrap();
+    assert_eq!(replay.bytes, record.bytes);
     assert_eq!(fs::read(layout.directory.join("space.db")).unwrap(), before);
     peer.send(Message::Ping(vec![1].into())).unwrap();
     assert!(
         matches!(peer.read().unwrap(), Message::Pong(_)),
         "replay broadcast again"
     );
-    let stale = page::ipc::write(&layout, &base).err().unwrap();
+    // A write prepared on the old base is a terminal refusal that publishes nothing.
+    let stale = page::ipc::publish(&layout, &key, &base).unwrap().unwrap();
+    assert!(matches!(
+        stale.outcome,
+        Outcome::Rejected {
+            code: Rejection::StaleBase,
+            ..
+        }
+    ));
     assert_eq!(
-        stale
-            .downcast_ref::<page::ipc::WriteError>()
+        page::publication_receipt(base.job(), &stale)
+            .err()
             .unwrap()
-            .code(),
-        "COLAB_STALE_BASE"
+            .downcast_ref::<page::Fault>(),
+        Some(&page::Fault::StaleBase)
     );
-    assert_eq!(fs::read(layout.directory.join("space.db")).unwrap(), before);
+    peer.send(Message::Ping(vec![2].into())).unwrap();
+    assert!(
+        matches!(peer.read().unwrap(), Message::Pong(_)),
+        "a refused write was broadcast"
+    );
     let store = Store::read(&layout).unwrap();
+    let mut decoder = Decoder::with_config(support::decoder_config(
+        env!("CARGO_BIN_EXE_tmt-colab").into(),
+    ))
+    .unwrap();
     assert_eq!(
         page::read(&store, &key, PAGE, &mut decoder).unwrap().source,
         source
     );
-    // A failed local request never switches writers; removing the socket rejects.
+    // An unfinished original operation resolves by status, never by another writer.
+    let status = page::publication_status(
+        &store,
+        &key,
+        &frozen.job().key().unwrap(),
+        frozen.chain(),
+        now(),
+    )
+    .unwrap();
+    assert_eq!(status.bytes, record.bytes);
+    drop(store);
+    // A failed local request never switches writers; removing the socket refuses without sending.
     drop(peer);
     drop(server);
-    assert!(page::ipc::write(&layout, &prepared).is_err());
+    assert_eq!(
+        page::ipc::publish(&layout, &key, &frozen)
+            .err()
+            .unwrap()
+            .downcast_ref::<page::Fault>(),
+        Some(&page::Fault::Unavailable)
+    );
+}
+
+#[test]
+fn a_batch_wider_than_the_send_queue_commits_and_tells_the_live_peer_to_resync() {
+    use tmt_colab::{decoder::Decoder, page, publication::Outcome};
+    let (_server, layout, key, mut peer) = publish_fixture();
+    let source = "wide 🐈\r\n".repeat(150_000);
+    let frozen = prepare_write(&layout, &key, &source);
+    let entries = frozen.job().manifest.entries.len();
+    // Each over-chunk entry takes two queue slots; the existing slow-peer rule applies.
+    assert!(entries * 2 > limits::SEND_QUEUE_FRAMES, "{entries}");
+    let record = page::ipc::publish(&layout, &key, &frozen).unwrap().unwrap();
+    assert!(matches!(record.outcome, Outcome::Committed { .. }));
+    let mut closed = None;
+    for _ in 0..64 {
+        match peer.read() {
+            Ok(Message::Close(frame)) => {
+                closed = frame.map(|f| f.reason.to_string());
+                break;
+            }
+            Ok(_) => {}
+            Err(_) => break,
+        }
+    }
+    assert_eq!(closed.as_deref(), Some("RESYNC_REQUIRED"));
+    let store = Store::read(&layout).unwrap();
+    let mut decoder = Decoder::with_config(support::decoder_config(
+        env!("CARGO_BIN_EXE_tmt-colab").into(),
+    ))
+    .unwrap();
+    assert_eq!(
+        page::read(&store, &key, PAGE, &mut decoder).unwrap().source,
+        source
+    );
 }
 
 impl Running {

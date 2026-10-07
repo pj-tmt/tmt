@@ -124,7 +124,6 @@ pub(crate) struct View {
     pub publisher_agent: Option<String>,
     /// The complete content metadata projection, including keys not surfaced by the CLI.
     pub meta: serde_json::Value,
-    pub update: Vec<u8>,
     pub memory_limit: crate::decoder::MemoryLimit,
     /// Each authenticated writer's decoded `own` projection (threads, messages, intents,
     /// replies), as the isolated decoder returned and validated it.
@@ -547,9 +546,10 @@ impl MaterializationInput {
             ))
         } else if bytes > crate::decoder::WRITE_TAIL_BYTES {
             Some(format!(
-                "this edit would take its changes to {}, more than the {} one page can hold",
+                "this edit would take its changes to {} ({bytes} bytes), more than the {} ({} bytes) one page can hold",
                 size(bytes),
-                size(crate::decoder::WRITE_TAIL_BYTES)
+                size(crate::decoder::WRITE_TAIL_BYTES),
+                crate::decoder::WRITE_TAIL_BYTES
             ))
         } else if self.baseline.len() > crate::decoder::BASELINE_BYTES {
             Some(format!(
@@ -724,7 +724,6 @@ impl MaterializationInput {
             publisher_agent: folded.projection["meta"]["publisherAgent"]
                 .as_str()
                 .map(str::to_owned),
-            update: folded.merged,
             memory_limit: folded.memory_limit,
             own: own_views,
             signing_keys: signing_keys.clone(),

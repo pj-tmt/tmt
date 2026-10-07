@@ -279,24 +279,45 @@ impl Registration {
         self.engine
             .apply(&mut self.store, &self.keyring, request, now)
     }
-    /// Root-local ciphertext write; caller holds the sync mutex before this service.
-    pub(crate) fn page_write(
+    /// The public key that must have signed a root-local batch; never request-selected.
+    pub(crate) fn author_key(&self) -> crate::Result<[u8; 32]> {
+        Ok(self.keyring.local_writer()?.1)
+    }
+    /// Root-local sealed batch commit; caller holds the sync mutex before this service.
+    pub(crate) fn publish(
         &mut self,
-        prepared: &crate::page::Prepared,
+        job: &crate::publication::SignedJob,
+        packet: &[u8],
+        chain: &[u8],
         now: u64,
-    ) -> crate::Result<crate::page::Committed> {
-        let committed = crate::page::commit(&mut self.store, &self.keyring, prepared, now)?;
-        // Combining this device's own tail is best effort: the write is already durable, and the
-        // next write tries again.
-        let _ = self.engine.decoder(&prepared.page_id).and_then(|decoder| {
-            crate::page::compact::compact(
-                &mut self.store,
-                &self.keyring,
-                &prepared.page_id,
-                decoder,
-                crate::page::compact::Trigger::default(),
+    ) -> crate::Result<crate::page::PublicationCommitted> {
+        let committed = crate::page::commit_publication(
+            &mut self.store,
+            &self.keyring,
+            job,
+            packet,
+            chain,
+            now,
+        )?;
+        if committed.accepted == crate::store::Accepted::New
+            && matches!(
+                committed.record.outcome,
+                crate::publication::Outcome::Committed { .. }
             )
-        });
+        {
+            // Combining this device's own tail is best effort: the write is already durable, and
+            // the next write tries again.
+            let page = &job.manifest.page_id;
+            let _ = self.engine.decoder(page).and_then(|decoder| {
+                crate::page::compact::compact(
+                    &mut self.store,
+                    &self.keyring,
+                    page,
+                    decoder,
+                    crate::page::compact::Trigger::default(),
+                )
+            });
+        }
         Ok(committed)
     }
     pub(crate) fn management_device(

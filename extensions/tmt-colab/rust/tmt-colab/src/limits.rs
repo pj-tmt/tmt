@@ -19,8 +19,6 @@ pub use crate::decoder::UPDATE_BYTES as CONTENT_UPDATE_BYTES;
 pub const OWNER_WRAPS: usize = 512;
 /// Local page catalog bound, including retained tombstones.
 pub const PAGES: usize = 1000;
-/// A prepared local update has two base64 layers plus a certified chain.
-pub const LOCAL_PAGE_BODY_BYTES: usize = 512 * 1024;
 /// Worst-case JSON escaping of bounded source/title plus the payload's base64 layer.
 pub const LOCAL_CREATE_PAYLOAD_BYTES: usize =
     6 * (crate::decoder::BASELINE_BYTES + crate::decoder::BASELINE_TITLE_BYTES) + 1024;
@@ -28,7 +26,7 @@ pub const LOCAL_MANAGEMENT_BODY_BYTES: usize = LOCAL_CREATE_PAYLOAD_BYTES.div_ce
 /// One route-owned body rule for acquisition and local callers.
 pub fn http_body_bytes(path: &str) -> usize {
     if path == crate::page::ipc::PATH {
-        LOCAL_PAGE_BODY_BYTES
+        crate::publication::LOCAL_WRITE_BYTES
     } else if path == crate::management::LOCAL_PATH {
         LOCAL_MANAGEMENT_BODY_BYTES
     } else {

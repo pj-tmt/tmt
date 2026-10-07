@@ -1,8 +1,14 @@
 //! One bounded request to the existing owned serve socket. Never retries or falls back.
-use super::{Fault, Prepared, Receipt};
-use crate::{Result, keyring::Layout, limits};
+//! A published batch is one `LocalWrite` and one retained original-operation outcome.
+use super::{Fault, FrozenPublication, PublicationRecord};
+use crate::{
+    Result,
+    keyring::{Keyring, Layout},
+    publication::{LocalWrite, Outcome, WriteAction},
+};
 use serde::{Deserialize, Serialize};
-pub const PATH: &str = "/.tmt/colab/local/page-write";
+use tmt_colab_model::values;
+pub const PATH: &str = "/.tmt/colab/local/page-publish";
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct WriteError {
@@ -61,24 +67,43 @@ impl std::fmt::Display for WriteError {
     }
 }
 impl std::error::Error for WriteError {}
-pub fn write(layout: &Layout, prepared: &Prepared) -> Result<Receipt> {
-    let body = serde_json::to_vec(prepared)?;
-    if body.len() > limits::http_body_bytes(PATH) {
-        return Err(Fault::Capacity.into());
+/// Posts one frozen publication. `Ok(Some)` is the retained original outcome (committed or
+/// rejected); `Err` is a refusal the server reported before any effect. `Ok(None)` is doubt after
+/// the request may have been sent: the caller resolves it by original-operation status, never by
+/// a resend or an offline writer.
+pub fn publish(
+    layout: &Layout,
+    key: &Keyring,
+    frozen: &FrozenPublication,
+) -> Result<Option<PublicationRecord>> {
+    let original = frozen.job().key()?;
+    let body = LocalWrite {
+        version: 2,
+        action: WriteAction::Write,
+        signed_job: frozen.job().clone(),
+        packet: values::encode_binary(frozen.packet()),
+        chain: values::encode_binary(frozen.chain()),
     }
-    let (code, response) = crate::ipc::exchange(layout, PATH, &body)?;
+    .to_json(&key.local_writer()?.1)?;
+    // Nothing was sent: the server acts only on a complete body, so this is a plain refusal.
+    let socket = crate::ipc::send(layout, PATH, &body).map_err(|_| Fault::Unavailable)?;
+    let Ok((code, response)) = crate::ipc::receive(socket) else {
+        return Ok(None);
+    };
     if code != 200 {
-        let failure: WriteError =
-            serde_json::from_slice(&response).map_err(|_| Fault::Unavailable)?;
-        failure.known_code().ok_or(Fault::Unavailable)?;
+        let Ok(failure) = serde_json::from_slice::<WriteError>(&response) else {
+            return Ok(None);
+        };
+        if failure.known_code().is_none() {
+            return Ok(None);
+        }
         return Err(failure.into());
     }
-    let receipt: Receipt = serde_json::from_slice(&response).map_err(|_| Fault::Unavailable)?;
-    if receipt.space_id != prepared.space_id
-        || receipt.page_id != prepared.page_id
-        || receipt.epoch != prepared.epoch
-    {
-        return Err(Fault::Unavailable.into());
-    }
-    Ok(receipt)
+    Ok(Outcome::from_json(&response, &original, Some(frozen.job()))
+        .ok()
+        .filter(|outcome| !matches!(outcome, Outcome::Unknown { .. }))
+        .map(|outcome| PublicationRecord {
+            outcome,
+            bytes: response,
+        }))
 }

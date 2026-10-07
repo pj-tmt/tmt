@@ -326,12 +326,10 @@ fn serve(
             if request.method != "POST" || request.upgrade {
                 return Err(crate::page::Fault::Invalid.into());
             }
-            let prepared =
-                serde_json::from_slice(&request.body).map_err(|_| crate::page::Fault::Invalid)?;
-            let receipt = sync
+            let record = sync
                 .ok_or(crate::page::Fault::Unavailable)?
-                .page_write(&prepared, registration::now_ms()?)?;
-            Ok(serde_json::to_vec(&receipt)?)
+                .publish(&request.body, registration::now_ms()?)?;
+            Ok(record.bytes)
         })();
         match result {
             Ok(bytes) => {
